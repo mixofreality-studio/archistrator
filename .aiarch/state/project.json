@@ -1,6 +1,6 @@
 {
   "id": "archistrator",
-  "version": 559,
+  "version": 560,
   "phase": 2,
   "owner": "dev-architect",
   "name": "Archistrator",
@@ -7259,7 +7259,8 @@
     },
     "C-OR": {
       "activityID": "C-OR",
-      "phase": 0,
+      "phase": 1,
+      "startedAt": "2026-06-23T05:42:33.137212Z",
       "produced": [
         {
           "Kind": "service-contract",
@@ -17842,5 +17843,5 @@
       ]
     }
   },
-  "updatedAt": "2026-06-23T03:29:07.546999Z"
+  "updatedAt": "2026-06-23T05:42:34.994318Z"
 }
