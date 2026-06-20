@@ -19,15 +19,9 @@ ENV VITE_API_BASE_URL=$VITE_API_BASE_URL \
     VITE_OIDC_SCOPE=$VITE_OIDC_SCOPE
 
 COPY package.json package-lock.json ./
-# The @davidmarne/archistrator-platform-framework-web package is on GitHub Packages
-# (private registry). The release workflow passes the GITHUB_TOKEN as --build-arg
-# NPM_TOKEN (same pattern as the gtd webApp); the .npmrc is written + removed within
-# this RUN so the token is never baked into a persisted layer.
-ARG NPM_TOKEN
-RUN echo "@davidmarne:registry=https://npm.pkg.github.com" > .npmrc \
-    && echo "//npm.pkg.github.com/:_authToken=${NPM_TOKEN}" >> .npmrc \
-    && npm ci \
-    && rm -f .npmrc
+# @davidmarne/archistrator-platform-framework-web is published to public npmjs.org.
+# No auth or registry override is needed.
+RUN npm ci
 COPY . .
 # The generated API client (src/api/schema.ts) is committed, so the build does
 # not need the server's openapi.yaml (which lives outside this build context).

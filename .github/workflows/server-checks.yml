@@ -30,30 +30,17 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version-file: server/go.mod
+          go-version: '1.25'
           cache-dependency-path: server/go.sum
-
-      - name: Generate app token
-        id: app-token
-        uses: actions/create-github-app-token@v2
-        with:
-          app-id: ${{ secrets.RELEASE_APP_ID }}
-          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
-          owner: davidmarne
-          repositories: archistrator,archistrator-platform
-
-      - name: Configure private module access
-        run: |
-          git config --global url."https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/".insteadOf "https://github.com/"
 
       - name: Check formatting
         run: test -z "$(gofmt -l .)" || { gofmt -l .; echo "Run 'gofmt -w .'"; exit 1; }
 
       - name: Go vet
-        run: GOWORK=off GOPRIVATE=github.com/davidmarne/* go vet ./...
+        run: GOWORK=off go vet ./...
 
       - name: Build
-        run: GOWORK=off GOPRIVATE=github.com/davidmarne/* go build ./...
+        run: GOWORK=off go build ./...
 
       - name: Test (container-free)
-        run: GOWORK=off GOPRIVATE=github.com/davidmarne/* make test-short
+        run: GOWORK=off make test-short

@@ -21,7 +21,6 @@ jobs:
 
     permissions:
       contents: read
-      packages: read
 
     defaults:
       run:
@@ -34,23 +33,15 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: lts/*
-          registry-url: 'https://npm.pkg.github.com'
+          node-version: '20'
           cache: 'npm'
           cache-dependency-path: webApp/package-lock.json
 
-      - name: Configure GitHub Packages registry for private npm package
-        run: |
-          echo "@davidmarne:registry=https://npm.pkg.github.com" >> .npmrc
-          echo "//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}" >> .npmrc
-
       - name: Install dependencies
         run: npm ci
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Lint
-        run: npm run lint
 
       - name: Build
         run: npm run build
+
+      - name: Lint
+        run: npm run lint
