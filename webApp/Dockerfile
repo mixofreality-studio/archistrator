@@ -19,7 +19,15 @@ ENV VITE_API_BASE_URL=$VITE_API_BASE_URL \
     VITE_OIDC_SCOPE=$VITE_OIDC_SCOPE
 
 COPY package.json package-lock.json ./
-RUN npm ci
+# The @davidmarne/archistrator-platform-framework-web package is hosted on
+# GitHub Packages (private registry). Mount a token secret so the credential
+# is never baked into any image layer.
+RUN --mount=type=secret,id=gh_token \
+    GH_TOKEN=$(cat /run/secrets/gh_token) \
+    && echo "@davidmarne:registry=https://npm.pkg.github.com" >> .npmrc \
+    && echo "//npm.pkg.github.com/:_authToken=${GH_TOKEN}" >> .npmrc \
+    && npm ci \
+    && rm -f .npmrc
 COPY . .
 # The generated API client (src/api/schema.ts) is committed, so the build does
 # not need the server's openapi.yaml (which lives outside this build context).

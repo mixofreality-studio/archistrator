@@ -1,0 +1,191 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  release-server:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Generate token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+      - name: Resolve version
+        id: version
+        run: |
+          SOURCE_VERSION=$(cat server/VERSION)
+
+          LAST_TAG=$(git tag -l "archistrator-server-v*" --sort=-v:refname | head -1)
+          if [ -n "$LAST_TAG" ]; then
+            TAG_VERSION="${LAST_TAG#archistrator-server-v}"
+          else
+            TAG_VERSION=""
+          fi
+
+          if [ -n "$TAG_VERSION" ]; then
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$TAG_VERSION"
+            PATCH=$((PATCH + 1))
+            BUMPED_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+          else
+            BUMPED_VERSION="$SOURCE_VERSION"
+          fi
+
+          VERSION=$(printf '%s\n' "$BUMPED_VERSION" "$SOURCE_VERSION" | sort -V | tail -1)
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Resolved version: $VERSION (source: $SOURCE_VERSION, tag: ${TAG_VERSION:-none}, bumped: ${BUMPED_VERSION})"
+
+      - name: Update VERSION file
+        run: echo "${{ steps.version.outputs.version }}" > server/VERSION
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Docker login
+        run: |
+          USERNAME=$(echo '${{ secrets.DOCKER_CONFIG }}' | jq -r '.auths["https://index.docker.io/v1/"].auth' | base64 -d | cut -d: -f1)
+          PASSWORD=$(echo '${{ secrets.DOCKER_CONFIG }}' | jq -r '.auths["https://index.docker.io/v1/"].auth' | base64 -d | cut -d: -f2)
+          echo "$PASSWORD" | docker login -u "$USERNAME" --password-stdin
+
+      - name: Build and push server image
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          # Build context is repo root; server/Dockerfile COPYs from server/.
+          # Private platform modules are fetched via mounted gh_token secret
+          # (--mount=type=secret,id=gh_token, as expected by server/Dockerfile).
+          echo "${{ secrets.PLATFORM_READ_TOKEN }}" > /tmp/gh_token
+          docker buildx build \
+            --platform linux/amd64 \
+            --secret id=gh_token,src=/tmp/gh_token \
+            -f server/Dockerfile \
+            -t "davidmarne/aiarch:archistrator-server-${VERSION}" \
+            --push \
+            .
+          rm -f /tmp/gh_token
+
+      - name: Commit and push
+        run: |
+          git config user.name "aiarch-release-bot[bot]"
+          git config user.email "aiarch-release-bot[bot]@users.noreply.github.com"
+          git remote set-url origin "https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/${{ github.repository }}.git"
+          git add server/VERSION
+          git commit -m "release: archistrator-server v${{ steps.version.outputs.version }}"
+          git tag "archistrator-server-v${{ steps.version.outputs.version }}"
+          for i in 1 2 3; do
+            git pull --rebase origin main
+            git push origin main --tags && break
+            echo "Push attempt $i failed, retrying..."
+            sleep 1
+          done
+
+  release-webapp:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Generate token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: lts/*
+
+      - name: Resolve version
+        id: version
+        run: |
+          SOURCE_VERSION=$(node -p "require('./webApp/package.json').version")
+
+          LAST_TAG=$(git tag -l "archistrator-webapp-v*" --sort=-v:refname | head -1)
+          if [ -n "$LAST_TAG" ]; then
+            TAG_VERSION="${LAST_TAG#archistrator-webapp-v}"
+          else
+            TAG_VERSION=""
+          fi
+
+          if [ -n "$TAG_VERSION" ]; then
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$TAG_VERSION"
+            PATCH=$((PATCH + 1))
+            BUMPED_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+          else
+            BUMPED_VERSION="$SOURCE_VERSION"
+          fi
+
+          VERSION=$(printf '%s\n' "$BUMPED_VERSION" "$SOURCE_VERSION" | sort -V | tail -1)
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Resolved version: $VERSION (source: $SOURCE_VERSION, tag: ${TAG_VERSION:-none}, bumped: ${BUMPED_VERSION})"
+
+      - name: Update version in package.json
+        run: |
+          cd webApp
+          npm version "${{ steps.version.outputs.version }}" --no-git-tag-version
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Docker login
+        run: |
+          USERNAME=$(echo '${{ secrets.DOCKER_CONFIG }}' | jq -r '.auths["https://index.docker.io/v1/"].auth' | base64 -d | cut -d: -f1)
+          PASSWORD=$(echo '${{ secrets.DOCKER_CONFIG }}' | jq -r '.auths["https://index.docker.io/v1/"].auth' | base64 -d | cut -d: -f2)
+          echo "$PASSWORD" | docker login -u "$USERNAME" --password-stdin
+
+      - name: Build and push webapp image
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          # The webApp Dockerfile fetches @davidmarne/archistrator-platform-framework-web
+          # from GitHub Packages via --mount=type=secret,id=gh_token.
+          echo "${{ secrets.PLATFORM_READ_TOKEN }}" > /tmp/gh_token
+          docker buildx build \
+            --platform linux/amd64 \
+            --secret id=gh_token,src=/tmp/gh_token \
+            --build-arg VITE_API_BASE_URL= \
+            --build-arg VITE_AUTH_MODE=keycloak \
+            --build-arg VITE_OIDC_AUTHORITY=https://keycloak.capture-gtd.com/realms/archistrator \
+            --build-arg VITE_OIDC_CLIENT_ID=archistrator-webapp \
+            --build-arg VITE_OIDC_REDIRECT_URI=https://archistrator.capture-gtd.com/ \
+            --build-arg "VITE_OIDC_SCOPE=openid profile email" \
+            -t "davidmarne/aiarch:archistrator-webapp-${VERSION}" \
+            --push \
+            webApp/
+          rm -f /tmp/gh_token
+
+      - name: Commit and push
+        run: |
+          git config user.name "aiarch-release-bot[bot]"
+          git config user.email "aiarch-release-bot[bot]@users.noreply.github.com"
+          git remote set-url origin "https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/${{ github.repository }}.git"
+          git add webApp/package.json webApp/package-lock.json
+          git commit -m "release: archistrator-webapp v${{ steps.version.outputs.version }}"
+          git tag "archistrator-webapp-v${{ steps.version.outputs.version }}"
+          for i in 1 2 3; do
+            git pull --rebase origin main
+            git push origin main --tags && break
+            echo "Push attempt $i failed, retrying..."
+            sleep 1
+          done
