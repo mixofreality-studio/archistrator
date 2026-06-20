@@ -1,0 +1,29 @@
+{
+  "component": "operationsRead-ruling",
+  "layer": "Manager",
+  "stereotype": "Architect ruling — addendum to operationsManager and webClient; not a standalone primary contract",
+  "volatility": "Operations-console READ path gap: how the UC4 SPA OperationsConsole reads operated-system status (RuntimePhase, SLO rows, health snapshot, autoscaler decision history, hosting cost) — no Client-facing read path existed; the underlying reads were internal Manager Activities only.",
+  "status": "RULING",
+  "inbound": [],
+  "outbound": [],
+  "ops": [],
+  "dataContracts": [
+    "OperatedSystemView { OperatedAppID; Phase RuntimeStatusSeam; InFlight bool; Health HealthSnapshotView; Slos []SloRowView; RecentEvents []RuntimeStatusEventView; Autoscaler AutoscalerView; CurrentRunRate Money }",
+    "HealthSnapshotView { SloMet bool; Detail string; Phase RuntimeStatusSeam }",
+    "SloRowView { Component string; Objective string; SloMet bool; Healthy bool }",
+    "RuntimeStatusEventView { At time.Time; From RuntimeStatusSeam; To RuntimeStatusSeam; Note string }",
+    "AutoscalerView { Mode AutoscalerMode; Decisions []AutoscaleDecisionView }",
+    "AutoscaleDecisionView { At time.Time; Action AutoscaleAction; Reason string; Published bool }"
+  ],
+  "errorModel": "Not specified; follows operationsManager and webClient error models.",
+  "idempotency": "QueryOperatedSystemView workflow id: {operatedAppId}:view:{requestId}; USE_EXISTING conflict policy. Pure read, no mutation.",
+  "revisions": [
+    {
+      "rev": "r1",
+      "at": "2026-06-11",
+      "by": "system-architect",
+      "byActivity": "U-SPA-4 unblocking ruling",
+      "summary": "RULING: Option 1 chosen. operationsManager gains new public op QueryOperatedSystemView (short-lived read-only Temporal Workflow, composes existing read Activities: ReadOperatedSystemActivity + GetApplicationHealthActivity + GetSloStatusActivity + autoscaler decision history + operationEstimationEngine.ProjectForOperatedApp run-rate, no new RA/Engine). webClient gains second contract IWebReadModel with first op readOperatedSystemView(operatedAppId, requestId). New HTTP route GET /api/v1/operations/{operatedAppId}/view. IWebEntry (4 ops) untouched. webClient now 2/2 contracts (ceiling). operationsManager goes 5→6 public ops. Options rejected: direct SPA→Grafana/Prometheus read (breaks closed-layering + leaks observability substrate); out-of-band read projection (no head-state projection exists for operated runtime status)."
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+dist/
+node_modules/
+src/api/schema.ts
+*.html

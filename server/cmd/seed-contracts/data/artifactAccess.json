@@ -1,0 +1,146 @@
+{
+  "component": "artifactAccess",
+  "layer": "ResourceAccess",
+  "stereotype": "«ResourceAccess» — owns artifactStore (content-addressable git-backed storage for Phase-3 construction outputs)",
+  "volatility": "The content-addressable store for Phase-3 construction outputs — opaque, byte-shaped build products (source trees, compiled artifacts, helm charts, k8s manifests, deployable bundles) that the construction pipeline emits and operations consumes. The backing store (git provider / Gitea today; managed GitHub/GitLab/Gitea Cloud or a Merkle-tree blob store tomorrow) is the encapsulated variable.",
+  "status": "FROZEN",
+  "inbound": [
+    {"name": "constructionManager", "layer": "Manager"},
+    {"name": "operationsManager", "layer": "Manager"}
+  ],
+  "outbound": [
+    {"name": "artifactStore", "layer": "Resource", "how": "Activity-wrapped · version+idempotencyKey passed by caller"}
+  ],
+  "ops": [
+    {
+      "signature": "storeConstructionOutput(content: ConstructionOutput, idempotencyKey: fwra.IdempotencyKey) → contentAddress: string",
+      "stereotype": "Activity-wrapped write — idempotent on content; same content returns same address",
+      "note": "Persist a Phase-3 construction output into the content-addressable store and return its opaque content address (commit SHA or OID)",
+      "inputs": [
+        {
+          "name": "StoreConstructionOutputRequest",
+          "fields": [
+            {"name": "Content", "type": "ConstructionOutput", "note": "ConstructionOutput struct { Bytes []byte; MIMEType string } — opaque Phase-3 build product"},
+            {"name": "IdempotencyKey", "type": "fwra.IdempotencyKey", "note": "caller-supplied, stable per logical write; derived from workflowId:activityId by the Manager"}
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "StoreConstructionOutputResponse",
+          "fields": [
+            {"name": "ContentAddress", "type": "string", "note": "canonical printable content-addressable identity (git commit SHA or tree/blob OID); plain string, not a wrapper type"}
+          ]
+        },
+        {
+          "name": "(error)",
+          "fields": [
+            {"name": "(error)", "type": "fwra.Error", "note": "Transient | Infrastructure | Conflict (retryable); Auth | ContractMisuse (non-retryable)"}
+          ]
+        }
+      ]
+    },
+    {
+      "signature": "retrieveConstructionOutput(contentAddress: string) → ConstructionOutput",
+      "stereotype": "Activity-wrapped read — trivially idempotent pure read",
+      "note": "Retrieve the construction output bytes addressed by a previously returned content address",
+      "inputs": [
+        {
+          "name": "RetrieveConstructionOutputRequest",
+          "fields": [
+            {"name": "ContentAddress", "type": "string", "note": "previously returned by storeConstructionOutput or appearing in an OutputTree"}
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "ConstructionOutput",
+          "fields": [
+            {"name": "Bytes", "type": "[]byte"},
+            {"name": "MIMEType", "type": "string"}
+          ]
+        },
+        {
+          "name": "(error)",
+          "fields": [
+            {"name": "(error)", "type": "fwra.Error", "note": "Transient | Infrastructure (retryable); NotFound | Auth | ContractMisuse (non-retryable)"}
+          ]
+        }
+      ]
+    },
+    {
+      "signature": "retrieveOutputTree(contentAddress: string) → OutputTree",
+      "stereotype": "Activity-wrapped read — trivially idempotent pure read of tree snapshot",
+      "note": "Retrieve the flat map of logical-path → content-address entries rooted at the given tree-root content address (for operationsManager bundle materialisation)",
+      "inputs": [
+        {
+          "name": "RetrieveOutputTreeRequest",
+          "fields": [
+            {"name": "ContentAddress", "type": "string", "note": "tree-root content address; e.g. deployable-bundle root returned by a prior storeConstructionOutput"}
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "OutputTree",
+          "fields": [
+            {"name": "Root", "type": "string", "note": "the tree-root content address"},
+            {"name": "Entries", "type": "map[OutputPath]string", "note": "flat path→entry-content-address map; OutputPath = string (logical slash-separated)"}
+          ]
+        },
+        {
+          "name": "(error)",
+          "fields": [
+            {"name": "(error)", "type": "fwra.Error", "note": "Transient | Infrastructure (retryable); NotFound | Auth | ContractMisuse (non-retryable)"}
+          ]
+        }
+      ]
+    }
+  ],
+  "dataContracts": [
+    "ConstructionOutput = { Bytes []byte; MIMEType string } // opaque Phase-3 build product",
+    "OutputTree = { Root string; Entries map[OutputPath]string } // flat path→address snapshot",
+    "OutputPath = string // logical slash-separated infrastructure-opaque path",
+    "fwra.IdempotencyKey // referenced from framework-go/resourceaccess; not redefined here",
+    "fwra.Error { Kind Kind; Retryable bool; Detail string; Cause error } // shared RA error model; kinds used: NotFound, Auth, Conflict, Transient, Infrastructure, ContractMisuse"
+  ],
+  "errorModel": "framework-go/resourceaccess.Error with kinds: Transient (retryable), Infrastructure (retryable), Conflict (retryable), Auth (terminal), NotFound (terminal), ContractMisuse (terminal). Retryable seeded on construction, never inferred at call site.",
+  "idempotency": "storeConstructionOutput: content-addressable — identical content always returns the same address; idempotencyKey carried in infrastructure commit message for retry recognition. retrieveConstructionOutput / retrieveOutputTree: pure reads, trivially idempotent.",
+  "revisions": [
+    {
+      "rev": "r1",
+      "at": "2026-05-22",
+      "by": "system-architect",
+      "byActivity": "D-AA (initial detailed design)",
+      "summary": "Initial design with storeArtifact/retrieveArtifact/fetchTree over ArtifactRefSpec(ProjectID,ArtifactKind,Variant) and opaque ArtifactRef struct"
+    },
+    {
+      "rev": "r2",
+      "at": "2026-05-23",
+      "by": "system-architect",
+      "byActivity": "D-AA (Rev 2 — Temporal removed)",
+      "summary": "Temporal removed from contract surface; idempotencyKey added as plain caller-supplied param; zero-Temporal discipline established"
+    },
+    {
+      "rev": "r3",
+      "at": "2026-05-26",
+      "by": "system-architect",
+      "byActivity": "D-AA (re-cut — Phase-3-only scope)",
+      "summary": "Scope narrowed to Phase-3 construction outputs only; ArtifactRefSpec and ArtifactRef deleted; content address is now a plain string; ops renamed to construction business verbs (storeConstructionOutput/retrieveConstructionOutput/retrieveOutputTree); systemDesignManager and projectDesignManager callers removed"
+    },
+    {
+      "rev": "r4",
+      "at": "2026-05-26",
+      "by": "senior-developer",
+      "byActivity": "D-AA senior review (the-method-review-routing)",
+      "summary": "SENIOR REVIEW PASSED — verdict pass, no contract-surface amendments; construction-verb rename endorsed; 3 follow-ups captured (IdempotencyKey→framework-go, ADR-X001 prose, DSL edge labels). Contract frozen."
+    },
+    {
+      "rev": "r5",
+      "at": "2026-05-30",
+      "by": "system-architect",
+      "byActivity": "D-AA amendment (git target is now profile-selected)",
+      "summary": "Amendment noting ArtifactTarget volatility: backing git target is now per-deployment-profile (cloud=Gitea, local=on-disk repo, enterprise=customer-hosted). Contract surface unchanged; §6 infrastructure-mapping table gains additional instances."
+    }
+  ]
+}

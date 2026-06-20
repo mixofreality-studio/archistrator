@@ -1,0 +1,213 @@
+# aiarch DESIGN workflow (TEMPLATE — server-committed, do not hand-edit in the user repo)
+# =============================================================================
+# This is the DESIGN counterpart of the construction reference workflow
+# (products/archistrator/deploy/construction-workflow/aiarch-construct.yml).
+#
+# Unlike the construction file (which the operator installs by hand into the
+# construction repo), archistrator-server COMMITS THIS FILE into each user
+# project repo at project birth, bundled with the go-test gate scaffold (go.mod +
+# aiarch_method_test.go), via
+#   sourceControlAccess.CommitManagedFiles(repo, ManagedScaffoldFiles(repo), ...)
+# (the C-PM-Δ caller threads the accessor). It then DISPATCHES it for every
+# LLM-needing DESIGN activity (UC1 system-design + UC2 project-design drafting,
+# PM-critique, redraft) via the SAME frozen verb construction uses —
+# constructionPipelineAccess.SubmitConstructionPipeline (workflow_dispatch).
+#
+# The job runs claude-code-action on the USER'S CLAUDE_CODE_OAUTH_TOKEN + the
+# user's CI minutes. aiarch holds NO LLM key and makes NO synchronous LLM call.
+# The action drafts the typed Method artifact per the supplied PROMPT and commits
+# the resulting JSON under .aiarch/state/ (the exact path methodcheck.Check and
+# projectStateAccess read), opening a PR so the human gate + the required
+# `go test` check apply. A red validate check BLOCKS merge — that red check
+# IS the trust boundary (C-VCI).
+#
+# -----------------------------------------------------------------------------
+# LOAD-BEARING DISPATCH CONTRACT — DO NOT CHANGE THESE ANCHORS:
+#
+#   1. workflow_dispatch input named EXACTLY `idempotency_token` (string,
+#      required). Constant: framework-go-infrastructure-github
+#      DispatchInputKeyIdempotencyToken = "idempotency_token". The
+#      constructionPipelineAccess RA fills it and finds/dedups/observes/cancels
+#      runs BY RUN NAME.
+#
+#   2. Top-level `run-name: aiarch-cp-${{ inputs.idempotency_token }}`. The
+#      prefix `aiarch-cp-` is the RA's RunNamePrefix; ListRunsByName matches
+#      RunNamePrefix+token. If this run-name is wrong, dispatch idempotency,
+#      observe, and cancel ALL silently break (the RA dispatches runs it can
+#      never see) — identical failure mode to the construction workflow.
+#
+#   3. The workflow MUST be `workflow_dispatch`-triggerable on the dispatch ref.
+#
+# The DESIGN-job inputs (`artifact_kind`, `design_prompt`, `target_branch`,
+# `prior_state_ref`, `job_mode`) are the additive DispatchInputs the design Managers
+# (C-MSD-Δ / C-MPD-Δ) set on PipelineSpec. Their NAMES are a contract between
+# this file and those Managers — see designs/aiarch/implementation/log/C-WF-DESIGN.md.
+#
+# job_mode (D-MSD-Δ amendment) discriminates a DRAFT job from a PM-CRITIQUE job:
+#   - "draft"    (default): the action drafts the typed `artifact_kind` model and
+#                commits it as the slot's `model` in .aiarch/state/project.json.
+#   - "critique": the action does NOT rewrite the model. It records its verdict into
+#                the SAME slot's first-class critique carrier — `critiqueVerdict`
+#                (exactly "approve" or "revise") and, on "revise", `critiqueNotes`
+#                (the revision guidance) — which the Manager reads back. The action
+#                MUST commit a non-empty `critiqueVerdict` and MUST NOT touch the
+#                slot's `notes` (the architect's reject/withdraw rationale). The exact
+#                JSON shape is spelled out in the composed `design_prompt`; this flag
+#                only steers the template's commit-target instruction below.
+#
+# REQUIRED CHECK — `go test ./...`:
+#   The `validate` job runs `go test ./...` over the checked-out repo. The
+#   aiarch-managed aiarch_method_test.go (seated at project birth alongside this
+#   workflow + the templated go.mod) calls methodcheck.Check, the all-in-one Method
+#   gate: the design-JSON rules over the committed .aiarch/state, plus the arch layer
+#   rules + design↔code alignment once the repo has Go code. The job is wired as a
+#   REQUIRED status check so a failing `go test` (Method-invariant / layering /
+#   alignment violations) blocks PR merge — that red check IS the trust boundary.
+#   NOTE: `go test` must resolve github.com/daveandamira/framework-go (the seated
+#   go.mod's require) — it must be a fetchable module (published/tagged or via
+#   GOPROXY; a private module needs GOPROXY/auth wired here). See the founder checklist.
+# =============================================================================
+
+name: aiarch-design
+
+# (2) Run-name is the idempotency anchor the RA resolves runs by. EXACT prefix.
+run-name: aiarch-cp-${{ inputs.idempotency_token }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      # (1) LOAD-BEARING — the dedup token the RA stamps into run-name above.
+      idempotency_token:
+        description: "aiarch dedup token (RA-supplied; stamped into run-name)"
+        required: true
+        type: string
+      # --- DESIGN-job parameters (DispatchInputs; set by C-MSD-Δ / C-MPD-Δ) ---
+      # The typed Method artifact KIND the action must draft+commit (e.g.
+      # "Mission", "Glossary", "Volatilities", "CoreUseCases", "System",
+      # "OperationalConcepts", "StandardCheck"; UC2 plan kinds analogously).
+      artifact_kind:
+        description: "typed Method artifact kind to draft (e.g. Mission, Volatilities)"
+        required: true
+        type: string
+      # The composed Method-role PROMPT the Manager built (role instructions +
+      # prior committed state context + the drafting task). The action runs
+      # claude-code-action with this as its prompt.
+      design_prompt:
+        description: "composed Method-role drafting prompt for claude-code-action"
+        required: true
+        type: string
+      # The branch the action commits the drafted JSON onto and opens the PR from.
+      # The Manager owns branch naming (branch-per-activity, +1 relay).
+      target_branch:
+        description: "branch to draft onto and open the design PR from"
+        required: true
+        type: string
+      # Pointer to the prior committed project state the draft builds on — the
+      # git ref (commit SHA or branch) whose .aiarch/state/project.json the action
+      # reads as input context. Empty on the first artifact of a fresh project.
+      prior_state_ref:
+        description: "git ref of prior committed .aiarch/state to build the draft on"
+        required: false
+        type: string
+        default: ""
+      # DRAFT vs PM-CRITIQUE discriminator (D-MSD-Δ). "draft" (default) commits the
+      # typed model; "critique" commits the slot's critiqueVerdict/critiqueNotes
+      # read-back carrier per the composed design_prompt. Defaulted so a dispatch that
+      # omits it behaves exactly as a draft (back-compat with UC2 callers).
+      job_mode:
+        description: "draft (commit the typed model) or critique (commit critiqueVerdict/critiqueNotes)"
+        required: false
+        type: string
+        default: "draft"
+
+# The action drafts and commits the typed JSON and opens a PR, so it needs to
+# write repo contents and pull requests. The LLM call is authenticated by the
+# CLAUDE_CODE_OAUTH_TOKEN repo Actions secret, which is provisioned by the Claude
+# Code GitHub App when the user runs /install-github-app (aiarch does no secret
+# management), NOT by this in-run GITHUB_TOKEN.
+permissions:
+  contents: write
+  pull-requests: write
+
+# One in-flight design run per dedup token — belt-and-braces alongside the RA's
+# own run-name convergence (identical to construction).
+concurrency:
+  group: aiarch-cp-${{ inputs.idempotency_token }}
+  cancel-in-progress: false
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # draft — run claude-code-action on the USER's CLAUDE_CODE_OAUTH_TOKEN to draft
+  # the typed Method artifact per design_prompt and COMMIT the resulting JSON
+  # under .aiarch/state/ on target_branch, then open a PR. The action holds the
+  # LLM credential; aiarch never does.
+  # ---------------------------------------------------------------------------
+  draft:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout prior committed state
+        uses: actions/checkout@v4
+        with:
+          # Build the draft on the prior committed state when supplied; otherwise
+          # the workflow ref (a fresh project).
+          ref: ${{ inputs.prior_state_ref != '' && inputs.prior_state_ref || github.ref }}
+          fetch-depth: 0
+
+      - name: Draft the typed Method artifact (claude-code-action)
+        uses: anthropics/claude-code-action@v1
+        with:
+          # The user's OAuth token, provisioned as a repo Actions secret by the
+          # Claude Code GitHub App (/install-github-app). NAME-only reference —
+          # aiarch never mints or sees this value.
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # The composed Method-role prompt. The action must draft the typed
+          # `${{ inputs.artifact_kind }}` artifact and write the canonical JSON to
+          # .aiarch/state/project.json (the path methodcheck.Check + projectStateAccess
+          # read), committing on `${{ inputs.target_branch }}`.
+          prompt: |
+            ${{ inputs.design_prompt }}
+
+            Job mode: "${{ inputs.job_mode }}" for the "${{ inputs.artifact_kind }}" Method artifact.
+
+            If job_mode is "draft": commit the resulting typed JSON under .aiarch/state/
+            (the canonical project state document at .aiarch/state/project.json) as the
+            artifact slot's "model".
+
+            If job_mode is "critique": do NOT rewrite the artifact "model". Instead, on
+            that artifact's slot in .aiarch/state/project.json, set "critiqueVerdict" to
+            exactly "approve" or "revise" and, on "revise", set "critiqueNotes" to the
+            revision guidance. Always commit a non-empty "critiqueVerdict"; never touch
+            the slot's "notes" field.
+
+            In both modes, commit onto the branch "${{ inputs.target_branch }}" and open a
+            pull request so the human review gate and the required `go test` check apply.
+
+  # ---------------------------------------------------------------------------
+  # validate — REQUIRED status check. Runs `go test ./...`, which runs the
+  # aiarch-managed aiarch_method_test.go → methodcheck.Check (the all-in-one Method
+  # gate: design-JSON rules + arch layer rules + design↔code alignment). A failing
+  # `go test` BLOCKS merge — the trust boundary. No container/CLI: the gate is the
+  # seated test, resolved against framework-go (a fetchable Go module — see the
+  # founder checklist; a private module needs GOPROXY/auth wired below).
+  # ---------------------------------------------------------------------------
+  validate:
+    runs-on: ubuntu-latest
+    needs: draft
+    steps:
+      - name: Checkout drafted state
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.target_branch }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: go test (Method-invariant required check)
+        # Runs the seated aiarch_method_test.go → methodcheck.Check over
+        # ./.aiarch/state/project.json + this repo's Go code (layer rules + alignment
+        # once code exists). A non-zero exit (violations) BLOCKS PR merge.
+        # NOTE: requires github.com/daveandamira/framework-go to be resolvable
+        # (published/tagged or via GOPROXY; private ⇒ wire GOPROXY/auth here).
+        run: go test ./...

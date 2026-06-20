@@ -1,0 +1,64 @@
+{
+  "component": "handOffEngine",
+  "layer": "Engine",
+  "stereotype": "«Engine» — pure, deterministic; encapsulates HandOffPolicy volatility; Strategy host; imports no Temporal",
+  "volatility": "HandOffPolicy (volatilities.md axis 2 — same customer over time) — at any given moment different customers have chosen different splits of human vs automated work along the Method's architect/senior/junior hand-off. Who fills the worker role for a given activity does, not the workflow shape.",
+  "status": "FROZEN",
+  "inbound": [
+    {"name": "constructionManager", "layer": "Manager"}
+  ],
+  "outbound": [],
+  "ops": [
+    {
+      "signature": "pickWorkerClass(activity: ConstructionActivity, policy: HandOffPolicy) → WorkerClass",
+      "stereotype": "pure compute — plain deterministic Go function; no Activity wrapper; no Temporal",
+      "note": "Returns the worker class (AIWorker / HumanSeniorWorker / HumanJuniorWorker / ArchitectOnly) the policy casts onto the given construction activity at dispatch time.",
+      "inputs": [
+        {
+          "name": "PickWorkerClassRequest",
+          "fields": [
+            {"name": "Activity", "type": "ConstructionActivity", "note": "ConstructionActivity struct { ActivityID ActivityID; Type ActivityType; Component ComponentID; Role Role; /+sensitivity/risk-bucket fields/ }"},
+            {"name": "Policy", "type": "HandOffPolicy", "note": "HandOffPolicy struct { Mode HandOffMode; /+per-activity-type/sensitivity casting overrides/ } — axis-2 Strategy parameter; casting rule is package-internal"}
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "WorkerClass",
+          "fields": [
+            {"name": "WorkerClass", "type": "WorkerClass", "note": "WorkerClass int — AIWorker | HumanSeniorWorker | HumanJuniorWorker | ArchitectOnly; Engine-facing enum; new classes added as registered strategies"}
+          ]
+        },
+        {
+          "name": "(error)",
+          "fields": [
+            {"name": "(error)", "type": "*fweng.Error", "note": "ContractMisuse (nil activity/policy; activity missing type/role policy keys on) | UnknownWorkerClass (policy casts a class the running build lacks; no silent fallback) | InternalInvariant (strategy returned out-of-range class)"}
+          ]
+        }
+      ]
+    }
+  ],
+  "dataContracts": [
+    "ConstructionActivity struct { ActivityID, Type ActivityType, Component ComponentID, Role Role /+ sensitivity/risk-bucket fields/ }",
+    "HandOffPolicy struct { Mode HandOffMode, /+ per-activity-type/sensitivity casting overrides/ } // axis-2 Strategy parameter; casting rule is package-internal",
+    "WorkerClass int // AIWorker | HumanSeniorWorker | HumanJuniorWorker | ArchitectOnly — Engine-facing enum; new classes added as registered strategies (OQ-3 ratified)"
+  ],
+  "errorModel": "framework-go/engine.Error — ContractMisuse (nil activity; nil policy; activity missing type/role the policy keys on) | UnknownWorkerClass (policy casts a class the running build lacks; no silent fallback) | InternalInvariant (strategy returned a class outside registered set). No InvalidInput (no parse step). No retryable flag; all errors are programmer errors.",
+  "idempotency": "Trivially idempotent — pure function; identical (activity, policy) → identical WorkerClass; no side effects; no idempotencyKey.",
+  "revisions": [
+    {
+      "rev": "r1",
+      "at": "2026-05-29",
+      "by": "system-architect",
+      "byActivity": "D-HE (detailed design)",
+      "summary": "New contract for existing Engine; 1-op justified against single-decision volatility and DSL edge label; reviewEngine confirmed orthogonal sibling; Takeover re-cast hypothesis pre-dismissed; OQ-1..5 drafted."
+    },
+    {
+      "rev": "r2",
+      "at": "2026-05-29",
+      "by": "senior-developer",
+      "byActivity": "D-HE senior review",
+      "summary": "APPROVE-AND-FREEZE: 6/9 PASS, 2 WAIVED (2a+2b — 1-op endorsed). Variance/Takeover re-cast hypothesis investigated and dismissed (interventionEngine owns DecideOnVariance; no interventionEngine→handOffEngine edge). OQ-1 waiver endorsed; OQ-2 ArchitectOnly returned as normal class; OQ-3 WorkerClass as Engine-facing enum ratified; OQ-4 UnknownWorkerClass kept (structural analogue of ErrUnknownInfrastructure); OQ-5 signature ratified field-shape construction-refinable. Three reviewer-mayAmend clarifications: removed artifactValidationEngine as 1-op precedent (re-cut to 5 verbs 2026-05-26). 4 non-blocking follow-ups to C-HE."
+    }
+  ]
+}

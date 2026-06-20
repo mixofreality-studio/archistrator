@@ -1,0 +1,10 @@
+# Persistent Temporal dev-server SQLite DB written by the C-MSD integration tests
+# (internal/testinfra/temporal.go). Left in place after a run so `make temporal-ui`
+# can browse every test execution; never committed.
+.temporal/
+
+# Per-test Temporal workflow event-history JSON artifacts ("like playwright").
+test-artifacts/
+
+# Compiled server binary (build artifact, ~50MB). Build locally; never commit.
+/server

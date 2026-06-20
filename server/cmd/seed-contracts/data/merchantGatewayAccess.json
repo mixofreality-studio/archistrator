@@ -1,0 +1,177 @@
+{
+  "component": "merchantGatewayAccess",
+  "layer": "ResourceAccess",
+  "stereotype": "«ResourceAccess» — owns merchantGateway (Stripe Connect external merchant-of-record gateway)",
+  "volatility": "Merchant-gateway ACCESS volatility — how the platform moves money out to / pulls money in from a customer through an external merchant-of-record gateway, and how a customer's connected (payout) account is provisioned; gateway-native idempotency mechanism encapsulated (Stripe Idempotency-Key header)",
+  "status": "FROZEN",
+  "inbound": [
+    {"name": "settlementManager", "layer": "Manager"}
+  ],
+  "outbound": [
+    {"name": "merchantGateway", "layer": "Resource", "how": "direct, by value — plain Go methods; Activity-wrapped by settlementManager (ChargeCustomerActivity / PayoutCustomerActivity / CreateConnectedAccountActivity / ValidateStoredInstrumentActivity)"}
+  ],
+  "ops": [
+    {
+      "signature": "chargeCustomer(req: ChargeRequest) → GatewayMovement",
+      "stereotype": "Activity (wrapped by settlementManager — ChargeCustomerActivity)",
+      "note": "Pulls a positive magnitude from the customer's stored instrument; idempotent on req.Key via Stripe Idempotency-Key header; hard decline → terminal ContentPolicy",
+      "inputs": [
+        {
+          "name": "ChargeRequest",
+          "fields": [
+            {"name": "CustomerID", "type": "CustomerID", "note": "uuid.UUID; must name a customer with an existing connected account (created via createConnectedAccount)"},
+            {"name": "CycleID", "type": "CycleID", "note": "billing cycle context for audit and part of Manager key derivation"},
+            {"name": "Amount", "type": "Money", "note": "POSITIVE magnitude in minor units + ISO-4217 currency; direction is the verb; non-positive is ContractMisuse"},
+            {"name": "Key", "type": "GatewayRequestKey", "note": "caller-supplied deterministic key; shape: charge:{customerId}:{cycleId}:{actionInstance}:{attempt}; placed into Stripe Idempotency-Key header"}
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "GatewayMovement",
+          "fields": [
+            {"name": "MovementID", "type": "string", "note": "opaque gateway movement id; not a Stripe id"},
+            {"name": "Status", "type": "MovementStatus", "note": "MovementSucceeded only; declines are terminal fwra.Error"},
+            {"name": "Amount", "type": "Money", "note": "magnitude actually moved; echoes the request (or original on a deduped replay)"}
+          ]
+        },
+        {
+          "name": "(error)",
+          "fields": [
+            {"name": "(error)", "type": "fwra.Error", "note": "Method layer-typed error; ContentPolicy = hard decline (terminal, routes to interventionEngine.decideOnSettlementFailure); Transient/RateLimited/Infrastructure = retryable"}
+          ]
+        }
+      ]
+    },
+    {
+      "signature": "payoutCustomer(req: PayoutRequest) → GatewayMovement",
+      "stereotype": "Activity (wrapped by settlementManager — PayoutCustomerActivity)",
+      "note": "Pushes a positive magnitude to the customer's connected account; idempotent on req.Key; restricted/closed account → terminal ContentPolicy",
+      "inputs": [
+        {
+          "name": "PayoutRequest",
+          "fields": [
+            {"name": "CustomerID", "type": "CustomerID", "note": "uuid.UUID; must name a customer with a live connected account"},
+            {"name": "CycleID", "type": "CycleID", "note": "settlement cycle context"},
+            {"name": "Amount", "type": "Money", "note": "POSITIVE magnitude to pay out; non-positive is ContractMisuse"},
+            {"name": "Key", "type": "GatewayRequestKey", "note": "caller-supplied deterministic key; shape: payout:{customerId}:{cycleId}:{actionInstance}:{attempt}"}
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "GatewayMovement",
+          "fields": [
+            {"name": "MovementID", "type": "string", "note": "opaque gateway movement id"},
+            {"name": "Status", "type": "MovementStatus", "note": "MovementSucceeded only; failures are terminal fwra.Error"},
+            {"name": "Amount", "type": "Money", "note": "magnitude actually paid out"}
+          ]
+        },
+        {
+          "name": "(error)",
+          "fields": [
+            {"name": "(error)", "type": "fwra.Error", "note": "Method layer-typed error; ContentPolicy = restricted/closed connected account (terminal)"}
+          ]
+        }
+      ]
+    },
+    {
+      "signature": "createConnectedAccount(req: CreateConnectedAccountRequest) → ConnectedAccountRef",
+      "stereotype": "Activity (wrapped by settlementManager — CreateConnectedAccountActivity)",
+      "note": "Provisions the customer's merchant connected account at onboarding; idempotent on req.Key; KYC refusal → terminal ContentPolicy",
+      "inputs": [
+        {
+          "name": "CreateConnectedAccountRequest",
+          "fields": [
+            {"name": "CustomerID", "type": "CustomerID", "note": "uuid.UUID"},
+            {"name": "Onboarding", "type": "OnboardingDetail", "note": "infrastructure-neutral gateway-neutral KYC/merchant onboarding detail; fields refined in C-MA"},
+            {"name": "Key", "type": "GatewayRequestKey", "note": "caller-supplied deterministic key; shape: createAccount:{customerId}; naturally once per customer"}
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "ConnectedAccountRef",
+          "fields": [
+            {"name": "AccountRef", "type": "string", "note": "opaque connected-account reference binding customer to gateway; not a Stripe acct_… id; recorded by settlementStateAccess.bindGatewayLive"}
+          ]
+        },
+        {
+          "name": "(error)",
+          "fields": [
+            {"name": "(error)", "type": "fwra.Error", "note": "Method layer-typed error; ContentPolicy = KYC/onboarding refusal (terminal); ContractMisuse = missing required onboarding field"}
+          ]
+        }
+      ]
+    },
+    {
+      "signature": "validateStoredInstrument(req: ValidateStoredInstrumentRequest) → InstrumentValidation",
+      "stereotype": "Activity (wrapped by settlementManager — ValidateStoredInstrumentActivity)",
+      "note": "Zero-amount-authorizes the customer's stored charge instrument at registration; no money moves; failed auth → terminal ContentPolicy; idempotent on req.Key",
+      "inputs": [
+        {
+          "name": "ValidateStoredInstrumentRequest",
+          "fields": [
+            {"name": "CustomerID", "type": "CustomerID", "note": "uuid.UUID; stored charge instrument addressed by CustomerID inside this seam (infrastructure-opaque)"},
+            {"name": "Key", "type": "GatewayRequestKey", "note": "caller-supplied deterministic key; shape: validate:{customerId}:{attempt}; attempt increments only on deliberate re-validation"}
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "InstrumentValidation",
+          "fields": [
+            {"name": "AuthorizationID", "type": "string", "note": "opaque gateway zero-amount authorization id; not a Stripe id"},
+            {"name": "Status", "type": "MovementStatus", "note": "MovementSucceeded only (zero-amount auth authorized); failed validation is terminal fwra.Error"}
+          ]
+        },
+        {
+          "name": "(error)",
+          "fields": [
+            {"name": "(error)", "type": "fwra.Error", "note": "Method layer-typed error; ContentPolicy = instrument declined (terminal, routes to registration-failure path); NotFound = no addressable instrument"}
+          ]
+        }
+      ]
+    }
+  ],
+  "dataContracts": [
+    "CustomerID = uuid.UUID // settlement counterparty aggregate identity",
+    "CycleID = string // billing cycle context for audit/key derivation",
+    "GatewayRequestKey = fwra.IdempotencyKey // caller-supplied deterministic key placed into Stripe Idempotency-Key header",
+    "Money = struct{ MinorUnits int64; Currency string } // positive magnitude, ISO-4217; NEVER float; direction is the verb",
+    "ChargeRequest = struct{ CustomerID; CycleID; Amount Money; Key GatewayRequestKey }",
+    "PayoutRequest = struct{ CustomerID; CycleID; Amount Money; Key GatewayRequestKey }",
+    "CreateConnectedAccountRequest = struct{ CustomerID; Onboarding OnboardingDetail; Key GatewayRequestKey }",
+    "ValidateStoredInstrumentRequest = struct{ CustomerID; Key GatewayRequestKey } // no Money — zero-amount auth fixed by verb",
+    "OnboardingDetail = struct{ /* gateway-neutral KYC fields; C-MA refines */ }",
+    "MovementStatus = int // MovementSucceeded only; declines are fwra.Error not a status value",
+    "GatewayMovement = struct{ MovementID string; Status MovementStatus; Amount Money } // opaque correlation token",
+    "ConnectedAccountRef = struct{ AccountRef string } // opaque connected-account reference",
+    "InstrumentValidation = struct{ AuthorizationID string; Status MovementStatus } // opaque zero-amount auth reference"
+  ],
+  "errorModel": "fwra.Error (framework-go/resourceaccess.Error); Retryable seeded from Kind on construction. RETRYABLE: Transient, RateLimited, Infrastructure. TERMINAL: ContentPolicy (hard gateway decline or failed zero-amount auth — no money moved; Detail carries decline reason), Auth (platform credentials invalid), NotFound (unknown connected account / customer / instrument), ContractMisuse (pre-condition violated: non-positive Amount, empty Key, missing Onboarding field), Conflict (same GatewayRequestKey with different payload — derivation bug; never retried). Key safety rule: Activity-level transient retry reuses SAME key; intervention Retry or recompute-delta MUST use a DIFFERENT key (C-MST-I1).",
+  "idempotency": "Caller-supplied deterministic GatewayRequestKey placed into the Stripe Idempotency-Key header (24h dedup window). Required key shape: cycle-scoped verbs = {op}:{customerId}:{cycleId}:{actionInstance}:{attempt}; registration verbs = createAccount:{customerId} and validate:{customerId}:{attempt}. Same key → original result, no second money movement. Key-reused-with-different-payload → terminal Conflict.",
+  "revisions": [
+    {
+      "rev": "r1",
+      "at": "2026-05-31",
+      "by": "system-architect",
+      "byActivity": "D-MA (Detailed design — merchantGatewayAccess); RESET to in-progress after prior done marker found to be copy-paste corruption",
+      "summary": "Initial contract drafted: 3 ops (chargeCustomer, payoutCustomer, createConnectedAccount); validateStoredInstrument flagged as DSL inconsistency OQ-3"
+    },
+    {
+      "rev": "r2",
+      "at": "2026-05-31",
+      "by": "senior-developer",
+      "byActivity": "D-MA review (log/D-MA-review.md) — CHANGES REQUESTED",
+      "summary": "Ruled 4 ops required: validateStoredInstrument is a real 4th op and hard dependency of frozen settlementManager (ValidateStoredInstrumentActivity §6.4; RegisterCustomerWorkflow §6.3); 3-op gateway would break frozen consumer seam"
+    },
+    {
+      "rev": "r3",
+      "at": "2026-05-31",
+      "by": "system-architect",
+      "byActivity": "D-MA amendment (D-MA review §10 bounded amendment)",
+      "summary": "APPROVED — FROZEN (pending senior re-review of amendment). Added §2.4 validateStoredInstrument with ValidateStoredInstrumentRequest/InstrumentValidation data contracts, validate:{customerId}:{attempt} key shape, ContentPolicy/NotFound decline taxonomy. Reconciled architecture.dsl lines 229+400 to name all four verbs. Decline-kind convergence FU-MA-DECLINE-1 filed (ContentPolicy now; additive Declined kind deferred). C-MST-I1 idempotency-key shape pinned in §6.4."
+    }
+  ]
+}

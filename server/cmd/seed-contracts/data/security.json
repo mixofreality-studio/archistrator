@@ -1,0 +1,166 @@
+{
+  "component": "security",
+  "layer": "Utility",
+  "stereotype": "«Utility» — stable, infrastructure-opaque, in-process cross-cutting AuthN/AuthZ + customer identity + webhook signature verification",
+  "volatility": "None — Utility design driver is stability + infrastructure-opacity, not volatility-encapsulation. Authentication/authorization infrastructure (Keycloak/OIDC/JWT/Cedar/HMAC/secret-store) is below aiarch's architectural waterline.",
+  "status": "FROZEN",
+  "inbound": [
+    {"name": "webClient", "layer": "Client"},
+    {"name": "mcpClient", "layer": "Client"},
+    {"name": "schedulerClient", "layer": "Client"},
+    {"name": "merchantWebhookClient", "layer": "Client"}
+  ],
+  "outbound": [],
+  "ops": [
+    {
+      "signature": "resolvePrincipal(verifiedClaims VerifiedClaims) → Principal",
+      "stereotype": "pure compute — synchronous in-process",
+      "note": "Translates edge-validated Envoy-forwarded claims into an aiarch Principal; trusts the edge, never re-validates a JWT signature.",
+      "inputs": [
+        {
+          "name": "ResolvePrincipalRequest",
+          "fields": [
+            {"name": "VerifiedClaims", "type": "VerifiedClaims", "note": "Edge-validated Envoy-forwarded claims (map[string]string); not a raw JWT"}
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Principal",
+          "fields": [
+            {"name": "Subject", "type": "PrincipalID", "note": "Stable opaque aiarch user/customer/operator/service id"},
+            {"name": "Kind", "type": "PrincipalKind", "note": "ArchitectUser | Customer | Operator | Service"},
+            {"name": "Tenant", "type": "TenantScope"},
+            {"name": "Roles", "type": "[]Role"}
+          ]
+        },
+        {
+          "name": "(error)",
+          "fields": [
+            {"name": "(error)", "type": "SecurityError", "note": "ErrUnauthenticated (no/expired claims, Retryable=false) | ErrPrincipalUnknown (no provisioned principal, Retryable=false)"}
+          ]
+        }
+      ]
+    },
+    {
+      "signature": "authorize(principal Principal, action Action, resource ResourceRef) → Decision",
+      "stereotype": "pure compute — synchronous in-process",
+      "note": "Policy-decision point (PDP) returning Permit/Deny with a non-leaking reason code; Cedar PDP hidden; decision logged for audit ≤10ms; fail-closed on SecurityError.",
+      "inputs": [
+        {
+          "name": "AuthorizeRequest",
+          "fields": [
+            {"name": "Principal", "type": "Principal", "note": "From resolvePrincipal or obtainServiceIdentity"},
+            {"name": "Action", "type": "Action", "note": "Struct with Verb string (e.g. 'drive-phase', 'approve-artifact'); not Cedar entities"},
+            {"name": "Resource", "type": "ResourceRef", "note": "Struct with Kind string, ID string, Tenant TenantScope"}
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Decision",
+          "fields": [
+            {"name": "Permit", "type": "bool"},
+            {"name": "Reason", "type": "DecisionReason", "note": "ReasonPermitted | ReasonNotPermitted — opaque, no policy detail leakage"}
+          ]
+        },
+        {
+          "name": "(error)",
+          "fields": [
+            {"name": "(error)", "type": "SecurityError", "note": "ErrPolicyUnavailable (PDP unreachable, Retryable=true); FAIL-CLOSED — caller MUST treat SecurityError as deny"}
+          ]
+        }
+      ]
+    },
+    {
+      "signature": "verifyWebhookSignature(channel WebhookChannel, rawBody []byte, presentedSignature SignatureMaterial) → void",
+      "stereotype": "pure compute — synchronous in-process",
+      "note": "Verifies HMAC signature over raw body using channel-selected shared secret from vault; returns normally on success, errors on invalid/unavailable; fail-closed.",
+      "inputs": [
+        {
+          "name": "VerifyWebhookSignatureRequest",
+          "fields": [
+            {"name": "Channel", "type": "WebhookChannel", "note": "Logical channel id (e.g. 'merchant-gateway'); selects the shared secret internally"},
+            {"name": "RawBody", "type": "[]byte", "note": "Exact unparsed request body; must not have been re-serialised"},
+            {"name": "PresentedSignature", "type": "SignatureMaterial", "note": "Presented signature headers; scheme (HMAC) hidden inside"}
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "VerifyWebhookSignatureResult",
+          "fields": [
+            {"name": "(void)", "type": "void", "note": "Returns normally iff signature is valid"}
+          ]
+        },
+        {
+          "name": "(error)",
+          "fields": [
+            {"name": "(error)", "type": "SecurityError", "note": "ErrSignatureInvalid (terminal, reject webhook, Retryable=false) | ErrSigningKeyUnavailable (transient, Retryable=true); FAIL-CLOSED"}
+          ]
+        }
+      ]
+    },
+    {
+      "signature": "obtainServiceIdentity(audience ServiceAudience) → ServiceCredential",
+      "stereotype": "pure compute — synchronous in-process",
+      "note": "Returns a short-lived opaque credential + service Principal for outbound calls; identity infrastructure (Keycloak client-credentials/workload-identity) hidden; cached/refreshed internally.",
+      "inputs": [
+        {
+          "name": "ObtainServiceIdentityRequest",
+          "fields": [
+            {"name": "Audience", "type": "ServiceAudience", "note": "String identifying the downstream the credential is for"}
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "ServiceCredential",
+          "fields": [
+            {"name": "Opaque", "type": "string", "note": "Attachable short-lived bearer credential; never parsed by callers"},
+            {"name": "Principal", "type": "Principal", "note": "The service principal, usable in authorize()"},
+            {"name": "ExpiresAt", "type": "time.Time", "note": "Callers re-request near expiry; Utility caches/refreshes internally"}
+          ]
+        },
+        {
+          "name": "(error)",
+          "fields": [
+            {"name": "(error)", "type": "SecurityError", "note": "ErrIdentityUnavailable (identity source unreachable, Retryable=true)"}
+          ]
+        }
+      ]
+    }
+  ],
+  "dataContracts": [
+    "VerifiedClaims = { values map[string]string } // edge-validated by Envoy; never a raw JWT",
+    "Principal = { Subject PrincipalID; Kind PrincipalKind; Tenant TenantScope; Roles []Role }",
+    "PrincipalKind = ArchitectUser | Customer | Operator | Service",
+    "Action = { Verb string } // e.g. 'drive-phase', 'approve-artifact'; not Cedar entities",
+    "ResourceRef = { Kind string; ID string; Tenant TenantScope }",
+    "Decision = { Permit bool; Reason DecisionReason } // DecisionReason: ReasonPermitted | ReasonNotPermitted (opaque, no policy detail)",
+    "WebhookChannel = string // logical channel id, e.g. 'merchant-gateway'",
+    "SignatureMaterial = { values map[string]string } // presented signature headers; scheme hidden",
+    "ServiceAudience = string",
+    "ServiceCredential = { opaque string; Principal Principal; ExpiresAt time.Time }",
+    "SecurityError = { Kind ErrorKind; Retryable bool; Cause error }",
+    "ErrorKind = ErrUnauthenticated | ErrPrincipalUnknown | ErrPolicyUnavailable | ErrSignatureInvalid | ErrSigningKeyUnavailable | ErrIdentityUnavailable"
+  ],
+  "errorModel": "SecurityError with explicit Retryable flag. Fail-closed rule: for authorize and verifyWebhookSignature, a SecurityError MUST be treated by the caller as deny/reject. ErrUnauthenticated/ErrPrincipalUnknown/ErrSignatureInvalid: Retryable=false. ErrPolicyUnavailable/ErrSigningKeyUnavailable/ErrIdentityUnavailable: Retryable=true.",
+  "idempotency": "All four ops are synchronous and idempotent by nature (no I/O side effects visible to callers). obtainServiceIdentity caches/refreshes the credential internally; callers hold it until near ExpiresAt and re-request on expiry.",
+  "revisions": [
+    {
+      "rev": "r1",
+      "at": "2026-05-30",
+      "by": "system-architect",
+      "byActivity": "D-SE (detailed design)",
+      "summary": "Initial contract — four ops covering the four declared Client edges (AuthN, AuthZ, webhook-signature, service-identity). Infrastructure-opaque; no JWT/Cedar/HMAC/Vault lexeme on surface. 9/9 App C §6 self-check PASS."
+    },
+    {
+      "rev": "r2",
+      "at": "2026-05-30",
+      "by": "senior-developer",
+      "byActivity": "D-SE senior review",
+      "summary": "APPROVED — frozen. 9/9 PASS independently re-walked. OQ-1..OQ-5 confirmed. Two mayAmend amendments applied: A1 — status flipped to APPROVED/frozen + Rev 2; A2 — §2.2 authorize C-SE implementer note making ≤10ms audit emission explicit. No op/data-type/edge change."
+    }
+  ]
+}

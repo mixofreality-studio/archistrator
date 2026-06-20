@@ -1,0 +1,150 @@
+{
+  "component": "artifactRenderingAccess",
+  "layer": "Engine",
+  "stereotype": "«Engine» — pure (model, format) → bytes transformation; no I/O on the sync read/display path; reclassified from ResourceAccess 2026-05-27",
+  "volatility": "ArtifactRendering volatility — how the canonical typed Method models are rendered for human consumption: the architecture model renders to diagrams (d2 today, Structurizr CLI + PlantUML superseded); use cases render to activity diagrams; text-shaped models render to Markdown/PDF. The engine, output format, and model→bytes mapping are all internal to this seam.",
+  "status": "FROZEN",
+  "inbound": [
+    {"name": "systemDesignManager", "layer": "Manager"},
+    {"name": "projectDesignManager", "layer": "Manager"}
+  ],
+  "outbound": [
+    {"name": "renderingToolchain", "layer": "Resource", "how": "direct subprocess invocation (d2 CLI) on sync read path only — never from replayed workflow code"}
+  ],
+  "ops": [
+    {
+      "signature": "renderSystem(system: System, format: RenderFormat) → RenderedArtifact",
+      "stereotype": "pure compute — deterministic derivation of (System, format); no idempotency key needed",
+      "note": "Render the canonical typed static-architecture model to a diagram (C4 via d2) in the requested format; nothing is stored",
+      "inputs": [
+        {
+          "name": "RenderSystemRequest",
+          "fields": [
+            {"name": "System", "type": "System", "note": "canonical typed static-architecture model (Components, Relationships, DynamicViews); defined in shared domain package / projectStateAccess.md §3.3"},
+            {"name": "Format", "type": "RenderFormat", "note": "RenderFormat int — FormatStructurizrDSL | FormatPlantUML | FormatPNG | FormatSVG | FormatMarkdown | FormatPDF | FormatD2; closed enum growing additively"}
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "RenderedArtifact",
+          "fields": [
+            {"name": "Bytes", "type": "[]byte", "note": "rendered output bytes (d2 source, PNG/SVG image, etc.); opaque to caller beyond MIMEType"},
+            {"name": "MIMEType", "type": "string", "note": "content type of Bytes (e.g. image/png, image/svg+xml, text/vnd.structurizr.dsl); set from RenderFormat"}
+          ]
+        },
+        {
+          "name": "(error)",
+          "fields": [
+            {"name": "(error)", "type": "fwra.Error", "note": "Transient | Infrastructure (retryable); RenderFailed | UnsupportedFormat | ContractMisuse (terminal) — temporary use of fwra.Error pending FU-RE-1 migration to engine.Error"}
+          ]
+        }
+      ]
+    },
+    {
+      "signature": "renderUseCase(useCase: UseCase, format: RenderFormat) → RenderedArtifact",
+      "stereotype": "pure compute — deterministic derivation of (UseCase, format); no idempotency key needed",
+      "note": "Render the canonical typed use-case / activity-diagram model to a diagram (activity via d2) in the requested format; nothing is stored",
+      "inputs": [
+        {
+          "name": "RenderUseCaseRequest",
+          "fields": [
+            {"name": "UseCase", "type": "UseCase", "note": "canonical typed use-case model (Actors, Trigger, Classification, Activity *ActivityDiagram); defined in shared domain package / projectStateAccess.md §3.4"},
+            {"name": "Format", "type": "RenderFormat"}
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "RenderedArtifact",
+          "fields": [
+            {"name": "Bytes", "type": "[]byte"},
+            {"name": "MIMEType", "type": "string"}
+          ]
+        },
+        {
+          "name": "(error)",
+          "fields": [
+            {"name": "(error)", "type": "fwra.Error", "note": "Transient | Infrastructure (retryable); RenderFailed | UnsupportedFormat | ContractMisuse (terminal)"}
+          ]
+        }
+      ]
+    },
+    {
+      "signature": "renderArtifact(model: ArtifactModel, format: RenderFormat) → RenderedArtifact",
+      "stereotype": "pure compute — deterministic derivation of (ArtifactModel, format); dispatches on model.Kind()",
+      "note": "Render any member of the closed typed ArtifactModel sum (text-shaped: Markdown/PDF via template; diagram-shaped: delegates to d2 pipeline) in the requested format",
+      "inputs": [
+        {
+          "name": "RenderArtifactRequest",
+          "fields": [
+            {"name": "Model", "type": "ArtifactModel", "note": "closed interface every typed Method model implements (sealed by unexported method); Kind() discriminates — MissionStatement | Glossary | Volatilities | CoreUseCases | System | UseCase | OperationalConcepts | StandardCheck | Phase-2 models; defined in shared domain package / projectStateAccess.md §3.1"},
+            {"name": "Format", "type": "RenderFormat"}
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "RenderedArtifact",
+          "fields": [
+            {"name": "Bytes", "type": "[]byte"},
+            {"name": "MIMEType", "type": "string"}
+          ]
+        },
+        {
+          "name": "(error)",
+          "fields": [
+            {"name": "(error)", "type": "fwra.Error", "note": "Transient | Infrastructure (retryable); RenderFailed | UnsupportedFormat (unsupported model-shape/format pair) | ContractMisuse (nil model or zero-value format) — all terminal except transient/infrastructure"}
+          ]
+        }
+      ]
+    }
+  ],
+  "dataContracts": [
+    "RenderFormat = int enum { FormatStructurizrDSL, FormatPlantUML, FormatPNG, FormatSVG, FormatMarkdown, FormatPDF, FormatD2 } // closed enum that grows additively; unsupported (model-shape, format) pair → UnsupportedFormat error",
+    "RenderedArtifact = { Bytes []byte; MIMEType string } // ephemeral derivation — never stored as a Method artifact",
+    "System // canonical typed static-architecture model; defined in shared domain package / projectStateAccess.md §3.3",
+    "UseCase // canonical typed use-case model; defined in shared domain package / projectStateAccess.md §3.4",
+    "ArtifactModel // closed interface every typed Method model implements; defined in shared domain package / projectStateAccess.md §3.1",
+    "fwra.Error // shared RA error model used as a temporary deviation (FU-RE-1); kinds used: Transient, Infrastructure, RenderFailed, UnsupportedFormat, ContractMisuse"
+  ],
+  "errorModel": "framework-go/resourceaccess.Error (temporary deviation from canonical engine.Error — FU-RE-1, routed to C-RE construction review). Kinds: Transient (retryable), Infrastructure (retryable), RenderFailed (terminal — engine ran but could not produce output for this model+format), UnsupportedFormat (terminal — unsupported (model-shape, format) pair), ContractMisuse (terminal — nil model or zero-value format).",
+  "idempotency": "No idempotency key on any verb — rendering mutates nothing and is a deterministic pure derivation; identical inputs produce identical bytes (modulo non-semantic embedded timestamps to be suppressed by C-ARA). No dedup ledger needed.",
+  "revisions": [
+    {
+      "rev": "r1",
+      "at": "2026-05-26",
+      "by": "system-architect",
+      "byActivity": "D-ARA (NET-NEW component design)",
+      "summary": "NET-NEW contract created when ArtifactRendering volatility was promoted and ArtifactSchema retired; initial design as ResourceAccess with 3 verbs (renderSystem/renderUseCase/renderArtifact) backed by Structurizr CLI + PlantUML"
+    },
+    {
+      "rev": "r2",
+      "at": "2026-05-26",
+      "by": "senior-developer",
+      "byActivity": "D-ARA senior review (the-method-review-routing)",
+      "summary": "SENIOR REVIEW PASSED — verdict pass, no amendments; confirmed 3-op shape, no idempotency key, Engine vs RA placement (it does I/O → RA), format as closed enum growing additively"
+    },
+    {
+      "rev": "r3",
+      "at": "2026-05-27",
+      "by": "system-architect",
+      "byActivity": "D-RE (Engine reclassification rework)",
+      "summary": "Reclassified from ResourceAccess to Engine (RenderingEngine at internal/engine/rendering/); rendering is a model→bytes transformation, not persistence; subprocess I/O acceptable because rendering is on sync read path only, never from replayed workflow code. 3 verbs unchanged."
+    },
+    {
+      "rev": "r4",
+      "at": "2026-05-28",
+      "by": "senior-developer",
+      "byActivity": "D-RE senior review (the-method-review-routing) — APPROVED-WITH-FIXES",
+      "summary": "ENGINE-LAYER RE-CLASSIFICATION APPROVED. Engine layer confirmed correct; App C §6 9/9 PASS under Engine rules. Two non-blocking fixes: FU-RE-1 (error model fwra.Error→engine.Error migration, routed to C-RE); FU-RE-2 (DSL Engine→Resource edge, resolved)."
+    },
+    {
+      "rev": "r5",
+      "at": "2026-05-29",
+      "by": "system-architect",
+      "byActivity": "D-RE (toolchain instance update — d2)",
+      "summary": "Rendering toolchain updated to d2 (replaces Structurizr CLI + PlantUML pair). FormatD2 constant added additively. No surface change; contract surface remains frozen."
+    }
+  ]
+}

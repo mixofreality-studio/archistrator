@@ -1,0 +1,193 @@
+{
+  "component": "artifactValidationEngine",
+  "layer": "Engine",
+  "stereotype": "«Engine» — pure deterministic computation; no I/O; called directly from workflow code without Activity wrapper",
+  "volatility": "The Method's machine-checkable semantic / cross-artifact / system-legality rule set — an evolving activity tied to the SystemDesign/ProjectDesignPhaseWorkflow gating rules. New cross-artifact checks, new legality/cardinality predicates, and new severities are mechanized here over time. Artifact shapes are NOT this Engine's job (those are now type-enforced by smart constructors).",
+  "status": "FROZEN",
+  "inbound": [
+    {"name": "systemDesignManager", "layer": "Manager"},
+    {"name": "projectDesignManager", "layer": "Manager"}
+  ],
+  "outbound": [],
+  "ops": [
+    {
+      "signature": "ValidateVolatilities(volatilities: Volatilities, glossary: Glossary, scrubbedRequirements: ScrubbedRequirements) → ValidationResult",
+      "stereotype": "pure compute — deterministic, no I/O, called directly in-workflow",
+      "note": "Check volatility↔requirement traceability, glossary resolution, two-axis independence, and nature-of-business/speculative smells (Warning) across three typed models",
+      "inputs": [
+        {
+          "name": "ValidateVolatilitiesRequest",
+          "fields": [
+            {"name": "volatilities", "type": "Volatilities", "note": "canonical shared domain type (projectStateAccess.md §3.5)"},
+            {"name": "glossary", "type": "Glossary", "note": "canonical shared domain type"},
+            {"name": "scrubbedRequirements", "type": "ScrubbedRequirements", "note": "canonical shared domain type — owns traceability cross-reference"}
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "ValidationResult",
+          "fields": [
+            {"name": "Verdict", "type": "Verdict", "note": "Pass | Fail; Pass ⟺ zero Error-severity findings"},
+            {"name": "Findings", "type": "[]Finding", "note": "deterministically ordered by (Location.Ordinal, RuleID); may contain Warning/Info even on Pass"}
+          ]
+        },
+        {
+          "name": "(error)",
+          "fields": [
+            {"name": "(error)", "type": "engine.Error", "note": "programmer errors only: ContractMisuse (nil required input), InvalidInput, InternalInvariant"}
+          ]
+        }
+      ]
+    },
+    {
+      "signature": "ValidateCoreUseCases(coreUseCases: CoreUseCases) → ValidationResult",
+      "stereotype": "pure compute — deterministic, no I/O, called directly in-workflow",
+      "note": "Check 2–6 core use cases cardinality and that any UseCase with a nested condition has a non-nil activity diagram",
+      "inputs": [
+        {
+          "name": "ValidateCoreUseCasesRequest",
+          "fields": [
+            {"name": "coreUseCases", "type": "CoreUseCases", "note": "canonical shared domain type (projectStateAccess.md §3.4)"}
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "ValidationResult",
+          "fields": [
+            {"name": "Verdict", "type": "Verdict"},
+            {"name": "Findings", "type": "[]Finding"}
+          ]
+        },
+        {
+          "name": "(error)",
+          "fields": [
+            {"name": "(error)", "type": "engine.Error", "note": "Method layer-typed error"}
+          ]
+        }
+      ]
+    },
+    {
+      "signature": "ValidateArchitecture(system: System, coreUseCases: CoreUseCases) → ValidationResult",
+      "stereotype": "pure compute — deterministic, no I/O, called directly in-workflow",
+      "note": "Run the ch.4 Architecture Validation suite: layering legality (no-up/no-sideways/no-skip/12-Don'ts/pub-sub origin+destination), cardinality (≤5 Managers, golden-ratio Warning, total-count Warning), and call-chain coverage (every core use case has a DynamicView)",
+      "inputs": [
+        {
+          "name": "ValidateArchitectureRequest",
+          "fields": [
+            {"name": "system", "type": "System", "note": "Grammar A typed model (projectStateAccess.md §3.3): Components, Relationships, DynamicViews"},
+            {"name": "coreUseCases", "type": "CoreUseCases", "note": "needed for call-chain coverage: every core use case must have a supporting DynamicView in System"}
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "ValidationResult",
+          "fields": [
+            {"name": "Verdict", "type": "Verdict"},
+            {"name": "Findings", "type": "[]Finding"}
+          ]
+        },
+        {
+          "name": "(error)",
+          "fields": [
+            {"name": "(error)", "type": "engine.Error", "note": "Method layer-typed error"}
+          ]
+        }
+      ]
+    },
+    {
+      "signature": "ValidateOperationalConcepts(operationalConcepts: OperationalConcepts, mission: MissionStatement) → ValidationResult",
+      "stereotype": "pure compute — deterministic, no I/O, called directly in-workflow",
+      "note": "Check that every operational decision traces to a business objective in the MissionStatement",
+      "inputs": [
+        {
+          "name": "ValidateOperationalConceptsRequest",
+          "fields": [
+            {"name": "operationalConcepts", "type": "OperationalConcepts", "note": "canonical shared domain type (projectStateAccess.md §3.5)"},
+            {"name": "mission", "type": "MissionStatement", "note": "objectives that operational decisions must resolve against"}
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "ValidationResult",
+          "fields": [
+            {"name": "Verdict", "type": "Verdict"},
+            {"name": "Findings", "type": "[]Finding"}
+          ]
+        },
+        {
+          "name": "(error)",
+          "fields": [
+            {"name": "(error)", "type": "engine.Error", "note": "Method layer-typed error"}
+          ]
+        }
+      ]
+    },
+    {
+      "signature": "ValidateStandardCheck(standardCheck: StandardCheck) → ValidationResult",
+      "stereotype": "pure compute — deterministic, no I/O, called directly in-workflow",
+      "note": "Check that every waived checklist item carries a non-empty justification",
+      "inputs": [
+        {
+          "name": "ValidateStandardCheckRequest",
+          "fields": [
+            {"name": "standardCheck", "type": "StandardCheck", "note": "canonical shared domain type (projectStateAccess.md §3.5)"}
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "ValidationResult",
+          "fields": [
+            {"name": "Verdict", "type": "Verdict"},
+            {"name": "Findings", "type": "[]Finding"}
+          ]
+        },
+        {
+          "name": "(error)",
+          "fields": [
+            {"name": "(error)", "type": "engine.Error", "note": "Method layer-typed error"}
+          ]
+        }
+      ]
+    }
+  ],
+  "dataContracts": [
+    "ValidationResult = { Verdict Verdict; Findings []Finding } // Verdict == Pass ⟺ zero Error-severity findings",
+    "Verdict = int enum { VerdictUnknown, VerdictPass, VerdictFail }",
+    "Finding = { RuleID RuleID; Severity Severity; Message string; Location *Location } // Message safe to weave into worker re-draft prompts",
+    "RuleID = string // namespaced '{AREA}-{nnn}'; stable across runs",
+    "Severity = int enum { SeverityInfo, SeverityWarning, SeverityError } // only Error fails the verdict",
+    "Location = { Ordinal int; Section string } // no Line field — input is a typed model, not bytes",
+    "framework-go/engine.Error { Kind Kind; Detail string } // programmer errors only: ContractMisuse, InvalidInput, InternalInvariant",
+    "System, UseCase, CoreUseCases, MissionStatement, Glossary, Volatilities, ScrubbedRequirements, OperationalConcepts, StandardCheck // canonical in shared domain package / projectStateAccess.md §3"
+  ],
+  "errorModel": "framework-go/engine.Error — programmer errors only (ContractMisuse: nil required input; InvalidInput: structurally unusable input; InternalInvariant: malformed Finding from a predicate). No transient/retryable errors — no I/O. A semantically invalid artifact is VerdictFail on the result channel, never the error channel.",
+  "idempotency": "Trivially idempotent — pure deterministic functions. Same inputs always produce the same ValidationResult (same verdict, same ordered findings). No side effects.",
+  "revisions": [
+    {
+      "rev": "r1",
+      "at": "2026-05-23",
+      "by": "system-architect",
+      "byActivity": "D-AV (initial detailed design)",
+      "summary": "Initial design taking Content []byte + MIMEType; encapsulated ArtifactSchema (now retired)"
+    },
+    {
+      "rev": "r2",
+      "at": "2026-05-26",
+      "by": "system-architect",
+      "byActivity": "D-AV (re-cut — named Method-activity verbs)",
+      "summary": "Re-cut to named Phase-1 validation business verbs (ValidateVolatilities/ValidateCoreUseCases/ValidateArchitecture/ValidateOperationalConcepts/ValidateStandardCheck) over specific typed models. Dropped ValidationContext/PriorArtifacts/phase/MethodPhase. Predicate suite re-homed under owning verbs. ArtifactSchema retired; shape is now type-enforced by smart constructors."
+    },
+    {
+      "rev": "r3",
+      "at": "2026-05-26",
+      "by": "senior-developer",
+      "byActivity": "D-AV senior review (the-method-review-routing)",
+      "summary": "SENIOR REVIEW PASSED — verdict pass; all agenda items confirmed. 5-verb set + per-verb inputs including ValidateArchitecture(System, CoreUseCases) for call-chain coverage; ScrubbedRequirements as its own slot (construction follow-up); ValidationContext removal as anti-generic win; Error/Warning severity split confirmed; Phase-2 cap trigger deferred. Two text-only corrections applied. App C §6 9/9 PASS. Contract frozen."
+    }
+  ]
+}

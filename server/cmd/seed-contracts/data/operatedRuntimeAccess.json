@@ -1,0 +1,165 @@
+{
+  "component": "operatedRuntimeAccess",
+  "layer": "ResourceAccess",
+  "stereotype": "«ResourceAccess» — owns operatedRuntime (declarative-desired-state runtime infrastructure; GitOps repo + ArgoCD + Argo Rollouts + Prometheus)",
+  "volatility": "OperatedRuntime volatility (three faces): (1) convergence mechanism (GitOps/ArgoCD today; aiarch publishes, infrastructure reconciles); (2) compute-cost attribution (metering source); (3) runtime-status transport (health/SLO/capacity surfacing). ArtifactTarget (which git repo holds manifests) is an independent volatility also absorbed (Amendment 2026-05-30).",
+  "status": "FROZEN",
+  "inbound": [
+    {"name": "operationsManager", "layer": "Manager"},
+    {"name": "settlementManager", "layer": "Manager"}
+  ],
+  "outbound": [
+    {"name": "operatedRuntime", "layer": "Resource", "how": "direct, by value — plain Go methods; Activity-wrapped by calling Managers; writes = git commit+push to deterministic manifest path; reads = observability stack pull"}
+  ],
+  "ops": [
+    {
+      "signature": "publishDesiredState(appId: AppId, desiredState: DesiredState, idempotencyKey: fwra.IdempotencyKey) → void",
+      "stereotype": "Activity (wrapped by calling Manager)",
+      "note": "Commits the rendered infrastructure-neutral desired state to the deterministic manifest path; returns at durable acceptance (not at convergence); absorbs deploy, autoscale-republish, idle-pause, delinquency-patch, and payment-config-patch (wirePaymentConfig fold)",
+      "inputs": [
+        {
+          "name": "PublishDesiredStateRequest",
+          "fields": [
+            {"name": "appId", "type": "AppId", "note": "logical identity of the operated app; maps to namespace/manifest path inside this seam; never a namespace or path on the contract"},
+            {"name": "desiredState", "type": "DesiredState", "note": "infrastructure-neutral desired-state declaration rendered by the Manager; Bytes are opaque at the contract boundary; absorbs all desired-state shapes (deploy bundle, autoscaler revision, idle-pause patch, delinquency patch, payment-config patch)"},
+            {"name": "idempotencyKey", "type": "fwra.IdempotencyKey", "note": "caller-supplied key placed into git commit message; Manager derives from ${workflowId}:${activityId}; deterministic manifest path makes identical content naturally idempotent"}
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "void",
+          "fields": []
+        },
+        {
+          "name": "(error)",
+          "fields": [
+            {"name": "(error)", "type": "fwra.Error", "note": "Method layer-typed error; Transient/Conflict/Infrastructure = retryable; Auth/ContractMisuse = terminal"}
+          ]
+        }
+      ]
+    },
+    {
+      "signature": "withdraw(appId: AppId, idempotencyKey: fwra.IdempotencyKey) → void",
+      "stereotype": "Activity (wrapped by calling Manager)",
+      "note": "Removes the app's desired-state declaration from the manifests repo; ArgoCD prunes resources asynchronously; NotFound mapped to success (already-gone == withdrawn)",
+      "inputs": [
+        {
+          "name": "WithdrawRequest",
+          "fields": [
+            {"name": "appId", "type": "AppId", "note": "logical identity of the operated app to withdraw"},
+            {"name": "idempotencyKey", "type": "fwra.IdempotencyKey", "note": "caller-supplied key placed into git commit message; NotFound on withdraw is mapped to success inside this seam"}
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "void",
+          "fields": []
+        },
+        {
+          "name": "(error)",
+          "fields": [
+            {"name": "(error)", "type": "fwra.Error", "note": "Method layer-typed error; NotFound mapped to SUCCESS (already-gone == withdrawn)"}
+          ]
+        }
+      ]
+    },
+    {
+      "signature": "readRuntimeStatus(appIds: []AppId) → map[AppId]RuntimeStatus",
+      "stereotype": "pure read",
+      "note": "Batched point-in-time health + SLO observation for all in-flight apps on a reconcile tick; collapses getApplicationHealth + getSloStatus (same tick, same decision); no side effect",
+      "inputs": [
+        {
+          "name": "ReadRuntimeStatusRequest",
+          "fields": [
+            {"name": "appIds", "type": "[]AppId", "note": "the in-flight operated apps the reconcile tick is observing; batched to avoid N round-trips per tick"}
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "map[AppId]RuntimeStatus",
+          "fields": [
+            {"name": "(map entry)", "type": "RuntimeStatus", "note": "per-app point-in-time health + SLO snapshot: Phase RuntimePhase, Healthy bool, SloMet bool, SloDetail string, ObservedAt time.Time, Budget *SloBudget (optional, D-OR-Δ1 enrichment)"}
+          ]
+        },
+        {
+          "name": "(error)",
+          "fields": [
+            {"name": "(error)", "type": "fwra.Error", "note": "Method layer-typed error; NotFound per-app surfaces as absent map entry or StatusUnknown, not whole-call error"}
+          ]
+        }
+      ]
+    },
+    {
+      "signature": "readComputeAttribution(appIds: []AppId, window: AttributionWindow) → map[AppId]ComputeAttribution",
+      "stereotype": "pure read",
+      "note": "Reads per-app infrastructure-neutral compute consumption over a window; returns ComputeUnits + opaque RawMeter; returned not recorded (Manager forwards to usageAccess)",
+      "inputs": [
+        {
+          "name": "ReadComputeAttributionRequest",
+          "fields": [
+            {"name": "appIds", "type": "[]AppId", "note": "operated apps to attribute consumption for"},
+            {"name": "window", "type": "AttributionWindow", "note": "closed time range to attribute over; {From time.Time; To time.Time}; reconcile tick interval for Path B; cycle window for settlement close"}
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "map[AppId]ComputeAttribution",
+          "fields": [
+            {"name": "(map entry)", "type": "ComputeAttribution", "note": "per-app consumption: ComputeUnits float64 (normalized provider-neutral units); RawMeter []byte (optional provider-opaque meter blob); no vCPU/GiB/SKU/price"}
+          ]
+        },
+        {
+          "name": "(error)",
+          "fields": [
+            {"name": "(error)", "type": "fwra.Error", "note": "Method layer-typed error; NotFound per-app surfaces as absent map entry, not whole-call error"}
+          ]
+        }
+      ]
+    }
+  ],
+  "dataContracts": [
+    "AppId = string // logical operated-app identity; maps to namespace/manifest path inside this seam",
+    "DesiredState = struct{ Bytes []byte; ContentType string } // infrastructure-neutral desired-state declaration; opaque at contract boundary",
+    "RuntimeStatus = struct{ Phase RuntimePhase; Healthy bool; SloMet bool; SloDetail string; ObservedAt time.Time; Budget *SloBudget } // Budget nil until D-OR-Δ1 enrichment",
+    "RuntimePhase = int // StatusUnknown | StatusPending | StatusRunning | StatusDegraded | StatusPaused | StatusWithdrawn",
+    "AttributionWindow = struct{ From time.Time; To time.Time }",
+    "ComputeAttribution = struct{ ComputeUnits float64; RawMeter []byte } // normalized provider-neutral units; no vCPU/GiB/SKU/price",
+    "SloBudget = struct{ RemainingPct float64; Window string; Burndown []float64 } // PROPOSED delta D-OR-Δ1; off v1-demo critical path"
+  ],
+  "errorModel": "fwra.Error (framework-go/resourceaccess.Error); Retryable seeded from Kind. RETRYABLE: Transient, Conflict (concurrent desired-state write), Infrastructure. TERMINAL: Auth (infrastructure token expired), NotFound (unknown appId on read; on withdraw mapped to SUCCESS), ContractMisuse (empty appId/key, malformed window).",
+  "idempotency": "Writes: deterministic manifest paths (identical content = no new revision) + caller-supplied fwra.IdempotencyKey in the commit message (Manager derives from ${workflowId}:${activityId}). Reads: pure; no idempotency key.",
+  "revisions": [
+    {
+      "rev": "r1",
+      "at": "2026-05-28",
+      "by": "system-architect",
+      "byActivity": "D-OR (Detailed design — operatedRuntimeAccess)",
+      "summary": "Initial contract: 4 ops (publishDesiredState, withdraw, readRuntimeStatus, readComputeAttribution); wirePaymentConfig folded into publishDesiredState; getApplicationHealth+getSloStatus collapsed into readRuntimeStatus; infrastructure-drives-convergence doctrine; two operational callers (operationsManager, settlementManager)"
+    },
+    {
+      "rev": "r2",
+      "at": "2026-05-28",
+      "by": "senior-developer",
+      "byActivity": "D-OR review (senior review 2026-05-28)",
+      "summary": "APPROVED-AND-FROZEN. 9/9 PASS (0 waived). Factoring confirmed sound. Q3 settlement-compute-source inconsistency escalated to system-architect (non-blocking); DSL authoritative (settlement reads usageAccess not operatedRuntimeAccess). Q1/Q2/Q4/Q5/Q6 confirmed."
+    },
+    {
+      "rev": "r3",
+      "at": "2026-05-30",
+      "by": "system-architect",
+      "byActivity": "Amendment 2026-05-30 — two-operating-modes pass (ArtifactTarget volatility)",
+      "summary": "Additive amendment: manifests git target is profile-selected (cloud=Gitea, local=on-disk, enterprise=customer repo). Contract surface unchanged; §6/§9 infrastructure mapping gains local-git instance note. Senior-frozen surface (2026-05-28) stands."
+    },
+    {
+      "rev": "r4",
+      "at": "2026-06-07",
+      "by": "system-architect",
+      "byActivity": "D-OR-Δ1 (parity delta — SLO error-budget burndown)",
+      "summary": "PROPOSED contract delta (off v1-demo critical path): additive optional RuntimeStatus.Budget *SloBudget field (Option A adopted; Option B fifth-op rejected). Driven by ux-mock operations.ts §1 burndown surface. Status/Health renders from boolean SloMet for parity demo; burndown lights up when Budget populated."
+    }
+  ]
+}

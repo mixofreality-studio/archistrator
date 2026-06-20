@@ -1,0 +1,239 @@
+{
+  "component": "systemDesignManager",
+  "layer": "Manager",
+  "stereotype": "«Manager» — owns Temporal · task queue: systemDesign · parent SystemDesignPhaseWorkflow + child CoAuthorArtifactWorkflow",
+  "volatility": "SystemDesignPhaseWorkflow volatility — the sequence by which a project is driven through Phase 1 of The Method (vision/mission → glossary → scrubbed-requirements → volatilities → core-use-cases → architecture → operational-concepts → standard-check), co-authored with the Architect User via agentic dispatch, architect-gated, and committed",
+  "status": "FROZEN",
+  "inbound": [
+    {"name": "webClient", "layer": "Client"},
+    {"name": "mcpClient", "layer": "Client"}
+  ],
+  "outbound": [
+    {"name": "constructionPipelineAccess", "layer": "ResourceAccess", "how": "Activity-wrapped calls: submitConstructionPipeline (dispatch design job), observeConstructionPipeline (poll to terminal), cancelConstructionPipeline (optional on Withdraw-mid-flight)"},
+    {"name": "projectStateAccess", "layer": "ResourceAccess", "how": "Activity-wrapped calls: readProject (read-back committed typed slot + ResearchInput + Version), setResearchInput, stageArtifactForReview, commitArtifact, rejectArtifact, withdrawArtifact, advancePhase (thin human-gate writes)"},
+    {"name": "durableExecutionAccess", "layer": "ResourceAccess", "how": "In-workflow primitives: awaitSignal(reviewDecision), startTimer (poll-spacing between observes), executeChild (parent→child)"},
+    {"name": "renderingEngine", "layer": "Engine", "how": "Sync read/display path only (RenderArtifact)"},
+    {"name": "logging", "layer": "Utility", "how": "Unchanged"},
+    {"name": "diagnostics", "layer": "Utility", "how": "Unchanged"}
+  ],
+  "ops": [
+    {
+      "signature": "startSystemDesign(projectId: ProjectID) → SessionRef",
+      "stereotype": "Workflow (entry; StartWorkflow, id {projectId}:systemDesign)",
+      "note": "Pre: project exists and ResearchInput slot is present (else FailedPrecondition). Idempotent on the id. Post: parent SystemDesignPhaseWorkflow running; drives seven Phase-1 steps in fixed Method order, auto-advances on each human Approve, seals Phase 1 via advancePhase.",
+      "inputs": [
+        {
+          "name": "StartSystemDesignRequest",
+          "fields": [
+            {"name": "ProjectID", "type": "ProjectID", "note": "the project to start Phase-1 design on; must have ResearchInput set"}
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "StartSystemDesignResponse",
+          "fields": [
+            {"name": "Session", "type": "SessionRef", "note": "opaque infrastructure-neutral handle to the running phase workflow"}
+          ]
+        },
+        {
+          "name": "(error)",
+          "fields": [
+            {"name": "(error)", "type": "fweng.Error", "note": "Method layer-typed error"}
+          ]
+        }
+      ]
+    },
+    {
+      "signature": "requestArtifactDraft(projectId: ProjectID, artifactKind: ArtifactKind, feedback?: ReviewFeedback) → SessionRef",
+      "stereotype": "Workflow (entry; StartWorkflow / signal-with-start, id {projectId}:{artifactKind})",
+      "note": "Pre: project exists at a phase permitting drafting artifactKind; artifactKind is Phase-1. Post: durable child CoAuthorArtifactWorkflow running — dispatches design job via constructionPipelineAccess, observes to terminal, reads back committed typed Kind, sets AwaitingReview, suspends on reviewDecision signal. StageDraftFailed on PhaseFailed.",
+      "inputs": [
+        {
+          "name": "RequestArtifactDraftRequest",
+          "fields": [
+            {"name": "ProjectID", "type": "ProjectID"},
+            {"name": "ArtifactKind", "type": "ArtifactKind", "note": "must be a Phase-1 kind"},
+            {"name": "Feedback", "type": "*ReviewFeedback", "note": "optional; non-nil on a redraft after Reject"}
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "RequestArtifactDraftResponse",
+          "fields": [
+            {"name": "Session", "type": "SessionRef"}
+          ]
+        },
+        {
+          "name": "(error)",
+          "fields": [
+            {"name": "(error)", "type": "fweng.Error", "note": "Method layer-typed error"}
+          ]
+        }
+      ]
+    },
+    {
+      "signature": "submitReviewDecision(projectId: ProjectID, artifactKind: ArtifactKind, decision: ReviewDecision, feedback?: ReviewFeedback) → void",
+      "stereotype": "Signal (SignalWorkflow to id {projectId}:{artifactKind}, signal reviewDecision)",
+      "note": "Pre: workflow running and suspended at AwaitingReview or StageDraftFailed. decision ∈ {Approve, Reject, Withdraw}; feedback required on Reject. Post: Approve→commitArtifact; Reject→rejectArtifact+loop to dispatch; Withdraw→withdrawArtifact+exit.",
+      "inputs": [
+        {
+          "name": "SubmitReviewDecisionRequest",
+          "fields": [
+            {"name": "ProjectID", "type": "ProjectID"},
+            {"name": "ArtifactKind", "type": "ArtifactKind"},
+            {"name": "Decision", "type": "ReviewDecision", "note": "Approve | Reject | Withdraw"},
+            {"name": "Feedback", "type": "*ReviewFeedback", "note": "required when Decision == Reject; else optional"}
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "SubmitReviewDecisionResponse",
+          "fields": []
+        },
+        {
+          "name": "(error)",
+          "fields": [
+            {"name": "(error)", "type": "fweng.Error", "note": "Method layer-typed error"}
+          ]
+        }
+      ]
+    },
+    {
+      "signature": "advancePhase(projectId: ProjectID) → PhaseAdvanceResult",
+      "stereotype": "Workflow (entry; StartWorkflow, id {projectId}:phaseAdvance)",
+      "note": "Pre: every Phase-1 slot required by standard-check is Committed. Post: on success Phase-1 sealed (projectStateAccess.advancePhase, Phase→ready-for-Phase-2), returns {Advanced:true, MissingArtifacts:[]}; on gating failure returns {Advanced:false, MissingArtifacts:[...]} with no transition.",
+      "inputs": [
+        {
+          "name": "AdvancePhaseRequest",
+          "fields": [
+            {"name": "ProjectID", "type": "ProjectID"}
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "PhaseAdvanceResult",
+          "fields": [
+            {"name": "Advanced", "type": "bool", "note": "true iff Phase-1 sealed and project transitioned to ready-for-Phase-2"},
+            {"name": "MissingArtifacts", "type": "[]ArtifactKind", "note": "non-empty when Advanced==false; which slots are not yet Committed"}
+          ]
+        },
+        {
+          "name": "(error)",
+          "fields": [
+            {"name": "(error)", "type": "fweng.Error", "note": "Method layer-typed error"}
+          ]
+        }
+      ]
+    },
+    {
+      "signature": "getSessionState(projectId: ProjectID, artifactKind?: ArtifactKind) → SessionStateView",
+      "stereotype": "Query (QueryWorkflow, query sessionState, read-only)",
+      "note": "Pre: workflow exists for {projectId}:{artifactKind}. Post: point-in-time read-only view of session technical progress (Stage, Draft ArtifactModel, Findings). Sync, side-effect-free.",
+      "inputs": [
+        {
+          "name": "GetSessionStateRequest",
+          "fields": [
+            {"name": "ProjectID", "type": "ProjectID"},
+            {"name": "ArtifactKind", "type": "*ArtifactKind", "note": "optional; when nil, targets the phase-advance workflow"}
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "SessionStateView",
+          "fields": [
+            {"name": "ProjectID", "type": "ProjectID"},
+            {"name": "ArtifactKind", "type": "ArtifactKind"},
+            {"name": "Stage", "type": "SessionStage", "note": "Drafting | AwaitingReview | Redrafting | Committed | Withdrawn | DraftFailed"},
+            {"name": "Draft", "type": "ArtifactModel", "note": "staged typed draft awaiting review; nil before first stage"},
+            {"name": "Findings", "type": "[]Finding", "note": "latest validation findings; empty if none"}
+          ]
+        },
+        {
+          "name": "(error)",
+          "fields": [
+            {"name": "(error)", "type": "fweng.Error", "note": "Method layer-typed error"}
+          ]
+        }
+      ]
+    },
+    {
+      "signature": "SetResearchInput(projectId: ProjectID, research: ResearchInput) → void",
+      "stereotype": "none — SYNC, non-Temporal",
+      "note": "Pre: projectId non-zero; research non-nil/non-zero (≥1 ResearchSource); caller authenticated+authorized. Post: project ResearchInput set (replace-in-place) via projectStateAccess.setResearchInput. No workflow, no review status. Satisfies startSystemDesign ResearchInput-present precondition.",
+      "inputs": [
+        {
+          "name": "SetResearchInputRequest",
+          "fields": [
+            {"name": "ProjectID", "type": "ProjectID"},
+            {"name": "Research", "type": "ResearchInput", "note": "canonical: projectStateAccess.md §3.8 — {Sources []ResearchSource}; must have ≥1 ResearchSource"}
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "SetResearchInputResponse",
+          "fields": []
+        },
+        {
+          "name": "(error)",
+          "fields": [
+            {"name": "(error)", "type": "fweng.Error", "note": "Method layer-typed error"}
+          ]
+        }
+      ]
+    }
+  ],
+  "dataContracts": [
+    "SessionRef (opaque infrastructure-neutral session handle)",
+    "ReviewDecision (Approve | Reject | Withdraw)",
+    "ReviewFeedback { Notes string }",
+    "PhaseAdvanceResult { Advanced bool; MissingArtifacts []ArtifactKind }",
+    "SessionStateView { ProjectID; ArtifactKind; Stage SessionStage; Draft ArtifactModel; Findings []Finding }",
+    "SessionStage (Drafting | AwaitingReview | Redrafting | Committed | Withdrawn | DraftFailed)",
+    "Critique { Verdict CritiqueVerdict; Notes string } (PM-critique result, owned by this Manager)"
+  ],
+  "errorModel": "framework-go/manager.Error kinds: ContractMisuse, FailedPrecondition, NotFound, Unauthorized, Infrastructure",
+  "idempotency": "Workflows keyed on {projectId}:{artifactKind} or {projectId}:systemDesign — redundant starts return the running SessionRef. Dispatch idempotencyKey = ${workflowId}:${activityId} derived inside DispatchDesignJobActivity. Human-gate thin-writes use expectedVersion + idempotencyKey with Conflict→re-read→re-apply.",
+  "revisions": [
+    {
+      "rev": "r1",
+      "at": "2026-05-23",
+      "by": "system-architect",
+      "byActivity": "D-MSD",
+      "summary": "Initial design: 4 ops (requestArtifactDraft, submitReviewDecision, advancePhase, getSessionState), opaque-bytes spine with dispatchWorker→WorkOutput.Bytes, in-Manager parse, artifactAccess.storeArtifact/retrieveArtifact Activities."
+    },
+    {
+      "rev": "r2",
+      "at": "2026-05-26",
+      "by": "system-architect",
+      "byActivity": "D-MSD",
+      "summary": "Re-cut: typed Method models thread spine end-to-end. Worker returns typed ArtifactModel (no bytes, no in-Manager parse). Validation via kind-appropriate named artifactValidationEngine verb. artifactAccess dropped; artifactRenderingAccess added. Senior review PASS (2026-05-26)."
+    },
+    {
+      "rev": "r3",
+      "at": "2026-05-29",
+      "by": "system-architect",
+      "byActivity": "D-MSD",
+      "summary": "Sequence-owns-prompts rework: new parent SystemDesignPhaseWorkflow + child CoAuthorArtifactWorkflow. systemDesignEngine DELETED. Manager owns per-step prompts + tool choice. New public op startSystemDesign (op 2.0). workerAccess.generateTypedData[T] replaces per-kind Engine dispatch. PM-critique as Manager-internal generateTypedData[Critique] call. Now 5 public ops. FROZEN 2026-05-30, senior review PASS."
+    },
+    {
+      "rev": "r4",
+      "at": "2026-05-30",
+      "by": "system-architect",
+      "byActivity": "D-MSD (D-RESEARCHINPUT-2026-05-30)",
+      "summary": "Additive: new SYNC non-Temporal op SetResearchInput (op 2.6) to satisfy StartSystemDesign ResearchInput precondition through the UI. Now 6 public ops. FROZEN 2026-05-30."
+    },
+    {
+      "rev": "r5",
+      "at": "2026-06-15",
+      "by": "system-architect",
+      "byActivity": "D-MSD-Δ (agentic-pivot re-cut)",
+      "summary": "Agentic-pivot re-cut: draft/PM-critique/redraft mechanism flips from synchronous workerAccess.generateTypedData to dispatch→observe→read-back round-trip via constructionPipelineAccess (FROZEN verbs reused as new caller). workerAccess DROPPED from this Manager's outbound set. artifactValidationEngine DROPPED (validation now the required CI check surfaced via terminal PipelineObservation phase). StageDraftFailed added to SessionStage (anti-wedge). Human-gate writes (commit/reject/withdraw/advancePhase/AwaitingReview) stay server-side thin-writes. Public op surface UNCHANGED (6 ops). Senior review PASS 2026-06-15."
+    }
+  ]
+}

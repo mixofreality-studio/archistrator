@@ -1,0 +1,111 @@
+{
+  "component": "billingEngine",
+  "layer": "Engine",
+  "stereotype": "«Engine» — pure deterministic computation; ServicePricing Strategy host; imports no Temporal",
+  "volatility": "ServicePricing volatility: how aiarch prices its own service (construction tokens + hosting) to the user. Charge-only / one-directional. No revenue-share, no payout/shortfall netting (those left with the reversed merchant-of-record model).",
+  "status": "FROZEN",
+  "inbound": [
+    { "name": "billingManager", "layer": "Manager", "how": "plain deterministic Go function call, direct from workflow code (no Activity wrapper)" },
+    { "name": "projectDesignManager", "layer": "Manager", "how": "plain deterministic Go function call, direct from workflow code (no Activity wrapper)" }
+  ],
+  "outbound": [],
+  "ops": [
+    {
+      "signature": "priceUsage(usage: PeriodUsage, servicePricing: ServicePricing) → ServiceInvoice",
+      "stereotype": "pure function",
+      "note": "UC5 period-close: returns the non-negative service-invoice amount aiarch charges the user for the period (tokens + hosting under ServicePricing). Zero amount is valid (zero usage / fully free-tier) — Manager issues no charge. Never returns a negative amount (charge-only). Manager reads usage from usageAccess and servicePricing from billingStateAccess and passes both by value.",
+      "inputs": [
+        {
+          "name": "PeriodUsage",
+          "fields": [
+            { "name": "CustomerID", "type": "uuid.UUID" },
+            { "name": "PeriodID", "type": "string" },
+            { "name": "ConstructionTokens", "type": "int64", "note": "Σ construction-token consumption over the period" },
+            { "name": "ComputeUnitSeconds", "type": "float64", "note": "Σ hosting/compute consumed" },
+            { "name": "StorageBytesMonths", "type": "float64", "note": "hosting storage component" },
+            { "name": "EgressBytes", "type": "float64", "note": "hosting egress component" },
+            { "name": "Currency", "type": "string", "note": "ISO-4217" }
+          ]
+        },
+        {
+          "name": "ServicePricing",
+          "fields": [
+            { "name": "Kind", "type": "ServicePricingKind", "note": "FlatMarkup | TieredFloors | FreeTierSubsidy | FinOpsAttribution | VolumeDiscount | PerFeatureCost — Strategy discriminator" }
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "ServiceInvoice",
+          "fields": [
+            { "name": "ServiceInvoiceAmount", "type": "Money", "note": "non-negative; zero valid (zero usage / fully free-tier)" },
+            { "name": "TokenCharge", "type": "Money", "note": "construction-token component" },
+            { "name": "HostingCharge", "type": "Money", "note": "hosting/compute component" }
+          ]
+        },
+        {
+          "name": "(error)",
+          "fields": [
+            { "name": "(error)", "type": "fweng.Error", "note": "kinds: ContractMisuse | UnknownPricing | InternalInvariant — all programmer errors; no retryable flag" }
+          ]
+        }
+      ]
+    },
+    {
+      "signature": "priceServiceForOption(option: ProjectOption) → ServiceCostProjection",
+      "stereotype": "pure function",
+      "note": "UC2 commit-time: returns the service-cost projection ({tokenCostEstimate, hostingRate}) the Manager binds to the committed option for the SDP confirmation row. Takes only option (carries ServicePricing by value per FU-OE-A). Not an actual invoiced amount — no metered usage at commit time.",
+      "inputs": [
+        {
+          "name": "ProjectOption",
+          "fields": [
+            { "name": "OptionID", "type": "string" },
+            { "name": "Pricing", "type": "ServicePricing", "note": "the customer's service-pricing policy carried on the option (FU-OE-A — sanctioned carrier)" }
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "ServiceCostProjection",
+          "fields": [
+            { "name": "TokenCostEstimate", "type": "Money", "note": "what aiarch's token pricing implies for this option's build" },
+            { "name": "HostingRate", "type": "HostingRate", "note": "struct{PerComputeUnitSecond Money; PerStorageByteMonth Money; PerEgressByte Money; Currency string} — per-unit rate, not a projected amount" }
+          ]
+        },
+        {
+          "name": "(error)",
+          "fields": [
+            { "name": "(error)", "type": "fweng.Error", "note": "kinds: ContractMisuse | UnknownPricing | InternalInvariant — all programmer errors; no retryable flag" }
+          ]
+        }
+      ]
+    }
+  ],
+  "dataContracts": [
+    "PeriodUsage struct { CustomerID; PeriodID; ConstructionTokens int64; ComputeUnitSeconds float64; StorageBytesMonths float64; EgressBytes float64; Currency string }",
+    "ServicePricing struct { Kind ServicePricingKind; /* regime-specific parameters */ }  // Strategy discriminator; package-internal Strategy registration",
+    "ProjectOption struct { OptionID; Pricing ServicePricing; /* other option fields */ }",
+    "ServiceInvoice struct { ServiceInvoiceAmount Money; TokenCharge Money; HostingCharge Money }",
+    "ServiceCostProjection struct { TokenCostEstimate Money; HostingRate HostingRate }",
+    "HostingRate struct { PerComputeUnitSecond Money; PerStorageByteMonth Money; PerEgressByte Money; Currency string }",
+    "Money struct { MinorUnits int64; Currency string }  // canonical location: framework-go (no float money)"
+  ],
+  "errorModel": "framework-go/engine.Error with kinds: ContractMisuse (nil/invalid inputs; structurally-invalid input such as negative token count or mismatched currencies — a Manager bug) / UnknownPricing (servicePricing references a Strategy with no compiled-in registration — a deploy/config bug; no silent fallback, mirrors operationEstimationEngine's UnknownInfrastructure) / InternalInvariant (engine-internal invariant violation, e.g. negative serviceInvoiceAmount — forbidden for a charge-only Engine; panics in test builds). No retryable flag; no Temporal mapping. All errors are programmer errors — not 'no invoice possible' outcomes.",
+  "idempotency": "Trivially idempotent. Pure functions: identical inputs always produce identical outputs. No side effects to deduplicate; no idempotencyKey parameter. The charge is deduped by the Manager's billingGatewayAccess.chargeUser gateway-native idempotency; the invoice record by billingStateAccess.recordServiceInvoice — both in the Manager, not here.",
+  "revisions": [
+    {
+      "rev": "r1",
+      "at": "2026-06-10",
+      "by": "system-architect",
+      "byActivity": "D-BE (detailed design)",
+      "summary": "Re-cut from the deleted settlementEngine (D-SG) after 2026-06-09 merchant-of-record reversal. Two ops named verbatim from DSL edge labels. Charge-only / one-directional (no signedNet, no routingDirective, no recomputeNet). App C §6 8/9 PASS + 1 WAIVED (2b, low count justified). All 6 OQs addressed."
+    },
+    {
+      "rev": "r2",
+      "at": "2026-06-10",
+      "by": "senior-developer",
+      "byActivity": "D-BE senior review",
+      "summary": "APPROVE-AND-FREEZE. App C §6 8/9 PASS + 1 WAIVED (2b) independently reproduced. All 6 OQs ruled. One mayAmend amendment applied: HostingRate gains PerEgressByte field (PeriodUsage meters EgressBytes as a hosting component; the SDP row must surface the rate for that dimension). C-BE construction unblocked."
+    }
+  ]
+}

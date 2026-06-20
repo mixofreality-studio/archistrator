@@ -1,0 +1,108 @@
+{
+  "component": "operationEstimationEngine",
+  "layer": "Engine",
+  "stereotype": "«Engine» — encapsulates OperationEstimationModel volatility; pure deterministic in-workflow computation; no I/O; Strategy host for CustomerAppInfrastructure constituent",
+  "volatility": "OperationEstimationModel — how operating cost is forecasted as a function of usage; two contexts: design-time (declared assumptions → usage→cost curve + payout-vs-shortfall forecast) and op-time (observed telemetry → run-rate + projected monthly cost + what-if curve); Strategy axis: CustomerAppInfrastructure (per-infrastructure cost-Strategy registered behind opaque infrastructureKind discriminator)",
+  "status": "FROZEN",
+  "inbound": [
+    {"name": "projectDesignManager", "layer": "Manager"},
+    {"name": "operationsManager", "layer": "Manager"}
+  ],
+  "outbound": [],
+  "ops": [
+    {
+      "signature": "estimateForOption(option: ProjectOption, declaredUsage: UsageAssumption, infrastructureKind: InfrastructureKind) → OperationForecast",
+      "stereotype": "pure compute",
+      "note": "Design-time SDP-review forecast: declared usage assumptions in → UsageCostCurve (projected monthly cost at load multipliers) + PayoutShortfallForecast (expected per-cycle net ± sensitivity band); called directly in-workflow by projectDesignManager; no Activity wrapper",
+      "inputs": [
+        {
+          "name": "EstimateForOptionRequest",
+          "fields": [
+            {"name": "Option", "type": "ProjectOption", "note": "One option from the SDP review; carries RevenueShareTerm / ComputeCostPricing per D-OE OQ-2/FU-OE-A"},
+            {"name": "DeclaredUsage", "type": "UsageAssumption", "note": "Customer declared usage expectations (DAU, req/min, payload, peak-to-trough, basis)"},
+            {"name": "InfrastructureKind", "type": "InfrastructureKind", "note": "Opaque enum discriminator; selects the package-internal cost-Strategy"}
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "OperationForecast",
+          "fields": [
+            {"name": "UsageCostCurve", "type": "UsageCostCurve", "note": "Projected monthly cost at discrete load multipliers"},
+            {"name": "PayoutVsShortfallForecast", "type": "PayoutShortfallForecast", "note": "Expected per-cycle payout-or-shortfall + sensitivity band"},
+            {"name": "AssumptionBasis", "type": "AssumptionBasis", "note": "Echoes the input basis so the SDP review can label the forecast"}
+          ]
+        },
+        {
+          "name": "(error)",
+          "fields": [
+            {"name": "(error)", "type": "fweng.Error", "note": "Method layer-typed error — ContractMisuse | UnknownInfrastructure | InternalInvariant (programmer errors only)"}
+          ]
+        }
+      ]
+    },
+    {
+      "signature": "projectForOperatedApp(observedUsage: ObservedUsage, infrastructureKind: InfrastructureKind, scaleWhatIfPoints: []ScalePoint) → CostProjection",
+      "stereotype": "pure compute",
+      "note": "Op-time read-side cost projection: observed telemetry in → currentRunRate + projectedMonthlyCost + scaleWhatIfCurve; called directly in-workflow by operationsManager queryCostProjection; no Activity wrapper; no state mutation",
+      "inputs": [
+        {
+          "name": "ProjectForOperatedAppRequest",
+          "fields": [
+            {"name": "ObservedUsage", "type": "ObservedUsage", "note": "Value snapshot from usageAccess.readRange(operatedAppId, lastCycle) passed in by Manager"},
+            {"name": "InfrastructureKind", "type": "InfrastructureKind", "note": "Opaque enum discriminator; selects the cost-Strategy"},
+            {"name": "ScaleWhatIfPoints", "type": "[]ScalePoint", "note": "Hypothetical load levels for what-if curve; may be empty"}
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CostProjection",
+          "fields": [
+            {"name": "CurrentRunRate", "type": "Money", "note": "Extrapolated cost-per-cycle at current observed load"},
+            {"name": "ProjectedMonthlyCost", "type": "Money", "note": "Run-rate normalized to a calendar month"},
+            {"name": "ScaleWhatIfCurve", "type": "WhatIfCurve", "note": "Projected cost at each requested ScalePoint; current-load point always present"}
+          ]
+        },
+        {
+          "name": "(error)",
+          "fields": [
+            {"name": "(error)", "type": "fweng.Error", "note": "Method layer-typed error — ContractMisuse | UnknownInfrastructure | InternalInvariant (programmer errors only)"}
+          ]
+        }
+      ]
+    }
+  ],
+  "dataContracts": [
+    "UsageAssumption = struct{ ExpectedDailyActiveUsers int; RequestsPerMinute float64; AvgPayloadBytes int; PeakToTroughRatio float64; Basis AssumptionBasis } // Declared | CategoryDefault(category)",
+    "ObservedUsage = struct{ OperatedAppID; WindowStart time.Time; WindowEnd time.Time; ComputeUnitSeconds float64; RequestCount int64; StorageBytesMonths float64; EgressBytes float64; ObservedReplicas int } // value passed in by Manager from usageAccess.readRange",
+    "ScalePoint = struct{ LoadMultiplier float64 } // > 0; 1.0 == current observed load",
+    "InfrastructureKind = int // opaque enum discriminator; InfrastructureKindGoTemporalPostgres = launch set; package-internal Strategy registration on new value",
+    "OperationForecast = struct{ UsageCostCurve UsageCostCurve; PayoutVsShortfallForecast PayoutShortfallForecast; AssumptionBasis AssumptionBasis }",
+    "UsageCostCurve = struct{ Points []CostCurvePoint } // one per load multiplier; monotonic in LoadMultiplier",
+    "CostCurvePoint = struct{ LoadMultiplier float64; ProjectedMonthlyCost Money }",
+    "PayoutShortfallForecast = struct{ ExpectedPerCycleNet Money; SensitivityLow Money; SensitivityHigh Money } // signed: positive == payout; negative == shortfall",
+    "CostProjection = struct{ CurrentRunRate Money; ProjectedMonthlyCost Money; ScaleWhatIfCurve WhatIfCurve }",
+    "WhatIfCurve = struct{ Points []WhatIfPoint } // current-load point always present",
+    "WhatIfPoint = struct{ LoadMultiplier float64; ProjectedMonthlyCost Money }",
+    "Money = struct{ MinorUnits int64; Currency string } // shared value type; no float"
+  ],
+  "errorModel": "framework-go/engine.Error — programmer-error kinds only (no I/O): ContractMisuse (nil option/declaredUsage/observedUsage, nonsensical inputs), UnknownInfrastructure (infrastructureKind not registered; no silent fallback), InternalInvariant (engine-internal invariant violation; panic in test builds). No retryable flag and no Temporal mapping. FU-OE-B: drop InvalidInput kind, fold into ContractMisuse (autoscalerEngine shape — one-line architect amendment, non-blocking).",
+  "idempotency": "Trivially idempotent — pure deterministic functions; no I/O; no idempotencyKey parameter. Same inputs → same output always. Determinism invariants: no time.Now() reads, no rand, no global mutable state, no env reads at init, no goroutines/channels/syscalls/I/O.",
+  "revisions": [
+    {
+      "rev": "r1",
+      "at": "2026-05-28",
+      "by": "system-architect",
+      "byActivity": "D-OE (Detailed design — operationEstimationEngine); new Engine added when ConstructionEstimationModel re-split into construction-side and operation-side volatilities",
+      "summary": "Initial contract: 2 ops (estimateForOption, projectForOperatedApp); one per documented OperationEstimationModel context; infrastructureKind as opaque enum; pure deterministic Engine; cross-Manager consumption (projectDesignManager + operationsManager) documented and sanctioned; 2b waiver justified"
+    },
+    {
+      "rev": "r2",
+      "at": "2026-05-28",
+      "by": "senior-developer",
+      "byActivity": "D-OE review (log/D-OE-review.md)",
+      "summary": "APPROVED — FROZEN. 7/9 PASS, 1 WAIVED (2b — endorsed: one model, exactly two volatility contexts; no third inbound edge; §8 rejects collapse-to-1 + 3 speculative third ops), 1 PASS-with-note (2a). OQ-1 2-op waiver endorsed. OQ-2 RevenueShareTerm homing resolved in-contract (value carried by ProjectOption; no Engine→Engine edge). OQ-3 sensitivity band kept on output type. OQ-4 collapse to autoscalerEngine shape (drop InvalidInput → FU-OE-B). OQ-5 signatures ratified; field shape construction-refinable. OQ-6 reuse shared money type (FU-OE-C)."
+    }
+  ]
+}

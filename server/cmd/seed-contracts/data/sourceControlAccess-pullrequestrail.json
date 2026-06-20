@@ -1,0 +1,224 @@
+{
+  "component": "sourceControlAccess-pullrequestrail",
+  "layer": "ResourceAccess",
+  "stereotype": "«ResourceAccess» — owns github external softwareSystem (same service as ISourceControlLifecycle; second contract IPullRequestRail)",
+  "volatility": "GitTarget's PR-merge-rail face — how a proposed change becomes a branch, a pull request, a gated review, and a merge to main, and how the only-the-App-may-merge backstop is provisioned. Distinct from GitHub-App-lifecycle volatility (ISourceControlLifecycle) and from CI dispatch (constructionPipelineAccess).",
+  "status": "FROZEN",
+  "inbound": [
+    {"name": "projectManager", "layer": "Manager"},
+    {"name": "constructionManager", "layer": "Manager"}
+  ],
+  "outbound": [
+    {"name": "github", "layer": "Resource", "how": "Same single outbound edge as ISourceControlLifecycle: architecture.dsl line 461/621. GitHub PRs over the App installation credential minted by ISourceControlLifecycle.getInstallationToken."}
+  ],
+  "ops": [
+    {
+      "signature": "OpenBranch(ctx, repo RepoRef, branch BranchName, cred RepoCredential, key fwra.IdempotencyKey) → (BranchRef, error)",
+      "stereotype": "Write — cut the per-activity working branch from main",
+      "note": "Creates branch from current main tip. Flat topology: always branches from main, never from another working branch. Idempotent on (repo, branch): AlreadyExists → success (returns existing BranchRef). SHORT timeout (~30s), retryable on Transient, terminal on Auth/NotFound/ContractMisuse.",
+      "inputs": [
+        {
+          "name": "OpenBranchRequest",
+          "fields": [
+            {"name": "Repo", "type": "RepoRef", "note": "from ISourceControlLifecycle.AdoptProjectRepo"},
+            {"name": "Branch", "type": "BranchName", "note": "the per-activity branch name the Manager derives (provider-neutral)"},
+            {"name": "Cred", "type": "RepoCredential", "note": "Manager-threaded from ISourceControlLifecycle.GetInstallationToken"},
+            {"name": "Key", "type": "fwra.IdempotencyKey", "note": "caller-supplied; optional traceability"}
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "OpenBranchResponse",
+          "fields": [
+            {"name": "Branch", "type": "BranchRef", "note": "opaque provider-neutral handle to the cut branch; existing BranchRef returned on AlreadyExists (success)"}
+          ]
+        },
+        {
+          "name": "(error)",
+          "fields": [
+            {"name": "(error)", "type": "fwra.Error", "note": "Method layer-typed error"}
+          ]
+        }
+      ]
+    },
+    {
+      "signature": "OpenPullRequest(ctx, repo RepoRef, spec PullRequestSpec, cred RepoCredential, key fwra.IdempotencyKey) → (PullRequestRef, error)",
+      "stereotype": "Write — propose the activity branch into main",
+      "note": "PR is the unit of review + the merge gate. Idempotent on (repo, head, base): AlreadyExists → success. spec.Base is main in the flat model. Change-request group labels ride in spec.Hints. SHORT timeout (~30s), retryable on Transient, terminal on Auth/NotFound/ContractMisuse.",
+      "inputs": [
+        {
+          "name": "OpenPullRequestRequest",
+          "fields": [
+            {"name": "Repo", "type": "RepoRef"},
+            {"name": "Spec", "type": "PullRequestSpec", "note": "PullRequestSpec{Head BranchName, Base BranchName, Title string, Body string, Hints []byte}; Base is 'main' in the flat git-forward model"},
+            {"name": "Cred", "type": "RepoCredential", "note": "Manager-threaded installation credential"},
+            {"name": "Key", "type": "fwra.IdempotencyKey"}
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "OpenPullRequestResponse",
+          "fields": [
+            {"name": "PR", "type": "PullRequestRef", "note": "opaque provider-neutral handle to the open proposal; existing PullRequestRef returned on AlreadyExists (success)"}
+          ]
+        },
+        {
+          "name": "(error)",
+          "fields": [
+            {"name": "(error)", "type": "fwra.Error", "note": "Method layer-typed error"}
+          ]
+        }
+      ]
+    },
+    {
+      "signature": "GetPullRequestStatus(ctx, repo RepoRef, pr PullRequestRef, cred RepoCredential) → (PullRequestStatus, error)",
+      "stereotype": "Read — dumb reflection of CI-green + approvals",
+      "note": "Pure read; no caller-supplied key. Returns PullRequestStatus{CheckRollup, ApprovalCount, Mergeable}. This is the REFLECTION Manager feeds to interventionEngine.decideOnVariance — it is NOT the gate. Does not dispatch or poll constructionPipelineAccess. SHORT timeout (~15s), retryable on Transient.",
+      "inputs": [
+        {
+          "name": "GetPullRequestStatusRequest",
+          "fields": [
+            {"name": "Repo", "type": "RepoRef"},
+            {"name": "PR", "type": "PullRequestRef", "note": "from OpenPullRequest"},
+            {"name": "Cred", "type": "RepoCredential", "note": "Manager-threaded installation credential"}
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "PullRequestStatus",
+          "fields": [
+            {"name": "CheckRollup", "type": "CheckState", "note": "CheckPending | CheckSuccess | CheckFailure — CI-green reflection"},
+            {"name": "ApprovalCount", "type": "int", "note": "counted approvals toward branch-protection requirement"},
+            {"name": "Mergeable", "type": "bool", "note": "provider's mergeable computation (no conflict / up-to-date)"}
+          ]
+        },
+        {
+          "name": "(error)",
+          "fields": [
+            {"name": "(error)", "type": "fwra.Error", "note": "Method layer-typed error"}
+          ]
+        }
+      ]
+    },
+    {
+      "signature": "PostReview(ctx, repo RepoRef, pr PullRequestRef, review ReviewSubmission, cred RepoCredential, key fwra.IdempotencyKey) → error",
+      "stereotype": "Write — the architecture +1 relay",
+      "note": "Relays the in-app human architecture approval as a real PR review (the architecture +1). Idempotent on (pr, reviewer, verdict). Manager calls this ONLY after the in-app architecture-approval gate. Does NOT merge; does NOT decide whether to merge (that is interventionEngine). SHORT timeout (~15s).",
+      "inputs": [
+        {
+          "name": "PostReviewRequest",
+          "fields": [
+            {"name": "Repo", "type": "RepoRef"},
+            {"name": "PR", "type": "PullRequestRef"},
+            {"name": "Review", "type": "ReviewSubmission", "note": "ReviewSubmission{Verdict ReviewVerdict, Body string}; Verdict ∈ {ReviewApprove, ReviewRequestChanges, ReviewComment}"},
+            {"name": "Cred", "type": "RepoCredential", "note": "Manager-threaded installation credential"},
+            {"name": "Key", "type": "fwra.IdempotencyKey"}
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "PostReviewResponse",
+          "fields": []
+        },
+        {
+          "name": "(error)",
+          "fields": [
+            {"name": "(error)", "type": "fwra.Error", "note": "Method layer-typed error"}
+          ]
+        }
+      ]
+    },
+    {
+      "signature": "MergePullRequest(ctx, repo RepoRef, pr PullRequestRef, cred RepoCredential, key fwra.IdempotencyKey) → (MergeResult, error)",
+      "stereotype": "Write — PERFORM the gated merge",
+      "note": "Performs the merge; the when-to-merge authority is InterventionPolicy (interventionEngine.decideOnVariance). Manager calls this AFTER the Engine clears the gate. Merge performed as the App (the only identity branch protection permits). Idempotent on pr: AlreadyMerged → success. Conflict (non-fast-forward) → retryable-after-reload via interventionEngine. NotMergeable → terminal.",
+      "inputs": [
+        {
+          "name": "MergePullRequestRequest",
+          "fields": [
+            {"name": "Repo", "type": "RepoRef"},
+            {"name": "PR", "type": "PullRequestRef", "note": "an open, mergeable PR; Manager must have obtained an interventionEngine gate-cleared decision before calling"},
+            {"name": "Cred", "type": "RepoCredential", "note": "Manager-threaded installation credential"},
+            {"name": "Key", "type": "fwra.IdempotencyKey"}
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "MergeResult",
+          "fields": [
+            {"name": "Commit", "type": "string", "note": "opaque resulting main-tip ref; presented, never parsed"},
+            {"name": "Merged", "type": "bool", "note": "true on success / already-merged"}
+          ]
+        },
+        {
+          "name": "(error)",
+          "fields": [
+            {"name": "(error)", "type": "fwra.Error", "note": "Method layer-typed error; Conflict (merge-time CAS) is retryable-after-reload; NotMergeable is terminal; AlreadyMerged maps to success"}
+          ]
+        }
+      ]
+    },
+    {
+      "signature": "ConfigureBranchProtection(ctx, repo RepoRef, cred RepoCredential, key fwra.IdempotencyKey) → error",
+      "stereotype": "Write — provision the App-only-merger backstop",
+      "note": "Provisions main branch protection: required status checks + ≥1 approval + App-only-merge restriction. Out-of-band direct pushes to main rejected with one exception: the aiarch App identity retains direct-push for aiarch-authored project-state commits (D-PA-R intra-ref CAS path). Desired-state PUT; naturally idempotent. Called at repo creation by projectManager.",
+      "inputs": [
+        {
+          "name": "ConfigureBranchProtectionRequest",
+          "fields": [
+            {"name": "Repo", "type": "RepoRef", "note": "a provisioned repo; aiarch must be authorized with administration:write permission"},
+            {"name": "Cred", "type": "RepoCredential", "note": "Manager-threaded installation credential"},
+            {"name": "Key", "type": "fwra.IdempotencyKey"}
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "ConfigureBranchProtectionResponse",
+          "fields": []
+        },
+        {
+          "name": "(error)",
+          "fields": [
+            {"name": "(error)", "type": "fwra.Error", "note": "Method layer-typed error; desired-state PUT is naturally idempotent; Auth/ContractMisuse terminal"}
+          ]
+        }
+      ]
+    }
+  ],
+  "dataContracts": [
+    "BranchName string (provider-neutral per-activity branch name)",
+    "PullRequestSpec { Head BranchName; Base BranchName; Title string; Body string; Hints []byte }",
+    "ReviewSubmission { Verdict ReviewVerdict; Body string }",
+    "ReviewVerdict int (ReviewApprove | ReviewRequestChanges | ReviewComment)",
+    "BranchRef { opaque string }",
+    "PullRequestRef { opaque string }",
+    "MergeResult { Commit string; Merged bool }",
+    "PullRequestStatus { CheckRollup CheckState; ApprovalCount int; Mergeable bool }",
+    "CheckState int (CheckPending | CheckSuccess | CheckFailure)",
+    "RepoRef and RepoCredential: referenced from ISourceControlLifecycle §3.2, not redefined"
+  ],
+  "errorModel": "fwra.Error kinds: Transient (Retryable=true), Auth (Retryable=false), NotFound (Retryable=false), AlreadyExists (mapped to SUCCESS inside seam), AlreadyMerged (mapped to SUCCESS), Conflict (Retryable=true AFTER Manager reloads + re-decides via interventionEngine — mergePullRequest only), NotMergeable (Retryable=false), ContractMisuse (Retryable=false).",
+  "idempotency": "openBranch: idempotent on (repo, branch) — AlreadyExists→success. openPullRequest: idempotent on (repo, head, base) — AlreadyExists→success. postReview: idempotent on (pr, reviewer, verdict). mergePullRequest: idempotent on pr — AlreadyMerged→success. configureBranchProtection: desired-state PUT, naturally idempotent. getPullRequestStatus: pure read, no key. All write ops carry optional fwra.IdempotencyKey for traceability.",
+  "revisions": [
+    {
+      "rev": "r1",
+      "at": "2026-06-10",
+      "by": "system-architect",
+      "byActivity": "D-SC-PR",
+      "summary": "Initial design: 6 ops (openBranch, openPullRequest, getPullRequestStatus, postReview, mergePullRequest, configureBranchProtection). Second contract IPullRequestRail on sourceControlAccess service. App C §6.2b WAIVED with rationale (6 cohesive ops). Senior review APPROVE-AND-FREEZE 2026-06-10."
+    },
+    {
+      "rev": "r2",
+      "at": "2026-06-10",
+      "by": "senior-developer",
+      "byActivity": "D-PA-R-review mayAmend",
+      "summary": "Post-freeze editorial mayAmend: §2.6 configureBranchProtection post-condition clarified (App retains direct-push for aiarch-authored project-state commits; D-PA-R intra-ref CAS path). §6 mapping row gained the two GitHub realization mechanisms (ruleset bypass actor / classic bypass_pull_request_allowances). Editorial only — no op, type, error kind, idempotency rule, or caller changed."
+    }
+  ]
+}

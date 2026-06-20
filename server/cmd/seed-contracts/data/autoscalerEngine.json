@@ -1,0 +1,77 @@
+{
+  "component": "autoscalerEngine",
+  "layer": "Engine",
+  "stereotype": "«Engine» — pure deterministic computation; no I/O; called directly from workflow code without Activity wrapper",
+  "volatility": "AutoscalerPolicy (per volatilities.md axis 1) — when and how the platform drives capacity changes (scale up / scale down / idle-pause / resume-to-baseline) on an Operated System from observed telemetry. Also the Strategy host for CustomerAppInfrastructure volatility — each infrastructure constituent registers its own scaling strategy behind the same surface.",
+  "status": "FROZEN",
+  "inbound": [
+    {"name": "operationsManager", "layer": "Manager"}
+  ],
+  "outbound": [],
+  "ops": [
+    {
+      "signature": "proposeDesiredState(telemetry: Telemetry, currentDesired: DesiredState, policy: AutoscalerPolicy, infrastructureKind: InfrastructureKind) → Decision",
+      "stereotype": "pure compute — deterministic, no I/O, called directly in-workflow (no Activity wrapper)",
+      "note": "Given observed telemetry, current desired capacity, autoscaler policy, and infrastructure kind, return one of five capacity decisions: NoChange | ScaleUp(delta) | ScaleDown(delta) | Pause | Resume(toBaseline)",
+      "inputs": [
+        {
+          "name": "ProposeDesiredStateRequest",
+          "fields": [
+            {"name": "telemetry", "type": "Telemetry", "note": "point-in-time snapshot: load signals (RPS, latency, inflight), capacity signals (replicas, CPU, memory), health/SLO signals, idle duration; Manager pins ObservedAt and TimeSinceLastRequest — engine never reads clock"},
+            {"name": "currentDesired", "type": "DesiredState", "note": "current logical desired capacity: OperatedAppID, InfrastructureKind, Replicas (0=paused), LastDecisionAt"},
+            {"name": "policy", "type": "AutoscalerPolicy", "note": "customer-tunable policy: Mode, capacity bounds, idle-pause threshold, load thresholds, SLA tier, operator overrides; policy.Kind must equal infrastructureKind"},
+            {"name": "infrastructureKind", "type": "InfrastructureKind", "note": "opaque discriminator selecting the package-internal strategy; must equal policy.Kind and currentDesired.InfrastructureKind"}
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Decision",
+          "fields": [
+            {"name": "Kind", "type": "DecisionKind", "note": "NoChange | ScaleUp | ScaleDown | Pause | Resume"},
+            {"name": "Delta", "type": "int", "note": "populated when Kind == ScaleUp or ScaleDown; bounded by policy.MaxStepDelta"},
+            {"name": "ToBaseline", "type": "int", "note": "populated when Kind == Resume; replica count to resume to (policy.BaselineReplicas modulated by SLATier)"},
+            {"name": "Reason", "type": "DecisionReason", "note": "structured cause written into DesiredStatePublished audit event by the Manager"}
+          ]
+        },
+        {
+          "name": "(error)",
+          "fields": [
+            {"name": "(error)", "type": "AutoscalerEngineError", "note": "Method layer-typed error; programmer errors only: ErrContractMisuse, ErrUnknownInfrastructure, ErrInternalInvariant"}
+          ]
+        }
+      ]
+    }
+  ],
+  "dataContracts": [
+    "Telemetry = { OperatedAppID, ObservedAt time.Time, RequestsPerSecond float64, P95LatencyMs float64, InflightRequests int, CurrentReplicas int, CPUUtilization float64, MemoryUtilization float64, Health HealthStatus, SLOStatus SLOStatus, TimeSinceLastRequest time.Duration }",
+    "DesiredState = { OperatedAppID, InfrastructureKind, Replicas int, LastDecisionAt time.Time } // 0 replicas == paused; BaselineRef removed (Amendment 1)",
+    "AutoscalerPolicy = { Kind InfrastructureKind, Mode AutoscalerMode, MinReplicas int, MaxReplicas int, BaselineReplicas int, MaxStepDelta int, IdleThreshold time.Duration, ScaleUpCPU float64, ScaleDownCPU float64, ScaleDownGrace time.Duration, SLATier SLATier, Pinned bool, MaxBurstCap int }",
+    "AutoscalerMode = int enum { AutoscalerModeAuto, AutoscalerModeManual } // Manual always returns NoChange",
+    "SLATier = int enum { SLATierFree, SLATierPaid, SLATierEnterprise }",
+    "InfrastructureKind = int enum { InfrastructureKindUnknown, InfrastructureKindGoTemporalPostgres } // opaque discriminator; strategy axis is package-internal",
+    "Decision = { Kind DecisionKind; Delta int; ToBaseline int; Reason DecisionReason }",
+    "DecisionKind = int enum { DecisionNoChange, DecisionScaleUp, DecisionScaleDown, DecisionPause, DecisionResume }",
+    "DecisionReason = { Code ReasonCode; Detail string }",
+    "ReasonCode = int enum { ReasonUnknown, ReasonCPUHigh, ReasonCPUSustainedLow, ReasonIdle, ReasonTrafficResumed, ReasonManualMode, ReasonPinned, ReasonSLOBurnDown, ReasonAlreadyAtMin, ReasonAlreadyAtMax }",
+    "AutoscalerEngineError = { Kind ErrorKind; Detail string } // ErrorKind: ErrUnknown, ErrContractMisuse, ErrUnknownInfrastructure, ErrInternalInvariant"
+  ],
+  "errorModel": "AutoscalerEngineError — programmer errors only (ErrContractMisuse: nil telemetry or mismatched infrastructureKind; ErrUnknownInfrastructure: no strategy registered for the given kind; ErrInternalInvariant: engine bug). All non-retryable. No transient errors — no I/O.",
+  "idempotency": "Trivially idempotent — pure function. Identical inputs always return identical Decision. No side effects.",
+  "revisions": [
+    {
+      "rev": "r1",
+      "at": "2026-05-23",
+      "by": "system-architect",
+      "byActivity": "D-AE (initial detailed design)",
+      "summary": "Initial design of proposeDesiredState with Telemetry/DesiredState/AutoscalerPolicy/InfrastructureKind inputs and Decision sum-type output; strategy axis kept package-internal"
+    },
+    {
+      "rev": "r2",
+      "at": "2026-05-23",
+      "by": "senior-developer",
+      "byActivity": "D-AE senior review — APPROVED with Amendment 1",
+      "summary": "SENIOR REVIEW APPROVED. Contract frozen. Amendment 1: BaselineRef removed from DesiredState (Engine deterministically computes Resume.ToBaseline = policy.BaselineReplicas each call; no per-call state round-tripped). All 7 OQs resolved. App C §6 7/9 PASS, 2 WAIVED (single-op Engine with App B §5.2 investigation endorsed). C-AE unblocked."
+    }
+  ]
+}

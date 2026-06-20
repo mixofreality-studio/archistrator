@@ -1,0 +1,70 @@
+{
+  "component": "constructionEstimationEngine",
+  "layer": "Engine",
+  "stereotype": "«Engine» — pure, deterministic; encapsulates ConstructionEstimationModel volatility (construction-side); Strategy host; imports no Temporal",
+  "volatility": "ConstructionEstimationModel (construction-side) — how construction duration, cost, and risk are computed for one project option. Evolves as workers change, historical build data accumulates, and the team refines the model (5-day quanta → cone-of-uncertainty intervals; arithmetic risk → geometric variants).",
+  "status": "FROZEN",
+  "inbound": [
+    {"name": "projectDesignManager", "layer": "Manager"}
+  ],
+  "outbound": [],
+  "ops": [
+    {
+      "signature": "estimateForOption(option: ProjectOption) → ConstructionEstimate",
+      "stereotype": "pure compute — plain deterministic Go function; no Activity wrapper; no Temporal",
+      "note": "Returns mutually-consistent {duration, buildCost, risk} for one project option from one CPM pass over its activity network.",
+      "inputs": [
+        {
+          "name": "EstimateForOptionRequest",
+          "fields": [
+            {"name": "Option", "type": "ProjectOption", "note": "ProjectOption struct { OptionID OptionID; Network ActivityNetwork; WorkerMix WorkerMix; CalendarDaysPerWeek float64 }"}
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "ConstructionEstimate",
+          "fields": [
+            {"name": "Duration", "type": "Duration", "note": "CPM critical-path length at the option's worker mix; Duration struct { SimDays float64 }"},
+            {"name": "BuildCost", "type": "Money", "note": "Σ activity effort person-days × worker-class build rate + indirect loading; Money struct { MinorUnits int64; Currency string }"},
+            {"name": "Risk", "type": "RiskScore", "note": "composite construction risk; RiskScore struct { Composite float64; CriticalityRisk float64; ActivityRisk float64 }"}
+          ]
+        },
+        {
+          "name": "(error)",
+          "fields": [
+            {"name": "(error)", "type": "*fweng.Error", "note": "ContractMisuse (nil/invalid option) | InternalInvariant (CPM or risk invariant violated); no retryable flag; all programmer errors"}
+          ]
+        }
+      ]
+    }
+  ],
+  "dataContracts": [
+    "ProjectOption struct { OptionID, Network ActivityNetwork, WorkerMix, CalendarDaysPerWeek float64 /+ option-shaping fields/ }",
+    "ActivityNetwork struct { Activities []ActivityNode, Dependencies []Dependency }",
+    "ActivityNode struct { ActivityID, EffortDays float64, WorkerClass, RiskBucket }",
+    "WorkerMix struct { ClassRates map[WorkerClass]Money }",
+    "ConstructionEstimate struct { Duration, BuildCost Money, Risk RiskScore } // three mutually-consistent facets",
+    "Duration struct { SimDays float64 } // CPM critical-path length at the option's worker mix",
+    "RiskScore struct { Composite float64, CriticalityRisk float64, ActivityRisk float64 } // composite = activity_risk + penalties",
+    "Money struct { MinorUnits int64, Currency string } // reuse shared framework-go/settlementEngine type (FU-EE-C)"
+  ],
+  "errorModel": "framework-go/engine.Error — ContractMisuse (nil option; empty/structurally-invalid network; negative effort) | InternalInvariant (CPM produced negative critical-path length or risk component outside [0,1]). No InvalidInput (no parse step; typed value inputs). No retryable flag; all errors are programmer errors.",
+  "idempotency": "Trivially idempotent — pure function; identical option → identical ConstructionEstimate; no side effects; no idempotencyKey.",
+  "revisions": [
+    {
+      "rev": "r1",
+      "at": "2026-05-28",
+      "by": "system-architect",
+      "byActivity": "D-EE (detailed design)",
+      "summary": "New contract for existing Engine whose scope was narrowed back to construction-only (split from OperationEstimationModel); 1-op justified against single-context volatility and DSL edge label; OQ-1..6 drafted."
+    },
+    {
+      "rev": "r2",
+      "at": "2026-05-28",
+      "by": "senior-developer",
+      "byActivity": "D-EE senior review",
+      "summary": "APPROVE-AND-FREEZE: 6/9 PASS, 2 WAIVED (2a+2b — 1-op endorsed). Zero in-authority amendments. OQ-1 waiver endorsed; OQ-2 CPM homing resolved in-contract (both resolutions pure, no outbound edge); OQ-3 no infrastructureKind pivot confirmed; OQ-4 N-calls shape confirmed; OQ-5 signature+ConstructionEstimate ratified field-shape construction-refinable; OQ-6 shared Money type FU-EE-C. 4 non-blocking follow-ups ratified."
+    }
+  ]
+}

@@ -1,0 +1,221 @@
+{
+  "component": "settlementManager",
+  "layer": "Manager",
+  "stereotype": "«Manager» — owns Temporal; SettlementWorkflow volatility façade",
+  "volatility": "SettlementWorkflow volatility: the sequence by which the platform onboards payment integration, ingests inbound revenue and reversals, closes a billing cycle (read→compute→route→record), recomputes on chargeback, and sweeps shortfalls into a delinquency signal.",
+  "status": "FROZEN",
+  "inbound": [
+    { "name": "webClient", "layer": "Client", "how": "sync in-process (StartWorkflow)" },
+    { "name": "schedulerClient", "layer": "Client", "how": "sync in-process; Temporal Schedule firing (StartWorkflow)" },
+    { "name": "merchantWebhookClient", "layer": "Client", "how": "sync in-process (SignalWorkflow); webhook signature verified upstream by Client via security Utility" }
+  ],
+  "outbound": [
+    { "name": "settlementEngine", "layer": "Engine", "how": "direct by value in-workflow (NOT an Activity); pure/deterministic" },
+    { "name": "interventionEngine", "layer": "Engine", "how": "direct by value in-workflow (NOT an Activity); pure/deterministic" },
+    { "name": "settlementStateAccess", "layer": "ResourceAccess", "how": "Activity-wrapped; writes carry expectedVersion + idempotencyKey" },
+    { "name": "revenueLedgerAccess", "layer": "ResourceAccess", "how": "Activity-wrapped; writes dedup on gateway event id" },
+    { "name": "usageAccess", "layer": "ResourceAccess", "how": "Activity-wrapped; pure read" },
+    { "name": "merchantGatewayAccess", "layer": "ResourceAccess", "how": "Activity-wrapped; externalGateway RetryPolicy; Stripe Idempotency-Key" },
+    { "name": "operatedRuntimeAccess", "layer": "ResourceAccess", "how": "Activity-wrapped; wirePaymentConfig folds into publishDesiredState" },
+    { "name": "durableExecutionAccess", "layer": "ResourceAccess", "how": "Activity-wrapped for category-B verbs (deliverSignal, registerSchedule); awaitSignal is category-A in-workflow primitive (NOT an op)" },
+    { "name": "operationsManager", "layer": "Manager", "how": "queued M→M via durableExecutionAccess.deliverSignal (NOT a direct call); the one sanctioned queued M→M edge" },
+    { "name": "logging", "layer": "Utility", "how": "sync in-process" },
+    { "name": "diagnostics", "layer": "Utility", "how": "sync in-process" }
+  ],
+  "ops": [
+    {
+      "signature": "onboardPaymentIntegration(deployedAppId: DeployedAppID) → SettlementRef",
+      "stereotype": "Workflow (entry)",
+      "note": "Resolves settlement aggregate from deployedAppId, creates merchant connected account, wires payment config into runtime, records binding, registers per-customer closeSettlementCycle Schedule. Idempotent on workflow id {customerId}:onboard.",
+      "inputs": [
+        {
+          "name": "OnboardPaymentIntegrationRequest",
+          "fields": [
+            { "name": "DeployedAppId", "type": "uuid.UUID", "note": "operated-app identity; resolved to CustomerID inside the workflow via settlementStateAccess.readSettlement" }
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "SettlementRef",
+          "fields": [
+            { "name": "CustomerID", "type": "uuid.UUID", "note": "canonical settlement aggregate identity — continuity token" }
+          ]
+        },
+        {
+          "name": "(error)",
+          "fields": [
+            { "name": "(error)", "type": "SettlementError", "note": "Method layer-typed error (framework-go/manager.Error)" }
+          ]
+        }
+      ]
+    },
+    {
+      "signature": "registerCustomer(customerId: CustomerID) → SettlementRef",
+      "stereotype": "Workflow (entry)",
+      "note": "Validates stored payment instrument (zero-amount auth) and opens the settlement aggregate. Idempotent on workflow id {customerId}:register.",
+      "inputs": [
+        {
+          "name": "RegisterCustomerRequest",
+          "fields": [
+            { "name": "CustomerId", "type": "uuid.UUID", "note": "canonical settlement aggregate identity (CustomerID = uuid.UUID per D-MST §3.0)" }
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "SettlementRef",
+          "fields": [
+            { "name": "CustomerID", "type": "uuid.UUID", "note": "continuity token for the registered aggregate" }
+          ]
+        },
+        {
+          "name": "(error)",
+          "fields": [
+            { "name": "(error)", "type": "SettlementError", "note": "Method layer-typed error (framework-go/manager.Error)" }
+          ]
+        }
+      ]
+    },
+    {
+      "signature": "closeSettlementCycle(customerId: CustomerID, cycleId: CycleID) → CloseCycleResult",
+      "stereotype": "Workflow (entry; scheduler-triggered)",
+      "note": "Reads revenue + usage ranges, computes signed net in-workflow by value (settlementEngine.computeNet), executes routing directive (payout/charge), on failure calls interventionEngine, records outcome. Stays alive awaiting inbound/reversal/chargeback signals. Workflow id {customerId}:{cycleId}:close is the continuity token.",
+      "inputs": [
+        {
+          "name": "CloseSettlementCycleRequest",
+          "fields": [
+            { "name": "CustomerId", "type": "uuid.UUID" },
+            { "name": "CycleId", "type": "string" }
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CloseCycleResult",
+          "fields": [
+            { "name": "CustomerID", "type": "uuid.UUID" },
+            { "name": "CycleID", "type": "string" },
+            { "name": "Routed", "type": "RoutingDirective", "note": "Payout | Charge | NoAction — settlementEngine-owned type (referenced)" }
+          ]
+        },
+        {
+          "name": "(error)",
+          "fields": [
+            { "name": "(error)", "type": "SettlementError", "note": "Method layer-typed error (framework-go/manager.Error)" }
+          ]
+        }
+      ]
+    },
+    {
+      "signature": "runShortfallSweep() → ShortfallSweepResult",
+      "stereotype": "Workflow (entry; scheduler-triggered)",
+      "note": "Reads persistently-delinquent customers and delivers queued applyDelinquencyPolicy Signal to operationsManager via durableExecutionAccess.deliverSignal for each. Does not pause/withdraw apps itself.",
+      "inputs": [
+        {
+          "name": "RunShortfallSweepRequest",
+          "fields": []
+        }
+      ],
+      "outputs": [
+        {
+          "name": "ShortfallSweepResult",
+          "fields": [
+            { "name": "SignalledCustomers", "type": "[]uuid.UUID", "note": "possibly empty (quiet sweep)" }
+          ]
+        },
+        {
+          "name": "(error)",
+          "fields": [
+            { "name": "(error)", "type": "SettlementError", "note": "Method layer-typed error (framework-go/manager.Error)" }
+          ]
+        }
+      ]
+    },
+    {
+      "signature": "recordInboundRevenue(event: GatewayRevenueEvent) → void",
+      "stereotype": "Signal",
+      "note": "SignalWorkflow to cycle workflow {customerId}:{cycleId}:close (signal inboundRevenueReceived); signal-with-start if cycle not yet running. Appends revenue fact to Revenue Ledger, idempotent on gateway event id.",
+      "inputs": [
+        {
+          "name": "GatewayRevenueEvent",
+          "fields": [
+            { "name": "GatewayEventId", "type": "string", "note": "dedup key for idempotency (D-RA §2)" },
+            { "name": "CustomerId", "type": "uuid.UUID" },
+            { "name": "CycleId", "type": "string" },
+            { "name": "Amount", "type": "Money", "note": "signed amount+currency" },
+            { "name": "OccurredAt", "type": "string", "note": "RFC3339" }
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "void",
+          "fields": []
+        },
+        {
+          "name": "(error)",
+          "fields": [
+            { "name": "(error)", "type": "SettlementError", "note": "Method layer-typed error (framework-go/manager.Error)" }
+          ]
+        }
+      ]
+    },
+    {
+      "signature": "recordRevenueReversal(event: GatewayReversalEvent) → void",
+      "stereotype": "Signal",
+      "note": "SignalWorkflow to cycle workflow (signal chargebackReceived); signal-with-start → recomputeCycle if original close completed. Appends reversal, recomputes net forward-only, records correction, routes delta. Compensation is forward-only; no rollback.",
+      "inputs": [
+        {
+          "name": "GatewayReversalEvent",
+          "fields": [
+            { "name": "GatewayEventId", "type": "string", "note": "dedup key for idempotency (D-RA §2)" },
+            { "name": "AffectedCycleId", "type": "string" },
+            { "name": "ReversedAmount", "type": "Money", "note": "reversed amount+currency" },
+            { "name": "ReversesId", "type": "string", "note": "optional; gateway event id of the original revenue event" }
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "void",
+          "fields": []
+        },
+        {
+          "name": "(error)",
+          "fields": [
+            { "name": "(error)", "type": "SettlementError", "note": "Method layer-typed error (framework-go/manager.Error)" }
+          ]
+        }
+      ]
+    }
+  ],
+  "dataContracts": [
+    "CustomerID = uuid.UUID  // canonical settlement aggregate identity key — ruled at D-MST §3.0",
+    "CycleID = string        // agreed across D-RA / D-UA / settlementStateAccess",
+    "DeployedAppID = uuid.UUID // operated-app identity; NOT the settlement key",
+    "SettlementRef struct { CustomerID CustomerID }",
+    "CloseCycleResult struct { CustomerID CustomerID; CycleID CycleID; Routed RoutingDirective }",
+    "ShortfallSweepResult struct { SignalledCustomers []CustomerID }",
+    "GatewayRevenueEvent struct { /* gateway event id, customer/cycle, signed amount+currency, occurred-at */ }",
+    "GatewayReversalEvent struct { /* gateway event id, affected cycle, reversed amount+currency, reverses-id? */ }"
+  ],
+  "errorModel": "SettlementError is framework-go/manager.Error with kinds: FailedPrecondition / NotFound / Conflict / Unauthorized / Transient / ContractMisuse. These are caller/programmer errors at the façade boundary — distinct from the workflow's own failure handling (Temporal RetryPolicy + interventionEngine decide→execute + forward-only chargeback compensation).",
+  "idempotency": "Workflow-level: idempotent on workflow id (a redundant StartWorkflow returns the running SettlementRef). Activity-level: each RA write Activity carries Manager-derived idempotencyKey and expectedVersion; writes use dedup-first ordering. Gateway charges use Stripe Idempotency-Key = settle:{customerId}:{cycleId}. Signal ops idempotent on gateway event id (D-RA §2).",
+  "revisions": [
+    {
+      "rev": "r1",
+      "at": "2026-05-30",
+      "by": "system-architect",
+      "byActivity": "D-MST (detailed design)",
+      "summary": "First draft: 6 ops (4 Workflow + 2 Signal), canonical settlement aggregate identity ruled as CustomerID=uuid.UUID (closing D-RA OQ-3 and D-UA §9 Q3), decides FU-MST-1 (settlementStateAccess id-type migration) and FU-MST-2 (merchantGatewayAccess D-MA contract)."
+    },
+    {
+      "rev": "r2",
+      "at": "2026-05-30",
+      "by": "senior-developer",
+      "byActivity": "D-MST senior review",
+      "summary": "APPROVED-AND-FROZEN. Independent re-derivation confirmed 3 Clients, 6 ops, outbound strictly down one layer. Canonical-key ruling RATIFIED. OQ-4 clarified: Escalate = operator-dashboard via settlementStateAccess head-state, no new edge. All OQs ruled; follow-ups FU-MST-1 through FU-MST-4 routed."
+    }
+  ]
+}

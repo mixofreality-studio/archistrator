@@ -1,0 +1,106 @@
+{
+  "component": "billingGatewayAccess",
+  "layer": "ResourceAccess",
+  "stereotype": "«ResourceAccess» — owns billingGateway (Stripe as ordinary vendor-to-customer charge; aiarch MoR for its own invoices only)",
+  "volatility": "Billing-gateway ACCESS volatility — how aiarch pulls money in from the user for its own service invoice through an external payment processor, and how the user's stored charge instrument is validated at registration. Gateway is infrastructure-opaque (Stripe today; a different processor or multi-processor routing tomorrow).",
+  "status": "FROZEN",
+  "inbound": [
+    {"name": "billingManager", "layer": "Manager"}
+  ],
+  "outbound": [
+    {"name": "billingGateway", "layer": "Resource", "how": "Activity-wrapped · idempotency via caller-supplied GatewayRequestKey forwarded as Stripe Idempotency-Key header"}
+  ],
+  "ops": [
+    {
+      "signature": "chargeUser(req: ChargeRequest) → GatewayCharge",
+      "stereotype": "Activity-wrapped write — idempotent on req.Key via gateway-native Idempotency-Key header",
+      "note": "Pull aiarch's own service-invoice amount in from the user's stored charge instrument; hard decline returns terminal ContentPolicy error for Manager to route to interventionEngine.DecideOnBillingFailure",
+      "inputs": [
+        {
+          "name": "ChargeRequest",
+          "fields": [
+            {"name": "CustomerID", "type": "CustomerID", "note": "uuid.UUID; must name a registered customer with a validated stored charge instrument"},
+            {"name": "PeriodID", "type": "PeriodID", "note": "billing-period context for audit and Manager key derivation"},
+            {"name": "Amount", "type": "Money", "note": "POSITIVE service-invoice magnitude in minor units + ISO-4217 currency; direction is the verb; non-positive is ContractMisuse"},
+            {"name": "Key", "type": "GatewayRequestKey", "note": "caller-supplied deterministic gateway request key (fwra.IdempotencyKey); Manager derives as ${workflowId}:${activityId}; placed into Stripe Idempotency-Key header"}
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "GatewayCharge",
+          "fields": [
+            {"name": "ChargeID", "type": "string", "note": "opaque gateway correlation token; not a Stripe id"},
+            {"name": "Status", "type": "ChargeStatus", "note": "ChargeSucceeded only; declines are terminal fwra.Error"},
+            {"name": "Amount", "type": "Money", "note": "magnitude actually charged; echoes the request (or the original on a deduped replay)"}
+          ]
+        },
+        {
+          "name": "(error)",
+          "fields": [
+            {"name": "(error)", "type": "fwra.Error", "note": "Method layer-typed error; ContentPolicy = hard decline (terminal); Transient/RateLimited/Infrastructure = retryable"}
+          ]
+        }
+      ]
+    },
+    {
+      "signature": "validateStoredInstrument(req: ValidateStoredInstrumentRequest) → InstrumentValidation",
+      "stereotype": "Activity-wrapped write (zero-amount authorization) — idempotent on req.Key via gateway-native Idempotency-Key header",
+      "note": "Zero-amount-authorize the user's stored charge instrument at registration before any billing period exists; failed validation returns terminal ContentPolicy error for Manager's registration-failure path",
+      "inputs": [
+        {
+          "name": "ValidateStoredInstrumentRequest",
+          "fields": [
+            {"name": "CustomerID", "type": "CustomerID", "note": "uuid.UUID; customer whose stored charge instrument is addressed inside this seam"},
+            {"name": "Key", "type": "GatewayRequestKey", "note": "caller-supplied deterministic key; shape: validate:{customerId}:{attempt}; attempt increments only on deliberate re-validation"}
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "InstrumentValidation",
+          "fields": [
+            {"name": "AuthorizationID", "type": "string", "note": "opaque gateway zero-amount authorization id; not a Stripe id"},
+            {"name": "Status", "type": "ChargeStatus", "note": "ChargeSucceeded only (zero-amount auth succeeded); failed validation is terminal fwra.Error"}
+          ]
+        },
+        {
+          "name": "(error)",
+          "fields": [
+            {"name": "(error)", "type": "fwra.Error", "note": "Method layer-typed error; ContentPolicy = instrument declined (terminal, routes to registration-failure path); NotFound = no addressable instrument"}
+          ]
+        }
+      ]
+    }
+  ],
+  "dataContracts": [
+    "ChargeRequest = { CustomerID CustomerID; PeriodID PeriodID; Amount Money; Key GatewayRequestKey } // Amount must be positive (direction is the verb)",
+    "ValidateStoredInstrumentRequest = { CustomerID CustomerID; Key GatewayRequestKey } // no Amount — zero-amount auth, nothing captured",
+    "GatewayRequestKey = fwra.IdempotencyKey // caller-supplied deterministic gateway request key; Manager derives as ${workflowId}:${activityId}",
+    "CustomerID = uuid.UUID",
+    "PeriodID = string",
+    "Money = { MinorUnits int64; Currency string } // positive integer minor units; never a float",
+    "GatewayCharge = { ChargeID string; Status ChargeStatus; Amount Money } // opaque correlation token; not a Stripe type",
+    "InstrumentValidation = { AuthorizationID string; Status ChargeStatus } // opaque correlation token; not a Stripe type",
+    "ChargeStatus = int enum { ChargeSucceeded } // declines are terminal fwra.Error (ContentPolicy), not a status value",
+    "fwra.Error { Kind Kind; Retryable bool; Detail string; Cause error } // shared RA error model; kinds used: Transient, RateLimited, Infrastructure (retryable); ContentPolicy (hard decline, terminal), Auth, NotFound, ContractMisuse, Conflict (terminal)"
+  ],
+  "errorModel": "framework-go/resourceaccess.Error. Retryable: Transient, RateLimited, Infrastructure (Manager retries with same key — safe by idempotency). Terminal: ContentPolicy (hard gateway decline — Manager routes to interventionEngine.DecideOnBillingFailure or registration-failure path), Auth (aiarch credential invalid), NotFound (unknown customer/instrument), ContractMisuse (non-positive Amount, missing currency, empty Key), Conflict (same Key with different payload — derivation bug, never retried). Retryable seeded on construction, never inferred at call site.",
+  "idempotency": "Both ops idempotent on caller-supplied GatewayRequestKey via Stripe's native Idempotency-Key header (24h dedup window). Manager derives key as ${workflowId}:${activityId} — execution-scoped, giving: same-charge-retry → same key → Stripe dedups → exactly-once charge; sweep re-charge → new workflowId → new key → genuinely new attempt.",
+  "revisions": [
+    {
+      "rev": "r1",
+      "at": "2026-06-10",
+      "by": "system-architect",
+      "byActivity": "D-BG (initial detailed design, re-cut from sunk merchantGatewayAccess D-MA)",
+      "summary": "NET-NEW contract post-2026-06-09 MoR reversal. Two ops: chargeUser (aiarch charges user for own service invoice) and validateStoredInstrument (zero-amount auth at registration). Payout/connected-account/refund rails deleted. Supersedes frozen-never-built merchantGatewayAccess.md."
+    },
+    {
+      "rev": "r2",
+      "at": "2026-06-10",
+      "by": "senior-developer",
+      "byActivity": "D-BG senior review (the-method-review-routing) — APPROVE-AND-FREEZE",
+      "summary": "SENIOR REVIEW APPROVED AND FROZEN. App C §6 9/9 PASS (2b waiver upheld — 2 ops, DSL names exactly two caller edges). Two editorial amendments: A1 (§2.2 Notes terminal-list consistency, Conflict added); A2 (§9 OQ-1 records op-concepts §10 vs DSL view key-shape cross-doc inconsistency, escalated to D-BM). C-BG unblocked."
+    }
+  ]
+}

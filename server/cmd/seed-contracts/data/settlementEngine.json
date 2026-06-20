@@ -1,0 +1,134 @@
+{
+  "component": "settlementEngine",
+  "layer": "Engine",
+  "stereotype": "«Engine» — Settlement-terms volatility: RevenueShareTerm + ComputeCostPricing + SettlementSchedule + BillingTerms",
+  "volatility": "Settlement-terms volatility — how the signed net for a customer's cycle is computed from inbound revenue and compute usage, and which way (Payout vs Shortfall charge) it routes. Revenue share (launch 10%, per-customer/per-time variation), compute-cost pass-through, schedule cadence, and shortfall-billing policy all evolve behind this Engine as package-internal Strategy.",
+  "status": "FROZEN",
+  "inbound": [
+    {"name": "settlementManager", "layer": "Manager"},
+    {"name": "projectDesignManager", "layer": "Manager"}
+  ],
+  "outbound": [],
+  "ops": [
+    {
+      "signature": "computeNet(revenue CycleRevenue, usage CycleUsage, terms SettlementTerms) → SettlementResult",
+      "stereotype": "pure compute — plain deterministic Go function, no Temporal",
+      "note": "Computes the signed net (inbound revenue − revenue share − compute cost) and routing directive (Payout/Charge/NoAction) for a closed billing cycle.",
+      "inputs": [
+        {
+          "name": "ComputeNetRequest",
+          "fields": [
+            {"name": "Revenue", "type": "CycleRevenue", "note": "Value snapshot from revenueLedgerAccess.readRange passed in by settlementManager"},
+            {"name": "Usage", "type": "CycleUsage", "note": "Value snapshot from usageAccess.readRange passed in by settlementManager"},
+            {"name": "Terms", "type": "SettlementTerms", "note": "Customer's settlement-terms snapshot from settlementStateAccess; carries RevenueShareTerm, ComputeCostPricing, SettlementSchedule, BillingTerms Strategies"}
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "SettlementResult",
+          "fields": [
+            {"name": "SignedNet", "type": "Money", "note": "Positive == Payout to customer; negative == Shortfall charge"},
+            {"name": "RoutingDirective", "type": "RoutingDirective", "note": "RoutingPayout | RoutingCharge | RoutingNoAction — stated, not performed"},
+            {"name": "RevenueShareApplied", "type": "Money", "note": "The cut taken; for the settlement statement"},
+            {"name": "ComputeCostApplied", "type": "Money", "note": "The pass-through applied; for the settlement statement"}
+          ]
+        },
+        {
+          "name": "(error)",
+          "fields": [
+            {"name": "(error)", "type": "fweng.Error", "note": "Method layer-typed error — ContractMisuse | UnknownTerms | InternalInvariant (programmer errors only; no retryable flag)"}
+          ]
+        }
+      ]
+    },
+    {
+      "signature": "recomputeNet(affectedCycle ReSettlementInput) → SettlementResult",
+      "stereotype": "pure compute — plain deterministic Go function, no Temporal",
+      "note": "Recomputes the corrected signed net and delta routing directive for a cycle after a chargeback reversal; forward-only compensation.",
+      "inputs": [
+        {
+          "name": "RecomputeNetRequest",
+          "fields": [
+            {"name": "AffectedCycle", "type": "ReSettlementInput", "note": "Carries reversal-adjusted Revenue, Usage, Terms, and PriorSettled SettlementResult; Manager has already appended the reversal and re-read the range"}
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "SettlementResult",
+          "fields": [
+            {"name": "SignedNet", "type": "Money", "note": "Corrected signed net after chargeback reversal"},
+            {"name": "RoutingDirective", "type": "RoutingDirective", "note": "Delta routing directive (re-charge/re-payout of the difference vs prior settlement); forward-only"},
+            {"name": "RevenueShareApplied", "type": "Money"},
+            {"name": "ComputeCostApplied", "type": "Money"}
+          ]
+        },
+        {
+          "name": "(error)",
+          "fields": [
+            {"name": "(error)", "type": "fweng.Error", "note": "Method layer-typed error — ContractMisuse | UnknownTerms | InternalInvariant"}
+          ]
+        }
+      ]
+    },
+    {
+      "signature": "projectCommitTimeRevenueShareAndComputeCost(option ProjectOption) → Projection",
+      "stereotype": "pure compute — plain deterministic Go function, no Temporal",
+      "note": "Projects the revenue-share and compute-cost terms implied by the committed project option for the SDP confirmation row; no actuals exist at commit time.",
+      "inputs": [
+        {
+          "name": "ProjectCommitTimeRequest",
+          "fields": [
+            {"name": "Option", "type": "ProjectOption", "note": "Carries SettlementTerms by value per D-OE OQ-2/FU-OE-A precedent; same option constructionEstimationEngine and operationEstimationEngine receive"}
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Projection",
+          "fields": [
+            {"name": "RevenueShareProjection", "type": "RevenueShareProjection", "note": "What aiarch's cut policy implies for this option (Kind + projected rate/regime summary)"},
+            {"name": "ComputeCostProjection", "type": "ComputeCostProjection", "note": "What the compute-cost-pricing policy implies for this option"}
+          ]
+        },
+        {
+          "name": "(error)",
+          "fields": [
+            {"name": "(error)", "type": "fweng.Error", "note": "Method layer-typed error — ContractMisuse | UnknownTerms | InternalInvariant"}
+          ]
+        }
+      ]
+    }
+  ],
+  "dataContracts": [
+    "CycleRevenue = { CustomerID; CycleID; GrossInbound Money; Currency string; EventCount int } // value snapshot passed by Manager from revenueLedgerAccess.readRange",
+    "CycleUsage = { CustomerID; CycleID; ComputeUnitSeconds float64; StorageBytesMonths float64; EgressBytes float64 } // from usageAccess.readRange",
+    "SettlementTerms = { RevenueShareTerm; ComputeCostPricing; SettlementSchedule; BillingTerms } // from settlementStateAccess",
+    "ReSettlementInput = { Revenue CycleRevenue; Usage CycleUsage; Terms SettlementTerms; PriorSettled SettlementResult }",
+    "ProjectOption = { OptionID; Terms SettlementTerms; ... } // carries settlement terms on option (D-OE OQ-2/FU-OE-A precedent)",
+    "SettlementResult = { SignedNet Money; RoutingDirective RoutingDirective; RevenueShareApplied Money; ComputeCostApplied Money }",
+    "RoutingDirective = RoutingNoAction | RoutingPayout | RoutingCharge",
+    "Projection = { RevenueShareProjection RevenueShareProjection; ComputeCostProjection ComputeCostProjection }",
+    "Money = { MinorUnits int64; Currency string } // canonical in framework-go; integer minor-units, no float",
+    "fweng.Error = { Kind: ContractMisuse | UnknownTerms | InternalInvariant } // all programmer errors; no retryable flag; no Temporal"
+  ],
+  "errorModel": "framework-go/engine.Error — kinds: ContractMisuse (nil input or structurally invalid — Manager bug), UnknownTerms (unregistered Strategy — deploy/config bug; never silent fallback on real money), InternalInvariant (engine-internal violation — panics in test). No retryable flag and no Temporal mapping — pure Engine, direct in-workflow call.",
+  "idempotency": "Trivially idempotent — pure deterministic functions. Identical inputs → identical output always. No idempotencyKey parameter. Settlement mutations are deduped by the Manager's settleCycle/resettleCycle Activity, not here.",
+  "revisions": [
+    {
+      "rev": "r1",
+      "at": "2026-05-29",
+      "by": "system-architect",
+      "byActivity": "D-SG (detailed design)",
+      "summary": "Initial contract — three ops (computeNet, recomputeNet, projectCommitTimeRevenueShareAndComputeCost). Settlement twin of constructionEstimationEngine/operationEstimationEngine. No outbound edge. Pure/deterministic/no-Temporal. 9/9 App C §6 self-check PASS, 0 waivers."
+    },
+    {
+      "rev": "r2",
+      "at": "2026-05-29",
+      "by": "senior-developer",
+      "byActivity": "D-SG senior review",
+      "summary": "APPROVED — FROZEN. 9/9 PASS independently re-walked. Two callers / three ops / zero outbound edges confirmed from DSL. OQ-1..OQ-7 adjudicated. One freeze-time amendment: Money canonical location pinned to framework-go (OQ-6). Four non-blocking follow-ups routed to C-SG."
+    }
+  ]
+}

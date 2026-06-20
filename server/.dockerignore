@@ -1,0 +1,14 @@
+# Build context is the REPO ROOT (see Dockerfile header). Keep the image build
+# lean and reproducible by excluding local/test cruft. The Dockerfile only COPYs
+# the server module + the five shared/framework-go* modules, so most of the repo
+# is never sent — but these patterns also trim those copied trees.
+**/.git
+**/.DS_Store
+**/*_test.go
+**/testdata/
+**/test-artifacts/
+**/.temporal/
+**/node_modules/
+**/build/
+**/dist/
+**/*.md
