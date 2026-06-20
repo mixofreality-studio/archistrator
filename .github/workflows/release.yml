@@ -10,6 +10,7 @@ jobs:
 
     permissions:
       contents: write
+      packages: write
 
     steps:
       - name: Checkout repository
@@ -48,11 +49,12 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Docker login
-        run: |
-          USERNAME=$(echo '${{ secrets.DOCKER_CONFIG }}' | jq -r '.auths["https://index.docker.io/v1/"].auth' | base64 -d | cut -d: -f1)
-          PASSWORD=$(echo '${{ secrets.DOCKER_CONFIG }}' | jq -r '.auths["https://index.docker.io/v1/"].auth' | base64 -d | cut -d: -f2)
-          echo "$PASSWORD" | docker login -u "$USERNAME" --password-stdin
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push server image
         run: |
@@ -60,7 +62,8 @@ jobs:
           docker buildx build \
             --platform linux/amd64 \
             -f server/Dockerfile \
-            -t "davidmarne/aiarch:archistrator-server-${VERSION}" \
+            -t "ghcr.io/davidmarne/archistrator-server:${VERSION}" \
+            -t "ghcr.io/davidmarne/archistrator-server:latest" \
             --push \
             .
 
@@ -84,6 +87,7 @@ jobs:
 
     permissions:
       contents: write
+      packages: write
 
     steps:
       - name: Checkout repository
@@ -129,11 +133,12 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Docker login
-        run: |
-          USERNAME=$(echo '${{ secrets.DOCKER_CONFIG }}' | jq -r '.auths["https://index.docker.io/v1/"].auth' | base64 -d | cut -d: -f1)
-          PASSWORD=$(echo '${{ secrets.DOCKER_CONFIG }}' | jq -r '.auths["https://index.docker.io/v1/"].auth' | base64 -d | cut -d: -f2)
-          echo "$PASSWORD" | docker login -u "$USERNAME" --password-stdin
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push webapp image
         run: |
@@ -146,7 +151,8 @@ jobs:
             --build-arg VITE_OIDC_CLIENT_ID=archistrator-webapp \
             --build-arg VITE_OIDC_REDIRECT_URI=https://archistrator.capture-gtd.com/ \
             --build-arg "VITE_OIDC_SCOPE=openid profile email" \
-            -t "davidmarne/aiarch:archistrator-webapp-${VERSION}" \
+            -t "ghcr.io/davidmarne/archistrator-webapp:${VERSION}" \
+            -t "ghcr.io/davidmarne/archistrator-webapp:latest" \
             --push \
             webApp/
 
