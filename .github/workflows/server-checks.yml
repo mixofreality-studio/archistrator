@@ -16,6 +16,9 @@ jobs:
   check:
     runs-on: ubuntu-latest
 
+    permissions:
+      contents: read
+
     defaults:
       run:
         working-directory: server
@@ -30,11 +33,18 @@ jobs:
           go-version-file: server/go.mod
           cache-dependency-path: server/go.sum
 
+      - name: Generate app token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: davidmarne
+          repositories: archistrator,archistrator-platform
+
       - name: Configure private module access
         run: |
-          git config --global url."https://x-access-token:${{ secrets.PLATFORM_READ_TOKEN }}@github.com/".insteadOf "https://github.com/"
-        env:
-          GOPRIVATE: github.com/davidmarne/*
+          git config --global url."https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/".insteadOf "https://github.com/"
 
       - name: Check formatting
         run: test -z "$(gofmt -l .)" || { gofmt -l .; echo "Run 'gofmt -w .'"; exit 1; }

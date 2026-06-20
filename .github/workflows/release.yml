@@ -23,6 +23,8 @@ jobs:
         with:
           app-id: ${{ secrets.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: davidmarne
+          repositories: archistrator,archistrator-platform
 
       - name: Resolve version
         id: version
@@ -67,7 +69,7 @@ jobs:
           # Build context is repo root; server/Dockerfile COPYs from server/.
           # Private platform modules are fetched via mounted gh_token secret
           # (--mount=type=secret,id=gh_token, as expected by server/Dockerfile).
-          echo "${{ secrets.PLATFORM_READ_TOKEN }}" > /tmp/gh_token
+          echo "${{ steps.app-token.outputs.token }}" > /tmp/gh_token
           docker buildx build \
             --platform linux/amd64 \
             --secret id=gh_token,src=/tmp/gh_token \
@@ -97,6 +99,7 @@ jobs:
 
     permissions:
       contents: write
+      packages: read
 
     steps:
       - name: Checkout repository
@@ -158,12 +161,9 @@ jobs:
       - name: Build and push webapp image
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          # The webApp Dockerfile fetches @davidmarne/archistrator-platform-framework-web
-          # from GitHub Packages via --mount=type=secret,id=gh_token.
-          echo "${{ secrets.PLATFORM_READ_TOKEN }}" > /tmp/gh_token
           docker buildx build \
             --platform linux/amd64 \
-            --secret id=gh_token,src=/tmp/gh_token \
+            --build-arg NPM_TOKEN=${{ secrets.GITHUB_TOKEN }} \
             --build-arg VITE_API_BASE_URL= \
             --build-arg VITE_AUTH_MODE=keycloak \
             --build-arg VITE_OIDC_AUTHORITY=https://keycloak.capture-gtd.com/realms/archistrator \
@@ -173,7 +173,6 @@ jobs:
             -t "davidmarne/aiarch:archistrator-webapp-${VERSION}" \
             --push \
             webApp/
-          rm -f /tmp/gh_token
 
       - name: Commit and push
         run: |
