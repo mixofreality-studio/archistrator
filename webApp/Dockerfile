@@ -19,13 +19,13 @@ ENV VITE_API_BASE_URL=$VITE_API_BASE_URL \
     VITE_OIDC_SCOPE=$VITE_OIDC_SCOPE
 
 COPY package.json package-lock.json ./
-# The @davidmarne/archistrator-platform-framework-web package is hosted on
-# GitHub Packages (private registry). Mount a token secret so the credential
-# is never baked into any image layer.
-RUN --mount=type=secret,id=gh_token \
-    GH_TOKEN=$(cat /run/secrets/gh_token) \
-    && echo "@davidmarne:registry=https://npm.pkg.github.com" >> .npmrc \
-    && echo "//npm.pkg.github.com/:_authToken=${GH_TOKEN}" >> .npmrc \
+# The @davidmarne/archistrator-platform-framework-web package is on GitHub Packages
+# (private registry). The release workflow passes the GITHUB_TOKEN as --build-arg
+# NPM_TOKEN (same pattern as the gtd webApp); the .npmrc is written + removed within
+# this RUN so the token is never baked into a persisted layer.
+ARG NPM_TOKEN
+RUN echo "@davidmarne:registry=https://npm.pkg.github.com" > .npmrc \
+    && echo "//npm.pkg.github.com/:_authToken=${NPM_TOKEN}" >> .npmrc \
     && npm ci \
     && rm -f .npmrc
 COPY . .
