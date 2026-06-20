@@ -2,11 +2,11 @@ go 1.25.4
 
 use (
 	./server
-	/Users/davidmarne/mixofrealitystudio/archistrator-platform/framework-go
-	/Users/davidmarne/mixofrealitystudio/archistrator-platform/framework-go-infrastructure-github
-	/Users/davidmarne/mixofrealitystudio/archistrator-platform/framework-go-infrastructure-keycloak
-	/Users/davidmarne/mixofrealitystudio/archistrator-platform/framework-go-infrastructure-llm
-	/Users/davidmarne/mixofrealitystudio/archistrator-platform/framework-go-infrastructure-otel
-	/Users/davidmarne/mixofrealitystudio/archistrator-platform/framework-go-infrastructure-postgres
-	/Users/davidmarne/mixofrealitystudio/archistrator-platform/framework-go-infrastructure-temporal
+	../archistrator-platform/framework-go
+	../archistrator-platform/framework-go-infrastructure-github
+	../archistrator-platform/framework-go-infrastructure-keycloak
+	../archistrator-platform/framework-go-infrastructure-llm
+	../archistrator-platform/framework-go-infrastructure-otel
+	../archistrator-platform/framework-go-infrastructure-postgres
+	../archistrator-platform/framework-go-infrastructure-temporal
 )
