@@ -7,12 +7,12 @@ func TestDeriveKind(t *testing.T) {
 		id, component string
 		want          ActivityKind
 	}{
-		"manager":  {"C-MST", "settlementManager", ActivityKindService},
-		"engine":   {"C-BE", "billingEngine", ActivityKindService},
-		"access":   {"C-PA", "projectStateAccess", ActivityKindService},
-		"client":   {"C-CW", "webClient", ActivityKindService},
-		"spa":      {"U-SPA", "", ActivityKindFrontend},
-		"ci":       {"N-CI", "", ActivityKindTesting},
+		"manager": {"C-MST", "settlementManager", ActivityKindService},
+		"engine":  {"C-BE", "billingEngine", ActivityKindService},
+		"access":  {"C-PA", "projectStateAccess", ActivityKindService},
+		"client":  {"C-CW", "webClient", ActivityKindService},
+		"spa":     {"U-SPA", "", ActivityKindFrontend},
+		"ci":      {"N-CI", "", ActivityKindTesting},
 	}
 	for name, c := range cases {
 		if got := DeriveKind(c.id, c.component); got != c.want {

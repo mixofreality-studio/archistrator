@@ -37,12 +37,12 @@ package web
 import (
 	"context"
 
+	"github.com/mixofreality-studio/archistrator-platform/framework-go/utilities/security"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/construction"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/operations"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/project"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/projectdesign"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/systemdesign"
-	"github.com/mixofreality-studio/archistrator-platform/framework-go/utilities/security"
 )
 
 // SystemDesignEntry is the NARROW port the webClient depends on for the UC1

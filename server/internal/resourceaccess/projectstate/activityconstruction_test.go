@@ -16,8 +16,8 @@ import (
 
 	"github.com/google/uuid"
 
-	ps "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	ps "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
 // newConstructionStore spins a real local git store and seeds a project so

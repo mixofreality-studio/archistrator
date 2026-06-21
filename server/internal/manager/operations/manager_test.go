@@ -54,8 +54,8 @@ import (
 	"errors"
 	"testing"
 
-	fwmgr "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	"github.com/google/uuid"
+	fwmgr "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 )
 
 // These tests cover the façade-boundary pre-condition checks the contract puts on the

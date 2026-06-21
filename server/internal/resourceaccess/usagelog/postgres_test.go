@@ -12,8 +12,8 @@ import (
 
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usagelog"
 	postgresinfra "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-postgres/testinfra"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usagelog"
 )
 
 // These integration tests exercise the concrete Postgres Store against a real

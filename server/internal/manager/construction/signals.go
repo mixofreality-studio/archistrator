@@ -3,8 +3,8 @@ package construction
 import (
 	"go.temporal.io/sdk/workflow"
 
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
 // This file holds the operator-supervision Signal payloads + the project-level

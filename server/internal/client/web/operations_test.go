@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mixofreality-studio/archistrator/server/internal/manager/operations"
+	"github.com/google/uuid"
 	fwmgr "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	"github.com/mixofreality-studio/archistrator-platform/framework-go/utilities/security"
-	"github.com/google/uuid"
+	"github.com/mixofreality-studio/archistrator/server/internal/manager/operations"
 )
 
 // These are BLACK-BOX HTTP-level tests of the UC4 operateDeliveredSystem facet.

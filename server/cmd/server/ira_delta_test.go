@@ -25,11 +25,11 @@ import (
 	"strings"
 	"testing"
 
+	fwgithub "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github"
+	gh "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github/testinfra"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/project"
 	ps "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
-	fwgithub "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github"
-	gh "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github/testinfra"
 )
 
 const iraDeltaAccount = "acme"

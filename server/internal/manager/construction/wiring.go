@@ -20,10 +20,10 @@ package construction
 import (
 	"context"
 
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 	workeraccess "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/worker"
-	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
 // WireDeps assembles a construction.Deps from the real collaborators at the

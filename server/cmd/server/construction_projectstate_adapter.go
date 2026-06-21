@@ -25,9 +25,9 @@ package main
 import (
 	"context"
 
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/construction"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
-	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
 // constructionProjectStateAdapter binds a credentialMinter over the cred-threaded

@@ -31,9 +31,9 @@ package main
 import (
 	"context"
 
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/project"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
-	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
 // sourceControlAdapter adapts *sourcecontrol.Access to project.SourceControlAccess.

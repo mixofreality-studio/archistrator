@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mixofreality-studio/archistrator/server/internal/engine/estimation"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/estimation"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
 // fakeProjectStateAccess is the contract-first test double over the narrow

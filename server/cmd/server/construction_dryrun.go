@@ -23,10 +23,10 @@ import (
 	"context"
 	"encoding/json"
 
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/construction"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
 	workeraccess "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/worker"
-	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
 // ---------------------------------------------------------------------------

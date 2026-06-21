@@ -94,4 +94,3 @@ func (s *GitStore) RecordActivityCompleted(ctx context.Context, projectID Projec
 		return nil
 	})
 }
-

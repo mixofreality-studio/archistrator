@@ -84,12 +84,12 @@ func TestMethodLayering(t *testing.T) {
 	spec.TemporalExemptPackages = []string{"resourceaccess/durableexecution"}
 
 	spec.AllowedImportPrefixes = []string{
-		"github.com/mixofreality-studio/",        // archistrator-platform framework family + this app's own module
-		"github.com/google/uuid",        // sanctioned identity type (projectstate.ProjectID = uuid.UUID)
-		"github.com/invopop/jsonschema", // typed-output JSON Schema derivation for LLM prompts (manager/systemdesign/schema.go)
-		"github.com/jackc/pgx",          // sanctioned Postgres driver
-		"github.com/go-git/",            // sanctioned Git/Gitea client (go-git + go-billy)
-		"go.temporal.io/",               // sanctioned durable-execution substrate
+		"github.com/mixofreality-studio/", // archistrator-platform framework family + this app's own module
+		"github.com/google/uuid",          // sanctioned identity type (projectstate.ProjectID = uuid.UUID)
+		"github.com/invopop/jsonschema",   // typed-output JSON Schema derivation for LLM prompts (manager/systemdesign/schema.go)
+		"github.com/jackc/pgx",            // sanctioned Postgres driver
+		"github.com/go-git/",              // sanctioned Git/Gitea client (go-git + go-billy)
+		"go.temporal.io/",                 // sanctioned durable-execution substrate
 	}
 	arch.Check(t, spec)
 }

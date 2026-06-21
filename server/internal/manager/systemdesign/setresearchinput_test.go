@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+	"github.com/google/uuid"
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
-	"github.com/google/uuid"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
 // These tests cover the SYNC, non-Temporal SetResearchInput op (op 2.6,

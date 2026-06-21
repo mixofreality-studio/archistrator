@@ -34,8 +34,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
 // ---------------------------------------------------------------------------

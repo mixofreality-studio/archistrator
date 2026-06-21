@@ -19,9 +19,9 @@ import (
 
 	"github.com/google/uuid"
 
-	ps "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	fwgithub "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github"
 	gh "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github/testinfra"
+	ps "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
 // localProjectStateOverGit spins a real throwaway on-disk git repo (per-project) and

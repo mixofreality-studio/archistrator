@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/mixofreality-studio/archistrator/server/internal/manager/operations"
-	"github.com/mixofreality-studio/archistrator-platform/framework-go/utilities/security"
 	"github.com/google/uuid"
+	"github.com/mixofreality-studio/archistrator-platform/framework-go/utilities/security"
+	"github.com/mixofreality-studio/archistrator/server/internal/manager/operations"
 )
 
 // This file is the HTTP binding for the UC4 operateDeliveredSystem facet (the

@@ -7,9 +7,9 @@ import (
 	"hash/fnv"
 	"strings"
 
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/client"
 )
