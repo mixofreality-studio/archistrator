@@ -1,6 +1,8 @@
 package projectstate
 
-import "time"
+import (
+	"time"
+)
 
 // activityconstructionstatus.go holds the per-activity construction head-state types
 // (Task 1: seed-archistrator-design-state). It mirrors the gitactivitystatus.go
@@ -38,27 +40,183 @@ func (p ActivityConstructionPhase) String() string {
 	}
 }
 
+// PhaseCompletion is one App-A internal phase record within an activity's Phases slice.
+// Binary exit (App A §1.1): Completed=true only when the review gate passed. Weight
+// is the fraction of activity progress this phase carries (sums to 100 per type).
+// ArtifactRef is a pointer into phaseArtifacts/serviceContracts/Produced — set by
+// RecordPhaseCompleted.
+type PhaseCompletion struct {
+	Phase       ActivityMethodPhase `json:"phase"`
+	Weight      int                 `json:"weight"`
+	Completed   bool                `json:"completed,omitempty"`
+	CompletedAt *time.Time          `json:"completedAt,omitempty"`
+	ArtifactRef string              `json:"artifactRef,omitempty"`
+}
+
 // ActivityConstructionStatus is the per-activity construction head-state record.
 // One per construction-network activity, keyed by ActivityID in
-// Project.ActivityConstruction. Mirrors ActivityGitStatus in shape and posture:
-// additive, populated only in Phase 3, server-resolved timestamps.
+// Project.ActivityConstruction. Additive, populated only in Phase 3.
 type ActivityConstructionStatus struct {
 	// ActivityID is the network activity id — the map key (NAME-as-identity).
-	ActivityID string
-	// Phase is the coarse construction lifecycle for this activity.
-	Phase ActivityConstructionPhase
+	ActivityID string `json:"activityID"`
+	// Type is the canonical activity-type axis (§2.1 design). Replaces Kind.
+	Type ActivityType `json:"type,omitempty"`
+	// Variant discriminates testing sub-types (only set when Type==ActivityTypeTesting).
+	Variant TestingVariant `json:"variant,omitempty"`
+	// Phase is the COMPUTED coarse lifecycle (NotStarted/Running/Done). Derived from
+	// Phases at read time via CoarsePhase — kept for back-compat with existing readers.
+	Phase ActivityConstructionPhase `json:"phase"`
+	// Phases is the App-A internal phase set. Set once by phaseSetFor at activity start;
+	// individual entries are marked Completed by RecordPhaseCompleted.
+	Phases []PhaseCompletion `json:"phases,omitempty"`
+	// CurrentPhase is the phase the workflow loop is currently executing.
+	CurrentPhase ActivityMethodPhase `json:"currentPhase,omitempty"`
 	// StartedAt is the server-resolved timestamp when RecordActivityStarted committed.
-	// nil until the activity has been started.
-	StartedAt *time.Time
+	StartedAt *time.Time `json:"startedAt,omitempty"`
 	// CompletedAt is the server-resolved timestamp when RecordActivityCompleted committed.
-	// nil until the activity has completed.
-	CompletedAt *time.Time
-	// Kind is the seeded construction-activity kind (service/frontend/testing).
-	Kind ActivityKind
-	// BuildStatus is the seeded finer build-status lens.
-	BuildStatus ActivityBuildStatus
+	CompletedAt *time.Time `json:"completedAt,omitempty"`
+	// Kind is the legacy field — kept for JSON back-compat with seeded project.json entries.
+	// New code reads Type instead. The two fields share the same underlying int encoding
+	// (ActivityKind = ActivityType alias from Task 1), so existing seeded values decode correctly.
+	Kind ActivityKind `json:"kind,omitempty"`
+	// BuildStatus is the COMPUTED finer build-status lens. Derived from Phases+CurrentPhase
+	// at read time via CoarseBuildStatus — kept for back-compat.
+	BuildStatus ActivityBuildStatus `json:"buildStatus,omitempty"`
 	// Produced is the seeded list of artifacts this activity produced (contracts/code).
-	Produced []ProducedArtifact
+	Produced []ProducedArtifact `json:"produced,omitempty"`
+}
+
+// phaseSetFor returns the ordered phase set (with weights) for the given activity type
+// and testing variant. The returned slice is a fresh copy — callers may mutate it.
+// This is the authoritative App-A phase table (v3 design §1). Pure: no I/O.
+// Each set's weights sum to 100.
+func phaseSetFor(t ActivityType, v TestingVariant) []PhaseCompletion {
+	switch t {
+	case ActivityTypeFrontend:
+		// §1b — same 5-phase shape and weights as Service; role-swap does not change ids/weights.
+		return []PhaseCompletion{
+			{Phase: MethodPhaseUXRequirements, Weight: 15},
+			{Phase: MethodPhaseUIDesign, Weight: 20},
+			{Phase: MethodPhaseTestPlan, Weight: 10},
+			{Phase: MethodPhaseConstruction, Weight: 40},
+			{Phase: MethodPhaseIntegration, Weight: 15},
+		}
+	case ActivityTypeTesting:
+		return phaseSetForTestingVariant(v)
+	case ActivityTypeDeployment:
+		// §1d — no DetailedDesign/contract; 3 phases; weights 25+50+25=100.
+		return []PhaseCompletion{
+			{Phase: MethodPhaseProvisioningSpec, Weight: 25},
+			{Phase: MethodPhaseConstruction, Weight: 50},
+			{Phase: MethodPhaseConvergenceVerification, Weight: 25},
+		}
+	case ActivityTypeDocumentation:
+		// §1e — 3 phases; weights 20+60+20=100.
+		return []PhaseCompletion{
+			{Phase: MethodPhaseDocOutline, Weight: 20},
+			{Phase: MethodPhaseConstruction, Weight: 60},
+			{Phase: MethodPhaseDocReview, Weight: 20},
+		}
+	default: // ActivityTypeService (§1a) — 5 phases; weights 15+20+10+40+15=100.
+		return []PhaseCompletion{
+			{Phase: MethodPhaseRequirements, Weight: 15},
+			{Phase: MethodPhaseDetailedDesign, Weight: 20},
+			{Phase: MethodPhaseTestPlan, Weight: 10},
+			{Phase: MethodPhaseConstruction, Weight: 40},
+			{Phase: MethodPhaseIntegration, Weight: 15},
+		}
+	}
+}
+
+// phaseSetForTestingVariant returns the phase set for a specific N-* testing
+// activity variant (v3 design §1c + testing-lifecycle-research.md).
+func phaseSetForTestingVariant(v TestingVariant) []PhaseCompletion {
+	switch v {
+	case TestVariantHarness:
+		// N-STH: Harness Design 15 → Harness Construction 50 → Coverage 20 → Harness Review 15 = 100
+		return []PhaseCompletion{
+			{Phase: MethodPhaseHarnessDesign, Weight: 15},
+			{Phase: MethodPhaseHarnessConstruction, Weight: 50},
+			{Phase: MethodPhaseCoverage, Weight: 20},
+			{Phase: MethodPhaseHarnessReview, Weight: 15},
+		}
+	case TestVariantPerf:
+		// N-PERF: Perf Scenario Design 25 → Rig Construction 50 → Rig Review 25 = 100
+		return []PhaseCompletion{
+			{Phase: MethodPhasePerfScenarioDesign, Weight: 25},
+			{Phase: MethodPhaseRigConstruction, Weight: 50},
+			{Phase: MethodPhaseRigReview, Weight: 25},
+		}
+	case TestVariantSystemTest:
+		// N-IT: Smoke 10 → Use-Case Execution 45 → Regression 25 → Defect Resolution 15 → Sign-off 5 = 100
+		return []PhaseCompletion{
+			{Phase: MethodPhaseSmokePass, Weight: 10},
+			{Phase: MethodPhaseUseCaseExecution, Weight: 45},
+			{Phase: MethodPhaseRegressionSuite, Weight: 25},
+			{Phase: MethodPhaseDefectResolution, Weight: 15},
+			{Phase: MethodPhaseSignOff, Weight: 5},
+		}
+	case TestVariantQAProcess:
+		// N-QA: Gate Definition 40 → Process Audit 60 = 100
+		return []PhaseCompletion{
+			{Phase: MethodPhaseGateDefinition, Weight: 40},
+			{Phase: MethodPhaseProcessAudit, Weight: 60},
+		}
+	default: // TestVariantPlan (N-STP): Use-Case Trace 20 → Plan Authoring 45 → Plan Review 35 = 100
+		return []PhaseCompletion{
+			{Phase: MethodPhaseUseCaseTrace, Weight: 20},
+			{Phase: MethodPhasePlanAuthoring, Weight: 45},
+			{Phase: MethodPhasePlanReview, Weight: 35},
+		}
+	}
+}
+
+// CoarsePhase derives the coarse ActivityConstructionPhase from the Phases slice
+// (compute-at-read; kept for back-compat). Empty/nil phases → NotStarted.
+func CoarsePhase(phases []PhaseCompletion) ActivityConstructionPhase {
+	if len(phases) == 0 {
+		return ActivityConstructionNotStarted
+	}
+	allDone := true
+	anyDone := false
+	for _, p := range phases {
+		if p.Completed {
+			anyDone = true
+		} else {
+			allDone = false
+		}
+	}
+	if allDone {
+		return ActivityConstructionDone
+	}
+	if anyDone {
+		return ActivityConstructionRunning
+	}
+	return ActivityConstructionNotStarted
+}
+
+// CoarseBuildStatus derives the ActivityBuildStatus from the phase set and current
+// phase (compute-at-read; kept for back-compat). Rules: Integration phase done →
+// BuildIntegrated; Construction phase done but Integration not → BuildInReview;
+// otherwise → BuildInConstruction.
+func CoarseBuildStatus(phases []PhaseCompletion, current ActivityMethodPhase) ActivityBuildStatus {
+	constructionDone := false
+	integrationDone := false
+	for _, p := range phases {
+		if p.Phase == MethodPhaseConstruction && p.Completed {
+			constructionDone = true
+		}
+		if p.Phase == MethodPhaseIntegration && p.Completed {
+			integrationDone = true
+		}
+	}
+	if integrationDone {
+		return BuildIntegrated
+	}
+	if constructionDone {
+		return BuildInReview
+	}
+	return BuildInConstruction
 }
 
 // ActivityType is the canonical persisted activity-type axis (what kind of thing
@@ -184,6 +342,48 @@ const (
 const (
 	MethodPhaseDocOutline ActivityMethodPhase = "doc_outline" // doc outline artifact (tech-writer + architect gate)
 	MethodPhaseDocReview  ActivityMethodPhase = "doc_review"  // final doc review pass
+)
+
+// Testing-variant phase ids (v3 design §1c + testing-lifecycle-research.md).
+// These are DEDICATED constants for the five N-* testing activity sub-types;
+// they do NOT reuse the service/frontend phase ids so each variant's phase set
+// is unambiguous on the wire and in the UI.
+
+// N-STP (Test Plan) phase ids.
+const (
+	MethodPhaseUseCaseTrace  ActivityMethodPhase = "use_case_trace" // test-engineer traces every core use case for failure modes
+	MethodPhasePlanAuthoring ActivityMethodPhase = "plan_authoring" // test-engineer authors the full test plan entries
+	MethodPhasePlanReview    ActivityMethodPhase = "plan_review"    // system-architect + PM + qa-engineer all-pass gate
+)
+
+// N-STH (Test Harness) phase ids.
+const (
+	MethodPhaseHarnessDesign       ActivityMethodPhase = "harness_design"       // transport choices + module structure
+	MethodPhaseHarnessConstruction ActivityMethodPhase = "harness_construction" // harness code; connects + executes ≥1 use case
+	MethodPhaseCoverage            ActivityMethodPhase = "coverage"             // fault injection + coverage map against test plan
+	MethodPhaseHarnessReview       ActivityMethodPhase = "harness_review"       // system-architect + qa-engineer pass
+)
+
+// N-PERF (Performance Test Rig) phase ids.
+const (
+	MethodPhasePerfScenarioDesign ActivityMethodPhase = "perf_scenario_design" // latency+throughput scenarios + targets
+	MethodPhaseRigConstruction    ActivityMethodPhase = "rig_construction"     // rig executes under load; baseline captured
+	MethodPhaseRigReview          ActivityMethodPhase = "rig_review"           // system-architect + qa-engineer pass
+)
+
+// N-IT (System Testing, terminal) phase ids.
+const (
+	MethodPhaseSmokePass        ActivityMethodPhase = "smoke_pass"         // system boots; harness connects
+	MethodPhaseUseCaseExecution ActivityMethodPhase = "use_case_execution" // every use case exercised end-to-end
+	MethodPhaseRegressionSuite  ActivityMethodPhase = "regression_suite"   // developer-owned N-RTH regression suite clean
+	MethodPhaseDefectResolution ActivityMethodPhase = "defect_resolution"  // all P0/P1 defects closed + re-run pass
+	MethodPhaseSignOff          ActivityMethodPhase = "sign_off"           // system-architect + PM binary pass
+)
+
+// N-QA (QA Process Setup + Audit) phase ids.
+const (
+	MethodPhaseGateDefinition ActivityMethodPhase = "gate_definition" // binary exit criteria + defect taxonomy defined
+	MethodPhaseProcessAudit   ActivityMethodPhase = "process_audit"   // qa-engineer + architect: all gates run, confirmed
 )
 
 // ActivityBuildStatus is the finer build-status lens (ux-mock parity) for activities
