@@ -391,6 +391,26 @@ var _ construction.ConstructionPipelineAccess = pipelineAdapter{}
 // constructionpipeline.New, so this logical ref resolves to a concrete image.
 const pipelineDefaultToolchain = "go-1.23"
 
+// dispatchInputsFor builds the DispatchInputs bag for a construction pipeline
+// dispatch. The activity_id and component_id are the load-bearing keys the
+// aiarch-construct.yml workflow reads to locate the service contract.
+// phase and role (when non-empty) carry the Method phase + worker role so the
+// phase-aware aiarch-phase.yml can branch its prompt correctly (REQ-2 + Plan 1 Task 6).
+// Empty Phase/Role are omitted — the workflow uses its declared defaults.
+func dispatchInputsFor(spec construction.PipelineSpec) map[string]string {
+	m := map[string]string{
+		"activity_id":  spec.ActivityID,
+		"component_id": spec.ComponentID,
+	}
+	if spec.Phase != "" {
+		m["phase"] = spec.Phase
+	}
+	if spec.Role != "" {
+		m["role"] = spec.Role
+	}
+	return m
+}
+
 func (a pipelineAdapter) SubmitConstructionPipeline(
 	ctx context.Context,
 	spec construction.PipelineSpec,
@@ -403,7 +423,8 @@ func (a pipelineAdapter) SubmitConstructionPipeline(
 			Toolchain: constructionpipeline.ToolchainRef(pipelineDefaultToolchain),
 			Command:   []string{"sh", "-c", "true"},
 		}},
-		WorkspaceRef: constructionpipeline.ArtifactRef(spec.RepoURL + "@" + spec.Ref),
+		WorkspaceRef:   constructionpipeline.ArtifactRef(spec.RepoURL + "@" + spec.Ref),
+		DispatchInputs: dispatchInputsFor(spec),
 	}, idempotencyKey)
 	if err != nil {
 		return construction.PipelineHandle{}, err
