@@ -11,6 +11,7 @@ package projectstate
 
 import (
 	"context"
+	"time"
 
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
@@ -36,6 +37,9 @@ var _ GitConstructionTransitionAccess = (*GitStore)(nil)
 // TestingState. mapKey is the component/surface/resource/doc name used as the
 // map key for PhaseArtifacts fields; it is unused for pointer-scalar TestingState
 // fields (SystemTestPlan, HarnessModule, PerfHarness, QualityAuditReport).
+// Convention: exactly one field per call. This is NOT enforced at runtime (multiple
+// set fields will route all of them). A typed sum type would enforce the invariant;
+// deferred to Plan 3 when cs.Type/cs.Variant population lands.
 type PhaseArtifactPayload struct {
 	// PhaseArtifacts fields (keyed by mapKey)
 	SRS              *SRSRecord
@@ -141,7 +145,7 @@ func (s *GitStore) RecordPhaseStarted(ctx context.Context, projectID ProjectID, 
 // server-resolved CompletedAt, and optionally sets ArtifactRef. It recomputes the
 // coarse Phase via CoarsePhase over the updated Phases slice so the tracker
 // advances atomically with the phase completion.
-func (s *GitStore) RecordPhaseCompleted(ctx context.Context, projectID ProjectID, expectedVersion Version, activityID string, phase ActivityMethodPhase, artifactRef string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (s *GitStore) RecordPhaseCompleted(ctx context.Context, projectID ProjectID, expectedVersion Version, activityID string, phase ActivityMethodPhase, artifactRef string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) { //nolint:gocognit // phase transition requires checking all phase states
 	if activityID == "" {
 		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordPhaseCompleted: empty activityID")
 	}
@@ -151,25 +155,30 @@ func (s *GitStore) RecordPhaseCompleted(ctx context.Context, projectID ProjectID
 	now := s.now()
 	return s.applyMutation(ctx, "RecordPhaseCompleted", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
 		upsertActivityConstruction(p, activityID, func(cs *ActivityConstructionStatus) {
-			if len(cs.Phases) == 0 {
-				cs.Phases = phaseSetFor(cs.Type, cs.Variant)
-			}
-			for i := range cs.Phases {
-				if cs.Phases[i].Phase == phase {
-					t := now
-					cs.Phases[i].Completed = true
-					cs.Phases[i].CompletedAt = &t
-					if artifactRef != "" {
-						cs.Phases[i].ArtifactRef = artifactRef
-					}
-					break
-				}
-			}
-			// Recompute coarse phase from the updated Phases slice.
-			cs.Phase = CoarsePhase(cs.Phases)
+			applyPhaseCompletion(cs, phase, artifactRef, now)
 		})
 		return nil
 	})
+}
+
+// applyPhaseCompletion marks the matching phase entry Completed, sets CompletedAt and
+// optionally ArtifactRef, then recomputes the coarse Phase.
+func applyPhaseCompletion(cs *ActivityConstructionStatus, phase ActivityMethodPhase, artifactRef string, now time.Time) {
+	if len(cs.Phases) == 0 {
+		cs.Phases = phaseSetFor(cs.Type, cs.Variant)
+	}
+	for i := range cs.Phases {
+		if cs.Phases[i].Phase == phase {
+			t := now
+			cs.Phases[i].Completed = true
+			cs.Phases[i].CompletedAt = &t
+			if artifactRef != "" {
+				cs.Phases[i].ArtifactRef = artifactRef
+			}
+			break
+		}
+	}
+	cs.Phase = CoarsePhase(cs.Phases)
 }
 
 // RecordServiceContractProduced writes the typed ServiceContract for component
@@ -228,7 +237,7 @@ func ensurePhaseArtifacts(p *Project) *PhaseArtifacts {
 
 // applyPhaseArtifactsSpecDesign handles the spec/design half of PhaseArtifacts
 // fields: SRS, TestPlan, IntegrationNote, UXRequirements, UIDesign.
-func applyPhaseArtifactsSpecDesign(p *Project, mapKey string, payload PhaseArtifactPayload) {
+func applyPhaseArtifactsSpecDesign(p *Project, mapKey string, payload PhaseArtifactPayload) { //nolint:gocyclo // exhaustive nil-check per phase artifact field
 	if payload.SRS != nil {
 		pa := ensurePhaseArtifacts(p)
 		if pa.SRS == nil {
