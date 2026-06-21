@@ -27,10 +27,11 @@ func TestLoadConfig_Replay_RequiresDir(t *testing.T) {
 // TestLoadConfig_Replay_Strict_OK — strict replay needs only the dir (no delegate).
 func TestLoadConfig_Replay_Strict_OK(t *testing.T) {
 	setEnv(t, map[string]string{
-		"ARCHISTRATOR_POSTGRES_URL":       "postgres://x",
-		"ARCHISTRATOR_WORKER_PROVIDER":    "replay",
-		"ARCHISTRATOR_WORKER_REPLAY_DIR":  "/tmp/cassettes",
-		"ARCHISTRATOR_WORKER_REPLAY_MODE": "strict",
+		"ARCHISTRATOR_POSTGRES_URL":        "postgres://x",
+		"ARCHISTRATOR_WORKER_PROVIDER":     "replay",
+		"ARCHISTRATOR_WORKER_REPLAY_DIR":   "/tmp/cassettes",
+		"ARCHISTRATOR_WORKER_REPLAY_MODE":  "strict",
+		"ARCHISTRATOR_CONSTRUCTION_DRYRUN": "true", // not testing construction; skip cred validation
 	})
 	cfg, err := loadConfig()
 	if err != nil {
@@ -68,5 +69,42 @@ func TestLoadConfig_Replay_InvalidMode(t *testing.T) {
 	})
 	if _, err := loadConfig(); err == nil {
 		t.Fatal("expected error for an invalid ARCHISTRATOR_WORKER_REPLAY_MODE")
+	}
+}
+
+// TestLoadConfig_RealConstruction_FailFast — DRYRUN=false requires all construction
+// creds; missing any one must return an error at startup.
+func TestLoadConfig_RealConstruction_FailFast(t *testing.T) {
+	base := map[string]string{
+		"ARCHISTRATOR_POSTGRES_URL":               "postgres://x",
+		"ARCHISTRATOR_ANTHROPIC_API_KEY":          "sk-test",
+		"ARCHISTRATOR_CONSTRUCTION_DRYRUN":        "false",
+		"ARCHISTRATOR_CONSTRUCTION_REPO_OWNER":    "mixofreality-studio",
+		"ARCHISTRATOR_CONSTRUCTION_REPO_NAME":     "archistrator",
+		"ARCHISTRATOR_CONSTRUCTION_WORKFLOW_FILE": "aiarch-construct.yml",
+		"ARCHISTRATOR_CONSTRUCTION_REF":           "main",
+		// App creds intentionally absent
+	}
+	setEnv(t, base)
+	if _, err := loadConfig(); err == nil {
+		t.Fatal("expected error when DRYRUN=false and app creds missing")
+	}
+}
+
+// TestLoadConfig_RealConstruction_OK — all creds present → no error.
+func TestLoadConfig_RealConstruction_OK(t *testing.T) {
+	setEnv(t, map[string]string{
+		"ARCHISTRATOR_POSTGRES_URL":               "postgres://x",
+		"ARCHISTRATOR_ANTHROPIC_API_KEY":          "sk-test",
+		"ARCHISTRATOR_CONSTRUCTION_DRYRUN":        "false",
+		"ARCHISTRATOR_CONSTRUCTION_REPO_OWNER":    "mixofreality-studio",
+		"ARCHISTRATOR_CONSTRUCTION_REPO_NAME":     "archistrator",
+		"ARCHISTRATOR_CONSTRUCTION_WORKFLOW_FILE": "aiarch-construct.yml",
+		"ARCHISTRATOR_CONSTRUCTION_REF":           "main",
+		"ARCHISTRATOR_GITHUB_APP_ID":              "12345",
+		"ARCHISTRATOR_GITHUB_APP_PRIVATE_KEY_PEM": "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAA==\n-----END RSA PRIVATE KEY-----",
+	})
+	if _, err := loadConfig(); err != nil {
+		t.Fatalf("expected no error with all real-construction creds: %v", err)
 	}
 }

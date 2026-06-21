@@ -245,6 +245,37 @@ func loadConfig() (config, error) {
 	default:
 		return config{}, fmt.Errorf("ARCHISTRATOR_WORKER_PROVIDER must be \"anthropic\", \"ollama\", or \"replay\", got %q", cfg.WorkerProvider)
 	}
+
+	// DRYRUN=false: require all construction creds so the server fails fast at
+	// startup rather than silently dispatching to nowhere.
+	if !cfg.ConstructionDryRun {
+		missing := []string{}
+		if cfg.GitHubAppID == "" {
+			missing = append(missing, "ARCHISTRATOR_GITHUB_APP_ID")
+		}
+		if cfg.GitHubAppPrivateKeyPEM == "" {
+			missing = append(missing, "ARCHISTRATOR_GITHUB_APP_PRIVATE_KEY_PEM")
+		}
+		if cfg.ConstructionRepoOwner == "" {
+			missing = append(missing, "ARCHISTRATOR_CONSTRUCTION_REPO_OWNER")
+		}
+		if cfg.ConstructionRepoName == "" {
+			missing = append(missing, "ARCHISTRATOR_CONSTRUCTION_REPO_NAME")
+		}
+		if cfg.ConstructionWorkflowFile == "" {
+			missing = append(missing, "ARCHISTRATOR_CONSTRUCTION_WORKFLOW_FILE")
+		}
+		if cfg.ConstructionRef == "" {
+			missing = append(missing, "ARCHISTRATOR_CONSTRUCTION_REF")
+		}
+		if len(missing) > 0 {
+			return config{}, fmt.Errorf(
+				"ARCHISTRATOR_CONSTRUCTION_DRYRUN=false requires construction creds; missing: %s",
+				strings.Join(missing, ", "),
+			)
+		}
+	}
+
 	return cfg, nil
 }
 
