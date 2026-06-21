@@ -185,6 +185,13 @@ type Project struct {
 	// nil until the first testing activity produces output.
 	TestingState *TestingState `json:"testingState,omitempty"`
 
+	// OperatorPaused is set when an operator pauses the project's construction
+	// (RecordOperatorPaused). Cleared when construction resumes (not yet a verb in
+	// the v1 contract; the field is additive and defaults false).
+	OperatorPaused bool
+	// PauseReason is the operator-supplied reason for the pause. Empty when not paused.
+	PauseReason string
+
 	// ---- Phase 1 slots ----
 	Mission              ArtifactSlot // Model is *MissionStatement when populated
 	Glossary             ArtifactSlot // Model is *Glossary

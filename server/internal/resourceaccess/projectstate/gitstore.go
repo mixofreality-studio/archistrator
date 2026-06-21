@@ -716,6 +716,12 @@ type projectDoc struct {
 	// (system test plan, harness, perf rig, quality gates, test runs, defects). Omitted
 	// until the first testing activity produces output.
 	TestingState *TestingState `json:"testingState,omitempty"`
+	// OperatorPaused is set when an operator pauses the project's construction
+	// (RecordOperatorPaused). Omitted when false so older project.json documents
+	// decode cleanly as the zero value (false = not paused).
+	OperatorPaused bool `json:"operatorPaused,omitempty"`
+	// PauseReason is the operator-supplied reason for the pause.
+	PauseReason string `json:"pauseReason,omitempty"`
 	// UpdatedAt is the server-resolved timestamp of the last committed state
 	// mutation (set by buildStateFiles on every write). omitempty so existing
 	// project.json documents that pre-date this field decode cleanly as the zero
@@ -766,6 +772,8 @@ func decodeProjectDoc(raw []byte, projectID ProjectID) (Project, bool, error) {
 		ServiceContracts:     doc.ServiceContracts,
 		PhaseArtifacts:       doc.PhaseArtifacts,
 		TestingState:         doc.TestingState,
+		OperatorPaused:       doc.OperatorPaused,
+		PauseReason:          doc.PauseReason,
 	}
 	if err := decodeSlotsMap(doc.Slots, &p); err != nil {
 		return Project{}, false, fwra.Wrap(fwra.Infrastructure, err, "projectstate: decode slots")
@@ -895,6 +903,8 @@ func encodeProjectDoc(p *Project, updatedAt time.Time) ([]byte, error) {
 		ServiceContracts:     p.ServiceContracts,
 		PhaseArtifacts:       p.PhaseArtifacts,
 		TestingState:         p.TestingState,
+		OperatorPaused:       p.OperatorPaused,
+		PauseReason:          p.PauseReason,
 		UpdatedAt:            updatedAt,
 	}
 	b, err := json.MarshalIndent(doc, "", "  ")

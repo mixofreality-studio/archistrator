@@ -118,6 +118,42 @@ func (f *fakeProjectState) RecordOperatorPaused(_ context.Context, _ projectstat
 	return f.bump(), nil
 }
 
+func (f *fakeProjectState) RecordPhaseStarted(_ context.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ActivityMethodPhase, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.maybeConflict(); err != nil {
+		return 0, err
+	}
+	return f.bump(), nil
+}
+
+func (f *fakeProjectState) RecordPhaseCompleted(_ context.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ActivityMethodPhase, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.maybeConflict(); err != nil {
+		return 0, err
+	}
+	return f.bump(), nil
+}
+
+func (f *fakeProjectState) RecordServiceContractProduced(_ context.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ServiceContract, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.maybeConflict(); err != nil {
+		return 0, err
+	}
+	return f.bump(), nil
+}
+
+func (f *fakeProjectState) RecordPhaseArtifactProduced(_ context.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ string, _ projectstate.PhaseArtifactPayload, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.maybeConflict(); err != nil {
+		return 0, err
+	}
+	return f.bump(), nil
+}
+
 var _ ProjectStateAccess = (*fakeProjectState)(nil)
 
 // fakeWorker is the generic typed worker double. It returns a scripted raw-JSON
