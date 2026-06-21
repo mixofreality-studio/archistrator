@@ -161,7 +161,7 @@ func TestProjectStateGitAdapter_UC2AdvanceAndResearchLandsInGit(t *testing.T) {
 func TestCloudPerProjectRepoURL_NameAsIdentity(t *testing.T) {
 	const (
 		webHost = "https://github.com"
-		account = "davidmarne"
+		account = "mixofreality-studio"
 		name    = "my-cool-system" // a USER-supplied repo name == the project identity
 	)
 	got := cloudPerProjectRepoURL(webHost, account, name)
