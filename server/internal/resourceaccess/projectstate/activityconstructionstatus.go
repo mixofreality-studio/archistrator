@@ -61,31 +61,130 @@ type ActivityConstructionStatus struct {
 	Produced []ProducedArtifact
 }
 
-// ActivityKind is the construction-activity kind lens (ux-mock parity): the three
-// life-cycle shapes a construction activity can take. SEEDED by the bootstrap
-// generator from the component layer; not a runtime-pump fact.
-type ActivityKind int
+// ActivityType is the canonical persisted activity-type axis (what kind of thing
+// is built). Replaces the 3-value ActivityKind; used to derive the phase set a
+// C-* activity walks (v3 design §1 tables). SEEDED by the bootstrap generator.
+// Existing project.json Kind values 0/1/2 decode verbatim (Service/Frontend/Testing);
+// 3/4 (Deployment/Documentation) are additive with no data migration needed.
+type ActivityType int
 
 const (
-	// ActivityKindService — a Manager/Engine/ResourceAccess/Client component build.
-	ActivityKindService ActivityKind = iota
-	// ActivityKindFrontend — a SPA / web UI surface build.
-	ActivityKindFrontend
-	// ActivityKindTesting — a system-test / CI activity.
-	ActivityKindTesting
+	// ActivityTypeService — a Manager/Engine/ResourceAccess/Client component build.
+	ActivityTypeService ActivityType = iota
+	// ActivityTypeFrontend — a SPA / web UI surface build.
+	ActivityTypeFrontend
+	// ActivityTypeTesting — a system-test / CI activity (variant selected by TestingVariant).
+	ActivityTypeTesting
+	// ActivityTypeDeployment — a devops / provisioning activity (R-* prefix, coding=false).
+	ActivityTypeDeployment
+	// ActivityTypeDocumentation — a tech-writing / ADR / runbook activity (N-ADR etc.).
+	ActivityTypeDocumentation
 )
 
-// String returns the canonical wire name (matches the ux-mock ActivityKind union).
-func (k ActivityKind) String() string {
-	switch k {
-	case ActivityKindFrontend:
+// String returns the canonical wire name.
+func (t ActivityType) String() string {
+	switch t {
+	case ActivityTypeFrontend:
 		return "frontend"
-	case ActivityKindTesting:
+	case ActivityTypeTesting:
 		return "testing"
+	case ActivityTypeDeployment:
+		return "deployment"
+	case ActivityTypeDocumentation:
+		return "documentation"
 	default:
 		return "service"
 	}
 }
+
+// ActivityKind is a type alias for ActivityType kept for JSON back-compat.
+// Existing project.json entries seeded with Kind use the same integer encoding;
+// the legacy 3 values (0=Service/1=Frontend/2=Testing) decode correctly through
+// ActivityType. New code should use ActivityType; ActivityKind remains valid as
+// a field type so no renaming is required at call sites.
+type ActivityKind = ActivityType
+
+// ActivityKindService / ActivityKindFrontend / ActivityKindTesting are preserved
+// as aliases to the ActivityType constants so existing code referencing the old
+// three-value names continues to compile without modification.
+const (
+	ActivityKindService  = ActivityTypeService
+	ActivityKindFrontend = ActivityTypeFrontend
+	ActivityKindTesting  = ActivityTypeTesting
+)
+
+// TestingVariant discriminates the five N-* testing activity sub-types. Only
+// meaningful when ActivityType == ActivityTypeTesting. Variant is chosen from the
+// activity name prefix (N-STP → Plan, N-STH → Harness, N-PERF → Perf,
+// N-IT → SystemTest, N-QA → QAProcess).
+type TestingVariant int
+
+const (
+	TestVariantPlan       TestingVariant = iota // N-STP: system test plan
+	TestVariantHarness                          // N-STH: test harness construction
+	TestVariantPerf                             // N-PERF: performance rig
+	TestVariantSystemTest                       // N-IT: system test execution (terminal/critical)
+	TestVariantQAProcess                        // N-QA: QA process definition
+)
+
+// String returns the canonical wire name.
+func (v TestingVariant) String() string {
+	switch v {
+	case TestVariantHarness:
+		return "harness"
+	case TestVariantPerf:
+		return "perf"
+	case TestVariantSystemTest:
+		return "systemTest"
+	case TestVariantQAProcess:
+		return "qaProcess"
+	default:
+		return "plan"
+	}
+}
+
+// ActivityMethodPhase is one App-A internal phase within a construction activity.
+// It is a canonical lowercase phase-id string (not an ordinal enum). The ordered
+// phase SET for a given ActivityType is defined by phaseSetFor (Task 2); this file
+// only declares the type and all known phase-id constants.
+//
+// Using a string type (rather than int) means the JSON wire encoding is the
+// constant value itself — no MarshalJSON/UnmarshalJSON boilerplate needed.
+type ActivityMethodPhase string
+
+// String returns the phase id (the underlying string value).
+func (p ActivityMethodPhase) String() string { return string(p) }
+
+// Service / shared phase ids (v3 design §1a and §1b).
+// NOTE: the "Phase" prefix is shared with the project-lifecycle Phase type
+// (artifactmodel.go). To avoid name collision, these constants use the
+// "MethodPhase" prefix.
+const (
+	MethodPhaseRequirements   ActivityMethodPhase = "requirements"    // SRS / UX requirements / provisioning spec / doc outline
+	MethodPhaseDetailedDesign ActivityMethodPhase = "detailed_design" // service contract (Service only); maps to DD cast
+	MethodPhaseTestPlan       ActivityMethodPhase = "test_plan"       // test plan slice (Service/Frontend only)
+	MethodPhaseConstruction   ActivityMethodPhase = "construction"    // code / manifest / harness / doc authoring
+	MethodPhaseIntegration    ActivityMethodPhase = "integration"     // integration + convergence verification
+)
+
+// Frontend-specific phase ids (v3 design §1b — replaces MethodPhaseRequirements
+// with UX requirements and adds UI Design before test plan).
+const (
+	MethodPhaseUXRequirements ActivityMethodPhase = "ux_requirements" // UX requirements (frontend variant of requirements)
+	MethodPhaseUIDesign       ActivityMethodPhase = "ui_design"       // UI design artifact + ux-reviewer gate
+)
+
+// Deployment-specific phase ids (v3 design §1d — provisioning has no DD/contract phase).
+const (
+	MethodPhaseProvisioningSpec        ActivityMethodPhase = "provisioning_spec"        // R-* spec before manifest construction
+	MethodPhaseConvergenceVerification ActivityMethodPhase = "convergence_verification" // post-apply convergence check
+)
+
+// Documentation-specific phase ids (v3 design §1e).
+const (
+	MethodPhaseDocOutline ActivityMethodPhase = "doc_outline" // doc outline artifact (tech-writer + architect gate)
+	MethodPhaseDocReview  ActivityMethodPhase = "doc_review"  // final doc review pass
+)
 
 // ActivityBuildStatus is the finer build-status lens (ux-mock parity) for activities
 // that have a corpus presence. Coarser eligible/blocked/not-started are DERIVED in the
