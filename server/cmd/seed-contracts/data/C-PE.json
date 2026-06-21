@@ -1,0 +1,55 @@
+{
+  "component": "C-PE",
+  "layer": "Client",
+  "stereotype": "«Client» — read-only export endpoint · imports no Temporal",
+  "volatility": "CustomerInteractionChannel (web) and Transport (HTTP/JSON): a read-only project-state download surface for operator tooling and construction agents.",
+  "status": "FROZEN",
+  "inbound": [
+    { "name": "envoyGateway", "layer": "Client" }
+  ],
+  "outbound": [
+    { "name": "projectDesignManager", "layer": "Manager", "how": "sync in-process via narrow Manager-entry port" }
+  ],
+  "ops": [
+    {
+      "signature": "exportProject(projectId: uuid.UUID) → ProjectExport",
+      "stereotype": "Client read",
+      "note": "Returns the project's committed state as a JSON download. HTTP: GET /api/v1/projects/{projectId}/export. Routes to projectDesignManager.GetProject; returns the raw project.json bytes as application/json with Content-Disposition: attachment. Read-only; no mutation.",
+      "inputs": [
+        {
+          "name": "ExportProjectRequest",
+          "fields": [
+            { "name": "projectId", "type": "uuid.UUID" }
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "ProjectExport",
+          "fields": [
+            { "name": "ProjectJSON", "type": "[]byte", "note": "Raw project.json bytes (application/json)" },
+            { "name": "Filename", "type": "string", "note": "Suggested download filename, e.g. archistrator-project.json" }
+          ]
+        },
+        {
+          "name": "(error)",
+          "fields": [
+            { "name": "(error)", "type": "fwmgr.Error", "note": "Method layer-typed error; fwmgr.NotFound if project unknown" }
+          ]
+        }
+      ]
+    }
+  ],
+  "dataContracts": [],
+  "errorModel": "fwmgr.Error (NotFound on unknown project; Transient on git read failure)",
+  "idempotency": "GET — inherently idempotent",
+  "revisions": [
+    {
+      "rev": "r1",
+      "at": "2026-06-21",
+      "by": "system-architect",
+      "byActivity": "Spec 2 dogfood — D-PE (detailed design)",
+      "summary": "First construction dogfood contract. Single read op exposing project state as a JSON download. Follows webClient.json Client-contract conventions. ComponentID=C-PE (activity-name-as-identity per hydrateConstructionActivity)."
+    }
+  ]
+}
