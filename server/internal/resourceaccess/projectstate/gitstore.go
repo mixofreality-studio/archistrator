@@ -708,6 +708,14 @@ type projectDoc struct {
 	// ServiceContracts is the per-component typed service-contract corpus, keyed by
 	// component name. Omitted until seeded.
 	ServiceContracts map[string]ServiceContract `json:"serviceContracts,omitempty"`
+	// PhaseArtifacts holds the typed phase-scoped artifacts produced during Phase-3
+	// construction (SRS, test plans, integration notes, UI designs, etc.). Omitted until
+	// the first RecordPhaseArtifactProduced call populates it.
+	PhaseArtifacts *PhaseArtifacts `json:"phaseArtifacts,omitempty"`
+	// TestingState holds the project-level testing artifacts produced by N-* activities
+	// (system test plan, harness, perf rig, quality gates, test runs, defects). Omitted
+	// until the first testing activity produces output.
+	TestingState *TestingState `json:"testingState,omitempty"`
 	// UpdatedAt is the server-resolved timestamp of the last committed state
 	// mutation (set by buildStateFiles on every write). omitempty so existing
 	// project.json documents that pre-date this field decode cleanly as the zero
@@ -756,6 +764,8 @@ func decodeProjectDoc(raw []byte, projectID ProjectID) (Project, bool, error) {
 		ActivityConstruction: doc.ActivityConstruction,
 		ConstructionProgress: doc.ConstructionProgress,
 		ServiceContracts:     doc.ServiceContracts,
+		PhaseArtifacts:       doc.PhaseArtifacts,
+		TestingState:         doc.TestingState,
 	}
 	if err := decodeSlotsMap(doc.Slots, &p); err != nil {
 		return Project{}, false, fwra.Wrap(fwra.Infrastructure, err, "projectstate: decode slots")
@@ -883,6 +893,8 @@ func encodeProjectDoc(p *Project, updatedAt time.Time) ([]byte, error) {
 		ActivityConstruction: p.ActivityConstruction,
 		ConstructionProgress: p.ConstructionProgress,
 		ServiceContracts:     p.ServiceContracts,
+		PhaseArtifacts:       p.PhaseArtifacts,
+		TestingState:         p.TestingState,
 		UpdatedAt:            updatedAt,
 	}
 	b, err := json.MarshalIndent(doc, "", "  ")
