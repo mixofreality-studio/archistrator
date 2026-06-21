@@ -73,8 +73,8 @@ jobs:
           git config user.email "aiarch-release-bot[bot]@users.noreply.github.com"
           git remote set-url origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
           git add server/VERSION
-          git commit -m "release: archistrator-server v${{ steps.version.outputs.version }}"
-          git tag "archistrator-server-v${{ steps.version.outputs.version }}"
+          git diff --cached --quiet || git commit -m "release: archistrator-server v${{ steps.version.outputs.version }}"
+          git tag "archistrator-server-v${{ steps.version.outputs.version }}" 2>/dev/null || true
           for i in 1 2 3; do
             git pull --rebase origin main
             git push origin main --tags && break
@@ -162,8 +162,8 @@ jobs:
           git config user.email "aiarch-release-bot[bot]@users.noreply.github.com"
           git remote set-url origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
           git add webApp/package.json webApp/package-lock.json
-          git commit -m "release: archistrator-webapp v${{ steps.version.outputs.version }}"
-          git tag "archistrator-webapp-v${{ steps.version.outputs.version }}"
+          git diff --cached --quiet || git commit -m "release: archistrator-webapp v${{ steps.version.outputs.version }}"
+          git tag "archistrator-webapp-v${{ steps.version.outputs.version }}" 2>/dev/null || true
           for i in 1 2 3; do
             git pull --rebase origin main
             git push origin main --tags && break

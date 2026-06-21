@@ -63,7 +63,7 @@
 #   rules + design↔code alignment once the repo has Go code. The job is wired as a
 #   REQUIRED status check so a failing `go test` (Method-invariant / layering /
 #   alignment violations) blocks PR merge — that red check IS the trust boundary.
-#   NOTE: `go test` must resolve github.com/daveandamira/framework-go (the seated
+#   NOTE: `go test` must resolve github.com/mixofreality-studio/archistrator-platform/framework-go (the seated
 #   go.mod's require) — it must be a fetchable module (published/tagged or via
 #   GOPROXY; a private module needs GOPROXY/auth wired here). See the founder checklist.
 # =============================================================================
@@ -208,6 +208,6 @@ jobs:
         # Runs the seated aiarch_method_test.go → methodcheck.Check over
         # ./.aiarch/state/project.json + this repo's Go code (layer rules + alignment
         # once code exists). A non-zero exit (violations) BLOCKS PR merge.
-        # NOTE: requires github.com/daveandamira/framework-go to be resolvable
+        # NOTE: requires github.com/mixofreality-studio/archistrator-platform/framework-go to be resolvable
         # (published/tagged or via GOPROXY; private ⇒ wire GOPROXY/auth here).
         run: go test ./...
