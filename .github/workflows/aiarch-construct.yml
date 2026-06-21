@@ -1,0 +1,120 @@
+# aiarch CONSTRUCTION workflow
+# ============================
+# Dispatched by archistrator-server constructionPipelineAccess (UC3) via
+# workflow_dispatch when ARCHISTRATOR_CONSTRUCTION_DRYRUN=false.
+#
+# LOAD-BEARING CONTRACT — DO NOT CHANGE THESE ANCHORS:
+#   1. workflow_dispatch input named EXACTLY `idempotency_token` (string,
+#      required). framework-go-infrastructure-github DispatchInputKeyIdempotencyToken
+#      = "idempotency_token". The RA stamps this input LAST and finds/dedups/
+#      observes/cancels runs BY RUN NAME (aiarch-cp-<token>).
+#   2. Top-level `run-name: aiarch-cp-${{ inputs.idempotency_token }}`.
+#      RunNamePrefix="aiarch-cp-"; ListRunsByName matches on this prefix.
+#      Wrong run-name = RA can never see its own dispatched run.
+#   3. workflow_dispatch-triggerable on the dispatch ref (main).
+#
+# server-checks (run in working-directory: server):
+#   gofmt -w . / GOWORK=off go vet ./... / GOWORK=off go build ./... /
+#   GOWORK=off make test-short
+name: aiarch-construct
+
+# (2) Run-name is the idempotency anchor. EXACT prefix required.
+run-name: aiarch-cp-${{ inputs.idempotency_token }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      # (1) LOAD-BEARING — the dedup token the RA stamps into run-name.
+      idempotency_token:
+        description: "aiarch dedup token (RA-supplied; stamped into run-name)"
+        required: true
+        type: string
+      # Activity id from the project network (e.g. "C-PE").
+      activity_id:
+        description: "construction activity id (e.g. C-PE)"
+        required: true
+        type: string
+      # Component id matching a contract JSON under server/cmd/seed-contracts/data/.
+      component_id:
+        description: "component id — must match a file in server/cmd/seed-contracts/data/<component_id>.json"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+# One in-flight construction run per dedup token — belt-and-braces alongside the
+# RA's own run-name convergence.
+concurrency:
+  group: aiarch-cp-${{ inputs.idempotency_token }}
+  cancel-in-progress: false
+
+jobs:
+  construct:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+
+      - name: Implement component (claude-code-action)
+        uses: anthropics/claude-code-action@v1
+        with:
+          # Org secret — provisioned ONCE by the founder on mixofreality-studio.
+          # aiarch never mints or sees this token.
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            You are a junior developer implementing a single component for the archistrator server.
+
+            ## Your task
+
+            Implement the component with id "${{ inputs.component_id }}" to satisfy its service contract.
+
+            The service contract is at:
+              server/cmd/seed-contracts/data/${{ inputs.component_id }}.json
+
+            Architecture context:
+              server/cmd/seed-contracts/data/  (all contracts for layer/dependency reference)
+              server/internal/                 (existing layer implementations to learn from)
+
+            ## Rules
+
+            1. Read the contract JSON first. Implement exactly what it specifies — no more, no less.
+            2. Match the layer conventions of existing code in the same layer (engine, manager, resourceaccess, client).
+            3. Do NOT edit any file under */generated/.
+            4. After implementing, run the server-checks sequence (working-directory: server):
+                 gofmt -w .
+                 GOWORK=off go vet ./...
+                 GOWORK=off go build ./...
+                 GOWORK=off make test-short
+               Fix any failures before opening the PR.
+            5. Commit all changes onto branch aiarch/construct/${{ inputs.activity_id }}.
+            6. Open a pull request:
+                 Title: "construct(${{ inputs.activity_id }}): implement ${{ inputs.component_id }}"
+                 Body:
+                   ## Activity
+                   ${{ inputs.activity_id }}
+
+                   ## Component
+                   ${{ inputs.component_id }}
+
+                   ## Contract
+                   server/cmd/seed-contracts/data/${{ inputs.component_id }}.json
+
+                   ## Checklist
+                   - [ ] Contract satisfied
+                   - [ ] server-checks pass (gofmt / vet / build / test-short)
+                   - [ ] No */generated/ files edited
+
+            Stop after opening the PR. Do not merge.
