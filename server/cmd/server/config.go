@@ -268,6 +268,13 @@ func loadConfig() (config, error) {
 		if cfg.ConstructionRef == "" {
 			missing = append(missing, "ARCHISTRATOR_CONSTRUCTION_REF")
 		}
+		// The real-path selection requires the git-forward artifact store too
+		// (main.go: case pipeline != nil && artifacts != nil). artifacts is
+		// constructed only when ArtifactRepoURL is set, so it is a required cred
+		// when not dry-run — otherwise construction silently fails to register.
+		if cfg.ArtifactRepoURL == "" {
+			missing = append(missing, "ARCHISTRATOR_ARTIFACT_REPO_URL")
+		}
 		if len(missing) > 0 {
 			return config{}, fmt.Errorf(
 				"ARCHISTRATOR_CONSTRUCTION_DRYRUN=false requires construction creds; missing: %s",
