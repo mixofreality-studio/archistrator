@@ -18,7 +18,7 @@ import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import { getRouteApi, useNavigate } from '@tanstack/react-router';
 import { AppShell } from '../components/AppShell';
-import { EconomicsStrip } from '../components/HomeBaseParts';
+import { EconomicsStrip, PhaseCard } from '../components/HomeBaseParts';
 import { ArtifactPane } from '../components/ArtifactPane';
 import { StageChip } from '../components/StageChip';
 import { ErrorAlert } from '../components/shared/ErrorAlert';
@@ -154,6 +154,22 @@ function HomeBaseBody({
       </Box>
 
       <EconomicsStrip project={project} />
+
+      {/* Phase progress cards — one per phase (System Design → Project Design → Construction).
+          The active phase's card is the live one; locked phases are greyed out. */}
+      <Box sx={{ display: 'flex', gap: 2, mb: 3, mt: 3, flexWrap: 'wrap' }}>
+        {phases.map((phase) => (
+          <Box key={phase.id} sx={{ flex: '1 1 200px', minWidth: 0 }}>
+            <PhaseCard
+              phase={phase}
+              onResume={() => {
+                const route = PHASE_DESIGN_ROUTE[phase.id];
+                if (route !== null) openDesign(route);
+              }}
+            />
+          </Box>
+        ))}
+      </Box>
 
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5, mt: 3 }}>
         <Typography sx={{ color: t.ink }} variant="h5">
