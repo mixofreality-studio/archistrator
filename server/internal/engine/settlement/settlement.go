@@ -30,9 +30,9 @@
 package settlement
 
 import (
-	fweng "github.com/davidmarne/archistrator-platform/framework-go/engine"
+	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 
-	"github.com/davidmarne/archistrator/server/internal/resourceaccess/projectstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
 // computeCostCentsPerComputeUnitSecond is the deterministic base price (in minor

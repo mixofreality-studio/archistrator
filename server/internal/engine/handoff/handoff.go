@@ -33,7 +33,7 @@
 package handoff
 
 import (
-	fweng "github.com/davidmarne/archistrator-platform/framework-go/engine"
+	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 )
 
 // WorkerClass is the worker arrangement cast onto an activity's worker role

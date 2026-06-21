@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"strings"
 
-	fwllm "github.com/davidmarne/archistrator-platform/framework-go-infrastructure-llm"
-	fwra "github.com/davidmarne/archistrator-platform/framework-go/resourceaccess"
+	fwllm "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-llm"
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
 // AnthropicWorker is the PRODUCTION WorkerAccess implementation, backed by the

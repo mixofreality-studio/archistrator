@@ -21,7 +21,7 @@ package artifact
 import (
 	"context"
 
-	fwra "github.com/davidmarne/archistrator-platform/framework-go/resourceaccess"
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
 // ArtifactAccess is the Temporal-free port over the Phase-3 construction-output

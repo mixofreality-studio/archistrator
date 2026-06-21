@@ -4,8 +4,8 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
-	"github.com/davidmarne/archistrator/server/internal/resourceaccess/projectstate"
-	"github.com/davidmarne/archistrator/server/internal/resourceaccess/sourcecontrol"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 )
 
 // gitforward.go is the WORKFLOW-LEVEL wiring of the git-forward (branch→PR→CI→+1→

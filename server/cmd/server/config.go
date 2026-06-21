@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/davidmarne/archistrator/server/internal/client/web"
-	"github.com/davidmarne/archistrator-platform/framework-go/utilities/security"
+	"github.com/mixofreality-studio/archistrator/server/internal/client/web"
+	"github.com/mixofreality-studio/archistrator-platform/framework-go/utilities/security"
 )
 
 // config is the composition root's env-loaded configuration: the infra endpoints

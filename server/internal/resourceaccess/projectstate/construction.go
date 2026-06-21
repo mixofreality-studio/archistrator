@@ -3,7 +3,7 @@ package projectstate
 import (
 	"context"
 
-	fwra "github.com/davidmarne/archistrator-platform/framework-go/resourceaccess"
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
 // This file holds the ADDITIVE Phase-3 construction-transition write verbs the

@@ -9,9 +9,9 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
-	"github.com/davidmarne/archistrator/server/internal/resourceaccess/sourcecontrol"
-	fwmanager "github.com/davidmarne/archistrator-platform/framework-go/manager"
-	fwra "github.com/davidmarne/archistrator-platform/framework-go/resourceaccess"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
+	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
 // designWorkflowFileName is the per-project DESIGN workflow file the agentic design

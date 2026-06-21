@@ -3,7 +3,7 @@ package projectstate
 import (
 	"context"
 
-	fwra "github.com/davidmarne/archistrator-platform/framework-go/resourceaccess"
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
 // gitactivity.go holds the ADDITIVE per-activity git-forward Record* verbs

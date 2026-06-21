@@ -3,8 +3,8 @@ package main
 import (
 	"testing"
 
-	"github.com/davidmarne/archistrator/server/internal/manager/construction"
-	"github.com/davidmarne/archistrator/server/internal/resourceaccess/projectstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/manager/construction"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
 // makeCommittedNetwork builds a minimal committed ArtifactSlot holding a *projectstate.Network.

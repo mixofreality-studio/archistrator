@@ -3,8 +3,8 @@ package project
 import (
 	"errors"
 
-	fwmanager "github.com/davidmarne/archistrator-platform/framework-go/manager"
-	fwra "github.com/davidmarne/archistrator-platform/framework-go/resourceaccess"
+	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
 // ProjectError is the typed façade error, an alias for fwmanager.Error so

@@ -9,7 +9,7 @@ import (
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/client"
 
-	fwmanager "github.com/davidmarne/archistrator-platform/framework-go/manager"
+	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 )
 
 // Manager is the constructionManager façade. It exposes the five public use-case

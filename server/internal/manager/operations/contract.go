@@ -38,7 +38,7 @@ import (
 
 	"github.com/google/uuid"
 
-	fwmgr "github.com/davidmarne/archistrator-platform/framework-go/manager"
+	fwmgr "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 )
 
 // ---------------------------------------------------------------------------

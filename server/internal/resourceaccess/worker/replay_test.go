@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	fwra "github.com/davidmarne/archistrator-platform/framework-go/resourceaccess"
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
 // writeCassetteFile writes a minimal envelope so the read path can find it.

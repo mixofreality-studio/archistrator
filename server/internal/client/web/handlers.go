@@ -5,10 +5,10 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/davidmarne/archistrator/server/internal/manager/project"
-	"github.com/davidmarne/archistrator/server/internal/manager/systemdesign"
-	fwmanager "github.com/davidmarne/archistrator-platform/framework-go/manager"
-	"github.com/davidmarne/archistrator-platform/framework-go/utilities/security"
+	"github.com/mixofreality-studio/archistrator/server/internal/manager/project"
+	"github.com/mixofreality-studio/archistrator/server/internal/manager/systemdesign"
+	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
+	"github.com/mixofreality-studio/archistrator-platform/framework-go/utilities/security"
 )
 
 // This file is the HTTP binding for the UC1 driveDesignPhase facet. Each handler

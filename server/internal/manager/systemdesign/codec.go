@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/davidmarne/archistrator/server/internal/resourceaccess/projectstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
 // This file owns the Manager's serialization of the sealed projectstate.ArtifactModel

@@ -33,8 +33,8 @@ import (
 	"go.temporal.io/sdk/worker"
 	"go.temporal.io/sdk/workflow"
 
-	temporalinfra "github.com/davidmarne/archistrator-platform/framework-go-infrastructure-temporal/testinfra"
-	fwra "github.com/davidmarne/archistrator-platform/framework-go/resourceaccess"
+	temporalinfra "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-temporal/testinfra"
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
 const (

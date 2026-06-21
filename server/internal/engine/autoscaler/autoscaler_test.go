@@ -37,7 +37,7 @@ import (
 	"testing"
 	"time"
 
-	fweng "github.com/davidmarne/archistrator-platform/framework-go/engine"
+	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 )
 
 // eng is the stateless engine under test, exercised through the exported port.

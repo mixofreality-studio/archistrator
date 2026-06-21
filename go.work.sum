@@ -1,7 +1,7 @@
-github.com/davidmarne/archistrator-platform/framework-go v0.1.0/go.mod h1:OayANq3emoTsbtFiDYaXm+p/jNzQYvpZyDZg2PynrVk=
-github.com/davidmarne/archistrator-platform/framework-go-infrastructure-github v0.1.0/go.mod h1:PKNKYmKJQCegetHH8QGkyBVB9IVL1vFO8yd0+qmXo1w=
-github.com/davidmarne/archistrator-platform/framework-go-infrastructure-keycloak v0.1.0/go.mod h1:WnCqVR8VM10bib8+CpJHwk3gOYG2CVj2XPavhNJWOYs=
-github.com/davidmarne/archistrator-platform/framework-go-infrastructure-llm v0.1.0/go.mod h1:VgGhGVfI4yLHuA23srt3KZO+HTzips6eZFfIwcrJLWo=
-github.com/davidmarne/archistrator-platform/framework-go-infrastructure-otel v0.1.0/go.mod h1:+jiGBfhncHdgnm/9FClJ6+5DocOqF7rgdJ1jUel79K4=
-github.com/davidmarne/archistrator-platform/framework-go-infrastructure-postgres v0.1.0/go.mod h1:YP3XNdjj2o7qI51WnEYTGDOZcJpjTS1TEN1RjNeesPY=
-github.com/davidmarne/archistrator-platform/framework-go-infrastructure-temporal v0.1.0/go.mod h1:tAbMRUN0Ezm58An4SaE/I1brnnNYMT0rLIECZMGRdTs=
+github.com/mixofreality-studio/archistrator-platform/framework-go v0.1.0/go.mod h1:O/JX3XM7bg+1HOfyQ0TCG4nnkED0w7R1vwcqzD5hEgM=
+github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github v0.1.0/go.mod h1:hBgZRy/Ed40zSD+11VDfKev3U5TDjvqvexZ/BanCJj8=
+github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-keycloak v0.1.0/go.mod h1:eEnOHwWlB3ZfyWgvYHcEopF4VPvSS5lqUktQ7/+y3PQ=
+github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-llm v0.1.0/go.mod h1:o0bK6LgZjcNjovaykBf8Xk86a2m6T7M2yG8mmjXVidg=
+github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-otel v0.1.0/go.mod h1:iZP7GZucpmOVx21B3wC18URV21Dvlw9+qGjyAMHfWk0=
+github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-postgres v0.1.0/go.mod h1:R5rsOKrof5VtqkMEoz1W/59ZtoeYVoeHBd5KpC5zhzY=
+github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-temporal v0.1.0/go.mod h1:rxXgu0k6M9HyHuoCKPNRdJOwmFqmbtUhy9h0h97VVAw=

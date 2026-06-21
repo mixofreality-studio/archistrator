@@ -33,7 +33,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	fwra "github.com/davidmarne/archistrator-platform/framework-go/resourceaccess"
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
 // WorkerAccess is the Temporal-free port over the Worker Provider (workerAccess.md

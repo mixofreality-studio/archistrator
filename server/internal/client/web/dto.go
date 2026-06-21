@@ -3,8 +3,8 @@ package web
 import (
 	"fmt"
 
-	"github.com/davidmarne/archistrator/server/internal/manager/systemdesign"
-	"github.com/davidmarne/archistrator/server/internal/resourceaccess/projectstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/manager/systemdesign"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
 // This file holds the HTTP/JSON wire DTOs for the UC1 driveDesignPhase facet and

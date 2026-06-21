@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	fwra "github.com/davidmarne/archistrator-platform/framework-go/resourceaccess"
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
 // Developer-owned regression harness for the production AnthropicWorker. The

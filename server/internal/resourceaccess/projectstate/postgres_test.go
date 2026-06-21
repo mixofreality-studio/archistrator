@@ -7,10 +7,10 @@ import (
 
 	"github.com/google/uuid"
 
-	fwra "github.com/davidmarne/archistrator-platform/framework-go/resourceaccess"
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 
-	"github.com/davidmarne/archistrator/server/internal/resourceaccess/projectstate"
-	postgresinfra "github.com/davidmarne/archistrator-platform/framework-go-infrastructure-postgres/testinfra"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+	postgresinfra "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-postgres/testinfra"
 )
 
 // These integration tests exercise the concrete Postgres Store against a real

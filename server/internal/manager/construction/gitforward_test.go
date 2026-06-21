@@ -7,9 +7,9 @@ import (
 
 	"go.temporal.io/sdk/testsuite"
 
-	"github.com/davidmarne/archistrator/server/internal/resourceaccess/projectstate"
-	"github.com/davidmarne/archistrator/server/internal/resourceaccess/sourcecontrol"
-	fwra "github.com/davidmarne/archistrator-platform/framework-go/resourceaccess"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"github.com/google/uuid"
 )
 

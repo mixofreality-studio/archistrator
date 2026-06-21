@@ -4,9 +4,9 @@ import (
 	"context"
 	"time"
 
-	"github.com/davidmarne/archistrator/server/internal/resourceaccess/projectstate"
-	"github.com/davidmarne/archistrator/server/internal/resourceaccess/sourcecontrol"
-	fwmanager "github.com/davidmarne/archistrator-platform/framework-go/manager"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
+	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 )
 
 // gitactivities.go holds the Manager-owned Temporal Activity wrappers for the

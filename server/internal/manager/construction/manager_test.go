@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	fwmanager "github.com/davidmarne/archistrator-platform/framework-go/manager"
+	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	"github.com/google/uuid"
 )
 

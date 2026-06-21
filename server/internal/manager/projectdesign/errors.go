@@ -1,7 +1,7 @@
 package projectdesign
 
 import (
-	fwmanager "github.com/davidmarne/archistrator-platform/framework-go/manager"
+	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 )
 
 // This file bridges the Manager's Activity results to Temporal's retry machinery.

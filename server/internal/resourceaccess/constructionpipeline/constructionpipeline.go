@@ -36,7 +36,7 @@ import (
 	"context"
 	"time"
 
-	fwra "github.com/davidmarne/archistrator-platform/framework-go/resourceaccess"
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
 // ConstructionPipelineAccess is the infrastructure-opaque port over the

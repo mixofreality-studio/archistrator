@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	ps "github.com/davidmarne/archistrator/server/internal/resourceaccess/projectstate"
+	ps "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
 // fixture1 and fixture2 are minimal service contract JSON objects written to a

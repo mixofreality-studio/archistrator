@@ -1,8 +1,8 @@
 package web
 
 import (
-	"github.com/davidmarne/archistrator/server/internal/manager/project"
-	"github.com/davidmarne/archistrator/server/internal/resourceaccess/projectstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/manager/project"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
 // constructionrows.go projects the per-activity construction head-state + the project-level

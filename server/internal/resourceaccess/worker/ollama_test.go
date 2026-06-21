@@ -6,8 +6,8 @@ import (
 	"errors"
 	"testing"
 
-	llminfra "github.com/davidmarne/archistrator-platform/framework-go-infrastructure-llm/testinfra"
-	fwra "github.com/davidmarne/archistrator-platform/framework-go/resourceaccess"
+	llminfra "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-llm/testinfra"
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
 // This is the developer-owned regression harness (N-RTH) for C-WA. The generic

@@ -23,9 +23,9 @@ import (
 
 	"github.com/google/uuid"
 
-	ps "github.com/davidmarne/archistrator/server/internal/resourceaccess/projectstate"
-	fwgithub "github.com/davidmarne/archistrator-platform/framework-go-infrastructure-github"
-	fwra "github.com/davidmarne/archistrator-platform/framework-go/resourceaccess"
+	ps "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+	fwgithub "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github"
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
 // fixedClock is a deterministic, server-side clock so UpdatedAt is asserted exactly

@@ -26,7 +26,7 @@ import (
 	"strings"
 	"sync"
 
-	fwra "github.com/davidmarne/archistrator-platform/framework-go/resourceaccess"
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
 // ReplayMode selects miss behaviour for a ReplayWorker.

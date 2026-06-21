@@ -3,11 +3,11 @@ package internal_test
 import (
 	"testing"
 
-	"github.com/davidmarne/archistrator-platform/framework-go/arch"
+	"github.com/mixofreality-studio/archistrator-platform/framework-go/arch"
 )
 
 // modulePrefix is the import-path prefix for this module's internal packages.
-const modulePrefix = "github.com/davidmarne/archistrator/server/internal/"
+const modulePrefix = "github.com/mixofreality-studio/archistrator/server/internal/"
 
 // TestMethodLayering enforces The Method's layer model on the archistrator server's
 // internal packages: strictly closed downward imports, Temporal only in the
@@ -84,7 +84,7 @@ func TestMethodLayering(t *testing.T) {
 	spec.TemporalExemptPackages = []string{"resourceaccess/durableexecution"}
 
 	spec.AllowedImportPrefixes = []string{
-		"github.com/davidmarne/",        // archistrator-platform framework family + this app's own module
+		"github.com/mixofreality-studio/",        // archistrator-platform framework family + this app's own module
 		"github.com/google/uuid",        // sanctioned identity type (projectstate.ProjectID = uuid.UUID)
 		"github.com/invopop/jsonschema", // typed-output JSON Schema derivation for LLM prompts (manager/systemdesign/schema.go)
 		"github.com/jackc/pgx",          // sanctioned Postgres driver

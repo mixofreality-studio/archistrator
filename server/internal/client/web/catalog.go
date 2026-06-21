@@ -3,8 +3,8 @@ package web
 import (
 	"strconv"
 
-	"github.com/davidmarne/archistrator/server/internal/manager/project"
-	"github.com/davidmarne/archistrator/server/internal/resourceaccess/projectstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/manager/project"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
 // This file is the HTTP/JSON wire binding for the project CATALOG facet

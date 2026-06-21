@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/davidmarne/archistrator/server/internal/manager/operations"
-	fwmgr "github.com/davidmarne/archistrator-platform/framework-go/manager"
-	"github.com/davidmarne/archistrator-platform/framework-go/utilities/security"
+	"github.com/mixofreality-studio/archistrator/server/internal/manager/operations"
+	fwmgr "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
+	"github.com/mixofreality-studio/archistrator-platform/framework-go/utilities/security"
 	"github.com/google/uuid"
 )
 

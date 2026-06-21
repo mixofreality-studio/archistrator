@@ -29,13 +29,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/davidmarne/archistrator/server/internal/engine/estimation"
-	"github.com/davidmarne/archistrator/server/internal/manager/project"
-	ps "github.com/davidmarne/archistrator/server/internal/resourceaccess/projectstate"
-	fwgithub "github.com/davidmarne/archistrator-platform/framework-go-infrastructure-github"
-	gh "github.com/davidmarne/archistrator-platform/framework-go-infrastructure-github/testinfra"
-	fwra "github.com/davidmarne/archistrator-platform/framework-go/resourceaccess"
-	"github.com/davidmarne/archistrator-platform/framework-go/utilities/security"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/estimation"
+	"github.com/mixofreality-studio/archistrator/server/internal/manager/project"
+	ps "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+	fwgithub "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github"
+	gh "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github/testinfra"
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	"github.com/mixofreality-studio/archistrator-platform/framework-go/utilities/security"
 	"github.com/google/uuid"
 )
 

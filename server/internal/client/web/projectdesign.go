@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/davidmarne/archistrator/server/internal/manager/projectdesign"
-	"github.com/davidmarne/archistrator/server/internal/resourceaccess/projectstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/manager/projectdesign"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
 // This file is the HTTP binding for the UC2 driveDesignPhase (Phase-2) facet. Each

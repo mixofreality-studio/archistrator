@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	fwra "github.com/davidmarne/archistrator-platform/framework-go/resourceaccess"
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
 // helpers.go holds the INFRASTRUCTURE-PRIVATE address/branch/meta encoding for the

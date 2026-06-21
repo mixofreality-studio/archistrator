@@ -48,7 +48,7 @@
 package intervention
 
 import (
-	fweng "github.com/davidmarne/archistrator-platform/framework-go/engine"
+	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 )
 
 // --- Identifier value types ----------------------------------------------------

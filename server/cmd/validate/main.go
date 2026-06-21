@@ -6,7 +6,7 @@ import (
 	"os"
 	"sort"
 
-	"github.com/davidmarne/archistrator/server/internal/resourceaccess/projectstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
 func main() {

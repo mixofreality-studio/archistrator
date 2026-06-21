@@ -19,7 +19,7 @@ ENV VITE_API_BASE_URL=$VITE_API_BASE_URL \
     VITE_OIDC_SCOPE=$VITE_OIDC_SCOPE
 
 COPY package.json package-lock.json ./
-# @davidmarne/archistrator-platform-framework-web is published to public npmjs.org.
+# @mixofreality-studio/archistrator-platform-framework-web is published to public npmjs.org.
 # No auth or registry override is needed.
 RUN npm ci
 COPY . .

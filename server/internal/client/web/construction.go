@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/davidmarne/archistrator/server/internal/manager/construction"
+	"github.com/mixofreality-studio/archistrator/server/internal/manager/construction"
 )
 
 // This file is the HTTP binding for the UC3 superviseConstruction facet (the

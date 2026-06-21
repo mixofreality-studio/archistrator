@@ -5,7 +5,7 @@ import (
 	"strings"
 	"sync"
 
-	fwra "github.com/davidmarne/archistrator-platform/framework-go/resourceaccess"
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
 // idemStore is the in-process idempotency replay table shared by every concrete

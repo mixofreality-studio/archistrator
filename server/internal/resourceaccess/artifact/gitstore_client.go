@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	fwgithub "github.com/davidmarne/archistrator-platform/framework-go-infrastructure-github"
-	fwra "github.com/davidmarne/archistrator-platform/framework-go/resourceaccess"
+	fwgithub "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github"
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
 // gitstore_client.go holds the two PROFILE constructors (cloud / local) and the

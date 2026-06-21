@@ -4,7 +4,7 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/davidmarne/archistrator-platform/framework-go/utilities/security"
+	"github.com/mixofreality-studio/archistrator-platform/framework-go/utilities/security"
 )
 
 // This file is the auth MIDDLEWARE selection for the Client edge

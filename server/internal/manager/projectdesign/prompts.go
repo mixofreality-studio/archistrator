@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/davidmarne/archistrator/server/internal/resourceaccess/projectstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
 // The Manager OWNS the per-step Phase-2 prompt corpus (mirroring systemdesign's

@@ -19,9 +19,9 @@ import (
 
 	"github.com/google/uuid"
 
-	ps "github.com/davidmarne/archistrator/server/internal/resourceaccess/projectstate"
-	fwgithub "github.com/davidmarne/archistrator-platform/framework-go-infrastructure-github"
-	gh "github.com/davidmarne/archistrator-platform/framework-go-infrastructure-github/testinfra"
+	ps "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+	fwgithub "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github"
+	gh "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github/testinfra"
 )
 
 // localProjectStateOverGit spins a real throwaway on-disk git repo (per-project) and
@@ -165,7 +165,7 @@ func TestCloudPerProjectRepoURL_NameAsIdentity(t *testing.T) {
 		name    = "my-cool-system" // a USER-supplied repo name == the project identity
 	)
 	got := cloudPerProjectRepoURL(webHost, account, name)
-	want := "https://github.com/davidmarne/my-cool-system.git"
+	want := "https://github.com/mixofreality-studio/my-cool-system.git"
 	if got != want {
 		t.Fatalf("cloudPerProjectRepoURL = %q, want %q", got, want)
 	}

@@ -28,7 +28,7 @@ package projectstate
 import (
 	"context"
 
-	fwra "github.com/davidmarne/archistrator-platform/framework-go/resourceaccess"
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
 // ProjectStateAccess is the Temporal-free port over the project head-state

@@ -10,7 +10,7 @@ import (
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/client"
 
-	fwmgr "github.com/davidmarne/archistrator-platform/framework-go/manager"
+	fwmgr "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 )
 
 // Manager is the settlementManager façade. It exposes the six public use-case ops

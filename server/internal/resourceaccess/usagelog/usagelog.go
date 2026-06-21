@@ -34,7 +34,7 @@ import (
 
 	"github.com/google/uuid"
 
-	fwra "github.com/davidmarne/archistrator-platform/framework-go/resourceaccess"
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
 // CustomerID is the billing counterparty the usage facts are scoped to

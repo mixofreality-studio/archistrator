@@ -8,7 +8,7 @@ package projectstate_test
 import (
 	"testing"
 
-	ps "github.com/davidmarne/archistrator/server/internal/resourceaccess/projectstate"
+	ps "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
 // TestServiceContract_RoundTrip — a Project with one ServiceContracts["webClient"]

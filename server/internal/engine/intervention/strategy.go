@@ -13,7 +13,7 @@ package intervention
 // what makes the Managers' direct in-workflow calls replay-safe (FU-IE-A).
 
 import (
-	fweng "github.com/davidmarne/archistrator-platform/framework-go/engine"
+	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 )
 
 // interventionStrategy is the unexported per-policy decision rule. Selected from

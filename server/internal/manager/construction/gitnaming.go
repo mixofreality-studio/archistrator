@@ -7,8 +7,8 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
-	fwmanager "github.com/davidmarne/archistrator-platform/framework-go/manager"
-	fwra "github.com/davidmarne/archistrator-platform/framework-go/resourceaccess"
+	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
 // gitnaming.go holds the Manager's provider-NEUTRAL, DETERMINISTIC naming + the git

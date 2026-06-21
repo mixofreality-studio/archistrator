@@ -1,8 +1,8 @@
 package web
 
 import (
-	"github.com/davidmarne/archistrator/server/internal/manager/project"
-	ps "github.com/davidmarne/archistrator/server/internal/resourceaccess/projectstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/manager/project"
+	ps "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
 // servicecontracts.go projects the typed service-contract corpus onto camelCase

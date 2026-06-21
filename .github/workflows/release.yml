@@ -62,8 +62,8 @@ jobs:
           docker buildx build \
             --platform linux/amd64 \
             -f server/Dockerfile \
-            -t "ghcr.io/davidmarne/archistrator-server:${VERSION}" \
-            -t "ghcr.io/davidmarne/archistrator-server:latest" \
+            -t "ghcr.io/mixofreality-studio/archistrator-server:${VERSION}" \
+            -t "ghcr.io/mixofreality-studio/archistrator-server:latest" \
             --push \
             .
 
@@ -151,8 +151,8 @@ jobs:
             --build-arg VITE_OIDC_CLIENT_ID=archistrator-webapp \
             --build-arg VITE_OIDC_REDIRECT_URI=https://archistrator.capture-gtd.com/ \
             --build-arg "VITE_OIDC_SCOPE=openid profile email" \
-            -t "ghcr.io/davidmarne/archistrator-webapp:${VERSION}" \
-            -t "ghcr.io/davidmarne/archistrator-webapp:latest" \
+            -t "ghcr.io/mixofreality-studio/archistrator-webapp:${VERSION}" \
+            -t "ghcr.io/mixofreality-studio/archistrator-webapp:latest" \
             --push \
             webApp/
 

@@ -9,12 +9,12 @@ import (
 	"go.temporal.io/sdk/testsuite"
 	"go.temporal.io/sdk/workflow"
 
-	"github.com/davidmarne/archistrator/server/internal/engine/estimation"
-	"github.com/davidmarne/archistrator/server/internal/engine/operationestimation"
-	"github.com/davidmarne/archistrator/server/internal/engine/settlement"
-	"github.com/davidmarne/archistrator/server/internal/resourceaccess/projectstate"
-	"github.com/davidmarne/archistrator/server/internal/resourceaccess/sourcecontrol"
-	fwra "github.com/davidmarne/archistrator-platform/framework-go/resourceaccess"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/estimation"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/operationestimation"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/settlement"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"github.com/google/uuid"
 )
 

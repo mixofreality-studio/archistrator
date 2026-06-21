@@ -2,7 +2,7 @@
 # archistrator server — multi-stage Go build → small non-root runtime image.
 #
 # BUILD CONTEXT: the `archistrator` repo root (parent of server/).
-# Platform modules (github.com/davidmarne/archistrator-platform/*) are public
+# Platform modules (github.com/mixofreality-studio/archistrator-platform/*) are public
 # on GitHub; no auth is required and they resolve via the default GOPROXY.
 #
 #     docker buildx build --platform=linux/amd64 \
@@ -47,8 +47,8 @@ FROM gcr.io/distroless/static-debian12:nonroot AS runtime
 
 LABEL org.opencontainers.image.title="archistrator-server" \
       org.opencontainers.image.description="archistrator system-design server (UC1 webClient + embedded Temporal worker)" \
-      org.opencontainers.image.source="https://github.com/davidmarne/archistrator" \
-      org.opencontainers.image.vendor="davidmarne"
+      org.opencontainers.image.source="https://github.com/mixofreality-studio/archistrator" \
+      org.opencontainers.image.vendor="mixofreality-studio"
 
 COPY --from=build /server /server
 

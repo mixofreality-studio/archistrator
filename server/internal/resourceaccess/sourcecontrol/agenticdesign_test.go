@@ -15,7 +15,7 @@ import (
 	"strings"
 	"testing"
 
-	fwgithub "github.com/davidmarne/archistrator-platform/framework-go-infrastructure-github"
+	fwgithub "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github"
 	"gopkg.in/yaml.v3"
 )
 
@@ -199,7 +199,7 @@ func TestManagedScaffoldFiles(t *testing.T) {
 	if !strings.Contains(gm, "module github.com/acme/widgets") {
 		t.Errorf("go.mod must declare the derived module path; got:\n%s", gm)
 	}
-	if !strings.Contains(gm, "require github.com/davidmarne/archistrator-platform/framework-go "+FrameworkGoVersion) {
+	if !strings.Contains(gm, "require github.com/mixofreality-studio/archistrator-platform/framework-go "+FrameworkGoVersion) {
 		t.Errorf("go.mod must require framework-go at the pinned version %q; got:\n%s", FrameworkGoVersion, gm)
 	}
 

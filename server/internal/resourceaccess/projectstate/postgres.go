@@ -11,8 +11,8 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	fwpg "github.com/davidmarne/archistrator-platform/framework-go-infrastructure-postgres"
-	fwra "github.com/davidmarne/archistrator-platform/framework-go/resourceaccess"
+	fwpg "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-postgres"
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
 // Store is the concrete, Postgres-backed implementation of ProjectStateAccess

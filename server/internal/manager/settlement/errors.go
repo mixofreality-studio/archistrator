@@ -1,7 +1,7 @@
 package settlement
 
 import (
-	fwmgr "github.com/davidmarne/archistrator-platform/framework-go/manager"
+	fwmgr "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 )
 
 // This file bridges the Manager's Activity results to Temporal's retry machinery

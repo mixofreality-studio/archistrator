@@ -5,9 +5,9 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/davidmarne/archistrator/server/internal/resourceaccess/projectstate"
-	fwmanager "github.com/davidmarne/archistrator-platform/framework-go/manager"
-	fwra "github.com/davidmarne/archistrator-platform/framework-go/resourceaccess"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"github.com/google/uuid"
 )
 

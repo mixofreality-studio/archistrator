@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/davidmarne/archistrator/server/internal/manager/operations"
-	"github.com/davidmarne/archistrator-platform/framework-go/utilities/security"
+	"github.com/mixofreality-studio/archistrator/server/internal/manager/operations"
+	"github.com/mixofreality-studio/archistrator-platform/framework-go/utilities/security"
 	"github.com/google/uuid"
 )
 

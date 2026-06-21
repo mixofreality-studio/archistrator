@@ -54,7 +54,7 @@ import (
 	"errors"
 	"testing"
 
-	fwmgr "github.com/davidmarne/archistrator-platform/framework-go/manager"
+	fwmgr "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	"github.com/google/uuid"
 )
 

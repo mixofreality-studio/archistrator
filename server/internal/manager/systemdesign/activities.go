@@ -6,9 +6,9 @@ import (
 
 	"go.temporal.io/sdk/activity"
 
-	"github.com/davidmarne/archistrator/server/internal/resourceaccess/projectstate"
-	fwmanager "github.com/davidmarne/archistrator-platform/framework-go/manager"
-	fwra "github.com/davidmarne/archistrator-platform/framework-go/resourceaccess"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
 // This file holds the Manager-owned Temporal Activity wrappers — one per

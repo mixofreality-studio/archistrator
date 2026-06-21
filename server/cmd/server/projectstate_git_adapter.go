@@ -41,10 +41,10 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/davidmarne/archistrator/server/internal/resourceaccess/projectstate"
-	"github.com/davidmarne/archistrator/server/internal/resourceaccess/sourcecontrol"
-	fwgithub "github.com/davidmarne/archistrator-platform/framework-go-infrastructure-github"
-	fwra "github.com/davidmarne/archistrator-platform/framework-go/resourceaccess"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
+	fwgithub "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github"
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
 // credentialMinter mints the per-project RepoCredential the GitStore's head-state

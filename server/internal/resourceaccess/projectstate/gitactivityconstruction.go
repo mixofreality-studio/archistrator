@@ -3,7 +3,7 @@ package projectstate
 import (
 	"context"
 
-	fwra "github.com/davidmarne/archistrator-platform/framework-go/resourceaccess"
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
 // gitactivityconstruction.go holds the ADDITIVE per-activity construction status

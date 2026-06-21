@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/davidmarne/archistrator/server/internal/resourceaccess/artifact"
-	fwra "github.com/davidmarne/archistrator-platform/framework-go/resourceaccess"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
 // This file declares the Manager's CONSUMER-SIDE dependency interfaces (the Go

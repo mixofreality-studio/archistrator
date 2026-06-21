@@ -14,7 +14,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/davidmarne/archistrator/server/internal/resourceaccess/projectstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"gopkg.in/yaml.v3"
 )
 

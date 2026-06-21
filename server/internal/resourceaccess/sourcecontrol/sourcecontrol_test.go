@@ -83,10 +83,10 @@ import (
 	"testing"
 	"time"
 
-	sc "github.com/davidmarne/archistrator/server/internal/resourceaccess/sourcecontrol"
-	fwgithub "github.com/davidmarne/archistrator-platform/framework-go-infrastructure-github"
-	gh "github.com/davidmarne/archistrator-platform/framework-go-infrastructure-github/testinfra"
-	fwra "github.com/davidmarne/archistrator-platform/framework-go/resourceaccess"
+	sc "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
+	fwgithub "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github"
+	gh "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github/testinfra"
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
 const (

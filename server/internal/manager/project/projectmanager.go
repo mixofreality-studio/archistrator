@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/davidmarne/archistrator/server/internal/engine/estimation"
-	"github.com/davidmarne/archistrator/server/internal/resourceaccess/projectstate"
-	fwmanager "github.com/davidmarne/archistrator-platform/framework-go/manager"
-	fwra "github.com/davidmarne/archistrator-platform/framework-go/resourceaccess"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/estimation"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
 // Manager is the projectManager façade — a THIN Manager over the project

@@ -1,4 +1,4 @@
-module github.com/davidmarne/archistrator/server
+module github.com/mixofreality-studio/archistrator/server
 
 go 1.25.4
 
@@ -106,13 +106,13 @@ require (
 
 require (
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
-	github.com/davidmarne/archistrator-platform/framework-go v0.1.0
-	github.com/davidmarne/archistrator-platform/framework-go-infrastructure-github v0.1.0
-	github.com/davidmarne/archistrator-platform/framework-go-infrastructure-keycloak v0.1.0
-	github.com/davidmarne/archistrator-platform/framework-go-infrastructure-llm v0.1.0
-	github.com/davidmarne/archistrator-platform/framework-go-infrastructure-otel v0.1.0
-	github.com/davidmarne/archistrator-platform/framework-go-infrastructure-postgres v0.1.0
-	github.com/davidmarne/archistrator-platform/framework-go-infrastructure-temporal v0.1.0
+	github.com/mixofreality-studio/archistrator-platform/framework-go v0.1.0
+	github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github v0.1.0
+	github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-keycloak v0.1.0
+	github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-llm v0.1.0
+	github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-otel v0.1.0
+	github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-postgres v0.1.0
+	github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-temporal v0.1.0
 	github.com/facebookgo/clock v0.0.0-20150410010913-600d898af40a // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/mock v1.6.0 // indirect

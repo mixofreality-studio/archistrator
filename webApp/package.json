@@ -17,7 +17,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@davidmarne/archistrator-platform-framework-web": "^0.1.0",
+    "@mixofreality-studio/archistrator-platform-framework-web": "^0.1.0",
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",
     "@fontsource/inter": "^5.2.8",

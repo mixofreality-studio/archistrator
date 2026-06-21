@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 
-	"github.com/davidmarne/archistrator-platform/framework-go/utilities/security"
+	"github.com/mixofreality-studio/archistrator-platform/framework-go/utilities/security"
 )
 
 // authenticatedOnlyPDP is the INTERIM authorization policy: every request that

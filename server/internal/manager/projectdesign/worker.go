@@ -5,11 +5,11 @@ import (
 	"go.temporal.io/sdk/worker"
 	"go.temporal.io/sdk/workflow"
 
-	"github.com/davidmarne/archistrator/server/internal/engine/estimation"
-	"github.com/davidmarne/archistrator/server/internal/engine/operationestimation"
-	"github.com/davidmarne/archistrator/server/internal/engine/settlement"
-	"github.com/davidmarne/archistrator/server/internal/resourceaccess/projectstate"
-	"github.com/davidmarne/archistrator/server/internal/resourceaccess/sourcecontrol"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/estimation"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/operationestimation"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/settlement"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 )
 
 // RegisterWorker wires the projectDesignManager onto a Temporal Worker polling the

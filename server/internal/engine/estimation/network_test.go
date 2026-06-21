@@ -3,7 +3,7 @@ package estimation
 import (
 	"testing"
 
-	"github.com/davidmarne/archistrator/server/internal/resourceaccess/projectstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
 // diamond builds a small diamond network for the CPM tests: A(5) → B(5),C(15) → D(5).

@@ -50,7 +50,7 @@
 package review
 
 import (
-	fweng "github.com/davidmarne/archistrator-platform/framework-go/engine"
+	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 )
 
 // Perspective names a reviewer's review lens (the "from what perspective" axis of

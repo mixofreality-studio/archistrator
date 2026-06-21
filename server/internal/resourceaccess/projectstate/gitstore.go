@@ -32,8 +32,8 @@ import (
 	"strings"
 	"time"
 
-	fwgithub "github.com/davidmarne/archistrator-platform/framework-go-infrastructure-github"
-	fwra "github.com/davidmarne/archistrator-platform/framework-go/resourceaccess"
+	fwgithub "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github"
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
 // statePathPrefix is the reserved subtree under which aiarch's machine-state lives

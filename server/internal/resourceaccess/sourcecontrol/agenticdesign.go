@@ -10,7 +10,7 @@ package sourcecontrol
 //      is COMMITTED by the server (not hand-installed), so the template is embedded
 //      (//go:embed) and wrapped in the RA's provider-neutral ManagedFile value type.
 //   2. go.mod — `module <REPO_MODULE>` (github.com/<owner>/<repo>, derived from the
-//      adopted RepoRef) + a go directive + `require github.com/davidmarne/archistrator-platform/framework-go`
+//      adopted RepoRef) + a go directive + `require github.com/mixofreality-studio/archistrator-platform/framework-go`
 //      pinned to FrameworkGoVersion, so the seated `go test` resolves methodcheck.
 //   3. aiarch_method_test.go — the single test calling methodcheck.Check (the
 //      all-in-one Method gate). It is what `go test ./...` runs as the REQUIRED check.
@@ -75,7 +75,7 @@ const (
 const GoVersion = "1.25.0"
 
 // FrameworkGoVersion is the PINNED framework-go module version the seated go.mod
-// requires. The user repo's `go test` must RESOLVE github.com/davidmarne/archistrator-platform/framework-go
+// requires. The user repo's `go test` must RESOLVE github.com/mixofreality-studio/archistrator-platform/framework-go
 // at this version (published/tagged, or served via GOPROXY) — see the founder
 // checklist. framework-go is currently consumed inside the monorepo via a local
 // `replace` (v0.0.0); a published tag must back this pin before the seated gate works

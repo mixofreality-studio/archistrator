@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/davidmarne/archistrator/server/internal/resourceaccess/projectstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
 // The Manager OWNS the per-step prompt corpus (2026-05-29 rework §2.1; rework §6).

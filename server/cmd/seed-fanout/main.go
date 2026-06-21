@@ -17,7 +17,7 @@ import (
 	"os"
 	"sort"
 
-	"github.com/davidmarne/archistrator/server/internal/resourceaccess/projectstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
 // fanoutDelta is one downstream consumer's BEFORE→AFTER dependsOn rewrite.

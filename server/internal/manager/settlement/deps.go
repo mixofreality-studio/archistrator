@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	fwra "github.com/davidmarne/archistrator-platform/framework-go/resourceaccess"
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
 // This file declares settlementManager's CONSUMER-SIDE dependency interfaces (the Go
