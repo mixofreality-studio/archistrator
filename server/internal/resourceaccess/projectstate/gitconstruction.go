@@ -206,129 +206,131 @@ func (s *GitStore) RecordPhaseArtifactProduced(ctx context.Context, projectID Pr
 // applyPhaseArtifactPayload routes the payload to the correct Project field.
 // It is a pure function (no I/O) extracted for testability.
 func applyPhaseArtifactPayload(p *Project, mapKey string, payload PhaseArtifactPayload) {
-	// --- PhaseArtifacts routes (keyed by mapKey) ---
+	applyPhaseArtifactsPayload(p, mapKey, payload)
+	applyTestingStatePayload(p, payload)
+}
+
+// applyPhaseArtifactsPayload routes the PhaseArtifacts-group fields (keyed by
+// mapKey) from the payload into p.PhaseArtifacts, lazy-allocating as needed.
+// Split into two halves to keep each helper under the funlen threshold.
+func applyPhaseArtifactsPayload(p *Project, mapKey string, payload PhaseArtifactPayload) {
+	applyPhaseArtifactsSpecDesign(p, mapKey, payload)
+	applyPhaseArtifactsDeployDoc(p, mapKey, payload)
+}
+
+// ensurePhaseArtifacts lazy-inits p.PhaseArtifacts and returns it.
+func ensurePhaseArtifacts(p *Project) *PhaseArtifacts {
+	if p.PhaseArtifacts == nil {
+		p.PhaseArtifacts = &PhaseArtifacts{}
+	}
+	return p.PhaseArtifacts
+}
+
+// applyPhaseArtifactsSpecDesign handles the spec/design half of PhaseArtifacts
+// fields: SRS, TestPlan, IntegrationNote, UXRequirements, UIDesign.
+func applyPhaseArtifactsSpecDesign(p *Project, mapKey string, payload PhaseArtifactPayload) {
 	if payload.SRS != nil {
-		if p.PhaseArtifacts == nil {
-			p.PhaseArtifacts = &PhaseArtifacts{}
+		pa := ensurePhaseArtifacts(p)
+		if pa.SRS == nil {
+			pa.SRS = make(map[string]SRSRecord)
 		}
-		if p.PhaseArtifacts.SRS == nil {
-			p.PhaseArtifacts.SRS = make(map[string]SRSRecord)
-		}
-		p.PhaseArtifacts.SRS[mapKey] = *payload.SRS
+		pa.SRS[mapKey] = *payload.SRS
 	}
 	if payload.TestPlan != nil {
-		if p.PhaseArtifacts == nil {
-			p.PhaseArtifacts = &PhaseArtifacts{}
+		pa := ensurePhaseArtifacts(p)
+		if pa.TestPlan == nil {
+			pa.TestPlan = make(map[string]TestPlanRecord)
 		}
-		if p.PhaseArtifacts.TestPlan == nil {
-			p.PhaseArtifacts.TestPlan = make(map[string]TestPlanRecord)
-		}
-		p.PhaseArtifacts.TestPlan[mapKey] = *payload.TestPlan
+		pa.TestPlan[mapKey] = *payload.TestPlan
 	}
 	if payload.IntegrationNote != nil {
-		if p.PhaseArtifacts == nil {
-			p.PhaseArtifacts = &PhaseArtifacts{}
+		pa := ensurePhaseArtifacts(p)
+		if pa.IntegrationNote == nil {
+			pa.IntegrationNote = make(map[string]IntegrationNoteRecord)
 		}
-		if p.PhaseArtifacts.IntegrationNote == nil {
-			p.PhaseArtifacts.IntegrationNote = make(map[string]IntegrationNoteRecord)
-		}
-		p.PhaseArtifacts.IntegrationNote[mapKey] = *payload.IntegrationNote
+		pa.IntegrationNote[mapKey] = *payload.IntegrationNote
 	}
 	if payload.UXRequirements != nil {
-		if p.PhaseArtifacts == nil {
-			p.PhaseArtifacts = &PhaseArtifacts{}
+		pa := ensurePhaseArtifacts(p)
+		if pa.UXRequirements == nil {
+			pa.UXRequirements = make(map[string]UXRequirementsRecord)
 		}
-		if p.PhaseArtifacts.UXRequirements == nil {
-			p.PhaseArtifacts.UXRequirements = make(map[string]UXRequirementsRecord)
-		}
-		p.PhaseArtifacts.UXRequirements[mapKey] = *payload.UXRequirements
+		pa.UXRequirements[mapKey] = *payload.UXRequirements
 	}
 	if payload.UIDesign != nil {
-		if p.PhaseArtifacts == nil {
-			p.PhaseArtifacts = &PhaseArtifacts{}
+		pa := ensurePhaseArtifacts(p)
+		if pa.UIDesign == nil {
+			pa.UIDesign = make(map[string]UIDesignRecord)
 		}
-		if p.PhaseArtifacts.UIDesign == nil {
-			p.PhaseArtifacts.UIDesign = make(map[string]UIDesignRecord)
-		}
-		p.PhaseArtifacts.UIDesign[mapKey] = *payload.UIDesign
+		pa.UIDesign[mapKey] = *payload.UIDesign
 	}
+}
+
+// applyPhaseArtifactsDeployDoc handles the infra/doc half of PhaseArtifacts
+// fields: ProvisioningSpec, DeployNote, DocOutline, DocNote.
+func applyPhaseArtifactsDeployDoc(p *Project, mapKey string, payload PhaseArtifactPayload) {
 	if payload.ProvisioningSpec != nil {
-		if p.PhaseArtifacts == nil {
-			p.PhaseArtifacts = &PhaseArtifacts{}
+		pa := ensurePhaseArtifacts(p)
+		if pa.ProvisioningSpec == nil {
+			pa.ProvisioningSpec = make(map[string]ProvisioningSpecRecord)
 		}
-		if p.PhaseArtifacts.ProvisioningSpec == nil {
-			p.PhaseArtifacts.ProvisioningSpec = make(map[string]ProvisioningSpecRecord)
-		}
-		p.PhaseArtifacts.ProvisioningSpec[mapKey] = *payload.ProvisioningSpec
+		pa.ProvisioningSpec[mapKey] = *payload.ProvisioningSpec
 	}
 	if payload.DeployNote != nil {
-		if p.PhaseArtifacts == nil {
-			p.PhaseArtifacts = &PhaseArtifacts{}
+		pa := ensurePhaseArtifacts(p)
+		if pa.DeployNote == nil {
+			pa.DeployNote = make(map[string]DeployNoteRecord)
 		}
-		if p.PhaseArtifacts.DeployNote == nil {
-			p.PhaseArtifacts.DeployNote = make(map[string]DeployNoteRecord)
-		}
-		p.PhaseArtifacts.DeployNote[mapKey] = *payload.DeployNote
+		pa.DeployNote[mapKey] = *payload.DeployNote
 	}
 	if payload.DocOutline != nil {
-		if p.PhaseArtifacts == nil {
-			p.PhaseArtifacts = &PhaseArtifacts{}
+		pa := ensurePhaseArtifacts(p)
+		if pa.DocOutline == nil {
+			pa.DocOutline = make(map[string]DocOutlineRecord)
 		}
-		if p.PhaseArtifacts.DocOutline == nil {
-			p.PhaseArtifacts.DocOutline = make(map[string]DocOutlineRecord)
-		}
-		p.PhaseArtifacts.DocOutline[mapKey] = *payload.DocOutline
+		pa.DocOutline[mapKey] = *payload.DocOutline
 	}
 	if payload.DocNote != nil {
-		if p.PhaseArtifacts == nil {
-			p.PhaseArtifacts = &PhaseArtifacts{}
+		pa := ensurePhaseArtifacts(p)
+		if pa.DocNote == nil {
+			pa.DocNote = make(map[string]DocNoteRecord)
 		}
-		if p.PhaseArtifacts.DocNote == nil {
-			p.PhaseArtifacts.DocNote = make(map[string]DocNoteRecord)
-		}
-		p.PhaseArtifacts.DocNote[mapKey] = *payload.DocNote
+		pa.DocNote[mapKey] = *payload.DocNote
 	}
-	// --- TestingState routes (project-level singletons / slices) ---
-	if payload.SystemTestPlan != nil {
+}
+
+// applyTestingStatePayload routes the TestingState-group fields (project-level
+// singletons and append-slices) from the payload into p.TestingState,
+// lazy-allocating as needed.
+func applyTestingStatePayload(p *Project, payload PhaseArtifactPayload) {
+	ensureTestingState := func() *TestingState {
 		if p.TestingState == nil {
 			p.TestingState = &TestingState{}
 		}
-		p.TestingState.SystemTestPlan = payload.SystemTestPlan
+		return p.TestingState
+	}
+	if payload.SystemTestPlan != nil {
+		ensureTestingState().SystemTestPlan = payload.SystemTestPlan
 	}
 	if payload.HarnessModule != nil {
-		if p.TestingState == nil {
-			p.TestingState = &TestingState{}
-		}
-		p.TestingState.HarnessModule = payload.HarnessModule
+		ensureTestingState().HarnessModule = payload.HarnessModule
 	}
 	if payload.PerfHarness != nil {
-		if p.TestingState == nil {
-			p.TestingState = &TestingState{}
-		}
-		p.TestingState.PerfHarness = payload.PerfHarness
+		ensureTestingState().PerfHarness = payload.PerfHarness
 	}
 	if payload.QualityGate != nil {
-		if p.TestingState == nil {
-			p.TestingState = &TestingState{}
-		}
-		p.TestingState.QualityGates = append(p.TestingState.QualityGates, *payload.QualityGate)
+		ts := ensureTestingState()
+		ts.QualityGates = append(ts.QualityGates, *payload.QualityGate)
 	}
 	if payload.TestRun != nil {
-		if p.TestingState == nil {
-			p.TestingState = &TestingState{}
-		}
-		p.TestingState.TestRuns = append(p.TestingState.TestRuns, *payload.TestRun)
+		ts := ensureTestingState()
+		ts.TestRuns = append(ts.TestRuns, *payload.TestRun)
 	}
 	if payload.Defect != nil {
-		if p.TestingState == nil {
-			p.TestingState = &TestingState{}
-		}
-		p.TestingState.Defects = append(p.TestingState.Defects, *payload.Defect)
+		ts := ensureTestingState()
+		ts.Defects = append(ts.Defects, *payload.Defect)
 	}
 	if payload.QualityAuditReport != "" {
-		if p.TestingState == nil {
-			p.TestingState = &TestingState{}
-		}
-		p.TestingState.QualityAuditReport = payload.QualityAuditReport
+		ensureTestingState().QualityAuditReport = payload.QualityAuditReport
 	}
 }
