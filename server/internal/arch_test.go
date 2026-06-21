@@ -58,7 +58,7 @@ func TestMethodLayering(t *testing.T) {
 	// any system built with archistrator (the CustomerAppInfrastructure volatility made
 	// executable). Production code may import only:
 	//   - the Go standard library (auto-allowed; not listed),
-	//   - the davidmarne archistrator-platform framework family + this app's own module,
+	//   - the mixofreality-studio archistrator-platform framework family + this app's own module,
 	//   - the sanctioned infrastructure drivers carried by the framework-go
 	//     infrastructure modules: Postgres (pgx), Git/Gitea (go-git), and the
 	//     durable-execution substrate (Temporal).
