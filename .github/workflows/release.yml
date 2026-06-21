@@ -128,7 +128,7 @@ jobs:
       - name: Update version in package.json
         run: |
           cd webApp
-          npm version "${{ steps.version.outputs.version }}" --no-git-tag-version
+          npm version "${{ steps.version.outputs.version }}" --no-git-tag-version --allow-same-version
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3

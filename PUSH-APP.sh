@@ -24,8 +24,8 @@ echo "==> 2. create (if needed) + push the app repo PUBLIC under the org"
 if ! gh repo view "$ORG/$REPO" >/dev/null 2>&1; then
   gh repo create "$ORG/$REPO" --public --source=. --remote=origin --push
 else
-  git remote set-url origin "git@github.com:$ORG/$REPO.git" 2>/dev/null \
-    || git remote add origin "git@github.com:$ORG/$REPO.git"
+  git remote set-url origin "https://github.com/$ORG/$REPO.git" 2>/dev/null \
+    || git remote add origin "https://github.com/$ORG/$REPO.git"
   git push -u origin HEAD:main
 fi
 
