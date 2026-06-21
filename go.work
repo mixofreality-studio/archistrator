@@ -1,7 +1,6 @@
 go 1.25.4
 
 use (
-	./server
 	../archistrator-platform/framework-go
 	../archistrator-platform/framework-go-infrastructure-github
 	../archistrator-platform/framework-go-infrastructure-keycloak
@@ -9,4 +8,6 @@ use (
 	../archistrator-platform/framework-go-infrastructure-otel
 	../archistrator-platform/framework-go-infrastructure-postgres
 	../archistrator-platform/framework-go-infrastructure-temporal
+	./server
+	./systemtests
 )

@@ -1,0 +1,578 @@
+{
+  "workerClass": "architect",
+  "prompt": "You are the Architect agent drafting a typed Method artifact for an architecture project, following Juval Lowy's The Method to the letter.\nRespond with a single JSON object. No prose outside the JSON.\nTarget artifact: CoreUseCases\nYour JSON output MUST conform exactly to this JSON Schema. Emit every required field; for an optional object field, emit the object or null — never a bare string in its place.\nSchema: {\"properties\":{\"decisions\":{\"items\":{\"properties\":{\"useCase\":{\"properties\":{\"name\":{\"type\":\"string\"},\"actors\":{\"items\":{\"properties\":{\"role\":{\"type\":\"string\"}},\"additionalProperties\":false,\"type\":\"object\",\"required\":[\"role\"]},\"type\":\"array\"},\"trigger\":{\"type\":\"string\",\"enum\":[\"clientAction\",\"timer\",\"busMessage\"]},\"classification\":{\"type\":\"string\",\"enum\":[\"core\",\"nonCore\"]},\"variationOf\":{\"type\":\"string\"},\"activity\":{\"properties\":{\"nodes\":{\"items\":{\"properties\":{\"ref\":{\"type\":\"string\"},\"kind\":{\"type\":\"string\",\"enum\":[\"start\",\"action\",\"decision\",\"merge\",\"fork\",\"join\",\"end\",\"swimLane\",\"note\",\"loop\",\"switch\",\"goto\",\"interruptEdge\"]},\"label\":{\"type\":\"string\"},\"roleName\":{\"type\":\"string\"},\"linkedActor\":{\"type\":\"string\"},\"linkedComp\":{\"type\":\"string\"}},\"additionalProperties\":false,\"type\":\"object\",\"required\":[\"ref\",\"kind\",\"label\",\"roleName\",\"linkedActor\",\"linkedComp\"]},\"type\":\"array\"},\"edges\":{\"items\":{\"properties\":{\"from\":{\"type\":\"string\"},\"to\":{\"type\":\"string\"},\"kind\":{\"type\":\"string\",\"enum\":[\"controlFlow\",\"guardedFlow\"]},\"guard\":{\"type\":\"string\"}},\"additionalProperties\":false,\"type\":\"object\",\"required\":[\"from\",\"to\",\"kind\",\"guard\"]},\"type\":\"array\"}},\"additionalProperties\":false,\"type\":\"object\",\"required\":[\"nodes\",\"edges\"]}},\"additionalProperties\":false,\"type\":\"object\",\"required\":[\"name\",\"actors\",\"trigger\",\"classification\",\"variationOf\",\"activity\"]},\"rejectionReason\":{\"type\":\"string\"}},\"additionalProperties\":false,\"type\":\"object\",\"required\":[\"useCase\",\"rejectionReason\"]},\"type\":\"array\"}},\"additionalProperties\":false,\"type\":\"object\",\"required\":[\"decisions\"]}\n\nMission context:\n{\"vision\":\"A connected community where local events organize themselves around the people who care.\",\"objectives\":[{\"number\":1,\"statement\":\"Sustain organizer retention above 70% quarter-over-quarter by absorbing changes in notification channels, identity providers, and venue data sources without disrupting the organizing experience.\"},{\"number\":2,\"statement\":\"Achieve and maintain member RSVP-to-attendance conversion above 60% across all active events, demonstrating that engagement mechanisms reliably translate intent into participation.\"},{\"number\":3,\"statement\":\"Onboard new notification channels, identity providers, or venue data integrations within one release cycle and at no more than 15% incremental engineering cost, proving the platform's adaptability to a shifting external ecosystem.\"}],\"mission\":\"The system encapsulates the volatility of how communities connect, participate, and gather behind a stable core of interacting components. An organizing engine governs the lifecycle of events and their relationships to members, delegating to a pluggable notification dispatcher whose channel implementations evolve independently of the engagement logic it serves. An identity broker abstracts the chosen identity provider so that member and organizer relationships remain constant as the underlying provider changes. A venue resolver mediates between events and external venue data sources, allowing those sources to be swapped without altering the event's structure. These components collaborate so that engagement (RSVP, comment, reminder) is orchestrated centrally while the channels, identities, and venues through which it flows remain interchangeable—enabling the platform to evolve its external relationships continuously from initial draft through deployment.\"}\n\nGlossary context:\n{\"items\":[{\"term\":\"Organizer\",\"definition\":\"A community member who creates and governs the lifecycle of local events, inviting and engaging others to gather.\",\"category\":\"Who\"},{\"term\":\"Member\",\"definition\":\"A community participant who discovers events, expresses intent to attend, and participates in the gathering.\",\"category\":\"Who\"},{\"term\":\"Identity Provider\",\"definition\":\"An external party that vouches for who a member or organizer is, serving as the source of recognized identity.\",\"category\":\"Who\"},{\"term\":\"Venue Data Source\",\"definition\":\"An external party that supplies information about places where events may be held.\",\"category\":\"Who\"},{\"term\":\"Notification Channel\",\"definition\":\"An external means through which the community is reached when events and engagement occur.\",\"category\":\"Who\"},{\"term\":\"Event Lifecycle Governance\",\"definition\":\"The requirement to manage an event from initial draft through its active life to conclusion, including its relationships to members.\",\"category\":\"What\"},{\"term\":\"Engagement Continuity\",\"definition\":\"The requirement that members' intent to attend reliably translates into participation.\",\"category\":\"What\"},{\"term\":\"Ecosystem Adaptability\",\"definition\":\"The requirement to absorb changes in notification channels, identity providers, and venue data sources without disrupting the organizing experience.\",\"category\":\"What\"},{\"term\":\"Identity Stability\",\"definition\":\"The requirement that member and organizer relationships remain constant even as the underlying identity provider changes.\",\"category\":\"What\"},{\"term\":\"Venue Independence\",\"definition\":\"The requirement that the place of an event can be sourced or changed without altering the event's structure.\",\"category\":\"What\"},{\"term\":\"Event Organizing\",\"definition\":\"The business activity of governing events and their relationships to members over time.\",\"category\":\"How\"},{\"term\":\"Engagement Orchestration\",\"definition\":\"The business activity of coordinating RSVP, comment, and reminder so that intent to attend is captured and nurtured into participation.\",\"category\":\"How\"},{\"term\":\"Notification Dispatch\",\"definition\":\"The business activity of reaching the community about events and engagement, independent of which channel is used.\",\"category\":\"How\"},{\"term\":\"Identity Brokering\",\"definition\":\"The business activity of mediating recognition of members and organizers regardless of the chosen identity provider.\",\"category\":\"How\"},{\"term\":\"Venue Resolution\",\"definition\":\"The business activity of mediating between an event and external information about where it is held.\",\"category\":\"How\"},{\"term\":\"RSVP\",\"definition\":\"A member's expressed intent to attend a given event.\",\"category\":\"How\"},{\"term\":\"Event Record\",\"definition\":\"Where the enduring facts about an event and its relationships to members reside.\",\"category\":\"Where\"},{\"term\":\"Engagement Record\",\"definition\":\"Where the state of members' RSVPs, comments, and reminders for events is held.\",\"category\":\"Where\"},{\"term\":\"Identity Relationship\",\"definition\":\"Where the enduring association between members or organizers and their recognized identity is kept.\",\"category\":\"Where\"},{\"term\":\"Venue Reference\",\"definition\":\"Where the association between an event and its resolved place is retained.\",\"category\":\"Where\"}]}\n\nVolatilities context:\n{\"items\":[{\"name\":\"Notification Channel Volatility\",\"rationale\":\"The means by which the community is reached (email, SMS, push, future channels) evolve independently of the engagement logic they serve. SR-6, SR-14, SR-15a, and SR-15b demand that channels be onboarded and swapped without disrupting the organizing experience. This is open-ended: the set of channels grows and changes unpredictably as the external ecosystem shifts, so the Notification Dispatch activity must encapsulate which channel carries any given message.\",\"axis\":\"sameCustomerOverTime\"},{\"name\":\"Identity Provider Volatility\",\"rationale\":\"The external party that vouches for who a member or organizer is may change over time as the business adopts new providers or retires old ones. SR-10, SR-11, SR-14, and SR-15 require recognition and relationships to remain constant as the underlying provider changes. The Identity Brokering activity must encapsulate this open-ended evolution so that identity relationships stay stable regardless of provider.\",\"axis\":\"sameCustomerOverTime\"},{\"name\":\"Venue Data Source Volatility\",\"rationale\":\"External venue data sources supplying information about where events are held can be added, swapped, or removed without altering an event's structure (SR-12, SR-13, SR-14, SR-15). Which source resolves a place is open-ended as integrations shift across the ecosystem, so Venue Resolution must encapsulate the choice and shape of the underlying data source.\",\"axis\":\"sameCustomerOverTime\"},{\"name\":\"Event Lifecycle Definition Volatility\",\"rationale\":\"The defined lifecycle states an event passes through from draft to conclusion (SR-1) are subject to change as the organizing model matures—new states, transitions, or governance rules emerge over time. This is open-ended business volatility rather than a fixed conditional, so the Event Organizing activity must encapsulate the lifecycle definition itself.\",\"axis\":\"sameCustomerOverTime\"},{\"name\":\"Engagement Mechanism Volatility\",\"rationale\":\"How intent is captured and nurtured into participation—RSVP, comment, reminder, and future engagement forms (SR-5, SR-7, SR-8, SR-9, SR-20)—evolves as the business discovers new ways to drive attendance conversion. The mix and behavior of engagement mechanisms is open-ended, so Engagement Orchestration must encapsulate which mechanisms are coordinated and how they translate intent into participation.\",\"axis\":\"sameCustomerOverTime\"},{\"name\":\"Reminder Schedule Policy Volatility\",\"rationale\":\"The schedule by which members are reminded of events, governed by the Reminder Schedule Policy (the rules defining when and how reminders are issued), changes over time as the organization tunes engagement for better conversion. Treating this as an externalized policy rather than hardcoded timing keeps the change open-ended and encapsulated; the underlying terms must first be admitted to the glossary as referenced in the findings. The Engagement Orchestration activity must encapsulate the reminder policy so SR-7 can adapt without disrupting engagement logic.\",\"axis\":\"sameCustomerOverTime\"},{\"name\":\"Event Discovery Volatility\",\"rationale\":\"How members find events available to them (SR-4) varies across customer types and markets—some communities surface events geographically, others by interest, affinity, or invitation. This is open-ended across the customer base rather than a single fixed rule, so the discovery behavior must be encapsulated to absorb differing discovery strategies.\",\"axis\":\"allCustomersAtOneTime\"},{\"name\":\"Access Authorization Policy Volatility\",\"rationale\":\"The Access Authorization Policy—the rules governing which roles may read or mutate event, engagement, identity, and venue information (SR-21)—differs across customer organizations and regulatory regimes and evolves within a single customer as governance needs change. This is open-ended policy volatility, not a static conditional; its terms must first resolve in the glossary per the findings. The system must encapsulate the authorization policy so role and permission structures can change without altering core component logic.\",\"axis\":\"allCustomersAtOneTime\"}]}\n\nTask: Select the CORE use cases by ABSTRACTION, not by listing what the customer asked for. For each candidate ask: does this capture the ESSENCE of the business (what differentiates it, what creates value), or is it a permutation/utility (onboarding, payment, account admin)? Could a single higher abstraction — often a NEW name not in the customer's vocabulary — subsume several raw use cases? Target 2-6 core use cases; if you have more than 6 you have not abstracted enough. Sanity check: a one-slide brochure for the system would have roughly this many bullets. Record each rejected permutation with its rejection reason and link it to the core it permutes by setting its \"variationOf\" to that core use case's NAME (exactly as you wrote it).\n\nIDENTITY BY NAME: every use case and actor is identified by its human-readable NAME — you do NOT emit any id. Use case names must be UNIQUE; actor roles must be unique within a use case. Reference the core use case in \"variationOf\" by its name; the server assigns and resolves all internal ids.\n\nACTIVITY DIAGRAM: when a use case BRANCHES or runs steps CONCURRENTLY, populate its \"activity\" as a WELL-FORMED UML activity diagram — a graph of \"nodes\" (each {ref, kind, label, roleName, linkedActor, linkedComp}) and \"edges\" (each {from, to, kind, guard}). A purely linear use case may leave \"activity\" null. NEVER emit a bare string for \"activity\" — it is an object or null.\n\nIDENTITY BY NAME (no ids): you NEVER emit any opaque id or uuid. Give each node a short \"ref\" slug of your own (e.g. \"n1\", \"n2\") UNIQUE within the diagram; edges reference nodes by that \"ref\" in \"from\"/\"to\". \"linkedActor\" (optional) is an actor's ROLE name from this use case; \"linkedComp\" (optional) is a System component NAME. The server resolves all of these by name.\n\nNode kinds and their edge cardinality:\n- start: one per diagram; 0 incoming, exactly 1 outgoing.\n- action: a step; 1 incoming, 1 outgoing.\n- decision: a CHOICE; 1 incoming, \u003e=2 outgoing.\n- merge: rejoins a decision's alternative branches; \u003e=2 incoming, 1 outgoing.\n- fork: splits into CONCURRENT paths; 1 incoming, \u003e=2 outgoing.\n- join: synchronizes concurrent paths; \u003e=2 incoming, 1 outgoing.\n- end: a final node; \u003e=1 incoming, 0 outgoing.\nPut every node in its business-role swim-lane via \"roleName\" (e.g. \"Customer\", \"Trusted System\") — a business role or area of interest, NOT a Method layer or subsystem name.\n\nEdge kinds:\n- guardedFlow: carries a \"guard\" condition; used ONLY on the outgoing edges of a decision.\n- controlFlow: no guard (set \"guard\" to \"\"); EVERY other edge, including ALL fork outgoing edges.\n\nComposition rules you MUST follow (a violation is rejected and redrafted):\n1. A decision is a CHOICE: it MUST have \u003e=2 outgoing guardedFlow edges, each with a distinct, mutually-exclusive guard; give exactly ONE edge the guard \"[else]\" for the remaining case. Its branches MUST reconverge at a merge node before the flow continues — a branch must not run straight into the next step or dangle.\n2. A fork is CONCURRENCY (not a choice): \u003e=2 outgoing controlFlow (UNguarded) edges, ALL of which run; the concurrent paths MUST reconverge at a join. Never put a guard on a fork edge.\n3. guardedFlow edges originate ONLY from decision nodes; every other node's outgoing edges are controlFlow.\n4. A LOOP is a merge loop-head -\u003e ...body... -\u003e a decision whose \"[repeat]\" guarded edge BACK-EDGES to the loop-head merge and whose \"[else]\" guarded edge exits.\nDecision/merge model an ALTERNATIVE (exactly one branch taken); fork/join model CONCURRENCY (all paths taken) — do not confuse them.\n\nWorked examples (each node carries your own short \"ref\" slug — NOT a uuid; edges reference those refs):\n\nif/else — a decision's two branches reconverge at a merge:\n{\"nodes\":[{\"ref\":\"n1\",\"kind\":\"decision\",\"label\":\"Is the item actionable?\",\"roleName\":\"Trusted System\"},{\"ref\":\"n2\",\"kind\":\"action\",\"label\":\"Create next step and assign context\",\"roleName\":\"Trusted System\"},{\"ref\":\"n3\",\"kind\":\"action\",\"label\":\"File or incubate item\",\"roleName\":\"Trusted System\"},{\"ref\":\"n4\",\"kind\":\"merge\",\"label\":\"\",\"roleName\":\"Trusted System\"}],\"edges\":[{\"from\":\"n1\",\"to\":\"n2\",\"kind\":\"guardedFlow\",\"guard\":\"[actionable]\"},{\"from\":\"n1\",\"to\":\"n3\",\"kind\":\"guardedFlow\",\"guard\":\"[else]\"},{\"from\":\"n2\",\"to\":\"n4\",\"kind\":\"controlFlow\",\"guard\":\"\"},{\"from\":\"n3\",\"to\":\"n4\",\"kind\":\"controlFlow\",\"guard\":\"\"}]}\n\nfork/join — two concurrent paths synchronize:\n{\"nodes\":[{\"ref\":\"n1\",\"kind\":\"fork\",\"label\":\"\",\"roleName\":\"Marketplace\"},{\"ref\":\"n2\",\"kind\":\"action\",\"label\":\"Search the registry\",\"roleName\":\"Marketplace\"},{\"ref\":\"n3\",\"kind\":\"action\",\"label\":\"Notify the tradesman\",\"roleName\":\"Tradesman\"},{\"ref\":\"n4\",\"kind\":\"join\",\"label\":\"\",\"roleName\":\"Marketplace\"}],\"edges\":[{\"from\":\"n1\",\"to\":\"n2\",\"kind\":\"controlFlow\",\"guard\":\"\"},{\"from\":\"n1\",\"to\":\"n3\",\"kind\":\"controlFlow\",\"guard\":\"\"},{\"from\":\"n2\",\"to\":\"n4\",\"kind\":\"controlFlow\",\"guard\":\"\"},{\"from\":\"n3\",\"to\":\"n4\",\"kind\":\"controlFlow\",\"guard\":\"\"}]}\n\nwhile-loop — a decision back-edges to the loop-head merge:\n{\"nodes\":[{\"ref\":\"n1\",\"kind\":\"merge\",\"label\":\"\",\"roleName\":\"Trusted System\"},{\"ref\":\"n2\",\"kind\":\"action\",\"label\":\"Process the next item\",\"roleName\":\"Trusted System\"},{\"ref\":\"n3\",\"kind\":\"decision\",\"label\":\"More items?\",\"roleName\":\"Trusted System\"},{\"ref\":\"n4\",\"kind\":\"end\",\"label\":\"\",\"roleName\":\"Trusted System\"}],\"edges\":[{\"from\":\"n1\",\"to\":\"n2\",\"kind\":\"controlFlow\",\"guard\":\"\"},{\"from\":\"n2\",\"to\":\"n3\",\"kind\":\"controlFlow\",\"guard\":\"\"},{\"from\":\"n3\",\"to\":\"n1\",\"kind\":\"guardedFlow\",\"guard\":\"[more]\"},{\"from\":\"n3\",\"to\":\"n4\",\"kind\":\"guardedFlow\",\"guard\":\"[else]\"}]}\n",
+  "tools": null,
+  "contextSha256": "",
+  "response": {
+    "decisions": [
+      {
+        "useCase": {
+          "name": "Govern Event Lifecycle",
+          "actors": [
+            {
+              "role": "Organizer"
+            }
+          ],
+          "trigger": "clientAction",
+          "classification": "core",
+          "variationOf": "",
+          "activity": {
+            "nodes": [
+              {
+                "ref": "n1",
+                "kind": "start",
+                "label": "",
+                "roleName": "Organizer",
+                "linkedActor": "",
+                "linkedComp": ""
+              },
+              {
+                "ref": "n2",
+                "kind": "action",
+                "label": "Organizer drafts or governs event",
+                "roleName": "Organizer",
+                "linkedActor": "Organizer",
+                "linkedComp": ""
+              },
+              {
+                "ref": "n3",
+                "kind": "action",
+                "label": "Organizing engine evaluates lifecycle transition",
+                "roleName": "Organizing",
+                "linkedActor": "",
+                "linkedComp": "Organizing Engine"
+              },
+              {
+                "ref": "n4",
+                "kind": "decision",
+                "label": "Does the event have a place?",
+                "roleName": "Organizing",
+                "linkedActor": "",
+                "linkedComp": ""
+              },
+              {
+                "ref": "n5",
+                "kind": "action",
+                "label": "Resolve venue from external source",
+                "roleName": "Venue",
+                "linkedActor": "",
+                "linkedComp": "Venue Resolver"
+              },
+              {
+                "ref": "n6",
+                "kind": "action",
+                "label": "Proceed without venue",
+                "roleName": "Organizing",
+                "linkedActor": "",
+                "linkedComp": "Organizing Engine"
+              },
+              {
+                "ref": "n7",
+                "kind": "merge",
+                "label": "",
+                "roleName": "Organizing",
+                "linkedActor": "",
+                "linkedComp": ""
+              },
+              {
+                "ref": "n8",
+                "kind": "action",
+                "label": "Persist event record and member relationships",
+                "roleName": "Organizing",
+                "linkedActor": "",
+                "linkedComp": "Organizing Engine"
+              },
+              {
+                "ref": "n9",
+                "kind": "end",
+                "label": "",
+                "roleName": "Organizing",
+                "linkedActor": "",
+                "linkedComp": ""
+              }
+            ],
+            "edges": [
+              {
+                "from": "n1",
+                "to": "n2",
+                "kind": "controlFlow",
+                "guard": ""
+              },
+              {
+                "from": "n2",
+                "to": "n3",
+                "kind": "controlFlow",
+                "guard": ""
+              },
+              {
+                "from": "n3",
+                "to": "n4",
+                "kind": "controlFlow",
+                "guard": ""
+              },
+              {
+                "from": "n4",
+                "to": "n5",
+                "kind": "guardedFlow",
+                "guard": "[venue specified]"
+              },
+              {
+                "from": "n4",
+                "to": "n6",
+                "kind": "guardedFlow",
+                "guard": "[else]"
+              },
+              {
+                "from": "n5",
+                "to": "n7",
+                "kind": "controlFlow",
+                "guard": ""
+              },
+              {
+                "from": "n6",
+                "to": "n7",
+                "kind": "controlFlow",
+                "guard": ""
+              },
+              {
+                "from": "n7",
+                "to": "n8",
+                "kind": "controlFlow",
+                "guard": ""
+              },
+              {
+                "from": "n8",
+                "to": "n9",
+                "kind": "controlFlow",
+                "guard": ""
+              }
+            ]
+          }
+        },
+        "rejectionReason": ""
+      },
+      {
+        "useCase": {
+          "name": "Orchestrate Engagement",
+          "actors": [
+            {
+              "role": "Member"
+            },
+            {
+              "role": "Organizer"
+            }
+          ],
+          "trigger": "clientAction",
+          "classification": "core",
+          "variationOf": "",
+          "activity": {
+            "nodes": [
+              {
+                "ref": "n1",
+                "kind": "start",
+                "label": "",
+                "roleName": "Member",
+                "linkedActor": "",
+                "linkedComp": ""
+              },
+              {
+                "ref": "n2",
+                "kind": "action",
+                "label": "Member expresses engagement (RSVP, comment)",
+                "roleName": "Member",
+                "linkedActor": "Member",
+                "linkedComp": ""
+              },
+              {
+                "ref": "n3",
+                "kind": "action",
+                "label": "Engagement engine records intent",
+                "roleName": "Engagement",
+                "linkedActor": "",
+                "linkedComp": "Organizing Engine"
+              },
+              {
+                "ref": "n4",
+                "kind": "fork",
+                "label": "",
+                "roleName": "Engagement",
+                "linkedActor": "",
+                "linkedComp": ""
+              },
+              {
+                "ref": "n5",
+                "kind": "action",
+                "label": "Update engagement record",
+                "roleName": "Engagement",
+                "linkedActor": "",
+                "linkedComp": "Organizing Engine"
+              },
+              {
+                "ref": "n6",
+                "kind": "action",
+                "label": "Dispatch notification to community",
+                "roleName": "Notification",
+                "linkedActor": "",
+                "linkedComp": "Notification Dispatcher"
+              },
+              {
+                "ref": "n7",
+                "kind": "join",
+                "label": "",
+                "roleName": "Engagement",
+                "linkedActor": "",
+                "linkedComp": ""
+              },
+              {
+                "ref": "n8",
+                "kind": "end",
+                "label": "",
+                "roleName": "Engagement",
+                "linkedActor": "",
+                "linkedComp": ""
+              }
+            ],
+            "edges": [
+              {
+                "from": "n1",
+                "to": "n2",
+                "kind": "controlFlow",
+                "guard": ""
+              },
+              {
+                "from": "n2",
+                "to": "n3",
+                "kind": "controlFlow",
+                "guard": ""
+              },
+              {
+                "from": "n3",
+                "to": "n4",
+                "kind": "controlFlow",
+                "guard": ""
+              },
+              {
+                "from": "n4",
+                "to": "n5",
+                "kind": "controlFlow",
+                "guard": ""
+              },
+              {
+                "from": "n4",
+                "to": "n6",
+                "kind": "controlFlow",
+                "guard": ""
+              },
+              {
+                "from": "n5",
+                "to": "n7",
+                "kind": "controlFlow",
+                "guard": ""
+              },
+              {
+                "from": "n6",
+                "to": "n7",
+                "kind": "controlFlow",
+                "guard": ""
+              },
+              {
+                "from": "n7",
+                "to": "n8",
+                "kind": "controlFlow",
+                "guard": ""
+              }
+            ]
+          }
+        },
+        "rejectionReason": ""
+      },
+      {
+        "useCase": {
+          "name": "Nurture Attendance",
+          "actors": [
+            {
+              "role": "Member"
+            }
+          ],
+          "trigger": "timer",
+          "classification": "core",
+          "variationOf": "",
+          "activity": {
+            "nodes": [
+              {
+                "ref": "n1",
+                "kind": "start",
+                "label": "",
+                "roleName": "Engagement",
+                "linkedActor": "",
+                "linkedComp": ""
+              },
+              {
+                "ref": "n2",
+                "kind": "merge",
+                "label": "",
+                "roleName": "Engagement",
+                "linkedActor": "",
+                "linkedComp": ""
+              },
+              {
+                "ref": "n3",
+                "kind": "action",
+                "label": "Evaluate reminder schedule policy for next event",
+                "roleName": "Engagement",
+                "linkedActor": "",
+                "linkedComp": "Organizing Engine"
+              },
+              {
+                "ref": "n4",
+                "kind": "decision",
+                "label": "Reminder due?",
+                "roleName": "Engagement",
+                "linkedActor": "",
+                "linkedComp": ""
+              },
+              {
+                "ref": "n5",
+                "kind": "action",
+                "label": "Dispatch reminder to member",
+                "roleName": "Notification",
+                "linkedActor": "",
+                "linkedComp": "Notification Dispatcher"
+              },
+              {
+                "ref": "n6",
+                "kind": "action",
+                "label": "Skip",
+                "roleName": "Engagement",
+                "linkedActor": "",
+                "linkedComp": ""
+              },
+              {
+                "ref": "n7",
+                "kind": "merge",
+                "label": "",
+                "roleName": "Engagement",
+                "linkedActor": "",
+                "linkedComp": ""
+              },
+              {
+                "ref": "n8",
+                "kind": "decision",
+                "label": "More members to nurture?",
+                "roleName": "Engagement",
+                "linkedActor": "",
+                "linkedComp": ""
+              },
+              {
+                "ref": "n9",
+                "kind": "end",
+                "label": "",
+                "roleName": "Engagement",
+                "linkedActor": "",
+                "linkedComp": ""
+              }
+            ],
+            "edges": [
+              {
+                "from": "n1",
+                "to": "n2",
+                "kind": "controlFlow",
+                "guard": ""
+              },
+              {
+                "from": "n2",
+                "to": "n3",
+                "kind": "controlFlow",
+                "guard": ""
+              },
+              {
+                "from": "n3",
+                "to": "n4",
+                "kind": "controlFlow",
+                "guard": ""
+              },
+              {
+                "from": "n4",
+                "to": "n5",
+                "kind": "guardedFlow",
+                "guard": "[due]"
+              },
+              {
+                "from": "n4",
+                "to": "n6",
+                "kind": "guardedFlow",
+                "guard": "[else]"
+              },
+              {
+                "from": "n5",
+                "to": "n7",
+                "kind": "controlFlow",
+                "guard": ""
+              },
+              {
+                "from": "n6",
+                "to": "n7",
+                "kind": "controlFlow",
+                "guard": ""
+              },
+              {
+                "from": "n7",
+                "to": "n8",
+                "kind": "controlFlow",
+                "guard": ""
+              },
+              {
+                "from": "n8",
+                "to": "n2",
+                "kind": "guardedFlow",
+                "guard": "[repeat]"
+              },
+              {
+                "from": "n8",
+                "to": "n9",
+                "kind": "guardedFlow",
+                "guard": "[else]"
+              }
+            ]
+          }
+        },
+        "rejectionReason": ""
+      },
+      {
+        "useCase": {
+          "name": "Discover Events",
+          "actors": [
+            {
+              "role": "Member"
+            }
+          ],
+          "trigger": "clientAction",
+          "classification": "core",
+          "variationOf": "",
+          "activity": null
+        },
+        "rejectionReason": ""
+      },
+      {
+        "useCase": {
+          "name": "Create Event",
+          "actors": [
+            {
+              "role": "Organizer"
+            }
+          ],
+          "trigger": "clientAction",
+          "classification": "nonCore",
+          "variationOf": "Govern Event Lifecycle",
+          "activity": null
+        },
+        "rejectionReason": "Creating a draft is one transition within the open-ended event lifecycle; it is a permutation of governing the lifecycle, not a distinct essence."
+      },
+      {
+        "useCase": {
+          "name": "Cancel Event",
+          "actors": [
+            {
+              "role": "Organizer"
+            }
+          ],
+          "trigger": "clientAction",
+          "classification": "nonCore",
+          "variationOf": "Govern Event Lifecycle",
+          "activity": null
+        },
+        "rejectionReason": "Cancellation is just another lifecycle transition subsumed by governing the event lifecycle."
+      },
+      {
+        "useCase": {
+          "name": "RSVP to Event",
+          "actors": [
+            {
+              "role": "Member"
+            }
+          ],
+          "trigger": "clientAction",
+          "classification": "nonCore",
+          "variationOf": "Orchestrate Engagement",
+          "activity": null
+        },
+        "rejectionReason": "RSVP is one engagement mechanism; the essence is orchestrating intent-to-participation across an open-ended set of mechanisms."
+      },
+      {
+        "useCase": {
+          "name": "Comment on Event",
+          "actors": [
+            {
+              "role": "Member"
+            }
+          ],
+          "trigger": "clientAction",
+          "classification": "nonCore",
+          "variationOf": "Orchestrate Engagement",
+          "activity": null
+        },
+        "rejectionReason": "Commenting is another engagement mechanism permutation subsumed by engagement orchestration."
+      },
+      {
+        "useCase": {
+          "name": "Send Reminder",
+          "actors": [
+            {
+              "role": "Member"
+            }
+          ],
+          "trigger": "timer",
+          "classification": "nonCore",
+          "variationOf": "Nurture Attendance",
+          "activity": null
+        },
+        "rejectionReason": "Sending a single reminder is a step inside the policy-driven attendance nurturing flow, not a distinct core capability."
+      },
+      {
+        "useCase": {
+          "name": "Authenticate via Identity Provider",
+          "actors": [
+            {
+              "role": "Member"
+            }
+          ],
+          "trigger": "clientAction",
+          "classification": "nonCore",
+          "variationOf": "Govern Event Lifecycle",
+          "activity": null
+        },
+        "rejectionReason": "Identity brokering is encapsulated infrastructure serving every interaction; it is a utility, not a value-differentiating core use case."
+      },
+      {
+        "useCase": {
+          "name": "Resolve Venue",
+          "actors": [
+            {
+              "role": "Organizer"
+            }
+          ],
+          "trigger": "clientAction",
+          "classification": "nonCore",
+          "variationOf": "Govern Event Lifecycle",
+          "activity": null
+        },
+        "rejectionReason": "Venue resolution is a supporting step within event governance, encapsulating an external data source rather than expressing business essence."
+      },
+      {
+        "useCase": {
+          "name": "Onboard Notification Channel",
+          "actors": [
+            {
+              "role": "Organizer"
+            }
+          ],
+          "trigger": "clientAction",
+          "classification": "nonCore",
+          "variationOf": "Orchestrate Engagement",
+          "activity": null
+        },
+        "rejectionReason": "Channel onboarding is administrative ecosystem-adaptability utility absorbed by the dispatcher; not a differentiating core use case."
+      }
+    ]
+  }
+}

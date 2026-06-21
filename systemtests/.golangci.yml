@@ -1,0 +1,27 @@
+# Belt-and-suspenders to constitution/constitution_test.go: depguard bans
+# importing the system-under-test and any mocking library from the black-box
+# wire harness (the-method-testing §7 R3/R6). The constitution test is the
+# toolchain-independent guarantee; this is the linter-level one CI also runs.
+version: "2"
+
+run:
+  go: "1.25"
+
+linters:
+  enable:
+    - depguard
+  settings:
+    depguard:
+      rules:
+        harness:
+          files:
+            - "$all"
+          deny:
+            - pkg: github.com/mixofreality-studio/archistrator/server
+              desc: "black-box wire harness must not import the system under test (§7 R1/R3) — drive it over the wire"
+            - pkg: github.com/stretchr/testify/mock
+              desc: "a wire harness substitutes nothing (§7 R3)"
+            - pkg: go.uber.org/mock
+              desc: "a wire harness substitutes nothing (§7 R3)"
+            - pkg: github.com/golang/mock
+              desc: "a wire harness substitutes nothing (§7 R3)"

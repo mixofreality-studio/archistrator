@@ -1,0 +1,102 @@
+{
+  "workerClass": "architect",
+  "prompt": "You are the Architect agent drafting a typed Method artifact for an architecture project, following Juval Lowy's The Method to the letter.\nRespond with a single JSON object. No prose outside the JSON.\nTarget artifact: ScrubbedRequirements\nYour JSON output MUST conform exactly to this JSON Schema. Emit every required field; for an optional object field, emit the object or null — never a bare string in its place.\nSchema: {\"properties\":{\"items\":{\"items\":{\"properties\":{\"id\":{\"type\":\"string\"},\"statement\":{\"type\":\"string\"}},\"additionalProperties\":false,\"type\":\"object\",\"required\":[\"id\",\"statement\"]},\"type\":\"array\"}},\"additionalProperties\":false,\"type\":\"object\",\"required\":[\"items\"]}\n\nMission context:\n{\"vision\":\"A connected community where local events organize themselves around the people who care.\",\"objectives\":[{\"number\":1,\"statement\":\"Sustain organizer retention above 70% quarter-over-quarter by absorbing changes in notification channels, identity providers, and venue data sources without disrupting the organizing experience.\"},{\"number\":2,\"statement\":\"Achieve and maintain member RSVP-to-attendance conversion above 60% across all active events, demonstrating that engagement mechanisms reliably translate intent into participation.\"},{\"number\":3,\"statement\":\"Onboard new notification channels, identity providers, or venue data integrations within one release cycle and at no more than 15% incremental engineering cost, proving the platform's adaptability to a shifting external ecosystem.\"}],\"mission\":\"The system encapsulates the volatility of how communities connect, participate, and gather behind a stable core of interacting components. An organizing engine governs the lifecycle of events and their relationships to members, delegating to a pluggable notification dispatcher whose channel implementations evolve independently of the engagement logic it serves. An identity broker abstracts the chosen identity provider so that member and organizer relationships remain constant as the underlying provider changes. A venue resolver mediates between events and external venue data sources, allowing those sources to be swapped without altering the event's structure. These components collaborate so that engagement (RSVP, comment, reminder) is orchestrated centrally while the channels, identities, and venues through which it flows remain interchangeable—enabling the platform to evolve its external relationships continuously from initial draft through deployment.\"}\n\nGlossary context:\n{\"items\":[{\"term\":\"Organizer\",\"definition\":\"A community member who creates and governs the lifecycle of local events, inviting and engaging others to gather.\",\"category\":\"Who\"},{\"term\":\"Member\",\"definition\":\"A community participant who discovers events, expresses intent to attend, and participates in the gathering.\",\"category\":\"Who\"},{\"term\":\"Identity Provider\",\"definition\":\"An external party that vouches for who a member or organizer is, serving as the source of recognized identity.\",\"category\":\"Who\"},{\"term\":\"Venue Data Source\",\"definition\":\"An external party that supplies information about places where events may be held.\",\"category\":\"Who\"},{\"term\":\"Notification Channel\",\"definition\":\"An external means through which the community is reached when events and engagement occur.\",\"category\":\"Who\"},{\"term\":\"Event Lifecycle Governance\",\"definition\":\"The requirement to manage an event from initial draft through its active life to conclusion, including its relationships to members.\",\"category\":\"What\"},{\"term\":\"Engagement Continuity\",\"definition\":\"The requirement that members' intent to attend reliably translates into participation.\",\"category\":\"What\"},{\"term\":\"Ecosystem Adaptability\",\"definition\":\"The requirement to absorb changes in notification channels, identity providers, and venue data sources without disrupting the organizing experience.\",\"category\":\"What\"},{\"term\":\"Identity Stability\",\"definition\":\"The requirement that member and organizer relationships remain constant even as the underlying identity provider changes.\",\"category\":\"What\"},{\"term\":\"Venue Independence\",\"definition\":\"The requirement that the place of an event can be sourced or changed without altering the event's structure.\",\"category\":\"What\"},{\"term\":\"Event Organizing\",\"definition\":\"The business activity of governing events and their relationships to members over time.\",\"category\":\"How\"},{\"term\":\"Engagement Orchestration\",\"definition\":\"The business activity of coordinating RSVP, comment, and reminder so that intent to attend is captured and nurtured into participation.\",\"category\":\"How\"},{\"term\":\"Notification Dispatch\",\"definition\":\"The business activity of reaching the community about events and engagement, independent of which channel is used.\",\"category\":\"How\"},{\"term\":\"Identity Brokering\",\"definition\":\"The business activity of mediating recognition of members and organizers regardless of the chosen identity provider.\",\"category\":\"How\"},{\"term\":\"Venue Resolution\",\"definition\":\"The business activity of mediating between an event and external information about where it is held.\",\"category\":\"How\"},{\"term\":\"RSVP\",\"definition\":\"A member's expressed intent to attend a given event.\",\"category\":\"How\"},{\"term\":\"Event Record\",\"definition\":\"Where the enduring facts about an event and its relationships to members reside.\",\"category\":\"Where\"},{\"term\":\"Engagement Record\",\"definition\":\"Where the state of members' RSVPs, comments, and reminders for events is held.\",\"category\":\"Where\"},{\"term\":\"Identity Relationship\",\"definition\":\"Where the enduring association between members or organizers and their recognized identity is kept.\",\"category\":\"Where\"},{\"term\":\"Venue Reference\",\"definition\":\"Where the association between an event and its resolved place is retained.\",\"category\":\"Where\"}]}\n\nThis is a revision. Address the following feedback:\nSeveral items require revision before ratification:\n\n1. SR-1 is vague about what 'conclusion' means. Specify whether conclusion includes cancellation, expiration, or archival, so downstream design can model the correct terminal states.\n\n2. SR-3 uses 'authority' without defining it. Clarify that authority is scoped to events the organizer created, and explicitly state whether delegation or co-organizer assignment is in or out of scope for this release.\n\n3. SR-5 conflates two distinct transitions ('expressed intent' and 'confirmed attendance') without naming the intermediate states. Enumerate the allowed RSVP states (e.g., Pending, Confirmed, Declined, Waitlisted) so the requirement is testable.\n\n4. SR-7 says 'coordinate reminders' but does not state who triggers them (system-initiated on schedule, organizer-triggered, or both), nor the minimum timing window. Add that specificity so QA can write acceptance criteria.\n\n5. SR-8 is grammatically malformed ('shall reach the community'). Rewrite as: 'The system shall deliver event communications and engagement notifications to community members regardless of which notification channel is used.'\n\n6. SR-15a and SR-15b are measurable operability targets, which is good, but 'one release cycle' is undefined. Pin it to a calendar duration (e.g., two-week sprint, four-week release) so it is contractually meaningful.\n\n7. SR-16 lists 'organizing organizer's identity' — the redundant phrasing should be corrected to 'the responsible organizer's identity'. Also confirm whether scheduled time includes time-zone capture, which affects data retention design.\n\n8. SR-20 is ambiguous: 'structural integrity of the events they attended' does not specify which fields must survive removal (e.g., anonymous attendance count vs. named roster). Clarify that aggregate attendance counts and comments attributed to a pseudonym or 'deleted member' token are preserved, while PII is purged.\n\n9. There is no requirement covering read access — specifically, which roles (member, organizer, anonymous visitor) may query event details. Add a requirement governing read authorization to avoid an implicit open-read assumption that may conflict with future privacy obligations.\n\n10. There is no requirement covering audit or logging of lifecycle-altering actions (e.g., cancellation, RSVP changes). If regulatory or trust concerns exist, add a traceability requirement now before architecture is set.\n\nTask: Scrub every solution out of the requirements and emit the underlying NEEDS only. A need states what the business requires; a solution states how to build it — strip the how. 'Users log in with OAuth' is a solution; 'the system authenticates users' is the need. Each item must be solution-free and traceable to the mission.\n",
+  "tools": null,
+  "contextSha256": "",
+  "response": {
+    "items": [
+      {
+        "id": "SR-1",
+        "statement": "The system shall govern the lifecycle of an event from initial draft through its active life to a terminal state, where terminal states include cancellation, expiration, and archival."
+      },
+      {
+        "id": "SR-2",
+        "statement": "The system shall maintain the enduring relationships between an event and the members associated with it throughout the event's lifecycle."
+      },
+      {
+        "id": "SR-3",
+        "statement": "The system shall recognize an organizer's authority as scoped to the events that organizer created; delegation or co-organizer assignment is out of scope for this release."
+      },
+      {
+        "id": "SR-4",
+        "statement": "The system shall allow a member to discover events and express intent to attend."
+      },
+      {
+        "id": "SR-5",
+        "statement": "The system shall capture and maintain the state of a member's intent to attend an event across the allowed states of Pending, Confirmed, Declined, and Waitlisted."
+      },
+      {
+        "id": "SR-6",
+        "statement": "The system shall translate a member's expressed intent to attend into confirmed participation reliably enough to sustain RSVP-to-attendance conversion above 60% across all active events."
+      },
+      {
+        "id": "SR-7",
+        "statement": "The system shall coordinate reminders to members for events they intend to attend, supporting both system-initiated reminders on a defined schedule and organizer-triggered reminders, with reminders sent no later than 24 hours before the event's scheduled time."
+      },
+      {
+        "id": "SR-8",
+        "statement": "The system shall deliver event communications and engagement notifications to community members regardless of which notification channel is used."
+      },
+      {
+        "id": "SR-9",
+        "statement": "The system shall allow members to comment on events as a form of engagement."
+      },
+      {
+        "id": "SR-10",
+        "statement": "The system shall recognize the identity of members and organizers regardless of the chosen identity provider."
+      },
+      {
+        "id": "SR-11",
+        "statement": "The system shall keep the relationship between a member or organizer and their recognized identity constant even when the underlying identity provider changes."
+      },
+      {
+        "id": "SR-12",
+        "statement": "The system shall associate an event with a place sourced from external venue information."
+      },
+      {
+        "id": "SR-13",
+        "statement": "The system shall allow the place of an event to be sourced or changed without altering the event's structure."
+      },
+      {
+        "id": "SR-14",
+        "statement": "The system shall absorb changes in notification channels, identity providers, and venue data sources without disrupting the organizing experience, so as to sustain organizer retention above 70% quarter-over-quarter."
+      },
+      {
+        "id": "SR-15a",
+        "statement": "The system shall accommodate the onboarding of a new notification channel, identity provider, or venue data integration within one release cycle, defined as a four-week release."
+      },
+      {
+        "id": "SR-15b",
+        "statement": "The system shall accommodate the onboarding of a new notification channel, identity provider, or venue data integration at no more than 15% incremental engineering cost."
+      },
+      {
+        "id": "SR-16",
+        "statement": "The system shall retain the enduring facts about an event, including its scheduled time with the originating time zone and the responsible organizer's identity."
+      },
+      {
+        "id": "SR-17",
+        "statement": "The system shall retain the state of members' RSVPs, comments, and reminders for events."
+      },
+      {
+        "id": "SR-18",
+        "statement": "The system shall retain the association between an event and its resolved place."
+      },
+      {
+        "id": "SR-19",
+        "statement": "The system shall retain the enduring association between members or organizers and their recognized identity."
+      },
+      {
+        "id": "SR-20",
+        "statement": "The system shall, upon removal of a member, purge that member's personally identifiable information while preserving the structural integrity of events they attended, including aggregate attendance counts and comments attributed to a pseudonymous or 'deleted member' token."
+      },
+      {
+        "id": "SR-21",
+        "statement": "The system shall govern read access to event details by role, specifying which of members, organizers, and anonymous visitors may query event details."
+      },
+      {
+        "id": "SR-22",
+        "statement": "The system shall record a traceable history of lifecycle-altering actions, including event cancellation and RSVP state changes."
+      }
+    ]
+  }
+}

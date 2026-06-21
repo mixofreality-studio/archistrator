@@ -1,0 +1,24 @@
+{
+  "workerClass": "architect",
+  "prompt": "You are the Architect agent drafting a typed Method artifact for an architecture project, following Juval Lowy's The Method to the letter.\nRespond with a single JSON object. No prose outside the JSON.\nTarget artifact: Mission\nYour JSON output MUST conform exactly to this JSON Schema. Emit every required field; for an optional object field, emit the object or null — never a bare string in its place.\nSchema: {\"properties\":{\"vision\":{\"type\":\"string\"},\"objectives\":{\"items\":{\"properties\":{\"number\":{\"type\":\"integer\"},\"statement\":{\"type\":\"string\"}},\"additionalProperties\":false,\"type\":\"object\",\"required\":[\"number\",\"statement\"]},\"type\":\"array\"},\"mission\":{\"type\":\"string\"}},\"additionalProperties\":false,\"type\":\"object\",\"required\":[\"vision\",\"objectives\",\"mission\"]}\n\nResearch corpus (the raw material for the mission):\n- Founder brief: A small community-events coordination app. Organizers post events; members RSVP, comment, and get reminders. Volatilities: notification channels, identity provider, venue data source. The architect should draft from this through to deployment.\n\nTask: Produce the mission from the research corpus. The vision is ONE terse sentence naming the future the system creates. The mission is expressed in terms of the system's COMPONENTS and their evolving relationships — NOT a feature list. First distill the 2-3 business pillars that DIFFERENTIATE this system from competitors; ground the vision and objectives in those. Each objective is a numbered, measurable business outcome (not a feature deliverable).\n",
+  "tools": null,
+  "contextSha256": "",
+  "response": {
+    "vision": "A connected community where local events organize themselves around the people who care.",
+    "objectives": [
+      {
+        "number": 1,
+        "statement": "Sustain organizer retention above 70% quarter-over-quarter by absorbing changes in notification channels, identity providers, and venue data sources without disrupting the organizing experience."
+      },
+      {
+        "number": 2,
+        "statement": "Achieve and maintain member RSVP-to-attendance conversion above 60% across all active events, demonstrating that engagement mechanisms reliably translate intent into participation."
+      },
+      {
+        "number": 3,
+        "statement": "Onboard new notification channels, identity providers, or venue data integrations within one release cycle and at no more than 15% incremental engineering cost, proving the platform's adaptability to a shifting external ecosystem."
+      }
+    ],
+    "mission": "The system encapsulates the volatility of how communities connect, participate, and gather behind a stable core of interacting components. An organizing engine governs the lifecycle of events and their relationships to members, delegating to a pluggable notification dispatcher whose channel implementations evolve independently of the engagement logic it serves. An identity broker abstracts the chosen identity provider so that member and organizer relationships remain constant as the underlying provider changes. A venue resolver mediates between events and external venue data sources, allowing those sources to be swapped without altering the event's structure. These components collaborate so that engagement (RSVP, comment, reminder) is orchestrated centrally while the channels, identities, and venues through which it flows remain interchangeable—enabling the platform to evolve its external relationships continuously from initial draft through deployment."
+  }
+}

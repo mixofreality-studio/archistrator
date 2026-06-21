@@ -1,0 +1,45 @@
+{
+  "workerClass": "architect",
+  "prompt": "You are the Architect agent drafting a typed Method artifact for an architecture project, following Juval Lowy's The Method to the letter.\nRespond with a single JSON object. No prose outside the JSON.\nTarget artifact: Glossary\nYour JSON output MUST conform exactly to this JSON Schema. Emit every required field; for an optional object field, emit the object or null — never a bare string in its place.\nSchema: {\"properties\":{\"items\":{\"items\":{\"properties\":{\"term\":{\"type\":\"string\"},\"definition\":{\"type\":\"string\"},\"category\":{\"type\":\"string\"}},\"additionalProperties\":false,\"type\":\"object\",\"required\":[\"term\",\"definition\",\"category\"]},\"type\":\"array\"}},\"additionalProperties\":false,\"type\":\"object\",\"required\":[\"items\"]}\n\nThis is a revision. Address the following feedback:\nThe current glossary is comprehensive but could benefit from including more terms that are specific to the product's unique features and functionalities. For example, adding terms related to user roles (e.g., Admin, User), payment methods (e.g., Digital Wallets), or system states (e.g., Cancelled Order). Additionally, clarifying some definitions might help in reducing ambiguity.\n\nTask: Extract the system's ubiquitous-language terms, each categorised by the Four Questions: Who interacts with the system, What is required of it, How (the business activity), Where (state lives). Define each term crisply in business language with NO solution/implementation wording. These terms are the shared vocabulary every later artifact must reuse verbatim.\n",
+  "tools": null,
+  "contextSha256": "",
+  "response": {
+    "items": [
+      {
+        "term": "User",
+        "definition": "An individual who interacts with the system to perform tasks or access services.",
+        "category": "Who"
+      },
+      {
+        "term": "Admin",
+        "definition": "A user granted elevated permissions and responsibilities over other users, including managing accounts and settings.",
+        "category": "Who"
+      },
+      {
+        "term": "Order",
+        "definition": "A transaction initiated by a User to purchase or reserve goods or services within the system.",
+        "category": "What"
+      },
+      {
+        "term": "Cancelled Order",
+        "definition": "An order that has been marked as completed and no longer available for fulfillment due to user cancellation or other reasons.",
+        "category": "What"
+      },
+      {
+        "term": "Payment Method",
+        "definition": "A method by which a User can pay for an Order, such as credit card, digital wallet, or cash on delivery.",
+        "category": "How"
+      },
+      {
+        "term": "Digital Wallet",
+        "definition": "An electronic account used to store and transfer funds between users within the system.",
+        "category": "How"
+      },
+      {
+        "term": "System State",
+        "definition": "The current condition or status of the system, such as active orders, pending payments, or completed transactions.",
+        "category": "Where"
+      }
+    ]
+  }
+}

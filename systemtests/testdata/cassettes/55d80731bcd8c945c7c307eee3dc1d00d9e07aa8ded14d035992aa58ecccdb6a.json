@@ -1,0 +1,10 @@
+{
+  "workerClass": "productManager",
+  "prompt": "You are the Product Manager agent critiquing a drafted Method artifact, following Juval Lowy's The Method.\nRespond with a single JSON object. No prose outside the JSON.\nArtifact under review: Glossary\nYour JSON output MUST conform exactly to this JSON Schema (notes is required when verdict=2/Revise: the revision the architect should make).\nSchema: {\"properties\":{\"verdict\":{\"type\":\"integer\",\"enum\":[1,2]},\"notes\":{\"type\":\"string\"}},\"additionalProperties\":false,\"type\":\"object\",\"required\":[\"verdict\",\"notes\"]}\n\nDraft under review:\n{\"items\":[{\"term\":\"User\",\"definition\":\"An individual who interacts with the system to perform tasks or access information.\",\"category\":\"Who\"},{\"term\":\"Role\",\"definition\":\"A predefined set of permissions and responsibilities that determine what actions a user can take within the system.\",\"category\":\"Who\"},{\"term\":\"System State\",\"definition\":\"The current condition or status of the system, including its operational state and data states.\",\"category\":\"What\"},{\"term\":\"User Role State\",\"definition\":\"The specific role-related state a user is in at any given time, such as 'Active', 'Inactive', or 'Pending Approval'.\",\"category\":\"How\"}]}\n\nTask: as the Product Manager, ratify the draft (Approve) or request a concrete revision (Revise with notes). Ratify only what faithfully serves the business; the human makes the final commit decision.\n",
+  "tools": null,
+  "contextSha256": "",
+  "response": {
+    "verdict": 2,
+    "notes": "The term 'User Role State' could be simplified to just 'Role State' as it is already clear from context that this refers to a specific state of a user's role within the system."
+  }
+}

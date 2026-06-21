@@ -1,0 +1,40 @@
+{
+  "workerClass": "architect",
+  "prompt": "You are the Architect agent drafting a typed Method artifact for an architecture project, following Juval Lowy's The Method to the letter.\nRespond with a single JSON object. No prose outside the JSON.\nTarget artifact: Glossary\nYour JSON output MUST conform exactly to this JSON Schema. Emit every required field; for an optional object field, emit the object or null — never a bare string in its place.\nSchema: {\"properties\":{\"items\":{\"items\":{\"properties\":{\"term\":{\"type\":\"string\"},\"definition\":{\"type\":\"string\"},\"category\":{\"type\":\"string\"}},\"additionalProperties\":false,\"type\":\"object\",\"required\":[\"term\",\"definition\",\"category\"]},\"type\":\"array\"}},\"additionalProperties\":false,\"type\":\"object\",\"required\":[\"items\"]}\n\nThis is a revision. Address the following feedback:\nThe term 'System State' is broad and could be more specific to better serve the system's operational needs. For example, it might be useful to differentiate between different types of states (e.g., user state, order state, payment state) or provide a more detailed breakdown of what constitutes a 'system state'. Additionally, consider adding terms related to error handling or security states if applicable.\n\nTask: Extract the system's ubiquitous-language terms, each categorised by the Four Questions: Who interacts with the system, What is required of it, How (the business activity), Where (state lives). Define each term crisply in business language with NO solution/implementation wording. These terms are the shared vocabulary every later artifact must reuse verbatim.\n",
+  "tools": null,
+  "contextSha256": "",
+  "response": {
+    "items": [
+      {
+        "term": "User",
+        "definition": "An individual who interacts with the system to perform tasks or access information.",
+        "category": "Who"
+      },
+      {
+        "term": "Order",
+        "definition": "A request for a product or service that requires processing and fulfillment by the system.",
+        "category": "What"
+      },
+      {
+        "term": "Payment",
+        "definition": "The process of transferring funds from one account to another as part of an order transaction.",
+        "category": "How"
+      },
+      {
+        "term": "Order State",
+        "definition": "The current condition or status of an order within the system, such as 'Pending', 'Processing', 'Completed'.",
+        "category": "Where"
+      },
+      {
+        "term": "User State",
+        "definition": "The current condition or status of a user within the system, such as 'Logged In', 'Logged Out', 'Authenticated'.",
+        "category": "Where"
+      },
+      {
+        "term": "Security State",
+        "definition": "The security-related conditions and statuses within the system, such as 'Authorized User', 'Blocked Account', 'Expired Token'.",
+        "category": "Where"
+      }
+    ]
+  }
+}

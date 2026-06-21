@@ -1,0 +1,35 @@
+{
+  "workerClass": "architect",
+  "prompt": "You are the Architect agent drafting a typed Method artifact for an architecture project, following Juval Lowy's The Method to the letter.\nRespond with a single JSON object. No prose outside the JSON.\nTarget artifact: Glossary\nYour JSON output MUST conform exactly to this JSON Schema. Emit every required field; for an optional object field, emit the object or null — never a bare string in its place.\nSchema: {\"properties\":{\"items\":{\"items\":{\"properties\":{\"term\":{\"type\":\"string\"},\"definition\":{\"type\":\"string\"},\"category\":{\"type\":\"string\"}},\"additionalProperties\":false,\"type\":\"object\",\"required\":[\"term\",\"definition\",\"category\"]},\"type\":\"array\"}},\"additionalProperties\":false,\"type\":\"object\",\"required\":[\"items\"]}\n\nThis is a revision. Address the following feedback:\nThe term 'What is required of it' should be revised to specify which role, process, or concept each term pertains to. For example: User Story - What is a user story? It captures both functional and non-functional requirements from the user's perspective.\n\nTask: Extract the system's ubiquitous-language terms, each categorised by the Four Questions: Who interacts with the system, What is required of it, How (the business activity), Where (state lives). Define each term crisply in business language with NO solution/implementation wording. These terms are the shared vocabulary every later artifact must reuse verbatim.\n",
+  "tools": null,
+  "contextSha256": "",
+  "response": {
+    "items": [
+      {
+        "term": "User",
+        "definition": "An individual or entity that interacts with the system to achieve a goal.",
+        "category": "Who"
+      },
+      {
+        "term": "System",
+        "definition": "The set of components and processes that work together to provide functionality to users.",
+        "category": "Who"
+      },
+      {
+        "term": "Requirement",
+        "definition": "A statement or condition that specifies what the system must do, either in terms of its behavior (functional) or its characteristics (non-functional).",
+        "category": "What is required of it"
+      },
+      {
+        "term": "Business Activity",
+        "definition": "The specific actions performed within a business context to achieve a goal.",
+        "category": "How"
+      },
+      {
+        "term": "State",
+        "definition": "The condition or position that an entity occupies in the system at any given time, including its attributes and relationships with other entities.",
+        "category": "Where"
+      }
+    ]
+  }
+}

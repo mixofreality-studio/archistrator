@@ -1,0 +1,110 @@
+{
+  "workerClass": "architect",
+  "prompt": "You are the Architect agent drafting a typed Method artifact for an architecture project, following Juval Lowy's The Method to the letter.\nRespond with a single JSON object. No prose outside the JSON.\nTarget artifact: Glossary\nYour JSON output MUST conform exactly to this JSON Schema. Emit every required field; for an optional object field, emit the object or null — never a bare string in its place.\nSchema: {\"properties\":{\"items\":{\"items\":{\"properties\":{\"term\":{\"type\":\"string\"},\"definition\":{\"type\":\"string\"},\"category\":{\"type\":\"string\"}},\"additionalProperties\":false,\"type\":\"object\",\"required\":[\"term\",\"definition\",\"category\"]},\"type\":\"array\"}},\"additionalProperties\":false,\"type\":\"object\",\"required\":[\"items\"]}\n\nMission context:\n{\"vision\":\"A community where local events organize people effortlessly.\",\"objectives\":[{\"number\":1,\"statement\":\"Sustain organizer retention above 70% quarter-over-quarter by making event coordination reliably effortless.\"},{\"number\":2,\"statement\":\"Achieve a member RSVP-to-attendance conversion rate above 60% through timely, channel-agnostic engagement.\"},{\"number\":3,\"statement\":\"Onboard new event categories and external data sources within two weeks without re-architecting the system.\"}],\"mission\":\"Provide an events coordination system whose stable engagement core—orchestrating the evolving relationships between organizers, members, and events—remains insulated from volatile resources via pluggable channel, identity, and venue-data adapters, so the relationships the system cultivates endure as their underlying technologies change.\"}\n\nThis is a revision. Address the following feedback:\nSeveral issues require revision before this Glossary can be ratified:\n\n1. CATEGORY MISUSE – The Method's Glossary categories (Who/What/How/Where) are meant to classify the *nature* of each term, not to impose a rigid taxonomy. However, the current draft misuses 'Where' as a catch-all for artifacts, records, metrics, and concepts that are not locations or repositories in any meaningful sense. 'RSVP', 'Attendance', 'Event Category', 'Engagement Record', 'Organizer Retention', and 'Conversion Rate' are a mix of artifacts (What), metrics (What), and classifications (What). Reassign them to 'What' with precise sub-intent, or add a 'Which' category if the Method variant in use supports it. Do not use 'Where' for non-spatial concepts.\n\n2. 'Event' IN THE 'Who' CATEGORY – 'Event' is a domain concept (a thing, i.e. 'What'), not an actor. It must be moved out of 'Who'. 'Who' is reserved for active parties: human roles and external systems acting as principals.\n\n3. 'Organizing' vs. 'Event Coordination' OVERLAP – 'Organizing' (How) and 'Event Coordination' (What) describe nearly the same idea from different angles without a clear boundary. The Glossary must disambiguate: 'Event Coordination' should be scoped strictly as the functional requirement (outcome expected of the system), while 'Organizing' as a business activity should describe the human process the system supports. Currently the definitions blur this line.\n\n4. 'Converting' / 'Conversion Rate' / 'Engagement' COHERENCE – 'Converting' (How) and 'Engagement' (What) both address the commitment-to-attendance arc but are defined independently. The Glossary should cross-reference them explicitly so readers understand the relationship: Engagement is the requirement; Converting is the activity that fulfills it; Conversion Rate is the measure of success.\n\n5. MISSING TERM – The system implicitly relies on a 'Community' concept (referenced in 'Organizer', 'Member', 'Channel Provider' definitions) but 'Community' itself is never defined. Add it as a 'What' term to anchor the domain.\n\n6. 'Engagement Record' DEFINITION IS CIRCULAR – It is defined as 'the held knowledge of relationships and interactions,' which restates the problem without clarifying what the record contains, who holds it, or how it differs from 'Attendance'. Rewrite to specify its scope and distinguish it from other stored artifacts.\n\n7. METRICS IN THE GLOSSARY – 'Organizer Retention' and 'Conversion Rate' are KPIs, not domain terms. Unless The Method variant explicitly calls for KPIs in the Glossary, they belong in the Requirements or SSD artifacts. If retained here, they must be clearly flagged as measures and defined with their formula or measurement boundary, not just as 'held measures'.\n\nTask: Extract the system's ubiquitous-language terms, each categorised by the Four Questions: Who interacts with the system, What is required of it, How (the business activity), Where (state lives). Define each term crisply in business language with NO solution/implementation wording. These terms are the shared vocabulary every later artifact must reuse verbatim.\n",
+  "tools": null,
+  "contextSha256": "",
+  "response": {
+    "items": [
+      {
+        "term": "Organizer",
+        "definition": "A human party who initiates, plans, and runs events on behalf of a community, and whose sustained participation the system seeks to retain.",
+        "category": "Who"
+      },
+      {
+        "term": "Member",
+        "definition": "A human party belonging to a community who discovers events, commits to attend, and may ultimately attend them.",
+        "category": "Who"
+      },
+      {
+        "term": "Channel Provider",
+        "definition": "An external party or system that delivers messages to members and organizers through a particular communication medium on behalf of the community.",
+        "category": "Who"
+      },
+      {
+        "term": "Identity Provider",
+        "definition": "An external party or system that establishes and vouches for the identity of organizers and members interacting with the system.",
+        "category": "Who"
+      },
+      {
+        "term": "Venue-Data Source",
+        "definition": "An external party or system that supplies information about places, availability, and conditions relevant to where events occur.",
+        "category": "Who"
+      },
+      {
+        "term": "Community",
+        "definition": "The bounded group of people—organizers and members—whose enduring relationships around shared local events the system exists to cultivate. It anchors the domain: organizers run events for a community, members belong to one, and channel providers reach its people.",
+        "category": "What"
+      },
+      {
+        "term": "Event",
+        "definition": "A planned gathering, organized by an organizer for a community, that members may commit to and attend. A domain concept, not an actor.",
+        "category": "What"
+      },
+      {
+        "term": "Event Category",
+        "definition": "A classification that groups events of a like kind, enabling new kinds of events to be introduced into the domain. An artifact of the domain vocabulary, not a location.",
+        "category": "What"
+      },
+      {
+        "term": "RSVP",
+        "definition": "A member's recorded commitment to attend a specific event; the artifact expressing intent prior to the event occurring.",
+        "category": "What"
+      },
+      {
+        "term": "Attendance",
+        "definition": "The recorded fact that a committed member was actually present at an event; the artifact confirming a prior RSVP was honored. Distinct from RSVP (intent) and from the Engagement Record (the relationship history).",
+        "category": "What"
+      },
+      {
+        "term": "Event Coordination",
+        "definition": "The functional requirement that the system reliably make the act of organizing events effortless for organizers, including planning, scheduling, and managing participation, so that the outcome of a coordinated event is dependably achieved. Scoped as the system outcome, distinct from Organizing (the human activity it supports).",
+        "category": "What"
+      },
+      {
+        "term": "Engagement",
+        "definition": "The functional requirement that the system move members through the commitment-to-attendance arc via timely, channel-agnostic communication. Engagement is the requirement; Converting is the activity that fulfills it; Conversion Rate is its measure of success.",
+        "category": "What"
+      },
+      {
+        "term": "Engagement Record",
+        "definition": "The persisted account, held by the system on behalf of the community, of the relationships and interactions between organizers, members, and events over time—who organized what, which members were invited, how they responded, and how they were communicated with. It captures the relationship history rather than a single event's outcome, distinguishing it from RSVP (a single intent) and Attendance (a single presence fact).",
+        "category": "What"
+      },
+      {
+        "term": "Organizer Retention",
+        "definition": "MEASURE (KPI). The proportion of active organizers in one quarter who remain active in the next, measured quarter-over-quarter; target above 70%. Retained here only as a flag toward the Requirements/SSD artifacts where it is formally specified.",
+        "category": "What"
+      },
+      {
+        "term": "Conversion Rate",
+        "definition": "MEASURE (KPI). The proportion of RSVPs that result in confirmed Attendance, computed as Attendances divided by RSVPs over a measurement window; target above 60%. It is the success measure for Engagement and the result of Converting.",
+        "category": "What"
+      },
+      {
+        "term": "Organizing",
+        "definition": "The human business activity by which an organizer conceives, plans, schedules, and runs an event for a community. This is the real-world process the system supports; the system's obligation to make it effortless is captured by the Event Coordination requirement.",
+        "category": "How"
+      },
+      {
+        "term": "Converting",
+        "definition": "The business activity of turning a member's expressed commitment (RSVP) into actual Attendance through timely, channel-agnostic communication. Converting fulfills the Engagement requirement, and its effectiveness is measured by the Conversion Rate.",
+        "category": "How"
+      },
+      {
+        "term": "Onboarding",
+        "definition": "The business activity of introducing a new event category or external data source into the domain so it participates in coordination and engagement without disrupting existing relationships.",
+        "category": "How"
+      },
+      {
+        "term": "Relationship Store",
+        "definition": "Where the enduring relationships among organizers, members, and events live—the durable home of the Engagement Record and its constituent RSVPs and Attendances.",
+        "category": "Where"
+      },
+      {
+        "term": "Event Registry",
+        "definition": "Where the catalog of events and their categories lives, persisting the planned gatherings of the community.",
+        "category": "Where"
+      }
+    ]
+  }
+}

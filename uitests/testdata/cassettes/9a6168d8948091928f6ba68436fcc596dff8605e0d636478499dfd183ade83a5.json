@@ -1,0 +1,110 @@
+{
+  "workerClass": "architect",
+  "prompt": "You are the Architect agent drafting a typed Method artifact for an architecture project, following Juval Lowy's The Method to the letter.\nRespond with a single JSON object. No prose outside the JSON.\nTarget artifact: Glossary\nYour JSON output MUST conform exactly to this JSON Schema. Emit every required field; for an optional object field, emit the object or null — never a bare string in its place.\nSchema: {\"properties\":{\"items\":{\"items\":{\"properties\":{\"term\":{\"type\":\"string\"},\"definition\":{\"type\":\"string\"},\"category\":{\"type\":\"string\"}},\"additionalProperties\":false,\"type\":\"object\",\"required\":[\"term\",\"definition\",\"category\"]},\"type\":\"array\"}},\"additionalProperties\":false,\"type\":\"object\",\"required\":[\"items\"]}\n\nMission context:\n{\"vision\":\"A community where local events organize people effortlessly.\",\"objectives\":[{\"number\":1,\"statement\":\"Sustain organizer retention above 70% quarter-over-quarter by making event coordination reliably effortless.\"},{\"number\":2,\"statement\":\"Achieve a member RSVP-to-attendance conversion rate above 60% through timely, channel-agnostic engagement.\"},{\"number\":3,\"statement\":\"Onboard new event categories and external data sources within two weeks without re-architecting the system.\"}],\"mission\":\"Provide an events coordination system whose stable engagement core—orchestrating the evolving relationships between organizers, members, and events—remains insulated from volatile resources via pluggable channel, identity, and venue-data adapters, so the relationships the system cultivates endure as their underlying technologies change.\"}\n\nTask: Extract the system's ubiquitous-language terms, each categorised by the Four Questions: Who interacts with the system, What is required of it, How (the business activity), Where (state lives). Define each term crisply in business language with NO solution/implementation wording. These terms are the shared vocabulary every later artifact must reuse verbatim.\n",
+  "tools": null,
+  "contextSha256": "",
+  "response": {
+    "items": [
+      {
+        "term": "Organizer",
+        "definition": "A person who creates and coordinates events for a community, responsible for cultivating participation and follow-through.",
+        "category": "Who"
+      },
+      {
+        "term": "Member",
+        "definition": "A person who discovers, commits to, and attends events within the community.",
+        "category": "Who"
+      },
+      {
+        "term": "Event",
+        "definition": "A scheduled community gathering around which organizers and members form relationships and coordinate participation.",
+        "category": "Who"
+      },
+      {
+        "term": "Channel Provider",
+        "definition": "An external party through which the community is reached and engaged across varied means of communication.",
+        "category": "Who"
+      },
+      {
+        "term": "Identity Provider",
+        "definition": "An external party that vouches for who a person is when they participate in the community.",
+        "category": "Who"
+      },
+      {
+        "term": "Venue-Data Provider",
+        "definition": "An external party supplying information about places where events may be held.",
+        "category": "Who"
+      },
+      {
+        "term": "Event Coordination",
+        "definition": "The requirement to make organizing an event reliably effortless so organizers continue coordinating events over time.",
+        "category": "What"
+      },
+      {
+        "term": "Engagement",
+        "definition": "The requirement to reach members in a timely, channel-agnostic way so commitments translate into attendance.",
+        "category": "What"
+      },
+      {
+        "term": "Extensibility",
+        "definition": "The requirement to admit new event categories and external information sources quickly without disrupting the established way relationships are cultivated.",
+        "category": "What"
+      },
+      {
+        "term": "Relationship Endurance",
+        "definition": "The requirement that the relationships the system cultivates between organizers, members, and events persist independently of changing underlying technologies.",
+        "category": "What"
+      },
+      {
+        "term": "Organizing",
+        "definition": "The business activity of cultivating and managing the evolving relationships between organizers, members, and events.",
+        "category": "How"
+      },
+      {
+        "term": "Engaging",
+        "definition": "The business activity of reaching members and prompting them to commit to and show up for events.",
+        "category": "How"
+      },
+      {
+        "term": "Onboarding",
+        "definition": "The business activity of introducing a new event category, channel, identity source, or venue-data source into the community.",
+        "category": "How"
+      },
+      {
+        "term": "Converting",
+        "definition": "The business activity of moving a member from a stated intention to attend toward actual attendance.",
+        "category": "How"
+      },
+      {
+        "term": "RSVP",
+        "definition": "A member's expressed commitment to attend a particular event.",
+        "category": "Where"
+      },
+      {
+        "term": "Attendance",
+        "definition": "The recorded fact that a member was present at an event.",
+        "category": "Where"
+      },
+      {
+        "term": "Event Category",
+        "definition": "A kind of event that the community recognizes and organizes around.",
+        "category": "Where"
+      },
+      {
+        "term": "Engagement Record",
+        "definition": "The held knowledge of the relationships and interactions among organizers, members, and events.",
+        "category": "Where"
+      },
+      {
+        "term": "Organizer Retention",
+        "definition": "The held measure of organizers continuing to coordinate events from one period to the next.",
+        "category": "Where"
+      },
+      {
+        "term": "Conversion Rate",
+        "definition": "The held measure of how often a member's RSVP results in actual attendance.",
+        "category": "Where"
+      }
+    ]
+  }
+}

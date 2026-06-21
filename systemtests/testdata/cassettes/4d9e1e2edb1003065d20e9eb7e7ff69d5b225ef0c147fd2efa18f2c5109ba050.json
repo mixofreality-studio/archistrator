@@ -1,0 +1,30 @@
+{
+  "workerClass": "architect",
+  "prompt": "You are the Architect agent drafting a typed Method artifact for an architecture project, following Juval Lowy's The Method to the letter.\nRespond with a single JSON object. No prose outside the JSON.\nTarget artifact: Glossary\nYour JSON output MUST conform exactly to this JSON Schema. Emit every required field; for an optional object field, emit the object or null — never a bare string in its place.\nSchema: {\"properties\":{\"items\":{\"items\":{\"properties\":{\"term\":{\"type\":\"string\"},\"definition\":{\"type\":\"string\"},\"category\":{\"type\":\"string\"}},\"additionalProperties\":false,\"type\":\"object\",\"required\":[\"term\",\"definition\",\"category\"]},\"type\":\"array\"}},\"additionalProperties\":false,\"type\":\"object\",\"required\":[\"items\"]}\n\nThis is a revision. Address the following feedback:\nThe term 'User State' should be revised to better reflect its role within the system, as it is more specific and could lead to confusion. It might be clearer to define it in terms of user roles or permissions rather than just a status like 'Logged In', 'Logged Out'. Additionally, consider adding a term for 'Role' if not already present, which would help clarify how different users interact with the system.\n\nTask: Extract the system's ubiquitous-language terms, each categorised by the Four Questions: Who interacts with the system, What is required of it, How (the business activity), Where (state lives). Define each term crisply in business language with NO solution/implementation wording. These terms are the shared vocabulary every later artifact must reuse verbatim.\n",
+  "tools": null,
+  "contextSha256": "",
+  "response": {
+    "items": [
+      {
+        "term": "User",
+        "definition": "An individual who interacts with the system to perform tasks or access information.",
+        "category": "Who"
+      },
+      {
+        "term": "Role",
+        "definition": "A predefined set of permissions and responsibilities that determine what actions a user can take within the system.",
+        "category": "Who"
+      },
+      {
+        "term": "System State",
+        "definition": "The current condition or status of the system, including its operational state and data states.",
+        "category": "What"
+      },
+      {
+        "term": "User Role State",
+        "definition": "The specific role-related state a user is in at any given time, such as 'Active', 'Inactive', or 'Pending Approval'.",
+        "category": "How"
+      }
+    ]
+  }
+}

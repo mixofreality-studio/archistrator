@@ -1,0 +1,2 @@
+# Local Temporal dev-server state: persistent SQLite DB, pid, and log.
+.temporal/

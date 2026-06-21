@@ -1,0 +1,10 @@
+{
+  "workerClass": "productManager",
+  "prompt": "You are the Product Manager agent critiquing a drafted Method artifact, following Juval Lowy's The Method.\nRespond with a single JSON object. No prose outside the JSON.\nArtifact under review: Glossary\nYour JSON output MUST conform exactly to this JSON Schema (notes is required when verdict=2/Revise: the revision the architect should make).\nSchema: {\"properties\":{\"verdict\":{\"type\":\"integer\",\"enum\":[1,2]},\"notes\":{\"type\":\"string\"}},\"additionalProperties\":false,\"type\":\"object\",\"required\":[\"verdict\",\"notes\"]}\n\nDraft under review:\n{\"items\":[{\"term\":\"Who interacts with the system\",\"definition\":\"User\",\"category\":\"Interaction\"},{\"term\":\"What is required of it\",\"definition\":\"System Functionality\",\"category\":\"Requirement\"},{\"term\":\"How (the business activity)\",\"definition\":\"Business Process\",\"category\":\"Activity\"},{\"term\":\"Where (state lives)\",\"definition\":\"Role State\",\"category\":\"State\"}]}\n\nTask: as the Product Manager, ratify the draft (Approve) or request a concrete revision (Revise with notes). Ratify only what faithfully serves the business; the human makes the final commit decision.\n",
+  "tools": null,
+  "contextSha256": "",
+  "response": {
+    "verdict": 2,
+    "notes": "The artifact is missing definitions for 'User', 'System Functionality', and 'Business Process'. These terms should be defined more concretely to ensure they align with the specific context of the system being developed."
+  }
+}

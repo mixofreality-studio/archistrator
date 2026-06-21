@@ -1,0 +1,30 @@
+{
+  "workerClass": "architect",
+  "prompt": "You are the Architect agent drafting a typed Method artifact for an architecture project, following Juval Lowy's The Method to the letter.\nRespond with a single JSON object. No prose outside the JSON.\nTarget artifact: Glossary\nYour JSON output MUST conform exactly to this JSON Schema. Emit every required field; for an optional object field, emit the object or null — never a bare string in its place.\nSchema: {\"properties\":{\"items\":{\"items\":{\"properties\":{\"term\":{\"type\":\"string\"},\"definition\":{\"type\":\"string\"},\"category\":{\"type\":\"string\"}},\"additionalProperties\":false,\"type\":\"object\",\"required\":[\"term\",\"definition\",\"category\"]},\"type\":\"array\"}},\"additionalProperties\":false,\"type\":\"object\",\"required\":[\"items\"]}\n\nTask: Extract the system's ubiquitous-language terms, each categorised by the Four Questions: Who interacts with the system, What is required of it, How (the business activity), Where (state lives). Define each term crisply in business language with NO solution/implementation wording. These terms are the shared vocabulary every later artifact must reuse verbatim.\n",
+  "tools": null,
+  "contextSha256": "",
+  "response": {
+    "items": [
+      {
+        "term": "Customer",
+        "definition": "An individual or organization that uses the services provided by the system.",
+        "category": "Who interacts with the system"
+      },
+      {
+        "term": "Order",
+        "definition": "A request made to the system for a specific product or service, typically involving payment and delivery details.",
+        "category": "What is required of it"
+      },
+      {
+        "term": "Payment Gateway",
+        "definition": "The interface through which customers pay for their orders using various methods such as credit cards, bank transfers, etc.",
+        "category": "How (the business activity)"
+      },
+      {
+        "term": "Order Status",
+        "definition": "The current state of an order within the system, including its status updates like 'Pending', 'Processing', 'Shipped', and 'Delivered'.",
+        "category": "Where (state lives)"
+      }
+    ]
+  }
+}

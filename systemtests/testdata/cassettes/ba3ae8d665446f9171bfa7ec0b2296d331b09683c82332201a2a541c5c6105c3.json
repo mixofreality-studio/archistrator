@@ -1,0 +1,10 @@
+{
+  "workerClass": "productManager",
+  "prompt": "You are the Product Manager agent critiquing a drafted Method artifact, following Juval Lowy's The Method.\nRespond with a single JSON object. No prose outside the JSON.\nArtifact under review: Glossary\nYour JSON output MUST conform exactly to this JSON Schema (notes is required when verdict=2/Revise: the revision the architect should make).\nSchema: {\"properties\":{\"verdict\":{\"type\":\"integer\",\"enum\":[1,2]},\"notes\":{\"type\":\"string\"}},\"additionalProperties\":false,\"type\":\"object\",\"required\":[\"verdict\",\"notes\"]}\n\nDraft under review:\n{\"items\":[{\"term\":\"Customer\",\"definition\":\"An individual or organization that uses the system to achieve a goal.\",\"category\":\"Who interacts with the system\"},{\"term\":\"Order\",\"definition\":\"A request for goods or services from the Customer, which is processed by the system.\",\"category\":\"What is required of it\"},{\"term\":\"Inventory\",\"definition\":\"The stock of products available to fulfill orders within a specific location.\",\"category\":\"How (the business activity)\"},{\"term\":\"Warehouse\",\"definition\":\"A physical or virtual storage area where inventory is kept and managed by the system.\",\"category\":\"Where (state lives)\"}]}\n\nTask: as the Product Manager, ratify the draft (Approve) or request a concrete revision (Revise with notes). Ratify only what faithfully serves the business; the human makes the final commit decision.\n",
+  "tools": null,
+  "contextSha256": "",
+  "response": {
+    "verdict": 2,
+    "notes": "The current glossary is comprehensive but lacks examples and further explanations for clarity. Additionally, including terms related to 'How' such as 'Order Processing', 'Inventory Management', and 'Warehouse Operations' would provide more context and depth."
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "workerClass": "architect",
+  "prompt": "You are the Architect agent drafting a typed Method artifact for an architecture project, following Juval Lowy's The Method to the letter.\nRespond with a single JSON object. No prose outside the JSON.\nTarget artifact: Glossary\nYour JSON output MUST conform exactly to this JSON Schema. Emit every required field; for an optional object field, emit the object or null — never a bare string in its place.\nSchema: {\"properties\":{\"items\":{\"items\":{\"properties\":{\"term\":{\"type\":\"string\"},\"definition\":{\"type\":\"string\"},\"category\":{\"type\":\"string\"}},\"additionalProperties\":false,\"type\":\"object\",\"required\":[\"term\",\"definition\",\"category\"]},\"type\":\"array\"}},\"additionalProperties\":false,\"type\":\"object\",\"required\":[\"items\"]}\n\nThis is a revision. Address the following feedback:\nThe glossary includes terms related to roles and responsibilities within an organization. However, it lacks definitions for terms that are more technical or specific to product development processes such as 'Agile', 'Scrum Master', 'User Story', etc. Additionally, the definition of 'Revenue' is broad and could be expanded to include metrics like gross revenue, net revenue, recurring revenue, etc., depending on the context of the organization.\n\nTask: Extract the system's ubiquitous-language terms, each categorised by the Four Questions: Who interacts with the system, What is required of it, How (the business activity), Where (state lives). Define each term crisply in business language with NO solution/implementation wording. These terms are the shared vocabulary every later artifact must reuse verbatim.\n",
+  "tools": null,
+  "contextSha256": "",
+  "response": {
+    "items": [
+      {
+        "term": "Product Owner",
+        "definition": "A person who represents stakeholders' interests and ensures that product backlog items meet stakeholder needs.",
+        "category": "Who interacts with the system"
+      },
+      {
+        "term": "Scrum Master",
+        "definition": "A facilitator within a Scrum team, responsible for ensuring adherence to Scrum principles and practices.",
+        "category": "Who interacts with the system"
+      },
+      {
+        "term": "User Story",
+        "definition": "A concise description of a feature from the user's perspective, capturing both functional and non-functional requirements.",
+        "category": "What is required of it"
+      },
+      {
+        "term": "Agile",
+        "definition": "An iterative approach to software development that emphasizes flexibility, collaboration, and continuous improvement through short iterations called sprints.",
+        "category": "How (the business activity)"
+      },
+      {
+        "term": "Recurring Revenue",
+        "definition": "Revenue generated from repeat purchases or subscriptions over a period of time.",
+        "category": "What is required of it"
+      },
+      {
+        "term": "Gross Revenue",
+        "definition": "Total revenue before any deductions for returns, discounts, or other adjustments.",
+        "category": "What is required of it"
+      },
+      {
+        "term": "Net Revenue",
+        "definition": "Revenue after all deductions and expenses have been subtracted from gross revenue.",
+        "category": "What is required of it"
+      }
+    ]
+  }
+}
