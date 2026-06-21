@@ -1,0 +1,176 @@
+name: UI Tests
+
+# Runs when server code, webApp, the uitest suite itself, or this workflow file
+# changes. Provisions Postgres + Temporal, builds + runs the Go server as a
+# background process (dev-mode auth + replay worker pointed at committed
+# cassettes), then lets Playwright start the Vite dev server and drives the
+# browser-based end-to-end specs.
+#
+# ── Topology ─────────────────────────────────────────────────────────────────
+#   [chromium] → [SPA dev server :5173] ──/api──▶ [Go server :8888] → Postgres
+#                                                                    └▶ Temporal
+#
+# The Go server is started here (the uitests Playwright config does NOT start it
+# — it only manages the SPA process). Playwright's webServer block starts
+# `npm run dev` in ../webApp and reuseExistingServer=false in CI, so the SPA
+# is always freshly started.
+#
+# ── Drafting mode ─────────────────────────────────────────────────────────────
+# UITESTS_LIVE_DRAFTING=replay → runs the live co-author drafting specs against
+# committed cassettes (offline, strict; no Ollama/Anthropic key needed).
+# The Go server is booted with ARCHISTRATOR_WORKER_PROVIDER=replay pointing at
+# uitests/testdata/cassettes/ (the committed cassette set for the SPA flows).
+#
+# ── Project state ─────────────────────────────────────────────────────────────
+# The server uses the LOCAL git profile (ARCHISTRATOR_PROJECT_STATE_GIT_LOCAL)
+# pointed at the checked-out repo (file://$GITHUB_WORKSPACE), which already
+# contains .aiarch/state/project.json. The checked-out repo is a bare clone
+# without a proper git HEAD that go-git can push to, so we reinitialise it as
+# a local working repo the server can commit into.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'server/**'
+      - 'webApp/**'
+      - 'uitests/**'
+      - '.github/workflows/uitests.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'server/**'
+      - 'webApp/**'
+      - 'uitests/**'
+      - '.github/workflows/uitests.yml'
+
+jobs:
+  uitests:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: archistrator
+          POSTGRES_PASSWORD: archistrator
+          POSTGRES_DB: archistrator
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U archistrator"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.25'
+          cache-dependency-path: server/go.sum
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Temporal CLI
+        run: |
+          curl -sSf https://temporal.download/cli.sh | sh
+          echo "$HOME/.temporalio/bin" >> "$GITHUB_PATH"
+
+      - name: Start Temporal dev server
+        run: |
+          temporal server start-dev \
+            --namespace aiarch-test \
+            --headless \
+            --port 7233 \
+            --log-level error &
+          for i in $(seq 1 60); do
+            if temporal operator cluster health --address 127.0.0.1:7233 >/dev/null 2>&1; then
+              echo "Temporal ready"
+              break
+            fi
+            sleep 1
+          done
+          temporal operator cluster health --address 127.0.0.1:7233
+
+      - name: Build Go server binary
+        working-directory: server
+        run: GOWORK=off go build -o /tmp/archistrator-server ./cmd/server
+
+      - name: Configure git user (for server project-state commits)
+        run: |
+          git config user.email "uitests@aiarch.local"
+          git config user.name "uitests"
+
+      - name: Start Go server (dev-mode, replay worker, local git project state)
+        run: |
+          /tmp/archistrator-server &
+          # Wait up to 60s for /healthz
+          for i in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:8888/healthz >/dev/null 2>&1; then
+              echo "Server ready"
+              break
+            fi
+            sleep 1
+          done
+          curl -sf http://127.0.0.1:8888/healthz
+        env:
+          ARCHISTRATOR_LISTEN_ADDR: ':8888'
+          ARCHISTRATOR_POSTGRES_URL: postgres://archistrator:archistrator@localhost:5432/archistrator?sslmode=disable
+          ARCHISTRATOR_TEMPORAL_HOSTPORT: localhost:7233
+          ARCHISTRATOR_TEMPORAL_NAMESPACE: aiarch-test
+          ARCHISTRATOR_AUTH_DEV_MODE: 'true'
+          ARCHISTRATOR_DEV_SUBJECT: dev-architect
+          # Replay worker — no Ollama/Anthropic key needed
+          ARCHISTRATOR_WORKER_PROVIDER: replay
+          ARCHISTRATOR_WORKER_REPLAY_DIR: ${{ github.workspace }}/uitests/testdata/cassettes
+          ARCHISTRATOR_WORKER_REPLAY_MODE: strict
+          # Local git project state: points at the checked-out repo
+          # (holds .aiarch/state/project.json on the main branch)
+          ARCHISTRATOR_PROJECT_STATE_GIT_LOCAL: 'true'
+          ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL: file://${{ github.workspace }}
+
+      - name: Install webApp dependencies
+        working-directory: webApp
+        run: npm ci
+
+      - name: Install uitests dependencies
+        working-directory: uitests
+        run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: uitests
+        run: npx playwright install --with-deps chromium
+
+      - name: Run UI tests
+        working-directory: uitests
+        env:
+          CI: 'true'
+          UITESTS_LIVE_DRAFTING: replay
+          UITESTS_SPA_URL: 'http://localhost:5173'
+        run: npm test
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: uitests/playwright-report/
+          retention-days: 7
+
+      - name: Upload Playwright traces on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: uitests/test-results/
+          retention-days: 7

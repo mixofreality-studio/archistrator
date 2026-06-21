@@ -1,0 +1,115 @@
+name: System Tests
+
+# Runs when server code, project state (.aiarch/**), the test suite itself, or
+# this workflow file changes. Provisions Postgres + Temporal, builds the real
+# server binary, then drives it via the black-box wire harness.
+#
+# OFFLINE-RUNNABLE SET (always run, must stay green):
+#   • constitution/     — structural R3/R6 checks (no infra at all)
+#   • usecases/         — all wire-level tests that call requireStack(), which
+#                         skips when ARCHISTRATOR_POSTGRES_URL/_TEMPORAL_HOSTPORT
+#                         are absent. With infra provisioned, this includes:
+#     - Test_UC1_CoauthorGlossary_WiringHappyPath      (cassette replay)
+#     - Test_UC1_SendBackRegenerate_Wiring             (cassette replay)
+#     - Test_UC2_ProjectDesign_WiringHappyPath         (cassette replay)
+#     - Test_UC2_SDPGate_Wiring                        (cassette replay)
+#     - Test_GitE2E_UC1_DesignArtifactCommitsToGit     (file:// git, cassette replay)
+#     - Test_GitE2E_UC2_ProjectBirthCommitsToGit       (file:// git)
+#     - Test_UC1_Agentic_E2E_DispatchObserveGateMergeCommit  (agentic fake, no real GH)
+#     - Test_UC1_Agentic_PhaseFailed_EntersStageDraftFailed  (agentic fake, no real GH)
+#     - Test_UC2_Agentic_E2E_DispatchObserveGateMergeCommit  (agentic fake, no real GH)
+#
+# NOTE ON AGENTIC TESTS: uc1_agentic_test.go / uc2_agentic_test.go / git_e2e_test.go
+# use an in-process AgenticGitHub HTTP fake — they do NOT need real GitHub credentials
+# or a live claude-code-action. All GitHub REST calls hit the fake; the project-state
+# git writes go to a throwaway file:// repo the harness creates. These tests run fully
+# offline (cassette replay) with Postgres + Temporal provisioned here.
+#
+# WHAT IS NOT RUN: tests that need a real GitHub App installation + live LLM
+# (Spec-2 construction dispatch over a real repo) are founder-gated — there are
+# no such tests in this harness today; the AgenticGitHub fake covers that seam.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'server/**'
+      - '.aiarch/**'
+      - 'systemtests/**'
+      - '.github/workflows/systemtests.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'server/**'
+      - '.aiarch/**'
+      - 'systemtests/**'
+      - '.github/workflows/systemtests.yml'
+
+jobs:
+  systemtests:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: archistrator
+          POSTGRES_PASSWORD: archistrator
+          POSTGRES_DB: archistrator
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U archistrator"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.25'
+          # Use the server go.sum for caching (systemtests is stdlib-only, no sum)
+          cache-dependency-path: server/go.sum
+
+      - name: Install Temporal CLI
+        run: |
+          curl -sSf https://temporal.download/cli.sh | sh
+          echo "$HOME/.temporalio/bin" >> "$GITHUB_PATH"
+
+      - name: Start Temporal dev server
+        run: |
+          temporal server start-dev \
+            --namespace aiarch-test \
+            --headless \
+            --port 7233 \
+            --log-level error &
+          # Wait up to 60s for the frontend to answer
+          for i in $(seq 1 60); do
+            if temporal operator cluster health --address 127.0.0.1:7233 >/dev/null 2>&1; then
+              echo "Temporal ready"
+              break
+            fi
+            sleep 1
+          done
+          temporal operator cluster health --address 127.0.0.1:7233
+
+      - name: Run constitution tests (no infra)
+        working-directory: systemtests
+        run: GOWORK=off go test ./constitution/... -count=1 -v
+
+      - name: Run wire system tests
+        working-directory: systemtests
+        env:
+          ARCHISTRATOR_POSTGRES_URL: postgres://archistrator:archistrator@localhost:5432/archistrator?sslmode=disable
+          ARCHISTRATOR_TEMPORAL_HOSTPORT: localhost:7233
+          ARCHISTRATOR_TEMPORAL_NAMESPACE: aiarch-test
+          # Drafting mode: replay (offline, strict — cassettes committed in testdata/cassettes/)
+          ARCHISTRATOR_SYSTEMTESTS_DRAFTING: replay
+        run: GOWORK=off go test ./usecases/... -count=1 -timeout 10m -v
