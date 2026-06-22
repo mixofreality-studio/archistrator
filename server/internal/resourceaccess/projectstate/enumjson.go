@@ -317,3 +317,59 @@ func (k *EdgeKind) UnmarshalJSON(data []byte) error {
 	*k = v
 	return nil
 }
+
+// ---- ActivityType ----
+
+var activityTypeNames = map[ActivityType]string{
+	ActivityTypeService:       "service",
+	ActivityTypeFrontend:      "frontend",
+	ActivityTypeTesting:       "testing",
+	ActivityTypeDeployment:    "deployment",
+	ActivityTypeDocumentation: "documentation",
+}
+var activityTypeByName = invert(activityTypeNames)
+
+// MarshalJSON encodes the ActivityType as its canonical wire name.
+// NOTE: ActivityKind is a type alias for ActivityType, so this also handles
+// ActivityKind fields — they share the same underlying type and method set.
+func (t ActivityType) MarshalJSON() ([]byte, error) {
+	return marshalEnum(t, activityTypeNames, "ActivityType")
+}
+
+// UnmarshalJSON decodes a wire name (or legacy integer ordinal) into an ActivityType.
+// The legacy-ordinal path ensures existing project.json Kind values (0=service,
+// 1=frontend, 2=testing) continue to decode correctly after the rename.
+func (t *ActivityType) UnmarshalJSON(data []byte) error {
+	v, err := unmarshalEnum(data, activityTypeByName, "ActivityType")
+	if err != nil {
+		return err
+	}
+	*t = v
+	return nil
+}
+
+// ---- TestingVariant ----
+
+var testingVariantNames = map[TestingVariant]string{
+	TestVariantPlan:       "plan",
+	TestVariantHarness:    "harness",
+	TestVariantPerf:       "perf",
+	TestVariantSystemTest: "systemTest",
+	TestVariantQAProcess:  "qaProcess",
+}
+var testingVariantByName = invert(testingVariantNames)
+
+// MarshalJSON encodes the TestingVariant as its canonical wire name.
+func (v TestingVariant) MarshalJSON() ([]byte, error) {
+	return marshalEnum(v, testingVariantNames, "TestingVariant")
+}
+
+// UnmarshalJSON decodes a wire name (or legacy integer ordinal) into a TestingVariant.
+func (v *TestingVariant) UnmarshalJSON(data []byte) error {
+	got, err := unmarshalEnum(data, testingVariantByName, "TestingVariant")
+	if err != nil {
+		return err
+	}
+	*v = got
+	return nil
+}

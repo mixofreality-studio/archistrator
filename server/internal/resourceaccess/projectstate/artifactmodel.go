@@ -175,6 +175,23 @@ type Project struct {
 	// from the real contract markdown). Additive, keyed by component name, nil until seeded.
 	ServiceContracts map[string]ServiceContract
 
+	// PhaseArtifacts holds the typed phase-scoped artifacts produced during Phase-3
+	// construction (SRS, test plans, integration notes, UI designs, etc.). Additive,
+	// nil until the first RecordPhaseArtifactProduced call.
+	PhaseArtifacts *PhaseArtifacts `json:"phaseArtifacts,omitempty"`
+
+	// TestingState holds the project-level testing artifacts produced by N-* activities
+	// (system test plan, harness, perf rig, quality gates, test runs, defects). Additive,
+	// nil until the first testing activity produces output.
+	TestingState *TestingState `json:"testingState,omitempty"`
+
+	// OperatorPaused is set when an operator pauses the project's construction
+	// (RecordOperatorPaused). Cleared when construction resumes (not yet a verb in
+	// the v1 contract; the field is additive and defaults false).
+	OperatorPaused bool
+	// PauseReason is the operator-supplied reason for the pause. Empty when not paused.
+	PauseReason string
+
 	// ---- Phase 1 slots ----
 	Mission              ArtifactSlot // Model is *MissionStatement when populated
 	Glossary             ArtifactSlot // Model is *Glossary

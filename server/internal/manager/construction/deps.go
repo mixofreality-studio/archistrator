@@ -44,12 +44,17 @@ import (
 
 // ProjectStateAccess is the Manager's narrow consumer view of projectStateAccess:
 // the whole-aggregate read plus the additive Phase-3 transition verbs
-// (constructionManager.md §5.3; projectstate/construction.go).
+// (constructionManager.md §5.3; projectstate/construction.go). No cred parameter
+// (the Manager-consumer view; cred is threaded separately via GitActivityStatusAccess).
 type ProjectStateAccess interface {
 	ReadProject(ctx context.Context, projectID projectstate.ProjectID) (projectstate.Project, error)
 	RecordChangeReviewed(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
 	RecordActivityExited(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, outcome projectstate.ActivityOutcome, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
 	RecordOperatorPaused(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, reason string, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
+	RecordPhaseStarted(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, phase projectstate.ActivityMethodPhase, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
+	RecordPhaseCompleted(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, phase projectstate.ActivityMethodPhase, artifactRef string, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
+	RecordServiceContractProduced(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, component string, contract projectstate.ServiceContract, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
+	RecordPhaseArtifactProduced(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, mapKey string, payload projectstate.PhaseArtifactPayload, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
 }
 
 // ===========================================================================
@@ -357,6 +362,13 @@ type PipelineSpec struct {
 	ComponentID string
 	RepoURL     string
 	Ref         string
+	// Phase is the ActivityMethodPhase.String() for the current activity phase
+	// being dispatched. Empty when the pipeline does not correspond to a specific
+	// method phase (e.g. a legacy whole-activity dispatch).
+	Phase string
+	// Role is the WorkerClass.String() for the assigned worker role (handOffEngine
+	// output). Empty when the role is determined by the pipeline infrastructure.
+	Role string
 }
 
 // PipelineHandle mirrors constructionPipelineAccess.md §3.

@@ -95,5 +95,38 @@ func (s *Store) RecordOperatorPaused(ctx context.Context, projectID ProjectID, e
 	})
 }
 
+// RecordPhaseStarted — Postgres stub. The Postgres substrate is legacy; the git
+// store is the live Phase-3 substrate for all new construction work. This stub
+// exists solely so the Postgres *Store continues to satisfy the construction
+// Manager's ProjectStateAccess consumer interface (the main.go fallback when no
+// git adapter is active). Phase-granular construction is only wired for the git
+// store.
+func (s *Store) RecordPhaseStarted(ctx context.Context, projectID ProjectID, expectedVersion Version, activityID string, phase ActivityMethodPhase, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	return s.applyMutation(ctx, "RecordPhaseStarted", projectID, expectedVersion, idempotencyKey, func(p *Project) error {
+		return nil // no-op on Postgres; real mutation in gitconstruction.go
+	})
+}
+
+// RecordPhaseCompleted — Postgres stub (see RecordPhaseStarted).
+func (s *Store) RecordPhaseCompleted(ctx context.Context, projectID ProjectID, expectedVersion Version, activityID string, phase ActivityMethodPhase, artifactRef string, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	return s.applyMutation(ctx, "RecordPhaseCompleted", projectID, expectedVersion, idempotencyKey, func(p *Project) error {
+		return nil // no-op on Postgres
+	})
+}
+
+// RecordServiceContractProduced — Postgres stub (see RecordPhaseStarted).
+func (s *Store) RecordServiceContractProduced(ctx context.Context, projectID ProjectID, expectedVersion Version, component string, contract ServiceContract, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	return s.applyMutation(ctx, "RecordServiceContractProduced", projectID, expectedVersion, idempotencyKey, func(p *Project) error {
+		return nil // no-op on Postgres
+	})
+}
+
+// RecordPhaseArtifactProduced — Postgres stub (see RecordPhaseStarted).
+func (s *Store) RecordPhaseArtifactProduced(ctx context.Context, projectID ProjectID, expectedVersion Version, activityID string, mapKey string, payload PhaseArtifactPayload, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	return s.applyMutation(ctx, "RecordPhaseArtifactProduced", projectID, expectedVersion, idempotencyKey, func(p *Project) error {
+		return nil // no-op on Postgres
+	})
+}
+
 // compile-time conformance: the Store impl satisfies the additive port.
 var _ ConstructionTransitionAccess = (*Store)(nil)

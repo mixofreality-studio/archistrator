@@ -76,7 +76,7 @@ func TestLoadConfig_Replay_InvalidMode(t *testing.T) {
 // TestLoadConfig_RealConstruction_FailFast — DRYRUN=false requires all construction
 // creds; missing any one must return an error at startup.
 func TestLoadConfig_RealConstruction_FailFast(t *testing.T) {
-	base := map[string]string{
+	setEnv(t, map[string]string{
 		"ARCHISTRATOR_POSTGRES_URL":               "postgres://x",
 		"ARCHISTRATOR_ANTHROPIC_API_KEY":          "sk-test",
 		"ARCHISTRATOR_CONSTRUCTION_DRYRUN":        "false",
@@ -85,8 +85,7 @@ func TestLoadConfig_RealConstruction_FailFast(t *testing.T) {
 		"ARCHISTRATOR_CONSTRUCTION_WORKFLOW_FILE": "aiarch-construct.yml",
 		"ARCHISTRATOR_CONSTRUCTION_REF":           "main",
 		// App creds intentionally absent
-	}
-	setEnv(t, base)
+	})
 	if _, err := loadConfig(); err == nil {
 		t.Fatal("expected error when DRYRUN=false and app creds missing")
 	}

@@ -249,41 +249,51 @@ func loadConfig() (config, error) {
 	// DRYRUN=false: require all construction creds so the server fails fast at
 	// startup rather than silently dispatching to nowhere.
 	if !cfg.ConstructionDryRun {
-		missing := []string{}
-		if cfg.GitHubAppID == "" {
-			missing = append(missing, "ARCHISTRATOR_GITHUB_APP_ID")
-		}
-		if cfg.GitHubAppPrivateKeyPEM == "" {
-			missing = append(missing, "ARCHISTRATOR_GITHUB_APP_PRIVATE_KEY_PEM")
-		}
-		if cfg.ConstructionRepoOwner == "" {
-			missing = append(missing, "ARCHISTRATOR_CONSTRUCTION_REPO_OWNER")
-		}
-		if cfg.ConstructionRepoName == "" {
-			missing = append(missing, "ARCHISTRATOR_CONSTRUCTION_REPO_NAME")
-		}
-		if cfg.ConstructionWorkflowFile == "" {
-			missing = append(missing, "ARCHISTRATOR_CONSTRUCTION_WORKFLOW_FILE")
-		}
-		if cfg.ConstructionRef == "" {
-			missing = append(missing, "ARCHISTRATOR_CONSTRUCTION_REF")
-		}
-		// The real-path selection requires the git-forward artifact store too
-		// (main.go: case pipeline != nil && artifacts != nil). artifacts is
-		// constructed only when ArtifactRepoURL is set, so it is a required cred
-		// when not dry-run — otherwise construction silently fails to register.
-		if cfg.ArtifactRepoURL == "" {
-			missing = append(missing, "ARCHISTRATOR_ARTIFACT_REPO_URL")
-		}
-		if len(missing) > 0 {
-			return config{}, fmt.Errorf(
-				"ARCHISTRATOR_CONSTRUCTION_DRYRUN=false requires construction creds; missing: %s",
-				strings.Join(missing, ", "),
-			)
+		if err := cfg.validateConstructionCreds(); err != nil {
+			return config{}, err
 		}
 	}
 
 	return cfg, nil
+}
+
+// validateConstructionCreds returns an error naming every missing construction
+// credential when ARCHISTRATOR_CONSTRUCTION_DRYRUN=false. Extracted to keep
+// loadConfig's nesting depth within the nestif budget.
+func (c config) validateConstructionCreds() error {
+	missing := []string{}
+	if c.GitHubAppID == "" {
+		missing = append(missing, "ARCHISTRATOR_GITHUB_APP_ID")
+	}
+	if c.GitHubAppPrivateKeyPEM == "" {
+		missing = append(missing, "ARCHISTRATOR_GITHUB_APP_PRIVATE_KEY_PEM")
+	}
+	if c.ConstructionRepoOwner == "" {
+		missing = append(missing, "ARCHISTRATOR_CONSTRUCTION_REPO_OWNER")
+	}
+	if c.ConstructionRepoName == "" {
+		missing = append(missing, "ARCHISTRATOR_CONSTRUCTION_REPO_NAME")
+	}
+	if c.ConstructionWorkflowFile == "" {
+		missing = append(missing, "ARCHISTRATOR_CONSTRUCTION_WORKFLOW_FILE")
+	}
+	if c.ConstructionRef == "" {
+		missing = append(missing, "ARCHISTRATOR_CONSTRUCTION_REF")
+	}
+	// The real-path selection requires the git-forward artifact store too
+	// (main.go: case pipeline != nil && artifacts != nil). artifacts is
+	// constructed only when ArtifactRepoURL is set, so it is a required cred
+	// when not dry-run — otherwise construction silently fails to register.
+	if c.ArtifactRepoURL == "" {
+		missing = append(missing, "ARCHISTRATOR_ARTIFACT_REPO_URL")
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf(
+			"ARCHISTRATOR_CONSTRUCTION_DRYRUN=false requires construction creds; missing: %s",
+			strings.Join(missing, ", "),
+		)
+	}
+	return nil
 }
 
 // devPrincipal builds the dev principal injected in dev mode. Roles are no

@@ -72,3 +72,35 @@ func (a constructionProjectStateAdapter) RecordOperatorPaused(ctx context.Contex
 	}
 	return a.store.RecordOperatorPaused(ctx, projectID, expectedVersion, reason, cred, idempotencyKey)
 }
+
+func (a constructionProjectStateAdapter) RecordPhaseStarted(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, phase projectstate.ActivityMethodPhase, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
+	cred, err := a.minter.credentialFor(ctx, projectID)
+	if err != nil {
+		return 0, err
+	}
+	return a.store.RecordPhaseStarted(ctx, projectID, expectedVersion, activityID, phase, cred, idempotencyKey)
+}
+
+func (a constructionProjectStateAdapter) RecordPhaseCompleted(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, phase projectstate.ActivityMethodPhase, artifactRef string, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
+	cred, err := a.minter.credentialFor(ctx, projectID)
+	if err != nil {
+		return 0, err
+	}
+	return a.store.RecordPhaseCompleted(ctx, projectID, expectedVersion, activityID, phase, artifactRef, cred, idempotencyKey)
+}
+
+func (a constructionProjectStateAdapter) RecordServiceContractProduced(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, component string, contract projectstate.ServiceContract, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
+	cred, err := a.minter.credentialFor(ctx, projectID)
+	if err != nil {
+		return 0, err
+	}
+	return a.store.RecordServiceContractProduced(ctx, projectID, expectedVersion, component, contract, cred, idempotencyKey)
+}
+
+func (a constructionProjectStateAdapter) RecordPhaseArtifactProduced(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, mapKey string, payload projectstate.PhaseArtifactPayload, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
+	cred, err := a.minter.credentialFor(ctx, projectID)
+	if err != nil {
+		return 0, err
+	}
+	return a.store.RecordPhaseArtifactProduced(ctx, projectID, expectedVersion, activityID, mapKey, payload, cred, idempotencyKey)
+}
