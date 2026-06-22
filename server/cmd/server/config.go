@@ -245,6 +245,44 @@ func loadConfig() (config, error) {
 	default:
 		return config{}, fmt.Errorf("ARCHISTRATOR_WORKER_PROVIDER must be \"anthropic\", \"ollama\", or \"replay\", got %q", cfg.WorkerProvider)
 	}
+
+	// DRYRUN=false: require all construction creds so the server fails fast at
+	// startup rather than silently dispatching to nowhere.
+	if !cfg.ConstructionDryRun {
+		missing := []string{}
+		if cfg.GitHubAppID == "" {
+			missing = append(missing, "ARCHISTRATOR_GITHUB_APP_ID")
+		}
+		if cfg.GitHubAppPrivateKeyPEM == "" {
+			missing = append(missing, "ARCHISTRATOR_GITHUB_APP_PRIVATE_KEY_PEM")
+		}
+		if cfg.ConstructionRepoOwner == "" {
+			missing = append(missing, "ARCHISTRATOR_CONSTRUCTION_REPO_OWNER")
+		}
+		if cfg.ConstructionRepoName == "" {
+			missing = append(missing, "ARCHISTRATOR_CONSTRUCTION_REPO_NAME")
+		}
+		if cfg.ConstructionWorkflowFile == "" {
+			missing = append(missing, "ARCHISTRATOR_CONSTRUCTION_WORKFLOW_FILE")
+		}
+		if cfg.ConstructionRef == "" {
+			missing = append(missing, "ARCHISTRATOR_CONSTRUCTION_REF")
+		}
+		// The real-path selection requires the git-forward artifact store too
+		// (main.go: case pipeline != nil && artifacts != nil). artifacts is
+		// constructed only when ArtifactRepoURL is set, so it is a required cred
+		// when not dry-run — otherwise construction silently fails to register.
+		if cfg.ArtifactRepoURL == "" {
+			missing = append(missing, "ARCHISTRATOR_ARTIFACT_REPO_URL")
+		}
+		if len(missing) > 0 {
+			return config{}, fmt.Errorf(
+				"ARCHISTRATOR_CONSTRUCTION_DRYRUN=false requires construction creds; missing: %s",
+				strings.Join(missing, ", "),
+			)
+		}
+	}
+
 	return cfg, nil
 }
 

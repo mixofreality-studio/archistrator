@@ -141,6 +141,55 @@ func TestNextEligibleActivity_UncommittedSlots(t *testing.T) {
 	})
 }
 
+// TestNextEligibleActivity_ProjectExportDogfood exercises the dogfood activity
+// C-PE (projectExport endpoint) introduced in Spec 2. C-PE depends on C-CW (Build Web Client)
+// and D-MPD (Detailed design — projectDesignManager), which are both Phase=2 (Done)
+// in the live project. This test uses a synthetic project where both deps are Done
+// and C-PE is NotStarted, verifying nextEligibleActivity selects it.
+//
+// Reconciliation note: ComponentID is derived from the activity NAME by
+// hydrateConstructionActivity (ComponentID = activityID), so ComponentID == "C-PE"
+// (not "projectExport"). Contract filename is C-PE.json accordingly.
+func TestNextEligibleActivity_ProjectExportDogfood(t *testing.T) {
+	network := []projectstate.NetworkDependency{
+		{Activity: "C-CW", DependsOn: []string{}},
+		{Activity: "D-MPD", DependsOn: []string{}},
+		{Activity: "C-PE", DependsOn: []string{"C-CW", "D-MPD"}},
+	}
+	activities := []projectstate.ActivityItem{
+		{Name: "C-CW", EffortDays: 30, WorkerClass: "junior-developer", Coding: true, RiskBucket: 8},
+		{Name: "D-MPD", EffortDays: 5, WorkerClass: "senior-developer", Coding: false, RiskBucket: 2},
+		{Name: "C-PE", EffortDays: 3, WorkerClass: "junior-developer", Coding: true, RiskBucket: 1},
+	}
+	proj := projectstate.Project{
+		Network:      makeCommittedNetwork(network),
+		ActivityList: makeCommittedActivityList(activities),
+		ActivityConstruction: map[string]projectstate.ActivityConstructionStatus{
+			"C-CW":  {ActivityID: "C-CW", Phase: projectstate.ActivityConstructionDone},
+			"D-MPD": {ActivityID: "D-MPD", Phase: projectstate.ActivityConstructionDone},
+			// C-PE is absent (zero value = NotStarted)
+		},
+	}
+	got, ok := nextEligibleActivity(proj)
+	if !ok {
+		t.Fatal("expected C-PE to be eligible, got false")
+	}
+	if got.ActivityID != "C-PE" {
+		t.Fatalf("expected ActivityID=C-PE, got %q", got.ActivityID)
+	}
+	// ComponentID is derived from the activity name by hydrateConstructionActivity
+	// (ComponentID = activityID), so it equals "C-PE" — not "projectExport".
+	if got.ComponentID != "C-PE" {
+		t.Fatalf("expected ComponentID=C-PE, got %q", got.ComponentID)
+	}
+	if got.EstimateDays != 3 {
+		t.Fatalf("expected EstimateDays=3, got %f", got.EstimateDays)
+	}
+	if got.Kind != construction.ActivityKindConstruction {
+		t.Fatalf("expected Kind=ActivityKindConstruction (Coding=true), got %v", got.Kind)
+	}
+}
+
 // TestNextEligibleActivity_HydratedFields checks that the returned ConstructionActivity
 // is fully hydrated from the ActivityList item (Kind, ComponentID stay zero/empty since
 // the ActivityList has no component/kind — only the fields that map cleanly are set).

@@ -391,6 +391,18 @@ var _ construction.ConstructionPipelineAccess = pipelineAdapter{}
 // constructionpipeline.New, so this logical ref resolves to a concrete image.
 const pipelineDefaultToolchain = "go-1.23"
 
+// dispatchInputsFor builds the DispatchInputs bag for a construction pipeline
+// dispatch. The activity_id and component_id are the load-bearing keys the
+// aiarch-construct.yml workflow reads to locate the service contract and
+// implement the right component. Keeping this extraction in a named helper
+// makes it directly unit-testable without constructing a live pipelineAdapter.
+func dispatchInputsFor(spec construction.PipelineSpec) map[string]string {
+	return map[string]string{
+		"activity_id":  spec.ActivityID,
+		"component_id": spec.ComponentID,
+	}
+}
+
 func (a pipelineAdapter) SubmitConstructionPipeline(
 	ctx context.Context,
 	spec construction.PipelineSpec,
@@ -403,7 +415,8 @@ func (a pipelineAdapter) SubmitConstructionPipeline(
 			Toolchain: constructionpipeline.ToolchainRef(pipelineDefaultToolchain),
 			Command:   []string{"sh", "-c", "true"},
 		}},
-		WorkspaceRef: constructionpipeline.ArtifactRef(spec.RepoURL + "@" + spec.Ref),
+		WorkspaceRef:   constructionpipeline.ArtifactRef(spec.RepoURL + "@" + spec.Ref),
+		DispatchInputs: dispatchInputsFor(spec),
 	}, idempotencyKey)
 	if err != nil {
 		return construction.PipelineHandle{}, err

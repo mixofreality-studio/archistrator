@@ -1259,6 +1259,13 @@
             "dependsOn": [
               "U-SPA-S"
             ]
+          },
+          {
+            "activity": "C-PE",
+            "dependsOn": [
+              "C-CW",
+              "D-MPD"
+            ]
           }
         ],
         "criticalPath": [
@@ -6787,6 +6794,14 @@
             "coding": true,
             "riskBucket": 5,
             "title": "Re-prove UC2 E2E via the agentic dispatch path (feeds N-IT)"
+          },
+          {
+            "name": "C-PE",
+            "effortDays": 3,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 1,
+            "title": "Build projectExport Client endpoint (GET /projects/{id}/export)"
           }
         ]
       }
@@ -7461,6 +7476,23 @@
           "Source": "implementation/log",
           "Produced": true,
           "Note": "Construction output recorded in the implementation log."
+        }
+      ]
+    },
+    "C-PE": {
+      "ActivityID": "C-PE",
+      "Phase": 0,
+      "StartedAt": null,
+      "CompletedAt": null,
+      "Kind": 0,
+      "BuildStatus": 0,
+      "Produced": [
+        {
+          "Kind": "service-contract",
+          "Title": "C-PE — service contract (projectExport)",
+          "Source": "server/cmd/seed-contracts/data/C-PE.json",
+          "Produced": true,
+          "Note": "Dogfood contract for Spec 2 live construction run. ComponentID=C-PE (activity-name-as-identity)."
         }
       ]
     },
