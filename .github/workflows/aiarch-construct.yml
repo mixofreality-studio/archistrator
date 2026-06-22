@@ -43,6 +43,9 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  # claude-code-action exchanges an OIDC token for its OAuth flow; without this the
+  # action fails with "Could not fetch an OIDC token".
+  id-token: write
 
 # One in-flight construction run per dedup token — belt-and-braces alongside the
 # RA's own run-name convergence.
