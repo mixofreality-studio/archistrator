@@ -71,6 +71,22 @@ jobs:
         with:
           go-version-file: server/go.mod
 
+      # Single source of truth: the service contract lives in the project's head
+      # state (.aiarch/state/project.json → .serviceContracts), NOT a parallel
+      # per-file copy. Extract the one contract for this component to the repo root.
+      - name: Extract service contract from project.json
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          jq --arg c "${{ inputs.component_id }}" '.serviceContracts[$c] // empty' \
+            .aiarch/state/project.json > service-contract.json
+          if [ ! -s service-contract.json ]; then
+            echo "::error::no service contract for component '${{ inputs.component_id }}' in .aiarch/state/project.json"
+            exit 1
+          fi
+          echo "Extracted contract for ${{ inputs.component_id }}:"
+          cat service-contract.json
+
       - name: Implement component (claude-code-action)
         uses: anthropics/claude-code-action@v1
         with:
@@ -85,14 +101,14 @@ jobs:
 
             ## Your task
 
-            Implement the component with id "${{ inputs.component_id }}" to satisfy its service contract.
+            Implement the component "${{ inputs.component_id }}" to satisfy its service contract.
 
-            The service contract is at:
-              server/cmd/seed-contracts/data/${{ inputs.component_id }}.json
+            The service contract (JSON) is at the repo root:
+              service-contract.json
 
             Architecture context:
-              server/cmd/seed-contracts/data/  (all contracts for layer/dependency reference)
-              server/internal/                 (existing layer implementations to learn from)
+              .aiarch/state/project.json  (.serviceContracts — every component's contract, for layer/dependency reference)
+              server/internal/            (existing layer implementations to learn from)
 
             ## Rules
 
@@ -116,7 +132,7 @@ jobs:
                    ${{ inputs.component_id }}
 
                    ## Contract
-                   server/cmd/seed-contracts/data/${{ inputs.component_id }}.json
+                   .aiarch/state/project.json → .serviceContracts["${{ inputs.component_id }}"]
 
                    ## Checklist
                    - [ ] Contract satisfied
