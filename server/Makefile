@@ -1,6 +1,6 @@
 # aiarch server — developer make targets.
 
-.PHONY: test test-short fmt vet
+.PHONY: test test-short fmt vet lint method-check
 
 # Everything, including the model-gated integration tests (need a live, capable
 # Ollama-backed worker — see internal/manager/systemdesign/integration_test.go).
@@ -19,3 +19,11 @@ fmt:
 
 vet:
 	go vet ./...
+
+lint:
+	golangci-lint run ./...
+
+# Run the Method conformance gate (design rules + layer rules + alignment).
+# Reads .aiarch/state/project.json from the repo root (one level up).
+method-check:
+	GOWORK=off go test ./internal/... -run TestMethod -v

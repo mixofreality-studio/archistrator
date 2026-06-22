@@ -5,11 +5,13 @@ on:
     branches: [main]
     paths:
       - 'server/**'
+      - '.aiarch/**/*.json'
       - '.github/workflows/server-checks.yml'
   pull_request:
     branches: [main]
     paths:
       - 'server/**'
+      - '.aiarch/**/*.json'
       - '.github/workflows/server-checks.yml'
 
 jobs:
@@ -41,6 +43,12 @@ jobs:
 
       - name: Build
         run: GOWORK=off go build ./...
+
+      - name: Lint (new-from-rev only)
+        uses: golangci/golangci-lint-action@v6
+        with:
+          working-directory: server
+          args: --new-from-rev=HEAD~1
 
       - name: Test (container-free)
         run: GOWORK=off make test-short

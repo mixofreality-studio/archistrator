@@ -53,10 +53,11 @@ func (o ActivityOutcome) String() string {
 	}
 }
 
-// ConstructionTransitionAccess is the ADDITIVE Phase-3 head-state transition port
-// (constructionManager.md §5.3). Kept separate from ProjectStateAccess so the
-// Phase-1/2 consumers stay source-stable; the concrete Store satisfies both.
-type ConstructionTransitionAccess interface {
+// pgTransitionAccess is the legacy Postgres-only subset of construction transition
+// verbs. Superseded by ConstructionTransitionAccess (construction_transition_port.go)
+// for the cred-threaded git store. Kept here so the Postgres *Store compile-time
+// check remains valid; the public port is the cred-threaded 8-op version.
+type pgTransitionAccess interface {
 	// RecordChangeReviewed records that a produced change for activityID has been
 	// routed through review and recorded reviewed (constructionManager.md §6.3
 	// step 6). Optimistic on expectedVersion; idempotent on idempotencyKey.
@@ -128,5 +129,5 @@ func (s *Store) RecordPhaseArtifactProduced(ctx context.Context, projectID Proje
 	})
 }
 
-// compile-time conformance: the Store impl satisfies the additive port.
-var _ ConstructionTransitionAccess = (*Store)(nil)
+// compile-time conformance: the Store impl satisfies the legacy Postgres port.
+var _ pgTransitionAccess = (*Store)(nil)

@@ -199,6 +199,8 @@ func CoarsePhase(phases []PhaseCompletion) ActivityConstructionPhase {
 // phase (compute-at-read; kept for back-compat). Rules: Integration phase done →
 // BuildIntegrated; Construction phase done but Integration not → BuildInReview;
 // otherwise → BuildInConstruction.
+// The `current` parameter is reserved for future use (fine-grained phase display)
+// and is currently ignored; coarse status is derived solely from Phases completion.
 func CoarseBuildStatus(phases []PhaseCompletion, current ActivityMethodPhase) ActivityBuildStatus {
 	constructionDone := false
 	integrationDone := false
