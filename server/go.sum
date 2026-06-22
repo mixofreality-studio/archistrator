@@ -143,6 +143,8 @@ github.com/mdelapenya/tlscert v0.2.0 h1:7H81W6Z/4weDvZBNOfQte5GpIMo0lGYEeWbkGp5L
 github.com/mdelapenya/tlscert v0.2.0/go.mod h1:O4njj3ELLnJjGdkN7M/vIVCpZ+Cf0L6muqOG4tLSl8o=
 github.com/mixofreality-studio/archistrator-platform/framework-go v0.1.0 h1:ru2DS0WW0xvKACp92apAAXhuSTbY/4q6rQ0zIWY9YUI=
 github.com/mixofreality-studio/archistrator-platform/framework-go v0.1.0/go.mod h1:O/JX3XM7bg+1HOfyQ0TCG4nnkED0w7R1vwcqzD5hEgM=
+github.com/mixofreality-studio/archistrator-platform/framework-go v0.2.0 h1:byBHR6dA1+PH6knybBiBVX/rrjNDEHHUEgZ9hQm2CcA=
+github.com/mixofreality-studio/archistrator-platform/framework-go v0.2.0/go.mod h1:O/JX3XM7bg+1HOfyQ0TCG4nnkED0w7R1vwcqzD5hEgM=
 github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github v0.1.0 h1:j9ynjsk/1OfEcTPZlNjfgM0z+YyMJlxQiEmHs5Q/4X0=
 github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github v0.1.0/go.mod h1:hBgZRy/Ed40zSD+11VDfKev3U5TDjvqvexZ/BanCJj8=
 github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-keycloak v0.1.0 h1:SS+bOgJQPiYqV+Lib5BtC1f/GAgCM4Uqcl/anxUYmUo=

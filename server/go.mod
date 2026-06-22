@@ -112,7 +112,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.2 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.28.0 // indirect
-	github.com/mixofreality-studio/archistrator-platform/framework-go v0.1.0
+	github.com/mixofreality-studio/archistrator-platform/framework-go v0.2.0
 	github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github v0.1.0
 	github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-keycloak v0.1.0
 	github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-llm v0.1.0
