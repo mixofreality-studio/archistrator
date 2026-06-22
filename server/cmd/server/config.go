@@ -121,40 +121,17 @@ type config struct {
 	GitHubAccount string
 	GitHubAppSlug string
 
-	// WorkerAccess provider selection: "anthropic" (production default) or "ollama"
-	// (systemtests only — testcontainers / docker-compose). The Anthropic→Ollama
-	// swap is the encapsulated Worker volatility; both build the same WorkerAccess
-	// port (worker.AnthropicWorker / worker.OllamaWorker).
-	WorkerProvider string
-
-	// Anthropic (production workerAccess generic typed worker). APIKey is required
-	// when WorkerProvider == "anthropic"; BaseURL is optional (empty = SDK default).
-	// The per-WorkerClass models map the logical drafting/critique roles to concrete
-	// Claude models inside the seam.
-	AnthropicAPIKey         string
-	AnthropicBaseURL        string
-	AnthropicModel          string // default / fallback model
-	AnthropicArchitectModel string // DraftWorkerClass ("architect")
-	AnthropicCritiqueModel  string // CritiqueWorkerClass ("productManager")
-
-	// Ollama (test-only workerAccess provider). Used when WorkerProvider == "ollama".
-	OllamaBaseURL string
-	OllamaModel   string
-
-	// Replay (test-only workerAccess decorator). Used when WorkerProvider ==
-	// "replay". ReplayDir holds the on-disk cassettes; ReplayMode is "strict"
-	// (miss = loud error, offline CI default) or "record_on_miss" (miss → generate
-	// via the delegate + write). ReplayDelegate ("ollama"|"anthropic") selects the
-	// real provider that serves misses in record_on_miss mode.
-	ReplayDir      string
-	ReplayMode     string
-	ReplayDelegate string
+	// Construction uses NO server-side LLM worker. The real implementation and
+	// review run in GitHub Actions via claude-code-action on the user's token
+	// (the agentic pivot); the server holds no Anthropic/LLM key. Design (UC1/UC2)
+	// is likewise agentic. The former ARCHISTRATOR_WORKER_PROVIDER / ANTHROPIC_* /
+	// OLLAMA_* / REPLAY_* config was removed with the server-side worker.
 
 	// Auth dev mode (clearly gated; MUST be off behind Envoy).
 	Dev web.DevConfig
 }
 
-func loadConfig() (config, error) {
+func loadConfig() (config, error) { //nolint:gocognit // reads and validates all env config fields; each field adds a branch
 	cfg := config{
 		ListenAddr:        env("ARCHISTRATOR_LISTEN_ADDR", ":8080"),
 		ShutdownTimeout:   envDuration("ARCHISTRATOR_SHUTDOWN_TIMEOUT", 20*time.Second),
@@ -171,7 +148,7 @@ func loadConfig() (config, error) {
 		ProjectStateGitRepoURL: env("ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL", ""),
 
 		GitHubAppID:              env("ARCHISTRATOR_GITHUB_APP_ID", ""),
-		GitHubAppPrivateKeyPEM:   env("ARCHISTRATOR_GITHUB_APP_PRIVATE_KEY_PEM", ""),
+		GitHubAppPrivateKeyPEM:   envSecret("ARCHISTRATOR_GITHUB_APP_PRIVATE_KEY_PEM", ""),
 		GitHubAPIBaseURL:         env("ARCHISTRATOR_GITHUB_API_BASE_URL", ""),
 		GitHubInstallationID:     envInt64("ARCHISTRATOR_GITHUB_INSTALLATION_ID", 0),
 		ConstructionRepoOwner:    env("ARCHISTRATOR_CONSTRUCTION_REPO_OWNER", ""),
@@ -185,21 +162,6 @@ func loadConfig() (config, error) {
 		// GitHub App identity is configured once; the App slug has no universal default.
 		GitHubAccount: env("ARCHISTRATOR_GITHUB_ACCOUNT", env("ARCHISTRATOR_CONSTRUCTION_REPO_OWNER", "")),
 		GitHubAppSlug: env("ARCHISTRATOR_GITHUB_APP_SLUG", ""),
-
-		WorkerProvider: env("ARCHISTRATOR_WORKER_PROVIDER", "anthropic"),
-
-		AnthropicAPIKey:         env("ARCHISTRATOR_ANTHROPIC_API_KEY", ""),
-		AnthropicBaseURL:        env("ARCHISTRATOR_ANTHROPIC_BASEURL", ""),
-		AnthropicModel:          env("ARCHISTRATOR_ANTHROPIC_MODEL", "claude-opus-4-8"),
-		AnthropicArchitectModel: env("ARCHISTRATOR_ANTHROPIC_ARCHITECT_MODEL", "claude-opus-4-8"),
-		AnthropicCritiqueModel:  env("ARCHISTRATOR_ANTHROPIC_CRITIQUE_MODEL", "claude-sonnet-4-6"),
-
-		OllamaBaseURL: env("ARCHISTRATOR_OLLAMA_BASEURL", ""),
-		OllamaModel:   env("ARCHISTRATOR_OLLAMA_MODEL", "qwen2.5:3b"),
-
-		ReplayDir:      env("ARCHISTRATOR_WORKER_REPLAY_DIR", ""),
-		ReplayMode:     env("ARCHISTRATOR_WORKER_REPLAY_MODE", "strict"),
-		ReplayDelegate: env("ARCHISTRATOR_WORKER_REPLAY_DELEGATE", "ollama"),
 	}
 
 	devEnabled := envBool("ARCHISTRATOR_AUTH_DEV_MODE", false)
@@ -210,40 +172,6 @@ func loadConfig() (config, error) {
 
 	if cfg.PostgresURL == "" {
 		return config{}, fmt.Errorf("ARCHISTRATOR_POSTGRES_URL is required")
-	}
-	switch cfg.WorkerProvider {
-	case "anthropic":
-		if cfg.AnthropicAPIKey == "" {
-			return config{}, fmt.Errorf("ARCHISTRATOR_ANTHROPIC_API_KEY is required when ARCHISTRATOR_WORKER_PROVIDER=anthropic")
-		}
-	case "ollama":
-		if cfg.OllamaBaseURL == "" {
-			return config{}, fmt.Errorf("ARCHISTRATOR_OLLAMA_BASEURL is required when ARCHISTRATOR_WORKER_PROVIDER=ollama")
-		}
-	case "replay":
-		if cfg.ReplayDir == "" {
-			return config{}, fmt.Errorf("ARCHISTRATOR_WORKER_REPLAY_DIR is required when ARCHISTRATOR_WORKER_PROVIDER=replay")
-		}
-		switch cfg.ReplayMode {
-		case "strict":
-		case "record_on_miss":
-			switch cfg.ReplayDelegate {
-			case "ollama":
-				if cfg.OllamaBaseURL == "" {
-					return config{}, fmt.Errorf("ARCHISTRATOR_OLLAMA_BASEURL is required for replay record_on_miss with the ollama delegate")
-				}
-			case "anthropic":
-				if cfg.AnthropicAPIKey == "" {
-					return config{}, fmt.Errorf("ARCHISTRATOR_ANTHROPIC_API_KEY is required for replay record_on_miss with the anthropic delegate")
-				}
-			default:
-				return config{}, fmt.Errorf("ARCHISTRATOR_WORKER_REPLAY_DELEGATE must be \"ollama\" or \"anthropic\", got %q", cfg.ReplayDelegate)
-			}
-		default:
-			return config{}, fmt.Errorf("ARCHISTRATOR_WORKER_REPLAY_MODE must be \"strict\" or \"record_on_miss\", got %q", cfg.ReplayMode)
-		}
-	default:
-		return config{}, fmt.Errorf("ARCHISTRATOR_WORKER_PROVIDER must be \"anthropic\", \"ollama\", or \"replay\", got %q", cfg.WorkerProvider)
 	}
 
 	// DRYRUN=false: require all construction creds so the server fails fast at
@@ -313,6 +241,35 @@ func devPrincipal() security.SecurityPrincipal {
 
 func env(key, def string) string {
 	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+		return v
+	}
+	return def
+}
+
+// envSecret reads a multiline secret (e.g. an RSA PEM) that does not survive a
+// shell `source .env` as an inline value. Resolution order:
+//  1. "<key>_FILE" — a single-line path that sources cleanly; read the file.
+//  2. "<key>" — if it holds an inline PEM block, use it verbatim; if it instead
+//     names a readable file path (the common mistake of putting the path in the
+//     content var), read that file.
+//
+// The file is read once at boot; a read error falls through so the downstream
+// fail-fast names the missing credential rather than panicking here.
+func envSecret(key, def string) string {
+	if path := strings.TrimSpace(os.Getenv(key + "_FILE")); path != "" {
+		if b, err := os.ReadFile(path); err == nil {
+			return strings.TrimSpace(string(b))
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+		// Inline PEM content — use as-is.
+		if strings.Contains(v, "-----BEGIN") {
+			return v
+		}
+		// Not PEM content: treat a readable path as a file reference.
+		if b, err := os.ReadFile(v); err == nil {
+			return strings.TrimSpace(string(b))
+		}
 		return v
 	}
 	return def

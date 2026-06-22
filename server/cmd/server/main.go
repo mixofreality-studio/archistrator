@@ -79,70 +79,6 @@ func main() {
 	}
 }
 
-// buildWorkerAccess constructs the workerAccess port for the configured provider.
-// "anthropic"/"ollama" build a concrete provider directly; "replay" wraps a
-// cassette decorator over the cassette dir (and, in record_on_miss mode, a
-// concrete delegate that serves misses).
-func buildWorkerAccess(cfg config, logger *slog.Logger) (workeraccess.WorkerAccess, error) {
-	if cfg.WorkerProvider == "replay" {
-		var delegate workeraccess.WorkerAccess
-		if cfg.ReplayMode == "record_on_miss" {
-			d, err := buildConcreteWorker(cfg.ReplayDelegate, cfg, logger)
-			if err != nil {
-				return nil, err
-			}
-			delegate = d
-		}
-		w, err := workeraccess.NewReplayWorker(cfg.ReplayDir, workeraccess.ReplayMode(cfg.ReplayMode), delegate)
-		if err != nil {
-			return nil, err
-		}
-		logger.Info("workerAccess (replay) ready", "dir", cfg.ReplayDir, "mode", cfg.ReplayMode, "delegate", cfg.ReplayDelegate)
-		return w, nil
-	}
-	return buildConcreteWorker(cfg.WorkerProvider, cfg, logger)
-}
-
-// buildConcreteWorker constructs a real (provider-backed) WorkerAccess for
-// "anthropic" or "ollama". Shared by the direct providers and the replay
-// decorator's record_on_miss delegate.
-func buildConcreteWorker(provider string, cfg config, logger *slog.Logger) (workeraccess.WorkerAccess, error) {
-	switch provider {
-	case "anthropic":
-		// Logical worker classes are the worker RA's config vocabulary (mapped to a
-		// model inside the seam — workerAccess.md §3f). The design Managers no longer
-		// reference them (the UC1 systemDesignManager dispatches agentic jobs that run
-		// on the user's token; the worker classes drive UC2/UC3 + the projectdesign
-		// draft path). They are plain config keys here.
-		const (
-			architectWorkerClass = "architect"
-			critiqueWorkerClass  = "productManager"
-		)
-		classModels := map[workeraccess.WorkerClass]string{
-			workeraccess.WorkerClass(architectWorkerClass): cfg.AnthropicArchitectModel,
-			workeraccess.WorkerClass(critiqueWorkerClass):  cfg.AnthropicCritiqueModel,
-		}
-		w, err := workeraccess.NewAnthropicWorker(cfg.AnthropicAPIKey, cfg.AnthropicBaseURL, cfg.AnthropicModel, classModels)
-		if err != nil {
-			return nil, err
-		}
-		logger.Info("workerAccess (anthropic) ready",
-			"defaultModel", cfg.AnthropicModel,
-			"architectModel", cfg.AnthropicArchitectModel,
-			"critiqueModel", cfg.AnthropicCritiqueModel)
-		return w, nil
-	case "ollama":
-		w, err := workeraccess.NewOllamaWorker(cfg.OllamaBaseURL, cfg.OllamaModel, nil)
-		if err != nil {
-			return nil, err
-		}
-		logger.Info("workerAccess (ollama) ready", "baseURL", cfg.OllamaBaseURL, "model", cfg.OllamaModel)
-		return w, nil
-	default:
-		return nil, fmt.Errorf("unknown worker provider %q", provider)
-	}
-}
-
 // buildDesignProjectState selects the projectStateAccess substrate the UC1/UC2 design
 // managers consume (I-GIT-DESIGN). It always returns the no-cred
 // projectstate.ProjectStateAccess interface; the credential threading is hidden behind
@@ -233,7 +169,7 @@ func gitWebHost(apiBaseURL string) string {
 	return host
 }
 
-func run(logger *slog.Logger) error {
+func run(logger *slog.Logger) error { //nolint:gocognit,gocyclo,maintidx,nestif // server bootstrap wiring
 	cfg, err := loadConfig()
 	if err != nil {
 		return err
@@ -322,14 +258,6 @@ func run(logger *slog.Logger) error {
 	}
 	logger.Info("usageAccess (postgres) ready")
 
-	// Generic workerAccess (drafting + PM-critique dispatch). Production uses the
-	// Anthropic Messages API; systemtests select the Ollama provider. The concrete
-	// worker is the encapsulated Worker volatility — both satisfy the same port.
-	workers, err := buildWorkerAccess(cfg, logger)
-	if err != nil {
-		return err
-	}
-
 	// git-backed artifactAccess (content-addressable store for Phase-3 construction
 	// outputs; C-AA-R rework — Gitea removed per the 2026-06-09 git-only pivot). The
 	// backing store is the per-project construction git repo. Two profiles behind the
@@ -341,7 +269,7 @@ func run(logger *slog.Logger) error {
 	// unconfigured (the construction slice then stages no outputs — acceptable for the
 	// empty-session runtime state).
 	var artifacts *artifact.Store
-	if cfg.ArtifactRepoURL != "" {
+	if cfg.ArtifactRepoURL != "" { //nolint:nestif
 		if cfg.ArtifactRepoLocal {
 			artifacts, err = artifact.NewLocalStore(cfg.ArtifactRepoURL)
 			if err != nil {
@@ -613,7 +541,13 @@ func run(logger *slog.Logger) error {
 	case pipeline != nil && artifacts != nil:
 		constructionPipeline = pipelineAdapter{inner: pipeline}
 		constructionArtifacts = artifacts
-		constructionWorkers = workers
+		// Construction does NOT use a server-side LLM. The real work (and review)
+		// runs in GitHub Actions via claude-code-action on the user's token; the
+		// server only dispatches + observes the pipeline. dryRunWorker is a no-LLM
+		// stub that satisfies the legacy GenerateWork/review seam with a valid
+		// ConstructionOutput so the workflow advances to the real GH-Actions dispatch.
+		// (Removing the GenerateWork/review steps entirely is the Plan 3 follow-up.)
+		constructionWorkers = dryRunWorker{}
 		registerConstruction = true
 	}
 
