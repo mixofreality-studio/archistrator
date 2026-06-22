@@ -18,6 +18,7 @@ package main
 import (
 	"context"
 	"sort"
+	"strings"
 
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/handoff"
@@ -49,7 +50,7 @@ import (
 // Guards: if either the Network or ActivityList slot is not committed (Status !=
 // ReviewCommitted) or its Model cannot be cast to the expected type, the function
 // returns false without panicking.
-func nextEligibleActivity(proj projectstate.Project) (construction.ConstructionActivity, bool) {
+func nextEligibleActivity(proj projectstate.Project) (construction.ConstructionActivity, bool) { //nolint:gocognit,gocyclo // sequential eligibility guards + dependency walk; inherently branchy
 	// Guard: Network slot must be committed and hold a *projectstate.Network.
 	if proj.Network.Status != projectstate.ReviewCommitted {
 		return construction.ConstructionActivity{}, false
@@ -117,7 +118,44 @@ func nextEligibleActivity(proj projectstate.Project) (construction.ConstructionA
 
 	chosen := candidates[0].activity
 	item := itemByName[chosen]
-	return hydrateConstructionActivity(chosen, item), true
+	component := resolveComponentID(item.Title, chosen, proj.ServiceContracts)
+	return hydrateConstructionActivity(chosen, item, component), true
+}
+
+// resolveComponentID maps an activity to its service-contract component name by
+// matching the activity Title against the keys of the ServiceContracts corpus.
+// The ActivityList has no component column, so the title (e.g. "Build Operated
+// Runtime Access") is the only link to the contract key (operatedRuntimeAccess).
+// The parenthetical is stripped first (it often names OTHER components, e.g.
+// "reuses sunk settlementManager skeleton") so it can't steal the match; the
+// longest normalized substring match wins. Falls back to the activity id when no
+// contract matches (preserves name-as-identity for activities without a contract).
+func resolveComponentID(title, fallback string, contracts map[string]projectstate.ServiceContract) string {
+	base := title
+	if i := strings.IndexByte(base, '('); i >= 0 {
+		base = base[:i]
+	}
+	n := normalizeIdent(base)
+	best, bestLen := fallback, 0
+	for comp := range contracts {
+		cn := normalizeIdent(comp)
+		if cn != "" && len(cn) > bestLen && strings.Contains(n, cn) {
+			best, bestLen = comp, len(cn)
+		}
+	}
+	return best
+}
+
+// normalizeIdent lowercases s and keeps only [a-z0-9] so a human title and a
+// camelCase component key compare on their letters alone.
+func normalizeIdent(s string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(s) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 // isActivityNotStarted reports whether the given activity id is in the
@@ -157,7 +195,7 @@ func allDepsDone(deps []string, status map[string]projectstate.ActivityConstruct
 // Kind mapping: Coding=true → ActivityKindConstruction; Coding=false → ActivityKindNoncoding.
 // This is the coarse two-valued mapping the ActivityList supports; a finer-grained
 // Kind (DetailedDesign, Integration) would require an explicit field in ActivityItem.
-func hydrateConstructionActivity(activityID string, item projectstate.ActivityItem) construction.ConstructionActivity {
+func hydrateConstructionActivity(activityID string, item projectstate.ActivityItem, componentID string) construction.ConstructionActivity {
 	kind := construction.ActivityKindNoncoding
 	if item.Coding {
 		kind = construction.ActivityKindConstruction
@@ -165,12 +203,12 @@ func hydrateConstructionActivity(activityID string, item projectstate.ActivityIt
 	return construction.ConstructionActivity{
 		ActivityID: activityID,
 		Kind:       kind,
-		// ComponentID is the per-activity component the reviewEngine needs to assemble a
-		// reviewer set (ProposeReviews rejects an EMPTY componentID). The ActivityList has
-		// no component column, and the network activity id IS the per-component build
-		// identity (name-as-identity), so the id doubles as the component id here — enough
-		// for the engine's non-empty pre-condition + the dry-run reviewer fan-out.
-		ComponentID:  activityID,
+		// ComponentID is the per-activity component, resolved from the activity Title
+		// against the ServiceContracts corpus (resolveComponentID). It is the key the
+		// aiarch-construct.yml workflow uses to look up the service contract in
+		// project.json, and the reviewEngine needs it non-empty for ProposeReviews.
+		// Falls back to the activity id when no contract matches.
+		ComponentID:  componentID,
 		EstimateDays: item.EffortDays,
 		// Layer, CRLabel, IsRevert: zero values — not present in ActivityList.
 	}

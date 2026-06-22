@@ -40,6 +40,12 @@ type projectEnvelope struct {
 	// ActivityConstruction is the per-activity construction head-state the eligibility
 	// selection reads (NotStarted/Running/Done). nil until the first RecordActivityStarted.
 	ActivityConstruction map[string]projectstate.ActivityConstructionStatus `json:"activityConstruction,omitempty"`
+
+	// ServiceContracts is the per-component contract corpus, keyed by component name.
+	// The pump's hydrate step resolves an activity → its component contract from this
+	// map (resolveComponentID), so it must cross the Activity boundary. Plain structs,
+	// JSON-serializable.
+	ServiceContracts map[string]projectstate.ServiceContract `json:"serviceContracts,omitempty"`
 }
 
 // encodeProject projects the head-state aggregate onto the envelope, carrying the
@@ -51,6 +57,7 @@ func encodeProject(p projectstate.Project) projectEnvelope {
 		Version:              p.Version,
 		Phase:                p.Phase,
 		ActivityConstruction: p.ActivityConstruction,
+		ServiceContracts:     p.ServiceContracts,
 	}
 	if p.Network.Status == projectstate.ReviewCommitted {
 		if n, ok := p.Network.Model.(*projectstate.Network); ok {
@@ -77,6 +84,7 @@ func decodeProject(e projectEnvelope) projectstate.Project {
 		Version:              e.Version,
 		Phase:                e.Phase,
 		ActivityConstruction: e.ActivityConstruction,
+		ServiceContracts:     e.ServiceContracts,
 	}
 	if e.NetworkCommitted && e.Network != nil {
 		p.Network = projectstate.ArtifactSlot{Status: projectstate.ReviewCommitted, Model: e.Network}
