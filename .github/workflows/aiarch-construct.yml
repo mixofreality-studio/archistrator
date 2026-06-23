@@ -102,6 +102,11 @@ jobs:
           # Emit the full agent transcript into the job log (default truncates), so a
           # run that stalls or fails is diagnosable without a rerun.
           show_full_output: true
+          # Autonomous CI (auto-accept-edits + scoped tool allow-list). The runner is
+          # ephemeral and scoped to this one construction task, so auto-accept file
+          # edits and pre-approve ONLY the command families construction needs (git /
+          # gh / go / gofmt / make + read-only navigation) — NOT a blanket bypass.
+          claude_args: '--permission-mode acceptEdits --allowedTools "Edit Write Read Glob Grep Bash(git:*) Bash(gh:*) Bash(go:*) Bash(gofmt:*) Bash(make:*) Bash(ls:*) Bash(cat:*) Bash(mkdir:*) Bash(find:*)"'
           prompt: |
             You are a junior developer implementing a single component for the archistrator server.
 
