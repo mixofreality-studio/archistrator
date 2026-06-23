@@ -70,10 +70,11 @@ jobs:
   construct:
     runs-on: ubuntu-latest
     # Bound the run — claude must implement + open the PR within this window or the
-    # job is killed (no silent multi-hour grinds). 5 min cut off productive work mid
-    # build-loop (files written, tests passing, branch made) before commit+PR; 12 gives
-    # enough runway to land the PR while still bounding any runaway.
-    timeout-minutes: 12
+    # job is killed (no silent multi-hour grinds). 12 min was observed cutting off
+    # substantive components (e.g. billingGatewayAccess, ~900 LOC + Stripe + tests)
+    # mid-implement before commit+PR; 25 gives runway to land the PR while still
+    # bounding any runaway. Keep this >= the prompt's stated budget below.
+    timeout-minutes: 25
     defaults:
       run:
         working-directory: server
@@ -150,7 +151,7 @@ jobs:
                  GOWORK=off go test ./internal/<layer>/<your-new-package>/...
                Run tests ONLY for the package you created — NOT `make test-short`
                (it spins up containers + runs the whole suite and is far too slow).
-               You have a hard 5-minute job budget: keep moving, fix only failures in
+               You have a ~20-minute job budget: keep moving, fix only failures in
                your own code, and open the PR. Do not chase pre-existing repo issues.
             5. Commit all changes onto branch aiarch/construct/${{ inputs.activity_id }}.
             6. Open a pull request:
