@@ -2,6 +2,7 @@ package construction
 
 import (
 	"errors"
+	"strings"
 	"time"
 
 	enumspb "go.temporal.io/api/enums/v1"
@@ -69,6 +70,12 @@ type Deps struct {
 	// from head-state; held here as the construction-time seam value.
 	HandOffPolicy      HandOffPolicy
 	InterventionPolicy InterventionPolicy
+
+	// EscalationWaitTimeout bounds how long an escalated/ArchitectOnly activity waits
+	// for an operator override before it terminally FAILS the activity (head-state
+	// reflects EscalationTimedOut instead of hanging forever). 0 == wait-forever
+	// (the supervised mode). Default 30m from config.
+	EscalationWaitTimeout time.Duration
 }
 
 // Workflows is the single constructionManager component struct — BOTH the workflow
@@ -88,27 +95,29 @@ type Workflows struct {
 	GitStatus GitActivityStatusAccess
 	Repo      func(projectID ProjectID) (sourcecontrol.RepoRef, bool)
 
-	NextEligibleActivity func(proj projectstate.Project) (ConstructionActivity, bool)
-	HandOffPolicy        HandOffPolicy
-	InterventionPolicy   InterventionPolicy
+	NextEligibleActivity  func(proj projectstate.Project) (ConstructionActivity, bool)
+	HandOffPolicy         HandOffPolicy
+	InterventionPolicy    InterventionPolicy
+	EscalationWaitTimeout time.Duration
 }
 
 // newWorkflows builds the Workflows receiver from the injected Deps.
 func newWorkflows(d Deps) *Workflows {
 	return &Workflows{
-		HandOff:              d.HandOff,
-		Intervention:         d.Intervention,
-		Review:               d.Review,
-		ProjectState:         d.ProjectState,
-		Pipeline:             d.Pipeline,
-		Artifacts:            d.Artifacts,
-		Workers:              d.Workers,
-		Rail:                 d.Rail,
-		GitStatus:            d.GitStatus,
-		Repo:                 d.Repo,
-		NextEligibleActivity: d.NextEligibleActivity,
-		HandOffPolicy:        d.HandOffPolicy,
-		InterventionPolicy:   d.InterventionPolicy,
+		HandOff:               d.HandOff,
+		Intervention:          d.Intervention,
+		Review:                d.Review,
+		ProjectState:          d.ProjectState,
+		Pipeline:              d.Pipeline,
+		Artifacts:             d.Artifacts,
+		Workers:               d.Workers,
+		Rail:                  d.Rail,
+		GitStatus:             d.GitStatus,
+		Repo:                  d.Repo,
+		NextEligibleActivity:  d.NextEligibleActivity,
+		HandOffPolicy:         d.HandOffPolicy,
+		InterventionPolicy:    d.InterventionPolicy,
+		EscalationWaitTimeout: d.EscalationWaitTimeout,
 	}
 }
 
@@ -391,8 +400,18 @@ func (wf *Workflows) ConstructActivityWorkflow(ctx workflow.Context, in Construc
 
 	for attempt := 0; ; attempt++ {
 		if attempt >= maxVarianceAttempts {
-			return temporal.NewNonRetryableApplicationError(
-				"construction supervision exceeded max attempts", "VarianceExhausted", nil)
+			// Terminal: the supervision loop exhausted its variance/retry budget. Record
+			// the FAILURE in head-state (so the activity is no longer stuck Running) before
+			// returning the terminal error.
+			if v, e := wf.recordActivityFailed(ctx, in, headVersion, projectstate.VarianceExhausted,
+				"construction supervision exceeded max attempts"); e != nil {
+				return e
+			} else {
+				headVersion = v
+			}
+			state.stage = StageExited
+			logger.Info("construction activity failed — variance budget exhausted", "activityId", in.ActivityID)
+			return nil
 		}
 
 		// --- Step 1: cast worker class (DECIDE — direct in-workflow Engine call) --
@@ -402,11 +421,22 @@ func (wf *Workflows) ConstructActivityWorkflow(ctx workflow.Context, in Construc
 		}
 
 		// ArchitectOnly ⇒ skip dispatch + pipeline; await the architect via override
-		// (handOffEngine OQ-2). The architect's steer arrives on operatorOverride.
+		// (handOffEngine OQ-2). The architect's steer arrives on operatorOverride, BOUNDED
+		// by EscalationWaitTimeout: if no architect override arrives within the window the
+		// activity terminally FAILS (EscalationTimedOut) instead of hanging forever.
 		if class == ArchitectOnly {
 			state.stage = StageAwaitingTakeover
-			var sig OperatorOverrideSignal
-			overrideCh.Receive(ctx, &sig)
+			sig, got := wf.awaitOverrideBounded(ctx, overrideCh)
+			if !got {
+				v, e := wf.recordActivityFailed(ctx, in, headVersion, projectstate.EscalationTimedOut,
+					"architect override timed out: no operator steer within the escalation-wait window")
+				if e != nil {
+					return e
+				}
+				headVersion = v
+				state.stage = StageExited
+				return nil
+			}
 			done, exErr := wf.executeOverride(ctx, in, sig.Override, &headVersion, state, gitOn, startedCred)
 			if exErr != nil {
 				return exErr
@@ -444,8 +474,9 @@ func (wf *Workflows) ConstructActivityWorkflow(ctx workflow.Context, in Construc
 			if perr != nil {
 				return perr
 			}
-			if obs.Phase == PipelineFailed {
-				done, vErr := wf.handleVariance(ctx, in, VariancePipelineFailed, obs.Diagnostic, &headVersion, state, overrideCh, gitOn, startedCred)
+			if obs.Phase == PipelineFailed || obs.Phase == PipelineCancelled {
+				failReason := deriveFailureReason(obs.Phase, obs.Diagnostic)
+				done, vErr := wf.handleVariance(ctx, in, VariancePipelineFailed, obs.Diagnostic, failReason, attempt, &headVersion, state, overrideCh, gitOn, startedCred)
 				if vErr != nil {
 					return vErr
 				}
@@ -626,6 +657,8 @@ func (wf *Workflows) handleVariance(
 	in ConstructActivityInput,
 	kind VarianceKind,
 	detail string,
+	failReason projectstate.FailureReason,
+	attempt int,
 	headVersion *projectstate.Version,
 	state *constructState,
 	overrideCh workflow.ReceiveChannel,
@@ -635,9 +668,10 @@ func (wf *Workflows) handleVariance(
 	state.variance = &FlaggedVariance{ProjectID: in.ProjectID, ActivityID: in.ActivityID, Summary: detail}
 
 	directive, derr := wf.Intervention.DecideOnVariance(ConstructionVariance{
-		ActivityID: in.ActivityID,
-		Kind:       kind,
-		Detail:     detail,
+		ActivityID:   in.ActivityID,
+		Kind:         kind,
+		Detail:       detail,
+		AttemptCount: attempt,
 	})
 	if derr != nil {
 		return false, fwmanager.MapError(derr)
@@ -656,10 +690,23 @@ func (wf *Workflows) handleVariance(
 		state.stage = StageDispatching
 		return false, nil
 	case DirectiveEscalate:
-		// EXECUTE escalate: surface to the operator + await an override signal.
+		// EXECUTE escalate: surface to the operator + await an override signal, BOUNDED
+		// by EscalationWaitTimeout. On timeout (no operator answered the escalation), the
+		// activity terminally FAILS (head-state reflects EscalationTimedOut) instead of
+		// hanging forever waiting for an override that never comes.
 		state.stage = StageAwaitingTakeover
-		var sig OperatorOverrideSignal
-		overrideCh.Receive(ctx, &sig)
+		sig, got := wf.awaitOverrideBounded(ctx, overrideCh)
+		if !got {
+			_ = failReason // underlying cause is carried in detail below; the terminal reason is EscalationTimedOut
+			v, e := wf.recordActivityFailed(ctx, in, *headVersion, projectstate.EscalationTimedOut,
+				"escalation timed out: no operator override within the escalation-wait window (underlying: "+detail+")")
+			if e != nil {
+				return false, e
+			}
+			*headVersion = v
+			state.stage = StageExited
+			return true, nil
+		}
 		return wf.executeOverride(ctx, in, sig.Override, headVersion, state, gitOn, startedCred)
 	default:
 		return false, temporal.NewNonRetryableApplicationError(
@@ -713,6 +760,49 @@ func (wf *Workflows) executeOverride(
 		return false, temporal.NewNonRetryableApplicationError(
 			"unknown operator override kind", "UnknownOverride", nil)
 	}
+}
+
+// deriveFailureReason maps a terminal pipeline phase + neutral diagnostic to the
+// head-state FailureReason: a cancelled run → PipelineCancelled; a timed-out
+// diagnostic (the RA's neutralDiagnostic for timed_out / the poll-budget exhaustion
+// synthetic) → PipelineTimedOut; otherwise PipelineFailed.
+func deriveFailureReason(phase PipelinePhase, diagnostic string) projectstate.FailureReason {
+	if phase == PipelineCancelled {
+		return projectstate.PipelineCancelled
+	}
+	if strings.Contains(diagnostic, "timed out") || strings.Contains(diagnostic, "did not reach a terminal phase") {
+		return projectstate.PipelineTimedOut
+	}
+	return projectstate.PipelineFailed
+}
+
+// awaitOverrideBounded waits for an operator override on overrideCh, BOUNDED by the
+// configured EscalationWaitTimeout. It returns (sig, true) when an override arrived,
+// or (zero, false) when the bounded wait elapsed first. A timeout of 0 means
+// wait-forever (the supervised EscalateEverything mode) — it blocks on the receive
+// with no timer, preserving the legacy behaviour. The timer is a durable
+// workflow.NewTimer (replay-safe), raced via a workflow.NewSelector.
+func (wf *Workflows) awaitOverrideBounded(ctx workflow.Context, overrideCh workflow.ReceiveChannel) (OperatorOverrideSignal, bool) {
+	var sig OperatorOverrideSignal
+	if wf.EscalationWaitTimeout <= 0 {
+		// Supervised / wait-forever: block on the override receive (legacy behaviour).
+		overrideCh.Receive(ctx, &sig)
+		return sig, true
+	}
+	timerCtx, cancelTimer := workflow.WithCancel(ctx)
+	defer cancelTimer()
+	timer := workflow.NewTimer(timerCtx, wf.EscalationWaitTimeout)
+	got := false
+	sel := workflow.NewSelector(ctx)
+	sel.AddReceive(overrideCh, func(ch workflow.ReceiveChannel, _ bool) {
+		ch.Receive(ctx, &sig)
+		got = true
+	})
+	sel.AddFuture(timer, func(workflow.Future) {
+		got = false
+	})
+	sel.Select(ctx)
+	return sig, got
 }
 
 // cancelWorker runs the worker-abandon Activity (the takeover / operator-pause
@@ -804,6 +894,22 @@ func (wf *Workflows) recordActivityExited(ctx workflow.Context, in ConstructActi
 		var v projectstate.Version
 		e := workflow.ExecuteActivity(c, wf.RecordActivityExitedActivity, RecordActivityExitedArgs{
 			ProjectID: in.ProjectID, ExpectedVersion: expected, ActivityID: in.ActivityID, Outcome: outcome,
+		}).Get(ctx, &v)
+		return v, e
+	})
+}
+
+// recordActivityFailed applies the terminal-FAILURE head-state transition (the
+// bounded-wait / autonomous-retry fix) with the same head-version Conflict re-read
+// loop as recordActivityExited. It lands Phase=Failed / BuildStatus=BuildFailed and
+// records the reason+detail so head-state reflects the terminal instead of leaving
+// the activity stuck Running.
+func (wf *Workflows) recordActivityFailed(ctx workflow.Context, in ConstructActivityInput, seed projectstate.Version, reason projectstate.FailureReason, detail string) (projectstate.Version, error) {
+	return wf.applyRecovering(ctx, in.ProjectID, seed, func(expected projectstate.Version) (projectstate.Version, error) {
+		c := recordOpts(ctx)
+		var v projectstate.Version
+		e := workflow.ExecuteActivity(c, wf.RecordActivityFailedActivity, RecordActivityFailedArgs{
+			ProjectID: in.ProjectID, ExpectedVersion: expected, ActivityID: in.ActivityID, Reason: reason, Detail: detail,
 		}).Get(ctx, &v)
 		return v, e
 	})

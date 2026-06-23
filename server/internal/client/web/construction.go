@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/construction"
 )
@@ -178,10 +179,12 @@ func (c *Client) handleBeginConstruction(w http.ResponseWriter, r *http.Request)
 	if !c.authorizeProject(w, r, "drive-phase", projectID.String()) {
 		return
 	}
-	// A stable tick id collapses a double-click onto the in-flight pump (the Manager
-	// starts the pump with WORKFLOW_ID_CONFLICT_POLICY USE_EXISTING), while a re-begin
-	// after the cascade has drained starts a fresh pump run.
-	const tickID = "console-begin"
+	// A time-bucketed tick id collapses a double-click WITHIN THE SAME MINUTE onto the
+	// in-flight pump (the Manager starts the pump with WORKFLOW_ID_CONFLICT_POLICY
+	// USE_EXISTING), while a deliberate re-begin in a later minute gets a fresh id and
+	// starts a new pump run (the old fixed "console-begin" id would forever collide with
+	// a drained/closed run of the same id, blocking re-begin).
+	tickID := fmt.Sprintf("console-begin-%d", time.Now().Unix()/60)
 	go func() {
 		res, err := c.construction.ExecuteNextActivity(context.Background(), projectID, tickID)
 		if err != nil {
@@ -243,6 +246,8 @@ func constructionPipelinePhaseName(phase construction.PipelinePhase) string {
 		return "succeeded"
 	case construction.PipelineFailed:
 		return "failed"
+	case construction.PipelineCancelled:
+		return "cancelled"
 	default:
 		return "unknown"
 	}

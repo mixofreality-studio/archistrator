@@ -144,6 +144,20 @@ func (wf *Workflows) RecordActivityExitedActivity(ctx context.Context, a RecordA
 	return mapErr(wf.ProjectState.RecordActivityExited(ctx, a.ProjectID, a.ExpectedVersion, a.ActivityID, a.Outcome, activityIdempotencyKey(ctx)))
 }
 
+// RecordActivityFailedArgs bundles the inputs for recordActivityFailed (the
+// terminal-FAILURE head-state transition — bounded-wait / autonomous-retry fix).
+type RecordActivityFailedArgs struct {
+	ProjectID       projectstate.ProjectID
+	ExpectedVersion projectstate.Version
+	ActivityID      string
+	Reason          projectstate.FailureReason
+	Detail          string
+}
+
+func (wf *Workflows) RecordActivityFailedActivity(ctx context.Context, a RecordActivityFailedArgs) (projectstate.Version, error) {
+	return mapErr(wf.ProjectState.RecordActivityFailed(ctx, a.ProjectID, a.ExpectedVersion, a.ActivityID, a.Reason, a.Detail, activityIdempotencyKey(ctx)))
+}
+
 // RecordOperatorPausedArgs bundles the inputs for recordOperatorPaused.
 type RecordOperatorPausedArgs struct {
 	ProjectID       projectstate.ProjectID

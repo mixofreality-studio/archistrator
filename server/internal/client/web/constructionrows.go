@@ -24,6 +24,11 @@ type constructionRowDTO struct {
 	Status     string                `json:"status"`
 	Phase      string                `json:"phase"`
 	Produced   []producedArtifactDTO `json:"produced,omitempty"`
+	// FailureReason / FailureDetail surface WHY a terminally-failed activity
+	// (status=="failed") is no longer pending, so the Interventions tab can explain it.
+	// Empty for non-failed activities.
+	FailureReason string `json:"failureReason,omitempty"`
+	FailureDetail string `json:"failureDetail,omitempty"`
 }
 
 type evCurvesDTO struct {
@@ -143,13 +148,21 @@ func constructionFromState(
 		for _, p := range r.Produced {
 			prod = append(prod, producedArtifactDTO{Kind: p.Kind, Title: p.Title, Source: p.Source, Produced: p.Produced, Note: p.Note})
 		}
-		out[id] = constructionRowDTO{
+		row := constructionRowDTO{
 			ActivityID: r.ActivityID,
 			Kind:       r.Kind.String(),
 			Status:     r.BuildStatus.String(),
 			Phase:      r.Phase.String(),
 			Produced:   prod,
 		}
+		// Surface the terminal-failure cause so the console can explain a failed node
+		// (the bounded-wait / autonomous-retry fix: a cancelled/failed run no longer
+		// shows as pending forever).
+		if r.Phase == projectstate.ActivityConstructionFailed || r.BuildStatus == projectstate.BuildFailed {
+			row.FailureReason = r.FailureReason.String()
+			row.FailureDetail = r.FailureDetail
+		}
+		out[id] = row
 		if r.BuildStatus == projectstate.BuildIntegrated {
 			integrated[id] = true
 		}

@@ -552,9 +552,14 @@ func run(logger *slog.Logger) error { //nolint:gocognit,gocyclo,maintidx,nestif 
 	}
 
 	if registerConstruction {
+		// Intervention regime: Tiered{RetryBudget:2} by default (autonomous retry,
+		// escalate after budget), or EscalateEverything for supervised mode. The engine
+		// policy (fed to the Engine via the adapter) and the Manager mirror are derived
+		// from the same config so they stay in lock-step.
+		engPolicy, mgrPolicy := constructionInterventionPolicy(cfg.ConstructionInterventionMode)
 		deps := construction.WireDeps(
 			handoffAdapter{inner: handOffEngine},
-			interventionAdapter{inner: interventionEngine},
+			interventionAdapter{inner: interventionEngine, policy: engPolicy},
 			reviewAdapter{inner: reviewEngine},
 			constructionPS,
 			constructionPipeline,
@@ -562,8 +567,12 @@ func run(logger *slog.Logger) error { //nolint:gocognit,gocyclo,maintidx,nestif 
 			constructionWorkers, // the generic typed worker (adapted to the unexported seam in-package)
 			nextEligibleActivity,
 			construction.HandOffPolicy{},
-			construction.InterventionPolicy{},
+			mgrPolicy,
 		)
+		// Bound the escalation wait so a cancelled/failed GH-Actions run or an
+		// unanswered escalation FAILS the activity (head-state EscalationTimedOut)
+		// instead of hanging forever. 0 == wait-forever (supervised mode).
+		deps.EscalationWaitTimeout = cfg.ConstructionEscalationTimeout
 		// Light up the construction-status head-state slice so the pump's eligibility
 		// cascade advances (RecordActivityStarted/Completed). The PR rail (first arg) +
 		// per-project repo resolver (third arg) stay nil — the status records are

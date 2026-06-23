@@ -108,6 +108,18 @@ type config struct {
 	// Worker as before). NEVER the production default — a config-gated demo/dogfood mode.
 	ConstructionDryRun bool
 
+	// ConstructionEscalationTimeout (ARCHISTRATOR_CONSTRUCTION_ESCALATION_TIMEOUT)
+	// bounds how long an escalated / ArchitectOnly construction activity waits for an
+	// operator override before it terminally FAILS (head-state EscalationTimedOut)
+	// instead of hanging forever. Default 30m. 0 == wait-forever (the supervised mode).
+	ConstructionEscalationTimeout time.Duration
+
+	// ConstructionInterventionMode (ARCHISTRATOR_CONSTRUCTION_INTERVENTION_MODE) selects
+	// the intervention regime: "tiered" (default — autonomous retry with RetryBudget=2,
+	// escalate after budget) or "escalate-everything" (supervised — every variance
+	// escalates to an operator). Default "tiered".
+	ConstructionInterventionMode string
+
 	// sourceControlAccess (project-birth repo provisioning + the PR-merge rail).
 	// GitHubAccount is the org login under which per-project repos are adopted
 	// (name-as-identity: the repo name IS the project identity, no "aiarch-" prefix —
@@ -157,6 +169,9 @@ func loadConfig() (config, error) { //nolint:gocognit // reads and validates all
 		ConstructionRef:          env("ARCHISTRATOR_CONSTRUCTION_REF", "main"),
 		ConstructionTaskQueue:    env("ARCHISTRATOR_CONSTRUCTION_TASK_QUEUE", "construction"),
 		ConstructionDryRun:       envBool("ARCHISTRATOR_CONSTRUCTION_DRYRUN", false),
+
+		ConstructionEscalationTimeout: envDuration("ARCHISTRATOR_CONSTRUCTION_ESCALATION_TIMEOUT", 30*time.Minute),
+		ConstructionInterventionMode:  env("ARCHISTRATOR_CONSTRUCTION_INTERVENTION_MODE", "tiered"),
 
 		// sourceControlAccess: account defaults to the construction-repo owner so the
 		// GitHub App identity is configured once; the App slug has no universal default.

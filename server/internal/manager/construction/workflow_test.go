@@ -52,6 +52,7 @@ type fakeProjectState struct {
 
 	reviewed []string
 	exited   []exitCall
+	failed   []failCall
 	paused   []string
 
 	version projectstate.Version
@@ -60,6 +61,12 @@ type fakeProjectState struct {
 type exitCall struct {
 	activityID string
 	outcome    projectstate.ActivityOutcome
+}
+
+type failCall struct {
+	activityID string
+	reason     projectstate.FailureReason
+	detail     string
 }
 
 func (f *fakeProjectState) ReadProject(_ context.Context, _ projectstate.ProjectID) (projectstate.Project, error) {
@@ -105,6 +112,16 @@ func (f *fakeProjectState) RecordActivityExited(_ context.Context, _ projectstat
 		return 0, err
 	}
 	f.exited = append(f.exited, exitCall{activityID: activityID, outcome: outcome})
+	return f.bump(), nil
+}
+
+func (f *fakeProjectState) RecordActivityFailed(_ context.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, reason projectstate.FailureReason, detail string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.maybeConflict(); err != nil {
+		return 0, err
+	}
+	f.failed = append(f.failed, failCall{activityID: activityID, reason: reason, detail: detail})
 	return f.bump(), nil
 }
 
@@ -312,6 +329,7 @@ func registerConstruct(env *testsuite.TestWorkflowEnvironment, wf *Workflows) {
 	env.RegisterActivity(wf.StoreConstructionOutputActivity)
 	env.RegisterActivity(wf.RecordChangeReviewedActivity)
 	env.RegisterActivity(wf.RecordActivityExitedActivity)
+	env.RegisterActivity(wf.RecordActivityFailedActivity)
 	env.RegisterActivity(wf.RecordOperatorPausedActivity)
 }
 
@@ -329,6 +347,7 @@ func registerPump(env *testsuite.TestWorkflowEnvironment, wf *Workflows) {
 	env.RegisterActivity(wf.StoreConstructionOutputActivity)
 	env.RegisterActivity(wf.RecordChangeReviewedActivity)
 	env.RegisterActivity(wf.RecordActivityExitedActivity)
+	env.RegisterActivity(wf.RecordActivityFailedActivity)
 	env.RegisterActivity(wf.RecordOperatorPausedActivity)
 }
 

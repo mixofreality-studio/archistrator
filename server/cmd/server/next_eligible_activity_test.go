@@ -37,14 +37,23 @@ func TestNextEligibleActivity_Chain(t *testing.T) {
 		{Activity: "C", DependsOn: []string{"B"}},
 	}
 	activities := []projectstate.ActivityItem{
-		{Name: "A", EffortDays: 5, WorkerClass: "AI", Coding: true, RiskBucket: 2},
-		{Name: "B", EffortDays: 3, WorkerClass: "AI", Coding: true, RiskBucket: 1},
-		{Name: "C", EffortDays: 8, WorkerClass: "Human", Coding: false, RiskBucket: 3},
+		{Name: "A", Title: "A", EffortDays: 5, WorkerClass: "AI", Coding: true, RiskBucket: 2},
+		{Name: "B", Title: "B", EffortDays: 3, WorkerClass: "AI", Coding: true, RiskBucket: 1},
+		{Name: "C", Title: "C", EffortDays: 8, WorkerClass: "Human", Coding: false, RiskBucket: 3},
 	}
 
+	// resolveComponentID now requires a real .serviceContracts key (the hardened
+	// resolver skips dispatch otherwise). Provide one contract per activity so the
+	// eligibility walk under test can dispatch; the Title matches the key so the fuzzy
+	// resolver finds it.
 	base := projectstate.Project{
 		Network:      makeCommittedNetwork(network),
 		ActivityList: makeCommittedActivityList(activities),
+		ServiceContracts: map[string]projectstate.ServiceContract{
+			"A": {Component: "A"},
+			"B": {Component: "B"},
+			"C": {Component: "C"},
+		},
 	}
 
 	// ---- Case 1: empty ActivityConstruction → A is eligible (no deps). ----
@@ -147,9 +156,9 @@ func TestNextEligibleActivity_UncommittedSlots(t *testing.T) {
 // in the live project. This test uses a synthetic project where both deps are Done
 // and C-PE is NotStarted, verifying nextEligibleActivity selects it.
 //
-// Reconciliation note: ComponentID is derived from the activity NAME by
-// hydrateConstructionActivity (ComponentID = activityID), so ComponentID == "C-PE"
-// (not "projectExport"). Contract filename is C-PE.json accordingly.
+// Reconciliation note: the activity id IS the contract key here (C-PE), so the
+// hardened resolver resolves ComponentID == "C-PE" from the C-PE service contract
+// (the Title matches the key). Contract filename is C-PE.json accordingly.
 func TestNextEligibleActivity_ProjectExportDogfood(t *testing.T) {
 	network := []projectstate.NetworkDependency{
 		{Activity: "C-CW", DependsOn: []string{}},
@@ -159,11 +168,14 @@ func TestNextEligibleActivity_ProjectExportDogfood(t *testing.T) {
 	activities := []projectstate.ActivityItem{
 		{Name: "C-CW", EffortDays: 30, WorkerClass: "junior-developer", Coding: true, RiskBucket: 8},
 		{Name: "D-MPD", EffortDays: 5, WorkerClass: "senior-developer", Coding: false, RiskBucket: 2},
-		{Name: "C-PE", EffortDays: 3, WorkerClass: "junior-developer", Coding: true, RiskBucket: 1},
+		{Name: "C-PE", Title: "C-PE", EffortDays: 3, WorkerClass: "junior-developer", Coding: true, RiskBucket: 1},
 	}
 	proj := projectstate.Project{
 		Network:      makeCommittedNetwork(network),
 		ActivityList: makeCommittedActivityList(activities),
+		ServiceContracts: map[string]projectstate.ServiceContract{
+			"C-PE": {Component: "C-PE"},
+		},
 		ActivityConstruction: map[string]projectstate.ActivityConstructionStatus{
 			"C-CW":  {ActivityID: "C-CW", Phase: projectstate.ActivityConstructionDone},
 			"D-MPD": {ActivityID: "D-MPD", Phase: projectstate.ActivityConstructionDone},
@@ -198,11 +210,14 @@ func TestNextEligibleActivity_HydratedFields(t *testing.T) {
 		{Activity: "X", DependsOn: []string{}},
 	}
 	activities := []projectstate.ActivityItem{
-		{Name: "X", EffortDays: 13, WorkerClass: "HumanSenior", Coding: true, RiskBucket: 5},
+		{Name: "X", Title: "X", EffortDays: 13, WorkerClass: "HumanSenior", Coding: true, RiskBucket: 5},
 	}
 	proj := projectstate.Project{
 		Network:      makeCommittedNetwork(network),
 		ActivityList: makeCommittedActivityList(activities),
+		ServiceContracts: map[string]projectstate.ServiceContract{
+			"X": {Component: "X"},
+		},
 	}
 	got, ok := nextEligibleActivity(proj)
 	if !ok {
