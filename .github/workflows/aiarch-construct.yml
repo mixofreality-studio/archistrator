@@ -39,6 +39,19 @@ on:
         description: "component id — must match a file in server/cmd/seed-contracts/data/<component_id>.json"
         required: true
         type: string
+      # Accepted-and-ignored. The Manager's dispatch adapter always sends `phase`
+      # and `role` (they are load-bearing for the per-phase aiarch-phase.yml). This
+      # single-shot construction workflow does not use them, but GitHub rejects the
+      # WHOLE workflow_dispatch with 422 "Unexpected inputs" if they are undeclared,
+      # so we declare them here as optional no-ops.
+      phase:
+        description: "App-A method phase (ignored by this single-shot workflow)"
+        required: false
+        type: string
+      role:
+        description: "assigned worker class (ignored by this single-shot workflow)"
+        required: false
+        type: string
 
 permissions:
   contents: write
