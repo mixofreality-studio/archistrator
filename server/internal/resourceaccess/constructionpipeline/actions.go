@@ -175,6 +175,20 @@ const (
 	defaultResolveDelay    = 500 * time.Millisecond
 )
 
+// liveOrSucceeded keeps the runs that are not terminally failed — still queued /
+// in_progress, or completed with conclusion "success". Terminally failed/cancelled
+// runs are dropped so a dead prior attempt cannot block re-dispatch under the
+// deterministic per-activity dedup token.
+func liveOrSucceeded(runs []ghRun) []ghRun {
+	var out []ghRun
+	for _, r := range runs {
+		if r.status != "completed" || r.conclusion == "success" {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
 // New builds an Access over the supplied GitHub-Actions client seam. The
 // composition root (cmd/server/main.go) constructs the concrete seam via
 // NewActionsClient (which carries the App identity + the target repo + workflow
@@ -242,12 +256,17 @@ func (a *Access) SubmitConstructionPipeline(ctx context.Context, spec PipelineSp
 	tgt := ghTarget{owner: spec.TargetRepo.Owner, repo: spec.TargetRepo.Name, workflowFile: spec.WorkflowFile}
 
 	// 1. PROBE — converge on an already-launched run for this key without dispatching.
+	//    Terminally-FAILED/cancelled prior attempts are ignored: the dedup token is
+	//    deterministic per activity, so a dead run would otherwise pin this activity to
+	//    its failure forever (the probe would converge on the failure and never
+	//    re-dispatch). Only a live (queued/in_progress) or succeeded run counts as
+	//    "already dispatched, don't duplicate"; a failed one allows a fresh dispatch.
 	existing, err := a.client.listRunsByName(ctx, tgt, runName)
 	if err != nil {
 		return PipelineHandle{}, err
 	}
-	if len(existing) > 0 {
-		return a.converge(ctx, tgt, existing)
+	if live := liveOrSucceeded(existing); len(live) > 0 {
+		return a.converge(ctx, tgt, live)
 	}
 
 	// 2. DISPATCH — no run yet for this key. The spec's optional DispatchInputs ride
@@ -402,7 +421,7 @@ func (a *Access) handleFor(tgt ghTarget, runID int64) PipelineHandle {
 // opaque handle. A zero/malformed handle is a caller pre-condition violation →
 // fwra.ContractMisuse. A handle with no "@<target>" segment returns a ZERO ghTarget
 // (the construction-repo default — the seam substitutes its configured repo).
-func (a *Access) runIDFromHandle(handle PipelineHandle) (int64, ghTarget, error) {
+func (a *Access) runIDFromHandle(handle PipelineHandle) (int64, ghTarget, error) { //nolint:gocyclo // parses handle segments; each segment type adds a branch
 	if handle.IsZero() {
 		return 0, ghTarget{}, fwra.New(fwra.ContractMisuse, "constructionpipeline: zero PipelineHandle")
 	}

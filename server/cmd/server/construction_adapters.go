@@ -301,6 +301,11 @@ func (a interventionAdapter) DecideOnVariance(
 		ProjectID:  intervention.ProjectID(v.ActivityID),
 		ActivityID: intervention.ActivityID(v.ActivityID),
 		Kind:       interventionVarianceKind(v.Kind),
+		// Inject the launch-default intervention regime (volatilities.md line 45:
+		// "every variance escalates to a single operator"). The Manager's policy
+		// mirror carries no Mode, so without this the Engine sees Mode=Unknown and
+		// rejects every variance with "unknown policy mode".
+		Policy: intervention.InterventionPolicy{Mode: intervention.EscalateEverything},
 	})
 	if err != nil {
 		return construction.DirectiveUnknown, err
