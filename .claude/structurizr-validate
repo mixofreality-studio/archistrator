@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# Validate a Structurizr workspace.dsl via the structurizr/structurizr Docker image.
+#
+# Usage:
+#   structurizr-validate <project>           # validates designs/<project>/system/workspace.dsl
+#   structurizr-validate --file <path>       # validates the given .dsl file directly
+#
+# Exits 0 if the file parses cleanly (no errors, no warnings the server would choke on).
+# Exits 1 with the parser output on stderr otherwise.
+#
+# The structurizr/structurizr `validate` command sometimes exits 0 even when the
+# server cannot load the file (e.g., styles-block syntax errors). To match what
+# the server will actually accept, this script treats any "ERROR" line in the
+# parser output as a failure regardless of exit code.
+
+set -euo pipefail
+
+if [[ $# -lt 1 ]]; then
+    echo "usage: $(basename "$0") <project>" >&2
+    echo "       $(basename "$0") --file <path-to-dsl>" >&2
+    exit 2
+fi
+
+REPO="$(cd "$(dirname "$0")" && pwd)"
+
+if [[ "$1" == "--file" ]]; then
+    if [[ $# -lt 2 ]]; then
+        echo "error: --file requires a path" >&2
+        exit 2
+    fi
+    TARGET_FILE="$(cd "$(dirname "$2")" && pwd)/$(basename "$2")"
+    if [[ ! -f "$TARGET_FILE" ]]; then
+        echo "error: $TARGET_FILE not found" >&2
+        exit 1
+    fi
+    MOUNT_DIR="$(dirname "$TARGET_FILE")"
+    INSIDE="/work/$(basename "$TARGET_FILE")"
+else
+    PROJECT="$1"
+    MOUNT_DIR="$REPO/designs/$PROJECT/system"
+    TARGET_FILE="$MOUNT_DIR/workspace.dsl"
+    INSIDE="/work/workspace.dsl"
+    if [[ ! -f "$TARGET_FILE" ]]; then
+        echo "error: $TARGET_FILE not found" >&2
+        exit 1
+    fi
+fi
+
+set +e
+OUTPUT="$(docker run --rm -v "$MOUNT_DIR:/work" structurizr/structurizr validate -w "$INSIDE" 2>&1)"
+EXIT_CODE=$?
+set -e
+
+if [[ $EXIT_CODE -ne 0 ]] || grep -q ' ERROR ' <<<"$OUTPUT"; then
+    echo "structurizr validate FAILED for $TARGET_FILE" >&2
+    echo "$OUTPUT" >&2
+    exit 1
+fi
+
+echo "ok: $TARGET_FILE"
+exit 0

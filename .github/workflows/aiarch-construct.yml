@@ -102,11 +102,10 @@ jobs:
           # Emit the full agent transcript into the job log (default truncates), so a
           # run that stalls or fails is diagnosable without a rerun.
           show_full_output: true
-          # Autonomous CI (auto-accept-edits + scoped tool allow-list). The runner is
-          # ephemeral and scoped to this one construction task, so auto-accept file
-          # edits and pre-approve ONLY the command families construction needs (git /
-          # gh / go / gofmt / make + read-only navigation) — NOT a blanket bypass.
-          claude_args: '--permission-mode acceptEdits --allowedTools "Edit Write Read Glob Grep Bash(git:*) Bash(gh:*) Bash(go:*) Bash(gofmt:*) Bash(make:*) Bash(ls:*) Bash(cat:*) Bash(mkdir:*) Bash(find:*)"'
+          # Autonomous CI: the ephemeral runner is scoped to this one construction
+          # task, so skip the interactive permission gates (founder-authorized) — claude
+          # writes files, runs git/go/gh, and opens the PR without an approver.
+          claude_args: "--dangerously-skip-permissions"
           prompt: |
             You are a junior developer implementing a single component for the archistrator server.
 
@@ -124,7 +123,10 @@ jobs:
             ## Rules
 
             1. Read the contract JSON first. Implement exactly what it specifies — no more, no less.
-            2. Match the layer conventions of existing code in the same layer (engine, manager, resourceaccess, client).
+            2. Follow The Method conventions in .claude/skills/the-method-layers/ and
+               .claude/skills/the-method-service-contract/, and implement to the standard
+               of the junior-developer (.claude/agents/junior-developer.md).
+            3. Match the layer conventions of existing code in the same layer (engine, manager, resourceaccess, client).
             3. Do NOT edit any file under */generated/.
             4. After implementing, verify YOUR code (working-directory: server) — fast checks only:
                  gofmt -w .

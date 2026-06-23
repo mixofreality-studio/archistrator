@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $# -ne 1 ]]; then
+    echo "usage: $(basename "$0") <project>" >&2
+    echo "  serves designs/<project>/system/workspace.dsl via structurizr/lite on http://localhost:8080" >&2
+    exit 2
+fi
+
+PROJECT="$1"
+REPO="$(cd "$(dirname "$0")" && pwd)"
+DESIGN_DIR="$REPO/designs/$PROJECT/system"
+
+if [[ ! -f "$DESIGN_DIR/workspace.dsl" ]]; then
+    echo "error: $DESIGN_DIR/workspace.dsl not found" >&2
+    exit 1
+fi
+
+PORT="${STRUCTURIZR_PORT:-8080}"
+CONTAINER="structurizr-$PROJECT"
+
+if docker ps -a --format '{{.Names}}' | grep -qx "$CONTAINER"; then
+    docker rm -f "$CONTAINER" >/dev/null
+fi
+
+echo "serving $DESIGN_DIR on http://localhost:$PORT (Ctrl-C to stop)"
+exec docker run --rm -it \
+    --name "$CONTAINER" \
+    -p "$PORT:8080" \
+    -v "$DESIGN_DIR:/usr/local/structurizr" \
+    structurizr/structurizr local
