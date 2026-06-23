@@ -56,6 +56,9 @@ concurrency:
 jobs:
   construct:
     runs-on: ubuntu-latest
+    # Bound the run — claude must implement + open the PR within this window or the
+    # job is killed (no more silent multi-hour grinds).
+    timeout-minutes: 5
     defaults:
       run:
         working-directory: server
@@ -96,6 +99,9 @@ jobs:
           # Construction is ALWAYS dispatched by the archistrator-bot App (a Bot
           # actor); claude-code-action refuses bot-initiated runs unless allow-listed.
           allowed_bots: archistrator-bot
+          # Emit the full agent transcript into the job log (default truncates), so a
+          # run that stalls or fails is diagnosable without a rerun.
+          show_full_output: true
           prompt: |
             You are a junior developer implementing a single component for the archistrator server.
 
@@ -115,12 +121,15 @@ jobs:
             1. Read the contract JSON first. Implement exactly what it specifies — no more, no less.
             2. Match the layer conventions of existing code in the same layer (engine, manager, resourceaccess, client).
             3. Do NOT edit any file under */generated/.
-            4. After implementing, run the server-checks sequence (working-directory: server):
+            4. After implementing, verify YOUR code (working-directory: server) — fast checks only:
                  gofmt -w .
-                 GOWORK=off go vet ./...
                  GOWORK=off go build ./...
-                 GOWORK=off make test-short
-               Fix any failures before opening the PR.
+                 GOWORK=off go vet ./...
+                 GOWORK=off go test ./internal/<layer>/<your-new-package>/...
+               Run tests ONLY for the package you created — NOT `make test-short`
+               (it spins up containers + runs the whole suite and is far too slow).
+               You have a hard 5-minute job budget: keep moving, fix only failures in
+               your own code, and open the PR. Do not chase pre-existing repo issues.
             5. Commit all changes onto branch aiarch/construct/${{ inputs.activity_id }}.
             6. Open a pull request:
                  Title: "construct(${{ inputs.activity_id }}): implement ${{ inputs.component_id }}"
