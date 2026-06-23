@@ -7259,8 +7259,7 @@
     },
     "C-OR": {
       "activityID": "C-OR",
-      "phase": 1,
-      "startedAt": "2026-06-23T03:29:05.640659Z",
+      "phase": 0,
       "produced": [
         {
           "Kind": "service-contract",
