@@ -89,7 +89,7 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           allowed_bots: archistrator-bot
           show_full_output: true
-          claude_args: "--dangerously-skip-permissions"
+          claude_args: "--dangerously-skip-permissions --model sonnet"
           prompt: |
             App-A REQUIREMENTS phase for archistrator component "${{ inputs.component_id }}"
             (activity ${{ inputs.activity_id }}). Read service-contract.json (repo root).
@@ -114,7 +114,7 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           allowed_bots: archistrator-bot
           show_full_output: true
-          claude_args: "--dangerously-skip-permissions"
+          claude_args: "--dangerously-skip-permissions --model sonnet"
           prompt: |
             App-A DETAILED DESIGN phase for "${{ inputs.component_id }}". Read
             service-contract.json and docs/srs/${{ inputs.component_id }}.md (from the
@@ -140,7 +140,7 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           allowed_bots: archistrator-bot
           show_full_output: true
-          claude_args: "--dangerously-skip-permissions"
+          claude_args: "--dangerously-skip-permissions --model sonnet"
           prompt: |
             App-A TEST PLAN phase for "${{ inputs.component_id }}". The interfaces + types
             from Detailed Design are on branch ${{ env.BRANCH }}. Read service-contract.json.
@@ -165,7 +165,7 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           allowed_bots: archistrator-bot
           show_full_output: true
-          claude_args: "--dangerously-skip-permissions"
+          claude_args: "--dangerously-skip-permissions --model sonnet"
           prompt: |
             App-A CONSTRUCTION phase for "${{ inputs.component_id }}". The interfaces, types,
             and test plan from prior phases are on branch ${{ env.BRANCH }} (if this is a
@@ -193,7 +193,7 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           allowed_bots: archistrator-bot
           show_full_output: true
-          claude_args: "--dangerously-skip-permissions"
+          claude_args: "--dangerously-skip-permissions --model sonnet"
           prompt: |
             App-A INTEGRATION phase for "${{ inputs.component_id }}". The implemented
             component is on branch ${{ env.BRANCH }}. Read service-contract.json for its
