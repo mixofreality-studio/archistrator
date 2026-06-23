@@ -289,8 +289,15 @@ func (a *Access) SubmitConstructionPipeline(ctx context.Context, spec PipelineSp
 		return PipelineHandle{}, fwra.New(fwra.Transient, "SubmitConstructionPipeline: dispatched run did not surface within resolve window")
 	}
 
-	// 4 + 5. SELECT canonical + RECONCILE siblings.
-	return a.converge(ctx, tgt, runs)
+	// 4 + 5. SELECT canonical + RECONCILE siblings. Prefer the live/succeeded runs so a
+	//    stale FAILED run sharing this deterministic run-name (a dead prior attempt) is
+	//    not picked as canonical (lowest id) over the run we just dispatched. If every
+	//    run is terminally failed, fall back to the full set (don't lose the handle).
+	candidates := liveOrSucceeded(runs)
+	if len(candidates) == 0 {
+		candidates = runs
+	}
+	return a.converge(ctx, tgt, candidates)
 }
 
 // converge selects the canonical run (lowest id — the deterministic total order all
