@@ -31,15 +31,19 @@ Cross-references:
 
 ## Input
 
-- One component from `methodpoc/designs/<product>/system/architecture.dsl` (the component's name, layer tag, description, and the relationships into and out of it)
-- The component's relevant operational concepts from `methodpoc/designs/<product>/system/operational-concepts.md` (sync/queued map entries, pub/sub events, layered interaction notes)
-- `methodpoc/designs/<product>/implementation/handoff.md` — to know who is designing and who reviews
+State is git-as-DB: all of this lives in `.aiarch/state/project.json` (a typed JSON aggregate), NOT in `designs/<product>/*.md` files. Markdown/DSL is a render-on-read of the typed state, never the source of truth.
+
+- The component from the committed **architecture** artifact in `project.json` (its name, layer tag, description, and the relationships into and out of it).
+- The component's relevant **operational concepts** from the committed operational-concepts artifact (sync/queued map entries, pub/sub events, layered interaction notes).
+- The **hand-off model** from the committed handoff artifact — who designs and who reviews.
 
 ## Output
 
-`methodpoc/designs/<product>/implementation/contracts/<ComponentName>.md` — one file per component. Repeat the skill for each component.
+The contract is a **typed entry in `.aiarch/state/project.json` under `.serviceContracts["<ComponentName>"]`** — git is the database. It is NOT a `designs/.../contracts/<ComponentName>.md` file; any markdown (including the Step 8 template) is a render-on-read of that JSON.
 
-The directory `methodpoc/designs/<product>/implementation/contracts/` accumulates the contract design corpus that drives Phase 3 construction.
+The JSON shape mirrors the Go `ServiceContract` type (`server/internal/resourceaccess/projectstate/servicecontract.go`): `Component`, `Layer`, `Stereotype`, `Volatility`, `Status` (`IN-DESIGN` | `FROZEN`), `Inbound` / `Outbound` parties, `Ops` (operation signatures + their I/O structs), `DataContracts`, `ErrorModel`, `Idempotency`, `Revisions`.
+
+The `.serviceContracts` map accumulates the per-component contract corpus that drives Phase 3 construction. A construction CI run extracts one entry to `service-contract.json` at the repo root for the implementer. Repeat the skill for each component.
 
 ## Procedure
 
@@ -156,21 +160,21 @@ Six items. Each marked PASS / WAIVED (with justification) / FAIL (return to Step
 | 2d | Reject contracts with 20+ operations | Operation count < 20 — non-waivable | |
 | 3 | Avoid property-like operations | No `GetX` / `SetX` pairs; no operations whose name reveals state shape | |
 | 4 | Limit contracts per service to 1 or 2 | This service supports ≤ 2 contracts total (counting this one) | |
-| 5 | Avoid junior hand-offs | Per `handoff.md`, this contract is being designed by the architect or a senior developer — not a junior | |
-| 6 | Only architect or competent senior developers design contracts | Designer named in `handoff.md`'s contract assignment table | |
+| 5 | Avoid junior hand-offs | Per the committed handoff artifact, this contract is being designed by the architect or a senior developer — not a junior | |
+| 6 | Only architect or competent senior developers design contracts | Designer named in the committed handoff artifact's contract assignment table | |
 
 Items 2d, 5, and 6 are non-waivable. The others may be waived with a written justification.
 
-### Step 8 — Write `<ComponentName>.md`
+### Step 8 — Record the contract in `project.json .serviceContracts["<ComponentName>"]`
 
-Format:
+The canonical form is the typed JSON entry (shape in **Output** above). The markdown below is the equivalent **human rendering** — use it to review the contract, but the source of truth is the JSON in `.aiarch/state/project.json`, not a `designs/*.md` file:
 
 ```markdown
 # Service Contract — <ComponentName>
 
 Component: <ComponentName>
 Layer: <Manager | Engine | ResourceAccess | Resource | Utility>
-Designer: <name from handoff.md>
+Designer: <name from the committed handoff artifact>
 Reviewer: <architect>
 Date: <YYYY-MM-DD>
 
@@ -202,8 +206,8 @@ What facet of the service this contract represents. Written in business language
 | `op2(x)` | `x: TypeX` | `void` | ... |
 
 ### Layer interaction notes
-- Callers: <list of Manager / Client names from architecture.dsl>
-- Sync or queued: <per operational-concepts.md sync/queued map>
+- Callers: <list of Manager / Client names from the committed architecture artifact>
+- Sync or queued: <per the committed operational-concepts artifact sync/queued map>
 - Events published: <none for Engine / RA / Resource; events listed for Manager and Client>
 - Events subscribed: <same constraint>
 
@@ -211,7 +215,7 @@ What facet of the service this contract represents. Written in business language
 - Task queue: <e.g., `system-design`, `construction` — one queue per Manager>
 - Workflow id derivation: <how the workflow id is computed from inputs, e.g., `{projectId}:{artifactKind}`>
 - Activities registered: <one per ResourceAccess call this Manager's workflows make — each wrapping a plain RA method, with its RetryPolicy name and timeouts. The RA component imports no Temporal; the Activity wrapper lives here, in the Manager.>
-- RetryPolicy library reference: <link to operational-concepts.md "Activity RetryPolicies" section>
+- RetryPolicy library reference: <link to the committed operational-concepts artifact "Activity RetryPolicies" section>
 
 ## Factoring decisions
 
@@ -244,15 +248,15 @@ How a different team implementing the same business facet would implement this c
 
 ## Exit criteria (for router)
 
-- `methodpoc/designs/<product>/implementation/contracts/<ComponentName>.md` exists
+- A `.serviceContracts["<ComponentName>"]` entry exists in `.aiarch/state/project.json` (shape per **Output**)
 - Operations are listed with inputs, outputs, and behaviour
 - Operation count is in [3, 12] (or in [2, 12] with a written justification for the low count); count is **never** ≥ 20
 - No property-like operations
 - Number of contracts on the service is 1 or 2
 - Layer interaction rules respected (verified against `[[the-method-layers]]`)
-- Designer and reviewer named per `handoff.md`
+- Designer and reviewer named per the committed handoff artifact
 - All nine App C §6 items are PASS or WAIVED with justification — items 2d, 5, and 6 are PASS only (non-waivable)
-- Architect has reviewed (review chain from `handoff.md`)
+- Architect has reviewed (review chain from the committed handoff artifact)
 
 Repeat per component until every Manager, Engine, ResourceAccess, and Resource has a contract file. Then construction may begin on a per-component basis.
 
