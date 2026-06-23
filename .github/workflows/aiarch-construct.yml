@@ -122,53 +122,10 @@ jobs:
           # task, so skip the interactive permission gates (founder-authorized) — claude
           # writes files, runs git/go/gh, and opens the PR without an approver.
           claude_args: "--dangerously-skip-permissions"
+          # Thin prompt: NO construction logic lives here. It all lives in the `/construct`
+          # Claude command (.claude/commands/construct.md), which references the
+          # junior-developer agent + the-method-layers / the-method-service-contract skills and
+          # targets .aiarch/state/project.json. The workflow just invokes the command with the
+          # component + activity ids. Keep prompt logic in commands → agents → skills, not YAML.
           prompt: |
-            You are a junior developer implementing a single component for the archistrator server.
-
-            ## Your task
-
-            Implement the component "${{ inputs.component_id }}" to satisfy its service contract.
-
-            The service contract (JSON) is at the repo root:
-              service-contract.json
-
-            Architecture context:
-              .aiarch/state/project.json  (.serviceContracts — every component's contract, for layer/dependency reference)
-              server/internal/            (existing layer implementations to learn from)
-
-            ## Rules
-
-            1. Read the contract JSON first. Implement exactly what it specifies — no more, no less.
-            2. Follow The Method conventions in .claude/skills/the-method-layers/ and
-               .claude/skills/the-method-service-contract/, and implement to the standard
-               of the junior-developer (.claude/agents/junior-developer.md).
-            3. Match the layer conventions of existing code in the same layer (engine, manager, resourceaccess, client).
-            3. Do NOT edit any file under */generated/.
-            4. After implementing, verify YOUR code (working-directory: server) — fast checks only:
-                 gofmt -w .
-                 GOWORK=off go build ./...
-                 GOWORK=off go vet ./...
-                 GOWORK=off go test ./internal/<layer>/<your-new-package>/...
-               Run tests ONLY for the package you created — NOT `make test-short`
-               (it spins up containers + runs the whole suite and is far too slow).
-               You have a ~20-minute job budget: keep moving, fix only failures in
-               your own code, and open the PR. Do not chase pre-existing repo issues.
-            5. Commit all changes onto branch aiarch/construct/${{ inputs.activity_id }}.
-            6. Open a pull request:
-                 Title: "construct(${{ inputs.activity_id }}): implement ${{ inputs.component_id }}"
-                 Body:
-                   ## Activity
-                   ${{ inputs.activity_id }}
-
-                   ## Component
-                   ${{ inputs.component_id }}
-
-                   ## Contract
-                   .aiarch/state/project.json → .serviceContracts["${{ inputs.component_id }}"]
-
-                   ## Checklist
-                   - [ ] Contract satisfied
-                   - [ ] server-checks pass (gofmt / vet / build / test-short)
-                   - [ ] No */generated/ files edited
-
-            Stop after opening the PR. Do not merge.
+            /construct ${{ inputs.component_id }} ${{ inputs.activity_id }}
