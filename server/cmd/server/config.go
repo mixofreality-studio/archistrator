@@ -153,7 +153,7 @@ func loadConfig() (config, error) { //nolint:gocognit // reads and validates all
 		GitHubInstallationID:     envInt64("ARCHISTRATOR_GITHUB_INSTALLATION_ID", 0),
 		ConstructionRepoOwner:    env("ARCHISTRATOR_CONSTRUCTION_REPO_OWNER", ""),
 		ConstructionRepoName:     env("ARCHISTRATOR_CONSTRUCTION_REPO_NAME", ""),
-		ConstructionWorkflowFile: env("ARCHISTRATOR_CONSTRUCTION_WORKFLOW_FILE", "aiarch-construct.yml"),
+		ConstructionWorkflowFile: env("ARCHISTRATOR_CONSTRUCTION_WORKFLOW_FILE", "aiarch-phase.yml"),
 		ConstructionRef:          env("ARCHISTRATOR_CONSTRUCTION_REF", "main"),
 		ConstructionTaskQueue:    env("ARCHISTRATOR_CONSTRUCTION_TASK_QUEUE", "construction"),
 		ConstructionDryRun:       envBool("ARCHISTRATOR_CONSTRUCTION_DRYRUN", false),

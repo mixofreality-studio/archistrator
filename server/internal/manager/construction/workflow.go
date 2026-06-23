@@ -428,57 +428,36 @@ func (wf *Workflows) ConstructActivityWorkflow(ctx workflow.Context, in Construc
 			gf = opened
 		}
 
-		// --- Step 2: dispatch the work (Activity → ConstructionOutput) -----------
-		state.stage = StageDispatching
-		output, derr := wf.dispatchWork(ctx, class, in.Activity)
-		if derr != nil {
-			if isWorkerRefused(derr) {
-				if done, vErr := wf.handleVariance(ctx, in, VarianceWorkerRefused, "worker produced unconstructable output", &headVersion, state, overrideCh, gitOn, startedCred); vErr != nil {
+		// --- Steps 2-5: walk the App-A service life cycle, dispatching ONE GH-Actions
+		// job per phase (Requirements → Detailed Design → Test Plan → Construction →
+		// Integration; aiarch-phase.yml, a distinct prompt per phase). Each phase's
+		// pipeline observe rides the CI poll cadence (observeCIAndRecord). A phase whose
+		// pipeline fails routes to intervention (App-A: a failing review repeats the
+		// preceding task), then the activity retries from the first phase. This replaces
+		// the legacy single-shot dispatchWork→runPipeline→storeOutput→routeReview
+		// (the server-LLM path; dispatchWork/storeOutput/routeReview now dead — Plan 3
+		// worker-RA deletion is the follow-up). --------------------------------------
+		phaseFailed := false
+		for _, phase := range servicePhases {
+			state.stage = StagePipelineRunning
+			obs, perr := wf.runPipeline(ctx, in, phase, state, &gf, &headVersion)
+			if perr != nil {
+				return perr
+			}
+			if obs.Phase == PipelineFailed {
+				done, vErr := wf.handleVariance(ctx, in, VariancePipelineFailed, obs.Diagnostic, &headVersion, state, overrideCh, gitOn, startedCred)
+				if vErr != nil {
 					return vErr
-				} else if done {
+				}
+				if done {
 					return nil
 				}
-				continue
+				phaseFailed = true
+				break
 			}
-			return derr
 		}
-
-		// --- Step 3: submit + observe the construction pipeline ------------------
-		// The CI poll (git-forward) rides on the SAME observe cadence: each pipeline
-		// observation also reads the PR's CI rollup and mirrors it onto the head-state
-		// (the high-churn poll-loop verb). Dormant when the git slice is unwired.
-		state.stage = StagePipelineRunning
-		obs, perr := wf.runPipeline(ctx, in, state, &gf, &headVersion)
-		if perr != nil {
-			return perr
-		}
-		if obs.Phase == PipelineFailed {
-			if done, vErr := wf.handleVariance(ctx, in, VariancePipelineFailed, obs.Diagnostic, &headVersion, state, overrideCh, gitOn, startedCred); vErr != nil {
-				return vErr
-			} else if done {
-				return nil
-			}
-			continue
-		}
-
-		// --- Step 4: stage the construction output ------------------------------
-		if _, serr := wf.storeOutput(ctx, output); serr != nil {
-			return serr
-		}
-
-		// --- Step 5: route the change through review + fan out per reviewer ------
-		state.stage = StageReviewing
-		reviewOK, rerr := wf.routeReview(ctx, in, state)
-		if rerr != nil {
-			return rerr
-		}
-		if !reviewOK {
-			if done, vErr := wf.handleVariance(ctx, in, VarianceReviewFailed, "review verdict failed / unresolvable", &headVersion, state, overrideCh, gitOn, startedCred); vErr != nil {
-				return vErr
-			} else if done {
-				return nil
-			}
-			continue
+		if phaseFailed {
+			continue // retry the activity from the first phase
 		}
 
 		// --- Step 5a: relay the architecture +1 and record it (git-forward) ------
@@ -538,16 +517,29 @@ func (wf *Workflows) dispatchWork(ctx workflow.Context, class WorkerClass, activ
 	return out, err
 }
 
+// servicePhases is the App-A service development life cycle (Appendix-A Figure A-1 /
+// Table A-1) in order: Requirements → Detailed Design → Test Plan → Construction →
+// Integration. The Manager dispatches one GH-Actions job per phase; the per-phase
+// weights (15/20/10/40/15) live in the store's phaseSetFor (seeded on RecordPhaseStarted).
+var servicePhases = []projectstate.ActivityMethodPhase{
+	projectstate.MethodPhaseRequirements,
+	projectstate.MethodPhaseDetailedDesign,
+	projectstate.MethodPhaseTestPlan,
+	projectstate.MethodPhaseConstruction,
+	projectstate.MethodPhaseIntegration,
+}
+
 // runPipeline submits the pipeline then polls observe between durable startTimer
 // waits until the pipeline reaches a terminal phase (§6.3 step 3). On each observe it
 // ALSO reads the PR's CI rollup and mirrors it onto the head-state (the git-forward
 // poll-loop verb, C-MCN-GIT) — dormant when the git slice is unwired.
-func (wf *Workflows) runPipeline(ctx workflow.Context, in ConstructActivityInput, state *constructState, gf *gitForward, headVersion *projectstate.Version) (PipelineObservation, error) {
+func (wf *Workflows) runPipeline(ctx workflow.Context, in ConstructActivityInput, phase projectstate.ActivityMethodPhase, state *constructState, gf *gitForward, headVersion *projectstate.Version) (PipelineObservation, error) {
 	sc := submitPipelineOpts(ctx)
 	var handle PipelineHandle
 	if err := workflow.ExecuteActivity(sc, wf.SubmitPipelineActivity, PipelineSpec{
 		ActivityID:  in.ActivityID,
 		ComponentID: in.Activity.ComponentID,
+		Phase:       phase.String(),
 	}).Get(ctx, &handle); err != nil {
 		return PipelineObservation{}, err
 	}

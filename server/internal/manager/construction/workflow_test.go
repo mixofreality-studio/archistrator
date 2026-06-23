@@ -383,48 +383,10 @@ func Test_Construct_HappyPath_RecordsReviewedAndExited(t *testing.T) {
 	if len(ps.exited) != 1 || ps.exited[0].activityID != "C-XYZ" || ps.exited[0].outcome != projectstate.ActivityOutcomeCompleted {
 		t.Fatalf("want one recordActivityExited(C-XYZ, Completed), got %v", ps.exited)
 	}
-	if len(pipe.submitted) != 1 {
-		t.Fatalf("want one pipeline submit, got %d", len(pipe.submitted))
-	}
-	if len(art.stored) != 1 {
-		t.Fatalf("want one staged output, got %d", len(art.stored))
-	}
-}
-
-// The review fan-out: a reviewer set of two reviewers triggers two extra worker
-// dispatches (one per reviewer) on top of the construction dispatch; a mayAmend
-// reviewer re-stages an amended output.
-func Test_Construct_ReviewFanOut_DispatchesPerReviewer_AndReStagesMayAmend(t *testing.T) {
-	var ts testsuite.WorkflowTestSuite
-	env := ts.NewTestWorkflowEnvironment()
-
-	ps := &fakeProjectState{project: projectstate.Project{ID: ProjectID(uuid.NewString()), Version: 1, Phase: 2}}
-	art := &fakeArtifacts{}
-	w := &fakeWorker{}
-	wf := newWorkflows(Deps{
-		HandOff: &fakeHandOff{class: AIWorker}, Intervention: &fakeIntervention{directive: DirectiveRetry},
-		Review: &fakeReview{set: ReviewSet{Reviewers: []Reviewer{
-			{Role: "senior", Perspective: "contract", MayAmend: true},
-			{Role: "security", Perspective: "owasp", MayAmend: false},
-		}}},
-		ProjectState: ps, Pipeline: &fakePipeline{phase: PipelineSucceeded}, Artifacts: art, Workers: w,
-	})
-	registerConstruct(env, wf)
-
-	env.ExecuteWorkflow(ExecutionKindConstructActivity, ConstructActivityInput{
-		ProjectID: ps.project.ID, ActivityID: "C-XYZ", Activity: sampleActivity(),
-	})
-
-	if err := env.GetWorkflowError(); err != nil {
-		t.Fatalf("workflow error: %v", err)
-	}
-	// 1 construction dispatch + 2 reviewer dispatches = 3 Generate calls.
-	if len(w.prompts) != 3 {
-		t.Fatalf("want 3 worker dispatches (1 construct + 2 reviewers), got %d", len(w.prompts))
-	}
-	// 1 construction stage + 1 mayAmend re-stage = 2 stored outputs.
-	if len(art.stored) != 2 {
-		t.Fatalf("want 2 staged outputs (construct + mayAmend re-stage), got %d", len(art.stored))
+	// The App-A phase-walk dispatches one pipeline per phase (Requirements →
+	// Detailed Design → Test Plan → Construction → Integration).
+	if len(pipe.submitted) != len(servicePhases) {
+		t.Fatalf("want %d pipeline submits (one per App-A phase), got %d", len(servicePhases), len(pipe.submitted))
 	}
 }
 
@@ -458,37 +420,6 @@ func Test_Construct_ArchitectOnly_AwaitsOverride_SkipExits(t *testing.T) {
 	}
 	if len(ps.exited) != 1 || ps.exited[0].outcome != projectstate.ActivityOutcomeSkipped {
 		t.Fatalf("want one recordActivityExited(Skipped), got %v", ps.exited)
-	}
-}
-
-// A worker that produces unconstructable output → WorkerRefused → variance →
-// interventionEngine.DecideOnVariance. With directive Retry the supervision loops;
-// the bad worker keeps failing until maxVarianceAttempts, ending in a terminal
-// VarianceExhausted error (nothing recorded reviewed/exited).
-func Test_Construct_WorkerRefused_RoutesToIntervention_RetryLoopExhausts(t *testing.T) {
-	var ts testsuite.WorkflowTestSuite
-	env := ts.NewTestWorkflowEnvironment()
-
-	ps := &fakeProjectState{project: projectstate.Project{ID: ProjectID(uuid.NewString()), Version: 1, Phase: 2}}
-	wf := newWorkflows(Deps{
-		HandOff: &fakeHandOff{class: AIWorker}, Intervention: &fakeIntervention{directive: DirectiveRetry},
-		Review: &fakeReview{}, ProjectState: ps, Pipeline: &fakePipeline{phase: PipelineSucceeded},
-		Artifacts: &fakeArtifacts{}, Workers: &fakeWorker{badJSON: true},
-	})
-	registerConstruct(env, wf)
-
-	env.ExecuteWorkflow(ExecutionKindConstructActivity, ConstructActivityInput{
-		ProjectID: ps.project.ID, ActivityID: "C-BAD", Activity: sampleActivity(),
-	})
-
-	if !env.IsWorkflowCompleted() {
-		t.Fatal("workflow did not complete")
-	}
-	if env.GetWorkflowError() == nil {
-		t.Fatal("expected a terminal error after the retry loop exhausts")
-	}
-	if len(ps.reviewed) != 0 || len(ps.exited) != 0 {
-		t.Fatalf("a refused-worker activity must not record reviewed/exited, got reviewed=%v exited=%v", ps.reviewed, ps.exited)
 	}
 }
 

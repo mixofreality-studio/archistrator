@@ -1,16 +1,14 @@
-# aiarch PHASE workflow (App-A service lifecycle)
-# ================================================
+# aiarch PHASE workflow (App-A service lifecycle — distinct prompt per phase)
+# ===========================================================================
 # Dispatched by archistrator-server constructionPipelineAccess once PER PHASE of an
-# activity's Appendix-A life cycle (Requirements → Detailed Design → Test Plan →
-# Construction → Integration), with a worker or reviewer role. This is the per-step
-# generalisation of aiarch-construct.yml (which does the whole Construction phase in
-# one shot). The constructionManager's phase-walk dispatches this with phase + role
-# set; the prompt below adapts to the named phase.
+# activity's Appendix-A life cycle. The constructionManager's phase-walk sets the
+# `phase` input; exactly ONE of the per-phase claude-code-action steps below runs
+# (each has its OWN tailored prompt — an SRS author and a code implementer need very
+# different instructions). All phases share the checkout + contract-extraction setup.
 #
 # LOAD-BEARING CONTRACT (same anchors as aiarch-construct.yml):
-#   1. workflow_dispatch input `idempotency_token` (string, required) — the RA's
-#      dedup token, stamped LAST and into run-name.
-#   2. run-name: aiarch-cp-${{ inputs.idempotency_token }}  (RunNamePrefix anchor).
+#   1. workflow_dispatch input `idempotency_token` (required) — RA dedup token.
+#   2. run-name: aiarch-cp-${{ inputs.idempotency_token }}.
 #   3. workflow_dispatch-triggerable on main.
 name: aiarch-phase
 
@@ -50,6 +48,9 @@ concurrency:
   group: aiarch-cp-${{ inputs.idempotency_token }}
   cancel-in-progress: false
 
+env:
+  BRANCH: aiarch/construct/${{ inputs.activity_id }}
+
 jobs:
   phase:
     runs-on: ubuntu-latest
@@ -75,13 +76,14 @@ jobs:
           set -euo pipefail
           jq --arg c "${{ inputs.component_id }}" '.serviceContracts[$c] // empty' \
             .aiarch/state/project.json > service-contract.json
-          if [ ! -s service-contract.json ]; then
-            echo "::error::no service contract for component '${{ inputs.component_id }}' in .aiarch/state/project.json"
-            exit 1
-          fi
+          test -s service-contract.json || { echo "::error::no contract for ${{ inputs.component_id }}"; exit 1; }
           cat service-contract.json
 
-      - name: Run phase (claude-code-action)
+      # ---------------------------------------------------------------------
+      # Phase 1 — REQUIREMENTS: write the Service Requirement Spec (SRS).
+      # ---------------------------------------------------------------------
+      - name: Requirements (SRS)
+        if: ${{ inputs.phase == 'requirements' }}
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -89,53 +91,120 @@ jobs:
           show_full_output: true
           claude_args: "--dangerously-skip-permissions"
           prompt: |
-            You are executing ONE phase of The Method's Appendix-A service development
-            life cycle for the archistrator server component "${{ inputs.component_id }}"
-            (activity ${{ inputs.activity_id }}), in the role: ${{ inputs.role }}.
+            App-A REQUIREMENTS phase for archistrator component "${{ inputs.component_id }}"
+            (activity ${{ inputs.activity_id }}). Read service-contract.json (repo root).
 
-            The service contract (JSON) is at the repo root: service-contract.json
-            Method conventions: .claude/skills/the-method-layers/,
-            .claude/skills/the-method-service-contract/, .claude/agents/junior-developer.md
-            Existing layer code to learn from: server/internal/
+            Write a concise Service Requirement Spec (SRS) to
+            docs/srs/${{ inputs.component_id }}.md — a few paragraphs: what the service
+            MUST do, its operations (from the contract Ops), its encapsulated volatility,
+            its inbound/outbound dependencies, and its error model. No code. Derive it
+            faithfully from the contract; this is the "what", not the "how".
 
-            ## Phase to execute: "${{ inputs.phase }}"
+            Then: commit to branch ${{ env.BRANCH }} (create if absent); open a PR titled
+            "construct(${{ inputs.activity_id }}): ${{ inputs.component_id }}" if none exists,
+            else push to it. Stop. Do not merge. 12-min budget.
 
-            App-A phases (do ONLY the named one; earlier phases' artifacts are already
-            on the branch aiarch/construct/${{ inputs.activity_id }} from prior phases):
+      # ---------------------------------------------------------------------
+      # Phase 2 — DETAILED DESIGN: the Go interfaces, types, and skeleton.
+      # ---------------------------------------------------------------------
+      - name: Detailed Design (interfaces + types)
+        if: ${{ inputs.phase == 'detailedDesign' }}
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          allowed_bots: archistrator-bot
+          show_full_output: true
+          claude_args: "--dangerously-skip-permissions"
+          prompt: |
+            App-A DETAILED DESIGN phase for "${{ inputs.component_id }}". Read
+            service-contract.json and docs/srs/${{ inputs.component_id }}.md (from the
+            Requirements phase, already on branch ${{ env.BRANCH }}). Follow
+            .claude/skills/the-method-layers/ and .claude/skills/the-method-service-contract/.
 
-            - requirements   → write a brief Service Requirement Spec (SRS) for this
-                               component to docs/srs/${{ inputs.component_id }}.md
-                               (a few paragraphs: what the service must do, from the contract).
-            - detailedDesign → design the component's Go interfaces, message/data
-                               contracts and internal types (no behavior yet); a skeleton
-                               package under server/internal/<layer>/<pkg>/ that compiles.
-            - testPlan       → write the service test plan as table-driven Go test stubs
-                               (the ways you'll later show it does NOT work) in the package's
-                               _test.go, building but t.Skip-ing the unimplemented cases.
-            - construction   → implement the component to satisfy the contract; make the
-                               package build, vet clean, and its own tests pass.
-            - integration    → wire the component into its consumers (composition root /
-                               adjacent layers) and make the integration compile.
+            Design ONLY the surface: the Go port interface, the message/data contracts,
+            and the internal type declarations for the component under
+            server/internal/<layer>/<pkg>/ — a skeleton that COMPILES (method bodies may
+            return zero values / a not-implemented error). No real behavior yet. Match the
+            layer conventions of existing code (engine / manager / resourceaccess / client).
 
-            ## Rules
+            Verify: gofmt -w . && GOWORK=off go build ./... (working-directory: server).
+            Commit to ${{ env.BRANCH }}, push to the PR. Stop. 12-min budget.
 
-            1. Read service-contract.json first. Do EXACTLY the "${{ inputs.phase }}" phase
-               — no more, no less. Match the conventions of existing code in the same layer.
-            2. Do NOT edit any file under */generated/.
-            3. Verify YOUR phase output (working-directory: server) — fast checks only:
-                 gofmt -w . && GOWORK=off go build ./... && GOWORK=off go vet ./...
-                 (construction/testPlan also: GOWORK=off go test ./internal/<layer>/<pkg>/...)
-               Do NOT run `make test-short` (containers; too slow). 12-min hard budget.
-            4. Commit all changes onto branch aiarch/construct/${{ inputs.activity_id }}
-               (create it if absent; otherwise add to it).
-            5. Open the PR if not already open:
-                 Title: "construct(${{ inputs.activity_id }}): ${{ inputs.component_id }}"
-               then STOP. Do not merge. If a PR already exists for the branch, just push
-               this phase's commit to it.
+      # ---------------------------------------------------------------------
+      # Phase 3 — TEST PLAN: table-driven test stubs (ways it does NOT work).
+      # ---------------------------------------------------------------------
+      - name: Test Plan (failing/skipped tests)
+        if: ${{ inputs.phase == 'testPlan' }}
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          allowed_bots: archistrator-bot
+          show_full_output: true
+          claude_args: "--dangerously-skip-permissions"
+          prompt: |
+            App-A TEST PLAN phase for "${{ inputs.component_id }}". The interfaces + types
+            from Detailed Design are on branch ${{ env.BRANCH }}. Read service-contract.json.
 
-            ## If role == reviewer
-            Instead of producing the phase artifact, REVIEW the "${{ inputs.phase }}" phase
-            output on the PR for activity ${{ inputs.activity_id }} against the contract and
-            the Method conventions. Post review comments and set the run conclusion to
-            SUCCESS only if the phase passes its binary exit criterion (App-A: a failing
-            review repeats the preceding task); FAIL the step (exit 1) if it does not.
+            Write the service test plan as TABLE-DRIVEN Go tests in the package's _test.go
+            — enumerate the ways you will later show the component does NOT work (every op's
+            pre-conditions, error paths, idempotency, boundary cases from the contract). The
+            cases for not-yet-implemented behavior should t.Skip("pending construction") so
+            the package BUILDS and tests run green now. This is the binary exit criterion the
+            Construction phase will satisfy.
+
+            Verify: gofmt -w . && GOWORK=off go build ./... && GOWORK=off go test ./internal/<layer>/<pkg>/...
+            Commit to ${{ env.BRANCH }}, push to the PR. Stop. 12-min budget.
+
+      # ---------------------------------------------------------------------
+      # Phase 4 — CONSTRUCTION: implement the component (default for empty phase).
+      # ---------------------------------------------------------------------
+      - name: Construction (implement)
+        if: ${{ inputs.phase == 'construction' || inputs.phase == '' }}
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          allowed_bots: archistrator-bot
+          show_full_output: true
+          claude_args: "--dangerously-skip-permissions"
+          prompt: |
+            App-A CONSTRUCTION phase for "${{ inputs.component_id }}". The interfaces, types,
+            and test plan from prior phases are on branch ${{ env.BRANCH }} (if this is a
+            standalone dispatch they may be absent — implement from service-contract.json
+            directly). Follow .claude/skills/the-method-layers/ and the junior-developer agent.
+
+            Implement the component to SATISFY its contract: fill in the method bodies, remove
+            the t.Skip from the test-plan cases your implementation now satisfies, and make the
+            package build, vet clean, and its own tests pass. Match existing layer conventions.
+            Do NOT edit */generated/.
+
+            Verify (working-directory: server): gofmt -w . && GOWORK=off go build ./... &&
+            GOWORK=off go vet ./... && GOWORK=off go test ./internal/<layer>/<pkg>/...
+            Do NOT run `make test-short` (containers; too slow). Commit to ${{ env.BRANCH }};
+            open the PR "construct(${{ inputs.activity_id }}): ${{ inputs.component_id }}" if
+            none exists, else push to it. Stop. Do not merge. 12-min budget.
+
+      # ---------------------------------------------------------------------
+      # Phase 5 — INTEGRATION: wire the component into its consumers.
+      # ---------------------------------------------------------------------
+      - name: Integration (wire into consumers)
+        if: ${{ inputs.phase == 'integration' }}
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          allowed_bots: archistrator-bot
+          show_full_output: true
+          claude_args: "--dangerously-skip-permissions"
+          prompt: |
+            App-A INTEGRATION phase for "${{ inputs.component_id }}". The implemented
+            component is on branch ${{ env.BRANCH }}. Read service-contract.json for its
+            inbound consumers / outbound dependencies.
+
+            Wire the component into its consumers: construct it in the composition root
+            (server/cmd/server/main.go) and adapt it to any consumer seams (the "accept
+            interfaces" adapters), per .claude/skills/the-method-layers/. Make the whole
+            server build and vet cleanly with the component integrated. Do NOT edit
+            */generated/.
+
+            Verify (working-directory: server): gofmt -w . && GOWORK=off go build ./... &&
+            GOWORK=off go vet ./... Commit to ${{ env.BRANCH }}, push to the PR. Stop.
+            Do not merge. 12-min budget.
