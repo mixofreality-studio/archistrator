@@ -25,6 +25,12 @@ const (
 	ActivityConstructionRunning
 	// ActivityConstructionDone — the activity's construction completed (agent finished).
 	ActivityConstructionDone
+	// ActivityConstructionFailed — the activity's construction reached a terminal
+	// FAILURE (a cancelled/failed/timed-out pipeline, an exhausted variance budget, or
+	// an escalation that timed out). Distinct from Done: the work did NOT integrate.
+	// This is a STORED terminal — the CoarsePhase deriver short-circuits on it so it is
+	// never recomputed back to Running/Done (see CoarsePhase's guard).
+	ActivityConstructionFailed
 )
 
 // String returns the canonical wire name for the construction phase (used in JSON
@@ -35,8 +41,52 @@ func (p ActivityConstructionPhase) String() string {
 		return "running"
 	case ActivityConstructionDone:
 		return "done"
+	case ActivityConstructionFailed:
+		return "failed"
 	default:
 		return "notStarted"
+	}
+}
+
+// FailureReason is the closed enum of terminal-failure causes recorded on an
+// activity's construction head-state when it reaches ActivityConstructionFailed.
+// It lets the console explain WHY the activity is no longer pending (a cancelled
+// run, an exhausted retry budget, an escalation nobody answered, …) rather than
+// leaving it stuck Running forever.
+type FailureReason int
+
+const (
+	// FailureReasonUnknown is the zero value (no failure recorded).
+	FailureReasonUnknown FailureReason = iota
+	// PipelineFailed — the construction pipeline reached a terminal FAILURE conclusion.
+	PipelineFailed
+	// PipelineCancelled — the construction pipeline run was cancelled.
+	PipelineCancelled
+	// PipelineTimedOut — the construction pipeline timed out (or the observe poll
+	// budget was exhausted without a terminal phase).
+	PipelineTimedOut
+	// VarianceExhausted — the supervision loop exhausted its variance/retry budget.
+	VarianceExhausted
+	// EscalationTimedOut — an escalation waited for an operator override that never
+	// came within the bounded escalation-wait window.
+	EscalationTimedOut
+)
+
+// String returns the canonical wire name for the failure reason.
+func (r FailureReason) String() string {
+	switch r {
+	case PipelineFailed:
+		return "pipelineFailed"
+	case PipelineCancelled:
+		return "pipelineCancelled"
+	case PipelineTimedOut:
+		return "pipelineTimedOut"
+	case VarianceExhausted:
+		return "varianceExhausted"
+	case EscalationTimedOut:
+		return "escalationTimedOut"
+	default:
+		return "unknown"
 	}
 }
 
@@ -84,6 +134,13 @@ type ActivityConstructionStatus struct {
 	BuildStatus ActivityBuildStatus `json:"buildStatus,omitempty"`
 	// Produced is the seeded list of artifacts this activity produced (contracts/code).
 	Produced []ProducedArtifact `json:"produced,omitempty"`
+	// FailureReason is set when Phase == ActivityConstructionFailed — the closed-enum
+	// cause of the terminal failure (cancelled/failed/timed-out pipeline, exhausted
+	// variance budget, escalation timeout). Zero (FailureReasonUnknown) otherwise.
+	FailureReason FailureReason `json:"failureReason,omitempty"`
+	// FailureDetail is the human-readable diagnostic captured alongside FailureReason
+	// (the pipeline's neutral diagnostic / a short escalation note). Empty otherwise.
+	FailureDetail string `json:"failureDetail,omitempty"`
 }
 
 // phaseSetFor returns the ordered phase set (with weights) for the given activity type
@@ -171,8 +228,33 @@ func phaseSetForTestingVariant(v TestingVariant) []PhaseCompletion {
 	}
 }
 
+// CoarsePhaseFor is the stored-phase-aware compute-at-read entry point: a stored
+// terminal-FAILURE phase (ActivityConstructionFailed) is STICKY and short-circuits —
+// it is never recomputed back to Running/Done from the Phases slice (a late
+// phase-completion record after a RecordActivityFailed must not resurrect the
+// activity). Otherwise it falls through to CoarsePhase over the Phases slice.
+func CoarsePhaseFor(stored ActivityConstructionPhase, phases []PhaseCompletion) ActivityConstructionPhase {
+	if stored == ActivityConstructionFailed {
+		return ActivityConstructionFailed
+	}
+	return CoarsePhase(phases)
+}
+
+// CoarseBuildStatusFor is the stored-status-aware compute-at-read entry point: a
+// stored terminal-FAILURE build status (BuildFailed) is STICKY and short-circuits —
+// it is never recomputed back to in-construction/in-review/integrated. Otherwise it
+// falls through to CoarseBuildStatus over the Phases slice.
+func CoarseBuildStatusFor(stored ActivityBuildStatus, phases []PhaseCompletion, current ActivityMethodPhase) ActivityBuildStatus {
+	if stored == BuildFailed {
+		return BuildFailed
+	}
+	return CoarseBuildStatus(phases, current)
+}
+
 // CoarsePhase derives the coarse ActivityConstructionPhase from the Phases slice
 // (compute-at-read; kept for back-compat). Empty/nil phases → NotStarted.
+// A stored terminal-failure phase is preserved by callers via CoarsePhaseFor /
+// the applyPhaseCompletion guard, NOT here (this derives purely from Phases).
 func CoarsePhase(phases []PhaseCompletion) ActivityConstructionPhase {
 	if len(phases) == 0 {
 		return ActivityConstructionNotStarted
@@ -400,6 +482,10 @@ const (
 	BuildInReview
 	// BuildIntegrated — construction log + a passing review exist.
 	BuildIntegrated
+	// BuildFailed — the build reached a terminal FAILURE (paired with
+	// ActivityConstructionFailed). The work did not integrate; the node is failed,
+	// not in-construction/in-review/integrated.
+	BuildFailed
 )
 
 // String returns the canonical wire name (matches the ux-mock BuildStatus union).
@@ -409,6 +495,8 @@ func (s ActivityBuildStatus) String() string {
 		return "in-review"
 	case BuildIntegrated:
 		return "integrated"
+	case BuildFailed:
+		return "failed"
 	default:
 		return "in-construction"
 	}

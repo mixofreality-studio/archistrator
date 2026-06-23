@@ -18,10 +18,12 @@ import (
 
 // GitConstructionTransitionAccess is the cred-threaded construction-transition
 // facet of the git store (the §REWORK.4 re-cut of ConstructionTransitionAccess).
-// 7 ops total (≤12 per contract cap).
+// 8 ops total (≤12 per contract cap; RecordActivityFailed is the additive terminal-
+// failure sibling of RecordActivityExited).
 type GitConstructionTransitionAccess interface {
 	RecordChangeReviewed(ctx context.Context, projectID ProjectID, expectedVersion Version, activityID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	RecordActivityExited(ctx context.Context, projectID ProjectID, expectedVersion Version, activityID string, outcome ActivityOutcome, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	RecordActivityFailed(ctx context.Context, projectID ProjectID, expectedVersion Version, activityID string, reason FailureReason, detail string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	RecordOperatorPaused(ctx context.Context, projectID ProjectID, expectedVersion Version, reason string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	RecordPhaseStarted(ctx context.Context, projectID ProjectID, expectedVersion Version, activityID string, phase ActivityMethodPhase, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	RecordPhaseCompleted(ctx context.Context, projectID ProjectID, expectedVersion Version, activityID string, phase ActivityMethodPhase, artifactRef string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
@@ -106,6 +108,34 @@ func (s *GitStore) RecordActivityExited(ctx context.Context, projectID ProjectID
 	})
 }
 
+// RecordActivityFailed records the TERMINAL-FAILURE binary exit for activityID. It
+// MIRRORS RecordActivityExited exactly (same applyMutation + idempotency ledger +
+// ref-CAS pattern) but lands a distinct terminal: Phase = ActivityConstructionFailed,
+// BuildStatus = BuildFailed, CompletedAt server-resolved, and the FailureReason +
+// FailureDetail recorded so the console can explain WHY the activity is no longer
+// pending. This is what stops a cancelled/failed/timed-out GH-Actions run (or an
+// exhausted variance budget / unanswered escalation) from leaving the activity stuck
+// Running forever.
+func (s *GitStore) RecordActivityFailed(ctx context.Context, projectID ProjectID, expectedVersion Version, activityID string, reason FailureReason, detail string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	if activityID == "" {
+		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordActivityFailed: empty activityID")
+	}
+	now := s.now()
+	return s.applyMutation(ctx, "RecordActivityFailed", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
+		upsertActivityConstruction(p, activityID, func(cs *ActivityConstructionStatus) {
+			cs.Phase = ActivityConstructionFailed
+			cs.BuildStatus = BuildFailed
+			if cs.CompletedAt == nil {
+				t := now
+				cs.CompletedAt = &t
+			}
+			cs.FailureReason = reason
+			cs.FailureDetail = detail
+		})
+		return nil
+	})
+}
+
 // RecordOperatorPaused records the operator-paused head-state transition by
 // setting Project.OperatorPaused = true and Project.PauseReason = reason.
 func (s *GitStore) RecordOperatorPaused(ctx context.Context, projectID ProjectID, expectedVersion Version, reason string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
@@ -177,6 +207,13 @@ func applyPhaseCompletion(cs *ActivityConstructionStatus, phase ActivityMethodPh
 			}
 			break
 		}
+	}
+	// GUARD: a stored terminal-failure Phase is sticky — never recompute it back to
+	// Running/Done from the Phases slice (a late phase-completion record after a
+	// RecordActivityFailed must not resurrect the activity). BuildFailed is likewise
+	// preserved.
+	if cs.Phase == ActivityConstructionFailed || cs.BuildStatus == BuildFailed {
+		return
 	}
 	cs.Phase = CoarsePhase(cs.Phases)
 }

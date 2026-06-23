@@ -67,6 +67,11 @@ type pgTransitionAccess interface {
 	// given terminal outcome (constructionManager.md §6.3 step 8).
 	RecordActivityExited(ctx context.Context, projectID ProjectID, expectedVersion Version, activityID string, outcome ActivityOutcome, idempotencyKey fwra.IdempotencyKey) (Version, error)
 
+	// RecordActivityFailed records the terminal-FAILURE activity exit for activityID
+	// (the additive sibling of RecordActivityExited; the bounded-wait / autonomous-retry
+	// fix). Postgres is legacy/no-op here; the real mutation is in gitconstruction.go.
+	RecordActivityFailed(ctx context.Context, projectID ProjectID, expectedVersion Version, activityID string, reason FailureReason, detail string, idempotencyKey fwra.IdempotencyKey) (Version, error)
+
 	// RecordOperatorPaused records the operator-paused head-state transition for the
 	// project (constructionManager.md §6.3 PauseProjectBranch; NCUC2 658).
 	RecordOperatorPaused(ctx context.Context, projectID ProjectID, expectedVersion Version, reason string, idempotencyKey fwra.IdempotencyKey) (Version, error)
@@ -85,6 +90,14 @@ func (s *Store) RecordChangeReviewed(ctx context.Context, projectID ProjectID, e
 // RecordActivityExited — additive verb (the binary activity exit).
 func (s *Store) RecordActivityExited(ctx context.Context, projectID ProjectID, expectedVersion Version, activityID string, outcome ActivityOutcome, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	return s.applyMutation(ctx, "RecordActivityExited", projectID, expectedVersion, idempotencyKey, func(p *Project) error {
+		return nil
+	})
+}
+
+// RecordActivityFailed — additive verb (the terminal-FAILURE activity exit). Postgres
+// stub: the real mutation lives in gitconstruction.go; the ledger records the transition.
+func (s *Store) RecordActivityFailed(ctx context.Context, projectID ProjectID, expectedVersion Version, activityID string, reason FailureReason, detail string, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	return s.applyMutation(ctx, "RecordActivityFailed", projectID, expectedVersion, idempotencyKey, func(p *Project) error {
 		return nil
 	})
 }

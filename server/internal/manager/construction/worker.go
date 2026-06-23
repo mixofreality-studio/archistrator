@@ -67,6 +67,7 @@ const (
 	actStoreConstructionOutput = "StoreConstructionOutputActivity"
 	actRecordChangeReviewed    = "RecordChangeReviewedActivity"
 	actRecordActivityExited    = "RecordActivityExitedActivity"
+	actRecordActivityFailed    = "RecordActivityFailedActivity"
 	actRecordOperatorPaused    = "RecordOperatorPausedActivity"
 
 	// git-forward slice (C-MCN-GIT): the PR-rail + git head-state Record activities.
@@ -113,6 +114,7 @@ func RegisterWorker(w worker.Worker, deps Deps) {
 	w.RegisterActivityWithOptions(wf.StoreConstructionOutputActivity, activity.RegisterOptions{Name: actStoreConstructionOutput})
 	w.RegisterActivityWithOptions(wf.RecordChangeReviewedActivity, activity.RegisterOptions{Name: actRecordChangeReviewed})
 	w.RegisterActivityWithOptions(wf.RecordActivityExitedActivity, activity.RegisterOptions{Name: actRecordActivityExited})
+	w.RegisterActivityWithOptions(wf.RecordActivityFailedActivity, activity.RegisterOptions{Name: actRecordActivityFailed})
 	w.RegisterActivityWithOptions(wf.RecordOperatorPausedActivity, activity.RegisterOptions{Name: actRecordOperatorPaused})
 
 	// git-forward slice (C-MCN-GIT). Registered unconditionally; the workflow only

@@ -17,6 +17,7 @@ package main
 
 import (
 	"context"
+	"log/slog"
 	"sort"
 	"strings"
 
@@ -118,32 +119,100 @@ func nextEligibleActivity(proj projectstate.Project) (construction.ConstructionA
 
 	chosen := candidates[0].activity
 	item := itemByName[chosen]
-	component := resolveComponentID(item.Title, chosen, proj.ServiceContracts)
+	// Resolve the component id, preferring the activity's produced[] service-contract
+	// hint over a fuzzy title match. produced lives on the per-activity construction
+	// head-state record (proj.ActivityConstruction[chosen].Produced).
+	var produced []projectstate.ProducedArtifact
+	if proj.ActivityConstruction != nil {
+		produced = proj.ActivityConstruction[chosen].Produced
+	}
+	component, ok := resolveComponentID(item.Title, produced, proj.ServiceContracts)
+	if !ok {
+		// No produced hint AND no fuzzy title match resolved to a real .serviceContracts
+		// key. Dispatching the raw activity id would doom the run (contract extraction
+		// fails downstream), so SKIP this activity this tick and log it. A quiet tick is
+		// safe — a later tick (after a contract is recorded, or a manual fix) can dispatch.
+		slog.Warn("construction pump: no service-contract key resolves for activity — skipping dispatch",
+			"activityId", chosen, "title", item.Title)
+		return construction.ConstructionActivity{}, false
+	}
 	return hydrateConstructionActivity(chosen, item, component), true
 }
 
-// resolveComponentID maps an activity to its service-contract component name by
-// matching the activity Title against the keys of the ServiceContracts corpus.
-// The ActivityList has no component column, so the title (e.g. "Build Operated
-// Runtime Access") is the only link to the contract key (operatedRuntimeAccess).
-// The parenthetical is stripped first (it often names OTHER components, e.g.
-// "reuses sunk settlementManager skeleton") so it can't steal the match; the
-// longest normalized substring match wins. Falls back to the activity id when no
-// contract matches (preserves name-as-identity for activities without a contract).
-func resolveComponentID(title, fallback string, contracts map[string]projectstate.ServiceContract) string {
+// resolveComponentID maps an activity to its service-contract component KEY, returning
+// (key, true) only when it resolves to a REAL key present in the ServiceContracts
+// corpus. Resolution order:
+//
+//  1. The activity's produced[] service-contract HINT — a ProducedArtifact whose Title
+//     names the contract explicitly (e.g. "operatedRuntimeAccess — service contract").
+//     This is authoritative: the seeded corpus tells us exactly which contract the
+//     activity produces, so we never have to guess. The hinted name is normalized and
+//     matched against the contract keys (exact-normalized match wins).
+//  2. Fuzzy title match — the ActivityList has no component column, so the title
+//     (e.g. "Build Operated Runtime Access") is the fallback link to the key
+//     (operatedRuntimeAccess). The parenthetical is stripped first (it often names
+//     OTHER components, e.g. "reuses sunk settlementManager skeleton") so it can't
+//     steal the match; the longest normalized substring match wins.
+//
+// If NEITHER yields a key present in contracts, it returns ("", false) — the caller
+// LOGS and SKIPS dispatch rather than dispatching a component_id that is not a contract
+// key (a doomed run that fails contract extraction downstream).
+func resolveComponentID(title string, produced []projectstate.ProducedArtifact, contracts map[string]projectstate.ServiceContract) (string, bool) {
+	// 1. Produced service-contract hint (authoritative).
+	for _, art := range produced {
+		if art.Kind != "service-contract" {
+			continue
+		}
+		if key, ok := matchContractKey(art.Title, contracts); ok {
+			return key, true
+		}
+	}
+
+	// 2. Fuzzy title match (longest normalized substring present in contracts).
 	base := title
 	if i := strings.IndexByte(base, '('); i >= 0 {
 		base = base[:i]
 	}
 	n := normalizeIdent(base)
-	best, bestLen := fallback, 0
+	best, bestLen := "", 0
 	for comp := range contracts {
 		cn := normalizeIdent(comp)
 		if cn != "" && len(cn) > bestLen && strings.Contains(n, cn) {
 			best, bestLen = comp, len(cn)
 		}
 	}
-	return best
+	if best != "" {
+		return best, true
+	}
+	return "", false
+}
+
+// matchContractKey resolves a produced service-contract artifact title (e.g.
+// "operatedRuntimeAccess — service contract") to a real ServiceContracts key. It
+// prefers an exact normalized-equality match, then the longest normalized substring
+// match, so the explicit contract name in the title wins over incidental overlaps.
+func matchContractKey(title string, contracts map[string]projectstate.ServiceContract) (string, bool) {
+	n := normalizeIdent(title)
+	if n == "" {
+		return "", false
+	}
+	best, bestLen := "", 0
+	for comp := range contracts {
+		cn := normalizeIdent(comp)
+		if cn == "" {
+			continue
+		}
+		if cn == n {
+			return comp, true // exact normalized match — unambiguous.
+		}
+		if len(cn) > bestLen && strings.Contains(n, cn) {
+			best, bestLen = comp, len(cn)
+		}
+	}
+	if best != "" {
+		return best, true
+	}
+	return "", false
 }
 
 // normalizeIdent lowercases s and keeps only [a-z0-9] so a human title and a
@@ -285,6 +354,11 @@ func managerWorkerClass(c handoff.WorkerClass) construction.WorkerClass {
 
 type interventionAdapter struct {
 	inner intervention.InterventionEngine
+	// policy is the composition-supplied intervention regime the Manager feeds the
+	// Engine by value. It replaces the hard-coded EscalateEverything: the default is
+	// Tiered{RetryBudget:2} (autonomous retry, escalate after budget) with
+	// EscalateEverything available for supervised mode. Set ONCE at wiring time.
+	policy intervention.InterventionPolicy
 }
 
 var _ construction.InterventionEngine = interventionAdapter{}
@@ -301,11 +375,13 @@ func (a interventionAdapter) DecideOnVariance(
 		ProjectID:  intervention.ProjectID(v.ActivityID),
 		ActivityID: intervention.ActivityID(v.ActivityID),
 		Kind:       interventionVarianceKind(v.Kind),
-		// Inject the launch-default intervention regime (volatilities.md line 45:
-		// "every variance escalates to a single operator"). The Manager's policy
-		// mirror carries no Mode, so without this the Engine sees Mode=Unknown and
-		// rejects every variance with "unknown policy mode".
-		Policy: intervention.InterventionPolicy{Mode: intervention.EscalateEverything},
+		// AttemptCount drives Tiered retry-budget exhaustion (the Manager threads its
+		// supervision-loop attempt counter into the mirror's AttemptCount field).
+		AttemptCount: v.AttemptCount,
+		// Composition-supplied regime (Tiered{RetryBudget:2} default). Without a
+		// registered Mode the Engine rejects every variance with "unknown policy mode",
+		// so the composition root guarantees a non-Unknown mode is set.
+		Policy: a.policy,
 	})
 	if err != nil {
 		return construction.DirectiveUnknown, err
@@ -337,6 +413,22 @@ func (a interventionAdapter) ApplyPausePolicy(
 		RecordPaused:      plan.RecordPaused,
 		NotifyTargets:     notify,
 	}, nil
+}
+
+// constructionInterventionPolicy maps the configured intervention-mode string to the
+// paired (engine, manager-mirror) intervention policies. Default Tiered{RetryBudget:2}
+// (autonomous retry, escalate after budget); "escalate-everything" selects the
+// supervised regime (every variance escalates). The two are derived together so the
+// adapter (engine-facing) and the Manager mirror stay in lock-step.
+func constructionInterventionPolicy(mode string) (intervention.InterventionPolicy, construction.InterventionPolicy) {
+	switch mode {
+	case "escalate-everything", "escalateEverything", "supervised":
+		return intervention.InterventionPolicy{Mode: intervention.EscalateEverything},
+			construction.InterventionPolicy{Mode: construction.InterventionModeEscalateEverything}
+	default: // "tiered" / anything else → the ratified autonomous-retry default.
+		return intervention.InterventionPolicy{Mode: intervention.Tiered, RetryBudget: 2},
+			construction.InterventionPolicy{Mode: construction.InterventionModeTiered, RetryBudget: 2}
+	}
 }
 
 func interventionVarianceKind(k construction.VarianceKind) intervention.VarianceKind {
@@ -504,8 +596,12 @@ func managerPipelinePhase(p constructionpipeline.PipelinePhase) construction.Pip
 		return construction.PipelineRunning
 	case constructionpipeline.PhaseSucceeded:
 		return construction.PipelineSucceeded
-	case constructionpipeline.PhaseFailed, constructionpipeline.PhaseCancelled:
+	case constructionpipeline.PhaseFailed:
 		return construction.PipelineFailed
+	case constructionpipeline.PhaseCancelled:
+		// STOP flattening cancelled to failed — the Manager derives a distinct
+		// FailureReason (PipelineCancelled) for head-state from this terminal.
+		return construction.PipelineCancelled
 	default:
 		return construction.PipelinePhaseUnknown
 	}

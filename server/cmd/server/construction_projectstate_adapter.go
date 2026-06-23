@@ -65,6 +65,14 @@ func (a constructionProjectStateAdapter) RecordActivityExited(ctx context.Contex
 	return a.store.RecordActivityExited(ctx, projectID, expectedVersion, activityID, outcome, cred, idempotencyKey)
 }
 
+func (a constructionProjectStateAdapter) RecordActivityFailed(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, reason projectstate.FailureReason, detail string, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
+	cred, err := a.minter.credentialFor(ctx, projectID)
+	if err != nil {
+		return 0, err
+	}
+	return a.store.RecordActivityFailed(ctx, projectID, expectedVersion, activityID, reason, detail, cred, idempotencyKey)
+}
+
 func (a constructionProjectStateAdapter) RecordOperatorPaused(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, reason string, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
 	cred, err := a.minter.credentialFor(ctx, projectID)
 	if err != nil {

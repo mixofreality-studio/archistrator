@@ -50,6 +50,7 @@ type ProjectStateAccess interface {
 	ReadProject(ctx context.Context, projectID projectstate.ProjectID) (projectstate.Project, error)
 	RecordChangeReviewed(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
 	RecordActivityExited(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, outcome projectstate.ActivityOutcome, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
+	RecordActivityFailed(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, reason projectstate.FailureReason, detail string, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
 	RecordOperatorPaused(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, reason string, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
 	RecordPhaseStarted(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, phase projectstate.ActivityMethodPhase, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
 	RecordPhaseCompleted(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, phase projectstate.ActivityMethodPhase, artifactRef string, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
@@ -244,10 +245,30 @@ type HandOffPolicy struct {
 	SeniorOnlyLayers []string
 }
 
+// InterventionMode mirrors interventionEngine.md §3 — the coarse intervention regime
+// the composition root translates into intervention.InterventionMode. The Manager
+// holds it as an opaque policy value; the casting RULE behind each mode is
+// package-internal to the Engine.
+type InterventionMode int
+
+const (
+	// InterventionModeUnknown — no mode set (zero value).
+	InterventionModeUnknown InterventionMode = iota
+	// InterventionModeEscalateEverything — every variance escalates to an operator
+	// (the supervised regime). Pairs with EscalationWaitTimeout == 0 (wait-forever).
+	InterventionModeEscalateEverything
+	// InterventionModeTiered — severity tiers + retry budgets decide retry vs
+	// escalate vs takeover before flipping to a human (the autonomous-retry default).
+	InterventionModeTiered
+)
+
 // InterventionPolicy mirrors interventionEngine.md §3 (committed policy snapshot,
 // fed BY VALUE to the Engine). The casting RULE is package-internal to the Engine;
 // the Manager holds the opaque policy value.
 type InterventionPolicy struct {
+	// Mode is the coarse intervention regime (Tiered default vs EscalateEverything
+	// supervised). The composition root reads it instead of hard-coding the regime.
+	Mode        InterventionMode
 	RetryBudget int
 	SLATier     string
 }
@@ -266,9 +287,14 @@ type InterventionEngine interface {
 
 // ConstructionVariance mirrors interventionEngine.md §3.
 type ConstructionVariance struct {
-	ActivityID      string
-	Kind            VarianceKind
-	Detail          string
+	ActivityID string
+	Kind       VarianceKind
+	Detail     string
+	// AttemptCount is the number of supervision-loop attempts so far on this activity
+	// (the loop's `attempt` counter). The Tiered intervention policy keys retry-budget
+	// exhaustion on it (composition root threads it into intervention.ConstructionVariance);
+	// EscalateEverything ignores it.
+	AttemptCount    int
 	OperatorSourced bool
 }
 
@@ -385,6 +411,11 @@ const (
 	PipelineRunning
 	PipelineSucceeded
 	PipelineFailed
+	// PipelineCancelled — the pipeline run was cancelled (a distinct terminal from
+	// PipelineFailed; the composition root maps RA PhaseCancelled to this instead of
+	// flattening it to PipelineFailed). Both terminals route to the variance path, but
+	// the Manager derives a distinct FailureReason (PipelineCancelled) for head-state.
+	PipelineCancelled
 )
 
 // PipelineObservation mirrors constructionPipelineAccess.md §3.
