@@ -19,11 +19,20 @@ each service as well."*
 
 When dispatched on a `construction` activity for component `<X>`:
 
+**archistrator runs as a single Go server repo. State is git-as-DB:** the canonical
+project state lives in `.aiarch/state/project.json`, NOT in `designs/<product>/*.md`.
+Components live under `server/internal/<layer>/<pkg>/`.
+
 1. **Read context:**
-   - The contract files written by senior-developer (interfaces, data contracts)
-   - The component's tagged layer from `architecture.dsl`
-   - The component's call-chain appearances (dynamic views)
-   - The detailed design notes in `designs/<product>/implementation/log/<detailed-design-activity-id>.md`
+   - The component's **service contract** — a typed entry in `.aiarch/state/project.json`
+     under `.serviceContracts["<component>"]`. (In a construction CI run it is pre-extracted
+     to `service-contract.json` at the repo root.) It carries the component's `Layer`, `Ops`
+     (operation signatures + I/O structs), `Inbound`/`Outbound` parties, `DataContracts`,
+     `ErrorModel`, and `Idempotency`. There is no `designs/*.md` contract file — the contract
+     *is* the JSON; any markdown is a render-on-read.
+   - The other components' contracts in the same `.serviceContracts` map — for layer and
+     dependency reference (who calls in, who this calls out to).
+   - Existing code in the same layer under `server/internal/<layer>/<pkg>/` — to match conventions.
 
 2. **Implement against the contract.** Do not extend or modify the contract. If the contract has a gap, escalate to senior-developer — do not silently widen it.
 
@@ -49,14 +58,15 @@ When dispatched on a `construction` activity for component `<X>`:
 **CAN:**
 - Write implementation code inside the assigned component
 - Write the component's Service Test Plan (STP), unit tests, and regression cases
-- Run the product's test/build commands to verify
-- Update `designs/<product>/implementation/log/<activity-id>.md` with implementation notes (deviations, surprises)
+- Run the Go build/test commands to verify (see Workflow)
+- Record implementation notes (deviations, surprises, test results) in the **PR body and commit messages** — not a `designs/*.md` log
 - Ask senior-developer for clarification on the contract
 
 **CANNOT:**
 - Modify the public contract (escalate to senior-developer)
 - Touch other components
-- Change `architecture.dsl`
+- Change the architecture (the committed `architecture` slot in `.aiarch/state/project.json`)
+- Edit anything under `*/generated/`
 - Skip code review
 - Work on more than one component at a time
 - Mark the activity `done` without a passing build and senior review
@@ -71,31 +81,33 @@ When dispatched on a `construction` activity for component `<X>`:
 ## Workflow
 
 ```pseudocode
-read activity from network.yaml
-component = activity.component
-contract_files = read products/<product>/.../<component>/*.kt|swift|ts|...
-detailed_design_log = read designs/<product>/implementation/log/<deps[0]>.md
+contract = read .aiarch/state/project.json .serviceContracts["<component>"]
+           (CI: read service-contract.json at the repo root)
+layer    = contract.Layer        # Manager | Engine | ResourceAccess | Resource | Utility
+pkg      = server/internal/<layer>/<pkg>/
 
-implement the contract:
-    - one file or coherent file set inside the component's directory
-    - follow the product's local conventions (read .claude/skills/<product>/SKILL.md)
-    - layer-appropriate: no calls up or sideways
+implement the contract under pkg:
+    - one coherent Go file set inside the component's package
+    - match the conventions of existing code in the same layer
+    - layer-appropriate: no calls up or sideways (see [[the-method-layers]])
+    - do NOT edit anything under */generated/
 
-run the product's build + test commands:
-    - if Kotlin: ./gradlew :products:<product>:<module>:check
-    - if web:    cd products/<product>/webApp && npm run build && npm run test
-    - if iOS:    use XcodeBuildMCP to build/test
-    - if Android: ./gradlew :products:<product>:androidApp:assembleDebug
+verify YOUR code (working-directory: server, fast checks only):
+    gofmt -w .
+    GOWORK=off go build ./...
+    GOWORK=off go vet ./...
+    GOWORK=off go test ./internal/<layer>/<pkg>/...
+    # NOT `make test-short` — it spins up containers and is far too slow
 
-if build/tests fail: fix and re-run. Do not mark done while failing.
+if build/vet/tests fail: fix failures in YOUR code and re-run.
+Do not mark done while failing. Do not chase pre-existing repo issues.
 
-write notes to designs/<product>/implementation/log/<activity-id>.md:
-    - what was implemented
-    - any deviation from the contract (should be empty)
-    - test results
+commit to branch aiarch/construct/<activity-id> and open a PR. Put
+implementation notes (what was built, any contract deviation — should be
+none, test results) in the PR body + commit messages. Stop after opening
+the PR; do not merge.
 
-flag for code review by the senior-developer named in the
-detailed-design activity that this construction depends on.
+flag for code review by the senior-developer who designed the contract.
 ```
 
 ## Key book references
