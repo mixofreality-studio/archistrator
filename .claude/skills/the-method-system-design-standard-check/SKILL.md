@@ -131,10 +131,10 @@ Apply this section ONLY when `.operationalConcepts` §1 declares Temporal as the
 |---|---|---|---|
 | 7a | Every Client → Manager edge label uses a Temporal primitive | Grep `architecture.dsl` relationships block: every Client → Manager edge starts with `StartWorkflow(`, `SignalWorkflow(`, `QueryWorkflow(`, `UpdateWorkflow(`, or `Schedule[` | |
 | 7b | Every Manager → ResourceAccess edge label starts with `Activity:` | Grep `architecture.dsl` | |
-| 7c | Every Manager → Engine edge label is a deterministic call (no `Activity:` prefix) | Grep `architecture.dsl`; engines are deterministic in-workflow calls per `the-method-architecture/TEMPORAL-VOCABULARY.md` | |
+| 7c | Every Manager → Engine edge label is a deterministic call (no `Activity:` prefix) | Inspect the `.systemDesign` relationships (or rendered DSL); engines are deterministic in-workflow calls, no Activity wrapper | |
 | 7d | Every Manager → `workflowExecutionAccess` edge label names a Temporal primitive (`Timer`, `Await Signal`, `SignalExternalWorkflow`, `ExecuteChildWorkflow`, `ContinueAsNew`, or `Schedule[...]`) | Grep `architecture.dsl` | |
 | 7e | Workflow types end in `Workflow`; Signal types end in `Signal`; Activity types are imperative verbs (not past tense) | Inspect identifiers in `.systemDesign` dynamic views and (when present) in the committed `.serviceContracts` entries | |
-| 7f | Sequence-diagram source carried on `.systemDesign` dynamic views uses Temporal vocabulary (no `MessageBus` participant; signal/timer/activity arrows named per `TEMPORAL-VOCABULARY.md`) | Inspect each rendered PlantUML sequence diagram (```puml ... @startuml ... @enduml block) | |
+| 7f | Sequence-diagram source carried on `.systemDesign` dynamic views uses Temporal vocabulary (no `MessageBus` participant; signal/timer/activity arrows named with Temporal primitives) | Inspect each rendered PlantUML sequence diagram (```puml ... @startuml ... @enduml block) | |
 | 7g | `.operationalConcepts` Sync/Queued Map names a Temporal primitive per row | Inspect the table — every row should have an explicit primitive column or equivalent | |
 | 7h | Determinism rules for workflow code documented in `.operationalConcepts` | Look for the list (no system clock, no random IDs, all I/O via Activities, versioning policy) | |
 | 7i | External-system idempotency boundaries enumerated per Activity | Look for the per-Activity dedup-key table (Stripe Idempotency-Key, k8s manifest name, gateway event id, etc.) | |

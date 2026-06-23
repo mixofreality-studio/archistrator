@@ -7,7 +7,7 @@ description: System Design — document runtime interaction decisions (sync/queu
 
 The static architecture says what exists. Operational concepts say how it runs. Each decision must trace back to a business objective from the committed `.mission` artifact — otherwise it's gratuitous complexity.
 
-When the chosen execution infrastructure for Managers is a durable workflow engine (Temporal is the default for this codebase), the operational concepts MUST also commit to the runtime vocabulary in `../the-method-architecture/TEMPORAL-VOCABULARY.md`. That vocabulary is shared by `architecture.dsl` edge labels, dynamic-view interactions, sequence diagrams, and the per-component service contracts produced in [[the-method-service-contract]].
+When the chosen execution infrastructure for Managers is a durable workflow engine (Temporal is the default for this codebase), the operational concepts MUST also commit to the runtime vocabulary — Workflow / Activity / Signal / Query / Update / Timer / Schedule / ChildWorkflow / ContinueAsNew naming + edge-label grammar (Manager-layer only). That vocabulary is shared by the rendered architecture's edge labels, dynamic-view interactions, sequence diagrams, and the per-component service contracts produced in [[the-method-service-contract]].
 
 ## Canonical source
 
@@ -20,7 +20,7 @@ When the chosen execution infrastructure for Managers is a durable workflow engi
 - [Ch. 3 §3.5 "Utilities Bar"](../../../../rightingsoftware/OEBPS/xhtml/ch03.xhtml#ch03lev2sec7) — Message Bus, etc.
 
 **Temporal vocabulary (when applicable):**
-- `../the-method-architecture/TEMPORAL-VOCABULARY.md` — workflow / activity / signal / query / update / timer / schedule / child workflow naming and edge-label grammar
+- Workflow / Activity / Signal / Query / Update / Timer / Schedule / ChildWorkflow / ContinueAsNew — the canonical naming + edge-label grammar (Manager-layer only)
 - Temporal Encyclopedia: https://docs.temporal.io/encyclopedia
 - Temporal Rust quickstart: https://docs.temporal.io/develop/rust/quickstart
 
@@ -62,7 +62,7 @@ For each choice, document:
 - durable Timers and Schedules (cron-style recurrences without leader election)
 - Child Workflows and ContinueAsNew for unbounded streams
 
-If the team commits to Temporal here, every downstream artifact uses the vocabulary in `../the-method-architecture/TEMPORAL-VOCABULARY.md` — the static-architecture relationships block, each dynamic view, the sequence diagrams, and the service contracts. Document the determinism rules (no nondeterminism inside workflow code, all I/O via Activities, versioning strategy on workflow changes) as part of the cost discussion.
+If the team commits to Temporal here, every downstream artifact uses the Temporal vocabulary (Workflow / Signal / Query / Update / Activity / Timer / Schedule / ChildWorkflow / ContinueAsNew) — the static-architecture relationships block, each dynamic view, the sequence diagrams, and the service contracts. Document the determinism rules (no nondeterminism inside workflow code, all I/O via Activities, versioning strategy on workflow changes) as part of the cost discussion.
 
 **Default to NOT-Temporal** for systems with no long-running flow, no scheduled work, no cross-process state recovery requirement, and tiny team. The book's plain "Workflow Manager + workflow store" is sufficient there; the Temporal vocabulary doesn't apply.
 
@@ -145,7 +145,7 @@ Common patterns from the book:
 
 Per ch. 5 caution: *"Not every organization can justify using the pattern... Always calibrate the architecture to the capability and maturity of the developers and management."*
 
-**Temporal-flavoured patterns** (use when the infrastructure decision in Step 1 commits to Temporal). For naming conventions on each of these, see `../the-method-architecture/TEMPORAL-VOCABULARY.md`.
+**Temporal-flavoured patterns** (use when the infrastructure decision in Step 1 commits to Temporal). Use the Temporal primitive names verbatim (Workflow / Signal / Query / Update / Activity / Timer / Schedule / ChildWorkflow / ContinueAsNew).
 
 - **Workflow Manager — on Temporal.** Each Manager use-case method is a `WorkflowType`; each ResourceAccess call from the workflow is an `Activity`. Document the determinism rules, the Activity RetryPolicy library (named policies referenced from contracts), and the versioning strategy.
 - **Signal-driven gate.** A workflow that suspends on `Await Signal(<SignalName>)` until an out-of-band caller delivers the decision via `SignalWorkflow(<workflowId>, <SignalName>, <payload>)`. Use for human-in-the-loop approvals, operator pauses, and async external-event injection. The suspend point is durable; the workflow id is the continuity token.
