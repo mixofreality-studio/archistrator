@@ -4,3 +4,4 @@ dist/
 server/server
 server/cmd/server/server
 .npmrc
+server/.env
