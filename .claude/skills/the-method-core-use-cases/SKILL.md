@@ -1,6 +1,6 @@
 ---
 name: the-method-core-use-cases
-description: System Design — identify the 2–6 core use cases through abstraction. Architect decides; PM co-discovers. Reads mission.md, glossary.md, volatilities.md, scrubbed-requirements.md. Produces core-use-cases.md. Invoke after [[the-method-volatility-identification]], before [[the-method-architecture]].
+description: System Design — identify the 2–6 core use cases through abstraction. Architect decides; PM co-discovers. Reads the committed .mission, .glossary, .volatilities, .scrubbedRequirements from project.json. Produces the typed CoreUseCases committed to project.json → .coreUseCases. Invoke after [[the-method-volatility-identification]], before [[the-method-architecture]].
 ---
 
 # Core Use Cases
@@ -20,26 +20,30 @@ description: System Design — identify the 2–6 core use cases through abstrac
 
 ## Input
 
-- `methodpoc/designs/<product>/system/mission.md`
-- `methodpoc/designs/<product>/system/glossary.md`
-- `methodpoc/designs/<product>/system/volatilities.md`
-- `methodpoc/designs/<product>/system/scrubbed-requirements.md`
-- `methodpoc/designs/<product>/research/`
+State is git-as-DB: archistrator is a single Go-server repo whose canonical project state lives in `.aiarch/state/project.json` (a typed JSON aggregate). Markdown is a render-on-read of the typed state.
+
+- The committed **mission** artifact → `.aiarch/state/project.json` → `.mission`
+- The committed **glossary** artifact → `.glossary`
+- The committed **volatilities** artifact → `.volatilities`
+- The committed **scrubbedRequirements** artifact → `.scrubbedRequirements`
+- The research corpus in `project.json`
 
 ## Output
 
-`methodpoc/designs/<product>/system/core-use-cases.md` containing:
+The typed **`CoreUseCases`** model (Go shape in `server/internal/resourceaccess/projectstate/models_phase1.go`), committed to **`.aiarch/state/project.json` → `.coreUseCases`** — NOT a `core-use-cases.md` file; any markdown is a render-on-read of this slot. Per the two usage patterns (agentic/CI dispatch and local interactive), the agent emits the typed model and commits it into `.coreUseCases`; the server stages it (`StageArtifactForReview`) for the human review gate.
+
+The model carries:
 
 1. The **full raw list** of all use cases mentioned in research
 2. The **2–6 core use cases** with behavior descriptions
 3. **Rejection reasons** for each non-core use case
-4. **Activity diagrams** (PlantUML activity diagrams, new syntax) for use cases with nested conditions, **using role-based swimlanes when the use case crosses multiple roles/areas of interest, and fork bars when paths execute concurrently**
+4. **Activity diagrams** (PlantUML activity diagrams, new syntax) for use cases with nested conditions, **using role-based swimlanes when the use case crosses multiple roles/areas of interest, and fork bars when paths execute concurrently** — carried as diagram source on the typed use-case entries (the renderer emits them; they are not separate files)
 
 ## Procedure
 
 ### Step 1 — List every raw use case
 
-Trawl `research/` and `scrubbed-requirements.md`. List every distinct use case mentioned, in customer language. Don't filter yet. Don't rename yet.
+Trawl the research corpus in `project.json` and the committed `.scrubbedRequirements`. List every distinct use case mentioned, in customer language. Don't filter yet. Don't rename yet.
 
 Format:
 
@@ -145,7 +149,7 @@ For every raw use case that did NOT make the core list, write one line explainin
 
 This is important for two reasons:
 1. **Trail for review.** PM and stakeholders can challenge the architect's rejection of any "obvious" use case.
-2. **Future evolution.** When `/add-use-case` runs later, the non-core list confirms whether the new use case is a known variation or genuinely new.
+2. **Future evolution.** When `/add-use-case` runs later, the non-core list in `.coreUseCases` confirms whether the new use case is a known variation or genuinely new.
 
 ### Step 6 — PM ratification
 
@@ -163,7 +167,7 @@ If they cannot agree, the dispute usually means one of:
 
 ## Exit criteria (for router)
 
-`core-use-cases.md` exists with:
+`.aiarch/state/project.json` → `.coreUseCases` holds the typed `CoreUseCases` model with:
 - Raw list (complete)
 - 2–6 core use cases (each with actor, trigger, outcome, paths, optional activity diagram)
 - Rejection table for non-core

@@ -2,9 +2,18 @@
 
 How to encode Löwy's volatility-based decomposition in Structurizr DSL.
 
-## File location
+## Where the DSL lives
 
-`designs/<product>/system/architecture.dsl`
+State is git-as-DB: the architecture is a **typed entry in
+`.aiarch/state/project.json` under `.systemDesign`** — git is the database.
+Structurizr DSL is a **render-on-read** of that typed model, never the source of
+truth. There is no `designs/<product>/system/architecture.dsl` file (that was a
+methodpoc artifact); when you "write DSL" you are shaping the typed
+`.systemDesign` slot, and the DSL is produced by rendering it.
+
+The syntax conventions below remain canonical — they describe the shape of the
+DSL rendered from `.systemDesign`, and the typed model carries the same
+elements, relationships, descriptions, and views.
 
 ## Element model
 
@@ -31,9 +40,11 @@ The component description is metadata in the diagram — not the place to
 document edge cases, retention policy, persistence schema, or rationale.
 That detail belongs in:
 
-- comment blocks above the element in the DSL,
-- `operational-concepts.md` (runtime behavior, idempotency, retries),
-- `volatilities.md` (the *why* of the encapsulation).
+- comment blocks above the element in the rendered DSL,
+- the committed **operational-concepts** artifact (the `.operationalConcepts`
+  slot — runtime behavior, idempotency, retries),
+- the committed **volatilities** artifact (the `.volatilities` slot — the *why*
+  of the encapsulation).
 
 **Pattern by layer:**
 
@@ -63,7 +74,8 @@ Relationship labels name **what** the caller invokes, in the **vocabulary of
 the destination layer's responsibility**. Architecture diagrams are infrastructure-
 agnostic — never put workflow-engine primitives (`Activity:`,
 `StartWorkflow(...)`, `SignalExternalWorkflow`, `Await Signal`, etc.) in
-the labels. Those belong in `operational-concepts.md`.
+the labels. Those belong in the committed operational-concepts artifact
+(the `.operationalConcepts` slot).
 
 | Edge | Label shape | Why |
 |---|---|---|
@@ -99,7 +111,8 @@ Postgres for DynamoDB, or Stripe for Adyen, would the label have to
 change? If yes, the label is leaking implementation detail through the
 encapsulation — pull the platform name out and use the generic effect.
 Infrastructure-specific primitives, retry/timeout policies, and platform API
-shapes belong in `operational-concepts.md`, not in Structurizr labels.
+shapes belong in the committed operational-concepts artifact (the
+`.operationalConcepts` slot), not in Structurizr labels.
 
 ## Template
 
@@ -231,57 +244,37 @@ Method's rules. Each rule below is an automated check.
 
 ## Rendering
 
-For local viewing, use the project's `structurizr-serve` wrapper. It runs the
-current `structurizr/structurizr` Docker image (NOT the deprecated
-`structurizr/lite`) and mounts the system directory:
-
-```bash
-./methodpoc/structurizr-serve <product>
-# open http://localhost:8080
-```
-
-The parser expects the workspace file to be named `workspace.dsl`. The
-architect writes the canonical artifact to `architecture.dsl` AND a
-byte-identical copy to `workspace.dsl`. The PostToolUse hook (see
-"Validation" below) keeps the copy in sync after any edit to
-`architecture.dsl`.
+The DSL is **rendered on read** from the typed `.systemDesign` slot. To view it
+locally, render the slot to a Structurizr workspace and open it in the current
+`structurizr/structurizr` Docker image (NOT the deprecated `structurizr/lite`).
+The render emits a single `workspace.dsl`; there is no separate
+`architecture.dsl` artifact to keep in sync (that drift problem belonged to the
+old methodpoc two-file layout and does not exist when the DSL is a render of one
+typed model).
 
 ## Validation
 
-After ANY edit to a `*.dsl` file under `designs/<product>/system/`, the file
-MUST be validated against the parser. This is non-negotiable — Structurizr is
-strict and the parser errors are not always obvious from reading the file
-(see "Common DSL pitfalls" below).
+Validation happens against the **typed `.systemDesign` model**, not a `.dsl`
+file in a designs tree. Two layers of checking:
 
-**Manual command (any project):**
+1. **The Method rules** — the layer/call-direction/cardinality/edge-label rules
+   below are validated structurally over the typed model (see "Validation rules"
+   above). These do not require a Structurizr parser.
 
-```bash
-./methodpoc/structurizr-validate <product>
-```
+2. **DSL parse validity** — whenever `.systemDesign` is rendered to Structurizr
+   DSL, the rendered workspace MUST parse cleanly under
+   `structurizr/structurizr validate`. Structurizr is strict and the parser
+   errors are not always obvious from reading the DSL (see "Common DSL pitfalls"
+   below). Treat any `ERROR` line in the parser output as a failure — the bare
+   validate command exits 0 on certain syntax errors (notably `styles` block
+   syntax) even though the server cannot load the workspace. The renderer is
+   responsible for emitting DSL that parses; the pitfalls section encodes the
+   traps so the rendered output avoids them.
 
-The script wraps `structurizr/structurizr validate` and additionally treats
-any `ERROR` line in the parser output as a failure — the bare validate
-command exits 0 on certain syntax errors (notably `styles` block syntax) even
-though the server cannot load the workspace. The wrapper script catches
-these.
-
-**Automatic validation (PostToolUse hook):**
-
-`methodpoc/.claude/settings.local.json` registers a PostToolUse hook for
-`Edit|Write|MultiEdit`. The hook script at
-`methodpoc/.claude/hooks/validate-structurizr.sh`:
-
-1. No-ops silently for any file path that is not
-   `methodpoc/designs/<project>/system/*.dsl`.
-2. When `architecture.dsl` is edited, syncs the change to `workspace.dsl`.
-3. Runs `structurizr-validate --file <path>` on the edited file.
-4. On validation failure, exits 2 with the parser output on stderr — the
-   agent sees the error in the tool result and cannot proceed until it
-   fixes the DSL.
-
-**Exit criteria for any architecture skill that writes DSL**: the file
-parses cleanly under `structurizr-validate`. Do not move on to the next
-step with a non-validating DSL.
+**Exit criteria for any architecture skill that shapes `.systemDesign`**: the
+typed model passes The Method rules, and its DSL rendering parses cleanly under
+`structurizr/structurizr validate`. Do not move on with a model that fails
+either check.
 
 ## Common DSL pitfalls
 
@@ -322,10 +315,11 @@ The fix is always to add the missing `<X> -> <Y> "..."` line under the
 `// Manager → ResourceAccess` (or appropriate) section of the model, not to
 remove the dynamic-view edge.
 
-**Pitfall: workspace.dsl drift from architecture.dsl.** The hook syncs
-on edits to `architecture.dsl`. If you edit `workspace.dsl` directly, no
-sync happens — the canonical artifact silently drifts. Always edit
-`architecture.dsl` and let the hook propagate.
+**Pitfall: editing the rendered DSL instead of the model.** The DSL is a
+render-on-read of the typed `.systemDesign` slot. Hand-editing the rendered
+`workspace.dsl` does not change the model — the next render overwrites your
+edit and the change is lost. Always change the typed `.systemDesign` slot and
+re-render; the DSL is an output, never the source of truth.
 
 **Pitfall: escaped quotes inside relationship descriptions.** The parser
 does NOT support `\"` inside `"..."` relationship-description strings.
@@ -368,7 +362,8 @@ continue-as-new, scheduled executions — belong in:
 - the **static-architecture** edges from Manager → infrastructure ResourceAccess
   (so the encapsulation is documented once, with the full primitive list,
   in business verbs over the infrastructure),
-- `operational-concepts.md` (where, why, and with what retention/replay
+- the committed operational-concepts artifact (the `.operationalConcepts` slot —
+  where, why, and with what retention/replay
   semantics — including the infrastructure-specific names of those primitives,
   e.g., Temporal `Activity` / `Signal` / `Schedule`, Akka actor messages,
   etc.),
@@ -390,7 +385,8 @@ Manager, the dynamic view shows a **queued Manager→Manager edge**
 directly (per the closed-layer queued-sideways rule, ch. 3). The label
 names the business signal — e.g., `delivers applyDelinquencyPolicy
 (queued)`. The infrastructure-level delivery mechanism stays in the static
-view and `operational-concepts.md`.
+view and the committed operational-concepts artifact (the
+`.operationalConcepts` slot).
 
 **Suspend-points.** A `Phase A: workflow suspends → Phase B: client
 signals it` interaction is conveyed by ordering alone in the dynamic

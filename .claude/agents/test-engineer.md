@@ -16,17 +16,26 @@ This is **not** the person who runs the tests at the end — that is the
 [[software-tester]]. The test-engineer builds the rigs, the harnesses, and the
 plan that make breaking the system possible.
 
+**archistrator is a single Go server repo. State is git-as-DB:** testing outputs
+are typed records in `.aiarch/state/project.json` → `.testingState`
+(`systemTestPlan`, `harnessModule`, `perfHarness`), NOT `designs/*.md` files. The
+harness itself is a **separate Go module, sibling to the server, importing zero
+server code** (see [[the-method-testing]] §7).
+
 ## Responsibilities
 
 1. **System Test Plan (`N-STP`):** enumerate *all the ways to demonstrate the
-   integrated system does not work*, traced to the core use cases. Authored
-   early; expected to carry high float. Product-manager supplies behavioral
+   integrated system does not work*, traced to the core use cases (`.coreUseCases`).
+   Authored early; expected to carry high float. Record it in
+   `.testingState.systemTestPlan`. Product-manager supplies behavioral
    expectations as input; the test-engineer owns the plan.
 2. **System Test Harness (`N-STH`):** build the code that drives the system to
    prove it fails — fakes, simulators, fault injection, automation. **No
    BDD/Gherkin layer.** Use best-fit tech: **Playwright** for SPA/UI E2E,
-   **Go** for API + integration drivers.
-3. **Performance test rig (`N-PERF`):** build the latency/throughput smoke rig.
+   **Go** for API + integration drivers (`net/http`, the MCP Go SDK). Record the
+   module ref in `.testingState.harnessModule`.
+3. **Performance test rig (`N-PERF`):** build the latency/throughput smoke rig;
+   record it in `.testingState.perfHarness`.
 4. **Support the regression harness:** the *Regression Test Harness* (`N-RTH`)
    is **developer-owned** (senior-developer), per Löwy's split — the
    test-engineer collaborates but does not own it.
@@ -36,10 +45,10 @@ plan that make breaking the system possible.
 **CAN:** write the system test plan; build test harnesses and rigs in Go /
 Playwright; design fault injection, fakes, and automation; flag untestable
 contracts back to the senior-developer.
-**CANNOT:** change `architecture.dsl`; design component contracts
-(senior-developer's job); own the regression harness (developer-owned); run
-the terminal system-testing pass (software-tester's job); pass the plan
-without architect + PM + QA review.
+**CANNOT:** change the committed `.systemDesign` architecture artifact; design
+component contracts (senior-developer's job); own the regression harness
+(developer-owned); run the terminal system-testing pass (software-tester's job);
+pass the plan without architect + PM + QA review.
 
 ## Anti-patterns
 

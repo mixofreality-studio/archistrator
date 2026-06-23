@@ -1,6 +1,6 @@
 ---
 name: the-method-requirements-analysis
-description: System Design — build the glossary via the Four Questions and scrub solutions-masquerading-as-requirements. Architect drives both passes together. Reads mission.md and designs/<product>/research/. Produces glossary.md and scrubbed-requirements.md. Invoke after [[the-method-business-alignment]], before [[the-method-volatility-identification]].
+description: System Design — build the glossary via the Four Questions and scrub solutions-masquerading-as-requirements. Architect drives both passes together. Reads the committed .mission and the research corpus from project.json. Produces the typed Glossary and ScrubbedRequirements committed to project.json → .glossary and .scrubbedRequirements. Invoke after [[the-method-business-alignment]], before [[the-method-volatility-identification]].
 ---
 
 # Requirements Analysis (Glossary + Scrubbing)
@@ -19,14 +19,20 @@ This phase pairs two architect-driven activities that must happen together: buil
 
 ## Input
 
-- `methodpoc/designs/<product>/system/mission.md` (from prior phase)
-- All files in `methodpoc/designs/<product>/research/`
-- `methodpoc/designs/<product>/system/customer-input.md` (if present)
+State is git-as-DB: archistrator is a single Go-server repo whose canonical project state lives in `.aiarch/state/project.json` (a typed JSON aggregate). Markdown is a render-on-read of the typed state, never the source of truth.
+
+- The committed **mission** artifact in `.aiarch/state/project.json` → `.mission` (from the prior phase)
+- The research corpus in `.aiarch/state/project.json`
+- The PM's customer-input notes carried in project state (if present)
 
 ## Outputs
 
-1. `methodpoc/designs/<product>/system/glossary.md`
-2. `methodpoc/designs/<product>/system/scrubbed-requirements.md`
+The two typed models (Go shapes in `server/internal/resourceaccess/projectstate/models_phase1.go`), committed to `.aiarch/state/project.json`:
+
+1. **`Glossary`** (`Items []GlossaryItem`, each `Term`/`Definition`/category) → `.glossary`
+2. **`ScrubbedRequirements`** → `.scrubbedRequirements`
+
+Neither is a `*.md` file — any markdown below is a render-on-read of the typed slot. Per the two usage patterns (agentic/CI dispatch and local interactive), the agent emits each typed model and commits it into its slot in `project.json`; the server stages it (`StageArtifactForReview`) for the human review gate.
 
 ## Procedure
 
@@ -42,9 +48,9 @@ Use the **Four Questions** to canvas the domain. Per ch. 3:
 | **How** does it access resources? | Verbs over data | ResourceAccess |
 | **Where** does state live? | Stores, queues, external systems | Resources |
 
-For each question, list every distinct domain noun or verb that appears in the research. Define each in one line using **customer language**.
+For each question, list every distinct domain noun or verb that appears in the research. Define each in one line using **customer language**. Each becomes a `GlossaryItem` (term + one-line definition + Four-Question category) in the typed `Glossary` committed to `.glossary`.
 
-Format `glossary.md`:
+Rendered view (`Glossary` → render-on-read; the JSON is the source of truth):
 
 ```markdown
 # Glossary
@@ -95,7 +101,7 @@ Per ch. 2: *"Start by pointing out the solutions masquerading as requirements, a
 | "We need a queue" | User receives events | User receives events in order |
 | "Add a notification service" | Notify users on state changes | Same — but architecture must encapsulate transport volatility |
 
-Format `scrubbed-requirements.md`:
+Rendered view of the typed `ScrubbedRequirements` committed to `.scrubbedRequirements` (the JSON is the source of truth; this table is render-on-read):
 
 ```markdown
 # Scrubbed Requirements
@@ -111,10 +117,10 @@ The **third column is critical** — it's the input to [[the-method-volatility-i
 
 ### Pass 3 — Reconcile glossary and scrubbed requirements
 
-Read both files. Check:
+Read both typed models (the staged/committed `.glossary` and `.scrubbedRequirements` slots). Check:
 - Every actor in scrubbed requirements is in the glossary (under Who)
 - Every behavior in scrubbed requirements maps to a glossary entry (under What)
-- Where glossary terms differ from research wording, the glossary wins — update `scrubbed-requirements.md` to use glossary terms
+- Where glossary terms differ from research wording, the glossary wins — revise the `ScrubbedRequirements` model to use glossary terms before committing
 
 ## PM role
 
@@ -122,15 +128,15 @@ The PM is dispatched after architect produces drafts:
 - Glossary: PM flags missing terms or misnamed concepts the customer would not recognize
 - Scrubbed requirements: PM ratifies that the architect's "real requirement" still serves the customer's actual need
 
-PM does not author either file.
+PM does not author either model.
 
 ## Exit criteria (for router)
 
-Both `glossary.md` and `scrubbed-requirements.md` exist. Glossary has entries under all five Four-Question categories. Every research requirement appears in scrubbed-requirements.md with a candidate volatility hint. Move to `the-method-volatility-identification`.
+`.aiarch/state/project.json` → `.glossary` and `.scrubbedRequirements` both hold their typed models. Glossary has entries under all five Four-Question categories. Every research requirement appears in `.scrubbedRequirements` with a candidate volatility hint. Move to `the-method-volatility-identification`.
 
 ## Anti-patterns to reject
 
 - **CRUD-style entries** in the glossary ("create order", "update user") — these are implementations, not behaviors. Restate as business verbs.
-- **Untouched requirements** in scrubbed-requirements.md — if the "scrubbed" column matches the "original" column exactly, you didn't interrogate hard enough.
+- **Untouched requirements** in `.scrubbedRequirements` — if the "scrubbed" value matches the "original" value exactly, you didn't interrogate hard enough.
 - **Marketing names** in glossary — replace with operational terms.
 - **Tech-stack names** anywhere — "Redis cache" is not a requirement, "fast read access" is.

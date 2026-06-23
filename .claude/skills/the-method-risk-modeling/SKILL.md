@@ -1,6 +1,6 @@
 ---
 name: the-method-risk-modeling
-description: Quantify and compare risk across all project options (normal, decompressed-normal, subcritical, compressed). Compute criticality risk and activity risk per option, plot the time-risk and time-cost curves, and apply exclusion zones. Produces risk.md as the analytics input to SDP review. Use after all four options exist; runs as pure analytics over their network states.
+description: Quantify and compare risk across all project options (normal, decompressed-normal, subcritical, compressed). Compute criticality risk and activity risk per option, plot the time-risk and time-cost curves, and apply exclusion zones. Produces the typed RiskModel committed to project.json → .riskModel as the analytics input to SDP review. Use after all four options exist; runs as pure analytics over their network states.
 ---
 
 # Risk Modeling
@@ -31,19 +31,26 @@ Per `[[the-method-doctrine]]` Directive 7, the analytics here are what let manag
 
 ## Input
 
-All four options must already exist as files with their own network states:
+State is git-as-DB: all of this lives in `.aiarch/state/project.json` (a typed JSON aggregate), NOT in `designs/<product>/*.md` files. Markdown/DSL is a render-on-read of the typed state, never the source of truth.
 
-- `methodpoc/designs/<product>/project/normal.md` + network state for normal
-- `methodpoc/designs/<product>/project/decompressed.md` + network state for decompressed-normal
-- `methodpoc/designs/<product>/project/subcritical.md` + network state for subcritical
-- `methodpoc/designs/<product>/project/compressed.md` + network state for compressed
-- `methodpoc/designs/<product>/project/planning-assumptions.md` (risk flags)
+All four option slots must already be committed, each with its own network state:
 
-If `decompressed.md` does not yet exist, hand back to `[[the-method-decompressed-solution]]` before computing the cross-option analytics. (Decompression needs normal's risk computed first — that's a tighter loop owned by the decompressed-solution skill itself.)
+- The committed **normalSolution** artifact → `.normalSolution` (network state for normal)
+- The committed **decompressedSolution** artifact → `.decompressedSolution` (network state for decompressed-normal)
+- The committed **subcriticalSolution** artifact → `.subcriticalSolution` (network state for subcritical)
+- The committed **compressedSolution** artifact → `.compressedSolution` (network state for compressed)
+- The committed **planningAssumptions** artifact → `.planningAssumptions` (risk flags)
+
+If `.decompressedSolution` is not yet committed, hand back to `[[the-method-decompressed-solution]]` before computing the cross-option analytics. (Decompression needs normal's risk computed first — that's a tighter loop owned by the decompressed-solution skill itself.)
 
 ## Output
 
-`methodpoc/designs/<product>/project/risk.md` covering all four options.
+The risk model is a **typed model committed into `.aiarch/state/project.json` → `.riskModel`** — git is the database. It covers all four options (metrics, time-risk and time-cost curves, exclusion verdicts, recommendation). It is NOT a `risk.md` file; any markdown (including the Step 6 template) is a render-on-read of that JSON slot.
+
+Two usage patterns produce this slot:
+
+1. **Agentic/CI dispatch:** the agent produces the typed `RiskModel` model as JSON and commits it into `.riskModel` on its session branch; the server reads it back and stages it (`StageArtifactForReview`) for the human review gate (`CommitArtifact` / `RejectArtifact`).
+2. **Local interactive:** same — produce the typed model and write it into the `.riskModel` slot. Never a `designs/*.md` file.
 
 ## Procedure
 
@@ -65,7 +72,7 @@ Note: criticality risk should be **customized** per project (App C §4.7a). Some
 | Near-critical | 1–5 |
 | Float | 6+ |
 
-If you use a custom band definition, document it at the top of `risk.md`.
+If you use a custom band definition, document it at the top of the `.riskModel` slot.
 
 ### Step 2 — Compute activity risk per option (ch. 10 §3.6)
 
@@ -81,7 +88,7 @@ Or equivalently: high activity risk when most activities have low float; low act
 
 Per App C §4.7b: *"Adjust floats outliers with activity risk."* If one activity has wildly high float (e.g., 200 days when project is 120 days), it distorts the average. Either cap floats at the project duration or use activity risk's robustness.
 
-Both metrics belong in `risk.md`. They tell slightly different stories.
+Both metrics belong in the `.riskModel` slot. They tell slightly different stories.
 
 **Advanced (ch. 12 §4):** If the project has god activities or extreme float outliers, use geometric criticality risk and geometric activity risk instead of arithmetic. The arithmetic mean lies in the face of `[1, 2, 3, 1000]`-style distributions. Apply geometric variants if arithmetic risk gives an unrealistically low reading. Document the choice.
 
@@ -148,11 +155,11 @@ Apply rules across all four options:
 
 App C §4.7i: *"Avoid project options riskier or safer than the risk crossover points."* The "risk crossover points" are where the risk curve hits 0.3 and 0.75 — these become hard exclusion bounds.
 
-The result is a set of options ranked **IN** or **OUT**. Out-of-bounds options should still appear in `risk.md` (so the SDP review can show *why* they were excluded), but the SDP recommendation must come from the IN set.
+The result is a set of options ranked **IN** or **OUT**. Out-of-bounds options should still appear in the `.riskModel` slot (so the SDP review can show *why* they were excluded), but the SDP recommendation must come from the IN set.
 
-### Step 6 — Write `risk.md`
+### Step 6 — Commit the typed risk model to `.riskModel`
 
-Format:
+Produce the typed `RiskModel` model and commit it to `.aiarch/state/project.json` → `.riskModel`. The markdown below is the equivalent **human rendering** — use it to review the analytics, but the source of truth is the slot, not a `risk.md` file:
 
 ```markdown
 # Risk Modeling — <Product>
@@ -189,7 +196,7 @@ Cost minimum: ~120 days, 36 mm. Decompressed-normal at 130 days / 37 mm is the c
 ## Risk inputs from planning assumptions
 - Bus-factor on senior-dev-1 (only senior on multiple critical activities)
 - UX expert availability uncertain in Q3
-- (other flags from planning-assumptions.md)
+- (other flags from the committed `.planningAssumptions` slot)
 
 ## Risk model choice
 - Used arithmetic risk (no god activities, float distribution within expected band)
@@ -198,7 +205,7 @@ Cost minimum: ~120 days, 36 mm. Decompressed-normal at 130 days / 37 mm is the c
 
 ## Exit criteria (for router)
 
-- `risk.md` exists
+- `.aiarch/state/project.json` → `.riskModel` holds a committed typed model
 - All four options have criticality risk and activity risk computed
 - Time-risk and time-cost curves plotted across the full option set
 - Exclusion zones applied; IN/OUT marked per option

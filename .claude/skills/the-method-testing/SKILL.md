@@ -11,7 +11,7 @@ The authoritative statement of how Löwy treats testing and quality assurance.
 Other skills ([[the-method-activity-list]], [[the-method-review-routing]],
 [[the-method-handoff]]) cite this rather than re-deriving it.
 
-Canonical sources (in `designs/<product>/research/rightingsoftware/`): ch02
+Canonical sources (book in repo at `../../../rightingsoftware/`): ch02
 (unit vs regression), ch09 (roles, cost, daily build), ch11 (test activities in
 the network), ch12 (quality multiplication), ch13 (TradeMe staffing), ch14
 (the hand-off, smoke tests, QA), App A (per-service test plan).
@@ -74,15 +74,21 @@ needed during system testing* (ch11).
 
 ## 4. Where testing sits in the activity graph
 
-| Activity | Position | Float | Owner |
-|---|---|---|---|
-| System Test Plan (`N-STP`) | early | high | test-engineer |
-| System Test Harness (`N-STH`) | early | high | test-engineer |
-| Regression Test Harness (`N-RTH`) | early, run continuously | — | senior-developer |
-| Daily build + smoke (`N-SMOKE`) | ongoing | indirect | devops |
-| QA process + gates (`N-QA`) | spans project | — | qa-engineer |
-| System Testing (`N-IT`) | **terminal, on critical path** | 0 | software-tester |
-| Performance test (`N-PERF`) | terminal | — | test-engineer |
+State is git-as-DB: these testing outputs are typed records in
+`.aiarch/state/project.json` → `.testingState` (system test plan, harness, perf
+rig, quality gates, defects, test runs), NOT `designs/*.md` files. The
+per-service Service Test Plan a developer writes is the `.phaseArtifacts.testPlan`
+entry for the component. Per-activity status lives in `.activityConstruction`.
+
+| Activity | Position | Float | Owner | project.json target |
+|---|---|---|---|---|
+| System Test Plan (`N-STP`) | early | high | test-engineer | `.testingState.systemTestPlan` |
+| System Test Harness (`N-STH`) | early | high | test-engineer | `.testingState.harnessModule` |
+| Regression Test Harness (`N-RTH`) | early, run continuously | — | senior-developer | harness module (sibling to server) + `.activityConstruction` |
+| Daily build + smoke (`N-SMOKE`) | ongoing | indirect | devops | CI (`GOWORK=off go build/test` under `server/`) |
+| QA process + gates (`N-QA`) | spans project | — | qa-engineer | `.testingState.qualityGates` / `.testingState.qualityAuditReport` |
+| System Testing (`N-IT`) | **terminal, on critical path** | 0 | software-tester | `.testingState.testRuns` + `.testingState.defects` |
+| Performance test (`N-PERF`) | terminal | — | test-engineer | `.testingState.perfHarness` |
 
 Test Plan / Test Harness are **early high-float enablers** — deferring them
 "consumes 77% of their float… very risky" (ch11). System Testing is the

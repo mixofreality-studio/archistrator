@@ -33,22 +33,24 @@ Sections walked:
 
 ## Input
 
-- `methodpoc/designs/<product>/project/network.yaml` — current state, with planned EV curve
-- `methodpoc/designs/<product>/project/sdp-review.md` — chosen option (gives BAC = budget at completion, planned duration, planned staffing)
-- `methodpoc/designs/<product>/implementation/log/week-<NN-1>.md` — last week's log, if any
-- This week's activity completions (from the team) — what passed its binary exit criterion since the last log
+State is git-as-DB: everything below is read from / written to `.aiarch/state/project.json`.
+
+- The committed **network** (`.network`) — current state, with planned EV curve
+- The committed **sdp-review** (`.sdpReview`) — chosen option (gives BAC = budget at completion, planned duration, planned staffing)
+- The per-activity construction state (`.activityConstruction`) — each activity's phase completions, build status, and (for prior weeks) the recorded tracking points
+- This week's activity completions (from `RecordPhaseCompleted` / `RecordActivityExited` events) — what passed its binary exit criterion since the last tracking point
 - This week's actual direct cost (person-days × rate, per resource)
 - This week's actual indirect cost burn (core team, DevOps, testers, etc.)
 
 ## Output
 
-`methodpoc/designs/<product>/implementation/log/week-<NN>.md`
+A weekly tracking record appended to the project state — the binary phase exits land in `.activityConstruction[activityId]` (via `RecordPhaseStarted`/`RecordPhaseCompleted`/`RecordActivityExited`), and the week's earned-value point + projection are recorded alongside the network's tracking series in `project.json`. There is **no** `implementation/log/week-<NN>.md` file; the markdown in Step 10 is a render-on-read of that typed state.
 
-Where `<NN>` is the construction week number, zero-padded. Week 01 is the first week after the hand-off completes; week 02 is the next, etc.
+`<NN>` is the construction week number, zero-padded. Week 01 is the first week after the hand-off completes; week 02 is the next, etc.
 
 ## Procedure
 
-### Step 1 — Walk every activity in `network.yaml` and update status
+### Step 1 — Walk every activity in `.network` and update its `.activityConstruction` status
 
 Per App A §1, every activity is in one of three life-cycle states. Status changes only when a **binary exit criterion** for the activity's current internal phase has passed:
 
@@ -58,7 +60,7 @@ Per App A §1, every activity is in one of three life-cycle states. Status chang
 | **in-progress** | Started, current phase not complete | A phase's exit criterion has been met (e.g., test plan reviewed, code review passed). Update the phase-completion list on the activity. |
 | **done** | All phases complete with their exit criteria met | The activity's final phase exit criterion has been met |
 
-For each activity, record the list of completed phases and which phase is currently in flight. Per App A §1.1, the exit criterion is binary — a phase is either done or not done. Partial credit is not allowed. *"The `Construction` phase is complete once you have had the code review, not simply when the code is checked in."*
+For each activity, record the list of completed phases and which phase is currently in flight in `.activityConstruction[activityId]` (the phase completions and `currentPhase` fields). Per App A §1.1, the exit criterion is binary — a phase is either done or not done. Partial credit is not allowed. *"The `Construction` phase is complete once you have had the code review, not simply when the code is checked in."*
 
 ### Step 2 — Compute progress per activity (App A §1.3)
 
@@ -68,7 +70,7 @@ For each activity:
 A_i(t) = Σ over completed phases j of W_j
 ```
 
-Where `W_j` is the weight of phase `j` (from `activities.md` / `network.yaml`; weights sum to 100% across the activity's phases).
+Where `W_j` is the weight of phase `j` (from the `.activityList` / `.network` phase weights; each `.activityConstruction` phase completion carries its `weight`, summing to 100% across the activity's phases).
 
 Example (App A Table A-1):
 
@@ -82,7 +84,7 @@ Example (App A Table A-1):
 
 If Requirements + Detailed Design + Test Plan are done, the activity is 45% complete (15 + 20 + 10).
 
-Use the **same weighting technique** across all activities (App A §1.2: *"For accurate tracking, it does not matter much which technique you use to allocate the weight of the phases as long as you apply the technique consistently."*). If `activities.md` did not pre-assign weights, default to equal weighting (e.g., 5 phases → 20% each) and record that choice on week-01.md so it's stable for the project lifetime.
+Use the **same weighting technique** across all activities (App A §1.2: *"For accurate tracking, it does not matter much which technique you use to allocate the weight of the phases as long as you apply the technique consistently."*). If the `.activityList` did not pre-assign weights, default to equal weighting (e.g., 5 phases → 20% each) and record that choice on the week-01 tracking record so it's stable for the project lifetime.
 
 ### Step 3 — Compute project progress (App A §2)
 
@@ -112,7 +114,7 @@ Three curves on the same axes:
 - **Green: actual progress (EV)** — computed in Step 3, one data point per weekly tracking
 - **Red: actual effort (AC)** — computed in Step 4, one data point per weekly tracking
 
-Each tracking week adds one new point to green and red. Blue is fixed at project start (and only redrawn if `[[the-method-scope-change]]` formally accepts a re-plan).
+Each tracking week appends one new point to green and red in the tracking series. Blue is fixed at project start (and only redrawn if `[[the-method-scope-change]]` formally accepts a re-plan).
 
 Track the indirect cost separately — App A §2.6 explains why it usually isn't worth charting against the plan (linear, doesn't suggest corrective action), but you must add it to direct cost when reporting *total* spend.
 
@@ -175,17 +177,17 @@ Six items. Each PASS / WAIVED (with justification) / FAIL (return to fix before 
 | # | Guideline | How to verify against this week's log | Status |
 |---|---|---|---|
 | 1 | Adopt binary exit criteria for internal phases | Every activity's status update in Step 1 cites a binary criterion (review passed, test passed, etc.). No "70% done" entries. | |
-| 2 | Assign consistent phase weights across all activities | Step 2 used the same weighting technique that was set in week-01. | |
-| 3 | Track progress and effort on a weekly basis | This log exists and is dated within one week of the prior log. | |
-| 4 | Never base your progress reports on features | The progress in Step 3 is computed from activities (services and noncoding) in `network.yaml`, not "features delivered" or stories. | |
+| 2 | Assign consistent phase weights across all activities | Step 2 used the same weighting technique that was set in the week-01 record. | |
+| 3 | Track progress and effort on a weekly basis | This tracking record exists and is dated within one week of the prior record. | |
+| 4 | Never base your progress reports on features | The progress in Step 3 is computed from activities (services and noncoding) in `.network`, not "features delivered" or stories. | |
 | 5 | Always base your progress reports on integration points | Activity completion is gated on integration (the integration phase or its exit criterion), not on standalone coding. | |
 | 6 | Track the float of near-critical chains | The float of every near-critical chain (any chain with total float ≤ a small threshold, e.g., ≤ 5 days) appears in the status section. | |
 
 Items 4 and 5 are non-waivable.
 
-### Step 10 — Write `week-<NN>.md`
+### Step 10 — Record the week's tracking point
 
-Format:
+The canonical form is the typed tracking record in `project.json` (the appended earned-value point + projection, with the binary phase exits already landed in `.activityConstruction`). The markdown below is the equivalent **human rendering** of that record — not a `designs/.../log/week-<NN>.md` file:
 
 ```markdown
 # Tracking — Week <NN> — <Product>
@@ -243,7 +245,7 @@ Likely cause: A012 OrderManager construction is taking longer than estimated; A0
 
 <chosen action> per App A §5.2.
 
-Triggers `[[the-method-scope-change]]` to produce sdp-review-02.md? **<Yes | No, monitoring for one more week>**
+Triggers `[[the-method-scope-change]]` to produce a new `.sdpReview` revision? **<Yes | No, monitoring for one more week>**
 
 ## App C §5 standard check
 
@@ -263,8 +265,8 @@ Triggers `[[the-method-scope-change]]` to produce sdp-review-02.md? **<Yes | No,
 
 ## Exit criteria (for router)
 
-- `week-<NN>.md` exists, dated within 7 days of `week-<NN-1>.md` (App C §5.3)
-- Every activity in `network.yaml` has a status, % complete, and float-remaining (for near-critical chains)
+- A week-`<NN>` tracking point is recorded in `project.json`, dated within 7 days of the week-`<NN-1>` point (App C §5.3)
+- Every activity in `.network` has a status, % complete (in `.activityConstruction`), and float-remaining (for near-critical chains)
 - Progress, effort, indirect cost, CPI, and SPI are computed
 - Once ≥ 4 weekly data points exist, EAC projections are present
 - A pattern from App A §5 is named
@@ -292,7 +294,7 @@ When in doubt, run this skill's projection through one more week before triggeri
 
 - **Reporting on coding only** — App A §3 / App C §5.5 require progress reports based on **integration points**, not lines of code, commits, or stories. Until an activity's integration exit criterion has passed, the activity is not done.
 - **Silent variance absorption** — if CPI < 1.0 or SPI < 1.0 and you log "everything is fine," you are lying to the project. Variance gets harder to absorb the longer it goes unsurfaced.
-- **Per-developer status instead of activity status** — "Alice 80%, Bob 60%" is meaningless. Activity status is what tracks against `network.yaml`. Per-developer status is a side channel.
+- **Per-developer status instead of activity status** — "Alice 80%, Bob 60%" is meaningless. Activity status is what tracks against `.network`. Per-developer status is a side channel.
 - **Feature-based progress reports** — App C §5.4 non-waivable. Features are not units of progress; integration points are.
 - **Throwing people at variance** (App A §5.2 / Brooks) — almost always makes the project worse. The exception is at the project's origin, where you can re-pivot to a more-compressed SDP option.
 - **Reactive corrections** — App A §6: drive by trend, not by current state. Reacting after green has fallen far below blue means the corrective action must be much larger and more disruptive.

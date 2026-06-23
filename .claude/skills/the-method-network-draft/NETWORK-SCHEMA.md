@@ -1,13 +1,21 @@
-# network.yaml schema
+# The `Network` model — shape of the `.network` slot
 
-The machine-readable project network. Source of truth for `/project-design`
-output and `/implement-project` orchestration.
+The shape of the typed `Network` model that drives `/project-design` output and
+`/implement-project` orchestration.
 
-## File location
+State is git-as-DB: the project network is a **typed entry in
+`.aiarch/state/project.json` under `.network`** — git is the database. There is
+**no `network.yaml` file**; it was a methodpoc artifact and no longer exists.
+Any YAML or markdown rendering of the network is a render-on-read of the typed
+`.network` slot, never the source of truth.
 
-`designs/<product>/project/network.yaml`
+## Storage location
 
-## Schema
+`.aiarch/state/project.json` → `.network` (a typed JSON slot). The forms below
+are an **illustrative YAML rendering** of that slot's shape — read them as the
+field documentation for the typed model, not as a file on disk.
+
+## Shape
 
 ```yaml
 project:
@@ -26,7 +34,7 @@ activities:
   - id: A001
     name: "Identify core use cases"
     type: noncoding | detailed-design | construction | integration | quality
-    component: null | "ComponentName"   # references container ID in architecture.dsl
+    component: null | "ComponentName"   # references a container ID in the .systemDesign slot
     duration_days: 5                     # quantum of 5
     role: product-manager | system-architect | project-manager | senior-developer | junior-developer | ux-designer | test-engineer | devops
     dependencies: []                     # list of activity IDs that must be `done` first
@@ -149,11 +157,11 @@ network_summary:
 |---|---|
 | Duration in 5-day quanta | `duration_days % 5 == 0` — **exempt `type == milestone`** (must be 0) |
 | No god activities | `duration_days <= 35` |
-| All deps exist | every `dependencies[*]` resolves to an activity in the file |
+| All deps exist | every `dependencies[*]` resolves to an activity in the `.network` slot |
 | Every activity has a resource | `role` is set — **exempt `type == milestone`** (`role: null`) |
 | Every activity reaches the critical path | DAG analysis: no orphan branches |
 | `component` set for coding activities | type ∈ {detailed-design, construction} ⇒ component non-null |
-| `component` references real container | string matches an ID in `architecture.dsl` |
+| `component` references real container | string matches a container ID in the `.systemDesign` slot |
 | Milestone is a zero-duration event | `type == milestone ⇒ duration_days == 0` and `public` is set |
 | Off-CP milestones should be private (LINT, not hard fail) | `type == milestone` and `on_critical_path == false` and `public == true` ⇒ WARN. Allowed only when the milestone is an explicit public demo/release gate. A pure internal off-CP hurdle (e.g. M1 Infrastructure, M2 Managers) should be private. |
 | `on_critical_path` is computed (FAN-OUT ⇒ standard float rule; MARKER ⇒ determining-predecessor rule) | NOT authored. PREFERRED: materialize the milestone with FAN-OUT (downstream nodes depend on it, replacing the milestone's fan-in subset — a clean no-op where the consumer's deps include exactly that subset). A materialized milestone then has real successors, so the STANDARD float rule applies directly: `on_critical_path == (total_float == 0)` from the real backward pass — and it lands on-CP exactly when it sits on the zero-float path (e.g. M3/M4: I-UC1..5→M3, N-IT→M4). FALLBACK for a milestone left as a pure fan-in MARKER (no clean fan-out — e.g. M1 à-la-carte infra, M5 terminal): use the DETERMINING-PREDECESSOR rule — on-CP iff the max-`earliest_finish` fan-in node (ties prefer on-CP) is on-CP, PLUS the t=0 root (M0) on and the terminal-at-`project_duration` milestone (M5) on; a post-v1 milestone (N-DOGFOOD) is off-CP regardless. The two rules AGREE for materialized milestones; the det-pred fallback exists only so a marker's on-CP reflects the achievement it gates rather than the slack of a dead-end sink. Do NOT apply the bare slack-sink float rule to a marker (its LF pins to project duration and wrongly drops on-CP markers). |
@@ -164,7 +172,7 @@ network_summary:
 ## How `/implement-project` uses this
 
 ```pseudocode
-load network.yaml
+read the .network slot from project.json
 runnable = [a for a in activities
             if a.status == "not-started"
             and all(d.status == "done" for d in a.dependencies)]
@@ -175,6 +183,8 @@ next = runnable.sorted_by(float_days_asc).first
 
 ## How `/sdp-review` uses this
 
-On scope change, the file is **regenerated** — old `network.yaml` is archived
-to `project/network-v<N>.yaml` and replaced. Tracking history is preserved
-across versions so progress isn't lost.
+On scope change, the `.network` slot is **replaced** with the regenerated
+network — there is no archive file to write, because **git history is the
+archive**: every prior `.network` state is recoverable from the commit log of
+`.aiarch/state/project.json`. Tracking history is carried forward in the new
+slot value so progress isn't lost.

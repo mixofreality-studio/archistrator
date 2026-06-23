@@ -1,6 +1,6 @@
 ---
 name: the-method-compressed-solution
-description: Project Design — design the compressed solution. Shorter duration via parallel work first, top resources second. Target ≤30% compression. Stops at death zone. Reads normal.md, network.yaml, planning-assumptions.md. Produces compressed.md. Invoke after [[the-method-subcritical-solution]], before [[the-method-risk-modeling]].
+description: Project Design — design the compressed solution. Shorter duration via parallel work first, top resources second. Target ≤30% compression. Stops at death zone. Reads the committed normalSolution, network, planningAssumptions artifacts in project.json. Produces the typed CompressedSolution committed to project.json → .compressedSolution. Invoke after [[the-method-subcritical-solution]], before [[the-method-risk-modeling]].
 ---
 
 # Compressed Solution
@@ -23,12 +23,19 @@ Rules from the book: parallel work *first*, top resources *second*, never below 
 
 ## Input
 
-- `methodpoc/designs/<product>/project/normal.md` and `network.yaml`
-- `methodpoc/designs/<product>/project/planning-assumptions.md`
+State is git-as-DB: all of this lives in `.aiarch/state/project.json` (a typed JSON aggregate), NOT in `designs/<product>/*.md` or `network.yaml` files. Markdown/DSL/YAML is a render-on-read of the typed state, never the source of truth.
+
+- The committed **normalSolution** artifact in `project.json` → `.normalSolution` (the baseline being compressed, with its resource-assigned network state) and the committed **network** artifact → `.network`
+- The committed **planningAssumptions** artifact in `project.json` → `.planningAssumptions`
 
 ## Output
 
-`methodpoc/designs/<product>/project/compressed.md`
+The compressed solution is a **typed model committed into `.aiarch/state/project.json` → `.compressedSolution`** — git is the database. It carries this option's own recomputed network state (compression extras and resource swaps), summary metrics, and the comparison-to-normal table. It is NOT a `compressed.md` file; any markdown (including the Step 7 template) is a render-on-read of that JSON slot.
+
+Two usage patterns produce this slot:
+
+1. **Agentic/CI dispatch:** the agent produces the typed `CompressedSolution` model as JSON and commits it into `.compressedSolution` on its session branch; the server reads it back and stages it (`StageArtifactForReview`) for the human review gate (`CommitArtifact` / `RejectArtifact`).
+2. **Local interactive:** same — produce the typed model and write it into the `.compressedSolution` slot. Never a `designs/*.md` file.
 
 ## Procedure
 
@@ -40,7 +47,7 @@ Before reaching for compression techniques, check:
 
 | Quick-and-clean lever | Action |
 |---|---|
-| Are there hidden dependencies you can remove? | Re-examine each dependency in `network.yaml` |
+| Are there hidden dependencies you can remove? | Re-examine each dependency in the committed `.network` slot |
 | Can the team skip activities that don't add value? | Drop them (rare; usually each was added intentionally) |
 | Can specialists replace generalists? | Hire / engage an expert per ch. 9 §1 |
 | Is there parallel work the team simply hadn't planned? | Surface and add |
@@ -60,7 +67,7 @@ Parallel work mechanics:
 4. **Pre-work for noncoding.** UX design can start before architecture is complete (with risk); infra provisioning can run in parallel with early construction.
 
 For each parallel-work change:
-- Add the new activities to `network.yaml` (likely under a `compressed_extras:` list)
+- Add the new activities to this option's network state inside `.compressedSolution` (likely under a `compressed_extras:` list)
 - Add the resources needed
 - Recompute network
 
@@ -120,9 +127,9 @@ After iteration converges:
 
 App C reminder: compress the project *even if the likelihood of pursuing any of the compressed options is low* (§4.6g). The exercise reveals the time-cost shape, which informs every other option.
 
-### Step 7 — Write `compressed.md`
+### Step 7 — Commit the typed compressed solution to `.compressedSolution`
 
-Format:
+Produce the typed `CompressedSolution` model and commit it to `.aiarch/state/project.json` → `.compressedSolution`. The markdown below is the equivalent **human rendering** — use it to review the solution, but the source of truth is the slot, not a `compressed.md` file:
 
 ```markdown
 # Compressed Solution — <Product>
@@ -186,7 +193,7 @@ Total: 90 days
 
 ## Exit criteria (for router)
 
-`compressed.md` exists with:
+`.aiarch/state/project.json` → `.compressedSolution` holds a committed typed model with:
 - Comparison table showing duration shorter, total cost higher
 - Compression ≤ 30%
 - Efficiency ≤ 25%

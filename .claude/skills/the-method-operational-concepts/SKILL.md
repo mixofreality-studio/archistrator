@@ -1,11 +1,11 @@
 ---
 name: the-method-operational-concepts
-description: System Design — document runtime interaction decisions (sync/queued, pub/sub, layering, patterns). Each decision justified against a business objective. Reads mission.md, architecture.dsl. Produces operational-concepts.md. Invoke after [[the-method-architecture]], before [[the-method-system-design-standard-check]].
+description: System Design — document runtime interaction decisions (sync/queued, pub/sub, layering, patterns). Each decision justified against a business objective. Reads the committed .mission and .systemDesign from project.json. Produces the typed OperationalConcepts committed to project.json → .operationalConcepts. Invoke after [[the-method-architecture]], before [[the-method-system-design-standard-check]].
 ---
 
 # Operational Concepts
 
-The static architecture says what exists. Operational concepts say how it runs. Each decision must trace back to a business objective from `mission.md` — otherwise it's gratuitous complexity.
+The static architecture says what exists. Operational concepts say how it runs. Each decision must trace back to a business objective from the committed `.mission` artifact — otherwise it's gratuitous complexity.
 
 When the chosen execution infrastructure for Managers is a durable workflow engine (Temporal is the default for this codebase), the operational concepts MUST also commit to the runtime vocabulary in `../the-method-architecture/TEMPORAL-VOCABULARY.md`. That vocabulary is shared by `architecture.dsl` edge labels, dynamic-view interactions, sequence diagrams, and the per-component service contracts produced in [[the-method-service-contract]].
 
@@ -26,12 +26,14 @@ When the chosen execution infrastructure for Managers is a durable workflow engi
 
 ## Input
 
-- `methodpoc/designs/<product>/system/mission.md` — every operational decision must support an objective
-- `methodpoc/designs/<product>/system/architecture.dsl`
+State is git-as-DB: archistrator is a single Go-server repo whose canonical project state lives in `.aiarch/state/project.json` (a typed JSON aggregate). Markdown/DSL is a render-on-read of the typed state.
+
+- The committed **mission** artifact → `.aiarch/state/project.json` → `.mission` — every operational decision must support an objective
+- The committed **systemDesign** artifact → `.systemDesign` (the typed `System`: components, relationships, dynamic views — rendered as `architecture.dsl` for reading)
 
 ## Output
 
-`methodpoc/designs/<product>/system/operational-concepts.md`
+The typed **`OperationalConcepts`** model (Go shape in `server/internal/resourceaccess/projectstate/models_phase1.go`), committed to **`.aiarch/state/project.json` → `.operationalConcepts`**. NOT an `operational-concepts.md` file — any markdown below is a render-on-read of this slot. Per the two usage patterns (agentic/CI dispatch and local interactive), the agent emits the typed model and commits it into `.operationalConcepts`; the server stages it (`StageArtifactForReview`) for the human review gate.
 
 ## Procedure
 
@@ -49,7 +51,7 @@ Per ch. 5 (TradeMe): *"all communication between all Clients and all Managers ta
 For each choice, document:
 
 - **What** — the topology (direct / Message Bus / hybrid) AND the infrastructure (plain / Temporal / other durable engine)
-- **Why** — cite the specific objective(s) from `mission.md`
+- **Why** — cite the specific objective(s) from the committed `.mission` artifact
 - **Cost** — what does this buy and what does it cost in team complexity? (Ch. 5 warning: *"Not every organization can justify using the pattern... calibrate to team capability."*)
 
 **Temporal as the default Manager infrastructure.** When the system has long-running flows (architect-review gates that suspend for days, multi-step settlement, retry-with-backoff against flaky external systems, scheduled sweeps), **Temporal is the recommended infrastructure**. It absorbs:
@@ -119,7 +121,7 @@ Format:
 
 **Chosen: Closed.**
 
-Justification: closed architecture provides maximum encapsulation per The Method's default (App C §4a–c). No business objective in `mission.md` requires relaxing closure.
+Justification: closed architecture provides maximum encapsulation per The Method's default (App C §4a–c). No business objective in the committed `.mission` artifact requires relaxing closure.
 
 Permitted exceptions used in this design:
 - Queued calls between Managers (allowed by closed rules)
@@ -159,7 +161,7 @@ Format:
 ### Workflow Manager — on Temporal
 **Used in:** OrderManager, FulfillmentManager
 **Business objective served:** Quick turnaround (objective 2), Customization (objective 3), Survive infra churn (objective N)
-**Team capability:** Senior developers will lead introduction; juniors need ramp on (a) determinism rules, (b) RetryPolicy tuning, (c) versioning strategy. Document conventions in `docs/temporal-conventions.md`.
+**Team capability:** Senior developers will lead introduction; juniors need ramp on (a) determinism rules, (b) RetryPolicy tuning, (c) versioning strategy. Capture these conventions in the `OperationalConcepts` model itself (the Temporal-determinism / RetryPolicy notes), not a separate `docs/` file.
 **Workflow store:** Temporal cluster history service (no application-managed table)
 **Business event log (separate concern):** Postgres event-sourced log appended to via `Activity: AppendEvent(...)`
 
@@ -224,7 +226,7 @@ Walk the document and verify:
 
 | Check | Action |
 |---|---|
-| Every decision cites at least one business objective from `mission.md` | If not, drop the decision or rewrite the justification |
+| Every decision cites at least one business objective from the committed `.mission` artifact | If not, drop the decision or rewrite the justification |
 | No event publisher/subscriber violates the Don'ts | Fix architecture, not the doc |
 | Layering style declared (closed/open/semi) | Add it if missing |
 | Each adopted pattern names the team-capability assessment | Add it if missing |
@@ -236,7 +238,7 @@ Walk the document and verify:
 
 ## Exit criteria (for router)
 
-`operational-concepts.md` exists with all eight sections. Each operational decision cites a `mission.md` objective. No Don'ts are violated.
+`.aiarch/state/project.json` → `.operationalConcepts` holds the typed `OperationalConcepts` model with all eight sections. Each operational decision cites a `.mission` objective. No Don'ts are violated.
 
 Move to `the-method-system-design-standard-check`.
 

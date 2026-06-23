@@ -1,6 +1,11 @@
 # Implement Project
 
-> Phase 3 / construction. Pick the next unblocked activity from `network.yaml` and execute it through the right role agent, gated by the chosen hand-off model. Loop until blocked, complete, or interrupted.
+> Phase 3 / construction. Pick the next unblocked activity from the `.network` slot in `.aiarch/state/project.json` and execute it through the right role agent, gated by the chosen hand-off model. Loop until blocked, complete, or interrupted.
+>
+> **archistrator is a single Go server repo. State is git-as-DB:** all project
+> state lives in typed slots in `.aiarch/state/project.json`, NOT in
+> `methodpoc/designs/<product>/*.md` files. Components live under
+> `server/internal/<layer>/<pkg>/`. Markdown/DSL is render-on-read.
 
 **Skill reference:** Invoke `the-method` skill. This command orchestrates the Phase 3 sub-skills:
 
@@ -22,15 +27,15 @@
 
 ## Prerequisites
 
-- `designs/<product>/project/network.yaml` must exist with `chosen_option` set (management has committed).
-- `designs/<product>/project/project-standard-checklist.md` must exist (Phase 2 standard check passed).
-- `designs/<product>/system/architecture.dsl` exists.
+- The `.network` slot must be committed with a chosen option set (management has committed).
+- The Phase-2 project-design standard check must have passed (recorded against `.sdpReview`).
+- The `.systemDesign` architecture artifact is committed.
 
 ## Workflow
 
 ### Step 0: Pick the hand-off model (ONE-TIME at Phase 3 start)
 
-Skip if `designs/<product>/implementation/handoff.md` already exists.
+Skip if the `.handoff` slot is already committed.
 
 Invoke [[the-method-handoff]] via `system-architect`:
 
@@ -44,9 +49,9 @@ Invoke [[the-method-handoff]] via `system-architect`:
 >   - **Junior hand-off** (avoid unless trivial): junior designs and
 >     implements; architect reviews everything.
 >
-> Document the choice + rationale in
-> `designs/<product>/implementation/handoff.md`. State explicitly who
-> designs contracts and who reviews implementation, per activity type.
+> Document the choice + rationale in the `.handoff` slot of
+> `.aiarch/state/project.json`. State explicitly who designs contracts and who
+> reviews implementation, per activity type.
 
 This decision threads through every per-activity step below.
 
@@ -54,18 +59,18 @@ This decision threads through every per-activity step below.
 
 Dispatch `project-manager`:
 
-> Load `methodpoc/designs/<product>/project/network.yaml`.
+> Load the `.network` slot from `.aiarch/state/project.json`.
 >
 > Verify:
->   - `chosen_option` is set (not null)
->   - `start_date` is set
->   - The system design is complete: `designs/<product>/system/architecture.dsl` exists
->   - The hand-off model is set: `designs/<product>/implementation/handoff.md` exists
+>   - the network's chosen option is set (not null)
+>   - the network's start date is set
+>   - The system design is complete: the `.systemDesign` artifact is committed
+>   - The hand-off model is set: the `.handoff` slot is committed
 >
 > Also load:
->   - `designs/<product>/system/architecture.dsl` (architecture context)
->   - `designs/<product>/project/planning-assumptions.md` (constraints)
->   - `designs/<product>/implementation/handoff.md` (contract-design ownership)
+>   - `.systemDesign` (architecture context)
+>   - `.planningAssumptions` (constraints)
+>   - `.handoff` (contract-design ownership)
 
 ### Step 2: Pick next activity
 
@@ -89,8 +94,9 @@ next = runnable sorted by float_days ascending (critical path first)
        then by id ascending (deterministic tie-break)
 ```
 
-Mark `next.status = "in-progress"` and `next.started_date = today` in
-`network.yaml`. **Save before dispatching the role agent.**
+Record the activity as started in `.activityConstruction[next.id]` (the
+`RecordPhaseStarted` verb sets it in-progress with `startedAt = today`).
+**Commit before dispatching the role agent.**
 
 ### Step 3: Dispatch by activity type
 
@@ -102,53 +108,55 @@ Invoke [[the-method-service-contract]]. The hand-off model from Step 0 determine
 - **senior-as-junior-architect** → senior designs the contract under architect mentorship; architect reviews.
 - **junior hand-off** → junior designs the contract; architect reviews.
 
-The designer is dispatched first; the reviewer is dispatched on completion. Output goes to `designs/<product>/implementation/contracts/<component>.md`. Walk the Appendix B contract design rules and the Appendix C §6 standard check (3–5 ops per contract, max 12, reject ≥20).
+The designer is dispatched first; the reviewer is dispatched on completion. Output is the typed contract committed to `.serviceContracts[<component>]` (there is no `designs/.../contracts/<component>.md` file; markdown is render-on-read). Walk the Appendix B contract design rules and the Appendix C §6 standard check (3–5 ops per contract, max 12, reject ≥20).
 
 #### If `next.type == "construction"`
 
 Dispatch the implementer (`junior-developer` by default; `senior-developer` if the activity carries a `role: senior-developer` override):
 
-> Implement `<next.component>` against
-> `designs/<product>/implementation/contracts/<next.component>.md`.
+> Implement `<next.component>` against its service contract in
+> `.aiarch/state/project.json` → `.serviceContracts["<next.component>"]`
+> (in a CI run, pre-extracted to `service-contract.json` at the repo root).
 > Activity: `<next.id> — <next.name>`. Duration estimate:
-> `<next.duration_days>` days.
+> `<next.duration_days>` days. Component package:
+> `server/internal/<layer>/<pkg>/`.
 >
-> System context: `methodpoc/designs/<product>/system/architecture.dsl`.
+> System context: the committed `.systemDesign` artifact.
 >
-> Execute the activity. Write completion notes to
-> `methodpoc/designs/<product>/implementation/log/<next.id>.md`.
+> Execute the activity. Verify with `GOWORK=off go build/vet/test` under
+> `server/`. Put completion notes (what was built, any contract deviation,
+> test results) in the **PR body + commit messages**; the activity record
+> in `.activityConstruction[<next.id>]` captures phase exits and build status.
 
-On completion the senior (per the hand-off model) reviews the construction. Architect reviews are escalated for failed reviews or material design questions.
+On completion the senior (per the hand-off model) reviews the construction via [[the-method-review-routing]]. Architect reviews are escalated for failed reviews or material design questions.
 
 #### Other activity types
 
 | `next.type` | Agent | Notes |
 |---|---|---|
-| `integration` | `system-architect` | Integration across components / layer boundaries |
-| `quality` | `test-engineer` (out of POC scope — user executes manually) | |
-| `noncoding` | `product-manager` or user | Research, requirements, deployment, training |
+| `integration` | `system-architect` | Integration across components / layer boundaries; integration note → `.phaseArtifacts.integrationNote` |
+| `quality` / testing | `test-engineer` / `software-tester` | Outputs → `.testingState` (see [[the-method-testing]]) |
+| `noncoding` | `product-manager` or user | Research, requirements, deployment, training → `.phaseArtifacts` |
 
-The dispatched agent gets the activity context (id, name, type, component, duration, completed dependencies + their notes) and writes completion notes to `methodpoc/designs/<product>/implementation/log/<next.id>.md`.
+The dispatched agent gets the activity context (id, name, type, component, duration, completed dependencies + their notes) and records its output in the appropriate `project.json` slot (`.phaseArtifacts` / `.testingState`) plus the activity record in `.activityConstruction[<next.id>]` — not a `designs/*.md` log.
 
 ### Step 4: Verify and close
 
 After the role agent returns:
 
-- For `construction` activities: verify the build/tests pass for the affected product AND that the senior review (per hand-off model) is recorded in the log. If failing, **do not mark done**. Status stays `in-progress` and the user must fix.
-- For `detailed-design` activities: verify the contract file exists at `implementation/contracts/<component>.md` and that the appropriate reviewer (per hand-off model) has signed off in the file. The Appendix C §6 contract checklist must pass.
-- For `noncoding` / `integration` activities: verify the named output artifact exists.
+- For `construction` activities: verify `GOWORK=off go build/vet/test` passes under `server/` AND that the senior review (per hand-off model) is recorded against `.activityConstruction[<next.id>]`. If failing, **do not mark done**. The activity stays in-progress and the user must fix.
+- For `detailed-design` activities: verify the contract entry exists at `.serviceContracts[<component>]` and that the appropriate reviewer (per hand-off model) has signed off (recorded on the contract / activity record). The Appendix C §6 contract checklist must pass.
+- For `noncoding` / `integration` / testing activities: verify the named output exists in its `.phaseArtifacts` / `.testingState` slot.
 
 If verified:
 
-- Set `next.status = "done"`
-- Set `next.completed_date = today`
-- Append a one-line summary to `next.notes`
-- Save `network.yaml`
+- Record the activity exit in `.activityConstruction[<next.id>]` (`RecordActivityExited`, `completedAt = today`)
+- Commit `project.json`
 
 If not verified:
 
-- Keep `status = "in-progress"`
-- Log the issue to `implementation/log/<next.id>.md`
+- Leave the activity in-progress
+- Record the issue against `.activityConstruction[<next.id>]`
 - Report to user
 
 ### Step 5: Weekly tracking (if a week boundary crossed)
@@ -171,10 +179,10 @@ If today is the start of a new week (or first activity of a new week), invoke [[
 >   - Resource leak: alert user; escalation path
 >   - Overestimating: alert user; recommend releasing a resource or compressing
 >
-> Write weekly report to
-> `methodpoc/designs/<product>/implementation/log/week-<N>.md`. If a
-> corrective action requires re-options (variance large enough to redesign),
-> trigger Step 6 (scope-change).
+> Record the week-`<N>` tracking point in `project.json` (the earned-value
+> point + projection alongside `.activityConstruction` exits). If a corrective
+> action requires re-options (variance large enough to redesign), trigger
+> Step 6 (scope-change).
 
 ### Step 6: Scope-change / variance event (triggered)
 
@@ -184,7 +192,7 @@ If during Step 4 a scope change request arrives, during Step 5 variance triggers
 > options. Never silently absorb scope. Loop back to `/project-design`
 > for a new SDP review.
 
-After scope-change resolves and management commits to an updated option, resume Step 2 with the new `network.yaml`.
+After scope-change resolves and management commits to an updated option, resume Step 2 with the new `.network` slot.
 
 ### Step 7: Loop or stop
 
@@ -197,14 +205,14 @@ If `--once` (default):
 
 - Stop here.
 
-The loop terminates when all activities in `network.yaml` are `status == "done"`.
+The loop terminates when every activity in the `.network` slot has exited (its `.activityConstruction` record is done).
 
 ## Error handling
 
-- **No `chosen_option`** → tell user management hasn't committed yet; can't execute.
-- **No `handoff.md`** → run Step 0; cannot dispatch activities without it.
+- **No chosen option on `.network`** → tell user management hasn't committed yet; can't execute.
+- **No `.handoff` slot** → run Step 0; cannot dispatch activities without it.
 - **All activities done** → say "project complete," recommend `/sdp-review` for next subsystem or formal debrief.
-- **All runnable activities require an agent the POC doesn't have** (ux-designer, test-engineer, devops) → tell user to execute manually and update `network.yaml` directly, then re-run.
-- **Build/test failure on construction** → leave status `in-progress`, tell user, don't proceed.
+- **All runnable activities require an agent that isn't available** (ui-designer, test-engineer, devops) → tell user to execute manually and update `.activityConstruction` directly, then re-run.
+- **Build/test failure on construction** → leave the activity in-progress, tell user, don't proceed.
 - **Contract review fails Appendix C §6** → loop back into [[the-method-service-contract]]; do not mark detailed-design done.
 - **Activity in progress crossed estimated duration significantly** → flag as schedule risk, surface to user, consider triggering Step 6 (scope-change) for re-options.

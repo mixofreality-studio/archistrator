@@ -1,6 +1,6 @@
 ---
 name: the-method-normal-solution
-description: Project Design — design the normal solution. Minimum staffing for unimpeded critical path progress. Assign resources by float — critical path first, best resources first. Reads network.yaml and planning-assumptions.md. Produces normal.md and updated network.yaml. Invoke after [[the-method-network-draft]], before [[the-method-subcritical-solution]].
+description: Project Design — design the normal solution. Minimum staffing for unimpeded critical path progress. Assign resources by float — critical path first, best resources first. Reads the committed network and planningAssumptions artifacts in project.json. Produces the typed NormalSolution committed to project.json → .normalSolution (carries its own resource-assigned network state). Invoke after [[the-method-network-draft]], before [[the-method-subcritical-solution]].
 ---
 
 # Normal Solution
@@ -31,12 +31,19 @@ Per ch. 11: this is not the "best" solution — it's the *natural* solution. Oth
 
 ## Input
 
-- `methodpoc/designs/<product>/project/network.yaml` (from [[the-method-network-draft]])
-- `methodpoc/designs/<product>/project/planning-assumptions.md`
+State is git-as-DB: all of this lives in `.aiarch/state/project.json` (a typed JSON aggregate), NOT in `designs/<product>/*.md` or `network.yaml` files. Markdown/DSL/YAML is a render-on-read of the typed state, never the source of truth.
+
+- The committed **network** artifact in `project.json` → `.network` (from [[the-method-network-draft]])
+- The committed **planningAssumptions** artifact in `project.json` → `.planningAssumptions`
 
 ## Output
 
-`methodpoc/designs/<product>/project/normal.md` + updated `network.yaml` with resource assignments in this option's scope.
+The normal solution is a **typed model committed into `.aiarch/state/project.json` → `.normalSolution`** — git is the database. It carries this option's own resource-assigned network state (the base `.network` plus per-activity `resource:` assignments for this option), plus the summary metrics, staffing distribution, S-curve, and costs. It is NOT a `normal.md` file and it does NOT mutate the shared `.network` slot in place; the resource assignments live inside `.normalSolution`. Any markdown (including the Step 8 template) is a render-on-read of that JSON.
+
+Two usage patterns produce this slot:
+
+1. **Agentic/CI dispatch:** the agent produces the typed `NormalSolution` model as JSON and commits it into `.normalSolution` on its session branch; the server reads it back and stages it (`StageArtifactForReview`) for the human review gate (`CommitArtifact` / `RejectArtifact`).
+2. **Local interactive:** same — produce the typed model and write it into the `.normalSolution` slot. Never a `designs/*.md` file.
 
 ## Procedure
 
@@ -66,7 +73,7 @@ Per Löwy: *"Always assign resources based on float."*
 2. **Near-critical chains next.** Float ≤ 5 days = near-critical (App C §5h).
 3. **High-float activities last.** Larger float = more scheduling room = lower-risk to assign less senior people.
 
-Update `network.yaml`: for each activity, populate a `resource` field with a specific identifier (e.g., `senior-dev-1`, `junior-dev-2`, `test-engineer-1`). Keep `role` (the type); add specific `resource` (the assignment).
+In this option's network state inside `.normalSolution`: for each activity, populate a `resource` field with a specific identifier (e.g., `senior-dev-1`, `junior-dev-2`, `test-engineer-1`). Keep `role` (the type); add specific `resource` (the assignment).
 
 ```yaml
 activities:
@@ -85,7 +92,7 @@ App C §4.2h: *"Strive for task continuity."* The same developer should do const
 
 For each day from start to project_duration, list which resources are working on which activities. Aggregate into a per-day headcount.
 
-Visualize as a staffing distribution chart (in `normal.md` use a Mermaid `gantt` or simple ASCII histogram):
+Visualize as a staffing distribution chart (in the `.normalSolution` rendering use a Mermaid `gantt` or simple ASCII histogram):
 
 ```
 Headcount over time (normal solution)
@@ -114,7 +121,7 @@ Plot from day 0 (EV=0%) to project_duration (EV=100%).
 
 The curve should be a **shallow S**. Per App C §4.2f: *"Ensure a shallow S curve for the planned earned value."* If the curve is steep at start (a lot of parallel work early) or steep at end (rush finish), the plan is brittle.
 
-Visualize in `normal.md`. Use ASCII or Mermaid line plot.
+Visualize in the `.normalSolution` rendering. Use ASCII or Mermaid line plot.
 
 ### Step 5 — Compute costs (ch. 7 §9)
 
@@ -149,9 +156,9 @@ This is a placeholder; full risk modeling lives in [[the-method-risk-modeling]].
 
 Final risk modeling happens in `[[the-method-risk-modeling]]`. Decompression of the normal solution into its own option (decompressed-normal) is `[[the-method-decompressed-solution]]`.
 
-### Step 8 — Write `normal.md`
+### Step 8 — Commit the typed normal solution to `.normalSolution`
 
-Format:
+Produce the typed `NormalSolution` model and commit it to `.aiarch/state/project.json` → `.normalSolution`. The markdown below is the equivalent **human rendering** — use it to review the solution, but the source of truth is the slot, not a `normal.md` file:
 
 ```markdown
 # Normal Solution — <Product>
@@ -189,7 +196,7 @@ Total critical-path duration: N days
 | Total | N |
 
 ## Assumptions used
-- (link to `planning-assumptions.md`)
+- (reference the committed `.planningAssumptions` slot)
 - Specific assumptions exercised in this solution: ...
 
 ## Risk flags
@@ -198,8 +205,8 @@ Total critical-path duration: N days
 
 ## Exit criteria (for router)
 
-- `normal.md` exists with all sections
-- `network.yaml` updated with `resource:` assignments and `chosen_option_normal` data
+- `.aiarch/state/project.json` → `.normalSolution` holds a committed typed model with all sections
+- The `.normalSolution` network state carries `resource:` assignments for this option
 - Efficiency ≤ 25%
 - S curve is shallow
 

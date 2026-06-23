@@ -1,12 +1,12 @@
 # Project Design
 
-> Walk the user through project design with The Method: design the project that will build the system. Produce four viable options (normal, decompressed-normal, subcritical, compressed) so management can make an educated decision. Output the SDP review document and a machine-readable `network.yaml`.
+> Walk the user through project design with The Method: design the project that will build the system. Produce four viable options (normal, decompressed-normal, subcritical, compressed) so management can make an educated decision. State is git-as-DB: every artifact is a typed slot committed into `.aiarch/state/project.json` (planningAssumptions, activityList, network, the four solutions, riskModel, sdpReview) — never a `designs/*.md` or `network.yaml` file. Markdown/DSL/YAML is a render-on-read of those typed slots.
 
 **Skill reference:** Invoke `the-method` skill. This command orchestrates the project-design sub-skills in canonical order:
 
 1. [[the-method-planning-assumptions]]
 2. [[the-method-activity-list]]
-3. [[the-method-network-draft]] — companion: `methodpoc/.claude/skills/the-method-network-draft/NETWORK-SCHEMA.md`
+3. [[the-method-network-draft]] — companion: `.claude/skills/the-method-network-draft/NETWORK-SCHEMA.md`
 4. [[the-method-normal-solution]]
 5. [[the-method-subcritical-solution]]
 6. [[the-method-compressed-solution]]
@@ -23,8 +23,8 @@
 
 ## Prerequisites
 
-`designs/<product>/system/architecture.dsl` must exist. If it doesn't, stop
-and tell the user to run `/system-design <product>` first.
+The committed `.systemDesign` slot must exist in `.aiarch/state/project.json`.
+If it doesn't, stop and tell the user to run `/system-design` first.
 
 ## Workflow
 
@@ -40,15 +40,15 @@ Invoke [[the-method-planning-assumptions]]. Ask the user **one at a time**:
 6. "Vacation/holiday calendar over the planning window?"
 7. "Other projects competing for the same people?"
 
-Write to `designs/<product>/project/planning-assumptions.md`.
+Commit the typed model to `.aiarch/state/project.json` → `.planningAssumptions`.
 
 ### Step 2: Activity list
 
 Invoke [[the-method-activity-list]] via `system-architect`:
 
-> Read `designs/<product>/system/architecture.dsl` and
-> `designs/<product>/project/planning-assumptions.md`. Produce
-> `designs/<product>/project/activities.md`:
+> Read the committed `.systemDesign` and `.planningAssumptions` slots from
+> `.aiarch/state/project.json`. Produce the typed activity list and commit it
+> to `.aiarch/state/project.json` → `.activityList`:
 >
 > For each component:
 >   - One `detailed-design` activity (5–10 days, senior-developer)
@@ -65,16 +65,17 @@ Invoke [[the-method-activity-list]] via `system-architect`:
 >   - Component (if coding) or null
 >   - Behavioral dependencies (what must finish first?)
 >
-> Output a table, do not write to network.yaml yet.
+> Produce the activity list only; do not compute the network yet.
 
-Show table to user. Iterate.
+Show the activity list to user. Iterate.
 
 ### Step 3: Network draft
 
 Invoke [[the-method-network-draft]] via `project-manager` with the finalized activity list:
 
-> Write `designs/<product>/project/network.yaml` per the schema in
-> `methodpoc/.claude/skills/the-method-network-draft/NETWORK-SCHEMA.md`.
+> Commit the typed network to `.aiarch/state/project.json` → `.network` per
+> the shape in `.claude/skills/the-method-network-draft/NETWORK-SCHEMA.md`.
+> This `.network` slot replaces the old `network.yaml` file entirely.
 > Initial status of all activities: `not-started`.
 >
 > Compute total floats for every activity (longest path - earliest start -
@@ -94,8 +95,9 @@ Invoke [[the-method-normal-solution]] via `system-architect` + `project-manager`
 > Compute: duration, direct cost (sum of effort), indirect cost (duration
 > × overhead burn rate), total cost, peak staffing, efficiency.
 >
-> Write to `designs/<product>/project/normal.md` with the network +
-> staffing distribution + planned earned value (S-curve).
+> Commit the typed model to `.aiarch/state/project.json` → `.normalSolution`
+> with this option's resource-assigned network state + staffing distribution
+> + planned earned value (S-curve).
 
 #### Subcritical solution
 
@@ -105,7 +107,7 @@ Invoke [[the-method-subcritical-solution]] via `system-architect` + `project-man
 > serialize that could've been parallel. Result: longer, costlier, and
 > riskier than normal (disproves the "fewer people = cheaper" intuition).
 >
-> Write to `designs/<product>/project/subcritical.md`.
+> Commit the typed model to `.aiarch/state/project.json` → `.subcriticalSolution`.
 
 #### Compressed solution
 
@@ -118,7 +120,7 @@ Invoke [[the-method-compressed-solution]] via `system-architect` + `project-mana
 > Avoid compression > 30% (Design Standard, App C).
 > Stop if efficiency > 25% or risk > 0.75.
 >
-> Write to `designs/<product>/project/compressed.md`.
+> Commit the typed model to `.aiarch/state/project.json` → `.compressedSolution`.
 
 #### Decompressed-normal solution
 
@@ -126,10 +128,11 @@ Invoke [[the-method-decompressed-solution]] via `system-architect` + `project-ma
 
 > Start from the normal solution. Deliberately extend duration to drop
 > criticality risk toward the tipping point (~0.5) without consuming the
-> float, by reducing staff. The point is a sibling option to normal that
-> trades a small schedule increase for substantially lower risk.
+> float by reducing staff (keep the original staffing — ch. 10 §5). The
+> point is a sibling option to normal that trades a small schedule increase
+> for substantially lower risk.
 >
-> Write to `designs/<product>/project/decompressed.md`.
+> Commit the typed model to `.aiarch/state/project.json` → `.decompressedSolution`.
 
 ### Step 5: Risk modeling (all four options)
 
@@ -147,55 +150,55 @@ Invoke [[the-method-risk-modeling]] via `project-manager`:
 >     (too risky).
 >   - Reject options in the death zone (below the time-cost curve).
 >
-> Write to `designs/<product>/project/risk.md`.
+> Commit the typed model to `.aiarch/state/project.json` → `.riskModel`.
 
 ### Step 6: SDP Review document
 
 Invoke [[the-method-sdp-review]] via `system-architect`:
 
-> Audience: management decision-makers. Write
-> `designs/<product>/project/sdp-review.md` including:
+> Audience: management decision-makers. Commit the typed model to
+> `.aiarch/state/project.json` → `.sdpReview` including:
 >   - Executive summary (2–3 sentences with architect's recommendation)
->   - Mission / vision recap (from system/mission.md)
->   - Architecture overview (link to architecture.dsl; embed one image of static view if available)
+>   - Mission / vision recap (from the committed `.mission` slot)
+>   - Architecture overview (from the committed `.systemDesign` slot; embed one image of the static view if available)
 >   - Options table: each row = one of the four options, columns = duration, total cost, peak staff, criticality risk, activity risk
->   - Time-cost curve and time-risk curve (from risk.md)
->   - Planning assumptions list (link to planning-assumptions.md)
+>   - Time-cost curve and time-risk curve (from the committed `.riskModel` slot)
+>   - Planning assumptions list (from the committed `.planningAssumptions` slot)
 >   - Recommendation (architect's pick — but management chooses)
 
 ### Step 7: Project Design Standard check (final gate)
 
 Invoke [[the-method-project-design-standard-check]] via `system-architect`:
 
-> Walk Appendix C §4 Project Design Guidelines against the Phase 2
-> artifacts. Each item passes, is waived with explicit justification, or
-> sends you back to fix.
+> Walk Appendix C §4 Project Design Guidelines against the committed Phase 2
+> slots. Each item passes, is waived with explicit justification, or sends
+> you back to fix.
 >
-> Output `designs/<product>/project/project-standard-checklist.md`.
+> Record the gate result against the `.sdpReview` slot (there is no separate
+> project-standard-check slot).
 
 This is the final gate before Phase 3 / construction.
 
 ### Step 8: Present
 
-Show the user:
+Show the user the committed Phase 2 slots in `.aiarch/state/project.json`:
 
 ```
-designs/<product>/project/
-├── planning-assumptions.md
-├── activities.md
-├── network.yaml
-├── normal.md
-├── subcritical.md
-├── compressed.md
-├── decompressed.md
-├── risk.md
-├── sdp-review.md
-└── project-standard-checklist.md
+.planningAssumptions
+.activityList
+.network
+.normalSolution
+.subcriticalSolution
+.compressedSolution
+.decompressedSolution
+.riskModel
+.sdpReview   (also carries the project-design standard-check gate result)
 ```
 
-Tell user: *"Project design complete. Take `sdp-review.md` to management.
-Once an option is chosen, set `chosen_option` in `network.yaml` and run
-`/implement-project <product>`."*
+Tell user: *"Project design complete. Take the `.sdpReview` artifact to
+management. Once an option is chosen, set `chosen_option` / `start_date` on
+the `.network` slot, then `AdvancePhase` into Phase 3 (or run
+`/implement-project` locally)."*
 
 ## Error handling
 

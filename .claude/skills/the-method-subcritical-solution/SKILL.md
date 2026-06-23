@@ -1,6 +1,6 @@
 ---
 name: the-method-subcritical-solution
-description: Project Design — design the subcritical solution. Deliberately understaffed. Counterintuitively LONGER, COSTLIER, and RISKIER than normal. The point is to disprove the "fewer people = cheaper" intuition for management. Reads normal.md, network.yaml, planning-assumptions.md. Produces subcritical.md. Invoke after [[the-method-normal-solution]], before [[the-method-compressed-solution]].
+description: Project Design — design the subcritical solution. Deliberately understaffed. Counterintuitively LONGER, COSTLIER, and RISKIER than normal. The point is to disprove the "fewer people = cheaper" intuition for management. Reads the committed normalSolution, network, planningAssumptions artifacts in project.json. Produces the typed SubcriticalSolution committed to project.json → .subcriticalSolution. Invoke after [[the-method-normal-solution]], before [[the-method-compressed-solution]].
 ---
 
 # Subcritical Solution
@@ -22,13 +22,20 @@ You produce it for the SDP review so management can see the trap and reject it.
 
 ## Input
 
-- `methodpoc/designs/<product>/project/normal.md`
-- `methodpoc/designs/<product>/project/network.yaml`
-- `methodpoc/designs/<product>/project/planning-assumptions.md`
+State is git-as-DB: all of this lives in `.aiarch/state/project.json` (a typed JSON aggregate), NOT in `designs/<product>/*.md` or `network.yaml` files. Markdown/DSL/YAML is a render-on-read of the typed state, never the source of truth.
+
+- The committed **normalSolution** artifact in `project.json` → `.normalSolution` (the baseline being reduced, with its resource-assigned network state)
+- The committed **network** artifact in `project.json` → `.network`
+- The committed **planningAssumptions** artifact in `project.json` → `.planningAssumptions`
 
 ## Output
 
-`methodpoc/designs/<product>/project/subcritical.md`
+The subcritical solution is a **typed model committed into `.aiarch/state/project.json` → `.subcriticalSolution`** — git is the database. It carries this option's own recomputed network state (reduced staffing), summary metrics, and the comparison-to-normal table. It is NOT a `subcritical.md` file; any markdown (including the Step 6 template) is a render-on-read of that JSON slot.
+
+Two usage patterns produce this slot:
+
+1. **Agentic/CI dispatch:** the agent produces the typed `SubcriticalSolution` model as JSON and commits it into `.subcriticalSolution` on its session branch; the server reads it back and stages it (`StageArtifactForReview`) for the human review gate (`CommitArtifact` / `RejectArtifact`).
+2. **Local interactive:** same — produce the typed model and write it into the `.subcriticalSolution` slot. Never a `designs/*.md` file.
 
 ## Procedure
 
@@ -84,9 +91,9 @@ Risk **increases** in subcritical:
 
 App C §4.7: criticality risk > 0.75 = reject. Subcritical often pushes past this. Use that as the rejection signal.
 
-### Step 6 — Write `subcritical.md`
+### Step 6 — Commit the typed subcritical solution to `.subcriticalSolution`
 
-Mirror the structure of `normal.md` but add the comparison columns:
+Produce the typed `SubcriticalSolution` model and commit it to `.aiarch/state/project.json` → `.subcriticalSolution`. The markdown below is the equivalent **human rendering** — it mirrors the `.normalSolution` structure but adds the comparison columns. The source of truth is the slot, not a `subcritical.md` file:
 
 ```markdown
 # Subcritical Solution — <Product>
@@ -150,7 +157,7 @@ If the subcritical solution is infeasible, your removal was wrong. Pick a differ
 
 ## Exit criteria (for router)
 
-`subcritical.md` exists with the comparison table showing it's longer, costlier, and riskier than normal. Network is feasible (just suboptimal).
+`.aiarch/state/project.json` → `.subcriticalSolution` holds a committed typed model with the comparison table showing it's longer, costlier, and riskier than normal. Network is feasible (just suboptimal).
 
 Move to `the-method-compressed-solution`.
 

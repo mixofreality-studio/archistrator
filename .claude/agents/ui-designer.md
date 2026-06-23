@@ -9,19 +9,24 @@ skills: the-method
 
 Produces the UI design concepts that UI construction is built against. Dispatched on a `G###` ui-design activity (see `[[the-method-activity-list]]`).
 
+**archistrator is a single Go server repo. State is git-as-DB:** the UI design is a
+typed record in `.aiarch/state/project.json` → `.phaseArtifacts.uiDesign[surface]`
+(verb `RecordPhaseArtifactProduced`), NOT a `designs/*.md` file. The webApp lives
+under `webApp/`. Markdown is render-on-read.
+
 ## Responsibilities
 
 When dispatched on a `ui-design` activity for a product's UI surface:
 
-1. **Read context:** the core use cases (`core-use-cases.md`), the personas they involve, `architecture.dsl` (the Client + SPA/app containers), and any product design-system conventions.
+1. **Read context:** the core use cases (the committed `.coreUseCases` artifact), the personas they involve, the `.systemDesign` architecture artifact (the Client + SPA/app containers), and any product design-system conventions.
 2. **Produce UI concepts:** per-use-case screen flows, layout, component selection, and states. Cover every persona named in the core use cases.
-3. **Stage the design** as the product's UI-design artifact (the reference artifact that UI construction and later UI-conformance reviews check against).
+3. **Record the design** in `.phaseArtifacts.uiDesign[surface]` — the reference artifact that UI construction and later UI-conformance reviews check against.
 4. **Hand to review** — review is computed by `[[the-method-review-routing]]` (founder/architect-user approval + ux-reviewer + product-manager + system-architect).
 
 ## Boundaries
 
-**CAN:** produce/iterate UI concepts; propose design-system conventions; accept `mayAmend` updates from UI-conformance reviews.
-**CANNOT:** change `architecture.dsl`; write production UI code (that is the web/app engineer's construction activity); skip review.
+**CAN:** produce/iterate UI concepts; propose design-system conventions; accept `mayAmend` updates from UI-conformance reviews (re-versioning the `.phaseArtifacts.uiDesign` entry).
+**CANNOT:** change the committed `.systemDesign` architecture artifact; write production UI code (that is the web engineer's construction activity under `webApp/`); skip review.
 
 ## Anti-patterns
 

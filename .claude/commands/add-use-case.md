@@ -2,6 +2,8 @@
 
 > Add a new use case to an existing Method-designed product. Decide whether it fits the existing decomposition (just a new call chain) or requires architectural change.
 
+archistrator is a single Go-server repo; canonical state is the typed JSON aggregate in `.aiarch/state/project.json` (git-as-DB). The architecture is the typed `System` in `.systemDesign`; Structurizr DSL is a render-on-read of it. There are no `designs/<product>/*.md` files.
+
 **Skill reference:** Invoke `the-method` skill.
 
 ## Usage
@@ -12,7 +14,7 @@
 
 ## Prerequisites
 
-`designs/<product>/system/architecture.dsl` must exist.
+The committed **systemDesign** artifact must exist in `.aiarch/state/project.json` → `.systemDesign`.
 
 ## Workflow
 
@@ -30,7 +32,7 @@ Dispatch `product-manager`:
 > a notification service," ask what behavior — usually "user must learn
 > about state changes promptly."
 
-Save draft to `designs/<product>/system/new-use-cases-pending.md`.
+Carry the captured behavior as a pending use-case entry on the working `CoreUseCases` draft (not a `new-use-cases-pending.md` file).
 
 ### Step 2: Core or regular?
 
@@ -58,11 +60,11 @@ Dispatch `system-architect`:
 >   - one new Manager method (workflow change)
 >   - one new ResourceAccess verb if necessary
 >
-> Draft the call chain. Add it as a new dynamic view in
-> `designs/<product>/system/architecture.dsl`.
+> Draft the call chain. Add it as a new `DynamicView` to the typed
+> `System` in `.aiarch/state/project.json` → `.systemDesign`.
 >
-> Update `designs/<product>/system/core-use-cases.md` only if this is a
-> notable new variation worth tracking; otherwise leave alone.
+> Update `.coreUseCases` only if this is a notable new variation worth
+> tracking; otherwise leave alone.
 >
 > Then validate the new dynamic view against the convention rules (skill
 > file). If it can't be drawn cleanly using existing components, escalate
@@ -70,7 +72,7 @@ Dispatch `system-architect`:
 
 Estimate the implementation cost (probably small): one Manager method, one
 or two construction activities. Recommend appending these as activities to
-`designs/<product>/project/network.yaml` rather than a full re-design.
+the typed `ActivityList` in `.activityList` rather than a full re-design.
 
 ### Step 4 (core use case or won't fit): Re-validate decomposition
 
@@ -80,15 +82,18 @@ Dispatch `system-architect`:
 > regular variation. Two possibilities:
 >
 >   a) A volatility was missed in the original decomposition. Add a new
->      component encapsulating it. Apply the Four Questions. Update
->      `architecture.dsl`.
+>      `Component` encapsulating it (apply the Four Questions) to the typed
+>      `System` in `.systemDesign`; the missed volatility should also be
+>      recorded in `.volatilities`.
 >
 >   b) The nature of the business has changed (rare). Significant
 >      architectural change is warranted. Treat as a partial
 >      re-architecture: re-run `/system-design <product>` for the
 >      affected subsystem.
 >
-> Document the decision in `designs/<product>/system/decisions/<date>-<topic>.md`.
+> Record the decision rationale in the affected artifact's `Notes` (and the
+> commit message / PR body for the session branch) — not a
+> `decisions/<date>-<topic>.md` file.
 
 If (a): add new components + new call chain. Recommend running
 `/sdp-review <product>` because the project plan likely needs revision.
@@ -102,7 +107,8 @@ If new components or significant new activities are required:
 
 Dispatch `project-manager`:
 
-> Add new activities to `network.yaml`:
+> Add new activities to the typed `ActivityList` (`.activityList`) and the
+> typed `Network` (`.network`):
 >   - For each new component: detailed-design + construction + integration activities
 >   - Update dependencies of existing activities if they now depend on new components
 >

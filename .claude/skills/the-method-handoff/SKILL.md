@@ -7,7 +7,7 @@ description: Choose the construction hand-off model (senior, senior-as-junior-ar
 
 The hand-off is the contract between the architect and the people who will design the *details* of each service and then construct it. It is a one-time decision at the start of construction. Pick the wrong model and either the architect becomes a bottleneck (junior hand-off) or the project absorbs untracked rework (uncoordinated senior hand-off).
 
-This skill is invoked once, at the start of Phase 3, before the first detailed-design activity begins. It produces `handoff.md`, which is then referenced by every per-component contract design via `[[the-method-service-contract]]`.
+This skill is invoked once, at the start of Phase 3, before the first detailed-design activity begins. It produces the committed **handoff artifact** in `.aiarch/state/project.json` → `.handoff`, which is then referenced by every per-component contract design via `[[the-method-service-contract]]`.
 
 Per `[[the-method-doctrine]]` Directive 5: *Design iteratively, build incrementally.* The hand-off model determines who does the iterative detailed design while construction proceeds.
 
@@ -24,21 +24,23 @@ Sub-sections walked below:
 
 ## Input
 
-- `methodpoc/designs/<product>/project/sdp-review.md` — the management-committed option (normal / decompressed / compressed / subcritical) sets the duration that the hand-off must support
-- `methodpoc/designs/<product>/project/planning-assumptions.md` — the named team roster with seniority indication
-- `methodpoc/designs/<product>/system/architecture.dsl` — gives the count of services that need detailed design
+State is git-as-DB: everything below is a typed slot in `.aiarch/state/project.json`; markdown/DSL is render-on-read.
+
+- The committed **sdp-review** artifact (`.sdpReview`) — the management-committed option (normal / decompressed / compressed / subcritical) sets the duration that the hand-off must support
+- The committed **planning-assumptions** artifact (`.planningAssumptions`) — the named team roster with seniority indication
+- The committed **architecture/system-design** artifact (`.systemDesign`) — gives the count of services that need detailed design
 
 ## Output
 
-`methodpoc/designs/<product>/implementation/handoff.md`
+The committed **handoff artifact** in `.aiarch/state/project.json` → `.handoff` (a typed slot; the markdown in Step 6 is a render-on-read of it, NOT a `designs/.../handoff.md` file).
 
-This file is consumed by every subsequent invocation of `[[the-method-service-contract]]` to decide *who* designs each contract and *who* reviews it.
+This slot is consumed by every subsequent invocation of `[[the-method-service-contract]]` to decide *who* designs each contract and *who* reviews it.
 
 ## Procedure
 
 ### Step 1 — Inventory the team
 
-From `planning-assumptions.md`, classify each developer along Löwy's seniority axis. Per Ch. 14 §5: *"senior developers are those capable of designing the details of the services, whereas junior developers cannot."* This is **not** years of experience.
+From the committed planning-assumptions artifact (`.planningAssumptions`), classify each developer along Löwy's seniority axis. Per Ch. 14 §5: *"senior developers are those capable of designing the details of the services, whereas junior developers cannot."* This is **not** years of experience.
 
 | Name | Role per planning-assumptions | Capable of detailed design? | Source of confidence |
 |---|---|---|---|
@@ -51,7 +53,7 @@ If you have zero senior-capable developers, your only option is the junior hand-
 
 ### Step 2 — Count the contracts to be designed
 
-From `architecture.dsl`, count the components that will need detailed design (every Manager, every Engine, every ResourceAccess that exposes a service contract). That is the workload to absorb.
+From the committed architecture artifact (`.systemDesign`), count the components that will need detailed design (every Manager, every Engine, every ResourceAccess that exposes a service contract). That is the workload to absorb.
 
 Cross-check with the SDP-chosen option's duration: if the architect were to do every contract personally (junior hand-off), would that fit inside the front-end allocated by the chosen option, or would it consume detailed-design time during construction? Ch. 14 §5 notes that for a 12-month project the architect could spend 3–4 months on detailed design alone — that is the size of the burden the junior hand-off creates.
 
@@ -85,17 +87,17 @@ The review chain is the part of the hand-off that is non-negotiable. Skipping ar
 
 For the senior-as-junior-architect model especially, the pipeline must be explicit (Ch. 14 §5): *"You must know exactly how many services you can design in advance and how to synchronize the hand-offs with the construction."*
 
-Document, in `handoff.md`:
+Document, in the `.handoff` slot:
 
 - Batch size — how many services are designed in each pass before juniors begin constructing them
 - Lead distance — how far ahead of construction the design batch must stay
 - Buffer — extra integration activities to absorb design-construction de-synchronisation
 
-These numbers feed back into `network.yaml` as detailed-design activities. If the project-design phase did not include them, the network is now under-specified — return to Phase 2 to add them before declaring the hand-off complete.
+These numbers feed back into the `.network` slot as detailed-design activities. If the project-design phase did not include them, the network is now under-specified — return to Phase 2 to add them before declaring the hand-off complete.
 
-### Step 6 — Write `handoff.md`
+### Step 6 — Record the handoff in `project.json .handoff`
 
-Format:
+The canonical form is the typed `.handoff` slot. The markdown below is the equivalent **human rendering** — the source of truth is the JSON, not a `designs/.../handoff.md` file:
 
 ```markdown
 # Hand-Off — <Product>
@@ -109,11 +111,11 @@ Architect: <name>
 
 ### Rationale
 - Number of senior-capable developers: N (named below)
-- Service contracts to design: M (from architecture.dsl)
-- SDP-chosen option duration: <duration> (from sdp-review.md)
+- Service contracts to design: M (from the `.systemDesign` architecture artifact)
+- SDP-chosen option duration: <duration> (from the `.sdpReview` artifact)
 - Why this model fits: ...
 
-## Team roster (from planning-assumptions.md)
+## Team roster (from the `.planningAssumptions` artifact)
 
 | Name | Role | Capable of detailed design | Assignment |
 |---|---|---|---|
@@ -123,7 +125,7 @@ Architect: <name>
 
 ## Contract design assignment
 
-| Component (from architecture.dsl) | Designer | Reviewer | Constructor |
+| Component (from the `.systemDesign` artifact) | Designer | Reviewer | Constructor |
 |---|---|---|---|
 | OrderManager | dev-1 | architect | dev-1 |
 | PricingEngine | dev-2 | architect | dev-3 |
@@ -143,7 +145,7 @@ Architect: <name>
 
 - Batch size: N services per design pass
 - Lead distance: design batch must complete K days ahead of construction start
-- Integration buffer: M extra integration activities have been added to network.yaml v<N>
+- Integration buffer: M extra integration activities have been added to the `.network` slot (revision <N>)
 
 ## Risks accepted
 
@@ -153,25 +155,25 @@ Architect: <name>
 ## What this hand-off does NOT cover
 
 - Per-service contract design discipline — see `[[the-method-service-contract]]`
-- Construction sequencing — see `network.yaml`
+- Construction sequencing — see the `.network` slot
 - Weekly tracking — see `[[the-method-project-tracking]]`
 - Per-change review routing during construction — see `[[the-method-review-routing]]`
 ```
 
 ## Exit criteria (for router)
 
-- `handoff.md` exists
+- The `.handoff` slot is committed in `project.json`
 - A model is explicitly named (senior / senior-as-junior-architect / junior)
-- Every component in `architecture.dsl` has a designer, reviewer, and constructor assigned by name
+- Every component in the `.systemDesign` architecture artifact has a designer, reviewer, and constructor assigned by name
 - Review chain is stated (no implicit reviews)
-- If senior-as-junior-architect: batch size, lead distance, and any extra detailed-design activities have been reflected in `network.yaml`
+- If senior-as-junior-architect: batch size, lead distance, and any extra detailed-design activities have been reflected in the `.network` slot
 - If junior hand-off was chosen, a written justification exists (it is otherwise rejected per App C §6.5)
 
 Hand to `[[the-method-service-contract]]` for the first batch of contract design activities.
 
 ## When to revisit
 
-- Team composition changes (key senior leaves; junior promoted) — re-run this skill, produce `handoff-<NN>.md`
+- Team composition changes (key senior leaves; junior promoted) — re-run this skill, append a new revision to the `.handoff` slot
 - Hand-off model proves unworkable in practice (architect becomes a bottleneck despite senior model) — re-run with new roster assumptions
 - Scope change triggers re-entry into Phase 2 via `[[the-method-scope-change]]` — the new SDP may need a different hand-off model
 
@@ -181,4 +183,4 @@ Hand to `[[the-method-service-contract]]` for the first batch of contract design
 - **Skipping the hand-off discussion entirely** — proceeding to construction with no documented model means contract quality is unmanaged and architect review is implicit (which means it will be skipped). The skill exists because the decision must be deliberate.
 - **Senior hand-off without senior developers** — calling junior developers "senior" by title does not make them capable of detailed design. Ch. 14 §5 defines seniority by capability, not tenure.
 - **No architect review** — every model retains architect review of every contract. A senior hand-off without architect review is not the senior hand-off; it is uncontrolled design.
-- **Promising senior-as-junior-architect without the project-design support** — that model requires extra detailed-design activities and integration points in `network.yaml`. Without them, the pipeline desynchronises and juniors are blocked waiting for designs.
+- **Promising senior-as-junior-architect without the project-design support** — that model requires extra detailed-design activities and integration points in the `.network` slot. Without them, the pipeline desynchronises and juniors are blocked waiting for designs.
