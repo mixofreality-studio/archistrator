@@ -100,7 +100,7 @@ From [Appendix C §3.2 "Cardinality"](../../../../rightingsoftware/OEBPS/xhtml/a
 
 ## Temporal mapping (when Managers run on Temporal)
 
-When the operational concepts commit to Temporal as the Manager-execution infrastructure (see [[the-method-operational-concepts]] Step 1), each interaction rule above maps to a specific Temporal primitive. Edge labels in `architecture.dsl` and steps in sequence diagrams use these primitive names verbatim per `../the-method-architecture/TEMPORAL-VOCABULARY.md`.
+When the operational concepts commit to Temporal as the Manager-execution infrastructure (see [[the-method-operational-concepts]] Step 1), each interaction rule above maps to a specific Temporal primitive. Edge labels in the rendered architecture and steps in sequence diagrams use these primitive names verbatim: Workflow / Signal / Query / Update / Activity / Timer / Schedule / ChildWorkflow / ContinueAsNew (Manager-layer only).
 
 **Temporal lives only in the Manager layer.** Engines, ResourceAccess, Resources, and Utilities import no Temporal and contain no Temporal types. The mapping below is written from the Manager's perspective: when a Manager workflow needs to make a ResourceAccess call (which does I/O), the **Manager defines and registers a Temporal Activity** whose body delegates to the plain ResourceAccess method — the Activity, its `RetryPolicy`, and its timeouts all belong to the Manager. Engine calls are deterministic, so the Manager invokes them directly from workflow code with no Activity. A ResourceAccess or Engine package that imports Temporal is a layer violation.
 
@@ -154,6 +154,5 @@ Do not restate the layer table or the don'ts inline in other skills. If you find
 
 - [the-method-doctrine](../the-method-doctrine/SKILL.md) — the Prime Directive and 9 directives, of which Directives 1–4 are operationalised by this layer model.
 - [the-method-architecture](../the-method-architecture/SKILL.md) — the procedure for binning volatilities into these layers and expressing them as Structurizr DSL.
-- [`TEMPORAL-VOCABULARY.md`](../the-method-architecture/TEMPORAL-VOCABULARY.md) — the edge-label vocabulary that makes the Temporal mapping above explicit in `architecture.dsl` and sequence diagrams.
 - [the-method-operational-concepts](../the-method-operational-concepts/SKILL.md) — where the infrastructure decision (Temporal vs plain) is made.
 - [the-method-system-design-standard-check](../the-method-system-design-standard-check/SKILL.md) — the full Appendix C checklist applied as a quality gate.
