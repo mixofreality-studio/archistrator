@@ -1,6 +1,6 @@
 ---
 name: the-method-activity-list
-description: Project Design — produce the activity list (coding + noncoding) with 5-day quantum estimates. One detailed-design + one construction activity per component, plus integration and noncoding. Reads architecture.dsl and planning-assumptions.md. Produces activities.md. Invoke after [[the-method-planning-assumptions]], before [[the-method-network-draft]].
+description: Project Design — produce the activity list (coding + noncoding) with 5-day quantum estimates. One detailed-design + one construction activity per component, plus integration and noncoding. Reads the committed systemDesign and planningAssumptions artifacts in project.json. Produces the typed ActivityList committed to project.json → .activityList. Invoke after [[the-method-planning-assumptions]], before [[the-method-network-draft]].
 ---
 
 # Activity List
@@ -21,18 +21,25 @@ The architecture defines what to build. The activity list says how the work deco
 
 ## Input
 
-- `methodpoc/designs/<product>/system/architecture.dsl` — `container` declarations → coding activities; relationships → integration activities
-- `methodpoc/designs/<product>/project/planning-assumptions.md`
+State is git-as-DB: all of this lives in `.aiarch/state/project.json` (a typed JSON aggregate), NOT in `designs/<product>/*.md` files. Markdown/DSL is a render-on-read of the typed state, never the source of truth.
+
+- The committed **systemDesign** artifact in `project.json` → `.systemDesign` — the architecture decomposition: each component → coding activities; relationships → integration activities. (When rendered as Structurizr DSL, each component is a `container`.)
+- The committed **planningAssumptions** artifact in `project.json` → `.planningAssumptions`
 
 ## Output
 
-`methodpoc/designs/<product>/project/activities.md`
+The activity list is a **typed model committed into `.aiarch/state/project.json` → `.activityList`** — git is the database. It is NOT a `designs/<product>/project/activities.md` file; any markdown (including the tables below) is a render-on-read of that JSON slot.
+
+Two usage patterns produce this slot:
+
+1. **Agentic/CI dispatch:** the agent produces the typed `ActivityList` model as JSON and commits it into `.activityList` on its session branch; the server reads it back and stages it (`StageArtifactForReview`) for the human review gate (`CommitArtifact` / `RejectArtifact`).
+2. **Local interactive:** same — produce the typed model and write it into the `.activityList` slot. Never a `designs/*.md` file.
 
 ## Procedure
 
 ### Step 1 — Coding activities per component
 
-For each `container` declared in `architecture.dsl` (every component is a container in the canonical artifact), emit two activities:
+For each component declared in the committed `systemDesign` artifact (every component is a `container` in the rendered DSL), emit two activities:
 
 | Activity type | Role | Typical duration |
 |---|---|---|
@@ -66,7 +73,7 @@ Format each entry:
 
 For each cluster of components that integrate together, add an integration activity. Per App C: *"avoid integration at the end of the project"* — integrations happen incrementally.
 
-Identify integration points from the relationships in `architecture.dsl`. Typical patterns:
+Identify integration points from the relationships in the committed `systemDesign` artifact. Typical patterns:
 
 ```markdown
 | A040 | Integrate OrderManager ↔ PricingEngine | integration | (composite) | senior-developer + test-engineer | 5 | A012, A024 |
@@ -175,7 +182,7 @@ Use a broadband technique:
 
 If the sum is wildly different from a broadband estimate, something is off — either the activity list is missing things, or the estimates are biased.
 
-Document the overall estimate at the bottom of `activities.md`:
+Document the overall estimate in the `.activityList` model (rendered at the bottom of the activity list):
 
 ```markdown
 ## Overall project estimate (cross-check)
@@ -212,7 +219,7 @@ This is "a crude staffing distribution" (ch. 11) — it confirms which roles spa
 
 ## Exit criteria (for router)
 
-`activities.md` exists with:
+`.aiarch/state/project.json` → `.activityList` holds a committed typed model with:
 - One detailed-design + one construction per component
 - Integration activities for each major relationship cluster
 - Noncoding activities from the checklist

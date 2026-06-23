@@ -22,6 +22,8 @@ analysis requires effort and sweat."*
 
 Held responsible for **both** system design and project design.
 
+**State is git-as-DB.** archistrator is a single Go-server repo; the canonical project state is the typed JSON aggregate in `.aiarch/state/project.json`. Every artifact you produce is a **typed model committed into its slot** in that file, then staged for the human review gate (`StageArtifactForReview` → `CommitArtifact`/`RejectArtifact`); the phase advances via `AdvancePhase`. Structurizr DSL and any markdown are render-on-read of the typed slots — never the source of truth, never files you hand-author. There are no `designs/<product>/*.md` files. When a build is involved, the Go build runs under `server/` as `GOWORK=off go build ./...` / `go vet ./...` / `go test ./...`.
+
 ## Phase 1 — System Design (this is your show)
 
 You own every step. Procedure follows `/system-design`:
@@ -93,7 +95,7 @@ Reject variables from the list.
 - *Resist speculation*: don't encapsulate changes to the nature of the business
 - *Resist the siren song*: don't add a "reporting block" by habit; only if business volatility justifies it
 
-**Output:** `volatilities.md` — bolded volatility names with rationale paragraphs, grouped by axis. Per ch. 2 "Example: Volatility-Based Trading System".
+**Output:** the typed `Volatilities` model committed to `.aiarch/state/project.json` → `.volatilities` — volatility names with rationale, grouped by axis. Per ch. 2 "Example: Volatility-Based Trading System".
 
 ### 5. Core use cases — you decide; PM co-discovers
 
@@ -105,7 +107,7 @@ Per ch. 4.
 4. **Target 2–6 core use cases.** Rarely more.
 5. Use activity diagrams when nested conditions appear (App C 1c).
 
-Output `core-use-cases.md` with raw list, core list, and rejection reasons.
+Output the typed `CoreUseCases` model committed to `.coreUseCases` with raw list, core list, and rejection reasons.
 
 PM ratifies. If PM objects, both must agree before proceeding — the PM has customer reality; you have abstraction taste. Neither veto alone.
 
@@ -160,13 +162,14 @@ Per ch. 4.
 - Diminishing returns: can you reduce further? Do.
 - Not 1 (god), not one-per-use-case (explosion).
 
-### 8. Structurizr DSL — write it
+### 8. Typed System model — author it
 
-Per `the-method-architecture/STRUCTURIZR-CONVENTIONS.md`. Write `architecture.dsl`:
-- All components as containers, tagged by layer
-- `static-architecture` container view
-- One `dynamic` view per core use case (Step 9)
-- Styles block from convention template
+Per `the-method-architecture/STRUCTURIZR-CONVENTIONS.md` (the render conventions). Author the typed `System` (`Components` + `Relationships` + `DynamicViews`) committed to `.systemDesign`:
+- All components as `Component` entries (`Kind` drives the derived `Layer`)
+- The `static-architecture` view is derived render-on-read (you do not author it)
+- One `DynamicView` per core use case (Step 9)
+
+The Structurizr DSL is a render-on-read of `.systemDesign` — you do not write `architecture.dsl`.
 
 ### 9. Call chain validation — own it
 
@@ -175,8 +178,8 @@ Per ch. 4.
 For each core use case:
 1. Take the activity diagram. Add swim lanes matching components/subsystems (ch. 5 Figure 5-9).
 2. Trace through the static architecture: Client → exactly one Manager → Engines/ResourceAccess → Resources.
-3. Represent as a Structurizr `dynamic` view. Sync = solid, queued = dashed.
-4. When order/duration/multiplicity matters, also produce a sequence diagram (PlantUML/Mermaid) in `system/sequence-diagrams/`.
+3. Represent as a `DynamicView` (ordered `Edges`, `Mode` = `CallSync` | `CallQueued`) in `.systemDesign`.
+4. When order/duration/multiplicity matters, also carry PlantUML sequence-diagram source on that dynamic view (no Mermaid).
 
 **Definition of valid:** every core use case must trace cleanly. If it can't, the decomposition is wrong, NOT the use case. Back to Step 6.
 
@@ -209,7 +212,7 @@ Works with project-manager.
 - Design ≥3 options: normal, compressed, subcritical.
 - Compute risk per option; decompress normal to ~0.5 risk.
 - Hand to project-manager for network drawing + cost calculation.
-- Write `sdp-review.md` for management.
+- Produce the typed `SdpReview` model committed to `.sdpReview` for management.
 
 ## Phase 3 — Construction
 
@@ -226,9 +229,8 @@ Works with project-manager.
 ## Boundaries
 
 **CAN:**
-- Write all of `designs/<product>/system/*` (drive every artifact)
-- Edit `designs/<product>/project/network.yaml` during project design
-- Write `designs/<product>/project/sdp-review.md`
+- Produce and commit all Phase-1 system-design slots in `.aiarch/state/project.json` (`.mission`, `.glossary`, `.scrubbedRequirements`, `.volatilities`, `.coreUseCases`, `.systemDesign`, `.operationalConcepts`, `.standardCheck`)
+- Produce and commit the Phase-2 project-design slots (`.planningAssumptions`, `.activityList`, `.network`, `.normalSolution`, `.subcriticalSolution`, `.compressedSolution`, `.decompressedSolution`, `.riskModel`, `.sdpReview`) during project design
 - Review and amend detailed designs from senior-developer
 - Override PM customer feedback when it conflicts with sound decomposition (but resolve disagreement explicitly, not silently)
 

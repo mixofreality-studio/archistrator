@@ -1,6 +1,6 @@
 ---
 name: the-method-volatility-identification
-description: System Design — identify areas of volatility along the two axes. This is the architect's signature skill. Reads mission.md, glossary.md, scrubbed-requirements.md. Produces volatilities.md. Invoke after [[the-method-requirements-analysis]], before [[the-method-core-use-cases]].
+description: System Design — identify areas of volatility along the two axes. This is the architect's signature skill. Reads the committed .mission, .glossary, .scrubbedRequirements from project.json. Produces the typed Volatilities committed to project.json → .volatilities. Invoke after [[the-method-requirements-analysis]], before [[the-method-core-use-cases]].
 ---
 
 # Volatility Identification
@@ -24,14 +24,18 @@ This is the most important phase of system design. The book (ch. 2): *"the whole
 
 ## Input
 
-- `methodpoc/designs/<product>/system/mission.md`
-- `methodpoc/designs/<product>/system/glossary.md`
-- `methodpoc/designs/<product>/system/scrubbed-requirements.md` — the third column is your starting list of candidate volatilities
-- `methodpoc/designs/<product>/research/` (re-read for context)
+State is git-as-DB: archistrator is a single Go-server repo whose canonical project state lives in `.aiarch/state/project.json` (a typed JSON aggregate). Markdown is a render-on-read of the typed state.
+
+- The committed **mission** artifact → `.aiarch/state/project.json` → `.mission`
+- The committed **glossary** artifact → `.glossary`
+- The committed **scrubbedRequirements** artifact → `.scrubbedRequirements` — the underlying-volatility hint on each entry is your starting list of candidate volatilities
+- The research corpus in `project.json` (re-read for context)
 
 ## Output
 
-`methodpoc/designs/<product>/system/volatilities.md` — the **Volatilities List**, grouped by axis.
+The typed **`Volatilities`** model (Go shape in `server/internal/resourceaccess/projectstate/models_phase1.go`), committed to **`.aiarch/state/project.json` → `.volatilities`** — the **Volatilities List**, grouped by axis. NOT a `volatilities.md` file; any markdown is a render-on-read of this slot.
+
+Per the two usage patterns (agentic/CI dispatch and local interactive): the agent emits the typed `Volatilities` JSON and commits it into `.volatilities`; the server stages it (`StageArtifactForReview`) for the human review gate.
 
 ## Procedure
 
@@ -96,7 +100,7 @@ Strip from the list:
 
 ### Step 6 — Format the Volatilities List (ch. 2 §3.4)
 
-Output `volatilities.md` matching the format from ch. 2 §3.5 (trading system example) and ch. 5 (TradeMe):
+Render the typed `Volatilities` committed to `.volatilities` matching the format from ch. 2 §3.5 (trading system example) and ch. 5 (TradeMe). The markdown below is the render-on-read view; the JSON slot is the source of truth:
 
 ```markdown
 # Volatilities List
@@ -135,7 +139,7 @@ Re-read the list. If a single volatility entry naturally belongs to both axes, t
 
 ## Exit criteria (for router)
 
-`volatilities.md` exists, grouped by axis, with ~6–15 entries. Each entry has a rationale paragraph. No nature-of-business or speculative entries remain. Move to `the-method-core-use-cases`.
+`.aiarch/state/project.json` → `.volatilities` holds the typed `Volatilities` model, grouped by axis, with ~6–15 entries. Each entry has a rationale. No nature-of-business or speculative entries remain. Move to `the-method-core-use-cases`.
 
 ## Common mistakes
 
@@ -147,4 +151,4 @@ Re-read the list. If a single volatility entry naturally belongs to both axes, t
 
 ## Anchor for downstream phases
 
-Every entry in `volatilities.md` will eventually map to **at most one component** in the architecture. [[the-method-architecture]] will take this list as input. So get this right — bad volatilities → bad decomposition → bad architecture.
+Every entry in the committed `.volatilities` slot will eventually map to **at most one component** in the architecture. [[the-method-architecture]] will take this list as input. So get this right — bad volatilities → bad decomposition → bad architecture.

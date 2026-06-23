@@ -1,6 +1,8 @@
 # System Design
 
-> Walk the user through system design with The Method. The **architect drives** the entire process. The Product Manager supplies raw business input and ratifies decisions — they do not own volatility analysis, decomposition, or the architecture. This command produces a validated, layered, volatility-based architecture documented as Structurizr DSL plus supporting markdown.
+> Walk the user through system design with The Method. The **architect drives** the entire process. The Product Manager supplies raw business input and ratifies decisions — they do not own volatility analysis, decomposition, or the architecture. This command produces a validated, layered, volatility-based architecture captured as **typed artifacts committed to `.aiarch/state/project.json`** (git-as-DB); the Structurizr DSL and any markdown are render-on-read of those typed slots, never the source of truth.
+
+archistrator is a single Go-server repo; canonical state is the typed JSON aggregate in `.aiarch/state/project.json`. Each Phase-1 artifact is produced as a typed model and committed into its slot, then staged for the human review gate (`StageArtifactForReview` → `CommitArtifact`/`RejectArtifact`), and the phase advances via `AdvancePhase`. There are no `methodpoc/designs/<product>/*.md` files.
 
 **Skill reference:** Invoke `the-method` skill before starting. This command orchestrates the system-design sub-skills in canonical order:
 
@@ -36,7 +38,7 @@ Per Löwy, the architect owns system design. The PM is a collaborator on custome
 
 ## Prerequisites
 
-`methodpoc/designs/<product>/research/` must exist with at least one research input (competitor analysis, customer interviews, business briefs, market analysis, prior system docs). If not, stop and tell the user to populate it.
+The project's research corpus in `.aiarch/state/project.json` must hold at least one research input (competitor analysis, customer interviews, business briefs, market analysis, prior system docs). If not, stop and tell the user to populate it.
 
 ## Workflow
 
@@ -44,7 +46,7 @@ Per Löwy, the architect owns system design. The PM is a collaborator on custome
 
 Invoke [[the-method-business-alignment]] via `system-architect`:
 
-> Read all files in `methodpoc/designs/<product>/research/`. Drive the
+> Read the research corpus in `.aiarch/state/project.json`. Drive the
 > Vision → Objectives → Mission chain (Löwy ch. 5, "Business Alignment"):
 >
 > 1. **Vision** — distill to ONE sentence. "Terse and explicit, like a legal statement." Example (TradeMe): *"A platform for building applications to support the TradeMe marketplace."*
@@ -53,7 +55,8 @@ Invoke [[the-method-business-alignment]] via `system-architect`:
 >
 > Maintain **bidirectional traceability**: every objective must trace to vision; mission must support all objectives.
 >
-> Write to `methodpoc/designs/<product>/system/mission.md`.
+> Produce the typed `MissionStatement` model and commit it to
+> `.aiarch/state/project.json` → `.mission`.
 
 Then ask the **Product Manager** (or the user directly) to **ratify** — does this capture the business intent? Iterate until ratified.
 
@@ -70,7 +73,8 @@ Invoke [[the-method-requirements-analysis]] via `system-architect`. This single 
 > - **Where** does it store state?
 >
 > Every distinct domain noun/verb gets a one-line definition. Use customer
-> language. Output `methodpoc/designs/<product>/system/glossary.md`.
+> language. Produce the typed `Glossary` model and commit it to
+> `.aiarch/state/project.json` → `.glossary`.
 >
 > Then, for each requirement statement, ask Löwy's interrogation (ch. 2,
 > "Solutions Masquerading As Requirements"):
@@ -85,9 +89,10 @@ Invoke [[the-method-requirements-analysis]] via `system-architect`. This single 
 >   - "Cooking" → strip to "feeding" → "well-being"
 >   - "We need a queue" → strip to "user must receive events in order"
 >
-> Output `methodpoc/designs/<product>/system/scrubbed-requirements.md`
-> with before/after for each item. The architect proposes; the PM
-> ratifies because they know the customer's actual need.
+> Produce the typed `ScrubbedRequirements` model (before/after for each
+> item) and commit it to `.aiarch/state/project.json` → `.scrubbedRequirements`.
+> The architect proposes; the PM ratifies because they know the customer's
+> actual need.
 
 PM reviews glossary for missing or misnamed terms and ratifies the scrubbing.
 
@@ -117,9 +122,10 @@ Invoke [[the-method-volatility-identification]] via `system-architect`. This is 
 >
 > 7. **Resist the siren song**: a "reporting block" or any familiar pattern only goes in if a specific business volatility justifies it. Habit is not a justification.
 >
-> Output `methodpoc/designs/<product>/system/volatilities.md`. Format
-> per ch. 2 "Example: Volatility-Based Trading System": each entry =
-> bolded volatility name + rationale paragraph. Group entries by axis.
+> Produce the typed `Volatilities` model and commit it to
+> `.aiarch/state/project.json` → `.volatilities`. Format per ch. 2
+> "Example: Volatility-Based Trading System": each entry = a volatility
+> name + rationale. Group entries by axis.
 
 Show to user. The PM may flag a missing customer-driven volatility; the architect decides whether to include it.
 
@@ -135,7 +141,8 @@ Invoke [[the-method-core-use-cases]] via `system-architect`:
 > 4. **Target 2–6 core use cases.** Rarely more.
 > 5. Capture each as an **activity diagram** when there are nested conditions (ch. 3 Design Standard 1c) — represent flow + alternative paths.
 >
-> Output `methodpoc/designs/<product>/system/core-use-cases.md` with:
+> Produce the typed `CoreUseCases` model and commit it to
+> `.aiarch/state/project.json` → `.coreUseCases` with:
 >   - The full list of raw use cases received
 >   - The 2–6 core use cases (each with one-paragraph behavior description)
 >   - An explicit "non-core" list with reasoning for each rejection
@@ -180,22 +187,26 @@ Invoke [[the-method-architecture]] via `system-architect`. This single skill cov
 >
 > **Smallest set check (ch. 4):** order of magnitude ~10 components total; method-typical 2–5 Managers, 2–3 Engines, 3–8 ResourceAccess+Resources, ~6 Utilities. Reduce if you can; never collapse to one (god) or fan out to one-per-use-case.
 >
-> Once the decomposition is clean, write the Structurizr DSL following
-> `methodpoc/.claude/skills/the-method-architecture/STRUCTURIZR-CONVENTIONS.md`.
-> Output `methodpoc/designs/<product>/system/architecture.dsl`:
->   - One `softwareSystem` with all components as containers
->   - Each container tagged with its layer (`client`, `manager`, `engine`, `resource-access`, `resource`, `utility`)
->   - One `container` view named `static-architecture` showing the layered pyramid
->   - One `dynamic` view per core use case (call chain — see below)
->   - The styles block from STRUCTURIZR-CONVENTIONS
+> Once the decomposition is clean, author the typed `System` model
+> (`Components` + `Relationships` + `DynamicViews`; Go shape in
+> `server/internal/resourceaccess/projectstate/system.go`) so that it
+> renders cleanly per
+> `.claude/skills/the-method-architecture/STRUCTURIZR-CONVENTIONS.md`.
+> Commit it to `.aiarch/state/project.json` → `.systemDesign`:
+>   - Every component is a `Component` (`Name`, `Kind`, `Encapsulates`, `AtomicBusinessVerbs`; `Layer` derived from `Kind` server-side)
+>   - Renders to one `softwareSystem` with all components as layer-tagged containers
+>   - The `static-architecture` view (layered pyramid) is derived render-on-read — you do not author it
+>   - One `DynamicView` per core use case (call chain — see below)
 >
-> Also write a `workspace.dsl` (copy of `architecture.dsl`) so Structurizr Lite can render it.
+> The Structurizr DSL (`architecture.dsl` / `workspace.dsl`) is a
+> render-on-read of `.systemDesign` produced by the server — never a
+> hand-authored or copied file.
 >
 > Then validate every core use case as a call chain (ch. 4 "Architecture Validation"):
->   1. Take the activity diagram from `core-use-cases.md`. Add swim lanes for components/subsystems.
+>   1. Take the activity diagram from `.coreUseCases`. Add swim lanes for components/subsystems.
 >   2. Trace through the static architecture: Client → exactly one Manager → Engines/ResourceAccess → Resources.
->   3. Encode as a `dynamic` view in `architecture.dsl`. Solid arrows = sync, dashed = queued.
->   4. Where call order/duration/multiplicity matters, ALSO produce a sequence diagram in `system/sequence-diagrams/<use-case>.md`.
+>   3. Encode as a `DynamicView` (ordered `Edges`, `Mode` = `CallSync` | `CallQueued`) in `.systemDesign`.
+>   4. Where call order/duration/multiplicity matters, ALSO carry PlantUML sequence-diagram source on that dynamic view.
 >
 > **Definition of valid (ch. 4):** every core use case must trace cleanly through the existing decomposition. If it can't, the **decomposition is wrong**, not the use case. Iterate the decomposition.
 >
@@ -217,10 +228,10 @@ Validation rules from `STRUCTURIZR-CONVENTIONS.md`:
 
 Invoke [[the-method-operational-concepts]] via `system-architect`:
 
-> Document operational decisions in
-> `methodpoc/designs/<product>/system/operational-concepts.md`. Each
-> decision MUST be justified against a business objective from `mission.md`
-> (ch. 5, "Operational Concepts"):
+> Produce the typed `OperationalConcepts` model and commit it to
+> `.aiarch/state/project.json` → `.operationalConcepts`. Each decision
+> MUST be justified against a business objective from the committed
+> `.mission` artifact (ch. 5, "Operational Concepts"):
 >
 > - **Communication topology**: Message Bus or direct calls? If Message Bus, which Utilities mediate?
 > - **Sync vs queued boundaries**: which Manager↔Manager calls are queued? Which calls within subsystems are sync?
@@ -242,43 +253,34 @@ Invoke [[the-method-system-design-standard-check]] via `system-architect`:
 > - Layers: closed; no calling up/sideways/skip; subsystems used to extend
 > - Interaction rules and don'ts: full list verified
 >
-> Output `methodpoc/designs/<product>/system/standard-checklist.md`.
+> Produce the typed `StandardCheck` model and commit it to
+> `.aiarch/state/project.json` → `.standardCheck`.
 
 Report violations to user. Each must be either fixed or explicitly waived with justification.
 
 ### Step 8 — Wrap up
 
-Show final layout:
+Show the Phase-1 slots now committed in `.aiarch/state/project.json`:
 
 ```
-methodpoc/designs/<product>/system/
-├── mission.md                  (vision + objectives + mission statement)
-├── glossary.md                 (Who/What/How/Where)
-├── scrubbed-requirements.md    (before/after on solutions-masquerading)
-├── volatilities.md             (the Volatilities List, grouped by axis)
-├── core-use-cases.md           (raw list, core list, rejections with reasons)
-├── architecture.dsl            (Structurizr source of truth)
-├── workspace.dsl               (copy for Structurizr Lite)
-├── operational-concepts.md     (topology, sync/queued, pub/sub, patterns)
-├── standard-checklist.md       (Appendix C system design checklist)
-└── sequence-diagrams/          (when order/duration/multiplicity matters)
-    └── <use-case>.md
+.aiarch/state/project.json
+├── .mission                (vision + objectives + mission statement)
+├── .glossary               (Who/What/How/Where)
+├── .scrubbedRequirements   (before/after on solutions-masquerading)
+├── .volatilities           (the Volatilities List, grouped by axis)
+├── .coreUseCases           (raw list, core list, rejections + activity diagrams)
+├── .systemDesign           (typed System: components, relationships, dynamic views — renders to architecture.dsl + sequence diagrams)
+├── .operationalConcepts    (topology, sync/queued, pub/sub, patterns)
+└── .standardCheck          (Appendix C system design checklist)
 ```
 
-Render command for the user:
-
-```bash
-docker run -it --rm -p 8080:8080 \
-  -v "$PWD/methodpoc/designs/<product>/system:/usr/local/structurizr" \
-  structurizr/lite
-# open http://localhost:8080
-```
+The Structurizr DSL and any sequence diagrams are render-on-read of these slots, produced by the server's rendering access — there are no `.dsl` or `.md` files to maintain.
 
 Tell user: *"System design complete. The architecture is stable until the nature of the business changes. Next: `/project-design <product>` to plan construction."*
 
 ## Error handling
 
-- **Research directory empty** → stop, ask user to populate.
+- **Research corpus empty** (no research inputs in `project.json`) → stop, ask user to populate.
 - **PM tries to author objectives or volatilities** → reject; architect drives those.
 - **>6 core use cases** → abstraction incomplete; architect must iterate with PM.
 - **Component count outside ~10–24** → iterate the architecture skill.

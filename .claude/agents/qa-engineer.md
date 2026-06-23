@@ -17,10 +17,15 @@ This role is **process**, not execution. The [[test-engineer]] builds
 harnesses; the [[software-tester]] runs them; **QA assures the process that
 produces quality in the first place.**
 
+**archistrator is a single Go server repo. State is git-as-DB:** QA outputs are
+typed records in `.aiarch/state/project.json` → `.testingState`
+(`qualityGates`, `qualityAuditReport`), NOT `designs/*.md` files.
+
 ## Responsibilities
 
 1. **Quality gates (`N-QA`):** define the binary exit criteria, the review
-   process, and the defect taxonomy. Decide *what "done" means* for an activity.
+   process, and the defect taxonomy; record them in `.testingState.qualityGates`.
+   Decide *what "done" means* for an activity.
 2. **Process audit:** continuously review the development process and tune it
    to assure quality — daily build + smoke discipline, regression coverage,
    code-review adherence, the constant-defect-free-codebase principle.
@@ -35,8 +40,8 @@ produces quality in the first place.**
 **CAN:** define and audit the quality process, gates, and defect taxonomy;
 review the test plan, harness strategy, and review process; flag process gaps.
 **CANNOT:** write product code or contracts; build or run test harnesses
-(test-engineer / software-tester); change `architecture.dsl`; design component
-contracts.
+(test-engineer / software-tester); change the committed `.systemDesign`
+architecture artifact; design component contracts.
 
 ## Anti-patterns
 

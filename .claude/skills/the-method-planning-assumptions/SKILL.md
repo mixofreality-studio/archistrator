@@ -1,6 +1,6 @@
 ---
 name: the-method-planning-assumptions
-description: Project Design — capture explicit planning assumptions (resources, calendar, infra, dependencies). Without these, the project network is meaningless. Architect drives drafting; project-manager contributes constraint data. Reads architecture.dsl. Produces planning-assumptions.md. Invoke as the first phase of project design, before [[the-method-activity-list]].
+description: Project Design — capture explicit planning assumptions (resources, calendar, infra, dependencies). Without these, the project network is meaningless. Architect drives drafting; project-manager contributes constraint data. Reads the committed systemDesign artifact in project.json. Produces the typed PlanningAssumptions committed to project.json → .planningAssumptions. Invoke as the first phase of project design, before [[the-method-activity-list]].
 ---
 
 # Planning Assumptions
@@ -20,12 +20,19 @@ The project network calculates duration and cost as functions of resources and d
 
 ## Input
 
-- System design artifacts in `methodpoc/designs/<product>/system/` — primarily `architecture.dsl` (component count drives team-size estimates)
+State is git-as-DB: all of this lives in `.aiarch/state/project.json` (a typed JSON aggregate), NOT in `designs/<product>/*.md` files. Markdown/DSL is a render-on-read of the typed state, never the source of truth.
+
+- The committed **systemDesign** artifact in `project.json` → `.systemDesign` (the architecture decomposition; component count drives team-size estimates)
 - User input via interactive dialog (collected during this phase)
 
 ## Output
 
-`methodpoc/designs/<product>/project/planning-assumptions.md`
+The planning assumptions are a **typed model committed into `.aiarch/state/project.json` → `.planningAssumptions`** — git is the database. It is NOT a `designs/<product>/project/planning-assumptions.md` file; any markdown (including the Step 2 template) is a render-on-read of that JSON slot.
+
+Two usage patterns produce this slot:
+
+1. **Agentic/CI dispatch:** the agent produces the typed `PlanningAssumptions` model as JSON and commits it into `.planningAssumptions` on its session branch; the server reads it back and stages it (`StageArtifactForReview`) for the human review gate, where it is reviewed via `CommitArtifact` / `RejectArtifact`.
+2. **Local interactive:** same — produce the typed model and write it into the `.planningAssumptions` slot. Never a `designs/*.md` file.
 
 ## Procedure
 
@@ -64,9 +71,9 @@ Ask the user **one question at a time**. Prefer multiple choice where applicable
 
 Record raw answers as you go.
 
-### Step 2 — Normalize into the planning-assumptions document
+### Step 2 — Normalize into the typed planning-assumptions model
 
-After the dialog, write `planning-assumptions.md` with these sections:
+After the dialog, produce the typed `PlanningAssumptions` model and commit it to `.aiarch/state/project.json` → `.planningAssumptions`. The markdown below is the equivalent **human rendering** of that JSON — use it to review the content, but the source of truth is the slot, not a `*.md` file:
 
 ```markdown
 # Planning Assumptions — <Product>
@@ -142,7 +149,7 @@ For each assumption that has a non-trivial probability of being wrong (e.g., "we
 
 ## Exit criteria (for router)
 
-`planning-assumptions.md` exists with all sections populated. PjM has verified. Risk flags identified.
+`.aiarch/state/project.json` → `.planningAssumptions` holds a committed typed model with all sections populated. PjM has verified. Risk flags identified.
 
 Move to `the-method-activity-list`.
 

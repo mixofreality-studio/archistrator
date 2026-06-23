@@ -30,13 +30,13 @@ Ask the user:
 
 1. "What changed? (scope addition, scope reduction, deadline shift, resource change, variance detected, subsystem boundary)"
 2. "Who's asking? (customer, management, project tracking)"
-3. "What's the current state? (point me at `network.yaml`; I'll read it)"
+3. "What's the current state? (I'll read the committed `.network` slot from `.aiarch/state/project.json`)"
 
 ### Step 2: Snapshot the current state
 
 Dispatch `project-manager`:
 
-> Read current `designs/<product>/project/network.yaml`.
+> Read the committed `.network` slot from `.aiarch/state/project.json`.
 >
 > Compute:
 >   - Activities done so far (with completed_dates)
@@ -45,8 +45,8 @@ Dispatch `project-manager`:
 >   - Current actual vs. planned progress
 >   - Earned value so far
 >
-> Archive current network.yaml to `network-v<N>.yaml` where N is the next
-> unused version number.
+> The prior network state is preserved by git history on `.aiarch/state/project.json`
+> — no separate `network-v<N>.yaml` archive file is needed.
 
 ### Step 3: Apply the change
 
@@ -56,7 +56,7 @@ Branch by trigger type:
 
 1. Dispatch `product-manager` to formalize the new use case (same as `/add-use-case` Step 1).
 2. Dispatch `system-architect` to determine if it fits the existing decomposition.
-3. If fits → add new activities to a new `network.yaml`.
+3. If fits → add new activities into a recomputed `.network` slot.
 4. If doesn't fit → flag potential architecture change; recommend a partial `/system-design` first.
 
 #### Scope reduction
@@ -101,8 +101,9 @@ This step loops back through the relevant `/project-design` sub-skills with `sys
 
 Invoke [[the-method-sdp-review]] via `system-architect`:
 
-> Write a fresh `designs/<product>/project/sdp-review.md` (overwrite). It
-> must clearly state:
+> Commit a fresh typed model to `.aiarch/state/project.json` → `.sdpReview`
+> (overwriting the prior head-state; git history preserves the previous
+> version). It must clearly state:
 >   - The trigger for this review (one sentence)
 >   - What changed since the prior SDP (concise diff)
 >   - The new options (up to four) with duration, cost, criticality risk,
@@ -113,8 +114,8 @@ Invoke [[the-method-sdp-review]] via `system-architect`:
 
 Then re-run [[the-method-project-design-standard-check]] to validate the new plan before handing it back to management.
 
-Also overwrite `designs/<product>/project/network.yaml` with the new
-network. The archive in `network-v<N>.yaml` preserves history.
+Also commit the recomputed network into the `.network` slot. Git history on
+`.aiarch/state/project.json` preserves the prior network state.
 
 ### Step 6: Present and commit
 
@@ -123,10 +124,10 @@ Show user:
 - The updated SDP options
 - What the scope change costs them (in days and $)
 - What the alternatives look like
-- The archive file name so they can compare
+- The prior commit (git ref) so they can compare against the previous network state
 
-Tell user: *"Present this to management. Once they pick an option, update
-`network.yaml`'s `chosen_option` and `start_date`, then resume
+Tell user: *"Present this to management. Once they pick an option, set the
+`.network` slot's `chosen_option` and `start_date`, then resume
 `/implement-project`."*
 
 ## Building trust

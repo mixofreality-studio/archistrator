@@ -1,6 +1,6 @@
 ---
 name: the-method-business-alignment
-description: System Design — distill vision, business objectives, and mission statement from research input. Architect drives; PM ratifies. Reads designs/<product>/research/. Produces mission.md. Invoke as the first phase of system design, before [[the-method-requirements-analysis]].
+description: System Design — distill vision, business objectives, and mission statement from research input. Architect drives; PM ratifies. Reads the research corpus in project.json. Produces the typed MissionStatement committed to project.json → .mission. Invoke as the first phase of system design, before [[the-method-requirements-analysis]].
 ---
 
 # Business Alignment
@@ -18,17 +18,25 @@ The TradeMe walkthrough in ch. 5 is the worked example. Re-read it if the team h
 
 ## Input
 
-- All files in `methodpoc/designs/<product>/research/`
-- `methodpoc/designs/<product>/system/customer-input.md` (if PM has produced one)
+State is git-as-DB: archistrator is a single Go-server repo whose canonical project state lives in `.aiarch/state/project.json` (a typed JSON aggregate). There are no `designs/<product>/*.md` files — any markdown is a render-on-read of the typed state.
+
+- The research corpus in `.aiarch/state/project.json` (the ingested business briefs, customer interviews, competitor analysis, market analysis, prior-system docs)
+- The PM's customer-input notes carried in project state (if the PM has produced any)
 
 ## Output
 
-`methodpoc/designs/<product>/system/mission.md` containing:
+The typed **`MissionStatement`** model (Go shape in `server/internal/resourceaccess/projectstate/models_phase1.go`: `Vision string`, `Objectives []Objective`, `Mission string`), committed to **`.aiarch/state/project.json` → `.mission`**. NOT a `mission.md` file — any markdown rendering is produced render-on-read from this slot.
 
-1. **Vision** — exactly one sentence. Terse and legal-statement-precise.
-2. **Business Objectives** — numbered list. Business perspective only.
-3. **Mission Statement** — how, expressed in components not features.
-4. **Traceability table** — every objective maps to vision; every architectural concern will map back to an objective.
+Two usage patterns produce the same result:
+1. **Agentic / CI dispatch** — the agent emits the typed `MissionStatement` JSON and commits it into `.mission` on its session branch; the server reads it back and stages it (`StageArtifactForReview`) for the human review gate.
+2. **Local interactive** (a human running `/system-design` in Claude Code) — same: produce the typed model and write it into the `.mission` slot. Never a `designs/*.md` file.
+
+The model carries:
+
+1. **Vision** — exactly one sentence. Terse and legal-statement-precise. (`Vision`)
+2. **Business Objectives** — numbered list. Business perspective only. (`Objectives`, each an `Objective`)
+3. **Mission Statement** — how, expressed in components not features. (`Mission`)
+4. **Traceability** — every objective maps to vision; every architectural concern will map back to an objective. (Captured in the objectives + mission; verify per Step 4.)
 
 ## Procedure
 
@@ -68,7 +76,7 @@ Per ch. 5 §3.3:
 
 ### Step 4 — Verify bidirectional traceability
 
-Build a small table at the bottom of `mission.md`:
+Before committing the `MissionStatement`, walk each objective through this table (a render-on-read view of the slot; you do not persist the table separately):
 
 | Objective | Supports vision? | Will trace to volatility / component? |
 |---|---|---|
@@ -86,7 +94,7 @@ They do not author. They ratify or push back. If they push back, iterate until a
 
 ## Exit criteria (for router)
 
-`mission.md` exists and contains all four sections (vision, objectives, mission, traceability). Move to `the-method-requirements-analysis`.
+`.aiarch/state/project.json` → `.mission` holds a typed `MissionStatement` with a one-sentence vision, business-only numbered objectives, a component-framed mission, and verified bidirectional traceability. Move to `the-method-requirements-analysis`.
 
 ## Anti-patterns to reject
 

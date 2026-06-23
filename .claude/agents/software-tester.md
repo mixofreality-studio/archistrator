@@ -17,15 +17,22 @@ Per Löwy's planning assumptions: *"One tester is required from the start of
 construction … until the end of testing,"* plus *"one additional tester …
 during system testing."*
 
+**archistrator is a single Go server repo. State is git-as-DB:** test runs and
+defects are typed records in `.aiarch/state/project.json` → `.testingState`
+(`testRuns`, `defects`), NOT `designs/*.md` files.
+
 ## Responsibilities
 
-1. **System Testing (`N-IT`):** execute the System Test Plan (`N-STP`) against
-   the integrated system via the System Test Harness (`N-STH`). Drive every
-   core use case end-to-end. Report what breaks.
+1. **System Testing (`N-IT`):** execute the System Test Plan
+   (`.testingState.systemTestPlan`, `N-STP`) against the integrated system via
+   the System Test Harness (`.testingState.harnessModule`, `N-STH`). Drive every
+   core use case end-to-end. Record each run in `.testingState.testRuns`. Report
+   what breaks.
 2. **Integration verification:** during `I-*` activities, exercise the
    integrated components and confirm the harness + regression suite stay green.
 3. **Defect filing:** capture every failure as a defect with reproduction
-   steps; route to the senior-developer / junior-developer for fix in `N-HARD`.
+   steps in `.testingState.defects`; route to the senior-developer /
+   junior-developer for fix in `N-HARD`.
 4. **Regression execution:** run the developer-owned Regression Test Harness
    (`N-RTH`) continuously and report destabilization the moment it happens.
 
@@ -34,9 +41,10 @@ during system testing."*
 **CAN:** run the test plan and harnesses; exercise the system through UI
 (Playwright) and API (Go) instrumentation; file and triage defects; gate an
 activity's exit on a clean run.
-**CANNOT:** design component contracts; change `architecture.dsl`; build the
-system test harness (test-engineer); own the regression harness
-(senior-developer); fix product code (developers) — files defects instead.
+**CANNOT:** design component contracts; change the committed `.systemDesign`
+architecture artifact; build the system test harness (test-engineer); own the
+regression harness (senior-developer); fix product code (developers) — files
+defects instead.
 
 ## Anti-patterns
 

@@ -1,6 +1,6 @@
 ---
 name: the-method-sdp-review
-description: Project Design — assemble the SDP Review document. Audience is management. Presents the viable options (normal, decompressed-normal, subcritical, compressed) with duration/cost/risk, the time-cost and time-risk curves, and the architect's recommendation. Reads all Phase 2 artifacts plus mission.md and architecture.dsl. Produces sdp-review.md. Invoke after [[the-method-risk-modeling]] as the final phase of project design, before [[the-method-project-design-standard-check]].
+description: Project Design — assemble the SDP Review. Audience is management. Presents the viable options (normal, decompressed-normal, subcritical, compressed) with duration/cost/risk, the time-cost and time-risk curves, and the architect's recommendation. Reads all Phase 2 artifact slots plus the committed .mission and .systemDesign from project.json. Produces the typed SdpReview committed to project.json → .sdpReview. Invoke after [[the-method-risk-modeling]] as the final phase of project design, before [[the-method-project-design-standard-check]].
 ---
 
 # SDP Review Document
@@ -24,20 +24,27 @@ Per Löwy: this is the moment of *educated decisions with viable options that di
 
 ## Input
 
-- All Phase 2 outputs:
-  - `planning-assumptions.md`
-  - `activities.md`
-  - `network.yaml`
-  - `normal.md`
-  - `subcritical.md`
-  - `compressed.md`
-  - `decompressed.md`
-  - `risk.md`
-- System design context: `mission.md`, `architecture.dsl`
+State is git-as-DB: all of this lives in `.aiarch/state/project.json` (a typed JSON aggregate), NOT in `designs/<product>/*.md` or `network.yaml` files. Markdown/DSL/YAML is a render-on-read of the typed state, never the source of truth.
+
+- All Phase 2 committed slots:
+  - `.planningAssumptions`
+  - `.activityList`
+  - `.network`
+  - `.normalSolution`
+  - `.subcriticalSolution`
+  - `.compressedSolution`
+  - `.decompressedSolution`
+  - `.riskModel`
+- System design context: the committed `.mission` and `.systemDesign` slots
 
 ## Output
 
-`methodpoc/designs/<product>/project/sdp-review.md` — the document management reads. After management commits to an option, the architect updates `network.yaml` with `chosen_option` and `start_date`.
+The SDP review is a **typed model committed into `.aiarch/state/project.json` → `.sdpReview`** — git is the database. It is the artifact management reads (rendered to a management-facing document). It is NOT an `sdp-review.md` file; any markdown (including the section templates below) is a render-on-read of that JSON slot. After management commits to an option, the chosen option and start date are captured (see Step 10).
+
+Two usage patterns produce this slot:
+
+1. **Agentic/CI dispatch:** the agent produces the typed `SdpReview` model as JSON and commits it into `.sdpReview` on its session branch; the server reads it back and stages it (`StageArtifactForReview`) for the human review gate (`CommitArtifact` / `RejectArtifact`), and `AdvancePhase` moves the project to Phase 3.
+2. **Local interactive:** same — produce the typed model and write it into the `.sdpReview` slot. Never a `designs/*.md` file.
 
 ## Procedure
 
@@ -62,7 +69,7 @@ You may include additional points along the time-cost curve if relevant (e.g., a
 
 ### Step 2 — Build the executive summary
 
-Top of `sdp-review.md`. Three to four sentences max. Must answer:
+Top of the `.sdpReview` model. Three to four sentences max. Must answer:
 
 - What's the project?
 - What's the architect's recommendation?
@@ -76,10 +83,10 @@ Example:
 
 Brief — one section, half a page max. Include:
 
-- One-sentence vision (from `mission.md`)
-- The 2–6 core use cases by name (from `core-use-cases.md`)
-- An image or summary of the static architecture (link to `architecture.dsl`; ideally embed a rendered PNG if Structurizr Lite has been run)
-- Number of components, by layer (count `container` declarations per layer tag in `architecture.dsl`)
+- One-sentence vision (from the committed `.mission` slot)
+- The 2–6 core use cases by name (from the committed `.coreUseCases` slot)
+- An image or summary of the static architecture (from the committed `.systemDesign` slot; ideally embed a rendered PNG if the DSL render has been run)
+- Number of components, by layer (count components per layer tag in the committed `.systemDesign` slot)
 
 This grounds management in *what* will be built before the *how*.
 
@@ -104,8 +111,8 @@ Round duration and cost (App C §4.1f spirit — communicate in Optionality, not
 
 Include both:
 
-1. **Time-Cost Curve** (from `risk.md`) — shows the cost shape of the option space
-2. **Time-Risk Curve** (from `risk.md`) — shows the risk shape, with tipping point marked
+1. **Time-Cost Curve** (from the committed `.riskModel` slot) — shows the cost shape of the option space
+2. **Time-Risk Curve** (from the committed `.riskModel` slot) — shows the risk shape, with tipping point marked
 
 If text-only output, ASCII charts suffice. If Mermaid is renderable, prefer xy-chart-beta or scatter.
 
@@ -147,12 +154,12 @@ Decide by <date>.
 
 ### Step 8 — Planning assumptions explicit
 
-List the key assumptions from `planning-assumptions.md` that drive these options. Management ratifies (or disputes) them at this review.
+List the key assumptions from the committed `.planningAssumptions` slot that drive these options. Management ratifies (or disputes) them at this review.
 
 ```markdown
 ## Planning Assumptions
 
-(Full list in `planning-assumptions.md`. Key ones:)
+(Full list in the committed `.planningAssumptions` slot. Key ones:)
 
 1. Core team in place day 1
 2. 2 senior developers available for 60+ days
@@ -204,19 +211,20 @@ A blank section management fills in:
 | Signature(s) | _______________ |
 ```
 
-Once filled, update `network.yaml`:
+Once filled, capture the decision in the `.sdpReview` model and set the chosen option / start date on the committed `.network` slot:
 
 ```yaml
+# fields set on the .network slot
 project:
   chosen_option: <name>
   start_date: <date>
 ```
 
-Then run `/implement-project <product>` to begin Phase 3.
+Then `AdvancePhase` moves the project into Phase 3 (or run `/implement-project` locally) to begin construction.
 
 ## Exit criteria (for router)
 
-- `sdp-review.md` exists with all sections
+- `.aiarch/state/project.json` → `.sdpReview` holds a committed typed model with all sections
 - ≥3 viable options
 - Recommended option named with reasoning
 - Time-cost and time-risk curves included

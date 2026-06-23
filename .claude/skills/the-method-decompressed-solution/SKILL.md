@@ -1,6 +1,6 @@
 ---
 name: the-method-decompressed-solution
-description: Design the decompressed-normal solution. Take the normal solution and deliberately extend its duration to drop criticality risk toward the tipping point (~0.5) without consuming the float by reducing staff. Produces decompressed.md as the 4th option for SDP review. Use after normal solution has been built and its risk has been computed; runs in parallel with subcritical and compressed as a sibling option.
+description: Design the decompressed-normal solution. Take the normal solution and deliberately extend its duration to drop criticality risk toward the tipping point (~0.5) without consuming the float by reducing staff. Produces the typed DecompressedSolution committed to project.json → .decompressedSolution as the 4th option for SDP review. Use after normal solution has been built and its risk has been computed; runs in parallel with subcritical and compressed as a sibling option.
 ---
 
 # Decompressed Solution
@@ -30,15 +30,22 @@ This is a Phase 2 project-design activity. The layer model from `[[the-method-la
 
 ## Input
 
-- `methodpoc/designs/<product>/project/normal.md` and `network.yaml` (the baseline being decompressed)
+State is git-as-DB: all of this lives in `.aiarch/state/project.json` (a typed JSON aggregate), NOT in `designs/<product>/*.md` or `network.yaml` files. Markdown/DSL/YAML is a render-on-read of the typed state, never the source of truth.
+
+- The committed **normalSolution** artifact in `project.json` → `.normalSolution` (the baseline being decompressed, with its resource-assigned network state) and the committed **network** artifact → `.network`
 - Normal solution's computed risk (criticality risk and activity risk) — produced by an initial pass of `[[the-method-risk-modeling]]` on the normal option alone, or computed inline as Step 1 here if risk-modeling hasn't run yet
-- `methodpoc/designs/<product>/project/planning-assumptions.md` (risk flags that motivate decompression)
+- The committed **planningAssumptions** artifact in `project.json` → `.planningAssumptions` (risk flags that motivate decompression)
 
 ## Output
 
-`methodpoc/designs/<product>/project/decompressed.md`
+The decompressed solution is a **typed model committed into `.aiarch/state/project.json` → `.decompressedSolution`** — git is the database. It carries this option's own network state (normal's network plus labeled decompression-buffer activities; original activity durations unchanged), summary metrics, the iteration table, and the comparison-to-normal table. It is NOT a `decompressed.md` file; any markdown (including the Step 8 template) is a render-on-read of that JSON slot.
 
-This is the **4th option** alongside `normal.md`, `subcritical.md`, and `compressed.md`. All four become inputs to `[[the-method-risk-modeling]]` (for the final time-cost and time-risk curves across the full option space) and then to `[[the-method-sdp-review]]`.
+This is the **4th option** alongside `.normalSolution`, `.subcriticalSolution`, and `.compressedSolution`. All four become inputs to `[[the-method-risk-modeling]]` (for the final time-cost and time-risk curves across the full option space) and then to `[[the-method-sdp-review]]`.
+
+Two usage patterns produce this slot:
+
+1. **Agentic/CI dispatch:** the agent produces the typed `DecompressedSolution` model as JSON and commits it into `.decompressedSolution` on its session branch; the server reads it back and stages it (`StageArtifactForReview`) for the human review gate (`CommitArtifact` / `RejectArtifact`).
+2. **Local interactive:** same — produce the typed model and write it into the `.decompressedSolution` slot. Never a `designs/*.md` file.
 
 ## Procedure
 
@@ -75,7 +82,7 @@ Practical guidance:
 
 You may mix mechanisms.
 
-### Step 3 — Add decompression float to `network.yaml`
+### Step 3 — Add decompression float to this option's network state in `.decompressedSolution`
 
 For each chosen decompression point:
 
@@ -141,9 +148,9 @@ Two effects, mirroring subcritical's logic but milder:
 
 The increase is small compared to subcritical (which extends duration *and* serializes work) — that's the point. Decompressed normal is *not* subcritical.
 
-### Step 8 — Write `decompressed.md`
+### Step 8 — Commit the typed decompressed solution to `.decompressedSolution`
 
-Format:
+Produce the typed `DecompressedSolution` model and commit it to `.aiarch/state/project.json` → `.decompressedSolution`. The markdown below is the equivalent **human rendering** — use it to review the solution, but the source of truth is the slot, not a `decompressed.md` file:
 
 ```markdown
 # Decompressed Solution — <Product>
@@ -205,13 +212,13 @@ Total: 130 days
 
 ## Exit criteria (for router)
 
-`decompressed.md` exists with:
+`.aiarch/state/project.json` → `.decompressedSolution` holds a committed typed model with:
 - Comparison table showing duration slightly longer, risk lower, total cost slightly higher
 - Decompression mechanism named (pushed last event / buffered specific activity / both)
 - Staffing explicitly equal to normal (rule from ch. 10 §5)
 - Final risk near the tipping point (~0.5, or justified deviation)
 - Iteration table showing the path to the chosen point
-- Updated network state captured (buffers added to `network.yaml`, original activity durations unchanged)
+- Updated network state captured (buffers added to this option's network state in `.decompressedSolution`, original activity durations unchanged)
 
 Hand to `[[the-method-risk-modeling]]` for the full-option-set risk analysis (time-cost curve, time-risk curve, exclusion zones across all four options).
 
