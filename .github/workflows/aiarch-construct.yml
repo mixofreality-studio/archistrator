@@ -57,8 +57,10 @@ jobs:
   construct:
     runs-on: ubuntu-latest
     # Bound the run — claude must implement + open the PR within this window or the
-    # job is killed (no more silent multi-hour grinds).
-    timeout-minutes: 5
+    # job is killed (no silent multi-hour grinds). 5 min cut off productive work mid
+    # build-loop (files written, tests passing, branch made) before commit+PR; 12 gives
+    # enough runway to land the PR while still bounding any runaway.
+    timeout-minutes: 12
     defaults:
       run:
         working-directory: server
