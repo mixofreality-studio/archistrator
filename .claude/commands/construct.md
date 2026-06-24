@@ -5,10 +5,12 @@
 > `aiarch-construct.yml` GitHub Actions workflow invokes — the workflow carries no prompt
 > logic, it just runs this command. One component, one activity, one PR.
 
-**Usage:** `/construct <component_id> <activity_id>`
+**Arguments** — `$ARGUMENTS` is `<component_id> <activity_id>` (two space-separated tokens). Parse them once, up front, and use the literal values throughout — do NOT swap them:
 
-- `$1` = `component_id` — a key in `.aiarch/state/project.json` → `.serviceContracts`.
-- `$2` = `activity_id` — the construction activity (e.g. `C-BG`); work lands on branch `aiarch/construct/$2`.
+- **COMPONENT_ID** = the **first** token — a key in `.aiarch/state/project.json` → `.serviceContracts`. (Authoritatively, it equals `.Component` in the pre-extracted `service-contract.json`.)
+- **ACTIVITY_ID** = the **second** token — the construction activity (e.g. `C-BG`). Work lands on branch `aiarch/construct/<ACTIVITY_ID>` and the PR is titled `construct(<ACTIVITY_ID>): implement <COMPONENT_ID>`.
+
+Example: `/construct billingManager C-BM` → COMPONENT_ID=`billingManager`, ACTIVITY_ID=`C-BM` → branch `aiarch/construct/C-BM`, PR title `construct(C-BM): implement billingManager`.
 
 **Agent + skills.** Implement to the standard of the **`junior-developer`** agent
 (`.claude/agents/junior-developer.md`). Follow **[[the-method-layers]]** (layer + call-direction
@@ -21,7 +23,7 @@ truth; markdown is only ever a render-on-read.
 ## Steps
 
 1. **Read the contract.** It is the typed entry `.aiarch/state/project.json` →
-   `.serviceContracts["$1"]`. In CI it is also pre-extracted to `service-contract.json` at the repo
+   `.serviceContracts["<COMPONENT_ID>"]`. In CI it is also pre-extracted to `service-contract.json` at the repo
    root. It carries `Layer`, `Ops` (operation signatures + I/O structs), `Inbound`/`Outbound`
    parties, `DataContracts`, `ErrorModel`, and `Idempotency`. Implement exactly what it specifies —
    no more, no less. If the contract has a gap, do NOT silently widen it (see `junior-developer`).
@@ -41,10 +43,10 @@ truth; markdown is only ever a render-on-read.
    far too slow). Fix only failures in your own code; do not chase pre-existing repo issues. You have
    a ~20-minute budget — keep moving and land the PR.
 
-4. **Commit** all changes onto branch `aiarch/construct/$2` and **open a PR**:
-   - Title: `construct($2): implement $1`
+4. **Commit** all changes onto branch `aiarch/construct/<ACTIVITY_ID>` and **open a PR**:
+   - Title: `construct(<ACTIVITY_ID>): implement <COMPONENT_ID>`
    - Body: the activity id, the component id, the contract reference
-     (`.aiarch/state/project.json → .serviceContracts["$1"]`), and a checklist (contract satisfied /
+     (`.aiarch/state/project.json → .serviceContracts["<COMPONENT_ID>"]`), and a checklist (contract satisfied /
      gofmt·vet·build·test pass / no `*/generated/` edits).
    - Put implementation notes (what you built, any deviation — should be none, test results) in the
      **PR body and commit messages**, not a `designs/*.md` log.
