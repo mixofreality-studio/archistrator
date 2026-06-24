@@ -6852,8 +6852,7 @@
     },
     "C-BG": {
       "activityID": "C-BG",
-      "phase": 1,
-      "startedAt": "2026-06-23T20:12:15.84438Z",
+      "phase": 0,
       "produced": [
         {
           "Kind": "service-contract",
@@ -7263,8 +7262,7 @@
     },
     "C-OR": {
       "activityID": "C-OR",
-      "phase": 1,
-      "startedAt": "2026-06-23T05:42:33.137212Z",
+      "phase": 0,
       "produced": [
         {
           "Kind": "service-contract",
