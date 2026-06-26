@@ -63,15 +63,15 @@ func (r *fakeRail) verbCount(verb string) int {
 }
 
 func (r *fakeRail) GetInstallationToken(_ context.Context, repo sourcecontrol.RepoRef) (sourcecontrol.RepoCredential, error) {
-	r.record(railCall{verb: "GetInstallationToken", repo: repo.String()})
+	r.record(railCall{verb: "GetInstallationToken", repo: sourcecontrol.RepoRefString(repo)})
 	return sourcecontrol.RepoCredential{Bytes: []byte("tok"), ExpiresAt: time.Now().Add(time.Hour)}, nil
 }
 
 func (r *fakeRail) OpenBranch(_ context.Context, repo sourcecontrol.RepoRef, branch sourcecontrol.BranchName, _ sourcecontrol.RepoCredential, _ fwra.IdempotencyKey) (sourcecontrol.BranchRef, error) {
-	r.record(railCall{verb: "OpenBranch", repo: repo.String(), branch: string(branch)})
+	r.record(railCall{verb: "OpenBranch", repo: sourcecontrol.RepoRefString(repo), branch: string(branch)})
 	// The Manager discards the BranchRef (it only ensures the branch exists); a zero
 	// ref is fine — the workflow never re-materializes a branch handle.
-	return sourcecontrol.BranchRef{}, nil
+	return sourcecontrol.BranchRef(""), nil
 }
 
 func (r *fakeRail) OpenPullRequest(_ context.Context, repo sourcecontrol.RepoRef, spec sourcecontrol.PullRequestSpec, _ sourcecontrol.RepoCredential, _ fwra.IdempotencyKey) (sourcecontrol.PullRequestRef, error) {
@@ -79,12 +79,12 @@ func (r *fakeRail) OpenPullRequest(_ context.Context, repo sourcecontrol.RepoRef
 	r.openedPRs++
 	prRef := "pr/" + string(spec.Head)
 	r.mu.Unlock()
-	r.record(railCall{verb: "OpenPullRequest", repo: repo.String(), branch: string(spec.Head), prRef: prRef})
+	r.record(railCall{verb: "OpenPullRequest", repo: sourcecontrol.RepoRefString(repo), branch: string(spec.Head), prRef: prRef})
 	return sourcecontrol.PullRequestRefFromString(prRef), nil
 }
 
 func (r *fakeRail) GetPullRequestStatus(_ context.Context, repo sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, _ sourcecontrol.RepoCredential) (sourcecontrol.PullRequestStatus, error) {
-	r.record(railCall{verb: "GetPullRequestStatus", repo: repo.String(), prRef: pr.String()})
+	r.record(railCall{verb: "GetPullRequestStatus", repo: sourcecontrol.RepoRefString(repo), prRef: sourcecontrol.PullRequestRefString(pr)})
 	rollup := sourcecontrol.CheckFailure
 	if r.checkGreen {
 		rollup = sourcecontrol.CheckSuccess
@@ -93,12 +93,12 @@ func (r *fakeRail) GetPullRequestStatus(_ context.Context, repo sourcecontrol.Re
 }
 
 func (r *fakeRail) PostReview(_ context.Context, repo sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, _ sourcecontrol.ReviewSubmission, _ sourcecontrol.RepoCredential, _ fwra.IdempotencyKey) error {
-	r.record(railCall{verb: "PostReview", repo: repo.String(), prRef: pr.String()})
+	r.record(railCall{verb: "PostReview", repo: sourcecontrol.RepoRefString(repo), prRef: sourcecontrol.PullRequestRefString(pr)})
 	return nil
 }
 
 func (r *fakeRail) MergePullRequest(_ context.Context, repo sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, _ sourcecontrol.RepoCredential, _ fwra.IdempotencyKey) (sourcecontrol.MergeResult, error) {
-	r.record(railCall{verb: "MergePullRequest", repo: repo.String(), prRef: pr.String()})
+	r.record(railCall{verb: "MergePullRequest", repo: sourcecontrol.RepoRefString(repo), prRef: sourcecontrol.PullRequestRefString(pr)})
 	return sourcecontrol.MergeResult{Merged: true, Commit: "merged"}, nil
 }
 

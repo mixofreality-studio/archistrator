@@ -1,0 +1,443 @@
+{
+  "$id": "archistrator://contract/sourcecontrol",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "AccountRef": {
+      "type": "string"
+    },
+    "BranchName": {
+      "type": "string"
+    },
+    "BranchRef": {
+      "type": "string"
+    },
+    "CheckState": {
+      "type": "integer",
+      "enum": [
+        0,
+        1,
+        2
+      ],
+      "x-enum-varnames": [
+        "CheckPending",
+        "CheckSuccess",
+        "CheckFailure"
+      ],
+      "x-go-base": "int"
+    },
+    "CommitRef": {
+      "type": "string"
+    },
+    "Installation": {
+      "type": "string"
+    },
+    "ManagedFile": {
+      "type": "object",
+      "properties": {
+        "Path": {
+          "type": "string"
+        },
+        "Content": {
+          "type": "string",
+          "contentEncoding": "base64",
+          "x-go-type": "[]byte"
+        }
+      },
+      "required": [
+        "Path",
+        "Content"
+      ],
+      "additionalProperties": false
+    },
+    "MergeResult": {
+      "type": "object",
+      "properties": {
+        "Commit": {
+          "type": "string"
+        },
+        "Merged": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "Commit",
+        "Merged"
+      ],
+      "additionalProperties": false
+    },
+    "ProjectID": {
+      "type": "string"
+    },
+    "PullRequestRef": {
+      "type": "string"
+    },
+    "PullRequestSpec": {
+      "type": "object",
+      "properties": {
+        "Head": {
+          "$ref": "#/$defs/BranchName"
+        },
+        "Base": {
+          "$ref": "#/$defs/BranchName"
+        },
+        "Title": {
+          "type": "string"
+        },
+        "Body": {
+          "type": "string"
+        },
+        "Hints": {
+          "type": "string",
+          "contentEncoding": "base64",
+          "x-go-type": "[]byte"
+        }
+      },
+      "required": [
+        "Head",
+        "Base",
+        "Title",
+        "Body",
+        "Hints"
+      ],
+      "additionalProperties": false
+    },
+    "PullRequestStatus": {
+      "type": "object",
+      "properties": {
+        "CheckRollup": {
+          "$ref": "#/$defs/CheckState"
+        },
+        "ApprovalCount": {
+          "type": "integer"
+        },
+        "Mergeable": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "CheckRollup",
+        "ApprovalCount",
+        "Mergeable"
+      ],
+      "additionalProperties": false
+    },
+    "RepoAdoptionSpec": {
+      "type": "object",
+      "properties": {
+        "RepoName": {
+          "type": "string"
+        },
+        "Account": {
+          "$ref": "#/$defs/AccountRef"
+        },
+        "Title": {
+          "type": "string"
+        },
+        "Hints": {
+          "type": "string",
+          "contentEncoding": "base64",
+          "x-go-type": "[]byte"
+        }
+      },
+      "required": [
+        "RepoName",
+        "Account",
+        "Title",
+        "Hints"
+      ],
+      "additionalProperties": false
+    },
+    "RepoCredential": {
+      "type": "object",
+      "properties": {
+        "Bytes": {
+          "type": "string",
+          "contentEncoding": "base64",
+          "x-go-type": "[]byte"
+        },
+        "ExpiresAt": {
+          "type": "string",
+          "format": "date-time",
+          "x-go-import": "time",
+          "x-go-type": "time.Time"
+        }
+      },
+      "required": [
+        "Bytes",
+        "ExpiresAt"
+      ],
+      "additionalProperties": false
+    },
+    "RepoRef": {
+      "type": "string"
+    },
+    "ReviewSubmission": {
+      "type": "object",
+      "properties": {
+        "Verdict": {
+          "$ref": "#/$defs/ReviewVerdict"
+        },
+        "Body": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "Verdict",
+        "Body"
+      ],
+      "additionalProperties": false
+    },
+    "ReviewVerdict": {
+      "type": "integer",
+      "enum": [
+        0,
+        1,
+        2
+      ],
+      "x-enum-varnames": [
+        "ReviewApprove",
+        "ReviewRequestChanges",
+        "ReviewComment"
+      ],
+      "x-go-base": "int"
+    }
+  },
+  "title": "sourcecontrol contract",
+  "interface": {
+    "name": "SourceControlAccess",
+    "layer": "resourceaccess",
+    "operations": [
+      {
+        "name": "AdoptProjectRepo",
+        "params": [
+          {
+            "name": "spec",
+            "schema": {
+              "$ref": "#/$defs/RepoAdoptionSpec"
+            }
+          }
+        ],
+        "result": {
+          "$ref": "#/$defs/RepoRef"
+        },
+        "error": true
+      },
+      {
+        "name": "CommitManagedFiles",
+        "params": [
+          {
+            "name": "repo",
+            "schema": {
+              "$ref": "#/$defs/RepoRef"
+            }
+          },
+          {
+            "name": "files",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ManagedFile"
+              }
+            }
+          },
+          {
+            "name": "cred",
+            "schema": {
+              "$ref": "#/$defs/RepoCredential"
+            }
+          }
+        ],
+        "result": {
+          "$ref": "#/$defs/CommitRef"
+        },
+        "error": true
+      },
+      {
+        "name": "ConfigureBranchProtection",
+        "params": [
+          {
+            "name": "repo",
+            "schema": {
+              "$ref": "#/$defs/RepoRef"
+            }
+          },
+          {
+            "name": "cred",
+            "schema": {
+              "$ref": "#/$defs/RepoCredential"
+            }
+          }
+        ],
+        "error": true
+      },
+      {
+        "name": "GetInstallationToken",
+        "params": [
+          {
+            "name": "repo",
+            "schema": {
+              "$ref": "#/$defs/RepoRef"
+            }
+          }
+        ],
+        "result": {
+          "$ref": "#/$defs/RepoCredential"
+        },
+        "error": true
+      },
+      {
+        "name": "GetPullRequestStatus",
+        "params": [
+          {
+            "name": "repo",
+            "schema": {
+              "$ref": "#/$defs/RepoRef"
+            }
+          },
+          {
+            "name": "pr",
+            "schema": {
+              "$ref": "#/$defs/PullRequestRef"
+            }
+          },
+          {
+            "name": "cred",
+            "schema": {
+              "$ref": "#/$defs/RepoCredential"
+            }
+          }
+        ],
+        "result": {
+          "$ref": "#/$defs/PullRequestStatus"
+        },
+        "error": true
+      },
+      {
+        "name": "InstallAuthorizeApp",
+        "params": [
+          {
+            "name": "account",
+            "schema": {
+              "$ref": "#/$defs/AccountRef"
+            }
+          }
+        ],
+        "result": {
+          "$ref": "#/$defs/Installation"
+        },
+        "error": true
+      },
+      {
+        "name": "MergePullRequest",
+        "params": [
+          {
+            "name": "repo",
+            "schema": {
+              "$ref": "#/$defs/RepoRef"
+            }
+          },
+          {
+            "name": "pr",
+            "schema": {
+              "$ref": "#/$defs/PullRequestRef"
+            }
+          },
+          {
+            "name": "cred",
+            "schema": {
+              "$ref": "#/$defs/RepoCredential"
+            }
+          }
+        ],
+        "result": {
+          "$ref": "#/$defs/MergeResult"
+        },
+        "error": true
+      },
+      {
+        "name": "OpenBranch",
+        "params": [
+          {
+            "name": "repo",
+            "schema": {
+              "$ref": "#/$defs/RepoRef"
+            }
+          },
+          {
+            "name": "branch",
+            "schema": {
+              "$ref": "#/$defs/BranchName"
+            }
+          },
+          {
+            "name": "cred",
+            "schema": {
+              "$ref": "#/$defs/RepoCredential"
+            }
+          }
+        ],
+        "result": {
+          "$ref": "#/$defs/BranchRef"
+        },
+        "error": true
+      },
+      {
+        "name": "OpenPullRequest",
+        "params": [
+          {
+            "name": "repo",
+            "schema": {
+              "$ref": "#/$defs/RepoRef"
+            }
+          },
+          {
+            "name": "spec",
+            "schema": {
+              "$ref": "#/$defs/PullRequestSpec"
+            }
+          },
+          {
+            "name": "cred",
+            "schema": {
+              "$ref": "#/$defs/RepoCredential"
+            }
+          }
+        ],
+        "result": {
+          "$ref": "#/$defs/PullRequestRef"
+        },
+        "error": true
+      },
+      {
+        "name": "PostReview",
+        "params": [
+          {
+            "name": "repo",
+            "schema": {
+              "$ref": "#/$defs/RepoRef"
+            }
+          },
+          {
+            "name": "pr",
+            "schema": {
+              "$ref": "#/$defs/PullRequestRef"
+            }
+          },
+          {
+            "name": "review",
+            "schema": {
+              "$ref": "#/$defs/ReviewSubmission"
+            }
+          },
+          {
+            "name": "cred",
+            "schema": {
+              "$ref": "#/$defs/RepoCredential"
+            }
+          }
+        ],
+        "error": true
+      }
+    ]
+  }
+}

@@ -113,6 +113,10 @@ func newAccess(t *testing.T, fake *gh.FakeGitHub) *sc.Access {
 	return access
 }
 
+// rc wraps a plain context as the ResourceAccess call Context every contract
+// method now takes as its first param (the idempotency key rides on it).
+func rc(ctx context.Context) fwra.Context { return fwra.Context{Context: ctx} }
+
 func kindOf(err error) fwra.Kind {
 	var fe *fwra.Error
 	if errors.As(err, &fe) {
@@ -165,7 +169,7 @@ func TestU3_GetInstallationTokenRejectsZeroRepo(t *testing.T) {
 	fake := gh.Start()
 	defer fake.Close()
 	a := newAccess(t, fake)
-	_, err := a.GetInstallationToken(context.Background(), sc.RepoRef{})
+	_, err := a.GetInstallationToken(rc(context.Background()), sc.RepoRef(""))
 	requireKind(t, err, fwra.ContractMisuse)
 	if len(fake.Requests()) != 0 {
 		t.Fatalf("guard should fire before any wire call; got %d requests", len(fake.Requests()))
@@ -176,7 +180,7 @@ func TestU4_AdoptRejectsEmptyRepoName(t *testing.T) {
 	fake := gh.Start()
 	defer fake.Close()
 	a := newAccess(t, fake)
-	_, err := a.AdoptProjectRepo(context.Background(), sc.RepoAdoptionSpec{RepoName: "", Account: testAccount}, "")
+	_, err := a.AdoptProjectRepo(rc(context.Background()), sc.RepoAdoptionSpec{RepoName: "", Account: testAccount})
 	requireKind(t, err, fwra.ContractMisuse)
 	if len(fake.Requests()) != 0 {
 		t.Fatalf("guard should fire before any wire call; got %d requests", len(fake.Requests()))
@@ -190,13 +194,13 @@ func TestU5_OpenBranchGuards(t *testing.T) {
 	cred := sc.RepoCredential{Bytes: []byte("t"), ExpiresAt: time.Now().Add(time.Hour)}
 	repo := sc.RepoRefFromString(testAccount + "|" + testAccount + "/proj")
 
-	if _, err := a.OpenBranch(context.Background(), sc.RepoRef{}, "b", cred, ""); kindOf(err) != fwra.ContractMisuse {
+	if _, err := a.OpenBranch(rc(context.Background()), sc.RepoRef(""), "b", cred); kindOf(err) != fwra.ContractMisuse {
 		t.Fatalf("zero repo: kind = %v", kindOf(err))
 	}
-	if _, err := a.OpenBranch(context.Background(), repo, "b", sc.RepoCredential{}, ""); kindOf(err) != fwra.ContractMisuse {
+	if _, err := a.OpenBranch(rc(context.Background()), repo, "b", sc.RepoCredential{}); kindOf(err) != fwra.ContractMisuse {
 		t.Fatalf("empty cred: kind = %v", kindOf(err))
 	}
-	if _, err := a.OpenBranch(context.Background(), repo, "  ", cred, ""); kindOf(err) != fwra.ContractMisuse {
+	if _, err := a.OpenBranch(rc(context.Background()), repo, "  ", cred); kindOf(err) != fwra.ContractMisuse {
 		t.Fatalf("empty branch: kind = %v", kindOf(err))
 	}
 }
@@ -207,7 +211,7 @@ func TestU6_OpenPullRequestRejectsHeadEqBase(t *testing.T) {
 	a := newAccess(t, fake)
 	cred := sc.RepoCredential{Bytes: []byte("t"), ExpiresAt: time.Now().Add(time.Hour)}
 	repo := sc.RepoRefFromString(testAccount + "|" + testAccount + "/proj")
-	_, err := a.OpenPullRequest(context.Background(), repo, sc.PullRequestSpec{Head: "main", Base: "main"}, cred, "")
+	_, err := a.OpenPullRequest(rc(context.Background()), repo, sc.PullRequestSpec{Head: "main", Base: "main"}, cred)
 	requireKind(t, err, fwra.ContractMisuse)
 }
 
@@ -217,26 +221,26 @@ func TestU7_PRRailRejectsZeroPR(t *testing.T) {
 	a := newAccess(t, fake)
 	cred := sc.RepoCredential{Bytes: []byte("t"), ExpiresAt: time.Now().Add(time.Hour)}
 	repo := sc.RepoRefFromString(testAccount + "|" + testAccount + "/proj")
-	if _, err := a.GetPullRequestStatus(context.Background(), repo, sc.PullRequestRef{}, cred); kindOf(err) != fwra.ContractMisuse {
+	if _, err := a.GetPullRequestStatus(rc(context.Background()), repo, sc.PullRequestRef(""), cred); kindOf(err) != fwra.ContractMisuse {
 		t.Fatalf("status zero PR: kind = %v", kindOf(err))
 	}
-	if err := a.PostReview(context.Background(), repo, sc.PullRequestRef{}, sc.ReviewSubmission{}, cred, ""); kindOf(err) != fwra.ContractMisuse {
+	if err := a.PostReview(rc(context.Background()), repo, sc.PullRequestRef(""), sc.ReviewSubmission{}, cred); kindOf(err) != fwra.ContractMisuse {
 		t.Fatalf("postReview zero PR: kind = %v", kindOf(err))
 	}
-	if _, err := a.MergePullRequest(context.Background(), repo, sc.PullRequestRef{}, cred, ""); kindOf(err) != fwra.ContractMisuse {
+	if _, err := a.MergePullRequest(rc(context.Background()), repo, sc.PullRequestRef(""), cred); kindOf(err) != fwra.ContractMisuse {
 		t.Fatalf("merge zero PR: kind = %v", kindOf(err))
 	}
 }
 
 func TestU8_RefValueSemantics(t *testing.T) {
 	r := sc.RepoRefFromString("acme|acme/my-project")
-	if r.String() != "acme|acme/my-project" {
-		t.Fatalf("RepoRef String round-trip failed: %q", r.String())
+	if sc.RepoRefString(r) != "acme|acme/my-project" {
+		t.Fatalf("RepoRef String round-trip failed: %q", sc.RepoRefString(r))
 	}
-	if !r.Equal(sc.RepoRefFromString("acme|acme/my-project")) {
+	if !sc.RepoRefEqual(r, sc.RepoRefFromString("acme|acme/my-project")) {
 		t.Fatalf("RepoRef Equal failed")
 	}
-	if (sc.RepoRef{}).IsZero() != true {
+	if sc.RepoRefIsZero(sc.RepoRef("")) != true {
 		t.Fatalf("zero RepoRef should be zero")
 	}
 	// malformed ref (no separator) → ContractMisuse on use
@@ -244,7 +248,7 @@ func TestU8_RefValueSemantics(t *testing.T) {
 	defer fake.Close()
 	a := newAccess(t, fake)
 	cred := sc.RepoCredential{Bytes: []byte("t"), ExpiresAt: time.Now().Add(time.Hour)}
-	_, err := a.OpenBranch(context.Background(), sc.RepoRefFromString("no-separator"), "b", cred, "")
+	_, err := a.OpenBranch(rc(context.Background()), sc.RepoRefFromString("no-separator"), "b", cred)
 	requireKind(t, err, fwra.ContractMisuse)
 }
 
@@ -258,11 +262,11 @@ func TestU9_InstallAuthorizeAppHappy(t *testing.T) {
 	seedInstallation(fake, testAccount)
 	a := newAccess(t, fake)
 
-	inst, err := a.InstallAuthorizeApp(context.Background(), testAccount, "")
+	inst, err := a.InstallAuthorizeApp(rc(context.Background()), testAccount)
 	if err != nil {
 		t.Fatalf("InstallAuthorizeApp: %v", err)
 	}
-	if inst.IsZero() {
+	if sc.InstallationIsZero(inst) {
 		t.Fatalf("expected a non-zero Installation")
 	}
 	req := findRequest(t, fake, "GET", "/app/installations")
@@ -278,7 +282,7 @@ func TestU10_InstallAuthorizeAppNotInstalled(t *testing.T) {
 		{"id": 7, "account": map[string]any{"login": "someone-else"}},
 	}))
 	a := newAccess(t, fake)
-	_, err := a.InstallAuthorizeApp(context.Background(), testAccount, "")
+	_, err := a.InstallAuthorizeApp(rc(context.Background()), testAccount)
 	requireKind(t, err, fwra.NotFound)
 }
 
@@ -287,7 +291,7 @@ func TestU11_InstallAuthorizeAppAuth(t *testing.T) {
 	defer fake.Close()
 	fake.On("GET", "/app/installations", gh.Response{Status: 401, Body: `{"message":"bad jwt"}`})
 	a := newAccess(t, fake)
-	_, err := a.InstallAuthorizeApp(context.Background(), testAccount, "")
+	_, err := a.InstallAuthorizeApp(rc(context.Background()), testAccount)
 	requireKind(t, err, fwra.Auth)
 	if err.(*fwra.Error).Retryable {
 		t.Fatalf("Auth must be terminal (non-retryable)")
@@ -301,11 +305,11 @@ func TestU14_GetInstallationTokenHappy(t *testing.T) {
 	a := newAccess(t, fake)
 	repo := sc.RepoRefFromString("acme|acme/my-project")
 
-	cred, err := a.GetInstallationToken(context.Background(), repo)
+	cred, err := a.GetInstallationToken(rc(context.Background()), repo)
 	if err != nil {
 		t.Fatalf("GetInstallationToken: %v", err)
 	}
-	if cred.IsZero() {
+	if sc.RepoCredentialIsZero(cred) {
 		t.Fatalf("expected a non-empty credential")
 	}
 	if cred.ExpiresAt.IsZero() {
@@ -320,11 +324,11 @@ func TestU15_GetInstallationTokenCaches(t *testing.T) {
 	a := newAccess(t, fake)
 	repo := sc.RepoRefFromString("acme|acme/my-project")
 
-	if _, err := a.GetInstallationToken(context.Background(), repo); err != nil {
+	if _, err := a.GetInstallationToken(rc(context.Background()), repo); err != nil {
 		t.Fatalf("first mint: %v", err)
 	}
 	mintsAfterFirst := countRequests(fake, "POST", "/app/installations/99/access_tokens")
-	if _, err := a.GetInstallationToken(context.Background(), repo); err != nil {
+	if _, err := a.GetInstallationToken(rc(context.Background()), repo); err != nil {
 		t.Fatalf("second mint: %v", err)
 	}
 	mintsAfterSecond := countRequests(fake, "POST", "/app/installations/99/access_tokens")
@@ -345,10 +349,10 @@ func TestU16_GetInstallationTokenRemintNearExpiry(t *testing.T) {
 	a := newAccess(t, fake)
 	repo := sc.RepoRefFromString("acme|acme/my-project")
 
-	if _, err := a.GetInstallationToken(context.Background(), repo); err != nil {
+	if _, err := a.GetInstallationToken(rc(context.Background()), repo); err != nil {
 		t.Fatalf("first mint: %v", err)
 	}
-	if _, err := a.GetInstallationToken(context.Background(), repo); err != nil {
+	if _, err := a.GetInstallationToken(rc(context.Background()), repo); err != nil {
 		t.Fatalf("second mint: %v", err)
 	}
 	if got := countRequests(fake, "POST", "/app/installations/99/access_tokens"); got != 2 {
@@ -362,7 +366,7 @@ func TestU17_GetInstallationTokenNotFound(t *testing.T) {
 	fake.On("GET", "/app/installations", gh.JSON(200, []map[string]any{})) // empty
 	a := newAccess(t, fake)
 	repo := sc.RepoRefFromString("acme|acme/my-project")
-	_, err := a.GetInstallationToken(context.Background(), repo)
+	_, err := a.GetInstallationToken(rc(context.Background()), repo)
 	requireKind(t, err, fwra.NotFound)
 }
 
@@ -379,13 +383,13 @@ func TestU12_AdoptSuccessEmptyUnderInstall(t *testing.T) {
 	fake.SeedEmptyRepo(testAccount, "my-project", true)
 	a := newAccess(t, fake)
 
-	ref, err := a.AdoptProjectRepo(context.Background(), sc.RepoAdoptionSpec{
+	ref, err := a.AdoptProjectRepo(rc(context.Background()), sc.RepoAdoptionSpec{
 		RepoName: "my-project", Account: testAccount, Title: "My Project",
-	}, "wf:act")
+	})
 	if err != nil {
 		t.Fatalf("AdoptProjectRepo: %v", err)
 	}
-	if ref.IsZero() {
+	if sc.RepoRefIsZero(ref) {
 		t.Fatalf("expected a non-zero RepoRef")
 	}
 	// adopt must NOT create a repo (no POST /orgs/.../repos).
@@ -407,9 +411,9 @@ func TestU29_AdoptNotUnderInstallation(t *testing.T) {
 	// The repo is NOT seeded → GET /repos/acme/missing 404s under the installation.
 	a := newAccess(t, fake)
 
-	_, err := a.AdoptProjectRepo(context.Background(), sc.RepoAdoptionSpec{
+	_, err := a.AdoptProjectRepo(rc(context.Background()), sc.RepoAdoptionSpec{
 		RepoName: "missing", Account: testAccount, Title: "Missing",
-	}, "")
+	})
 	requireKind(t, err, fwra.NotFound)
 	if !strings.Contains(err.Error(), "NotUnderInstallation") {
 		t.Fatalf("expected a NotUnderInstallation detail; got %v", err)
@@ -434,13 +438,13 @@ func TestU30_AdoptSucceedsWithPreExistingContent(t *testing.T) {
 	fake.SeedRepo(testAccount, "has-stuff", "Pre-existing", []string{"misc"}, true)
 	a := newAccess(t, fake)
 
-	ref, err := a.AdoptProjectRepo(context.Background(), sc.RepoAdoptionSpec{
+	ref, err := a.AdoptProjectRepo(rc(context.Background()), sc.RepoAdoptionSpec{
 		RepoName: "has-stuff", Account: testAccount, Title: "Has Stuff",
-	}, "")
+	})
 	if err != nil {
 		t.Fatalf("permissive adopt of a non-empty repo must SUCCEED, got: %v", err)
 	}
-	if ref.IsZero() {
+	if sc.RepoRefIsZero(ref) {
 		t.Fatalf("expected a non-zero RepoRef on permissive adopt")
 	}
 	// adopt still applies the aiarch-project topic — regardless of content.
@@ -460,13 +464,13 @@ func TestU13_AdoptIdempotentReadopt(t *testing.T) {
 	fake.SeedAdoptedRepo(testAccount, "my-project", "My Project", true)
 	a := newAccess(t, fake)
 
-	ref, err := a.AdoptProjectRepo(context.Background(), sc.RepoAdoptionSpec{
+	ref, err := a.AdoptProjectRepo(rc(context.Background()), sc.RepoAdoptionSpec{
 		RepoName: "my-project", Account: testAccount, Title: "My Project",
-	}, "")
+	})
 	if err != nil {
 		t.Fatalf("idempotent re-adopt must succeed, got: %v", err)
 	}
-	if ref.IsZero() {
+	if sc.RepoRefIsZero(ref) {
 		t.Fatalf("expected the existing RepoRef on idempotent re-adopt")
 	}
 	// The idempotent path still (re-)applies the topic (converged → effective no-op).
@@ -492,13 +496,13 @@ func TestU31_AdoptSucceedsWithPreExistingAiarchTree(t *testing.T) {
 	fake.SeedRepoFile(testAccount, "my-project", ".aiarch", []byte("prior-state"))
 	a := newAccess(t, fake)
 
-	ref, err := a.AdoptProjectRepo(context.Background(), sc.RepoAdoptionSpec{
+	ref, err := a.AdoptProjectRepo(rc(context.Background()), sc.RepoAdoptionSpec{
 		RepoName: "my-project", Account: testAccount, Title: "My Project",
-	}, "")
+	})
 	if err != nil {
 		t.Fatalf("permissive adopt of a repo with a pre-existing .aiarch/ must SUCCEED (resume), got: %v", err)
 	}
-	if ref.IsZero() {
+	if sc.RepoRefIsZero(ref) {
 		t.Fatalf("expected a non-zero RepoRef on permissive resume-adopt")
 	}
 	// adopt re-applies the aiarch-project topic (converged → effective no-op).
@@ -572,15 +576,15 @@ func TestU36_CommitManagedFilesSeatsBundle(t *testing.T) {
 	gomod := []byte("module github.com/acme/alpha\n\ngo 1.25.0\n")
 	mtest := []byte("package method_test\n")
 
-	ref, err := a.CommitManagedFiles(context.Background(), repo, []sc.ManagedFile{
+	ref, err := a.CommitManagedFiles(rc(context.Background()), repo, []sc.ManagedFile{
 		{Path: ".github/workflows/aiarch-design.yml", Content: wf},
 		{Path: "go.mod", Content: gomod},
 		{Path: "aiarch_method_test.go", Content: mtest},
-	}, cred, "wf:wf")
+	}, cred)
 	if err != nil {
 		t.Fatalf("CommitManagedFiles: %v", err)
 	}
-	if ref.IsZero() {
+	if sc.CommitRefIsZero(ref) {
 		t.Fatalf("expected a non-zero CommitRef")
 	}
 	// All three files landed.
@@ -602,13 +606,13 @@ func TestU37_CommitManagedFilesOverwriteIfChanged(t *testing.T) {
 	path := ".github/workflows/aiarch-design.yml"
 	fake.SeedRepoFile(testAccount, "alpha", path, []byte("old content"))
 
-	ref, err := a.CommitManagedFiles(context.Background(), repo, []sc.ManagedFile{
+	ref, err := a.CommitManagedFiles(rc(context.Background()), repo, []sc.ManagedFile{
 		{Path: path, Content: []byte("new content")},
-	}, cred, "")
+	}, cred)
 	if err != nil {
 		t.Fatalf("overwrite: %v", err)
 	}
-	if ref.IsZero() {
+	if sc.CommitRefIsZero(ref) {
 		t.Fatalf("expected a CommitRef on a changed write")
 	}
 	// A PUT was issued (the content changed).
@@ -628,13 +632,13 @@ func TestU38_CommitManagedFilesByteIdenticalNoOp(t *testing.T) {
 	content := []byte("identical bytes")
 	fake.SeedRepoFile(testAccount, "alpha", path, content)
 
-	ref, err := a.CommitManagedFiles(context.Background(), repo, []sc.ManagedFile{
+	ref, err := a.CommitManagedFiles(rc(context.Background()), repo, []sc.ManagedFile{
 		{Path: path, Content: content},
-	}, cred, "")
+	}, cred)
 	if err != nil {
 		t.Fatalf("byte-identical commit: %v", err)
 	}
-	if ref.IsZero() {
+	if sc.CommitRefIsZero(ref) {
 		t.Fatalf("a no-op commit should still return the existing tip CommitRef")
 	}
 	// No PUT — byte-identical short-circuits.
@@ -650,10 +654,10 @@ func TestU39_CommitManagedFilesRejectsPathOffAllowlist(t *testing.T) {
 
 	// A non-allowlisted path (not under .github/workflows/ nor a scaffold root) must
 	// reject the WHOLE bundle before any wire call — even when bundled with a valid file.
-	_, err := a.CommitManagedFiles(context.Background(), repo, []sc.ManagedFile{
+	_, err := a.CommitManagedFiles(rc(context.Background()), repo, []sc.ManagedFile{
 		{Path: ".github/workflows/aiarch-design.yml", Content: []byte("ok")},
 		{Path: "src/main.go", Content: []byte("package main")},
-	}, cred, "")
+	}, cred)
 	requireKind(t, err, fwra.ContractMisuse)
 	if len(fake.Requests()) != preCount {
 		t.Fatalf("the allowlist guard must fire before any wire call; requests went %d → %d", preCount, len(fake.Requests()))
@@ -665,20 +669,20 @@ func TestU40_CommitManagedFilesGuards(t *testing.T) {
 	defer fake.Close()
 	good := []sc.ManagedFile{{Path: ".github/workflows/x.yml", Content: []byte("c")}}
 
-	if _, err := a.CommitManagedFiles(context.Background(), sc.RepoRef{}, good, cred, ""); kindOf(err) != fwra.ContractMisuse {
+	if _, err := a.CommitManagedFiles(rc(context.Background()), sc.RepoRef(""), good, cred); kindOf(err) != fwra.ContractMisuse {
 		t.Fatalf("zero repo: kind = %v", kindOf(err))
 	}
-	if _, err := a.CommitManagedFiles(context.Background(), repo, good, sc.RepoCredential{}, ""); kindOf(err) != fwra.ContractMisuse {
+	if _, err := a.CommitManagedFiles(rc(context.Background()), repo, good, sc.RepoCredential{}); kindOf(err) != fwra.ContractMisuse {
 		t.Fatalf("zero cred: kind = %v", kindOf(err))
 	}
-	if _, err := a.CommitManagedFiles(context.Background(), repo, nil, cred, ""); kindOf(err) != fwra.ContractMisuse {
+	if _, err := a.CommitManagedFiles(rc(context.Background()), repo, nil, cred); kindOf(err) != fwra.ContractMisuse {
 		t.Fatalf("empty fileset: kind = %v", kindOf(err))
 	}
-	if _, err := a.CommitManagedFiles(context.Background(), repo, []sc.ManagedFile{{Path: ".github/workflows/x.yml", Content: nil}}, cred, ""); kindOf(err) != fwra.ContractMisuse {
+	if _, err := a.CommitManagedFiles(rc(context.Background()), repo, []sc.ManagedFile{{Path: ".github/workflows/x.yml", Content: nil}}, cred); kindOf(err) != fwra.ContractMisuse {
 		t.Fatalf("empty content: kind = %v", kindOf(err))
 	}
 	// A scaffold-root path (go.mod) is on the allowlist.
-	if _, err := a.CommitManagedFiles(context.Background(), repo, []sc.ManagedFile{{Path: "go.mod", Content: []byte("module x\n")}}, cred, ""); err != nil {
+	if _, err := a.CommitManagedFiles(rc(context.Background()), repo, []sc.ManagedFile{{Path: "go.mod", Content: []byte("module x\n")}}, cred); err != nil {
 		t.Fatalf("go.mod is a scaffold-root managed file; should be accepted: %v", err)
 	}
 }
@@ -704,11 +708,11 @@ func TestU18_OpenBranchHappy(t *testing.T) {
 	}))
 	fake.On("POST", "/repos/acme/my-project/git/refs", gh.JSON(201, map[string]any{"ref": "refs/heads/act-1"}))
 
-	br, err := a.OpenBranch(context.Background(), repo, "act-1", cred, "wf:act-1")
+	br, err := a.OpenBranch(rc(context.Background()), repo, "act-1", cred)
 	if err != nil {
 		t.Fatalf("OpenBranch: %v", err)
 	}
-	if br.IsZero() {
+	if sc.BranchRefIsZero(br) {
 		t.Fatalf("expected a BranchRef")
 	}
 	req := findRequest(t, fake, "POST", "/repos/acme/my-project/git/refs")
@@ -725,7 +729,7 @@ func TestU19_OpenBranchIdempotent(t *testing.T) {
 	}))
 	fake.On("POST", "/repos/acme/my-project/git/refs", gh.Response{Status: 422, Body: `{"message":"Reference already exists"}`})
 
-	if _, err := a.OpenBranch(context.Background(), repo, "act-1", cred, ""); err != nil {
+	if _, err := a.OpenBranch(rc(context.Background()), repo, "act-1", cred); err != nil {
 		t.Fatalf("branch-exists must map to success, got: %v", err)
 	}
 }
@@ -735,12 +739,12 @@ func TestU20_OpenPullRequestHappy(t *testing.T) {
 	defer fake.Close()
 	fake.On("POST", "/repos/acme/my-project/pulls", gh.JSON(201, map[string]any{"number": 42, "state": "open"}))
 
-	pr, err := a.OpenPullRequest(context.Background(), repo, sc.PullRequestSpec{Head: "act-1", Base: "main", Title: "T"}, cred, "")
+	pr, err := a.OpenPullRequest(rc(context.Background()), repo, sc.PullRequestSpec{Head: "act-1", Base: "main", Title: "T"}, cred)
 	if err != nil {
 		t.Fatalf("OpenPullRequest: %v", err)
 	}
-	if pr.String() != "42" {
-		t.Fatalf("PullRequestRef = %q, want 42", pr.String())
+	if sc.PullRequestRefString(pr) != "42" {
+		t.Fatalf("PullRequestRef = %q, want 42", sc.PullRequestRefString(pr))
 	}
 }
 
@@ -750,12 +754,12 @@ func TestU21_OpenPullRequestIdempotent(t *testing.T) {
 	fake.On("POST", "/repos/acme/my-project/pulls", gh.Response{Status: 422, Body: `{"message":"A pull request already exists"}`})
 	fake.OnPrefix("GET", "/repos/acme/my-project/pulls", gh.JSON(200, []map[string]any{{"number": 42, "state": "open"}}))
 
-	pr, err := a.OpenPullRequest(context.Background(), repo, sc.PullRequestSpec{Head: "act-1", Base: "main"}, cred, "")
+	pr, err := a.OpenPullRequest(rc(context.Background()), repo, sc.PullRequestSpec{Head: "act-1", Base: "main"}, cred)
 	if err != nil {
 		t.Fatalf("existing-PR must map to success, got: %v", err)
 	}
-	if pr.String() != "42" {
-		t.Fatalf("expected the existing PR #42, got %q", pr.String())
+	if sc.PullRequestRefString(pr) != "42" {
+		t.Fatalf("expected the existing PR #42, got %q", sc.PullRequestRefString(pr))
 	}
 }
 
@@ -782,7 +786,7 @@ func TestU22_GetPullRequestStatusFolds(t *testing.T) {
 			fake.On("GET", "/repos/acme/my-project/pulls/42/reviews", gh.JSON(200, []map[string]any{
 				{"state": "APPROVED"}, {"state": "COMMENTED"},
 			}))
-			st, err := a.GetPullRequestStatus(context.Background(), repo, sc.PullRequestRefFromString("42"), cred)
+			st, err := a.GetPullRequestStatus(rc(context.Background()), repo, sc.PullRequestRefFromString("42"), cred)
 			if err != nil {
 				t.Fatalf("GetPullRequestStatus: %v", err)
 			}
@@ -804,7 +808,7 @@ func TestU23_PostReviewApprove(t *testing.T) {
 	defer fake.Close()
 	fake.On("POST", "/repos/acme/my-project/pulls/42/reviews", gh.JSON(200, map[string]any{"id": 1, "state": "APPROVED"}))
 
-	if err := a.PostReview(context.Background(), repo, sc.PullRequestRefFromString("42"), sc.ReviewSubmission{Verdict: sc.ReviewApprove, Body: "+1"}, cred, ""); err != nil {
+	if err := a.PostReview(rc(context.Background()), repo, sc.PullRequestRefFromString("42"), sc.ReviewSubmission{Verdict: sc.ReviewApprove, Body: "+1"}, cred); err != nil {
 		t.Fatalf("PostReview: %v", err)
 	}
 	req := findRequest(t, fake, "POST", "/repos/acme/my-project/pulls/42/reviews")
@@ -819,7 +823,7 @@ func TestU24_MergePullRequestHappy(t *testing.T) {
 	fake.On("GET", "/repos/acme/my-project/pulls/42", gh.JSON(200, map[string]any{"number": 42, "merged": false}))
 	fake.On("PUT", "/repos/acme/my-project/pulls/42/merge", gh.JSON(200, map[string]any{"sha": "mergedsha", "merged": true}))
 
-	res, err := a.MergePullRequest(context.Background(), repo, sc.PullRequestRefFromString("42"), cred, "")
+	res, err := a.MergePullRequest(rc(context.Background()), repo, sc.PullRequestRefFromString("42"), cred)
 	if err != nil {
 		t.Fatalf("MergePullRequest: %v", err)
 	}
@@ -833,7 +837,7 @@ func TestU25_MergePullRequestAlreadyMerged(t *testing.T) {
 	defer fake.Close()
 	fake.On("GET", "/repos/acme/my-project/pulls/42", gh.JSON(200, map[string]any{"number": 42, "merged": true}))
 
-	res, err := a.MergePullRequest(context.Background(), repo, sc.PullRequestRefFromString("42"), cred, "")
+	res, err := a.MergePullRequest(rc(context.Background()), repo, sc.PullRequestRefFromString("42"), cred)
 	if err != nil {
 		t.Fatalf("already-merged must map to success, got: %v", err)
 	}
@@ -851,7 +855,7 @@ func TestU26_MergePullRequestNotMergeable(t *testing.T) {
 	fake.On("GET", "/repos/acme/my-project/pulls/42", gh.JSON(200, map[string]any{"number": 42, "merged": false}))
 	fake.On("PUT", "/repos/acme/my-project/pulls/42/merge", gh.Response{Status: 405, Body: `{"message":"Pull Request is not mergeable"}`})
 
-	_, err := a.MergePullRequest(context.Background(), repo, sc.PullRequestRefFromString("42"), cred, "")
+	_, err := a.MergePullRequest(rc(context.Background()), repo, sc.PullRequestRefFromString("42"), cred)
 	requireKind(t, err, fwra.Conflict)
 }
 
@@ -860,7 +864,7 @@ func TestU27_ConfigureBranchProtection(t *testing.T) {
 	defer fake.Close()
 	fake.On("PUT", "/repos/acme/my-project/branches/main/protection", gh.JSON(200, map[string]any{"url": "x"}))
 
-	if err := a.ConfigureBranchProtection(context.Background(), repo, cred, ""); err != nil {
+	if err := a.ConfigureBranchProtection(rc(context.Background()), repo, cred); err != nil {
 		t.Fatalf("ConfigureBranchProtection: %v", err)
 	}
 	req := findRequest(t, fake, "PUT", "/repos/acme/my-project/branches/main/protection")
@@ -874,19 +878,19 @@ func TestU27_ConfigureBranchProtection(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestU28_ValueSemantics(t *testing.T) {
-	if sc.CheckSuccess.String() != "Success" || sc.CheckFailure.String() != "Failure" || sc.CheckPending.String() != "Pending" {
+	if sc.CheckStateString(sc.CheckSuccess) != "Success" || sc.CheckStateString(sc.CheckFailure) != "Failure" || sc.CheckStateString(sc.CheckPending) != "Pending" {
 		t.Fatalf("CheckState String mapping wrong")
 	}
-	if !(sc.RepoCredential{}).IsZero() {
+	if !sc.RepoCredentialIsZero(sc.RepoCredential{}) {
 		t.Fatalf("empty credential should be zero")
 	}
-	if !(sc.Installation{}).IsZero() {
+	if !sc.InstallationIsZero(sc.Installation("")) {
 		t.Fatalf("empty installation should be zero")
 	}
-	if !(sc.PullRequestRef{}).IsZero() || !(sc.BranchRef{}).IsZero() {
+	if !sc.PullRequestRefIsZero(sc.PullRequestRef("")) || !sc.BranchRefIsZero(sc.BranchRef("")) {
 		t.Fatalf("empty refs should be zero")
 	}
-	if !(sc.CommitRef{}).IsZero() {
+	if !sc.CommitRefIsZero(sc.CommitRef("")) {
 		t.Fatalf("empty CommitRef should be zero")
 	}
 }

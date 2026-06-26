@@ -4,10 +4,12 @@ import "time"
 
 // RepoCredential is the provider-neutral, SHORT-LIVED bearer credential the
 // Manager threads into every provider-touching projectStateAccess verb
-// (projectStateAccess.md §REWORK.4). It is the credential
-// ISourceControlLifecycle.getInstallationToken MINTS and the Manager carries
-// down as a caller-supplied parameter — projectStateAccess NEVER calls
-// sourceControlAccess itself (RA-never-calls-RA / NoSideways).
+// (projectStateAccess.md §REWORK.4). It is the credential the merged
+// sourceControlAccess.GetInstallationToken MINTS (founder merge 2026-06-25 folded
+// the former ISourceControlLifecycle + IPullRequestRail into one
+// SourceControlAccess port) and the Manager carries down as a caller-supplied
+// parameter — projectStateAccess NEVER calls sourceControlAccess itself
+// (RA-never-calls-RA / NoSideways).
 //
 // SHAPE-MATCHED, NOT IMPORTED. The contract says RepoCredential is "the same
 // opaque value type sourceControlAccess.md §3.2 defines — referenced, not

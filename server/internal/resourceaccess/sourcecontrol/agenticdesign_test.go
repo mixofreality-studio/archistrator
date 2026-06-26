@@ -221,7 +221,7 @@ func TestManagedScaffoldFiles(t *testing.T) {
 // TestManagedScaffoldFilesRejectsZeroRepo proves a malformed RepoRef (no owner/repo)
 // is a ContractMisuse the accessor surfaces, not a silent empty module path.
 func TestManagedScaffoldFilesRejectsZeroRepo(t *testing.T) {
-	if _, err := ManagedScaffoldFiles(RepoRef{}); err == nil {
+	if _, err := ManagedScaffoldFiles(RepoRef("")); err == nil {
 		t.Fatal("expected an error for a zero RepoRef (unresolvable module path)")
 	}
 }

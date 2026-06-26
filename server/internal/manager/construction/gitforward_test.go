@@ -69,7 +69,7 @@ func (r *stubRail) OpenBranch(_ context.Context, _ sourcecontrol.RepoRef, branch
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.opened = append(r.opened, string(branch))
-	return sourcecontrol.BranchRef{}, nil
+	return sourcecontrol.BranchRef(""), nil
 }
 
 func (r *stubRail) OpenPullRequest(_ context.Context, _ sourcecontrol.RepoRef, spec sourcecontrol.PullRequestSpec, _ sourcecontrol.RepoCredential, _ fwra.IdempotencyKey) (sourcecontrol.PullRequestRef, error) {

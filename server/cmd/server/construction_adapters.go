@@ -696,7 +696,7 @@ func designRepoTarget(repoRef string) (constructionpipeline.RepoTarget, error) {
 	if repoRef == "" {
 		return constructionpipeline.RepoTarget{}, nil
 	}
-	owner, name, err := sourcecontrol.RepoRefFromString(repoRef).OwnerRepo()
+	owner, name, err := sourcecontrol.RepoRefOwnerRepo(sourcecontrol.RepoRefFromString(repoRef))
 	if err != nil {
 		return constructionpipeline.RepoTarget{}, err
 	}

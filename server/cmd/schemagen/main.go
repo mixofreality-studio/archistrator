@@ -54,6 +54,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/constructionpipeline"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/durableexecution"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usagelog"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/worker"
 )
@@ -506,6 +507,48 @@ var registry = []component{
 		},
 		ifaceName: "DurableExecutionAccess",
 		iface:     reflect.TypeOf((*durableexecution.DurableExecutionAccess)(nil)).Elem(),
+	},
+	{
+		name: "sourcecontrol",
+		dir:  "internal/resourceaccess/sourcecontrol",
+		models: []any{
+			// The full transitive closure of SourceControlAccess's OWN contract value
+			// types (sourceControlAccess.md §3 + sourceControlAccess-pullrequestrail.md §3).
+			// All defined in this package — full encapsulation: the contract pulls NO
+			// external (projectstate) dep AND no GitHub dep (the impl in github.go keeps
+			// its GitHub/infra imports; the contract surface stays provider-opaque).
+			// FOUNDER MERGE (2026-06-25): the former ISourceControlLifecycle +
+			// IPullRequestRail are ONE flat SourceControlAccess (10 ops); reflection on it
+			// yields all ten methods. RepoAdoptionSpec.Hints / ManagedFile.Content /
+			// PullRequestSpec.Hints / RepoCredential.Bytes are []byte (opaque); the
+			// generator binds those to their exact Go type (wellKnownByType).
+			sourcecontrol.RepoAdoptionSpec{},
+			sourcecontrol.ManagedFile{},
+			sourcecontrol.RepoCredential{},
+			sourcecontrol.PullRequestSpec{},
+			sourcecontrol.ReviewSubmission{},
+			sourcecontrol.MergeResult{},
+			sourcecontrol.PullRequestStatus{},
+			// Enums (one zero value each — const blocks captured from this dir).
+			sourcecontrol.ReviewVerdict(0),
+			sourcecontrol.CheckState(0),
+			// Named scalars. ProjectID / AccountRef / BranchName are bare identifier
+			// newtypes (no const block). Installation / RepoRef / CommitRef / BranchRef /
+			// PullRequestRef are the opaque handles, generated as $def named scalars (the
+			// durableexecution.ExecutionHandle / constructionpipeline.PipelineHandle
+			// precedent): their behaviour lives in behavior.go as free functions, keeping
+			// the opaque GitHub encoding confined to the impl.
+			sourcecontrol.ProjectID(""),
+			sourcecontrol.AccountRef(""),
+			sourcecontrol.BranchName(""),
+			sourcecontrol.Installation(""),
+			sourcecontrol.RepoRef(""),
+			sourcecontrol.CommitRef(""),
+			sourcecontrol.BranchRef(""),
+			sourcecontrol.PullRequestRef(""),
+		},
+		ifaceName: "SourceControlAccess",
+		iface:     reflect.TypeOf((*sourcecontrol.SourceControlAccess)(nil)).Elem(),
 	},
 }
 

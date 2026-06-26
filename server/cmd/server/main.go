@@ -446,13 +446,18 @@ func run(logger *slog.Logger) error { //nolint:gocognit,gocyclo,maintidx,nestif 
 	)
 	if scConcrete != nil {
 		railAccount := sourcecontrol.AccountRef(cfg.GitHubAccount)
-		designRailSD = scConcrete
-		designRailPD = scConcrete
+		// The concrete RA is now RA-context-based; the design Managers' SourceControlRail
+		// mirrors are plain-ctx, so bridge via the composition-root railAdapter (which
+		// builds fwra.Context at the boundary). One adapter satisfies both rails (identical
+		// method sets).
+		scRail := railAdapter{inner: scConcrete}
+		designRailSD = scRail
+		designRailPD = scRail
 		repoFor := func(projectID projectstate.ProjectID) (sourcecontrol.RepoRef, bool) {
 			ref, rerr := scConcrete.RepoRefForProject(railAccount, sourcecontrol.ProjectID(projectID.String()))
 			if rerr != nil {
 				logger.Warn("design PR rail: could not resolve RepoRef for project; rail dormant for this project", "projectID", projectID, "err", rerr)
-				return sourcecontrol.RepoRef{}, false
+				return sourcecontrol.RepoRef(""), false
 			}
 			return ref, true
 		}

@@ -342,7 +342,8 @@ type RepoCredential interface {
 }
 
 // SourceControlAccess is the narrow source-control lifecycle port the projectManager
-// consumes at project birth. It is the subset of sourcecontrol.SourceControlLifecycle
+// consumes at project birth. It is the subset of the merged sourcecontrol.SourceControlAccess
+// (the lifecycle ops of the former SourceControlLifecycle face; founder merge 2026-06-25)
 // this Manager needs to ADOPT the user's repo and SEAT it for agentic dispatch
 // (caller-home ratified == project birth) BEFORE the project head-state row is
 // created, so a project is never born without an adopted, workflow-seated repo. Every

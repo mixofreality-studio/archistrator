@@ -57,7 +57,7 @@ type gitForward struct {
 // composition that predates the GitStore).
 func (wf *Workflows) gitEnabled(projectID ProjectID) (sourcecontrol.RepoRef, bool) {
 	if wf.Rail == nil || wf.GitStatus == nil || wf.Repo == nil {
-		return sourcecontrol.RepoRef{}, false
+		return sourcecontrol.RepoRef(""), false
 	}
 	return wf.Repo(projectID)
 }
@@ -98,7 +98,7 @@ func (wf *Workflows) openActivityBranchAndPR(
 	c := railOpts(ctx)
 	var branchRef string
 	if err := workflow.ExecuteActivity(c, wf.OpenBranchActivity, OpenBranchArgs{
-		RepoRef: repoRef.String(), Branch: gf.branch, Cred: cred,
+		RepoRef: sourcecontrol.RepoRefString(repoRef), Branch: gf.branch, Cred: cred,
 	}).Get(ctx, &branchRef); err != nil {
 		return gitForward{}, err
 	}
@@ -107,7 +107,7 @@ func (wf *Workflows) openActivityBranchAndPR(
 	// Rail: open the PR (base = main; cr-NN label rides in Hints).
 	var prRef string
 	if err := workflow.ExecuteActivity(c, wf.OpenPullRequestActivity, OpenPullRequestArgs{
-		RepoRef: repoRef.String(),
+		RepoRef: sourcecontrol.RepoRefString(repoRef),
 		Head:    gf.branch,
 		Base:    mainBranch,
 		Title:   prTitle(in.ActivityID),
@@ -154,7 +154,7 @@ func (wf *Workflows) observeCIAndRecord(
 	c := railOpts(ctx)
 	var st PullRequestStatusView
 	if err := workflow.ExecuteActivity(c, wf.GetPullRequestStatusActivity, GetPullRequestStatusArgs{
-		RepoRef: gf.repoRef.String(), PRRef: gf.prRef, Cred: gf.cred,
+		RepoRef: sourcecontrol.RepoRefString(gf.repoRef), PRRef: gf.prRef, Cred: gf.cred,
 	}).Get(ctx, &st); err != nil {
 		return PullRequestStatusView{}, err
 	}
@@ -191,7 +191,7 @@ func (wf *Workflows) relayArchApprovalAndRecord(
 
 	c := railOpts(ctx)
 	if err := workflow.ExecuteActivity(c, wf.PostReviewActivity, PostReviewArgs{
-		RepoRef: gf.repoRef.String(), PRRef: gf.prRef,
+		RepoRef: sourcecontrol.RepoRefString(gf.repoRef), PRRef: gf.prRef,
 		Verdict: int(sourcecontrol.ReviewApprove), Body: archApprovalBody(in.ActivityID),
 		Cred: gf.cred,
 	}).Get(ctx, nil); err != nil {
@@ -231,7 +231,7 @@ func (wf *Workflows) mergeAndRecord(
 	c := railOpts(ctx)
 	var merged bool
 	if err := workflow.ExecuteActivity(c, wf.MergePullRequestActivity, MergePullRequestArgs{
-		RepoRef: gf.repoRef.String(), PRRef: gf.prRef, Cred: gf.cred,
+		RepoRef: sourcecontrol.RepoRefString(gf.repoRef), PRRef: gf.prRef, Cred: gf.cred,
 	}).Get(ctx, &merged); err != nil {
 		return err
 	}
@@ -357,6 +357,6 @@ func (wf *Workflows) startedCred(ctx workflow.Context, projectID ProjectID) (rai
 func (wf *Workflows) mintCred(ctx workflow.Context, repoRef sourcecontrol.RepoRef) (railCredEnvelope, error) {
 	c := mintCredOpts(ctx)
 	var cred railCredEnvelope
-	err := workflow.ExecuteActivity(c, wf.MintRepoCredentialActivity, repoRef.String()).Get(ctx, &cred)
+	err := workflow.ExecuteActivity(c, wf.MintRepoCredentialActivity, sourcecontrol.RepoRefString(repoRef)).Get(ctx, &cred)
 	return cred, err
 }

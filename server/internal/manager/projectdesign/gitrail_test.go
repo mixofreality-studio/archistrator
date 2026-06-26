@@ -116,7 +116,7 @@ func (r *scriptedRail) OpenBranch(_ context.Context, _ sourcecontrol.RepoRef, br
 	r.calls["OpenBranch"]++
 	r.openedBranches = append(r.openedBranches, string(branch))
 	r.mu.Unlock()
-	return sourcecontrol.BranchRef{}, nil
+	return sourcecontrol.BranchRef(""), nil
 }
 
 func (r *scriptedRail) OpenPullRequest(_ context.Context, _ sourcecontrol.RepoRef, spec sourcecontrol.PullRequestSpec, _ sourcecontrol.RepoCredential, _ fwra.IdempotencyKey) (sourcecontrol.PullRequestRef, error) {
@@ -155,12 +155,12 @@ func (r *scriptedRail) PostReview(_ context.Context, _ sourcecontrol.RepoRef, _ 
 func (r *scriptedRail) MergePullRequest(_ context.Context, _ sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, _ sourcecontrol.RepoCredential, _ fwra.IdempotencyKey) (sourcecontrol.MergeResult, error) {
 	r.mu.Lock()
 	r.calls["MergePullRequest"]++
-	r.mergedPRs = append(r.mergedPRs, pr.String())
+	r.mergedPRs = append(r.mergedPRs, sourcecontrol.PullRequestRefString(pr))
 	r.mu.Unlock()
 	if r.log != nil {
-		r.log.add("merge", pr.String())
+		r.log.add("merge", sourcecontrol.PullRequestRefString(pr))
 	}
-	return sourcecontrol.MergeResult{Merged: true, Commit: "merged-" + pr.String()}, nil
+	return sourcecontrol.MergeResult{Merged: true, Commit: "merged-" + sourcecontrol.PullRequestRefString(pr)}, nil
 }
 
 var _ SourceControlRail = (*scriptedRail)(nil)

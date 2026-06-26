@@ -122,7 +122,7 @@ func (wf *Workflows) OpenBranchActivity(ctx context.Context, a OpenBranchArgs) (
 	if err != nil {
 		return "", fwmanager.MapError(err)
 	}
-	return br.String(), nil
+	return sourcecontrol.BranchRefString(br), nil
 }
 
 // OpenPullRequestArgs bundles the OpenPullRequest inputs across the Activity boundary.
@@ -153,7 +153,7 @@ func (wf *Workflows) OpenPullRequestActivity(ctx context.Context, a OpenPullRequ
 	if err != nil {
 		return "", fwmanager.MapError(err)
 	}
-	return pr.String(), nil
+	return sourcecontrol.PullRequestRefString(pr), nil
 }
 
 // GetPullRequestStatusArgs bundles the status read inputs.
@@ -176,7 +176,7 @@ func (wf *Workflows) GetPullRequestStatusActivity(ctx context.Context, a GetPull
 	}
 	return PullRequestStatusView{
 		CheckGreen:    st.CheckRollup == sourcecontrol.CheckSuccess,
-		ApprovalCount: st.ApprovalCount,
+		ApprovalCount: int(st.ApprovalCount),
 		Mergeable:     st.Mergeable,
 	}, nil
 }

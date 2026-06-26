@@ -47,15 +47,15 @@ var _ project.SourceControlAccess = sourceControlAdapter{}
 // concrete value back into the seating verbs without the Manager ever seeing it.
 type adoptedRepoRef struct{ ref sourcecontrol.RepoRef }
 
-func (r adoptedRepoRef) IsZero() bool   { return r.ref.IsZero() }
-func (r adoptedRepoRef) String() string { return r.ref.String() }
+func (r adoptedRepoRef) IsZero() bool   { return sourcecontrol.RepoRefIsZero(r.ref) }
+func (r adoptedRepoRef) String() string { return sourcecontrol.RepoRefString(r.ref) }
 
 // mintedCredential wraps the concrete sourcecontrol.RepoCredential so it satisfies
 // the Manager's opaque project.RepoCredential interface and carries the concrete
 // credential back into the seating verbs. The Manager neither parses nor logs it.
 type mintedCredential struct{ cred sourcecontrol.RepoCredential }
 
-func (c mintedCredential) IsZero() bool { return c.cred.IsZero() }
+func (c mintedCredential) IsZero() bool { return sourcecontrol.RepoCredentialIsZero(c.cred) }
 
 // AdoptProjectRepo translates the Manager's provider-neutral RepoSpec to the RA's
 // RepoAdoptionSpec and invokes the RA's strict-adopt AdoptProjectRepo. NAME-AS-
@@ -67,11 +67,11 @@ func (a sourceControlAdapter) AdoptProjectRepo(
 	spec project.RepoSpec,
 	key fwra.IdempotencyKey,
 ) (project.RepoRef, error) {
-	ref, err := a.inner.AdoptProjectRepo(ctx, sourcecontrol.RepoAdoptionSpec{
+	ref, err := a.inner.AdoptProjectRepo(fwra.Context{Context: ctx, IdempotencyKey: key}, sourcecontrol.RepoAdoptionSpec{
 		RepoName: spec.RepoName, // name-as-identity: the project id IS the repo name
 		Account:  sourcecontrol.AccountRef(spec.Account),
 		Title:    spec.Title,
-	}, key)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -85,7 +85,7 @@ func (a sourceControlAdapter) MintRepoCredential(
 	ctx context.Context,
 	repo project.RepoRef,
 ) (project.RepoCredential, error) {
-	cred, err := a.inner.GetInstallationToken(ctx, concreteRepo(repo))
+	cred, err := a.inner.GetInstallationToken(fwra.Context{Context: ctx}, concreteRepo(repo))
 	if err != nil {
 		return nil, err
 	}
@@ -108,7 +108,7 @@ func (a sourceControlAdapter) SeatAgenticWorkflow(
 	if err != nil {
 		return err
 	}
-	_, err = a.inner.CommitManagedFiles(ctx, concreteRepo(repo), files, concreteCred(cred), key)
+	_, err = a.inner.CommitManagedFiles(fwra.Context{Context: ctx, IdempotencyKey: key}, concreteRepo(repo), files, concreteCred(cred))
 	return err
 }
 
@@ -120,7 +120,7 @@ func concreteRepo(repo project.RepoRef) sourcecontrol.RepoRef {
 	if w, ok := repo.(adoptedRepoRef); ok {
 		return w.ref
 	}
-	return sourcecontrol.RepoRef{}
+	return sourcecontrol.RepoRef("")
 }
 
 // concreteCred unwraps the Manager's opaque project.RepoCredential back to the
@@ -132,4 +132,46 @@ func concreteCred(cred project.RepoCredential) sourcecontrol.RepoCredential {
 		return w.cred
 	}
 	return sourcecontrol.RepoCredential{}
+}
+
+// ---------------------------------------------------------------------------
+// PR-rail bridge (RA-context adapter).
+//
+// The design Managers (systemdesign / projectdesign) and the construction Manager
+// each declare a ctx-based SourceControlRail consumer port (their own narrow mirror
+// of the PR rail). The concrete sourceControlAccess RA now takes the ResourceAccess
+// call Context (fwra.Context) on every op — so it no longer STRUCTURALLY satisfies
+// those plain-ctx mirrors. railAdapter is the composition-root bridge: it wraps the
+// concrete *sourcecontrol.Access and builds fwra.Context{Context, IdempotencyKey} at
+// the boundary, exactly like the constructionPipeline / durableExecution adapters in
+// construction_adapters.go. The three Manager rails share an identical method set, so
+// this one adapter satisfies all three structurally.
+// ---------------------------------------------------------------------------
+
+// railAdapter adapts the RA-context *sourcecontrol.Access to the plain-ctx PR-rail
+// consumer ports the design + construction Managers declare.
+type railAdapter struct{ inner *sourcecontrol.Access }
+
+func (r railAdapter) GetInstallationToken(ctx context.Context, repo sourcecontrol.RepoRef) (sourcecontrol.RepoCredential, error) {
+	return r.inner.GetInstallationToken(fwra.Context{Context: ctx}, repo)
+}
+
+func (r railAdapter) OpenBranch(ctx context.Context, repo sourcecontrol.RepoRef, branch sourcecontrol.BranchName, cred sourcecontrol.RepoCredential, key fwra.IdempotencyKey) (sourcecontrol.BranchRef, error) {
+	return r.inner.OpenBranch(fwra.Context{Context: ctx, IdempotencyKey: key}, repo, branch, cred)
+}
+
+func (r railAdapter) OpenPullRequest(ctx context.Context, repo sourcecontrol.RepoRef, spec sourcecontrol.PullRequestSpec, cred sourcecontrol.RepoCredential, key fwra.IdempotencyKey) (sourcecontrol.PullRequestRef, error) {
+	return r.inner.OpenPullRequest(fwra.Context{Context: ctx, IdempotencyKey: key}, repo, spec, cred)
+}
+
+func (r railAdapter) GetPullRequestStatus(ctx context.Context, repo sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, cred sourcecontrol.RepoCredential) (sourcecontrol.PullRequestStatus, error) {
+	return r.inner.GetPullRequestStatus(fwra.Context{Context: ctx}, repo, pr, cred)
+}
+
+func (r railAdapter) PostReview(ctx context.Context, repo sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, review sourcecontrol.ReviewSubmission, cred sourcecontrol.RepoCredential, key fwra.IdempotencyKey) error {
+	return r.inner.PostReview(fwra.Context{Context: ctx, IdempotencyKey: key}, repo, pr, review, cred)
+}
+
+func (r railAdapter) MergePullRequest(ctx context.Context, repo sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, cred sourcecontrol.RepoCredential, key fwra.IdempotencyKey) (sourcecontrol.MergeResult, error) {
+	return r.inner.MergePullRequest(fwra.Context{Context: ctx, IdempotencyKey: key}, repo, pr, cred)
 }
