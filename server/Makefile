@@ -1,6 +1,6 @@
 # aiarch server — developer make targets.
 
-.PHONY: test test-short fmt vet lint method-check gen-schemas gen-models gen bootstrap
+.PHONY: test test-short fmt vet lint sumtype-check method-check gen-schemas gen-models gen bootstrap
 
 # Schema-first contract pipeline (strangler bootstrap), all-Go (jsonschema-go).
 # DEV NOTE: these run in Go WORKSPACE mode (NOT GOWORK=off) so they see the local
@@ -50,6 +50,13 @@ vet:
 
 lint:
 	golangci-lint run ./...
+
+# Exhaustiveness check over generated sealed sum types (the //sumtype:decl
+# interfaces emitted by cmd/modelgen). Runs the pinned go-check-sumtype tool
+# dependency (go.mod `tool` directive) in workspace mode. golangci-lint also runs
+# this as its bundled `gochecksumtype` linter (.golangci.yml).
+sumtype-check:
+	go tool go-check-sumtype ./...
 
 # Run the Method conformance gate (design rules + layer rules + alignment).
 # Reads .aiarch/state/project.json from the repo root (one level up).

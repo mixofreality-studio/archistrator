@@ -67,9 +67,49 @@ import (
 type component struct {
 	name      string
 	dir       string
-	models    []any        // zero-value instances of the I/O model types
-	ifaceName string       // the interface's Go type name (for AST param-name lookup)
-	iface     reflect.Type // the interface type, reflected for operations
+	models    []any         // zero-value instances of the I/O model types
+	ifaceName string        // the interface's Go type name (for AST param-name lookup)
+	iface     reflect.Type  // the interface type, reflected for operations
+	sumTypes  []sumTypeDecl // sealed-interface (discriminated-union) declarations
+}
+
+// sumTypeDecl registers a sealed-interface / discriminated-union (sum) type to
+// reflect into a `$def` carrying a JSON Schema `oneOf` (the variant `$ref` list)
+// plus the `x-go-sumtype` codegen descriptor. The sealed interface, its variants,
+// the discriminator method (called via reflection on each variant to recover its
+// kind STRING), and the marker method are captured so modelgen can regenerate the
+// interface, the per-variant marker + discriminator methods, and the envelope
+// codec — byte-identical to the existing hand-written wire form.
+type sumTypeDecl struct {
+	// name is the sealed interface's Go type name AND the name of the emitted sum
+	// `$def` (e.g. "ArtifactModel").
+	name string
+	// iface is the sealed interface type, reflected to confirm each variant
+	// implements it.
+	iface reflect.Type
+	// marker is the unexported marker method name that seals the sum (e.g.
+	// "isArtifactModel").
+	marker string
+	// discriminatorKey is the envelope JSON key carrying the kind string (e.g.
+	// "kind"). The envelope is {discriminatorKey: <kindStr>, "model": <variant>}.
+	discriminatorKey string
+	// kindEnum is the Go type name of the discriminator value returned by each
+	// variant's discriminator method (e.g. "ArtifactKind").
+	kindEnum string
+	// variants are zero-value POINTERS to the concrete variant structs, in wire
+	// order (e.g. &MissionStatement{}). Each must implement iface.
+	variants []any
+	// kindString maps a variant's discriminator value (the result of calling its
+	// discriminator method via reflection, as a comparable any) to the wire kind
+	// STRING. This is the SINGLE source the generated envelope's kind value derives
+	// from, so the emitted codec is byte-identical to the hand-written one.
+	kindString func(any) string
+	// kindConst maps a variant's discriminator value to the Go const naming it
+	// (e.g. KindMission → "KindMission"), emitted as the variant's Kind() return.
+	kindConst func(any) string
+	// discriminatorMethod is the name of the method called via reflection on each
+	// variant to recover its discriminator value (e.g. "Kind").
+	discriminatorMethod string
 }
 
 var errorType = reflect.TypeOf((*error)(nil)).Elem()
@@ -700,6 +740,26 @@ func writeComponent(c component) error {
 		refForType[t] = &jsonschema.Schema{Ref: "#/$defs/" + t.Name()}
 	}
 
+	// Sum types contribute (a) the sealed interface type → a `$ref` to the sum
+	// `$def` (so a struct/param field of the interface type renders as a reference,
+	// not the `true`/any jsonschema-go would otherwise produce), and (b) each
+	// variant struct as a normal model `$def`. Register both before reflecting any
+	// model so nested refs resolve.
+	sumRefByIface := map[reflect.Type]*jsonschema.Schema{}
+	currentSumRefs = sumRefByIface // visible to schemaForType for sealed-interface params
+	for _, st := range c.sumTypes {
+		sumRefByIface[st.iface] = &jsonschema.Schema{Ref: "#/$defs/" + st.name}
+		modelNames[st.name] = true
+		for _, v := range st.variants {
+			vt := reflect.TypeOf(v)
+			if vt.Kind() == reflect.Ptr {
+				vt = vt.Elem()
+			}
+			modelNames[vt.Name()] = true
+			refForType[vt] = &jsonschema.Schema{Ref: "#/$defs/" + vt.Name()}
+		}
+	}
+
 	// Capture enum const sets from the component's own dir AND from the defining
 	// package of any referenced type (Option B: a component inlines external domain
 	// types — incl. their enums — as its OWN defs, so generated code imports nothing).
@@ -733,6 +793,12 @@ func writeComponent(c component) error {
 				siblings[rt] = ref
 			}
 		}
+		// A field whose Go type is a registered sealed interface resolves to a
+		// `$ref` to its sum `$def` (not the open `true` jsonschema-go emits for an
+		// interface).
+		for rt, ref := range sumRefByIface {
+			siblings[rt] = ref
+		}
 		s, err := jsonschema.ForType(t, &jsonschema.ForOptions{
 			IgnoreInvalidTypes: true,
 			TypeSchemas:        siblings,
@@ -746,6 +812,15 @@ func writeComponent(c component) error {
 		// regenerates the exact Go field identifier without changing the wire shape.
 		injectGoNames(s, t)
 		defs[t.Name()] = s
+	}
+
+	// Emit each sum type: reflect every variant struct as its own `$def`, then emit
+	// the sum `$def` itself as a `oneOf` of variant `$ref`s carrying the
+	// `x-go-sumtype` descriptor.
+	for _, st := range c.sumTypes {
+		if err := emitSumType(st, defs, refForType, sumRefByIface); err != nil {
+			return fmt.Errorf("reflect sum type %s: %w", st.name, err)
+		}
 	}
 
 	doc := &jsonschema.Schema{
@@ -774,6 +849,101 @@ func writeComponent(c component) error {
 		return fmt.Errorf("write %s: %w", out, err)
 	}
 	return nil
+}
+
+// emitSumType reflects a sealed-interface declaration into the contract document:
+// every variant struct becomes a normal model `$def`, and the sum itself becomes a
+// `$def` whose `oneOf` lists the variant `$ref`s, carrying the `x-go-sumtype`
+// descriptor modelgen reads to regenerate the interface + markers + envelope codec.
+// The variant kind STRINGS are discovered by calling each variant's discriminator
+// method via reflection, so the emitted descriptor (and thus the generated codec)
+// is byte-identical to the hand-written wire form.
+func emitSumType(st sumTypeDecl, defs map[string]*jsonschema.Schema, refForType, sumRefByIface map[reflect.Type]*jsonschema.Schema) error {
+	desc := codegen.SumType{
+		Iface:            st.name,
+		Marker:           st.marker,
+		DiscriminatorKey: st.discriminatorKey,
+		KindEnum:         st.kindEnum,
+	}
+	oneOf := make([]*jsonschema.Schema, 0, len(st.variants))
+	for _, v := range st.variants {
+		vt := reflect.TypeOf(v)
+		if vt.Kind() == reflect.Ptr {
+			vt = vt.Elem()
+		}
+		// Confirm the variant satisfies the sealed interface (catches a stale
+		// registration at generation time rather than emitting a broken contract).
+		if !reflect.PtrTo(vt).Implements(st.iface) {
+			return fmt.Errorf("variant %s does not implement %s", vt.Name(), st.name)
+		}
+		// Reflect the variant struct as a normal model $def (siblings: well-knowns,
+		// every other registered model ref, and any sealed-interface ref).
+		siblings := map[reflect.Type]*jsonschema.Schema{}
+		for rt, ws := range wellKnownByType {
+			siblings[rt] = ws
+		}
+		for rt, ref := range refForType {
+			if rt != vt {
+				siblings[rt] = ref
+			}
+		}
+		for rt, ref := range sumRefByIface {
+			siblings[rt] = ref
+		}
+		vs, err := jsonschema.ForType(vt, &jsonschema.ForOptions{
+			IgnoreInvalidTypes: true,
+			TypeSchemas:        siblings,
+		})
+		if err != nil {
+			return fmt.Errorf("reflect variant %s: %w", vt.Name(), err)
+		}
+		injectGoNames(vs, vt)
+		defs[vt.Name()] = vs
+
+		// Discover the variant's discriminator value by calling its discriminator
+		// method via reflection, then map it to the wire kind STRING + Go const.
+		disc, err := callDiscriminator(v, st.discriminatorMethod)
+		if err != nil {
+			return fmt.Errorf("variant %s discriminator: %w", vt.Name(), err)
+		}
+		desc.Variants = append(desc.Variants, codegen.SumVariant{
+			Kind:      st.kindString(disc),
+			Type:      vt.Name(),
+			KindConst: st.kindConst(disc),
+		})
+		oneOf = append(oneOf, &jsonschema.Schema{Ref: "#/$defs/" + vt.Name()})
+	}
+
+	// Round-trip the typed descriptor through JSON into the generic map shape the
+	// schema's Extra carries (so it serializes under x-go-sumtype as plain JSON).
+	raw, err := json.Marshal(desc)
+	if err != nil {
+		return err
+	}
+	var generic any
+	if err := json.Unmarshal(raw, &generic); err != nil {
+		return err
+	}
+	defs[st.name] = &jsonschema.Schema{
+		OneOf: oneOf,
+		Extra: map[string]any{"x-go-sumtype": generic},
+	}
+	return nil
+}
+
+// callDiscriminator invokes the named (zero-arg) discriminator method on a variant
+// value via reflection and returns its single result as a comparable any.
+func callDiscriminator(v any, method string) (any, error) {
+	rv := reflect.ValueOf(v)
+	m := rv.MethodByName(method)
+	if !m.IsValid() {
+		return nil, fmt.Errorf("no method %s on %T", method, v)
+	}
+	out := m.Call(nil)
+	if len(out) != 1 {
+		return nil, fmt.Errorf("method %s must return exactly one value", method)
+	}
+	return out[0].Interface(), nil
 }
 
 // reflectInterface enumerates the interface's methods into operation descriptors,
@@ -878,9 +1048,21 @@ func exportTitle(s string) string {
 	return strings.ToUpper(s[:1]) + s[1:]
 }
 
+// currentSumRefs holds the sealed-interface → sum-`$ref` map for the component
+// being written, so schemaForType can resolve a sealed-interface PARAM/result to
+// its sum `$ref` (jsonschema-go would otherwise emit `true`/any for an interface).
+// Set per-component in writeComponent; nil for components with no sum types (a
+// strict no-op for every existing component).
+var currentSumRefs map[reflect.Type]*jsonschema.Schema
+
 // schemaForType maps a Go type to a JSON Schema node: a `$ref` for model types,
 // an array schema for slices, otherwise jsonschema-go's reflected schema.
 func schemaForType(rt reflect.Type, modelNames map[string]bool) *jsonschema.Schema {
+	// A sealed-interface param/result resolves to its sum `$ref` (checked on the
+	// interface type itself, before the pointer-deref below).
+	if ref, ok := currentSumRefs[rt]; ok {
+		return ref
+	}
 	if rt.Kind() == reflect.Ptr {
 		rt = rt.Elem()
 	}

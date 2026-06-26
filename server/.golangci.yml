@@ -1,0 +1,16 @@
+# golangci-lint v2 config for the aiarch server.
+#
+# gochecksumtype enforces exhaustiveness of switch statements over the generated
+# sealed sum types — the //sumtype:decl interfaces cmd/modelgen emits. It is the
+# bundled form of github.com/alecthomas/go-check-sumtype (also runnable standalone
+# via `make sumtype-check`).
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - gochecksumtype
+  settings:
+    gochecksumtype:
+      # Treat a missing case as an error (the whole point of a sealed sum).
+      default-signifies-exhaustive: false
