@@ -1,0 +1,319 @@
+{
+  "$id": "archistrator://contract/constructionpipeline",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "ArtifactRef": {
+      "type": "string"
+    },
+    "ConstructionActivityID": {
+      "type": "string"
+    },
+    "PipelineHandle": {
+      "type": "string"
+    },
+    "PipelineObservation": {
+      "type": "object",
+      "properties": {
+        "Handle": {
+          "$ref": "#/$defs/PipelineHandle"
+        },
+        "Phase": {
+          "$ref": "#/$defs/PipelinePhase"
+        },
+        "Steps": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "$ref": "#/$defs/StepObservation"
+          }
+        },
+        "FailedStep": {
+          "type": "string"
+        },
+        "Diagnostic": {
+          "type": "string"
+        },
+        "StartedAt": {
+          "type": "string",
+          "format": "date-time",
+          "x-go-import": "time",
+          "x-go-type": "time.Time"
+        },
+        "FinishedAt": {
+          "type": [
+            "null",
+            "string"
+          ],
+          "format": "date-time",
+          "x-go-import": "time",
+          "x-go-type": "time.Time"
+        }
+      },
+      "required": [
+        "Handle",
+        "Phase",
+        "Steps",
+        "FailedStep",
+        "Diagnostic",
+        "StartedAt"
+      ],
+      "additionalProperties": false
+    },
+    "PipelinePhase": {
+      "type": "integer",
+      "enum": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "x-enum-varnames": [
+        "PhasePending",
+        "PhaseRunning",
+        "PhaseSucceeded",
+        "PhaseFailed",
+        "PhaseCancelled"
+      ],
+      "x-go-base": "int"
+    },
+    "PipelineSpec": {
+      "type": "object",
+      "properties": {
+        "ProjectID": {
+          "$ref": "#/$defs/ProjectID"
+        },
+        "ActivityID": {
+          "$ref": "#/$defs/ConstructionActivityID"
+        },
+        "Steps": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "$ref": "#/$defs/PipelineStep"
+          }
+        },
+        "Edges": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "$ref": "#/$defs/StepDependency"
+          }
+        },
+        "WorkspaceRef": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "DispatchInputs": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "TargetRepo": {
+          "$ref": "#/$defs/RepoTarget"
+        },
+        "WorkflowFile": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "ProjectID",
+        "ActivityID",
+        "Steps",
+        "Edges",
+        "WorkspaceRef",
+        "DispatchInputs",
+        "TargetRepo",
+        "WorkflowFile"
+      ],
+      "additionalProperties": false
+    },
+    "PipelineStep": {
+      "type": "object",
+      "properties": {
+        "Name": {
+          "type": "string"
+        },
+        "Toolchain": {
+          "$ref": "#/$defs/ToolchainRef"
+        },
+        "Command": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "Resources": {
+          "$ref": "#/$defs/ResourceRequest"
+        },
+        "CacheKeys": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "Name",
+        "Toolchain",
+        "Command",
+        "Resources",
+        "CacheKeys"
+      ],
+      "additionalProperties": false
+    },
+    "ProjectID": {
+      "type": "string"
+    },
+    "RepoTarget": {
+      "type": "object",
+      "properties": {
+        "Owner": {
+          "type": "string"
+        },
+        "Name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "Owner",
+        "Name"
+      ],
+      "additionalProperties": false
+    },
+    "ResourceRequest": {
+      "type": "object",
+      "properties": {
+        "CPUMillis": {
+          "type": "integer"
+        },
+        "MemMiB": {
+          "type": "integer"
+        },
+        "GPUs": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "CPUMillis",
+        "MemMiB",
+        "GPUs"
+      ],
+      "additionalProperties": false
+    },
+    "StepDependency": {
+      "type": "object",
+      "properties": {
+        "From": {
+          "type": "string"
+        },
+        "To": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "From",
+        "To"
+      ],
+      "additionalProperties": false
+    },
+    "StepObservation": {
+      "type": "object",
+      "properties": {
+        "Name": {
+          "type": "string"
+        },
+        "Outcome": {
+          "$ref": "#/$defs/StepOutcome"
+        }
+      },
+      "required": [
+        "Name",
+        "Outcome"
+      ],
+      "additionalProperties": false
+    },
+    "StepOutcome": {
+      "type": "integer",
+      "enum": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "x-enum-varnames": [
+        "StepPending",
+        "StepRunning",
+        "StepSucceeded",
+        "StepFailed",
+        "StepSkipped"
+      ],
+      "x-go-base": "int"
+    },
+    "ToolchainRef": {
+      "type": "string"
+    }
+  },
+  "title": "constructionpipeline contract",
+  "interface": {
+    "name": "ConstructionPipelineAccess",
+    "layer": "resourceaccess",
+    "operations": [
+      {
+        "name": "CancelConstructionPipeline",
+        "params": [
+          {
+            "name": "handle",
+            "schema": {
+              "$ref": "#/$defs/PipelineHandle"
+            }
+          }
+        ],
+        "error": true
+      },
+      {
+        "name": "ObserveConstructionPipeline",
+        "params": [
+          {
+            "name": "handle",
+            "schema": {
+              "$ref": "#/$defs/PipelineHandle"
+            }
+          }
+        ],
+        "result": {
+          "$ref": "#/$defs/PipelineObservation"
+        },
+        "error": true
+      },
+      {
+        "name": "SubmitConstructionPipeline",
+        "params": [
+          {
+            "name": "spec",
+            "schema": {
+              "$ref": "#/$defs/PipelineSpec"
+            }
+          }
+        ],
+        "result": {
+          "$ref": "#/$defs/PipelineHandle"
+        },
+        "error": true
+      }
+    ]
+  }
+}

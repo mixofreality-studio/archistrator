@@ -216,6 +216,19 @@ func containsFold(s, sub string) bool {
 
 func itoaTest(n int64) string { return strconv.FormatInt(n, 10) }
 
+// subRC builds the ResourceAccess call Context for a SubmitConstructionPipeline call —
+// the cross-cutting ctx + caller-supplied idempotencyKey now ride on fwra.Context
+// (the RA-context bootstrap) instead of being explicit Submit params.
+func subRC(ctx context.Context, key fwra.IdempotencyKey) fwra.Context {
+	return fwra.Context{Context: ctx, IdempotencyKey: key}
+}
+
+// obsRC builds the call Context for the read verbs (Observe / Cancel), which carry no
+// idempotency key.
+func obsRC(ctx context.Context) fwra.Context {
+	return fwra.Context{Context: ctx}
+}
+
 func TestNewRejectsNilClient(t *testing.T) {
 	if _, err := New(nil); kind(err) != fwra.ContractMisuse {
 		t.Fatalf("New(nil) kind = %v, want ContractMisuse", kind(err))
@@ -226,27 +239,27 @@ func TestSubmitContractMisuse(t *testing.T) {
 	a := newAccessForTest(t, newFakeActions())
 	ctx := context.Background()
 
-	if _, err := a.SubmitConstructionPipeline(ctx, goodSpec(), ""); kind(err) != fwra.ContractMisuse {
+	if _, err := a.SubmitConstructionPipeline(subRC(ctx, ""), goodSpec()); kind(err) != fwra.ContractMisuse {
 		t.Fatalf("empty key kind = %v", kind(err))
 	}
 	noSteps := goodSpec()
 	noSteps.Steps = nil
-	if _, err := a.SubmitConstructionPipeline(ctx, noSteps, "k"); kind(err) != fwra.ContractMisuse {
+	if _, err := a.SubmitConstructionPipeline(subRC(ctx, "k"), noSteps); kind(err) != fwra.ContractMisuse {
 		t.Fatalf("no steps kind = %v", kind(err))
 	}
 	dup := goodSpec()
 	dup.Steps = []PipelineStep{{Name: "x"}, {Name: "x"}}
-	if _, err := a.SubmitConstructionPipeline(ctx, dup, "k"); kind(err) != fwra.ContractMisuse {
+	if _, err := a.SubmitConstructionPipeline(subRC(ctx, "k"), dup); kind(err) != fwra.ContractMisuse {
 		t.Fatalf("dup step kind = %v", kind(err))
 	}
 	empty := goodSpec()
 	empty.Steps = []PipelineStep{{Name: "  "}}
-	if _, err := a.SubmitConstructionPipeline(ctx, empty, "k"); kind(err) != fwra.ContractMisuse {
+	if _, err := a.SubmitConstructionPipeline(subRC(ctx, "k"), empty); kind(err) != fwra.ContractMisuse {
 		t.Fatalf("empty step name kind = %v", kind(err))
 	}
 	dangling := goodSpec()
 	dangling.Edges = []StepDependency{{From: "build", To: "nope"}}
-	if _, err := a.SubmitConstructionPipeline(ctx, dangling, "k"); kind(err) != fwra.ContractMisuse {
+	if _, err := a.SubmitConstructionPipeline(subRC(ctx, "k"), dangling); kind(err) != fwra.ContractMisuse {
 		t.Fatalf("dangling edge kind = %v", kind(err))
 	}
 }
@@ -254,14 +267,14 @@ func TestSubmitContractMisuse(t *testing.T) {
 func TestObserveCancelHandleMisuse(t *testing.T) {
 	a := newAccessForTest(t, newFakeActions())
 	ctx := context.Background()
-	if _, err := a.ObserveConstructionPipeline(ctx, PipelineHandle{}); kind(err) != fwra.ContractMisuse {
+	if _, err := a.ObserveConstructionPipeline(obsRC(ctx), PipelineHandle("")); kind(err) != fwra.ContractMisuse {
 		t.Fatalf("zero handle observe kind = %v", kind(err))
 	}
-	if err := a.CancelConstructionPipeline(ctx, PipelineHandle{}); kind(err) != fwra.ContractMisuse {
+	if err := a.CancelConstructionPipeline(obsRC(ctx), PipelineHandle("")); kind(err) != fwra.ContractMisuse {
 		t.Fatalf("zero handle cancel kind = %v", kind(err))
 	}
-	bad := HandleFromString("garbage-no-slash")
-	if _, err := a.ObserveConstructionPipeline(ctx, bad); kind(err) != fwra.ContractMisuse {
+	bad := ParsePipelineHandle("garbage-no-slash")
+	if _, err := a.ObserveConstructionPipeline(obsRC(ctx), bad); kind(err) != fwra.ContractMisuse {
 		t.Fatalf("malformed handle observe kind = %v", kind(err))
 	}
 }
@@ -269,18 +282,18 @@ func TestObserveCancelHandleMisuse(t *testing.T) {
 func TestSubmitHappyPath(t *testing.T) {
 	f := newFakeActions()
 	a := newAccessForTest(t, f)
-	h, err := a.SubmitConstructionPipeline(context.Background(), goodSpec(), "key-1")
+	h, err := a.SubmitConstructionPipeline(subRC(context.Background(), "key-1"), goodSpec())
 	if err != nil {
 		t.Fatalf("submit: %v", err)
 	}
-	if h.IsZero() {
+	if PipelineHandleIsZero(h) {
 		t.Fatal("handle is zero")
 	}
 	if f.dispatchCount != 1 {
 		t.Fatalf("dispatchCount = %d, want 1", f.dispatchCount)
 	}
-	if h.String() != "run/1" {
-		t.Fatalf("handle = %q, want run/1", h.String())
+	if PipelineHandleString(h) != "run/1" {
+		t.Fatalf("handle = %q, want run/1", PipelineHandleString(h))
 	}
 }
 
@@ -300,7 +313,7 @@ func TestSubmitForwardsDispatchInputs(t *testing.T) {
 			"target_branch":   "aiarch-design-mission",
 			"prior_state_ref": "",
 		}
-		if _, err := a.SubmitConstructionPipeline(context.Background(), spec, "key-di"); err != nil {
+		if _, err := a.SubmitConstructionPipeline(subRC(context.Background(), "key-di"), spec); err != nil {
 			t.Fatalf("submit: %v", err)
 		}
 		for _, k := range []string{"artifact_kind", "design_prompt", "target_branch", "prior_state_ref"} {
@@ -330,7 +343,7 @@ func TestSubmitForwardsDispatchInputs(t *testing.T) {
 			"artifact_kind":     "Glossary",
 			"idempotency_token": "SPOOFED-BY-CALLER",
 		}
-		if _, err := a.SubmitConstructionPipeline(context.Background(), spec, "key-spoof"); err != nil {
+		if _, err := a.SubmitConstructionPipeline(subRC(context.Background(), "key-spoof"), spec); err != nil {
 			t.Fatalf("submit: %v", err)
 		}
 		got := f.lastDispatchInputs["idempotency_token"]
@@ -352,7 +365,7 @@ func TestSubmitForwardsDispatchInputs(t *testing.T) {
 		f := newFakeActions()
 		a := newAccessForTest(t, f)
 		spec := goodSpec() // DispatchInputs is nil
-		if _, err := a.SubmitConstructionPipeline(context.Background(), spec, "key-nil"); err != nil {
+		if _, err := a.SubmitConstructionPipeline(subRC(context.Background(), "key-nil"), spec); err != nil {
 			t.Fatalf("submit: %v", err)
 		}
 		if len(f.lastDispatchInputs) != 1 {
@@ -381,7 +394,7 @@ func TestSubmitPerProjectTargetRetargetsDispatchAndHandle(t *testing.T) {
 		spec.TargetRepo = RepoTarget{Owner: "acme", Name: "my-system"}
 		spec.WorkflowFile = "aiarch-design.yml"
 
-		h, err := a.SubmitConstructionPipeline(context.Background(), spec, "key-pp")
+		h, err := a.SubmitConstructionPipeline(subRC(context.Background(), "key-pp"), spec)
 		if err != nil {
 			t.Fatalf("submit: %v", err)
 		}
@@ -390,18 +403,18 @@ func TestSubmitPerProjectTargetRetargetsDispatchAndHandle(t *testing.T) {
 			t.Fatalf("dispatch target = %+v, want %+v (per-project repo + aiarch-design.yml)", f.lastDispatchTarget, want)
 		}
 		// The handle encodes the target so the stateless Observe/Cancel can re-address it.
-		if h.String() != "run/1@acme/my-system/aiarch-design.yml" {
-			t.Fatalf("handle = %q, want run/1@acme/my-system/aiarch-design.yml", h.String())
+		if PipelineHandleString(h) != "run/1@acme/my-system/aiarch-design.yml" {
+			t.Fatalf("handle = %q, want run/1@acme/my-system/aiarch-design.yml", PipelineHandleString(h))
 		}
 		// Observe re-addresses the per-project repo (not the construction default).
-		if _, err := a.ObserveConstructionPipeline(context.Background(), h); err != nil {
+		if _, err := a.ObserveConstructionPipeline(obsRC(context.Background()), h); err != nil {
 			t.Fatalf("observe: %v", err)
 		}
 		if f.lastGetTarget != want {
 			t.Fatalf("observe target = %+v, want %+v", f.lastGetTarget, want)
 		}
 		// Cancel re-addresses the per-project repo too.
-		if err := a.CancelConstructionPipeline(context.Background(), h); err != nil {
+		if err := a.CancelConstructionPipeline(obsRC(context.Background()), h); err != nil {
 			t.Fatalf("cancel: %v", err)
 		}
 		if f.lastCancelTarget != want {
@@ -415,17 +428,17 @@ func TestSubmitPerProjectTargetRetargetsDispatchAndHandle(t *testing.T) {
 	t.Run("construction_dispatch_zero_target_legacy_handle", func(t *testing.T) {
 		f := newFakeActions()
 		a := newAccessForTest(t, f)
-		h, err := a.SubmitConstructionPipeline(context.Background(), goodSpec(), "key-uc3")
+		h, err := a.SubmitConstructionPipeline(subRC(context.Background(), "key-uc3"), goodSpec())
 		if err != nil {
 			t.Fatalf("submit: %v", err)
 		}
 		if !f.lastDispatchTarget.isZero() {
 			t.Fatalf("UC3 dispatch target = %+v, want zero (construction-repo default)", f.lastDispatchTarget)
 		}
-		if h.String() != "run/1" {
-			t.Fatalf("UC3 handle = %q, want legacy run/1", h.String())
+		if PipelineHandleString(h) != "run/1" {
+			t.Fatalf("UC3 handle = %q, want legacy run/1", PipelineHandleString(h))
 		}
-		if _, err := a.ObserveConstructionPipeline(context.Background(), h); err != nil {
+		if _, err := a.ObserveConstructionPipeline(obsRC(context.Background()), h); err != nil {
 			t.Fatalf("observe: %v", err)
 		}
 		if !f.lastGetTarget.isZero() {
@@ -441,12 +454,12 @@ func TestSubmitPerProjectTargetRetargetsDispatchAndHandle(t *testing.T) {
 		spec := goodSpec()
 		spec.TargetRepo = RepoTarget{Owner: "o", Name: "r"}
 		spec.WorkflowFile = "aiarch-design.yml"
-		h, err := a.SubmitConstructionPipeline(context.Background(), spec, "key-rt")
+		h, err := a.SubmitConstructionPipeline(subRC(context.Background(), "key-rt"), spec)
 		if err != nil {
 			t.Fatalf("submit: %v", err)
 		}
-		rt := HandleFromString(h.String())
-		if _, err := a.ObserveConstructionPipeline(context.Background(), rt); err != nil {
+		rt := ParsePipelineHandle(PipelineHandleString(h))
+		if _, err := a.ObserveConstructionPipeline(obsRC(context.Background()), rt); err != nil {
 			t.Fatalf("observe round-tripped handle: %v", err)
 		}
 		want := ghTarget{owner: "o", repo: "r", workflowFile: "aiarch-design.yml"}
@@ -472,13 +485,13 @@ func TestObserveStatusMapping(t *testing.T) {
 	for _, tc := range cases {
 		f := newFakeActions()
 		a := newAccessForTest(t, f)
-		h, err := a.SubmitConstructionPipeline(context.Background(), goodSpec(), "k")
+		h, err := a.SubmitConstructionPipeline(subRC(context.Background(), "k"), goodSpec())
 		if err != nil {
 			t.Fatalf("submit: %v", err)
 		}
 		f.runs[0].status = tc.status
 		f.runs[0].conclusion = tc.conclusion
-		obs, err := a.ObserveConstructionPipeline(context.Background(), h)
+		obs, err := a.ObserveConstructionPipeline(obsRC(context.Background()), h)
 		if err != nil {
 			t.Fatalf("observe: %v", err)
 		}
@@ -500,7 +513,7 @@ func TestObserveStatusMapping(t *testing.T) {
 func TestObserveNotFound(t *testing.T) {
 	f := newFakeActions()
 	a := newAccessForTest(t, f)
-	if _, err := a.ObserveConstructionPipeline(context.Background(), HandleFromString("run/999")); kind(err) != fwra.NotFound {
+	if _, err := a.ObserveConstructionPipeline(obsRC(context.Background()), ParsePipelineHandle("run/999")); kind(err) != fwra.NotFound {
 		t.Fatalf("observe unknown kind = %v, want NotFound", kind(err))
 	}
 }
@@ -509,14 +522,14 @@ func TestSubmitErrorKinds(t *testing.T) {
 	f := newFakeActions()
 	f.listErr = fwra.New(fwra.Auth, "denied")
 	a := newAccessForTest(t, f)
-	if _, err := a.SubmitConstructionPipeline(context.Background(), goodSpec(), "k"); kind(err) != fwra.Auth {
+	if _, err := a.SubmitConstructionPipeline(subRC(context.Background(), "k"), goodSpec()); kind(err) != fwra.Auth {
 		t.Fatalf("auth submit kind = %v", kind(err))
 	}
 
 	f2 := newFakeActions()
 	f2.dispatchErr = fwra.New(fwra.Transient, "blip")
 	a2 := newAccessForTest(t, f2)
-	if _, err := a2.SubmitConstructionPipeline(context.Background(), goodSpec(), "k"); kind(err) != fwra.Transient {
+	if _, err := a2.SubmitConstructionPipeline(subRC(context.Background(), "k"), goodSpec()); kind(err) != fwra.Transient {
 		t.Fatalf("transient submit kind = %v", kind(err))
 	}
 }
@@ -524,12 +537,12 @@ func TestSubmitErrorKinds(t *testing.T) {
 func TestCancel(t *testing.T) {
 	f := newFakeActions()
 	a := newAccessForTest(t, f)
-	h, _ := a.SubmitConstructionPipeline(context.Background(), goodSpec(), "k")
-	if err := a.CancelConstructionPipeline(context.Background(), h); err != nil {
+	h, _ := a.SubmitConstructionPipeline(subRC(context.Background(), "k"), goodSpec())
+	if err := a.CancelConstructionPipeline(obsRC(context.Background()), h); err != nil {
 		t.Fatalf("cancel running: %v", err)
 	}
 	// cancel an absent run → seam NotFound → RA success
-	if err := a.CancelConstructionPipeline(context.Background(), HandleFromString("run/999")); err != nil {
+	if err := a.CancelConstructionPipeline(obsRC(context.Background()), ParsePipelineHandle("run/999")); err != nil {
 		t.Fatalf("cancel absent = %v, want nil", err)
 	}
 }
@@ -546,15 +559,15 @@ func TestSubmitIdempotencyConvergence(t *testing.T) {
 	t.Run("replay_short_circuits_dispatch", func(t *testing.T) {
 		f := newFakeActions()
 		a := newAccessForTest(t, f)
-		h1, err := a.SubmitConstructionPipeline(ctx, goodSpec(), "same-key")
+		h1, err := a.SubmitConstructionPipeline(subRC(ctx, "same-key"), goodSpec())
 		if err != nil {
 			t.Fatalf("submit1: %v", err)
 		}
-		h2, err := a.SubmitConstructionPipeline(ctx, goodSpec(), "same-key")
+		h2, err := a.SubmitConstructionPipeline(subRC(ctx, "same-key"), goodSpec())
 		if err != nil {
 			t.Fatalf("submit2: %v", err)
 		}
-		if !h1.Equal(h2) {
+		if !PipelineHandleEqual(h1, h2) {
 			t.Fatalf("handles diverged: %s vs %s", h1, h2)
 		}
 		if f.dispatchCount != 1 {
@@ -581,7 +594,7 @@ func TestSubmitIdempotencyConvergence(t *testing.T) {
 				wg.Add(1)
 				go func(idx int) {
 					defer wg.Done()
-					handles[idx], errs[idx] = a.SubmitConstructionPipeline(ctx, goodSpec(), "race-key")
+					handles[idx], errs[idx] = a.SubmitConstructionPipeline(subRC(ctx, "race-key"), goodSpec())
 				}(i)
 			}
 			wg.Wait()
@@ -591,7 +604,7 @@ func TestSubmitIdempotencyConvergence(t *testing.T) {
 					t.Fatalf("iter %d submit %d: %v", iter, i, e)
 				}
 			}
-			if !handles[0].Equal(handles[1]) {
+			if !PipelineHandleEqual(handles[0], handles[1]) {
 				t.Fatalf("iter %d: handles diverged: %s vs %s", iter, handles[0], handles[1])
 			}
 			// The canonical handle is the lowest-id run.
@@ -610,7 +623,7 @@ func TestSubmitIdempotencyConvergence(t *testing.T) {
 			for _, r := range f.runs {
 				if r.conclusion != "cancelled" {
 					liveCount++
-					if "run/"+itoaTest(r.id) == canonical.String() {
+					if "run/"+itoaTest(r.id) == PipelineHandleString(canonical) {
 						liveCanonical++
 					}
 				}
@@ -622,7 +635,7 @@ func TestSubmitIdempotencyConvergence(t *testing.T) {
 			if liveCanonical != 1 {
 				t.Fatalf("iter %d: the surviving run is not the canonical handle", iter)
 			}
-			if canonical.String() != "run/"+itoaTest(lowest) {
+			if PipelineHandleString(canonical) != "run/"+itoaTest(lowest) {
 				t.Fatalf("iter %d: canonical %s is not the lowest-id run run/%d", iter, canonical, lowest)
 			}
 		}
@@ -633,17 +646,17 @@ func TestSubmitIdempotencyConvergence(t *testing.T) {
 	t.Run("replay_after_completion", func(t *testing.T) {
 		f := newFakeActions()
 		a := newAccessForTest(t, f)
-		h1, err := a.SubmitConstructionPipeline(ctx, goodSpec(), "done-key")
+		h1, err := a.SubmitConstructionPipeline(subRC(ctx, "done-key"), goodSpec())
 		if err != nil {
 			t.Fatalf("submit1: %v", err)
 		}
 		f.runs[0].status = "completed"
 		f.runs[0].conclusion = "success"
-		h2, err := a.SubmitConstructionPipeline(ctx, goodSpec(), "done-key")
+		h2, err := a.SubmitConstructionPipeline(subRC(ctx, "done-key"), goodSpec())
 		if err != nil {
 			t.Fatalf("submit2: %v", err)
 		}
-		if !h1.Equal(h2) {
+		if !PipelineHandleEqual(h1, h2) {
 			t.Fatalf("post-completion handles diverged: %s vs %s", h1, h2)
 		}
 		if f.dispatchCount != 1 {

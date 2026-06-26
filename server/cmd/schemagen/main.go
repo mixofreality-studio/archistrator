@@ -52,6 +52,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/settlement"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/constructionpipeline"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/worker"
 )
 
@@ -414,6 +415,35 @@ var registry = []component{
 		},
 		ifaceName: "ArtifactAccess",
 		iface:     reflect.TypeOf((*artifact.ArtifactAccess)(nil)).Elem(),
+	},
+	{
+		name: "constructionpipeline",
+		dir:  "internal/resourceaccess/constructionpipeline",
+		models: []any{
+			// The full transitive closure of ConstructionPipelineAccess's OWN contract
+			// value types (constructionPipelineAccess.md §3). All defined in this package
+			// — full encapsulation: the contract pulls NO external (projectstate) dep.
+			constructionpipeline.PipelineSpec{},
+			constructionpipeline.PipelineStep{},
+			constructionpipeline.StepDependency{},
+			constructionpipeline.ResourceRequest{},
+			constructionpipeline.RepoTarget{},
+			constructionpipeline.PipelineObservation{},
+			constructionpipeline.StepObservation{},
+			// Enums (one zero value each — const blocks captured from this dir).
+			constructionpipeline.PipelinePhase(0),
+			constructionpipeline.StepOutcome(0),
+			// Named scalars (bare identifier newtypes — no const block). PipelineHandle
+			// is the opaque pipeline identity, generated as a $def named scalar (its
+			// behaviour lives in behavior.go as free functions — the OutputPath pattern).
+			constructionpipeline.ProjectID(""),
+			constructionpipeline.ConstructionActivityID(""),
+			constructionpipeline.ArtifactRef(""),
+			constructionpipeline.ToolchainRef(""),
+			constructionpipeline.PipelineHandle(""),
+		},
+		ifaceName: "ConstructionPipelineAccess",
+		iface:     reflect.TypeOf((*constructionpipeline.ConstructionPipelineAccess)(nil)).Elem(),
 	},
 }
 

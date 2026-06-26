@@ -558,7 +558,7 @@ func (a pipelineAdapter) SubmitConstructionPipeline(
 	spec construction.PipelineSpec,
 	idempotencyKey fwra.IdempotencyKey,
 ) (construction.PipelineHandle, error) {
-	handle, err := a.inner.SubmitConstructionPipeline(ctx, constructionpipeline.PipelineSpec{
+	handle, err := a.inner.SubmitConstructionPipeline(fwra.Context{Context: ctx, IdempotencyKey: idempotencyKey}, constructionpipeline.PipelineSpec{
 		ActivityID: constructionpipeline.ConstructionActivityID(spec.ActivityID),
 		Steps: []constructionpipeline.PipelineStep{{
 			Name:      "build",
@@ -567,18 +567,18 @@ func (a pipelineAdapter) SubmitConstructionPipeline(
 		}},
 		WorkspaceRef:   constructionpipeline.ArtifactRef(spec.RepoURL + "@" + spec.Ref),
 		DispatchInputs: dispatchInputsFor(spec),
-	}, idempotencyKey)
+	})
 	if err != nil {
 		return construction.PipelineHandle{}, err
 	}
-	return construction.PipelineHandle{Name: handle.String()}, nil
+	return construction.PipelineHandle{Name: constructionpipeline.PipelineHandleString(handle)}, nil
 }
 
 func (a pipelineAdapter) ObserveConstructionPipeline(
 	ctx context.Context,
 	handle construction.PipelineHandle,
 ) (construction.PipelineObservation, error) {
-	obs, err := a.inner.ObserveConstructionPipeline(ctx, constructionpipeline.HandleFromString(handle.Name))
+	obs, err := a.inner.ObserveConstructionPipeline(fwra.Context{Context: ctx}, constructionpipeline.ParsePipelineHandle(handle.Name))
 	if err != nil {
 		return construction.PipelineObservation{}, err
 	}
@@ -592,7 +592,7 @@ func (a pipelineAdapter) CancelConstructionPipeline(
 	ctx context.Context,
 	handle construction.PipelineHandle,
 ) error {
-	return a.inner.CancelConstructionPipeline(ctx, constructionpipeline.HandleFromString(handle.Name))
+	return a.inner.CancelConstructionPipeline(fwra.Context{Context: ctx}, constructionpipeline.ParsePipelineHandle(handle.Name))
 }
 
 func managerPipelinePhase(p constructionpipeline.PipelinePhase) construction.PipelinePhase {
@@ -664,7 +664,7 @@ func (a designPipelineAdapter) SubmitConstructionPipeline(
 	if terr != nil {
 		return systemdesign.PipelineHandle{}, terr
 	}
-	handle, err := a.inner.SubmitConstructionPipeline(ctx, constructionpipeline.PipelineSpec{
+	handle, err := a.inner.SubmitConstructionPipeline(fwra.Context{Context: ctx, IdempotencyKey: idempotencyKey}, constructionpipeline.PipelineSpec{
 		ProjectID: constructionpipeline.ProjectID(spec.ProjectID),
 		// A non-empty, well-formed step graph satisfies the RA's §2.1 pre-condition;
 		// the design recipe lives in the user's aiarch-design.yml workflow file, so the
@@ -677,11 +677,11 @@ func (a designPipelineAdapter) SubmitConstructionPipeline(
 		DispatchInputs: spec.DispatchInputs,
 		TargetRepo:     target,
 		WorkflowFile:   spec.WorkflowFile,
-	}, idempotencyKey)
+	})
 	if err != nil {
 		return systemdesign.PipelineHandle{}, err
 	}
-	return systemdesign.PipelineHandle{Name: handle.String()}, nil
+	return systemdesign.PipelineHandle{Name: constructionpipeline.PipelineHandleString(handle)}, nil
 }
 
 // designRepoTarget decodes an opaque per-project RepoRef String() into the RA's
@@ -707,7 +707,7 @@ func (a designPipelineAdapter) ObserveConstructionPipeline(
 	ctx context.Context,
 	handle systemdesign.PipelineHandle,
 ) (systemdesign.PipelineObservation, error) {
-	obs, err := a.inner.ObserveConstructionPipeline(ctx, constructionpipeline.HandleFromString(handle.Name))
+	obs, err := a.inner.ObserveConstructionPipeline(fwra.Context{Context: ctx}, constructionpipeline.ParsePipelineHandle(handle.Name))
 	if err != nil {
 		return systemdesign.PipelineObservation{}, err
 	}
@@ -764,7 +764,7 @@ func (a designProjectDesignPipelineAdapter) SubmitConstructionPipeline(
 	if terr != nil {
 		return projectdesign.PipelineHandle{}, terr
 	}
-	handle, err := a.inner.SubmitConstructionPipeline(ctx, constructionpipeline.PipelineSpec{
+	handle, err := a.inner.SubmitConstructionPipeline(fwra.Context{Context: ctx, IdempotencyKey: idempotencyKey}, constructionpipeline.PipelineSpec{
 		ProjectID: constructionpipeline.ProjectID(spec.ProjectID),
 		// A non-empty, well-formed step graph satisfies the RA's §2.1 pre-condition; the
 		// design recipe lives in the user's aiarch-design.yml workflow file, so the step is
@@ -777,18 +777,18 @@ func (a designProjectDesignPipelineAdapter) SubmitConstructionPipeline(
 		DispatchInputs: spec.DispatchInputs,
 		TargetRepo:     target,
 		WorkflowFile:   spec.WorkflowFile,
-	}, idempotencyKey)
+	})
 	if err != nil {
 		return projectdesign.PipelineHandle{}, err
 	}
-	return projectdesign.PipelineHandle{Name: handle.String()}, nil
+	return projectdesign.PipelineHandle{Name: constructionpipeline.PipelineHandleString(handle)}, nil
 }
 
 func (a designProjectDesignPipelineAdapter) ObserveConstructionPipeline(
 	ctx context.Context,
 	handle projectdesign.PipelineHandle,
 ) (projectdesign.PipelineObservation, error) {
-	obs, err := a.inner.ObserveConstructionPipeline(ctx, constructionpipeline.HandleFromString(handle.Name))
+	obs, err := a.inner.ObserveConstructionPipeline(fwra.Context{Context: ctx}, constructionpipeline.ParsePipelineHandle(handle.Name))
 	if err != nil {
 		return projectdesign.PipelineObservation{}, err
 	}

@@ -238,12 +238,18 @@ const runNamePrefix = "aiarch-cp-"
 // checkout. A non-empty, well-formed spec is still required (a malformed spec is a
 // caller pre-condition violation → ContractMisuse), preserving the contract's §2.1
 // pre-conditions.
-func (a *Access) SubmitConstructionPipeline(ctx context.Context, spec PipelineSpec, idempotencyKey fwra.IdempotencyKey) (PipelineHandle, error) {
+func (a *Access) SubmitConstructionPipeline(rc fwra.Context, spec PipelineSpec) (PipelineHandle, error) {
+	// The cross-cutting ctx + idempotencyKey now ride the ResourceAccess call Context
+	// (fwra.Context embeds context.Context and carries the caller-supplied
+	// IdempotencyKey); the package still never reads Temporal — the key is an ordinary
+	// value carried on rc, exactly as before. This keeps the component Temporal-free.
+	ctx := rc.Context
+	idempotencyKey := rc.IdempotencyKey
 	if idempotencyKey.IsZero() {
-		return PipelineHandle{}, fwra.New(fwra.ContractMisuse, "SubmitConstructionPipeline: empty idempotencyKey")
+		return "", fwra.New(fwra.ContractMisuse, "SubmitConstructionPipeline: empty idempotencyKey")
 	}
 	if err := validateSpec(spec); err != nil {
-		return PipelineHandle{}, err
+		return "", err
 	}
 	token := dedupToken(idempotencyKey)
 	runName := runNamePrefix + token
@@ -263,7 +269,7 @@ func (a *Access) SubmitConstructionPipeline(ctx context.Context, spec PipelineSp
 	//    "already dispatched, don't duplicate"; a failed one allows a fresh dispatch.
 	existing, err := a.client.listRunsByName(ctx, tgt, runName)
 	if err != nil {
-		return PipelineHandle{}, err
+		return "", err
 	}
 	if live := liveOrSucceeded(existing); len(live) > 0 {
 		return a.converge(ctx, tgt, live)
@@ -273,20 +279,20 @@ func (a *Access) SubmitConstructionPipeline(ctx context.Context, spec PipelineSp
 	//    into the runtime's input map; the RA-controlled idempotency token is merged
 	//    in LAST by the seam, so it wins any collision (stays RA-controlled).
 	if err := a.client.dispatch(ctx, tgt, token, runName, spec.DispatchInputs); err != nil {
-		return PipelineHandle{}, err
+		return "", err
 	}
 
 	// 3. RESOLVE — GitHub creates the run asynchronously after a 204; poll (bounded)
 	//    until the run carrying our run-name appears.
 	runs, err := a.resolveAfterDispatch(ctx, tgt, runName)
 	if err != nil {
-		return PipelineHandle{}, err
+		return "", err
 	}
 	if len(runs) == 0 {
 		// Dispatched but the run never surfaced within the resolve window — transient
 		// (GitHub may still be creating it); the Manager retries the whole submit,
 		// which is idempotent (the probe will then find it).
-		return PipelineHandle{}, fwra.New(fwra.Transient, "SubmitConstructionPipeline: dispatched run did not surface within resolve window")
+		return "", fwra.New(fwra.Transient, "SubmitConstructionPipeline: dispatched run did not surface within resolve window")
 	}
 
 	// 4 + 5. SELECT canonical + RECONCILE siblings. Prefer the live/succeeded runs so a
@@ -317,7 +323,7 @@ func (a *Access) converge(ctx context.Context, tgt ghTarget, runs []ghRun) (Pipe
 		// holds (the Manager only ever carries the canonical handle). We still surface
 		// a hard (non-transient) error so a genuine auth/contract fault is visible.
 		if err := a.client.cancelRun(ctx, tgt, r.id); err != nil && !isTransient(err) {
-			return PipelineHandle{}, err
+			return "", err
 		}
 	}
 	return a.handleFor(tgt, canonical.id), nil
@@ -356,7 +362,8 @@ func (a *Access) resolveAfterDispatch(ctx context.Context, tgt ghTarget, runName
 // it to an infrastructure-neutral PipelineObservation
 // (constructionPipelineAccess.md §2.2). Pure read; no side effects. An unknown /
 // GC'd handle surfaces as fwra.NotFound.
-func (a *Access) ObserveConstructionPipeline(ctx context.Context, handle PipelineHandle) (PipelineObservation, error) {
+func (a *Access) ObserveConstructionPipeline(rc fwra.Context, handle PipelineHandle) (PipelineObservation, error) {
+	ctx := rc.Context
 	runID, tgt, err := a.runIDFromHandle(handle)
 	if err != nil {
 		return PipelineObservation{}, err
@@ -373,7 +380,8 @@ func (a *Access) ObserveConstructionPipeline(ctx context.Context, handle Pipelin
 // desired post-condition ("no further steps will start") already holds, which makes
 // cancel safe to retry against the operator-pause race
 // (constructionPipelineAccess.md §2.3). The seam maps GitHub's 409/404 to success.
-func (a *Access) CancelConstructionPipeline(ctx context.Context, handle PipelineHandle) error {
+func (a *Access) CancelConstructionPipeline(rc fwra.Context, handle PipelineHandle) error {
+	ctx := rc.Context
 	runID, tgt, err := a.runIDFromHandle(handle)
 	if err != nil {
 		// A malformed handle is a caller pre-condition violation, not a cancel no-op.
@@ -419,9 +427,9 @@ const handleSep = "@"
 func (a *Access) handleFor(tgt ghTarget, runID int64) PipelineHandle {
 	base := "run/" + strconv.FormatInt(runID, 10)
 	if tgt.isZero() {
-		return PipelineHandle{opaque: base}
+		return PipelineHandle(base)
 	}
-	return PipelineHandle{opaque: base + handleSep + tgt.owner + "/" + tgt.repo + "/" + tgt.workflowFile}
+	return PipelineHandle(base + handleSep + tgt.owner + "/" + tgt.repo + "/" + tgt.workflowFile)
 }
 
 // runIDFromHandle unpacks the run id AND the OPTIONAL per-project target from an
@@ -429,10 +437,10 @@ func (a *Access) handleFor(tgt ghTarget, runID int64) PipelineHandle {
 // fwra.ContractMisuse. A handle with no "@<target>" segment returns a ZERO ghTarget
 // (the construction-repo default — the seam substitutes its configured repo).
 func (a *Access) runIDFromHandle(handle PipelineHandle) (int64, ghTarget, error) { //nolint:gocyclo // parses handle segments; each segment type adds a branch
-	if handle.IsZero() {
+	if PipelineHandleIsZero(handle) {
 		return 0, ghTarget{}, fwra.New(fwra.ContractMisuse, "constructionpipeline: zero PipelineHandle")
 	}
-	runPart, targetPart, hasTarget := strings.Cut(handle.opaque, handleSep)
+	runPart, targetPart, hasTarget := strings.Cut(string(handle), handleSep)
 	kind, rest, ok := strings.Cut(runPart, "/")
 	if !ok || kind != "run" || rest == "" {
 		return 0, ghTarget{}, fwra.New(fwra.ContractMisuse, "constructionpipeline: malformed PipelineHandle")
