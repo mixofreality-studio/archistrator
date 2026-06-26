@@ -356,8 +356,11 @@ func (wf *Workflows) CloseCycleWorkflow(ctx workflow.Context, in CloseInput) (Cl
 	return CloseCycleResult{
 		CustomerID: in.CustomerID,
 		CycleID:    in.CycleID,
-		Routed:     result.RoutingDirective,
-		Escalated:  escalated,
+		// Convert the Engine-seam directive to the façade's OWN RoutingDirective at the
+		// boundary (full encapsulation: the public contract carries settlement's own
+		// enum, not the deps.go seam). The iota order matches, so the cast is faithful.
+		Routed:    RoutingDirective(result.RoutingDirective),
+		Escalated: escalated,
 	}, nil
 }
 
@@ -484,11 +487,14 @@ func (wf *Workflows) awaitChargeback(ctx workflow.Context, customerID CustomerID
 func (wf *Workflows) recomputeCycle(ctx workflow.Context, customerID CustomerID, cycleID CycleID, event GatewayReversalEvent, prior SettlementResultSeam) error {
 	// Append the reversal (idempotent on the chargeback's gateway event id).
 	if err := wf.recordReversal(ctx, ReversalEntrySeam{
-		CustomerID:             customerID,
-		CycleID:                cycleID,
-		Amount:                 event.Amount,
-		GatewayEventID:         event.GatewayEventID,
-		ReversesGatewayEventID: event.ReversesGatewayEventID,
+		CustomerID:     customerID,
+		CycleID:        cycleID,
+		Amount:         event.Amount,
+		GatewayEventID: event.GatewayEventID,
+		// ReversesGatewayEventID is an optional back-link; the generated façade type
+		// carries it as *string (`,omitempty`), the RA seam as a plain string (empty ⇒
+		// absent), so deref nil-safe at the boundary.
+		ReversesGatewayEventID: derefString(event.ReversesGatewayEventID),
 		OccurredAt:             event.OccurredAt,
 	}); err != nil {
 		return err

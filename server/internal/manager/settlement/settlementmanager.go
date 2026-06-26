@@ -1,7 +1,6 @@
 package settlement
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -12,6 +11,22 @@ import (
 
 	fwmgr "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 )
+
+// SettlementManager is the settlementManager port — the public use-case surface of the
+// façade (settlementManager.md §2). Each op leads with the Manager-layer call Context
+// (fwmgr.Context, embedding context.Context + the Principal); the *Manager derives
+// ctx := rc.Context inside.
+//
+// SCHEMA-FIRST: this interface (and the port I/O types) are GENERATED into
+// contract.gen.go from contract.schema.json (edit the schema + `make gen`; do NOT
+// hand-edit the generated surface). The concrete *Manager below satisfies it; the
+// consumer-side dependency interfaces (deps.go) and the Temporal Workflows struct
+// (workflow.go) stay hand-written and are NOT part of this contract.
+
+// Compile-time proof the concrete Manager satisfies the SettlementManager port. Each
+// op leads with the Manager-layer call Context (fwmgr.Context); the *Manager derives
+// ctx := rc.Context inside.
+var _ SettlementManager = (*Manager)(nil)
 
 // Manager is the settlementManager façade. It exposes the six public use-case ops
 // (settlementManager.md §2) and OWNS Temporal. The Temporal-backed ops:
@@ -41,7 +56,8 @@ func NewManager(c client.Client) *Manager {
 // records the binding → registers the per-customer closeSettlementCycle Schedule.
 // Idempotent on the id (a redundant start returns the running SettlementRef). SYNC:
 // returns once the onboarding workflow is durably accepted.
-func (m *Manager) OnboardPaymentIntegration(ctx context.Context, deployedAppID DeployedAppID) (SettlementRef, error) {
+func (m *Manager) OnboardPaymentIntegration(rc fwmgr.Context, deployedAppID DeployedAppID) (SettlementRef, error) {
+	ctx := rc.Context
 	if deployedAppID == uuid.Nil {
 		return SettlementRef{}, newError(fwmgr.ContractMisuse, "empty deployedAppId")
 	}
@@ -72,7 +88,8 @@ func (m *Manager) OnboardPaymentIntegration(ctx context.Context, deployedAppID D
 // RegisterCustomer — op 2.2. Temporal Workflow (entry; StartWorkflow, id
 // {customerId}:register). Validates the stored instrument (zero-amount auth) → opens
 // the settlement aggregate. Idempotent on the id. SYNC.
-func (m *Manager) RegisterCustomer(ctx context.Context, customerID CustomerID) (SettlementRef, error) {
+func (m *Manager) RegisterCustomer(rc fwmgr.Context, customerID CustomerID) (SettlementRef, error) {
+	ctx := rc.Context
 	if customerID == uuid.Nil {
 		return SettlementRef{}, newError(fwmgr.ContractMisuse, "empty customerId")
 	}
@@ -103,7 +120,8 @@ func (m *Manager) RegisterCustomer(ctx context.Context, customerID CustomerID) (
 // (payout/charge/skip; on charge failure decides+executes {Retry|Escalate|Delay}) →
 // records the outcome. Idempotent on the id (a redundant firing collapses to the
 // running close). SYNC from the scheduler's POV.
-func (m *Manager) CloseSettlementCycle(ctx context.Context, customerID CustomerID, cycleID CycleID) (CloseCycleResult, error) {
+func (m *Manager) CloseSettlementCycle(rc fwmgr.Context, customerID CustomerID, cycleID CycleID) (CloseCycleResult, error) {
+	ctx := rc.Context
 	if customerID == uuid.Nil {
 		return CloseCycleResult{}, newError(fwmgr.ContractMisuse, "empty customerId")
 	}
@@ -136,7 +154,8 @@ func (m *Manager) CloseSettlementCycle(ctx context.Context, customerID CustomerI
 // persistently-delinquent customer set and, for each, delivers a queued
 // applyDelinquencyPolicy Signal to operationsManager (the single sanctioned queued M→M
 // edge). Does NOT pause/withdraw apps itself. SYNC.
-func (m *Manager) RunShortfallSweep(ctx context.Context, tickID string) (ShortfallSweepResult, error) {
+func (m *Manager) RunShortfallSweep(rc fwmgr.Context, tickID string) (ShortfallSweepResult, error) {
+	ctx := rc.Context
 	if tickID == "" {
 		return ShortfallSweepResult{}, newError(fwmgr.ContractMisuse, "empty tickId")
 	}
@@ -164,7 +183,8 @@ func (m *Manager) RunShortfallSweep(ctx context.Context, tickID string) (Shortfa
 // fact to the Revenue Ledger (idempotent on the gateway event id). SYNC from the
 // Client's POV: returns once the signal is durably enqueued. Signature verified
 // upstream — this façade does not re-verify.
-func (m *Manager) RecordInboundRevenue(ctx context.Context, event GatewayRevenueEvent) error {
+func (m *Manager) RecordInboundRevenue(rc fwmgr.Context, event GatewayRevenueEvent) error {
+	ctx := rc.Context
 	if event.CustomerID == uuid.Nil {
 		return newError(fwmgr.ContractMisuse, "empty customerId")
 	}
@@ -195,7 +215,8 @@ func (m *Manager) RecordInboundRevenue(ctx context.Context, event GatewayRevenue
 // completed). The cycle workflow appends the reversal (idempotent on the chargeback's
 // gateway event id), recomputes the net forward-only, records the correction, and
 // routes the delta. Compensation is forward-only; no rollback. SYNC.
-func (m *Manager) RecordRevenueReversal(ctx context.Context, event GatewayReversalEvent) error {
+func (m *Manager) RecordRevenueReversal(rc fwmgr.Context, event GatewayReversalEvent) error {
+	ctx := rc.Context
 	if event.CustomerID == uuid.Nil {
 		return newError(fwmgr.ContractMisuse, "empty customerId")
 	}

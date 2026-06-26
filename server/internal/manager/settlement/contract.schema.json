@@ -1,0 +1,289 @@
+{
+  "$id": "archistrator://contract/settlement-manager",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "CloseCycleResult": {
+      "type": "object",
+      "properties": {
+        "customerId": {
+          "type": "string",
+          "format": "uuid",
+          "x-go-import": "github.com/google/uuid",
+          "x-go-name": "CustomerID",
+          "x-go-type": "uuid.UUID"
+        },
+        "cycleId": {
+          "type": "string",
+          "x-go-name": "CycleID"
+        },
+        "routed": {
+          "$ref": "#/$defs/RoutingDirective"
+        },
+        "escalated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "customerId",
+        "cycleId",
+        "routed",
+        "escalated"
+      ],
+      "additionalProperties": false
+    },
+    "GatewayRevenueEvent": {
+      "type": "object",
+      "properties": {
+        "gatewayEventId": {
+          "type": "string",
+          "x-go-name": "GatewayEventID"
+        },
+        "customerId": {
+          "type": "string",
+          "format": "uuid",
+          "x-go-import": "github.com/google/uuid",
+          "x-go-name": "CustomerID",
+          "x-go-type": "uuid.UUID"
+        },
+        "cycleId": {
+          "type": "string",
+          "x-go-name": "CycleID"
+        },
+        "amount": {
+          "$ref": "#/$defs/Money"
+        },
+        "occurredAt": {
+          "type": "string",
+          "format": "date-time",
+          "x-go-import": "time",
+          "x-go-type": "time.Time"
+        }
+      },
+      "required": [
+        "gatewayEventId",
+        "customerId",
+        "cycleId",
+        "amount",
+        "occurredAt"
+      ],
+      "additionalProperties": false
+    },
+    "GatewayReversalEvent": {
+      "type": "object",
+      "properties": {
+        "gatewayEventId": {
+          "type": "string",
+          "x-go-name": "GatewayEventID"
+        },
+        "customerId": {
+          "type": "string",
+          "format": "uuid",
+          "x-go-import": "github.com/google/uuid",
+          "x-go-name": "CustomerID",
+          "x-go-type": "uuid.UUID"
+        },
+        "cycleId": {
+          "type": "string",
+          "x-go-name": "CycleID"
+        },
+        "amount": {
+          "$ref": "#/$defs/Money"
+        },
+        "reversesGatewayEventId": {
+          "type": [
+            "null",
+            "string"
+          ],
+          "x-go-name": "ReversesGatewayEventID"
+        },
+        "occurredAt": {
+          "type": "string",
+          "format": "date-time",
+          "x-go-import": "time",
+          "x-go-type": "time.Time"
+        }
+      },
+      "required": [
+        "gatewayEventId",
+        "customerId",
+        "cycleId",
+        "amount",
+        "occurredAt"
+      ],
+      "additionalProperties": false
+    },
+    "Money": {
+      "type": "object",
+      "properties": {
+        "minorUnits": {
+          "type": "integer"
+        },
+        "currency": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "minorUnits",
+        "currency"
+      ],
+      "additionalProperties": false
+    },
+    "RoutingDirective": {
+      "type": "integer",
+      "enum": [
+        0,
+        1,
+        2
+      ],
+      "x-enum-varnames": [
+        "RoutingDirectiveNoAction",
+        "RoutingDirectivePayout",
+        "RoutingDirectiveCharge"
+      ],
+      "x-go-base": "int"
+    },
+    "SettlementRef": {
+      "type": "object",
+      "properties": {
+        "customerId": {
+          "type": "string",
+          "format": "uuid",
+          "x-go-import": "github.com/google/uuid",
+          "x-go-name": "CustomerID",
+          "x-go-type": "uuid.UUID"
+        }
+      },
+      "required": [
+        "customerId"
+      ],
+      "additionalProperties": false
+    },
+    "ShortfallSweepResult": {
+      "type": "object",
+      "properties": {
+        "signalledCustomers": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "type": "string",
+            "format": "uuid",
+            "x-go-import": "github.com/google/uuid",
+            "x-go-type": "uuid.UUID"
+          }
+        }
+      },
+      "required": [
+        "signalledCustomers"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "title": "settlement-manager contract",
+  "interface": {
+    "name": "SettlementManager",
+    "layer": "manager",
+    "operations": [
+      {
+        "name": "CloseSettlementCycle",
+        "params": [
+          {
+            "name": "customerID",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "x-go-import": "github.com/google/uuid",
+              "x-go-type": "uuid.UUID"
+            }
+          },
+          {
+            "name": "cycleID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "result": {
+          "$ref": "#/$defs/CloseCycleResult"
+        },
+        "error": true
+      },
+      {
+        "name": "OnboardPaymentIntegration",
+        "params": [
+          {
+            "name": "deployedAppID",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "x-go-import": "github.com/google/uuid",
+              "x-go-type": "uuid.UUID"
+            }
+          }
+        ],
+        "result": {
+          "$ref": "#/$defs/SettlementRef"
+        },
+        "error": true
+      },
+      {
+        "name": "RecordInboundRevenue",
+        "params": [
+          {
+            "name": "event",
+            "schema": {
+              "$ref": "#/$defs/GatewayRevenueEvent"
+            }
+          }
+        ],
+        "error": true
+      },
+      {
+        "name": "RecordRevenueReversal",
+        "params": [
+          {
+            "name": "event",
+            "schema": {
+              "$ref": "#/$defs/GatewayReversalEvent"
+            }
+          }
+        ],
+        "error": true
+      },
+      {
+        "name": "RegisterCustomer",
+        "params": [
+          {
+            "name": "customerID",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "x-go-import": "github.com/google/uuid",
+              "x-go-type": "uuid.UUID"
+            }
+          }
+        ],
+        "result": {
+          "$ref": "#/$defs/SettlementRef"
+        },
+        "error": true
+      },
+      {
+        "name": "RunShortfallSweep",
+        "params": [
+          {
+            "name": "tickID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "result": {
+          "$ref": "#/$defs/ShortfallSweepResult"
+        },
+        "error": true
+      }
+    ]
+  }
+}

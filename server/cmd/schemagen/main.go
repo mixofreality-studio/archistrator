@@ -54,6 +54,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/settlement"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/construction"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/operations"
+	mgrsettlement "github.com/mixofreality-studio/archistrator/server/internal/manager/settlement"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/constructionpipeline"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/durableexecution"
@@ -634,6 +635,37 @@ var registry = []component{
 		},
 		ifaceName: "OperationsManager",
 		iface:     reflect.TypeOf((*operations.OperationsManager)(nil)).Elem(),
+	},
+	{
+		name: "settlement-manager",
+		dir:  "internal/manager/settlement",
+		models: []any{
+			// The full transitive closure of SettlementManager's OWN port I/O types
+			// (settlementManager.md §2/§3). All defined in this package — FULL
+			// ENCAPSULATION: the generated contract pulls NO external (projectstate) dep
+			// and NO Temporal dep (the Manager OWNS Temporal behind the port; the
+			// consumer-side dependency interfaces in deps.go + the Temporal Workflows
+			// struct stay hand-written and are NOT part of this contract). CustomerID /
+			// DeployedAppID are `= uuid.UUID` aliases, so fields/params of those types
+			// bind directly to uuid.UUID (wellKnownByType) — they are NOT registered
+			// separately (the operations OperatedAppID precedent). CycleID is a `= string`
+			// alias, so CycleID fields reflect as plain string — also NOT registered.
+			// RoutingDirective's canonical-name lookup lives in behavior.go as the free
+			// function routingDirectiveName (the operations DesiredStateReason precedent)
+			// so the generated enum carries no behavior. Money is shared by both the
+			// façade contract and the deps.go seams; it lives in the generated file and
+			// the seams reference it in-package.
+			mgrsettlement.SettlementRef{},
+			mgrsettlement.CloseCycleResult{},
+			mgrsettlement.ShortfallSweepResult{},
+			mgrsettlement.GatewayRevenueEvent{},
+			mgrsettlement.GatewayReversalEvent{},
+			mgrsettlement.Money{},
+			// Enum (one zero value — const block captured from this dir).
+			mgrsettlement.RoutingDirective(0),
+		},
+		ifaceName: "SettlementManager",
+		iface:     reflect.TypeOf((*mgrsettlement.SettlementManager)(nil)).Elem(),
 	},
 }
 

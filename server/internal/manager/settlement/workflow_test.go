@@ -460,8 +460,8 @@ func Test_Close_Payout(t *testing.T) {
 	}
 	var res CloseCycleResult
 	_ = env.GetWorkflowResult(&res)
-	if res.Routed != RoutingPayout {
-		t.Fatalf("want Routed=Payout, got %s", res.Routed)
+	if res.Routed != RoutingDirectivePayout {
+		t.Fatalf("want Routed=Payout, got %s", routingDirectiveName(res.Routed))
 	}
 	if len(f.gateway.payouts) != 1 || f.gateway.payouts[0].MinorUnits != 5000 {
 		t.Fatalf("want one payout of 5000, got %v", f.gateway.payouts)
