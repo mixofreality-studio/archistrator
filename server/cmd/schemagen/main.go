@@ -39,6 +39,7 @@ import (
 	"github.com/google/uuid"
 
 	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
+	fwm "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"github.com/mixofreality-studio/archistrator-platform/framework-go/utilities/security"
 
@@ -81,6 +82,7 @@ var contextCarried = map[reflect.Type]bool{
 	reflect.TypeOf(fwra.IdempotencyKey("")):        true,
 	reflect.TypeOf(fweng.Context{}):                true,
 	reflect.TypeOf(fwra.Context{}):                 true,
+	reflect.TypeOf(fwm.Context{}):                  true,
 }
 
 // layerFromDir maps a component dir to its Method layer (selects the call Context).
