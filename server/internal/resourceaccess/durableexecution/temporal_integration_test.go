@@ -131,7 +131,7 @@ func waitForStatus(t *testing.T, r *Runtime, id ExecutionID, want ExecutionStatu
 	deadline := time.Now().Add(integrationWaitTimeout)
 	var last ExecutionStateView
 	for time.Now().Before(deadline) {
-		v, err := r.QueryExecutionState(ctx, id, "", ExecutionPayload{})
+		v, err := r.QueryExecutionState(rc(ctx), id, "", ExecutionPayload{})
 		if err == nil {
 			last = v
 			if v.Status == want {
@@ -148,16 +148,16 @@ func waitForStatus(t *testing.T, r *Runtime, id ExecutionID, want ExecutionStatu
 func TestIntegration_StartOrSignal_ColdStart(t *testing.T) {
 	r, c := integrationRuntime(t)
 	id := uniqueID(t, "cold")
-	h, err := r.StartOrSignalExecution(t.Context(), kindSignalWaiter, id, "", ExecutionPayload{Bytes: []byte(`"hello"`)})
+	h, err := r.StartOrSignalExecution(rc(t.Context()), kindSignalWaiter, id, "", ExecutionPayload{Bytes: []byte(`"hello"`)})
 	if err != nil {
 		t.Fatalf("StartOrSignalExecution: %v", err)
 	}
-	if h.IsZero() {
+	if ExecutionHandleIsZero(h) {
 		t.Fatalf("expected a non-zero handle")
 	}
 	waitForStatus(t, r, id, StatusRunning)
 	// terminate the waiter so the run closes (signal it then let the worker finish).
-	if err := r.DeliverSignal(t.Context(), id, signalGo, ExecutionPayload{Bytes: []byte(`"done"`)}); err != nil {
+	if err := r.DeliverSignal(rc(t.Context()), id, signalGo, ExecutionPayload{Bytes: []byte(`"done"`)}); err != nil {
 		t.Fatalf("DeliverSignal teardown: %v", err)
 	}
 	_ = c
@@ -169,21 +169,21 @@ func TestIntegration_StartOrSignal_ColdStart(t *testing.T) {
 func TestIntegration_StartOrSignal_IdempotentReissue(t *testing.T) {
 	r, _ := integrationRuntime(t)
 	id := uniqueID(t, "idem")
-	h1, err := r.StartOrSignalExecution(t.Context(), kindSignalWaiter, id, "", ExecutionPayload{Bytes: []byte(`"first"`)})
+	h1, err := r.StartOrSignalExecution(rc(t.Context()), kindSignalWaiter, id, "", ExecutionPayload{Bytes: []byte(`"first"`)})
 	if err != nil {
 		t.Fatalf("first start: %v", err)
 	}
 	waitForStatus(t, r, id, StatusRunning)
 
-	h2, err := r.StartOrSignalExecution(t.Context(), kindSignalWaiter, id, "", ExecutionPayload{Bytes: []byte(`"second"`)})
+	h2, err := r.StartOrSignalExecution(rc(t.Context()), kindSignalWaiter, id, "", ExecutionPayload{Bytes: []byte(`"second"`)})
 	if err != nil {
 		t.Fatalf("idempotent re-start surfaced an error (must map AlreadyExists to success): %v", err)
 	}
-	if !h1.Equal(h2) {
+	if !ExecutionHandleEqual(h1, h2) {
 		t.Fatalf("idempotent re-start returned a DIFFERENT handle: %s vs %s", h1, h2)
 	}
 	// teardown
-	_ = r.DeliverSignal(t.Context(), id, signalGo, ExecutionPayload{Bytes: []byte(`"done"`)})
+	_ = r.DeliverSignal(rc(t.Context()), id, signalGo, ExecutionPayload{Bytes: []byte(`"done"`)})
 	dumpHistory(t, id)
 }
 
@@ -194,11 +194,11 @@ func TestIntegration_StartOrSignal_SignalWithStart(t *testing.T) {
 	id := uniqueID(t, "sws")
 	// signal-with-start a fresh id: starts the workflow AND delivers "go", so the
 	// waiter receives the signal and completes.
-	h, err := r.StartOrSignalExecution(t.Context(), kindSignalWaiter, id, signalGo, ExecutionPayload{Bytes: []byte(`"sws-payload"`)})
+	h, err := r.StartOrSignalExecution(rc(t.Context()), kindSignalWaiter, id, signalGo, ExecutionPayload{Bytes: []byte(`"sws-payload"`)})
 	if err != nil {
 		t.Fatalf("signal-with-start: %v", err)
 	}
-	if h.IsZero() {
+	if ExecutionHandleIsZero(h) {
 		t.Fatalf("expected a non-zero handle")
 	}
 	waitForStatus(t, r, id, StatusCompleted)
@@ -209,11 +209,11 @@ func TestIntegration_StartOrSignal_SignalWithStart(t *testing.T) {
 func TestIntegration_DeliverSignal_ToRunning(t *testing.T) {
 	r, _ := integrationRuntime(t)
 	id := uniqueID(t, "deliver")
-	if _, err := r.StartOrSignalExecution(t.Context(), kindSignalWaiter, id, "", ExecutionPayload{Bytes: []byte(`"start"`)}); err != nil {
+	if _, err := r.StartOrSignalExecution(rc(t.Context()), kindSignalWaiter, id, "", ExecutionPayload{Bytes: []byte(`"start"`)}); err != nil {
 		t.Fatalf("start: %v", err)
 	}
 	waitForStatus(t, r, id, StatusRunning)
-	if err := r.DeliverSignal(t.Context(), id, signalGo, ExecutionPayload{Bytes: []byte(`"delivered"`)}); err != nil {
+	if err := r.DeliverSignal(rc(t.Context()), id, signalGo, ExecutionPayload{Bytes: []byte(`"delivered"`)}); err != nil {
 		t.Fatalf("DeliverSignal: %v", err)
 	}
 	waitForStatus(t, r, id, StatusCompleted)
@@ -223,7 +223,7 @@ func TestIntegration_DeliverSignal_ToRunning(t *testing.T) {
 // I5: deliverSignal to a non-existent id → NotFound.
 func TestIntegration_DeliverSignal_NotFound(t *testing.T) {
 	r, _ := integrationRuntime(t)
-	err := r.DeliverSignal(t.Context(), uniqueID(t, "ghost"), signalGo, ExecutionPayload{Bytes: []byte(`"x"`)})
+	err := r.DeliverSignal(rc(t.Context()), uniqueID(t, "ghost"), signalGo, ExecutionPayload{Bytes: []byte(`"x"`)})
 	assertKind(t, err, fwra.NotFound)
 }
 
@@ -238,7 +238,7 @@ func TestIntegration_RegisterSchedule_Idempotent(t *testing.T) {
 		TargetIDTemplate: string(scheduleID) + "-{{.ScheduledTime.Unix}}",
 		StartPayload:     ExecutionPayload{Bytes: []byte(`"tick"`)},
 	}
-	if err := r.RegisterSchedule(t.Context(), scheduleID, spec); err != nil {
+	if err := r.RegisterSchedule(rc(t.Context()), scheduleID, spec); err != nil {
 		t.Fatalf("RegisterSchedule (create): %v", err)
 	}
 	t.Cleanup(func() {
@@ -246,12 +246,12 @@ func TestIntegration_RegisterSchedule_Idempotent(t *testing.T) {
 	})
 	// Re-register the SAME id with the SAME spec: must converge as an idempotent
 	// success (no error), exercising the AlreadyRunning → Update path.
-	if err := r.RegisterSchedule(t.Context(), scheduleID, spec); err != nil {
+	if err := r.RegisterSchedule(rc(t.Context()), scheduleID, spec); err != nil {
 		t.Fatalf("RegisterSchedule (idempotent re-register): %v", err)
 	}
 	// Re-register with a CHANGED spec: last-writer-wins, still a success.
 	spec.Cadence = Cadence{Every: 2 * time.Hour}
-	if err := r.RegisterSchedule(t.Context(), scheduleID, spec); err != nil {
+	if err := r.RegisterSchedule(rc(t.Context()), scheduleID, spec); err != nil {
 		t.Fatalf("RegisterSchedule (changed spec): %v", err)
 	}
 }
@@ -261,12 +261,12 @@ func TestIntegration_QueryExecutionState_ReturnsResult(t *testing.T) {
 	r, _ := integrationRuntime(t)
 	id := uniqueID(t, "query")
 	payload := []byte(`"queried-state"`)
-	if _, err := r.StartOrSignalExecution(t.Context(), kindSignalWaiter, id, "", ExecutionPayload{Bytes: payload}); err != nil {
+	if _, err := r.StartOrSignalExecution(rc(t.Context()), kindSignalWaiter, id, "", ExecutionPayload{Bytes: payload}); err != nil {
 		t.Fatalf("start: %v", err)
 	}
 	waitForStatus(t, r, id, StatusRunning)
 
-	view, err := r.QueryExecutionState(t.Context(), id, queryState, ExecutionPayload{})
+	view, err := r.QueryExecutionState(rc(t.Context()), id, queryState, ExecutionPayload{})
 	if err != nil {
 		t.Fatalf("QueryExecutionState: %v", err)
 	}
@@ -283,14 +283,14 @@ func TestIntegration_QueryExecutionState_ReturnsResult(t *testing.T) {
 		t.Fatalf("expected nil ClosedAt while running, got %v", *view.ClosedAt)
 	}
 	// teardown
-	_ = r.DeliverSignal(t.Context(), id, signalGo, ExecutionPayload{Bytes: []byte(`"done"`)})
+	_ = r.DeliverSignal(rc(t.Context()), id, signalGo, ExecutionPayload{Bytes: []byte(`"done"`)})
 	dumpHistory(t, id)
 }
 
 // I8: queryExecutionState of a non-existent id → NotFound.
 func TestIntegration_QueryExecutionState_NotFound(t *testing.T) {
 	r, _ := integrationRuntime(t)
-	_, err := r.QueryExecutionState(t.Context(), uniqueID(t, "ghost"), queryState, ExecutionPayload{})
+	_, err := r.QueryExecutionState(rc(t.Context()), uniqueID(t, "ghost"), queryState, ExecutionPayload{})
 	assertKind(t, err, fwra.NotFound)
 }
 

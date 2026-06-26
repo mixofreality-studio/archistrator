@@ -40,7 +40,6 @@ package durableexecution
 // import none.
 
 import (
-	"context"
 	"errors"
 	"time"
 
@@ -100,15 +99,20 @@ func NewRuntime(cl client.Client, table map[ExecutionKind]KindBinding) *Runtime 
 // StartOrSignalExecution implements the Client entry verb (durableExecutionAccess.md
 // §2.1). Empty signalName → cold start (idempotent on ExecutionID); set signalName
 // → signal-with-start. Returns once durably accepted.
-func (r *Runtime) StartOrSignalExecution(ctx context.Context, executionKind ExecutionKind, executionID ExecutionID, signalName SignalName, payload ExecutionPayload) (ExecutionHandle, error) {
+func (r *Runtime) StartOrSignalExecution(rc fwra.Context, executionKind ExecutionKind, executionID ExecutionID, signalName SignalName, payload ExecutionPayload) (ExecutionHandle, error) {
+	// The cross-cutting ctx (and, where a verb needs them, Principal / IdempotencyKey)
+	// now ride the ResourceAccess call Context. fwra.Context embeds context.Context; the
+	// runtime is natively idempotent on the caller-supplied ExecutionID, so this verb
+	// reads only ctx here. The package still imports no Temporal on its surface.
+	ctx := rc.Context
 	if executionID == "" {
-		return ExecutionHandle{}, fwra.New(fwra.ContractMisuse, "durableexecution.StartOrSignalExecution: empty executionID")
+		return "", fwra.New(fwra.ContractMisuse, "durableexecution.StartOrSignalExecution: empty executionID")
 	}
 	binding, ok := r.registry.resolve(executionKind)
 	if !ok {
 		// The logical ErrUnknownKind — a caller pre-condition violation owned by this
 		// contract, surfaced WITHOUT consulting the runtime.
-		return ExecutionHandle{}, fwra.New(fwra.ContractMisuse, "durableexecution.StartOrSignalExecution: unknown executionKind "+string(executionKind))
+		return "", fwra.New(fwra.ContractMisuse, "durableexecution.StartOrSignalExecution: unknown executionKind "+string(executionKind))
 	}
 
 	opts := client.StartWorkflowOptions{
@@ -141,16 +145,17 @@ func (r *Runtime) StartOrSignalExecution(ctx context.Context, executionKind Exec
 		// §2.1, §6: AlreadyExists is mapped to success, never surfaced).
 		if temporal.IsWorkflowExecutionAlreadyStartedError(err) {
 			existing := r.cl.GetWorkflow(ctx, string(executionID), "")
-			return ExecutionHandle{opaque: handleString(existing.GetID(), existing.GetRunID())}, nil
+			return ExecutionHandle(handleString(existing.GetID(), existing.GetRunID())), nil
 		}
-		return ExecutionHandle{}, mapStartError(err)
+		return "", mapStartError(err)
 	}
-	return ExecutionHandle{opaque: handleString(run.GetID(), run.GetRunID())}, nil
+	return ExecutionHandle(handleString(run.GetID(), run.GetRunID())), nil
 }
 
 // DeliverSignal implements the cross-execution fire-and-forget signal
 // (durableExecutionAccess.md §2.2). void return; at-least-once to the channel.
-func (r *Runtime) DeliverSignal(ctx context.Context, targetExecutionID ExecutionID, signalName SignalName, payload ExecutionPayload) error {
+func (r *Runtime) DeliverSignal(rc fwra.Context, targetExecutionID ExecutionID, signalName SignalName, payload ExecutionPayload) error {
+	ctx := rc.Context
 	if targetExecutionID == "" {
 		return fwra.New(fwra.ContractMisuse, "durableexecution.DeliverSignal: empty targetExecutionID")
 	}
@@ -166,7 +171,8 @@ func (r *Runtime) DeliverSignal(ctx context.Context, targetExecutionID Execution
 // RegisterSchedule implements idempotent recurring-schedule registration
 // (durableExecutionAccess.md §2.3). Idempotent on ScheduleID; last-writer-wins on
 // a changed spec.
-func (r *Runtime) RegisterSchedule(ctx context.Context, scheduleID ScheduleID, spec ScheduleSpec) error {
+func (r *Runtime) RegisterSchedule(rc fwra.Context, scheduleID ScheduleID, spec ScheduleSpec) error {
+	ctx := rc.Context
 	if scheduleID == "" {
 		return fwra.New(fwra.ContractMisuse, "durableexecution.RegisterSchedule: empty scheduleID")
 	}
@@ -218,7 +224,8 @@ func (r *Runtime) RegisterSchedule(ctx context.Context, scheduleID ScheduleID, s
 
 // QueryExecutionState implements the read-only technical query
 // (durableExecutionAccess.md §2.4). Side-effect-free.
-func (r *Runtime) QueryExecutionState(ctx context.Context, executionID ExecutionID, queryName QueryName, args ExecutionPayload) (ExecutionStateView, error) {
+func (r *Runtime) QueryExecutionState(rc fwra.Context, executionID ExecutionID, queryName QueryName, args ExecutionPayload) (ExecutionStateView, error) {
+	ctx := rc.Context
 	if executionID == "" {
 		return ExecutionStateView{}, fwra.New(fwra.ContractMisuse, "durableexecution.QueryExecutionState: empty executionID")
 	}
@@ -229,7 +236,7 @@ func (r *Runtime) QueryExecutionState(ctx context.Context, executionID Execution
 	}
 	info := desc.GetWorkflowExecutionInfo()
 	view := ExecutionStateView{
-		Handle: ExecutionHandle{opaque: handleString(string(executionID), info.GetExecution().GetRunId())},
+		Handle: ExecutionHandle(handleString(string(executionID), info.GetExecution().GetRunId())),
 		Status: mapStatus(info.GetStatus()),
 	}
 	if st := info.GetStartTime(); st != nil {

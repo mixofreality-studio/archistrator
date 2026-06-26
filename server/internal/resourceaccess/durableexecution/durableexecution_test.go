@@ -48,6 +48,7 @@ package durableexecution
 // mapping in isolation.
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -57,6 +58,12 @@ import (
 
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
+
+// rc builds the ResourceAccess call Context the contract verbs now take (the
+// established RA seam: fwra.Context embeds context.Context). The unit tests carry no
+// idempotency key — the runtime is natively idempotent on the caller-supplied
+// ExecutionID.
+func rc(ctx context.Context) fwra.Context { return fwra.Context{Context: ctx} }
 
 // testTable is the canonical kind→binding table the unit tests register.
 func testTable() map[ExecutionKind]KindBinding {
@@ -85,13 +92,13 @@ func assertKind(t *testing.T, err error, want fwra.Kind) {
 
 func TestStartOrSignal_EmptyID_ContractMisuse(t *testing.T) {
 	r := NewRuntime(nil, testTable()) // nil client: a pre-condition failure must NOT touch it
-	_, err := r.StartOrSignalExecution(t.Context(), "systemDesignPhase1", "", "", ExecutionPayload{})
+	_, err := r.StartOrSignalExecution(rc(t.Context()), "systemDesignPhase1", "", "", ExecutionPayload{})
 	assertKind(t, err, fwra.ContractMisuse)
 }
 
 func TestStartOrSignal_UnknownKind_ContractMisuse_NoRuntime(t *testing.T) {
 	r := NewRuntime(nil, testTable()) // nil client proves the unknown-kind check is local
-	_, err := r.StartOrSignalExecution(t.Context(), "noSuchKind", "proj:phase1", "", ExecutionPayload{})
+	_, err := r.StartOrSignalExecution(rc(t.Context()), "noSuchKind", "proj:phase1", "", ExecutionPayload{})
 	assertKind(t, err, fwra.ContractMisuse)
 }
 
@@ -99,13 +106,13 @@ func TestStartOrSignal_UnknownKind_ContractMisuse_NoRuntime(t *testing.T) {
 
 func TestDeliverSignal_EmptyTarget_ContractMisuse(t *testing.T) {
 	r := NewRuntime(nil, testTable())
-	err := r.DeliverSignal(t.Context(), "", "applyDelinquencyPolicy", ExecutionPayload{})
+	err := r.DeliverSignal(rc(t.Context()), "", "applyDelinquencyPolicy", ExecutionPayload{})
 	assertKind(t, err, fwra.ContractMisuse)
 }
 
 func TestDeliverSignal_EmptySignal_ContractMisuse(t *testing.T) {
 	r := NewRuntime(nil, testTable())
-	err := r.DeliverSignal(t.Context(), "operations:reconcile", "", ExecutionPayload{})
+	err := r.DeliverSignal(rc(t.Context()), "operations:reconcile", "", ExecutionPayload{})
 	assertKind(t, err, fwra.ContractMisuse)
 }
 
@@ -113,13 +120,13 @@ func TestDeliverSignal_EmptySignal_ContractMisuse(t *testing.T) {
 
 func TestRegisterSchedule_EmptyID_ContractMisuse(t *testing.T) {
 	r := NewRuntime(nil, testTable())
-	err := r.RegisterSchedule(t.Context(), "", ScheduleSpec{ExecutionKind: "settlementCycle", Cadence: Cadence{Every: time.Hour}})
+	err := r.RegisterSchedule(rc(t.Context()), "", ScheduleSpec{ExecutionKind: "settlementCycle", Cadence: Cadence{Every: time.Hour}})
 	assertKind(t, err, fwra.ContractMisuse)
 }
 
 func TestRegisterSchedule_UnknownKind_ContractMisuse_NoRuntime(t *testing.T) {
 	r := NewRuntime(nil, testTable())
-	err := r.RegisterSchedule(t.Context(), "shortfallSweep", ScheduleSpec{ExecutionKind: "noSuchKind", Cadence: Cadence{Every: time.Hour}})
+	err := r.RegisterSchedule(rc(t.Context()), "shortfallSweep", ScheduleSpec{ExecutionKind: "noSuchKind", Cadence: Cadence{Every: time.Hour}})
 	assertKind(t, err, fwra.ContractMisuse)
 }
 
@@ -127,7 +134,7 @@ func TestRegisterSchedule_UnknownKind_ContractMisuse_NoRuntime(t *testing.T) {
 
 func TestQueryExecutionState_EmptyID_ContractMisuse(t *testing.T) {
 	r := NewRuntime(nil, testTable())
-	_, err := r.QueryExecutionState(t.Context(), "", "costProjection", ExecutionPayload{})
+	_, err := r.QueryExecutionState(rc(t.Context()), "", "costProjection", ExecutionPayload{})
 	assertKind(t, err, fwra.ContractMisuse)
 }
 
@@ -195,23 +202,23 @@ func TestMapStatus(t *testing.T) {
 // ---- U10: ExecutionHandle value semantics ----
 
 func TestExecutionHandle_ValueSemantics(t *testing.T) {
-	a := ExecutionHandle{opaque: handleString("proj:phase1", "run-1")}
-	b := ExecutionHandle{opaque: handleString("proj:phase1", "run-1")}
-	c := ExecutionHandle{opaque: handleString("proj:phase1", "run-2")}
+	a := ExecutionHandle(handleString("proj:phase1", "run-1"))
+	b := ExecutionHandle(handleString("proj:phase1", "run-1"))
+	c := ExecutionHandle(handleString("proj:phase1", "run-2"))
 
-	if !a.Equal(b) {
+	if !ExecutionHandleEqual(a, b) {
 		t.Errorf("expected equal handles a==b")
 	}
-	if a.Equal(c) {
+	if ExecutionHandleEqual(a, c) {
 		t.Errorf("expected unequal handles a!=c")
 	}
-	if a.String() != "proj:phase1|run-1" {
-		t.Errorf("unexpected String(): %q", a.String())
+	if ExecutionHandleString(a) != "proj:phase1|run-1" {
+		t.Errorf("unexpected ExecutionHandleString(): %q", ExecutionHandleString(a))
 	}
-	if a.IsZero() {
+	if ExecutionHandleIsZero(a) {
 		t.Errorf("non-empty handle reported IsZero")
 	}
-	if !(ExecutionHandle{}).IsZero() {
+	if !ExecutionHandleIsZero(ExecutionHandle("")) {
 		t.Errorf("zero handle reported not-IsZero")
 	}
 	// runID-less handle is just the workflow id.

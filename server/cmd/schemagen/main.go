@@ -53,6 +53,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/settlement"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/constructionpipeline"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/durableexecution"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usagelog"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/worker"
 )
@@ -471,6 +472,40 @@ var registry = []component{
 		},
 		ifaceName: "UsageAccess",
 		iface:     reflect.TypeOf((*usagelog.UsageAccess)(nil)).Elem(),
+	},
+	{
+		name: "durableexecution",
+		dir:  "internal/resourceaccess/durableexecution",
+		models: []any{
+			// The full transitive closure of DurableExecutionAccess's OWN contract value
+			// types (durableExecutionAccess.md §3). All defined in this package — full
+			// encapsulation: the contract pulls NO external (projectstate) dep AND NO
+			// Temporal dep (the impl in temporal.go keeps Temporal; the contract surface
+			// stays provider-opaque). ExecutionPayload.Bytes / ExecutionStateView.QueryResult
+			// are []byte (opaque payload) and ExecutionStateView.ClosedAt is *time.Time; the
+			// generator binds those to their exact Go types (wellKnownByType). Cadence.Every
+			// is time.Duration, bound the same way.
+			durableexecution.ExecutionPayload{},
+			durableexecution.ScheduleSpec{},
+			durableexecution.Cadence{},
+			durableexecution.ExecutionStateView{},
+			// Enum (one zero value — const block captured from this dir).
+			durableexecution.ExecutionStatus(0),
+			// Named scalars (bare identifier newtypes — no const block). ExecutionHandle is
+			// the opaque execution identity, generated as a $def named scalar (the
+			// constructionpipeline.PipelineHandle precedent): its behaviour lives in
+			// behavior.go as free functions, keeping the opaque-handle Temporal mapping
+			// confined to the impl. The runtime's (workflow-id, run-id) pair packs into the
+			// string value, never exposed as such.
+			durableexecution.ExecutionKind(""),
+			durableexecution.ExecutionID(""),
+			durableexecution.SignalName(""),
+			durableexecution.QueryName(""),
+			durableexecution.ScheduleID(""),
+			durableexecution.ExecutionHandle(""),
+		},
+		ifaceName: "DurableExecutionAccess",
+		iface:     reflect.TypeOf((*durableexecution.DurableExecutionAccess)(nil)).Elem(),
 	},
 }
 

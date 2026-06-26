@@ -1,0 +1,251 @@
+{
+  "$id": "archistrator://contract/durableexecution",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "Cadence": {
+      "type": "object",
+      "properties": {
+        "Every": {
+          "type": "integer",
+          "x-go-import": "time",
+          "x-go-type": "time.Duration"
+        },
+        "CronExpr": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "Every",
+        "CronExpr"
+      ],
+      "additionalProperties": false
+    },
+    "ExecutionHandle": {
+      "type": "string"
+    },
+    "ExecutionID": {
+      "type": "string"
+    },
+    "ExecutionKind": {
+      "type": "string"
+    },
+    "ExecutionPayload": {
+      "type": "object",
+      "properties": {
+        "Bytes": {
+          "type": "string",
+          "contentEncoding": "base64",
+          "x-go-type": "[]byte"
+        },
+        "ContentType": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "Bytes",
+        "ContentType"
+      ],
+      "additionalProperties": false
+    },
+    "ExecutionStateView": {
+      "type": "object",
+      "properties": {
+        "Handle": {
+          "$ref": "#/$defs/ExecutionHandle"
+        },
+        "Status": {
+          "$ref": "#/$defs/ExecutionStatus"
+        },
+        "QueryResult": {
+          "type": "string",
+          "contentEncoding": "base64",
+          "x-go-type": "[]byte"
+        },
+        "StartedAt": {
+          "type": "string",
+          "format": "date-time",
+          "x-go-import": "time",
+          "x-go-type": "time.Time"
+        },
+        "ClosedAt": {
+          "type": [
+            "null",
+            "string"
+          ],
+          "format": "date-time",
+          "x-go-import": "time",
+          "x-go-type": "time.Time"
+        }
+      },
+      "required": [
+        "Handle",
+        "Status",
+        "QueryResult",
+        "StartedAt"
+      ],
+      "additionalProperties": false
+    },
+    "ExecutionStatus": {
+      "type": "integer",
+      "enum": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "x-enum-varnames": [
+        "StatusUnknown",
+        "StatusRunning",
+        "StatusCompleted",
+        "StatusFailed",
+        "StatusCancelled",
+        "StatusTimedOut"
+      ],
+      "x-go-base": "int"
+    },
+    "QueryName": {
+      "type": "string"
+    },
+    "ScheduleID": {
+      "type": "string"
+    },
+    "ScheduleSpec": {
+      "type": "object",
+      "properties": {
+        "ExecutionKind": {
+          "$ref": "#/$defs/ExecutionKind"
+        },
+        "Cadence": {
+          "$ref": "#/$defs/Cadence"
+        },
+        "TargetIDTemplate": {
+          "type": "string"
+        },
+        "StartPayload": {
+          "$ref": "#/$defs/ExecutionPayload"
+        }
+      },
+      "required": [
+        "ExecutionKind",
+        "Cadence",
+        "TargetIDTemplate",
+        "StartPayload"
+      ],
+      "additionalProperties": false
+    },
+    "SignalName": {
+      "type": "string"
+    }
+  },
+  "title": "durableexecution contract",
+  "interface": {
+    "name": "DurableExecutionAccess",
+    "layer": "resourceaccess",
+    "operations": [
+      {
+        "name": "DeliverSignal",
+        "params": [
+          {
+            "name": "targetExecutionID",
+            "schema": {
+              "$ref": "#/$defs/ExecutionID"
+            }
+          },
+          {
+            "name": "signalName",
+            "schema": {
+              "$ref": "#/$defs/SignalName"
+            }
+          },
+          {
+            "name": "payload",
+            "schema": {
+              "$ref": "#/$defs/ExecutionPayload"
+            }
+          }
+        ],
+        "error": true
+      },
+      {
+        "name": "QueryExecutionState",
+        "params": [
+          {
+            "name": "executionID",
+            "schema": {
+              "$ref": "#/$defs/ExecutionID"
+            }
+          },
+          {
+            "name": "queryName",
+            "schema": {
+              "$ref": "#/$defs/QueryName"
+            }
+          },
+          {
+            "name": "args",
+            "schema": {
+              "$ref": "#/$defs/ExecutionPayload"
+            }
+          }
+        ],
+        "result": {
+          "$ref": "#/$defs/ExecutionStateView"
+        },
+        "error": true
+      },
+      {
+        "name": "RegisterSchedule",
+        "params": [
+          {
+            "name": "scheduleID",
+            "schema": {
+              "$ref": "#/$defs/ScheduleID"
+            }
+          },
+          {
+            "name": "spec",
+            "schema": {
+              "$ref": "#/$defs/ScheduleSpec"
+            }
+          }
+        ],
+        "error": true
+      },
+      {
+        "name": "StartOrSignalExecution",
+        "params": [
+          {
+            "name": "executionKind",
+            "schema": {
+              "$ref": "#/$defs/ExecutionKind"
+            }
+          },
+          {
+            "name": "executionID",
+            "schema": {
+              "$ref": "#/$defs/ExecutionID"
+            }
+          },
+          {
+            "name": "signalName",
+            "schema": {
+              "$ref": "#/$defs/SignalName"
+            }
+          },
+          {
+            "name": "payload",
+            "schema": {
+              "$ref": "#/$defs/ExecutionPayload"
+            }
+          }
+        ],
+        "result": {
+          "$ref": "#/$defs/ExecutionHandle"
+        },
+        "error": true
+      }
+    ]
+  }
+}
