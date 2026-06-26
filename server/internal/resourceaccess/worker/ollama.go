@@ -78,11 +78,11 @@ func NewOllamaWorker(baseURL, defaultModel string, classModels map[WorkerClass]s
 // (fwra.NotFound semantics) is SUCCESS — the desired post-condition ("this run
 // consumes no further Worker resource") already holds, which makes cancel safe
 // to retry (workerAccess.md §2f.3).
-func (w *OllamaWorker) Cancel(_ context.Context, idempotencyKey fwra.IdempotencyKey) error {
-	if err := requireKey(idempotencyKey); err != nil {
+func (w *OllamaWorker) Cancel(rc fwra.Context) error {
+	if err := requireKey(rc.IdempotencyKey); err != nil {
 		return err
 	}
-	w.record(idempotencyKey, cancelledRun{})
+	w.record(rc.IdempotencyKey, cancelledRun{})
 	return nil
 }
 
@@ -95,26 +95,26 @@ func (w *OllamaWorker) Cancel(_ context.Context, idempotencyKey fwra.Idempotency
 // Idempotency: a retry carrying the same key replays the recorded bytes without
 // re-invoking the provider. A Cancel(key) followed by Generate(key) returns nil
 // bytes with nil error (treated as cancelled by the caller).
-func (w *OllamaWorker) Generate(ctx context.Context, spec GenerateSpec, idempotencyKey fwra.IdempotencyKey) (json.RawMessage, error) {
-	if err := requireKey(idempotencyKey); err != nil {
+func (w *OllamaWorker) Generate(rc fwra.Context, spec GenerateSpec) (json.RawMessage, error) {
+	if err := requireKey(rc.IdempotencyKey); err != nil {
 		return nil, err
 	}
 	if strings.TrimSpace(spec.Prompt) == "" {
 		return nil, fwra.New(fwra.ContractMisuse, "Generate: empty spec.Prompt")
 	}
-	if raw, done, err := w.replayResult(idempotencyKey); done || err != nil {
+	if raw, done, err := w.replayResult(rc.IdempotencyKey); done || err != nil {
 		// Recorded result (bytes), cancelled run (nil), or corrupt entry (err) —
 		// return without re-invoking the provider.
 		return raw, err
 	}
 
-	resp, err := w.generateJSON(ctx, spec.WorkerClass, spec.Prompt)
+	resp, err := w.generateJSON(rc, spec.WorkerClass, spec.Prompt)
 	if err != nil {
 		return nil, err
 	}
 
 	result := json.RawMessage([]byte(resp.Response))
-	w.record(idempotencyKey, result)
+	w.record(rc.IdempotencyKey, result)
 	return result, nil
 }
 
@@ -128,15 +128,15 @@ func (w *OllamaWorker) Generate(ctx context.Context, spec GenerateSpec, idempote
 // unsupported model returns no tool calls (treated as end_turn).
 //
 // Idempotency mirrors Generate.
-func (w *OllamaWorker) GenerateToolTurn(ctx context.Context, spec ToolTurnSpec, idempotencyKey fwra.IdempotencyKey) (AssistantTurn, error) {
-	if err := requireKey(idempotencyKey); err != nil {
+func (w *OllamaWorker) GenerateToolTurn(rc fwra.Context, spec ToolTurnSpec) (AssistantTurn, error) {
+	if err := requireKey(rc.IdempotencyKey); err != nil {
 		return AssistantTurn{}, err
 	}
-	if turn, done, err := w.replayTurn(idempotencyKey); done || err != nil {
+	if turn, done, err := w.replayTurn(rc.IdempotencyKey); done || err != nil {
 		return turn, err
 	}
 
-	resp, err := w.client.Chat(ctx, fwllm.ChatRequest{
+	resp, err := w.client.Chat(rc, fwllm.ChatRequest{
 		Model:    resolveModel(w.classModels, w.defaultModel, spec.WorkerClass),
 		Messages: toOllamaChatMessages(spec.System, spec.Messages),
 		Tools:    toOllamaChatTools(spec.Tools),
@@ -146,16 +146,16 @@ func (w *OllamaWorker) GenerateToolTurn(ctx context.Context, spec ToolTurnSpec, 
 		return AssistantTurn{}, err
 	}
 
-	turn := AssistantTurn{Text: resp.Content}
+	turn := AssistantTurn{Text: strPtr(resp.Content)}
 	for i, tc := range resp.ToolCalls {
-		turn.ToolCalls = append(turn.ToolCalls, ToolCall{ID: fmt.Sprintf("call_%d", i), Name: tc.Name, Input: tc.Arguments})
+		turn.ToolCalls = append(turn.ToolCalls, ToolCall{Id: fmt.Sprintf("call_%d", i), Name: tc.Name, Input: rawPtr(tc.Arguments)})
 	}
 	if len(turn.ToolCalls) > 0 {
 		turn.StopReason = "tool_use"
 	} else {
 		turn.StopReason = "end_turn"
 	}
-	w.record(idempotencyKey, turn)
+	w.record(rc.IdempotencyKey, turn)
 	return turn, nil
 }
 
@@ -165,7 +165,7 @@ func (w *OllamaWorker) GenerateToolTurn(ctx context.Context, spec ToolTurnSpec, 
 func toOllamaChatTools(tools []ToolSpec) []fwllm.ChatTool {
 	out := make([]fwllm.ChatTool, 0, len(tools))
 	for _, t := range tools {
-		out = append(out, fwllm.ChatTool{Name: t.Name, Description: t.Description, Parameters: t.InputSchema})
+		out = append(out, fwllm.ChatTool{Name: t.Name, Description: t.Description, Parameters: rawVal(t.InputSchema)})
 	}
 	return out
 }
@@ -179,17 +179,17 @@ func toOllamaChatMessages(system string, msgs []Message) []fwllm.ChatMessage {
 		// A user turn carrying tool results maps to one role:"tool" message per
 		// result (Ollama's tool-result shape), preceded by any free text.
 		if len(m.ToolResults) > 0 {
-			if m.Text != "" {
-				out = append(out, fwllm.ChatMessage{Role: m.Role, Content: m.Text})
+			if strVal(m.Text) != "" {
+				out = append(out, fwllm.ChatMessage{Role: m.Role, Content: strVal(m.Text)})
 			}
 			for _, tr := range m.ToolResults {
 				out = append(out, fwllm.ChatMessage{Role: "tool", Content: tr.Content})
 			}
 			continue
 		}
-		cm := fwllm.ChatMessage{Role: m.Role, Content: m.Text}
+		cm := fwllm.ChatMessage{Role: m.Role, Content: strVal(m.Text)}
 		for _, tc := range m.ToolCalls {
-			cm.ToolCalls = append(cm.ToolCalls, fwllm.ChatToolCall{Name: tc.Name, Arguments: tc.Input})
+			cm.ToolCalls = append(cm.ToolCalls, fwllm.ChatToolCall{Name: tc.Name, Arguments: rawVal(tc.Input)})
 		}
 		out = append(out, cm)
 	}

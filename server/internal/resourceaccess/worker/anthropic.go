@@ -1,7 +1,6 @@
 package worker
 
 import (
-	"context"
 	"encoding/json"
 	"strings"
 
@@ -84,11 +83,11 @@ func NewAnthropicWorker(apiKey, baseURL, defaultModel string, classModels map[Wo
 // observes it as a nil message. An unknown / already-terminal run (fwra.NotFound
 // semantics) is SUCCESS — the desired post-condition already holds, which makes
 // cancel safe to retry (workerAccess.md §2f.3).
-func (w *AnthropicWorker) Cancel(_ context.Context, idempotencyKey fwra.IdempotencyKey) error {
-	if err := requireKey(idempotencyKey); err != nil {
+func (w *AnthropicWorker) Cancel(rc fwra.Context) error {
+	if err := requireKey(rc.IdempotencyKey); err != nil {
 		return err
 	}
-	w.record(idempotencyKey, cancelledRun{})
+	w.record(rc.IdempotencyKey, cancelledRun{})
 	return nil
 }
 
@@ -101,20 +100,20 @@ func (w *AnthropicWorker) Cancel(_ context.Context, idempotencyKey fwra.Idempote
 // Idempotency: a retry carrying the same key replays the recorded bytes without
 // re-invoking (and re-billing) the provider. A Cancel(key) followed by
 // Generate(key) returns nil bytes with nil error (treated as cancelled).
-func (w *AnthropicWorker) Generate(ctx context.Context, spec GenerateSpec, idempotencyKey fwra.IdempotencyKey) (json.RawMessage, error) {
-	if err := requireKey(idempotencyKey); err != nil {
+func (w *AnthropicWorker) Generate(rc fwra.Context, spec GenerateSpec) (json.RawMessage, error) {
+	if err := requireKey(rc.IdempotencyKey); err != nil {
 		return nil, err
 	}
 	if strings.TrimSpace(spec.Prompt) == "" {
 		return nil, fwra.New(fwra.ContractMisuse, "Generate: empty spec.Prompt")
 	}
-	if raw, done, err := w.replayResult(idempotencyKey); done || err != nil {
+	if raw, done, err := w.replayResult(rc.IdempotencyKey); done || err != nil {
 		// Recorded result (bytes), cancelled run (nil), or corrupt entry (err) —
 		// return without re-invoking the provider.
 		return raw, err
 	}
 
-	resp, err := w.client.Generate(ctx, fwllm.AnthropicGenerateRequest{
+	resp, err := w.client.Generate(rc, fwllm.AnthropicGenerateRequest{
 		Model:  resolveModel(w.classModels, w.defaultModel, spec.WorkerClass),
 		System: jsonOnlySystem,
 		Prompt: spec.Prompt,
@@ -124,7 +123,7 @@ func (w *AnthropicWorker) Generate(ctx context.Context, spec GenerateSpec, idemp
 	}
 
 	result := json.RawMessage([]byte(resp.Text))
-	w.record(idempotencyKey, result)
+	w.record(rc.IdempotencyKey, result)
 	return result, nil
 }
 
@@ -136,15 +135,15 @@ func (w *AnthropicWorker) Generate(ctx context.Context, spec GenerateSpec, idemp
 //
 // Idempotency mirrors Generate: a retry on the same key replays the recorded
 // AssistantTurn; a Cancel(key) first replays as a zero AssistantTurn (cancelled).
-func (w *AnthropicWorker) GenerateToolTurn(ctx context.Context, spec ToolTurnSpec, idempotencyKey fwra.IdempotencyKey) (AssistantTurn, error) {
-	if err := requireKey(idempotencyKey); err != nil {
+func (w *AnthropicWorker) GenerateToolTurn(rc fwra.Context, spec ToolTurnSpec) (AssistantTurn, error) {
+	if err := requireKey(rc.IdempotencyKey); err != nil {
 		return AssistantTurn{}, err
 	}
-	if turn, done, err := w.replayTurn(idempotencyKey); done || err != nil {
+	if turn, done, err := w.replayTurn(rc.IdempotencyKey); done || err != nil {
 		return turn, err
 	}
 
-	resp, err := w.client.GenerateWithTools(ctx, fwllm.AnthropicToolRequest{
+	resp, err := w.client.GenerateWithTools(rc, fwllm.AnthropicToolRequest{
 		Model:    resolveModel(w.classModels, w.defaultModel, spec.WorkerClass),
 		System:   spec.System,
 		Messages: toAnthropicMessages(spec.Messages),
@@ -154,11 +153,11 @@ func (w *AnthropicWorker) GenerateToolTurn(ctx context.Context, spec ToolTurnSpe
 		return AssistantTurn{}, err
 	}
 
-	turn := AssistantTurn{Text: resp.Text, StopReason: resp.StopReason}
+	turn := AssistantTurn{Text: strPtr(resp.Text), StopReason: resp.StopReason}
 	for _, tu := range resp.ToolUses {
-		turn.ToolCalls = append(turn.ToolCalls, ToolCall{ID: tu.ID, Name: tu.Name, Input: tu.Input})
+		turn.ToolCalls = append(turn.ToolCalls, ToolCall{Id: tu.ID, Name: tu.Name, Input: rawPtr(tu.Input)})
 	}
-	w.record(idempotencyKey, turn)
+	w.record(rc.IdempotencyKey, turn)
 	return turn, nil
 }
 
@@ -168,7 +167,7 @@ func (w *AnthropicWorker) GenerateToolTurn(ctx context.Context, spec ToolTurnSpe
 func toAnthropicTools(tools []ToolSpec) []fwllm.AnthropicTool {
 	out := make([]fwllm.AnthropicTool, 0, len(tools))
 	for _, t := range tools {
-		out = append(out, fwllm.AnthropicTool{Name: t.Name, Description: t.Description, InputSchema: t.InputSchema, Strict: t.Strict})
+		out = append(out, fwllm.AnthropicTool{Name: t.Name, Description: t.Description, InputSchema: rawVal(t.InputSchema), Strict: boolVal(t.Strict)})
 	}
 	return out
 }
@@ -176,12 +175,12 @@ func toAnthropicTools(tools []ToolSpec) []fwllm.AnthropicTool {
 func toAnthropicMessages(msgs []Message) []fwllm.AnthropicMessage {
 	out := make([]fwllm.AnthropicMessage, 0, len(msgs))
 	for _, m := range msgs {
-		am := fwllm.AnthropicMessage{Role: m.Role, Text: m.Text}
+		am := fwllm.AnthropicMessage{Role: m.Role, Text: strVal(m.Text)}
 		for _, tc := range m.ToolCalls {
-			am.ToolUses = append(am.ToolUses, fwllm.AnthropicToolUse{ID: tc.ID, Name: tc.Name, Input: tc.Input})
+			am.ToolUses = append(am.ToolUses, fwllm.AnthropicToolUse{ID: tc.Id, Name: tc.Name, Input: rawVal(tc.Input)})
 		}
 		for _, tr := range m.ToolResults {
-			am.ToolResults = append(am.ToolResults, fwllm.AnthropicToolResult{ToolUseID: tr.ToolCallID, Content: tr.Content, IsError: tr.IsError})
+			am.ToolResults = append(am.ToolResults, fwllm.AnthropicToolResult{ToolUseID: tr.ToolCallId, Content: tr.Content, IsError: boolVal(tr.IsError)})
 		}
 		out = append(out, am)
 	}

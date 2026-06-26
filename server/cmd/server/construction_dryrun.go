@@ -79,7 +79,7 @@ type dryRunWorker struct{}
 
 var _ workeraccess.WorkerAccess = dryRunWorker{}
 
-func (dryRunWorker) Generate(_ context.Context, spec workeraccess.GenerateSpec, _ fwra.IdempotencyKey) (json.RawMessage, error) {
+func (dryRunWorker) Generate(_ fwra.Context, spec workeraccess.GenerateSpec) (json.RawMessage, error) {
 	// Marshal a real ConstructionOutput so it round-trips through the Manager's
 	// generateConstructionOutput unmarshal (a refused/unmarshal terminal would route
 	// the activity into intervention, stalling the cascade).
@@ -90,10 +90,10 @@ func (dryRunWorker) Generate(_ context.Context, spec workeraccess.GenerateSpec, 
 	return json.Marshal(out)
 }
 
-func (dryRunWorker) GenerateToolTurn(_ context.Context, _ workeraccess.ToolTurnSpec, _ fwra.IdempotencyKey) (workeraccess.AssistantTurn, error) {
+func (dryRunWorker) GenerateToolTurn(_ fwra.Context, _ workeraccess.ToolTurnSpec) (workeraccess.AssistantTurn, error) {
 	return workeraccess.AssistantTurn{StopReason: "end_turn"}, nil
 }
 
-func (dryRunWorker) Cancel(_ context.Context, _ fwra.IdempotencyKey) error {
+func (dryRunWorker) Cancel(_ fwra.Context) error {
 	return nil
 }

@@ -47,10 +47,10 @@ func TestAnthropicGenerate_ContractMisuse(t *testing.T) {
 	w := newOfflineAnthropicWorker(t)
 	ctx := context.Background()
 
-	if _, err := w.Generate(ctx, GenerateSpec{WorkerClass: "architect", Prompt: "do x"}, ""); !isKind(err, fwra.ContractMisuse) {
+	if _, err := w.Generate(rc(ctx, ""), GenerateSpec{WorkerClass: "architect", Prompt: "do x"}); !isKind(err, fwra.ContractMisuse) {
 		t.Fatalf("empty key: expected ContractMisuse, got %v", err)
 	}
-	if _, err := w.Generate(ctx, GenerateSpec{WorkerClass: "architect", Prompt: "   "}, "k1"); !isKind(err, fwra.ContractMisuse) {
+	if _, err := w.Generate(rc(ctx, "k1"), GenerateSpec{WorkerClass: "architect", Prompt: "   "}); !isKind(err, fwra.ContractMisuse) {
 		t.Fatalf("empty prompt: expected ContractMisuse, got %v", err)
 	}
 }
@@ -66,7 +66,7 @@ func TestAnthropicGenerate_Idempotency_ReplaysWithoutProviderCall(t *testing.T) 
 	recorded := jsonRaw(`{"hello":"world"}`)
 	w.record(key, recorded)
 
-	got, err := w.Generate(ctx, GenerateSpec{WorkerClass: "architect", Prompt: "draft it"}, key)
+	got, err := w.Generate(rc(ctx, key), GenerateSpec{WorkerClass: "architect", Prompt: "draft it"})
 	if err != nil {
 		t.Fatalf("replay must not invoke the provider (got error %v)", err)
 	}
@@ -82,10 +82,10 @@ func TestAnthropicGenerate_AfterCancel_ReturnsNil(t *testing.T) {
 	ctx := context.Background()
 	const key = fwra.IdempotencyKey("wf-cancel:act-1")
 
-	if err := w.Cancel(ctx, key); err != nil {
+	if err := w.Cancel(rc(ctx, key)); err != nil {
 		t.Fatalf("Cancel: %v", err)
 	}
-	got, err := w.Generate(ctx, GenerateSpec{WorkerClass: "architect", Prompt: "draft it"}, key)
+	got, err := w.Generate(rc(ctx, key), GenerateSpec{WorkerClass: "architect", Prompt: "draft it"})
 	if err != nil {
 		t.Fatalf("expected nil error after cancel-then-generate, got: %v", err)
 	}
@@ -98,7 +98,7 @@ func TestAnthropicGenerate_AfterCancel_ReturnsNil(t *testing.T) {
 // no-op success.
 func TestAnthropicCancel_UnknownKey_Success(t *testing.T) {
 	w := newOfflineAnthropicWorker(t)
-	if err := w.Cancel(context.Background(), "never-dispatched"); err != nil {
+	if err := w.Cancel(rc(context.Background(), "never-dispatched")); err != nil {
 		t.Fatalf("Cancel on an unknown key must succeed, got: %v", err)
 	}
 }
@@ -123,6 +123,12 @@ func TestResolveModel_PerWorkerClass(t *testing.T) {
 			t.Fatalf("resolveModel(%q): got %q, want %q", c.class, got, c.want)
 		}
 	}
+}
+
+// rc builds the ResourceAccess call Context the WorkerAccess methods now take
+// (it embeds context.Context and carries the idempotency key). Test-only helper.
+func rc(ctx context.Context, key fwra.IdempotencyKey) fwra.Context {
+	return fwra.Context{Context: ctx, IdempotencyKey: key}
 }
 
 // isKind reports whether err is an *fwra.Error of the given kind.

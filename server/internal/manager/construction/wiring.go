@@ -71,10 +71,14 @@ type workerSeamAdapter struct{ inner workeraccess.WorkerAccess }
 var _ WorkerAccess = workerSeamAdapter{}
 
 func (a workerSeamAdapter) Generate(ctx context.Context, spec workerGenerateSpec, idempotencyKey fwra.IdempotencyKey) ([]byte, error) {
-	raw, err := a.inner.Generate(ctx, workeraccess.GenerateSpec{
+	// The concrete workerAccess port now takes the ResourceAccess call Context (it
+	// embeds context.Context and carries the idempotency key); build it from the
+	// ctx + key the Manager's Activity supplies (workerAccess.md RA call context).
+	rc := fwra.Context{Context: ctx, IdempotencyKey: idempotencyKey}
+	raw, err := a.inner.Generate(rc, workeraccess.GenerateSpec{
 		WorkerClass: workeraccess.WorkerClass(spec.WorkerClass),
 		Prompt:      spec.Prompt,
-	}, idempotencyKey)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -82,7 +86,7 @@ func (a workerSeamAdapter) Generate(ctx context.Context, spec workerGenerateSpec
 }
 
 func (a workerSeamAdapter) Cancel(ctx context.Context, idempotencyKey fwra.IdempotencyKey) error {
-	return a.inner.Cancel(ctx, idempotencyKey)
+	return a.inner.Cancel(fwra.Context{Context: ctx, IdempotencyKey: idempotencyKey})
 }
 
 // WithGitForward AUGMENTS an assembled Deps with the optional git-forward slice

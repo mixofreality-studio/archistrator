@@ -51,6 +51,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/operationestimation"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/settlement"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/worker"
 )
 
 // component declares one component's contract surface to capture.
@@ -368,6 +369,30 @@ var registry = []component{
 		},
 		ifaceName: "AutoscalerEngine",
 		iface:     reflect.TypeOf((*autoscaler.AutoscalerEngine)(nil)).Elem(),
+	},
+	{
+		name: "worker",
+		dir:  "internal/resourceaccess/worker",
+		models: []any{
+			// The full transitive closure of WorkerAccess's OWN contract value types
+			// (workerAccess.md §1f–§9f). All defined in this package — full
+			// encapsulation: the contract pulls NO external (projectstate/artifact)
+			// dep. Tool envelopes carry json.RawMessage (opaque schema/inputs) and
+			// GenerateSpec carries []byte (opaque caller context); the generator binds
+			// those to their exact Go types (wellKnownByType).
+			worker.GenerateSpec{},
+			worker.ToolSpec{},
+			worker.ToolTurnSpec{},
+			worker.Message{},
+			worker.ToolCall{},
+			worker.ToolResult{},
+			worker.AssistantTurn{},
+			// Named scalar (a bare identifier newtype — no const block; the logical
+			// WorkerClass→model mapping lives behind the seam, never on the surface).
+			worker.WorkerClass(""),
+		},
+		ifaceName: "WorkerAccess",
+		iface:     reflect.TypeOf((*worker.WorkerAccess)(nil)).Elem(),
 	},
 }
 

@@ -16,7 +16,6 @@ package worker
 
 import (
 	"bytes"
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -73,11 +72,11 @@ func NewReplayWorker(dir string, mode ReplayMode, delegate WorkerAccess) (*Repla
 
 // Cancel records the cancelled marker for within-run replay (no durable provider
 // job to abort), matching OllamaWorker.Cancel. Idempotent.
-func (w *ReplayWorker) Cancel(_ context.Context, idempotencyKey fwra.IdempotencyKey) error {
-	if err := requireKey(idempotencyKey); err != nil {
+func (w *ReplayWorker) Cancel(rc fwra.Context) error {
+	if err := requireKey(rc.IdempotencyKey); err != nil {
 		return err
 	}
-	w.record(idempotencyKey, cancelledRun{})
+	w.record(rc.IdempotencyKey, cancelledRun{})
 	return nil
 }
 
@@ -85,15 +84,15 @@ func (w *ReplayWorker) Cancel(_ context.Context, idempotencyKey fwra.Idempotency
 // either errors (strict) or generates-and-records via the delegate
 // (record_on_miss). Same contract as the other workers: empty key/prompt are
 // ContractMisuse; a within-run retry replays via idemStore.
-func (w *ReplayWorker) Generate(ctx context.Context, spec GenerateSpec, idempotencyKey fwra.IdempotencyKey) (json.RawMessage, error) {
-	if err := requireKey(idempotencyKey); err != nil {
+func (w *ReplayWorker) Generate(rc fwra.Context, spec GenerateSpec) (json.RawMessage, error) {
+	if err := requireKey(rc.IdempotencyKey); err != nil {
 		return nil, err
 	}
 	if strings.TrimSpace(spec.Prompt) == "" {
 		return nil, fwra.New(fwra.ContractMisuse, "Generate: empty spec.Prompt")
 	}
 	// Within-run replay (Temporal retry of the same activity).
-	if raw, done, err := w.replayResult(idempotencyKey); done || err != nil {
+	if raw, done, err := w.replayResult(rc.IdempotencyKey); done || err != nil {
 		return raw, err
 	}
 
@@ -101,7 +100,7 @@ func (w *ReplayWorker) Generate(ctx context.Context, spec GenerateSpec, idempote
 	if raw, ok, err := w.readCassette(key); err != nil {
 		return nil, err
 	} else if ok {
-		w.record(idempotencyKey, raw)
+		w.record(rc.IdempotencyKey, raw)
 		return raw, nil
 	}
 
@@ -110,7 +109,7 @@ func (w *ReplayWorker) Generate(ctx context.Context, spec GenerateSpec, idempote
 			"replay worker: no cassette for key %s in %s (strict mode); re-record with the WHEN_REQUIRED drafting mode", key, w.dir))
 	}
 	// record_on_miss: serve via the delegate and persist (Task 2 wires writeCassette).
-	return w.generateAndRecord(ctx, key, spec, idempotencyKey)
+	return w.generateAndRecord(rc, key, spec)
 }
 
 // GenerateToolTurn replays a tool-turn cassette keyed by the content hash of the
@@ -119,11 +118,11 @@ func (w *ReplayWorker) Generate(ctx context.Context, spec GenerateSpec, idempote
 // a distinct Messages history, so it gets its own cassette; the model's
 // self-correction turn (a re-submit after an error tool_result) records as just
 // another cassette, replayed deterministically.
-func (w *ReplayWorker) GenerateToolTurn(ctx context.Context, spec ToolTurnSpec, idempotencyKey fwra.IdempotencyKey) (AssistantTurn, error) {
-	if err := requireKey(idempotencyKey); err != nil {
+func (w *ReplayWorker) GenerateToolTurn(rc fwra.Context, spec ToolTurnSpec) (AssistantTurn, error) {
+	if err := requireKey(rc.IdempotencyKey); err != nil {
 		return AssistantTurn{}, err
 	}
-	if turn, done, err := w.replayTurn(idempotencyKey); done || err != nil {
+	if turn, done, err := w.replayTurn(rc.IdempotencyKey); done || err != nil {
 		return turn, err
 	}
 
@@ -131,7 +130,7 @@ func (w *ReplayWorker) GenerateToolTurn(ctx context.Context, spec ToolTurnSpec, 
 	if turn, ok, err := w.readTurnCassette(key); err != nil {
 		return AssistantTurn{}, err
 	} else if ok {
-		w.record(idempotencyKey, turn)
+		w.record(rc.IdempotencyKey, turn)
 		return turn, nil
 	}
 
@@ -140,14 +139,14 @@ func (w *ReplayWorker) GenerateToolTurn(ctx context.Context, spec ToolTurnSpec, 
 			"replay worker: no tool-turn cassette for key %s in %s (strict mode); re-record with the WHEN_REQUIRED drafting mode", key, w.dir))
 	}
 
-	turn, err := w.delegate.GenerateToolTurn(ctx, spec, idempotencyKey)
+	turn, err := w.delegate.GenerateToolTurn(rc, spec)
 	if err != nil {
 		return AssistantTurn{}, err
 	}
 	if err := w.writeTurnCassette(key, spec, turn); err != nil {
 		return AssistantTurn{}, err
 	}
-	w.record(idempotencyKey, turn)
+	w.record(rc.IdempotencyKey, turn)
 	return turn, nil
 }
 
@@ -321,8 +320,8 @@ func (w *ReplayWorker) readCassette(key string) (json.RawMessage, bool, error) {
 // delegate, persists the response as a cassette, records it for within-run replay,
 // and returns it. A nil (cancelled) delegate response is passed through without a
 // disk write.
-func (w *ReplayWorker) generateAndRecord(ctx context.Context, key string, spec GenerateSpec, idempotencyKey fwra.IdempotencyKey) (json.RawMessage, error) {
-	raw, err := w.delegate.Generate(ctx, spec, idempotencyKey)
+func (w *ReplayWorker) generateAndRecord(rc fwra.Context, key string, spec GenerateSpec) (json.RawMessage, error) {
+	raw, err := w.delegate.Generate(rc, spec)
 	if err != nil {
 		return nil, err
 	}
@@ -333,7 +332,7 @@ func (w *ReplayWorker) generateAndRecord(ctx context.Context, key string, spec G
 	if err := w.writeCassette(key, spec, raw); err != nil {
 		return nil, err
 	}
-	w.record(idempotencyKey, raw)
+	w.record(rc.IdempotencyKey, raw)
 	return raw, nil
 }
 

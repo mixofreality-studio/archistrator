@@ -32,10 +32,10 @@ func TestGenerate_ContractMisuse(t *testing.T) {
 	w := newDeadWorker(t)
 	ctx := context.Background()
 
-	_, err := w.Generate(ctx, GenerateSpec{WorkerClass: "planner", Prompt: "do x"}, "")
+	_, err := w.Generate(rc(ctx, ""), GenerateSpec{WorkerClass: "planner", Prompt: "do x"})
 	assertKind(t, err, fwra.ContractMisuse)
 
-	_, err = w.Generate(ctx, GenerateSpec{WorkerClass: "planner", Prompt: "   "}, "k1")
+	_, err = w.Generate(rc(ctx, "k1"), GenerateSpec{WorkerClass: "planner", Prompt: "   "})
 	assertKind(t, err, fwra.ContractMisuse)
 }
 
@@ -50,7 +50,7 @@ func TestGenerate_Idempotency_ReplaysWithoutProviderCall(t *testing.T) {
 	recorded := jsonRaw(`{"hello":"world"}`)
 	w.record(key, recorded)
 
-	got, err := w.Generate(ctx, GenerateSpec{WorkerClass: "planner", Prompt: "draft it"}, key)
+	got, err := w.Generate(rc(ctx, key), GenerateSpec{WorkerClass: "planner", Prompt: "draft it"})
 	if err != nil {
 		t.Fatalf("replay must not invoke the provider (got error %v)", err)
 	}
@@ -59,7 +59,7 @@ func TestGenerate_Idempotency_ReplaysWithoutProviderCall(t *testing.T) {
 	}
 
 	// A DISTINCT key has no recording, so it DOES dial the dead endpoint → error.
-	if _, err := w.Generate(ctx, GenerateSpec{WorkerClass: "planner", Prompt: "draft it"}, "wf:act-2"); err == nil {
+	if _, err := w.Generate(rc(ctx, "wf:act-2"), GenerateSpec{WorkerClass: "planner", Prompt: "draft it"}); err == nil {
 		t.Fatal("a distinct (unrecorded) key must invoke the provider and error against the dead endpoint")
 	}
 }
@@ -72,11 +72,11 @@ func TestGenerate_AfterCancel_ReturnsNil(t *testing.T) {
 	ctx := context.Background()
 	const key = fwra.IdempotencyKey("wf-cancel:act-1")
 
-	if err := w.Cancel(ctx, key); err != nil {
+	if err := w.Cancel(rc(ctx, key)); err != nil {
 		t.Fatalf("Cancel: %v", err)
 	}
 
-	got, err := w.Generate(ctx, GenerateSpec{WorkerClass: "planner", Prompt: "draft it"}, key)
+	got, err := w.Generate(rc(ctx, key), GenerateSpec{WorkerClass: "planner", Prompt: "draft it"})
 	if err != nil {
 		t.Fatalf("expected nil error after cancel-then-generate, got: %v", err)
 	}
@@ -89,7 +89,7 @@ func TestGenerate_AfterCancel_ReturnsNil(t *testing.T) {
 // success (returns nil).
 func TestCancel_UnknownKey_Success(t *testing.T) {
 	w := newDeadWorker(t)
-	if err := w.Cancel(context.Background(), "never-dispatched"); err != nil {
+	if err := w.Cancel(rc(context.Background(), "never-dispatched")); err != nil {
 		t.Fatalf("Cancel on an unknown key must succeed, got: %v", err)
 	}
 }
@@ -181,7 +181,7 @@ func TestGenerateTypedData_AfterCancel_ReturnsZeroT(t *testing.T) {
 	w := newDeadWorker(t)
 	ctx := context.Background()
 	const key = fwra.IdempotencyKey("typed:cancel")
-	if err := w.Cancel(ctx, key); err != nil {
+	if err := w.Cancel(rc(ctx, key)); err != nil {
 		t.Fatalf("Cancel: %v", err)
 	}
 
@@ -207,10 +207,10 @@ func TestGenerate_RoundTrip(t *testing.T) {
 		t.Fatalf("NewOllamaWorker: %v", err)
 	}
 
-	got, err := w.Generate(context.Background(), GenerateSpec{
+	got, err := w.Generate(rc(context.Background(), "wf-e2e:act-1"), GenerateSpec{
 		WorkerClass: "planner",
 		Prompt:      `Respond with a JSON object {"word":"hello"} and nothing else.`,
-	}, "wf-e2e:act-1")
+	})
 	if err != nil {
 		t.Fatalf("Generate: %v", err)
 	}
