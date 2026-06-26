@@ -505,12 +505,18 @@ func (a reviewAdapter) ProposeReviews(
 	}
 	reviewers := make([]construction.Reviewer, 0, len(set.Reviewers))
 	for _, r := range set.Reviewers {
-		reviewers = append(reviewers, construction.Reviewer{
-			Role:              r.Role,
-			Perspective:       r.Perspective,
-			ReferenceArtifact: r.ReferenceArtifact,
-			MayAmend:          r.MayAmend,
-		})
+		cr := construction.Reviewer{
+			Role:        r.Role,
+			Perspective: r.Perspective,
+			MayAmend:    r.MayAmend,
+		}
+		// ReferenceArtifact is a *string on the generated construction contract
+		// (the ,omitempty → pointer rule); empty maps to nil (omitted on the wire).
+		if r.ReferenceArtifact != "" {
+			ref := r.ReferenceArtifact
+			cr.ReferenceArtifact = &ref
+		}
+		reviewers = append(reviewers, cr)
 	}
 	return construction.ReviewSet{Reviewers: reviewers}, nil
 }

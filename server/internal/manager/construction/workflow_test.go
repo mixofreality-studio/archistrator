@@ -376,7 +376,7 @@ func Test_Construct_HappyPath_RecordsReviewedAndExited(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
 
-	ps := &fakeProjectState{project: projectstate.Project{ID: ProjectID(uuid.NewString()), Version: 3, Phase: 2}}
+	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(uuid.NewString()), Version: 3, Phase: 2}}
 	pipe := &fakePipeline{phase: PipelineSucceeded}
 	art := &fakeArtifacts{}
 	w := &fakeWorker{}
@@ -387,7 +387,7 @@ func Test_Construct_HappyPath_RecordsReviewedAndExited(t *testing.T) {
 	registerConstruct(env, wf)
 
 	env.ExecuteWorkflow(ExecutionKindConstructActivity, ConstructActivityInput{
-		ProjectID: ps.project.ID, ActivityID: "C-XYZ", Activity: sampleActivity(),
+		ProjectID: ProjectID(ps.project.ID), ActivityID: "C-XYZ", Activity: sampleActivity(),
 	})
 
 	if !env.IsWorkflowCompleted() {
@@ -415,7 +415,7 @@ func Test_Construct_ArchitectOnly_AwaitsOverride_SkipExits(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
 
-	ps := &fakeProjectState{project: projectstate.Project{ID: ProjectID(uuid.NewString()), Version: 1, Phase: 2}}
+	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(uuid.NewString()), Version: 1, Phase: 2}}
 	w := &fakeWorker{}
 	wf := newWorkflows(Deps{
 		HandOff: &fakeHandOff{class: ArchitectOnly}, Intervention: &fakeIntervention{directive: DirectiveRetry},
@@ -428,7 +428,7 @@ func Test_Construct_ArchitectOnly_AwaitsOverride_SkipExits(t *testing.T) {
 	}, time.Millisecond)
 
 	env.ExecuteWorkflow(ExecutionKindConstructActivity, ConstructActivityInput{
-		ProjectID: ps.project.ID, ActivityID: "C-ARCH", Activity: sampleActivity(),
+		ProjectID: ProjectID(ps.project.ID), ActivityID: "C-ARCH", Activity: sampleActivity(),
 	})
 
 	if err := env.GetWorkflowError(); err != nil {
@@ -449,7 +449,7 @@ func Test_Construct_PipelineFailed_Takeover_CancelsWorker_ThenCompletes(t *testi
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
 
-	ps := &fakeProjectState{project: projectstate.Project{ID: ProjectID(uuid.NewString()), Version: 1, Phase: 2}}
+	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(uuid.NewString()), Version: 1, Phase: 2}}
 	// The pipeline fails on the first run, then a flippable fake makes it succeed.
 	pipe := &flippablePipeline{first: PipelineFailed, rest: PipelineSucceeded}
 	w := &fakeWorker{}
@@ -460,7 +460,7 @@ func Test_Construct_PipelineFailed_Takeover_CancelsWorker_ThenCompletes(t *testi
 	registerConstruct(env, wf)
 
 	env.ExecuteWorkflow(ExecutionKindConstructActivity, ConstructActivityInput{
-		ProjectID: ps.project.ID, ActivityID: "C-PF", Activity: sampleActivity(),
+		ProjectID: ProjectID(ps.project.ID), ActivityID: "C-PF", Activity: sampleActivity(),
 	})
 
 	if err := env.GetWorkflowError(); err != nil {
@@ -515,7 +515,7 @@ func Test_Construct_ConflictOnRecord_ReReadReApply_Succeeds(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
 
-	ps := &fakeProjectState{project: projectstate.Project{ID: ProjectID(uuid.NewString()), Version: 1, Phase: 2}, conflictFirst: 2}
+	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(uuid.NewString()), Version: 1, Phase: 2}, conflictFirst: 2}
 	wf := newWorkflows(Deps{
 		HandOff: &fakeHandOff{class: AIWorker}, Intervention: &fakeIntervention{directive: DirectiveRetry},
 		Review: &fakeReview{}, ProjectState: ps, Pipeline: &fakePipeline{phase: PipelineSucceeded},
@@ -524,7 +524,7 @@ func Test_Construct_ConflictOnRecord_ReReadReApply_Succeeds(t *testing.T) {
 	registerConstruct(env, wf)
 
 	env.ExecuteWorkflow(ExecutionKindConstructActivity, ConstructActivityInput{
-		ProjectID: ps.project.ID, ActivityID: "C-CONF", Activity: sampleActivity(),
+		ProjectID: ProjectID(ps.project.ID), ActivityID: "C-CONF", Activity: sampleActivity(),
 	})
 
 	if err := env.GetWorkflowError(); err != nil {
@@ -546,7 +546,7 @@ func Test_Pump_NoEligibleActivity_QuietTick(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
 
-	ps := &fakeProjectState{project: projectstate.Project{ID: ProjectID(uuid.NewString()), Version: 1, Phase: 2}}
+	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(uuid.NewString()), Version: 1, Phase: 2}}
 	wf := newWorkflows(Deps{
 		HandOff: &fakeHandOff{}, Intervention: &fakeIntervention{}, Review: &fakeReview{},
 		ProjectState: ps, Pipeline: &fakePipeline{}, Artifacts: &fakeArtifacts{}, Workers: &fakeWorker{},
@@ -554,7 +554,7 @@ func Test_Pump_NoEligibleActivity_QuietTick(t *testing.T) {
 	})
 	registerPump(env, wf)
 
-	env.ExecuteWorkflow(ExecutionKindPump, PumpInput{ProjectID: ps.project.ID})
+	env.ExecuteWorkflow(ExecutionKindPump, PumpInput{ProjectID: ProjectID(ps.project.ID)})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("pump error: %v", err)
@@ -601,7 +601,7 @@ func Test_Pump_EligibleActivity_RunsChild_ThenContinueAsNew(t *testing.T) {
 	env := ts.NewTestWorkflowEnvironment()
 
 	pid := ProjectID(uuid.NewString())
-	ps := &fakeProjectState{project: projectstate.Project{ID: pid, Version: 1, Phase: 2}}
+	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
 	wf := newWorkflows(Deps{
 		HandOff: &fakeHandOff{class: AIWorker}, Intervention: &fakeIntervention{directive: DirectiveRetry},
 		Review: &fakeReview{}, ProjectState: ps, Pipeline: &fakePipeline{phase: PipelineSucceeded},
@@ -637,7 +637,7 @@ func Test_Pump_DrainedNetwork_QuietNoContinueAsNew(t *testing.T) {
 	env := ts.NewTestWorkflowEnvironment()
 
 	pid := ProjectID(uuid.NewString())
-	ps := &fakeProjectState{project: projectstate.Project{ID: pid, Version: 1, Phase: 2}}
+	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
 	wf := newWorkflows(Deps{
 		HandOff: &fakeHandOff{class: AIWorker}, Intervention: &fakeIntervention{}, Review: &fakeReview{},
 		ProjectState: ps, Pipeline: &fakePipeline{}, Artifacts: &fakeArtifacts{}, Workers: &fakeWorker{},
@@ -669,7 +669,7 @@ func Test_Pump_PauseSignal_HaltsCascade_NoDispatch(t *testing.T) {
 	env := ts.NewTestWorkflowEnvironment()
 
 	pid := ProjectID(uuid.NewString())
-	ps := &fakeProjectState{project: projectstate.Project{ID: pid, Version: 1, Phase: 2}}
+	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
 	wf := newWorkflows(Deps{
 		HandOff: &fakeHandOff{class: AIWorker}, Intervention: &fakeIntervention{directive: DirectiveRetry},
 		Review: &fakeReview{}, ProjectState: ps, Pipeline: &fakePipeline{phase: PipelineSucceeded},
@@ -714,7 +714,7 @@ func Test_Pause_AppliesPolicy_CancelsPipeline_RecordsPaused(t *testing.T) {
 	env := ts.NewTestWorkflowEnvironment()
 
 	pid := ProjectID(uuid.NewString())
-	ps := &fakeProjectState{project: projectstate.Project{ID: pid, Version: 2, Phase: 2}}
+	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 2, Phase: 2}}
 	pipe := &fakePipeline{}
 	w := &fakeWorker{}
 	wf := newWorkflows(Deps{
@@ -752,7 +752,7 @@ func Test_ReplanSweep_QuietSweep_EmptyResult(t *testing.T) {
 	env := ts.NewTestWorkflowEnvironment()
 
 	pid := ProjectID(uuid.NewString())
-	ps := &fakeProjectState{project: projectstate.Project{ID: pid, Version: 1, Phase: 2}}
+	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
 	wf := newWorkflows(Deps{
 		HandOff: &fakeHandOff{}, Intervention: &fakeIntervention{}, Review: &fakeReview{},
 		ProjectState: ps, Pipeline: &fakePipeline{}, Artifacts: &fakeArtifacts{}, Workers: &fakeWorker{},

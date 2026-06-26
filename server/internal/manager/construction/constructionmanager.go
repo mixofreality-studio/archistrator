@@ -1,7 +1,6 @@
 package construction
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -9,7 +8,7 @@ import (
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/client"
 
-	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
+	fwm "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 )
 
 // Manager is the constructionManager façade. It exposes the five public use-case
@@ -42,12 +41,13 @@ func NewManager(c client.Client) *Manager {
 // tickID is the scheduler firing id (Temporal-native firing idempotency: schedule
 // firing id = workflow id). SYNC from the scheduler's POV: returns once the pump
 // tick is durably accepted + run (the child runs asynchronously).
-func (m *Manager) ExecuteNextActivity(ctx context.Context, projectID ProjectID, tickID string) (PumpResult, error) {
+func (m *Manager) ExecuteNextActivity(rc fwm.Context, projectID ProjectID, tickID string) (PumpResult, error) {
+	ctx := rc.Context
 	if projectID == "" {
-		return PumpResult{}, newError(fwmanager.ContractMisuse, "empty projectId")
+		return PumpResult{}, newError(fwm.ContractMisuse, "empty projectId")
 	}
 	if tickID == "" {
-		return PumpResult{}, newError(fwmanager.ContractMisuse, "empty tickId")
+		return PumpResult{}, newError(fwm.ContractMisuse, "empty tickId")
 	}
 
 	wfID := pumpWorkflowID(projectID, tickID)
@@ -62,7 +62,7 @@ func (m *Manager) ExecuteNextActivity(ctx context.Context, projectID ProjectID, 
 	}
 	var result PumpResult
 	if err := we.Get(ctx, &result); err != nil {
-		return PumpResult{}, newError(fwmanager.Infrastructure, err.Error())
+		return PumpResult{}, newError(fwm.Infrastructure, err.Error())
 	}
 	return result, nil
 }
@@ -72,14 +72,15 @@ func (m *Manager) ExecuteNextActivity(ctx context.Context, projectID ProjectID, 
 // them to the operator dashboard — it does NOT auto-replan. An empty result is a
 // normal quiet sweep. A nil projectID sweeps all in-flight projects (workflow id
 // :all:replanSweep:{tickId}).
-func (m *Manager) RunReplanSweep(ctx context.Context, projectID *ProjectID, tickID string) (ReplanSweepResult, error) {
+func (m *Manager) RunReplanSweep(rc fwm.Context, projectID *ProjectID, tickID string) (ReplanSweepResult, error) {
+	ctx := rc.Context
 	if tickID == "" {
-		return ReplanSweepResult{}, newError(fwmanager.ContractMisuse, "empty tickId")
+		return ReplanSweepResult{}, newError(fwm.ContractMisuse, "empty tickId")
 	}
 	var in ReplanSweepInput
 	if projectID != nil {
 		if *projectID == "" {
-			return ReplanSweepResult{}, newError(fwmanager.ContractMisuse, "empty projectId")
+			return ReplanSweepResult{}, newError(fwm.ContractMisuse, "empty projectId")
 		}
 		pid := *projectID
 		in.ProjectID = &pid
@@ -97,7 +98,7 @@ func (m *Manager) RunReplanSweep(ctx context.Context, projectID *ProjectID, tick
 	}
 	var result ReplanSweepResult
 	if err := we.Get(ctx, &result); err != nil {
-		return ReplanSweepResult{}, newError(fwmanager.Infrastructure, err.Error())
+		return ReplanSweepResult{}, newError(fwm.Infrastructure, err.Error())
 	}
 	return result, nil
 }
@@ -107,12 +108,13 @@ func (m *Manager) RunReplanSweep(ctx context.Context, projectID *ProjectID, tick
 // awaitSignal and runs the pause branch (interventionEngine.applyPausePolicy →
 // PausePlan, then the Manager EXECUTES the cancels/records). SYNC from the
 // operator's POV: returns once the signal is durably enqueued.
-func (m *Manager) PauseProject(ctx context.Context, projectID ProjectID, reason string) error {
+func (m *Manager) PauseProject(rc fwm.Context, projectID ProjectID, reason string) error {
+	ctx := rc.Context
 	if projectID == "" {
-		return newError(fwmanager.ContractMisuse, "empty projectId")
+		return newError(fwm.ContractMisuse, "empty projectId")
 	}
 	if reason == "" {
-		return newError(fwmanager.ContractMisuse, "empty pause reason")
+		return newError(fwm.ContractMisuse, "empty pause reason")
 	}
 
 	wfID := pauseTargetWorkflowID(projectID)
@@ -137,18 +139,19 @@ func (m *Manager) PauseProject(ctx context.Context, projectID ProjectID, reason 
 // child workflow {projectId}:{activityId}. The operator's steer is fed through the
 // SAME decide→execute machinery as the automatic variance path. SYNC: returns once
 // the signal is durably enqueued.
-func (m *Manager) OverrideActivity(ctx context.Context, projectID ProjectID, activityID ActivityID, override ActivityOverride) error {
+func (m *Manager) OverrideActivity(rc fwm.Context, projectID ProjectID, activityID ActivityID, override ActivityOverride) error {
+	ctx := rc.Context
 	if projectID == "" {
-		return newError(fwmanager.ContractMisuse, "empty projectId")
+		return newError(fwm.ContractMisuse, "empty projectId")
 	}
 	if activityID == "" {
-		return newError(fwmanager.ContractMisuse, "empty activityId")
+		return newError(fwm.ContractMisuse, "empty activityId")
 	}
 	switch override.Kind {
 	case OverrideTakeover, OverrideRetry, OverrideSkip, OverrideReassign:
 		// ok
 	default:
-		return newError(fwmanager.ContractMisuse, fmt.Sprintf("unknown override kind %d", int(override.Kind)))
+		return newError(fwm.ContractMisuse, fmt.Sprintf("unknown override kind %d", int(override.Kind)))
 	}
 
 	wfID := constructActivityWorkflowID(projectID, activityID)
@@ -163,15 +166,16 @@ func (m *Manager) OverrideActivity(ctx context.Context, projectID ProjectID, act
 // point-in-time technical view without mutating state. When activityID is non-nil
 // it queries the per-activity child {projectId}:{activityId}; otherwise the
 // project-level pump view (constructionManager.md §6.2).
-func (m *Manager) GetSessionState(ctx context.Context, projectID ProjectID, activityID *ActivityID) (ConstructionSessionView, error) {
+func (m *Manager) GetSessionState(rc fwm.Context, projectID ProjectID, activityID *ActivityID) (ConstructionSessionView, error) {
+	ctx := rc.Context
 	if projectID == "" {
-		return ConstructionSessionView{}, newError(fwmanager.ContractMisuse, "empty projectId")
+		return ConstructionSessionView{}, newError(fwm.ContractMisuse, "empty projectId")
 	}
 
 	var wfID string
 	if activityID != nil {
 		if *activityID == "" {
-			return ConstructionSessionView{}, newError(fwmanager.ContractMisuse, "empty activityId")
+			return ConstructionSessionView{}, newError(fwm.ContractMisuse, "empty activityId")
 		}
 		wfID = constructActivityWorkflowID(projectID, *activityID)
 	} else {
@@ -184,7 +188,7 @@ func (m *Manager) GetSessionState(ctx context.Context, projectID ProjectID, acti
 	}
 	var view ConstructionSessionView
 	if err := enc.Get(&view); err != nil {
-		return ConstructionSessionView{}, newError(fwmanager.Infrastructure, err.Error())
+		return ConstructionSessionView{}, newError(fwm.Infrastructure, err.Error())
 	}
 	return view, nil
 }
@@ -223,21 +227,21 @@ func pauseTargetWorkflowID(projectID ProjectID) string {
 func mapStartError(err error) error {
 	// A "workflow already started" race under UseExisting policy is benign; any
 	// other error is treated as an infrastructure fault at the transport layer.
-	return newError(fwmanager.Infrastructure, err.Error())
+	return newError(fwm.Infrastructure, err.Error())
 }
 
 func mapSignalError(err error) error {
 	if isNotFound(err) {
-		return newError(fwmanager.NotFound, err.Error())
+		return newError(fwm.NotFound, err.Error())
 	}
-	return newError(fwmanager.Infrastructure, err.Error())
+	return newError(fwm.Infrastructure, err.Error())
 }
 
 func mapQueryError(err error) error {
 	if isNotFound(err) {
-		return newError(fwmanager.NotFound, err.Error())
+		return newError(fwm.NotFound, err.Error())
 	}
-	return newError(fwmanager.Infrastructure, err.Error())
+	return newError(fwm.Infrastructure, err.Error())
 }
 
 // isNotFound reports whether the Temporal error indicates the addressed execution

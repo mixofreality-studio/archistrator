@@ -37,6 +37,7 @@ package web
 import (
 	"context"
 
+	fwm "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	"github.com/mixofreality-studio/archistrator-platform/framework-go/utilities/security"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/construction"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/operations"
@@ -127,10 +128,10 @@ var _ ProjectEntry = (*project.Manager)(nil)
 //     console relays it fire-and-forget (the cascade drains asynchronously, the SPA
 //     polls the project read for the per-activity status as it advances).
 type ConstructionEntry interface {
-	GetSessionState(ctx context.Context, projectID construction.ProjectID, activityID *construction.ActivityID) (construction.ConstructionSessionView, error)
-	PauseProject(ctx context.Context, projectID construction.ProjectID, reason string) error
-	OverrideActivity(ctx context.Context, projectID construction.ProjectID, activityID construction.ActivityID, override construction.ActivityOverride) error
-	ExecuteNextActivity(ctx context.Context, projectID construction.ProjectID, tickID string) (construction.PumpResult, error)
+	GetSessionState(rc fwm.Context, projectID construction.ProjectID, activityID *construction.ActivityID) (construction.ConstructionSessionView, error)
+	PauseProject(rc fwm.Context, projectID construction.ProjectID, reason string) error
+	OverrideActivity(rc fwm.Context, projectID construction.ProjectID, activityID construction.ActivityID, override construction.ActivityOverride) error
+	ExecuteNextActivity(rc fwm.Context, projectID construction.ProjectID, tickID string) (construction.PumpResult, error)
 }
 
 // compile-time proof the concrete constructionManager satisfies the narrow Client port.

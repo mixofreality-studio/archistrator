@@ -7,8 +7,22 @@ import (
 	"net/http"
 	"time"
 
+	fwm "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
+	"github.com/mixofreality-studio/archistrator-platform/framework-go/utilities/security"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/construction"
 )
+
+// constructionCtx builds the Manager-layer call Context for a constructionManager op
+// from an HTTP request: the request context plus the authenticated principal (if the
+// auth middleware put one on the context; the zero principal is a safe stopgap for the
+// scheduler-style paths).
+func constructionCtx(r *http.Request) fwm.Context {
+	rc := fwm.Context{Context: r.Context()}
+	if p, ok := security.PrincipalFrom(r.Context()); ok {
+		rc.Principal = p
+	}
+	return rc
+}
 
 // This file is the HTTP binding for the UC3 superviseConstruction facet (the
 // operations console). Each handler is a THIN routing facet (webClient.md §0):
@@ -75,7 +89,7 @@ func (c *Client) handleGetConstructionSessionState(w http.ResponseWriter, r *htt
 	if !c.authorizeProject(w, r, "read-project", projectID.String()) {
 		return
 	}
-	view, err := c.construction.GetSessionState(r.Context(), projectID, activityID)
+	view, err := c.construction.GetSessionState(constructionCtx(r), construction.ProjectID(projectID), activityID)
 	if err != nil {
 		writeManagerError(w, err)
 		return
@@ -86,7 +100,8 @@ func (c *Client) handleGetConstructionSessionState(w http.ResponseWriter, r *htt
 		View:      view,
 	}
 	if view.ActivityID != nil {
-		resp.ActivityID = view.ActivityID
+		aid := string(*view.ActivityID)
+		resp.ActivityID = &aid
 	}
 	if view.PipelinePhase != nil {
 		phase := constructionPipelinePhaseName(*view.PipelinePhase)
@@ -111,7 +126,7 @@ func (c *Client) handlePauseProject(w http.ResponseWriter, r *http.Request) {
 	if !c.authorizeProject(w, r, "drive-phase", projectID.String()) {
 		return
 	}
-	if err := c.construction.PauseProject(r.Context(), projectID, req.Reason); err != nil {
+	if err := c.construction.PauseProject(constructionCtx(r), construction.ProjectID(projectID), req.Reason); err != nil {
 		writeManagerError(w, err)
 		return
 	}
@@ -146,7 +161,7 @@ func (c *Client) handleOverrideActivity(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	override := construction.ActivityOverride{Kind: kind, Notes: req.Notes}
-	if err := c.construction.OverrideActivity(r.Context(), projectID, activityID, override); err != nil {
+	if err := c.construction.OverrideActivity(constructionCtx(r), construction.ProjectID(projectID), construction.ActivityID(activityID), override); err != nil {
 		writeManagerError(w, err)
 		return
 	}
@@ -186,7 +201,7 @@ func (c *Client) handleBeginConstruction(w http.ResponseWriter, r *http.Request)
 	// a drained/closed run of the same id, blocking re-begin).
 	tickID := fmt.Sprintf("console-begin-%d", time.Now().Unix()/60)
 	go func() {
-		res, err := c.construction.ExecuteNextActivity(context.Background(), projectID, tickID)
+		res, err := c.construction.ExecuteNextActivity(fwm.Context{Context: context.Background()}, construction.ProjectID(projectID), tickID)
 		if err != nil {
 			slog.Error("construction begin pump returned an error", "projectId", projectID.String(), "err", err)
 			return

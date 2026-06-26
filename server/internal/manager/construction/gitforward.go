@@ -124,7 +124,7 @@ func (wf *Workflows) openActivityBranchAndPR(
 		rc := recordOpts(ctx)
 		var out projectstate.Version
 		e := workflow.ExecuteActivity(rc, wf.RecordActivityBranchOpenedActivity, RecordActivityBranchOpenedArgs{
-			ProjectID: in.ProjectID, ExpectedVersion: expected, ActivityID: string(in.ActivityID),
+			ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, ActivityID: string(in.ActivityID),
 			Branch: gf.branch, BranchRef: gf.branchRef, PRRef: gf.prRef,
 			CRLabel: gf.crLabel, IsRevert: gf.isRevert, Cred: cred,
 		}).Get(ctx, &out)
@@ -163,7 +163,7 @@ func (wf *Workflows) observeCIAndRecord(
 		rc := recordOpts(ctx)
 		var out projectstate.Version
 		e := workflow.ExecuteActivity(rc, wf.RecordActivityCIObservedActivity, RecordActivityCIObservedArgs{
-			ProjectID: in.ProjectID, ExpectedVersion: expected, ActivityID: string(in.ActivityID),
+			ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, ActivityID: string(in.ActivityID),
 			CICheck: st.CheckRollup, Cred: gf.cred,
 		}).Get(ctx, &out)
 		return out, e
@@ -202,7 +202,7 @@ func (wf *Workflows) relayArchApprovalAndRecord(
 		rc := recordOpts(ctx)
 		var out projectstate.Version
 		e := workflow.ExecuteActivity(rc, wf.RecordActivityArchApprovedActivity, RecordActivityArchApprovedArgs{
-			ProjectID: in.ProjectID, ExpectedVersion: expected, ActivityID: string(in.ActivityID), Cred: gf.cred,
+			ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, ActivityID: string(in.ActivityID), Cred: gf.cred,
 		}).Get(ctx, &out)
 		return out, e
 	})
@@ -244,7 +244,7 @@ func (wf *Workflows) mergeAndRecord(
 		rc := recordOpts(ctx)
 		var out projectstate.Version
 		e := workflow.ExecuteActivity(rc, wf.RecordActivityMergedActivity, RecordActivityMergedArgs{
-			ProjectID: in.ProjectID, ExpectedVersion: expected, ActivityID: string(in.ActivityID), Cred: gf.cred,
+			ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, ActivityID: string(in.ActivityID), Cred: gf.cred,
 		}).Get(ctx, &out)
 		return out, e
 	})
@@ -278,7 +278,7 @@ func (wf *Workflows) recordActivityStarted(
 		rc := recordOpts(ctx)
 		var out projectstate.Version
 		e := workflow.ExecuteActivity(rc, wf.RecordActivityStartedActivity, RecordActivityStartedArgs{
-			ProjectID: in.ProjectID, ExpectedVersion: expected, ActivityID: string(in.ActivityID), Cred: cred,
+			ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, ActivityID: string(in.ActivityID), Cred: cred,
 		}).Get(ctx, &out)
 		return out, e
 	})
@@ -306,7 +306,7 @@ func (wf *Workflows) recordActivityCompleted(
 		rc := recordOpts(ctx)
 		var out projectstate.Version
 		e := workflow.ExecuteActivity(rc, wf.RecordActivityCompletedActivity, RecordActivityCompletedArgs{
-			ProjectID: in.ProjectID, ExpectedVersion: expected, ActivityID: string(in.ActivityID), Cred: cred,
+			ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, ActivityID: string(in.ActivityID), Cred: cred,
 		}).Get(ctx, &out)
 		return out, e
 	})

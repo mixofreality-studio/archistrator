@@ -57,7 +57,7 @@ func (wf *Workflows) ProjectSupervisionWorkflow(ctx workflow.Context, in Project
 // runPauseBranch runs the NCUC2 operator-pause branch: applyPausePolicy (DECIDE)
 // then EXECUTE the plan (constructionManager.md §6.3).
 func (wf *Workflows) runPauseBranch(ctx workflow.Context, projectID ProjectID, reason string, state *constructState) error {
-	plan, perr := wf.Intervention.ApplyPausePolicy(projectID.String(), PauseRequestContext{Reason: reason})
+	plan, perr := wf.Intervention.ApplyPausePolicy(string(projectID), PauseRequestContext{Reason: reason})
 	if perr != nil {
 		return fwmanager.MapError(perr)
 	}
@@ -82,7 +82,7 @@ func (wf *Workflows) runPauseBranch(ctx workflow.Context, projectID ProjectID, r
 			c := recordOpts(ctx)
 			var v projectstate.Version
 			e := workflow.ExecuteActivity(c, wf.RecordOperatorPausedActivity, RecordOperatorPausedArgs{
-				ProjectID: projectID, ExpectedVersion: expected, Reason: reason,
+				ProjectID: projectstate.ProjectID(projectID), ExpectedVersion: expected, Reason: reason,
 			}).Get(ctx, &v)
 			return v, e
 		}); err != nil {

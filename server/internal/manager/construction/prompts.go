@@ -33,8 +33,8 @@ func reviewPrompt(activity ConstructionActivity, reviewer Reviewer) string {
 	b.WriteString(reviewerHeader)
 	fmt.Fprintf(&b, "Activity: %s\n", activity.ActivityID)
 	fmt.Fprintf(&b, "Reviewer role: %s; perspective: %s\n", reviewer.Role, reviewer.Perspective)
-	if reviewer.ReferenceArtifact != "" {
-		fmt.Fprintf(&b, "Reference artifact: %s\n", reviewer.ReferenceArtifact)
+	if reviewer.ReferenceArtifact != nil && *reviewer.ReferenceArtifact != "" {
+		fmt.Fprintf(&b, "Reference artifact: %s\n", *reviewer.ReferenceArtifact)
 	}
 	b.WriteString("Task: review the produced change; report verdict + findings.\n")
 	return b.String()

@@ -353,22 +353,9 @@ type ReviewChange struct {
 	ContentAddress string
 }
 
-// ReviewSet is the reviewer set (which roles review, from what perspective, with
-// mayAmend). The Manager fans out one worker dispatch per Reviewer.
-type ReviewSet struct {
-	Reviewers []Reviewer `json:"reviewers,omitempty"`
-}
-
-// Reviewer is one reviewer assignment within a ReviewSet.
-type Reviewer struct {
-	Role        string `json:"role"`
-	Perspective string `json:"perspective"`
-	// ReferenceArtifact is the artifact the reviewer reviews against.
-	ReferenceArtifact string `json:"referenceArtifact,omitempty"`
-	// MayAmend, when true, lets a reviewer+constructor agreement re-stage an
-	// amended contract/UI-design.
-	MayAmend bool `json:"mayAmend"`
-}
+// ReviewSet / Reviewer are GENERATED into contract.gen.go (port I/O reached via
+// ConstructionSessionView). The hand-written ReviewEngine consumer mirror above
+// returns those generated types directly.
 
 // ===========================================================================
 // constructionPipelineAccess — FROZEN, NOT YET BUILT. Consumer interface + local
@@ -402,21 +389,9 @@ type PipelineHandle struct {
 	Name string
 }
 
-// PipelinePhase mirrors constructionPipelineAccess.md §3.
-type PipelinePhase int
-
-const (
-	PipelinePhaseUnknown PipelinePhase = iota
-	PipelinePending
-	PipelineRunning
-	PipelineSucceeded
-	PipelineFailed
-	// PipelineCancelled — the pipeline run was cancelled (a distinct terminal from
-	// PipelineFailed; the composition root maps RA PhaseCancelled to this instead of
-	// flattening it to PipelineFailed). Both terminals route to the variance path, but
-	// the Manager derives a distinct FailureReason (PipelineCancelled) for head-state.
-	PipelineCancelled
-)
+// PipelinePhase is GENERATED into contract.gen.go (reached via ConstructionSessionView);
+// PipelineObservation below carries it on the hand-written constructionPipelineAccess
+// consumer mirror.
 
 // PipelineObservation mirrors constructionPipelineAccess.md §3.
 type PipelineObservation struct {

@@ -263,7 +263,7 @@ func (wf *Workflows) PumpNextActivityWorkflow(ctx workflow.Context, in PumpInput
 	var pauseSig OperatorPauseSignal
 	if pauseCh.ReceiveAsync(&pauseSig) {
 		logger.Info("pump cascade paused by operator signal — going quiet without continue-as-new",
-			"projectId", in.ProjectID.String(), "reason", pauseSig.Reason)
+			"projectId", string(in.ProjectID), "reason", pauseSig.Reason)
 		return PumpResult{Dispatched: false}, nil
 	}
 
@@ -281,7 +281,7 @@ func (wf *Workflows) PumpNextActivityWorkflow(ctx workflow.Context, in PumpInput
 		// Network drained (or nothing eligible this tick) ⇒ the cascade ENDS here:
 		// return quiet WITHOUT ContinueAsNew so the pump goes dormant (the next
 		// begin/schedule firing re-triggers it).
-		logger.Info("no eligible activity — cascade quiescent", "projectId", in.ProjectID.String())
+		logger.Info("no eligible activity — cascade quiescent", "projectId", string(in.ProjectID))
 		return PumpResult{Dispatched: false}, nil
 	}
 
@@ -289,14 +289,14 @@ func (wf *Workflows) PumpNextActivityWorkflow(ctx workflow.Context, in PumpInput
 	// redundant tick collapses to the running child). PARENT_CLOSE_POLICY ABANDON:
 	// the construction activity is its own durable execution, independent of this
 	// pump tick's continue-as-new chain.
-	childID := constructActivityWorkflowID(in.ProjectID, activity.ActivityID)
+	childID := constructActivityWorkflowID(in.ProjectID, ActivityID(activity.ActivityID))
 	cctx := workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
 		WorkflowID:        childID,
 		ParentClosePolicy: enumspb.PARENT_CLOSE_POLICY_ABANDON,
 	})
 	child := workflow.ExecuteChildWorkflow(cctx, ExecutionKindConstructActivity, ConstructActivityInput{
 		ProjectID:  in.ProjectID,
-		ActivityID: activity.ActivityID,
+		ActivityID: ActivityID(activity.ActivityID),
 		Activity:   activity,
 	})
 	// SELF-CASCADE (Task 3): wait for the child to COMPLETE (not just start) so the
@@ -568,7 +568,7 @@ func (wf *Workflows) runPipeline(ctx workflow.Context, in ConstructActivityInput
 	sc := submitPipelineOpts(ctx)
 	var handle PipelineHandle
 	if err := workflow.ExecuteActivity(sc, wf.SubmitPipelineActivity, PipelineSpec{
-		ActivityID:  in.ActivityID,
+		ActivityID:  string(in.ActivityID),
 		ComponentID: in.Activity.ComponentID,
 		Phase:       phase.String(),
 	}).Get(ctx, &handle); err != nil {
@@ -612,7 +612,7 @@ func (wf *Workflows) storeOutput(ctx workflow.Context, output artifact.Construct
 // mayAmend verdict it re-stages the amended output. Returns reviewOK.
 func (wf *Workflows) routeReview(ctx workflow.Context, in ConstructActivityInput, state *constructState) (bool, error) {
 	set, rerr := wf.Review.ProposeReviews(
-		ReviewChange{ActivityID: in.ActivityID, ComponentID: in.Activity.ComponentID},
+		ReviewChange{ActivityID: string(in.ActivityID), ComponentID: in.Activity.ComponentID},
 		in.Activity.ComponentID,
 		in.Activity.Kind.String(),
 		"", // architectureGraph — Manager-supplied snapshot (seam)
@@ -668,7 +668,7 @@ func (wf *Workflows) handleVariance(
 	state.variance = &FlaggedVariance{ProjectID: in.ProjectID, ActivityID: in.ActivityID, Summary: detail}
 
 	directive, derr := wf.Intervention.DecideOnVariance(ConstructionVariance{
-		ActivityID:   in.ActivityID,
+		ActivityID:   string(in.ActivityID),
 		Kind:         kind,
 		Detail:       detail,
 		AttemptCount: attempt,
@@ -860,7 +860,8 @@ func (wf *Workflows) flagVariances(_ projectstate.Project) []FlaggedVariance {
 func (wf *Workflows) readProject(ctx workflow.Context, projectID ProjectID) (projectstate.Project, error) {
 	c := readProjectOpts(ctx)
 	var pe projectEnvelope
-	if err := workflow.ExecuteActivity(c, wf.ReadProjectActivity, projectID).Get(ctx, &pe); err != nil {
+	// Convert the Manager's OWN ProjectID to projectStateAccess's at the RA boundary.
+	if err := workflow.ExecuteActivity(c, wf.ReadProjectActivity, projectstate.ProjectID(projectID)).Get(ctx, &pe); err != nil {
 		return projectstate.Project{}, err
 	}
 	return decodeProject(pe), nil
@@ -881,7 +882,7 @@ func (wf *Workflows) recordChangeReviewed(ctx workflow.Context, in ConstructActi
 		c := recordOpts(ctx)
 		var v projectstate.Version
 		e := workflow.ExecuteActivity(c, wf.RecordChangeReviewedActivity, RecordChangeReviewedArgs{
-			ProjectID: in.ProjectID, ExpectedVersion: expected, ActivityID: in.ActivityID,
+			ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, ActivityID: string(in.ActivityID),
 		}).Get(ctx, &v)
 		return v, e
 	})
@@ -893,7 +894,7 @@ func (wf *Workflows) recordActivityExited(ctx workflow.Context, in ConstructActi
 		c := recordOpts(ctx)
 		var v projectstate.Version
 		e := workflow.ExecuteActivity(c, wf.RecordActivityExitedActivity, RecordActivityExitedArgs{
-			ProjectID: in.ProjectID, ExpectedVersion: expected, ActivityID: in.ActivityID, Outcome: outcome,
+			ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, ActivityID: string(in.ActivityID), Outcome: outcome,
 		}).Get(ctx, &v)
 		return v, e
 	})
@@ -909,7 +910,7 @@ func (wf *Workflows) recordActivityFailed(ctx workflow.Context, in ConstructActi
 		c := recordOpts(ctx)
 		var v projectstate.Version
 		e := workflow.ExecuteActivity(c, wf.RecordActivityFailedActivity, RecordActivityFailedArgs{
-			ProjectID: in.ProjectID, ExpectedVersion: expected, ActivityID: in.ActivityID, Reason: reason, Detail: detail,
+			ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, ActivityID: string(in.ActivityID), Reason: reason, Detail: detail,
 		}).Get(ctx, &v)
 		return v, e
 	})

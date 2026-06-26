@@ -52,6 +52,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/operationestimation"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/settlement"
+	"github.com/mixofreality-studio/archistrator/server/internal/manager/construction"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/constructionpipeline"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/durableexecution"
@@ -551,6 +552,41 @@ var registry = []component{
 		},
 		ifaceName: "SourceControlAccess",
 		iface:     reflect.TypeOf((*sourcecontrol.SourceControlAccess)(nil)).Elem(),
+	},
+	{
+		name: "construction",
+		dir:  "internal/manager/construction",
+		models: []any{
+			// The full transitive closure of ConstructionManager's OWN port I/O types
+			// (constructionManager.md §2/§3). All defined in this package — FULL
+			// ENCAPSULATION: the contract pulls NO external (projectstate) dep and NO
+			// Temporal dep (the Manager OWNS Temporal behind the port; the consumer-side
+			// dependency interfaces + the Temporal Workflows struct stay hand-written and
+			// are NOT part of this contract). ProjectID / ActivityID are this Manager's OWN
+			// named-string types (converted to/from projectstate.ProjectID at the RA
+			// boundary). OverrideKind's canonical-name lookup lives in contract.go as the
+			// free function overrideKindName (the OutputPath/PipelineHandle precedent) so the
+			// generated scalar carries no behavior. ReviewSet / Reviewer / PipelinePhase are
+			// referenced by ConstructionSessionView (and re-used by the hand-written
+			// reviewEngine / constructionPipelineAccess consumer mirrors in deps.go).
+			construction.PumpResult{},
+			construction.ReplanSweepResult{},
+			construction.FlaggedVariance{},
+			construction.ActivityOverride{},
+			construction.ConstructionSessionView{},
+			construction.ReviewSet{},
+			construction.Reviewer{},
+			// Enums (one zero value each — const blocks captured from this dir).
+			construction.OverrideKind(0),
+			construction.ConstructionStage(0),
+			construction.PipelinePhase(0),
+			// Named scalars (bare identifier newtypes — no const block). The Manager's OWN
+			// contract identities; converted at the projectStateAccess boundary.
+			construction.ProjectID(""),
+			construction.ActivityID(""),
+		},
+		ifaceName: "ConstructionManager",
+		iface:     reflect.TypeOf((*construction.ConstructionManager)(nil)).Elem(),
 	},
 }
 

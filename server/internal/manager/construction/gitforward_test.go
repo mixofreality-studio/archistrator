@@ -294,7 +294,7 @@ func Test_GitForward_FullLifecycle_RecordsHeadState(t *testing.T) {
 	env := ts.NewTestWorkflowEnvironment()
 
 	pid := ProjectID(uuid.NewString())
-	ps := &fakeProjectState{project: projectstate.Project{ID: pid, Version: 5, Phase: 2}, version: 5}
+	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 5, Phase: 2}, version: 5}
 	rail := &stubRail{prRef: "pr-7", ciRollup: sourcecontrol.CheckSuccess}
 	git := newStubGitStatus(0)
 	wf := gitWiredWorkflows(ps, rail, git, true /*mergeable*/)
@@ -368,7 +368,7 @@ func Test_Construction_StartedThenCompleted_RecordedOnHeadState(t *testing.T) {
 	env := ts.NewTestWorkflowEnvironment()
 
 	pid := ProjectID(uuid.NewString())
-	ps := &fakeProjectState{project: projectstate.Project{ID: pid, Version: 5, Phase: 2}, version: 5}
+	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 5, Phase: 2}, version: 5}
 	rail := &stubRail{prRef: "pr-1", ciRollup: sourcecontrol.CheckSuccess}
 	git := newStubGitStatus(0)
 	wf := gitWiredWorkflows(ps, rail, git, true /*mergeable*/)
@@ -398,7 +398,7 @@ func Test_GitForward_CIFailure_MirroredNotGated(t *testing.T) {
 	env := ts.NewTestWorkflowEnvironment()
 
 	pid := ProjectID(uuid.NewString())
-	ps := &fakeProjectState{project: projectstate.Project{ID: pid, Version: 1, Phase: 2}, version: 1}
+	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}, version: 1}
 	rail := &stubRail{prRef: "pr-1", ciRollup: sourcecontrol.CheckFailure}
 	git := newStubGitStatus(0)
 	wf := gitWiredWorkflows(ps, rail, git, true)
@@ -427,7 +427,7 @@ func Test_GitForward_Dormant_WhenUnwired(t *testing.T) {
 	env := ts.NewTestWorkflowEnvironment()
 
 	pid := ProjectID(uuid.NewString())
-	ps := &fakeProjectState{project: projectstate.Project{ID: pid, Version: 1, Phase: 2}, version: 1}
+	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}, version: 1}
 	wf := newWorkflows(Deps{
 		HandOff: &fakeHandOff{class: AIWorker}, Intervention: &fakeIntervention{directive: DirectiveRetry},
 		Review: &fakeReview{}, ProjectState: ps, Pipeline: &fakePipeline{phase: PipelineSucceeded},
@@ -483,7 +483,7 @@ func Test_GitForward_RecordsConvergeMonotonically(t *testing.T) {
 	env := ts.NewTestWorkflowEnvironment()
 
 	pid := ProjectID(uuid.NewString())
-	ps := &fakeProjectState{project: projectstate.Project{ID: pid, Version: 2, Phase: 2}, version: 2}
+	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 2, Phase: 2}, version: 2}
 	rail := &stubRail{prRef: "pr-9", ciRollup: sourcecontrol.CheckSuccess}
 	git := newStubGitStatus(0)
 	wf := gitWiredWorkflows(ps, rail, git, true)
