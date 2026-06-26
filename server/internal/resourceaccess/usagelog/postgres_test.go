@@ -35,6 +35,12 @@ import (
 //   - caller misuse (ContractMisuse on every violated pre-condition) — C-UA #2,
 //   - idempotent constructor-applied DDL.
 
+// rc wraps a plain context in the ResourceAccess call Context every UsageAccess
+// method now takes as its first parameter (fwra.Context embeds context.Context).
+// This port carries NO IdempotencyKey on its surface — dedup is the domain
+// RuntimeEventID field — so the call Context only carries the context here.
+func rc(ctx context.Context) fwra.Context { return fwra.Context{Context: ctx} }
+
 // newStore spins a fresh Postgres, applies the schema via NewStore, and hands
 // back the Store plus the raw pool (for row-count probes and the trigger test).
 func newStore(t *testing.T) (*usagelog.Store, *pgxpool.Pool, context.Context) {
@@ -108,7 +114,7 @@ func TestRecordThenReadRange_AppendOrder(t *testing.T) {
 		tokenEvent(customer, cycle, "ev-token-1", 1200),
 		event(customer, app, cycle, "ev-compute-1", "compute-unit-second", 37.5),
 	}
-	refs1, err := store.RecordComputeUsage(ctx, first)
+	refs1, err := store.RecordComputeUsage(rc(ctx), first)
 	if err != nil {
 		t.Fatalf("RecordComputeUsage: %v", err)
 	}
@@ -116,7 +122,7 @@ func TestRecordThenReadRange_AppendOrder(t *testing.T) {
 		t.Fatalf("expected 2 non-empty refs, got %v", refs1)
 	}
 
-	refs2, err := store.RecordFinalUsage(ctx, []usagelog.UsageEvent{
+	refs2, err := store.RecordFinalUsage(rc(ctx), []usagelog.UsageEvent{
 		event(customer, app, cycle, "ev-final-1", "egress-byte", 4096),
 	})
 	if err != nil {
@@ -126,7 +132,7 @@ func TestRecordThenReadRange_AppendOrder(t *testing.T) {
 		t.Fatalf("expected 1 non-empty ref, got %v", refs2)
 	}
 
-	got, err := store.ReadRange(ctx, usagelog.UsageRangeQuery{CustomerID: customer, CycleID: cycle})
+	got, err := store.ReadRange(rc(ctx), usagelog.UsageRangeQuery{CustomerID: customer, CycleID: cycle})
 	if err != nil {
 		t.Fatalf("ReadRange: %v", err)
 	}
@@ -169,13 +175,13 @@ func TestDuplicateReplay_SameRefNoSecondRow(t *testing.T) {
 	cycle := usagelog.CycleID("2026-06")
 	ev := event(customer, app, cycle, "ev-dup", "compute-unit-second", 10)
 
-	refs1, err := store.RecordComputeUsage(ctx, []usagelog.UsageEvent{ev})
+	refs1, err := store.RecordComputeUsage(rc(ctx), []usagelog.UsageEvent{ev})
 	if err != nil {
 		t.Fatalf("first record: %v", err)
 	}
 
 	// Replay via the same verb.
-	refs2, err := store.RecordComputeUsage(ctx, []usagelog.UsageEvent{ev})
+	refs2, err := store.RecordComputeUsage(rc(ctx), []usagelog.UsageEvent{ev})
 	if err != nil {
 		t.Fatalf("replay must be idempotent success, got: %v", err)
 	}
@@ -184,7 +190,7 @@ func TestDuplicateReplay_SameRefNoSecondRow(t *testing.T) {
 	}
 
 	// Replay via the other verb (one unified log, same UNIQUE constraint).
-	refs3, err := store.RecordFinalUsage(ctx, []usagelog.UsageEvent{ev})
+	refs3, err := store.RecordFinalUsage(rc(ctx), []usagelog.UsageEvent{ev})
 	if err != nil {
 		t.Fatalf("cross-verb replay must be idempotent success, got: %v", err)
 	}
@@ -207,13 +213,13 @@ func TestMixedBatch_PerEventDedup(t *testing.T) {
 	cycle := usagelog.CycleID("2026-06")
 
 	dup := event(customer, app, cycle, "ev-mixed-dup", "compute-unit-second", 1)
-	refs1, err := store.RecordComputeUsage(ctx, []usagelog.UsageEvent{dup})
+	refs1, err := store.RecordComputeUsage(rc(ctx), []usagelog.UsageEvent{dup})
 	if err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 
 	fresh := event(customer, app, cycle, "ev-mixed-new", "storage-byte-month", 2)
-	refs2, err := store.RecordComputeUsage(ctx, []usagelog.UsageEvent{dup, fresh})
+	refs2, err := store.RecordComputeUsage(rc(ctx), []usagelog.UsageEvent{dup, fresh})
 	if err != nil {
 		t.Fatalf("mixed batch must succeed, got: %v", err)
 	}
@@ -239,7 +245,7 @@ func TestInBatchDuplicate(t *testing.T) {
 	cycle := usagelog.CycleID("2026-06")
 	ev := tokenEvent(customer, cycle, "ev-inbatch", 5)
 
-	refs, err := store.RecordComputeUsage(ctx, []usagelog.UsageEvent{ev, ev})
+	refs, err := store.RecordComputeUsage(rc(ctx), []usagelog.UsageEvent{ev, ev})
 	if err != nil {
 		t.Fatalf("in-batch duplicate must succeed, got: %v", err)
 	}
@@ -257,7 +263,7 @@ func TestAppendOnly_TriggerRejectsMutation(t *testing.T) {
 	store, pool, ctx := newStore(t)
 	customer := uuid.New()
 	cycle := usagelog.CycleID("2026-06")
-	if _, err := store.RecordComputeUsage(ctx, []usagelog.UsageEvent{tokenEvent(customer, cycle, "ev-immutable", 9)}); err != nil {
+	if _, err := store.RecordComputeUsage(rc(ctx), []usagelog.UsageEvent{tokenEvent(customer, cycle, "ev-immutable", 9)}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 
@@ -283,7 +289,7 @@ func TestReadRange_OperatedAppScope(t *testing.T) {
 	appB := uuid.New()
 	cycle := usagelog.CycleID("2026-06")
 
-	if _, err := store.RecordComputeUsage(ctx, []usagelog.UsageEvent{
+	if _, err := store.RecordComputeUsage(rc(ctx), []usagelog.UsageEvent{
 		event(customer, appA, cycle, "ev-a-1", "compute-unit-second", 1),
 		event(customer, appB, cycle, "ev-b-1", "compute-unit-second", 2),
 		tokenEvent(customer, cycle, "ev-tok-1", 3),
@@ -291,7 +297,7 @@ func TestReadRange_OperatedAppScope(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 
-	whole, err := store.ReadRange(ctx, usagelog.UsageRangeQuery{CustomerID: customer, CycleID: cycle})
+	whole, err := store.ReadRange(rc(ctx), usagelog.UsageRangeQuery{CustomerID: customer, CycleID: cycle})
 	if err != nil {
 		t.Fatalf("whole-period read: %v", err)
 	}
@@ -299,7 +305,7 @@ func TestReadRange_OperatedAppScope(t *testing.T) {
 		t.Fatalf("whole period must return 3 facts, got %d", len(whole))
 	}
 
-	scopedA, err := store.ReadRange(ctx, usagelog.UsageRangeQuery{CustomerID: customer, CycleID: cycle, OperatedAppID: &appA})
+	scopedA, err := store.ReadRange(rc(ctx), usagelog.UsageRangeQuery{CustomerID: customer, CycleID: cycle, OperatedAppID: &appA})
 	if err != nil {
 		t.Fatalf("app-scoped read: %v", err)
 	}
@@ -309,7 +315,7 @@ func TestReadRange_OperatedAppScope(t *testing.T) {
 
 	// Token rows have no operated app and never match an app predicate.
 	other := uuid.New()
-	scopedNone, err := store.ReadRange(ctx, usagelog.UsageRangeQuery{CustomerID: customer, CycleID: cycle, OperatedAppID: &other})
+	scopedNone, err := store.ReadRange(rc(ctx), usagelog.UsageRangeQuery{CustomerID: customer, CycleID: cycle, OperatedAppID: &other})
 	if err != nil {
 		t.Fatalf("unmatched app scope: %v", err)
 	}
@@ -322,7 +328,7 @@ func TestReadRange_OperatedAppScope(t *testing.T) {
 // slice — NOT fwra.NotFound (contract §2.3).
 func TestReadRange_EmptyPeriod(t *testing.T) {
 	store, _, ctx := newStore(t)
-	got, err := store.ReadRange(ctx, usagelog.UsageRangeQuery{CustomerID: uuid.New(), CycleID: "2026-06"})
+	got, err := store.ReadRange(rc(ctx), usagelog.UsageRangeQuery{CustomerID: uuid.New(), CycleID: "2026-06"})
 	if err != nil {
 		t.Fatalf("empty period must not error, got: %v", err)
 	}
@@ -335,7 +341,7 @@ func TestReadRange_EmptyPeriod(t *testing.T) {
 // succeeds with an empty ref slice.
 func TestEmptyBatch_NoOpSuccess(t *testing.T) {
 	store, pool, ctx := newStore(t)
-	refs, err := store.RecordComputeUsage(ctx, nil)
+	refs, err := store.RecordComputeUsage(rc(ctx), nil)
 	if err != nil {
 		t.Fatalf("empty batch must succeed, got: %v", err)
 	}
@@ -371,33 +377,33 @@ func TestContractMisuse(t *testing.T) {
 		{"empty unit", event(customer, app, cycle, "ev-x5", "", 1)},
 	}
 	for _, tc := range bad {
-		_, err := store.RecordComputeUsage(ctx, []usagelog.UsageEvent{tc.ev})
+		_, err := store.RecordComputeUsage(rc(ctx), []usagelog.UsageEvent{tc.ev})
 		assertKind(t, err, fwra.ContractMisuse)
-		_, err = store.RecordFinalUsage(ctx, []usagelog.UsageEvent{tc.ev})
+		_, err = store.RecordFinalUsage(rc(ctx), []usagelog.UsageEvent{tc.ev})
 		assertKind(t, err, fwra.ContractMisuse)
 	}
 
 	// Inverted window.
 	inv := event(customer, app, cycle, "ev-x6", "compute-unit-second", 1)
 	inv.WindowEnd = inv.WindowStart.Add(-time.Second)
-	_, err := store.RecordComputeUsage(ctx, []usagelog.UsageEvent{inv})
+	_, err := store.RecordComputeUsage(rc(ctx), []usagelog.UsageEvent{inv})
 	assertKind(t, err, fwra.ContractMisuse)
 
 	// A bad event ANYWHERE in the batch rejects the whole batch before any append.
 	good := event(customer, app, cycle, "ev-good", "compute-unit-second", 1)
-	_, err = store.RecordComputeUsage(ctx, []usagelog.UsageEvent{good, bad[0].ev})
+	_, err = store.RecordComputeUsage(rc(ctx), []usagelog.UsageEvent{good, bad[0].ev})
 	assertKind(t, err, fwra.ContractMisuse)
 	if n := rowCount(t, pool, ctx, "ev-good"); n != 0 {
 		t.Fatalf("rejected batch must append nothing, got %d rows for ev-good", n)
 	}
 
 	// Read pre-conditions.
-	_, err = store.ReadRange(ctx, usagelog.UsageRangeQuery{CustomerID: uuid.Nil, CycleID: cycle})
+	_, err = store.ReadRange(rc(ctx), usagelog.UsageRangeQuery{CustomerID: uuid.Nil, CycleID: cycle})
 	assertKind(t, err, fwra.ContractMisuse)
-	_, err = store.ReadRange(ctx, usagelog.UsageRangeQuery{CustomerID: customer, CycleID: ""})
+	_, err = store.ReadRange(rc(ctx), usagelog.UsageRangeQuery{CustomerID: customer, CycleID: ""})
 	assertKind(t, err, fwra.ContractMisuse)
 	zero := uuid.Nil
-	_, err = store.ReadRange(ctx, usagelog.UsageRangeQuery{CustomerID: customer, CycleID: cycle, OperatedAppID: &zero})
+	_, err = store.ReadRange(rc(ctx), usagelog.UsageRangeQuery{CustomerID: customer, CycleID: cycle, OperatedAppID: &zero})
 	assertKind(t, err, fwra.ContractMisuse)
 
 	// Constructor misuse.
@@ -410,7 +416,7 @@ func TestContractMisuse(t *testing.T) {
 func TestSchemaIdempotent(t *testing.T) {
 	store, pool, ctx := newStore(t)
 	customer := uuid.New()
-	if _, err := store.RecordComputeUsage(ctx, []usagelog.UsageEvent{tokenEvent(customer, "2026-06", "ev-boot", 1)}); err != nil {
+	if _, err := store.RecordComputeUsage(rc(ctx), []usagelog.UsageEvent{tokenEvent(customer, "2026-06", "ev-boot", 1)}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	if _, err := usagelog.NewStore(ctx, pool); err != nil {

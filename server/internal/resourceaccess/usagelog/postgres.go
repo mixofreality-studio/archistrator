@@ -55,16 +55,20 @@ func NewStore(ctx context.Context, pool *pgxpool.Pool) (*Store, error) {
 }
 
 // RecordComputeUsage appends a batch of observed usage facts (contract §2.1).
-func (s *Store) RecordComputeUsage(ctx context.Context, events []UsageEvent) ([]EntryRef, error) {
-	return s.appendBatch(ctx, "usagelog.RecordComputeUsage", events)
+// The cross-cutting ctx now rides the ResourceAccess call Context (fwra.Context
+// embeds context.Context); this port carries NO fwra.IdempotencyKey — dedup is
+// the domain RuntimeEventID field on each event (DB UNIQUE constraint), so the
+// component stays Temporal-free and the behaviour is byte-identical.
+func (s *Store) RecordComputeUsage(rc fwra.Context, events []UsageEvent) ([]EntryRef, error) {
+	return s.appendBatch(rc.Context, "usagelog.RecordComputeUsage", events)
 }
 
 // RecordFinalUsage appends the final usage batch captured at withdraw
 // (contract §2.2). Same table, same transaction shape, same idempotency as
 // RecordComputeUsage — the "final" distinction is the business moment, not a
 // column this seam exposes (contract §6).
-func (s *Store) RecordFinalUsage(ctx context.Context, events []UsageEvent) ([]EntryRef, error) {
-	return s.appendBatch(ctx, "usagelog.RecordFinalUsage", events)
+func (s *Store) RecordFinalUsage(rc fwra.Context, events []UsageEvent) ([]EntryRef, error) {
+	return s.appendBatch(rc.Context, "usagelog.RecordFinalUsage", events)
 }
 
 // insertSQL appends one immutable fact. ON CONFLICT (runtime_event_id)
@@ -182,7 +186,8 @@ func (s *Store) appendBatch(ctx context.Context, op string, events []UsageEvent)
 // (contract §2.3): whole period when query.OperatedAppID is nil, one operated
 // app's facts when set. Pure read; an empty period returns an empty
 // (non-nil) slice, never NotFound.
-func (s *Store) ReadRange(ctx context.Context, query UsageRangeQuery) ([]UsageEvent, error) {
+func (s *Store) ReadRange(rc fwra.Context, query UsageRangeQuery) ([]UsageEvent, error) {
+	ctx := rc.Context
 	const op = "usagelog.ReadRange"
 	if query.CustomerID == uuid.Nil {
 		return nil, fwra.New(fwra.ContractMisuse, op+": zero CustomerID")

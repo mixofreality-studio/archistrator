@@ -1,0 +1,198 @@
+{
+  "$id": "archistrator://contract/usagelog",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "ComputeUnits": {
+      "type": "object",
+      "properties": {
+        "Amount": {
+          "type": "number"
+        },
+        "Unit": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "Amount",
+        "Unit"
+      ],
+      "additionalProperties": false
+    },
+    "CycleID": {
+      "type": "string"
+    },
+    "EntryRef": {
+      "type": "string"
+    },
+    "RuntimeEventID": {
+      "type": "string"
+    },
+    "UsageEvent": {
+      "type": "object",
+      "properties": {
+        "CustomerID": {
+          "type": "string",
+          "format": "uuid",
+          "x-go-import": "github.com/google/uuid",
+          "x-go-type": "uuid.UUID"
+        },
+        "OperatedAppID": {
+          "type": "string",
+          "format": "uuid",
+          "x-go-import": "github.com/google/uuid",
+          "x-go-type": "uuid.UUID"
+        },
+        "CycleID": {
+          "$ref": "#/$defs/CycleID"
+        },
+        "Units": {
+          "$ref": "#/$defs/ComputeUnits"
+        },
+        "RuntimeEventID": {
+          "$ref": "#/$defs/RuntimeEventID"
+        },
+        "RawMeter": {
+          "type": "string",
+          "contentEncoding": "base64",
+          "x-go-type": "[]byte"
+        },
+        "WindowStart": {
+          "type": "string",
+          "format": "date-time",
+          "x-go-import": "time",
+          "x-go-type": "time.Time"
+        },
+        "WindowEnd": {
+          "type": "string",
+          "format": "date-time",
+          "x-go-import": "time",
+          "x-go-type": "time.Time"
+        },
+        "OccurredAt": {
+          "type": "string",
+          "format": "date-time",
+          "x-go-import": "time",
+          "x-go-type": "time.Time"
+        },
+        "RecordedAt": {
+          "type": "string",
+          "format": "date-time",
+          "x-go-import": "time",
+          "x-go-type": "time.Time"
+        },
+        "Ref": {
+          "$ref": "#/$defs/EntryRef"
+        }
+      },
+      "required": [
+        "CustomerID",
+        "OperatedAppID",
+        "CycleID",
+        "Units",
+        "RuntimeEventID",
+        "RawMeter",
+        "WindowStart",
+        "WindowEnd",
+        "OccurredAt",
+        "RecordedAt",
+        "Ref"
+      ],
+      "additionalProperties": false
+    },
+    "UsageRangeQuery": {
+      "type": "object",
+      "properties": {
+        "CustomerID": {
+          "type": "string",
+          "format": "uuid",
+          "x-go-import": "github.com/google/uuid",
+          "x-go-type": "uuid.UUID"
+        },
+        "CycleID": {
+          "$ref": "#/$defs/CycleID"
+        },
+        "OperatedAppID": {
+          "type": [
+            "null",
+            "string"
+          ],
+          "format": "uuid",
+          "x-go-import": "github.com/google/uuid",
+          "x-go-type": "uuid.UUID"
+        }
+      },
+      "required": [
+        "CustomerID",
+        "CycleID"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "title": "usagelog contract",
+  "interface": {
+    "name": "UsageAccess",
+    "layer": "resourceaccess",
+    "operations": [
+      {
+        "name": "ReadRange",
+        "params": [
+          {
+            "name": "query",
+            "schema": {
+              "$ref": "#/$defs/UsageRangeQuery"
+            }
+          }
+        ],
+        "result": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/UsageEvent"
+          }
+        },
+        "error": true
+      },
+      {
+        "name": "RecordComputeUsage",
+        "params": [
+          {
+            "name": "events",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/UsageEvent"
+              }
+            }
+          }
+        ],
+        "result": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EntryRef"
+          }
+        },
+        "error": true
+      },
+      {
+        "name": "RecordFinalUsage",
+        "params": [
+          {
+            "name": "events",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/UsageEvent"
+              }
+            }
+          }
+        ],
+        "result": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EntryRef"
+          }
+        },
+        "error": true
+      }
+    ]
+  }
+}

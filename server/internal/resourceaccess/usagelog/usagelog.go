@@ -29,9 +29,6 @@
 package usagelog
 
 import (
-	"context"
-	"time"
-
 	"github.com/google/uuid"
 
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
@@ -46,7 +43,6 @@ type CustomerID = uuid.UUID
 // CycleID is the billing period a usage fact belongs to. Post-repurpose the
 // VALUE is the billing PeriodID ("PeriodID replaces the settlement-era
 // CycleID"); the name keeps the frozen contract §3.1 spelling.
-type CycleID string
 
 // OperatedAppID is the operated app a hosting/compute fact is attributed to.
 // 2026-06-09 repurpose delta (recorded, not silently absorbed): construction-
@@ -59,33 +55,31 @@ type OperatedAppID = uuid.UUID
 // an append-only ledger. A domain value, NOT a Temporal key and NOT an
 // fwra.IdempotencyKey; the DB UNIQUE constraint on it collapses a replayed
 // append to an idempotent success.
-type RuntimeEventID string
 
 // ComputeUnits is one infrastructure-neutral metered quantity — never a
 // priced/monetary amount (pricing is the billing Engine's Strategy) and never
 // a raw cloud billing lexeme. Unit is the open-set dimension discriminator
 // (e.g. "construction-token", "compute-unit-second", "storage-byte-month",
 // "egress-byte"); this component stores it opaquely.
-type ComputeUnits struct {
-	Amount float64 // non-negative metered quantity
-	Unit   string  // infrastructure-neutral unit name (open set)
-}
+
+// non-negative metered quantity
+// infrastructure-neutral unit name (open set)
 
 // EntryRef is an opaque reference to one recorded ledger entry (the ledger's
 // own append position). Returned by the write verbs so a caller can correlate
 // an append — including the duplicate-replay case, which returns the PRIOR
 // entry's ref. It is never a read key (there is no readEntry — contract §2.5).
-type EntryRef string
 
 // UsageRangeQuery is the ReadRange input (frozen Q5 shape). One read scope
 // value serves both caller edges: a whole billing period (OperatedAppID nil —
 // the period-close fold) and one operated app's facts (OperatedAppID set —
 // the cost-projection read).
-type UsageRangeQuery struct {
-	CustomerID    CustomerID
-	CycleID       CycleID
-	OperatedAppID *OperatedAppID // optional; nil = whole period, set = one app
-}
+
+// OperatedAppID is the OPTIONAL read scope: nil = whole period (the
+// period-close fold), set = one operated app's facts (the cost-projection
+// read). The `,omitempty` tag is load-bearing for schema-first codegen: it
+// captures this field as optional so the generated contract.gen.go preserves
+// the POINTER (nil-distinguishable) shape rather than a plain value.
 
 // UsageEvent is one immutable metered usage fact — the element of the write
 // batches AND the element type ReadRange replays, in append order. There is
@@ -94,19 +88,17 @@ type UsageRangeQuery struct {
 //
 // Ref and RecordedAt are SET BY THIS SEAM: they are outputs of the append
 // (and populated on replay); any caller-supplied value is ignored on write.
-type UsageEvent struct {
-	CustomerID     CustomerID
-	OperatedAppID  OperatedAppID // zero = absent (construction-token fact) → NULL
-	CycleID        CycleID
-	Units          ComputeUnits   // metered, non-negative; never a priced amount
-	RuntimeEventID RuntimeEventID // the globally-unique dedup token (UNIQUE constraint)
-	RawMeter       []byte         // OPTIONAL opaque source-meter payload, audit only; nil if absent
-	WindowStart    time.Time      // start of the observed window the fact covers
-	WindowEnd      time.Time      // end of the observed window (>= WindowStart)
-	OccurredAt     time.Time      // when the source recorded the observation (caller-supplied)
-	RecordedAt     time.Time      // when this ledger appended it (set by the seam)
-	Ref            EntryRef       // the entry's own append position (set by the seam)
-}
+
+// zero = absent (construction-token fact) → NULL
+
+// metered, non-negative; never a priced amount
+// the globally-unique dedup token (UNIQUE constraint)
+// OPTIONAL opaque source-meter payload, audit only; nil if absent
+// start of the observed window the fact covers
+// end of the observed window (>= WindowStart)
+// when the source recorded the observation (caller-supplied)
+// when this ledger appended it (set by the seam)
+// the entry's own append position (set by the seam)
 
 // UsageAccess is the Temporal-free port over the Usage Log (contract §2).
 // Three atomic operations: two append-writes and one range-read.
@@ -121,22 +113,20 @@ type UsageEvent struct {
 // and fwra.ContractMisuse (terminal — violated pre-condition). NotFound is
 // NOT used: an empty period replays as an empty slice. There is NO Conflict —
 // append-only means nothing contends.
-type UsageAccess interface {
-	// RecordComputeUsage appends a batch of observed usage facts (the periodic
-	// reconcile-tick record; post-repurpose also the construction-token append).
-	// Returns the entries' refs in input order; duplicates collapse per-row to
-	// the prior ref. An empty batch is a no-op success returning an empty slice.
-	RecordComputeUsage(ctx context.Context, events []UsageEvent) ([]EntryRef, error)
-	// RecordFinalUsage appends the final usage batch captured at withdraw — the
-	// same fact shape into the same unified log; the distinction is the business
-	// moment, not a stored kind (contract §2.2/§2.4). Same idempotency contract.
-	RecordFinalUsage(ctx context.Context, events []UsageEvent) ([]EntryRef, error)
-	// ReadRange replays the immutable usage facts in scope (whole period, or one
-	// operated app's facts when query.OperatedAppID is set) in append order. A
-	// pure, side-effect-free read: no aggregation, no stored total. An empty
-	// period returns an empty (non-nil) slice, not NotFound.
-	ReadRange(ctx context.Context, query UsageRangeQuery) ([]UsageEvent, error)
-}
+
+// RecordComputeUsage appends a batch of observed usage facts (the periodic
+// reconcile-tick record; post-repurpose also the construction-token append).
+// Returns the entries' refs in input order; duplicates collapse per-row to
+// the prior ref. An empty batch is a no-op success returning an empty slice.
+
+// RecordFinalUsage appends the final usage batch captured at withdraw — the
+// same fact shape into the same unified log; the distinction is the business
+// moment, not a stored kind (contract §2.2/§2.4). Same idempotency contract.
+
+// ReadRange replays the immutable usage facts in scope (whole period, or one
+// operated app's facts when query.OperatedAppID is set) in append order. A
+// pure, side-effect-free read: no aggregation, no stored total. An empty
+// period returns an empty (non-nil) slice, not NotFound.
 
 // Error is the shared ResourceAccess error model (framework-go), re-exported
 // as an alias so this component's contract reads in its own terms while every
