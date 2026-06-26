@@ -51,6 +51,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/operationestimation"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/settlement"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/worker"
 )
 
@@ -393,6 +394,26 @@ var registry = []component{
 		},
 		ifaceName: "WorkerAccess",
 		iface:     reflect.TypeOf((*worker.WorkerAccess)(nil)).Elem(),
+	},
+	{
+		name: "artifact",
+		dir:  "internal/resourceaccess/artifact",
+		models: []any{
+			// The full transitive closure of ArtifactAccess's OWN contract value
+			// types (artifactAccess.md §3). All defined in this package — full
+			// encapsulation: the contract pulls NO external (projectstate/worker)
+			// dep. ConstructionOutput carries []byte (opaque content bytes); the
+			// generator binds it to its exact Go type (wellKnownByType). OutputTree's
+			// Entries map is keyed by the named scalar OutputPath, registered here so
+			// the map key resolves to the component's own type.
+			artifact.ConstructionOutput{},
+			artifact.OutputTree{},
+			// Named scalar (a bare identifier newtype — no const block; a logical,
+			// slash-separated path within an OutputTree, infrastructure-opaque).
+			artifact.OutputPath(""),
+		},
+		ifaceName: "ArtifactAccess",
+		iface:     reflect.TypeOf((*artifact.ArtifactAccess)(nil)).Elem(),
 	},
 }
 

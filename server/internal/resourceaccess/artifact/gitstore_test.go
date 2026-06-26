@@ -39,6 +39,13 @@ import (
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
+// rcWith builds the ResourceAccess call Context the port now takes from a plain
+// ctx + idempotency key (the cross-cutting params the hand-written surface passed
+// explicitly now ride fwra.Context). Tests that don't exercise the key pass "".
+func rcWith(ctx context.Context, key fwra.IdempotencyKey) fwra.Context {
+	return fwra.Context{Context: ctx, IdempotencyKey: key}
+}
+
 // newLocalTestStore builds a Store over a REAL throwaway on-disk git repo using
 // the LOCAL profile (GitAuth.Local). This is the genuine git store the testing
 // doctrine mandates (skips if git is not on PATH).
@@ -95,7 +102,7 @@ func TestStoreContractMisuse(t *testing.T) {
 	}
 	for _, tc := range storeCases {
 		t.Run("Store/"+tc.name, func(t *testing.T) {
-			_, err := store.StoreConstructionOutput(ctx, tc.content, tc.key)
+			_, err := store.StoreConstructionOutput(rcWith(ctx, tc.key), tc.content)
 			assertKind(t, err, fwra.ContractMisuse)
 		})
 	}
@@ -110,11 +117,11 @@ func TestStoreContractMisuse(t *testing.T) {
 	}
 	for _, tc := range retrieveCases {
 		t.Run("RetrieveConstructionOutput/"+tc.name, func(t *testing.T) {
-			_, err := store.RetrieveConstructionOutput(ctx, tc.address)
+			_, err := store.RetrieveConstructionOutput(rcWith(ctx, ""), tc.address)
 			assertKind(t, err, fwra.ContractMisuse)
 		})
 		t.Run("RetrieveOutputTree/"+tc.name, func(t *testing.T) {
-			_, err := store.RetrieveOutputTree(ctx, tc.address)
+			_, err := store.RetrieveOutputTree(rcWith(ctx, ""), tc.address)
 			assertKind(t, err, fwra.ContractMisuse)
 		})
 	}
@@ -126,7 +133,7 @@ func TestStoreRetrieveRoundTrip(t *testing.T) {
 	store, ctx := newLocalTestStore(t)
 	want := ConstructionOutput{Bytes: []byte("package main\n\nfunc main() {}\n"), MIMEType: "text/x-go"}
 
-	addr, err := store.StoreConstructionOutput(ctx, want, "wf-1:act-1")
+	addr, err := store.StoreConstructionOutput(rcWith(ctx, "wf-1:act-1"), want)
 	if err != nil {
 		t.Fatalf("StoreConstructionOutput: %v", err)
 	}
@@ -134,7 +141,7 @@ func TestStoreRetrieveRoundTrip(t *testing.T) {
 		t.Fatal("expected non-empty content address")
 	}
 
-	got, err := store.RetrieveConstructionOutput(ctx, addr)
+	got, err := store.RetrieveConstructionOutput(rcWith(ctx, ""), addr)
 	if err != nil {
 		t.Fatalf("RetrieveConstructionOutput: %v", err)
 	}
@@ -153,13 +160,13 @@ func TestContentAddressable_SameContentSameAddress(t *testing.T) {
 	store, ctx := newLocalTestStore(t)
 	content := ConstructionOutput{Bytes: []byte("helm chart bytes"), MIMEType: "application/yaml"}
 
-	addr1, err := store.StoreConstructionOutput(ctx, content, "wf-1:act-1")
+	addr1, err := store.StoreConstructionOutput(rcWith(ctx, "wf-1:act-1"), content)
 	if err != nil {
 		t.Fatalf("StoreConstructionOutput #1: %v", err)
 	}
 	// Same content, DIFFERENT idempotency key — content addressing must still
 	// converge on the same address (dedup on content, no duplicate).
-	addr2, err := store.StoreConstructionOutput(ctx, content, "wf-2:act-9")
+	addr2, err := store.StoreConstructionOutput(rcWith(ctx, "wf-2:act-9"), content)
 	if err != nil {
 		t.Fatalf("StoreConstructionOutput #2: %v", err)
 	}
@@ -167,7 +174,7 @@ func TestContentAddressable_SameContentSameAddress(t *testing.T) {
 		t.Fatalf("expected identical addresses for identical content, got %q vs %q", addr1, addr2)
 	}
 	// Same key retried also dedups (the common Manager-retry path).
-	addr3, err := store.StoreConstructionOutput(ctx, content, "wf-1:act-1")
+	addr3, err := store.StoreConstructionOutput(rcWith(ctx, "wf-1:act-1"), content)
 	if err != nil {
 		t.Fatalf("StoreConstructionOutput #3: %v", err)
 	}
@@ -184,11 +191,11 @@ func TestContentAddressable_DifferentContentDifferentAddress(t *testing.T) {
 	v1 := ConstructionOutput{Bytes: []byte("build output one"), MIMEType: "text/plain"}
 	v2 := ConstructionOutput{Bytes: []byte("build output two"), MIMEType: "text/plain"}
 
-	addr1, err := store.StoreConstructionOutput(ctx, v1, "wf-1:act-1")
+	addr1, err := store.StoreConstructionOutput(rcWith(ctx, "wf-1:act-1"), v1)
 	if err != nil {
 		t.Fatalf("StoreConstructionOutput v1: %v", err)
 	}
-	addr2, err := store.StoreConstructionOutput(ctx, v2, "wf-1:act-2")
+	addr2, err := store.StoreConstructionOutput(rcWith(ctx, "wf-1:act-2"), v2)
 	if err != nil {
 		t.Fatalf("StoreConstructionOutput v2: %v", err)
 	}
@@ -197,14 +204,14 @@ func TestContentAddressable_DifferentContentDifferentAddress(t *testing.T) {
 	}
 
 	// The prior output is NOT overwritten — its address still resolves to v1.
-	got1, err := store.RetrieveConstructionOutput(ctx, addr1)
+	got1, err := store.RetrieveConstructionOutput(rcWith(ctx, ""), addr1)
 	if err != nil {
 		t.Fatalf("RetrieveConstructionOutput prior: %v", err)
 	}
 	if string(got1.Bytes) != string(v1.Bytes) {
 		t.Fatalf("prior output mutated: got %q want %q", got1.Bytes, v1.Bytes)
 	}
-	got2, err := store.RetrieveConstructionOutput(ctx, addr2)
+	got2, err := store.RetrieveConstructionOutput(rcWith(ctx, ""), addr2)
 	if err != nil {
 		t.Fatalf("RetrieveConstructionOutput new: %v", err)
 	}
@@ -218,7 +225,7 @@ func TestContentAddressable_DifferentContentDifferentAddress(t *testing.T) {
 func TestRetrieveUnknownAddress(t *testing.T) {
 	store, ctx := newLocalTestStore(t)
 	unknown := "0123456789abcdef0123456789abcdef01234567:output.bin"
-	_, err := store.RetrieveConstructionOutput(ctx, unknown)
+	_, err := store.RetrieveConstructionOutput(rcWith(ctx, ""), unknown)
 	assertKind(t, err, fwra.NotFound)
 }
 
@@ -231,12 +238,12 @@ func TestRetrieveOutputTree(t *testing.T) {
 	a := ConstructionOutput{Bytes: []byte("file a contents"), MIMEType: "text/plain"}
 	b := ConstructionOutput{Bytes: []byte("file b contents"), MIMEType: "text/plain"}
 
-	addrA, err := store.StoreConstructionOutput(ctx, a, "wf:a")
+	addrA, err := store.StoreConstructionOutput(rcWith(ctx, "wf:a"), a)
 	if err != nil {
 		t.Fatalf("StoreConstructionOutput a: %v", err)
 	}
 
-	tree, err := store.RetrieveOutputTree(ctx, addrA)
+	tree, err := store.RetrieveOutputTree(rcWith(ctx, ""), addrA)
 	if err != nil {
 		t.Fatalf("RetrieveOutputTree: %v", err)
 	}
@@ -247,7 +254,7 @@ func TestRetrieveOutputTree(t *testing.T) {
 		t.Fatal("expected at least one tree entry")
 	}
 	for path, entryAddr := range tree.Entries {
-		if _, err := store.RetrieveConstructionOutput(ctx, entryAddr); err != nil {
+		if _, err := store.RetrieveConstructionOutput(rcWith(ctx, ""), entryAddr); err != nil {
 			t.Fatalf("RetrieveConstructionOutput entry %q (%q): %v", path, entryAddr, err)
 		}
 	}
@@ -256,7 +263,7 @@ func TestRetrieveOutputTree(t *testing.T) {
 		if !strings.HasPrefix(string(path), "output") {
 			continue
 		}
-		got, err := store.RetrieveConstructionOutput(ctx, entryAddr)
+		got, err := store.RetrieveConstructionOutput(rcWith(ctx, ""), entryAddr)
 		if err != nil {
 			t.Fatalf("RetrieveConstructionOutput output entry %q: %v", path, err)
 		}
@@ -269,14 +276,14 @@ func TestRetrieveOutputTree(t *testing.T) {
 		t.Fatalf("expected an 'output' entry in the tree, got %v", tree.Entries)
 	}
 
-	addrB, err := store.StoreConstructionOutput(ctx, b, "wf:b")
+	addrB, err := store.StoreConstructionOutput(rcWith(ctx, "wf:b"), b)
 	if err != nil {
 		t.Fatalf("StoreConstructionOutput b: %v", err)
 	}
 	if addrB == addrA {
 		t.Fatalf("expected distinct roots, both %q", addrA)
 	}
-	treeB, err := store.RetrieveOutputTree(ctx, addrB)
+	treeB, err := store.RetrieveOutputTree(rcWith(ctx, ""), addrB)
 	if err != nil {
 		t.Fatalf("RetrieveOutputTree b: %v", err)
 	}
@@ -288,7 +295,7 @@ func TestRetrieveOutputTree(t *testing.T) {
 		if !strings.HasPrefix(string(path), "output") {
 			continue
 		}
-		got, err := store.RetrieveConstructionOutput(ctx, entryAddr)
+		got, err := store.RetrieveConstructionOutput(rcWith(ctx, ""), entryAddr)
 		if err != nil {
 			t.Fatalf("RetrieveConstructionOutput treeB output entry %q: %v", path, err)
 		}
@@ -305,7 +312,7 @@ func TestRetrieveOutputTree(t *testing.T) {
 // TestRetrieveOutputTreeUnknown — an unknown tree-root address -> fwra.NotFound.
 func TestRetrieveOutputTreeUnknown(t *testing.T) {
 	store, ctx := newLocalTestStore(t)
-	_, err := store.RetrieveOutputTree(ctx, "0123456789abcdef0123456789abcdef01234567:output.bin")
+	_, err := store.RetrieveOutputTree(rcWith(ctx, ""), "0123456789abcdef0123456789abcdef01234567:output.bin")
 	assertKind(t, err, fwra.NotFound)
 }
 
@@ -365,8 +372,8 @@ func TestCloudProfile_InternalTokenMint(t *testing.T) {
 	blob := &capturingBlob{}
 	store := newStore(blob, &cloudAuth{app: app, owner: "acme"})
 
-	addr, err := store.StoreConstructionOutput(context.Background(),
-		ConstructionOutput{Bytes: []byte("cloud bytes"), MIMEType: "text/plain"}, "wf:c")
+	addr, err := store.StoreConstructionOutput(rcWith(context.Background(), "wf:c"),
+		ConstructionOutput{Bytes: []byte("cloud bytes"), MIMEType: "text/plain"})
 	if err != nil {
 		t.Fatalf("StoreConstructionOutput (cloud): %v", err)
 	}

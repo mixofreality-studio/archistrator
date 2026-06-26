@@ -29,6 +29,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/construction"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/projectdesign"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/systemdesign"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/constructionpipeline"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
@@ -611,6 +612,28 @@ func managerPipelinePhase(p constructionpipeline.PipelinePhase) construction.Pip
 	default:
 		return construction.PipelinePhaseUnknown
 	}
+}
+
+// ===========================================================================
+// artifactAccess adapter — construction.ArtifactAccess over *artifact.Store. The
+// concrete artifactAccess port now takes the ResourceAccess call Context (it embeds
+// context.Context and carries the idempotency key); the Manager's narrow consumer
+// seam still passes ctx + idempotencyKey explicitly. This bridges the two: it builds
+// fwra.Context{Context, IdempotencyKey} at the boundary, exactly like the workerAccess
+// seam adapter (the workerAccess bootstrap precedent). The Manager seam stays
+// unchanged; only this composition-root adapter knows the rc-shaped port.
+// ===========================================================================
+
+type artifactAdapter struct{ inner *artifact.Store }
+
+var _ construction.ArtifactAccess = artifactAdapter{}
+
+func (a artifactAdapter) StoreConstructionOutput(ctx context.Context, output artifact.ConstructionOutput, idempotencyKey fwra.IdempotencyKey) (string, error) {
+	return a.inner.StoreConstructionOutput(fwra.Context{Context: ctx, IdempotencyKey: idempotencyKey}, output)
+}
+
+func (a artifactAdapter) RetrieveConstructionOutput(ctx context.Context, contentAddress string) (artifact.ConstructionOutput, error) {
+	return a.inner.RetrieveConstructionOutput(fwra.Context{Context: ctx}, contentAddress)
 }
 
 // ===========================================================================

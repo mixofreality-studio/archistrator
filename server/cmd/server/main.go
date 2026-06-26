@@ -540,7 +540,7 @@ func run(logger *slog.Logger) error { //nolint:gocognit,gocyclo,maintidx,nestif 
 		logger.Warn("construction Worker DRY-RUN mode — pipeline/artifact/worker effects are STUBBED (no GitHub Actions run, no LLM call); the real pump + per-activity lifecycle + head-state cascade run end-to-end")
 	case pipeline != nil && artifacts != nil:
 		constructionPipeline = pipelineAdapter{inner: pipeline}
-		constructionArtifacts = artifacts
+		constructionArtifacts = artifactAdapter{inner: artifacts}
 		// Construction does NOT use a server-side LLM. The real work (and review)
 		// runs in GitHub Actions via claude-code-action on the user's token; the
 		// server only dispatches + observes the pipeline. dryRunWorker is a no-LLM

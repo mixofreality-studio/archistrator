@@ -1,0 +1,98 @@
+{
+  "$id": "archistrator://contract/artifact",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "ConstructionOutput": {
+      "type": "object",
+      "properties": {
+        "Bytes": {
+          "type": "string",
+          "contentEncoding": "base64",
+          "x-go-type": "[]byte"
+        },
+        "MIMEType": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "Bytes",
+        "MIMEType"
+      ],
+      "additionalProperties": false
+    },
+    "OutputPath": {
+      "type": "string"
+    },
+    "OutputTree": {
+      "type": "object",
+      "properties": {
+        "Root": {
+          "type": "string"
+        },
+        "Entries": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "Root",
+        "Entries"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "title": "artifact contract",
+  "interface": {
+    "name": "ArtifactAccess",
+    "layer": "resourceaccess",
+    "operations": [
+      {
+        "name": "RetrieveConstructionOutput",
+        "params": [
+          {
+            "name": "contentAddress",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "result": {
+          "$ref": "#/$defs/ConstructionOutput"
+        },
+        "error": true
+      },
+      {
+        "name": "RetrieveOutputTree",
+        "params": [
+          {
+            "name": "contentAddress",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "result": {
+          "$ref": "#/$defs/OutputTree"
+        },
+        "error": true
+      },
+      {
+        "name": "StoreConstructionOutput",
+        "params": [
+          {
+            "name": "content",
+            "schema": {
+              "$ref": "#/$defs/ConstructionOutput"
+            }
+          }
+        ],
+        "result": {
+          "type": "string"
+        },
+        "error": true
+      }
+    ]
+  }
+}

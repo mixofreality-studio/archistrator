@@ -99,14 +99,15 @@ func newStore(blob gitBlobClient, auth gitAuthSource) *Store {
 // MIMEType) returns the EXISTING address without producing a new commit
 // (artifactAccess.md §2.1 content-addressable idempotency). Storing different
 // content yields a NEW address; the prior output is retained (immutable history).
-func (s *Store) StoreConstructionOutput(ctx context.Context, content ConstructionOutput, idempotencyKey fwra.IdempotencyKey) (string, error) {
+func (s *Store) StoreConstructionOutput(rc fwra.Context, content ConstructionOutput) (string, error) {
 	if len(content.Bytes) == 0 {
 		return "", fwra.New(fwra.ContractMisuse, "artifact.StoreConstructionOutput: empty content bytes")
 	}
-	if strings.TrimSpace(string(idempotencyKey)) == "" {
+	if strings.TrimSpace(string(rc.IdempotencyKey)) == "" {
 		return "", fwra.New(fwra.ContractMisuse, "artifact.StoreConstructionOutput: empty idempotencyKey")
 	}
 
+	ctx := rc.Context
 	auth, err := s.auth.gitAuth(ctx)
 	if err != nil {
 		return "", err
@@ -133,7 +134,7 @@ func (s *Store) StoreConstructionOutput(ctx context.Context, content Constructio
 		{Path: contentPath, Bytes: content.Bytes},
 		{Path: metaFile, Bytes: encodeMeta(content.MIMEType)},
 	}
-	commitToken, err := s.blob.StoreOutput(ctx, branch, files, commitMessage(idempotencyKey), auth)
+	commitToken, err := s.blob.StoreOutput(ctx, branch, files, commitMessage(rc.IdempotencyKey), auth)
 	if err != nil {
 		return "", err
 	}
@@ -143,11 +144,12 @@ func (s *Store) StoreConstructionOutput(ctx context.Context, content Constructio
 // RetrieveConstructionOutput resolves a content address back to its
 // ConstructionOutput. An unknown / unresolvable address surfaces as fwra.NotFound
 // (artifactAccess.md §2.2).
-func (s *Store) RetrieveConstructionOutput(ctx context.Context, contentAddress string) (ConstructionOutput, error) {
+func (s *Store) RetrieveConstructionOutput(rc fwra.Context, contentAddress string) (ConstructionOutput, error) {
 	commitToken, contentPath, err := parseAddress(contentAddress)
 	if err != nil {
 		return ConstructionOutput{}, err
 	}
+	ctx := rc.Context
 	auth, err := s.auth.gitAuth(ctx)
 	if err != nil {
 		return ConstructionOutput{}, err
@@ -171,11 +173,12 @@ func (s *Store) RetrieveConstructionOutput(ctx context.Context, contentAddress s
 // path->content-address snapshot (artifactAccess.md §2.3). Every entry address is
 // itself a content address resolvable by RetrieveConstructionOutput. An unknown
 // address surfaces as fwra.NotFound.
-func (s *Store) RetrieveOutputTree(ctx context.Context, contentAddress string) (OutputTree, error) {
+func (s *Store) RetrieveOutputTree(rc fwra.Context, contentAddress string) (OutputTree, error) {
 	commitToken, _, err := parseAddress(contentAddress)
 	if err != nil {
 		return OutputTree{}, err
 	}
+	ctx := rc.Context
 	auth, err := s.auth.gitAuth(ctx)
 	if err != nil {
 		return OutputTree{}, err
@@ -186,11 +189,15 @@ func (s *Store) RetrieveOutputTree(ctx context.Context, contentAddress string) (
 		return OutputTree{}, err
 	}
 
-	entries := map[OutputPath]string{}
+	// The generated OutputTree.Entries map is keyed by string (JSON Schema map keys
+	// are always strings); the logical OutputPath key bridges to its string form at
+	// this boundary (a within-package conversion — OutputPath is the contract's own
+	// named scalar, but the map key carries the bare string per the wire shape).
+	entries := map[string]string{}
 	for _, name := range paths {
 		// Each file entry is addressed by the SAME commit token + its path, so it
 		// round-trips through RetrieveConstructionOutput.
-		entries[OutputPath(name)] = makeAddress(commitToken, name)
+		entries[string(OutputPath(name))] = makeAddress(commitToken, name)
 	}
 	return OutputTree{Root: contentAddress, Entries: entries}, nil
 }
