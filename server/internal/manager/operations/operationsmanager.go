@@ -1,7 +1,6 @@
 package operations
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -12,6 +11,23 @@ import (
 
 	fwmgr "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 )
+
+// OperationsManager is the operationsManager port — the public use-case surface of
+// the façade (operationsManager.md §2 + operationsRead-ruling.md). Each op leads with
+// the Manager-layer call Context (fwmgr.Context, embedding context.Context + the
+// Principal); the *Manager derives ctx := rc.Context inside. The *ReconcileScope /
+// *ScaleWhatIfPoints pointer params are load-bearing (nil ⇒ all-apps / run-rate-only).
+//
+// SCHEMA-FIRST: this interface (and the port I/O types) are GENERATED into
+// contract.gen.go from contract.schema.json (edit the schema + `make gen`; do NOT
+// hand-edit the generated surface). The concrete *Manager below satisfies it; the
+// consumer-side dependency interfaces (deps.go) and the Temporal Workflows struct
+// stay hand-written and are NOT part of this contract.
+
+// Compile-time proof the concrete Manager satisfies the generated OperationsManager
+// port. Each op leads with the Manager-layer call Context (fwmgr.Context); the
+// *Manager derives ctx := rc.Context inside.
+var _ OperationsManager = (*Manager)(nil)
 
 // Manager is the operationsManager façade. It exposes the five public use-case ops
 // (operationsManager.md §2) and OWNS Temporal. The Temporal-backed ops:
@@ -47,7 +63,8 @@ func NewManager(c client.Client) *Manager {
 //
 // SYNC from the Client's POV: returns once the desired state is durably published,
 // NOT once ArgoCD has converged (convergence is observed later via 2.2).
-func (m *Manager) DeployAfterConstruction(ctx context.Context, operatedAppID OperatedAppID, change DesiredStateChange) (DeployResult, error) {
+func (m *Manager) DeployAfterConstruction(rc fwmgr.Context, operatedAppID OperatedAppID, change DesiredStateChange) (DeployResult, error) {
+	ctx := rc.Context
 	if operatedAppID == uuid.Nil {
 		return DeployResult{}, newError(fwmgr.ContractMisuse, "empty operatedAppId")
 	}
@@ -59,7 +76,7 @@ func (m *Manager) DeployAfterConstruction(ctx context.Context, operatedAppID Ope
 		// ok — operator-driven republish.
 	case ReasonAutoscale, ReasonDelinquency:
 		return DeployResult{}, newError(fwmgr.ContractMisuse,
-			fmt.Sprintf("reason %q is reserved for internal republish (reconcile/delinquency) and is rejected on deployAfterConstruction", change.Reason))
+			fmt.Sprintf("reason %q is reserved for internal republish (reconcile/delinquency) and is rejected on deployAfterConstruction", desiredStateReasonName(change.Reason)))
 	default:
 		return DeployResult{}, newError(fwmgr.ContractMisuse,
 			fmt.Sprintf("unknown desired-state reason %d", int(change.Reason)))
@@ -90,7 +107,8 @@ func (m *Manager) DeployAfterConstruction(ctx context.Context, operatedAppID Ope
 // execution per firing. Not invoked directly by a human caller — fired by
 // schedulerClient via the operatedStateReconcile Schedule. SYNC within the firing:
 // returns once the tick's observations + any republishes are durably recorded.
-func (m *Manager) ReconcileOperatedState(ctx context.Context, tickID string, scope *ReconcileScope) (ReconcileResult, error) {
+func (m *Manager) ReconcileOperatedState(rc fwmgr.Context, tickID string, scope *ReconcileScope) (ReconcileResult, error) {
+	ctx := rc.Context
 	if tickID == "" {
 		return ReconcileResult{}, newError(fwmgr.ContractMisuse, "empty tickId")
 	}
@@ -120,7 +138,8 @@ func (m *Manager) ReconcileOperatedState(ctx context.Context, tickID string, sco
 // {operatedAppId}:withdraw:{changeId}). Withdraws the runtime → records final usage →
 // withdraws the head-state. Idempotent on the id; an already-withdrawn app is a no-op
 // success. SYNC: returns once the withdrawal is durably recorded.
-func (m *Manager) WithdrawSystem(ctx context.Context, operatedAppID OperatedAppID, changeID string, reason WithdrawReason) (WithdrawResult, error) {
+func (m *Manager) WithdrawSystem(rc fwmgr.Context, operatedAppID OperatedAppID, changeID string, reason WithdrawReason) (WithdrawResult, error) {
+	ctx := rc.Context
 	if operatedAppID == uuid.Nil {
 		return WithdrawResult{}, newError(fwmgr.ContractMisuse, "empty operatedAppId")
 	}
@@ -152,7 +171,8 @@ func (m *Manager) WithdrawSystem(ctx context.Context, operatedAppID OperatedAppI
 // {operatedAppId}:costProjection:{requestId}). Reads observed usage + recent
 // desired-state history → runs operationEstimationEngine.ProjectForOperatedApp
 // (direct in-workflow). MUTATES NO STATE. SYNC, side-effect-free.
-func (m *Manager) QueryCostProjection(ctx context.Context, operatedAppID OperatedAppID, requestID string, points *ScaleWhatIfPoints) (CostProjection, error) {
+func (m *Manager) QueryCostProjection(rc fwmgr.Context, operatedAppID OperatedAppID, requestID string, points *ScaleWhatIfPoints) (CostProjection, error) {
+	ctx := rc.Context
 	if operatedAppID == uuid.Nil {
 		return CostProjection{}, newError(fwmgr.ContractMisuse, "empty operatedAppId")
 	}
@@ -188,7 +208,8 @@ func (m *Manager) QueryCostProjection(ctx context.Context, operatedAppID Operate
 // + current run-rate (operationEstimationEngine, run-rate only — nil what-if). MUTATES
 // NO STATE. SYNC, side-effect-free. Mirrors QueryCostProjection (§2.4) in shape
 // (operationsRead-ruling.md §A).
-func (m *Manager) QueryOperatedSystemView(ctx context.Context, operatedAppID OperatedAppID, requestID string) (OperatedSystemView, error) {
+func (m *Manager) QueryOperatedSystemView(rc fwmgr.Context, operatedAppID OperatedAppID, requestID string) (OperatedSystemView, error) {
+	ctx := rc.Context
 	if operatedAppID == uuid.Nil {
 		return OperatedSystemView{}, newError(fwmgr.ContractMisuse, "empty operatedAppId")
 	}
@@ -222,7 +243,8 @@ func (m *Manager) QueryOperatedSystemView(ctx context.Context, operatedAppID Ope
 // pause-or-withdraw patch per BillingTerms. QUEUED/async: returns once the signal is
 // durably enqueued; the enforcement runs in the workflow. Late/duplicate delivery is
 // idempotent (signal-with-start re-derivation).
-func (m *Manager) ApplyDelinquencyPolicy(ctx context.Context, customerID CustomerID, delinquencyContext DelinquencyContext) error {
+func (m *Manager) ApplyDelinquencyPolicy(rc fwmgr.Context, customerID CustomerID, delinquencyContext DelinquencyContext) error {
+	ctx := rc.Context
 	if customerID == uuid.Nil {
 		return newError(fwmgr.ContractMisuse, "empty customerId")
 	}

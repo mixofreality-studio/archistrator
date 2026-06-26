@@ -34,8 +34,6 @@
 package operations
 
 import (
-	"time"
-
 	"github.com/google/uuid"
 
 	fwmgr "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
@@ -64,54 +62,30 @@ type CustomerID = uuid.UUID
 // is reserved for ReconcileOperatedState (2.2) Path C and ReasonDelinquency for
 // ApplyDelinquencyPolicy (2.5). The reserved reasons are rejected on 2.1 as a
 // ContractMisuse (§2.6 / OQ-5).
-type DesiredStateReason int
 
-const (
-	// ReasonUnknown is the zero value (rejected as ContractMisuse on 2.1).
-	ReasonUnknown DesiredStateReason = iota
-	// ReasonDeployAfterConstruction is the first take-live of a constructed bundle.
-	ReasonDeployAfterConstruction
-	// ReasonOperator is a manual scale / autoscaler-policy change by the operator.
-	ReasonOperator
-	// ReasonAutoscale is INTERNAL — set by 2.2 Path C; rejected on 2.1.
-	ReasonAutoscale
-	// ReasonDelinquency is INTERNAL — set by 2.5; rejected on 2.1.
-	ReasonDelinquency
-)
+// ReasonUnknown is the zero value (rejected as ContractMisuse on 2.1).
 
-// String returns the canonical name for a desired-state reason.
-func (r DesiredStateReason) String() string {
-	switch r {
-	case ReasonDeployAfterConstruction:
-		return "deployAfterConstruction"
-	case ReasonOperator:
-		return "operator"
-	case ReasonAutoscale:
-		return "autoscale"
-	case ReasonDelinquency:
-		return "delinquency"
-	default:
-		return "unknown"
-	}
-}
+// ReasonDeployAfterConstruction is the first take-live of a constructed bundle.
+
+// ReasonOperator is a manual scale / autoscaler-policy change by the operator.
+
+// ReasonAutoscale is INTERNAL — set by 2.2 Path C; rejected on 2.1.
+
+// ReasonDelinquency is INTERNAL — set by 2.5; rejected on 2.1.
 
 // PatchKind discriminates the shape of the operator-chosen desired-state patch
 // (operationsManager.md §2.6 / §3.1). The one "republish desired state" facet
 // carries a full bundle (deploy), a scale patch, or a policy patch — the factor-up
 // of deploy / scale / updateAutoscalerPolicy.
-type PatchKind int
 
-const (
-	// PatchKindUnknown is the zero value.
-	PatchKindUnknown PatchKind = iota
-	// PatchFullBundle is the first deploy of a constructed bundle (retrieved from
-	// artifactAccess).
-	PatchFullBundle
-	// PatchScale is a manual replica/resource scale patch.
-	PatchScale
-	// PatchPolicy is an autoscaler-policy change patch.
-	PatchPolicy
-)
+// PatchKindUnknown is the zero value.
+
+// PatchFullBundle is the first deploy of a constructed bundle (retrieved from
+// artifactAccess).
+
+// PatchScale is a manual replica/resource scale patch.
+
+// PatchPolicy is an autoscaler-policy change patch.
 
 // DesiredStateChange is the operator-chosen desired-state mutation passed to
 // DeployAfterConstruction (2.1). A discriminated union (Reason + PatchKind) over the
@@ -119,67 +93,39 @@ const (
 // rendered desired-state bytes are infrastructure-opaque at this boundary — the
 // Manager renders them into the operatedRuntimeAccess.DesiredState inside the
 // workflow; the canonical shapes live in operatedSystemStateAccess / operatedRuntimeAccess.
-type DesiredStateChange struct {
-	Reason    DesiredStateReason `json:"reason"`
-	PatchKind PatchKind          `json:"patchKind"`
-	// ChangeID is the operator-supplied continuity token; it keys the deploy
-	// workflow id {operatedAppId}:deploy:{changeId} (§6.1).
-	ChangeID string `json:"changeId"`
-	// RenderedDesiredState is the infrastructure-neutral rendered desired-state the
-	// Manager publishes (a full bundle, a scale patch, or a policy patch). Opaque at
-	// the contract boundary; the bytes are committed by operatedRuntimeAccess.
-	RenderedDesiredState []byte `json:"renderedDesiredState,omitempty"`
-}
+
+// ChangeID is the operator-supplied continuity token; it keys the deploy
+// workflow id {operatedAppId}:deploy:{changeId} (§6.1).
+
+// RenderedDesiredState is the infrastructure-neutral rendered desired-state the
+// Manager publishes (a full bundle, a scale patch, or a policy patch). Opaque at
+// the contract boundary; the bytes are committed by operatedRuntimeAccess.
 
 // WithdrawReason carries the operator's free-text withdrawal rationale
 // (operationsManager.md §3.2). Opaque to the contract.
-type WithdrawReason struct {
-	Notes string `json:"notes"`
-}
 
 // ReconcileScope narrows which in-flight apps a reconcile tick observes
 // (operationsManager.md §3.2). Empty AppIDs ⇒ all in-flight operated apps (the
 // default schedule firing).
-type ReconcileScope struct {
-	AppIDs []OperatedAppID `json:"appIds,omitempty"`
-}
 
 // ScalePoint is one hypothetical scale level for the what-if cost curve
 // (operationsManager.md §3.2). Opaque to the Engine call.
-type ScalePoint struct {
-	Replicas int `json:"replicas"`
-}
 
 // ScaleWhatIfPoints carries the hypothetical scale levels for the cost what-if
 // (operationsManager.md §3.2).
-type ScaleWhatIfPoints struct {
-	Points []ScalePoint `json:"points,omitempty"`
-}
 
 // DeployResult is the result of DeployAfterConstruction (operationsManager.md §3.3).
 // Published is true iff the desired state was durably published to the manifests
 // repo. Revision is the published desired-state revision (for UI correlation; opaque).
-type DeployResult struct {
-	Published bool   `json:"published"`
-	Revision  string `json:"revision,omitempty"`
-}
 
 // WithdrawResult is the result of WithdrawSystem (operationsManager.md §3.3).
 // Withdrawn is true iff the withdrawal was durably recorded; an already-withdrawn
 // app is an idempotent no-op success.
-type WithdrawResult struct {
-	Withdrawn bool `json:"withdrawn"`
-}
 
 // ReconcileResult is the result of one ReconcileOperatedState tick
 // (operationsManager.md §3.3). Observed counts the in-flight apps observed,
 // Transitions the head-state transitions recorded (Path B), and Republished the
 // autoscaler-driven republishes (Path C, non-NoChange).
-type ReconcileResult struct {
-	Observed    int `json:"observed"`
-	Transitions int `json:"transitions"`
-	Republished int `json:"republished"`
-}
 
 // CostProjection is the read-only op-time cost projection returned by
 // QueryCostProjection (operationsManager.md §3.3 — CANONICAL in
@@ -203,56 +149,38 @@ type CostProjection = CostProjectionSeam
 // §B). It fans the existing internal reads (head-state + observed health/SLO +
 // autoscaler mode/decisions + cost run-rate) into one denormalized read view that
 // exists nowhere as a stored row. MUTATING NO STATE produces it.
-type OperatedSystemView struct {
-	OperatedAppID  OperatedAppID            // the operated-system aggregate id
-	Phase          RuntimeStatusSeam        // RuntimePhase rollup (head-state Status)
-	InFlight       bool                     // head-state InFlight
-	Health         HealthSnapshotView       // observed health snapshot
-	Slos           []SloRowView             // per-component SLO rows
-	RecentEvents   []RuntimeStatusEventView // health/phase transition events (bounded, newest-first)
-	Autoscaler     AutoscalerView           // decision history + mode
-	CurrentRunRate Money                    // operationEstimationEngine run-rate (no what-if)
-}
+
+// the operated-system aggregate id
+// RuntimePhase rollup (head-state Status)
+// head-state InFlight
+// observed health snapshot
+// per-component SLO rows
+// health/phase transition events (bounded, newest-first)
+// decision history + mode
+// operationEstimationEngine run-rate (no what-if)
 
 // HealthSnapshotView mirrors the observed-health portion of operatedRuntimeAccess's
 // read outputs (getApplicationHealth + getSloStatus).
-type HealthSnapshotView struct {
-	SloMet bool
-	Detail string
-	Phase  RuntimeStatusSeam
-}
 
 // SloRowView mirrors one per-component SLO row (operatedRuntimeAccess SLO posture).
-type SloRowView struct {
-	Component string // e.g. "api", "worker"
-	Objective string // the SLO objective text ("99.9% availability")
-	SloMet    bool
-	Healthy   bool
-}
+
+// e.g. "api", "worker"
+// the SLO objective text ("99.9% availability")
 
 // RuntimeStatusEventView mirrors one health/phase transition event (bounded,
 // newest-first) the view surfaces from the head-state status history.
-type RuntimeStatusEventView struct {
-	At   time.Time
-	From RuntimeStatusSeam
-	To   RuntimeStatusSeam
-	Note string
-}
 
 // AutoscalerView mirrors the autoscaler mode + decision history.
-type AutoscalerView struct {
-	Mode      AutoscalerMode          // Auto | Manual (existing seam)
-	Decisions []AutoscaleDecisionView // newest-first, bounded
-}
+
+// Auto | Manual (existing seam)
+// newest-first, bounded
 
 // AutoscaleDecisionView mirrors one autoscaler decision (autoscalerEngine decision
 // shape) for the operator history.
-type AutoscaleDecisionView struct {
-	At        time.Time
-	Action    AutoscaleAction // NoChange | ScaleUp | ScaleDown | Pause | Resume (existing)
-	Reason    string          // the telemetry signal that drove it (why)
-	Published bool            // did it publish a revised desired state, or no-op
-}
+
+// NoChange | ScaleUp | ScaleDown | Pause | Resume (existing)
+// the telemetry signal that drove it (why)
+// did it publish a revised desired state, or no-op
 
 // ---------------------------------------------------------------------------
 // Façade error model (operationsManager.md §3.4).

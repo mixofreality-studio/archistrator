@@ -1,0 +1,640 @@
+{
+  "$id": "archistrator://contract/operations",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "AutoscaleAction": {
+      "type": "integer",
+      "enum": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "x-enum-varnames": [
+        "AutoscaleNoChange",
+        "AutoscaleScaleUp",
+        "AutoscaleScaleDown",
+        "AutoscalePause",
+        "AutoscaleResume"
+      ],
+      "x-go-base": "int"
+    },
+    "AutoscaleDecisionView": {
+      "type": "object",
+      "properties": {
+        "At": {
+          "type": "string",
+          "format": "date-time",
+          "x-go-import": "time",
+          "x-go-type": "time.Time"
+        },
+        "Action": {
+          "$ref": "#/$defs/AutoscaleAction"
+        },
+        "Reason": {
+          "type": "string"
+        },
+        "Published": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "At",
+        "Action",
+        "Reason",
+        "Published"
+      ],
+      "additionalProperties": false
+    },
+    "AutoscalerMode": {
+      "type": "integer",
+      "enum": [
+        0,
+        1,
+        2
+      ],
+      "x-enum-varnames": [
+        "AutoscalerModeUnknown",
+        "AutoscalerModeAuto",
+        "AutoscalerModeManual"
+      ],
+      "x-go-base": "int"
+    },
+    "AutoscalerView": {
+      "type": "object",
+      "properties": {
+        "Mode": {
+          "$ref": "#/$defs/AutoscalerMode"
+        },
+        "Decisions": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "$ref": "#/$defs/AutoscaleDecisionView"
+          }
+        }
+      },
+      "required": [
+        "Mode",
+        "Decisions"
+      ],
+      "additionalProperties": false
+    },
+    "CostProjectionSeam": {
+      "type": "object",
+      "properties": {
+        "CurrentRunRate": {
+          "$ref": "#/$defs/Money"
+        },
+        "ProjectedMonthlyCost": {
+          "$ref": "#/$defs/Money"
+        },
+        "ScaleWhatIfCurve": {
+          "$ref": "#/$defs/WhatIfCurve"
+        }
+      },
+      "required": [
+        "CurrentRunRate",
+        "ProjectedMonthlyCost",
+        "ScaleWhatIfCurve"
+      ],
+      "additionalProperties": false
+    },
+    "DelinquencyContext": {
+      "type": "object",
+      "properties": {
+        "pauseNotWithdraw": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "pauseNotWithdraw"
+      ],
+      "additionalProperties": false
+    },
+    "DeployResult": {
+      "type": "object",
+      "properties": {
+        "published": {
+          "type": "boolean"
+        },
+        "revision": {
+          "type": [
+            "null",
+            "string"
+          ]
+        }
+      },
+      "required": [
+        "published"
+      ],
+      "additionalProperties": false
+    },
+    "DesiredStateChange": {
+      "type": "object",
+      "properties": {
+        "reason": {
+          "$ref": "#/$defs/DesiredStateReason"
+        },
+        "patchKind": {
+          "$ref": "#/$defs/PatchKind"
+        },
+        "changeId": {
+          "type": "string",
+          "x-go-name": "ChangeID"
+        },
+        "renderedDesiredState": {
+          "type": "string",
+          "contentEncoding": "base64",
+          "x-go-type": "[]byte"
+        }
+      },
+      "required": [
+        "reason",
+        "patchKind",
+        "changeId"
+      ],
+      "additionalProperties": false
+    },
+    "DesiredStateReason": {
+      "type": "integer",
+      "enum": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "x-enum-varnames": [
+        "ReasonUnknown",
+        "ReasonDeployAfterConstruction",
+        "ReasonOperator",
+        "ReasonAutoscale",
+        "ReasonDelinquency"
+      ],
+      "x-go-base": "int"
+    },
+    "HealthSnapshotView": {
+      "type": "object",
+      "properties": {
+        "SloMet": {
+          "type": "boolean"
+        },
+        "Detail": {
+          "type": "string"
+        },
+        "Phase": {
+          "$ref": "#/$defs/RuntimeStatusSeam"
+        }
+      },
+      "required": [
+        "SloMet",
+        "Detail",
+        "Phase"
+      ],
+      "additionalProperties": false
+    },
+    "Money": {
+      "type": "object",
+      "properties": {
+        "MinorUnits": {
+          "type": "integer"
+        },
+        "Currency": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "MinorUnits",
+        "Currency"
+      ],
+      "additionalProperties": false
+    },
+    "OperatedSystemView": {
+      "type": "object",
+      "properties": {
+        "OperatedAppID": {
+          "type": "string",
+          "format": "uuid",
+          "x-go-import": "github.com/google/uuid",
+          "x-go-type": "uuid.UUID"
+        },
+        "Phase": {
+          "$ref": "#/$defs/RuntimeStatusSeam"
+        },
+        "InFlight": {
+          "type": "boolean"
+        },
+        "Health": {
+          "$ref": "#/$defs/HealthSnapshotView"
+        },
+        "Slos": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "$ref": "#/$defs/SloRowView"
+          }
+        },
+        "RecentEvents": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "$ref": "#/$defs/RuntimeStatusEventView"
+          }
+        },
+        "Autoscaler": {
+          "$ref": "#/$defs/AutoscalerView"
+        },
+        "CurrentRunRate": {
+          "$ref": "#/$defs/Money"
+        }
+      },
+      "required": [
+        "OperatedAppID",
+        "Phase",
+        "InFlight",
+        "Health",
+        "Slos",
+        "RecentEvents",
+        "Autoscaler",
+        "CurrentRunRate"
+      ],
+      "additionalProperties": false
+    },
+    "PatchKind": {
+      "type": "integer",
+      "enum": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "x-enum-varnames": [
+        "PatchKindUnknown",
+        "PatchFullBundle",
+        "PatchScale",
+        "PatchPolicy"
+      ],
+      "x-go-base": "int"
+    },
+    "ReconcileResult": {
+      "type": "object",
+      "properties": {
+        "observed": {
+          "type": "integer"
+        },
+        "transitions": {
+          "type": "integer"
+        },
+        "republished": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "observed",
+        "transitions",
+        "republished"
+      ],
+      "additionalProperties": false
+    },
+    "ReconcileScope": {
+      "type": "object",
+      "properties": {
+        "appIds": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "type": "string",
+            "format": "uuid",
+            "x-go-import": "github.com/google/uuid",
+            "x-go-type": "uuid.UUID"
+          },
+          "x-go-name": "AppIDs"
+        }
+      },
+      "additionalProperties": false
+    },
+    "RuntimeStatusEventView": {
+      "type": "object",
+      "properties": {
+        "At": {
+          "type": "string",
+          "format": "date-time",
+          "x-go-import": "time",
+          "x-go-type": "time.Time"
+        },
+        "From": {
+          "$ref": "#/$defs/RuntimeStatusSeam"
+        },
+        "To": {
+          "$ref": "#/$defs/RuntimeStatusSeam"
+        },
+        "Note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "At",
+        "From",
+        "To",
+        "Note"
+      ],
+      "additionalProperties": false
+    },
+    "RuntimeStatusSeam": {
+      "type": "integer",
+      "enum": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "x-enum-varnames": [
+        "RuntimeStatusUnknown",
+        "RuntimeStatusPending",
+        "RuntimeStatusHealthy",
+        "RuntimeStatusDegraded",
+        "RuntimeStatusWithdrawn"
+      ],
+      "x-go-base": "int"
+    },
+    "ScalePoint": {
+      "type": "object",
+      "properties": {
+        "replicas": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "replicas"
+      ],
+      "additionalProperties": false
+    },
+    "ScaleWhatIfPoints": {
+      "type": "object",
+      "properties": {
+        "points": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "$ref": "#/$defs/ScalePoint"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "SloRowView": {
+      "type": "object",
+      "properties": {
+        "Component": {
+          "type": "string"
+        },
+        "Objective": {
+          "type": "string"
+        },
+        "SloMet": {
+          "type": "boolean"
+        },
+        "Healthy": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "Component",
+        "Objective",
+        "SloMet",
+        "Healthy"
+      ],
+      "additionalProperties": false
+    },
+    "WhatIfCurve": {
+      "type": "object",
+      "properties": {
+        "Points": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "$ref": "#/$defs/WhatIfPoint"
+          }
+        }
+      },
+      "required": [
+        "Points"
+      ],
+      "additionalProperties": false
+    },
+    "WhatIfPoint": {
+      "type": "object",
+      "properties": {
+        "Replicas": {
+          "type": "integer"
+        },
+        "ProjectedMonthlyCost": {
+          "$ref": "#/$defs/Money"
+        }
+      },
+      "required": [
+        "Replicas",
+        "ProjectedMonthlyCost"
+      ],
+      "additionalProperties": false
+    },
+    "WithdrawReason": {
+      "type": "object",
+      "properties": {
+        "notes": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "notes"
+      ],
+      "additionalProperties": false
+    },
+    "WithdrawResult": {
+      "type": "object",
+      "properties": {
+        "withdrawn": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "withdrawn"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "title": "operations contract",
+  "interface": {
+    "name": "OperationsManager",
+    "layer": "manager",
+    "operations": [
+      {
+        "name": "ApplyDelinquencyPolicy",
+        "params": [
+          {
+            "name": "customerID",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "x-go-import": "github.com/google/uuid",
+              "x-go-type": "uuid.UUID"
+            }
+          },
+          {
+            "name": "delinquencyContext",
+            "schema": {
+              "$ref": "#/$defs/DelinquencyContext"
+            }
+          }
+        ],
+        "error": true
+      },
+      {
+        "name": "DeployAfterConstruction",
+        "params": [
+          {
+            "name": "operatedAppID",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "x-go-import": "github.com/google/uuid",
+              "x-go-type": "uuid.UUID"
+            }
+          },
+          {
+            "name": "change",
+            "schema": {
+              "$ref": "#/$defs/DesiredStateChange"
+            }
+          }
+        ],
+        "result": {
+          "$ref": "#/$defs/DeployResult"
+        },
+        "error": true
+      },
+      {
+        "name": "QueryCostProjection",
+        "params": [
+          {
+            "name": "operatedAppID",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "x-go-import": "github.com/google/uuid",
+              "x-go-type": "uuid.UUID"
+            }
+          },
+          {
+            "name": "requestID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "points",
+            "pointer": true,
+            "schema": {
+              "$ref": "#/$defs/ScaleWhatIfPoints"
+            }
+          }
+        ],
+        "result": {
+          "$ref": "#/$defs/CostProjectionSeam"
+        },
+        "error": true
+      },
+      {
+        "name": "QueryOperatedSystemView",
+        "params": [
+          {
+            "name": "operatedAppID",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "x-go-import": "github.com/google/uuid",
+              "x-go-type": "uuid.UUID"
+            }
+          },
+          {
+            "name": "requestID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "result": {
+          "$ref": "#/$defs/OperatedSystemView"
+        },
+        "error": true
+      },
+      {
+        "name": "ReconcileOperatedState",
+        "params": [
+          {
+            "name": "tickID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "scope",
+            "pointer": true,
+            "schema": {
+              "$ref": "#/$defs/ReconcileScope"
+            }
+          }
+        ],
+        "result": {
+          "$ref": "#/$defs/ReconcileResult"
+        },
+        "error": true
+      },
+      {
+        "name": "WithdrawSystem",
+        "params": [
+          {
+            "name": "operatedAppID",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "x-go-import": "github.com/google/uuid",
+              "x-go-type": "uuid.UUID"
+            }
+          },
+          {
+            "name": "changeID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "reason",
+            "schema": {
+              "$ref": "#/$defs/WithdrawReason"
+            }
+          }
+        ],
+        "result": {
+          "$ref": "#/$defs/WithdrawResult"
+        },
+        "error": true
+      }
+    ]
+  }
+}

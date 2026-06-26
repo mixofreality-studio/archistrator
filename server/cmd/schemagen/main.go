@@ -53,6 +53,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/settlement"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/construction"
+	"github.com/mixofreality-studio/archistrator/server/internal/manager/operations"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/constructionpipeline"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/durableexecution"
@@ -587,6 +588,52 @@ var registry = []component{
 		},
 		ifaceName: "ConstructionManager",
 		iface:     reflect.TypeOf((*construction.ConstructionManager)(nil)).Elem(),
+	},
+	{
+		name: "operations",
+		dir:  "internal/manager/operations",
+		models: []any{
+			// The full transitive closure of OperationsManager's OWN port I/O types
+			// (operationsManager.md §2/§3 + operationsRead-ruling.md §B). All defined in
+			// this package — FULL ENCAPSULATION: the generated contract pulls NO external
+			// (projectstate) dep and NO Temporal dep (the Manager OWNS Temporal behind the
+			// port; the consumer-side dependency interfaces + the Temporal Workflows struct
+			// stay hand-written and are NOT part of this contract). OperatedAppID / CustomerID
+			// are `= uuid.UUID` aliases, so fields/params of those types bind directly to
+			// uuid.UUID (wellKnownByType) — they are NOT registered separately (the autoscaler
+			// OperatedAppID precedent). DesiredStateReason's / AutoscaleAction's canonical-name
+			// lookups live in behavior.go as free functions (the OutputPath/PipelineHandle
+			// precedent) so the generated enums carry no behavior. CostProjection is a `=
+			// CostProjectionSeam` alias re-exported by contract.go; the generated $def is the
+			// underlying CostProjectionSeam.
+			operations.DesiredStateChange{},
+			operations.DeployResult{},
+			operations.ReconcileScope{},
+			operations.ReconcileResult{},
+			operations.WithdrawReason{},
+			operations.WithdrawResult{},
+			operations.ScalePoint{},
+			operations.ScaleWhatIfPoints{},
+			operations.CostProjectionSeam{},
+			operations.Money{},
+			operations.WhatIfPoint{},
+			operations.WhatIfCurve{},
+			operations.OperatedSystemView{},
+			operations.HealthSnapshotView{},
+			operations.SloRowView{},
+			operations.RuntimeStatusEventView{},
+			operations.AutoscalerView{},
+			operations.AutoscaleDecisionView{},
+			operations.DelinquencyContext{},
+			// Enums (one zero value each — const blocks captured from this dir).
+			operations.DesiredStateReason(0),
+			operations.PatchKind(0),
+			operations.RuntimeStatusSeam(0),
+			operations.AutoscalerMode(0),
+			operations.AutoscaleAction(0),
+		},
+		ifaceName: "OperationsManager",
+		iface:     reflect.TypeOf((*operations.OperationsManager)(nil)).Elem(),
 	},
 }
 

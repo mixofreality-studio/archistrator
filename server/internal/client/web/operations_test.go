@@ -56,14 +56,14 @@ type fakeOperations struct {
 	viewErr       error
 }
 
-func (f *fakeOperations) DeployAfterConstruction(_ context.Context, appID operations.OperatedAppID, change operations.DesiredStateChange) (operations.DeployResult, error) {
+func (f *fakeOperations) DeployAfterConstruction(_ fwmgr.Context, appID operations.OperatedAppID, change operations.DesiredStateChange) (operations.DeployResult, error) {
 	f.deployCalls++
 	f.lastDeployApp = appID
 	f.lastChange = change
 	return f.deployResult, f.deployErr
 }
 
-func (f *fakeOperations) WithdrawSystem(_ context.Context, appID operations.OperatedAppID, changeID string, reason operations.WithdrawReason) (operations.WithdrawResult, error) {
+func (f *fakeOperations) WithdrawSystem(_ fwmgr.Context, appID operations.OperatedAppID, changeID string, reason operations.WithdrawReason) (operations.WithdrawResult, error) {
 	f.withdrawCalls++
 	f.lastWithdrawApp = appID
 	f.lastWithdrawCID = changeID
@@ -71,7 +71,7 @@ func (f *fakeOperations) WithdrawSystem(_ context.Context, appID operations.Oper
 	return f.withdrawResult, f.withdrawErr
 }
 
-func (f *fakeOperations) QueryCostProjection(_ context.Context, appID operations.OperatedAppID, requestID string, points *operations.ScaleWhatIfPoints) (operations.CostProjection, error) {
+func (f *fakeOperations) QueryCostProjection(_ fwmgr.Context, appID operations.OperatedAppID, requestID string, points *operations.ScaleWhatIfPoints) (operations.CostProjection, error) {
 	f.costCalls++
 	f.lastCostApp = appID
 	f.lastCostReqID = requestID
@@ -79,7 +79,7 @@ func (f *fakeOperations) QueryCostProjection(_ context.Context, appID operations
 	return f.costResult, f.costErr
 }
 
-func (f *fakeOperations) QueryOperatedSystemView(_ context.Context, appID operations.OperatedAppID, requestID string) (operations.OperatedSystemView, error) {
+func (f *fakeOperations) QueryOperatedSystemView(_ fwmgr.Context, appID operations.OperatedAppID, requestID string) (operations.OperatedSystemView, error) {
 	f.viewCalls++
 	f.lastViewApp = appID
 	f.lastViewReqID = requestID
@@ -144,7 +144,8 @@ func doJSON(t *testing.T, h http.Handler, method, path string, body any) *httpte
 
 func TestDeploy_Success(t *testing.T) {
 	appID := uuid.New()
-	ops := &fakeOperations{deployResult: operations.DeployResult{Published: true, Revision: "rev-1"}}
+	rev := "rev-1"
+	ops := &fakeOperations{deployResult: operations.DeployResult{Published: true, Revision: &rev}}
 	h := newTestHandler(ops, true)
 
 	rec := doJSON(t, h, http.MethodPost, "/api/v1/operations/"+appID.String()+"/deploy",
@@ -401,8 +402,8 @@ func TestQueryCostProjection_Success(t *testing.T) {
 		CurrentRunRate:       operations.Money{MinorUnits: 1000, Currency: "USD"},
 		ProjectedMonthlyCost: operations.Money{MinorUnits: 720000, Currency: "USD"},
 		ScaleWhatIfCurve: operations.WhatIfCurve{Points: []operations.WhatIfPoint{
-			{Replicas: 1, ProjectedMonthlyCost: operations.Money{MinorUnits: 360000, Currency: "USD"}},
-			{Replicas: 3, ProjectedMonthlyCost: operations.Money{MinorUnits: 1080000, Currency: "USD"}},
+			{Replicas: int64(1), ProjectedMonthlyCost: operations.Money{MinorUnits: 360000, Currency: "USD"}},
+			{Replicas: int64(3), ProjectedMonthlyCost: operations.Money{MinorUnits: 1080000, Currency: "USD"}},
 		}},
 	}}
 	h := newTestHandler(ops, true)

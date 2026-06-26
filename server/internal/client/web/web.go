@@ -159,10 +159,10 @@ var _ ConstructionEntry = (*construction.Manager)(nil)
 // (IWebReadModel); IWebEntry stays frozen at 4 ops. The narrow port carries it as one
 // more 1:1 method.
 type OperationsEntry interface {
-	DeployAfterConstruction(ctx context.Context, operatedAppID operations.OperatedAppID, change operations.DesiredStateChange) (operations.DeployResult, error)
-	WithdrawSystem(ctx context.Context, operatedAppID operations.OperatedAppID, changeID string, reason operations.WithdrawReason) (operations.WithdrawResult, error)
-	QueryCostProjection(ctx context.Context, operatedAppID operations.OperatedAppID, requestID string, points *operations.ScaleWhatIfPoints) (operations.CostProjection, error)
-	QueryOperatedSystemView(ctx context.Context, operatedAppID operations.OperatedAppID, requestID string) (operations.OperatedSystemView, error)
+	DeployAfterConstruction(rc fwm.Context, operatedAppID operations.OperatedAppID, change operations.DesiredStateChange) (operations.DeployResult, error)
+	WithdrawSystem(rc fwm.Context, operatedAppID operations.OperatedAppID, changeID string, reason operations.WithdrawReason) (operations.WithdrawResult, error)
+	QueryCostProjection(rc fwm.Context, operatedAppID operations.OperatedAppID, requestID string, points *operations.ScaleWhatIfPoints) (operations.CostProjection, error)
+	QueryOperatedSystemView(rc fwm.Context, operatedAppID operations.OperatedAppID, requestID string) (operations.OperatedSystemView, error)
 }
 
 // compile-time proof the concrete operationsManager satisfies the narrow Client port.

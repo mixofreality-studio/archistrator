@@ -18,12 +18,10 @@ import (
 // decided (operationsManager.md §3.2). The Manager EXECUTES it (pause vs withdraw per
 // terms); it does NOT decide it. PauseNotWithdraw selects the enforcement shape the
 // upstream BillingTerms prescribed (pause = replicas=0; withdraw = removed).
-type DelinquencyContext struct {
-	// PauseNotWithdraw is true when BillingTerms prescribe a pause (replicas=0) rather
-	// than a hard withdraw. The decision is upstream (Settlement); this Manager carries
-	// and executes it.
-	PauseNotWithdraw bool `json:"pauseNotWithdraw"`
-}
+
+// PauseNotWithdraw is true when BillingTerms prescribe a pause (replicas=0) rather
+// than a hard withdraw. The decision is upstream (Settlement); this Manager carries
+// and executes it.
 
 // ApplyDelinquencySignal is the applyDelinquencyPolicy payload (operationsManager.md
 // §2.5). Delivered by settlementManager to {customerId}:delinquency.

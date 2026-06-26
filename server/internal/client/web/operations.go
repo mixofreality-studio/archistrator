@@ -6,9 +6,22 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	fwm "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	"github.com/mixofreality-studio/archistrator-platform/framework-go/utilities/security"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/operations"
 )
+
+// operationsCtx builds the Manager-layer call Context for an operationsManager op from
+// an HTTP request: the request context plus the authenticated principal (the auth
+// middleware puts one on the context; the zero principal is a safe stopgap). Mirrors
+// constructionCtx (construction.go).
+func operationsCtx(r *http.Request) fwm.Context {
+	rc := fwm.Context{Context: r.Context()}
+	if p, ok := security.PrincipalFrom(r.Context()); ok {
+		rc.Principal = p
+	}
+	return rc
+}
 
 // This file is the HTTP binding for the UC4 operateDeliveredSystem facet (the
 // operations console). Each handler is a THIN routing facet (webClient.md §0):
@@ -195,7 +208,7 @@ func (c *Client) handleDeploy(w http.ResponseWriter, r *http.Request) {
 		ChangeID:             req.ChangeID,
 		RenderedDesiredState: req.RenderedDesiredState,
 	}
-	result, err := c.operations.DeployAfterConstruction(r.Context(), appID, change)
+	result, err := c.operations.DeployAfterConstruction(operationsCtx(r), appID, change)
 	if err != nil {
 		writeManagerError(w, err)
 		return
@@ -203,7 +216,7 @@ func (c *Client) handleDeploy(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, deployResultResponse{
 		OperatedAppID: appID.String(),
 		Published:     result.Published,
-		Revision:      result.Revision,
+		Revision:      derefString(result.Revision),
 	})
 }
 
@@ -229,7 +242,7 @@ func (c *Client) handleScale(w http.ResponseWriter, r *http.Request) {
 		ChangeID:             req.ChangeID,
 		RenderedDesiredState: req.ScalePatch,
 	}
-	result, err := c.operations.DeployAfterConstruction(r.Context(), appID, change)
+	result, err := c.operations.DeployAfterConstruction(operationsCtx(r), appID, change)
 	if err != nil {
 		writeManagerError(w, err)
 		return
@@ -237,7 +250,7 @@ func (c *Client) handleScale(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, deployResultResponse{
 		OperatedAppID: appID.String(),
 		Published:     result.Published,
-		Revision:      result.Revision,
+		Revision:      derefString(result.Revision),
 	})
 }
 
@@ -263,7 +276,7 @@ func (c *Client) handleUpdateAutoscalerPolicy(w http.ResponseWriter, r *http.Req
 		ChangeID:             req.ChangeID,
 		RenderedDesiredState: req.PolicyPatch,
 	}
-	result, err := c.operations.DeployAfterConstruction(r.Context(), appID, change)
+	result, err := c.operations.DeployAfterConstruction(operationsCtx(r), appID, change)
 	if err != nil {
 		writeManagerError(w, err)
 		return
@@ -271,7 +284,7 @@ func (c *Client) handleUpdateAutoscalerPolicy(w http.ResponseWriter, r *http.Req
 	writeJSON(w, http.StatusAccepted, deployResultResponse{
 		OperatedAppID: appID.String(),
 		Published:     result.Published,
-		Revision:      result.Revision,
+		Revision:      derefString(result.Revision),
 	})
 }
 
@@ -291,7 +304,7 @@ func (c *Client) handleWithdraw(w http.ResponseWriter, r *http.Request) {
 	if !c.authorizeOperatedApp(w, r, "operate-system", appID.String()) {
 		return
 	}
-	result, err := c.operations.WithdrawSystem(r.Context(), appID, req.ChangeID,
+	result, err := c.operations.WithdrawSystem(operationsCtx(r), appID, req.ChangeID,
 		operations.WithdrawReason{Notes: req.Reason})
 	if err != nil {
 		writeManagerError(w, err)
@@ -327,7 +340,7 @@ func (c *Client) handleQueryCostProjection(w http.ResponseWriter, r *http.Reques
 	if !c.authorizeOperatedApp(w, r, "read-operated-system", appID.String()) {
 		return
 	}
-	projection, err := c.operations.QueryCostProjection(r.Context(), appID, requestID, points)
+	projection, err := c.operations.QueryCostProjection(operationsCtx(r), appID, requestID, points)
 	if err != nil {
 		writeManagerError(w, err)
 		return
@@ -356,7 +369,7 @@ func (c *Client) handleGetOperatedSystemView(w http.ResponseWriter, r *http.Requ
 	if !c.authorizeOperatedApp(w, r, "read-operated-system", appID.String()) {
 		return
 	}
-	view, err := c.operations.QueryOperatedSystemView(r.Context(), appID, requestID)
+	view, err := c.operations.QueryOperatedSystemView(operationsCtx(r), appID, requestID)
 	if err != nil {
 		writeManagerError(w, err)
 		return
@@ -421,7 +434,7 @@ func parseScaleWhatIfPoints(s string) (*operations.ScaleWhatIfPoints, error) {
 			if !sawDigit {
 				return nil, fmt.Errorf("scaleWhatIfPoints must be a comma-separated list of replica counts, e.g. \"1,3,5\"")
 			}
-			points = append(points, operations.ScalePoint{Replicas: cur})
+			points = append(points, operations.ScalePoint{Replicas: int64(cur)})
 			cur = 0
 			sawDigit = false
 			have = true
@@ -440,13 +453,23 @@ func parseScaleWhatIfPoints(s string) (*operations.ScaleWhatIfPoints, error) {
 	return &operations.ScaleWhatIfPoints{Points: points}, nil
 }
 
+// derefString returns the pointed-to string, or "" for nil. DeployResult.Revision is
+// an optional (`,omitempty` ⇒ *string in the generated contract); the wire DTO carries
+// it as a plain omitempty string.
+func derefString(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
 // costProjectionFromManager shapes the Manager's CostProjection (untagged seam types)
 // onto the explicitly-tagged wire DTO.
 func costProjectionFromManager(appID operations.OperatedAppID, p operations.CostProjection) costProjectionResponse {
 	curve := make([]whatIfPointDTO, 0, len(p.ScaleWhatIfCurve.Points))
 	for _, pt := range p.ScaleWhatIfCurve.Points {
 		curve = append(curve, whatIfPointDTO{
-			Replicas:             pt.Replicas,
+			Replicas:             int(pt.Replicas),
 			ProjectedMonthlyCost: moneyFromManager(pt.ProjectedMonthlyCost),
 		})
 	}

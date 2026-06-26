@@ -247,8 +247,8 @@ func (wf *Workflows) DeployWorkflow(ctx workflow.Context, in DeployInput) (Deplo
 		return DeployResult{}, rerr
 	}
 
-	logger.Info("deploy published desired state", "operatedAppId", in.OperatedAppID.String(), "reason", in.Change.Reason.String())
-	return DeployResult{Published: true, Revision: revision}, nil
+	logger.Info("deploy published desired state", "operatedAppId", in.OperatedAppID.String(), "reason", desiredStateReasonName(in.Change.Reason))
+	return DeployResult{Published: true, Revision: &revision}, nil
 }
 
 // ===========================================================================
@@ -269,7 +269,7 @@ func (wf *Workflows) ReconcileWorkflow(ctx workflow.Context, in ReconcileInput) 
 		return ReconcileResult{}, err
 	}
 
-	result := ReconcileResult{Observed: len(apps)}
+	result := ReconcileResult{Observed: int64(len(apps))}
 	for _, app := range apps {
 		transitioned, republished, perr := wf.reconcileOne(ctx, app)
 		if perr != nil {

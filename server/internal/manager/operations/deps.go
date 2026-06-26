@@ -75,20 +75,16 @@ type Version uint64
 
 // RuntimeStatusSeam mirrors operatedSystemStateAccess.md §3 RuntimeStatus enum
 // (e.g. Pending | Healthy | Degraded | Withdrawn). Manager-local seam.
-type RuntimeStatusSeam int
 
-const (
-	// RuntimeStatusUnknown is the zero value.
-	RuntimeStatusUnknown RuntimeStatusSeam = iota
-	// RuntimeStatusPending is a freshly-published, not-yet-converged app.
-	RuntimeStatusPending
-	// RuntimeStatusHealthy is a healthy app.
-	RuntimeStatusHealthy
-	// RuntimeStatusDegraded is an unhealthy app.
-	RuntimeStatusDegraded
-	// RuntimeStatusWithdrawn is a withdrawn app.
-	RuntimeStatusWithdrawn
-)
+// RuntimeStatusUnknown is the zero value.
+
+// RuntimeStatusPending is a freshly-published, not-yet-converged app.
+
+// RuntimeStatusHealthy is a healthy app.
+
+// RuntimeStatusDegraded is an unhealthy app.
+
+// RuntimeStatusWithdrawn is a withdrawn app.
 
 // DelinquencyAction mirrors operatedSystemStateAccess.md §3 — the recorded
 // delinquency-handling action.
@@ -360,16 +356,12 @@ type AutoscalerPolicy struct {
 }
 
 // AutoscalerMode mirrors autoscalerEngine.md §3 — Auto | Manual (manual ⇒ NoChange).
-type AutoscalerMode int
 
-const (
-	// AutoscalerModeUnknown is the zero value.
-	AutoscalerModeUnknown AutoscalerMode = iota
-	// AutoscalerModeAuto enables the decision.
-	AutoscalerModeAuto
-	// AutoscalerModeManual ⇒ the Engine always returns NoChange.
-	AutoscalerModeManual
-)
+// AutoscalerModeUnknown is the zero value.
+
+// AutoscalerModeAuto enables the decision.
+
+// AutoscalerModeManual ⇒ the Engine always returns NoChange.
 
 // InfrastructureKind mirrors autoscalerEngine.md / operationEstimationEngine.md §3 —
 // the opaque infrastructure discriminator (CustomerAppInfrastructure volatility).
@@ -383,38 +375,16 @@ const (
 )
 
 // AutoscaleAction mirrors autoscalerEngine.md §3 Decision — the closed decision set.
-type AutoscaleAction int
 
-const (
-	// AutoscaleNoChange is the no-op decision (the common quiet-tick outcome).
-	AutoscaleNoChange AutoscaleAction = iota
-	// AutoscaleScaleUp increments replicas by Delta.
-	AutoscaleScaleUp
-	// AutoscaleScaleDown decrements replicas by Delta.
-	AutoscaleScaleDown
-	// AutoscalePause idle-pauses (publish replicas=0).
-	AutoscalePause
-	// AutoscaleResume resumes from zero to ToBaseline.
-	AutoscaleResume
-)
+// AutoscaleNoChange is the no-op decision (the common quiet-tick outcome).
 
-// String returns the canonical name for an autoscale action.
-func (a AutoscaleAction) String() string {
-	switch a {
-	case AutoscaleNoChange:
-		return "NoChange"
-	case AutoscaleScaleUp:
-		return "ScaleUp"
-	case AutoscaleScaleDown:
-		return "ScaleDown"
-	case AutoscalePause:
-		return "Pause"
-	case AutoscaleResume:
-		return "Resume"
-	default:
-		return "Unknown"
-	}
-}
+// AutoscaleScaleUp increments replicas by Delta.
+
+// AutoscaleScaleDown decrements replicas by Delta.
+
+// AutoscalePause idle-pauses (publish replicas=0).
+
+// AutoscaleResume resumes from zero to ToBaseline.
 
 // AutoscaleDecisionSeam mirrors autoscalerEngine.md §3 Decision — the sum-type the
 // Engine returns. Delta is bounded by the policy on ScaleUp/ScaleDown; ToBaseline is
@@ -445,27 +415,11 @@ type ObservedUsage struct {
 
 // Money mirrors operationEstimationEngine.md §3 Money — an infrastructure-neutral
 // monetary amount (minor units + currency).
-type Money struct {
-	MinorUnits int64
-	Currency   string
-}
 
 // WhatIfPoint mirrors operationEstimationEngine.md §3 — one projected cost point.
-type WhatIfPoint struct {
-	Replicas             int
-	ProjectedMonthlyCost Money
-}
 
 // WhatIfCurve mirrors operationEstimationEngine.md §3 — the projected-cost curve.
-type WhatIfCurve struct {
-	Points []WhatIfPoint
-}
 
 // CostProjectionSeam mirrors operationEstimationEngine.md §3 CostProjection — the
 // op-time projection returned by QueryCostProjection (re-exported as the façade
 // CostProjection in contract.go).
-type CostProjectionSeam struct {
-	CurrentRunRate       Money
-	ProjectedMonthlyCost Money
-	ScaleWhatIfCurve     WhatIfCurve
-}
