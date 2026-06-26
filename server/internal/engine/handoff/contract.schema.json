@@ -1,0 +1,119 @@
+{
+  "$id": "archistrator://contract/handoff",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "ActivityKind": {
+      "type": "integer",
+      "enum": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "x-enum-varnames": [
+        "ActivityKindUnknown",
+        "ActivityKindDetailedDesign",
+        "ActivityKindConstruction",
+        "ActivityKindIntegration",
+        "ActivityKindNoncoding"
+      ],
+      "x-go-base": "int"
+    },
+    "ConstructionActivity": {
+      "type": "object",
+      "properties": {
+        "ActivityID": {
+          "type": "string"
+        },
+        "Kind": {
+          "$ref": "#/$defs/ActivityKind"
+        },
+        "ComponentID": {
+          "type": "string"
+        },
+        "Layer": {
+          "type": "string"
+        },
+        "EstimateDays": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "ActivityID",
+        "Kind",
+        "ComponentID",
+        "Layer",
+        "EstimateDays"
+      ],
+      "additionalProperties": false
+    },
+    "HandOffPolicy": {
+      "type": "object",
+      "properties": {
+        "PreferAI": {
+          "type": "boolean"
+        },
+        "SeniorOnlyLayers": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "PreferAI",
+        "SeniorOnlyLayers"
+      ],
+      "additionalProperties": false
+    },
+    "WorkerClass": {
+      "type": "integer",
+      "enum": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "x-enum-varnames": [
+        "WorkerClassUnknown",
+        "AIWorker",
+        "HumanSeniorWorker",
+        "HumanJuniorWorker",
+        "ArchitectOnly"
+      ],
+      "x-go-base": "int"
+    }
+  },
+  "title": "handoff contract",
+  "interface": {
+    "name": "HandOffEngine",
+    "operations": [
+      {
+        "name": "PickWorkerClass",
+        "params": [
+          {
+            "name": "activity",
+            "schema": {
+              "$ref": "#/$defs/ConstructionActivity"
+            }
+          },
+          {
+            "name": "policy",
+            "schema": {
+              "$ref": "#/$defs/HandOffPolicy"
+            }
+          }
+        ],
+        "result": {
+          "$ref": "#/$defs/WorkerClass"
+        },
+        "error": true
+      }
+    ]
+  }
+}

@@ -1,0 +1,357 @@
+{
+  "$id": "archistrator://contract/autoscaler",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "AutoscalerMode": {
+      "type": "integer",
+      "enum": [
+        0,
+        1
+      ],
+      "x-enum-varnames": [
+        "AutoscalerModeAuto",
+        "AutoscalerModeManual"
+      ],
+      "x-go-base": "int"
+    },
+    "AutoscalerPolicy": {
+      "type": "object",
+      "properties": {
+        "Kind": {
+          "$ref": "#/$defs/InfrastructureKind"
+        },
+        "Mode": {
+          "$ref": "#/$defs/AutoscalerMode"
+        },
+        "MinReplicas": {
+          "type": "integer"
+        },
+        "MaxReplicas": {
+          "type": "integer"
+        },
+        "BaselineReplicas": {
+          "type": "integer"
+        },
+        "MaxStepDelta": {
+          "type": "integer"
+        },
+        "IdleThreshold": {
+          "type": "integer",
+          "x-go-import": "time",
+          "x-go-type": "time.Duration"
+        },
+        "ScaleUpCPU": {
+          "type": "number"
+        },
+        "ScaleDownCPU": {
+          "type": "number"
+        },
+        "ScaleDownGrace": {
+          "type": "integer",
+          "x-go-import": "time",
+          "x-go-type": "time.Duration"
+        },
+        "SLATier": {
+          "$ref": "#/$defs/SLATier"
+        },
+        "Pinned": {
+          "type": "boolean"
+        },
+        "MaxBurstCap": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "Kind",
+        "Mode",
+        "MinReplicas",
+        "MaxReplicas",
+        "BaselineReplicas",
+        "MaxStepDelta",
+        "IdleThreshold",
+        "ScaleUpCPU",
+        "ScaleDownCPU",
+        "ScaleDownGrace",
+        "SLATier",
+        "Pinned",
+        "MaxBurstCap"
+      ],
+      "additionalProperties": false
+    },
+    "Decision": {
+      "type": "object",
+      "properties": {
+        "Kind": {
+          "$ref": "#/$defs/DecisionKind"
+        },
+        "Delta": {
+          "type": "integer"
+        },
+        "ToBaseline": {
+          "type": "integer"
+        },
+        "Reason": {
+          "$ref": "#/$defs/DecisionReason"
+        }
+      },
+      "required": [
+        "Kind",
+        "Delta",
+        "ToBaseline",
+        "Reason"
+      ],
+      "additionalProperties": false
+    },
+    "DecisionKind": {
+      "type": "integer",
+      "enum": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "x-enum-varnames": [
+        "DecisionNoChange",
+        "DecisionScaleUp",
+        "DecisionScaleDown",
+        "DecisionPause",
+        "DecisionResume"
+      ],
+      "x-go-base": "int"
+    },
+    "DecisionReason": {
+      "type": "object",
+      "properties": {
+        "Code": {
+          "$ref": "#/$defs/ReasonCode"
+        },
+        "Detail": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "Code",
+        "Detail"
+      ],
+      "additionalProperties": false
+    },
+    "DesiredState": {
+      "type": "object",
+      "properties": {
+        "OperatedAppID": {
+          "type": "string",
+          "format": "uuid",
+          "x-go-import": "github.com/google/uuid",
+          "x-go-type": "uuid.UUID"
+        },
+        "InfrastructureKind": {
+          "$ref": "#/$defs/InfrastructureKind"
+        },
+        "Replicas": {
+          "type": "integer"
+        },
+        "LastDecisionAt": {
+          "type": "string",
+          "format": "date-time",
+          "x-go-import": "time",
+          "x-go-type": "time.Time"
+        }
+      },
+      "required": [
+        "OperatedAppID",
+        "InfrastructureKind",
+        "Replicas",
+        "LastDecisionAt"
+      ],
+      "additionalProperties": false
+    },
+    "HealthStatus": {
+      "type": "integer",
+      "enum": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "x-enum-varnames": [
+        "HealthUnknown",
+        "HealthHealthy",
+        "HealthDegraded",
+        "HealthUnhealthy"
+      ],
+      "x-go-base": "int"
+    },
+    "InfrastructureKind": {
+      "type": "integer",
+      "enum": [
+        0,
+        1
+      ],
+      "x-enum-varnames": [
+        "InfrastructureKindUnknown",
+        "InfrastructureKindGoTemporalPostgres"
+      ],
+      "x-go-base": "int"
+    },
+    "ReasonCode": {
+      "type": "integer",
+      "enum": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10
+      ],
+      "x-enum-varnames": [
+        "ReasonUnknown",
+        "ReasonCPUHigh",
+        "ReasonCPUSustainedLow",
+        "ReasonIdle",
+        "ReasonTrafficResumed",
+        "ReasonManualMode",
+        "ReasonPinned",
+        "ReasonSLOBurnDown",
+        "ReasonAlreadyAtMin",
+        "ReasonAlreadyAtMax",
+        "ReasonSteady"
+      ],
+      "x-go-base": "int"
+    },
+    "SLATier": {
+      "type": "integer",
+      "enum": [
+        0,
+        1,
+        2
+      ],
+      "x-enum-varnames": [
+        "SLATierFree",
+        "SLATierPaid",
+        "SLATierEnterprise"
+      ],
+      "x-go-base": "int"
+    },
+    "SLOStatus": {
+      "type": "integer",
+      "enum": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "x-enum-varnames": [
+        "SLOUnknown",
+        "SLOWithinBudget",
+        "SLOBurningBudget",
+        "SLOOutOfBudget"
+      ],
+      "x-go-base": "int"
+    },
+    "Telemetry": {
+      "type": "object",
+      "properties": {
+        "OperatedAppID": {
+          "type": "string",
+          "format": "uuid",
+          "x-go-import": "github.com/google/uuid",
+          "x-go-type": "uuid.UUID"
+        },
+        "ObservedAt": {
+          "type": "string",
+          "format": "date-time",
+          "x-go-import": "time",
+          "x-go-type": "time.Time"
+        },
+        "RequestsPerSecond": {
+          "type": "number"
+        },
+        "P95LatencyMs": {
+          "type": "number"
+        },
+        "InflightRequests": {
+          "type": "integer"
+        },
+        "CurrentReplicas": {
+          "type": "integer"
+        },
+        "CPUUtilization": {
+          "type": "number"
+        },
+        "MemoryUtilization": {
+          "type": "number"
+        },
+        "Health": {
+          "$ref": "#/$defs/HealthStatus"
+        },
+        "SLOStatus": {
+          "$ref": "#/$defs/SLOStatus"
+        },
+        "TimeSinceLastRequest": {
+          "type": "integer",
+          "x-go-import": "time",
+          "x-go-type": "time.Duration"
+        }
+      },
+      "required": [
+        "OperatedAppID",
+        "ObservedAt",
+        "RequestsPerSecond",
+        "P95LatencyMs",
+        "InflightRequests",
+        "CurrentReplicas",
+        "CPUUtilization",
+        "MemoryUtilization",
+        "Health",
+        "SLOStatus",
+        "TimeSinceLastRequest"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "title": "autoscaler contract",
+  "interface": {
+    "name": "AutoscalerEngine",
+    "operations": [
+      {
+        "name": "ProposeDesiredState",
+        "params": [
+          {
+            "name": "telemetry",
+            "schema": {
+              "$ref": "#/$defs/Telemetry"
+            }
+          },
+          {
+            "name": "currentDesired",
+            "schema": {
+              "$ref": "#/$defs/DesiredState"
+            }
+          },
+          {
+            "name": "policy",
+            "schema": {
+              "$ref": "#/$defs/AutoscalerPolicy"
+            }
+          },
+          {
+            "name": "infrastructureKind",
+            "schema": {
+              "$ref": "#/$defs/InfrastructureKind"
+            }
+          }
+        ],
+        "result": {
+          "$ref": "#/$defs/Decision"
+        },
+        "error": true
+      }
+    ]
+  }
+}

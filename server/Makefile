@@ -1,6 +1,31 @@
 # aiarch server — developer make targets.
 
-.PHONY: test test-short fmt vet lint method-check
+.PHONY: test test-short fmt vet lint method-check gen-schemas gen-models gen bootstrap
+
+# Schema-first contract pipeline (strangler bootstrap), all-Go (jsonschema-go):
+#   gen-schemas — reflect each component's contract surface into its
+#                 contract.schema.json SEED (cmd/schemagen).
+#   gen-models  — generate contract.gen.go from each contract.schema.json
+#                 (cmd/modelgen). The schema is the source of truth.
+#   gen         — both, in order (steady-state regen; idempotent).
+gen-schemas:
+	GOWORK=off go run ./cmd/schemagen
+
+gen-models:
+	GOWORK=off go run ./cmd/modelgen
+
+gen: gen-schemas gen-models
+
+# bootstrap — the FULL automated dance that breaks the schema-first chicken-and-egg
+# (schemagen must reflect a COMPILING package, so generate first, then strip the
+# now-duplicate hand-written surface). Idempotent: safe to re-run.
+#   1. gen-schemas  reflect current Go -> contract.schema.json (needs compiling pkgs)
+#   2. gen-models   contract.schema.json -> contract.gen.go (now duplicates hand-written)
+#   3. contractstrip remove the hand-written surface (refuses to drop behavior)
+#   4. build        verify the package compiles from the generated surface
+bootstrap: gen-schemas gen-models
+	GOWORK=off go run ./cmd/contractstrip
+	GOWORK=off go build ./...
 
 # Everything, including the model-gated integration tests (need a live, capable
 # Ollama-backed worker — see internal/manager/systemdesign/integration_test.go).

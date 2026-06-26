@@ -42,84 +42,40 @@ import (
 // spec. The member set + numeric ordering mirror the constructionManager's
 // consumer mirror (internal/manager/construction/deps.go) so the Manager's
 // adaptation is mechanical.
-type WorkerClass int
 
-const (
-	// WorkerClassUnknown is the zero value — never a valid casting result.
-	WorkerClassUnknown WorkerClass = iota
-	// AIWorker — default; LLM/agent via the Manager's workerAccess.Dispatch.
-	AIWorker
-	// HumanSeniorWorker — human contractor, senior (sourced via the marketplace).
-	HumanSeniorWorker
-	// HumanJuniorWorker — human contractor, junior.
-	HumanJuniorWorker
-	// ArchitectOnly — customer-as-architect; no separate worker produced. A NORMAL
-	// returned class (contract OQ-2): the Manager skips dispatch and awaits the
-	// Architect User. NOT an error.
-	ArchitectOnly
-)
+// WorkerClassUnknown is the zero value — never a valid casting result.
 
-// String returns the canonical worker-class name (the logical class the Manager
-// hands to workerAccess). Mirrors the constructionManager consumer mirror.
-func (c WorkerClass) String() string {
-	switch c {
-	case AIWorker:
-		return "ai"
-	case HumanSeniorWorker:
-		return "humanSenior"
-	case HumanJuniorWorker:
-		return "humanJunior"
-	case ArchitectOnly:
-		return "architectOnly"
-	default:
-		return "unknown"
-	}
-}
+// AIWorker — default; LLM/agent via the Manager's workerAccess.Dispatch.
 
-// valid reports whether c is a real casting result the build supports (i.e. a
-// registered class, not the zero value). Used to guard the Strategy output.
-func (c WorkerClass) valid() bool {
-	switch c {
-	case AIWorker, HumanSeniorWorker, HumanJuniorWorker, ArchitectOnly:
-		return true
-	default:
-		return false
-	}
-}
+// HumanSeniorWorker — human contractor, senior (sourced via the marketplace).
+
+// HumanJuniorWorker — human contractor, junior.
+
+// ArchitectOnly — customer-as-architect; no separate worker produced. A NORMAL
+// returned class (contract OQ-2): the Manager skips dispatch and awaits the
+// Architect User. NOT an error.
+
+// WorkerClass behaviour (the canonical name + validity) lives as free functions in
+// behavior.go (WorkerClassString / workerClassValid) — the schema-first contract
+// rule keeps the generated enum type method-free.
 
 // ActivityKind is the activity-type the policy keys on (contract §3). Mirrors the
 // constructionManager consumer mirror's ActivityKind (deps.go).
-type ActivityKind int
 
-const (
-	// ActivityKindUnknown is the zero value — a ContractMisuse input (the Manager
-	// must build the activity with a real kind before calling).
-	ActivityKindUnknown ActivityKind = iota
-	// ActivityKindDetailedDesign — a component's contract-design activity.
-	ActivityKindDetailedDesign
-	// ActivityKindConstruction — a component's construction activity.
-	ActivityKindConstruction
-	// ActivityKindIntegration — an integration activity.
-	ActivityKindIntegration
-	// ActivityKindNoncoding — a non-coding activity.
-	ActivityKindNoncoding
-)
+// ActivityKindUnknown is the zero value — a ContractMisuse input (the Manager
+// must build the activity with a real kind before calling).
 
-// String returns the canonical name for an activity kind.
-func (k ActivityKind) String() string {
-	switch k {
-	case ActivityKindDetailedDesign:
-		return "DetailedDesign"
-	case ActivityKindConstruction:
-		return "Construction"
-	case ActivityKindIntegration:
-		return "Integration"
-	case ActivityKindNoncoding:
-		return "Noncoding"
-	default:
-		return "Unknown"
-	}
-}
+// ActivityKindDetailedDesign — a component's contract-design activity.
+
+// ActivityKindConstruction — a component's construction activity.
+
+// ActivityKindIntegration — an integration activity.
+
+// ActivityKindNoncoding — a non-coding activity.
+
+// ActivityKind behaviour (the canonical name) lives as a free function in
+// behavior.go (ActivityKindString) — the schema-first contract rule keeps the
+// generated enum type method-free.
 
 // ConstructionActivity is the by-value snapshot of the activity being dispatched
 // (contract §3). The Manager reads the next eligible activity from
@@ -130,13 +86,6 @@ func (k ActivityKind) String() string {
 // Layer is the Method layer (e.g. "manager", "engine", "resourceaccess",
 // "client") the activity's component lives in — the SeniorOnlyLayers policy keys
 // on it. It is normalized case-insensitively at the policy boundary.
-type ConstructionActivity struct {
-	ActivityID   string
-	Kind         ActivityKind
-	ComponentID  string
-	Layer        string
-	EstimateDays float64
-}
 
 // HandOffPolicy is this project's committed human-vs-AI casting policy
 // (volatilities.md 83-84), passed BY VALUE (contract §3). It is the Strategy
@@ -153,36 +102,30 @@ type ConstructionActivity struct {
 // zero policy (PreferAI=false, no senior-only layers) ONLY insofar as a future
 // policy mode names it; in v1 ArchitectOnly is cast by the dedicated
 // architectOnly registration selected via a non-zero policy — see selectStrategy.
-type HandOffPolicy struct {
-	PreferAI         bool
-	SeniorOnlyLayers []string
-}
 
 // HandOffEngine is the worker-casting facet over the HandOffPolicy volatility. One
 // behavioural operation (contract §2 — 1-op count investigated & waived; matches
 // the estimationEngine / autoscalerEngine precedent). Defined here as the Engine's
 // own surface; the constructionManager holds an independent consumer mirror it
 // adapts to (internal/manager/construction/deps.go).
-type HandOffEngine interface {
-	// PickWorkerClass selects the worker class the policy casts onto this
-	// activity's worker role. Pure and deterministic: identical (activity, policy)
-	// -> identical WorkerClass, always (contract §2.1, §6).
-	//
-	// The error is *fweng.Error and signals programmer/contract misuse ONLY
-	// (the Engine does no I/O, so there is no transient failure to retry):
-	//   - ContractMisuse: the activity carries no ActivityID, or an unknown
-	//     ActivityKind — a constructionManager bug (it failed to build a valid
-	//     input before the call). nil/empty inputs are NOT a "no-class-possible"
-	//     outcome (contract §2.1 pre-conditions).
-	//   - InvalidInput: the policy casts a worker class the running build does not
-	//     support (the structural analogue of the contract's UnknownWorkerClass —
-	//     see the package log note re: the fixed shared error model). The Engine
-	//     does NOT silently fall back to a default class (silent mis-casting),
-	//     exactly as settlementEngine refuses an unknown settlement regime.
-	//   - InternalInvariant: the selected Strategy returned a class outside the
-	//     registered set — an engine bug (a guard).
-	PickWorkerClass(activity ConstructionActivity, policy HandOffPolicy) (WorkerClass, error)
-}
+
+// PickWorkerClass selects the worker class the policy casts onto this
+// activity's worker role. Pure and deterministic: identical (activity, policy)
+// -> identical WorkerClass, always (contract §2.1, §6).
+//
+// The error is *fweng.Error and signals programmer/contract misuse ONLY
+// (the Engine does no I/O, so there is no transient failure to retry):
+//   - ContractMisuse: the activity carries no ActivityID, or an unknown
+//     ActivityKind — a constructionManager bug (it failed to build a valid
+//     input before the call). nil/empty inputs are NOT a "no-class-possible"
+//     outcome (contract §2.1 pre-conditions).
+//   - InvalidInput: the policy casts a worker class the running build does not
+//     support (the structural analogue of the contract's UnknownWorkerClass —
+//     see the package log note re: the fixed shared error model). The Engine
+//     does NOT silently fall back to a default class (silent mis-casting),
+//     exactly as settlementEngine refuses an unknown settlement regime.
+//   - InternalInvariant: the selected Strategy returned a class outside the
+//     registered set — an engine bug (a guard).
 
 // engine is the concrete, stateless HandOffEngine. No fields => no mutable state
 // => trivially deterministic and reentrant (contract §6 invariant 3).
@@ -225,7 +168,7 @@ func (engine) PickWorkerClass(activity ConstructionActivity, policy HandOffPolic
 
 	// --- InternalInvariant guard: a Strategy bug if it returned a class outside
 	// the registered set (contract §3 InternalInvariant). ---
-	if !cast.valid() {
+	if !workerClassValid(cast) {
 		return WorkerClassUnknown, fweng.New(fweng.InternalInvariant,
 			"PickWorkerClass: strategy returned a class outside the registered set for activity "+
 				quote(activity.ActivityID))

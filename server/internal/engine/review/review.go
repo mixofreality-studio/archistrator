@@ -116,66 +116,23 @@ var artifactKindByName = map[string]ArtifactKind{
 	"UICode":         ArtifactKindUICode,
 }
 
-// ReviewChange is the by-value description of the produced change under review
-// (mirrors the constructionManager consumer mirror's ReviewChange). The Engine
-// reads it and owns none of it.
-type ReviewChange struct {
-	// ActivityID is the construction/detailed-design/integration activity that
-	// produced the change.
-	ActivityID string
-	// ComponentID is the component the change belongs to.
-	ComponentID string
-	// ContentAddress points at the staged output (artifactAccess); opaque here.
-	ContentAddress string
-}
-
-// Reviewer is one reviewer assignment within a ReviewSet (mirrors the
-// constructionManager consumer mirror's Reviewer field-for-field so the Manager's
-// adaptation is mechanical).
-type Reviewer struct {
-	// Role is the reviewer's logical role (→ worker-class logical name).
-	Role string
-	// Perspective is the lens the reviewer reviews from.
-	Perspective string
-	// ReferenceArtifact names the artifact the reviewer reviews against
-	// (architecture / the detailed-design / the UI-design).
-	ReferenceArtifact string
-	// MayAmend, when true, lets a reviewer+constructor agreement re-stage an amended
-	// contract/UI-design.
-	MayAmend bool
-}
-
-// ReviewSet is the reviewer set the Manager fans out (mirrors the constructionManager
-// consumer mirror's ReviewSet).
-type ReviewSet struct {
-	Reviewers []Reviewer
-}
-
-// ReviewEngine is the pure, deterministic review-routing port — the hand-run
-// reviewEngine seam given a concrete deterministic realisation. One behavioural
-// operation (matches the handoff 1-op precedent). The constructionManager holds an
-// independent consumer mirror it adapts to (deps.go).
-type ReviewEngine interface {
-	// ProposeReviews computes the reviewer set the ReviewPolicy assigns to a
-	// produced change. Pure and deterministic: identical inputs → identical
-	// ReviewSet, always. The error is *fweng.Error and signals programmer/contract
-	// misuse ONLY (the Engine does no I/O):
-	//   - ContractMisuse: empty change identifiers, or an unrecognised artifactKind
-	//     string — a constructionManager bug (it failed to assemble a valid call).
-	//   - InternalInvariant: the policy produced an empty reviewer set for a
-	//     recognised kind (an engine bug — every recognised kind yields ≥1 reviewer).
-	//
-	// architectureGraph + contracts are accepted by value for forward-compatible
-	// policy refinement (a richer ReviewPolicy keys on them); the v1 policy keys on
-	// the artifactKind alone and ignores them (documented in the package doc).
-	ProposeReviews(
-		change ReviewChange,
-		componentID string,
-		artifactKind string,
-		architectureGraph string,
-		contracts []string,
-	) (ReviewSet, error)
-}
+// GENERATED CONTRACT SURFACE — the I/O models (ReviewChange, Reviewer, ReviewSet)
+// AND the ReviewEngine interface are generated from contract.schema.json into
+// contract.gen.go. Schema-first: edit the schema and run `make gen` (or
+// gen-schemas/gen-models); do not hand-edit the generated surface.
+//
+// Design rationale (the part not captured by the generated signature):
+//   - ReviewEngine is the pure, deterministic review-routing port — the hand-run
+//     reviewEngine seam given a concrete deterministic realisation. One behavioural
+//     operation (matches the handoff 1-op precedent). The constructionManager holds
+//     an independent consumer mirror it adapts to (deps.go).
+//   - ProposeReviews is pure and deterministic: identical inputs → identical
+//     ReviewSet, always. The error is *fweng.Error and signals programmer/contract
+//     misuse ONLY (the Engine does no I/O): ContractMisuse (empty change
+//     identifiers or an unrecognised artifactKind — a constructionManager bug) and
+//     InternalInvariant (a recognised kind yielded an empty reviewer set — an engine
+//     bug). architectureGraph + contracts are accepted by value for forward-compatible
+//     policy refinement; the v1 policy keys on artifactKind alone and ignores them.
 
 // engine is the concrete, stateless ReviewEngine. No fields => no mutable state =>
 // trivially deterministic and reentrant.

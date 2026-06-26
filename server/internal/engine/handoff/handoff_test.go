@@ -145,7 +145,7 @@ func TestArchitectOnlyIsANormalClass(t *testing.T) {
 	if cast != ArchitectOnly {
 		t.Fatalf("architectOnlyStrategy cast %v, want ArchitectOnly", cast)
 	}
-	if !cast.valid() {
+	if !workerClassValid(cast) {
 		t.Fatalf("ArchitectOnly must be a valid (registered, non-error) class")
 	}
 }
@@ -168,7 +168,7 @@ func pickWith(activity ConstructionActivity, cast WorkerClass) (WorkerClass, err
 	if cast == WorkerClassUnknown {
 		return WorkerClassUnknown, fweng.New(fweng.InvalidInput, "test: unsupported class")
 	}
-	if !cast.valid() {
+	if !workerClassValid(cast) {
 		return WorkerClassUnknown, fweng.New(fweng.InternalInvariant, "test: out-of-range class")
 	}
 	return cast, nil
@@ -207,7 +207,7 @@ func TestGuardBranches(t *testing.T) {
 	}
 	for i, s := range strategies {
 		cast := s.pickWorkerClass(activity("manager"))
-		if !cast.valid() {
+		if !workerClassValid(cast) {
 			t.Errorf("strategy #%d cast an invalid class %v", i, cast)
 		}
 	}
@@ -271,8 +271,8 @@ func TestWorkerClassString(t *testing.T) {
 		WorkerClassUnknown: "unknown",
 	}
 	for c, want := range cases {
-		if got := c.String(); got != want {
-			t.Errorf("WorkerClass(%d).String() = %q, want %q", c, got, want)
+		if got := WorkerClassString(c); got != want {
+			t.Errorf("WorkerClassString(WorkerClass(%d)) = %q, want %q", c, got, want)
 		}
 	}
 }

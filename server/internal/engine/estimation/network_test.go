@@ -2,26 +2,23 @@ package estimation
 
 import (
 	"testing"
-
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
 // diamond builds a small diamond network for the CPM tests: A(5) → B(5),C(15) → D(5).
 // Longest path A→C→D = 25 days; B carries 10 days of total float.
-func diamond() (projectstate.ActivityList, projectstate.Network) {
-	al := projectstate.ActivityList{Activities: []projectstate.ActivityItem{
-		{Name: "A", EffortDays: 5, WorkerClass: "dev"},
-		{Name: "B", EffortDays: 5, WorkerClass: "dev"},
-		{Name: "C", EffortDays: 15, WorkerClass: "dev"},
-		{Name: "D", EffortDays: 5, WorkerClass: "dev"},
+func diamond() (ActivityList, Network) {
+	al := ActivityList{Activities: []ActivityItem{
+		{Name: "A", EffortDays: 5},
+		{Name: "B", EffortDays: 5},
+		{Name: "C", EffortDays: 15},
+		{Name: "D", EffortDays: 5},
 	}}
-	net := projectstate.Network{
-		Dependencies: []projectstate.NetworkDependency{
+	net := Network{
+		Dependencies: []NetworkDependency{
 			{Activity: "B", DependsOn: []string{"A"}},
 			{Activity: "C", DependsOn: []string{"A"}},
 			{Activity: "D", DependsOn: []string{"B", "C"}},
 		},
-		CriticalPath: []string{"A", "C", "D"},
 	}
 	return al, net
 }
@@ -102,10 +99,10 @@ func TestComputeNetwork_BandPolicyThresholdsTunable(t *testing.T) {
 func TestComputeNetwork_MilestoneEventTimeAndRiskExclusion(t *testing.T) {
 	al, net := diamond()
 	// A milestone fanning in on D (max predecessor EF = 25) and one fanning in on B (10).
-	net.Milestones = []projectstate.NetworkMilestone{
-		{ID: "M-END", Name: "End", Public: true, DependsOn: []string{"D"}},
-		{ID: "M-MID", Name: "Mid", Public: false, DependsOn: []string{"B"}},
-		{ID: "M-START", Name: "Start", Public: true, DependsOn: nil},
+	net.Milestones = []NetworkMilestone{
+		{Id: "M-END", DependsOn: []string{"D"}},
+		{Id: "M-MID", DependsOn: []string{"B"}},
+		{Id: "M-START", DependsOn: nil},
 	}
 	sol, err := New().ComputeNetwork(al, net)
 	if err != nil {
@@ -148,9 +145,9 @@ func TestComputeNetwork_MilestoneChaining(t *testing.T) {
 	al, net := diamond()
 	// N-LATE depends on M-END (a milestone). Authored BEFORE M-END to prove order-
 	// independence (the dependency-order milestone pass resolves the chain).
-	net.Milestones = []projectstate.NetworkMilestone{
-		{ID: "N-LATE", Name: "Late", Public: false, DependsOn: []string{"M-END"}},
-		{ID: "M-END", Name: "End", Public: true, DependsOn: []string{"D"}},
+	net.Milestones = []NetworkMilestone{
+		{Id: "N-LATE", DependsOn: []string{"M-END"}},
+		{Id: "M-END", DependsOn: []string{"D"}},
 	}
 	sol, err := New().ComputeNetwork(al, net)
 	if err != nil {
@@ -182,8 +179,8 @@ func TestComputeNetwork_MilestoneChaining(t *testing.T) {
 // the determining predecessor — it finishes earlier, so it does not gate the event.)
 func TestComputeNetwork_MilestoneDeterminingPredOffCP(t *testing.T) {
 	al, net := diamond()
-	net.Milestones = []projectstate.NetworkMilestone{
-		{ID: "M-X", Name: "X", Public: false, DependsOn: []string{"A", "B"}},
+	net.Milestones = []NetworkMilestone{
+		{Id: "M-X", DependsOn: []string{"A", "B"}},
 	}
 	sol, _ := New().ComputeNetwork(al, net)
 	m := sol.Milestones[0]
@@ -200,8 +197,8 @@ func TestComputeNetwork_MilestoneDeterminingPredOffCP(t *testing.T) {
 // project origin. No fan-out edge is required under the determining-predecessor rule.
 func TestComputeNetwork_StartGateMilestone(t *testing.T) {
 	al, net := diamond()
-	net.Milestones = []projectstate.NetworkMilestone{
-		{ID: "M0", Name: "SDP Review Approved", Public: true, DependsOn: nil},
+	net.Milestones = []NetworkMilestone{
+		{Id: "M0", DependsOn: nil},
 	}
 	sol, _ := New().ComputeNetwork(al, net)
 	m := sol.Milestones[0]
@@ -217,9 +214,9 @@ func TestComputeNetwork_StartGateMilestone(t *testing.T) {
 // ⇒ post-terminal ⇒ off-CP, even though its determining pred M-REL is on-CP.
 func TestComputeNetwork_PostTerminalMilestoneOffCP(t *testing.T) {
 	al, net := diamond()
-	net.Milestones = []projectstate.NetworkMilestone{
-		{ID: "M-REL", Name: "v1 Release", Public: true, DependsOn: []string{"D"}},    // det pred D (activity, on-CP, EF 25 = duration)
-		{ID: "M-POST", Name: "Post-v1", Public: false, DependsOn: []string{"M-REL"}}, // chained off the release milestone
+	net.Milestones = []NetworkMilestone{
+		{Id: "M-REL", DependsOn: []string{"D"}},    // det pred D (activity, on-CP, EF 25 = duration)
+		{Id: "M-POST", DependsOn: []string{"M-REL"}}, // chained off the release milestone
 	}
 	sol, _ := New().ComputeNetwork(al, net)
 	byID := map[string]NetworkMilestoneSolution{}
@@ -235,7 +232,7 @@ func TestComputeNetwork_PostTerminalMilestoneOffCP(t *testing.T) {
 }
 
 func TestComputeNetwork_EmptyNetworkIsEmptyResultNotError(t *testing.T) {
-	sol, err := New().ComputeNetwork(projectstate.ActivityList{}, projectstate.Network{})
+	sol, err := New().ComputeNetwork(ActivityList{}, Network{})
 	if err != nil {
 		t.Fatalf("empty network should not error: %v", err)
 	}

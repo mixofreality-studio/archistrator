@@ -842,15 +842,19 @@ func (wf *Workflows) assembleSdpReview(proj projectstate.Project, feedback strin
 		}
 		opt := assembleOption(kind, pa, al, nw, sol)
 
-		ce, eErr := wf.Estimation.EstimateForOption(opt)
+		ce, eErr := wf.Estimation.EstimateForOption(toEstimationOption(opt))
 		if eErr != nil {
 			return nil, escalateEngine("estimationEngine", kind, eErr)
 		}
-		of, oErr := wf.OperationEst.EstimateForOption(opt, opt.DeclaredUsage, opt.InfrastructureKind)
+		of, oErr := wf.OperationEst.EstimateForOption(
+			toOperationOption(opt),
+			toOperationUsage(opt.DeclaredUsage),
+			operationestimation.InfrastructureKind(opt.InfrastructureKind),
+		)
 		if oErr != nil {
 			return nil, escalateEngine("operationEstimationEngine", kind, oErr)
 		}
-		proj2, pErr := wf.Settlement.ProjectCommitTimeRevenueShareAndComputeCost(opt)
+		proj2, pErr := wf.Settlement.ProjectCommitTimeRevenueShareAndComputeCost(toSettlementOption(opt))
 		if pErr != nil {
 			return nil, escalateEngine("settlementEngine", kind, pErr)
 		}
@@ -859,10 +863,10 @@ func (wf *Workflows) assembleSdpReview(proj projectstate.Project, feedback strin
 			OptionID:             opt.OptionID,
 			SolutionKind:         kind,
 			DurationDays:         ce.DurationDays,
-			BuildCost:            ce.BuildCost,
+			BuildCost:            toProjectStateMoneyFromEstimation(ce.BuildCost),
 			CompositeRisk:        ce.Risk.Composite,
 			ProjectedMonthlyCost: monthlyCostAtDeclaredLoad(of.UsageCostCurve),
-			ExpectedPerCycleNet:  of.PayoutVsShortfallForecast.ExpectedPerCycleNet,
+			ExpectedPerCycleNet:  toProjectStateMoney(of.PayoutVsShortfallForecast.ExpectedPerCycleNet),
 			RevenueSharePercent:  proj2.RevenueSharePercent,
 		})
 	}
@@ -872,6 +876,56 @@ func (wf *Workflows) assembleSdpReview(proj projectstate.Project, feedback strin
 		rationale = rationale + " (re-assembled with architect feedback: " + feedback + ")"
 	}
 	return &projectstate.SdpReview{Options: rows, Recommendation: rec, Rationale: rationale}, nil
+}
+
+// toSettlementOption converts the canonical projectstate option to the
+// settlementEngine's OWN ProjectOption snapshot at the call boundary (Option B full
+// encapsulation: the Engine redefines every domain type it uses as its own generated
+// def and imports no projectstate, so the Manager maps field-by-field here). The
+// Engine reads only the option's settlement Terms, so only OptionID + Terms cross.
+func toSettlementOption(opt projectstate.ProjectOption) settlement.ProjectOption {
+	t := opt.Terms
+	return settlement.ProjectOption{
+		OptionID: settlement.OptionID(opt.OptionID),
+		Terms: settlement.SettlementTerms{
+			RevenueShare:         settlement.RevenueShareKind(t.RevenueShare),
+			RevenueSharePercent:  t.RevenueSharePercent,
+			ComputeCost:          settlement.ComputeCostKind(t.ComputeCost),
+			ComputeMarkupPercent: t.ComputeMarkupPercent,
+			Schedule:             settlement.ScheduleKind(t.Schedule),
+		},
+	}
+}
+
+// toOperationOption converts the canonical projectstate option to the
+// operationEstimationEngine's OWN slim ProjectOption snapshot at the call boundary
+// (Option B full encapsulation: the Engine redefines every domain type it uses as its
+// own generated def and imports no projectstate, so the Manager maps field-by-field
+// here). The Engine reads only the option's settlement Terms, so only OptionID + Terms
+// cross.
+func toOperationOption(opt projectstate.ProjectOption) operationestimation.ProjectOption {
+	t := opt.Terms
+	return operationestimation.ProjectOption{
+		OptionID: operationestimation.OptionID(opt.OptionID),
+		Terms: operationestimation.SettlementTerms{
+			RevenueShare:         operationestimation.RevenueShareKind(t.RevenueShare),
+			RevenueSharePercent:  t.RevenueSharePercent,
+			ComputeCost:          operationestimation.ComputeCostKind(t.ComputeCost),
+			ComputeMarkupPercent: t.ComputeMarkupPercent,
+			Schedule:             operationestimation.ScheduleKind(t.Schedule),
+		},
+	}
+}
+
+// toOperationUsage converts the canonical declared-usage snapshot to the
+// operationEstimationEngine's OWN UsageAssumption at the call boundary. The integer
+// fields widen to int64 in the generated contract def.
+func toOperationUsage(u projectstate.UsageAssumption) operationestimation.UsageAssumption {
+	return operationestimation.UsageAssumption{
+		ExpectedDailyActiveUsers: int64(u.ExpectedDailyActiveUsers),
+		RequestsPerMinute:        u.RequestsPerMinute,
+		AvgPayloadBytes:          int64(u.AvgPayloadBytes),
+	}
 }
 
 // assembleOption builds one ProjectOption by value from the committed Phase-2 slots
@@ -920,7 +974,7 @@ func assembleOption(
 // monthlyCostAtDeclaredLoad picks the UsageCostCurve point nearest LoadMultiplier==1.0
 // (the declared-usage point). Deterministic.
 func monthlyCostAtDeclaredLoad(curve operationestimation.UsageCostCurve) projectstate.Money {
-	best := projectstate.Money{}
+	best := operationestimation.Money{}
 	bestDist := math.MaxFloat64
 	for _, p := range curve.Points {
 		d := math.Abs(p.LoadMultiplier - 1.0)
@@ -929,7 +983,53 @@ func monthlyCostAtDeclaredLoad(curve operationestimation.UsageCostCurve) project
 			best = p.ProjectedMonthlyCost
 		}
 	}
-	return best
+	// Convert the Engine's OWN Money back to the canonical projectstate.Money at the
+	// boundary (Option B full encapsulation).
+	return toProjectStateMoney(best)
+}
+
+// toProjectStateMoney converts the operationEstimationEngine's OWN Money back to the
+// canonical projectstate.Money at the call boundary (Option B full encapsulation).
+func toProjectStateMoney(m operationestimation.Money) projectstate.Money {
+	return projectstate.Money{MinorUnits: m.MinorUnits, Currency: m.Currency}
+}
+
+// toEstimationOption converts the canonical projectstate option to the
+// constructionEstimationEngine's OWN SLIM ProjectOption snapshot at the call boundary
+// (Option B full encapsulation: the Engine redefines every domain type it uses as its
+// own generated def and imports no projectstate, so the Manager maps field-by-field
+// here). The Engine reads only the construction-side network + worker mix + calendar,
+// so only those (plus OptionID for audit) cross — the settlement Terms / declared usage
+// / infra / solution kind do NOT. The generated WorkerMix.StaffingCap + OptionActivity.
+// RiskBucket widen int → int64.
+func toEstimationOption(opt projectstate.ProjectOption) estimation.ProjectOption {
+	activities := make([]estimation.OptionActivity, 0, len(opt.Network.Activities))
+	for _, a := range opt.Network.Activities {
+		activities = append(activities, estimation.OptionActivity{
+			ActivityId:     a.ActivityID,
+			EffortDays:     a.EffortDays,
+			WorkerClass:    a.WorkerClass,
+			OnCriticalPath: a.OnCriticalPath,
+			RiskBucket:     int64(a.RiskBucket),
+		})
+	}
+	rates := make(map[string]estimation.Money, len(opt.WorkerMix.ClassRates))
+	for cls, m := range opt.WorkerMix.ClassRates {
+		rates[cls] = estimation.Money{MinorUnits: m.MinorUnits, Currency: m.Currency}
+	}
+	return estimation.ProjectOption{
+		OptionId:            estimation.OptionID(opt.OptionID),
+		Network:             estimation.ActivityNetwork{Activities: activities},
+		WorkerMix:           estimation.WorkerMix{ClassRates: rates, StaffingCap: int64(opt.WorkerMix.StaffingCap)},
+		CalendarDaysPerWeek: opt.CalendarDaysPerWeek,
+	}
+}
+
+// toProjectStateMoneyFromEstimation converts the constructionEstimationEngine's OWN
+// Money back to the canonical projectstate.Money at the call boundary (Option B full
+// encapsulation).
+func toProjectStateMoneyFromEstimation(m estimation.Money) projectstate.Money {
+	return projectstate.Money{MinorUnits: m.MinorUnits, Currency: m.Currency}
 }
 
 // recommendOption picks the row with the best (lowest CompositeRisk, tie-break

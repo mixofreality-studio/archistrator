@@ -5,24 +5,23 @@ import (
 	"testing"
 
 	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
-
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
 // launchTerms is the registered launch regime: flat 10% revenue share, flat compute
-// markup of 20%, monthly schedule. Both pivot regimes are known.
-func launchTerms() projectstate.SettlementTerms {
-	return projectstate.SettlementTerms{
-		RevenueShare:         projectstate.RevenueShareLaunchFlat10,
+// markup of 20%, monthly schedule. Both pivot regimes are known. Uses the Engine's
+// OWN generated SettlementTerms (Option B full encapsulation — no projectstate import).
+func launchTerms() SettlementTerms {
+	return SettlementTerms{
+		RevenueShare:         RevenueShareLaunchFlat10,
 		RevenueSharePercent:  10.0,
-		ComputeCost:          projectstate.ComputeCostFlatMarkup,
+		ComputeCost:          ComputeCostFlatMarkup,
 		ComputeMarkupPercent: 20.0,
-		Schedule:             projectstate.ScheduleMonthly,
+		Schedule:             ScheduleMonthly,
 	}
 }
 
-func usd(minor int64) projectstate.Money {
-	return projectstate.Money{MinorUnits: minor, Currency: "USD"}
+func usd(minor int64) Money {
+	return Money{MinorUnits: minor, Currency: "USD"}
 }
 
 func TestProjectCommitTimeRevenueShareAndComputeCost(t *testing.T) {
@@ -30,7 +29,7 @@ func TestProjectCommitTimeRevenueShareAndComputeCost(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		terms     projectstate.SettlementTerms
+		terms     SettlementTerms
 		want      Projection
 		wantErr   bool
 		errKind   fweng.Kind
@@ -40,17 +39,17 @@ func TestProjectCommitTimeRevenueShareAndComputeCost(t *testing.T) {
 			name:  "happy path echoes the regime kinds and percents",
 			terms: launchTerms(),
 			want: Projection{
-				RevenueShareKind:     projectstate.RevenueShareLaunchFlat10,
+				RevenueShareKind:     RevenueShareLaunchFlat10,
 				RevenueSharePercent:  10.0,
-				ComputeCostKind:      projectstate.ComputeCostFlatMarkup,
+				ComputeCostKind:      ComputeCostFlatMarkup,
 				ComputeMarkupPercent: 20.0,
 			},
 		},
 		{
 			name: "unknown revenue share is unknown-terms error",
-			terms: projectstate.SettlementTerms{
-				RevenueShare: projectstate.RevenueShareUnknown,
-				ComputeCost:  projectstate.ComputeCostFlatMarkup,
+			terms: SettlementTerms{
+				RevenueShare: RevenueShareUnknown,
+				ComputeCost:  ComputeCostFlatMarkup,
 			},
 			wantErr:   true,
 			errKind:   fweng.InvalidInput,
@@ -58,9 +57,9 @@ func TestProjectCommitTimeRevenueShareAndComputeCost(t *testing.T) {
 		},
 		{
 			name: "unknown compute cost is unknown-terms error",
-			terms: projectstate.SettlementTerms{
-				RevenueShare: projectstate.RevenueShareLaunchFlat10,
-				ComputeCost:  projectstate.ComputeCostUnknown,
+			terms: SettlementTerms{
+				RevenueShare: RevenueShareLaunchFlat10,
+				ComputeCost:  ComputeCostUnknown,
 			},
 			wantErr:   true,
 			errKind:   fweng.InvalidInput,
@@ -71,7 +70,7 @@ func TestProjectCommitTimeRevenueShareAndComputeCost(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := e.ProjectCommitTimeRevenueShareAndComputeCost(
-				projectstate.ProjectOption{OptionID: "opt-1", Terms: tt.terms},
+				ProjectOption{OptionID: "opt-1", Terms: tt.terms},
 			)
 			if tt.wantErr {
 				assertEngineErr(t, err, tt.errKind, tt.errDetail)
@@ -94,7 +93,7 @@ func TestComputeNet(t *testing.T) {
 		name      string
 		revenue   CycleRevenue
 		usage     CycleUsage
-		terms     projectstate.SettlementTerms
+		terms     SettlementTerms
 		want      SettlementResult
 		wantErr   bool
 		errKind   fweng.Kind
@@ -146,9 +145,9 @@ func TestComputeNet(t *testing.T) {
 			name:    "unknown terms is unknown-terms error",
 			revenue: CycleRevenue{GrossInbound: usd(100000)},
 			usage:   CycleUsage{ComputeUnitSeconds: 100},
-			terms: projectstate.SettlementTerms{
-				RevenueShare: projectstate.RevenueShareUnknown,
-				ComputeCost:  projectstate.ComputeCostUnknown,
+			terms: SettlementTerms{
+				RevenueShare: RevenueShareUnknown,
+				ComputeCost:  ComputeCostUnknown,
 			},
 			wantErr:   true,
 			errKind:   fweng.InvalidInput,
@@ -164,7 +163,7 @@ func TestComputeNet(t *testing.T) {
 		},
 		{
 			name:    "empty currency is contract misuse",
-			revenue: CycleRevenue{GrossInbound: projectstate.Money{MinorUnits: 100000, Currency: ""}},
+			revenue: CycleRevenue{GrossInbound: Money{MinorUnits: 100000, Currency: ""}},
 			usage:   CycleUsage{},
 			terms:   launchTerms(),
 			wantErr: true,
@@ -224,7 +223,7 @@ func TestRecomputeNet(t *testing.T) {
 	// RecomputeNet honours the same money-safety guard.
 	_, err = e.RecomputeNet(ReSettlementInput{
 		Revenue: CycleRevenue{GrossInbound: usd(50000)},
-		Terms:   projectstate.SettlementTerms{RevenueShare: projectstate.RevenueShareUnknown, ComputeCost: projectstate.ComputeCostUnknown},
+		Terms:   SettlementTerms{RevenueShare: RevenueShareUnknown, ComputeCost: ComputeCostUnknown},
 	})
 	assertEngineErr(t, err, fweng.InvalidInput, "unknown terms")
 }
@@ -262,10 +261,10 @@ func TestMoneyIsExactInt64(t *testing.T) {
 	got, err := e.ComputeNet(
 		CycleRevenue{GrossInbound: usd(99)},
 		CycleUsage{},
-		projectstate.SettlementTerms{
-			RevenueShare:         projectstate.RevenueShareNegotiatedRate,
+		SettlementTerms{
+			RevenueShare:         RevenueShareNegotiatedRate,
 			RevenueSharePercent:  33.0,
-			ComputeCost:          projectstate.ComputeCostFlatMarkup,
+			ComputeCost:          ComputeCostFlatMarkup,
 			ComputeMarkupPercent: 0,
 		},
 	)

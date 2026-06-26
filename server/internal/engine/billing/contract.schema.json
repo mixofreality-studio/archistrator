@@ -1,0 +1,217 @@
+{
+  "$id": "archistrator://contract/billing",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "CustomerID": {
+      "type": "string"
+    },
+    "HostingRate": {
+      "type": "object",
+      "properties": {
+        "PerComputeUnitSecond": {
+          "$ref": "#/$defs/Money"
+        },
+        "PerStorageGiBMonth": {
+          "$ref": "#/$defs/Money"
+        },
+        "PerEgressGiB": {
+          "$ref": "#/$defs/Money"
+        },
+        "Currency": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "PerComputeUnitSecond",
+        "PerStorageGiBMonth",
+        "PerEgressGiB",
+        "Currency"
+      ],
+      "additionalProperties": false
+    },
+    "Money": {
+      "type": "object",
+      "properties": {
+        "minorUnits": {
+          "type": "integer"
+        },
+        "currency": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "minorUnits",
+        "currency"
+      ],
+      "additionalProperties": false
+    },
+    "OptionID": {
+      "type": "string"
+    },
+    "PeriodID": {
+      "type": "string"
+    },
+    "PeriodUsage": {
+      "type": "object",
+      "properties": {
+        "CustomerID": {
+          "$ref": "#/$defs/CustomerID"
+        },
+        "PeriodID": {
+          "$ref": "#/$defs/PeriodID"
+        },
+        "ConstructionTokens": {
+          "type": "integer"
+        },
+        "ComputeUnitSeconds": {
+          "type": "number"
+        },
+        "StorageBytesMonths": {
+          "type": "number"
+        },
+        "EgressBytes": {
+          "type": "number"
+        },
+        "Currency": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "CustomerID",
+        "PeriodID",
+        "ConstructionTokens",
+        "ComputeUnitSeconds",
+        "StorageBytesMonths",
+        "EgressBytes",
+        "Currency"
+      ],
+      "additionalProperties": false
+    },
+    "ProjectOption": {
+      "type": "object",
+      "properties": {
+        "OptionID": {
+          "$ref": "#/$defs/OptionID"
+        },
+        "Pricing": {
+          "$ref": "#/$defs/ServicePricing"
+        }
+      },
+      "required": [
+        "OptionID",
+        "Pricing"
+      ],
+      "additionalProperties": false
+    },
+    "ServiceCostProjection": {
+      "type": "object",
+      "properties": {
+        "TokenCostEstimate": {
+          "$ref": "#/$defs/Money"
+        },
+        "HostingRate": {
+          "$ref": "#/$defs/HostingRate"
+        }
+      },
+      "required": [
+        "TokenCostEstimate",
+        "HostingRate"
+      ],
+      "additionalProperties": false
+    },
+    "ServiceInvoice": {
+      "type": "object",
+      "properties": {
+        "ServiceInvoiceAmount": {
+          "$ref": "#/$defs/Money"
+        },
+        "TokenCharge": {
+          "$ref": "#/$defs/Money"
+        },
+        "HostingCharge": {
+          "$ref": "#/$defs/Money"
+        }
+      },
+      "required": [
+        "ServiceInvoiceAmount",
+        "TokenCharge",
+        "HostingCharge"
+      ],
+      "additionalProperties": false
+    },
+    "ServicePricing": {
+      "type": "object",
+      "properties": {
+        "Kind": {
+          "$ref": "#/$defs/ServicePricingKind"
+        },
+        "MarkupPercent": {
+          "type": "number"
+        },
+        "Currency": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "Kind",
+        "MarkupPercent",
+        "Currency"
+      ],
+      "additionalProperties": false
+    },
+    "ServicePricingKind": {
+      "type": "integer",
+      "enum": [
+        0,
+        1
+      ],
+      "x-enum-varnames": [
+        "ServicePricingUnknown",
+        "ServicePricingFlatMarkup"
+      ],
+      "x-go-base": "int"
+    }
+  },
+  "title": "billing contract",
+  "interface": {
+    "name": "BillingEngine",
+    "operations": [
+      {
+        "name": "PriceServiceForOption",
+        "params": [
+          {
+            "name": "option",
+            "schema": {
+              "$ref": "#/$defs/ProjectOption"
+            }
+          }
+        ],
+        "result": {
+          "$ref": "#/$defs/ServiceCostProjection"
+        },
+        "error": true
+      },
+      {
+        "name": "PriceUsage",
+        "params": [
+          {
+            "name": "usage",
+            "schema": {
+              "$ref": "#/$defs/PeriodUsage"
+            }
+          },
+          {
+            "name": "servicePricing",
+            "schema": {
+              "$ref": "#/$defs/ServicePricing"
+            }
+          }
+        ],
+        "result": {
+          "$ref": "#/$defs/ServiceInvoice"
+        },
+        "error": true
+      }
+    ]
+  }
+}

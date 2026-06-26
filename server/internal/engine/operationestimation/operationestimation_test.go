@@ -6,28 +6,20 @@ import (
 	"testing"
 
 	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
-
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
-func sampleOption() projectstate.ProjectOption {
-	return projectstate.ProjectOption{
-		OptionID:           "opt-normal",
-		InfrastructureKind: projectstate.InfrastructureKindGoTemporalPostgres,
-		Terms: projectstate.SettlementTerms{
-			RevenueShare:        projectstate.RevenueShareLaunchFlat10,
+func sampleOption() ProjectOption {
+	return ProjectOption{
+		OptionID: "opt-normal",
+		Terms: SettlementTerms{
+			RevenueShare:        RevenueShareLaunchFlat10,
 			RevenueSharePercent: 10.0,
-		},
-		DeclaredUsage: projectstate.UsageAssumption{
-			ExpectedDailyActiveUsers: 1000,
-			RequestsPerMinute:        50,
-			AvgPayloadBytes:          2048,
 		},
 	}
 }
 
-func sampleUsage() projectstate.UsageAssumption {
-	return projectstate.UsageAssumption{
+func sampleUsage() UsageAssumption {
+	return UsageAssumption{
 		ExpectedDailyActiveUsers: 1000,
 		RequestsPerMinute:        50,
 		AvgPayloadBytes:          2048,
@@ -47,9 +39,9 @@ func asEngineError(t *testing.T, err error) *fweng.Error {
 func TestEstimateForOption(t *testing.T) {
 	tests := []struct {
 		name       string
-		option     projectstate.ProjectOption
-		usage      projectstate.UsageAssumption
-		infra      projectstate.InfrastructureKind
+		option     ProjectOption
+		usage      UsageAssumption
+		infra      InfrastructureKind
 		wantErr    bool
 		wantKind   fweng.Kind
 		assertGood func(t *testing.T, f OperationForecast)
@@ -58,7 +50,7 @@ func TestEstimateForOption(t *testing.T) {
 			name:   "happy path GoTemporalPostgres",
 			option: sampleOption(),
 			usage:  sampleUsage(),
-			infra:  projectstate.InfrastructureKindGoTemporalPostgres,
+			infra:  InfrastructureKindGoTemporalPostgres,
 			assertGood: func(t *testing.T, f OperationForecast) {
 				pts := f.UsageCostCurve.Points
 				if len(pts) == 0 {
@@ -100,19 +92,19 @@ func TestEstimateForOption(t *testing.T) {
 			name:     "unknown infrastructure",
 			option:   sampleOption(),
 			usage:    sampleUsage(),
-			infra:    projectstate.InfrastructureKindUnknown,
+			infra:    InfrastructureKindUnknown,
 			wantErr:  true,
 			wantKind: fweng.InvalidInput,
 		},
 		{
 			name:   "all-zero declared usage is contract misuse",
 			option: sampleOption(),
-			usage: projectstate.UsageAssumption{
+			usage: UsageAssumption{
 				ExpectedDailyActiveUsers: 0,
 				RequestsPerMinute:        0,
 				AvgPayloadBytes:          0,
 			},
-			infra:    projectstate.InfrastructureKindGoTemporalPostgres,
+			infra:    InfrastructureKindGoTemporalPostgres,
 			wantErr:  true,
 			wantKind: fweng.ContractMisuse,
 		},
@@ -151,7 +143,7 @@ func TestProjectForOperatedApp(t *testing.T) {
 	tests := []struct {
 		name       string
 		observed   ObservedUsage
-		infra      projectstate.InfrastructureKind
+		infra      InfrastructureKind
 		points     []ScalePoint
 		wantErr    bool
 		wantKind   fweng.Kind
@@ -160,7 +152,7 @@ func TestProjectForOperatedApp(t *testing.T) {
 		{
 			name:     "happy path with what-if points",
 			observed: observed,
-			infra:    projectstate.InfrastructureKindGoTemporalPostgres,
+			infra:    InfrastructureKindGoTemporalPostgres,
 			points:   []ScalePoint{{LoadMultiplier: 2.0}, {LoadMultiplier: 5.0}},
 			assertGood: func(t *testing.T, p CostProjection) {
 				if p.CurrentRunRate.MinorUnits <= 0 {
@@ -192,7 +184,7 @@ func TestProjectForOperatedApp(t *testing.T) {
 		{
 			name:     "empty what-if points yields only current-load point",
 			observed: observed,
-			infra:    projectstate.InfrastructureKindGoTemporalPostgres,
+			infra:    InfrastructureKindGoTemporalPostgres,
 			points:   nil,
 			assertGood: func(t *testing.T, p CostProjection) {
 				if len(p.ScaleWhatIfCurve.Points) != 1 {
@@ -206,7 +198,7 @@ func TestProjectForOperatedApp(t *testing.T) {
 		{
 			name:     "non-positive load multiplier is invalid input",
 			observed: observed,
-			infra:    projectstate.InfrastructureKindGoTemporalPostgres,
+			infra:    InfrastructureKindGoTemporalPostgres,
 			points:   []ScalePoint{{LoadMultiplier: 0}},
 			wantErr:  true,
 			wantKind: fweng.InvalidInput,
@@ -214,7 +206,7 @@ func TestProjectForOperatedApp(t *testing.T) {
 		{
 			name:     "negative load multiplier is invalid input",
 			observed: observed,
-			infra:    projectstate.InfrastructureKindGoTemporalPostgres,
+			infra:    InfrastructureKindGoTemporalPostgres,
 			points:   []ScalePoint{{LoadMultiplier: -2.0}},
 			wantErr:  true,
 			wantKind: fweng.InvalidInput,
@@ -222,7 +214,7 @@ func TestProjectForOperatedApp(t *testing.T) {
 		{
 			name:     "unknown infrastructure",
 			observed: observed,
-			infra:    projectstate.InfrastructureKindUnknown,
+			infra:    InfrastructureKindUnknown,
 			points:   nil,
 			wantErr:  true,
 			wantKind: fweng.InvalidInput,
@@ -255,7 +247,7 @@ func TestProjectForOperatedApp(t *testing.T) {
 func TestDeterminism(t *testing.T) {
 	opt := sampleOption()
 	usage := sampleUsage()
-	infra := projectstate.InfrastructureKindGoTemporalPostgres
+	infra := InfrastructureKindGoTemporalPostgres
 
 	f1, err := New().EstimateForOption(opt, usage, infra)
 	if err != nil {

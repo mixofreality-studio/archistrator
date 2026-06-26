@@ -1,0 +1,298 @@
+{
+  "$id": "archistrator://contract/settlement",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "ComputeCostKind": {
+      "type": "integer",
+      "enum": [
+        0,
+        1,
+        2
+      ],
+      "x-enum-varnames": [
+        "ComputeCostUnknown",
+        "ComputeCostFlatMarkup",
+        "ComputeCostTieredFloors"
+      ],
+      "x-go-base": "int"
+    },
+    "CycleRevenue": {
+      "type": "object",
+      "properties": {
+        "GrossInbound": {
+          "$ref": "#/$defs/Money"
+        },
+        "EventCount": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "GrossInbound",
+        "EventCount"
+      ],
+      "additionalProperties": false
+    },
+    "CycleUsage": {
+      "type": "object",
+      "properties": {
+        "ComputeUnitSeconds": {
+          "type": "number"
+        },
+        "StorageBytesMonths": {
+          "type": "number"
+        },
+        "EgressBytes": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "ComputeUnitSeconds",
+        "StorageBytesMonths",
+        "EgressBytes"
+      ],
+      "additionalProperties": false
+    },
+    "Money": {
+      "type": "object",
+      "properties": {
+        "minorUnits": {
+          "type": "integer"
+        },
+        "currency": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "minorUnits",
+        "currency"
+      ],
+      "additionalProperties": false
+    },
+    "OptionID": {
+      "type": "string"
+    },
+    "ProjectOption": {
+      "type": "object",
+      "properties": {
+        "OptionID": {
+          "$ref": "#/$defs/OptionID"
+        },
+        "Terms": {
+          "$ref": "#/$defs/SettlementTerms"
+        }
+      },
+      "required": [
+        "OptionID",
+        "Terms"
+      ],
+      "additionalProperties": false
+    },
+    "Projection": {
+      "type": "object",
+      "properties": {
+        "RevenueShareKind": {
+          "$ref": "#/$defs/RevenueShareKind"
+        },
+        "RevenueSharePercent": {
+          "type": "number"
+        },
+        "ComputeCostKind": {
+          "$ref": "#/$defs/ComputeCostKind"
+        },
+        "ComputeMarkupPercent": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "RevenueShareKind",
+        "RevenueSharePercent",
+        "ComputeCostKind",
+        "ComputeMarkupPercent"
+      ],
+      "additionalProperties": false
+    },
+    "ReSettlementInput": {
+      "type": "object",
+      "properties": {
+        "Revenue": {
+          "$ref": "#/$defs/CycleRevenue"
+        },
+        "Usage": {
+          "$ref": "#/$defs/CycleUsage"
+        },
+        "Terms": {
+          "$ref": "#/$defs/SettlementTerms"
+        },
+        "PriorSettled": {
+          "$ref": "#/$defs/SettlementResult"
+        }
+      },
+      "required": [
+        "Revenue",
+        "Usage",
+        "Terms",
+        "PriorSettled"
+      ],
+      "additionalProperties": false
+    },
+    "RevenueShareKind": {
+      "type": "integer",
+      "enum": [
+        0,
+        1,
+        2
+      ],
+      "x-enum-varnames": [
+        "RevenueShareUnknown",
+        "RevenueShareLaunchFlat10",
+        "RevenueShareNegotiatedRate"
+      ],
+      "x-go-base": "int"
+    },
+    "RoutingDirective": {
+      "type": "integer",
+      "enum": [
+        0,
+        1,
+        2
+      ],
+      "x-enum-varnames": [
+        "RoutingNoAction",
+        "RoutingPayout",
+        "RoutingCharge"
+      ],
+      "x-go-base": "int"
+    },
+    "ScheduleKind": {
+      "type": "integer",
+      "enum": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "x-enum-varnames": [
+        "ScheduleUnknown",
+        "ScheduleMonthly",
+        "ScheduleWeekly",
+        "ScheduleDaily"
+      ],
+      "x-go-base": "int"
+    },
+    "SettlementResult": {
+      "type": "object",
+      "properties": {
+        "SignedNet": {
+          "$ref": "#/$defs/Money"
+        },
+        "RoutingDirective": {
+          "$ref": "#/$defs/RoutingDirective"
+        },
+        "RevenueShareApplied": {
+          "$ref": "#/$defs/Money"
+        },
+        "ComputeCostApplied": {
+          "$ref": "#/$defs/Money"
+        }
+      },
+      "required": [
+        "SignedNet",
+        "RoutingDirective",
+        "RevenueShareApplied",
+        "ComputeCostApplied"
+      ],
+      "additionalProperties": false
+    },
+    "SettlementTerms": {
+      "type": "object",
+      "properties": {
+        "revenueShare": {
+          "$ref": "#/$defs/RevenueShareKind"
+        },
+        "revenueSharePercent": {
+          "type": "number"
+        },
+        "computeCost": {
+          "$ref": "#/$defs/ComputeCostKind"
+        },
+        "computeMarkupPercent": {
+          "type": "number"
+        },
+        "schedule": {
+          "$ref": "#/$defs/ScheduleKind"
+        }
+      },
+      "required": [
+        "revenueShare",
+        "revenueSharePercent",
+        "computeCost",
+        "computeMarkupPercent",
+        "schedule"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "title": "settlement contract",
+  "interface": {
+    "name": "SettlementEngine",
+    "operations": [
+      {
+        "name": "ComputeNet",
+        "params": [
+          {
+            "name": "revenue",
+            "schema": {
+              "$ref": "#/$defs/CycleRevenue"
+            }
+          },
+          {
+            "name": "usage",
+            "schema": {
+              "$ref": "#/$defs/CycleUsage"
+            }
+          },
+          {
+            "name": "terms",
+            "schema": {
+              "$ref": "#/$defs/SettlementTerms"
+            }
+          }
+        ],
+        "result": {
+          "$ref": "#/$defs/SettlementResult"
+        },
+        "error": true
+      },
+      {
+        "name": "ProjectCommitTimeRevenueShareAndComputeCost",
+        "params": [
+          {
+            "name": "option",
+            "schema": {
+              "$ref": "#/$defs/ProjectOption"
+            }
+          }
+        ],
+        "result": {
+          "$ref": "#/$defs/Projection"
+        },
+        "error": true
+      },
+      {
+        "name": "RecomputeNet",
+        "params": [
+          {
+            "name": "affectedCycle",
+            "schema": {
+              "$ref": "#/$defs/ReSettlementInput"
+            }
+          }
+        ],
+        "result": {
+          "$ref": "#/$defs/SettlementResult"
+        },
+        "error": true
+      }
+    ]
+  }
+}

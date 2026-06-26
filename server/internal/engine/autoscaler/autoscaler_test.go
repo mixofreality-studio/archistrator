@@ -65,7 +65,7 @@ func autoPolicy() AutoscalerPolicy {
 }
 
 // desired builds a DesiredState on the launch infrastructure at n replicas.
-func desired(n int) DesiredState {
+func desired(n int64) DesiredState {
 	return DesiredState{InfrastructureKind: launchKind, Replicas: n}
 }
 
@@ -428,7 +428,7 @@ func TestDeterminism(t *testing.T) {
 
 // --- helpers ----------------------------------------------------------------
 
-func mustDesiredAt(n int, lastDecision time.Time) DesiredState {
+func mustDesiredAt(n int64, lastDecision time.Time) DesiredState {
 	d := desired(n)
 	d.LastDecisionAt = lastDecision
 	return d

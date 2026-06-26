@@ -3,11 +3,13 @@ module github.com/mixofreality-studio/archistrator/server
 go 1.25.4
 
 require (
+	github.com/google/jsonschema-go v0.4.3
 	github.com/jackc/pgx/v5 v5.9.2
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.60.0
 	go.temporal.io/api v1.62.12
 	go.temporal.io/sdk v1.44.0
 	go.temporal.io/sdk/contrib/opentelemetry v0.7.0
+	golang.org/x/tools v0.43.0
 )
 
 require (
@@ -100,7 +102,6 @@ require (
 	go.opentelemetry.io/proto/otlp v1.10.0 // indirect
 	golang.org/x/crypto v0.50.0 // indirect
 	golang.org/x/mod v0.34.0 // indirect
-	golang.org/x/tools v0.43.0 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 )
 

@@ -84,7 +84,7 @@ type tieredStrategy struct {
 // effectiveRetryBudget modulates the policy's base retry budget by SLA class — a
 // VARIABLE on the default (volatilities.md line 122): higher tiers get a larger
 // budget before the decision flips to a human/takeover. Deterministic.
-func (s tieredStrategy) effectiveRetryBudget() int {
+func (s tieredStrategy) effectiveRetryBudget() int64 {
 	budget := s.policy.RetryBudget
 	switch s.policy.SLATier {
 	case SLATierEnterprise:

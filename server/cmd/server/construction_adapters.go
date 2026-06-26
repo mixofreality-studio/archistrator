@@ -377,7 +377,7 @@ func (a interventionAdapter) DecideOnVariance(
 		Kind:       interventionVarianceKind(v.Kind),
 		// AttemptCount drives Tiered retry-budget exhaustion (the Manager threads its
 		// supervision-loop attempt counter into the mirror's AttemptCount field).
-		AttemptCount: v.AttemptCount,
+		AttemptCount: int64(v.AttemptCount),
 		// Composition-supplied regime (Tiered{RetryBudget:2} default). Without a
 		// registered Mode the Engine rejects every variance with "unknown policy mode",
 		// so the composition root guarantees a non-Unknown mode is set.

@@ -1,0 +1,372 @@
+{
+  "$id": "archistrator://contract/operationestimation",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "ComputeCostKind": {
+      "type": "integer",
+      "enum": [
+        0,
+        1,
+        2
+      ],
+      "x-enum-varnames": [
+        "ComputeCostUnknown",
+        "ComputeCostFlatMarkup",
+        "ComputeCostTieredFloors"
+      ],
+      "x-go-base": "int"
+    },
+    "CostCurvePoint": {
+      "type": "object",
+      "properties": {
+        "LoadMultiplier": {
+          "type": "number"
+        },
+        "ProjectedMonthlyCost": {
+          "$ref": "#/$defs/Money"
+        }
+      },
+      "required": [
+        "LoadMultiplier",
+        "ProjectedMonthlyCost"
+      ],
+      "additionalProperties": false
+    },
+    "CostProjection": {
+      "type": "object",
+      "properties": {
+        "CurrentRunRate": {
+          "$ref": "#/$defs/Money"
+        },
+        "ProjectedMonthlyCost": {
+          "$ref": "#/$defs/Money"
+        },
+        "ScaleWhatIfCurve": {
+          "$ref": "#/$defs/WhatIfCurve"
+        }
+      },
+      "required": [
+        "CurrentRunRate",
+        "ProjectedMonthlyCost",
+        "ScaleWhatIfCurve"
+      ],
+      "additionalProperties": false
+    },
+    "InfrastructureKind": {
+      "type": "integer",
+      "enum": [
+        0,
+        1
+      ],
+      "x-enum-varnames": [
+        "InfrastructureKindUnknown",
+        "InfrastructureKindGoTemporalPostgres"
+      ],
+      "x-go-base": "int"
+    },
+    "Money": {
+      "type": "object",
+      "properties": {
+        "minorUnits": {
+          "type": "integer"
+        },
+        "currency": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "minorUnits",
+        "currency"
+      ],
+      "additionalProperties": false
+    },
+    "ObservedUsage": {
+      "type": "object",
+      "properties": {
+        "ComputeUnitSeconds": {
+          "type": "number"
+        },
+        "RequestCount": {
+          "type": "integer"
+        },
+        "StorageBytesMonths": {
+          "type": "number"
+        },
+        "EgressBytes": {
+          "type": "number"
+        },
+        "ObservedReplicas": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "ComputeUnitSeconds",
+        "RequestCount",
+        "StorageBytesMonths",
+        "EgressBytes",
+        "ObservedReplicas"
+      ],
+      "additionalProperties": false
+    },
+    "OperationForecast": {
+      "type": "object",
+      "properties": {
+        "UsageCostCurve": {
+          "$ref": "#/$defs/UsageCostCurve"
+        },
+        "PayoutVsShortfallForecast": {
+          "$ref": "#/$defs/PayoutShortfallForecast"
+        }
+      },
+      "required": [
+        "UsageCostCurve",
+        "PayoutVsShortfallForecast"
+      ],
+      "additionalProperties": false
+    },
+    "OptionID": {
+      "type": "string"
+    },
+    "PayoutShortfallForecast": {
+      "type": "object",
+      "properties": {
+        "ExpectedPerCycleNet": {
+          "$ref": "#/$defs/Money"
+        },
+        "SensitivityLow": {
+          "$ref": "#/$defs/Money"
+        },
+        "SensitivityHigh": {
+          "$ref": "#/$defs/Money"
+        }
+      },
+      "required": [
+        "ExpectedPerCycleNet",
+        "SensitivityLow",
+        "SensitivityHigh"
+      ],
+      "additionalProperties": false
+    },
+    "ProjectOption": {
+      "type": "object",
+      "properties": {
+        "OptionID": {
+          "$ref": "#/$defs/OptionID"
+        },
+        "Terms": {
+          "$ref": "#/$defs/SettlementTerms"
+        }
+      },
+      "required": [
+        "OptionID",
+        "Terms"
+      ],
+      "additionalProperties": false
+    },
+    "RevenueShareKind": {
+      "type": "integer",
+      "enum": [
+        0,
+        1,
+        2
+      ],
+      "x-enum-varnames": [
+        "RevenueShareUnknown",
+        "RevenueShareLaunchFlat10",
+        "RevenueShareNegotiatedRate"
+      ],
+      "x-go-base": "int"
+    },
+    "ScalePoint": {
+      "type": "object",
+      "properties": {
+        "LoadMultiplier": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "LoadMultiplier"
+      ],
+      "additionalProperties": false
+    },
+    "ScheduleKind": {
+      "type": "integer",
+      "enum": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "x-enum-varnames": [
+        "ScheduleUnknown",
+        "ScheduleMonthly",
+        "ScheduleWeekly",
+        "ScheduleDaily"
+      ],
+      "x-go-base": "int"
+    },
+    "SettlementTerms": {
+      "type": "object",
+      "properties": {
+        "revenueShare": {
+          "$ref": "#/$defs/RevenueShareKind"
+        },
+        "revenueSharePercent": {
+          "type": "number"
+        },
+        "computeCost": {
+          "$ref": "#/$defs/ComputeCostKind"
+        },
+        "computeMarkupPercent": {
+          "type": "number"
+        },
+        "schedule": {
+          "$ref": "#/$defs/ScheduleKind"
+        }
+      },
+      "required": [
+        "revenueShare",
+        "revenueSharePercent",
+        "computeCost",
+        "computeMarkupPercent",
+        "schedule"
+      ],
+      "additionalProperties": false
+    },
+    "UsageAssumption": {
+      "type": "object",
+      "properties": {
+        "expectedDailyActiveUsers": {
+          "type": "integer"
+        },
+        "requestsPerMinute": {
+          "type": "number"
+        },
+        "avgPayloadBytes": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "expectedDailyActiveUsers",
+        "requestsPerMinute",
+        "avgPayloadBytes"
+      ],
+      "additionalProperties": false
+    },
+    "UsageCostCurve": {
+      "type": "object",
+      "properties": {
+        "Points": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "$ref": "#/$defs/CostCurvePoint"
+          }
+        }
+      },
+      "required": [
+        "Points"
+      ],
+      "additionalProperties": false
+    },
+    "WhatIfCurve": {
+      "type": "object",
+      "properties": {
+        "Points": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "$ref": "#/$defs/WhatIfPoint"
+          }
+        }
+      },
+      "required": [
+        "Points"
+      ],
+      "additionalProperties": false
+    },
+    "WhatIfPoint": {
+      "type": "object",
+      "properties": {
+        "LoadMultiplier": {
+          "type": "number"
+        },
+        "ProjectedMonthlyCost": {
+          "$ref": "#/$defs/Money"
+        }
+      },
+      "required": [
+        "LoadMultiplier",
+        "ProjectedMonthlyCost"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "title": "operationestimation contract",
+  "interface": {
+    "name": "OperationEstimationEngine",
+    "operations": [
+      {
+        "name": "EstimateForOption",
+        "params": [
+          {
+            "name": "option",
+            "schema": {
+              "$ref": "#/$defs/ProjectOption"
+            }
+          },
+          {
+            "name": "declaredUsage",
+            "schema": {
+              "$ref": "#/$defs/UsageAssumption"
+            }
+          },
+          {
+            "name": "infrastructureKind",
+            "schema": {
+              "$ref": "#/$defs/InfrastructureKind"
+            }
+          }
+        ],
+        "result": {
+          "$ref": "#/$defs/OperationForecast"
+        },
+        "error": true
+      },
+      {
+        "name": "ProjectForOperatedApp",
+        "params": [
+          {
+            "name": "observedUsage",
+            "schema": {
+              "$ref": "#/$defs/ObservedUsage"
+            }
+          },
+          {
+            "name": "infrastructureKind",
+            "schema": {
+              "$ref": "#/$defs/InfrastructureKind"
+            }
+          },
+          {
+            "name": "scaleWhatIfPoints",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ScalePoint"
+              }
+            }
+          }
+        ],
+        "result": {
+          "$ref": "#/$defs/CostProjection"
+        },
+        "error": true
+      }
+    ]
+  }
+}

@@ -1,0 +1,432 @@
+{
+  "$id": "archistrator://contract/intervention",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "ActivityID": {
+      "type": "string"
+    },
+    "ConstructionVariance": {
+      "type": "object",
+      "properties": {
+        "ProjectID": {
+          "$ref": "#/$defs/ProjectID"
+        },
+        "ActivityID": {
+          "$ref": "#/$defs/ActivityID"
+        },
+        "Kind": {
+          "$ref": "#/$defs/VarianceKind"
+        },
+        "AttemptCount": {
+          "type": "integer"
+        },
+        "Severity": {
+          "$ref": "#/$defs/Severity"
+        },
+        "Policy": {
+          "$ref": "#/$defs/InterventionPolicy"
+        }
+      },
+      "required": [
+        "ProjectID",
+        "ActivityID",
+        "Kind",
+        "AttemptCount",
+        "Severity",
+        "Policy"
+      ],
+      "additionalProperties": false
+    },
+    "CustomerID": {
+      "type": "string"
+    },
+    "CycleID": {
+      "type": "string"
+    },
+    "HealthChange": {
+      "type": "object",
+      "properties": {
+        "OperatedAppID": {
+          "$ref": "#/$defs/OperatedAppID"
+        },
+        "FromHealth": {
+          "$ref": "#/$defs/HealthStatus"
+        },
+        "ToHealth": {
+          "$ref": "#/$defs/HealthStatus"
+        },
+        "SLOStatus": {
+          "$ref": "#/$defs/SLOStatus"
+        },
+        "Severity": {
+          "$ref": "#/$defs/Severity"
+        },
+        "Policy": {
+          "$ref": "#/$defs/InterventionPolicy"
+        }
+      },
+      "required": [
+        "OperatedAppID",
+        "FromHealth",
+        "ToHealth",
+        "SLOStatus",
+        "Severity",
+        "Policy"
+      ],
+      "additionalProperties": false
+    },
+    "HealthDirective": {
+      "type": "integer",
+      "enum": [
+        0,
+        1
+      ],
+      "x-enum-varnames": [
+        "HealthRetry",
+        "HealthEscalate"
+      ],
+      "x-go-base": "int"
+    },
+    "HealthStatus": {
+      "type": "integer",
+      "enum": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "x-enum-varnames": [
+        "HealthUnknown",
+        "HealthHealthy",
+        "HealthDegraded",
+        "HealthUnhealthy"
+      ],
+      "x-go-base": "int"
+    },
+    "InterventionMode": {
+      "type": "integer",
+      "enum": [
+        0,
+        1,
+        2
+      ],
+      "x-enum-varnames": [
+        "InterventionModeUnknown",
+        "EscalateEverything",
+        "Tiered"
+      ],
+      "x-go-base": "int"
+    },
+    "InterventionPolicy": {
+      "type": "object",
+      "properties": {
+        "Mode": {
+          "$ref": "#/$defs/InterventionMode"
+        },
+        "SLATier": {
+          "$ref": "#/$defs/SLATier"
+        },
+        "RetryBudget": {
+          "type": "integer"
+        },
+        "ShortfallToleranceSweeps": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "Mode",
+        "SLATier",
+        "RetryBudget",
+        "ShortfallToleranceSweeps"
+      ],
+      "additionalProperties": false
+    },
+    "NotifyTarget": {
+      "type": "string",
+      "enum": [
+        "operator",
+        "architect"
+      ],
+      "x-enum-varnames": [
+        "NotifyOperator",
+        "NotifyArchitect"
+      ],
+      "x-go-base": "string"
+    },
+    "OperatedAppID": {
+      "type": "string"
+    },
+    "PausePlan": {
+      "type": "object",
+      "properties": {
+        "PipelinesToCancel": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "$ref": "#/$defs/PipelineRef"
+          }
+        },
+        "RecordPaused": {
+          "type": "boolean"
+        },
+        "NotifyTargets": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "$ref": "#/$defs/NotifyTarget"
+          }
+        },
+        "ResumeHint": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "PipelinesToCancel",
+        "RecordPaused",
+        "NotifyTargets",
+        "ResumeHint"
+      ],
+      "additionalProperties": false
+    },
+    "PauseRequestContext": {
+      "type": "object",
+      "properties": {
+        "ProjectID": {
+          "$ref": "#/$defs/ProjectID"
+        },
+        "InFlightPipelines": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "$ref": "#/$defs/PipelineRef"
+          }
+        },
+        "Reason": {
+          "type": "string"
+        },
+        "Policy": {
+          "$ref": "#/$defs/InterventionPolicy"
+        }
+      },
+      "required": [
+        "ProjectID",
+        "InFlightPipelines",
+        "Reason",
+        "Policy"
+      ],
+      "additionalProperties": false
+    },
+    "PipelineRef": {
+      "type": "string"
+    },
+    "ProjectID": {
+      "type": "string"
+    },
+    "SLATier": {
+      "type": "integer",
+      "enum": [
+        0,
+        1,
+        2
+      ],
+      "x-enum-varnames": [
+        "SLATierFree",
+        "SLATierPaid",
+        "SLATierEnterprise"
+      ],
+      "x-go-base": "int"
+    },
+    "SLOStatus": {
+      "type": "integer",
+      "enum": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "x-enum-varnames": [
+        "SLOUnknown",
+        "SLOWithinBudget",
+        "SLOBurningBudget",
+        "SLOOutOfBudget"
+      ],
+      "x-go-base": "int"
+    },
+    "SettlementFailure": {
+      "type": "object",
+      "properties": {
+        "CustomerID": {
+          "$ref": "#/$defs/CustomerID"
+        },
+        "CycleID": {
+          "$ref": "#/$defs/CycleID"
+        },
+        "Kind": {
+          "$ref": "#/$defs/SettlementFailureKind"
+        },
+        "AttemptCount": {
+          "type": "integer"
+        },
+        "ShortfallAge": {
+          "type": "integer"
+        },
+        "Policy": {
+          "$ref": "#/$defs/InterventionPolicy"
+        }
+      },
+      "required": [
+        "CustomerID",
+        "CycleID",
+        "Kind",
+        "AttemptCount",
+        "ShortfallAge",
+        "Policy"
+      ],
+      "additionalProperties": false
+    },
+    "SettlementFailureDirective": {
+      "type": "integer",
+      "enum": [
+        0,
+        1,
+        2
+      ],
+      "x-enum-varnames": [
+        "SettlementRetry",
+        "SettlementDelay",
+        "SettlementEscalate"
+      ],
+      "x-go-base": "int"
+    },
+    "SettlementFailureKind": {
+      "type": "integer",
+      "enum": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "x-enum-varnames": [
+        "SettlementFailureKindUnknown",
+        "ChargeDeclined",
+        "Disputed",
+        "ChargedBack"
+      ],
+      "x-go-base": "int"
+    },
+    "Severity": {
+      "type": "integer",
+      "enum": [
+        0,
+        1
+      ],
+      "x-enum-varnames": [
+        "SeverityLow",
+        "SeverityHigh"
+      ],
+      "x-go-base": "int"
+    },
+    "VarianceDirective": {
+      "type": "integer",
+      "enum": [
+        0,
+        1,
+        2
+      ],
+      "x-enum-varnames": [
+        "VarianceRetry",
+        "VarianceEscalate",
+        "VarianceTakeover"
+      ],
+      "x-go-base": "int"
+    },
+    "VarianceKind": {
+      "type": "integer",
+      "enum": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "x-enum-varnames": [
+        "VarianceKindUnknown",
+        "ReviewFailedUnresolvable",
+        "WorkerMiss",
+        "EstimateOverrun"
+      ],
+      "x-go-base": "int"
+    }
+  },
+  "title": "intervention contract",
+  "interface": {
+    "name": "InterventionEngine",
+    "operations": [
+      {
+        "name": "ApplyPausePolicy",
+        "params": [
+          {
+            "name": "ctx",
+            "schema": {
+              "$ref": "#/$defs/PauseRequestContext"
+            }
+          }
+        ],
+        "result": {
+          "$ref": "#/$defs/PausePlan"
+        },
+        "error": true
+      },
+      {
+        "name": "DecideOnHealth",
+        "params": [
+          {
+            "name": "healthChange",
+            "schema": {
+              "$ref": "#/$defs/HealthChange"
+            }
+          }
+        ],
+        "result": {
+          "$ref": "#/$defs/HealthDirective"
+        },
+        "error": true
+      },
+      {
+        "name": "DecideOnSettlementFailure",
+        "params": [
+          {
+            "name": "failure",
+            "schema": {
+              "$ref": "#/$defs/SettlementFailure"
+            }
+          }
+        ],
+        "result": {
+          "$ref": "#/$defs/SettlementFailureDirective"
+        },
+        "error": true
+      },
+      {
+        "name": "DecideOnVariance",
+        "params": [
+          {
+            "name": "variance",
+            "schema": {
+              "$ref": "#/$defs/ConstructionVariance"
+            }
+          }
+        ],
+        "result": {
+          "$ref": "#/$defs/VarianceDirective"
+        },
+        "error": true
+      }
+    ]
+  }
+}

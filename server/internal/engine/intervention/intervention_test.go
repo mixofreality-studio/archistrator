@@ -31,7 +31,7 @@ func launchPolicy() InterventionPolicy {
 	return InterventionPolicy{Mode: EscalateEverything}
 }
 
-func tieredPolicy(budget, tolerance int, tier SLATier) InterventionPolicy {
+func tieredPolicy(budget, tolerance int64, tier SLATier) InterventionPolicy {
 	return InterventionPolicy{
 		Mode:                     Tiered,
 		SLATier:                  tier,

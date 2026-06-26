@@ -177,7 +177,7 @@ func (m *Manager) computeNetworkAtRead(p *projectstate.Project) {
 		activities = *al
 	}
 
-	solution, err := m.estimator.ComputeNetwork(activities, *net)
+	solution, err := m.estimator.ComputeNetwork(toEstimationActivityList(activities), toEstimationNetwork(*net))
 	if err != nil {
 		return // degenerate input guard — serve the authored network unenriched
 	}
@@ -194,7 +194,7 @@ func (m *Manager) computeNetworkAtRead(p *projectstate.Project) {
 			OnCriticalPath: n.OnCriticalPath,
 			NearCritical:   n.NearCritical,
 			Band:           n.Band,
-			Column:         n.Column,
+			Column:         int(n.Column),
 		}
 	}
 	net.Computed = computed
@@ -219,10 +219,10 @@ func (m *Manager) computeNetworkAtRead(p *projectstate.Project) {
 
 	net.Summary = &projectstate.NetworkSummary{
 		TotalDurationDays:         solution.Summary.TotalDurationDays,
-		CriticalPathActivityCount: solution.Summary.CriticalPathActivityCount,
+		CriticalPathActivityCount: int(solution.Summary.CriticalPathActivityCount),
 		CriticalPathDays:          solution.Summary.CriticalPathDays,
 		MaxFloat:                  solution.Summary.MaxFloat,
-		NearCriticalCount:         solution.Summary.NearCriticalCount,
+		NearCriticalCount:         int(solution.Summary.NearCriticalCount),
 	}
 
 	// Merge the computed milestone facets back onto the authored milestone rows (matched
@@ -241,6 +241,39 @@ func (m *Manager) computeNetworkAtRead(p *projectstate.Project) {
 			net.Milestones[i].EventTime = &event
 		}
 	}
+}
+
+// toEstimationActivityList converts the canonical projectstate.ActivityList to the
+// constructionEstimationEngine's OWN SLIM ActivityList at the call boundary (Option B
+// full encapsulation: the Engine redefines every domain type it uses as its own
+// generated def and imports no projectstate, so the Manager maps field-by-field here).
+// ComputeNetwork reads only Name + EffortDays, so only those cross.
+func toEstimationActivityList(al projectstate.ActivityList) estimation.ActivityList {
+	out := estimation.ActivityList{Activities: make([]estimation.ActivityItem, 0, len(al.Activities))}
+	for _, a := range al.Activities {
+		out.Activities = append(out.Activities, estimation.ActivityItem{Name: a.Name, EffortDays: a.EffortDays})
+	}
+	return out
+}
+
+// toEstimationNetwork converts the canonical projectstate.Network to the
+// constructionEstimationEngine's OWN SLIM Network at the call boundary (Option B full
+// encapsulation). ComputeNetwork reads only the AUTHORED Dependencies + Milestones
+// (it COMPUTES the rest), so only those — and only the authored milestone id + fan-in —
+// cross.
+func toEstimationNetwork(net projectstate.Network) estimation.Network {
+	deps := make([]estimation.NetworkDependency, 0, len(net.Dependencies))
+	for _, d := range net.Dependencies {
+		deps = append(deps, estimation.NetworkDependency{Activity: d.Activity, DependsOn: d.DependsOn})
+	}
+	var milestones []estimation.NetworkMilestone
+	if len(net.Milestones) > 0 {
+		milestones = make([]estimation.NetworkMilestone, 0, len(net.Milestones))
+		for _, mlst := range net.Milestones {
+			milestones = append(milestones, estimation.NetworkMilestone{Id: mlst.ID, DependsOn: mlst.DependsOn})
+		}
+	}
+	return estimation.Network{Dependencies: deps, Milestones: milestones}
 }
 
 // projectStateFromAggregate maps the head-state Project aggregate to the typed

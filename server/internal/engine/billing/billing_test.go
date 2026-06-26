@@ -5,8 +5,6 @@ import (
 	"testing"
 
 	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
-
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
 // launchPricing is the registered launch regime: a flat 25% markup over the
@@ -19,8 +17,8 @@ func launchPricing() ServicePricing {
 	}
 }
 
-func usd(minor int64) projectstate.Money {
-	return projectstate.Money{MinorUnits: minor, Currency: "USD"}
+func usd(minor int64) Money {
+	return Money{MinorUnits: minor, Currency: "USD"}
 }
 
 const gib = 1024.0 * 1024.0 * 1024.0
