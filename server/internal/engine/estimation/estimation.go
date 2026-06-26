@@ -160,7 +160,7 @@ func New() EstimationEngine { return engine{} }
 // EstimateForOption implements EstimationEngine. It runs in one pass over the
 // option's activity network so the three returned facets stay mutually
 // consistent (contract §2.2, §8 Variant B).
-func (engine) EstimateForOption(option ProjectOption) (ConstructionEstimate, error) {
+func (engine) EstimateForOption(_ fweng.Context, option ProjectOption) (ConstructionEstimate, error) {
 	activities := option.Network.Activities
 
 	// --- ContractMisuse pre-conditions (programmer error, not a domain result) ---

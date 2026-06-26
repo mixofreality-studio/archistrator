@@ -137,7 +137,7 @@ func New() HandOffEngine { return engine{} }
 // PickWorkerClass implements HandOffEngine. It validates the input, selects the
 // package-internal Strategy for the policy, runs it, and guards the result —
 // returning ONLY the class (contract §2.1; the dispatch is the Manager's, §4).
-func (engine) PickWorkerClass(activity ConstructionActivity, policy HandOffPolicy) (WorkerClass, error) {
+func (engine) PickWorkerClass(_ fweng.Context, activity ConstructionActivity, policy HandOffPolicy) (WorkerClass, error) {
 	// --- ContractMisuse pre-conditions (programmer error, not a domain result) ---
 	if activity.ActivityID == "" {
 		return WorkerClassUnknown, fweng.New(fweng.ContractMisuse,

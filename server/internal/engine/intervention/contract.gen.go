@@ -3,6 +3,10 @@
 
 package intervention
 
+import (
+	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
+)
+
 type ActivityID string
 
 type ConstructionVariance struct {
@@ -154,8 +158,8 @@ const (
 
 // InterventionEngine is the generated service-contract interface for this component.
 type InterventionEngine interface {
-	ApplyPausePolicy(ctx PauseRequestContext) (PausePlan, error)
-	DecideOnHealth(healthChange HealthChange) (HealthDirective, error)
-	DecideOnSettlementFailure(failure SettlementFailure) (SettlementFailureDirective, error)
-	DecideOnVariance(variance ConstructionVariance) (VarianceDirective, error)
+	ApplyPausePolicy(rc fweng.Context, ctx PauseRequestContext) (PausePlan, error)
+	DecideOnHealth(rc fweng.Context, healthChange HealthChange) (HealthDirective, error)
+	DecideOnSettlementFailure(rc fweng.Context, failure SettlementFailure) (SettlementFailureDirective, error)
+	DecideOnVariance(rc fweng.Context, variance ConstructionVariance) (VarianceDirective, error)
 }

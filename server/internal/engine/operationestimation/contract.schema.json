@@ -309,6 +309,7 @@
   "title": "operationestimation contract",
   "interface": {
     "name": "OperationEstimationEngine",
+    "layer": "engine",
     "operations": [
       {
         "name": "EstimateForOption",

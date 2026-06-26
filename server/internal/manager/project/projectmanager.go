@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 
+	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/estimation"
@@ -177,7 +178,7 @@ func (m *Manager) computeNetworkAtRead(p *projectstate.Project) {
 		activities = *al
 	}
 
-	solution, err := m.estimator.ComputeNetwork(toEstimationActivityList(activities), toEstimationNetwork(*net))
+	solution, err := m.estimator.ComputeNetwork(fweng.Context{Context: context.Background()}, toEstimationActivityList(activities), toEstimationNetwork(*net))
 	if err != nil {
 		return // degenerate input guard — serve the authored network unenriched
 	}

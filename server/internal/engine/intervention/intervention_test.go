@@ -106,7 +106,7 @@ func TestDecideOnVariance(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := e.DecideOnVariance(tt.variance)
+			got, err := e.DecideOnVariance(fweng.Context{}, tt.variance)
 			if tt.wantErr {
 				assertEngineErr(t, err, tt.errKind)
 				return
@@ -172,7 +172,7 @@ func TestDecideOnHealth(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := e.DecideOnHealth(tt.change)
+			got, err := e.DecideOnHealth(fweng.Context{}, tt.change)
 			if tt.wantErr {
 				assertEngineErr(t, err, tt.errKind)
 				return
@@ -253,7 +253,7 @@ func TestDecideOnSettlementFailure(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := e.DecideOnSettlementFailure(tt.failure)
+			got, err := e.DecideOnSettlementFailure(fweng.Context{}, tt.failure)
 			if tt.wantErr {
 				assertEngineErr(t, err, tt.errKind)
 				return
@@ -274,7 +274,7 @@ func TestApplyPausePolicy(t *testing.T) {
 	e := New()
 
 	t.Run("launch cancels all in-flight, records, notifies operator", func(t *testing.T) {
-		plan, err := e.ApplyPausePolicy(PauseRequestContext{
+		plan, err := e.ApplyPausePolicy(fweng.Context{}, PauseRequestContext{
 			ProjectID:         "p1",
 			InFlightPipelines: []PipelineRef{"pipe-a", "pipe-b"},
 			Reason:            "operator requested",
@@ -295,7 +295,7 @@ func TestApplyPausePolicy(t *testing.T) {
 	})
 
 	t.Run("tiered no in-flight yields empty-but-valid no-op plan", func(t *testing.T) {
-		plan, err := e.ApplyPausePolicy(PauseRequestContext{
+		plan, err := e.ApplyPausePolicy(fweng.Context{}, PauseRequestContext{
 			ProjectID: "p1",
 			Policy:    tieredPolicy(0, 0, SLATierPaid),
 		})
@@ -311,7 +311,7 @@ func TestApplyPausePolicy(t *testing.T) {
 	})
 
 	t.Run("enterprise tier also notifies architect", func(t *testing.T) {
-		plan, err := e.ApplyPausePolicy(PauseRequestContext{
+		plan, err := e.ApplyPausePolicy(fweng.Context{}, PauseRequestContext{
 			ProjectID:         "p1",
 			InFlightPipelines: []PipelineRef{"pipe-a"},
 			Policy:            tieredPolicy(0, 0, SLATierEnterprise),
@@ -325,12 +325,12 @@ func TestApplyPausePolicy(t *testing.T) {
 	})
 
 	t.Run("empty project id is contract misuse", func(t *testing.T) {
-		_, err := e.ApplyPausePolicy(PauseRequestContext{Policy: launchPolicy()})
+		_, err := e.ApplyPausePolicy(fweng.Context{}, PauseRequestContext{Policy: launchPolicy()})
 		assertEngineErr(t, err, fweng.ContractMisuse)
 	})
 
 	t.Run("unknown policy mode is invalid input", func(t *testing.T) {
-		_, err := e.ApplyPausePolicy(PauseRequestContext{ProjectID: "p1", Policy: InterventionPolicy{Mode: InterventionModeUnknown}})
+		_, err := e.ApplyPausePolicy(fweng.Context{}, PauseRequestContext{ProjectID: "p1", Policy: InterventionPolicy{Mode: InterventionModeUnknown}})
 		assertEngineErr(t, err, fweng.InvalidInput)
 	})
 }
@@ -347,37 +347,37 @@ func TestDeterminism(t *testing.T) {
 	failure := SettlementFailure{CustomerID: "c1", CycleID: "cyc1", Kind: ChargeDeclined, AttemptCount: 4, ShortfallAge: 3, Policy: tieredPolicy(3, 5, SLATierFree)}
 	pause := PauseRequestContext{ProjectID: "p1", InFlightPipelines: []PipelineRef{"pipe-a"}, Policy: tieredPolicy(3, 5, SLATierEnterprise)}
 
-	v0, err := e.DecideOnVariance(variance)
+	v0, err := e.DecideOnVariance(fweng.Context{}, variance)
 	if err != nil {
 		t.Fatalf("variance seed: %v", err)
 	}
-	h0, err := e.DecideOnHealth(change)
+	h0, err := e.DecideOnHealth(fweng.Context{}, change)
 	if err != nil {
 		t.Fatalf("health seed: %v", err)
 	}
-	s0, err := e.DecideOnSettlementFailure(failure)
+	s0, err := e.DecideOnSettlementFailure(fweng.Context{}, failure)
 	if err != nil {
 		t.Fatalf("settlement seed: %v", err)
 	}
-	p0, err := e.ApplyPausePolicy(pause)
+	p0, err := e.ApplyPausePolicy(fweng.Context{}, pause)
 	if err != nil {
 		t.Fatalf("pause seed: %v", err)
 	}
 
 	for i := 0; i < 100; i++ {
-		v, err := e.DecideOnVariance(variance)
+		v, err := e.DecideOnVariance(fweng.Context{}, variance)
 		if err != nil || v != v0 {
 			t.Fatalf("variance non-deterministic at %d: %v err=%v", i, v, err)
 		}
-		h, err := e.DecideOnHealth(change)
+		h, err := e.DecideOnHealth(fweng.Context{}, change)
 		if err != nil || h != h0 {
 			t.Fatalf("health non-deterministic at %d: %v err=%v", i, h, err)
 		}
-		s, err := e.DecideOnSettlementFailure(failure)
+		s, err := e.DecideOnSettlementFailure(fweng.Context{}, failure)
 		if err != nil || s != s0 {
 			t.Fatalf("settlement non-deterministic at %d: %v err=%v", i, s, err)
 		}
-		p, err := e.ApplyPausePolicy(pause)
+		p, err := e.ApplyPausePolicy(fweng.Context{}, pause)
 		if err != nil || !pausePlanEqual(p, p0) {
 			t.Fatalf("pause non-deterministic at %d: %+v err=%v", i, p, err)
 		}

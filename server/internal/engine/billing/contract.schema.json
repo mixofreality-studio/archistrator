@@ -175,6 +175,7 @@
   "title": "billing contract",
   "interface": {
     "name": "BillingEngine",
+    "layer": "engine",
     "operations": [
       {
         "name": "PriceServiceForOption",

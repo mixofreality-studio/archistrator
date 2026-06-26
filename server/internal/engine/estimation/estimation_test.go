@@ -173,7 +173,7 @@ func TestEstimateForOption(t *testing.T) {
 	eng := New()
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := eng.EstimateForOption(tc.option)
+			got, err := eng.EstimateForOption(fweng.Context{}, tc.option)
 
 			if tc.wantErrKind != -1 {
 				if err == nil {
@@ -223,8 +223,8 @@ func TestDeterminism(t *testing.T) {
 	eng := New()
 	opt := mixedActivityOption()
 
-	first, err1 := eng.EstimateForOption(opt)
-	second, err2 := eng.EstimateForOption(opt)
+	first, err1 := eng.EstimateForOption(fweng.Context{}, opt)
+	second, err2 := eng.EstimateForOption(fweng.Context{}, opt)
 
 	if err1 != nil || err2 != nil {
 		t.Fatalf("unexpected errors: %v / %v", err1, err2)

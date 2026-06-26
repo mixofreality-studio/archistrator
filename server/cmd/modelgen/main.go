@@ -87,7 +87,7 @@ func genOne(schemaPath string) error {
 
 	// Emit the type/interface body first so x-go-type bindings can register their
 	// imports (collected in pendingImports) before the import block is written.
-	pendingImports = map[string]bool{}
+	pendingImports = map[string]string{}
 	var buf bytes.Buffer
 
 	names := make([]string, 0, len(doc.Defs))
@@ -130,7 +130,11 @@ func genOne(schemaPath string) error {
 		sort.Strings(imps)
 		out2.WriteString("import (\n")
 		for _, p := range imps {
-			fmt.Fprintf(&out2, "\t%q\n", p)
+			if a := pendingImports[p]; a != "" {
+				fmt.Fprintf(&out2, "\t%s %q\n", a, p)
+			} else {
+				fmt.Fprintf(&out2, "\t%q\n", p)
+			}
 		}
 		out2.WriteString(")\n\n")
 	}
@@ -148,15 +152,30 @@ func genOne(schemaPath string) error {
 	return nil
 }
 
+// layerContext maps a Method layer to the per-layer call Context the generator
+// prepends to every interface method (aliased import + Go type).
+var layerContext = map[string]struct{ alias, path, typ string }{
+	"engine":         {"fweng", "github.com/mixofreality-studio/archistrator-platform/framework-go/engine", "fweng.Context"},
+	"resourceaccess": {"fwra", "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess", "fwra.Context"},
+	"manager":        {"fwm", "github.com/mixofreality-studio/archistrator-platform/framework-go/manager", "fwm.Context"},
+	"client":         {"fwc", "github.com/mixofreality-studio/archistrator-platform/framework-go/client", "fwc.Context"},
+}
+
 // emitInterface writes the component's service-contract interface and its ops.
+// Every method takes the layer's call Context (`rc`) as its first parameter.
 func emitInterface(buf *bytes.Buffer, iface codegen.Interface) {
 	if iface.Name == "" {
 		return
 	}
+	lc, hasLayer := layerContext[iface.Layer]
 	fmt.Fprintf(buf, "// %s is the generated service-contract interface for this component.\n", iface.Name)
 	fmt.Fprintf(buf, "type %s interface {\n", iface.Name)
 	for _, op := range iface.Operations {
-		params := make([]string, 0, len(op.Params))
+		params := make([]string, 0, len(op.Params)+1)
+		if hasLayer {
+			params = append(params, "rc "+lc.typ)
+			pendingImports[lc.path] = lc.alias
+		}
 		for _, p := range op.Params {
 			params = append(params, p.Name+" "+goType(p.Schema))
 		}
@@ -274,9 +293,9 @@ func enumLiteral(v any, base string) string {
 	return fmt.Sprintf("%v", v)
 }
 
-// pendingImports accumulates package import paths needed by x-go-type bindings
-// emitted during a single genOne pass.
-var pendingImports = map[string]bool{}
+// pendingImports accumulates package imports needed during a single genOne pass,
+// mapping import path -> alias ("" = no alias).
+var pendingImports = map[string]string{}
 
 // goType maps a resolved schema node to its Go type.
 func goType(s *jsonschema.Schema) string {
@@ -288,7 +307,7 @@ func goType(s *jsonschema.Schema) string {
 	if s.Extra != nil {
 		if gt, ok := s.Extra["x-go-type"].(string); ok && gt != "" {
 			if imp, ok := s.Extra["x-go-import"].(string); ok && imp != "" {
-				pendingImports[imp] = true
+				pendingImports[imp] = ""
 			}
 			return gt
 		}

@@ -260,6 +260,7 @@ var _ AutoscalerEngine = engine{}
 // each strategy: they are operator overrides, not infrastructure-specific
 // (autoscalerEngine.md §6).
 func (engine) ProposeDesiredState(
+	_ fweng.Context,
 	telemetry Telemetry,
 	currentDesired DesiredState,
 	policy AutoscalerPolicy,

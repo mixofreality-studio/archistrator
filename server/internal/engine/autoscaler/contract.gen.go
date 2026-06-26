@@ -5,6 +5,7 @@ package autoscaler
 
 import (
 	"github.com/google/uuid"
+	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 	"time"
 )
 
@@ -125,5 +126,5 @@ type Telemetry struct {
 
 // AutoscalerEngine is the generated service-contract interface for this component.
 type AutoscalerEngine interface {
-	ProposeDesiredState(telemetry Telemetry, currentDesired DesiredState, policy AutoscalerPolicy, infrastructureKind InfrastructureKind) (Decision, error)
+	ProposeDesiredState(rc fweng.Context, telemetry Telemetry, currentDesired DesiredState, policy AutoscalerPolicy, infrastructureKind InfrastructureKind) (Decision, error)
 }

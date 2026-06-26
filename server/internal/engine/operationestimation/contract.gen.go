@@ -3,6 +3,10 @@
 
 package operationestimation
 
+import (
+	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
+)
+
 type ComputeCostKind int
 
 const (
@@ -110,6 +114,6 @@ type WhatIfPoint struct {
 
 // OperationEstimationEngine is the generated service-contract interface for this component.
 type OperationEstimationEngine interface {
-	EstimateForOption(option ProjectOption, declaredUsage UsageAssumption, infrastructureKind InfrastructureKind) (OperationForecast, error)
-	ProjectForOperatedApp(observedUsage ObservedUsage, infrastructureKind InfrastructureKind, scaleWhatIfPoints []ScalePoint) (CostProjection, error)
+	EstimateForOption(rc fweng.Context, option ProjectOption, declaredUsage UsageAssumption, infrastructureKind InfrastructureKind) (OperationForecast, error)
+	ProjectForOperatedApp(rc fweng.Context, observedUsage ObservedUsage, infrastructureKind InfrastructureKind, scaleWhatIfPoints []ScalePoint) (CostProjection, error)
 }

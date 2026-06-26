@@ -3,6 +3,10 @@
 
 package estimation
 
+import (
+	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
+)
+
 type ActivityItem struct {
 	Name       string  `json:"name"`
 	EffortDays float64 `json:"effortDays"`
@@ -105,6 +109,6 @@ type WorkerMix struct {
 
 // EstimationEngine is the generated service-contract interface for this component.
 type EstimationEngine interface {
-	ComputeNetwork(activities ActivityList, network Network) (NetworkSolution, error)
-	EstimateForOption(option ProjectOption) (ConstructionEstimate, error)
+	ComputeNetwork(rc fweng.Context, activities ActivityList, network Network) (NetworkSolution, error)
+	EstimateForOption(rc fweng.Context, option ProjectOption) (ConstructionEstimate, error)
 }

@@ -383,6 +383,7 @@
   "title": "estimation contract",
   "interface": {
     "name": "EstimationEngine",
+    "layer": "engine",
     "operations": [
       {
         "name": "ComputeNetwork",

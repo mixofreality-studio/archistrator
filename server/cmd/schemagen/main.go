@@ -23,6 +23,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"go/ast"
@@ -36,6 +37,10 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/google/uuid"
+
+	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	"github.com/mixofreality-studio/archistrator-platform/framework-go/utilities/security"
 
 	"github.com/mixofreality-studio/archistrator/server/cmd/internal/codegen"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/autoscaler"
@@ -59,6 +64,34 @@ type component struct {
 
 var errorType = reflect.TypeOf((*error)(nil)).Elem()
 
+// contextCarried are the cross-cutting types delivered by the per-layer call
+// Context (the first param the generator prepends to every method), NOT data.
+// schemagen strips any param of these types so the data schema stays pure and the
+// generator can re-inject the single layer Context. Includes the layer Context
+// types themselves so re-reflecting an already-generated interface is idempotent.
+var contextCarried = map[reflect.Type]bool{
+	reflect.TypeOf((*context.Context)(nil)).Elem(): true,
+	reflect.TypeOf(security.SecurityPrincipal{}):   true,
+	reflect.TypeOf(fwra.IdempotencyKey("")):        true,
+	reflect.TypeOf(fweng.Context{}):                true,
+	reflect.TypeOf(fwra.Context{}):                 true,
+}
+
+// layerFromDir maps a component dir to its Method layer (selects the call Context).
+func layerFromDir(dir string) string {
+	switch {
+	case strings.Contains(dir, "/engine/"):
+		return "engine"
+	case strings.Contains(dir, "/resourceaccess/"):
+		return "resourceaccess"
+	case strings.Contains(dir, "/manager/"):
+		return "manager"
+	case strings.Contains(dir, "/client/"):
+		return "client"
+	}
+	return ""
+}
+
 // wellKnownByType maps foundational non-domain types (stdlib/uuid) to a schema
 // carrying a portable JSON shape (e.g. string+format) AND an `x-go-type` /
 // `x-go-import` binding so modelgen regenerates the exact Go type. These are NOT
@@ -77,6 +110,15 @@ var wellKnownByType = map[reflect.Type]*jsonschema.Schema{
 	reflect.TypeOf(uuid.UUID{}): {
 		Type: "string", Format: "uuid",
 		Extra: map[string]any{"x-go-type": "uuid.UUID", "x-go-import": "github.com/google/uuid"},
+	},
+	// []byte → base64 string on the wire (matches Go's encoding/json).
+	reflect.TypeOf([]byte(nil)): {
+		Type: "string", ContentEncoding: "base64",
+		Extra: map[string]any{"x-go-type": "[]byte"},
+	},
+	// json.RawMessage → arbitrary embedded JSON (no fixed shape).
+	reflect.TypeOf(json.RawMessage(nil)): {
+		Extra: map[string]any{"x-go-type": "json.RawMessage", "x-go-import": "encoding/json"},
 	},
 }
 
@@ -439,13 +481,19 @@ func reflectInterface(c component, modelNames map[string]bool) (codegen.Interfac
 	if err != nil {
 		return codegen.Interface{}, err
 	}
-	out := codegen.Interface{Name: c.ifaceName}
+	out := codegen.Interface{Name: c.ifaceName, Layer: layerFromDir(c.dir)}
 	for i := 0; i < c.iface.NumMethod(); i++ {
 		m := c.iface.Method(i)
 		ft := m.Type // interface method type has no receiver
 		op := codegen.Operation{Name: m.Name}
 		pn := names[m.Name]
 		for j := 0; j < ft.NumIn(); j++ {
+			// Skip cross-cutting params delivered by the layer Context (ctx,
+			// principal, idempotency, or an already-prepended layer Context); the
+			// generator re-injects a single Context. Keeps the data schema pure.
+			if contextCarried[ft.In(j)] {
+				continue
+			}
 			nm := fmt.Sprintf("arg%d", j)
 			if j < len(pn) {
 				nm = pn[j]

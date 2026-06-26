@@ -3,6 +3,10 @@
 
 package review
 
+import (
+	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
+)
+
 type ReviewChange struct {
 	ActivityID     string `json:"ActivityID"`
 	ComponentID    string `json:"ComponentID"`
@@ -22,5 +26,5 @@ type Reviewer struct {
 
 // ReviewEngine is the generated service-contract interface for this component.
 type ReviewEngine interface {
-	ProposeReviews(change ReviewChange, componentID string, artifactKind string, architectureGraph string, contracts []string) (ReviewSet, error)
+	ProposeReviews(rc fweng.Context, change ReviewChange, componentID string, artifactKind string, architectureGraph string, contracts []string) (ReviewSet, error)
 }

@@ -232,7 +232,7 @@ var _ BillingEngine = engine{}
 // PriceUsage prices a closed period's metered usage under the customer's
 // ServicePricing policy. All money math is exact int64 minor units.
 // (billingEngine.md §2.1)
-func (engine) PriceUsage(usage PeriodUsage, servicePricing ServicePricing) (ServiceInvoice, error) {
+func (engine) PriceUsage(_ fweng.Context, usage PeriodUsage, servicePricing ServicePricing) (ServiceInvoice, error) {
 	// Pre-conditions — Manager wiring bugs, not "no-invoice-possible" outcomes
 	// (contract §2.1 / §3: structurally-invalid input folds into ContractMisuse;
 	// no separate InvalidInput-for-semantics kind on a no-parse-step Engine).
@@ -291,7 +291,7 @@ func (engine) PriceUsage(usage PeriodUsage, servicePricing ServicePricing) (Serv
 // PriceServiceForOption projects the committed option's service cost (token
 // estimate + hosting rate) under the option-carried ServicePricing policy.
 // (billingEngine.md §2.2)
-func (engine) PriceServiceForOption(option ProjectOption) (ServiceCostProjection, error) {
+func (engine) PriceServiceForOption(_ fweng.Context, option ProjectOption) (ServiceCostProjection, error) {
 	// Pre-conditions — a nil/empty option is a Manager bug (contract §2.2).
 	if option.OptionID == "" {
 		return ServiceCostProjection{}, fweng.New(fweng.ContractMisuse,

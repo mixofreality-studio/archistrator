@@ -273,7 +273,7 @@ func New() InterventionEngine { return engine{} }
 var _ InterventionEngine = engine{}
 
 // DecideOnVariance maps a construction variance to a remediation directive.
-func (engine) DecideOnVariance(variance ConstructionVariance) (VarianceDirective, error) {
+func (engine) DecideOnVariance(_ fweng.Context, variance ConstructionVariance) (VarianceDirective, error) {
 	if variance.ProjectID == "" || variance.ActivityID == "" {
 		return 0, fweng.New(fweng.ContractMisuse,
 			"DecideOnVariance: empty ProjectID/ActivityID (Manager failed to assemble a valid ConstructionVariance)")
@@ -299,7 +299,7 @@ func (engine) DecideOnVariance(variance ConstructionVariance) (VarianceDirective
 }
 
 // DecideOnHealth maps an operated-app health transition to a remediation directive.
-func (engine) DecideOnHealth(healthChange HealthChange) (HealthDirective, error) {
+func (engine) DecideOnHealth(_ fweng.Context, healthChange HealthChange) (HealthDirective, error) {
 	if healthChange.OperatedAppID == "" {
 		return 0, fweng.New(fweng.ContractMisuse,
 			"DecideOnHealth: empty OperatedAppID (Manager failed to assemble a valid HealthChange)")
@@ -318,7 +318,7 @@ func (engine) DecideOnHealth(healthChange HealthChange) (HealthDirective, error)
 
 // DecideOnSettlementFailure maps a failed settlement action to a remediation
 // directive (retry now / back off to the next sweep / escalate to delinquency).
-func (engine) DecideOnSettlementFailure(failure SettlementFailure) (SettlementFailureDirective, error) {
+func (engine) DecideOnSettlementFailure(_ fweng.Context, failure SettlementFailure) (SettlementFailureDirective, error) {
 	if failure.CustomerID == "" || failure.CycleID == "" {
 		return 0, fweng.New(fweng.ContractMisuse,
 			"DecideOnSettlementFailure: empty CustomerID/CycleID (Manager failed to assemble a valid SettlementFailure)")
@@ -345,7 +345,7 @@ func (engine) DecideOnSettlementFailure(failure SettlementFailure) (SettlementFa
 
 // ApplyPausePolicy computes the pause plan the policy prescribes for an operator
 // pause request. The Manager executes the plan; the Engine returns the plan.
-func (engine) ApplyPausePolicy(ctx PauseRequestContext) (PausePlan, error) {
+func (engine) ApplyPausePolicy(_ fweng.Context, ctx PauseRequestContext) (PausePlan, error) {
 	if ctx.ProjectID == "" {
 		return PausePlan{}, fweng.New(fweng.ContractMisuse,
 			"ApplyPausePolicy: empty ProjectID (Manager failed to assemble a valid PauseRequestContext)")

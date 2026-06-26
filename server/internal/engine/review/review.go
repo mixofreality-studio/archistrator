@@ -147,6 +147,7 @@ var _ ReviewEngine = engine{}
 // ProposeReviews implements ReviewEngine. It validates the input, classifies the
 // artifactKind, and computes the policy's reviewer set for that kind.
 func (engine) ProposeReviews(
+	_ fweng.Context, // pure engine: carries identity/cancellation, ignored by v1 policy
 	change ReviewChange,
 	componentID string,
 	artifactKind string,

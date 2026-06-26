@@ -3,6 +3,10 @@
 
 package settlement
 
+import (
+	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
+)
+
 type ComputeCostKind int
 
 const (
@@ -90,7 +94,7 @@ type SettlementTerms struct {
 
 // SettlementEngine is the generated service-contract interface for this component.
 type SettlementEngine interface {
-	ComputeNet(revenue CycleRevenue, usage CycleUsage, terms SettlementTerms) (SettlementResult, error)
-	ProjectCommitTimeRevenueShareAndComputeCost(option ProjectOption) (Projection, error)
-	RecomputeNet(affectedCycle ReSettlementInput) (SettlementResult, error)
+	ComputeNet(rc fweng.Context, revenue CycleRevenue, usage CycleUsage, terms SettlementTerms) (SettlementResult, error)
+	ProjectCommitTimeRevenueShareAndComputeCost(rc fweng.Context, option ProjectOption) (Projection, error)
+	RecomputeNet(rc fweng.Context, affectedCycle ReSettlementInput) (SettlementResult, error)
 }

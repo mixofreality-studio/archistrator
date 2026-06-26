@@ -3,6 +3,10 @@
 
 package handoff
 
+import (
+	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
+)
+
 type ActivityKind int
 
 const (
@@ -38,5 +42,5 @@ const (
 
 // HandOffEngine is the generated service-contract interface for this component.
 type HandOffEngine interface {
-	PickWorkerClass(activity ConstructionActivity, policy HandOffPolicy) (WorkerClass, error)
+	PickWorkerClass(rc fweng.Context, activity ConstructionActivity, policy HandOffPolicy) (WorkerClass, error)
 }

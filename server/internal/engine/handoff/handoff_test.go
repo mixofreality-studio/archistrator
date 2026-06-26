@@ -103,7 +103,7 @@ func TestPickWorkerClass(t *testing.T) {
 	eng := New()
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := eng.PickWorkerClass(tc.activity, tc.policy)
+			got, err := eng.PickWorkerClass(fweng.Context{}, tc.activity, tc.policy)
 
 			if tc.wantErrKind != noErr {
 				if err == nil {
@@ -220,8 +220,8 @@ func TestDeterminism(t *testing.T) {
 	a := activity("manager")
 	p := HandOffPolicy{PreferAI: true, SeniorOnlyLayers: []string{"manager"}}
 
-	first, err1 := eng.PickWorkerClass(a, p)
-	second, err2 := eng.PickWorkerClass(a, p)
+	first, err1 := eng.PickWorkerClass(fweng.Context{}, a, p)
+	second, err2 := eng.PickWorkerClass(fweng.Context{}, a, p)
 	if err1 != nil || err2 != nil {
 		t.Fatalf("unexpected errors: %v / %v", err1, err2)
 	}
@@ -240,7 +240,7 @@ func TestReentrancy_NoSharedMutableState(t *testing.T) {
 	layers := []string{"manager"}
 	p := HandOffPolicy{PreferAI: true, SeniorOnlyLayers: layers}
 
-	got1, err := eng.PickWorkerClass(activity("manager"), p)
+	got1, err := eng.PickWorkerClass(fweng.Context{}, activity("manager"), p)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -250,7 +250,7 @@ func TestReentrancy_NoSharedMutableState(t *testing.T) {
 
 	// Caller mutates the slice header contents; the Engine snapshots per call.
 	layers[0] = "engine"
-	got2, err := eng.PickWorkerClass(activity("manager"), HandOffPolicy{PreferAI: true, SeniorOnlyLayers: layers})
+	got2, err := eng.PickWorkerClass(fweng.Context{}, activity("manager"), HandOffPolicy{PreferAI: true, SeniorOnlyLayers: layers})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

@@ -235,6 +235,7 @@
   "title": "settlement contract",
   "interface": {
     "name": "SettlementEngine",
+    "layer": "engine",
     "operations": [
       {
         "name": "ComputeNet",

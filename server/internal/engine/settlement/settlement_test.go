@@ -70,6 +70,7 @@ func TestProjectCommitTimeRevenueShareAndComputeCost(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := e.ProjectCommitTimeRevenueShareAndComputeCost(
+				fweng.Context{},
 				ProjectOption{OptionID: "opt-1", Terms: tt.terms},
 			)
 			if tt.wantErr {
@@ -173,7 +174,7 @@ func TestComputeNet(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := e.ComputeNet(tt.revenue, tt.usage, tt.terms)
+			got, err := e.ComputeNet(fweng.Context{}, tt.revenue, tt.usage, tt.terms)
 			if tt.wantErr {
 				assertEngineErr(t, err, tt.errKind, tt.errDetail)
 				return
@@ -194,12 +195,12 @@ func TestRecomputeNet(t *testing.T) {
 	// A chargeback reversal halved the gross from 100000 to 50000. The corrected
 	// net is computed fresh from the reversal-adjusted revenue; the Manager computes
 	// the delta vs PriorSettled (not the Engine's job).
-	prior, err := e.ComputeNet(CycleRevenue{GrossInbound: usd(100000)}, CycleUsage{ComputeUnitSeconds: 100}, launchTerms())
+	prior, err := e.ComputeNet(fweng.Context{}, CycleRevenue{GrossInbound: usd(100000)}, CycleUsage{ComputeUnitSeconds: 100}, launchTerms())
 	if err != nil {
 		t.Fatalf("seeding prior settlement: %v", err)
 	}
 
-	got, err := e.RecomputeNet(ReSettlementInput{
+	got, err := e.RecomputeNet(fweng.Context{}, ReSettlementInput{
 		Revenue:      CycleRevenue{GrossInbound: usd(50000)},
 		Usage:        CycleUsage{ComputeUnitSeconds: 100},
 		Terms:        launchTerms(),
@@ -221,7 +222,7 @@ func TestRecomputeNet(t *testing.T) {
 	}
 
 	// RecomputeNet honours the same money-safety guard.
-	_, err = e.RecomputeNet(ReSettlementInput{
+	_, err = e.RecomputeNet(fweng.Context{}, ReSettlementInput{
 		Revenue: CycleRevenue{GrossInbound: usd(50000)},
 		Terms:   SettlementTerms{RevenueShare: RevenueShareUnknown, ComputeCost: ComputeCostUnknown},
 	})
@@ -236,12 +237,12 @@ func TestDeterminism(t *testing.T) {
 	usage := CycleUsage{ComputeUnitSeconds: 250, StorageBytesMonths: 10, EgressBytes: 5}
 	terms := launchTerms()
 
-	first, err := e.ComputeNet(revenue, usage, terms)
+	first, err := e.ComputeNet(fweng.Context{}, revenue, usage, terms)
 	if err != nil {
 		t.Fatalf("first call: %v", err)
 	}
 	for i := 0; i < 100; i++ {
-		got, err := e.ComputeNet(revenue, usage, terms)
+		got, err := e.ComputeNet(fweng.Context{}, revenue, usage, terms)
 		if err != nil {
 			t.Fatalf("call %d: %v", i, err)
 		}
@@ -259,6 +260,7 @@ func TestMoneyIsExactInt64(t *testing.T) {
 	// gross 99 cents, 33% share. 99*3300/10000 = 326700/10000 = 32 (integer floor).
 	// compute 0. net = 99 - 32 - 0 = 67.
 	got, err := e.ComputeNet(
+		fweng.Context{},
 		CycleRevenue{GrossInbound: usd(99)},
 		CycleUsage{},
 		SettlementTerms{

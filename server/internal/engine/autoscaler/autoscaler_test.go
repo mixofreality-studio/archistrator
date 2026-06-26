@@ -101,7 +101,7 @@ func TestProposeDesiredState_Preconditions(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := eng.ProposeDesiredState(Telemetry{}, tt.cur, tt.policy, tt.kind)
+			_, err := eng.ProposeDesiredState(fweng.Context{}, Telemetry{}, tt.cur, tt.policy, tt.kind)
 			assertEngineErr(t, err, tt.errKind)
 		})
 	}
@@ -115,7 +115,7 @@ func TestProposeDesiredState_OperatorOverrides(t *testing.T) {
 	t.Run("manual mode always NoChange (STP-4)", func(t *testing.T) {
 		p := autoPolicy()
 		p.Mode = AutoscalerModeManual
-		got, err := eng.ProposeDesiredState(hot, desired(2), p, launchKind)
+		got, err := eng.ProposeDesiredState(fweng.Context{}, hot, desired(2), p, launchKind)
 		mustNoErr(t, err)
 		assertKind(t, got, DecisionNoChange, ReasonManualMode)
 	})
@@ -123,7 +123,7 @@ func TestProposeDesiredState_OperatorOverrides(t *testing.T) {
 	t.Run("pinned always NoChange (STP-5)", func(t *testing.T) {
 		p := autoPolicy()
 		p.Pinned = true
-		got, err := eng.ProposeDesiredState(hot, desired(2), p, launchKind)
+		got, err := eng.ProposeDesiredState(fweng.Context{}, hot, desired(2), p, launchKind)
 		mustNoErr(t, err)
 		assertKind(t, got, DecisionNoChange, ReasonPinned)
 	})
@@ -132,6 +132,7 @@ func TestProposeDesiredState_OperatorOverrides(t *testing.T) {
 func TestProposeDesiredState_PauseResume(t *testing.T) {
 	t.Run("paused + traffic resumed ⇒ Resume to baseline (STP-6)", func(t *testing.T) {
 		got, err := eng.ProposeDesiredState(
+			fweng.Context{},
 			Telemetry{RequestsPerSecond: 12},
 			desired(0),
 			autoPolicy(),
@@ -145,13 +146,14 @@ func TestProposeDesiredState_PauseResume(t *testing.T) {
 	})
 
 	t.Run("paused + still idle ⇒ NoChange (stays paused)", func(t *testing.T) {
-		got, err := eng.ProposeDesiredState(Telemetry{}, desired(0), autoPolicy(), launchKind)
+		got, err := eng.ProposeDesiredState(fweng.Context{}, Telemetry{}, desired(0), autoPolicy(), launchKind)
 		mustNoErr(t, err)
 		assertKind(t, got, DecisionNoChange, ReasonSteady)
 	})
 
 	t.Run("idle ≥ threshold + zero traffic + Min==0 ⇒ Pause (STP-7)", func(t *testing.T) {
 		got, err := eng.ProposeDesiredState(
+			fweng.Context{},
 			Telemetry{RequestsPerSecond: 0, TimeSinceLastRequest: 10 * time.Minute},
 			desired(2),
 			autoPolicy(),
@@ -166,6 +168,7 @@ func TestProposeDesiredState_PauseResume(t *testing.T) {
 		p.MinReplicas = 1
 		// Idle telemetry; but low CPU sustained would scale down toward min, not pause.
 		got, err := eng.ProposeDesiredState(
+			fweng.Context{},
 			Telemetry{RequestsPerSecond: 0, TimeSinceLastRequest: 10 * time.Minute, CPUUtilization: 0.05},
 			desired(1),
 			p,
@@ -181,6 +184,7 @@ func TestProposeDesiredState_PauseResume(t *testing.T) {
 		p := autoPolicy()
 		p.IdleThreshold = 0
 		got, err := eng.ProposeDesiredState(
+			fweng.Context{},
 			Telemetry{RequestsPerSecond: 0, TimeSinceLastRequest: time.Hour, CPUUtilization: 0.5},
 			desired(2),
 			p,
@@ -196,6 +200,7 @@ func TestProposeDesiredState_PauseResume(t *testing.T) {
 func TestProposeDesiredState_ScaleUp(t *testing.T) {
 	t.Run("SLO burning + room ⇒ ScaleUp/SLOBurnDown (STP-10)", func(t *testing.T) {
 		got, err := eng.ProposeDesiredState(
+			fweng.Context{},
 			Telemetry{RequestsPerSecond: 50, SLOStatus: SLOBurningBudget, CPUUtilization: 0.3},
 			desired(2),
 			autoPolicy(),
@@ -210,6 +215,7 @@ func TestProposeDesiredState_ScaleUp(t *testing.T) {
 
 	t.Run("SLO burning at max ⇒ NoChange/AlreadyAtMax (STP-10)", func(t *testing.T) {
 		got, err := eng.ProposeDesiredState(
+			fweng.Context{},
 			Telemetry{RequestsPerSecond: 50, SLOStatus: SLOOutOfBudget},
 			desired(10), // == MaxReplicas
 			autoPolicy(),
@@ -221,6 +227,7 @@ func TestProposeDesiredState_ScaleUp(t *testing.T) {
 
 	t.Run("CPU high + room ⇒ ScaleUp/CPUHigh (STP-11)", func(t *testing.T) {
 		got, err := eng.ProposeDesiredState(
+			fweng.Context{},
 			Telemetry{RequestsPerSecond: 80, CPUUtilization: 0.95},
 			desired(2),
 			autoPolicy(),
@@ -232,6 +239,7 @@ func TestProposeDesiredState_ScaleUp(t *testing.T) {
 
 	t.Run("CPU high at max ⇒ NoChange/AlreadyAtMax (STP-11)", func(t *testing.T) {
 		got, err := eng.ProposeDesiredState(
+			fweng.Context{},
 			Telemetry{RequestsPerSecond: 80, CPUUtilization: 0.95},
 			desired(10),
 			autoPolicy(),
@@ -249,6 +257,7 @@ func TestProposeDesiredState_ScaleDown(t *testing.T) {
 		cur := desired(5)
 		cur.LastDecisionAt = time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
 		got, err := eng.ProposeDesiredState(
+			fweng.Context{},
 			Telemetry{
 				RequestsPerSecond: 1, // non-zero so it is not an idle-pause candidate
 				CPUUtilization:    0.05,
@@ -268,6 +277,7 @@ func TestProposeDesiredState_ScaleDown(t *testing.T) {
 		cur := desired(1)
 		cur.LastDecisionAt = time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
 		got, err := eng.ProposeDesiredState(
+			fweng.Context{},
 			Telemetry{RequestsPerSecond: 1, CPUUtilization: 0.05, ObservedAt: cur.LastDecisionAt.Add(time.Hour)},
 			cur,
 			p,
@@ -283,6 +293,7 @@ func TestProposeDesiredState_ScaleDown(t *testing.T) {
 		cur := desired(5)
 		cur.LastDecisionAt = time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
 		got, err := eng.ProposeDesiredState(
+			fweng.Context{},
 			Telemetry{
 				RequestsPerSecond: 1,
 				CPUUtilization:    0.05,
@@ -303,6 +314,7 @@ func TestProposeDesiredState_ScaleDown(t *testing.T) {
 func TestProposeDesiredState_Steady(t *testing.T) {
 	// STP-14: mid-range CPU, traffic flowing, SLO healthy ⇒ NoChange/Steady.
 	got, err := eng.ProposeDesiredState(
+		fweng.Context{},
 		Telemetry{RequestsPerSecond: 40, CPUUtilization: 0.50, SLOStatus: SLOWithinBudget},
 		desired(3),
 		autoPolicy(),
@@ -318,6 +330,7 @@ func TestProposeDesiredState_DeltaAndBaselineBounds(t *testing.T) {
 		p.MaxStepDelta = 100 // unbounded by step
 		p.MaxBurstCap = 4    // capped by burst
 		got, err := eng.ProposeDesiredState(
+			fweng.Context{},
 			Telemetry{RequestsPerSecond: 80, CPUUtilization: 0.99},
 			desired(2),
 			p,
@@ -334,6 +347,7 @@ func TestProposeDesiredState_DeltaAndBaselineBounds(t *testing.T) {
 		p.MaxStepDelta = 100
 		p.MaxBurstCap = 100
 		got, err := eng.ProposeDesiredState(
+			fweng.Context{},
 			Telemetry{RequestsPerSecond: 80, CPUUtilization: 0.99},
 			desired(9), // only 1 of headroom to Max=10
 			p,
@@ -352,6 +366,7 @@ func TestProposeDesiredState_DeltaAndBaselineBounds(t *testing.T) {
 		cur := desired(4) // only 1 of room to Min=3
 		cur.LastDecisionAt = time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
 		got, err := eng.ProposeDesiredState(
+			fweng.Context{},
 			Telemetry{RequestsPerSecond: 1, CPUUtilization: 0.01, ObservedAt: cur.LastDecisionAt.Add(time.Hour)},
 			cur,
 			p,
@@ -367,7 +382,7 @@ func TestProposeDesiredState_DeltaAndBaselineBounds(t *testing.T) {
 	t.Run("Resume ToBaseline modulated by SLA tier and clamped (STP-17)", func(t *testing.T) {
 		p := autoPolicy()
 		p.SLATier = SLATierEnterprise // +2 over baseline 2 ⇒ 4
-		got, err := eng.ProposeDesiredState(Telemetry{RequestsPerSecond: 5}, desired(0), p, launchKind)
+		got, err := eng.ProposeDesiredState(fweng.Context{}, Telemetry{RequestsPerSecond: 5}, desired(0), p, launchKind)
 		mustNoErr(t, err)
 		assertKind(t, got, DecisionResume, ReasonTrafficResumed)
 		if got.ToBaseline != 4 {
@@ -380,7 +395,7 @@ func TestProposeDesiredState_DeltaAndBaselineBounds(t *testing.T) {
 		p.BaselineReplicas = 9
 		p.MaxReplicas = 10
 		p.SLATier = SLATierEnterprise // 9 + 2 = 11 ⇒ clamp to 10
-		got, err := eng.ProposeDesiredState(Telemetry{RequestsPerSecond: 5}, desired(0), p, launchKind)
+		got, err := eng.ProposeDesiredState(fweng.Context{}, Telemetry{RequestsPerSecond: 5}, desired(0), p, launchKind)
 		mustNoErr(t, err)
 		if got.ToBaseline != 10 {
 			t.Fatalf("ToBaseline = %d, want 10 (clamped to MaxReplicas)", got.ToBaseline)
@@ -413,10 +428,10 @@ func TestDeterminism(t *testing.T) {
 
 	for _, sc := range scenarios {
 		t.Run(sc.name, func(t *testing.T) {
-			first, err := eng.ProposeDesiredState(sc.tel, sc.cur, sc.pol, launchKind)
+			first, err := eng.ProposeDesiredState(fweng.Context{}, sc.tel, sc.cur, sc.pol, launchKind)
 			mustNoErr(t, err)
 			for i := 0; i < 200; i++ {
-				got, err := eng.ProposeDesiredState(sc.tel, sc.cur, sc.pol, launchKind)
+				got, err := eng.ProposeDesiredState(fweng.Context{}, sc.tel, sc.cur, sc.pol, launchKind)
 				mustNoErr(t, err)
 				if got != first {
 					t.Fatalf("call %d non-deterministic: %+v != %+v", i, got, first)

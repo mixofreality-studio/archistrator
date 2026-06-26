@@ -9,9 +9,12 @@ package codegen
 import "github.com/google/jsonschema-go/jsonschema"
 
 // Interface is one component's service-contract interface — the generated Go
-// interface's name and its operations.
+// interface's name, its Method layer, and its operations. Layer selects the
+// per-layer call context (e.g. engine.Context, resourceaccess.Context) the
+// generator prepends to every method.
 type Interface struct {
 	Name       string      `json:"name"`
+	Layer      string      `json:"layer"`
 	Operations []Operation `json:"operations"`
 }
 

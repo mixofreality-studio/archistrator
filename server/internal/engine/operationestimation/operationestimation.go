@@ -260,6 +260,7 @@ const arpuCentsPerDAUPerMonth = 300.0
 const defaultCurrency = "USD"
 
 func (engine) EstimateForOption(
+	_ fweng.Context,
 	option ProjectOption,
 	declaredUsage UsageAssumption,
 	infrastructureKind InfrastructureKind,
@@ -336,6 +337,7 @@ func (engine) EstimateForOption(
 // ---------------------------------------------------------------------------
 
 func (engine) ProjectForOperatedApp(
+	_ fweng.Context,
 	observedUsage ObservedUsage,
 	infrastructureKind InfrastructureKind,
 	scaleWhatIfPoints []ScalePoint,

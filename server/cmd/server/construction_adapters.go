@@ -21,6 +21,7 @@ import (
 	"sort"
 	"strings"
 
+	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/handoff"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
@@ -296,6 +297,7 @@ func (a handoffAdapter) PickWorkerClass(
 	policy construction.HandOffPolicy,
 ) (construction.WorkerClass, error) {
 	cls, err := a.inner.PickWorkerClass(
+		fweng.Context{Context: context.Background()},
 		handoff.ConstructionActivity{
 			ActivityID:   activity.ActivityID,
 			Kind:         handoffActivityKind(activity.Kind),
@@ -366,7 +368,7 @@ var _ construction.InterventionEngine = interventionAdapter{}
 func (a interventionAdapter) DecideOnVariance(
 	v construction.ConstructionVariance,
 ) (construction.VarianceDirective, error) {
-	d, err := a.inner.DecideOnVariance(intervention.ConstructionVariance{
+	d, err := a.inner.DecideOnVariance(fweng.Context{Context: context.Background()}, intervention.ConstructionVariance{
 		// The Manager's mirror carries no ProjectID on the variance; the workflow
 		// passes ActivityID + Kind + Detail. The Engine requires a non-empty
 		// ProjectID, so we carry the ActivityID into both identity fields (the
@@ -393,7 +395,7 @@ func (a interventionAdapter) ApplyPausePolicy(
 	projectID string,
 	ctx construction.PauseRequestContext,
 ) (construction.PausePlan, error) {
-	plan, err := a.inner.ApplyPausePolicy(intervention.PauseRequestContext{
+	plan, err := a.inner.ApplyPausePolicy(fweng.Context{Context: context.Background()}, intervention.PauseRequestContext{
 		ProjectID: intervention.ProjectID(projectID),
 		Reason:    ctx.Reason,
 	})
@@ -482,7 +484,11 @@ func (a reviewAdapter) ProposeReviews(
 	architectureGraph string,
 	contracts []string,
 ) (construction.ReviewSet, error) {
+	// Stopgap zero engine.Context — the constructionManager mirror doesn't carry a
+	// context yet (added when the Manager layer is bootstrapped); the pure
+	// reviewEngine ignores it.
 	set, err := a.inner.ProposeReviews(
+		fweng.Context{Context: context.Background()},
 		review.ReviewChange{
 			ActivityID:     change.ActivityID,
 			ComponentID:    change.ComponentID,

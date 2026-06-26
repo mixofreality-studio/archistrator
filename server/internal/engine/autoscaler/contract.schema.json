@@ -318,6 +318,7 @@
   "title": "autoscaler contract",
   "interface": {
     "name": "AutoscalerEngine",
+    "layer": "engine",
     "operations": [
       {
         "name": "ProposeDesiredState",

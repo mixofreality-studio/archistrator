@@ -1,6 +1,7 @@
 package projectdesign
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math"
@@ -9,6 +10,7 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
+	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/estimation"
@@ -842,11 +844,12 @@ func (wf *Workflows) assembleSdpReview(proj projectstate.Project, feedback strin
 		}
 		opt := assembleOption(kind, pa, al, nw, sol)
 
-		ce, eErr := wf.Estimation.EstimateForOption(toEstimationOption(opt))
+		ce, eErr := wf.Estimation.EstimateForOption(fweng.Context{Context: context.Background()}, toEstimationOption(opt))
 		if eErr != nil {
 			return nil, escalateEngine("estimationEngine", kind, eErr)
 		}
 		of, oErr := wf.OperationEst.EstimateForOption(
+			fweng.Context{Context: context.Background()},
 			toOperationOption(opt),
 			toOperationUsage(opt.DeclaredUsage),
 			operationestimation.InfrastructureKind(opt.InfrastructureKind),
@@ -854,7 +857,7 @@ func (wf *Workflows) assembleSdpReview(proj projectstate.Project, feedback strin
 		if oErr != nil {
 			return nil, escalateEngine("operationEstimationEngine", kind, oErr)
 		}
-		proj2, pErr := wf.Settlement.ProjectCommitTimeRevenueShareAndComputeCost(toSettlementOption(opt))
+		proj2, pErr := wf.Settlement.ProjectCommitTimeRevenueShareAndComputeCost(fweng.Context{Context: context.Background()}, toSettlementOption(opt))
 		if pErr != nil {
 			return nil, escalateEngine("settlementEngine", kind, pErr)
 		}

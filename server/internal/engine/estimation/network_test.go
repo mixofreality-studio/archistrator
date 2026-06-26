@@ -2,6 +2,8 @@ package estimation
 
 import (
 	"testing"
+
+	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 )
 
 // diamond builds a small diamond network for the CPM tests: A(5) → B(5),C(15) → D(5).
@@ -25,7 +27,7 @@ func diamond() (ActivityList, Network) {
 
 func TestComputeNetwork_ForwardBackwardPass(t *testing.T) {
 	al, net := diamond()
-	sol, err := New().ComputeNetwork(al, net)
+	sol, err := New().ComputeNetwork(fweng.Context{}, al, net)
 	if err != nil {
 		t.Fatalf("ComputeNetwork: %v", err)
 	}
@@ -58,7 +60,7 @@ func TestComputeNetwork_ForwardBackwardPass(t *testing.T) {
 
 func TestComputeNetwork_BandClassification(t *testing.T) {
 	al, net := diamond()
-	sol, _ := New().ComputeNetwork(al, net)
+	sol, _ := New().ComputeNetwork(fweng.Context{}, al, net)
 
 	// On-CP nodes are critical.
 	if sol.Nodes["A"].Band != BandCritical || sol.Nodes["C"].Band != BandCritical {
@@ -104,7 +106,7 @@ func TestComputeNetwork_MilestoneEventTimeAndRiskExclusion(t *testing.T) {
 		{Id: "M-MID", DependsOn: []string{"B"}},
 		{Id: "M-START", DependsOn: nil},
 	}
-	sol, err := New().ComputeNetwork(al, net)
+	sol, err := New().ComputeNetwork(fweng.Context{}, al, net)
 	if err != nil {
 		t.Fatalf("ComputeNetwork: %v", err)
 	}
@@ -149,7 +151,7 @@ func TestComputeNetwork_MilestoneChaining(t *testing.T) {
 		{Id: "N-LATE", DependsOn: []string{"M-END"}},
 		{Id: "M-END", DependsOn: []string{"D"}},
 	}
-	sol, err := New().ComputeNetwork(al, net)
+	sol, err := New().ComputeNetwork(fweng.Context{}, al, net)
 	if err != nil {
 		t.Fatalf("ComputeNetwork: %v", err)
 	}
@@ -182,7 +184,7 @@ func TestComputeNetwork_MilestoneDeterminingPredOffCP(t *testing.T) {
 	net.Milestones = []NetworkMilestone{
 		{Id: "M-X", DependsOn: []string{"A", "B"}},
 	}
-	sol, _ := New().ComputeNetwork(al, net)
+	sol, _ := New().ComputeNetwork(fweng.Context{}, al, net)
 	m := sol.Milestones[0]
 	if m.EventTime != 10 {
 		t.Fatalf("M-X eventTime = %v, want 10 (determining pred B)", m.EventTime)
@@ -200,7 +202,7 @@ func TestComputeNetwork_StartGateMilestone(t *testing.T) {
 	net.Milestones = []NetworkMilestone{
 		{Id: "M0", DependsOn: nil},
 	}
-	sol, _ := New().ComputeNetwork(al, net)
+	sol, _ := New().ComputeNetwork(fweng.Context{}, al, net)
 	m := sol.Milestones[0]
 	if m.EventTime != 0 || !m.OnCriticalPath {
 		t.Fatalf("M0 start gate: %+v (want eventTime 0, on-CP via root convention)", m)
@@ -218,7 +220,7 @@ func TestComputeNetwork_PostTerminalMilestoneOffCP(t *testing.T) {
 		{Id: "M-REL", DependsOn: []string{"D"}},    // det pred D (activity, on-CP, EF 25 = duration)
 		{Id: "M-POST", DependsOn: []string{"M-REL"}}, // chained off the release milestone
 	}
-	sol, _ := New().ComputeNetwork(al, net)
+	sol, _ := New().ComputeNetwork(fweng.Context{}, al, net)
 	byID := map[string]NetworkMilestoneSolution{}
 	for _, m := range sol.Milestones {
 		byID[m.ID] = m
@@ -232,7 +234,7 @@ func TestComputeNetwork_PostTerminalMilestoneOffCP(t *testing.T) {
 }
 
 func TestComputeNetwork_EmptyNetworkIsEmptyResultNotError(t *testing.T) {
-	sol, err := New().ComputeNetwork(ActivityList{}, Network{})
+	sol, err := New().ComputeNetwork(fweng.Context{}, ActivityList{}, Network{})
 	if err != nil {
 		t.Fatalf("empty network should not error: %v", err)
 	}
@@ -243,8 +245,8 @@ func TestComputeNetwork_EmptyNetworkIsEmptyResultNotError(t *testing.T) {
 
 func TestComputeNetwork_Deterministic(t *testing.T) {
 	al, net := diamond()
-	a, _ := New().ComputeNetwork(al, net)
-	b, _ := New().ComputeNetwork(al, net)
+	a, _ := New().ComputeNetwork(fweng.Context{}, al, net)
+	b, _ := New().ComputeNetwork(fweng.Context{}, al, net)
 	if a.Summary != b.Summary {
 		t.Fatal("summary not deterministic")
 	}
@@ -257,7 +259,7 @@ func TestComputeNetwork_Deterministic(t *testing.T) {
 
 func TestComputeNetwork_SummaryRollups(t *testing.T) {
 	al, net := diamond()
-	sol, _ := New().ComputeNetwork(al, net)
+	sol, _ := New().ComputeNetwork(fweng.Context{}, al, net)
 	// 3 on-CP (A,C,D), max float 10 (B), 0 near-critical (B's 10 > red threshold 5).
 	if sol.Summary.CriticalPathActivityCount != 3 {
 		t.Fatalf("CP count = %d, want 3", sol.Summary.CriticalPathActivityCount)

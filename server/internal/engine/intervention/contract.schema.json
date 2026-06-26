@@ -366,6 +366,7 @@
   "title": "intervention contract",
   "interface": {
     "name": "InterventionEngine",
+    "layer": "engine",
     "operations": [
       {
         "name": "ApplyPausePolicy",

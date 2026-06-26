@@ -92,6 +92,7 @@
   "title": "handoff contract",
   "interface": {
     "name": "HandOffEngine",
+    "layer": "engine",
     "operations": [
       {
         "name": "PickWorkerClass",

@@ -68,6 +68,7 @@
   "title": "review contract",
   "interface": {
     "name": "ReviewEngine",
+    "layer": "engine",
     "operations": [
       {
         "name": "ProposeReviews",

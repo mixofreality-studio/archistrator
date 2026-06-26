@@ -3,6 +3,10 @@
 
 package billing
 
+import (
+	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
+)
+
 type CustomerID string
 
 type HostingRate struct {
@@ -62,6 +66,6 @@ const (
 
 // BillingEngine is the generated service-contract interface for this component.
 type BillingEngine interface {
-	PriceServiceForOption(option ProjectOption) (ServiceCostProjection, error)
-	PriceUsage(usage PeriodUsage, servicePricing ServicePricing) (ServiceInvoice, error)
+	PriceServiceForOption(rc fweng.Context, option ProjectOption) (ServiceCostProjection, error)
+	PriceUsage(rc fweng.Context, usage PeriodUsage, servicePricing ServicePricing) (ServiceInvoice, error)
 }

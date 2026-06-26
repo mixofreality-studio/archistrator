@@ -167,7 +167,7 @@ func TestPriceUsage_FlatMarkup(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := e.PriceUsage(tt.usage, tt.pricing)
+			got, err := e.PriceUsage(fweng.Context{}, tt.usage, tt.pricing)
 			if tt.wantErr {
 				assertEngineErr(t, err, tt.errKind, tt.errDetail)
 				return
@@ -255,7 +255,7 @@ func TestPriceServiceForOption_FlatMarkup(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := e.PriceServiceForOption(tt.option)
+			got, err := e.PriceServiceForOption(fweng.Context{}, tt.option)
 			if tt.wantErr {
 				assertEngineErr(t, err, tt.errKind, tt.errDetail)
 				return
@@ -284,23 +284,23 @@ func TestDeterminism(t *testing.T) {
 	pricing := launchPricing()
 	option := ProjectOption{OptionID: "opt-compressed", Pricing: pricing}
 
-	firstInvoice, err := e.PriceUsage(usage, pricing)
+	firstInvoice, err := e.PriceUsage(fweng.Context{}, usage, pricing)
 	if err != nil {
 		t.Fatalf("first PriceUsage: %v", err)
 	}
-	firstProjection, err := e.PriceServiceForOption(option)
+	firstProjection, err := e.PriceServiceForOption(fweng.Context{}, option)
 	if err != nil {
 		t.Fatalf("first PriceServiceForOption: %v", err)
 	}
 	for i := 0; i < 100; i++ {
-		inv, err := e.PriceUsage(usage, pricing)
+		inv, err := e.PriceUsage(fweng.Context{}, usage, pricing)
 		if err != nil {
 			t.Fatalf("PriceUsage call %d: %v", i, err)
 		}
 		if inv != firstInvoice {
 			t.Fatalf("PriceUsage call %d non-deterministic: %+v != %+v", i, inv, firstInvoice)
 		}
-		proj, err := e.PriceServiceForOption(option)
+		proj, err := e.PriceServiceForOption(fweng.Context{}, option)
 		if err != nil {
 			t.Fatalf("PriceServiceForOption call %d: %v", i, err)
 		}
@@ -316,6 +316,7 @@ func TestDeterminism(t *testing.T) {
 func TestMoneyIsExactInt64(t *testing.T) {
 	e := New()
 	got, err := e.PriceUsage(
+		fweng.Context{},
 		PeriodUsage{
 			CustomerID: "cust-1", PeriodID: "2026-06",
 			ConstructionTokens: 999_999, // raw = (999,999×800 + 500,000)/1,000,000 = 800 exact int64

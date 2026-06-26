@@ -93,7 +93,7 @@ func (p BandPolicy) nearCritical(onCriticalPath bool, totalFloat float64) bool {
 // input the Manager should never assemble): an InternalInvariant guard catches a
 // computed negative duration. An empty network is a normal DOMAIN result (an empty
 // solution), NOT an error — a project may be read before its network is authored.
-func (engine) ComputeNetwork(activities ActivityList, network Network) (NetworkSolution, error) {
+func (engine) ComputeNetwork(_ fweng.Context, activities ActivityList, network Network) (NetworkSolution, error) {
 	effortByName := make(map[string]ActivityItem, len(activities.Activities))
 	for _, a := range activities.Activities {
 		effortByName[a.Name] = a

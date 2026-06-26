@@ -143,7 +143,7 @@ func termsKnown(terms SettlementTerms) bool {
 // ProjectCommitTimeRevenueShareAndComputeCost echoes the committed option's
 // settlement-terms regime kinds and percents as a projection (no actuals). Unknown
 // terms ⇒ InvalidInput "unknown terms" — never a silent default (money safety).
-func (engine) ProjectCommitTimeRevenueShareAndComputeCost(option ProjectOption) (Projection, error) {
+func (engine) ProjectCommitTimeRevenueShareAndComputeCost(_ fweng.Context, option ProjectOption) (Projection, error) {
 	terms := option.Terms
 	if !termsKnown(terms) {
 		return Projection{}, fweng.New(fweng.InvalidInput, "unknown terms")
@@ -158,14 +158,14 @@ func (engine) ProjectCommitTimeRevenueShareAndComputeCost(option ProjectOption) 
 
 // ComputeNet computes the signed net for an actual closed cycle and the routing
 // directive. All money math is exact int64 minor units. (settlementEngine.md §2.1)
-func (engine) ComputeNet(revenue CycleRevenue, usage CycleUsage, terms SettlementTerms) (SettlementResult, error) {
+func (engine) ComputeNet(_ fweng.Context, revenue CycleRevenue, usage CycleUsage, terms SettlementTerms) (SettlementResult, error) {
 	return computeNet(revenue, usage, terms)
 }
 
 // RecomputeNet computes the corrected signed net for a reversal-adjusted cycle. The
 // computation is identical to ComputeNet over the reversal-adjusted revenue total;
 // the Manager computes the delta vs affectedCycle.PriorSettled. (settlementEngine.md §2.2)
-func (engine) RecomputeNet(affectedCycle ReSettlementInput) (SettlementResult, error) {
+func (engine) RecomputeNet(_ fweng.Context, affectedCycle ReSettlementInput) (SettlementResult, error) {
 	return computeNet(affectedCycle.Revenue, affectedCycle.Usage, affectedCycle.Terms)
 }
 
