@@ -623,6 +623,11 @@ func writeComponent(c component) error {
 		if err != nil {
 			return fmt.Errorf("reflect model %s: %w", t.Name(), err)
 		}
+		// Preserve the original Go field name per property (json tag determines the
+		// schema property key / wire name; the Go field name can differ, e.g.
+		// `ProjectID` with `json:"projectId"`). Recorded as x-go-name so modelgen
+		// regenerates the exact Go field identifier without changing the wire shape.
+		injectGoNames(s, t)
 		defs[t.Name()] = s
 	}
 
@@ -679,7 +684,12 @@ func reflectInterface(c component, modelNames map[string]bool) (codegen.Interfac
 			if j < len(pn) {
 				nm = pn[j]
 			}
-			op.Params = append(op.Params, codegen.Param{Name: nm, Schema: schemaForType(ft.In(j), modelNames)})
+			in := ft.In(j)
+			op.Params = append(op.Params, codegen.Param{
+				Name:    nm,
+				Pointer: in.Kind() == reflect.Ptr, // nil-meaningful nullable param → emit *T
+				Schema:  schemaForType(in, modelNames),
+			})
 		}
 		for j := 0; j < ft.NumOut(); j++ {
 			ot := ft.Out(j)
@@ -692,6 +702,63 @@ func reflectInterface(c component, modelNames map[string]bool) (codegen.Interfac
 		out.Operations = append(out.Operations, op)
 	}
 	return out, nil
+}
+
+// injectGoNames records each struct field's ORIGINAL Go field name as `x-go-name`
+// on the corresponding property schema, keyed by the property's wire name (json
+// tag). Lets modelgen emit the exact Go identifier (e.g. `ProjectID`) while the
+// json tag keeps the wire key (e.g. `projectId`).
+func injectGoNames(s *jsonschema.Schema, t reflect.Type) {
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+	if t.Kind() != reflect.Struct || s == nil || len(s.Properties) == 0 {
+		return
+	}
+	for i := 0; i < t.NumField(); i++ {
+		f := t.Field(i)
+		if !f.IsExported() {
+			continue
+		}
+		wire := f.Name
+		if tag := f.Tag.Get("json"); tag != "" {
+			name := strings.Split(tag, ",")[0]
+			if name == "-" {
+				continue
+			}
+			if name != "" {
+				wire = name
+			}
+		}
+		// Only record when the Go name differs from what modelgen would derive from
+		// the wire key (so PascalCase-tagged components stay byte-identical — no-op).
+		if f.Name == exportTitle(wire) {
+			continue
+		}
+		prop, ok := s.Properties[wire]
+		if !ok || prop == nil {
+			continue
+		}
+		// Clone before mutating: property schemas for well-known types (time/uuid/
+		// []byte) are SHARED pointers, so mutating in place cross-contaminates other
+		// fields of the same type. A shallow copy with a fresh Extra map is enough.
+		cp := *prop
+		cp.Extra = map[string]any{}
+		for k, v := range prop.Extra {
+			cp.Extra[k] = v
+		}
+		cp.Extra["x-go-name"] = f.Name
+		s.Properties[wire] = &cp
+	}
+}
+
+// exportTitle upper-cases the first byte (mirrors modelgen's exportName) — the
+// default Go field name modelgen derives from a wire key.
+func exportTitle(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
 }
 
 // schemaForType maps a Go type to a JSON Schema node: a `$ref` for model types,

@@ -177,7 +177,11 @@ func emitInterface(buf *bytes.Buffer, iface codegen.Interface) {
 			pendingImports[lc.path] = lc.alias
 		}
 		for _, p := range op.Params {
-			params = append(params, p.Name+" "+goType(p.Schema))
+			t := goType(p.Schema)
+			if p.Pointer {
+				t = "*" + t
+			}
+			params = append(params, p.Name+" "+t)
 		}
 		fmt.Fprintf(buf, "\t%s(%s)%s\n", op.Name, strings.Join(params, ", "), returnClause(op))
 	}
@@ -235,7 +239,15 @@ func emitType(buf *bytes.Buffer, name string, s *jsonschema.Schema, order []stri
 			}
 			tag += ",omitempty"
 		}
-		fmt.Fprintf(buf, "\t%s %s `json:%q`\n", exportName(k), gt, tag)
+		// Go field name: the recorded original (x-go-name) when present, else
+		// derived from the wire key. The json tag always carries the wire key.
+		goName := exportName(k)
+		if ps.Extra != nil {
+			if n, ok := ps.Extra["x-go-name"].(string); ok && n != "" {
+				goName = n
+			}
+		}
+		fmt.Fprintf(buf, "\t%s %s `json:%q`\n", goName, gt, tag)
 	}
 	buf.WriteString("}\n")
 	return nil

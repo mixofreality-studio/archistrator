@@ -29,8 +29,10 @@ type Operation struct {
 
 // Param is one operation parameter. Schema is a JSON Schema node — either a
 // `$ref` into the contract's `$defs` (for a model type) or an inline primitive /
-// array schema.
+// array schema. Pointer marks a nullable pointer parameter (e.g. `*ActivityID`),
+// where nil is load-bearing; the generator emits `*T`.
 type Param struct {
-	Name   string             `json:"name"`
-	Schema *jsonschema.Schema `json:"schema"`
+	Name    string             `json:"name"`
+	Pointer bool               `json:"pointer,omitempty"`
+	Schema  *jsonschema.Schema `json:"schema"`
 }
