@@ -518,7 +518,13 @@ func run(logger *slog.Logger) error { //nolint:gocognit,gocyclo,maintidx,nestif 
 	// the same credentialMinter); else keep the Postgres `ps` (the legacy composition).
 	// constructionGitStatus lights up the per-activity construction-status records
 	// (RecordActivityStarted/Completed) that drive the pump's eligibility cascade.
-	constructionPS := construction.ProjectStateAccess(ps)
+	// The Postgres *Store's ReadProject now takes the RA call Context (fwra.Context,
+	// the in-scope ProjectStateAccess port refactor); the construction Manager's
+	// ctx-based ProjectStateAccess mirror still expects (ctx). pgConstructionPS is the
+	// composition-root shim that bridges ONLY ReadProject (ctx → fwra.Context); the
+	// construction-transition Record* verbs stay ctx-based on *Store (out of scope),
+	// reached through the embedded pointer unchanged.
+	constructionPS := construction.ProjectStateAccess(pgConstructionPS{ps})
 	var constructionGitStatus construction.GitActivityStatusAccess
 	if gitAdapter, ok := designProjectState.(*projectStateGitAdapter); ok {
 		constructionPS = constructionProjectStateAdapter{store: gitAdapter.store, minter: gitAdapter.minter}

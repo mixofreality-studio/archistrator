@@ -30,6 +30,23 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
+// pgConstructionPS bridges the Postgres *projectstate.Store to the construction
+// Manager's ctx-based construction.ProjectStateAccess mirror, after the in-scope
+// ProjectStateAccess port refactor moved Store.ReadProject onto rc fwra.Context.
+// The construction mirror (out of scope for that refactor) still consumes a
+// ctx-based ReadProject, so this shim re-wraps just that one verb (ctx →
+// fwra.Context{Context: ctx}); the embedded *Store supplies the ctx-based
+// construction-transition Record* verbs unchanged.
+type pgConstructionPS struct {
+	*projectstate.Store
+}
+
+var _ construction.ProjectStateAccess = pgConstructionPS{}
+
+func (a pgConstructionPS) ReadProject(ctx context.Context, projectID projectstate.ProjectID) (projectstate.Project, error) {
+	return a.Store.ReadProject(fwra.Context{Context: ctx}, projectID)
+}
+
 // constructionProjectStateAdapter binds a credentialMinter over the cred-threaded
 // *projectstate.GitStore and presents the construction Manager's no-cred
 // ProjectStateAccess. Each verb mints the project-scoped credential just-in-time

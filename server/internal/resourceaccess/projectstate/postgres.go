@@ -273,7 +273,8 @@ func decodeSlotsMap(w map[string]slotJSON, p *Project) error {
 // not re-decide whether the transition is allowed (the Manager's / Engine's gate).
 // ---------------------------------------------------------------------------
 
-func (s *Store) StageArtifactForReview(ctx context.Context, projectID ProjectID, expectedVersion Version, model ArtifactModel, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (s *Store) StageArtifactForReview(rc fwra.Context, projectID ProjectID, expectedVersion Version, model ArtifactModel) (Version, error) {
+	ctx, idempotencyKey := rc.Context, rc.IdempotencyKey
 	if model == nil {
 		return 0, fwra.New(fwra.ContractMisuse, "projectstate.StageArtifactForReview: nil staged model")
 	}
@@ -293,20 +294,20 @@ func (s *Store) StageArtifactForReview(ctx context.Context, projectID ProjectID,
 	})
 }
 
-func (s *Store) CommitArtifact(ctx context.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	return s.applyMutation(ctx, "CommitArtifact", projectID, expectedVersion, idempotencyKey, statusTransition("CommitArtifact", kind, ReviewCommitted, ""))
+func (s *Store) CommitArtifact(rc fwra.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind) (Version, error) {
+	return s.applyMutation(rc.Context, "CommitArtifact", projectID, expectedVersion, rc.IdempotencyKey, statusTransition("CommitArtifact", kind, ReviewCommitted, ""))
 }
 
-func (s *Store) RejectArtifact(ctx context.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, notes string, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	return s.applyMutation(ctx, "RejectArtifact", projectID, expectedVersion, idempotencyKey, statusTransition("RejectArtifact", kind, ReviewRejected, notes))
+func (s *Store) RejectArtifact(rc fwra.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, notes string) (Version, error) {
+	return s.applyMutation(rc.Context, "RejectArtifact", projectID, expectedVersion, rc.IdempotencyKey, statusTransition("RejectArtifact", kind, ReviewRejected, notes))
 }
 
-func (s *Store) WithdrawArtifact(ctx context.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, notes string, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	return s.applyMutation(ctx, "WithdrawArtifact", projectID, expectedVersion, idempotencyKey, statusTransition("WithdrawArtifact", kind, ReviewWithdrawn, notes))
+func (s *Store) WithdrawArtifact(rc fwra.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, notes string) (Version, error) {
+	return s.applyMutation(rc.Context, "WithdrawArtifact", projectID, expectedVersion, rc.IdempotencyKey, statusTransition("WithdrawArtifact", kind, ReviewWithdrawn, notes))
 }
 
-func (s *Store) AdvancePhase(ctx context.Context, projectID ProjectID, expectedVersion Version, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	return s.applyMutation(ctx, "AdvancePhase", projectID, expectedVersion, idempotencyKey, func(p *Project) error {
+func (s *Store) AdvancePhase(rc fwra.Context, projectID ProjectID, expectedVersion Version) (Version, error) {
+	return s.applyMutation(rc.Context, "AdvancePhase", projectID, expectedVersion, rc.IdempotencyKey, func(p *Project) error {
 		p.Phase++
 		return nil
 	})
@@ -320,11 +321,11 @@ func (s *Store) AdvancePhase(ctx context.Context, projectID ProjectID, expectedV
 // The project row must already exist (Task 2.3): a project is born explicitly via
 // CreateProject, NOT implicitly on first research write. An absent row surfaces
 // fwra.NotFound.
-func (s *Store) SetResearchInput(ctx context.Context, projectID ProjectID, expectedVersion Version, research ResearchInput, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (s *Store) SetResearchInput(rc fwra.Context, projectID ProjectID, expectedVersion Version, research ResearchInput) (Version, error) {
 	if research.IsZero() {
 		return 0, fwra.New(fwra.ContractMisuse, "projectstate.SetResearchInput: empty research (no sources)")
 	}
-	return s.applyMutationMode(ctx, "SetResearchInput", projectID, expectedVersion, idempotencyKey, modeRequireExisting, func(p *Project) error {
+	return s.applyMutationMode(rc.Context, "SetResearchInput", projectID, expectedVersion, rc.IdempotencyKey, modeRequireExisting, func(p *Project) error {
 		p.ResearchInput = research
 		return nil
 	})
@@ -336,11 +337,11 @@ func (s *Store) SetResearchInput(ctx context.Context, projectID ProjectID, expec
 // modeCreateOnly — idempotent on idempotencyKey (a retry returns the version the
 // first attempt committed) and fwra.Conflict if the id already exists under a
 // DIFFERENT key. The expectedVersion is always 0 (a brand-new row).
-func (s *Store) CreateProject(ctx context.Context, projectID ProjectID, owner OwnerScope, name string, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (s *Store) CreateProject(rc fwra.Context, projectID ProjectID, owner OwnerScope, name string) (Version, error) {
 	if owner == "" {
 		return 0, fwra.New(fwra.ContractMisuse, "projectstate.CreateProject: empty owner")
 	}
-	return s.applyMutationMode(ctx, "CreateProject", projectID, 0, idempotencyKey, modeCreateOnly, func(p *Project) error {
+	return s.applyMutationMode(rc.Context, "CreateProject", projectID, 0, rc.IdempotencyKey, modeCreateOnly, func(p *Project) error {
 		p.Owner = owner
 		p.Name = name
 		p.Phase = PhaseSystemDesign
@@ -352,7 +353,8 @@ func (s *Store) CreateProject(ctx context.Context, projectID ProjectID, owner Ow
 // newest-first (Task 2.3). Each summary derives the current-phase progress
 // (committed vs total artifact slots) from the stored slot set. An owner with no
 // projects yields an empty, non-nil slice.
-func (s *Store) ListProjects(ctx context.Context, owner OwnerScope) ([]ProjectSummary, error) {
+func (s *Store) ListProjects(rc fwra.Context, owner OwnerScope) ([]ProjectSummary, error) {
+	ctx := rc.Context
 	if owner == "" {
 		return nil, fwra.New(fwra.ContractMisuse, "projectstate.ListProjects: empty owner")
 	}
@@ -661,7 +663,8 @@ ON CONFLICT (project_id) DO UPDATE
 // ReadProject serves the read side: the whole head-state aggregate, including
 // every populated typed-model slot. An absent row is fwra.NotFound — the caller
 // branches on absence (projectStateAccess.md §2).
-func (s *Store) ReadProject(ctx context.Context, projectID ProjectID) (Project, error) {
+func (s *Store) ReadProject(rc fwra.Context, projectID ProjectID) (Project, error) {
+	ctx := rc.Context
 	if projectID == "" {
 		return Project{}, fwra.New(fwra.ContractMisuse, "projectstate.ReadProject: zero projectID")
 	}

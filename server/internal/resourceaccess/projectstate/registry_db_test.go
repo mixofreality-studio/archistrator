@@ -27,7 +27,7 @@ func TestCreateProject_InsertsAtVersionOne(t *testing.T) {
 	store, ctx := newStore(t)
 	pid := projectstate.ProjectID(uuid.NewString())
 
-	v, err := store.CreateProject(ctx, pid, ownerAlice, "Order System", "wf:create:0")
+	v, err := store.CreateProject(fwra.Context{Context: ctx, IdempotencyKey: "wf:create:0"}, pid, ownerAlice, "Order System")
 	if err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
@@ -35,7 +35,7 @@ func TestCreateProject_InsertsAtVersionOne(t *testing.T) {
 		t.Fatalf("expected version 1 after create, got %d", v)
 	}
 
-	proj, err := store.ReadProject(ctx, pid)
+	proj, err := store.ReadProject(fwra.Context{Context: ctx}, pid)
 	if err != nil {
 		t.Fatalf("ReadProject after create: %v", err)
 	}
@@ -60,10 +60,10 @@ func TestCreateProject_DuplicateConflict(t *testing.T) {
 	store, ctx := newStore(t)
 	pid := projectstate.ProjectID(uuid.NewString())
 
-	if _, err := store.CreateProject(ctx, pid, ownerAlice, "First", "wf:create:0"); err != nil {
+	if _, err := store.CreateProject(fwra.Context{Context: ctx, IdempotencyKey: "wf:create:0"}, pid, ownerAlice, "First"); err != nil {
 		t.Fatalf("first CreateProject: %v", err)
 	}
-	_, err := store.CreateProject(ctx, pid, ownerAlice, "Second", "wf:create:1")
+	_, err := store.CreateProject(fwra.Context{Context: ctx, IdempotencyKey: "wf:create:1"}, pid, ownerAlice, "Second")
 	assertKind(t, err, fwra.Conflict)
 }
 
@@ -75,11 +75,11 @@ func TestCreateProject_DedupReplay(t *testing.T) {
 	pid := projectstate.ProjectID(uuid.NewString())
 	const key fwra.IdempotencyKey = "wf:create:dedup"
 
-	v1, err := store.CreateProject(ctx, pid, ownerAlice, "Order System", key)
+	v1, err := store.CreateProject(fwra.Context{Context: ctx, IdempotencyKey: key}, pid, ownerAlice, "Order System")
 	if err != nil {
 		t.Fatalf("first CreateProject: %v", err)
 	}
-	v1again, err := store.CreateProject(ctx, pid, ownerAlice, "Order System", key)
+	v1again, err := store.CreateProject(fwra.Context{Context: ctx, IdempotencyKey: key}, pid, ownerAlice, "Order System")
 	if err != nil {
 		t.Fatalf("dedup replay must succeed, got: %v", err)
 	}
@@ -88,7 +88,7 @@ func TestCreateProject_DedupReplay(t *testing.T) {
 	}
 
 	// The head version did not advance.
-	proj, err := store.ReadProject(ctx, pid)
+	proj, err := store.ReadProject(fwra.Context{Context: ctx}, pid)
 	if err != nil {
 		t.Fatalf("ReadProject: %v", err)
 	}
@@ -103,15 +103,15 @@ func TestCreateProject_ContractMisuse(t *testing.T) {
 	pid := projectstate.ProjectID(uuid.NewString())
 
 	// Zero projectID.
-	_, err := store.CreateProject(ctx, projectstate.ProjectID(""), ownerAlice, "n", "k")
+	_, err := store.CreateProject(fwra.Context{Context: ctx, IdempotencyKey: "k"}, projectstate.ProjectID(""), ownerAlice, "n")
 	assertKind(t, err, fwra.ContractMisuse)
 
 	// Empty idempotencyKey.
-	_, err = store.CreateProject(ctx, pid, ownerAlice, "n", "")
+	_, err = store.CreateProject(fwra.Context{Context: ctx, IdempotencyKey: ""}, pid, ownerAlice, "n")
 	assertKind(t, err, fwra.ContractMisuse)
 
 	// Empty owner.
-	_, err = store.CreateProject(ctx, pid, "", "n", "k")
+	_, err = store.CreateProject(fwra.Context{Context: ctx, IdempotencyKey: "k"}, pid, "", "n")
 	assertKind(t, err, fwra.ContractMisuse)
 }
 
@@ -123,15 +123,15 @@ func TestSetResearchInput_RequiresExistingProject(t *testing.T) {
 	pid := projectstate.ProjectID(uuid.NewString())
 
 	// No row yet → NotFound (no implicit creation).
-	_, err := store.SetResearchInput(ctx, pid, 0, sampleResearch(), "wf:research:0")
+	_, err := store.SetResearchInput(fwra.Context{Context: ctx, IdempotencyKey: "wf:research:0"}, pid, 0, sampleResearch())
 	assertKind(t, err, fwra.NotFound)
 
 	// Create the project, then SetResearchInput at the post-create version.
-	v1, err := store.CreateProject(ctx, pid, ownerAlice, "Order System", "wf:create:0")
+	v1, err := store.CreateProject(fwra.Context{Context: ctx, IdempotencyKey: "wf:create:0"}, pid, ownerAlice, "Order System")
 	if err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
-	v2, err := store.SetResearchInput(ctx, pid, v1, sampleResearch(), "wf:research:0")
+	v2, err := store.SetResearchInput(fwra.Context{Context: ctx, IdempotencyKey: "wf:research:0"}, pid, v1, sampleResearch())
 	if err != nil {
 		t.Fatalf("SetResearchInput after create: %v", err)
 	}
@@ -149,17 +149,17 @@ func TestListProjects_FiltersByOwner_NewestFirst(t *testing.T) {
 	aliceNew := projectstate.ProjectID(uuid.NewString())
 	bobOne := projectstate.ProjectID(uuid.NewString())
 
-	if _, err := store.CreateProject(ctx, aliceOld, ownerAlice, "Alpha", "wf:c:1"); err != nil {
+	if _, err := store.CreateProject(fwra.Context{Context: ctx, IdempotencyKey: "wf:c:1"}, aliceOld, ownerAlice, "Alpha"); err != nil {
 		t.Fatalf("create aliceOld: %v", err)
 	}
-	if _, err := store.CreateProject(ctx, bobOne, ownerBob, "Bobs", "wf:c:2"); err != nil {
+	if _, err := store.CreateProject(fwra.Context{Context: ctx, IdempotencyKey: "wf:c:2"}, bobOne, ownerBob, "Bobs"); err != nil {
 		t.Fatalf("create bobOne: %v", err)
 	}
-	if _, err := store.CreateProject(ctx, aliceNew, ownerAlice, "Beta", "wf:c:3"); err != nil {
+	if _, err := store.CreateProject(fwra.Context{Context: ctx, IdempotencyKey: "wf:c:3"}, aliceNew, ownerAlice, "Beta"); err != nil {
 		t.Fatalf("create aliceNew: %v", err)
 	}
 
-	summaries, err := store.ListProjects(ctx, ownerAlice)
+	summaries, err := store.ListProjects(fwra.Context{Context: ctx}, ownerAlice)
 	if err != nil {
 		t.Fatalf("ListProjects: %v", err)
 	}
@@ -189,13 +189,13 @@ func TestListProjects_CountsCommittedSlots(t *testing.T) {
 	store, ctx := newStore(t)
 	pid := projectstate.ProjectID(uuid.NewString())
 
-	v1, err := store.CreateProject(ctx, pid, ownerAlice, "Order System", "wf:c:0")
+	v1, err := store.CreateProject(fwra.Context{Context: ctx, IdempotencyKey: "wf:c:0"}, pid, ownerAlice, "Order System")
 	if err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
 
 	// Fresh project: 0 committed, TotalCount == number of required Phase-1 slots.
-	summaries, err := store.ListProjects(ctx, ownerAlice)
+	summaries, err := store.ListProjects(fwra.Context{Context: ctx}, ownerAlice)
 	if err != nil {
 		t.Fatalf("ListProjects: %v", err)
 	}
@@ -211,15 +211,15 @@ func TestListProjects_CountsCommittedSlots(t *testing.T) {
 	}
 
 	// Stage + commit the Mission slot → CommittedCount becomes 1.
-	v2, err := store.StageArtifactForReview(ctx, pid, v1, mustMission(t, "a vision"), "wf:stage:0")
+	v2, err := store.StageArtifactForReview(fwra.Context{Context: ctx, IdempotencyKey: "wf:stage:0"}, pid, v1, mustMission(t, "a vision"))
 	if err != nil {
 		t.Fatalf("StageArtifactForReview: %v", err)
 	}
-	if _, err := store.CommitArtifact(ctx, pid, v2, projectstate.KindMission, "wf:commit:0"); err != nil {
+	if _, err := store.CommitArtifact(fwra.Context{Context: ctx, IdempotencyKey: "wf:commit:0"}, pid, v2, projectstate.KindMission); err != nil {
 		t.Fatalf("CommitArtifact: %v", err)
 	}
 
-	summaries, err = store.ListProjects(ctx, ownerAlice)
+	summaries, err = store.ListProjects(fwra.Context{Context: ctx}, ownerAlice)
 	if err != nil {
 		t.Fatalf("ListProjects after commit: %v", err)
 	}
@@ -236,7 +236,7 @@ func TestListProjects_CountsCommittedSlots(t *testing.T) {
 func TestListProjects_EmptyForUnknownOwner(t *testing.T) {
 	store, ctx := newStore(t)
 
-	summaries, err := store.ListProjects(ctx, "nobody@example.com")
+	summaries, err := store.ListProjects(fwra.Context{Context: ctx}, "nobody@example.com")
 	if err != nil {
 		t.Fatalf("ListProjects: %v", err)
 	}
@@ -248,6 +248,6 @@ func TestListProjects_EmptyForUnknownOwner(t *testing.T) {
 // TestListProjects_ContractMisuse: an empty owner is caller misuse.
 func TestListProjects_ContractMisuse(t *testing.T) {
 	store, ctx := newStore(t)
-	_, err := store.ListProjects(ctx, "")
+	_, err := store.ListProjects(fwra.Context{Context: ctx}, "")
 	assertKind(t, err, fwra.ContractMisuse)
 }

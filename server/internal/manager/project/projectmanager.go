@@ -113,7 +113,7 @@ func (m *Manager) CreateProject(ctx context.Context, owner OwnerScope, name stri
 		}
 	}
 
-	if _, err := m.projectState.CreateProject(ctx, projectID, owner, name, key); err != nil {
+	if _, err := m.projectState.CreateProject(fwra.Context{Context: ctx, IdempotencyKey: key}, projectID, owner, name); err != nil {
 		return "", mapRAError(err)
 	}
 	return projectID, nil
@@ -133,7 +133,7 @@ func (m *Manager) ListProjects(ctx context.Context, owner OwnerScope) ([]Project
 	if owner == "" {
 		return nil, newError(fwmanager.ContractMisuse, "empty owner")
 	}
-	summaries, err := m.projectState.ListProjects(ctx, owner)
+	summaries, err := m.projectState.ListProjects(fwra.Context{Context: ctx}, owner)
 	if err != nil {
 		return nil, mapRAError(err)
 	}
@@ -147,7 +147,7 @@ func (m *Manager) GetProject(ctx context.Context, projectID ProjectID) (ProjectS
 	if projectID == "" {
 		return ProjectState{}, newError(fwmanager.ContractMisuse, "empty projectId")
 	}
-	proj, err := m.projectState.ReadProject(ctx, projectID)
+	proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectID)
 	if err != nil {
 		return ProjectState{}, mapRAError(err)
 	}

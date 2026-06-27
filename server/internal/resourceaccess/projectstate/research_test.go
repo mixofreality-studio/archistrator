@@ -30,13 +30,13 @@ func TestSetResearchInput_RoundTrip(t *testing.T) {
 	pid := projectstate.ProjectID(uuid.NewString())
 
 	// A project is born explicitly now (Task 2.3); research is set on the existing row.
-	vc, err := store.CreateProject(ctx, pid, "owner@example.com", "Order System", "wf:create:0")
+	vc, err := store.CreateProject(fwra.Context{Context: ctx, IdempotencyKey: "wf:create:0"}, pid, "owner@example.com", "Order System")
 	if err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
 
 	research := sampleResearch()
-	v1, err := store.SetResearchInput(ctx, pid, vc, research, "wf:research:0")
+	v1, err := store.SetResearchInput(fwra.Context{Context: ctx, IdempotencyKey: "wf:research:0"}, pid, vc, research)
 	if err != nil {
 		t.Fatalf("SetResearchInput: %v", err)
 	}
@@ -44,7 +44,7 @@ func TestSetResearchInput_RoundTrip(t *testing.T) {
 		t.Fatalf("expected version 2 after create+set, got %d", v1)
 	}
 
-	proj, err := store.ReadProject(ctx, pid)
+	proj, err := store.ReadProject(fwra.Context{Context: ctx}, pid)
 	if err != nil {
 		t.Fatalf("ReadProject: %v", err)
 	}
@@ -65,12 +65,12 @@ func TestSetResearchInput_ReplaceInPlace(t *testing.T) {
 	store, ctx := newStore(t)
 	pid := projectstate.ProjectID(uuid.NewString())
 
-	vc, err := store.CreateProject(ctx, pid, "owner@example.com", "Order System", "wf:create:0")
+	vc, err := store.CreateProject(fwra.Context{Context: ctx, IdempotencyKey: "wf:create:0"}, pid, "owner@example.com", "Order System")
 	if err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
 
-	v1, err := store.SetResearchInput(ctx, pid, vc, sampleResearch(), "wf:research:0")
+	v1, err := store.SetResearchInput(fwra.Context{Context: ctx, IdempotencyKey: "wf:research:0"}, pid, vc, sampleResearch())
 	if err != nil {
 		t.Fatalf("first SetResearchInput: %v", err)
 	}
@@ -78,7 +78,7 @@ func TestSetResearchInput_ReplaceInPlace(t *testing.T) {
 	replacement := projectstate.ResearchInput{Sources: []projectstate.ResearchSource{
 		{Title: "Customer interview #3", Content: "they want full audit trails"},
 	}}
-	v2, err := store.SetResearchInput(ctx, pid, v1, replacement, "wf:research:1")
+	v2, err := store.SetResearchInput(fwra.Context{Context: ctx, IdempotencyKey: "wf:research:1"}, pid, v1, replacement)
 	if err != nil {
 		t.Fatalf("second SetResearchInput: %v", err)
 	}
@@ -86,7 +86,7 @@ func TestSetResearchInput_ReplaceInPlace(t *testing.T) {
 		t.Fatalf("expected version 3 after create+set+replace, got %d", v2)
 	}
 
-	proj, err := store.ReadProject(ctx, pid)
+	proj, err := store.ReadProject(fwra.Context{Context: ctx}, pid)
 	if err != nil {
 		t.Fatalf("ReadProject: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestSetResearchInput_EmptyResearch_ContractMisuse(t *testing.T) {
 	store, ctx := newStore(t)
 	pid := projectstate.ProjectID(uuid.NewString())
 
-	_, err := store.SetResearchInput(ctx, pid, 0, projectstate.ResearchInput{}, "wf:research:empty")
+	_, err := store.SetResearchInput(fwra.Context{Context: ctx, IdempotencyKey: "wf:research:empty"}, pid, 0, projectstate.ResearchInput{})
 	assertKind(t, err, fwra.ContractMisuse)
 }
 
@@ -112,18 +112,18 @@ func TestSetResearchInput_DedupReplay(t *testing.T) {
 	store, ctx := newStore(t)
 	pid := projectstate.ProjectID(uuid.NewString())
 
-	vc, err := store.CreateProject(ctx, pid, "owner@example.com", "Order System", "wf:create:0")
+	vc, err := store.CreateProject(fwra.Context{Context: ctx, IdempotencyKey: "wf:create:0"}, pid, "owner@example.com", "Order System")
 	if err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
 
-	v1, err := store.SetResearchInput(ctx, pid, vc, sampleResearch(), "wf:research:dedup")
+	v1, err := store.SetResearchInput(fwra.Context{Context: ctx, IdempotencyKey: "wf:research:dedup"}, pid, vc, sampleResearch())
 	if err != nil {
 		t.Fatalf("first SetResearchInput: %v", err)
 	}
 
 	// Same key, a now-stale expectedVersion: the dedup probe wins and returns v1.
-	v1again, err := store.SetResearchInput(ctx, pid, vc, sampleResearch(), "wf:research:dedup")
+	v1again, err := store.SetResearchInput(fwra.Context{Context: ctx, IdempotencyKey: "wf:research:dedup"}, pid, vc, sampleResearch())
 	if err != nil {
 		t.Fatalf("dedup replay must succeed, got: %v", err)
 	}
@@ -132,7 +132,7 @@ func TestSetResearchInput_DedupReplay(t *testing.T) {
 	}
 
 	// And the head version did not advance past the first commit.
-	proj, err := store.ReadProject(ctx, pid)
+	proj, err := store.ReadProject(fwra.Context{Context: ctx}, pid)
 	if err != nil {
 		t.Fatalf("ReadProject: %v", err)
 	}
@@ -148,22 +148,22 @@ func TestSetResearchInput_CoexistsWithSlots(t *testing.T) {
 	store, ctx := newStore(t)
 	pid := projectstate.ProjectID(uuid.NewString())
 
-	vc, err := store.CreateProject(ctx, pid, "owner@example.com", "Order System", "wf:create:0")
+	vc, err := store.CreateProject(fwra.Context{Context: ctx, IdempotencyKey: "wf:create:0"}, pid, "owner@example.com", "Order System")
 	if err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
 
-	v1, err := store.SetResearchInput(ctx, pid, vc, sampleResearch(), "wf:research:0")
+	v1, err := store.SetResearchInput(fwra.Context{Context: ctx, IdempotencyKey: "wf:research:0"}, pid, vc, sampleResearch())
 	if err != nil {
 		t.Fatalf("SetResearchInput: %v", err)
 	}
 
-	v2, err := store.StageArtifactForReview(ctx, pid, v1, mustMission(t, "a vision"), "wf:stage:0")
+	v2, err := store.StageArtifactForReview(fwra.Context{Context: ctx, IdempotencyKey: "wf:stage:0"}, pid, v1, mustMission(t, "a vision"))
 	if err != nil {
 		t.Fatalf("StageArtifactForReview: %v", err)
 	}
 
-	proj, err := store.ReadProject(ctx, pid)
+	proj, err := store.ReadProject(fwra.Context{Context: ctx}, pid)
 	if err != nil {
 		t.Fatalf("ReadProject: %v", err)
 	}

@@ -64,16 +64,16 @@ type credBoundStore struct {
 	cred  ps.RepoCredential
 }
 
-func (a credBoundStore) CreateProject(ctx context.Context, projectID project.ProjectID, owner project.OwnerScope, name string, idempotencyKey fwra.IdempotencyKey) (project.Version, error) {
-	return a.store.CreateProject(ctx, projectID, owner, name, a.cred, idempotencyKey)
+func (a credBoundStore) CreateProject(rc fwra.Context, projectID project.ProjectID, owner project.OwnerScope, name string) (project.Version, error) {
+	return a.store.CreateProject(rc.Context, projectID, owner, name, a.cred, rc.IdempotencyKey)
 }
 
-func (a credBoundStore) ListProjects(ctx context.Context, owner project.OwnerScope) ([]project.ProjectSummary, error) {
-	return a.store.ListProjects(ctx, owner, a.cred)
+func (a credBoundStore) ListProjects(rc fwra.Context, owner project.OwnerScope) ([]project.ProjectSummary, error) {
+	return a.store.ListProjects(rc.Context, owner, a.cred)
 }
 
-func (a credBoundStore) ReadProject(ctx context.Context, projectID project.ProjectID) (ps.Project, error) {
-	return a.store.ReadProject(ctx, projectID, a.cred)
+func (a credBoundStore) ReadProject(rc fwra.Context, projectID project.ProjectID) (ps.Project, error) {
+	return a.store.ReadProject(rc.Context, projectID, a.cred)
 }
 
 var _ project.ProjectStateAccess = credBoundStore{}

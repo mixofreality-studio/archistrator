@@ -62,7 +62,7 @@ type rejectCall struct {
 	notes string
 }
 
-func (f *fakeProjectState) ReadProject(_ context.Context, _ projectstate.ProjectID) (projectstate.Project, error) {
+func (f *fakeProjectState) ReadProject(_ fwra.Context, _ projectstate.ProjectID) (projectstate.Project, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.notFound {
@@ -76,54 +76,54 @@ func (f *fakeProjectState) bump() projectstate.Version {
 	return f.version
 }
 
-func (f *fakeProjectState) StageArtifactForReview(_ context.Context, _ projectstate.ProjectID, _ projectstate.Version, model projectstate.ArtifactModel, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *fakeProjectState) StageArtifactForReview(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, model projectstate.ArtifactModel) (projectstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.staged = append(f.staged, model)
 	return f.bump(), nil
 }
 
-func (f *fakeProjectState) CommitArtifact(_ context.Context, _ projectstate.ProjectID, _ projectstate.Version, kind projectstate.ArtifactKind, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *fakeProjectState) CommitArtifact(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, kind projectstate.ArtifactKind) (projectstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.committed = append(f.committed, kind)
 	return f.bump(), nil
 }
 
-func (f *fakeProjectState) RejectArtifact(_ context.Context, _ projectstate.ProjectID, _ projectstate.Version, kind projectstate.ArtifactKind, notes string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *fakeProjectState) RejectArtifact(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, kind projectstate.ArtifactKind, notes string) (projectstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.rejected = append(f.rejected, rejectCall{kind: kind, notes: notes})
 	return f.bump(), nil
 }
 
-func (f *fakeProjectState) WithdrawArtifact(_ context.Context, _ projectstate.ProjectID, _ projectstate.Version, kind projectstate.ArtifactKind, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *fakeProjectState) WithdrawArtifact(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, kind projectstate.ArtifactKind, _ string) (projectstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.withdrawn = append(f.withdrawn, kind)
 	return f.bump(), nil
 }
 
-func (f *fakeProjectState) AdvancePhase(_ context.Context, _ projectstate.ProjectID, _ projectstate.Version, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *fakeProjectState) AdvancePhase(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version) (projectstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.advanced++
 	return f.bump(), nil
 }
 
-func (f *fakeProjectState) SetResearchInput(_ context.Context, _ projectstate.ProjectID, _ projectstate.Version, _ projectstate.ResearchInput, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *fakeProjectState) SetResearchInput(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ projectstate.ResearchInput) (projectstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.bump(), nil
 }
 
-func (f *fakeProjectState) CreateProject(_ context.Context, _ projectstate.ProjectID, _ projectstate.OwnerScope, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *fakeProjectState) CreateProject(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.OwnerScope, _ string) (projectstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.bump(), nil
 }
 
-func (f *fakeProjectState) ListProjects(_ context.Context, _ projectstate.OwnerScope) ([]projectstate.ProjectSummary, error) {
+func (f *fakeProjectState) ListProjects(_ fwra.Context, _ projectstate.OwnerScope) ([]projectstate.ProjectSummary, error) {
 	return nil, nil
 }
 

@@ -37,12 +37,12 @@ type fakeProjectStateAccess struct {
 	readErr     error
 }
 
-func (f *fakeProjectStateAccess) CreateProject(_ context.Context, projectID projectstate.ProjectID, owner projectstate.OwnerScope, name string, key fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *fakeProjectStateAccess) CreateProject(rc fwra.Context, projectID projectstate.ProjectID, owner projectstate.OwnerScope, name string) (projectstate.Version, error) {
 	f.createCalls++
 	f.createID = projectID
 	f.createOwner = owner
 	f.createName = name
-	f.createKey = key
+	f.createKey = rc.IdempotencyKey
 	if f.createErr != nil {
 		return 0, f.createErr
 	}
@@ -52,7 +52,7 @@ func (f *fakeProjectStateAccess) CreateProject(_ context.Context, projectID proj
 	return f.createVersion, nil
 }
 
-func (f *fakeProjectStateAccess) ListProjects(_ context.Context, owner projectstate.OwnerScope) ([]projectstate.ProjectSummary, error) {
+func (f *fakeProjectStateAccess) ListProjects(_ fwra.Context, owner projectstate.OwnerScope) ([]projectstate.ProjectSummary, error) {
 	f.listCalls++
 	f.listOwner = owner
 	if f.listErr != nil {
@@ -61,7 +61,7 @@ func (f *fakeProjectStateAccess) ListProjects(_ context.Context, owner projectst
 	return f.listSummary, nil
 }
 
-func (f *fakeProjectStateAccess) ReadProject(_ context.Context, projectID projectstate.ProjectID) (projectstate.Project, error) {
+func (f *fakeProjectStateAccess) ReadProject(_ fwra.Context, projectID projectstate.ProjectID) (projectstate.Project, error) {
 	f.readCalls++
 	f.readID = projectID
 	if f.readErr != nil {
@@ -230,11 +230,11 @@ type orderingProjectState struct {
 	order *callOrder
 }
 
-func (o *orderingProjectState) CreateProject(ctx context.Context, projectID projectstate.ProjectID, owner projectstate.OwnerScope, name string, key fwra.IdempotencyKey) (projectstate.Version, error) {
+func (o *orderingProjectState) CreateProject(rc fwra.Context, projectID projectstate.ProjectID, owner projectstate.OwnerScope, name string) (projectstate.Version, error) {
 	if o.order != nil {
 		o.order.record("createProject")
 	}
-	return o.fakeProjectStateAccess.CreateProject(ctx, projectID, owner, name, key)
+	return o.fakeProjectStateAccess.CreateProject(rc, projectID, owner, name)
 }
 
 // TestCreateProject_AdoptThenSeatThenCreate is the load-bearing call-order guarantee

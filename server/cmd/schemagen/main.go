@@ -58,6 +58,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/constructionpipeline"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/durableexecution"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usagelog"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/worker"
@@ -71,6 +72,14 @@ type component struct {
 	ifaceName string        // the interface's Go type name (for AST param-name lookup)
 	iface     reflect.Type  // the interface type, reflected for operations
 	sumTypes  []sumTypeDecl // sealed-interface (discriminated-union) declarations
+	// interfaceOnly captures ONLY the interface (the port), emitting NO `$defs` for
+	// the component's OWN-package types. A param/result whose type lives in the
+	// component's own package is emitted as {"x-go-type": "<TypeName>"} (no
+	// x-go-import — same package), so modelgen references the hand-written type by
+	// bare name. Used by the projectstate RA: the domain types + persistence codec
+	// are the canonical hand-written source of truth, NOT contract I/O to regenerate.
+	// A strict no-op when false (every other registered component leaves it unset).
+	interfaceOnly bool
 }
 
 // sumTypeDecl registers a sealed-interface / discriminated-union (sum) type to
@@ -707,6 +716,27 @@ var registry = []component{
 		ifaceName: "SettlementManager",
 		iface:     reflect.TypeOf((*mgrsettlement.SettlementManager)(nil)).Elem(),
 	},
+	{
+		// projectstate is the LAST + highest-stakes RA: the project.json PERSISTENCE
+		// layer (byte-identical round-trip invariant) AND the canonical owner of the
+		// domain types. interfaceOnly mode generates ONLY the ProjectStateAccess port
+		// (the 8 atomic verbs at projectstate.go:51), refactored onto rc fwra.Context
+		// like every other RA. NO models: the domain types (Project, ArtifactModel +
+		// its 17 variants, ProjectSummary, OwnerScope, Version, ArtifactKind,
+		// ResearchInput) AND the entire persistence codec (postgres/git JSONB,
+		// identity, Encode/DecodeProjectJSON) stay HAND-WRITTEN and byte-identical —
+		// they are the Resource detail / source of truth, NOT contract I/O to
+		// regenerate. The generated contract.gen.go references those types by their
+		// bare Go names (same package → no import). Scope is ONLY this port; the other
+		// projectstate interfaces (BranchAwareProjectStateAccess, GitProjectStateAccess,
+		// ConstructionTransitionAccess, GitActivityStatusAccess, …) stay hand-written /
+		// ctx-based pending a follow-up decision.
+		name:          "projectstate",
+		dir:           "internal/resourceaccess/projectstate",
+		interfaceOnly: true,
+		ifaceName:     "ProjectStateAccess",
+		iface:         reflect.TypeOf((*projectstate.ProjectStateAccess)(nil)).Elem(),
+	},
 }
 
 func main() {
@@ -727,6 +757,16 @@ func main() {
 }
 
 func writeComponent(c component) error {
+	// interface-only mode: own-package param/result types resolve to a bare
+	// {"x-go-type": "<TypeName>"} binding (set per-component; cleared for every
+	// other component so the mode is a strict no-op). currentOwnPkgPath is the
+	// PkgPath schemaForType compares a type's PkgPath against.
+	currentInterfaceOnly = c.interfaceOnly
+	currentOwnPkgPath = ""
+	if c.interfaceOnly && c.iface != nil {
+		currentOwnPkgPath = c.iface.PkgPath()
+	}
+
 	modelNames := map[string]bool{}
 	for _, m := range c.models {
 		modelNames[reflect.TypeOf(m).Name()] = true
@@ -1055,6 +1095,33 @@ func exportTitle(s string) string {
 // strict no-op for every existing component).
 var currentSumRefs map[reflect.Type]*jsonschema.Schema
 
+// currentInterfaceOnly / currentOwnPkgPath drive interface-only mode (set
+// per-component in writeComponent; false/"" for every other component, so the
+// mode is a strict no-op). When on, a param/result type whose PkgPath is the
+// component's own package binds to its hand-written Go type by BARE NAME
+// ({"x-go-type": "<TypeName>"}, no x-go-import — same package) instead of being
+// emitted as a regenerated `$def`.
+var (
+	currentInterfaceOnly bool
+	currentOwnPkgPath    string
+)
+
+// ownPkgTypeName returns ("Name", true) if rt (or its slice element, deref'd) is a
+// NAMED type defined in the component's own package, in interface-only mode. For a
+// slice the caller still wraps it as an array; only the element binds by name.
+func ownPkgTypeName(rt reflect.Type) (string, bool) {
+	if !currentInterfaceOnly || currentOwnPkgPath == "" {
+		return "", false
+	}
+	if rt.Kind() == reflect.Ptr {
+		rt = rt.Elem()
+	}
+	if rt.Name() != "" && rt.PkgPath() == currentOwnPkgPath {
+		return rt.Name(), true
+	}
+	return "", false
+}
+
 // schemaForType maps a Go type to a JSON Schema node: a `$ref` for model types,
 // an array schema for slices, otherwise jsonschema-go's reflected schema.
 func schemaForType(rt reflect.Type, modelNames map[string]bool) *jsonschema.Schema {
@@ -1062,6 +1129,13 @@ func schemaForType(rt reflect.Type, modelNames map[string]bool) *jsonschema.Sche
 	// interface type itself, before the pointer-deref below).
 	if ref, ok := currentSumRefs[rt]; ok {
 		return ref
+	}
+	// interface-only mode: an own-package param/result binds to its hand-written Go
+	// type by bare name (no $def, no import — same package). Checked before the
+	// pointer-deref so a *OwnType binds the same way (pointer-ness is carried by the
+	// Param.Pointer flag, exactly like a $ref param).
+	if name, ok := ownPkgTypeName(rt); ok {
+		return &jsonschema.Schema{Extra: map[string]any{"x-go-type": name}}
 	}
 	if rt.Kind() == reflect.Ptr {
 		rt = rt.Elem()

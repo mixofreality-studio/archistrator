@@ -66,7 +66,7 @@ func (m *Manager) StartSystemDesign(ctx context.Context, projectID ProjectID) (S
 
 	// Pre-condition: ResearchInput must be present. A brand-new project with no row
 	// (fwra.NotFound) likewise fails the precondition — research has not been set.
-	proj, err := m.projectState.ReadProject(ctx, projectID)
+	proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectID)
 	if err != nil {
 		if isResearchReadNotFound(err) {
 			return SessionRef{}, newError(fwmanager.FailedPrecondition, "research not populated (project has no state)")
@@ -257,12 +257,12 @@ func (m *Manager) SetResearchInput(ctx context.Context, projectID ProjectID, res
 	// re-apply. Bounded so a pathological write-storm cannot spin forever.
 	var lastErr error
 	for attempt := 0; attempt < setResearchInputMaxAttempts; attempt++ {
-		proj, err := m.projectState.ReadProject(ctx, projectID)
+		proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectID)
 		if err != nil {
 			return 0, mapReadProjectError(err)
 		}
 
-		newVersion, err := m.projectState.SetResearchInput(ctx, projectID, proj.Version, research, key)
+		newVersion, err := m.projectState.SetResearchInput(fwra.Context{Context: ctx, IdempotencyKey: key}, projectID, proj.Version, research)
 		if err == nil {
 			return newVersion, nil
 		}

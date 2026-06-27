@@ -50,7 +50,7 @@ func activityIdempotencyKey(ctx context.Context) fwra.IdempotencyKey {
 // slot Models are interfaces the default JSON converter cannot decode — codec.go).
 
 func (wf *Workflows) ReadProjectActivity(ctx context.Context, projectID projectstate.ProjectID) (projectEnvelope, error) {
-	proj, err := wf.ProjectState.ReadProject(ctx, projectID)
+	proj, err := wf.ProjectState.ReadProject(fwra.Context{Context: ctx}, projectID)
 	if err != nil {
 		return projectEnvelope{}, fwmanager.MapError(err)
 	}
@@ -78,7 +78,7 @@ func (wf *Workflows) ReadProjectOnBranchActivity(ctx context.Context, a ReadProj
 	if ba, ok := wf.ProjectState.(projectstate.BranchAwareProjectStateAccess); ok && a.Branch != "" {
 		proj, err = ba.ReadProjectOnBranch(ctx, a.ProjectID, a.Branch)
 	} else {
-		proj, err = wf.ProjectState.ReadProject(ctx, a.ProjectID)
+		proj, err = wf.ProjectState.ReadProject(fwra.Context{Context: ctx}, a.ProjectID)
 	}
 	if err != nil {
 		return projectEnvelope{}, fwmanager.MapError(err)
@@ -118,7 +118,7 @@ func (wf *Workflows) StageArtifactForReviewActivity(ctx context.Context, a Stage
 	if ba, ok := wf.ProjectState.(projectstate.BranchAwareProjectStateAccess); ok && a.Branch != "" {
 		return mapErr(ba.StageArtifactForReviewOnBranch(ctx, a.ProjectID, a.ExpectedVersion, a.Branch, model, activityIdempotencyKey(ctx)))
 	}
-	return mapErr(wf.ProjectState.StageArtifactForReview(ctx, a.ProjectID, a.ExpectedVersion, model, activityIdempotencyKey(ctx)))
+	return mapErr(wf.ProjectState.StageArtifactForReview(fwra.Context{Context: ctx, IdempotencyKey: activityIdempotencyKey(ctx)}, a.ProjectID, a.ExpectedVersion, model))
 }
 
 // MutateArtifactArgs bundles the inputs for the per-artifact review verbs that
@@ -132,15 +132,15 @@ type MutateArtifactArgs struct {
 }
 
 func (wf *Workflows) CommitArtifactActivity(ctx context.Context, a MutateArtifactArgs) (projectstate.Version, error) {
-	return mapErr(wf.ProjectState.CommitArtifact(ctx, a.ProjectID, a.ExpectedVersion, a.Kind, activityIdempotencyKey(ctx)))
+	return mapErr(wf.ProjectState.CommitArtifact(fwra.Context{Context: ctx, IdempotencyKey: activityIdempotencyKey(ctx)}, a.ProjectID, a.ExpectedVersion, a.Kind))
 }
 
 func (wf *Workflows) RejectArtifactActivity(ctx context.Context, a MutateArtifactArgs) (projectstate.Version, error) {
-	return mapErr(wf.ProjectState.RejectArtifact(ctx, a.ProjectID, a.ExpectedVersion, a.Kind, a.Notes, activityIdempotencyKey(ctx)))
+	return mapErr(wf.ProjectState.RejectArtifact(fwra.Context{Context: ctx, IdempotencyKey: activityIdempotencyKey(ctx)}, a.ProjectID, a.ExpectedVersion, a.Kind, a.Notes))
 }
 
 func (wf *Workflows) WithdrawArtifactActivity(ctx context.Context, a MutateArtifactArgs) (projectstate.Version, error) {
-	return mapErr(wf.ProjectState.WithdrawArtifact(ctx, a.ProjectID, a.ExpectedVersion, a.Kind, a.Notes, activityIdempotencyKey(ctx)))
+	return mapErr(wf.ProjectState.WithdrawArtifact(fwra.Context{Context: ctx, IdempotencyKey: activityIdempotencyKey(ctx)}, a.ProjectID, a.ExpectedVersion, a.Kind, a.Notes))
 }
 
 // AdvancePhaseArgs bundles the seal verb's inputs for the Activity boundary.
@@ -150,5 +150,5 @@ type AdvancePhaseArgs struct {
 }
 
 func (wf *Workflows) AdvancePhaseActivity(ctx context.Context, a AdvancePhaseArgs) (projectstate.Version, error) {
-	return mapErr(wf.ProjectState.AdvancePhase(ctx, a.ProjectID, a.ExpectedVersion, activityIdempotencyKey(ctx)))
+	return mapErr(wf.ProjectState.AdvancePhase(fwra.Context{Context: ctx, IdempotencyKey: activityIdempotencyKey(ctx)}, a.ProjectID, a.ExpectedVersion))
 }

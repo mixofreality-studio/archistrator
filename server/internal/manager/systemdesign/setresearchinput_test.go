@@ -35,7 +35,7 @@ type setResearchFakeState struct {
 	readCalls   int
 }
 
-func (f *setResearchFakeState) ReadProject(context.Context, projectstate.ProjectID) (projectstate.Project, error) {
+func (f *setResearchFakeState) ReadProject(fwra.Context, projectstate.ProjectID) (projectstate.Project, error) {
 	f.readCalls++
 	if f.readErr != nil {
 		return projectstate.Project{}, f.readErr
@@ -43,10 +43,10 @@ func (f *setResearchFakeState) ReadProject(context.Context, projectstate.Project
 	return projectstate.Project{Version: f.headVersion}, nil
 }
 
-func (f *setResearchFakeState) SetResearchInput(_ context.Context, _ projectstate.ProjectID, expectedVersion projectstate.Version, research projectstate.ResearchInput, key fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *setResearchFakeState) SetResearchInput(rc fwra.Context, _ projectstate.ProjectID, expectedVersion projectstate.Version, research projectstate.ResearchInput) (projectstate.Version, error) {
 	f.gotExpected = append(f.gotExpected, expectedVersion)
 	f.gotResearch = append(f.gotResearch, research)
-	f.gotKeys = append(f.gotKeys, key)
+	f.gotKeys = append(f.gotKeys, rc.IdempotencyKey)
 	if len(f.gotExpected) <= f.conflictsBeforeSuccess {
 		// Concurrent writer bumped the row: surface Conflict and advance head so the
 		// Manager's re-read sees a fresh expectedVersion.
@@ -57,31 +57,31 @@ func (f *setResearchFakeState) SetResearchInput(_ context.Context, _ projectstat
 	return f.headVersion, nil
 }
 
-func (f *setResearchFakeState) StageArtifactForReview(context.Context, projectstate.ProjectID, projectstate.Version, projectstate.ArtifactModel, fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *setResearchFakeState) StageArtifactForReview(fwra.Context, projectstate.ProjectID, projectstate.Version, projectstate.ArtifactModel) (projectstate.Version, error) {
 	panic("setResearchFakeState.StageArtifactForReview must not be called by SetResearchInput")
 }
 
-func (f *setResearchFakeState) CommitArtifact(context.Context, projectstate.ProjectID, projectstate.Version, projectstate.ArtifactKind, fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *setResearchFakeState) CommitArtifact(fwra.Context, projectstate.ProjectID, projectstate.Version, projectstate.ArtifactKind) (projectstate.Version, error) {
 	panic("setResearchFakeState.CommitArtifact must not be called by SetResearchInput")
 }
 
-func (f *setResearchFakeState) RejectArtifact(context.Context, projectstate.ProjectID, projectstate.Version, projectstate.ArtifactKind, string, fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *setResearchFakeState) RejectArtifact(fwra.Context, projectstate.ProjectID, projectstate.Version, projectstate.ArtifactKind, string) (projectstate.Version, error) {
 	panic("setResearchFakeState.RejectArtifact must not be called by SetResearchInput")
 }
 
-func (f *setResearchFakeState) WithdrawArtifact(context.Context, projectstate.ProjectID, projectstate.Version, projectstate.ArtifactKind, string, fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *setResearchFakeState) WithdrawArtifact(fwra.Context, projectstate.ProjectID, projectstate.Version, projectstate.ArtifactKind, string) (projectstate.Version, error) {
 	panic("setResearchFakeState.WithdrawArtifact must not be called by SetResearchInput")
 }
 
-func (f *setResearchFakeState) AdvancePhase(context.Context, projectstate.ProjectID, projectstate.Version, fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *setResearchFakeState) AdvancePhase(fwra.Context, projectstate.ProjectID, projectstate.Version) (projectstate.Version, error) {
 	panic("setResearchFakeState.AdvancePhase must not be called by SetResearchInput")
 }
 
-func (f *setResearchFakeState) CreateProject(context.Context, projectstate.ProjectID, projectstate.OwnerScope, string, fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *setResearchFakeState) CreateProject(fwra.Context, projectstate.ProjectID, projectstate.OwnerScope, string) (projectstate.Version, error) {
 	panic("setResearchFakeState.CreateProject must not be called by SetResearchInput")
 }
 
-func (f *setResearchFakeState) ListProjects(context.Context, projectstate.OwnerScope) ([]projectstate.ProjectSummary, error) {
+func (f *setResearchFakeState) ListProjects(fwra.Context, projectstate.OwnerScope) ([]projectstate.ProjectSummary, error) {
 	panic("setResearchFakeState.ListProjects must not be called by SetResearchInput")
 }
 
@@ -236,7 +236,7 @@ func Test_SetResearchInput_ReadNotFound_Propagates(t *testing.T) {
 // setResearchNotFoundOnWrite reads fine but the write reports NotFound.
 type setResearchNotFoundOnWrite struct{ setResearchFakeState }
 
-func (f *setResearchNotFoundOnWrite) SetResearchInput(context.Context, projectstate.ProjectID, projectstate.Version, projectstate.ResearchInput, fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *setResearchNotFoundOnWrite) SetResearchInput(fwra.Context, projectstate.ProjectID, projectstate.Version, projectstate.ResearchInput) (projectstate.Version, error) {
 	return 0, fwra.New(fwra.NotFound, "no project aggregate")
 }
 

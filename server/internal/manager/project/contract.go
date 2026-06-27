@@ -284,9 +284,9 @@ func (v *ArtifactSlotView) UnmarshalJSON(data []byte) error {
 // ProjectStateAccess is the narrow head-state port the projectManager consumes.
 // projectstate.ProjectStateAccess satisfies it structurally.
 type ProjectStateAccess interface {
-	CreateProject(ctx context.Context, projectID ProjectID, owner OwnerScope, name string, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	ListProjects(ctx context.Context, owner OwnerScope) ([]ProjectSummary, error)
-	ReadProject(ctx context.Context, projectID ProjectID) (projectstate.Project, error)
+	CreateProject(rc fwra.Context, projectID ProjectID, owner OwnerScope, name string) (Version, error)
+	ListProjects(rc fwra.Context, owner OwnerScope) ([]ProjectSummary, error)
+	ReadProject(rc fwra.Context, projectID ProjectID) (projectstate.Project, error)
 }
 
 // ---------------------------------------------------------------------------

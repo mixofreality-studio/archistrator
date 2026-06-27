@@ -200,7 +200,7 @@ type seqProjectState struct {
 
 var _ projectstate.BranchAwareProjectStateAccess = (*seqProjectState)(nil)
 
-func (f *seqProjectState) ReadProject(ctx context.Context, projectID projectstate.ProjectID) (projectstate.Project, error) {
+func (f *seqProjectState) ReadProject(ctx fwra.Context, projectID projectstate.ProjectID) (projectstate.Project, error) {
 	// main-path read (branch override "" ⇒ ReadProject): this is the priors read AND
 	// the post-merge re-read the approve path does before commit-on-main.
 	f.log.add("readMain", "")
@@ -215,7 +215,7 @@ func (f *seqProjectState) ReadProjectOnBranch(ctx context.Context, projectID pro
 	f.mu.Lock()
 	f.readBranches = append(f.readBranches, branch)
 	f.mu.Unlock()
-	return f.fakeProjectState.ReadProject(ctx, projectID)
+	return f.fakeProjectState.ReadProject(fwra.Context{Context: ctx}, projectID)
 }
 
 func (f *seqProjectState) StageArtifactForReviewOnBranch(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, model projectstate.ArtifactModel, key fwra.IdempotencyKey) (projectstate.Version, error) {
@@ -223,12 +223,12 @@ func (f *seqProjectState) StageArtifactForReviewOnBranch(ctx context.Context, pr
 	f.mu.Lock()
 	f.stageBranches = append(f.stageBranches, branch)
 	f.mu.Unlock()
-	return f.fakeProjectState.StageArtifactForReview(ctx, projectID, expectedVersion, model, key)
+	return f.fakeProjectState.StageArtifactForReview(fwra.Context{Context: ctx, IdempotencyKey: key}, projectID, expectedVersion, model)
 }
 
-func (f *seqProjectState) CommitArtifact(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, kind projectstate.ArtifactKind, key fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *seqProjectState) CommitArtifact(ctx fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, kind projectstate.ArtifactKind) (projectstate.Version, error) {
 	f.log.add("commit", "")
-	return f.fakeProjectState.CommitArtifact(ctx, projectID, expectedVersion, kind, key)
+	return f.fakeProjectState.CommitArtifact(ctx, projectID, expectedVersion, kind)
 }
 
 func newSeqRailWorkflows(ps projectstate.ProjectStateAccess, pipe *fakePipeline, rail SourceControlRail) *Workflows {

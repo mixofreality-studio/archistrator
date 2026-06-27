@@ -77,8 +77,12 @@ func genOne(schemaPath string) error {
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		return fmt.Errorf("parse schema: %w", err)
 	}
-	if len(doc.Defs) == 0 {
-		return fmt.Errorf("schema has no $defs")
+	// A schema must carry SOMETHING to generate: either model `$defs` OR (in the
+	// interface-only mode used by projectstate) just the `interface` descriptor. A
+	// truly empty document is an error.
+	_, hasIface := doc.Extra["interface"]
+	if len(doc.Defs) == 0 && !hasIface {
+		return fmt.Errorf("schema has no $defs and no interface")
 	}
 
 	// Property order is lost when $defs is unmarshaled into a Go map, so recover it

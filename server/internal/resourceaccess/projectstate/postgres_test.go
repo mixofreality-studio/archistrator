@@ -69,7 +69,7 @@ func TestStageCommitThenRead(t *testing.T) {
 
 	mission := mustMission(t, "a terse vision")
 
-	v1, err := store.StageArtifactForReview(ctx, pid, 0, mission, "wf:stage:0")
+	v1, err := store.StageArtifactForReview(fwra.Context{Context: ctx, IdempotencyKey: "wf:stage:0"}, pid, 0, mission)
 	if err != nil {
 		t.Fatalf("StageArtifactForReview: %v", err)
 	}
@@ -78,7 +78,7 @@ func TestStageCommitThenRead(t *testing.T) {
 	}
 
 	// After staging, ReadProject shows the Mission slot AwaitingReview with the model.
-	staged, err := store.ReadProject(ctx, pid)
+	staged, err := store.ReadProject(fwra.Context{Context: ctx}, pid)
 	if err != nil {
 		t.Fatalf("ReadProject after stage: %v", err)
 	}
@@ -96,7 +96,7 @@ func TestStageCommitThenRead(t *testing.T) {
 		t.Fatalf("model did not round-trip objectives: %+v", gotMission.Objectives)
 	}
 
-	v2, err := store.CommitArtifact(ctx, pid, v1, projectstate.KindMission, "wf:commit:0")
+	v2, err := store.CommitArtifact(fwra.Context{Context: ctx, IdempotencyKey: "wf:commit:0"}, pid, v1, projectstate.KindMission)
 	if err != nil {
 		t.Fatalf("CommitArtifact: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestStageCommitThenRead(t *testing.T) {
 		t.Fatalf("expected version 2 after commit, got %d", v2)
 	}
 
-	proj, err := store.ReadProject(ctx, pid)
+	proj, err := store.ReadProject(fwra.Context{Context: ctx}, pid)
 	if err != nil {
 		t.Fatalf("ReadProject: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestOptimisticConcurrencyConflict(t *testing.T) {
 	store, ctx := newStore(t)
 	pid := projectstate.ProjectID(uuid.NewString())
 
-	if _, err := store.StageArtifactForReview(ctx, pid, 0, mustMission(t, "v"), "wf:a:0"); err != nil {
+	if _, err := store.StageArtifactForReview(fwra.Context{Context: ctx, IdempotencyKey: "wf:a:0"}, pid, 0, mustMission(t, "v")); err != nil {
 		t.Fatalf("first stage: %v", err)
 	}
 	// Second caller still believes head is 0 -> stale -> loses.
@@ -134,7 +134,7 @@ func TestOptimisticConcurrencyConflict(t *testing.T) {
 	if gErr != nil {
 		t.Fatalf("NewGlossary: %v", gErr)
 	}
-	_, err := store.StageArtifactForReview(ctx, pid, 0, g, "wf:b:0")
+	_, err := store.StageArtifactForReview(fwra.Context{Context: ctx, IdempotencyKey: "wf:b:0"}, pid, 0, g)
 	assertKind(t, err, fwra.Conflict)
 }
 
@@ -146,7 +146,7 @@ func TestIdempotentRetry(t *testing.T) {
 	pid := projectstate.ProjectID(uuid.NewString())
 	const key fwra.IdempotencyKey = "wf:stage:0"
 
-	v1, err := store.StageArtifactForReview(ctx, pid, 0, mustMission(t, "v"), key)
+	v1, err := store.StageArtifactForReview(fwra.Context{Context: ctx, IdempotencyKey: key}, pid, 0, mustMission(t, "v"))
 	if err != nil {
 		t.Fatalf("first stage: %v", err)
 	}
@@ -154,7 +154,7 @@ func TestIdempotentRetry(t *testing.T) {
 	// Retry with the same key. Even though the caller re-passes expectedVersion 0
 	// (as a retried activity would), the dedup ledger short-circuits to the
 	// already-committed version with no error and no second mutation.
-	v2, err := store.StageArtifactForReview(ctx, pid, 0, mustMission(t, "v"), key)
+	v2, err := store.StageArtifactForReview(fwra.Context{Context: ctx, IdempotencyKey: key}, pid, 0, mustMission(t, "v"))
 	if err != nil {
 		t.Fatalf("idempotent retry should succeed, got: %v", err)
 	}
@@ -164,7 +164,7 @@ func TestIdempotentRetry(t *testing.T) {
 
 	// The head did not advance (proved by a fresh mutation at expectedVersion 1
 	// succeeding and landing at version 2).
-	v3, err := store.CommitArtifact(ctx, pid, 1, projectstate.KindMission, "wf:commit:1")
+	v3, err := store.CommitArtifact(fwra.Context{Context: ctx, IdempotencyKey: "wf:commit:1"}, pid, 1, projectstate.KindMission)
 	if err != nil {
 		t.Fatalf("mutation at version 1 should succeed (head not advanced by replay): %v", err)
 	}
@@ -189,22 +189,22 @@ func TestPerSlotStatusTransitions(t *testing.T) {
 	}
 	steps := []step{
 		{func(e projectstate.Version) (projectstate.Version, error) {
-			return store.StageArtifactForReview(ctx, pid, e, mustMission(t, "m"), "k0")
+			return store.StageArtifactForReview(fwra.Context{Context: ctx, IdempotencyKey: "k0"}, pid, e, mustMission(t, "m"))
 		}, "k0"},
 		{func(e projectstate.Version) (projectstate.Version, error) {
-			return store.CommitArtifact(ctx, pid, e, projectstate.KindMission, "k1")
+			return store.CommitArtifact(fwra.Context{Context: ctx, IdempotencyKey: "k1"}, pid, e, projectstate.KindMission)
 		}, "k1"},
 		{func(e projectstate.Version) (projectstate.Version, error) {
-			return store.StageArtifactForReview(ctx, pid, e, glossary, "k2")
+			return store.StageArtifactForReview(fwra.Context{Context: ctx, IdempotencyKey: "k2"}, pid, e, glossary)
 		}, "k2"},
 		{func(e projectstate.Version) (projectstate.Version, error) {
-			return store.RejectArtifact(ctx, pid, e, projectstate.KindGlossary, "needs more terms", "k3")
+			return store.RejectArtifact(fwra.Context{Context: ctx, IdempotencyKey: "k3"}, pid, e, projectstate.KindGlossary, "needs more terms")
 		}, "k3"},
 		{func(e projectstate.Version) (projectstate.Version, error) {
-			return store.StageArtifactForReview(ctx, pid, e, vol, "k4")
+			return store.StageArtifactForReview(fwra.Context{Context: ctx, IdempotencyKey: "k4"}, pid, e, vol)
 		}, "k4"},
 		{func(e projectstate.Version) (projectstate.Version, error) {
-			return store.WithdrawArtifact(ctx, pid, e, projectstate.KindVolatilities, "abandoned", "k5")
+			return store.WithdrawArtifact(fwra.Context{Context: ctx, IdempotencyKey: "k5"}, pid, e, projectstate.KindVolatilities, "abandoned")
 		}, "k5"},
 	}
 
@@ -217,7 +217,7 @@ func TestPerSlotStatusTransitions(t *testing.T) {
 		v = next
 	}
 
-	proj, err := store.ReadProject(ctx, pid)
+	proj, err := store.ReadProject(fwra.Context{Context: ctx}, pid)
 	if err != nil {
 		t.Fatalf("ReadProject: %v", err)
 	}
@@ -248,15 +248,15 @@ func TestAdvancePhaseSeals(t *testing.T) {
 	store, ctx := newStore(t)
 	pid := projectstate.ProjectID(uuid.NewString())
 
-	v1, err := store.StageArtifactForReview(ctx, pid, 0, mustMission(t, "m"), "k0")
+	v1, err := store.StageArtifactForReview(fwra.Context{Context: ctx, IdempotencyKey: "k0"}, pid, 0, mustMission(t, "m"))
 	if err != nil {
 		t.Fatalf("stage: %v", err)
 	}
-	v2, err := store.CommitArtifact(ctx, pid, v1, projectstate.KindMission, "k1")
+	v2, err := store.CommitArtifact(fwra.Context{Context: ctx, IdempotencyKey: "k1"}, pid, v1, projectstate.KindMission)
 	if err != nil {
 		t.Fatalf("commit: %v", err)
 	}
-	v3, err := store.AdvancePhase(ctx, pid, v2, "k2")
+	v3, err := store.AdvancePhase(fwra.Context{Context: ctx, IdempotencyKey: "k2"}, pid, v2)
 	if err != nil {
 		t.Fatalf("AdvancePhase: %v", err)
 	}
@@ -264,7 +264,7 @@ func TestAdvancePhaseSeals(t *testing.T) {
 		t.Fatalf("expected seal to advance version to %d, got %d", v2+1, v3)
 	}
 
-	proj, err := store.ReadProject(ctx, pid)
+	proj, err := store.ReadProject(fwra.Context{Context: ctx}, pid)
 	if err != nil {
 		t.Fatalf("ReadProject: %v", err)
 	}
@@ -279,7 +279,7 @@ func TestAdvancePhaseSeals(t *testing.T) {
 // TestReadProject_NotFound: an unknown project has no row -> fwra.NotFound.
 func TestReadProject_NotFound(t *testing.T) {
 	store, ctx := newStore(t)
-	_, err := store.ReadProject(ctx, projectstate.ProjectID(uuid.NewString()))
+	_, err := store.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(uuid.NewString()))
 	assertKind(t, err, fwra.NotFound)
 }
 
@@ -289,23 +289,23 @@ func TestContractMisuse(t *testing.T) {
 	pid := projectstate.ProjectID(uuid.NewString())
 
 	// Zero projectID.
-	_, err := store.CommitArtifact(ctx, projectstate.ProjectID(""), 0, projectstate.KindMission, "k")
+	_, err := store.CommitArtifact(fwra.Context{Context: ctx, IdempotencyKey: "k"}, projectstate.ProjectID(""), 0, projectstate.KindMission)
 	assertKind(t, err, fwra.ContractMisuse)
 
 	// Empty idempotencyKey.
-	_, err = store.CommitArtifact(ctx, pid, 0, projectstate.KindMission, "")
+	_, err = store.CommitArtifact(fwra.Context{Context: ctx, IdempotencyKey: ""}, pid, 0, projectstate.KindMission)
 	assertKind(t, err, fwra.ContractMisuse)
 
 	// Read with zero projectID.
-	_, err = store.ReadProject(ctx, projectstate.ProjectID(""))
+	_, err = store.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(""))
 	assertKind(t, err, fwra.ContractMisuse)
 
 	// Nil staged model.
-	_, err = store.StageArtifactForReview(ctx, pid, 0, nil, "k")
+	_, err = store.StageArtifactForReview(fwra.Context{Context: ctx, IdempotencyKey: "k"}, pid, 0, nil)
 	assertKind(t, err, fwra.ContractMisuse)
 
 	// Commit on an unpopulated slot (no model ever staged for Mission).
-	_, err = store.CommitArtifact(ctx, pid, 0, projectstate.KindMission, "commit-unpopulated")
+	_, err = store.CommitArtifact(fwra.Context{Context: ctx, IdempotencyKey: "commit-unpopulated"}, pid, 0, projectstate.KindMission)
 	assertKind(t, err, fwra.ContractMisuse)
 }
 
@@ -317,7 +317,7 @@ func TestSolutionSlotRoundTrip(t *testing.T) {
 	pid := projectstate.ProjectID(uuid.NewString())
 
 	sol := projectstate.NewSolution(projectstate.KindNormalSolution)
-	v, err := store.StageArtifactForReview(ctx, pid, 0, sol, "k0")
+	v, err := store.StageArtifactForReview(fwra.Context{Context: ctx, IdempotencyKey: "k0"}, pid, 0, sol)
 	if err != nil {
 		t.Fatalf("stage solution: %v", err)
 	}
@@ -325,7 +325,7 @@ func TestSolutionSlotRoundTrip(t *testing.T) {
 		t.Fatalf("expected version 1, got %d", v)
 	}
 
-	proj, err := store.ReadProject(ctx, pid)
+	proj, err := store.ReadProject(fwra.Context{Context: ctx}, pid)
 	if err != nil {
 		t.Fatalf("ReadProject: %v", err)
 	}
@@ -348,7 +348,7 @@ func TestTickVsOperatorRace(t *testing.T) {
 	pid := projectstate.ProjectID(uuid.NewString())
 
 	// Seed head = 1.
-	if _, err := store.StageArtifactForReview(ctx, pid, 0, mustMission(t, "m"), "seed"); err != nil {
+	if _, err := store.StageArtifactForReview(fwra.Context{Context: ctx, IdempotencyKey: "seed"}, pid, 0, mustMission(t, "m")); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 
@@ -368,7 +368,7 @@ func TestTickVsOperatorRace(t *testing.T) {
 	}
 	for _, r := range racers {
 		go func(model projectstate.ArtifactModel, key fwra.IdempotencyKey) {
-			v, err := store.StageArtifactForReview(ctx, pid, 1, model, key)
+			v, err := store.StageArtifactForReview(fwra.Context{Context: ctx, IdempotencyKey: key}, pid, 1, model)
 			results <- outcome{v, err}
 		}(r.model, r.key)
 	}

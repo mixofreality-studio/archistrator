@@ -147,42 +147,42 @@ type renderFakeProjectState struct {
 	readErr error
 }
 
-func (f *renderFakeProjectState) ReadProject(_ context.Context, _ projectstate.ProjectID) (projectstate.Project, error) {
+func (f *renderFakeProjectState) ReadProject(_ fwra.Context, _ projectstate.ProjectID) (projectstate.Project, error) {
 	if f.readErr != nil {
 		return projectstate.Project{}, f.readErr
 	}
 	return f.project, nil
 }
 
-func (f *renderFakeProjectState) StageArtifactForReview(context.Context, projectstate.ProjectID, projectstate.Version, projectstate.ArtifactModel, fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *renderFakeProjectState) StageArtifactForReview(fwra.Context, projectstate.ProjectID, projectstate.Version, projectstate.ArtifactModel) (projectstate.Version, error) {
 	panic("renderFakeProjectState.StageArtifactForReview must not be called by these façade-precondition tests")
 }
 
-func (f *renderFakeProjectState) CommitArtifact(context.Context, projectstate.ProjectID, projectstate.Version, projectstate.ArtifactKind, fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *renderFakeProjectState) CommitArtifact(fwra.Context, projectstate.ProjectID, projectstate.Version, projectstate.ArtifactKind) (projectstate.Version, error) {
 	panic("renderFakeProjectState.CommitArtifact must not be called by these façade-precondition tests")
 }
 
-func (f *renderFakeProjectState) RejectArtifact(context.Context, projectstate.ProjectID, projectstate.Version, projectstate.ArtifactKind, string, fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *renderFakeProjectState) RejectArtifact(fwra.Context, projectstate.ProjectID, projectstate.Version, projectstate.ArtifactKind, string) (projectstate.Version, error) {
 	panic("renderFakeProjectState.RejectArtifact must not be called by these façade-precondition tests")
 }
 
-func (f *renderFakeProjectState) WithdrawArtifact(context.Context, projectstate.ProjectID, projectstate.Version, projectstate.ArtifactKind, string, fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *renderFakeProjectState) WithdrawArtifact(fwra.Context, projectstate.ProjectID, projectstate.Version, projectstate.ArtifactKind, string) (projectstate.Version, error) {
 	panic("renderFakeProjectState.WithdrawArtifact must not be called by these façade-precondition tests")
 }
 
-func (f *renderFakeProjectState) AdvancePhase(context.Context, projectstate.ProjectID, projectstate.Version, fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *renderFakeProjectState) AdvancePhase(fwra.Context, projectstate.ProjectID, projectstate.Version) (projectstate.Version, error) {
 	panic("renderFakeProjectState.AdvancePhase must not be called by these façade-precondition tests")
 }
 
-func (f *renderFakeProjectState) SetResearchInput(context.Context, projectstate.ProjectID, projectstate.Version, projectstate.ResearchInput, fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *renderFakeProjectState) SetResearchInput(fwra.Context, projectstate.ProjectID, projectstate.Version, projectstate.ResearchInput) (projectstate.Version, error) {
 	panic("renderFakeProjectState.SetResearchInput must not be called by these façade-precondition tests")
 }
 
-func (f *renderFakeProjectState) CreateProject(context.Context, projectstate.ProjectID, projectstate.OwnerScope, string, fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *renderFakeProjectState) CreateProject(fwra.Context, projectstate.ProjectID, projectstate.OwnerScope, string) (projectstate.Version, error) {
 	panic("renderFakeProjectState.CreateProject must not be called by these façade-precondition tests")
 }
 
-func (f *renderFakeProjectState) ListProjects(context.Context, projectstate.OwnerScope) ([]projectstate.ProjectSummary, error) {
+func (f *renderFakeProjectState) ListProjects(fwra.Context, projectstate.OwnerScope) ([]projectstate.ProjectSummary, error) {
 	panic("renderFakeProjectState.ListProjects must not be called by these façade-precondition tests")
 }
 
