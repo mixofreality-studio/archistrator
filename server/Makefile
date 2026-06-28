@@ -2,31 +2,34 @@
 
 .PHONY: test test-short fmt vet lint sumtype-check method-check gen-schemas gen-models gen bootstrap
 
-# Schema-first contract pipeline (strangler bootstrap), all-Go (jsonschema-go).
+# Contract codegen pipeline, all-Go (jsonschema-go). project.json
+# (.serviceContracts) is the OWNER of every built component's contract; modelgen
+# generates contract.gen.go straight from it.
 # DEV NOTE: these run in Go WORKSPACE mode (NOT GOWORK=off) so they see the local
 # framework-go (layer Context types not yet in the published v0.2.0). Once
 # framework-go/v0.3.0 is tagged + go.mod bumped, restore GOWORK=off.
-#   gen-schemas — reflect each component's contract surface into its
-#                 contract.schema.json SEED (cmd/schemagen).
-#   gen-models  — generate contract.gen.go from each contract.schema.json
-#                 (cmd/modelgen). The schema is the source of truth.
-#   gen         — both, in order (steady-state regen; idempotent).
-gen-schemas:
-	go run ./cmd/schemagen
-
+#   gen-models  — generate contract.gen.go from project.json .serviceContracts
+#                 (cmd/modelgen). project.json is the source of truth.
+#   gen         — steady-state regen (idempotent); just gen-models.
+#   gen-schemas — DEPRECATED / bootstrap-only. Re-seeds the legacy per-component
+#                 contract.schema.json by reflecting current Go (cmd/schemagen).
+#                 NOT part of the source of truth — do not use in steady state.
 gen-models:
 	go run ./cmd/modelgen
 
-gen: gen-schemas gen-models
+gen: gen-models
 
-# bootstrap — the FULL automated dance that breaks the schema-first chicken-and-egg
-# (schemagen must reflect a COMPILING package, so generate first, then strip the
-# now-duplicate hand-written surface). Idempotent: safe to re-run.
-#   1. gen-schemas  reflect current Go -> contract.schema.json (needs compiling pkgs)
-#   2. gen-models   contract.schema.json -> contract.gen.go (now duplicates hand-written)
-#   3. contractstrip remove the hand-written surface (refuses to drop behavior)
-#   4. build        verify the package compiles from the generated surface
-bootstrap: gen-schemas gen-models
+gen-schemas:
+	go run ./cmd/schemagen
+
+# bootstrap — re-bootstrap a component: generate its contract.gen.go from
+# project.json, then strip the now-duplicate hand-written surface (refuses to drop
+# behavior). Idempotent: in steady state the components are already stripped, so
+# contractstrip is a no-op. Safe to re-run.
+#   1. gen-models    project.json -> contract.gen.go
+#   2. contractstrip remove any hand-written surface owned by the contract
+#   3. build         verify the packages compile from the generated surface
+bootstrap: gen-models
 	go run ./cmd/contractstrip
 	go build ./...
 

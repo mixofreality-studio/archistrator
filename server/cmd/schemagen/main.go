@@ -1,8 +1,14 @@
 // cmd/schemagen reflects each component's contract surface into a single
-// self-contained contract document per component — the SEED for schema-first
-// codegen (the strangler bootstrap: capture today's hand-written Go as the
-// contract, then flip so the contract is the source of truth and the Go is
-// generated).
+// self-contained contract document per component.
+//
+// DEPRECATED / BOOTSTRAP-ONLY: schemagen is NO LONGER the authority. project.json
+// `.serviceContracts` now OWNS each built component's contract document, and
+// cmd/modelgen generates `contract.gen.go` straight from it. schemagen is kept
+// only as a one-shot RE-SEED tool — to capture a brand-new component's
+// hand-written surface as a contract document (which is then folded into
+// project.json) when first bootstrapping it. It writes the legacy per-component
+// `contract.schema.json` files, which are otherwise retired. Do NOT run it in the
+// steady-state regen path (`make gen`); it is not part of the source of truth.
 //
 // It captures TWO things per component:
 //   - the I/O MODEL types → JSON Schema `$defs` (data shapes).

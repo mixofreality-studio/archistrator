@@ -1,12 +1,17 @@
 // cmd/contractstrip removes the hand-written contract surface from a component's
 // source once that surface has been GENERATED into contract.gen.go — the
 // automated form of the bootstrap's "remove hand-written declarations" step that
-// breaks the schema-first chicken-and-egg (schemagen must reflect a COMPILING
-// package, so we generate first, then strip).
+// breaks the contract chicken-and-egg (the seed reflection must run against a
+// COMPILING package, so we generate first, then strip).
 //
-// It is registry-free: for each `contract.schema.json` it reads the owned type
-// names ($defs keys + the interface name) and deletes exactly those top-level
-// `type` declarations from the package's NON-generated, NON-test .go files.
+// It is registry-free: it reads each built component's owned type names ($defs
+// keys + the interface name) from project.json `.serviceContracts` (the contract
+// owner) and deletes exactly those top-level `type` declarations from the
+// package's NON-generated, NON-test .go files.
+//
+// STEADY-STATE NOTE: the migrated components are already stripped (their
+// hand-written contract surface was replaced by contract.gen.go long ago), so a
+// re-run is a NO-OP. The tool is retained for re-bootstrapping a component.
 //
 // SAFETY (no silent behavior loss): if any of those types has a method (e.g. a
 // `String()` on an enum), contractstrip REFUSES to strip it and reports it — that
@@ -15,8 +20,8 @@
 //
 // Usage:
 //
-//	cd server && go run ./cmd/contractstrip            # walk internal/
-//	cd server && go run ./cmd/contractstrip internal/engine/review
+//	cd server && go run ./cmd/contractstrip                       # all built contracts
+//	cd server && go run ./cmd/contractstrip ../.aiarch/state/project.json
 package main
 
 import (
@@ -35,34 +40,53 @@ import (
 	"golang.org/x/tools/imports"
 )
 
+// projectFile is the default path (relative to the server module root, where the
+// gen targets run) to the head-state document that owns the contracts.
+const projectFile = "../.aiarch/state/project.json"
+
 func main() {
-	root := "internal"
+	path := projectFile
 	if len(os.Args) > 1 {
-		root = os.Args[1]
+		path = os.Args[1]
 	}
-	var schemas []string
-	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if !d.IsDir() && d.Name() == "contract.schema.json" {
-			schemas = append(schemas, path)
-		}
-		return nil
-	})
+	raw, err := os.ReadFile(path)
 	if err != nil {
-		fatal("walk %s: %v", root, err)
+		fatal("read %s: %v", path, err)
 	}
-	sort.Strings(schemas)
-	for _, s := range schemas {
-		if err := stripDir(filepath.Dir(s), s); err != nil {
-			fatal("contractstrip %s: %v", s, err)
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &top); err != nil {
+		fatal("parse %s: %v", path, err)
+	}
+	var contracts map[string]json.RawMessage
+	if err := json.Unmarshal(top["serviceContracts"], &contracts); err != nil {
+		fatal("parse .serviceContracts in %s: %v", path, err)
+	}
+	keys := make([]string, 0, len(contracts))
+	for k := range contracts {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		entry := contracts[k]
+		// goPackage selects built entries (stubs have none) AND gives the dir whose
+		// hand-written surface is stripped.
+		var meta struct {
+			GoPackage string `json:"goPackage"`
+		}
+		if err := json.Unmarshal(entry, &meta); err != nil {
+			fatal("parse contract %q: %v", k, err)
+		}
+		if meta.GoPackage == "" {
+			continue
+		}
+		if err := stripDir(meta.GoPackage, entry); err != nil {
+			fatal("contractstrip %s: %v", k, err)
 		}
 	}
 }
 
-func stripDir(dir, schemaPath string) error {
-	owned, err := ownedNames(schemaPath)
+func stripDir(dir string, entry []byte) error {
+	owned, err := ownedNames(entry)
 	if err != nil {
 		return err
 	}
@@ -88,20 +112,17 @@ func stripDir(dir, schemaPath string) error {
 }
 
 // ownedNames returns the set of type names the generated surface provides:
-// every $defs key plus the interface name.
-func ownedNames(schemaPath string) (map[string]bool, error) {
-	raw, err := os.ReadFile(schemaPath)
-	if err != nil {
-		return nil, err
-	}
+// every $defs key plus the interface name, read from one project.json contract
+// entry (raw JSON).
+func ownedNames(entry []byte) (map[string]bool, error) {
 	var doc struct {
 		Defs      map[string]json.RawMessage `json:"$defs"`
 		Interface *struct {
 			Name string `json:"name"`
 		} `json:"interface"`
 	}
-	if err := json.Unmarshal(raw, &doc); err != nil {
-		return nil, fmt.Errorf("parse schema: %w", err)
+	if err := json.Unmarshal(entry, &doc); err != nil {
+		return nil, fmt.Errorf("parse contract entry: %w", err)
 	}
 	owned := map[string]bool{}
 	for k := range doc.Defs {
