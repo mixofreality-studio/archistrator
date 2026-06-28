@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 
 	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 	fwm "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
@@ -32,17 +33,21 @@ var _ ProjectManager = (*Manager)(nil)
 type Manager struct {
 	projectState  ProjectStateAccess
 	sourceControl SourceControlAccess         // optional; nil ⇒ repo-less create (dev, no creds)
-	estimator     estimation.EstimationEngine // construction-estimation Engine; ComputeNetwork at read (compute-at-read)
+	estimator     estimation.EstimationEngine // construction-estimation Engine; ComputeNetwork + ComputeEarnedValue at read (compute-at-read)
+	repoBase      string                      // construction-repo WEB base (<host>/<owner>/<repo>); composes each git row's prUrl. "" ⇒ prUrl omitted.
 }
 
 // NewManager constructs a Manager over the (narrow) projectStateAccess port, the
-// (optional) sourceControlAccess port, and the constructionEstimationEngine it calls
-// at READ time to populate the network computed block (compute-at-read). Pass a nil
-// SourceControlAccess to run repo-less (a dev server with no GitHub App credentials).
-// The estimator is a pure, deterministic Engine — a downward Manager→Engine edge; nil
-// disables the network compute (the read returns the authored network unenriched).
-func NewManager(ps ProjectStateAccess, sc SourceControlAccess, estimator estimation.EstimationEngine) *Manager {
-	return &Manager{projectState: ps, sourceControl: sc, estimator: estimator}
+// (optional) sourceControlAccess port, the constructionEstimationEngine it calls at READ
+// time to populate the network computed block AND the EV/SPI earned-value curve
+// (compute-at-read), and the construction-repo web base it composes each git row's
+// read-time prUrl from. Pass a nil SourceControlAccess to run repo-less (a dev server
+// with no GitHub App credentials). The estimator is a pure, deterministic Engine — a
+// downward Manager→Engine edge; nil disables the network/EV compute (the read returns the
+// authored network unenriched and a zero EV). repoBase "" (construction repo
+// unconfigured) omits each prUrl — prNumber still derives from the opaque ref.
+func NewManager(ps ProjectStateAccess, sc SourceControlAccess, estimator estimation.EstimationEngine, repoBase string) *Manager {
+	return &Manager{projectState: ps, sourceControl: sc, estimator: estimator, repoBase: repoBase}
 }
 
 // CreateProject births a new project. NAME-AS-IDENTITY (C-PM-Δ): the USER supplies
@@ -135,7 +140,7 @@ func (m *Manager) GetProject(rc fwm.Context, projectID ProjectID) (ProjectState,
 		return ProjectState{}, mapRAError(err)
 	}
 	m.computeNetworkAtRead(&proj)
-	return projectStateToContract(proj), nil
+	return m.projectStateToContract(proj), nil
 }
 
 // ---------------------------------------------------------------------------
@@ -272,8 +277,12 @@ func summaryToContract(s projectstate.ProjectSummary) ProjectSummary {
 }
 
 // projectStateToContract maps the head-state Project aggregate to the contract
-// ProjectState transport shape.
-func projectStateToContract(p projectstate.Project) ProjectState {
+// ProjectState transport shape. It is a method on *Manager so the read-time projections
+// it now OWNS — each git row's prUrl/prNumber (composed from m.repoBase + the opaque ref)
+// and the EV/SPI earned-value curve (computed by m.estimator) — are sourced server-side
+// here rather than re-derived by the webClient (the relocation off the hand-written web
+// layer, founder gate 2026-06-28).
+func (m *Manager) projectStateToContract(p projectstate.Project) ProjectState {
 	return ProjectState{
 		ProjectID:            ProjectID(p.ID),
 		Name:                 p.Name,
@@ -282,9 +291,9 @@ func projectStateToContract(p projectstate.Project) ProjectState {
 		Version:              int64(p.Version),
 		Research:             researchToContract(p.ResearchInput),
 		Slots:                slotsToContract(p),
-		GitRows:              gitRowsToContract(p.ActivityGit),
+		GitRows:              m.gitRowsToContract(p.ActivityGit),
 		ActivityConstruction: constructionRowsToContract(p.ActivityConstruction),
-		ConstructionProgress: constructionProgressToContract(p.ConstructionProgress),
+		ConstructionProgress: m.constructionProgressToContract(p),
 		ServiceContracts:     serviceContractsToContract(p.ServiceContracts),
 	}
 }
@@ -358,18 +367,25 @@ func stageForStatus(s projectstate.ArtifactReviewStatus) ArtifactStage {
 }
 
 // gitRowsToContract maps the per-activity git head-state map (honest-empty: nil in ⇒
-// nil out, so the slot is omitted on the wire).
-func gitRowsToContract(rows map[string]projectstate.ActivityGitStatus) map[string]ActivityGitStatus {
+// nil out, so the slot is omitted on the wire). It is a method on *Manager so it can
+// compose each row's READ-TIME prUrl/prNumber projections (D-PA-GIT-PRURL-ruling R1/R2)
+// from m.repoBase + the opaque pullRequestRef — the relocation of the former web
+// projectPRRef onto the contract-owning Manager. The durable aggregate stays
+// provider-opaque; prUrl/prNumber are pure read-time projections, never stored.
+func (m *Manager) gitRowsToContract(rows map[string]projectstate.ActivityGitStatus) map[string]ActivityGitStatus {
 	if len(rows) == 0 {
 		return nil
 	}
 	out := make(map[string]ActivityGitStatus, len(rows))
 	for id, g := range rows {
+		prNumber, prURL := projectPRRef(g.PullRequestRef, m.repoBase)
 		out[id] = ActivityGitStatus{
 			ActivityID:     g.ActivityID,
 			BranchName:     g.BranchName,
 			BranchRef:      g.BranchRef,
 			PullRequestRef: g.PullRequestRef,
+			PrNumber:       int64(prNumber),
+			PrURL:          prURL,
 			CICheck:        CICheckState(int(g.CICheck)),
 			ArchApproved:   g.ArchApproved,
 			Merged:         g.Merged,
@@ -379,6 +395,32 @@ func gitRowsToContract(rows map[string]projectstate.ActivityGitStatus) map[strin
 		}
 	}
 	return out
+}
+
+// projectPRRef is the SINGLE server-side site that turns the OPAQUE pullRequestRef into
+// the SPA's two read-time render fields (D-PA-GIT-PRURL-ruling R1/R2). It isolates BOTH
+// the "the opaque ref is a decimal PR number" assumption AND the GitHub "/pull/<n>" URL
+// grammar to one place — the durable aggregate stays provider-opaque, and the webClient
+// receives a finished prNumber + prUrl. Relocated verbatim from the hand-written web
+// layer (catalog.go) so the GitHub URL grammar now lives with the contract-owning Manager.
+//
+//   - prNumber: strconv.Atoi(ref). Zero (→ omitted by the web wire's omitempty) when ref
+//     is "" (branch-only first touch) or unparseable (a future non-numeric provider ref) —
+//     never panics, never fabricates.
+//   - prURL: <repoBase>/pull/<ref>, ONLY when ref != "" AND repoBase != "" (construction
+//     repo configured). Otherwise "". The host appears only transiently here, composed
+//     from config — never in durable state.
+func projectPRRef(ref, repoBase string) (prNumber int, prURL string) {
+	if ref == "" {
+		return 0, ""
+	}
+	if n, err := strconv.Atoi(ref); err == nil {
+		prNumber = n
+	}
+	if repoBase != "" {
+		prURL = repoBase + "/pull/" + ref
+	}
+	return prNumber, prURL
 }
 
 // constructionRowsToContract maps the per-activity construction head-state map
@@ -439,17 +481,76 @@ func producedToContract(produced []projectstate.ProducedArtifact) []ProducedArti
 }
 
 // constructionProgressToContract maps the project-level Phase-3 framing scalars
-// (nil in ⇒ nil out).
-func constructionProgressToContract(p *projectstate.ConstructionProgress) *ConstructionProgress {
-	if p == nil {
+// (nil in ⇒ nil out) AND computes the EV/SPI earned-value curve server-side via the
+// constructionEstimationEngine (compute-at-read) — the relocation of the former web
+// computeEV onto the contract-owning Manager. It is a method on *Manager so it can reach
+// the estimator + cast the ActivityList/Network/PlanningAssumptions slots off the whole
+// aggregate. When progress is absent the whole block is omitted (honest-empty); when
+// present the EV curve is always populated (zero-valued when the estimator is nil or the
+// inputs are degenerate — never a fabricated curve).
+func (m *Manager) constructionProgressToContract(p projectstate.Project) *ConstructionProgress {
+	cp := p.ConstructionProgress
+	if cp == nil {
 		return nil
 	}
 	return &ConstructionProgress{
-		Week:           int64(p.Week),
-		TotalWeeks:     int64(p.TotalWeeks),
-		HandOffModel:   p.HandOffModel,
-		SupervisionCap: int64(p.SupervisionCap),
+		Week:           int64(cp.Week),
+		TotalWeeks:     int64(cp.TotalWeeks),
+		HandOffModel:   cp.HandOffModel,
+		SupervisionCap: int64(cp.SupervisionCap),
+		EV:             m.computeEVAtRead(p, int64(cp.TotalWeeks)),
 	}
+}
+
+// computeEVAtRead computes the EV/SPI earned-value curve by calling the
+// constructionEstimationEngine.ComputeEarnedValue over the AUTHORED activity list ×
+// network, the integrated activity set (the construction rows whose stored build status is
+// BuildIntegrated), the calendar days/week from the PlanningAssumptions slot, and the
+// project's total-week framing. NO compute (a zero EVCurve) when the estimator is nil; a
+// compute error (a degenerate-input guard) is swallowed to a zero EVCurve. This is the
+// server-side replacement for the web layer's former computeEV.
+func (m *Manager) computeEVAtRead(p projectstate.Project, totalWeeks int64) EVCurve {
+	if m.estimator == nil {
+		return EVCurve{}
+	}
+	var activities projectstate.ActivityList
+	if al, ok := p.ActivityList.Model.(*projectstate.ActivityList); ok && al != nil {
+		activities = *al
+	}
+	var network projectstate.Network
+	if net, ok := p.Network.Model.(*projectstate.Network); ok && net != nil {
+		network = *net
+	}
+
+	integrated := make([]string, 0, len(p.ActivityConstruction))
+	for id, r := range p.ActivityConstruction {
+		if r.BuildStatus == projectstate.BuildIntegrated {
+			integrated = append(integrated, id)
+		}
+	}
+
+	curve, err := m.estimator.ComputeEarnedValue(
+		fweng.Context{Context: context.Background()},
+		toEstimationActivityList(activities),
+		toEstimationNetwork(network),
+		integrated,
+		totalWeeks,
+		int64(calendarDaysPerWeek(p)),
+	)
+	if err != nil {
+		return EVCurve{}
+	}
+	return EVCurve{Weeks: curve.Weeks, Earned: curve.Earned, Planned: curve.Planned, SPI: curve.SPI}
+}
+
+// calendarDaysPerWeek reads the working days/week from the PlanningAssumptions slot,
+// defaulting to the standard 5-day workweek when the slot is absent or non-positive
+// (mirrors the retired web calendarDaysFromState).
+func calendarDaysPerWeek(p projectstate.Project) int {
+	if pa, ok := p.PlanningAssumptions.Model.(*projectstate.PlanningAssumptions); ok && pa != nil && pa.CalendarDaysPerWeek > 0 {
+		return int(pa.CalendarDaysPerWeek)
+	}
+	return 5
 }
 
 // serviceContractsToContract maps the typed service-contract corpus (honest-empty:

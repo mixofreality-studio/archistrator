@@ -9563,6 +9563,49 @@
           ],
           "additionalProperties": false
         },
+        "EVCurve": {
+          "type": "object",
+          "properties": {
+            "weeks": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "integer"
+              }
+            },
+            "earned": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "number"
+              }
+            },
+            "planned": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "number"
+              }
+            },
+            "spi": {
+              "type": "number",
+              "x-go-name": "SPI"
+            }
+          },
+          "required": [
+            "weeks",
+            "earned",
+            "planned",
+            "spi"
+          ],
+          "additionalProperties": false
+        },
         "Money": {
           "type": "object",
           "properties": {
@@ -9906,6 +9949,51 @@
             ],
             "result": {
               "$ref": "#/$defs/ConstructionEstimate"
+            },
+            "error": true
+          },
+          {
+            "name": "ComputeEarnedValue",
+            "params": [
+              {
+                "name": "activities",
+                "schema": {
+                  "$ref": "#/$defs/ActivityList"
+                }
+              },
+              {
+                "name": "network",
+                "schema": {
+                  "$ref": "#/$defs/Network"
+                }
+              },
+              {
+                "name": "integrated",
+                "schema": {
+                  "type": [
+                    "null",
+                    "array"
+                  ],
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "name": "totalWeeks",
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              {
+                "name": "calendarDaysPerWeek",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/EVCurve"
             },
             "error": true
           }
@@ -13086,6 +13174,12 @@
             "PullRequestRef": {
               "type": "string"
             },
+            "PrNumber": {
+              "type": "integer"
+            },
+            "PrURL": {
+              "type": "string"
+            },
             "CICheck": {
               "$ref": "#/$defs/CICheckState"
             },
@@ -13113,6 +13207,8 @@
             "BranchName",
             "BranchRef",
             "PullRequestRef",
+            "PrNumber",
+            "PrURL",
             "CICheck",
             "ArchApproved",
             "Merged",
@@ -13234,13 +13330,17 @@
             },
             "SupervisionCap": {
               "type": "integer"
+            },
+            "EV": {
+              "$ref": "#/$defs/EVCurve"
             }
           },
           "required": [
             "Week",
             "TotalWeeks",
             "HandOffModel",
-            "SupervisionCap"
+            "SupervisionCap",
+            "EV"
           ],
           "additionalProperties": false
         },
@@ -13351,6 +13451,49 @@
           "required": [
             "Name",
             "Fields"
+          ],
+          "additionalProperties": false
+        },
+        "EVCurve": {
+          "type": "object",
+          "properties": {
+            "weeks": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "integer"
+              }
+            },
+            "earned": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "number"
+              }
+            },
+            "planned": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "number"
+              }
+            },
+            "spi": {
+              "type": "number",
+              "x-go-name": "SPI"
+            }
+          },
+          "required": [
+            "weeks",
+            "earned",
+            "planned",
+            "spi"
           ],
           "additionalProperties": false
         },

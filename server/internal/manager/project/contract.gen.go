@@ -48,6 +48,8 @@ type ActivityGitStatus struct {
 	BranchName     string       `json:"BranchName"`
 	BranchRef      string       `json:"BranchRef"`
 	PullRequestRef string       `json:"PullRequestRef"`
+	PrNumber       int64        `json:"PrNumber"`
+	PrURL          string       `json:"PrURL"`
 	CICheck        CICheckState `json:"CICheck"`
 	ArchApproved   bool         `json:"ArchApproved"`
 	Merged         bool         `json:"Merged"`
@@ -99,10 +101,11 @@ const (
 )
 
 type ConstructionProgress struct {
-	Week           int64  `json:"Week"`
-	TotalWeeks     int64  `json:"TotalWeeks"`
-	HandOffModel   string `json:"HandOffModel"`
-	SupervisionCap int64  `json:"SupervisionCap"`
+	Week           int64   `json:"Week"`
+	TotalWeeks     int64   `json:"TotalWeeks"`
+	HandOffModel   string  `json:"HandOffModel"`
+	SupervisionCap int64   `json:"SupervisionCap"`
+	EV             EVCurve `json:"EV"`
 }
 
 type ContractOp struct {
@@ -130,6 +133,13 @@ type ContractRevision struct {
 type ContractStruct struct {
 	Name   string    `json:"Name"`
 	Fields []GoField `json:"Fields"`
+}
+
+type EVCurve struct {
+	Weeks   []int64   `json:"weeks"`
+	Earned  []float64 `json:"earned"`
+	Planned []float64 `json:"planned"`
+	SPI     float64   `json:"spi"`
 }
 
 type FailureReason int

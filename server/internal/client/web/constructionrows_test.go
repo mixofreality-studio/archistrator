@@ -1,32 +1,43 @@
 package web
 
-import "testing"
+import (
+	"testing"
 
-func TestComputeEV_EarnedAndPlannedMonotoneAndSPI(t *testing.T) {
-	acts := []evActivity{
-		{Name: "A", EffortDays: 5},
-		{Name: "B", EffortDays: 5},
-		{Name: "C", EffortDays: 10},
-	}
-	deps := []evDep{{Activity: "B", DependsOn: []string{"A"}}, {Activity: "C", DependsOn: []string{"B"}}}
-	integrated := map[string]bool{"A": true, "B": true} // C not done
-	ev := computeEV(acts, deps, integrated, 4, 5)
+	"github.com/mixofreality-studio/archistrator/server/internal/manager/project"
+)
 
-	if ev.SPI <= 0 {
-		t.Errorf("SPI should be positive, got %v", ev.SPI)
+// TestConstructionFromState_ConsumesManagerEV proves the web layer now PASSES THROUGH the
+// EV/SPI curve the projectManager computed (project.ConstructionProgress.EV) onto the wire
+// DTO rather than re-deriving it (the relocation, founder gate 2026-06-28). int64 weeks
+// narrow to int; earned/planned/spi flow verbatim.
+func TestConstructionFromState_ConsumesManagerEV(t *testing.T) {
+	rows := map[string]project.ActivityConstructionStatus{
+		"A": {ActivityID: "A"},
 	}
-	// earned must be monotone non-decreasing and end at 50% (10 of 20 effort days)
-	for i := 1; i < len(ev.Earned); i++ {
-		if ev.Earned[i] < ev.Earned[i-1] {
-			t.Errorf("earned not monotone at %d", i)
-		}
+	progress := &project.ConstructionProgress{
+		Week:           2,
+		TotalWeeks:     4,
+		HandOffModel:   "senior",
+		SupervisionCap: 3,
+		EV: project.EVCurve{
+			Weeks:   []int64{0, 1, 2, 3, 4},
+			Earned:  []float64{0, 25, 50, 50, 50},
+			Planned: []float64{0, 25, 50, 75, 100},
+			SPI:     0.5,
+		},
 	}
-	last := ev.Earned[len(ev.Earned)-1]
-	if last < 49 || last > 51 {
-		t.Errorf("final earned want ~50%%, got %v", last)
+
+	_, prog := constructionFromState(rows, progress)
+	if prog == nil {
+		t.Fatal("expected non-nil progress DTO")
 	}
-	// planned must also be monotone and reach 100%
-	if ev.Planned[len(ev.Planned)-1] < 99 {
-		t.Errorf("planned should reach ~100%%, got %v", ev.Planned[len(ev.Planned)-1])
+	if prog.EV.SPI != 0.5 {
+		t.Errorf("SPI passthrough: got %v want 0.5", prog.EV.SPI)
+	}
+	if len(prog.EV.Weeks) != 5 || prog.EV.Weeks[4] != 4 {
+		t.Errorf("weeks passthrough: got %v", prog.EV.Weeks)
+	}
+	if prog.EV.Earned[2] != 50 || prog.EV.Planned[4] != 100 {
+		t.Errorf("curve passthrough mismatch: earned=%v planned=%v", prog.EV.Earned, prog.EV.Planned)
 	}
 }

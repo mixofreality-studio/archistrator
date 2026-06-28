@@ -26,6 +26,13 @@ type ConstructionEstimate struct {
 	Risk         RiskScore `json:"Risk"`
 }
 
+type EVCurve struct {
+	Weeks   []int64   `json:"weeks"`
+	Earned  []float64 `json:"earned"`
+	Planned []float64 `json:"planned"`
+	SPI     float64   `json:"spi"`
+}
+
 type Money struct {
 	MinorUnits int64  `json:"minorUnits"`
 	Currency   string `json:"currency"`
@@ -111,4 +118,5 @@ type WorkerMix struct {
 type EstimationEngine interface {
 	ComputeNetwork(rc fweng.Context, activities ActivityList, network Network) (NetworkSolution, error)
 	EstimateForOption(rc fweng.Context, option ProjectOption) (ConstructionEstimate, error)
+	ComputeEarnedValue(rc fweng.Context, activities ActivityList, network Network, integrated []string, totalWeeks int64, calendarDaysPerWeek int64) (EVCurve, error)
 }

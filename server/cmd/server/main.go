@@ -417,6 +417,15 @@ func run(logger *slog.Logger) error { //nolint:gocognit,gocyclo,maintidx,nestif 
 
 	manager := systemdesign.NewManager(tc, designProjectState)
 	projectDesignManager := projectdesign.NewManager(tc)
+	// repoBase is the project-wide construction-repo WEB base (<host>/<owner>/<repo>)
+	// the projectManager composes each git row's clickable prUrl from
+	// (<repoBase>/pull/<opaqueRef>; D-PA-GIT-PRURL-ruling R1). It is computed ONCE here
+	// from the construction-repo config; "" when unconfigured (the manager then omits
+	// prUrl rather than fabricating a host). This is a CONFIG value threaded into the
+	// Manager — NOT a store read, NOT an aggregate field; durable git state stays
+	// provider-opaque. The webClient is handed the SAME value for any residual use.
+	repoBase := constructionRepoBase(cfg.GitHubAPIBaseURL, cfg.ConstructionRepoOwner, cfg.ConstructionRepoName)
+
 	// Thin projectManager (catalog + cross-phase typed read) over projectStateAccess,
 	// plus the optional sourceControlAccess it drives at project birth to provision the
 	// backing repo BEFORE the head-state row (architecture.dsl:581; nil ⇒ repo-less).
@@ -424,9 +433,10 @@ func run(logger *slog.Logger) error { //nolint:gocognit,gocyclo,maintidx,nestif 
 	// (designProjectState) so CreateProject + the catalog read land in the per-project
 	// git repos when configured (I-GIT-DESIGN). The estimator is the
 	// constructionEstimationEngine the Manager calls at READ time to populate the
-	// network computed block (compute-at-read CPM + criticality bands, founder gate
-	// 2026-06-19).
-	projectManager := project.NewManager(designProjectState, sourceControl, estimator)
+	// network computed block (compute-at-read CPM + criticality bands) AND the EV/SPI
+	// earned-value curve (compute-at-read, founder gate 2026-06-19/2026-06-28). repoBase
+	// is the construction-repo web base the Manager composes each git row's prUrl from.
+	projectManager := project.NewManager(designProjectState, sourceControl, estimator, repoBase)
 
 	// PR-rail wiring for the design Managers (I-DESIGN-DISPATCH §2c). The SAME concrete
 	// *sourcecontrol.Access that backs project birth + the construction rail backs the
@@ -629,18 +639,11 @@ func run(logger *slog.Logger) error { //nolint:gocognit,gocyclo,maintidx,nestif 
 	// durable workflow starts regardless).
 	operationsManager := operations.NewManager(tc)
 
-	// repoBase is the project-wide construction-repo WEB base the webClient's git-row
-	// read projection composes each clickable prUrl from (<repoBase>/pull/<opaqueRef>;
-	// D-PA-GIT-PRURL-ruling R1). It is computed ONCE here from the same construction-repo
-	// config the constructionPipelineAccess already uses (cfg.ConstructionRepoOwner /
-	// cfg.ConstructionRepoName + the GitHub WEB host). The host is github.com by default;
-	// for GHES it is derived from cfg.GitHubAPIBaseURL (an API root like
-	// https://ghe.host/api/v3) by stripping the /api/v3 REST suffix to recover the web
-	// host. When the construction repo is unconfigured, repoBase == "" and the projection
-	// simply omits prUrl (no fabricated host). This is a Client-held CONFIG value — NOT a
-	// store read, NOT an aggregate field; the durable git head-state stays provider-opaque.
-	repoBase := constructionRepoBase(cfg.GitHubAPIBaseURL, cfg.ConstructionRepoOwner, cfg.ConstructionRepoName)
-
+	// repoBase (computed above) is the project-wide construction-repo WEB base the
+	// projectManager now composes each git row's clickable prUrl from
+	// (<repoBase>/pull/<opaqueRef>; D-PA-GIT-PRURL-ruling R1). The webClient is handed the
+	// same value for any residual read-time use; the prUrl/prNumber it renders now flow
+	// from the manager result (the relocation), not from a web-side composition.
 	webClient := web.NewClient(manager, projectDesignManager, projectManager, constructionManager, operationsManager, sec, repoBase)
 	// otelhttp wraps the whole route tree: it starts a server span per request
 	// (extracting any inbound W3C trace context) and records http.server.* metrics

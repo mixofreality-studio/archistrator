@@ -1,8 +1,6 @@
 package web
 
 import (
-	"strconv"
-
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/project"
 )
 
@@ -140,10 +138,7 @@ type gitRowDTO struct {
 // prUrl — pure config + opaque-ref composition, no store read, no Manager call
 // (D-PA-GIT-PRURL-ruling R1).
 func (c *Client) projectStateFromManager(s project.ProjectState) projectStateResponse {
-	rows, prog := constructionFromState(
-		s.ActivityConstruction, s.ConstructionProgress,
-		activityItemsFromState(s), networkDepsFromState(s), calendarDaysFromState(s),
-	)
+	rows, prog := constructionFromState(s.ActivityConstruction, s.ConstructionProgress)
 	return projectStateResponse{
 		ProjectID:            string(s.ProjectID),
 		Name:                 s.Name,
@@ -152,7 +147,7 @@ func (c *Client) projectStateFromManager(s project.ProjectState) projectStateRes
 		Version:              uint64(s.Version),
 		Research:             researchInputFromState(s.Research),
 		Slots:                s.Slots,
-		GitRows:              gitRowsFromState(s.GitRows, c.repoBase),
+		GitRows:              gitRowsFromState(s.GitRows),
 		ConstructionRows:     rows,
 		ConstructionProgress: prog,
 		ServiceContracts:     serviceContractsFromState(s),
@@ -165,22 +160,21 @@ func (c *Client) projectStateFromManager(s project.ProjectState) projectStateRes
 // rather than an empty object, exactly as the ux-mock gitFor(id) returns undefined for
 // a not-yet-branched activity.
 //
-// repoBase is the project-wide construction-repo base (<host>/<owner>/<repo>) the Client
-// holds; it is used ONLY to compose each row's read-time prUrl (D-PA-GIT-PRURL-ruling R1).
-// When empty (construction repo unconfigured) prUrl is simply omitted — the prNumber
-// derivation does NOT depend on repoBase, so it still projects where a ref exists.
-func gitRowsFromState(rows map[string]project.ActivityGitStatus, repoBase string) map[string]gitRowDTO {
+// prNumber/prUrl are no longer composed here: they are now read-time projections the
+// projectManager OWNS (composed from its repoBase + the opaque ref; the former web
+// projectPRRef relocated onto the contract). This layer passes them through verbatim,
+// preserving their omitempty semantics (prNumber 0 / prUrl "" simply omit on the wire).
+func gitRowsFromState(rows map[string]project.ActivityGitStatus) map[string]gitRowDTO {
 	if len(rows) == 0 {
 		return nil
 	}
 	out := make(map[string]gitRowDTO, len(rows))
 	for activityID, g := range rows {
-		prNumber, prURL := projectPRRef(g.PullRequestRef, repoBase)
 		out[activityID] = gitRowDTO{
 			BranchName:           g.BranchName,
 			PullRequestRef:       g.PullRequestRef,
-			PrNumber:             prNumber,
-			PrURL:                prURL,
+			PrNumber:             int(g.PrNumber),
+			PrURL:                g.PrURL,
 			CIStatus:             ciStatusName(g.CICheck),
 			ArchitectureApproved: g.ArchApproved,
 			Merged:               g.Merged,
@@ -190,31 +184,6 @@ func gitRowsFromState(rows map[string]project.ActivityGitStatus, repoBase string
 		}
 	}
 	return out
-}
-
-// projectPRRef is the SINGLE server-side site that turns the OPAQUE pullRequestRef into
-// the SPA's two read-time render fields (D-PA-GIT-PRURL-ruling R1/R2). It isolates BOTH
-// the "the opaque ref is a decimal PR number" assumption AND the GitHub "/pull/<n>" URL
-// grammar to one place — the durable aggregate stays provider-opaque, and the SPA
-// receives a finished prNumber + prUrl.
-//
-//   - prNumber: strconv.Atoi(ref). Zero (→ omitempty) when ref is "" (branch-only first
-//     touch) or unparseable (a future non-numeric provider ref) — never panics, never
-//     fabricates.
-//   - prURL: <repoBase>/pull/<ref>, ONLY when ref != "" AND repoBase != "" (construction
-//     repo configured). Otherwise "" (→ omitempty). The host appears only transiently
-//     here, composed from config — never in durable state.
-func projectPRRef(ref, repoBase string) (prNumber int, prURL string) {
-	if ref == "" {
-		return 0, ""
-	}
-	if n, err := strconv.Atoi(ref); err == nil {
-		prNumber = n
-	}
-	if repoBase != "" {
-		prURL = repoBase + "/pull/" + ref
-	}
-	return prNumber, prURL
 }
 
 // ciStatusName renders the typed 3-state project.CICheckState onto the stable wire

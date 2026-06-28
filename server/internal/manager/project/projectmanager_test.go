@@ -89,7 +89,7 @@ func (f *fakeProjectStateAccess) ReadProject(_ fwra.Context, projectID projectst
 // the returned project id IS the user-supplied name, and the RA is called exactly once.
 func TestCreateProject_NameIsIdentityAndCallsRAOnce(t *testing.T) {
 	fake := &fakeProjectStateAccess{}
-	m := NewManager(fake, nil, nil)
+	m := NewManager(fake, nil, nil, "")
 
 	id, err := m.CreateProject(rc(), OwnerScope("alice@example.com"), "my-cool-system")
 	if err != nil {
@@ -117,7 +117,7 @@ func TestCreateProject_NameIsIdentityAndCallsRAOnce(t *testing.T) {
 
 func TestCreateProject_EmptyOwner_ContractMisuse(t *testing.T) {
 	fake := &fakeProjectStateAccess{}
-	m := NewManager(fake, nil, nil)
+	m := NewManager(fake, nil, nil, "")
 
 	_, err := m.CreateProject(rc(), OwnerScope(""), "My Project")
 	if err == nil {
@@ -134,7 +134,7 @@ func TestCreateProject_EmptyOwner_ContractMisuse(t *testing.T) {
 
 func TestCreateProject_EmptyName_ContractMisuse(t *testing.T) {
 	fake := &fakeProjectStateAccess{}
-	m := NewManager(fake, nil, nil)
+	m := NewManager(fake, nil, nil, "")
 
 	_, err := m.CreateProject(rc(), OwnerScope("alice"), "")
 	if err == nil {
@@ -148,7 +148,7 @@ func TestCreateProject_EmptyName_ContractMisuse(t *testing.T) {
 
 func TestCreateProject_RAConflict_MapsInfrastructure(t *testing.T) {
 	fake := &fakeProjectStateAccess{createErr: fwra.New(fwra.Conflict, "row exists")}
-	m := NewManager(fake, nil, nil)
+	m := NewManager(fake, nil, nil, "")
 
 	_, err := m.CreateProject(rc(), OwnerScope("alice"), "P")
 	var me *fwm.Error
@@ -242,7 +242,7 @@ func TestCreateProject_AdoptThenSeatThenCreate(t *testing.T) {
 	order := &callOrder{}
 	ps := &orderingProjectState{fakeProjectStateAccess: &fakeProjectStateAccess{}, order: order}
 	sc := &fakeSourceControl{order: order}
-	m := NewManager(ps, sc, nil)
+	m := NewManager(ps, sc, nil, "")
 
 	id, err := m.CreateProject(rc(), OwnerScope("alice@example.com"), "my-cool-system")
 	if err != nil {
@@ -284,7 +284,7 @@ func TestCreateProject_AdoptFailure_NoSeatingNoCreate(t *testing.T) {
 	order := &callOrder{}
 	ps := &orderingProjectState{fakeProjectStateAccess: &fakeProjectStateAccess{}, order: order}
 	sc := &fakeSourceControl{order: order, adoptErr: fwra.New(fwra.Transient, "github 503")}
-	m := NewManager(ps, sc, nil)
+	m := NewManager(ps, sc, nil, "")
 
 	_, err := m.CreateProject(rc(), OwnerScope("alice"), "taken-repo")
 	if err == nil {
@@ -315,7 +315,7 @@ func TestCreateProject_AdoptFailure_NoSeatingNoCreate(t *testing.T) {
 // (nil sourceControl) still creates projects — repo-less, no adopt.
 func TestCreateProject_NilSourceControl_SkipsAdopt(t *testing.T) {
 	fake := &fakeProjectStateAccess{}
-	m := NewManager(fake, nil, nil)
+	m := NewManager(fake, nil, nil, "")
 
 	id, err := m.CreateProject(rc(), OwnerScope("alice"), "dev-project")
 	if err != nil {
@@ -338,7 +338,7 @@ func TestListProjects_PassesThrough(t *testing.T) {
 		{ProjectID: "beta", Name: "B", Owner: "alice", Phase: projectstate.PhaseProjectDesign, CommittedCount: 9, TotalCount: 9, UpdatedAt: now},
 	}
 	fake := &fakeProjectStateAccess{listSummary: src}
-	m := NewManager(fake, nil, nil)
+	m := NewManager(fake, nil, nil, "")
 
 	got, err := m.ListProjects(rc(), OwnerScope("alice"))
 	if err != nil {
@@ -363,7 +363,7 @@ func TestListProjects_PassesThrough(t *testing.T) {
 
 func TestListProjects_RAError_MapsInfrastructure(t *testing.T) {
 	fake := &fakeProjectStateAccess{listErr: fwra.New(fwra.Infrastructure, "db down")}
-	m := NewManager(fake, nil, nil)
+	m := NewManager(fake, nil, nil, "")
 
 	_, err := m.ListProjects(rc(), OwnerScope("alice"))
 	var me *fwm.Error
@@ -404,7 +404,7 @@ func sampleProject(id projectstate.ProjectID) projectstate.Project {
 func TestGetProject_MapsAggregateToTypedSlots(t *testing.T) {
 	id := ProjectID("my-cool-system")
 	fake := &fakeProjectStateAccess{readProject: sampleProject(projectstate.ProjectID(id))}
-	m := NewManager(fake, nil, nil)
+	m := NewManager(fake, nil, nil, "")
 
 	st, err := m.GetProject(rc(), id)
 	if err != nil {
@@ -509,7 +509,7 @@ func TestGetProject_ComputeNetworkAtRead(t *testing.T) {
 	}
 
 	fake := &fakeProjectStateAccess{readProject: p}
-	m := NewManager(fake, nil, estimation.New())
+	m := NewManager(fake, nil, estimation.New(), "")
 
 	st, err := m.GetProject(rc(), id)
 	if err != nil {
@@ -546,6 +546,91 @@ func TestGetProject_ComputeNetworkAtRead(t *testing.T) {
 	}
 }
 
+// TestGetProject_ComputeEarnedValueAtRead verifies the EV/SPI earned-value curve is
+// computed SERVER-SIDE at read (via the constructionEstimationEngine) and surfaced on
+// ConstructionProgress.EV — the relocation of the former web computeEV. A→B→C chain with
+// A,B integrated and C not: earned reaches ~50% (10 of 20 effort days), planned ~100%,
+// SPI ~0.5.
+func TestGetProject_ComputeEarnedValueAtRead(t *testing.T) {
+	id := ProjectID("ev-proj")
+	p := sampleProject(projectstate.ProjectID(id))
+	p.Phase = projectstate.PhaseConstruction
+	p.ActivityList = projectstate.ArtifactSlot{
+		Status: projectstate.ReviewCommitted,
+		Model: &projectstate.ActivityList{Activities: []projectstate.ActivityItem{
+			{Name: "A", EffortDays: 5, WorkerClass: "dev"},
+			{Name: "B", EffortDays: 5, WorkerClass: "dev"},
+			{Name: "C", EffortDays: 10, WorkerClass: "dev"},
+		}},
+	}
+	p.Network = projectstate.ArtifactSlot{
+		Status: projectstate.ReviewCommitted,
+		Model: &projectstate.Network{Dependencies: []projectstate.NetworkDependency{
+			{Activity: "B", DependsOn: []string{"A"}},
+			{Activity: "C", DependsOn: []string{"B"}},
+		}},
+	}
+	p.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
+		"A": {ActivityID: "A", BuildStatus: projectstate.BuildIntegrated},
+		"B": {ActivityID: "B", BuildStatus: projectstate.BuildIntegrated},
+		"C": {ActivityID: "C", BuildStatus: projectstate.BuildInConstruction},
+	}
+	p.ConstructionProgress = &projectstate.ConstructionProgress{Week: 2, TotalWeeks: 4, HandOffModel: "senior", SupervisionCap: 3}
+
+	fake := &fakeProjectStateAccess{readProject: p}
+	m := NewManager(fake, nil, estimation.New(), "")
+
+	st, err := m.GetProject(rc(), id)
+	if err != nil {
+		t.Fatalf("GetProject: %v", err)
+	}
+	if st.ConstructionProgress == nil {
+		t.Fatal("ConstructionProgress should be present")
+	}
+	ev := st.ConstructionProgress.EV
+	if ev.SPI < 0.49 || ev.SPI > 0.51 {
+		t.Fatalf("SPI = %v, want ~0.5", ev.SPI)
+	}
+	if n := len(ev.Earned); n == 0 || ev.Earned[n-1] < 49 || ev.Earned[n-1] > 51 {
+		t.Fatalf("final earned want ~50%%, got %v", ev.Earned)
+	}
+	if n := len(ev.Planned); n == 0 || ev.Planned[n-1] < 99 {
+		t.Fatalf("final planned want ~100%%, got %v", ev.Planned)
+	}
+}
+
+// TestGetProject_ComposesPRRefAtRead verifies the manager composes each git row's
+// prNumber (from the opaque ref) and prUrl (<repoBase>/pull/<ref>) at read — the
+// relocation of the former web projectPRRef onto the contract-owning Manager.
+func TestGetProject_ComposesPRRefAtRead(t *testing.T) {
+	id := ProjectID("pr-proj")
+	p := sampleProject(projectstate.ProjectID(id))
+	p.ActivityGit = map[string]projectstate.ActivityGitStatus{
+		"C-MST": {ActivityID: "C-MST", BranchName: "activity/C-MST", PullRequestRef: "44"},
+	}
+	fake := &fakeProjectStateAccess{readProject: p}
+	m := NewManager(fake, nil, estimation.New(), "https://github.com/acme/proj")
+
+	st, err := m.GetProject(rc(), id)
+	if err != nil {
+		t.Fatalf("GetProject: %v", err)
+	}
+	row, ok := st.GitRows["C-MST"]
+	if !ok {
+		t.Fatalf("gitRows[C-MST] absent: %+v", st.GitRows)
+	}
+	if row.PrNumber != 44 {
+		t.Fatalf("prNumber = %d, want 44 (parsed from opaque ref)", row.PrNumber)
+	}
+	if row.PrURL != "https://github.com/acme/proj/pull/44" {
+		t.Fatalf("prUrl = %q, want composed <repoBase>/pull/44", row.PrURL)
+	}
+	// Provider-opacity: the opaque ref remains the durable truth alongside the projections.
+	if row.PullRequestRef != "44" {
+		t.Fatalf("opaque pullRequestRef must remain: %q", row.PullRequestRef)
+	}
+}
+
 // TestGetProject_NilEstimator_NoCompute verifies the compute-at-read is a no-op when no
 // estimator is injected: the authored network is served unenriched.
 func TestGetProject_NilEstimator_NoCompute(t *testing.T) {
@@ -559,7 +644,7 @@ func TestGetProject_NilEstimator_NoCompute(t *testing.T) {
 		},
 	}
 	fake := &fakeProjectStateAccess{readProject: p}
-	m := NewManager(fake, nil, nil)
+	m := NewManager(fake, nil, nil, "")
 
 	st, err := m.GetProject(rc(), id)
 	if err != nil {
@@ -594,7 +679,7 @@ func TestGetProject_OverwritesStaleCriticalPath(t *testing.T) {
 		},
 	}
 	fake := &fakeProjectStateAccess{readProject: p}
-	m := NewManager(fake, nil, estimation.New())
+	m := NewManager(fake, nil, estimation.New(), "")
 
 	st, err := m.GetProject(rc(), id)
 	if err != nil {
@@ -608,7 +693,7 @@ func TestGetProject_OverwritesStaleCriticalPath(t *testing.T) {
 
 func TestGetProject_NotFoundPassesThrough(t *testing.T) {
 	fake := &fakeProjectStateAccess{readErr: fwra.New(fwra.NotFound, "no row")}
-	m := NewManager(fake, nil, nil)
+	m := NewManager(fake, nil, nil, "")
 
 	_, err := m.GetProject(rc(), ProjectID("missing"))
 	var me *fwm.Error
@@ -622,7 +707,7 @@ func TestGetProject_NotFoundPassesThrough(t *testing.T) {
 
 func TestGetProject_EmptyProjectID_ContractMisuse(t *testing.T) {
 	fake := &fakeProjectStateAccess{}
-	m := NewManager(fake, nil, nil)
+	m := NewManager(fake, nil, nil, "")
 
 	_, err := m.GetProject(rc(), ProjectID(""))
 	var me *fwm.Error
@@ -643,7 +728,7 @@ func TestGetProject_EmptyProjectID_ContractMisuse(t *testing.T) {
 func TestProjectState_SlotWireShape(t *testing.T) {
 	id := ProjectID("my-cool-system")
 	fake := &fakeProjectStateAccess{readProject: sampleProject(projectstate.ProjectID(id))}
-	m := NewManager(fake, nil, nil)
+	m := NewManager(fake, nil, nil, "")
 
 	st, err := m.GetProject(rc(), id)
 	if err != nil {

@@ -105,7 +105,7 @@ func newGitProjectHandler(t *testing.T, clk time.Time, repoBase string, seed fun
 		seed(t, store, ctx, id, v, cred)
 	}
 
-	projectManager := project.NewManager(credBoundStore{store: store, cred: cred}, nil, estimation.New())
+	projectManager := project.NewManager(credBoundStore{store: store, cred: cred}, nil, estimation.New(), repoBase)
 	c := NewClient(nil, nil, projectManager, nil, nil, fakeSecurity{permit: true}, repoBase)
 	dev := DevConfig{Enabled: true, Principal: security.SecurityPrincipal{
 		Kind:    security.PrincipalUser,
