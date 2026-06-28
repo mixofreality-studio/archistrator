@@ -38,7 +38,7 @@ import (
 
 // sourceControlAdapter adapts *sourcecontrol.Access to project.SourceControlAccess.
 // It carries the adopt + seating verbs project birth needs.
-type sourceControlAdapter struct{ inner *sourcecontrol.Access }
+type sourceControlAdapter struct{ inner sourcecontrol.SourceControlAccess }
 
 var _ project.SourceControlAccess = sourceControlAdapter{}
 
@@ -150,7 +150,7 @@ func concreteCred(cred project.RepoCredential) sourcecontrol.RepoCredential {
 
 // railAdapter adapts the RA-context *sourcecontrol.Access to the plain-ctx PR-rail
 // consumer ports the design + construction Managers declare.
-type railAdapter struct{ inner *sourcecontrol.Access }
+type railAdapter struct{ inner sourcecontrol.SourceControlAccess }
 
 func (r railAdapter) GetInstallationToken(ctx context.Context, repo sourcecontrol.RepoRef) (sourcecontrol.RepoCredential, error) {
 	return r.inner.GetInstallationToken(fwra.Context{Context: ctx}, repo)

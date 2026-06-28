@@ -15,38 +15,46 @@ import (
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
-// Store is the concrete, Postgres-backed implementation of ProjectStateAccess
+// store is the concrete, Postgres-backed implementation of ProjectStateAccess
 // (projectStateAccess.md §6 infrastructure mapping). The project's head-state lives
 // in ONE row of project_state, mutated in place by the atomic verbs under
 // optimistic concurrency. There is no event log and no projection: the row IS
 // the truth. A second table, applied_mutation, is the idempotency dedup ledger
 // (keys only — NOT an audit trail).
 //
+// It is UNEXPORTED (option-1 generated-DI): the package's only public Postgres surface
+// is the generated NewPostgresProjectStateAccess constructor, which returns the generated
+// ProjectStateAccess interface (the concrete impl stays unexported). It ALSO carries the
+// ctx-based construction-transition Record* verbs (construction.go) the Postgres dev
+// fallback consumes through a composition-root consumer interface.
+//
 // The struct imports NO Temporal (layer rule, projectStateAccess.md §2): the
 // idempotency key arrives as an ordinary parameter and is never read from
 // ambient context.
-type Store struct {
+type store struct {
 	pool *pgxpool.Pool
 }
 
-// Compile-time proof the concrete Store satisfies the port. If the port ever
+// Compile-time proof the concrete store satisfies the port. If the port ever
 // drifts, this line breaks the build — exactly the guard The Method wants
 // between a contract and its construction.
-var _ ProjectStateAccess = (*Store)(nil)
+var _ ProjectStateAccess = (*store)(nil)
 
-// NewStore builds a Store over an existing pgx pool and applies the schema (DDL)
-// deterministically via an embedded, idempotent migration. Applying the
-// migration in the constructor keeps schema setup co-located with the only
-// component allowed to touch the infrastructure and makes the Store self-sufficient
-// for both production wiring and the integration tests.
-func NewStore(ctx context.Context, pool *pgxpool.Pool) (*Store, error) {
+// newPostgresProjectStateAccess is the hand-written, unexported builder behind the
+// generated NewPostgresProjectStateAccess constructor (option-1 delegated DI). It builds
+// the impl over an existing pgx pool and applies the schema (DDL) deterministically via
+// an embedded, idempotent migration, returning the ProjectStateAccess interface so the
+// concrete impl stays unexported. Applying the migration in the constructor keeps schema
+// setup co-located with the only component allowed to touch the infrastructure and makes
+// the store self-sufficient for both production wiring and the integration tests.
+func newPostgresProjectStateAccess(ctx context.Context, pool *pgxpool.Pool) (ProjectStateAccess, error) {
 	if pool == nil {
-		return nil, fwra.New(fwra.ContractMisuse, "projectstate.NewStore: nil pool")
+		return nil, fwra.New(fwra.ContractMisuse, "projectstate.NewPostgresProjectStateAccess: nil pool")
 	}
 	if _, err := pool.Exec(ctx, schemaDDL); err != nil {
-		return nil, fwra.Wrap(fwra.Infrastructure, err, "projectstate.NewStore: apply schema")
+		return nil, fwra.Wrap(fwra.Infrastructure, err, "projectstate.NewPostgresProjectStateAccess: apply schema")
 	}
-	return &Store{pool: pool}, nil
+	return &store{pool: pool}, nil
 }
 
 // schemaDDL is the deterministic, idempotent migration for the head-state
@@ -273,7 +281,7 @@ func decodeSlotsMap(w map[string]slotJSON, p *Project) error {
 // not re-decide whether the transition is allowed (the Manager's / Engine's gate).
 // ---------------------------------------------------------------------------
 
-func (s *Store) StageArtifactForReview(rc fwra.Context, projectID ProjectID, expectedVersion Version, model ArtifactModel) (Version, error) {
+func (s *store) StageArtifactForReview(rc fwra.Context, projectID ProjectID, expectedVersion Version, model ArtifactModel) (Version, error) {
 	ctx, idempotencyKey := rc.Context, rc.IdempotencyKey
 	if model == nil {
 		return 0, fwra.New(fwra.ContractMisuse, "projectstate.StageArtifactForReview: nil staged model")
@@ -294,19 +302,19 @@ func (s *Store) StageArtifactForReview(rc fwra.Context, projectID ProjectID, exp
 	})
 }
 
-func (s *Store) CommitArtifact(rc fwra.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind) (Version, error) {
+func (s *store) CommitArtifact(rc fwra.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind) (Version, error) {
 	return s.applyMutation(rc.Context, "CommitArtifact", projectID, expectedVersion, rc.IdempotencyKey, statusTransition("CommitArtifact", kind, ReviewCommitted, ""))
 }
 
-func (s *Store) RejectArtifact(rc fwra.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, notes string) (Version, error) {
+func (s *store) RejectArtifact(rc fwra.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, notes string) (Version, error) {
 	return s.applyMutation(rc.Context, "RejectArtifact", projectID, expectedVersion, rc.IdempotencyKey, statusTransition("RejectArtifact", kind, ReviewRejected, notes))
 }
 
-func (s *Store) WithdrawArtifact(rc fwra.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, notes string) (Version, error) {
+func (s *store) WithdrawArtifact(rc fwra.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, notes string) (Version, error) {
 	return s.applyMutation(rc.Context, "WithdrawArtifact", projectID, expectedVersion, rc.IdempotencyKey, statusTransition("WithdrawArtifact", kind, ReviewWithdrawn, notes))
 }
 
-func (s *Store) AdvancePhase(rc fwra.Context, projectID ProjectID, expectedVersion Version) (Version, error) {
+func (s *store) AdvancePhase(rc fwra.Context, projectID ProjectID, expectedVersion Version) (Version, error) {
 	return s.applyMutation(rc.Context, "AdvancePhase", projectID, expectedVersion, rc.IdempotencyKey, func(p *Project) error {
 		p.Phase++
 		return nil
@@ -321,7 +329,7 @@ func (s *Store) AdvancePhase(rc fwra.Context, projectID ProjectID, expectedVersi
 // The project row must already exist (Task 2.3): a project is born explicitly via
 // CreateProject, NOT implicitly on first research write. An absent row surfaces
 // fwra.NotFound.
-func (s *Store) SetResearchInput(rc fwra.Context, projectID ProjectID, expectedVersion Version, research ResearchInput) (Version, error) {
+func (s *store) SetResearchInput(rc fwra.Context, projectID ProjectID, expectedVersion Version, research ResearchInput) (Version, error) {
 	if research.IsZero() {
 		return 0, fwra.New(fwra.ContractMisuse, "projectstate.SetResearchInput: empty research (no sources)")
 	}
@@ -337,7 +345,7 @@ func (s *Store) SetResearchInput(rc fwra.Context, projectID ProjectID, expectedV
 // modeCreateOnly — idempotent on idempotencyKey (a retry returns the version the
 // first attempt committed) and fwra.Conflict if the id already exists under a
 // DIFFERENT key. The expectedVersion is always 0 (a brand-new row).
-func (s *Store) CreateProject(rc fwra.Context, projectID ProjectID, owner OwnerScope, name string) (Version, error) {
+func (s *store) CreateProject(rc fwra.Context, projectID ProjectID, owner OwnerScope, name string) (Version, error) {
 	if owner == "" {
 		return 0, fwra.New(fwra.ContractMisuse, "projectstate.CreateProject: empty owner")
 	}
@@ -353,7 +361,7 @@ func (s *Store) CreateProject(rc fwra.Context, projectID ProjectID, owner OwnerS
 // newest-first (Task 2.3). Each summary derives the current-phase progress
 // (committed vs total artifact slots) from the stored slot set. An owner with no
 // projects yields an empty, non-nil slice.
-func (s *Store) ListProjects(rc fwra.Context, owner OwnerScope) ([]ProjectSummary, error) {
+func (s *store) ListProjects(rc fwra.Context, owner OwnerScope) ([]ProjectSummary, error) {
 	ctx := rc.Context
 	if owner == "" {
 		return nil, fwra.New(fwra.ContractMisuse, "projectstate.ListProjects: empty owner")
@@ -488,7 +496,7 @@ const (
 	modeCreateOnly
 )
 
-func (s *Store) applyMutation(
+func (s *store) applyMutation(
 	ctx context.Context,
 	op string,
 	projectID ProjectID,
@@ -499,7 +507,7 @@ func (s *Store) applyMutation(
 	return s.applyMutationMode(ctx, op, projectID, expectedVersion, idempotencyKey, modeUpsert, mutate)
 }
 
-func (s *Store) applyMutationMode(
+func (s *store) applyMutationMode(
 	ctx context.Context,
 	op string,
 	projectID ProjectID,
@@ -663,7 +671,7 @@ ON CONFLICT (project_id) DO UPDATE
 // ReadProject serves the read side: the whole head-state aggregate, including
 // every populated typed-model slot. An absent row is fwra.NotFound — the caller
 // branches on absence (projectStateAccess.md §2).
-func (s *Store) ReadProject(rc fwra.Context, projectID ProjectID) (Project, error) {
+func (s *store) ReadProject(rc fwra.Context, projectID ProjectID) (Project, error) {
 	ctx := rc.Context
 	if projectID == "" {
 		return Project{}, fwra.New(fwra.ContractMisuse, "projectstate.ReadProject: zero projectID")
@@ -699,7 +707,7 @@ func (s *Store) ReadProject(rc fwra.Context, projectID ProjectID) (Project, erro
 // across the Temporal Activity boundary for a single uint64 is wasteful. An absent
 // row is fwra.NotFound — identical absence semantics to ReadProject, so callers
 // branch on a brand-new project the same way.
-func (s *Store) ReadProjectVersion(rc fwra.Context, projectID ProjectID) (Version, error) {
+func (s *store) ReadProjectVersion(rc fwra.Context, projectID ProjectID) (Version, error) {
 	ctx := rc.Context
 	if projectID == "" {
 		return 0, fwra.New(fwra.ContractMisuse, "projectstate.ReadProjectVersion: zero projectID")

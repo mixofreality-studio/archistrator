@@ -65,7 +65,7 @@ func newIRADeltaHarness(t *testing.T) *iraDeltaHarness {
 	if err != nil {
 		t.Fatalf("NewAppClient: %v", err)
 	}
-	scAccess, err := sourcecontrol.New(ghClient, iraDeltaAccount, "aiarch-app", true)
+	scAccess, err := sourcecontrol.NewGitHubSourceControlAccess(ghClient, iraDeltaAccount, "aiarch-app", true)
 	if err != nil {
 		t.Fatalf("sourcecontrol.New: %v", err)
 	}

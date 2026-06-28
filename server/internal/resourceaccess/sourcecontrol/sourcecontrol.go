@@ -35,7 +35,8 @@
 //     protection are no-op successes. The optional caller-supplied
 //     fwra.IdempotencyKey is carried for traceability only.
 //
-// The concrete GitHub-App-backed implementation (Access) lives in github.go; the
+// The concrete GitHub-App-backed implementation (the UNEXPORTED access impl, built by
+// the generated NewGitHubSourceControlAccess constructor) lives in github.go; the
 // vendor REST/JWT wire code lives in the framework-go-infrastructure-github
 // satellite behind the githubClient seam — the ONLY place this RA speaks GitHub.
 package sourcecontrol

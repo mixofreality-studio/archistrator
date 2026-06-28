@@ -25,11 +25,11 @@ import (
 // caller misuse, and the concurrent-writer race).
 
 // newStore spins a fresh Postgres + applies the schema, returning a ready Store.
-func newStore(t *testing.T) (*projectstate.Store, context.Context) {
+func newStore(t *testing.T) (projectstate.ProjectStateAccess, context.Context) {
 	t.Helper()
 	pool := postgresinfra.StartPostgres(t)
 	ctx := context.Background()
-	store, err := projectstate.NewStore(ctx, pool)
+	store, err := projectstate.NewPostgresProjectStateAccess(ctx, pool)
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}

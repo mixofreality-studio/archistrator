@@ -4,6 +4,7 @@
 package sourcecontrol
 
 import (
+	fwgithub "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"time"
 )
@@ -93,4 +94,11 @@ type SourceControlAccess interface {
 	OpenBranch(rc fwra.Context, repo RepoRef, branch BranchName, cred RepoCredential) (BranchRef, error)
 	OpenPullRequest(rc fwra.Context, repo RepoRef, spec PullRequestSpec, cred RepoCredential) (PullRequestRef, error)
 	PostReview(rc fwra.Context, repo RepoRef, pr PullRequestRef, review ReviewSubmission, cred RepoCredential) error
+}
+
+// NewGitHubSourceControlAccess constructs the GitHub-backed SourceControlAccess, delegating to the hand-written,
+// unexported builder newGitHubSourceControlAccess in the RA package (which owns the stateful setup).
+// The constructor returns the interface, so the concrete impl stays unexported.
+func NewGitHubSourceControlAccess(client *fwgithub.AppClient, defaultAccount string, appSlug string, repoPrivate bool) (SourceControlAccess, error) {
+	return newGitHubSourceControlAccess(client, defaultAccount, appSlug, repoPrivate)
 }

@@ -80,7 +80,7 @@ func (localCredentialMinter) catalogCredential(context.Context) (projectstate.Re
 // composition root bridges them, exactly as sourcecontrol_adapter.go bridges the
 // RepoSpec/RepoRef shapes.
 type cloudCredentialMinter struct {
-	sc      *sourcecontrol.Access
+	sc      sourcecontrol.SourceControlCatalogAccess
 	account sourcecontrol.AccountRef
 }
 
@@ -310,7 +310,7 @@ func (l gitRepoLocator) ProjectRepoOnBranch(projectID projectstate.ProjectID, br
 // (C-PA-AD entanglement resolved). Discovery still filters on the aiarch-project topic
 // inside ListProjectRepos; this seam just stops re-parsing the name.
 type cloudProjectCatalog struct {
-	sc      *sourcecontrol.Access
+	sc      sourcecontrol.SourceControlCatalogAccess
 	account sourcecontrol.AccountRef
 }
 

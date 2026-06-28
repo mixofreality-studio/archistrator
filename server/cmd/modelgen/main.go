@@ -373,6 +373,21 @@ var infraBindings = map[string]infraBinding{
 
 	// --- OPTION-1 DELEGATED RAs (stateful; impl hand-written + unexported) -------
 
+	// sourcecontrol → GitHub. The hand-written builder wires the unexported githubClient
+	// seam over the framework *fwgithub.AppClient (which satisfies the seam directly) plus
+	// the composition-root config (default account / App slug / repo visibility), then the
+	// access impl (holding the token cache + clock seam). Validation can fail (returnsError).
+	"GitHub": {
+		delegated:    true,
+		returnsError: true,
+		params: []infraField{
+			{name: "client", typ: "*fwgithub.AppClient", imports: map[string]string{"github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github": "fwgithub"}},
+			{name: "defaultAccount", typ: "string"},
+			{name: "appSlug", typ: "string"},
+			{name: "repoPrivate", typ: "bool"},
+		},
+	},
+
 	// usagelog → Postgres. The hand-written builder applies the embedded schema.sql
 	// DDL, so construction can fail (returnsError). Param types are the current
 	// NewPostgresUsageAccess(ctx, pool) shape.

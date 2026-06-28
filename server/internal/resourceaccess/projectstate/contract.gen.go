@@ -4,6 +4,8 @@
 package projectstate
 
 import (
+	"context"
+	"github.com/jackc/pgx/v5/pgxpool"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
@@ -19,4 +21,11 @@ type ProjectStateAccess interface {
 	SetResearchInput(rc fwra.Context, projectID ProjectID, expectedVersion Version, research ResearchInput) (Version, error)
 	StageArtifactForReview(rc fwra.Context, projectID ProjectID, expectedVersion Version, model ArtifactModel) (Version, error)
 	WithdrawArtifact(rc fwra.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, notes string) (Version, error)
+}
+
+// NewPostgresProjectStateAccess constructs the Postgres-backed ProjectStateAccess, delegating to the hand-written,
+// unexported builder newPostgresProjectStateAccess in the RA package (which owns the stateful setup).
+// The constructor returns the interface, so the concrete impl stays unexported.
+func NewPostgresProjectStateAccess(ctx context.Context, pool *pgxpool.Pool) (ProjectStateAccess, error) {
+	return newPostgresProjectStateAccess(ctx, pool)
 }

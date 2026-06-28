@@ -102,7 +102,7 @@ func main() {
 //     installation token is minted in-seam.
 //  3. Postgres   — neither git profile applies: the legacy head-state store, so a
 //     credential-less dev server still boots and serves.
-func buildDesignProjectState(cfg config, pgStore *projectstate.Store, sc *sourcecontrol.Access, logger *slog.Logger) (projectstate.ProjectStateAccess, error) {
+func buildDesignProjectState(cfg config, pgStore projectstate.ProjectStateAccess, sc sourcecontrol.SourceControlCatalogAccess, logger *slog.Logger) (projectstate.ProjectStateAccess, error) {
 	switch {
 	case cfg.ProjectStateGitLocal:
 		if cfg.ProjectStateGitRepoURL == "" {
@@ -248,7 +248,7 @@ func run(logger *slog.Logger) error { //nolint:gocognit,gocyclo,maintidx,nestif 
 		return err
 	}
 	defer pool.Close()
-	ps, err := projectstate.NewStore(ctx, pool)
+	ps, err := projectstate.NewPostgresProjectStateAccess(ctx, pool)
 	if err != nil {
 		return err
 	}
@@ -351,17 +351,22 @@ func run(logger *slog.Logger) error { //nolint:gocognit,gocyclo,maintidx,nestif 
 	// works), exactly as the construction Worker stays dormant when its deps are absent —
 	// we do NOT hard-crash a credential-free dev stack.
 	var sourceControl project.SourceControlAccess
-	var scConcrete *sourcecontrol.Access // retained for the projectStateAccess git cred minter (CLOUD profile)
+	// scConcrete is the catalog/locator/token surface (SourceControlCatalogAccess) retained
+	// for the projectStateAccess git cred minter + catalog (CLOUD profile). scAccess is the
+	// generated SourceControlAccess interface the adapters/PR-rail consume; the unexported
+	// impl satisfies both, so scConcrete is a type-assertion of scAccess.
+	var scConcrete sourcecontrol.SourceControlCatalogAccess
+	var scAccess sourcecontrol.SourceControlAccess
 	if cfg.GitHubAppID != "" && cfg.GitHubAppPrivateKeyPEM != "" && cfg.GitHubAccount != "" {
 		ghClient, scErr := githubinfra.NewAppClient(cfg.GitHubAppID, cfg.GitHubAppPrivateKeyPEM, cfg.GitHubAPIBaseURL)
 		if scErr != nil {
 			return scErr
 		}
-		scAccess, scErr := sourcecontrol.New(ghClient, cfg.GitHubAccount, cfg.GitHubAppSlug, true /* repoPrivate */)
+		scAccess, scErr = sourcecontrol.NewGitHubSourceControlAccess(ghClient, cfg.GitHubAccount, cfg.GitHubAppSlug, true /* repoPrivate */)
 		if scErr != nil {
 			return scErr
 		}
-		scConcrete = scAccess
+		scConcrete = scAccess.(sourcecontrol.SourceControlCatalogAccess)
 		sourceControl = sourceControlAdapter{inner: scAccess}
 		logger.Info("sourceControlAccess (github) ready", "account", cfg.GitHubAccount, "apiBaseURL", cfg.GitHubAPIBaseURL)
 	} else {
@@ -472,7 +477,7 @@ func run(logger *slog.Logger) error { //nolint:gocognit,gocyclo,maintidx,nestif 
 		// mirrors are plain-ctx, so bridge via the composition-root railAdapter (which
 		// builds fwra.Context at the boundary). One adapter satisfies both rails (identical
 		// method sets).
-		scRail := railAdapter{inner: scConcrete}
+		scRail := railAdapter{inner: scAccess}
 		designRailSD = scRail
 		designRailPD = scRail
 		repoFor := func(projectID projectstate.ProjectID) (sourcecontrol.RepoRef, bool) {
@@ -552,7 +557,7 @@ func run(logger *slog.Logger) error { //nolint:gocognit,gocyclo,maintidx,nestif 
 	// composition-root shim that bridges ONLY ReadProject (ctx → fwra.Context); the
 	// construction-transition Record* verbs stay ctx-based on *Store (out of scope),
 	// reached through the embedded pointer unchanged.
-	constructionPS := construction.ProjectStateAccess(pgConstructionPS{ps})
+	constructionPS := construction.ProjectStateAccess(newPGConstructionPS(ps))
 	var constructionGitStatus construction.GitActivityStatusAccess
 	if gitAdapter, ok := designProjectState.(*projectStateGitAdapter); ok {
 		constructionPS = constructionProjectStateAdapter{store: gitAdapter.store, minter: gitAdapter.minter}

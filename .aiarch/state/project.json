@@ -13947,6 +13947,9 @@
       "component": "projectStateAccess",
       "layer": "ResourceAccess",
       "goPackage": "internal/resourceaccess/projectstate",
+      "infra": [
+        "Postgres"
+      ],
       "title": "projectstate contract",
       "interface": {
         "name": "ProjectStateAccess",
@@ -15008,6 +15011,9 @@
       "component": "sourceControlAccess",
       "layer": "ResourceAccess",
       "goPackage": "internal/resourceaccess/sourcecontrol",
+      "infra": [
+        "GitHub"
+      ],
       "title": "sourcecontrol contract",
       "$defs": {
         "AccountRef": {

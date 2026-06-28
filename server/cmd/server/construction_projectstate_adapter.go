@@ -30,25 +30,52 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
-// pgConstructionPS bridges the Postgres *projectstate.Store to the construction
-// Manager's ctx-based construction.ProjectStateAccess mirror, after the in-scope
-// ProjectStateAccess port refactor moved Store.ReadProject onto rc fwra.Context.
-// The construction mirror (out of scope for that refactor) still consumes a
-// ctx-based ReadProject, so this shim re-wraps just that one verb (ctx →
-// fwra.Context{Context: ctx}); the embedded *Store supplies the ctx-based
-// construction-transition Record* verbs unchanged.
+// pgConstructionTransition is the COMPOSITION-ROOT consumer interface for the Postgres
+// dev-fallback's ctx-based construction-transition Record* verbs. After the option-1
+// sweep the Postgres impl is unexported and reached only as the generated
+// projectstate.ProjectStateAccess interface; these ctx-based Record* verbs are kept OFF
+// that generated contract (they predate the rc-Context port re-cut and stay ctx-based for
+// the construction Manager's mirror), so the root declares the narrow interface it needs
+// and type-asserts the returned ProjectStateAccess to it (the unexported impl satisfies it
+// — its Record* methods are exported). The cred-threaded git substrate is the live Phase-3
+// path; this is the no-git Postgres fallback so a credential-less dev server still boots.
+type pgConstructionTransition interface {
+	RecordChangeReviewed(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
+	RecordActivityExited(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, outcome projectstate.ActivityOutcome, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
+	RecordActivityFailed(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, reason projectstate.FailureReason, detail string, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
+	RecordOperatorPaused(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, reason string, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
+	RecordPhaseStarted(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, phase projectstate.ActivityMethodPhase, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
+	RecordPhaseCompleted(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, phase projectstate.ActivityMethodPhase, artifactRef string, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
+	RecordServiceContractProduced(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, component string, contract projectstate.ServiceContract, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
+	RecordPhaseArtifactProduced(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, mapKey string, payload projectstate.PhaseArtifactPayload, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
+}
+
+// pgConstructionPS bridges the unexported Postgres projectstate impl (reached as the
+// generated projectstate.ProjectStateAccess interface) to the construction Manager's
+// ctx-based construction.ProjectStateAccess mirror. The ProjectStateAccess port carries
+// ReadProject/ReadProjectVersion on rc fwra.Context, so this shim re-wraps those two verbs
+// (ctx → fwra.Context{Context: ctx}); the embedded pgConstructionTransition supplies the
+// ctx-based construction-transition Record* verbs.
 type pgConstructionPS struct {
-	*projectstate.Store
+	ps projectstate.ProjectStateAccess
+	pgConstructionTransition
 }
 
 var _ construction.ProjectStateAccess = pgConstructionPS{}
 
+// newPGConstructionPS adapts the Postgres dev-fallback ProjectStateAccess into the
+// construction Manager's ctx-based mirror, asserting the ctx-based Record* surface the
+// unexported impl carries.
+func newPGConstructionPS(ps projectstate.ProjectStateAccess) pgConstructionPS {
+	return pgConstructionPS{ps: ps, pgConstructionTransition: ps.(pgConstructionTransition)}
+}
+
 func (a pgConstructionPS) ReadProject(ctx context.Context, projectID projectstate.ProjectID) (projectstate.Project, error) {
-	return a.Store.ReadProject(fwra.Context{Context: ctx}, projectID)
+	return a.ps.ReadProject(fwra.Context{Context: ctx}, projectID)
 }
 
 func (a pgConstructionPS) ReadProjectVersion(ctx context.Context, projectID projectstate.ProjectID) (projectstate.Version, error) {
-	return a.Store.ReadProjectVersion(fwra.Context{Context: ctx}, projectID)
+	return a.ps.ReadProjectVersion(fwra.Context{Context: ctx}, projectID)
 }
 
 // constructionProjectStateAdapter binds a credentialMinter over the cred-threaded

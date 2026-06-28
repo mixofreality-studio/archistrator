@@ -81,14 +81,14 @@ type pgTransitionAccess interface {
 // shared optimistic-concurrency + idempotency-ledger applyMutation helper (the
 // head-state aggregate carries no per-activity status field yet — D-PA follow-up),
 // so the transition is durable and replay-idempotent on the caller's key.
-func (s *Store) RecordChangeReviewed(ctx context.Context, projectID ProjectID, expectedVersion Version, activityID string, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (s *store) RecordChangeReviewed(ctx context.Context, projectID ProjectID, expectedVersion Version, activityID string, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	return s.applyMutation(ctx, "RecordChangeReviewed", projectID, expectedVersion, idempotencyKey, func(p *Project) error {
 		return nil // head-state status-aggregate fill is the D-PA follow-up; the ledger records the transition
 	})
 }
 
 // RecordActivityExited — additive verb (the binary activity exit).
-func (s *Store) RecordActivityExited(ctx context.Context, projectID ProjectID, expectedVersion Version, activityID string, outcome ActivityOutcome, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (s *store) RecordActivityExited(ctx context.Context, projectID ProjectID, expectedVersion Version, activityID string, outcome ActivityOutcome, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	return s.applyMutation(ctx, "RecordActivityExited", projectID, expectedVersion, idempotencyKey, func(p *Project) error {
 		return nil
 	})
@@ -96,14 +96,14 @@ func (s *Store) RecordActivityExited(ctx context.Context, projectID ProjectID, e
 
 // RecordActivityFailed — additive verb (the terminal-FAILURE activity exit). Postgres
 // stub: the real mutation lives in gitconstruction.go; the ledger records the transition.
-func (s *Store) RecordActivityFailed(ctx context.Context, projectID ProjectID, expectedVersion Version, activityID string, reason FailureReason, detail string, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (s *store) RecordActivityFailed(ctx context.Context, projectID ProjectID, expectedVersion Version, activityID string, reason FailureReason, detail string, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	return s.applyMutation(ctx, "RecordActivityFailed", projectID, expectedVersion, idempotencyKey, func(p *Project) error {
 		return nil
 	})
 }
 
 // RecordOperatorPaused — additive verb (operator-paused transition).
-func (s *Store) RecordOperatorPaused(ctx context.Context, projectID ProjectID, expectedVersion Version, reason string, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (s *store) RecordOperatorPaused(ctx context.Context, projectID ProjectID, expectedVersion Version, reason string, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	return s.applyMutation(ctx, "RecordOperatorPaused", projectID, expectedVersion, idempotencyKey, func(p *Project) error {
 		return nil
 	})
@@ -115,32 +115,32 @@ func (s *Store) RecordOperatorPaused(ctx context.Context, projectID ProjectID, e
 // Manager's ProjectStateAccess consumer interface (the main.go fallback when no
 // git adapter is active). Phase-granular construction is only wired for the git
 // store.
-func (s *Store) RecordPhaseStarted(ctx context.Context, projectID ProjectID, expectedVersion Version, activityID string, phase ActivityMethodPhase, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (s *store) RecordPhaseStarted(ctx context.Context, projectID ProjectID, expectedVersion Version, activityID string, phase ActivityMethodPhase, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	return s.applyMutation(ctx, "RecordPhaseStarted", projectID, expectedVersion, idempotencyKey, func(p *Project) error {
 		return nil // no-op on Postgres; real mutation in gitconstruction.go
 	})
 }
 
 // RecordPhaseCompleted — Postgres stub (see RecordPhaseStarted).
-func (s *Store) RecordPhaseCompleted(ctx context.Context, projectID ProjectID, expectedVersion Version, activityID string, phase ActivityMethodPhase, artifactRef string, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (s *store) RecordPhaseCompleted(ctx context.Context, projectID ProjectID, expectedVersion Version, activityID string, phase ActivityMethodPhase, artifactRef string, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	return s.applyMutation(ctx, "RecordPhaseCompleted", projectID, expectedVersion, idempotencyKey, func(p *Project) error {
 		return nil // no-op on Postgres
 	})
 }
 
 // RecordServiceContractProduced — Postgres stub (see RecordPhaseStarted).
-func (s *Store) RecordServiceContractProduced(ctx context.Context, projectID ProjectID, expectedVersion Version, component string, contract ServiceContract, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (s *store) RecordServiceContractProduced(ctx context.Context, projectID ProjectID, expectedVersion Version, component string, contract ServiceContract, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	return s.applyMutation(ctx, "RecordServiceContractProduced", projectID, expectedVersion, idempotencyKey, func(p *Project) error {
 		return nil // no-op on Postgres
 	})
 }
 
 // RecordPhaseArtifactProduced — Postgres stub (see RecordPhaseStarted).
-func (s *Store) RecordPhaseArtifactProduced(ctx context.Context, projectID ProjectID, expectedVersion Version, activityID string, mapKey string, payload PhaseArtifactPayload, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (s *store) RecordPhaseArtifactProduced(ctx context.Context, projectID ProjectID, expectedVersion Version, activityID string, mapKey string, payload PhaseArtifactPayload, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	return s.applyMutation(ctx, "RecordPhaseArtifactProduced", projectID, expectedVersion, idempotencyKey, func(p *Project) error {
 		return nil // no-op on Postgres
 	})
 }
 
-// compile-time conformance: the Store impl satisfies the legacy Postgres port.
-var _ pgTransitionAccess = (*Store)(nil)
+// compile-time conformance: the Postgres impl satisfies the legacy Postgres port.
+var _ pgTransitionAccess = (*store)(nil)

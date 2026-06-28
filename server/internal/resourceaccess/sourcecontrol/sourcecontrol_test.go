@@ -96,7 +96,7 @@ const (
 
 // newAccess builds an Access wired to the real satellite client pointed at the
 // fake GitHub.
-func newAccess(t *testing.T, fake *gh.FakeGitHub) *sc.Access {
+func newAccess(t *testing.T, fake *gh.FakeGitHub) sc.SourceControlAccess {
 	t.Helper()
 	keyPEM, err := gh.GenerateAppKeyPEM()
 	if err != nil {
@@ -106,7 +106,7 @@ func newAccess(t *testing.T, fake *gh.FakeGitHub) *sc.Access {
 	if err != nil {
 		t.Fatalf("NewAppClient: %v", err)
 	}
-	access, err := sc.New(client, testAccount, testAppSlug, true)
+	access, err := sc.NewGitHubSourceControlAccess(client, testAccount, testAppSlug, true)
 	if err != nil {
 		t.Fatalf("sc.New: %v", err)
 	}
@@ -152,7 +152,7 @@ func seedInstallation(fake *gh.FakeGitHub, account string) {
 // ---------------------------------------------------------------------------
 
 func TestU1_NewRejectsNilClient(t *testing.T) {
-	if _, err := sc.New(nil, testAccount, testAppSlug, true); kindOf(err) != fwra.ContractMisuse {
+	if _, err := sc.NewGitHubSourceControlAccess(nil, testAccount, testAppSlug, true); kindOf(err) != fwra.ContractMisuse {
 		t.Fatalf("New(nil) kind = %v, want ContractMisuse", kindOf(err))
 	}
 }
@@ -160,7 +160,7 @@ func TestU1_NewRejectsNilClient(t *testing.T) {
 func TestU2_NewRejectsEmptyAccount(t *testing.T) {
 	keyPEM, _ := gh.GenerateAppKeyPEM()
 	client, _ := fwgithub.NewAppClient("1", keyPEM, "http://x")
-	if _, err := sc.New(client, "   ", testAppSlug, true); kindOf(err) != fwra.ContractMisuse {
+	if _, err := sc.NewGitHubSourceControlAccess(client, "   ", testAppSlug, true); kindOf(err) != fwra.ContractMisuse {
 		t.Fatalf("New(empty account) kind = %v, want ContractMisuse", kindOf(err))
 	}
 }
@@ -528,7 +528,7 @@ func TestU13b_ListProjectReposDiscovery(t *testing.T) {
 	// Two genuinely-adopted repos (user-named, aiarch-project topic).
 	fake.SeedAdoptedRepo(testAccount, "alpha", "Project Alpha", true)
 	fake.SeedAdoptedRepo(testAccount, "beta-svc", "Project Beta", true)
-	a := newAccess(t, fake)
+	a := newAccess(t, fake).(sc.SourceControlCatalogAccess)
 
 	refs, err := a.ListProjectRepos(context.Background(), testAccount)
 	if err != nil {
@@ -553,7 +553,7 @@ func TestU13b_ListProjectReposDiscovery(t *testing.T) {
 // Code GitHub App.)
 // ---------------------------------------------------------------------------
 
-func adoptedFixture(t *testing.T, repoName string) (*gh.FakeGitHub, *sc.Access, sc.RepoRef, sc.RepoCredential) {
+func adoptedFixture(t *testing.T, repoName string) (*gh.FakeGitHub, sc.SourceControlAccess, sc.RepoRef, sc.RepoCredential) {
 	t.Helper()
 	fake := gh.Start()
 	fake.EnableRepoCatalog()
@@ -691,7 +691,7 @@ func TestU40_CommitManagedFilesGuards(t *testing.T) {
 // U18–U27  PR rail
 // ---------------------------------------------------------------------------
 
-func railFixture(t *testing.T) (*gh.FakeGitHub, *sc.Access, sc.RepoRef, sc.RepoCredential) {
+func railFixture(t *testing.T) (*gh.FakeGitHub, sc.SourceControlAccess, sc.RepoRef, sc.RepoCredential) {
 	t.Helper()
 	fake := gh.Start()
 	a := newAccess(t, fake)
