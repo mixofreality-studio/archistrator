@@ -19,17 +19,17 @@ Per `[[the-method-doctrine]]` Directive 9 (*be on time throughout*): the only wa
 
 ## Canonical source
 
-**Primary:** Löwy, [Appendix A "Project Tracking"](../../../../rightingsoftware/OEBPS/xhtml/appa.xhtml).
+**Primary:** Löwy, [Appendix A "Project Tracking"](../../../research/rightingsoftware/OEBPS/xhtml/appa.xhtml).
 
 Sections walked:
-- [§1 "Activity Life Cycle and Status"](../../../../rightingsoftware/OEBPS/xhtml/appa.xhtml#appalev1sec1) — phase exit criteria, phase weights, activity status
-- [§2 "Project Status"](../../../../rightingsoftware/OEBPS/xhtml/appa.xhtml#appalev1sec2) — progress, earned value, effort, indirect cost
-- [§3 "Tracking Progress and Effort"](../../../../rightingsoftware/OEBPS/xhtml/appa.xhtml#appalev1sec3) — weekly cadence, plot vs planned EV
-- [§4 "Projections"](../../../../rightingsoftware/OEBPS/xhtml/appa.xhtml#appalev1sec4) — extrapolate progress and effort lines
-- [§5 "Projections and Corrective Actions"](../../../../rightingsoftware/OEBPS/xhtml/appa.xhtml#appalev1sec5) — all-is-well / underestimating / resource leak / overestimating
-- [§6 "More on Projections"](../../../../rightingsoftware/OEBPS/xhtml/appa.xhtml#appalev1sec6) — drive by trend, handle scope creep, build trust
+- [§1 "Activity Life Cycle and Status"](../../../research/rightingsoftware/OEBPS/xhtml/appa.xhtml#appalev1sec1) — phase exit criteria, phase weights, activity status
+- [§2 "Project Status"](../../../research/rightingsoftware/OEBPS/xhtml/appa.xhtml#appalev1sec2) — progress, earned value, effort, indirect cost
+- [§3 "Tracking Progress and Effort"](../../../research/rightingsoftware/OEBPS/xhtml/appa.xhtml#appalev1sec3) — weekly cadence, plot vs planned EV
+- [§4 "Projections"](../../../research/rightingsoftware/OEBPS/xhtml/appa.xhtml#appalev1sec4) — extrapolate progress and effort lines
+- [§5 "Projections and Corrective Actions"](../../../research/rightingsoftware/OEBPS/xhtml/appa.xhtml#appalev1sec5) — all-is-well / underestimating / resource leak / overestimating
+- [§6 "More on Projections"](../../../research/rightingsoftware/OEBPS/xhtml/appa.xhtml#appalev1sec6) — drive by trend, handle scope creep, build trust
 
-**Standard reference:** [App C §5 "Project Tracking Guidelines"](../../../../rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec5) — six items, walked at the bottom of every weekly log.
+**Standard reference:** [App C §5 "Project Tracking Guidelines"](../../../research/rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec5) — six items, walked at the bottom of every weekly log.
 
 ## Input
 

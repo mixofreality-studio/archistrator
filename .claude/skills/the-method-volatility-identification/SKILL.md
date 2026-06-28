@@ -9,18 +9,18 @@ This is the most important phase of system design. The book (ch. 2): *"the whole
 
 ## Canonical source
 
-**Primary:** Löwy, *Righting Software*, [Chapter 2 §3 "Identifying Volatility"](../../../../rightingsoftware/OEBPS/xhtml/ch02.xhtml#ch02lev1sec3).
+**Primary:** Löwy, *Righting Software*, [Chapter 2 §3 "Identifying Volatility"](../../../research/rightingsoftware/OEBPS/xhtml/ch02.xhtml#ch02lev1sec3).
 
 **Subsections:**
-- [§3.1 "Volatile versus Variable"](../../../../rightingsoftware/OEBPS/xhtml/ch02.xhtml#ch02lev2sec11)
-- [§3.2 "Axes of Volatility"](../../../../rightingsoftware/OEBPS/xhtml/ch02.xhtml#ch02lev2sec12)
-- [§3.4 "Volatilities List"](../../../../rightingsoftware/OEBPS/xhtml/ch02.xhtml#ch02lev2sec14)
-- [§3.6 "Resist the Siren Song"](../../../../rightingsoftware/OEBPS/xhtml/ch02.xhtml#ch02lev2sec16)
-- [§3.7 "Volatility and the Business"](../../../../rightingsoftware/OEBPS/xhtml/ch02.xhtml#ch02lev2sec17)
-- [§3.8 "Design for Your Competitors"](../../../../rightingsoftware/OEBPS/xhtml/ch02.xhtml#ch02lev2sec18)
-- [§3.9 "Volatility and Longevity"](../../../../rightingsoftware/OEBPS/xhtml/ch02.xhtml#ch02lev2sec19)
+- [§3.1 "Volatile versus Variable"](../../../research/rightingsoftware/OEBPS/xhtml/ch02.xhtml#ch02lev2sec11)
+- [§3.2 "Axes of Volatility"](../../../research/rightingsoftware/OEBPS/xhtml/ch02.xhtml#ch02lev2sec12)
+- [§3.4 "Volatilities List"](../../../research/rightingsoftware/OEBPS/xhtml/ch02.xhtml#ch02lev2sec14)
+- [§3.6 "Resist the Siren Song"](../../../research/rightingsoftware/OEBPS/xhtml/ch02.xhtml#ch02lev2sec16)
+- [§3.7 "Volatility and the Business"](../../../research/rightingsoftware/OEBPS/xhtml/ch02.xhtml#ch02lev2sec17)
+- [§3.8 "Design for Your Competitors"](../../../research/rightingsoftware/OEBPS/xhtml/ch02.xhtml#ch02lev2sec18)
+- [§3.9 "Volatility and Longevity"](../../../research/rightingsoftware/OEBPS/xhtml/ch02.xhtml#ch02lev2sec19)
 
-**Worked example:** [Ch. 2 §3.5 "Example: Volatility-Based Trading System"](../../../../rightingsoftware/OEBPS/xhtml/ch02.xhtml#ch02lev2sec15) and [Ch. 5 "TradeMe Areas of Volatility"](../../../../rightingsoftware/OEBPS/xhtml/ch05.xhtml#ch05lev2sec12).
+**Worked example:** [Ch. 2 §3.5 "Example: Volatility-Based Trading System"](../../../research/rightingsoftware/OEBPS/xhtml/ch02.xhtml#ch02lev2sec15) and [Ch. 5 "TradeMe Areas of Volatility"](../../../research/rightingsoftware/OEBPS/xhtml/ch05.xhtml#ch05lev2sec12).
 
 ## Input
 

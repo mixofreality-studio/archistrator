@@ -10,14 +10,14 @@ The architecture defines what to build. The activity list says how the work deco
 ## Canonical source
 
 **Primary:**
-- Löwy, [Ch. 7 §5 "Effort Estimations"](../../../../rightingsoftware/OEBPS/xhtml/ch07.xhtml#ch07lev1sec5) — estimation rules
-- [Ch. 7 §5.3 "Activity Estimations"](../../../../rightingsoftware/OEBPS/xhtml/ch07.xhtml#ch07lev2sec10)
-- [Ch. 11 §1.2a "List of Activities"](../../../../rightingsoftware/OEBPS/xhtml/ch11.xhtml#ch11lev2sec2a) — first worked example
-- [Ch. 13 §1.1 "Individual Activity Estimations"](../../../../rightingsoftware/OEBPS/xhtml/ch13.xhtml#ch13lev2sec1) — second worked example
+- Löwy, [Ch. 7 §5 "Effort Estimations"](../../../research/rightingsoftware/OEBPS/xhtml/ch07.xhtml#ch07lev1sec5) — estimation rules
+- [Ch. 7 §5.3 "Activity Estimations"](../../../research/rightingsoftware/OEBPS/xhtml/ch07.xhtml#ch07lev2sec10)
+- [Ch. 11 §1.2a "List of Activities"](../../../research/rightingsoftware/OEBPS/xhtml/ch11.xhtml#ch11lev2sec2a) — first worked example
+- [Ch. 13 §1.1 "Individual Activity Estimations"](../../../research/rightingsoftware/OEBPS/xhtml/ch13.xhtml#ch13lev2sec1) — second worked example
 
-**Noncoding activities reference:** [Ch. 13 — Table 13-3](../../../../rightingsoftware/OEBPS/xhtml/ch13.xhtml#ch13lev1sec1) shows the full noncoding activity inventory from TradeMe.
+**Noncoding activities reference:** [Ch. 13 — Table 13-3](../../../research/rightingsoftware/OEBPS/xhtml/ch13.xhtml#ch13lev1sec1) shows the full noncoding activity inventory from TradeMe.
 
-**Standard reference:** [Appendix C §4.4 "Estimations"](../../../../rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec4) — quantum of 5 days, no god activities, accuracy over precision.
+**Standard reference:** [Appendix C §4.4 "Estimations"](../../../research/rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec4) — quantum of 5 days, no god activities, accuracy over precision.
 
 ## Input
 

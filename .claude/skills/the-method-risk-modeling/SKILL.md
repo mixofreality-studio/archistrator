@@ -13,21 +13,21 @@ Per `[[the-method-doctrine]]` Directive 7, the analytics here are what let manag
 
 ## Canonical source
 
-**Primary:** Löwy, [Chapter 10 "Risk"](../../../../rightingsoftware/OEBPS/xhtml/ch10.xhtml) in full.
+**Primary:** Löwy, [Chapter 10 "Risk"](../../../research/rightingsoftware/OEBPS/xhtml/ch10.xhtml) in full.
 
 **Key subsections:**
-- [Ch. 10 §2 "Time-Risk Curve"](../../../../rightingsoftware/OEBPS/xhtml/ch10.xhtml#ch10lev1sec2)
-- [Ch. 10 §3 "Risk Modeling"](../../../../rightingsoftware/OEBPS/xhtml/ch10.xhtml#ch10lev1sec3)
-- [Ch. 10 §3.4 "Criticality Risk"](../../../../rightingsoftware/OEBPS/xhtml/ch10.xhtml#ch10lev2sec5)
-- [Ch. 10 §3.6 "Activity Risk"](../../../../rightingsoftware/OEBPS/xhtml/ch10.xhtml#ch10lev2sec7)
-- [Ch. 10 §4 "Compression and Risk"](../../../../rightingsoftware/OEBPS/xhtml/ch10.xhtml#ch10lev1sec4)
-- [Ch. 10 §6 "Risk Metrics"](../../../../rightingsoftware/OEBPS/xhtml/ch10.xhtml#ch10lev1sec6)
+- [Ch. 10 §2 "Time-Risk Curve"](../../../research/rightingsoftware/OEBPS/xhtml/ch10.xhtml#ch10lev1sec2)
+- [Ch. 10 §3 "Risk Modeling"](../../../research/rightingsoftware/OEBPS/xhtml/ch10.xhtml#ch10lev1sec3)
+- [Ch. 10 §3.4 "Criticality Risk"](../../../research/rightingsoftware/OEBPS/xhtml/ch10.xhtml#ch10lev2sec5)
+- [Ch. 10 §3.6 "Activity Risk"](../../../research/rightingsoftware/OEBPS/xhtml/ch10.xhtml#ch10lev2sec7)
+- [Ch. 10 §4 "Compression and Risk"](../../../research/rightingsoftware/OEBPS/xhtml/ch10.xhtml#ch10lev1sec4)
+- [Ch. 10 §6 "Risk Metrics"](../../../research/rightingsoftware/OEBPS/xhtml/ch10.xhtml#ch10lev1sec6)
 
-**Worked example:** [Ch. 11 §7 "Planning and Risk"](../../../../rightingsoftware/OEBPS/xhtml/ch11.xhtml#ch11lev1sec7).
+**Worked example:** [Ch. 11 §7 "Planning and Risk"](../../../research/rightingsoftware/OEBPS/xhtml/ch11.xhtml#ch11lev1sec7).
 
-**Advanced (optional):** [Ch. 12 §4 "Geometric Risk"](../../../../rightingsoftware/OEBPS/xhtml/ch12.xhtml#ch12lev1sec4) for projects with god activities or heavily skewed float distributions.
+**Advanced (optional):** [Ch. 12 §4 "Geometric Risk"](../../../research/rightingsoftware/OEBPS/xhtml/ch12.xhtml#ch12lev1sec4) for projects with god activities or heavily skewed float distributions.
 
-**Standard reference:** [Appendix C §4.7 "Risk"](../../../../rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec4) — items 7a–7i.
+**Standard reference:** [Appendix C §4.7 "Risk"](../../../research/rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec4) — items 7a–7i.
 
 ## Input
 

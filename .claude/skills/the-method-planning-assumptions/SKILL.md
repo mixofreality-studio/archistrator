@@ -9,14 +9,14 @@ The project network calculates duration and cost as functions of resources and d
 
 ## Canonical source
 
-**Primary:** Löwy, [Ch. 11 §1.4 "Planning Assumptions"](../../../../rightingsoftware/OEBPS/xhtml/ch11.xhtml#ch11lev2sec4) — the worked example shows what to capture.
+**Primary:** Löwy, [Ch. 11 §1.4 "Planning Assumptions"](../../../research/rightingsoftware/OEBPS/xhtml/ch11.xhtml#ch11lev2sec4) — the worked example shows what to capture.
 
 **Supporting:**
-- [Ch. 7 §3 "Educated Decisions"](../../../../rightingsoftware/OEBPS/xhtml/ch07.xhtml#ch07lev1sec3) — why planning assumptions matter
-- [Ch. 7 §3.1 "Plans, Not Plan"](../../../../rightingsoftware/OEBPS/xhtml/ch07.xhtml#ch07lev2sec4) — assumptions drive multiple plans
-- [Ch. 13 §1 "Estimations"](../../../../rightingsoftware/OEBPS/xhtml/ch13.xhtml#ch13lev1sec1) — second worked example, planning assumptions section
+- [Ch. 7 §3 "Educated Decisions"](../../../research/rightingsoftware/OEBPS/xhtml/ch07.xhtml#ch07lev1sec3) — why planning assumptions matter
+- [Ch. 7 §3.1 "Plans, Not Plan"](../../../research/rightingsoftware/OEBPS/xhtml/ch07.xhtml#ch07lev2sec4) — assumptions drive multiple plans
+- [Ch. 13 §1 "Estimations"](../../../research/rightingsoftware/OEBPS/xhtml/ch13.xhtml#ch13lev1sec1) — second worked example, planning assumptions section
 
-**Standard reference:** [Appendix C §4.1c "Capture and verify planning assumptions"](../../../../rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec4).
+**Standard reference:** [Appendix C §4.1c "Capture and verify planning assumptions"](../../../research/rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec4).
 
 ## Input
 

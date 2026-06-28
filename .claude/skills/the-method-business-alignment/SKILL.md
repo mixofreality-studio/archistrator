@@ -7,12 +7,12 @@ description: System Design — distill vision, business objectives, and mission 
 
 ## Canonical source
 
-**Primary:** Löwy, *Righting Software*, [Chapter 5 §3 "Business Alignment"](../../../../rightingsoftware/OEBPS/xhtml/ch05.xhtml#ch05lev1sec3) — Vision, Objectives, Mission Statement subsections.
+**Primary:** Löwy, *Righting Software*, [Chapter 5 §3 "Business Alignment"](../../../research/rightingsoftware/OEBPS/xhtml/ch05.xhtml#ch05lev1sec3) — Vision, Objectives, Mission Statement subsections.
 
 **Supporting:**
-- [Ch. 5 §3.1 "The Vision"](../../../../rightingsoftware/OEBPS/xhtml/ch05.xhtml#ch05lev2sec8)
-- [Ch. 5 §3.2 "The Business Objectives"](../../../../rightingsoftware/OEBPS/xhtml/ch05.xhtml#ch05lev2sec9)
-- [Ch. 5 §3.3 "Mission Statement"](../../../../rightingsoftware/OEBPS/xhtml/ch05.xhtml#ch05lev2sec10)
+- [Ch. 5 §3.1 "The Vision"](../../../research/rightingsoftware/OEBPS/xhtml/ch05.xhtml#ch05lev2sec8)
+- [Ch. 5 §3.2 "The Business Objectives"](../../../research/rightingsoftware/OEBPS/xhtml/ch05.xhtml#ch05lev2sec9)
+- [Ch. 5 §3.3 "Mission Statement"](../../../research/rightingsoftware/OEBPS/xhtml/ch05.xhtml#ch05lev2sec10)
 
 The TradeMe walkthrough in ch. 5 is the worked example. Re-read it if the team has not yet internalized this phase.
 

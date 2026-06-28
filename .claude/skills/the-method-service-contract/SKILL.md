@@ -13,16 +13,16 @@ Per `[[the-method-doctrine]]` Directive 4 (*features as integration, not impleme
 
 ## Canonical source
 
-**Primary:** Löwy, [Appendix B "Service Contract Design"](../../../../rightingsoftware/OEBPS/xhtml/appb.xhtml).
+**Primary:** Löwy, [Appendix B "Service Contract Design"](../../../research/rightingsoftware/OEBPS/xhtml/appb.xhtml).
 
 Sections walked:
-- [§1 "Is This a Good Design?"](../../../../rightingsoftware/OEBPS/xhtml/appb.xhtml#appblev1sec1) and [§2 "Modularity and Cost"](../../../../rightingsoftware/OEBPS/xhtml/appb.xhtml#appblev1sec2) — the area-of-minimum-cost framing
-- [§3 "Services and Contracts"](../../../../rightingsoftware/OEBPS/xhtml/appb.xhtml#appblev1sec3) — contracts as facets; cohesive, logically consistent, independent
-- [§4 "Factoring Contracts"](../../../../rightingsoftware/OEBPS/xhtml/appb.xhtml#appblev1sec4) — factor down, sideways, or up
-- [§5 "Contract Design Metrics"](../../../../rightingsoftware/OEBPS/xhtml/appb.xhtml#appblev1sec5) — size, properties, contracts-per-service
-- [§6 "The Contract Design Challenge"](../../../../rightingsoftware/OEBPS/xhtml/appb.xhtml#appblev1sec6) — why this is hard and who should do it
+- [§1 "Is This a Good Design?"](../../../research/rightingsoftware/OEBPS/xhtml/appb.xhtml#appblev1sec1) and [§2 "Modularity and Cost"](../../../research/rightingsoftware/OEBPS/xhtml/appb.xhtml#appblev1sec2) — the area-of-minimum-cost framing
+- [§3 "Services and Contracts"](../../../research/rightingsoftware/OEBPS/xhtml/appb.xhtml#appblev1sec3) — contracts as facets; cohesive, logically consistent, independent
+- [§4 "Factoring Contracts"](../../../research/rightingsoftware/OEBPS/xhtml/appb.xhtml#appblev1sec4) — factor down, sideways, or up
+- [§5 "Contract Design Metrics"](../../../research/rightingsoftware/OEBPS/xhtml/appb.xhtml#appblev1sec5) — size, properties, contracts-per-service
+- [§6 "The Contract Design Challenge"](../../../research/rightingsoftware/OEBPS/xhtml/appb.xhtml#appblev1sec6) — why this is hard and who should do it
 
-**Standard reference:** [App C §6 "Service Contract Design Guidelines"](../../../../rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec6) — six items, walked as a checklist at the end of every contract design.
+**Standard reference:** [App C §6 "Service Contract Design Guidelines"](../../../research/rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec6) — six items, walked as a checklist at the end of every contract design.
 
 Cross-references:
 - `[[the-method-layers]]` — contracts must respect call-direction rules (Managers may queue to Managers; Engines/RA may not receive queued calls; only Managers and Clients publish or subscribe to events). The contract is the public surface those rules constrain. Includes the "Temporal mapping" table — which applies to the **Manager layer only**; Engines/ResourceAccess/Resources import no Temporal.

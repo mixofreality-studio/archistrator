@@ -6,7 +6,7 @@ description: Entrypoint for Juval Löwy's "The Method" from Righting Software. I
 # The Method
 
 Juval Löwy's "The Method" from *Righting Software* (2019). Book in repo at
-`../../../rightingsoftware/`.
+`../../../research/rightingsoftware/`.
 
 This skill is the entrypoint. Doctrine and layer rules are cross-cutting
 skills. Each phase of the method has one or more sub-skills below.

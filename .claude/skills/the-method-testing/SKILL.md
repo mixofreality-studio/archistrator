@@ -11,7 +11,7 @@ The authoritative statement of how Löwy treats testing and quality assurance.
 Other skills ([[the-method-activity-list]], [[the-method-review-routing]],
 [[the-method-handoff]]) cite this rather than re-deriving it.
 
-Canonical sources (book in repo at `../../../rightingsoftware/`): ch02
+Canonical sources (book in repo at `../../../research/rightingsoftware/`): ch02
 (unit vs regression), ch09 (roles, cost, daily build), ch11 (test activities in
 the network), ch12 (quality multiplication), ch13 (TradeMe staffing), ch14
 (the hand-off, smoke tests, QA), App A (per-service test plan).

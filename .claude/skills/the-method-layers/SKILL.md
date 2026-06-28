@@ -8,11 +8,11 @@ description: Reference for the layer model in Juval Löwy's The Method — Clien
 This is a pure reference skill. It holds the canonical layer model, interaction rules, interaction don'ts, and cardinality limits. Other skills (decomposition, architecture, design-standard-check, validate-architecture) cite this skill instead of restating the rules inline.
 
 Sources:
-- [Ch. 3 §3 "Typical Layers"](../../../../rightingsoftware/OEBPS/xhtml/ch03.xhtml#ch03lev1sec3) — what each layer encapsulates.
-- [Ch. 3 §4 "Classification Guidelines"](../../../../rightingsoftware/OEBPS/xhtml/ch03.xhtml#ch03lev1sec4) — naming, Four Questions, Managers-to-Engines ratio, key observations.
-- [Ch. 3 §6 "Open and Closed Architectures"](../../../../rightingsoftware/OEBPS/xhtml/ch03.xhtml#ch03lev1sec6) — layering rules and design "don'ts".
-- [Ch. 4 §2 "Composable Design"](../../../../rightingsoftware/OEBPS/xhtml/ch04.xhtml#ch04lev1sec2) — the smallest-set principle.
-- [Appendix C §3 "System Design Guidelines"](../../../../rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec3) — items 2 (Cardinality), 4 (Layers), 5 (Interaction rules), 6 (Interaction don'ts).
+- [Ch. 3 §3 "Typical Layers"](../../../research/rightingsoftware/OEBPS/xhtml/ch03.xhtml#ch03lev1sec3) — what each layer encapsulates.
+- [Ch. 3 §4 "Classification Guidelines"](../../../research/rightingsoftware/OEBPS/xhtml/ch03.xhtml#ch03lev1sec4) — naming, Four Questions, Managers-to-Engines ratio, key observations.
+- [Ch. 3 §6 "Open and Closed Architectures"](../../../research/rightingsoftware/OEBPS/xhtml/ch03.xhtml#ch03lev1sec6) — layering rules and design "don'ts".
+- [Ch. 4 §2 "Composable Design"](../../../research/rightingsoftware/OEBPS/xhtml/ch04.xhtml#ch04lev1sec2) — the smallest-set principle.
+- [Appendix C §3 "System Design Guidelines"](../../../research/rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec3) — items 2 (Cardinality), 4 (Layers), 5 (Interaction rules), 6 (Interaction don'ts).
 
 ## The six layers
 
@@ -44,7 +44,7 @@ The mapping is loose because **volatility trumps everything**: if there is littl
 
 ## Interaction rules
 
-From [Appendix C §3.5 "Interaction rules"](../../../../rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec3). These are permissive: they describe what *can* happen.
+From [Appendix C §3.5 "Interaction rules"](../../../research/rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec3). These are permissive: they describe what *can* happen.
 
 - **Clients** call exactly **one Manager per use case** (§3.5; restated as §3.6 don't 6a — "Clients do not call multiple Managers in the same use case").
 - All components can call **Utilities**.
@@ -53,11 +53,11 @@ From [Appendix C §3.5 "Interaction rules"](../../../../rightingsoftware/OEBPS/x
 - **Managers** can call **Engines**.
 - **Managers** can queue calls to another **Manager**.
 
-From the closed-architecture rules ([App C §3.4](../../../../rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec3)): no calling up, no calling sideways within a layer (except queued Manager → Manager), no skipping layers.
+From the closed-architecture rules ([App C §3.4](../../../research/rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec3)): no calling up, no calling sideways within a layer (except queued Manager → Manager), no skipping layers.
 
 ## Interaction don'ts
 
-From [Appendix C §3.6 "Interaction don'ts"](../../../../rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec3) and [Ch. 3 §6.5 "Design 'Don'ts'"](../../../../rightingsoftware/OEBPS/xhtml/ch03.xhtml#ch03lev2sec18). These are prohibitive: any one of them is a red flag for functional decomposition.
+From [Appendix C §3.6 "Interaction don'ts"](../../../research/rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec3) and [Ch. 3 §6.5 "Design 'Don'ts'"](../../../research/rightingsoftware/OEBPS/xhtml/ch03.xhtml#ch03lev2sec18). These are prohibitive: any one of them is a red flag for functional decomposition.
 
 - Clients do not call multiple Managers in the same use case.
 - Clients do not call Engines.
@@ -76,7 +76,7 @@ When you find yourself wanting to violate one of these, the underlying problem i
 
 ## Cardinality
 
-From [Appendix C §3.2 "Cardinality"](../../../../rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec3) and [Ch. 3 §4.3 "Managers-to-Engines Ratio"](../../../../rightingsoftware/OEBPS/xhtml/ch03.xhtml#ch03lev2sec10).
+From [Appendix C §3.2 "Cardinality"](../../../research/rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec3) and [Ch. 3 §4.3 "Managers-to-Engines Ratio"](../../../research/rightingsoftware/OEBPS/xhtml/ch03.xhtml#ch03lev2sec10).
 
 - ≤ **5 Managers** in a system without subsystems.
 - ≤ a handful of **subsystems** (rule of thumb: ≤5).
@@ -94,7 +94,7 @@ From [Appendix C §3.2 "Cardinality"](../../../../rightingsoftware/OEBPS/xhtml/a
 (Table is illustrative — the rule of thumb is fewer Engines than Managers, not the exact counts.)
 
 - ResourceAccess components may serve more than one Resource.
-- **Order of magnitude: ~10 components total** across all layers ([Ch. 4 §2 "The Architect's Mission"](../../../../rightingsoftware/OEBPS/xhtml/ch04.xhtml#ch04lev2sec4) — "a dozen or two at the most"). If you have hundreds, the decomposition is wrong.
+- **Order of magnitude: ~10 components total** across all layers ([Ch. 4 §2 "The Architect's Mission"](../../../research/rightingsoftware/OEBPS/xhtml/ch04.xhtml#ch04lev2sec4) — "a dozen or two at the most"). If you have hundreds, the decomposition is wrong.
 
 **Hard fail:** ≥8 Managers (violates [Directive 1 "Avoid functional decomposition"](../the-method-doctrine/SKILL.md)). Per Ch. 3 §4.3: *"you have already failed to produce a good design"* — that many Managers indicates functional or domain decomposition. Restart.
 
@@ -124,7 +124,7 @@ When the operational concepts commit to Temporal as the Manager-execution infras
 
 ## Layering style — prefer closed
 
-From [Appendix C §3.4 "Layers"](../../../../rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec3) and [Ch. 3 §6](../../../../rightingsoftware/OEBPS/xhtml/ch03.xhtml#ch03lev1sec6).
+From [Appendix C §3.4 "Layers"](../../../research/rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec3) and [Ch. 3 §6](../../../research/rightingsoftware/OEBPS/xhtml/ch03.xhtml#ch03lev1sec6).
 
 - Prefer **closed architecture**: a component may only call into the next layer down.
 - Avoid open and semi-closed/semi-open architectures.

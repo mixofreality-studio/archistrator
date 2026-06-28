@@ -245,7 +245,7 @@ Invoke [[the-method-operational-concepts]] via `system-architect`:
 Invoke [[the-method-system-design-standard-check]] via `system-architect`:
 
 > Run the System Design Guidelines checklist from
-> `../rightingsoftware/OEBPS/xhtml/appc.xhtml`:
+> `../../research/rightingsoftware/OEBPS/xhtml/appc.xhtml`:
 >
 > - Requirements: behavior captured as use cases, activity diagrams where nested, solutions-masquerading scrubbed, core use cases drive validation
 > - Cardinality: limits respected
@@ -299,4 +299,4 @@ All step citations are to:
 - ch. 5: TradeMe worked example (business alignment, anti-design effort, the architecture, design validation)
 - App C: Design Standard (the checklist)
 
-Source files at `/Users/davidmarne/mixofrealitystudio/software/rightingsoftware/OEBPS/xhtml/`.
+Source files at `../../research/rightingsoftware/OEBPS/xhtml/`.

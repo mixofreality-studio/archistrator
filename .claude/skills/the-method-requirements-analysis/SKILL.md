@@ -9,13 +9,13 @@ This phase pairs two architect-driven activities that must happen together: buil
 
 ## Canonical source
 
-**Primary scrubbing:** Löwy, *Righting Software*, [Chapter 2 §3.3 "Solutions Masquerading as Requirements"](../../../../rightingsoftware/OEBPS/xhtml/ch02.xhtml#ch02lev2sec13).
+**Primary scrubbing:** Löwy, *Righting Software*, [Chapter 2 §3.3 "Solutions Masquerading as Requirements"](../../../research/rightingsoftware/OEBPS/xhtml/ch02.xhtml#ch02lev2sec13).
 
-**Primary glossary / naming:** [Chapter 3 §4.1 "What's in a Name"](../../../../rightingsoftware/OEBPS/xhtml/ch03.xhtml#ch03lev2sec8) and [§4.2 "The Four Questions"](../../../../rightingsoftware/OEBPS/xhtml/ch03.xhtml#ch03lev2sec9).
+**Primary glossary / naming:** [Chapter 3 §4.1 "What's in a Name"](../../../research/rightingsoftware/OEBPS/xhtml/ch03.xhtml#ch03lev2sec8) and [§4.2 "The Four Questions"](../../../research/rightingsoftware/OEBPS/xhtml/ch03.xhtml#ch03lev2sec9).
 
-**Worked example:** [Ch. 5 "TradeMe Glossary"](../../../../rightingsoftware/OEBPS/xhtml/ch05.xhtml#ch05lev2sec11).
+**Worked example:** [Ch. 5 "TradeMe Glossary"](../../../research/rightingsoftware/OEBPS/xhtml/ch05.xhtml#ch05lev2sec11).
 
-**Standard reference:** [Appendix C §3.1d "Eliminate solutions masquerading as requirements"](../../../../rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec3) (System Design Guidelines, item 1d).
+**Standard reference:** [Appendix C §3.1d "Eliminate solutions masquerading as requirements"](../../../research/rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec3) (System Design Guidelines, item 1d).
 
 ## Input
 

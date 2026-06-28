@@ -16,15 +16,15 @@ This skill produces the system's static architecture and validates it by tracing
 ## Canonical source
 
 **Primary:**
-- Löwy, [Chapter 3 "Structure"](../../../../rightingsoftware/OEBPS/xhtml/ch03.xhtml) — layers, classification, layering rules, Design Don'ts.
-- [Ch. 4 §2 "Composable Design"](../../../../rightingsoftware/OEBPS/xhtml/ch04.xhtml#ch04lev1sec2) — the smallest-set principle.
-- [Ch. 4 §2.2 "Architecture Validation"](../../../../rightingsoftware/OEBPS/xhtml/ch04.xhtml#ch04lev2sec4) — call chains validate decompositions.
-- [Ch. 5 §4 "The Architecture"](../../../../rightingsoftware/OEBPS/xhtml/ch05.xhtml#ch05lev1sec4) and [§6 "Design Validation"](../../../../rightingsoftware/OEBPS/xhtml/ch05.xhtml#ch05lev1sec6) — TradeMe worked example.
+- Löwy, [Chapter 3 "Structure"](../../../research/rightingsoftware/OEBPS/xhtml/ch03.xhtml) — layers, classification, layering rules, Design Don'ts.
+- [Ch. 4 §2 "Composable Design"](../../../research/rightingsoftware/OEBPS/xhtml/ch04.xhtml#ch04lev1sec2) — the smallest-set principle.
+- [Ch. 4 §2.2 "Architecture Validation"](../../../research/rightingsoftware/OEBPS/xhtml/ch04.xhtml#ch04lev2sec4) — call chains validate decompositions.
+- [Ch. 5 §4 "The Architecture"](../../../research/rightingsoftware/OEBPS/xhtml/ch05.xhtml#ch05lev1sec4) and [§6 "Design Validation"](../../../research/rightingsoftware/OEBPS/xhtml/ch05.xhtml#ch05lev1sec6) — TradeMe worked example.
 
 **Supporting:**
-- [Ch. 3 §4 "Classification Guidelines"](../../../../rightingsoftware/OEBPS/xhtml/ch03.xhtml#ch03lev1sec4) — the Four Questions, naming.
-- [Ch. 3 §6 "Open and Closed Architectures"](../../../../rightingsoftware/OEBPS/xhtml/ch03.xhtml#ch03lev1sec6) and [§6.5 Design Don'ts](../../../../rightingsoftware/OEBPS/xhtml/ch03.xhtml#ch03lev2sec18).
-- [Appendix C §3 "System Design Guidelines"](../../../../rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec3) — items 2, 3, 4, 5, 6.
+- [Ch. 3 §4 "Classification Guidelines"](../../../research/rightingsoftware/OEBPS/xhtml/ch03.xhtml#ch03lev1sec4) — the Four Questions, naming.
+- [Ch. 3 §6 "Open and Closed Architectures"](../../../research/rightingsoftware/OEBPS/xhtml/ch03.xhtml#ch03lev1sec6) and [§6.5 Design Don'ts](../../../research/rightingsoftware/OEBPS/xhtml/ch03.xhtml#ch03lev2sec18).
+- [Appendix C §3 "System Design Guidelines"](../../../research/rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec3) — items 2, 3, 4, 5, 6.
 
 **Structurizr docs:** https://docs.structurizr.com/dsl.
 
@@ -66,7 +66,7 @@ A trace that cannot be drawn cleanly is a signal that the decomposition is wrong
 
 ### Step 1 — Classify volatilities into layer bins (the Four Questions)
 
-Per [Ch. 3 §4.2 "The Four Questions"](../../../../rightingsoftware/OEBPS/xhtml/ch03.xhtml#ch03lev2sec9):
+Per [Ch. 3 §4.2 "The Four Questions"](../../../research/rightingsoftware/OEBPS/xhtml/ch03.xhtml#ch03lev2sec9):
 
 > *"Make a list of all the 'who' and put them in one bin as candidates for Clients. Make a list of all the 'what' and put them in another bin as candidates for Managers, and so on... The result will not be perfect... but it is a start."*
 
@@ -97,7 +97,7 @@ If a candidate fails its identity test, either re-classify it or split it. If yo
 
 Apply the cardinality limits from [[the-method-layers]] (≤5 Managers without subsystems, golden Engines-to-Managers ratio, ~10 components order-of-magnitude, ≥8 Managers is a hard fail).
 
-Then apply the smallest-set test from [Ch. 4 §2](../../../../rightingsoftware/OEBPS/xhtml/ch04.xhtml#ch04lev1sec2):
+Then apply the smallest-set test from [Ch. 4 §2](../../../research/rightingsoftware/OEBPS/xhtml/ch04.xhtml#ch04lev1sec2):
 
 > *"Once you cannot think of a smaller set of building blocks, you have found your best design."*
 
@@ -192,7 +192,7 @@ This is the **call chain** referenced throughout Chapter 4 and 5 of the book. Th
 
 ### Step 10 — Demonstrate versatility with 2–3 non-core call chains
 
-Per [Ch. 5 §6](../../../../rightingsoftware/OEBPS/xhtml/ch05.xhtml#ch05lev1sec6): validate that the architecture also handles non-core use cases without modification. Pick 2–3 entries from the rejection list in the committed `.coreUseCases` and add their `DynamicView` entries to the same `System` model.
+Per [Ch. 5 §6](../../../research/rightingsoftware/OEBPS/xhtml/ch05.xhtml#ch05lev1sec6): validate that the architecture also handles non-core use cases without modification. Pick 2–3 entries from the rejection list in the committed `.coreUseCases` and add their `DynamicView` entries to the same `System` model.
 
 If a non-core use case cannot be drawn either, the decomposition is missing a volatility — return to `the-method-volatility-identification` before continuing.
 
@@ -245,7 +245,7 @@ Move to `the-method-operational-concepts`.
 
 ## TradeMe reference
 
-Re-read [Ch. 5 §6](../../../../rightingsoftware/OEBPS/xhtml/ch05.xhtml#ch05lev1sec6) for the worked example: the architect validated 8 use cases — 7 as call chains, 1 (Terminate Tradesman) as a sequence diagram because timing mattered. Use the same discipline.
+Re-read [Ch. 5 §6](../../../research/rightingsoftware/OEBPS/xhtml/ch05.xhtml#ch05lev1sec6) for the worked example: the architect validated 8 use cases — 7 as call chains, 1 (Terminate Tradesman) as a sequence diagram because timing mattered. Use the same discipline.
 
 ## Common failure modes
 
