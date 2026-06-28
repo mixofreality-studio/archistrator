@@ -120,16 +120,11 @@ const computeCostCentsPerComputeUnitSecond int64 = 1
 // Takes only the option (which carries the customer's terms by value). Called by
 // projectDesignManager. (settlementEngine.md §2.3)
 
-// engine is the stateless implementation of SettlementEngine. It holds no fields,
-// does no I/O, reads no clock/RNG, and starts no goroutines — safe to call directly
-// from workflow code.
-type engine struct{}
-
-// New returns the stateless settlement Engine.
-func New() SettlementEngine { return engine{} }
-
-// Compile-time assertion that engine satisfies the port.
-var _ SettlementEngine = engine{}
+// The stateless implementation of SettlementEngine — SettlementEngineImpl — and its
+// constructor NewSettlementEngine() are GENERATED into contract.gen.go. It holds no
+// fields, does no I/O, reads no clock/RNG, and starts no goroutines — safe to call
+// directly from workflow code. The behaviour below is hand-written on the generated
+// struct.
 
 // termsKnown reports whether both pivot regimes are registered. An unknown regime is
 // a deploy/config hazard — settling real money under an unregistered revenue-share or
@@ -143,7 +138,7 @@ func termsKnown(terms SettlementTerms) bool {
 // ProjectCommitTimeRevenueShareAndComputeCost echoes the committed option's
 // settlement-terms regime kinds and percents as a projection (no actuals). Unknown
 // terms ⇒ InvalidInput "unknown terms" — never a silent default (money safety).
-func (engine) ProjectCommitTimeRevenueShareAndComputeCost(_ fweng.Context, option ProjectOption) (Projection, error) {
+func (SettlementEngineImpl) ProjectCommitTimeRevenueShareAndComputeCost(_ fweng.Context, option ProjectOption) (Projection, error) {
 	terms := option.Terms
 	if !termsKnown(terms) {
 		return Projection{}, fweng.New(fweng.InvalidInput, "unknown terms")
@@ -158,14 +153,14 @@ func (engine) ProjectCommitTimeRevenueShareAndComputeCost(_ fweng.Context, optio
 
 // ComputeNet computes the signed net for an actual closed cycle and the routing
 // directive. All money math is exact int64 minor units. (settlementEngine.md §2.1)
-func (engine) ComputeNet(_ fweng.Context, revenue CycleRevenue, usage CycleUsage, terms SettlementTerms) (SettlementResult, error) {
+func (SettlementEngineImpl) ComputeNet(_ fweng.Context, revenue CycleRevenue, usage CycleUsage, terms SettlementTerms) (SettlementResult, error) {
 	return computeNet(revenue, usage, terms)
 }
 
 // RecomputeNet computes the corrected signed net for a reversal-adjusted cycle. The
 // computation is identical to ComputeNet over the reversal-adjusted revenue total;
 // the Manager computes the delta vs affectedCycle.PriorSettled. (settlementEngine.md §2.2)
-func (engine) RecomputeNet(_ fweng.Context, affectedCycle ReSettlementInput) (SettlementResult, error) {
+func (SettlementEngineImpl) RecomputeNet(_ fweng.Context, affectedCycle ReSettlementInput) (SettlementResult, error) {
 	return computeNet(affectedCycle.Revenue, affectedCycle.Usage, affectedCycle.Terms)
 }
 

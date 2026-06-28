@@ -170,7 +170,7 @@ func TestEstimateForOption(t *testing.T) {
 		},
 	}
 
-	eng := New()
+	eng := NewEstimationEngine()
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := eng.EstimateForOption(fweng.Context{}, tc.option)
@@ -220,7 +220,7 @@ func TestEstimateForOption(t *testing.T) {
 // TestDeterminism asserts the pure-function contract: identical input twice ->
 // byte-identical output (contract §6, FU-EE-B twice-called identical-output).
 func TestDeterminism(t *testing.T) {
-	eng := New()
+	eng := NewEstimationEngine()
 	opt := mixedActivityOption()
 
 	first, err1 := eng.EstimateForOption(fweng.Context{}, opt)

@@ -127,17 +127,15 @@ import (
 //   - InternalInvariant: the selected Strategy returned a class outside the
 //     registered set — an engine bug (a guard).
 
-// engine is the concrete, stateless HandOffEngine. No fields => no mutable state
-// => trivially deterministic and reentrant (contract §6 invariant 3).
-type engine struct{}
-
-// New returns the production HandOffEngine.
-func New() HandOffEngine { return engine{} }
+// The concrete, stateless HandOffEngine — HandOffEngineImpl — and its constructor
+// NewHandOffEngine() are GENERATED into contract.gen.go. No fields => no mutable
+// state => trivially deterministic and reentrant (contract §6 invariant 3). The
+// behaviour below is hand-written on the generated struct.
 
 // PickWorkerClass implements HandOffEngine. It validates the input, selects the
 // package-internal Strategy for the policy, runs it, and guards the result —
 // returning ONLY the class (contract §2.1; the dispatch is the Manager's, §4).
-func (engine) PickWorkerClass(_ fweng.Context, activity ConstructionActivity, policy HandOffPolicy) (WorkerClass, error) {
+func (HandOffEngineImpl) PickWorkerClass(_ fweng.Context, activity ConstructionActivity, policy HandOffPolicy) (WorkerClass, error) {
 	// --- ContractMisuse pre-conditions (programmer error, not a domain result) ---
 	if activity.ActivityID == "" {
 		return WorkerClassUnknown, fweng.New(fweng.ContractMisuse,

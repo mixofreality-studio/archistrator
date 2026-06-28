@@ -7,9 +7,9 @@ package handoff
 // (AIWorker, ActivityKindConstruction, …) are the generated contract surface
 // (contract.gen.go); these functions reference them by name.
 
-// WorkerClassString returns the canonical worker-class name (the logical class the
+// workerClassString returns the canonical worker-class name (the logical class the
 // Manager hands to workerAccess). Mirrors the constructionManager consumer mirror.
-func WorkerClassString(c WorkerClass) string {
+func workerClassString(c WorkerClass) string {
 	switch c {
 	case AIWorker:
 		return "ai"
@@ -35,8 +35,8 @@ func workerClassValid(c WorkerClass) bool {
 	}
 }
 
-// ActivityKindString returns the canonical name for an activity kind.
-func ActivityKindString(k ActivityKind) string {
+// activityKindString returns the canonical name for an activity kind.
+func activityKindString(k ActivityKind) string {
 	switch k {
 	case ActivityKindDetailedDesign:
 		return "DetailedDesign"

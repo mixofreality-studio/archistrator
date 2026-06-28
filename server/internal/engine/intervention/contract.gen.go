@@ -163,3 +163,13 @@ type InterventionEngine interface {
 	DecideOnSettlementFailure(rc fweng.Context, failure SettlementFailure) (SettlementFailureDirective, error)
 	DecideOnVariance(rc fweng.Context, variance ConstructionVariance) (VarianceDirective, error)
 }
+
+// InterventionEngineImpl is the generated concrete InterventionEngine. Engines are pure (no
+// dependencies), so the impl carries no fields and the constructor takes none.
+// The interface methods are hand-written on this struct.
+type InterventionEngineImpl struct{}
+
+// NewInterventionEngine returns the production InterventionEngine.
+func NewInterventionEngine() InterventionEngine { return InterventionEngineImpl{} }
+
+var _ InterventionEngine = InterventionEngineImpl{}

@@ -128,3 +128,13 @@ type Telemetry struct {
 type AutoscalerEngine interface {
 	ProposeDesiredState(rc fweng.Context, telemetry Telemetry, currentDesired DesiredState, policy AutoscalerPolicy, infrastructureKind InfrastructureKind) (Decision, error)
 }
+
+// AutoscalerEngineImpl is the generated concrete AutoscalerEngine. Engines are pure (no
+// dependencies), so the impl carries no fields and the constructor takes none.
+// The interface methods are hand-written on this struct.
+type AutoscalerEngineImpl struct{}
+
+// NewAutoscalerEngine returns the production AutoscalerEngine.
+func NewAutoscalerEngine() AutoscalerEngine { return AutoscalerEngineImpl{} }
+
+var _ AutoscalerEngine = AutoscalerEngineImpl{}

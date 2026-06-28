@@ -509,7 +509,7 @@ func TestGetProject_ComputeNetworkAtRead(t *testing.T) {
 	}
 
 	fake := &fakeProjectStateAccess{readProject: p}
-	m := NewManager(fake, nil, estimation.New(), "")
+	m := NewManager(fake, nil, estimation.NewEstimationEngine(), "")
 
 	st, err := m.GetProject(rc(), id)
 	if err != nil {
@@ -525,7 +525,7 @@ func TestGetProject_ComputeNetworkAtRead(t *testing.T) {
 	if len(netModel.Computed) != 4 {
 		t.Fatalf("computed nodes = %d, want 4", len(netModel.Computed))
 	}
-	if cNode := netModel.Computed["C"]; !cNode.OnCriticalPath || cNode.Band != estimation.BandCritical {
+	if cNode := netModel.Computed["C"]; !cNode.OnCriticalPath || cNode.Band != "critical" {
 		t.Fatalf("C should be critical: %+v", cNode)
 	}
 	if bNode := netModel.Computed["B"]; bNode.OnCriticalPath || bNode.TotalFloat != 10 {
@@ -578,7 +578,7 @@ func TestGetProject_ComputeEarnedValueAtRead(t *testing.T) {
 	p.ConstructionProgress = &projectstate.ConstructionProgress{Week: 2, TotalWeeks: 4, HandOffModel: "senior", SupervisionCap: 3}
 
 	fake := &fakeProjectStateAccess{readProject: p}
-	m := NewManager(fake, nil, estimation.New(), "")
+	m := NewManager(fake, nil, estimation.NewEstimationEngine(), "")
 
 	st, err := m.GetProject(rc(), id)
 	if err != nil {
@@ -609,7 +609,7 @@ func TestGetProject_ComposesPRRefAtRead(t *testing.T) {
 		"C-MST": {ActivityID: "C-MST", BranchName: "activity/C-MST", PullRequestRef: "44"},
 	}
 	fake := &fakeProjectStateAccess{readProject: p}
-	m := NewManager(fake, nil, estimation.New(), "https://github.com/acme/proj")
+	m := NewManager(fake, nil, estimation.NewEstimationEngine(), "https://github.com/acme/proj")
 
 	st, err := m.GetProject(rc(), id)
 	if err != nil {
@@ -679,7 +679,7 @@ func TestGetProject_OverwritesStaleCriticalPath(t *testing.T) {
 		},
 	}
 	fake := &fakeProjectStateAccess{readProject: p}
-	m := NewManager(fake, nil, estimation.New(), "")
+	m := NewManager(fake, nil, estimation.NewEstimationEngine(), "")
 
 	st, err := m.GetProject(rc(), id)
 	if err != nil {

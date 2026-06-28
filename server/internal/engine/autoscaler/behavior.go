@@ -7,9 +7,9 @@ package autoscaler
 // (DecisionNoChange, ReasonCPUHigh, …) are the generated contract surface
 // (contract.gen.go); these functions reference them by name.
 
-// DecisionKindString returns the canonical name for a decision kind (matches the
+// decisionKindString returns the canonical name for a decision kind (matches the
 // architecture-edge enumeration labels; safe to log).
-func DecisionKindString(k DecisionKind) string {
+func decisionKindString(k DecisionKind) string {
 	switch k {
 	case DecisionNoChange:
 		return "NoChange"
@@ -26,8 +26,8 @@ func DecisionKindString(k DecisionKind) string {
 	}
 }
 
-// ReasonCodeString returns a stable name for a reason code (safe to log; no PII).
-func ReasonCodeString(c ReasonCode) string {
+// reasonCodeString returns a stable name for a reason code (safe to log; no PII).
+func reasonCodeString(c ReasonCode) string {
 	switch c {
 	case ReasonCPUHigh:
 		return "CPUHigh"

@@ -44,3 +44,13 @@ const (
 type HandOffEngine interface {
 	PickWorkerClass(rc fweng.Context, activity ConstructionActivity, policy HandOffPolicy) (WorkerClass, error)
 }
+
+// HandOffEngineImpl is the generated concrete HandOffEngine. Engines are pure (no
+// dependencies), so the impl carries no fields and the constructor takes none.
+// The interface methods are hand-written on this struct.
+type HandOffEngineImpl struct{}
+
+// NewHandOffEngine returns the production HandOffEngine.
+func NewHandOffEngine() HandOffEngine { return HandOffEngineImpl{} }
+
+var _ HandOffEngine = HandOffEngineImpl{}

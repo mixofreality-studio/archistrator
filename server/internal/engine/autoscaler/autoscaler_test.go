@@ -41,7 +41,7 @@ import (
 )
 
 // eng is the stateless engine under test, exercised through the exported port.
-var eng = New()
+var eng = NewAutoscalerEngine()
 
 const launchKind = InfrastructureKindGoTemporalPostgres
 

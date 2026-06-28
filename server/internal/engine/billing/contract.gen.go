@@ -69,3 +69,13 @@ type BillingEngine interface {
 	PriceServiceForOption(rc fweng.Context, option ProjectOption) (ServiceCostProjection, error)
 	PriceUsage(rc fweng.Context, usage PeriodUsage, servicePricing ServicePricing) (ServiceInvoice, error)
 }
+
+// BillingEngineImpl is the generated concrete BillingEngine. Engines are pure (no
+// dependencies), so the impl carries no fields and the constructor takes none.
+// The interface methods are hand-written on this struct.
+type BillingEngineImpl struct{}
+
+// NewBillingEngine returns the production BillingEngine.
+func NewBillingEngine() BillingEngine { return BillingEngineImpl{} }
+
+var _ BillingEngine = BillingEngineImpl{}

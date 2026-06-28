@@ -151,16 +151,12 @@ import (
 // the current run-rate, projected monthly cost, and the what-if curve. Called
 // by operationsManager.
 
-// New returns the default OperationEstimationEngine. It is stateless and safe to
-// share/reuse across calls and Managers.
-func New() OperationEstimationEngine { return engine{} }
-
-// Compile-time assertion that engine satisfies the port.
-var _ OperationEstimationEngine = engine{}
-
-// engine is the stateless implementation. It holds no fields — all behaviour is a
-// pure function of the inputs, pivoting on the package-internal cost-Strategy table.
-type engine struct{}
+// The stateless implementation of OperationEstimationEngine —
+// OperationEstimationEngineImpl — and its constructor NewOperationEstimationEngine()
+// are GENERATED into contract.gen.go. It holds no fields — all behaviour is a pure
+// function of the inputs, pivoting on the package-internal cost-Strategy table. Safe
+// to share/reuse across calls and Managers. The behaviour below is hand-written on
+// the generated struct.
 
 // ---------------------------------------------------------------------------
 // Internal cost-Strategy axis (CustomerAppInfrastructure). NOT on the contract.
@@ -259,7 +255,7 @@ const arpuCentsPerDAUPerMonth = 300.0
 // defaultCurrency is used unless the option's settlement terms imply otherwise.
 const defaultCurrency = "USD"
 
-func (engine) EstimateForOption(
+func (OperationEstimationEngineImpl) EstimateForOption(
 	_ fweng.Context,
 	option ProjectOption,
 	declaredUsage UsageAssumption,
@@ -336,7 +332,7 @@ func (engine) EstimateForOption(
 // Op-time projection.
 // ---------------------------------------------------------------------------
 
-func (engine) ProjectForOperatedApp(
+func (OperationEstimationEngineImpl) ProjectForOperatedApp(
 	_ fweng.Context,
 	observedUsage ObservedUsage,
 	infrastructureKind InfrastructureKind,

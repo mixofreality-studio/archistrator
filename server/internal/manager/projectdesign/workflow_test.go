@@ -29,7 +29,7 @@ import (
 // no dev server, runs under -short).
 //
 // The SDP-review + Phase2-advance workflows use the REAL three estimate Engines
-// (estimation.New() etc.) — they STAY server-side in-workflow (§0.5.5) and are NOT
+// (estimation.NewEstimationEngine() etc.) — they STAY server-side in-workflow (§0.5.5) and are NOT
 // faked; the suite asserts the three-Engine join still runs in-process.
 //
 // Covers (the contract's required wire-level cases):
@@ -299,9 +299,9 @@ func planningAssumptionsReadBack(id projectstate.ProjectID) projectstate.Project
 
 func newWorkflows(ps projectstate.ProjectStateAccess) *Workflows {
 	return &Workflows{
-		Estimation:   estimation.New(),
-		OperationEst: operationestimation.New(),
-		Settlement:   settlement.New(),
+		Estimation:   estimation.NewEstimationEngine(),
+		OperationEst: operationestimation.NewOperationEstimationEngine(),
+		Settlement:   settlement.NewSettlementEngine(),
 		ProjectState: ps,
 	}
 }

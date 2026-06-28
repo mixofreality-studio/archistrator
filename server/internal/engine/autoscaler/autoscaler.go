@@ -60,9 +60,9 @@ import (
 // InfrastructureKindGoTemporalPostgres is the launch infrastructure
 // (Go + Temporal + Postgres + Git + S3).
 
-// OperatedAppID identifies one Operated System. Carried for identity/labeling on
+// operatedAppID identifies one Operated System. Carried for identity/labeling on
 // Telemetry and DesiredState; the Engine never branches on it (autoscalerEngine.md §3).
-type OperatedAppID = uuid.UUID
+type operatedAppID = uuid.UUID
 
 // --- Telemetry (autoscalerEngine.md §3) --------------------------------------
 
@@ -232,15 +232,10 @@ type OperatedAppID = uuid.UUID
 // ProposeDesiredState selects what the platform should do to one Operated
 // System's desired capacity. Pure and deterministic (autoscalerEngine.md §2.1).
 
-// engine is the concrete, stateless AutoscalerEngine. No fields => no mutable
-// state => trivially deterministic and reentrant (autoscalerEngine.md §6).
-type engine struct{}
-
-// New returns the production AutoscalerEngine.
-func New() AutoscalerEngine { return engine{} }
-
-// Compile-time assertion that engine satisfies the port.
-var _ AutoscalerEngine = engine{}
+// The concrete, stateless AutoscalerEngine — AutoscalerEngineImpl — and its
+// constructor NewAutoscalerEngine() are GENERATED into contract.gen.go. No fields =>
+// no mutable state => trivially deterministic and reentrant (autoscalerEngine.md §6).
+// The behaviour below is hand-written on the generated struct.
 
 // ProposeDesiredState answers, deterministically, what the platform should do to
 // one Operated System's desired capacity given the telemetry, the current desired
@@ -259,7 +254,7 @@ var _ AutoscalerEngine = engine{}
 // The two policy-universal short-circuits (ManualMode, Pinned) live here, not in
 // each strategy: they are operator overrides, not infrastructure-specific
 // (autoscalerEngine.md §6).
-func (engine) ProposeDesiredState(
+func (AutoscalerEngineImpl) ProposeDesiredState(
 	_ fweng.Context,
 	telemetry Telemetry,
 	currentDesired DesiredState,

@@ -22,7 +22,7 @@ func TestComputeEarnedValue_EarnedAndPlannedMonotoneAndSPI(t *testing.T) {
 	}}
 	integrated := []string{"A", "B"} // C not done
 
-	ev, err := New().ComputeEarnedValue(fweng.Context{}, al, net, integrated, 4, 5)
+	ev, err := NewEstimationEngine().ComputeEarnedValue(fweng.Context{}, al, net, integrated, 4, 5)
 	if err != nil {
 		t.Fatalf("ComputeEarnedValue: %v", err)
 	}
@@ -49,7 +49,7 @@ func TestComputeEarnedValue_EarnedAndPlannedMonotoneAndSPI(t *testing.T) {
 // TestComputeEarnedValue_EmptyIsZeroNotError proves an empty activity list is a normal
 // domain result (zero curve), never an error.
 func TestComputeEarnedValue_EmptyIsZeroNotError(t *testing.T) {
-	ev, err := New().ComputeEarnedValue(fweng.Context{}, ActivityList{}, Network{}, nil, 0, 0)
+	ev, err := NewEstimationEngine().ComputeEarnedValue(fweng.Context{}, ActivityList{}, Network{}, nil, 0, 0)
 	if err != nil {
 		t.Fatalf("ComputeEarnedValue empty: %v", err)
 	}

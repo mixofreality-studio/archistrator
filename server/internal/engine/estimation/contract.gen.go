@@ -120,3 +120,13 @@ type EstimationEngine interface {
 	EstimateForOption(rc fweng.Context, option ProjectOption) (ConstructionEstimate, error)
 	ComputeEarnedValue(rc fweng.Context, activities ActivityList, network Network, integrated []string, totalWeeks int64, calendarDaysPerWeek int64) (EVCurve, error)
 }
+
+// EstimationEngineImpl is the generated concrete EstimationEngine. Engines are pure (no
+// dependencies), so the impl carries no fields and the constructor takes none.
+// The interface methods are hand-written on this struct.
+type EstimationEngineImpl struct{}
+
+// NewEstimationEngine returns the production EstimationEngine.
+func NewEstimationEngine() EstimationEngine { return EstimationEngineImpl{} }
+
+var _ EstimationEngine = EstimationEngineImpl{}

@@ -283,10 +283,18 @@ func returnClause(op codegen.Operation) string {
 
 // engineImplAllowlist gates which Engine contracts gain a generated impl struct +
 // constructor. Engines carry no `infra` field, so an explicit allowlist scopes the
-// impl emission while the mechanism is being PROVEN on a single engine (reviewEngine).
-// Extend this (or replace it with a per-contract opt-in) when sweeping the rest.
+// impl emission. All current engines are pure (field-less impl, no-arg constructor),
+// so the full set is enrolled; replace this with a per-contract opt-in if a future
+// engine ever needs a non-pure shape.
 var engineImplAllowlist = map[string]bool{
-	"reviewEngine": true,
+	"reviewEngine":                 true,
+	"handOffEngine":                true,
+	"interventionEngine":           true,
+	"settlementEngine":             true,
+	"billingEngine":                true,
+	"operationEstimationEngine":    true,
+	"autoscalerEngine":             true,
+	"constructionEstimationEngine": true,
 }
 
 // infraField is one constructor parameter / struct field an infra binding

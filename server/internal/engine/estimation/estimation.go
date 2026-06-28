@@ -150,17 +150,16 @@ const maxCalendarStretch = 7.0
 // at read time by the projectManager. See network.go for the contract + the band
 // Strategy. An empty (unauthored) network is a normal empty result, not an error.
 
-// engine is the concrete, stateless EstimationEngine. No fields => no mutable
-// state => trivially deterministic and reentrant.
-type engine struct{}
-
-// New returns the production EstimationEngine.
-func New() EstimationEngine { return engine{} }
+// The concrete, stateless EstimationEngine — EstimationEngineImpl — and its
+// constructor NewEstimationEngine() are GENERATED into contract.gen.go. No fields =>
+// no mutable state => trivially deterministic and reentrant. The behaviour below is
+// hand-written on the generated struct (across estimation.go, network.go,
+// earnedvalue.go).
 
 // EstimateForOption implements EstimationEngine. It runs in one pass over the
 // option's activity network so the three returned facets stay mutually
 // consistent (contract §2.2, §8 Variant B).
-func (engine) EstimateForOption(_ fweng.Context, option ProjectOption) (ConstructionEstimate, error) {
+func (EstimationEngineImpl) EstimateForOption(_ fweng.Context, option ProjectOption) (ConstructionEstimate, error) {
 	activities := option.Network.Activities
 
 	// --- ContractMisuse pre-conditions (programmer error, not a domain result) ---

@@ -117,3 +117,13 @@ type OperationEstimationEngine interface {
 	EstimateForOption(rc fweng.Context, option ProjectOption, declaredUsage UsageAssumption, infrastructureKind InfrastructureKind) (OperationForecast, error)
 	ProjectForOperatedApp(rc fweng.Context, observedUsage ObservedUsage, infrastructureKind InfrastructureKind, scaleWhatIfPoints []ScalePoint) (CostProjection, error)
 }
+
+// OperationEstimationEngineImpl is the generated concrete OperationEstimationEngine. Engines are pure (no
+// dependencies), so the impl carries no fields and the constructor takes none.
+// The interface methods are hand-written on this struct.
+type OperationEstimationEngineImpl struct{}
+
+// NewOperationEstimationEngine returns the production OperationEstimationEngine.
+func NewOperationEstimationEngine() OperationEstimationEngine { return OperationEstimationEngineImpl{} }
+
+var _ OperationEstimationEngine = OperationEstimationEngineImpl{}

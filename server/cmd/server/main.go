@@ -387,17 +387,17 @@ func run(logger *slog.Logger) error { //nolint:gocognit,gocyclo,maintidx,nestif 
 	// constructionManager calls them DIRECTLY in-workflow by value (handOffEngine /
 	// interventionEngine / reviewEngine). reviewEngine is the hand-run seam given a
 	// deterministic Go realisation (see internal/engine/review).
-	handOffEngine := handoff.New()
-	interventionEngine := intervention.New()
+	handOffEngine := handoff.NewHandOffEngine()
+	interventionEngine := intervention.NewInterventionEngine()
 	reviewEngine := review.NewReviewEngine()
 
 	// Phase-2 estimate Engines — pure, deterministic, Temporal-free. The
 	// projectDesignManager calls them by value in its SDP-assembly workflow
 	// (projectDesignManager.md §6.3; estimationEngine / operationEstimationEngine /
 	// settlementEngine contracts).
-	estimator := estimation.New()
-	operationEstimator := operationestimation.New()
-	settlementEstimator := enginesettlement.New()
+	estimator := estimation.NewEstimationEngine()
+	operationEstimator := operationestimation.NewOperationEstimationEngine()
+	settlementEstimator := enginesettlement.NewSettlementEngine()
 
 	// --- Utility ---------------------------------------------------------------
 

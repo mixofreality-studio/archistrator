@@ -209,9 +209,9 @@ func (f *seqProjectState) CommitArtifact(ctx fwra.Context, projectID projectstat
 
 func newRailWorkflows(ps projectstate.ProjectStateAccess, pipe *fakePipeline, rail SourceControlRail) *Workflows {
 	return &Workflows{
-		Estimation:   estimation.New(),
-		OperationEst: operationestimation.New(),
-		Settlement:   settlement.New(),
+		Estimation:   estimation.NewEstimationEngine(),
+		OperationEst: operationestimation.NewOperationEstimationEngine(),
+		Settlement:   settlement.NewSettlementEngine(),
 		ProjectState: ps,
 		Pipeline:     pipe,
 		Rail:         rail,

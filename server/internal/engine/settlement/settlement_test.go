@@ -25,7 +25,7 @@ func usd(minor int64) Money {
 }
 
 func TestProjectCommitTimeRevenueShareAndComputeCost(t *testing.T) {
-	e := New()
+	e := NewSettlementEngine()
 
 	tests := []struct {
 		name      string
@@ -88,7 +88,7 @@ func TestProjectCommitTimeRevenueShareAndComputeCost(t *testing.T) {
 }
 
 func TestComputeNet(t *testing.T) {
-	e := New()
+	e := NewSettlementEngine()
 
 	tests := []struct {
 		name      string
@@ -190,7 +190,7 @@ func TestComputeNet(t *testing.T) {
 }
 
 func TestRecomputeNet(t *testing.T) {
-	e := New()
+	e := NewSettlementEngine()
 
 	// A chargeback reversal halved the gross from 100000 to 50000. The corrected
 	// net is computed fresh from the reversal-adjusted revenue; the Manager computes
@@ -232,7 +232,7 @@ func TestRecomputeNet(t *testing.T) {
 // TestDeterminism asserts that identical inputs yield identical outputs across
 // repeated invocations (the Engine reads no clock/RNG/state).
 func TestDeterminism(t *testing.T) {
-	e := New()
+	e := NewSettlementEngine()
 	revenue := CycleRevenue{GrossInbound: usd(123456), EventCount: 3}
 	usage := CycleUsage{ComputeUnitSeconds: 250, StorageBytesMonths: 10, EgressBytes: 5}
 	terms := launchTerms()
@@ -256,7 +256,7 @@ func TestDeterminism(t *testing.T) {
 // float money path): the computation over money produces equality with a
 // hand-computed int64, and the share+cost+net reconcile exactly.
 func TestMoneyIsExactInt64(t *testing.T) {
-	e := New()
+	e := NewSettlementEngine()
 	// gross 99 cents, 33% share. 99*3300/10000 = 326700/10000 = 32 (integer floor).
 	// compute 0. net = 99 - 32 - 0 = 67.
 	got, err := e.ComputeNet(

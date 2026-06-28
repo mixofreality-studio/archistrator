@@ -98,3 +98,13 @@ type SettlementEngine interface {
 	ProjectCommitTimeRevenueShareAndComputeCost(rc fweng.Context, option ProjectOption) (Projection, error)
 	RecomputeNet(rc fweng.Context, affectedCycle ReSettlementInput) (SettlementResult, error)
 }
+
+// SettlementEngineImpl is the generated concrete SettlementEngine. Engines are pure (no
+// dependencies), so the impl carries no fields and the constructor takes none.
+// The interface methods are hand-written on this struct.
+type SettlementEngineImpl struct{}
+
+// NewSettlementEngine returns the production SettlementEngine.
+func NewSettlementEngine() SettlementEngine { return SettlementEngineImpl{} }
+
+var _ SettlementEngine = SettlementEngineImpl{}

@@ -43,7 +43,7 @@ func tieredPolicy(budget, tolerance int64, tier SLATier) InterventionPolicy {
 // --- DecideOnVariance ----------------------------------------------------------
 
 func TestDecideOnVariance(t *testing.T) {
-	e := New()
+	e := NewInterventionEngine()
 
 	tests := []struct {
 		name     string
@@ -124,7 +124,7 @@ func TestDecideOnVariance(t *testing.T) {
 // --- DecideOnHealth ------------------------------------------------------------
 
 func TestDecideOnHealth(t *testing.T) {
-	e := New()
+	e := NewInterventionEngine()
 
 	tests := []struct {
 		name    string
@@ -190,7 +190,7 @@ func TestDecideOnHealth(t *testing.T) {
 // --- DecideOnSettlementFailure -------------------------------------------------
 
 func TestDecideOnSettlementFailure(t *testing.T) {
-	e := New()
+	e := NewInterventionEngine()
 
 	tests := []struct {
 		name    string
@@ -271,7 +271,7 @@ func TestDecideOnSettlementFailure(t *testing.T) {
 // --- ApplyPausePolicy ----------------------------------------------------------
 
 func TestApplyPausePolicy(t *testing.T) {
-	e := New()
+	e := NewInterventionEngine()
 
 	t.Run("launch cancels all in-flight, records, notifies operator", func(t *testing.T) {
 		plan, err := e.ApplyPausePolicy(fweng.Context{}, PauseRequestContext{
@@ -340,7 +340,7 @@ func TestApplyPausePolicy(t *testing.T) {
 // TestDeterminism asserts that identical inputs yield identical outputs across
 // repeated invocations of every op (the Engine reads no clock/RNG/state).
 func TestDeterminism(t *testing.T) {
-	e := New()
+	e := NewInterventionEngine()
 
 	variance := ConstructionVariance{ProjectID: "p1", ActivityID: "a1", Kind: WorkerMiss, AttemptCount: 5, Severity: SeverityLow, Policy: tieredPolicy(3, 5, SLATierEnterprise)}
 	change := HealthChange{OperatedAppID: "app1", FromHealth: HealthHealthy, ToHealth: HealthDegraded, SLOStatus: SLOOutOfBudget, Policy: tieredPolicy(3, 5, SLATierPaid)}

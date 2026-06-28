@@ -100,7 +100,7 @@ func TestPickWorkerClass(t *testing.T) {
 		},
 	}
 
-	eng := New()
+	eng := NewHandOffEngine()
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := eng.PickWorkerClass(fweng.Context{}, tc.activity, tc.policy)
@@ -216,7 +216,7 @@ func TestGuardBranches(t *testing.T) {
 // TestDeterminism asserts the pure-function contract (FU-HE-A twice-called
 // identical-output): identical (activity, policy) twice -> identical class.
 func TestDeterminism(t *testing.T) {
-	eng := New()
+	eng := NewHandOffEngine()
 	a := activity("manager")
 	p := HandOffPolicy{PreferAI: true, SeniorOnlyLayers: []string{"manager"}}
 
@@ -236,7 +236,7 @@ func TestDeterminism(t *testing.T) {
 // TestReentrancy_NoSharedMutableState asserts contract §6 invariant 3: mutating
 // the caller's SeniorOnlyLayers slice after a call must not affect a later call.
 func TestReentrancy_NoSharedMutableState(t *testing.T) {
-	eng := New()
+	eng := NewHandOffEngine()
 	layers := []string{"manager"}
 	p := HandOffPolicy{PreferAI: true, SeniorOnlyLayers: layers}
 
@@ -271,8 +271,8 @@ func TestWorkerClassString(t *testing.T) {
 		WorkerClassUnknown: "unknown",
 	}
 	for c, want := range cases {
-		if got := WorkerClassString(c); got != want {
-			t.Errorf("WorkerClassString(WorkerClass(%d)) = %q, want %q", c, got, want)
+		if got := workerClassString(c); got != want {
+			t.Errorf("workerClassString(WorkerClass(%d)) = %q, want %q", c, got, want)
 		}
 	}
 }

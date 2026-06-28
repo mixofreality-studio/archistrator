@@ -110,7 +110,7 @@ func TestEstimateForOption(t *testing.T) {
 		},
 	}
 
-	eng := New()
+	eng := NewOperationEstimationEngine()
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := eng.EstimateForOption(fweng.Context{}, tc.option, tc.usage, tc.infra)
@@ -221,7 +221,7 @@ func TestProjectForOperatedApp(t *testing.T) {
 		},
 	}
 
-	eng := New()
+	eng := NewOperationEstimationEngine()
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := eng.ProjectForOperatedApp(fweng.Context{}, tc.observed, tc.infra, tc.points)
@@ -249,11 +249,11 @@ func TestDeterminism(t *testing.T) {
 	usage := sampleUsage()
 	infra := InfrastructureKindGoTemporalPostgres
 
-	f1, err := New().EstimateForOption(fweng.Context{}, opt, usage, infra)
+	f1, err := NewOperationEstimationEngine().EstimateForOption(fweng.Context{}, opt, usage, infra)
 	if err != nil {
 		t.Fatalf("call 1: %v", err)
 	}
-	f2, err := New().EstimateForOption(fweng.Context{}, opt, usage, infra)
+	f2, err := NewOperationEstimationEngine().EstimateForOption(fweng.Context{}, opt, usage, infra)
 	if err != nil {
 		t.Fatalf("call 2: %v", err)
 	}
@@ -270,11 +270,11 @@ func TestDeterminism(t *testing.T) {
 	}
 	points := []ScalePoint{{LoadMultiplier: 3.0}, {LoadMultiplier: 1.5}}
 
-	p1, err := New().ProjectForOperatedApp(fweng.Context{}, observed, infra, points)
+	p1, err := NewOperationEstimationEngine().ProjectForOperatedApp(fweng.Context{}, observed, infra, points)
 	if err != nil {
 		t.Fatalf("project call 1: %v", err)
 	}
-	p2, err := New().ProjectForOperatedApp(fweng.Context{}, observed, infra, points)
+	p2, err := NewOperationEstimationEngine().ProjectForOperatedApp(fweng.Context{}, observed, infra, points)
 	if err != nil {
 		t.Fatalf("project call 2: %v", err)
 	}

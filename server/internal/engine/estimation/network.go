@@ -10,7 +10,7 @@ package estimation
 // CONTRACT (architecture.dsl:695): ComputeNetwork(activities, dependencies) →
 // {per-node ES/EF/LS/LF, total/free float, onCriticalPath, nearCritical, criticality
 // band, column, network summary}. Band classification is a Policy Strategy ON this
-// Engine (DefaultBandPolicy) — NOT a new component.
+// Engine (defaultBandPolicy) — NOT a new component.
 //
 // LAYER DISCIPLINE (unchanged from estimation.go): Engine layer — pure, deterministic,
 // in-workflow. NO I/O, NO time, NO rand, NO goroutines, NO outbound calls. Imports ONLY
@@ -29,13 +29,13 @@ import (
 // 5-day quanta so exact-zero is the norm; the epsilon is a guard, not a tolerance band.
 const floatEpsilon = 1e-9
 
-// BandPolicy is the float-criticality band classification Strategy (Löwy ch.8 §2). The
+// bandPolicy is the float-criticality band classification Strategy (Löwy ch.8 §2). The
 // thresholds are ABSOLUTE day-counts kept on the policy so they are TUNABLE without
 // touching the solve: a node ON the critical path is `critical`; otherwise `red` at
 // float ≤ RedMaxDays, `yellow` at RedMaxDays < float ≤ YellowMaxDays, `green` above.
 // The near-critical flag (off-CP but tight) keys off the SAME RedMaxDays boundary so
 // the band colour-coding and the near-critical roll-up never drift apart.
-type BandPolicy struct {
+type bandPolicy struct {
 	// RedMaxDays is the inclusive upper bound of the red (near-critical) band, in days.
 	RedMaxDays float64
 	// YellowMaxDays is the inclusive upper bound of the yellow band, in days; above it
@@ -43,37 +43,37 @@ type BandPolicy struct {
 	YellowMaxDays float64
 }
 
-// DefaultBandPolicy is the launch band Strategy — the absolute thresholds the retired
+// defaultBandPolicy is the launch band Strategy — the absolute thresholds the retired
 // client-side toNetworkView used (red ≤ 5d, yellow 6–25d, green ≥ 26d), now the single
 // server-side source of truth.
-var DefaultBandPolicy = BandPolicy{RedMaxDays: 5, YellowMaxDays: 25}
+var defaultBandPolicy = bandPolicy{RedMaxDays: 5, YellowMaxDays: 25}
 
 // Band band names (the wire-stable strings the SPA colour-codes on).
 const (
-	BandCritical = "critical"
-	BandRed      = "red"
-	BandYellow   = "yellow"
-	BandGreen    = "green"
+	bandCritical = "critical"
+	bandRed      = "red"
+	bandYellow   = "yellow"
+	bandGreen    = "green"
 )
 
 // classify returns the float-criticality band for a node. onCriticalPath wins; else the
 // absolute float thresholds apply.
-func (p BandPolicy) classify(onCriticalPath bool, totalFloat float64) string {
+func (p bandPolicy) classify(onCriticalPath bool, totalFloat float64) string {
 	if onCriticalPath {
-		return BandCritical
+		return bandCritical
 	}
 	if totalFloat <= p.RedMaxDays {
-		return BandRed
+		return bandRed
 	}
 	if totalFloat <= p.YellowMaxDays {
-		return BandYellow
+		return bandYellow
 	}
-	return BandGreen
+	return bandGreen
 }
 
 // nearCritical reports whether an off-CP node falls inside the near-critical band
 // (float ≤ RedMaxDays). On-CP nodes are never near-critical (they ARE critical).
-func (p BandPolicy) nearCritical(onCriticalPath bool, totalFloat float64) bool {
+func (p bandPolicy) nearCritical(onCriticalPath bool, totalFloat float64) bool {
 	return !onCriticalPath && totalFloat <= p.RedMaxDays
 }
 
@@ -93,7 +93,7 @@ func (p BandPolicy) nearCritical(onCriticalPath bool, totalFloat float64) bool {
 // input the Manager should never assemble): an InternalInvariant guard catches a
 // computed negative duration. An empty network is a normal DOMAIN result (an empty
 // solution), NOT an error — a project may be read before its network is authored.
-func (engine) ComputeNetwork(_ fweng.Context, activities ActivityList, network Network) (NetworkSolution, error) {
+func (EstimationEngineImpl) ComputeNetwork(_ fweng.Context, activities ActivityList, network Network) (NetworkSolution, error) {
 	effortByName := make(map[string]ActivityItem, len(activities.Activities))
 	for _, a := range activities.Activities {
 		effortByName[a.Name] = a
@@ -278,8 +278,8 @@ func (engine) ComputeNetwork(_ fweng.Context, activities ActivityList, network N
 			TotalFloat:     total,
 			FreeFloat:      free,
 			OnCriticalPath: onCP,
-			NearCritical:   DefaultBandPolicy.nearCritical(onCP, total),
-			Band:           DefaultBandPolicy.classify(onCP, total),
+			NearCritical:   defaultBandPolicy.nearCritical(onCP, total),
+			Band:           defaultBandPolicy.classify(onCP, total),
 			Column:         col[id],
 		}
 	}

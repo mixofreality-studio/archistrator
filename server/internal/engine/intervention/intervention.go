@@ -261,19 +261,14 @@ import (
 // ApplyPausePolicy — NCUC2 operator-pause plan.
 // Called by constructionManager. (interventionEngine.md §2.4)
 
-// engine is the stateless implementation of InterventionEngine. It holds no
-// fields, does no I/O, reads no clock/RNG, and starts no goroutines — safe to
-// call directly from workflow code.
-type engine struct{}
-
-// New returns the stateless intervention Engine.
-func New() InterventionEngine { return engine{} }
-
-// Compile-time assertion that engine satisfies the port.
-var _ InterventionEngine = engine{}
+// The stateless implementation of InterventionEngine — InterventionEngineImpl —
+// and its constructor NewInterventionEngine() are GENERATED into contract.gen.go.
+// It holds no fields, does no I/O, reads no clock/RNG, and starts no goroutines —
+// safe to call directly from workflow code. The behaviour below is hand-written on
+// the generated struct.
 
 // DecideOnVariance maps a construction variance to a remediation directive.
-func (engine) DecideOnVariance(_ fweng.Context, variance ConstructionVariance) (VarianceDirective, error) {
+func (InterventionEngineImpl) DecideOnVariance(_ fweng.Context, variance ConstructionVariance) (VarianceDirective, error) {
 	if variance.ProjectID == "" || variance.ActivityID == "" {
 		return 0, fweng.New(fweng.ContractMisuse,
 			"DecideOnVariance: empty ProjectID/ActivityID (Manager failed to assemble a valid ConstructionVariance)")
@@ -299,7 +294,7 @@ func (engine) DecideOnVariance(_ fweng.Context, variance ConstructionVariance) (
 }
 
 // DecideOnHealth maps an operated-app health transition to a remediation directive.
-func (engine) DecideOnHealth(_ fweng.Context, healthChange HealthChange) (HealthDirective, error) {
+func (InterventionEngineImpl) DecideOnHealth(_ fweng.Context, healthChange HealthChange) (HealthDirective, error) {
 	if healthChange.OperatedAppID == "" {
 		return 0, fweng.New(fweng.ContractMisuse,
 			"DecideOnHealth: empty OperatedAppID (Manager failed to assemble a valid HealthChange)")
@@ -318,7 +313,7 @@ func (engine) DecideOnHealth(_ fweng.Context, healthChange HealthChange) (Health
 
 // DecideOnSettlementFailure maps a failed settlement action to a remediation
 // directive (retry now / back off to the next sweep / escalate to delinquency).
-func (engine) DecideOnSettlementFailure(_ fweng.Context, failure SettlementFailure) (SettlementFailureDirective, error) {
+func (InterventionEngineImpl) DecideOnSettlementFailure(_ fweng.Context, failure SettlementFailure) (SettlementFailureDirective, error) {
 	if failure.CustomerID == "" || failure.CycleID == "" {
 		return 0, fweng.New(fweng.ContractMisuse,
 			"DecideOnSettlementFailure: empty CustomerID/CycleID (Manager failed to assemble a valid SettlementFailure)")
@@ -345,7 +340,7 @@ func (engine) DecideOnSettlementFailure(_ fweng.Context, failure SettlementFailu
 
 // ApplyPausePolicy computes the pause plan the policy prescribes for an operator
 // pause request. The Manager executes the plan; the Engine returns the plan.
-func (engine) ApplyPausePolicy(_ fweng.Context, ctx PauseRequestContext) (PausePlan, error) {
+func (InterventionEngineImpl) ApplyPausePolicy(_ fweng.Context, ctx PauseRequestContext) (PausePlan, error) {
 	if ctx.ProjectID == "" {
 		return PausePlan{}, fweng.New(fweng.ContractMisuse,
 			"ApplyPausePolicy: empty ProjectID (Manager failed to assemble a valid PauseRequestContext)")

@@ -39,7 +39,7 @@ const defaultCalendarDaysPerWeek = 5
 // by week index, never by input ordering). An empty activity list yields zero-valued
 // curves with a single week-0 sample — a normal DOMAIN result, not an error. The error is
 // *fweng.Error and is reserved for contract misuse; this computation never raises one.
-func (engine) ComputeEarnedValue(_ fweng.Context, activities ActivityList, network Network, integrated []string, totalWeeks int64, calendarDaysPerWeek int64) (EVCurve, error) {
+func (EstimationEngineImpl) ComputeEarnedValue(_ fweng.Context, activities ActivityList, network Network, integrated []string, totalWeeks int64, calendarDaysPerWeek int64) (EVCurve, error) {
 	calDaysPerWeek := int(calendarDaysPerWeek)
 	if calDaysPerWeek <= 0 {
 		calDaysPerWeek = defaultCalendarDaysPerWeek

@@ -27,7 +27,7 @@ const gib = 1024.0 * 1024.0 * 1024.0
 // regime: happy path, zero usage, each metered hosting dimension (incl. the
 // senior-amendment egress dimension), unknown pricing, and contract misuse.
 func TestPriceUsage_FlatMarkup(t *testing.T) {
-	e := New()
+	e := NewBillingEngine()
 
 	tests := []struct {
 		name      string
@@ -188,7 +188,7 @@ func TestPriceUsage_FlatMarkup(t *testing.T) {
 // TestPriceServiceForOption_FlatMarkup is the per-Strategy table for the
 // commit-time projection under the launch FlatMarkup regime.
 func TestPriceServiceForOption_FlatMarkup(t *testing.T) {
-	e := New()
+	e := NewBillingEngine()
 
 	tests := []struct {
 		name      string
@@ -274,7 +274,7 @@ func TestPriceServiceForOption_FlatMarkup(t *testing.T) {
 // repeated invocations of BOTH ops (the Engine reads no clock/RNG/state) —
 // the property that makes the Managers' direct in-workflow calls replay-safe.
 func TestDeterminism(t *testing.T) {
-	e := New()
+	e := NewBillingEngine()
 	usage := PeriodUsage{
 		CustomerID: "cust-1", PeriodID: "2026-06",
 		ConstructionTokens: 1_234_567,
@@ -314,7 +314,7 @@ func TestDeterminism(t *testing.T) {
 // (no float money path) and that the token/hosting decomposition reconciles
 // with the total exactly, in int64.
 func TestMoneyIsExactInt64(t *testing.T) {
-	e := New()
+	e := NewBillingEngine()
 	got, err := e.PriceUsage(
 		fweng.Context{},
 		PeriodUsage{
