@@ -29,6 +29,12 @@ type ServiceContract struct {
 	// GoPackage is the target Go package for codegen (e.g.
 	// "internal/resourceaccess/artifact"). Empty for un-migrated stub entries.
 	GoPackage string `json:"goPackage,omitempty"`
+	// Infra is the approved framework-* infrastructure each ResourceAccess binds to
+	// (e.g. ["Git"], ["Postgres"], or both for projectstate). modelgen emits one
+	// New<Infra><Component> impl struct + DI constructor per infra. Empty for
+	// engines/managers/stubs. Carried on the struct so the codec preserves it across
+	// the EncodeProjectJSON → DecodeProjectJSON round-trip.
+	Infra []string `json:"infra,omitempty"`
 	// Title is the contract document title (e.g. "artifact contract").
 	Title string `json:"title"`
 	// Defs is the document's `$defs` — each value is a JSON Schema, stored raw so

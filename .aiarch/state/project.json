@@ -6802,6 +6802,14 @@
             "coding": true,
             "riskBucket": 1,
             "title": "Build projectExport Client endpoint (GET /projects/{id}/export)"
+          },
+          {
+            "name": "G-CR",
+            "effortDays": 5,
+            "workerClass": "senior-developer",
+            "coding": true,
+            "riskBucket": 3,
+            "title": "Generate cmd/server/main.go (composition root) from project.json deployment modes — per-DEPLOYMENTMODE infra impl selection + manager DI; requires deployment modes populated in project state"
           }
         ]
       }
