@@ -340,10 +340,17 @@ func TestRecordServiceContractProduced_WritesContract(t *testing.T) {
 	ctx := context.Background()
 
 	contract := ps.ServiceContract{
-		Component:  "myEngine",
-		Layer:      "Engine",
-		Stereotype: "pure business logic",
-		Status:     "FROZEN",
+		Component: "myEngine",
+		Layer:     "Engine",
+		GoPackage: "internal/engine/myengine",
+		Title:     "myengine contract",
+		Interface: ps.ContractInterface{
+			Name:  "MyEngine",
+			Layer: "engine",
+			Operations: []ps.ContractOperation{
+				{Name: "Compute", Error: true},
+			},
+		},
 	}
 
 	v2, err := store.RecordServiceContractProduced(ctx, id, v, "myEngine", contract, cred, fwra.IdempotencyKey("wf:contract-myengine"))
@@ -362,8 +369,8 @@ func TestRecordServiceContractProduced_WritesContract(t *testing.T) {
 	if sc.Component != "myEngine" {
 		t.Fatalf("Component = %q, want myEngine", sc.Component)
 	}
-	if sc.Status != "FROZEN" {
-		t.Fatalf("Status = %q, want FROZEN", sc.Status)
+	if sc.Title != "myengine contract" {
+		t.Fatalf("Title = %q, want myengine contract", sc.Title)
 	}
 }
 
@@ -581,11 +588,11 @@ func TestRecordServiceContractProduced_TwoComponents(t *testing.T) {
 	store, id, v, cred := newConstructionStore(t)
 	ctx := context.Background()
 
-	v2, err := store.RecordServiceContractProduced(ctx, id, v, "engineA", ps.ServiceContract{Component: "engineA", Status: "FROZEN"}, cred, fwra.IdempotencyKey("wf:contract-a"))
+	v2, err := store.RecordServiceContractProduced(ctx, id, v, "engineA", ps.ServiceContract{Component: "engineA", Title: "engineA contract"}, cred, fwra.IdempotencyKey("wf:contract-a"))
 	if err != nil {
 		t.Fatalf("RecordServiceContractProduced(engineA): %v", err)
 	}
-	_, err = store.RecordServiceContractProduced(ctx, id, v2, "engineB", ps.ServiceContract{Component: "engineB", Status: "FROZEN"}, cred, fwra.IdempotencyKey("wf:contract-b"))
+	_, err = store.RecordServiceContractProduced(ctx, id, v2, "engineB", ps.ServiceContract{Component: "engineB", Title: "engineB contract"}, cred, fwra.IdempotencyKey("wf:contract-b"))
 	if err != nil {
 		t.Fatalf("RecordServiceContractProduced(engineB): %v", err)
 	}

@@ -453,7 +453,16 @@ func constructionProgressToContract(p *projectstate.ConstructionProgress) *Const
 }
 
 // serviceContractsToContract maps the typed service-contract corpus (honest-empty:
-// nil in ⇒ nil out).
+// nil in ⇒ nil out) onto the legacy web-transport ServiceContract DTO.
+//
+// The owning projectstate.ServiceContract is now a contract DOCUMENT (title + $defs
+// + interface), so the narrative transport fields (Stereotype/Volatility/Status/
+// Inbound/Outbound/DataContracts/ErrorModel/Idempotency/Revisions/op Inputs+Outputs)
+// no longer have a source — they are left empty. The op LIST is derived from the
+// document's interface so the SPA still renders the component's operation surface;
+// each op carries its interface name as the Signature. This is a transitional
+// bridge: the SPA contract view is regenerated against the document shape in a
+// later stage.
 func serviceContractsToContract(scs map[string]projectstate.ServiceContract) map[string]ServiceContract {
 	if len(scs) == 0 {
 		return nil
@@ -461,73 +470,25 @@ func serviceContractsToContract(scs map[string]projectstate.ServiceContract) map
 	out := make(map[string]ServiceContract, len(scs))
 	for name, sc := range scs {
 		out[name] = ServiceContract{
-			Component:     sc.Component,
-			Layer:         sc.Layer,
-			Stereotype:    sc.Stereotype,
-			Volatility:    sc.Volatility,
-			Status:        sc.Status,
-			Inbound:       partiesToContract(sc.Inbound),
-			Outbound:      partiesToContract(sc.Outbound),
-			Ops:           opsToContract(sc.Ops),
-			DataContracts: sc.DataContracts,
-			ErrorModel:    sc.ErrorModel,
-			Idempotency:   sc.Idempotency,
-			Revisions:     revisionsToContract(sc.Revisions),
+			Component:  sc.Component,
+			Layer:      sc.Layer,
+			Stereotype: sc.Title,
+			Ops:        opsFromInterface(sc.Interface),
 		}
 	}
 	return out
 }
 
-func partiesToContract(parties []projectstate.ContractParty) []ContractParty {
-	if len(parties) == 0 {
+// opsFromInterface derives the transport op list from the contract document's
+// interface — one ContractOp per interface operation, carrying the op name as the
+// Signature. Returns nil when the interface has no operations (honest-empty).
+func opsFromInterface(iface projectstate.ContractInterface) []ContractOp {
+	if len(iface.Operations) == 0 {
 		return nil
 	}
-	out := make([]ContractParty, 0, len(parties))
-	for _, p := range parties {
-		out = append(out, ContractParty{Name: p.Name, Layer: p.Layer, How: p.How})
-	}
-	return out
-}
-
-func opsToContract(ops []projectstate.ContractOp) []ContractOp {
-	if len(ops) == 0 {
-		return nil
-	}
-	out := make([]ContractOp, 0, len(ops))
-	for _, op := range ops {
-		out = append(out, ContractOp{
-			Signature:  op.Signature,
-			Stereotype: op.Stereotype,
-			Note:       op.Note,
-			Inputs:     structsToContract(op.Inputs),
-			Outputs:    structsToContract(op.Outputs),
-		})
-	}
-	return out
-}
-
-func structsToContract(structs []projectstate.ContractStruct) []ContractStruct {
-	if len(structs) == 0 {
-		return nil
-	}
-	out := make([]ContractStruct, 0, len(structs))
-	for _, cs := range structs {
-		fields := make([]GoField, 0, len(cs.Fields))
-		for _, f := range cs.Fields {
-			fields = append(fields, GoField{Name: f.Name, Type: f.Type, Note: f.Note})
-		}
-		out = append(out, ContractStruct{Name: cs.Name, Fields: fields})
-	}
-	return out
-}
-
-func revisionsToContract(revs []projectstate.ContractRevision) []ContractRevision {
-	if len(revs) == 0 {
-		return nil
-	}
-	out := make([]ContractRevision, 0, len(revs))
-	for _, r := range revs {
-		out = append(out, ContractRevision{Rev: r.Rev, At: r.At, By: r.By, ByActivity: r.ByActivity, Summary: r.Summary})
+	out := make([]ContractOp, 0, len(iface.Operations))
+	for _, op := range iface.Operations {
+		out = append(out, ContractOp{Signature: op.Name})
 	}
 	return out
 }

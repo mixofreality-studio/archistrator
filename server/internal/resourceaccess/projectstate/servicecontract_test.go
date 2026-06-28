@@ -1,67 +1,47 @@
 package projectstate_test
 
-// servicecontract_test.go verifies the ServiceContract typed model survives a
-// full EncodeProjectJSON → DecodeProjectJSON round-trip. Mirrors the
-// TestActivityConstruction_RoundTrip discipline: no git store, no mocks —
-// just the public codec seam.
+// servicecontract_test.go verifies the ServiceContract contract-document model
+// survives a full EncodeProjectJSON → DecodeProjectJSON round-trip, including a
+// byte-identical second pass. Mirrors the TestActivityConstruction_RoundTrip
+// discipline: no git store, no mocks — just the public codec seam.
 
 import (
+	"bytes"
+	"encoding/json"
 	"testing"
 
 	ps "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
-// TestServiceContract_RoundTrip — a Project with one ServiceContracts["webClient"]
-// entry (ops + revision + inbound + outbound) survives EncodeProjectJSON →
-// DecodeProjectJSON intact.
+// TestServiceContract_RoundTrip — a Project with one ServiceContracts["artifactAccess"]
+// entry (a contract document: title + $defs + interface with a param + result)
+// survives EncodeProjectJSON → DecodeProjectJSON intact and re-encodes byte-identically.
 func TestServiceContract_RoundTrip(t *testing.T) {
 	p := ps.Project{}
 	p.ServiceContracts = map[string]ps.ServiceContract{
-		"webClient": {
-			Component:  "webClient",
-			Layer:      "Client",
-			Stereotype: "SPA entrypoint",
-			Volatility: "UI rendering surface",
-			Status:     "FROZEN",
-			Inbound: []ps.ContractParty{
-				{Name: "User", Layer: "external", How: ""},
+		"artifactAccess": {
+			Component: "artifactAccess",
+			Layer:     "ResourceAccess",
+			GoPackage: "internal/resourceaccess/artifact",
+			Title:     "artifact contract",
+			Defs: map[string]json.RawMessage{
+				"ArtifactID": json.RawMessage(`{"type":"string"}`),
+				"Artifact": json.RawMessage(`{"type":"object","properties":{"id":{"$ref":"#/$defs/ArtifactID"}},"required":["id"],"additionalProperties":false}`),
 			},
-			Outbound: []ps.ContractParty{
-				{Name: "archistratorManager", Layer: "Manager", How: "Activity-wrapped · HTTP POST /api/projects"},
-				{Name: "projectStateAccess", Layer: "ResourceAccess", How: "direct, by value"},
-			},
-			Ops: []ps.ContractOp{
-				{Signature: "CreateProject(name string) (ProjectID, error)", Stereotype: "Manager Temporal workflow", Note: "idempotent via key"},
-				{Signature: "ReadProject(id ProjectID) (Project, error)", Stereotype: "Manager query", Note: "cache-friendly"},
-				{
-					Signature:  "UpdateProject(cmd UpdateProjectCmd) error",
-					Stereotype: "Manager Temporal workflow",
-					Note:       "caller-minted idempotency key",
-					Inputs: []ps.ContractStruct{
-						{
-							Name: "UpdateProjectCmd",
-							Fields: []ps.GoField{
-								{Name: "IdempotencyKey", Type: "string", Note: "caller-minted"},
-								{Name: "ProjectID", Type: "ProjectID"},
-								{Name: "Name", Type: "string"},
-							},
+			Interface: ps.ContractInterface{
+				Name:  "ArtifactAccess",
+				Layer: "resourceaccess",
+				Operations: []ps.ContractOperation{
+					{Name: "Cancel", Params: nil, Error: true},
+					{
+						Name: "Read",
+						Params: []ps.ContractParam{
+							{Name: "id", Schema: json.RawMessage(`{"$ref":"#/$defs/ArtifactID"}`)},
 						},
-					},
-					Outputs: []ps.ContractStruct{
-						{
-							Name: "UpdateProjectResponse",
-							Fields: []ps.GoField{
-								{Name: "UpdatedAt", Type: "time.Time"},
-							},
-						},
+						Result: json.RawMessage(`{"$ref":"#/$defs/Artifact"}`),
+						Error:  true,
 					},
 				},
-			},
-			DataContracts: []string{"ProjectSummary", "ArtifactSlot"},
-			ErrorModel:    "fwra.Error kind-discriminated",
-			Idempotency:   "caller-minted UUID key",
-			Revisions: []ps.ContractRevision{
-				{Rev: "r1", At: "2026-06-17", By: "architect", ByActivity: "D-CW", Summary: "initial freeze"},
 			},
 		},
 	}
@@ -78,58 +58,43 @@ func TestServiceContract_RoundTrip(t *testing.T) {
 		t.Fatal("DecodeProjectJSON: ok=false, want true")
 	}
 
-	sc, found := got.ServiceContracts["webClient"]
+	sc, found := got.ServiceContracts["artifactAccess"]
 	if !found {
-		t.Fatal("ServiceContracts[webClient] absent after round-trip")
+		t.Fatal("ServiceContracts[artifactAccess] absent after round-trip")
+	}
+	if sc.Component != "artifactAccess" {
+		t.Fatalf("Component = %q, want artifactAccess", sc.Component)
+	}
+	if sc.GoPackage != "internal/resourceaccess/artifact" {
+		t.Fatalf("GoPackage = %q, want internal/resourceaccess/artifact", sc.GoPackage)
+	}
+	if sc.Title != "artifact contract" {
+		t.Fatalf("Title = %q, want artifact contract", sc.Title)
+	}
+	if len(sc.Defs) != 2 {
+		t.Fatalf("Defs len = %d, want 2", len(sc.Defs))
+	}
+	if len(sc.Interface.Operations) != 2 {
+		t.Fatalf("Operations len = %d, want 2", len(sc.Interface.Operations))
+	}
+	read := sc.Interface.Operations[1]
+	if read.Name != "Read" {
+		t.Fatalf("Operations[1].Name = %q, want Read", read.Name)
+	}
+	if len(read.Params) != 1 || read.Params[0].Name != "id" {
+		t.Fatalf("Operations[1].Params unexpected: %+v", read.Params)
+	}
+	if len(read.Result) == 0 {
+		t.Fatal("Operations[1].Result absent after round-trip")
 	}
 
-	// ops length
-	if len(sc.Ops) != 3 {
-		t.Fatalf("Ops len = %d, want 3", len(sc.Ops))
+	// BYTE-IDENTICAL second pass: re-encoding the decoded aggregate yields the
+	// identical bytes (the persistence invariant).
+	raw2, err := ps.EncodeProjectJSON(got)
+	if err != nil {
+		t.Fatalf("EncodeProjectJSON (2nd pass): %v", err)
 	}
-
-	// third op carries Inputs/Outputs
-	op := sc.Ops[2]
-	if len(op.Inputs) != 1 {
-		t.Fatalf("Ops[2].Inputs len = %d, want 1", len(op.Inputs))
-	}
-	if op.Inputs[0].Name != "UpdateProjectCmd" {
-		t.Fatalf("Ops[2].Inputs[0].Name = %q, want UpdateProjectCmd", op.Inputs[0].Name)
-	}
-	if len(op.Inputs[0].Fields) != 3 {
-		t.Fatalf("Ops[2].Inputs[0].Fields len = %d, want 3", len(op.Inputs[0].Fields))
-	}
-	if op.Inputs[0].Fields[0].Note != "caller-minted" {
-		t.Fatalf("Ops[2].Inputs[0].Fields[0].Note = %q, want caller-minted", op.Inputs[0].Fields[0].Note)
-	}
-	if len(op.Outputs) != 1 {
-		t.Fatalf("Ops[2].Outputs len = %d, want 1", len(op.Outputs))
-	}
-	if op.Outputs[0].Name != "UpdateProjectResponse" {
-		t.Fatalf("Ops[2].Outputs[0].Name = %q, want UpdateProjectResponse", op.Outputs[0].Name)
-	}
-
-	// revision Rev
-	if len(sc.Revisions) != 1 {
-		t.Fatalf("Revisions len = %d, want 1", len(sc.Revisions))
-	}
-	if sc.Revisions[0].Rev != "r1" {
-		t.Fatalf("Revisions[0].Rev = %q, want r1", sc.Revisions[0].Rev)
-	}
-
-	// outbound How
-	if len(sc.Outbound) != 2 {
-		t.Fatalf("Outbound len = %d, want 2", len(sc.Outbound))
-	}
-	if sc.Outbound[0].How != "Activity-wrapped · HTTP POST /api/projects" {
-		t.Fatalf("Outbound[0].How = %q, unexpected", sc.Outbound[0].How)
-	}
-
-	// status + component identity
-	if sc.Status != "FROZEN" {
-		t.Fatalf("Status = %q, want FROZEN", sc.Status)
-	}
-	if sc.Component != "webClient" {
-		t.Fatalf("Component = %q, want webClient", sc.Component)
+	if !bytes.Equal(raw, raw2) {
+		t.Fatalf("round-trip not byte-identical:\n--- first ---\n%s\n--- second ---\n%s", raw, raw2)
 	}
 }
