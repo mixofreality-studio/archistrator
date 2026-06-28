@@ -11471,29 +11471,140 @@
     "merchantGatewayAccess": {
       "component": "merchantGatewayAccess",
       "layer": "ResourceAccess",
+      "goPackage": "internal/resourceaccess/merchantgateway",
+      "stub": true,
       "title": "merchantGatewayAccess contract",
+      "$defs": {
+        "GatewayBinding": {
+          "type": "object",
+          "properties": {
+            "ConnectedAccountID": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "ConnectedAccountID"
+          ],
+          "additionalProperties": false
+        },
+        "Money": {
+          "type": "object",
+          "properties": {
+            "MinorUnits": {
+              "type": "integer"
+            },
+            "Currency": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "MinorUnits",
+            "Currency"
+          ],
+          "additionalProperties": false
+        }
+      },
       "interface": {
         "name": "MerchantGatewayAccess",
         "layer": "resourceaccess",
         "operations": [
           {
-            "name": "chargeCustomer",
-            "params": null,
+            "name": "ChargeCustomer",
+            "params": [
+              {
+                "name": "customerID",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid",
+                  "x-go-import": "github.com/google/uuid",
+                  "x-go-type": "uuid.UUID"
+                }
+              },
+              {
+                "name": "amount",
+                "schema": {
+                  "$ref": "#/$defs/Money"
+                }
+              },
+              {
+                "name": "idempotencyKey",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            ],
             "error": true
           },
           {
-            "name": "payoutCustomer",
-            "params": null,
+            "name": "CreateConnectedAccount",
+            "params": [
+              {
+                "name": "customerID",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid",
+                  "x-go-import": "github.com/google/uuid",
+                  "x-go-type": "uuid.UUID"
+                }
+              },
+              {
+                "name": "idempotencyKey",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/GatewayBinding"
+            },
             "error": true
           },
           {
-            "name": "createConnectedAccount",
-            "params": null,
+            "name": "PayoutCustomer",
+            "params": [
+              {
+                "name": "customerID",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid",
+                  "x-go-import": "github.com/google/uuid",
+                  "x-go-type": "uuid.UUID"
+                }
+              },
+              {
+                "name": "amount",
+                "schema": {
+                  "$ref": "#/$defs/Money"
+                }
+              },
+              {
+                "name": "idempotencyKey",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            ],
             "error": true
           },
           {
-            "name": "validateStoredInstrument",
-            "params": null,
+            "name": "ValidateStoredInstrument",
+            "params": [
+              {
+                "name": "customerID",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid",
+                  "x-go-import": "github.com/google/uuid",
+                  "x-go-type": "uuid.UUID"
+                }
+              },
+              {
+                "name": "idempotencyKey",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            ],
             "error": true
           }
         ]
@@ -11502,29 +11613,269 @@
     "operatedRuntimeAccess": {
       "component": "operatedRuntimeAccess",
       "layer": "ResourceAccess",
+      "goPackage": "internal/resourceaccess/operatedruntime",
+      "stub": true,
       "title": "operatedRuntimeAccess contract",
+      "$defs": {
+        "AttributionWindow": {
+          "type": "object",
+          "properties": {
+            "From": {
+              "type": "string",
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            },
+            "To": {
+              "type": "string",
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            }
+          },
+          "required": [
+            "From",
+            "To"
+          ],
+          "additionalProperties": false
+        },
+        "ComputeAttribution": {
+          "type": "object",
+          "properties": {
+            "Units": {
+              "$ref": "#/$defs/ComputeUnits"
+            },
+            "RuntimeEventID": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "Units",
+            "RuntimeEventID"
+          ],
+          "additionalProperties": false
+        },
+        "ComputeUnits": {
+          "type": "object",
+          "properties": {
+            "Amount": {
+              "type": "number"
+            },
+            "Unit": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "Amount",
+            "Unit"
+          ],
+          "additionalProperties": false
+        },
+        "GatewayBinding": {
+          "type": "object",
+          "properties": {
+            "ConnectedAccountID": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "ConnectedAccountID"
+          ],
+          "additionalProperties": false
+        },
+        "RuntimeDesiredState": {
+          "type": "object",
+          "properties": {
+            "Bytes": {
+              "type": "string",
+              "contentEncoding": "base64",
+              "x-go-type": "[]byte"
+            },
+            "ContentType": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "Bytes",
+            "ContentType"
+          ],
+          "additionalProperties": false
+        },
+        "RuntimeStatus": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2,
+            3,
+            4
+          ],
+          "x-enum-varnames": [
+            "RuntimeStatusUnknown",
+            "RuntimeStatusPending",
+            "RuntimeStatusHealthy",
+            "RuntimeStatusDegraded",
+            "RuntimeStatusWithdrawn"
+          ],
+          "x-go-base": "int"
+        },
+        "SloStatus": {
+          "type": "object",
+          "properties": {
+            "SloMet": {
+              "type": "boolean"
+            },
+            "Detail": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "SloMet",
+            "Detail"
+          ],
+          "additionalProperties": false
+        }
+      },
       "interface": {
         "name": "OperatedRuntimeAccess",
         "layer": "resourceaccess",
         "operations": [
           {
-            "name": "publishDesiredState",
-            "params": null,
+            "name": "GetApplicationHealth",
+            "params": [
+              {
+                "name": "appID",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid",
+                  "x-go-import": "github.com/google/uuid",
+                  "x-go-type": "uuid.UUID"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/RuntimeStatus"
+            },
             "error": true
           },
           {
-            "name": "withdraw",
-            "params": null,
+            "name": "GetSloStatus",
+            "params": [
+              {
+                "name": "appID",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid",
+                  "x-go-import": "github.com/google/uuid",
+                  "x-go-type": "uuid.UUID"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/SloStatus"
+            },
             "error": true
           },
           {
-            "name": "readRuntimeStatus",
-            "params": null,
+            "name": "PublishDesiredState",
+            "params": [
+              {
+                "name": "appID",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid",
+                  "x-go-import": "github.com/google/uuid",
+                  "x-go-type": "uuid.UUID"
+                }
+              },
+              {
+                "name": "desired",
+                "schema": {
+                  "$ref": "#/$defs/RuntimeDesiredState"
+                }
+              },
+              {
+                "name": "idempotencyKey",
+                "schema": {
+                  "type": "string",
+                  "x-go-type": "fwra.IdempotencyKey"
+                }
+              }
+            ],
             "error": true
           },
           {
-            "name": "readComputeAttribution",
-            "params": null,
+            "name": "ReadComputeAttribution",
+            "params": [
+              {
+                "name": "appID",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid",
+                  "x-go-import": "github.com/google/uuid",
+                  "x-go-type": "uuid.UUID"
+                }
+              },
+              {
+                "name": "window",
+                "schema": {
+                  "$ref": "#/$defs/AttributionWindow"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/ComputeAttribution"
+            },
+            "error": true
+          },
+          {
+            "name": "WirePaymentConfig",
+            "params": [
+              {
+                "name": "deployedAppID",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid",
+                  "x-go-import": "github.com/google/uuid",
+                  "x-go-type": "uuid.UUID"
+                }
+              },
+              {
+                "name": "binding",
+                "schema": {
+                  "$ref": "#/$defs/GatewayBinding"
+                }
+              },
+              {
+                "name": "idempotencyKey",
+                "schema": {
+                  "type": "string",
+                  "x-go-type": "fwra.IdempotencyKey"
+                }
+              }
+            ],
+            "error": true
+          },
+          {
+            "name": "Withdraw",
+            "params": [
+              {
+                "name": "appID",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid",
+                  "x-go-import": "github.com/google/uuid",
+                  "x-go-type": "uuid.UUID"
+                }
+              },
+              {
+                "name": "idempotencyKey",
+                "schema": {
+                  "type": "string",
+                  "x-go-type": "fwra.IdempotencyKey"
+                }
+              }
+            ],
             "error": true
           }
         ]
@@ -11533,39 +11884,368 @@
     "operatedSystemStateAccess": {
       "component": "operatedSystemStateAccess",
       "layer": "ResourceAccess",
+      "goPackage": "internal/resourceaccess/operatedsystemstate",
+      "stub": true,
       "title": "operatedSystemStateAccess contract",
+      "$defs": {
+        "AutoscaleAction": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2,
+            3,
+            4
+          ],
+          "x-enum-varnames": [
+            "AutoscaleNoChange",
+            "AutoscaleScaleUp",
+            "AutoscaleScaleDown",
+            "AutoscalePause",
+            "AutoscaleResume"
+          ],
+          "x-go-base": "int"
+        },
+        "AutoscaleDecision": {
+          "type": "object",
+          "properties": {
+            "Action": {
+              "$ref": "#/$defs/AutoscaleAction"
+            },
+            "Delta": {
+              "type": "integer"
+            },
+            "ToBaseline": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "Action",
+            "Delta",
+            "ToBaseline"
+          ],
+          "additionalProperties": false
+        },
+        "DelinquencyAction": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2
+          ],
+          "x-enum-varnames": [
+            "DelinquencyActionUnknown",
+            "DelinquencyActionPaused",
+            "DelinquencyActionWithdrawn"
+          ],
+          "x-go-base": "int"
+        },
+        "DesiredStateReason": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2,
+            3,
+            4
+          ],
+          "x-enum-varnames": [
+            "ReasonUnknown",
+            "ReasonDeployAfterConstruction",
+            "ReasonOperator",
+            "ReasonAutoscale",
+            "ReasonDelinquency"
+          ],
+          "x-go-base": "int"
+        },
+        "InFlightScope": {
+          "type": "object",
+          "properties": {
+            "AppIDs": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "format": "uuid",
+                "x-go-import": "github.com/google/uuid",
+                "x-go-type": "uuid.UUID"
+              }
+            },
+            "CustomerID": {
+              "type": "string",
+              "format": "uuid",
+              "x-go-import": "github.com/google/uuid",
+              "x-go-type": "uuid.UUID"
+            }
+          },
+          "required": [
+            "AppIDs"
+          ],
+          "additionalProperties": false
+        },
+        "OperatedSystem": {
+          "type": "object",
+          "properties": {
+            "ID": {
+              "type": "string",
+              "format": "uuid",
+              "x-go-import": "github.com/google/uuid",
+              "x-go-type": "uuid.UUID"
+            },
+            "Version": {
+              "$ref": "#/$defs/Version"
+            },
+            "Status": {
+              "$ref": "#/$defs/RuntimeStatus"
+            },
+            "InFlight": {
+              "type": "boolean"
+            },
+            "DeployableBundleRef": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "ID",
+            "Version",
+            "Status",
+            "InFlight",
+            "DeployableBundleRef"
+          ],
+          "additionalProperties": false
+        },
+        "OperatedSystemSummary": {
+          "type": "object",
+          "properties": {
+            "ID": {
+              "type": "string",
+              "format": "uuid",
+              "x-go-import": "github.com/google/uuid",
+              "x-go-type": "uuid.UUID"
+            },
+            "Version": {
+              "$ref": "#/$defs/Version"
+            },
+            "Status": {
+              "$ref": "#/$defs/RuntimeStatus"
+            }
+          },
+          "required": [
+            "ID",
+            "Version",
+            "Status"
+          ],
+          "additionalProperties": false
+        },
+        "RuntimeStatus": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2,
+            3,
+            4
+          ],
+          "x-enum-varnames": [
+            "RuntimeStatusUnknown",
+            "RuntimeStatusPending",
+            "RuntimeStatusHealthy",
+            "RuntimeStatusDegraded",
+            "RuntimeStatusWithdrawn"
+          ],
+          "x-go-base": "int"
+        },
+        "Version": {
+          "type": "integer",
+          "x-go-type": "uint64"
+        }
+      },
       "interface": {
         "name": "OperatedSystemStateAccess",
         "layer": "resourceaccess",
         "operations": [
           {
-            "name": "publishDesiredState",
-            "params": null,
+            "name": "PublishDesiredState",
+            "params": [
+              {
+                "name": "operatedAppID",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid",
+                  "x-go-import": "github.com/google/uuid",
+                  "x-go-type": "uuid.UUID"
+                }
+              },
+              {
+                "name": "expectedVersion",
+                "schema": {
+                  "$ref": "#/$defs/Version"
+                }
+              },
+              {
+                "name": "reason",
+                "schema": {
+                  "$ref": "#/$defs/DesiredStateReason"
+                }
+              },
+              {
+                "name": "decision",
+                "pointer": true,
+                "schema": {
+                  "$ref": "#/$defs/AutoscaleDecision"
+                }
+              },
+              {
+                "name": "idempotencyKey",
+                "schema": {
+                  "type": "string",
+                  "x-go-type": "fwra.IdempotencyKey"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/Version"
+            },
             "error": true
           },
           {
-            "name": "recordRuntimeStatusChange",
-            "params": null,
+            "name": "ReadInFlightOperatedApps",
+            "params": [
+              {
+                "name": "scope",
+                "schema": {
+                  "$ref": "#/$defs/InFlightScope"
+                }
+              }
+            ],
+            "result": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/OperatedSystemSummary"
+              }
+            },
             "error": true
           },
           {
-            "name": "withdrawSystem",
-            "params": null,
+            "name": "ReadOperatedSystem",
+            "params": [
+              {
+                "name": "operatedAppID",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid",
+                  "x-go-import": "github.com/google/uuid",
+                  "x-go-type": "uuid.UUID"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/OperatedSystem"
+            },
             "error": true
           },
           {
-            "name": "recordDelinquencyAction",
-            "params": null,
+            "name": "RecordDelinquencyAction",
+            "params": [
+              {
+                "name": "operatedAppID",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid",
+                  "x-go-import": "github.com/google/uuid",
+                  "x-go-type": "uuid.UUID"
+                }
+              },
+              {
+                "name": "expectedVersion",
+                "schema": {
+                  "$ref": "#/$defs/Version"
+                }
+              },
+              {
+                "name": "action",
+                "schema": {
+                  "$ref": "#/$defs/DelinquencyAction"
+                }
+              },
+              {
+                "name": "idempotencyKey",
+                "schema": {
+                  "type": "string",
+                  "x-go-type": "fwra.IdempotencyKey"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/Version"
+            },
             "error": true
           },
           {
-            "name": "readOperatedSystem",
-            "params": null,
+            "name": "RecordRuntimeStatusChange",
+            "params": [
+              {
+                "name": "operatedAppID",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid",
+                  "x-go-import": "github.com/google/uuid",
+                  "x-go-type": "uuid.UUID"
+                }
+              },
+              {
+                "name": "expectedVersion",
+                "schema": {
+                  "$ref": "#/$defs/Version"
+                }
+              },
+              {
+                "name": "status",
+                "schema": {
+                  "$ref": "#/$defs/RuntimeStatus"
+                }
+              },
+              {
+                "name": "idempotencyKey",
+                "schema": {
+                  "type": "string",
+                  "x-go-type": "fwra.IdempotencyKey"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/Version"
+            },
             "error": true
           },
           {
-            "name": "readInFlightOperatedApps",
-            "params": null,
+            "name": "WithdrawSystem",
+            "params": [
+              {
+                "name": "operatedAppID",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid",
+                  "x-go-import": "github.com/google/uuid",
+                  "x-go-type": "uuid.UUID"
+                }
+              },
+              {
+                "name": "expectedVersion",
+                "schema": {
+                  "$ref": "#/$defs/Version"
+                }
+              },
+              {
+                "name": "idempotencyKey",
+                "schema": {
+                  "type": "string",
+                  "x-go-type": "fwra.IdempotencyKey"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/Version"
+            },
             "error": true
           }
         ]
@@ -13309,24 +13989,177 @@
     "revenueLedgerAccess": {
       "component": "revenueLedgerAccess",
       "layer": "ResourceAccess",
+      "goPackage": "internal/resourceaccess/revenueledger",
+      "stub": true,
       "title": "revenueLedgerAccess contract",
+      "$defs": {
+        "EntryRef": {
+          "type": "string"
+        },
+        "Money": {
+          "type": "object",
+          "properties": {
+            "MinorUnits": {
+              "type": "integer"
+            },
+            "Currency": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "MinorUnits",
+            "Currency"
+          ],
+          "additionalProperties": false
+        },
+        "RevenueEntry": {
+          "type": "object",
+          "properties": {
+            "CustomerID": {
+              "type": "string",
+              "format": "uuid",
+              "x-go-import": "github.com/google/uuid",
+              "x-go-type": "uuid.UUID"
+            },
+            "CycleID": {
+              "type": "string"
+            },
+            "Kind": {
+              "$ref": "#/$defs/RevenueKind"
+            },
+            "Amount": {
+              "$ref": "#/$defs/Money"
+            },
+            "GatewayEventID": {
+              "type": "string"
+            },
+            "OccurredAt": {
+              "type": "string",
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            }
+          },
+          "required": [
+            "CustomerID",
+            "CycleID",
+            "Kind",
+            "Amount",
+            "GatewayEventID",
+            "OccurredAt"
+          ],
+          "additionalProperties": false
+        },
+        "RevenueKind": {
+          "type": "integer",
+          "enum": [
+            0,
+            1
+          ],
+          "x-enum-varnames": [
+            "RevenueKindInbound",
+            "RevenueKindReversal"
+          ],
+          "x-go-base": "int"
+        },
+        "ReversalEntry": {
+          "type": "object",
+          "properties": {
+            "CustomerID": {
+              "type": "string",
+              "format": "uuid",
+              "x-go-import": "github.com/google/uuid",
+              "x-go-type": "uuid.UUID"
+            },
+            "CycleID": {
+              "type": "string"
+            },
+            "Amount": {
+              "$ref": "#/$defs/Money"
+            },
+            "GatewayEventID": {
+              "type": "string"
+            },
+            "ReversesGatewayEventID": {
+              "type": "string"
+            },
+            "OccurredAt": {
+              "type": "string",
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            }
+          },
+          "required": [
+            "CustomerID",
+            "CycleID",
+            "Amount",
+            "GatewayEventID",
+            "ReversesGatewayEventID",
+            "OccurredAt"
+          ],
+          "additionalProperties": false
+        }
+      },
       "interface": {
         "name": "RevenueLedgerAccess",
         "layer": "resourceaccess",
         "operations": [
           {
-            "name": "recordInboundRevenue",
-            "params": null,
+            "name": "ReadRange",
+            "params": [
+              {
+                "name": "customerID",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid",
+                  "x-go-import": "github.com/google/uuid",
+                  "x-go-type": "uuid.UUID"
+                }
+              },
+              {
+                "name": "cycleID",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            ],
+            "result": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/RevenueEntry"
+              }
+            },
             "error": true
           },
           {
-            "name": "recordReversal",
-            "params": null,
+            "name": "RecordInboundRevenue",
+            "params": [
+              {
+                "name": "entry",
+                "schema": {
+                  "$ref": "#/$defs/RevenueEntry"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/EntryRef"
+            },
             "error": true
           },
           {
-            "name": "readRange",
-            "params": null,
+            "name": "RecordReversal",
+            "params": [
+              {
+                "name": "reversal",
+                "schema": {
+                  "$ref": "#/$defs/ReversalEntry"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/EntryRef"
+            },
             "error": true
           }
         ]
@@ -14074,39 +14907,377 @@
     "settlementStateAccess": {
       "component": "settlementStateAccess",
       "layer": "ResourceAccess",
+      "goPackage": "internal/resourceaccess/settlementstate",
+      "stub": true,
       "title": "settlementStateAccess contract",
+      "$defs": {
+        "CustomerProfile": {
+          "type": "object",
+          "properties": {
+            "PayoutAccountRef": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "PayoutAccountRef"
+          ],
+          "additionalProperties": false
+        },
+        "CustomerSummary": {
+          "type": "object",
+          "properties": {
+            "ID": {
+              "type": "string",
+              "format": "uuid",
+              "x-go-import": "github.com/google/uuid",
+              "x-go-type": "uuid.UUID"
+            },
+            "PauseNotWithdraw": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "ID",
+            "PauseNotWithdraw"
+          ],
+          "additionalProperties": false
+        },
+        "DelinquencyScope": {
+          "type": "object",
+          "properties": {
+            "ProjectID": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "ProjectID"
+          ],
+          "additionalProperties": false
+        },
+        "GatewayBinding": {
+          "type": "object",
+          "properties": {
+            "ConnectedAccountID": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "ConnectedAccountID"
+          ],
+          "additionalProperties": false
+        },
+        "Money": {
+          "type": "object",
+          "properties": {
+            "MinorUnits": {
+              "type": "integer"
+            },
+            "Currency": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "MinorUnits",
+            "Currency"
+          ],
+          "additionalProperties": false
+        },
+        "RoutingDirective": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2
+          ],
+          "x-enum-varnames": [
+            "RoutingNoAction",
+            "RoutingPayout",
+            "RoutingCharge"
+          ],
+          "x-go-base": "int"
+        },
+        "Settlement": {
+          "type": "object",
+          "properties": {
+            "ID": {
+              "type": "string",
+              "format": "uuid",
+              "x-go-import": "github.com/google/uuid",
+              "x-go-type": "uuid.UUID"
+            },
+            "Version": {
+              "$ref": "#/$defs/Version"
+            },
+            "GatewayBound": {
+              "type": "boolean"
+            },
+            "Registered": {
+              "type": "boolean"
+            },
+            "Terms": {
+              "$ref": "#/$defs/SettlementTerms"
+            },
+            "PayoutAccount": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "ID",
+            "Version",
+            "GatewayBound",
+            "Registered",
+            "Terms",
+            "PayoutAccount"
+          ],
+          "additionalProperties": false
+        },
+        "SettlementOutcome": {
+          "type": "object",
+          "properties": {
+            "Net": {
+              "$ref": "#/$defs/Money"
+            },
+            "Directive": {
+              "$ref": "#/$defs/RoutingDirective"
+            },
+            "Escalated": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "Net",
+            "Directive",
+            "Escalated"
+          ],
+          "additionalProperties": false
+        },
+        "SettlementTerms": {
+          "type": "object",
+          "properties": {
+            "RevenueShareKind": {
+              "type": "integer"
+            },
+            "ComputeCostKind": {
+              "type": "integer"
+            },
+            "ScheduleKind": {
+              "type": "integer"
+            },
+            "BillingKind": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "RevenueShareKind",
+            "ComputeCostKind",
+            "ScheduleKind",
+            "BillingKind"
+          ],
+          "additionalProperties": false
+        },
+        "Version": {
+          "type": "integer",
+          "x-go-type": "uint64"
+        }
+      },
       "interface": {
         "name": "SettlementStateAccess",
         "layer": "resourceaccess",
         "operations": [
           {
-            "name": "registerCustomer",
-            "params": null,
+            "name": "BindGatewayLive",
+            "params": [
+              {
+                "name": "customerID",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid",
+                  "x-go-import": "github.com/google/uuid",
+                  "x-go-type": "uuid.UUID"
+                }
+              },
+              {
+                "name": "expectedVersion",
+                "schema": {
+                  "$ref": "#/$defs/Version"
+                }
+              },
+              {
+                "name": "binding",
+                "schema": {
+                  "$ref": "#/$defs/GatewayBinding"
+                }
+              },
+              {
+                "name": "idempotencyKey",
+                "schema": {
+                  "type": "string",
+                  "x-go-type": "fwra.IdempotencyKey"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/Version"
+            },
             "error": true
           },
           {
-            "name": "bindGatewayLive",
-            "params": null,
+            "name": "ReadPersistentlyDelinquentCustomers",
+            "params": [
+              {
+                "name": "scope",
+                "schema": {
+                  "$ref": "#/$defs/DelinquencyScope"
+                }
+              }
+            ],
+            "result": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/CustomerSummary"
+              }
+            },
             "error": true
           },
           {
-            "name": "settleCycle",
-            "params": null,
+            "name": "ReadSettlement",
+            "params": [
+              {
+                "name": "customerID",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid",
+                  "x-go-import": "github.com/google/uuid",
+                  "x-go-type": "uuid.UUID"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/Settlement"
+            },
             "error": true
           },
           {
-            "name": "resettleCycle",
-            "params": null,
+            "name": "RegisterCustomer",
+            "params": [
+              {
+                "name": "customerID",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid",
+                  "x-go-import": "github.com/google/uuid",
+                  "x-go-type": "uuid.UUID"
+                }
+              },
+              {
+                "name": "expectedVersion",
+                "schema": {
+                  "$ref": "#/$defs/Version"
+                }
+              },
+              {
+                "name": "profile",
+                "schema": {
+                  "$ref": "#/$defs/CustomerProfile"
+                }
+              },
+              {
+                "name": "idempotencyKey",
+                "schema": {
+                  "type": "string",
+                  "x-go-type": "fwra.IdempotencyKey"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/Version"
+            },
             "error": true
           },
           {
-            "name": "readSettlement",
-            "params": null,
+            "name": "ResettleCycle",
+            "params": [
+              {
+                "name": "customerID",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid",
+                  "x-go-import": "github.com/google/uuid",
+                  "x-go-type": "uuid.UUID"
+                }
+              },
+              {
+                "name": "expectedVersion",
+                "schema": {
+                  "$ref": "#/$defs/Version"
+                }
+              },
+              {
+                "name": "cycle",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "name": "correction",
+                "schema": {
+                  "$ref": "#/$defs/SettlementOutcome"
+                }
+              },
+              {
+                "name": "idempotencyKey",
+                "schema": {
+                  "type": "string",
+                  "x-go-type": "fwra.IdempotencyKey"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/Version"
+            },
             "error": true
           },
           {
-            "name": "readPersistentlyDelinquentCustomers",
-            "params": null,
+            "name": "SettleCycle",
+            "params": [
+              {
+                "name": "customerID",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid",
+                  "x-go-import": "github.com/google/uuid",
+                  "x-go-type": "uuid.UUID"
+                }
+              },
+              {
+                "name": "expectedVersion",
+                "schema": {
+                  "$ref": "#/$defs/Version"
+                }
+              },
+              {
+                "name": "cycle",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "name": "outcome",
+                "schema": {
+                  "$ref": "#/$defs/SettlementOutcome"
+                }
+              },
+              {
+                "name": "idempotencyKey",
+                "schema": {
+                  "type": "string",
+                  "x-go-type": "fwra.IdempotencyKey"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/Version"
+            },
             "error": true
           }
         ]
