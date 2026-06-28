@@ -1,8 +1,9 @@
-package project
+package systemdesign
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -15,47 +16,20 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 )
 
-// Compile-time proof the concrete projectManager satisfies the generated
-// ProjectManager port. Each op leads with the Manager-layer call Context (fwm.Context,
-// embedding context.Context + the Principal); the *projectManager derives ctx :=
-// rc.Context inside.
-var _ ProjectManager = (*projectManager)(nil)
-
-// projectManager is the projectManager façade — a THIN Manager over the project
-// head-state aggregate (architecture.dsl `projectManager`). It holds NO Temporal
-// client and owns NO durable workflow; it is the project CATALOG + cross-phase typed
-// read the webClient talks to for the three non-co-authoring operations.
+// catalog.go holds the three CATALOG / cross-phase typed-read ops folded onto the
+// systemDesignManager from the former projectManager (dissolved 2026-06-28): a
+// project's permanent identity IS its living system design, so the project CATALOG
+// + the cross-phase typed head-state read belong on this Manager. These ops own NO
+// Temporal workflow; they are thin synchronous reads/writes over the published
+// projectStateAccess (head state), sourceControlAccess (project-birth adopt + seat),
+// and the constructionEstimationEngine (compute-at-read CPM + EV/SPI).
 //
-// It depends on each dependency's GENERATED/published interface directly (founder
-// model 2026-06-28): projectstate.ProjectStateAccess (head state),
-// sourcecontrol.SourceControlAccess (the source-control lifecycle, optional), and the
-// constructionEstimationEngine. The former hand-written consumer-mirror interfaces +
-// the composition-root sourceControlAdapter are RETIRED; this façade field-maps the
-// deps' own types to its contract types at the boundary (Option-B).
-//
-// At project BIRTH it drives the downward sourceControlAccess edges that ADOPT the
-// user's repo and SEAT the agentic-design scaffold, synchronously before
-// projectState.CreateProject, so a project is never cataloged without an adopted,
-// workflow-seated source-control repo. sourceControl is optional (nil when the GitHub
-// App is unconfigured — a dev server with no creds): when nil, project creation
-// proceeds repo-less.
-type projectManager struct {
-	projectState  projectstate.ProjectStateAccess
-	sourceControl sourcecontrol.SourceControlAccess // optional; nil ⇒ repo-less create (dev, no creds)
-	estimator     estimation.EstimationEngine       // construction-estimation Engine; ComputeNetwork + ComputeEarnedValue at read (compute-at-read)
-	repoBase      string                            // construction-repo WEB base (<host>/<owner>/<repo>); composes each git row's prUrl. "" ⇒ prUrl omitted.
-}
-
-// newProjectManager is the hand-written, unexported builder the generated
-// NewProjectManager constructor delegates to. It wires the published deps into the
-// façade. Pass a nil sourcecontrol.SourceControlAccess to run repo-less (a dev server
-// with no GitHub App credentials). The estimator is a pure, deterministic Engine — a
-// downward Manager→Engine edge; nil disables the network/EV compute (the read returns
-// the authored network unenriched and a zero EV). repoBase "" (construction repo
-// unconfigured) omits each prUrl — prNumber still derives from the opaque ref.
-func newProjectManager(projectState projectstate.ProjectStateAccess, sourceControl sourcecontrol.SourceControlAccess, estimator estimation.EstimationEngine, repoBase string) *projectManager {
-	return &projectManager{projectState: projectState, sourceControl: sourceControl, estimator: estimator, repoBase: repoBase}
-}
+// SCHEMA-FIRST: the public surface (the 3 ops + the ProjectState projection types)
+// is GENERATED into contract.gen.go from project.json .serviceContracts; this file
+// is the hand-written impl on the unexported *systemDesignManager. The generated
+// contract imports neither projectstate nor Temporal — the aggregate value shapes
+// are field-mapped to the Manager's OWN contract types at the boundary, and the
+// per-slot artifact MODEL is carried OPAQUELY as an {kind, raw-json} envelope.
 
 // CreateProject births a new project. NAME-AS-IDENTITY (C-PM-Δ): the USER supplies
 // the repo name, which IS the project identity (project name == repo name). The
@@ -70,8 +44,10 @@ func newProjectManager(projectState projectstate.ProjectStateAccess, sourceContr
 //
 // Returns the project id (== the adopted repo name). Validation errors (empty
 // owner/name) surface as ContractMisuse before any RA call. Every write is idempotent
-// — a retry after a partial failure RE-CONVERGES rather than duplicating.
-func (m *projectManager) CreateProject(rc fwm.Context, owner OwnerScope, name string) (ProjectID, error) {
+// — a retry after a partial failure RE-CONVERGES rather than duplicating. The rail
+// (sourceControlAccess) is optional: nil ⇒ repo-less create (a dev server with no
+// GitHub App credentials).
+func (m *systemDesignManager) CreateProject(rc fwm.Context, owner OwnerScope, name string) (ProjectID, error) {
 	ctx := rc.Context
 	if owner == "" {
 		return "", newError(fwm.ContractMisuse, "empty owner")
@@ -87,21 +63,15 @@ func (m *projectManager) CreateProject(rc fwm.Context, owner OwnerScope, name st
 	// Adopt the user's existing repo + seat the workflow file FIRST (project birth,
 	// before the head-state row). Skipped only when source-control is unconfigured
 	// (nil) — a repo-less dev server. Every step is idempotent; a retry re-converges.
-	if m.sourceControl != nil {
-		// ADOPT the user's existing repo (name-as-identity: the project id IS the repo
-		// name), then SEAT the aiarch-managed scaffold (the design workflow + go-test
-		// gate). The seating logic — formerly the composition-root sourceControlAdapter —
-		// is now folded into the façade: mint the short-lived installation credential, ask
-		// the RA which managed files make up the scaffold, and commit them. Every write is
-		// idempotent; a retry re-converges.
-		repo, err := m.sourceControl.AdoptProjectRepo(fwra.Context{Context: ctx, IdempotencyKey: key}, sourcecontrol.RepoAdoptionSpec{
+	if m.rail != nil {
+		repo, err := m.rail.AdoptProjectRepo(fwra.Context{Context: ctx, IdempotencyKey: key}, sourcecontrol.RepoAdoptionSpec{
 			RepoName: name, // name-as-identity: the project id IS the repo name
 			Title:    name,
 		})
 		if err != nil {
 			return "", mapRAError(err)
 		}
-		cred, err := m.sourceControl.GetInstallationToken(fwra.Context{Context: ctx}, repo)
+		cred, err := m.rail.GetInstallationToken(fwra.Context{Context: ctx}, repo)
 		if err != nil {
 			return "", mapRAError(err)
 		}
@@ -109,7 +79,7 @@ func (m *projectManager) CreateProject(rc fwm.Context, owner OwnerScope, name st
 		if err != nil {
 			return "", mapRAError(err)
 		}
-		if _, err := m.sourceControl.CommitManagedFiles(fwra.Context{Context: ctx, IdempotencyKey: key}, repo, files, cred); err != nil {
+		if _, err := m.rail.CommitManagedFiles(fwra.Context{Context: ctx, IdempotencyKey: key}, repo, files, cred); err != nil {
 			return "", mapRAError(err)
 		}
 	}
@@ -131,7 +101,7 @@ func createProjectIdempotencyKey(projectID ProjectID) fwra.IdempotencyKey {
 // ListProjects returns the landing-grid catalog for owner, newest-first (the RA's
 // ordering). A pass-through over projectStateAccess.ListProjects, mapped to the
 // contract ProjectSummary.
-func (m *projectManager) ListProjects(rc fwm.Context, owner OwnerScope) ([]ProjectSummary, error) {
+func (m *systemDesignManager) ListProjects(rc fwm.Context, owner OwnerScope) ([]ProjectSummary, error) {
 	ctx := rc.Context
 	if owner == "" {
 		return nil, newError(fwm.ContractMisuse, "empty owner")
@@ -150,7 +120,7 @@ func (m *projectManager) ListProjects(rc fwm.Context, owner OwnerScope) ([]Proje
 // GetProject returns the full typed head-state for one project, mapping the
 // projectstate.Project aggregate's named typed slots into the contract ProjectState.
 // fwra.NotFound passes through as fwm.NotFound.
-func (m *projectManager) GetProject(rc fwm.Context, projectID ProjectID) (ProjectState, error) {
+func (m *systemDesignManager) GetProject(rc fwm.Context, projectID ProjectID) (ProjectState, error) {
 	ctx := rc.Context
 	if projectID == "" {
 		return ProjectState{}, newError(fwm.ContractMisuse, "empty projectId")
@@ -163,21 +133,41 @@ func (m *projectManager) GetProject(rc fwm.Context, projectID ProjectID) (Projec
 	return m.projectStateToContract(proj), nil
 }
 
+// mapRAError translates a projectStateAccess / sourceControlAccess error into the
+// Manager façade error model. fwra.NotFound → NotFound; fwra.ContractMisuse →
+// ContractMisuse; everything else (incl. Conflict — a thin read/catalog op has no
+// optimistic-concurrency loop to recover it) → Infrastructure with the original
+// retryability preserved.
+func mapRAError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var raErr *fwra.Error
+	if errors.As(err, &raErr) {
+		switch raErr.Kind {
+		case fwra.NotFound:
+			return newError(fwm.NotFound, err.Error())
+		case fwra.ContractMisuse:
+			return newError(fwm.ContractMisuse, err.Error())
+		default:
+			mapped := fwm.Wrap(fwm.Infrastructure, err, "projectStateAccess")
+			mapped.Retryable = raErr.Retryable
+			return mapped
+		}
+	}
+	return newError(fwm.Infrastructure, err.Error())
+}
+
 // ---------------------------------------------------------------------------
 // Compute-at-read enrichment (INTERNAL impl). Operates on the projectstate.Project
-// aggregate BEFORE mapping to the contract — it casts the Network + ActivityList
-// slots to typed and runs the estimation Engine, filling the Network slot's computed
-// block. This is NOT contract surface (it field-maps into the Engine's slim Option-B
-// types), so it does not force generating those types into project's contract.
+// aggregate BEFORE mapping to the contract.
 // ---------------------------------------------------------------------------
 
 // computeNetworkAtRead populates the Network slot's COMPUTE-AT-READ block (per-node CPM
 // figures, criticality bands, milestone event times, summary) by running the
 // constructionEstimationEngine.ComputeNetwork over the AUTHORED network × activity list.
-// NO-OP when the estimator is nil or the Network slot has no authored model. The
-// authored fields (dependencies, milestones) are preserved untouched; only the computed
-// fields are filled. A compute error (a degenerate-input guard) is swallowed.
-func (m *projectManager) computeNetworkAtRead(p *projectstate.Project) {
+// NO-OP when the estimator is nil or the Network slot has no authored model.
+func (m *systemDesignManager) computeNetworkAtRead(p *projectstate.Project) {
 	if m.estimator == nil {
 		return
 	}
@@ -248,8 +238,7 @@ func (m *projectManager) computeNetworkAtRead(p *projectstate.Project) {
 }
 
 // toEstimationActivityList converts the canonical projectstate.ActivityList to the
-// constructionEstimationEngine's OWN SLIM ActivityList at the call boundary (Option B
-// full encapsulation). ComputeNetwork reads only Name + EffortDays.
+// constructionEstimationEngine's OWN SLIM ActivityList at the call boundary.
 func toEstimationActivityList(al projectstate.ActivityList) estimation.ActivityList {
 	out := estimation.ActivityList{Activities: make([]estimation.ActivityItem, 0, len(al.Activities))}
 	for _, a := range al.Activities {
@@ -259,8 +248,7 @@ func toEstimationActivityList(al projectstate.ActivityList) estimation.ActivityL
 }
 
 // toEstimationNetwork converts the canonical projectstate.Network to the
-// constructionEstimationEngine's OWN SLIM Network at the call boundary. ComputeNetwork
-// reads only the AUTHORED Dependencies + Milestones (it COMPUTES the rest).
+// constructionEstimationEngine's OWN SLIM Network at the call boundary.
 func toEstimationNetwork(net projectstate.Network) estimation.Network {
 	deps := make([]estimation.NetworkDependency, 0, len(net.Dependencies))
 	for _, d := range net.Dependencies {
@@ -277,10 +265,7 @@ func toEstimationNetwork(net projectstate.Network) estimation.Network {
 }
 
 // ---------------------------------------------------------------------------
-// projectstate → contract conversions (the Manager boundary). The aggregate's value
-// shapes are field-mapped into project's OWN contract types so the generated contract
-// imports no projectstate. The per-slot artifact model is carried OPAQUELY as a
-// {kind, raw-json} envelope.
+// projectstate → contract conversions (the Manager boundary).
 // ---------------------------------------------------------------------------
 
 // summaryToContract maps a projectstate.ProjectSummary onto the contract ProjectSummary.
@@ -297,12 +282,10 @@ func summaryToContract(s projectstate.ProjectSummary) ProjectSummary {
 }
 
 // projectStateToContract maps the head-state Project aggregate to the contract
-// ProjectState transport shape. It is a method on *projectManager so the read-time projections
-// it now OWNS — each git row's prUrl/prNumber (composed from m.repoBase + the opaque ref)
-// and the EV/SPI earned-value curve (computed by m.estimator) — are sourced server-side
-// here rather than re-derived by the webClient (the relocation off the hand-written web
-// layer, founder gate 2026-06-28).
-func (m *projectManager) projectStateToContract(p projectstate.Project) ProjectState {
+// ProjectState transport shape. Read-time projections (each git row's prUrl/prNumber
+// composed from m.repoBase + the opaque ref, and the EV/SPI earned-value curve from
+// m.estimator) are sourced server-side here rather than re-derived by the webClient.
+func (m *systemDesignManager) projectStateToContract(p projectstate.Project) ProjectState {
 	return ProjectState{
 		ProjectID:            ProjectID(p.ID),
 		Name:                 p.Name,
@@ -346,9 +329,7 @@ func slotsToContract(p projectstate.Project) []ArtifactSlotView {
 }
 
 // encodeSlotModel carries the slot's typed model OPAQUELY: the canonical camelCase
-// kind wire name + the concrete model's own JSON (nil when the slot is empty). project
-// never names the concrete projectstate model types or the sealed ArtifactModel sum
-// here — the model is marshaled to raw JSON and passed through to the SPA verbatim.
+// kind wire name + the concrete model's own JSON (nil when the slot is empty).
 func encodeSlotModel(kind projectstate.ArtifactKind, m projectstate.ArtifactModel) ArtifactSlotModel {
 	env := ArtifactSlotModel{Kind: kind.WireName()}
 	if m != nil {
@@ -360,8 +341,7 @@ func encodeSlotModel(kind projectstate.ArtifactKind, m projectstate.ArtifactMode
 	return env
 }
 
-// notesPtr maps an architect-notes string to the optional contract field: nil for the
-// empty string (omitted on the wire), &notes otherwise.
+// notesPtr maps an architect-notes string to the optional contract field.
 func notesPtr(notes string) *string {
 	if notes == "" {
 		return nil
@@ -374,25 +354,23 @@ func notesPtr(notes string) *string {
 func stageForStatus(s projectstate.ArtifactReviewStatus) ArtifactStage {
 	switch s {
 	case projectstate.ReviewAwaitingReview:
-		return StageAwaitingReview
+		return ArtifactStageAwaitingReview
 	case projectstate.ReviewCommitted:
-		return StageCommitted
+		return ArtifactStageCommitted
 	case projectstate.ReviewRejected:
-		return StageRejected
+		return ArtifactStageRejected
 	case projectstate.ReviewWithdrawn:
-		return StageWithdrawn
+		return ArtifactStageWithdrawn
 	default:
-		return StageEmpty
+		return ArtifactStageEmpty
 	}
 }
 
 // gitRowsToContract maps the per-activity git head-state map (honest-empty: nil in ⇒
-// nil out, so the slot is omitted on the wire). It is a method on *projectManager so it can
-// compose each row's READ-TIME prUrl/prNumber projections (D-PA-GIT-PRURL-ruling R1/R2)
-// from m.repoBase + the opaque pullRequestRef — the relocation of the former web
-// projectPRRef onto the contract-owning projectManager. The durable aggregate stays
+// nil out). It composes each row's READ-TIME prUrl/prNumber projections from
+// m.repoBase + the opaque pullRequestRef — the durable aggregate stays
 // provider-opaque; prUrl/prNumber are pure read-time projections, never stored.
-func (m *projectManager) gitRowsToContract(rows map[string]projectstate.ActivityGitStatus) map[string]ActivityGitStatus {
+func (m *systemDesignManager) gitRowsToContract(rows map[string]projectstate.ActivityGitStatus) map[string]ActivityGitStatus {
 	if len(rows) == 0 {
 		return nil
 	}
@@ -420,16 +398,11 @@ func (m *projectManager) gitRowsToContract(rows map[string]projectstate.Activity
 // projectPRRef is the SINGLE server-side site that turns the OPAQUE pullRequestRef into
 // the SPA's two read-time render fields (D-PA-GIT-PRURL-ruling R1/R2). It isolates BOTH
 // the "the opaque ref is a decimal PR number" assumption AND the GitHub "/pull/<n>" URL
-// grammar to one place — the durable aggregate stays provider-opaque, and the webClient
-// receives a finished prNumber + prUrl. Relocated verbatim from the hand-written web
-// layer (catalog.go) so the GitHub URL grammar now lives with the contract-owning projectManager.
+// grammar to one place — the durable aggregate stays provider-opaque.
 //
 //   - prNumber: strconv.Atoi(ref). Zero (→ omitted by the web wire's omitempty) when ref
-//     is "" (branch-only first touch) or unparseable (a future non-numeric provider ref) —
-//     never panics, never fabricates.
-//   - prURL: <repoBase>/pull/<ref>, ONLY when ref != "" AND repoBase != "" (construction
-//     repo configured). Otherwise "". The host appears only transiently here, composed
-//     from config — never in durable state.
+//     is "" (branch-only first touch) or unparseable — never panics, never fabricates.
+//   - prURL: <repoBase>/pull/<ref>, ONLY when ref != "" AND repoBase != "". Otherwise "".
 func projectPRRef(ref, repoBase string) (prNumber int, prURL string) {
 	if ref == "" {
 		return 0, ""
@@ -502,13 +475,8 @@ func producedToContract(produced []projectstate.ProducedArtifact) []ProducedArti
 
 // constructionProgressToContract maps the project-level Phase-3 framing scalars
 // (nil in ⇒ nil out) AND computes the EV/SPI earned-value curve server-side via the
-// constructionEstimationEngine (compute-at-read) — the relocation of the former web
-// computeEV onto the contract-owning projectManager. It is a method on *projectManager so it can reach
-// the estimator + cast the ActivityList/Network/PlanningAssumptions slots off the whole
-// aggregate. When progress is absent the whole block is omitted (honest-empty); when
-// present the EV curve is always populated (zero-valued when the estimator is nil or the
-// inputs are degenerate — never a fabricated curve).
-func (m *projectManager) constructionProgressToContract(p projectstate.Project) *ConstructionProgress {
+// constructionEstimationEngine (compute-at-read).
+func (m *systemDesignManager) constructionProgressToContract(p projectstate.Project) *ConstructionProgress {
 	cp := p.ConstructionProgress
 	if cp == nil {
 		return nil
@@ -522,14 +490,11 @@ func (m *projectManager) constructionProgressToContract(p projectstate.Project) 
 	}
 }
 
-// computeEVAtRead computes the EV/SPI earned-value curve by calling the
+// computeEVAtRead computes the EV/SPI earned-value curve via the
 // constructionEstimationEngine.ComputeEarnedValue over the AUTHORED activity list ×
-// network, the integrated activity set (the construction rows whose stored build status is
-// BuildIntegrated), the calendar days/week from the PlanningAssumptions slot, and the
-// project's total-week framing. NO compute (a zero EVCurve) when the estimator is nil; a
-// compute error (a degenerate-input guard) is swallowed to a zero EVCurve. This is the
-// server-side replacement for the web layer's former computeEV.
-func (m *projectManager) computeEVAtRead(p projectstate.Project, totalWeeks int64) EVCurve {
+// network, the integrated activity set, the calendar days/week, and the total-week
+// framing. Zero EVCurve when the estimator is nil or inputs are degenerate.
+func (m *systemDesignManager) computeEVAtRead(p projectstate.Project, totalWeeks int64) EVCurve {
 	if m.estimator == nil {
 		return EVCurve{}
 	}
@@ -564,8 +529,7 @@ func (m *projectManager) computeEVAtRead(p projectstate.Project, totalWeeks int6
 }
 
 // calendarDaysPerWeek reads the working days/week from the PlanningAssumptions slot,
-// defaulting to the standard 5-day workweek when the slot is absent or non-positive
-// (mirrors the retired web calendarDaysFromState).
+// defaulting to the standard 5-day workweek when the slot is absent or non-positive.
 func calendarDaysPerWeek(p projectstate.Project) int {
 	if pa, ok := p.PlanningAssumptions.Model.(*projectstate.PlanningAssumptions); ok && pa != nil && pa.CalendarDaysPerWeek > 0 {
 		return int(pa.CalendarDaysPerWeek)
@@ -574,16 +538,9 @@ func calendarDaysPerWeek(p projectstate.Project) int {
 }
 
 // serviceContractsToContract maps the typed service-contract corpus (honest-empty:
-// nil in ⇒ nil out) onto the legacy web-transport ServiceContract DTO.
-//
-// The owning projectstate.ServiceContract is now a contract DOCUMENT (title + $defs
-// + interface), so the narrative transport fields (Stereotype/Volatility/Status/
-// Inbound/Outbound/DataContracts/ErrorModel/Idempotency/Revisions/op Inputs+Outputs)
-// no longer have a source — they are left empty. The op LIST is derived from the
-// document's interface so the SPA still renders the component's operation surface;
-// each op carries its interface name as the Signature. This is a transitional
-// bridge: the SPA contract view is regenerated against the document shape in a
-// later stage.
+// nil in ⇒ nil out) onto the legacy web-transport ServiceContract DTO. Transitional
+// bridge: the op LIST is derived from the document's interface; the narrative
+// transport fields are left empty (the SPA contract view is regenerated later).
 func serviceContractsToContract(scs map[string]projectstate.ServiceContract) map[string]ServiceContract {
 	if len(scs) == 0 {
 		return nil

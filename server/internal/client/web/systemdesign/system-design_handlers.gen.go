@@ -23,11 +23,19 @@ type Handler struct {
 // Register mounts every operation route on mux.
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/system-design/advance-phase/{projectID}", h.handleAdvancePhase)
+	mux.HandleFunc("POST /api/v1/system-design/create-project", h.handleCreateProject)
+	mux.HandleFunc("GET /api/v1/system-design/get-project/{projectID}", h.handleGetProject)
 	mux.HandleFunc("GET /api/v1/system-design/get-session-state/{projectID}", h.handleGetSessionState)
+	mux.HandleFunc("GET /api/v1/system-design/list-projects", h.handleListProjects)
 	mux.HandleFunc("POST /api/v1/system-design/request-artifact-draft/{projectID}", h.handleRequestArtifactDraft)
 	mux.HandleFunc("POST /api/v1/system-design/set-research-input/{projectID}", h.handleSetResearchInput)
 	mux.HandleFunc("POST /api/v1/system-design/start-system-design/{projectID}", h.handleStartSystemDesign)
 	mux.HandleFunc("POST /api/v1/system-design/submit-review-decision/{projectID}", h.handleSubmitReviewDecision)
+}
+
+type createProjectRequest struct {
+	Owner mgr.OwnerScope `json:"owner"`
+	Name  string         `json:"name"`
 }
 
 type requestArtifactDraftRequest struct {
@@ -69,6 +77,57 @@ func (h *Handler) handleAdvancePhase(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
+// handleCreateProject binds POST /api/v1/system-design/create-project -> mgr.CreateProject.
+func (h *Handler) handleCreateProject(w http.ResponseWriter, r *http.Request) {
+	var req createProjectRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	principal, ok := security.PrincipalFrom(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthenticated", "authentication required")
+		return
+	}
+	decision, err := h.Security.Authorize(r.Context(), principal,
+		security.Action{Verb: "create-project"},
+		security.ResourceRef{Kind: "systemDesignCatalog", ID: principal.Subject})
+	if err != nil || !decision.Permit {
+		writeError(w, http.StatusForbidden, "forbidden", "not permitted")
+		return
+	}
+	rc := fwmanager.Context{Context: r.Context(), Principal: principal}
+	result, err := h.Manager.CreateProject(rc, req.Owner, req.Name)
+	if err != nil {
+		writeManagerError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+// handleGetProject binds GET /api/v1/system-design/get-project/{projectID} -> mgr.GetProject.
+func (h *Handler) handleGetProject(w http.ResponseWriter, r *http.Request) {
+	projectID := mgr.ProjectID(r.PathValue("projectID"))
+	principal, ok := security.PrincipalFrom(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthenticated", "authentication required")
+		return
+	}
+	decision, err := h.Security.Authorize(r.Context(), principal,
+		security.Action{Verb: "get-project"},
+		security.ResourceRef{Kind: "project", ID: string(projectID)})
+	if err != nil || !decision.Permit {
+		writeError(w, http.StatusForbidden, "forbidden", "not permitted")
+		return
+	}
+	rc := fwmanager.Context{Context: r.Context(), Principal: principal}
+	result, err := h.Manager.GetProject(rc, projectID)
+	if err != nil {
+		writeManagerError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
 // handleGetSessionState binds GET /api/v1/system-design/get-session-state/{projectID} -> mgr.GetSessionState.
 func (h *Handler) handleGetSessionState(w http.ResponseWriter, r *http.Request) {
 	projectID := mgr.ProjectID(r.PathValue("projectID"))
@@ -92,6 +151,30 @@ func (h *Handler) handleGetSessionState(w http.ResponseWriter, r *http.Request) 
 	}
 	rc := fwmanager.Context{Context: r.Context(), Principal: principal}
 	result, err := h.Manager.GetSessionState(rc, projectID, kind)
+	if err != nil {
+		writeManagerError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+// handleListProjects binds GET /api/v1/system-design/list-projects -> mgr.ListProjects.
+func (h *Handler) handleListProjects(w http.ResponseWriter, r *http.Request) {
+	owner := mgr.OwnerScope(r.URL.Query().Get("owner"))
+	principal, ok := security.PrincipalFrom(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthenticated", "authentication required")
+		return
+	}
+	decision, err := h.Security.Authorize(r.Context(), principal,
+		security.Action{Verb: "list-projects"},
+		security.ResourceRef{Kind: "systemDesignCatalog", ID: principal.Subject})
+	if err != nil || !decision.Permit {
+		writeError(w, http.StatusForbidden, "forbidden", "not permitted")
+		return
+	}
+	rc := fwmanager.Context{Context: r.Context(), Principal: principal}
+	result, err := h.Manager.ListProjects(rc, owner)
 	if err != nil {
 		writeManagerError(w, err)
 		return

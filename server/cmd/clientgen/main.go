@@ -62,7 +62,6 @@ const (
 var exposedManagers = []string{
 	"systemDesignManager",
 	"projectDesignManager",
-	"projectManager",
 	"constructionManager",
 	"operationsManager",
 }

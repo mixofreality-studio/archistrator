@@ -528,307 +528,6 @@ components:
             required:
                 - withdrawn
             type: object
-        ProjectActivityBuildStatus:
-            enum:
-                - 0
-                - 1
-                - 2
-                - 3
-            type: integer
-            x-enum-varnames:
-                - BuildInConstruction
-                - BuildInReview
-                - BuildIntegrated
-                - BuildFailed
-            x-go-base: int
-        ProjectActivityConstructionPhase:
-            enum:
-                - 0
-                - 1
-                - 2
-                - 3
-            type: integer
-            x-enum-varnames:
-                - ActivityConstructionNotStarted
-                - ActivityConstructionRunning
-                - ActivityConstructionDone
-                - ActivityConstructionFailed
-            x-go-base: int
-        ProjectActivityConstructionStatus:
-            additionalProperties: false
-            properties:
-                ActivityID:
-                    type: string
-                BuildStatus:
-                    $ref: '#/components/schemas/ProjectActivityBuildStatus'
-                CurrentPhase:
-                    $ref: '#/components/schemas/ProjectActivityMethodPhase'
-                FailureDetail:
-                    type: string
-                FailureReason:
-                    $ref: '#/components/schemas/ProjectFailureReason'
-                Kind:
-                    $ref: '#/components/schemas/ProjectActivityType'
-                Phase:
-                    $ref: '#/components/schemas/ProjectActivityConstructionPhase'
-                Phases:
-                    items:
-                        $ref: '#/components/schemas/ProjectPhaseCompletion'
-                    type:
-                        - "null"
-                        - array
-                Produced:
-                    items:
-                        $ref: '#/components/schemas/ProjectProducedArtifact'
-                    type:
-                        - "null"
-                        - array
-                Type:
-                    $ref: '#/components/schemas/ProjectActivityType'
-                Variant:
-                    $ref: '#/components/schemas/ProjectTestingVariant'
-                completedAt:
-                    format: date-time
-                    type:
-                        - "null"
-                        - string
-                    x-go-import: time
-                    x-go-type: time.Time
-                startedAt:
-                    format: date-time
-                    type:
-                        - "null"
-                        - string
-                    x-go-import: time
-                    x-go-type: time.Time
-            required:
-                - ActivityID
-                - Type
-                - Kind
-                - Variant
-                - Phase
-                - Phases
-                - CurrentPhase
-                - BuildStatus
-                - Produced
-                - FailureReason
-                - FailureDetail
-            type: object
-        ProjectActivityGitStatus:
-            additionalProperties: false
-            properties:
-                ActivityID:
-                    type: string
-                ArchApproved:
-                    type: boolean
-                BranchName:
-                    type: string
-                BranchRef:
-                    type: string
-                CICheck:
-                    $ref: '#/components/schemas/ProjectCICheckState'
-                CRLabel:
-                    type: string
-                IsRevert:
-                    type: boolean
-                Merged:
-                    type: boolean
-                PrNumber:
-                    type: integer
-                PrURL:
-                    type: string
-                PullRequestRef:
-                    type: string
-                UpdatedAt:
-                    format: date-time
-                    type: string
-                    x-go-import: time
-                    x-go-type: time.Time
-            required:
-                - ActivityID
-                - BranchName
-                - BranchRef
-                - PullRequestRef
-                - PrNumber
-                - PrURL
-                - CICheck
-                - ArchApproved
-                - Merged
-                - CRLabel
-                - IsRevert
-                - UpdatedAt
-            type: object
-        ProjectActivityMethodPhase:
-            type: string
-        ProjectActivityType:
-            enum:
-                - 0
-                - 1
-                - 2
-                - 3
-                - 4
-            type: integer
-            x-enum-varnames:
-                - ActivityTypeService
-                - ActivityTypeFrontend
-                - ActivityTypeTesting
-                - ActivityTypeDeployment
-                - ActivityTypeDocumentation
-            x-go-base: int
-        ProjectArtifactSlotModel:
-            additionalProperties: false
-            properties:
-                kind:
-                    type: string
-                model:
-                    type:
-                        - "null"
-                    x-go-import: encoding/json
-                    x-go-type: json.RawMessage
-            required:
-                - kind
-            type: object
-        ProjectArtifactSlotView:
-            additionalProperties: false
-            properties:
-                kind:
-                    type: string
-                model:
-                    $ref: '#/components/schemas/ProjectArtifactSlotModel'
-                notes:
-                    type:
-                        - "null"
-                        - string
-                stage:
-                    $ref: '#/components/schemas/ProjectArtifactStage'
-            required:
-                - kind
-                - stage
-                - model
-            type: object
-        ProjectArtifactStage:
-            enum:
-                - 0
-                - 1
-                - 2
-                - 3
-                - 4
-            type: integer
-            x-enum-varnames:
-                - StageEmpty
-                - StageAwaitingReview
-                - StageCommitted
-                - StageRejected
-                - StageWithdrawn
-            x-go-base: int
-        ProjectCICheckState:
-            enum:
-                - 0
-                - 1
-                - 2
-            type: integer
-            x-enum-varnames:
-                - CICheckPending
-                - CICheckSuccess
-                - CICheckFailure
-            x-go-base: int
-        ProjectConstructionProgress:
-            additionalProperties: false
-            properties:
-                EV:
-                    $ref: '#/components/schemas/ProjectEVCurve'
-                HandOffModel:
-                    type: string
-                SupervisionCap:
-                    type: integer
-                TotalWeeks:
-                    type: integer
-                Week:
-                    type: integer
-            required:
-                - Week
-                - TotalWeeks
-                - HandOffModel
-                - SupervisionCap
-                - EV
-            type: object
-        ProjectContractOp:
-            additionalProperties: false
-            properties:
-                Inputs:
-                    items:
-                        $ref: '#/components/schemas/ProjectContractStruct'
-                    type:
-                        - "null"
-                        - array
-                Note:
-                    type: string
-                Outputs:
-                    items:
-                        $ref: '#/components/schemas/ProjectContractStruct'
-                    type:
-                        - "null"
-                        - array
-                Signature:
-                    type: string
-                Stereotype:
-                    type: string
-            required:
-                - Signature
-                - Stereotype
-                - Note
-                - Inputs
-                - Outputs
-            type: object
-        ProjectContractParty:
-            additionalProperties: false
-            properties:
-                How:
-                    type: string
-                Layer:
-                    type: string
-                Name:
-                    type: string
-            required:
-                - Name
-                - Layer
-                - How
-            type: object
-        ProjectContractRevision:
-            additionalProperties: false
-            properties:
-                At:
-                    type: string
-                By:
-                    type: string
-                ByActivity:
-                    type: string
-                Rev:
-                    type: string
-                Summary:
-                    type: string
-            required:
-                - Rev
-                - At
-                - By
-                - ByActivity
-                - Summary
-            type: object
-        ProjectContractStruct:
-            additionalProperties: false
-            properties:
-                Fields:
-                    items:
-                        $ref: '#/components/schemas/ProjectGoField'
-                    type:
-                        - "null"
-                        - array
-                Name:
-                    type: string
-            required:
-                - Name
-                - Fields
-            type: object
         ProjectDesignArtifactKind:
             enum:
                 - 0
@@ -1039,102 +738,65 @@ components:
                 - SeverityWarning
                 - SeverityError
             x-go-base: string
-        ProjectEVCurve:
-            additionalProperties: false
-            properties:
-                earned:
-                    items:
-                        type: number
-                    type:
-                        - "null"
-                        - array
-                planned:
-                    items:
-                        type: number
-                    type:
-                        - "null"
-                        - array
-                spi:
-                    type: number
-                    x-go-name: SPI
-                weeks:
-                    items:
-                        type: integer
-                    type:
-                        - "null"
-                        - array
-            required:
-                - weeks
-                - earned
-                - planned
-                - spi
-            type: object
-        ProjectErrorResponse:
-            additionalProperties: false
-            properties:
-                code:
-                    type: string
-                error:
-                    type: string
-            required:
-                - error
-                - code
-            type: object
-        ProjectFailureReason:
+        SystemDesignActivityBuildStatus:
             enum:
                 - 0
                 - 1
                 - 2
                 - 3
-                - 4
-                - 5
             type: integer
             x-enum-varnames:
-                - FailureReasonUnknown
-                - PipelineFailed
-                - PipelineCancelled
-                - PipelineTimedOut
-                - VarianceExhausted
-                - EscalationTimedOut
+                - BuildInConstruction
+                - BuildInReview
+                - BuildIntegrated
+                - BuildFailed
             x-go-base: int
-        ProjectGoField:
-            additionalProperties: false
-            properties:
-                Name:
-                    type: string
-                Note:
-                    type: string
-                Type:
-                    type: string
-            required:
-                - Name
-                - Type
-                - Note
-            type: object
-        ProjectOwnerScope:
-            type: string
-        ProjectPhase:
+        SystemDesignActivityConstructionPhase:
             enum:
                 - 0
                 - 1
                 - 2
+                - 3
             type: integer
             x-enum-varnames:
-                - PhaseSystemDesign
-                - PhaseProjectDesign
-                - PhaseConstruction
+                - ActivityConstructionNotStarted
+                - ActivityConstructionRunning
+                - ActivityConstructionDone
+                - ActivityConstructionFailed
             x-go-base: int
-        ProjectPhaseCompletion:
+        SystemDesignActivityConstructionStatus:
             additionalProperties: false
             properties:
-                ArtifactRef:
+                ActivityID:
                     type: string
-                Completed:
-                    type: boolean
+                BuildStatus:
+                    $ref: '#/components/schemas/SystemDesignActivityBuildStatus'
+                CurrentPhase:
+                    $ref: '#/components/schemas/SystemDesignActivityMethodPhase'
+                FailureDetail:
+                    type: string
+                FailureReason:
+                    $ref: '#/components/schemas/SystemDesignFailureReason'
+                Kind:
+                    $ref: '#/components/schemas/SystemDesignActivityType'
                 Phase:
-                    $ref: '#/components/schemas/ProjectActivityMethodPhase'
-                Weight:
-                    type: integer
+                    $ref: '#/components/schemas/SystemDesignActivityConstructionPhase'
+                Phases:
+                    items:
+                        $ref: '#/components/schemas/SystemDesignPhaseCompletion'
+                    type:
+                        - "null"
+                        - array
+                Produced:
+                    items:
+                        $ref: '#/components/schemas/SystemDesignProducedArtifact'
+                    type:
+                        - "null"
+                        - array
+                Type:
+                    $ref: '#/components/schemas/SystemDesignActivityType'
+                Variant:
+                    $ref: '#/components/schemas/SystemDesignTestingVariant'
                 completedAt:
                     format: date-time
                     type:
@@ -1142,197 +804,73 @@ components:
                         - string
                     x-go-import: time
                     x-go-type: time.Time
+                startedAt:
+                    format: date-time
+                    type:
+                        - "null"
+                        - string
+                    x-go-import: time
+                    x-go-type: time.Time
             required:
-                - Phase
-                - Weight
-                - Completed
-                - ArtifactRef
-            type: object
-        ProjectProducedArtifact:
-            additionalProperties: false
-            properties:
-                Kind:
-                    type: string
-                Note:
-                    type: string
-                Produced:
-                    type: boolean
-                Source:
-                    type: string
-                Title:
-                    type: string
-            required:
+                - ActivityID
+                - Type
                 - Kind
-                - Title
-                - Source
-                - Produced
-                - Note
-            type: object
-        ProjectProjectID:
-            type: string
-        ProjectProjectState:
-            additionalProperties: false
-            properties:
-                ActivityConstruction:
-                    additionalProperties:
-                        $ref: '#/components/schemas/ProjectActivityConstructionStatus'
-                    type: object
-                GitRows:
-                    additionalProperties:
-                        $ref: '#/components/schemas/ProjectActivityGitStatus'
-                    type: object
-                Name:
-                    type: string
-                Owner:
-                    $ref: '#/components/schemas/ProjectOwnerScope'
-                Phase:
-                    $ref: '#/components/schemas/ProjectPhase'
-                ProjectID:
-                    $ref: '#/components/schemas/ProjectProjectID'
-                Research:
-                    $ref: '#/components/schemas/ProjectResearchInput'
-                ServiceContracts:
-                    additionalProperties:
-                        $ref: '#/components/schemas/ProjectServiceContract'
-                    type: object
-                Slots:
-                    items:
-                        $ref: '#/components/schemas/ProjectArtifactSlotView'
-                    type:
-                        - "null"
-                        - array
-                Version:
-                    type: integer
-                constructionProgress:
-                    $ref: '#/components/schemas/ProjectConstructionProgress'
-                    type:
-                        - "null"
-            required:
-                - ProjectID
-                - Name
-                - Owner
+                - Variant
                 - Phase
-                - Version
-                - Research
-                - Slots
-                - GitRows
-                - ActivityConstruction
-                - ServiceContracts
+                - Phases
+                - CurrentPhase
+                - BuildStatus
+                - Produced
+                - FailureReason
+                - FailureDetail
             type: object
-        ProjectProjectSummary:
+        SystemDesignActivityGitStatus:
             additionalProperties: false
             properties:
-                CommittedCount:
-                    type: integer
-                Name:
+                ActivityID:
                     type: string
-                Owner:
-                    $ref: '#/components/schemas/ProjectOwnerScope'
-                Phase:
-                    $ref: '#/components/schemas/ProjectPhase'
-                ProjectID:
-                    $ref: '#/components/schemas/ProjectProjectID'
-                TotalCount:
+                ArchApproved:
+                    type: boolean
+                BranchName:
+                    type: string
+                BranchRef:
+                    type: string
+                CICheck:
+                    $ref: '#/components/schemas/SystemDesignCICheckState'
+                CRLabel:
+                    type: string
+                IsRevert:
+                    type: boolean
+                Merged:
+                    type: boolean
+                PrNumber:
                     type: integer
+                PrURL:
+                    type: string
+                PullRequestRef:
+                    type: string
                 UpdatedAt:
                     format: date-time
                     type: string
                     x-go-import: time
                     x-go-type: time.Time
             required:
-                - ProjectID
-                - Name
-                - Owner
-                - Phase
-                - CommittedCount
-                - TotalCount
+                - ActivityID
+                - BranchName
+                - BranchRef
+                - PullRequestRef
+                - PrNumber
+                - PrURL
+                - CICheck
+                - ArchApproved
+                - Merged
+                - CRLabel
+                - IsRevert
                 - UpdatedAt
             type: object
-        ProjectResearchInput:
-            additionalProperties: false
-            properties:
-                Sources:
-                    items:
-                        $ref: '#/components/schemas/ProjectResearchSource'
-                    type:
-                        - "null"
-                        - array
-            required:
-                - Sources
-            type: object
-        ProjectResearchSource:
-            additionalProperties: false
-            properties:
-                Content:
-                    type: string
-                Title:
-                    type: string
-            required:
-                - Title
-                - Content
-            type: object
-        ProjectServiceContract:
-            additionalProperties: false
-            properties:
-                Component:
-                    type: string
-                DataContracts:
-                    items:
-                        type: string
-                    type:
-                        - "null"
-                        - array
-                ErrorModel:
-                    type: string
-                Idempotency:
-                    type: string
-                Inbound:
-                    items:
-                        $ref: '#/components/schemas/ProjectContractParty'
-                    type:
-                        - "null"
-                        - array
-                Layer:
-                    type: string
-                Ops:
-                    items:
-                        $ref: '#/components/schemas/ProjectContractOp'
-                    type:
-                        - "null"
-                        - array
-                Outbound:
-                    items:
-                        $ref: '#/components/schemas/ProjectContractParty'
-                    type:
-                        - "null"
-                        - array
-                Revisions:
-                    items:
-                        $ref: '#/components/schemas/ProjectContractRevision'
-                    type:
-                        - "null"
-                        - array
-                Status:
-                    type: string
-                Stereotype:
-                    type: string
-                Volatility:
-                    type: string
-            required:
-                - Component
-                - Layer
-                - Stereotype
-                - Volatility
-                - Status
-                - Inbound
-                - Outbound
-                - Ops
-                - DataContracts
-                - ErrorModel
-                - Idempotency
-                - Revisions
-            type: object
-        ProjectTestingVariant:
+        SystemDesignActivityMethodPhase:
+            type: string
+        SystemDesignActivityType:
             enum:
                 - 0
                 - 1
@@ -1341,11 +879,11 @@ components:
                 - 4
             type: integer
             x-enum-varnames:
-                - TestVariantPlan
-                - TestVariantHarness
-                - TestVariantPerf
-                - TestVariantSystemTest
-                - TestVariantQAProcess
+                - ActivityTypeService
+                - ActivityTypeFrontend
+                - ActivityTypeTesting
+                - ActivityTypeDeployment
+                - ActivityTypeDocumentation
             x-go-base: int
         SystemDesignAnchoredComment:
             additionalProperties: false
@@ -1398,6 +936,160 @@ components:
                 - KindRiskModel
                 - KindSdpReview
             x-go-base: int
+        SystemDesignArtifactSlotModel:
+            additionalProperties: false
+            properties:
+                kind:
+                    type: string
+                model:
+                    type:
+                        - "null"
+                    x-go-import: encoding/json
+                    x-go-type: json.RawMessage
+            required:
+                - kind
+            type: object
+        SystemDesignArtifactSlotView:
+            additionalProperties: false
+            properties:
+                kind:
+                    type: string
+                model:
+                    $ref: '#/components/schemas/SystemDesignArtifactSlotModel'
+                notes:
+                    type:
+                        - "null"
+                        - string
+                stage:
+                    $ref: '#/components/schemas/SystemDesignArtifactStage'
+            required:
+                - kind
+                - stage
+                - model
+            type: object
+        SystemDesignArtifactStage:
+            enum:
+                - 0
+                - 1
+                - 2
+                - 3
+                - 4
+            type: integer
+            x-enum-varnames:
+                - ArtifactStageEmpty
+                - ArtifactStageAwaitingReview
+                - ArtifactStageCommitted
+                - ArtifactStageRejected
+                - ArtifactStageWithdrawn
+            x-go-base: int
+        SystemDesignCICheckState:
+            enum:
+                - 0
+                - 1
+                - 2
+            type: integer
+            x-enum-varnames:
+                - CICheckPending
+                - CICheckSuccess
+                - CICheckFailure
+            x-go-base: int
+        SystemDesignConstructionProgress:
+            additionalProperties: false
+            properties:
+                EV:
+                    $ref: '#/components/schemas/SystemDesignEVCurve'
+                HandOffModel:
+                    type: string
+                SupervisionCap:
+                    type: integer
+                TotalWeeks:
+                    type: integer
+                Week:
+                    type: integer
+            required:
+                - Week
+                - TotalWeeks
+                - HandOffModel
+                - SupervisionCap
+                - EV
+            type: object
+        SystemDesignContractOp:
+            additionalProperties: false
+            properties:
+                Inputs:
+                    items:
+                        $ref: '#/components/schemas/SystemDesignContractStruct'
+                    type:
+                        - "null"
+                        - array
+                Note:
+                    type: string
+                Outputs:
+                    items:
+                        $ref: '#/components/schemas/SystemDesignContractStruct'
+                    type:
+                        - "null"
+                        - array
+                Signature:
+                    type: string
+                Stereotype:
+                    type: string
+            required:
+                - Signature
+                - Stereotype
+                - Note
+                - Inputs
+                - Outputs
+            type: object
+        SystemDesignContractParty:
+            additionalProperties: false
+            properties:
+                How:
+                    type: string
+                Layer:
+                    type: string
+                Name:
+                    type: string
+            required:
+                - Name
+                - Layer
+                - How
+            type: object
+        SystemDesignContractRevision:
+            additionalProperties: false
+            properties:
+                At:
+                    type: string
+                By:
+                    type: string
+                ByActivity:
+                    type: string
+                Rev:
+                    type: string
+                Summary:
+                    type: string
+            required:
+                - Rev
+                - At
+                - By
+                - ByActivity
+                - Summary
+            type: object
+        SystemDesignContractStruct:
+            additionalProperties: false
+            properties:
+                Fields:
+                    items:
+                        $ref: '#/components/schemas/SystemDesignGoField'
+                    type:
+                        - "null"
+                        - array
+                Name:
+                    type: string
+            required:
+                - Name
+                - Fields
+            type: object
         SystemDesignDraftModel:
             additionalProperties: false
             properties:
@@ -1411,6 +1103,36 @@ components:
             required:
                 - kind
             type: object
+        SystemDesignEVCurve:
+            additionalProperties: false
+            properties:
+                earned:
+                    items:
+                        type: number
+                    type:
+                        - "null"
+                        - array
+                planned:
+                    items:
+                        type: number
+                    type:
+                        - "null"
+                        - array
+                spi:
+                    type: number
+                    x-go-name: SPI
+                weeks:
+                    items:
+                        type: integer
+                    type:
+                        - "null"
+                        - array
+            required:
+                - weeks
+                - earned
+                - planned
+                - spi
+            type: object
         SystemDesignErrorResponse:
             additionalProperties: false
             properties:
@@ -1422,6 +1144,23 @@ components:
                 - error
                 - code
             type: object
+        SystemDesignFailureReason:
+            enum:
+                - 0
+                - 1
+                - 2
+                - 3
+                - 4
+                - 5
+            type: integer
+            x-enum-varnames:
+                - FailureReasonUnknown
+                - FailureReasonPipelineFailed
+                - FailureReasonPipelineCancelled
+                - FailureReasonPipelineTimedOut
+                - FailureReasonVarianceExhausted
+                - FailureReasonEscalationTimedOut
+            x-go-base: int
         SystemDesignFinding:
             additionalProperties: false
             properties:
@@ -1441,6 +1180,20 @@ components:
                 - severity
                 - message
             type: object
+        SystemDesignGoField:
+            additionalProperties: false
+            properties:
+                Name:
+                    type: string
+                Note:
+                    type: string
+                Type:
+                    type: string
+            required:
+                - Name
+                - Type
+                - Note
+            type: object
         SystemDesignLocation:
             additionalProperties: false
             properties:
@@ -1452,6 +1205,19 @@ components:
                 - ordinal
                 - section
             type: object
+        SystemDesignOwnerScope:
+            type: string
+        SystemDesignPhase:
+            enum:
+                - 0
+                - 1
+                - 2
+            type: integer
+            x-enum-varnames:
+                - PhaseSystemDesign
+                - PhaseProjectDesign
+                - PhaseConstruction
+            x-go-base: int
         SystemDesignPhaseAdvanceResult:
             additionalProperties: false
             properties:
@@ -1467,8 +1233,130 @@ components:
                 - advanced
                 - missingArtifacts
             type: object
+        SystemDesignPhaseCompletion:
+            additionalProperties: false
+            properties:
+                ArtifactRef:
+                    type: string
+                Completed:
+                    type: boolean
+                Phase:
+                    $ref: '#/components/schemas/SystemDesignActivityMethodPhase'
+                Weight:
+                    type: integer
+                completedAt:
+                    format: date-time
+                    type:
+                        - "null"
+                        - string
+                    x-go-import: time
+                    x-go-type: time.Time
+            required:
+                - Phase
+                - Weight
+                - Completed
+                - ArtifactRef
+            type: object
+        SystemDesignProducedArtifact:
+            additionalProperties: false
+            properties:
+                Kind:
+                    type: string
+                Note:
+                    type: string
+                Produced:
+                    type: boolean
+                Source:
+                    type: string
+                Title:
+                    type: string
+            required:
+                - Kind
+                - Title
+                - Source
+                - Produced
+                - Note
+            type: object
         SystemDesignProjectID:
             type: string
+        SystemDesignProjectState:
+            additionalProperties: false
+            properties:
+                ActivityConstruction:
+                    additionalProperties:
+                        $ref: '#/components/schemas/SystemDesignActivityConstructionStatus'
+                    type: object
+                GitRows:
+                    additionalProperties:
+                        $ref: '#/components/schemas/SystemDesignActivityGitStatus'
+                    type: object
+                Name:
+                    type: string
+                Owner:
+                    $ref: '#/components/schemas/SystemDesignOwnerScope'
+                Phase:
+                    $ref: '#/components/schemas/SystemDesignPhase'
+                ProjectID:
+                    $ref: '#/components/schemas/SystemDesignProjectID'
+                Research:
+                    $ref: '#/components/schemas/SystemDesignResearchInput'
+                ServiceContracts:
+                    additionalProperties:
+                        $ref: '#/components/schemas/SystemDesignServiceContract'
+                    type: object
+                Slots:
+                    items:
+                        $ref: '#/components/schemas/SystemDesignArtifactSlotView'
+                    type:
+                        - "null"
+                        - array
+                Version:
+                    type: integer
+                constructionProgress:
+                    $ref: '#/components/schemas/SystemDesignConstructionProgress'
+                    type:
+                        - "null"
+            required:
+                - ProjectID
+                - Name
+                - Owner
+                - Phase
+                - Version
+                - Research
+                - Slots
+                - GitRows
+                - ActivityConstruction
+                - ServiceContracts
+            type: object
+        SystemDesignProjectSummary:
+            additionalProperties: false
+            properties:
+                CommittedCount:
+                    type: integer
+                Name:
+                    type: string
+                Owner:
+                    $ref: '#/components/schemas/SystemDesignOwnerScope'
+                Phase:
+                    $ref: '#/components/schemas/SystemDesignPhase'
+                ProjectID:
+                    $ref: '#/components/schemas/SystemDesignProjectID'
+                TotalCount:
+                    type: integer
+                UpdatedAt:
+                    format: date-time
+                    type: string
+                    x-go-import: time
+                    x-go-type: time.Time
+            required:
+                - ProjectID
+                - Name
+                - Owner
+                - Phase
+                - CommittedCount
+                - TotalCount
+                - UpdatedAt
+            type: object
         SystemDesignResearchInput:
             additionalProperties: false
             properties:
@@ -1521,6 +1409,67 @@ components:
             type: object
         SystemDesignRuleID:
             type: string
+        SystemDesignServiceContract:
+            additionalProperties: false
+            properties:
+                Component:
+                    type: string
+                DataContracts:
+                    items:
+                        type: string
+                    type:
+                        - "null"
+                        - array
+                ErrorModel:
+                    type: string
+                Idempotency:
+                    type: string
+                Inbound:
+                    items:
+                        $ref: '#/components/schemas/SystemDesignContractParty'
+                    type:
+                        - "null"
+                        - array
+                Layer:
+                    type: string
+                Ops:
+                    items:
+                        $ref: '#/components/schemas/SystemDesignContractOp'
+                    type:
+                        - "null"
+                        - array
+                Outbound:
+                    items:
+                        $ref: '#/components/schemas/SystemDesignContractParty'
+                    type:
+                        - "null"
+                        - array
+                Revisions:
+                    items:
+                        $ref: '#/components/schemas/SystemDesignContractRevision'
+                    type:
+                        - "null"
+                        - array
+                Status:
+                    type: string
+                Stereotype:
+                    type: string
+                Volatility:
+                    type: string
+            required:
+                - Component
+                - Layer
+                - Stereotype
+                - Volatility
+                - Status
+                - Inbound
+                - Outbound
+                - Ops
+                - DataContracts
+                - ErrorModel
+                - Idempotency
+                - Revisions
+            type: object
         SystemDesignSessionRef:
             type: string
         SystemDesignSessionStage:
@@ -1583,6 +1532,21 @@ components:
                 - SeverityWarning
                 - SeverityError
             x-go-base: string
+        SystemDesignTestingVariant:
+            enum:
+                - 0
+                - 1
+                - 2
+                - 3
+                - 4
+            type: integer
+            x-enum-varnames:
+                - TestVariantPlan
+                - TestVariantHarness
+                - TestVariantPerf
+                - TestVariantSystemTest
+                - TestVariantQAProcess
+            x-go-base: int
         SystemDesignVersion:
             type: integer
 info:
@@ -2772,196 +2736,6 @@ paths:
                     description: infrastructure unavailable
             security:
                 - bearerAuth: []
-    /api/v1/project/create-project:
-        post:
-            operationId: CreateProject
-            requestBody:
-                content:
-                    application/json:
-                        schema:
-                            properties:
-                                name:
-                                    type: string
-                                owner:
-                                    $ref: '#/components/schemas/ProjectOwnerScope'
-                            required:
-                                - owner
-                                - name
-                            type: object
-                required: true
-            responses:
-                "200":
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/ProjectProjectID'
-                    description: success
-                "400":
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/ProjectErrorResponse'
-                    description: contract misuse
-                "401":
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/ProjectErrorResponse'
-                    description: unauthenticated
-                "403":
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/ProjectErrorResponse'
-                    description: forbidden
-                "404":
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/ProjectErrorResponse'
-                    description: not found
-                "409":
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/ProjectErrorResponse'
-                    description: failed precondition
-                "500":
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/ProjectErrorResponse'
-                    description: internal error
-                "503":
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/ProjectErrorResponse'
-                    description: infrastructure unavailable
-            security:
-                - bearerAuth: []
-    /api/v1/project/get-project/{projectID}:
-        get:
-            operationId: GetProject
-            parameters:
-                - in: path
-                  name: projectID
-                  required: true
-                  schema:
-                    $ref: '#/components/schemas/ProjectProjectID'
-            responses:
-                "200":
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/ProjectProjectState'
-                    description: success
-                "400":
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/ProjectErrorResponse'
-                    description: contract misuse
-                "401":
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/ProjectErrorResponse'
-                    description: unauthenticated
-                "403":
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/ProjectErrorResponse'
-                    description: forbidden
-                "404":
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/ProjectErrorResponse'
-                    description: not found
-                "409":
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/ProjectErrorResponse'
-                    description: failed precondition
-                "500":
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/ProjectErrorResponse'
-                    description: internal error
-                "503":
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/ProjectErrorResponse'
-                    description: infrastructure unavailable
-            security:
-                - bearerAuth: []
-    /api/v1/project/list-projects:
-        get:
-            operationId: ListProjects
-            parameters:
-                - in: query
-                  name: owner
-                  required: true
-                  schema:
-                    $ref: '#/components/schemas/ProjectOwnerScope'
-            responses:
-                "200":
-                    content:
-                        application/json:
-                            schema:
-                                items:
-                                    $ref: '#/components/schemas/ProjectProjectSummary'
-                                type: array
-                    description: success
-                "400":
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/ProjectErrorResponse'
-                    description: contract misuse
-                "401":
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/ProjectErrorResponse'
-                    description: unauthenticated
-                "403":
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/ProjectErrorResponse'
-                    description: forbidden
-                "404":
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/ProjectErrorResponse'
-                    description: not found
-                "409":
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/ProjectErrorResponse'
-                    description: failed precondition
-                "500":
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/ProjectErrorResponse'
-                    description: internal error
-                "503":
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/ProjectErrorResponse'
-                    description: infrastructure unavailable
-            security:
-                - bearerAuth: []
     /api/v1/system-design/advance-phase/{projectID}:
         post:
             operationId: AdvancePhase
@@ -2977,6 +2751,134 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/SystemDesignPhaseAdvanceResult'
+                    description: success
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
+    /api/v1/system-design/create-project:
+        post:
+            operationId: CreateProject
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            properties:
+                                name:
+                                    type: string
+                                owner:
+                                    $ref: '#/components/schemas/SystemDesignOwnerScope'
+                            required:
+                                - owner
+                                - name
+                            type: object
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignProjectID'
+                    description: success
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
+    /api/v1/system-design/get-project/{projectID}:
+        get:
+            operationId: GetProject
+            parameters:
+                - in: path
+                  name: projectID
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/SystemDesignProjectID'
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignProjectState'
                     description: success
                 "400":
                     content:
@@ -3042,6 +2944,68 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/SystemDesignSessionStateView'
+                    description: success
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
+    /api/v1/system-design/list-projects:
+        get:
+            operationId: ListProjects
+            parameters:
+                - in: query
+                  name: owner
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/SystemDesignOwnerScope'
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                items:
+                                    $ref: '#/components/schemas/SystemDesignProjectSummary'
+                                type: array
                     description: success
                 "400":
                     content:

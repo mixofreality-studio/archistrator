@@ -24,7 +24,10 @@ type Handler struct {
 // tool's input/output JSON Schema from the typed handler signatures.
 func (h *Handler) Register(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{Name: "systemDesignAdvancePhase", Description: "AdvancePhase on the SystemDesign manager."}, h.handleAdvancePhase)
+	mcp.AddTool(srv, &mcp.Tool{Name: "systemDesignCreateProject", Description: "CreateProject on the SystemDesign manager."}, h.handleCreateProject)
+	mcp.AddTool(srv, &mcp.Tool{Name: "systemDesignGetProject", Description: "GetProject on the SystemDesign manager."}, h.handleGetProject)
 	mcp.AddTool(srv, &mcp.Tool{Name: "systemDesignGetSessionState", Description: "GetSessionState on the SystemDesign manager."}, h.handleGetSessionState)
+	mcp.AddTool(srv, &mcp.Tool{Name: "systemDesignListProjects", Description: "ListProjects on the SystemDesign manager."}, h.handleListProjects)
 	mcp.AddTool(srv, &mcp.Tool{Name: "systemDesignRequestArtifactDraft", Description: "RequestArtifactDraft on the SystemDesign manager."}, h.handleRequestArtifactDraft)
 	mcp.AddTool(srv, &mcp.Tool{Name: "systemDesignSetResearchInput", Description: "SetResearchInput on the SystemDesign manager."}, h.handleSetResearchInput)
 	mcp.AddTool(srv, &mcp.Tool{Name: "systemDesignStartSystemDesign", Description: "StartSystemDesign on the SystemDesign manager."}, h.handleStartSystemDesign)
@@ -39,6 +42,23 @@ type advancePhaseOutput struct {
 	Result mgr.PhaseAdvanceResult `json:"result"`
 }
 
+type createProjectInput struct {
+	Owner mgr.OwnerScope `json:"owner"`
+	Name  string         `json:"name"`
+}
+
+type createProjectOutput struct {
+	Result mgr.ProjectID `json:"result"`
+}
+
+type getProjectInput struct {
+	ProjectID mgr.ProjectID `json:"projectID"`
+}
+
+type getProjectOutput struct {
+	Result mgr.ProjectState `json:"result"`
+}
+
 type getSessionStateInput struct {
 	ProjectID mgr.ProjectID    `json:"projectID"`
 	Kind      mgr.ArtifactKind `json:"kind"`
@@ -46,6 +66,14 @@ type getSessionStateInput struct {
 
 type getSessionStateOutput struct {
 	Result mgr.SessionStateView `json:"result"`
+}
+
+type listProjectsInput struct {
+	Owner mgr.OwnerScope `json:"owner"`
+}
+
+type listProjectsOutput struct {
+	Result []mgr.ProjectSummary `json:"result"`
 }
 
 type requestArtifactDraftInput struct {
@@ -97,12 +125,51 @@ func (h *Handler) handleAdvancePhase(ctx context.Context, _ *mcp.CallToolRequest
 	return nil, out, nil
 }
 
+// handleCreateProject is the MCP tool handler for the CreateProject operation.
+func (h *Handler) handleCreateProject(ctx context.Context, _ *mcp.CallToolRequest, in createProjectInput) (*mcp.CallToolResult, createProjectOutput, error) {
+	var out createProjectOutput
+	principal, _ := security.PrincipalFrom(ctx)
+	rc := fwmanager.Context{Context: ctx, Principal: principal}
+	result, err := h.Manager.CreateProject(rc, in.Owner, in.Name)
+	if err != nil {
+		return nil, out, mapManagerError(err)
+	}
+	out.Result = result
+	return nil, out, nil
+}
+
+// handleGetProject is the MCP tool handler for the GetProject operation.
+func (h *Handler) handleGetProject(ctx context.Context, _ *mcp.CallToolRequest, in getProjectInput) (*mcp.CallToolResult, getProjectOutput, error) {
+	var out getProjectOutput
+	principal, _ := security.PrincipalFrom(ctx)
+	rc := fwmanager.Context{Context: ctx, Principal: principal}
+	result, err := h.Manager.GetProject(rc, in.ProjectID)
+	if err != nil {
+		return nil, out, mapManagerError(err)
+	}
+	out.Result = result
+	return nil, out, nil
+}
+
 // handleGetSessionState is the MCP tool handler for the GetSessionState operation.
 func (h *Handler) handleGetSessionState(ctx context.Context, _ *mcp.CallToolRequest, in getSessionStateInput) (*mcp.CallToolResult, getSessionStateOutput, error) {
 	var out getSessionStateOutput
 	principal, _ := security.PrincipalFrom(ctx)
 	rc := fwmanager.Context{Context: ctx, Principal: principal}
 	result, err := h.Manager.GetSessionState(rc, in.ProjectID, in.Kind)
+	if err != nil {
+		return nil, out, mapManagerError(err)
+	}
+	out.Result = result
+	return nil, out, nil
+}
+
+// handleListProjects is the MCP tool handler for the ListProjects operation.
+func (h *Handler) handleListProjects(ctx context.Context, _ *mcp.CallToolRequest, in listProjectsInput) (*mcp.CallToolResult, listProjectsOutput, error) {
+	var out listProjectsOutput
+	principal, _ := security.PrincipalFrom(ctx)
+	rc := fwmanager.Context{Context: ctx, Principal: principal}
+	result, err := h.Manager.ListProjects(rc, in.Owner)
 	if err != nil {
 		return nil, out, mapManagerError(err)
 	}

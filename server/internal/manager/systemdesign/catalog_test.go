@@ -1,4 +1,9 @@
-package project
+package systemdesign
+
+// catalog_test.go — the unit suite for the CATALOG ops (CreateProject/GetProject/
+// ListProjects) folded onto systemDesignManager from the dissolved projectManager
+// (2026-06-28). Ported verbatim; the manager is built via newCatalogMgr, which wires
+// only the deps these synchronous ops touch (no Temporal client).
 
 import (
 	"context"
@@ -16,6 +21,13 @@ import (
 
 // rc is the Manager-layer call Context the ops lead with (zero principal in tests).
 func rc() fwm.Context { return fwm.Context{Context: context.Background()} }
+
+// newCatalogMgr builds a systemDesignManager exercising ONLY the folded catalog ops:
+// it wires the projectState + (optional) rail + estimator + repoBase deps and leaves
+// the Temporal client / pipeline / repo-resolver nil (those ops never touch them).
+func newCatalogMgr(ps projectstate.ProjectStateAccess, sc sourcecontrol.SourceControlAccess, est estimation.EstimationEngine, repoBase string) SystemDesignManager {
+	return NewSystemDesignManager(nil, ps, nil, sc, nil, est, repoBase)
+}
 
 // slotByKind finds the contract slot whose Kind is the canonical wire name of the
 // given projectstate ArtifactKind.
@@ -118,7 +130,7 @@ func (f *fakeProjectStateAccess) WithdrawArtifact(_ fwra.Context, _ projectstate
 // the returned project id IS the user-supplied name, and the RA is called exactly once.
 func TestCreateProject_NameIsIdentityAndCallsRAOnce(t *testing.T) {
 	fake := &fakeProjectStateAccess{}
-	m := NewProjectManager(fake, nil, nil, "")
+	m := newCatalogMgr(fake, nil, nil, "")
 
 	id, err := m.CreateProject(rc(), OwnerScope("alice@example.com"), "my-cool-system")
 	if err != nil {
@@ -146,7 +158,7 @@ func TestCreateProject_NameIsIdentityAndCallsRAOnce(t *testing.T) {
 
 func TestCreateProject_EmptyOwner_ContractMisuse(t *testing.T) {
 	fake := &fakeProjectStateAccess{}
-	m := NewProjectManager(fake, nil, nil, "")
+	m := newCatalogMgr(fake, nil, nil, "")
 
 	_, err := m.CreateProject(rc(), OwnerScope(""), "My Project")
 	if err == nil {
@@ -163,7 +175,7 @@ func TestCreateProject_EmptyOwner_ContractMisuse(t *testing.T) {
 
 func TestCreateProject_EmptyName_ContractMisuse(t *testing.T) {
 	fake := &fakeProjectStateAccess{}
-	m := NewProjectManager(fake, nil, nil, "")
+	m := newCatalogMgr(fake, nil, nil, "")
 
 	_, err := m.CreateProject(rc(), OwnerScope("alice"), "")
 	if err == nil {
@@ -177,7 +189,7 @@ func TestCreateProject_EmptyName_ContractMisuse(t *testing.T) {
 
 func TestCreateProject_RAConflict_MapsInfrastructure(t *testing.T) {
 	fake := &fakeProjectStateAccess{createErr: fwra.New(fwra.Conflict, "row exists")}
-	m := NewProjectManager(fake, nil, nil, "")
+	m := newCatalogMgr(fake, nil, nil, "")
 
 	_, err := m.CreateProject(rc(), OwnerScope("alice"), "P")
 	var me *fwm.Error
@@ -299,7 +311,7 @@ func TestCreateProject_AdoptThenSeatThenCreate(t *testing.T) {
 	order := &callOrder{}
 	ps := &orderingProjectState{fakeProjectStateAccess: &fakeProjectStateAccess{}, order: order}
 	sc := &fakeSourceControl{order: order}
-	m := NewProjectManager(ps, sc, nil, "")
+	m := newCatalogMgr(ps, sc, nil, "")
 
 	id, err := m.CreateProject(rc(), OwnerScope("alice@example.com"), "my-cool-system")
 	if err != nil {
@@ -341,7 +353,7 @@ func TestCreateProject_AdoptFailure_NoSeatingNoCreate(t *testing.T) {
 	order := &callOrder{}
 	ps := &orderingProjectState{fakeProjectStateAccess: &fakeProjectStateAccess{}, order: order}
 	sc := &fakeSourceControl{order: order, adoptErr: fwra.New(fwra.Transient, "github 503")}
-	m := NewProjectManager(ps, sc, nil, "")
+	m := newCatalogMgr(ps, sc, nil, "")
 
 	_, err := m.CreateProject(rc(), OwnerScope("alice"), "taken-repo")
 	if err == nil {
@@ -372,7 +384,7 @@ func TestCreateProject_AdoptFailure_NoSeatingNoCreate(t *testing.T) {
 // (nil sourceControl) still creates projects — repo-less, no adopt.
 func TestCreateProject_NilSourceControl_SkipsAdopt(t *testing.T) {
 	fake := &fakeProjectStateAccess{}
-	m := NewProjectManager(fake, nil, nil, "")
+	m := newCatalogMgr(fake, nil, nil, "")
 
 	id, err := m.CreateProject(rc(), OwnerScope("alice"), "dev-project")
 	if err != nil {
@@ -395,7 +407,7 @@ func TestListProjects_PassesThrough(t *testing.T) {
 		{ProjectID: "beta", Name: "B", Owner: "alice", Phase: projectstate.PhaseProjectDesign, CommittedCount: 9, TotalCount: 9, UpdatedAt: now},
 	}
 	fake := &fakeProjectStateAccess{listSummary: src}
-	m := NewProjectManager(fake, nil, nil, "")
+	m := newCatalogMgr(fake, nil, nil, "")
 
 	got, err := m.ListProjects(rc(), OwnerScope("alice"))
 	if err != nil {
@@ -420,7 +432,7 @@ func TestListProjects_PassesThrough(t *testing.T) {
 
 func TestListProjects_RAError_MapsInfrastructure(t *testing.T) {
 	fake := &fakeProjectStateAccess{listErr: fwra.New(fwra.Infrastructure, "db down")}
-	m := NewProjectManager(fake, nil, nil, "")
+	m := newCatalogMgr(fake, nil, nil, "")
 
 	_, err := m.ListProjects(rc(), OwnerScope("alice"))
 	var me *fwm.Error
@@ -461,7 +473,7 @@ func sampleProject(id projectstate.ProjectID) projectstate.Project {
 func TestGetProject_MapsAggregateToTypedSlots(t *testing.T) {
 	id := ProjectID("my-cool-system")
 	fake := &fakeProjectStateAccess{readProject: sampleProject(projectstate.ProjectID(id))}
-	m := NewProjectManager(fake, nil, nil, "")
+	m := newCatalogMgr(fake, nil, nil, "")
 
 	st, err := m.GetProject(rc(), id)
 	if err != nil {
@@ -485,16 +497,16 @@ func TestGetProject_MapsAggregateToTypedSlots(t *testing.T) {
 	}
 
 	mission, _ := slotByKind(st, projectstate.KindMission)
-	if mission.Stage != StageCommitted {
-		t.Fatalf("Mission stage = %v, want StageCommitted", mission.Stage)
+	if mission.Stage != ArtifactStageCommitted {
+		t.Fatalf("Mission stage = %v, want ArtifactStageCommitted", mission.Stage)
 	}
 	if mission.Model.Kind != "mission" || mission.Model.Model == nil {
 		t.Fatalf("Mission model not mapped opaquely: %+v", mission.Model)
 	}
 
 	glossary, _ := slotByKind(st, projectstate.KindGlossary)
-	if glossary.Stage != StageAwaitingReview {
-		t.Fatalf("Glossary stage = %v, want StageAwaitingReview", glossary.Stage)
+	if glossary.Stage != ArtifactStageAwaitingReview {
+		t.Fatalf("Glossary stage = %v, want ArtifactStageAwaitingReview", glossary.Stage)
 	}
 	if glossary.Model.Model == nil {
 		t.Fatal("Glossary model should be populated")
@@ -504,13 +516,13 @@ func TestGetProject_MapsAggregateToTypedSlots(t *testing.T) {
 	}
 
 	volatilities, _ := slotByKind(st, projectstate.KindVolatilities)
-	if volatilities.Stage != StageRejected {
-		t.Fatalf("Volatilities stage = %v, want StageRejected", volatilities.Stage)
+	if volatilities.Stage != ArtifactStageRejected {
+		t.Fatalf("Volatilities stage = %v, want ArtifactStageRejected", volatilities.Stage)
 	}
 
 	scrubbed, _ := slotByKind(st, projectstate.KindScrubbedRequirements)
-	if scrubbed.Stage != StageEmpty {
-		t.Fatalf("ScrubbedRequirements stage = %v, want StageEmpty", scrubbed.Stage)
+	if scrubbed.Stage != ArtifactStageEmpty {
+		t.Fatalf("ScrubbedRequirements stage = %v, want ArtifactStageEmpty", scrubbed.Stage)
 	}
 	if scrubbed.Model.Model != nil {
 		t.Fatal("ScrubbedRequirements model should be nil (empty slot)")
@@ -566,7 +578,7 @@ func TestGetProject_ComputeNetworkAtRead(t *testing.T) {
 	}
 
 	fake := &fakeProjectStateAccess{readProject: p}
-	m := NewProjectManager(fake, nil, estimation.NewEstimationEngine(), "")
+	m := newCatalogMgr(fake, nil, estimation.NewEstimationEngine(), "")
 
 	st, err := m.GetProject(rc(), id)
 	if err != nil {
@@ -635,7 +647,7 @@ func TestGetProject_ComputeEarnedValueAtRead(t *testing.T) {
 	p.ConstructionProgress = &projectstate.ConstructionProgress{Week: 2, TotalWeeks: 4, HandOffModel: "senior", SupervisionCap: 3}
 
 	fake := &fakeProjectStateAccess{readProject: p}
-	m := NewProjectManager(fake, nil, estimation.NewEstimationEngine(), "")
+	m := newCatalogMgr(fake, nil, estimation.NewEstimationEngine(), "")
 
 	st, err := m.GetProject(rc(), id)
 	if err != nil {
@@ -666,7 +678,7 @@ func TestGetProject_ComposesPRRefAtRead(t *testing.T) {
 		"C-MST": {ActivityID: "C-MST", BranchName: "activity/C-MST", PullRequestRef: "44"},
 	}
 	fake := &fakeProjectStateAccess{readProject: p}
-	m := NewProjectManager(fake, nil, estimation.NewEstimationEngine(), "https://github.com/acme/proj")
+	m := newCatalogMgr(fake, nil, estimation.NewEstimationEngine(), "https://github.com/acme/proj")
 
 	st, err := m.GetProject(rc(), id)
 	if err != nil {
@@ -701,7 +713,7 @@ func TestGetProject_NilEstimator_NoCompute(t *testing.T) {
 		},
 	}
 	fake := &fakeProjectStateAccess{readProject: p}
-	m := NewProjectManager(fake, nil, nil, "")
+	m := newCatalogMgr(fake, nil, nil, "")
 
 	st, err := m.GetProject(rc(), id)
 	if err != nil {
@@ -736,7 +748,7 @@ func TestGetProject_OverwritesStaleCriticalPath(t *testing.T) {
 		},
 	}
 	fake := &fakeProjectStateAccess{readProject: p}
-	m := NewProjectManager(fake, nil, estimation.NewEstimationEngine(), "")
+	m := newCatalogMgr(fake, nil, estimation.NewEstimationEngine(), "")
 
 	st, err := m.GetProject(rc(), id)
 	if err != nil {
@@ -750,7 +762,7 @@ func TestGetProject_OverwritesStaleCriticalPath(t *testing.T) {
 
 func TestGetProject_NotFoundPassesThrough(t *testing.T) {
 	fake := &fakeProjectStateAccess{readErr: fwra.New(fwra.NotFound, "no row")}
-	m := NewProjectManager(fake, nil, nil, "")
+	m := newCatalogMgr(fake, nil, nil, "")
 
 	_, err := m.GetProject(rc(), ProjectID("missing"))
 	var me *fwm.Error
@@ -764,7 +776,7 @@ func TestGetProject_NotFoundPassesThrough(t *testing.T) {
 
 func TestGetProject_EmptyProjectID_ContractMisuse(t *testing.T) {
 	fake := &fakeProjectStateAccess{}
-	m := NewProjectManager(fake, nil, nil, "")
+	m := newCatalogMgr(fake, nil, nil, "")
 
 	_, err := m.GetProject(rc(), ProjectID(""))
 	var me *fwm.Error
@@ -785,7 +797,7 @@ func TestGetProject_EmptyProjectID_ContractMisuse(t *testing.T) {
 func TestProjectState_SlotWireShape(t *testing.T) {
 	id := ProjectID("my-cool-system")
 	fake := &fakeProjectStateAccess{readProject: sampleProject(projectstate.ProjectID(id))}
-	m := NewProjectManager(fake, nil, nil, "")
+	m := newCatalogMgr(fake, nil, nil, "")
 
 	st, err := m.GetProject(rc(), id)
 	if err != nil {

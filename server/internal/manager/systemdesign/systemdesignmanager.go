@@ -8,6 +8,7 @@ import (
 
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/estimation"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/constructionpipeline"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
@@ -60,6 +61,14 @@ type systemDesignManager struct {
 	pipeline     constructionpipeline.ConstructionPipelineAccess
 	rail         sourcecontrol.SourceControlAccess
 	repo         func(projectID ProjectID) (sourcecontrol.RepoRef, bool)
+	// estimator + repoBase serve the folded CATALOG ops (CreateProject/GetProject/
+	// ListProjects — the former projectManager). estimator is the
+	// constructionEstimationEngine run at GetProject READ time (compute-at-read CPM +
+	// EV/SPI); nil disables compute. repoBase composes each git row's prUrl
+	// (<repoBase>/pull/<ref>); "" omits prUrl. The project's permanent identity is its
+	// living system design, so these reads belong on this Manager.
+	estimator estimation.EstimationEngine
+	repoBase  string
 }
 
 // newSystemDesignManager is the hand-written, unexported builder the generated
@@ -67,8 +76,8 @@ type systemDesignManager struct {
 // published deps into the façade. The façade itself uses only client + projectState;
 // pipeline/rail/repo are stored for RegisterWorker (rail may be nil — a dev server
 // with no source-control credentials runs the design spine repo-less).
-func newSystemDesignManager(c client.Client, ps projectstate.ProjectStateAccess, pipeline constructionpipeline.ConstructionPipelineAccess, rail sourcecontrol.SourceControlAccess, repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool)) *systemDesignManager {
-	return &systemDesignManager{client: c, projectState: ps, pipeline: pipeline, rail: rail, repo: repo}
+func newSystemDesignManager(c client.Client, ps projectstate.ProjectStateAccess, pipeline constructionpipeline.ConstructionPipelineAccess, rail sourcecontrol.SourceControlAccess, repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool), estimator estimation.EstimationEngine, repoBase string) *systemDesignManager {
+	return &systemDesignManager{client: c, projectState: ps, pipeline: pipeline, rail: rail, repo: repo, estimator: estimator, repoBase: repoBase}
 }
 
 // StartSystemDesign — op 2.0 (2026-05-29). Temporal Workflow (entry;

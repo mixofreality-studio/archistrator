@@ -44,7 +44,6 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/client/web"
 	constructionweb "github.com/mixofreality-studio/archistrator/server/internal/client/web/construction"
 	operationsweb "github.com/mixofreality-studio/archistrator/server/internal/client/web/operations"
-	projectweb "github.com/mixofreality-studio/archistrator/server/internal/client/web/project"
 	projectdesignweb "github.com/mixofreality-studio/archistrator/server/internal/client/web/projectdesign"
 	systemdesignweb "github.com/mixofreality-studio/archistrator/server/internal/client/web/systemdesign"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/estimation"
@@ -55,7 +54,6 @@ import (
 	enginesettlement "github.com/mixofreality-studio/archistrator/server/internal/engine/settlement"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/construction"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/operations"
-	"github.com/mixofreality-studio/archistrator/server/internal/manager/project"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/projectdesign"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/systemdesign"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
@@ -489,19 +487,15 @@ func run(logger *slog.Logger) error { //nolint:gocognit,gocyclo,maintidx,nestif 
 	// projectDesign. Each Manager folds the dep→activity mapping (the former
 	// design-dispatch / PR-rail adapters) internally and registers its own Worker from
 	// its stored deps via RegisterWorker(w, m).
-	manager := systemdesign.NewSystemDesignManager(tc, designProjectState, pipeline, scAccess, designRepoSD)
+	// systemDesignManager now ALSO owns the project CATALOG + cross-phase typed read
+	// (CreateProject/GetProject/ListProjects, folded from the dissolved projectManager
+	// 2026-06-28 — a project's permanent identity IS its living system design). The two
+	// extra deps drive those ops: estimator (the constructionEstimationEngine called at
+	// READ time for compute-at-read CPM + EV/SPI) and repoBase (composes each git row's
+	// prUrl). The existing projectStateAccess covers the catalog + head-state read, and
+	// scAccess (nil ⇒ repo-less) drives the project-birth adopt + scaffold seating.
+	manager := systemdesign.NewSystemDesignManager(tc, designProjectState, pipeline, scAccess, designRepoSD, estimator, repoBase)
 	projectDesignManager := projectdesign.NewProjectDesignManager(tc, designProjectState, pipeline, scAccess, estimator, operationEstimator, settlementEstimator, designRepoPD)
-
-	// Thin projectManager (catalog + cross-phase typed read) over projectStateAccess,
-	// plus the optional sourceControlAccess it drives at project birth to adopt + seat the
-	// backing repo BEFORE the head-state row (nil ⇒ repo-less). Constructed via its
-	// generated DI constructor; the former consumer-mirror + composition-root
-	// sourceControlAdapter are retired (the adopt-then-seat surface is folded into the
-	// Manager). Uses the git substrate (designProjectState) so CreateProject + the catalog
-	// read land in the per-project git repos when configured (I-GIT-DESIGN). The estimator
-	// is the constructionEstimationEngine the Manager calls at READ time (compute-at-read
-	// CPM + EV/SPI); repoBase composes each git row's prUrl.
-	projectManager := project.NewProjectManager(designProjectState, scAccess, estimator, repoBase)
 
 	// Phase-1 (system-design) Worker. The Manager registers its own workflows/activities
 	// from its stored deps (it folds the design-dispatch + PR-rail mapping internally).
@@ -656,14 +650,13 @@ func run(logger *slog.Logger) error { //nolint:gocognit,gocyclo,maintidx,nestif 
 	// /api/v1/... routes behind the one auth boundary, with /healthz + /readyz
 	// OUTSIDE it. The composition root only constructs the Handlers and calls
 	// NewServer — no hand-written routing glue. (repoBase is now consumed by
-	// projectManager for the git-row prUrl; the prUrl/prNumber flow from the manager
-	// result, so the generated read handler is pure pass-through.)
+	// systemDesignManager's folded GetProject for the git-row prUrl; the prUrl/prNumber
+	// flow from the manager result, so the generated read handler is pure pass-through.)
 	genServer := web.NewServer(
 		cfg.Dev,
 		tokenValidator,
 		&systemdesignweb.Handler{Manager: manager, Security: sec},
 		&projectdesignweb.Handler{Manager: projectDesignManager, Security: sec},
-		&projectweb.Handler{Manager: projectManager, Security: sec},
 		&constructionweb.Handler{Manager: constructionManager, Security: sec},
 		&operationsweb.Handler{Manager: operationsManager, Security: sec},
 	)
