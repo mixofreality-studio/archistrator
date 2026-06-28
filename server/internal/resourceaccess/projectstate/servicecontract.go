@@ -35,6 +35,13 @@ type ServiceContract struct {
 	// engines/managers/stubs. Carried on the struct so the codec preserves it across
 	// the EncodeProjectJSON → DecodeProjectJSON round-trip.
 	Infra []string `json:"infra,omitempty"`
+	// Stub marks an unbuilt component whose contract is authored (goPackage + $defs +
+	// interface) but whose implementation does not yet exist. modelgen emits a fully
+	// generated not-implemented impl (an unexported impl struct + no-arg public
+	// constructor whose every method returns the layer's not-implemented error) so the
+	// component compiles before it is built; as it is constructed later the generated
+	// bodies are replaced and this flag is cleared. Built entries omit it.
+	Stub bool `json:"stub,omitempty"`
 	// Title is the contract document title (e.g. "artifact contract").
 	Title string `json:"title"`
 	// Defs is the document's `$defs` — each value is a JSON Schema, stored raw so

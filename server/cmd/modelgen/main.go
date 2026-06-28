@@ -17,7 +17,9 @@
 // For each `.serviceContracts` entry with a non-empty `goPackage` it writes
 // `<goPackage>/contract.gen.go` (e.g. internal/resourceaccess/artifact/
 // contract.gen.go), in a package named after the goPackage's last segment.
-// Unbuilt stub entries (no `goPackage`) are skipped.
+// Entries without a `goPackage` are skipped. An entry flagged `"stub": true` is
+// CONTRACTED-BUT-UNBUILT: it still carries a goPackage + $defs + interface, and
+// modelgen emits a fully generated not-implemented impl for it (see emitStubImpl).
 //
 // Usage:
 //
@@ -88,6 +90,7 @@ func main() {
 			GoPackage string   `json:"goPackage"`
 			Component string   `json:"component"`
 			Infra     []string `json:"infra"`
+			Stub      bool     `json:"stub"`
 		}
 		if err := json.Unmarshal(entry, &meta); err != nil {
 			fatal("parse contract %q: %v", k, err)
@@ -95,7 +98,7 @@ func main() {
 		if meta.GoPackage == "" {
 			continue
 		}
-		if err := genOne(entry, meta.GoPackage, meta.Component, meta.Infra); err != nil {
+		if err := genOne(entry, meta.GoPackage, meta.Component, meta.Infra, meta.Stub); err != nil {
 			fatal("modelgen %s: %v", k, err)
 		}
 		wrote++
@@ -111,7 +114,7 @@ func main() {
 // same `$defs` + `interface`), so it feeds the UNCHANGED emission path directly:
 // the extra metadata keys land in Schema.Extra and are ignored, while $defs and
 // interface are read exactly as before — keeping the output byte-identical.
-func genOne(raw []byte, goPackage, component string, infra []string) error {
+func genOne(raw []byte, goPackage, component string, infra []string, stub bool) error {
 	dir := goPackage
 	pkg := filepath.Base(goPackage)
 
@@ -182,14 +185,21 @@ func genOne(raw []byte, goPackage, component string, infra []string) error {
 	// written interface methods hang off the generated struct; modelgen emits only
 	// the struct + constructor + a compile-time interface assertion.
 	if haveIface {
-		switch iface.Layer {
-		case "resourceaccess":
+		switch {
+		case stub:
+			// STUB: the component is contracted (goPackage + $defs + interface) but
+			// not yet built. Emit the fully-generated not-implemented impl (unexported
+			// impl struct + no-arg public constructor + every method returning the
+			// layer's not-implemented error) so the package compiles; as it is built
+			// later these bodies are replaced and the stub flag cleared.
+			emitStubImpl(&buf, iface)
+		case iface.Layer == "resourceaccess":
 			if len(infra) > 0 {
 				if err := emitRAImpl(&buf, iface, infra); err != nil {
 					return fmt.Errorf("emit RA impl: %w", err)
 				}
 			}
-		case "engine":
+		case iface.Layer == "engine":
 			if engineImplAllowlist[component] {
 				emitEngineImpl(&buf, iface)
 			}
@@ -556,6 +566,68 @@ func emitEngineImpl(buf *bytes.Buffer, iface codegen.Interface) {
 	fmt.Fprintf(buf, "// New%s returns the production %s.\n", iface.Name, iface.Name)
 	fmt.Fprintf(buf, "func New%s() %s { return %s{} }\n\n", iface.Name, iface.Name, struct_)
 	fmt.Fprintf(buf, "var _ %s = %s{}\n", iface.Name, struct_)
+}
+
+// emitStubImpl writes the generated not-implemented implementation for a STUB
+// contract (one flagged `"stub": true` in project.json): an unexported impl struct,
+// a no-arg public constructor New<Iface>() <Iface> returning the interface, a
+// compile-time assertion, and every interface method returning the layer's
+// not-implemented error. A stub has no infra yet, so the constructor takes no
+// arguments; only the generated interface + models + this constructor are public.
+// As the component is built later these generated bodies are replaced.
+func emitStubImpl(buf *bytes.Buffer, iface codegen.Interface) {
+	lc, hasLayer := layerContext[iface.Layer]
+	struct_ := "stub" + iface.Name
+
+	fmt.Fprintf(buf, "// %s is the generated not-implemented %s. The component is contracted\n", struct_, iface.Name)
+	fmt.Fprintf(buf, "// but not yet built, so every method returns a not-implemented error; the bodies\n")
+	fmt.Fprintf(buf, "// are replaced when the component is constructed.\n")
+	fmt.Fprintf(buf, "type %s struct{}\n\n", struct_)
+
+	fmt.Fprintf(buf, "// New%s returns the not-implemented %s. It takes no arguments\n", iface.Name, iface.Name)
+	fmt.Fprintf(buf, "// (the component has no infrastructure binding yet).\n")
+	fmt.Fprintf(buf, "func New%s() %s { return &%s{} }\n\n", iface.Name, iface.Name, struct_)
+
+	fmt.Fprintf(buf, "var _ %s = (*%s)(nil)\n\n", iface.Name, struct_)
+
+	for _, op := range iface.Operations {
+		params := make([]string, 0, len(op.Params)+1)
+		if hasLayer {
+			params = append(params, "_ "+lc.typ)
+			pendingImports[lc.path] = lc.alias
+		}
+		for _, p := range op.Params {
+			t := goType(p.Schema)
+			if p.Pointer {
+				t = "*" + t
+			}
+			params = append(params, "_ "+t)
+		}
+		fmt.Fprintf(buf, "func (*%s) %s(%s)%s {\n", struct_, op.Name, strings.Join(params, ", "), returnClause(op))
+		switch {
+		case op.Result != nil && op.Error:
+			fmt.Fprintf(buf, "\tvar zero %s\n", goType(op.Result))
+			fmt.Fprintf(buf, "\treturn zero, %s\n", notImplementedExpr(iface.Layer))
+		case op.Error:
+			fmt.Fprintf(buf, "\treturn %s\n", notImplementedExpr(iface.Layer))
+		case op.Result != nil:
+			fmt.Fprintf(buf, "\tvar zero %s\n\treturn zero\n", goType(op.Result))
+		}
+		buf.WriteString("}\n\n")
+	}
+}
+
+// notImplementedExpr renders the layer-appropriate not-implemented error
+// expression for a stub method body. ResourceAccess stubs use the framework RA
+// error (fwra.New); the fwra import is already present (every RA method takes the
+// rc fwra.Context). Other layers fall back to a plain errors.New so modelgen does
+// not have to guess each framework's error API (no non-RA stubs exist today).
+func notImplementedExpr(layer string) string {
+	if layer == "resourceaccess" {
+		return `fwra.New(fwra.Unknown, "not implemented")`
+	}
+	pendingImports["errors"] = ""
+	return `errors.New("not implemented")`
 }
 
 // emitType writes one named type. Enum schemas become a named scalar + a const
