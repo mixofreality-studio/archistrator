@@ -26,7 +26,7 @@ func asProjectDesignError(t *testing.T, err error) *fwmanager.Error {
 // ---- RequestArtifactDraft ---------------------------------------------------
 
 func Test_RequestArtifactDraft_EmptyProjectID(t *testing.T) {
-	m := NewManager(nil)
+	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.RequestArtifactDraft(fwmanager.Context{Context: context.Background()}, ProjectID(""), KindPlanningAssumptions, nil)
 	if got := asProjectDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %d", got)
@@ -34,7 +34,7 @@ func Test_RequestArtifactDraft_EmptyProjectID(t *testing.T) {
 }
 
 func Test_RequestArtifactDraft_Phase1Kind_FailedPrecondition(t *testing.T) {
-	m := NewManager(nil)
+	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil)
 	// A Phase-1 kind is a Client bug for the Phase-2 Manager.
 	_, err := m.RequestArtifactDraft(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), KindMission, nil)
 	if got := asProjectDesignError(t, err).Kind; got != fwmanager.FailedPrecondition {
@@ -43,7 +43,7 @@ func Test_RequestArtifactDraft_Phase1Kind_FailedPrecondition(t *testing.T) {
 }
 
 func Test_RequestArtifactDraft_SdpReviewKind_FailedPrecondition(t *testing.T) {
-	m := NewManager(nil)
+	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil)
 	// The SDP review is assembled, not co-authored.
 	_, err := m.RequestArtifactDraft(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), KindSdpReview, nil)
 	if got := asProjectDesignError(t, err).Kind; got != fwmanager.FailedPrecondition {
@@ -54,7 +54,7 @@ func Test_RequestArtifactDraft_SdpReviewKind_FailedPrecondition(t *testing.T) {
 // ---- RequestSDPCommit -------------------------------------------------------
 
 func Test_RequestSDPCommit_EmptyProjectID(t *testing.T) {
-	m := NewManager(nil)
+	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.RequestSDPCommit(fwmanager.Context{Context: context.Background()}, ProjectID(""))
 	if got := asProjectDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %d", got)
@@ -64,7 +64,7 @@ func Test_RequestSDPCommit_EmptyProjectID(t *testing.T) {
 // ---- SubmitSDPDecision ------------------------------------------------------
 
 func Test_SubmitSDPDecision_EmptyProjectID(t *testing.T) {
-	m := NewManager(nil)
+	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil)
 	err := m.SubmitSDPDecision(fwmanager.Context{Context: context.Background()}, ProjectID(""), SDPCommit, nil, nil)
 	if got := asProjectDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %d", got)
@@ -72,7 +72,7 @@ func Test_SubmitSDPDecision_EmptyProjectID(t *testing.T) {
 }
 
 func Test_SubmitSDPDecision_CommitRequiresOptionID(t *testing.T) {
-	m := NewManager(nil)
+	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil)
 	pid := ProjectID(uuid.NewString())
 
 	// nil optionId.
@@ -90,7 +90,7 @@ func Test_SubmitSDPDecision_CommitRequiresOptionID(t *testing.T) {
 }
 
 func Test_SubmitSDPDecision_RejectAllRequiresFeedback(t *testing.T) {
-	m := NewManager(nil)
+	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil)
 	pid := ProjectID(uuid.NewString())
 
 	err := m.SubmitSDPDecision(fwmanager.Context{Context: context.Background()}, pid, SDPRejectAll, nil, nil)
@@ -105,7 +105,7 @@ func Test_SubmitSDPDecision_RejectAllRequiresFeedback(t *testing.T) {
 }
 
 func Test_SubmitSDPDecision_UnknownDecision(t *testing.T) {
-	m := NewManager(nil)
+	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil)
 	err := m.SubmitSDPDecision(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), SDPDecisionUnknown, nil, nil)
 	if got := asProjectDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse for unknown decision, got %d", got)
@@ -115,7 +115,7 @@ func Test_SubmitSDPDecision_UnknownDecision(t *testing.T) {
 // ---- SubmitReviewDecision (per-artifact OQ-3 gate) --------------------------
 
 func Test_SubmitReviewDecision_EmptyProjectID(t *testing.T) {
-	m := NewManager(nil)
+	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil)
 	err := m.SubmitReviewDecision(fwmanager.Context{Context: context.Background()}, ProjectID(""), KindPlanningAssumptions, ReviewApprove, nil)
 	if got := asProjectDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %d", got)
@@ -123,7 +123,7 @@ func Test_SubmitReviewDecision_EmptyProjectID(t *testing.T) {
 }
 
 func Test_SubmitReviewDecision_RejectRequiresFeedback(t *testing.T) {
-	m := NewManager(nil)
+	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil)
 	pid := ProjectID(uuid.NewString())
 	err := m.SubmitReviewDecision(fwmanager.Context{Context: context.Background()}, pid, KindActivityList, ReviewReject, nil)
 	if got := asProjectDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
@@ -137,7 +137,7 @@ func Test_SubmitReviewDecision_RejectRequiresFeedback(t *testing.T) {
 }
 
 func Test_SubmitReviewDecision_WrongPhaseKind(t *testing.T) {
-	m := NewManager(nil)
+	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil)
 	// A Phase-1 kind is a Client bug for the Phase-2 Manager.
 	err := m.SubmitReviewDecision(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), KindMission, ReviewApprove, nil)
 	if got := asProjectDesignError(t, err).Kind; got != fwmanager.FailedPrecondition {
@@ -146,7 +146,7 @@ func Test_SubmitReviewDecision_WrongPhaseKind(t *testing.T) {
 }
 
 func Test_SubmitReviewDecision_SdpReviewKind_FailedPrecondition(t *testing.T) {
-	m := NewManager(nil)
+	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil)
 	// The SDP review is not gated via the per-artifact reviewDecision signal.
 	err := m.SubmitReviewDecision(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), KindSdpReview, ReviewApprove, nil)
 	if got := asProjectDesignError(t, err).Kind; got != fwmanager.FailedPrecondition {
@@ -155,7 +155,7 @@ func Test_SubmitReviewDecision_SdpReviewKind_FailedPrecondition(t *testing.T) {
 }
 
 func Test_SubmitReviewDecision_UnknownDecision(t *testing.T) {
-	m := NewManager(nil)
+	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil)
 	err := m.SubmitReviewDecision(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), KindNetwork, ReviewDecisionUnknown, nil)
 	if got := asProjectDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse for unknown decision, got %d", got)
@@ -165,7 +165,7 @@ func Test_SubmitReviewDecision_UnknownDecision(t *testing.T) {
 // ---- AdvanceToConstruction --------------------------------------------------
 
 func Test_AdvanceToConstruction_EmptyProjectID(t *testing.T) {
-	m := NewManager(nil)
+	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.AdvanceToConstruction(fwmanager.Context{Context: context.Background()}, ProjectID(""))
 	if got := asProjectDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %d", got)
@@ -175,7 +175,7 @@ func Test_AdvanceToConstruction_EmptyProjectID(t *testing.T) {
 // ---- GetSessionState --------------------------------------------------------
 
 func Test_GetSessionState_EmptyProjectID(t *testing.T) {
-	m := NewManager(nil)
+	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.GetSessionState(fwmanager.Context{Context: context.Background()}, ProjectID(""), KindPlanningAssumptions)
 	if got := asProjectDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %d", got)

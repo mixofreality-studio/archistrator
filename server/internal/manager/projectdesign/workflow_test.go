@@ -22,7 +22,7 @@ import (
 // read-back co-author gate (projectDesignManager.md §0.5), the TWIN of the C-MSD-Δ
 // spine. Method product → NO BDD; regression-first, black-box at the WIRE SEAM. The
 // LLM is stubbed at the EXTERNAL agentic-job boundary — a FAKE
-// ConstructionPipelineAccess (submit/observe) + a FAKE projectStateAccess serving the
+// constructionPipelineAccess (submit/observe) + a FAKE projectStateAccess serving the
 // read-back model the Action "committed". The Manager under test is NOT faked; the
 // workflow drives the REAL dispatch → observe → read-back → human-gate sequence over
 // the Temporal in-memory test environment (testsuite.WorkflowTestSuite — no Docker,
@@ -210,7 +210,7 @@ func (p *fakePipeline) ObserveConstructionPipeline(_ context.Context, handle Pip
 	return obs, nil
 }
 
-var _ ConstructionPipelineAccess = (*fakePipeline)(nil)
+var _ constructionPipelineAccess = (*fakePipeline)(nil)
 
 // ---- Test fixtures ----------------------------------------------------------
 

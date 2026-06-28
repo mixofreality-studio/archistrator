@@ -8,7 +8,9 @@ import (
 
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/constructionpipeline"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/client"
 )
@@ -16,19 +18,19 @@ import (
 // SystemDesignManager is the generated service-contract interface for this component
 // — the public use-case surface of the systemDesignManager façade
 // (systemDesignManager.md §2). Each op leads with the Manager-layer call Context
-// (fwmanager.Context, embedding context.Context + the Principal); the *Manager derives
-// ctx := rc.Context inside. The concrete *Manager satisfies it; the consumer-side
-// dependency interfaces + the Temporal Workflows struct stay hand-written and are NOT
-// part of this contract.
+// (fwmanager.Context, embedding context.Context + the Principal); the
+// *systemDesignManager derives ctx := rc.Context inside. The concrete
+// *systemDesignManager satisfies it; the internal dependency seams + the Temporal
+// Workflows struct stay hand-written and are NOT part of this contract.
 
-// Compile-time proof the concrete Manager satisfies the generated SystemDesignManager
-// port. Each op leads with the Manager-layer call Context (fwmanager.Context); the
-// *Manager derives ctx := rc.Context inside.
-var _ SystemDesignManager = (*Manager)(nil)
+// Compile-time proof the concrete systemDesignManager satisfies the generated
+// SystemDesignManager port. Each op leads with the Manager-layer call Context
+// (fwmanager.Context); the *systemDesignManager derives ctx := rc.Context inside.
+var _ SystemDesignManager = (*systemDesignManager)(nil)
 
-// Manager is the systemDesignManager façade. It exposes the public use-case ops
-// (systemDesignManager.md §2) and OWNS Temporal. The 2026-05-29 re-cut adds
-// startSystemDesign (parent kickoff). The Temporal-backed ops:
+// systemDesignManager is the systemDesignManager façade. It exposes the public
+// use-case ops (systemDesignManager.md §2) and OWNS Temporal. The 2026-05-29 re-cut
+// adds startSystemDesign (parent kickoff). The Temporal-backed ops:
 //   - StartSystemDesign  — Workflow (entry, parent SystemDesignPhaseWorkflow)
 //   - RequestArtifactDraft — Workflow (entry, child CoAuthorArtifactWorkflow gate)
 //   - SubmitReviewDecision — Signal (reviewDecision, to the child gate)
@@ -39,21 +41,34 @@ var _ SystemDesignManager = (*Manager)(nil)
 // (the client renders typed models). The Manager exposes no RenderArtifact op and
 // holds no RenderingEngine.
 //
-// The Manager holds a Temporal client AND a direct reference to projectStateAccess
-// (for the StartSystemDesign ResearchInput precondition + the sync SetResearchInput
-// write op). Pre-condition checks the contract puts on the façade (Phase-1 kind,
-// non-empty projectId, Reject-requires-feedback, ResearchInput present) are
-// enforced here before any downstream call (§2, §3).
-type Manager struct {
+// The façade methods use only the Temporal client + projectStateAccess (for the
+// StartSystemDesign ResearchInput precondition + the sync SetResearchInput write op).
+// It ALSO stores the three Worker-side deps it was constructed with — the published
+// constructionpipeline.ConstructionPipelineAccess (design-job dispatch), the published
+// sourcecontrol.SourceControlAccess (the PR rail), and the per-project repo resolver —
+// so RegisterWorker can wire them (via the package's folded adapters) into the
+// hand-written Temporal Workflows. The former exported consumer-mirror interfaces +
+// the composition-root adapters are RETIRED; the manager now depends on the deps'
+// PUBLISHED interfaces and adapts them internally (Option-B boundary mapping).
+//
+// Pre-condition checks the contract puts on the façade (Phase-1 kind, non-empty
+// projectId, Reject-requires-feedback, ResearchInput present) are enforced here before
+// any downstream call (§2, §3).
+type systemDesignManager struct {
 	client       client.Client
 	projectState projectstate.ProjectStateAccess
+	pipeline     constructionpipeline.ConstructionPipelineAccess
+	rail         sourcecontrol.SourceControlAccess
+	repo         func(projectID ProjectID) (sourcecontrol.RepoRef, bool)
 }
 
-// NewManager constructs a Manager over an existing Temporal client plus the
-// projectStateAccess port (for the StartSystemDesign precondition + the sync
-// SetResearchInput write op).
-func NewManager(c client.Client, ps projectstate.ProjectStateAccess) *Manager {
-	return &Manager{client: c, projectState: ps}
+// newSystemDesignManager is the hand-written, unexported builder the generated
+// NewSystemDesignManager constructor delegates to. It wires the Temporal client + the
+// published deps into the façade. The façade itself uses only client + projectState;
+// pipeline/rail/repo are stored for RegisterWorker (rail may be nil — a dev server
+// with no source-control credentials runs the design spine repo-less).
+func newSystemDesignManager(c client.Client, ps projectstate.ProjectStateAccess, pipeline constructionpipeline.ConstructionPipelineAccess, rail sourcecontrol.SourceControlAccess, repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool)) *systemDesignManager {
+	return &systemDesignManager{client: c, projectState: ps, pipeline: pipeline, rail: rail, repo: repo}
 }
 
 // StartSystemDesign — op 2.0 (2026-05-29). Temporal Workflow (entry;
@@ -71,7 +86,7 @@ func NewManager(c client.Client, ps projectstate.ProjectStateAccess) *Manager {
 // SYNC from the Client's POV: returns once the parent start is durably accepted,
 // not once Phase 1 completes (it spans days of human review; the SPA polls
 // getSessionState / reads head-state).
-func (m *Manager) StartSystemDesign(rc fwmanager.Context, projectID ProjectID) (SessionRef, error) {
+func (m *systemDesignManager) StartSystemDesign(rc fwmanager.Context, projectID ProjectID) (SessionRef, error) {
 	ctx := rc.Context
 	if projectID == "" {
 		return "", newError(fwmanager.ContractMisuse, "empty projectId")
@@ -134,7 +149,7 @@ func isResearchReadNotFound(err error) bool {
 // the existing run otherwise), preserving the §2.1 idempotent-on-id post-condition.
 //
 // RequestArtifactDraft is the exported public op.
-func (m *Manager) RequestArtifactDraft(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind, feedback *ReviewFeedback) (SessionRef, error) {
+func (m *systemDesignManager) RequestArtifactDraft(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind, feedback *ReviewFeedback) (SessionRef, error) {
 	ctx := rc.Context
 	if projectID == "" {
 		return "", newError(fwmanager.ContractMisuse, "empty projectId")
@@ -166,7 +181,7 @@ func (m *Manager) RequestArtifactDraft(rc fwmanager.Context, projectID ProjectID
 // decision == Reject.
 //
 // SubmitReviewDecision is the exported public op.
-func (m *Manager) SubmitReviewDecision(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind, decision ReviewDecision, feedback *ReviewFeedback) error {
+func (m *systemDesignManager) SubmitReviewDecision(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind, decision ReviewDecision, feedback *ReviewFeedback) error {
 	ctx := rc.Context
 	if projectID == "" {
 		return newError(fwmanager.ContractMisuse, "empty projectId")
@@ -197,7 +212,7 @@ func (m *Manager) SubmitReviewDecision(rc fwmanager.Context, projectID ProjectID
 // {projectId}:phaseAdvance). Returns the gating outcome.
 //
 // AdvancePhase is the exported public op.
-func (m *Manager) AdvancePhase(rc fwmanager.Context, projectID ProjectID) (PhaseAdvanceResult, error) {
+func (m *systemDesignManager) AdvancePhase(rc fwmanager.Context, projectID ProjectID) (PhaseAdvanceResult, error) {
 	ctx := rc.Context
 	if projectID == "" {
 		return PhaseAdvanceResult{}, newError(fwmanager.ContractMisuse, "empty projectId")
@@ -226,7 +241,7 @@ func (m *Manager) AdvancePhase(rc fwmanager.Context, projectID ProjectID) (Phase
 // read-only). Returns a point-in-time technical view without mutating state.
 //
 // GetSessionState is the exported public op.
-func (m *Manager) GetSessionState(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind) (SessionStateView, error) {
+func (m *systemDesignManager) GetSessionState(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind) (SessionStateView, error) {
 	ctx := rc.Context
 	if projectID == "" {
 		return SessionStateView{}, newError(fwmanager.ContractMisuse, "empty projectId")
@@ -259,7 +274,7 @@ func (m *Manager) GetSessionState(rc fwmanager.Context, projectID ProjectID, kin
 //
 // Returns the resulting head Version (the SPA may use it for optimistic display;
 // the frozen surface is the write itself).
-func (m *Manager) SetResearchInput(rc fwmanager.Context, projectID ProjectID, research ResearchInput) (Version, error) {
+func (m *systemDesignManager) SetResearchInput(rc fwmanager.Context, projectID ProjectID, research ResearchInput) (Version, error) {
 	ctx := rc.Context
 	if projectID == "" {
 		return 0, newError(fwmanager.ContractMisuse, "empty projectId")

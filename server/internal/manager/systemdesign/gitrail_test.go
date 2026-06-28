@@ -36,7 +36,7 @@ type railCall struct {
 }
 
 // fakeRail records every PR-rail verb and serves a scripted PR status. checkGreen
-// drives the merge guard. It satisfies the design Manager's SourceControlRail.
+// drives the merge guard. It satisfies the design Manager's sourceControlRail.
 type fakeRail struct {
 	mu         sync.Mutex
 	calls      []railCall
@@ -102,7 +102,7 @@ func (r *fakeRail) MergePullRequest(_ context.Context, repo sourcecontrol.RepoRe
 	return sourcecontrol.MergeResult{Merged: true, Commit: "merged"}, nil
 }
 
-var _ SourceControlRail = (*fakeRail)(nil)
+var _ sourceControlRail = (*fakeRail)(nil)
 
 // ---- branchAwareFakeProjectState: read-back/stage capture by branch ----------
 
@@ -133,7 +133,7 @@ func (f *branchAwareFakeProjectState) StageArtifactForReviewOnBranch(ctx context
 	return f.fakeProjectState.StageArtifactForReview(fwra.Context{Context: ctx, IdempotencyKey: key}, projectID, expectedVersion, model)
 }
 
-func newRailWorkflows(ps projectstate.ProjectStateAccess, pipe *fakePipeline, rail SourceControlRail) *Workflows {
+func newRailWorkflows(ps projectstate.ProjectStateAccess, pipe *fakePipeline, rail sourceControlRail) *Workflows {
 	return &Workflows{
 		ProjectState: ps,
 		Pipeline:     pipe,

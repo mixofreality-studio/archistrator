@@ -350,7 +350,11 @@ func run(logger *slog.Logger) error { //nolint:gocognit,gocyclo,maintidx,nestif 
 	// repo-less (the projectManager then skips adopt+seating and CreateProject still
 	// works), exactly as the construction Worker stays dormant when its deps are absent —
 	// we do NOT hard-crash a credential-free dev stack.
-	var sourceControl project.SourceControlAccess
+	//
+	// scAccess (the published sourcecontrol.SourceControlAccess) is now threaded DIRECTLY
+	// into the projectManager + the two design Managers' generated constructors — the
+	// former composition-root sourceControlAdapter / railAdapter are retired (folded into
+	// the Manager packages).
 	// scConcrete is the catalog/locator/token surface (SourceControlCatalogAccess) retained
 	// for the projectStateAccess git cred minter + catalog (CLOUD profile). scAccess is the
 	// generated SourceControlAccess interface the adapters/PR-rail consume; the unexported
@@ -367,7 +371,6 @@ func run(logger *slog.Logger) error { //nolint:gocognit,gocyclo,maintidx,nestif 
 			return scErr
 		}
 		scConcrete = scAccess.(sourcecontrol.SourceControlCatalogAccess)
-		sourceControl = sourceControlAdapter{inner: scAccess}
 		logger.Info("sourceControlAccess (github) ready", "account", cfg.GitHubAccount, "apiBaseURL", cfg.GitHubAPIBaseURL)
 	} else {
 		logger.Warn("sourceControlAccess NOT configured — projects are created repo-less (set ARCHISTRATOR_GITHUB_APP_ID + ARCHISTRATOR_GITHUB_APP_PRIVATE_KEY_PEM + ARCHISTRATOR_GITHUB_ACCOUNT for live GitHub repo provisioning)")
@@ -432,8 +435,6 @@ func run(logger *slog.Logger) error { //nolint:gocognit,gocyclo,maintidx,nestif 
 
 	// --- Manager + embedded Temporal Worker ------------------------------------
 
-	manager := systemdesign.NewManager(tc, designProjectState)
-	projectDesignManager := projectdesign.NewManager(tc)
 	// repoBase is the project-wide construction-repo WEB base (<host>/<owner>/<repo>)
 	// the projectManager composes each git row's clickable prUrl from
 	// (<repoBase>/pull/<opaqueRef>; D-PA-GIT-PRURL-ruling R1). It is computed ONCE here
@@ -443,43 +444,22 @@ func run(logger *slog.Logger) error { //nolint:gocognit,gocyclo,maintidx,nestif 
 	// provider-opaque. The webClient is handed the SAME value for any residual use.
 	repoBase := constructionRepoBase(cfg.GitHubAPIBaseURL, cfg.ConstructionRepoOwner, cfg.ConstructionRepoName)
 
-	// Thin projectManager (catalog + cross-phase typed read) over projectStateAccess,
-	// plus the optional sourceControlAccess it drives at project birth to provision the
-	// backing repo BEFORE the head-state row (architecture.dsl:581; nil ⇒ repo-less).
-	// Wired into web.NewClient below as the catalog entry port. Uses the git substrate
-	// (designProjectState) so CreateProject + the catalog read land in the per-project
-	// git repos when configured (I-GIT-DESIGN). The estimator is the
-	// constructionEstimationEngine the Manager calls at READ time to populate the
-	// network computed block (compute-at-read CPM + criticality bands) AND the EV/SPI
-	// earned-value curve (compute-at-read, founder gate 2026-06-19/2026-06-28). repoBase
-	// is the construction-repo web base the Manager composes each git row's prUrl from.
-	projectManager := project.NewManager(designProjectState, sourceControl, estimator, repoBase)
-
-	// PR-rail wiring for the design Managers (I-DESIGN-DISPATCH §2c). The SAME concrete
-	// *sourcecontrol.Access that backs project birth + the construction rail backs the
-	// design rail (it structurally satisfies each design Manager's SourceControlRail
-	// consumer port). The Repo resolver maps a projectID → its deterministic per-project
-	// RepoRef via RepoRefForProject (name-as-identity). When sourceControlAccess is NOT
-	// configured (scConcrete == nil) BOTH are nil and the design rail is DORMANT — the
+	// PR-rail repo resolvers for the design Managers. The design Managers now depend on
+	// the PUBLISHED sourcecontrol.SourceControlAccess directly (the per-Manager consumer
+	// mirrors + the composition-root rail/pipeline adapters were retired — the rail and
+	// design-dispatch adapters are FOLDED into each design Manager package; founder model
+	// 2026-06-28). The composition root still owns the projectID → per-project RepoRef
+	// resolution policy (name-as-identity via RepoRefForProject) and threads it in as the
+	// repo resolver constructor param. When sourceControlAccess is unconfigured
+	// (scConcrete == nil) BOTH resolvers are nil and the design rail is DORMANT — the
 	// CoAuthor spine runs unchanged (read-back/stage on main, no branch/PR ops), exactly
-	// as before this activity. The branch-aware read-back rides through the existing
-	// projectStateGitAdapter / gitRepoLocator (which now implements ProjectRepoOnBranch),
-	// so a non-empty session-branch override resolves a per-branch GitStore handle.
+	// as before.
 	var (
-		designRailSD systemdesign.SourceControlRail
 		designRepoSD func(systemdesign.ProjectID) (sourcecontrol.RepoRef, bool)
-		designRailPD projectdesign.SourceControlRail
 		designRepoPD func(projectdesign.ProjectID) (sourcecontrol.RepoRef, bool)
 	)
 	if scConcrete != nil {
 		railAccount := sourcecontrol.AccountRef(cfg.GitHubAccount)
-		// The concrete RA is now RA-context-based; the design Managers' SourceControlRail
-		// mirrors are plain-ctx, so bridge via the composition-root railAdapter (which
-		// builds fwra.Context at the boundary). One adapter satisfies both rails (identical
-		// method sets).
-		scRail := railAdapter{inner: scAccess}
-		designRailSD = scRail
-		designRailPD = scRail
 		repoFor := func(projectID projectstate.ProjectID) (sourcecontrol.RepoRef, bool) {
 			ref, rerr := scConcrete.RepoRefForProject(railAccount, sourcecontrol.ProjectID(projectID.String()))
 			if rerr != nil {
@@ -488,8 +468,8 @@ func run(logger *slog.Logger) error { //nolint:gocognit,gocyclo,maintidx,nestif 
 			}
 			return ref, true
 		}
-		// systemdesign and projectdesign now each own their ProjectID type (not a
-		// projectstate alias), so bridge the resolver at the boundary.
+		// systemdesign and projectdesign each own their ProjectID type, so bridge the
+		// resolver at the boundary.
 		designRepoSD = func(pid systemdesign.ProjectID) (sourcecontrol.RepoRef, bool) {
 			return repoFor(projectstate.ProjectID(pid))
 		}
@@ -501,31 +481,43 @@ func run(logger *slog.Logger) error { //nolint:gocognit,gocyclo,maintidx,nestif 
 		logger.Warn("design PR rail NOT configured — agentic design read-back/commit run on main with no PR (set the GitHub App config to enable the branch→PR→merge design model)")
 	}
 
-	// Phase-1 (system-design) Worker. The UC1 agentic pivot (D-MSD-Δ) dispatches the
-	// draft/PM-critique as claude-code-action DESIGN jobs over the FROZEN
-	// constructionPipelineAccess (the design Manager is a NEW caller of the same RA the
-	// construction pump uses), so it takes the projectStateAccess (read-back + thin
-	// writes) + the constructionPipelineAccess adapter. workerAccess +
-	// artifactValidationEngine are no longer wired into this Manager. The OPTIONAL PR rail
-	// (§2b) is threaded in (nil when sourceControlAccess is unconfigured).
+	// The design Managers (systemDesignManager / projectDesignManager) are Temporal
+	// workflow façades, each constructed via its GENERATED DI constructor (founder model
+	// 2026-06-28). The constructor takes the published deps directly — the Temporal
+	// client + projectStateAccess + constructionPipelineAccess + sourceControlAccess
+	// (nil ⇒ rail dormant) + the repo resolver, plus the three estimate Engines for
+	// projectDesign. Each Manager folds the dep→activity mapping (the former
+	// design-dispatch / PR-rail adapters) internally and registers its own Worker from
+	// its stored deps via RegisterWorker(w, m).
+	manager := systemdesign.NewSystemDesignManager(tc, designProjectState, pipeline, scAccess, designRepoSD)
+	projectDesignManager := projectdesign.NewProjectDesignManager(tc, designProjectState, pipeline, scAccess, estimator, operationEstimator, settlementEstimator, designRepoPD)
+
+	// Thin projectManager (catalog + cross-phase typed read) over projectStateAccess,
+	// plus the optional sourceControlAccess it drives at project birth to adopt + seat the
+	// backing repo BEFORE the head-state row (nil ⇒ repo-less). Constructed via its
+	// generated DI constructor; the former consumer-mirror + composition-root
+	// sourceControlAdapter are retired (the adopt-then-seat surface is folded into the
+	// Manager). Uses the git substrate (designProjectState) so CreateProject + the catalog
+	// read land in the per-project git repos when configured (I-GIT-DESIGN). The estimator
+	// is the constructionEstimationEngine the Manager calls at READ time (compute-at-read
+	// CPM + EV/SPI); repoBase composes each git row's prUrl.
+	projectManager := project.NewProjectManager(designProjectState, scAccess, estimator, repoBase)
+
+	// Phase-1 (system-design) Worker. The Manager registers its own workflows/activities
+	// from its stored deps (it folds the design-dispatch + PR-rail mapping internally).
 	w := worker.New(tc, systemdesign.TaskQueue, worker.Options{})
-	systemdesign.RegisterWorker(w, designProjectState, designPipelineAdapter{inner: pipeline}, designRailSD, designRepoSD)
+	systemdesign.RegisterWorker(w, manager)
 	if err := w.Start(); err != nil {
 		return err
 	}
 	defer w.Stop()
 	logger.Info("embedded temporal worker started", "taskQueue", systemdesign.TaskQueue)
 
-	// Phase-2 (project-design) Worker — one Worker per Manager task queue
-	// (operational-concepts.md lines 311/324). It polls the project-design queue and
-	// runs the projectDesignManager's three workflows + activities. The UC2 agentic
-	// pivot (D-MPD-Δ) dispatches Phase-2 plan-DRAFTING as claude-code-action DESIGN
-	// jobs over the FROZEN constructionPipelineAccess (the design Manager is a NEW
-	// caller of the same RA the construction pump uses); the three estimate Engines
-	// STAY server-side in-workflow. workerAccess + artifactValidationEngine are no
-	// longer wired into this Manager.
+	// Phase-2 (project-design) Worker — one Worker per Manager task queue. The Manager
+	// registers its own workflows/activities (incl. the three estimate Engines) from its
+	// stored deps.
 	wpd := worker.New(tc, projectdesign.TaskQueue, worker.Options{})
-	projectdesign.RegisterWorker(wpd, estimator, operationEstimator, settlementEstimator, designProjectState, designProjectDesignPipelineAdapter{inner: pipeline}, designRailPD, designRepoPD)
+	projectdesign.RegisterWorker(wpd, projectDesignManager)
 	if err := wpd.Start(); err != nil {
 		return err
 	}

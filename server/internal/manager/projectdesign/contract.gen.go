@@ -6,6 +6,13 @@ package projectdesign
 import (
 	"encoding/json"
 	fwm "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/estimation"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/operationestimation"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/settlement"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/constructionpipeline"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
+	"go.temporal.io/sdk/client"
 )
 
 type ArtifactKind int
@@ -120,4 +127,12 @@ type ProjectDesignManager interface {
 	RequestSDPCommit(rc fwm.Context, projectID ProjectID) (SessionRef, error)
 	SubmitReviewDecision(rc fwm.Context, projectID ProjectID, kind ArtifactKind, decision ReviewDecision, feedback *ReviewFeedback) error
 	SubmitSDPDecision(rc fwm.Context, projectID ProjectID, decision SDPDecision, optionID *OptionID, feedback *ReviewFeedback) error
+}
+
+// NewProjectDesignManager constructs the ProjectDesignManager, delegating to the hand-written, unexported
+// builder newProjectDesignManager in the manager package (which owns the stateful facade setup:
+// the Temporal client, the deps, and config). The constructor returns the
+// interface, so the concrete manager impl stays unexported.
+func NewProjectDesignManager(client client.Client, projectState projectstate.ProjectStateAccess, pipeline constructionpipeline.ConstructionPipelineAccess, rail sourcecontrol.SourceControlAccess, estimator estimation.EstimationEngine, operationEstimator operationestimation.OperationEstimationEngine, settlementEstimator settlement.SettlementEngine, repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool)) ProjectDesignManager {
+	return newProjectDesignManager(client, projectState, pipeline, rail, estimator, operationEstimator, settlementEstimator, repo)
 }

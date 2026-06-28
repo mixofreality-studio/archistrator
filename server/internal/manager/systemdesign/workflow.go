@@ -90,7 +90,7 @@ const (
 // Rendering field here.
 type Workflows struct {
 	ProjectState projectstate.ProjectStateAccess
-	Pipeline     ConstructionPipelineAccess
+	Pipeline     constructionPipelineAccess
 
 	// Rail + Repo are the OPTIONAL git-forward PR rail (I-DESIGN-DISPATCH §2b). When
 	// both are non-nil AND a repo resolves for the project, the CoAuthor spine wraps
@@ -101,7 +101,7 @@ type Workflows struct {
 	// existing test) the spine runs UNCHANGED — read-back/stage on main, no branch/PR
 	// ops — so the branch-aware path is purely additive and dormant-when-unwired,
 	// exactly like the construction Manager's git-forward slice.
-	Rail SourceControlRail
+	Rail sourceControlRail
 	// Repo resolves the per-project RepoRef the rail verbs address. nil ⇒ the rail is
 	// dormant. Injected so the repo-resolution policy is swappable without a new RA edge.
 	Repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool)

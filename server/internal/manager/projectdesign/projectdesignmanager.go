@@ -5,6 +5,12 @@ import (
 	"strings"
 
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/estimation"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/operationestimation"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/settlement"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/constructionpipeline"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/client"
 )
@@ -12,21 +18,18 @@ import (
 // ProjectDesignManager is the generated service-contract interface for this component
 // — the public use-case surface of the projectDesignManager façade
 // (projectDesignManager.md §2). Each op leads with the Manager-layer call Context
-// (fwmanager.Context, embedding context.Context + the Principal); the *Manager derives
-// ctx := rc.Context inside. The concrete *Manager satisfies it; the consumer-side
-// dependency interfaces (ConstructionPipelineAccess / SourceControlRail) + the Temporal
+// (fwmanager.Context, embedding context.Context + the Principal); the *projectDesignManager derives
+// ctx := rc.Context inside. The concrete *projectDesignManager satisfies it; the consumer-side
+// dependency seams (constructionPipelineAccess / sourceControlRail) + the Temporal
 // Workflows struct stay hand-written and are NOT part of this contract.
 
-// Compile-time proof the concrete Manager satisfies the generated ProjectDesignManager
-// port.
-var _ ProjectDesignManager = (*Manager)(nil)
+// Compile-time proof the concrete projectDesignManager satisfies the generated
+// ProjectDesignManager port.
+var _ ProjectDesignManager = (*projectDesignManager)(nil)
 
-// ProjectDesignManager is the port the webClient depends on. The generated form
-// (contract.gen.go) replaces this hand-written declaration after the bootstrap strip.
-
-// Manager is the projectDesignManager façade. It exposes the public use-case ops
-// (projectDesignManager.md §2) and OWNS Temporal. It is the Phase-2 twin of the
-// systemdesign Manager. The Temporal-backed ops:
+// projectDesignManager is the projectDesignManager façade. It exposes the public
+// use-case ops (projectDesignManager.md §2) and OWNS Temporal. It is the Phase-2 twin
+// of the systemdesign Manager. The Temporal-backed ops:
 //   - RequestArtifactDraft   — Workflow (entry, per-artifact CoAuthorPhase2ArtifactWorkflow)
 //   - RequestSDPCommit       — Workflow (entry, AssembleSDPReviewWorkflow)
 //   - SubmitSDPDecision      — Signal (sdpDecision, to the SDP-review workflow)
@@ -36,17 +39,59 @@ var _ ProjectDesignManager = (*Manager)(nil)
 // plus SubmitReviewDecision — Signal (reviewDecision, the per-artifact OQ-3 gate).
 //
 // Each op leads with the Manager-layer call Context (fwmanager.Context, embedding
-// context.Context + the Principal); the *Manager derives ctx := rc.Context inside.
-// Pre-condition checks the contract puts on the façade (Phase-2 kind, non-empty
-// projectId, Commit-requires-optionId, RejectAll-requires-feedback) are enforced
-// here before any downstream call (§2, §3). The Manager holds only a Temporal
-// client — the head-state and engine deps live on the worker-side Workflows struct.
-type Manager struct {
-	client client.Client
+// context.Context + the Principal); the *projectDesignManager derives ctx :=
+// rc.Context inside. Pre-condition checks the contract puts on the façade (Phase-2
+// kind, non-empty projectId, Commit-requires-optionId, RejectAll-requires-feedback)
+// are enforced here before any downstream call (§2, §3).
+//
+// The façade methods themselves use ONLY the Temporal client. It ALSO stores the
+// Worker-side deps it was constructed with — the published
+// projectstate.ProjectStateAccess (head-state read-back + thin writes), the published
+// constructionpipeline.ConstructionPipelineAccess (Phase-2 design-job dispatch), the
+// published sourcecontrol.SourceControlAccess (the PR rail), the three estimation
+// Engines (the in-workflow SDP-assembly join), and the per-project repo resolver — so
+// RegisterWorker can wire them (via the package's folded adapters) into the
+// hand-written Temporal Workflows. The former exported consumer-mirror interfaces +
+// the composition-root adapters are RETIRED; the manager now depends on the deps'
+// PUBLISHED interfaces and adapts them internally (Option-B boundary mapping).
+type projectDesignManager struct {
+	client       client.Client
+	projectState projectstate.ProjectStateAccess
+	pipeline     constructionpipeline.ConstructionPipelineAccess
+	rail         sourcecontrol.SourceControlAccess
+	estimator    estimation.EstimationEngine
+	opEstimator  operationestimation.OperationEstimationEngine
+	settlement   settlement.SettlementEngine
+	repo         func(projectID ProjectID) (sourcecontrol.RepoRef, bool)
 }
 
-// NewManager constructs a Manager over an existing Temporal client.
-func NewManager(c client.Client) *Manager { return &Manager{client: c} }
+// newProjectDesignManager is the hand-written, unexported builder the generated
+// NewProjectDesignManager constructor delegates to. It wires the Temporal client + the
+// published deps into the façade. The façade itself uses only client; projectState /
+// pipeline / rail / the three estimators / repo are stored for RegisterWorker (rail
+// may be nil — a dev server with no source-control credentials runs the design spine
+// repo-less).
+func newProjectDesignManager(
+	c client.Client,
+	projectState projectstate.ProjectStateAccess,
+	pipeline constructionpipeline.ConstructionPipelineAccess,
+	rail sourcecontrol.SourceControlAccess,
+	estimator estimation.EstimationEngine,
+	opEstimator operationestimation.OperationEstimationEngine,
+	settle settlement.SettlementEngine,
+	repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool),
+) *projectDesignManager {
+	return &projectDesignManager{
+		client:       c,
+		projectState: projectState,
+		pipeline:     pipeline,
+		rail:         rail,
+		estimator:    estimator,
+		opEstimator:  opEstimator,
+		settlement:   settle,
+		repo:         repo,
+	}
+}
 
 // RequestArtifactDraft — op 2.1. Temporal Workflow (entry; StartWorkflow /
 // signal-with-start), workflow id {projectId}:{artifactKind}. Idempotent on the id.
@@ -55,7 +100,7 @@ func NewManager(c client.Client) *Manager { return &Manager{client: c} }
 // review is assembled via RequestSDPCommit, not co-authored). The phase-prerequisite
 // check (Phase 1 sealed, predecessors committed) is performed by the workflow on
 // head-state; the façade only checks kind validity.
-func (m *Manager) RequestArtifactDraft(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind, feedback *ReviewFeedback) (SessionRef, error) {
+func (m *projectDesignManager) RequestArtifactDraft(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind, feedback *ReviewFeedback) (SessionRef, error) {
 	ctx := rc.Context
 	if projectID == "" {
 		return "", newError(fwmanager.ContractMisuse, "empty projectId")
@@ -86,7 +131,7 @@ func (m *Manager) RequestArtifactDraft(rc fwmanager.Context, projectID ProjectID
 // signal-with-start), workflow id {projectId}:sdpReview. Idempotent on the id
 // (UseExisting): a redundant start (or a replan re-entry) reuses the running
 // SDP-review workflow.
-func (m *Manager) RequestSDPCommit(rc fwmanager.Context, projectID ProjectID) (SessionRef, error) {
+func (m *projectDesignManager) RequestSDPCommit(rc fwmanager.Context, projectID ProjectID) (SessionRef, error) {
 	ctx := rc.Context
 	if projectID == "" {
 		return "", newError(fwmanager.ContractMisuse, "empty projectId")
@@ -113,7 +158,7 @@ func (m *Manager) RequestSDPCommit(rc fwmanager.Context, projectID ProjectID) (S
 // Validate: decision ∈ {SDPCommit, SDPRejectAll}; SDPCommit requires a non-empty
 // optionID (ContractMisuse otherwise); SDPRejectAll requires feedback with
 // non-empty Notes (ContractMisuse otherwise).
-func (m *Manager) SubmitSDPDecision(rc fwmanager.Context, projectID ProjectID, decision SDPDecision, optionID *OptionID, feedback *ReviewFeedback) error {
+func (m *projectDesignManager) SubmitSDPDecision(rc fwmanager.Context, projectID ProjectID, decision SDPDecision, optionID *OptionID, feedback *ReviewFeedback) error {
 	ctx := rc.Context
 	if projectID == "" {
 		return newError(fwmanager.ContractMisuse, "empty projectId")
@@ -143,7 +188,7 @@ func (m *Manager) SubmitSDPDecision(rc fwmanager.Context, projectID ProjectID, d
 // Signal (SignalWorkflow to workflow id {projectId}:{artifactKind}, signal
 // reviewDecision). feedback required when decision == Reject. kind must be a
 // Phase-2 kind other than the SDP review.
-func (m *Manager) SubmitReviewDecision(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind, decision ReviewDecision, feedback *ReviewFeedback) error {
+func (m *projectDesignManager) SubmitReviewDecision(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind, decision ReviewDecision, feedback *ReviewFeedback) error {
 	ctx := rc.Context
 	if projectID == "" {
 		return newError(fwmanager.ContractMisuse, "empty projectId")
@@ -172,7 +217,7 @@ func (m *Manager) SubmitReviewDecision(rc fwmanager.Context, projectID ProjectID
 
 // AdvanceToConstruction — op 2.4. Temporal Workflow (entry; StartWorkflow,
 // workflow id {projectId}:phaseAdvance). Returns the gating outcome.
-func (m *Manager) AdvanceToConstruction(rc fwmanager.Context, projectID ProjectID) (PhaseAdvanceResult, error) {
+func (m *projectDesignManager) AdvanceToConstruction(rc fwmanager.Context, projectID ProjectID) (PhaseAdvanceResult, error) {
 	ctx := rc.Context
 	if projectID == "" {
 		return PhaseAdvanceResult{}, newError(fwmanager.ContractMisuse, "empty projectId")
@@ -200,7 +245,7 @@ func (m *Manager) AdvanceToConstruction(rc fwmanager.Context, projectID ProjectI
 // GetSessionState — op 2.5. Temporal Query (QueryWorkflow, query sessionState,
 // read-only). When kind == KindSdpReview, queries {projectId}:sdpReview; otherwise
 // {projectId}:{kind}.
-func (m *Manager) GetSessionState(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind) (SessionStateView, error) {
+func (m *projectDesignManager) GetSessionState(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind) (SessionStateView, error) {
 	ctx := rc.Context
 	if projectID == "" {
 		return SessionStateView{}, newError(fwmanager.ContractMisuse, "empty projectId")

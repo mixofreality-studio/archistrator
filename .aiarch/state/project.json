@@ -12644,6 +12644,42 @@
       "component": "projectDesignManager",
       "layer": "Manager",
       "goPackage": "internal/manager/projectdesign",
+      "deps": [
+        {
+          "name": "client",
+          "goType": "client.Client",
+          "goImport": "go.temporal.io/sdk/client"
+        },
+        {
+          "name": "projectState",
+          "component": "projectStateAccess"
+        },
+        {
+          "name": "pipeline",
+          "component": "constructionPipelineAccess"
+        },
+        {
+          "name": "rail",
+          "component": "sourceControlAccess"
+        },
+        {
+          "name": "estimator",
+          "component": "constructionEstimationEngine"
+        },
+        {
+          "name": "operationEstimator",
+          "component": "operationEstimationEngine"
+        },
+        {
+          "name": "settlementEstimator",
+          "component": "settlementEngine"
+        },
+        {
+          "name": "repo",
+          "goType": "func(projectID ProjectID) (sourcecontrol.RepoRef, bool)",
+          "goImport": "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
+        }
+      ],
       "title": "projectdesign contract",
       "$defs": {
         "ArtifactKind": {
@@ -13060,6 +13096,24 @@
       "component": "projectManager",
       "layer": "Manager",
       "goPackage": "internal/manager/project",
+      "deps": [
+        {
+          "name": "projectState",
+          "component": "projectStateAccess"
+        },
+        {
+          "name": "sourceControl",
+          "component": "sourceControlAccess"
+        },
+        {
+          "name": "estimator",
+          "component": "constructionEstimationEngine"
+        },
+        {
+          "name": "repoBase",
+          "goType": "string"
+        }
+      ],
       "title": "project contract",
       "$defs": {
         "ActivityBuildStatus": {
@@ -15509,6 +15563,30 @@
       "component": "systemDesignManager",
       "layer": "Manager",
       "goPackage": "internal/manager/systemdesign",
+      "deps": [
+        {
+          "name": "client",
+          "goType": "client.Client",
+          "goImport": "go.temporal.io/sdk/client"
+        },
+        {
+          "name": "projectState",
+          "component": "projectStateAccess"
+        },
+        {
+          "name": "pipeline",
+          "component": "constructionPipelineAccess"
+        },
+        {
+          "name": "rail",
+          "component": "sourceControlAccess"
+        },
+        {
+          "name": "repo",
+          "goType": "func(projectID ProjectID) (sourcecontrol.RepoRef, bool)",
+          "goImport": "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
+        }
+      ],
       "title": "systemdesign contract",
       "$defs": {
         "AnchoredComment": {

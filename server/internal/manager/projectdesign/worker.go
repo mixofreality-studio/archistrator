@@ -1,15 +1,11 @@
 package projectdesign
 
 import (
+	"fmt"
+
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/worker"
 	"go.temporal.io/sdk/workflow"
-
-	"github.com/mixofreality-studio/archistrator/server/internal/engine/estimation"
-	"github.com/mixofreality-studio/archistrator/server/internal/engine/operationestimation"
-	"github.com/mixofreality-studio/archistrator/server/internal/engine/settlement"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 )
 
 // RegisterWorker wires the projectDesignManager onto a Temporal Worker polling the
@@ -40,24 +36,28 @@ import (
 //     NO rail (only the per-artifact draft path does). The rail Activities + the
 //     branch-aware ReadProjectOnBranch are registered regardless (an unwired rail never
 //     invokes them).
-func RegisterWorker(
-	w worker.Worker,
-	est estimation.EstimationEngine,
-	opEst operationestimation.OperationEstimationEngine,
-	settle settlement.SettlementEngine,
-	projectState projectstate.ProjectStateAccess,
-	pipeline ConstructionPipelineAccess,
-	rail SourceControlRail,
-	repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool),
-) {
+// It takes the constructed ProjectDesignManager and reads the Worker-side deps off
+// its (unexported) impl, wrapping the published constructionpipeline / sourcecontrol
+// deps in the package's folded adapters before handing them to the Workflows struct.
+// The published rail is OPTIONAL: a nil rail leaves the Workflows.Rail seam nil so the
+// branch→PR→merge path stays dormant (a dev server with no source-control creds).
+func RegisterWorker(w worker.Worker, m ProjectDesignManager) {
+	impl, ok := m.(*projectDesignManager)
+	if !ok {
+		panic(fmt.Sprintf("projectdesign.RegisterWorker: unexpected ProjectDesignManager impl %T", m))
+	}
+	var rail sourceControlRail
+	if impl.rail != nil {
+		rail = railAdapterImpl{inner: impl.rail}
+	}
 	wf := &Workflows{
-		Estimation:   est,
-		OperationEst: opEst,
-		Settlement:   settle,
-		ProjectState: projectState,
-		Pipeline:     pipeline,
+		Estimation:   impl.estimator,
+		OperationEst: impl.opEstimator,
+		Settlement:   impl.settlement,
+		ProjectState: impl.projectState,
+		Pipeline:     pipelineDispatchAdapter{inner: impl.pipeline},
 		Rail:         rail,
-		Repo:         repo,
+		Repo:         impl.repo,
 	}
 	w.RegisterWorkflowWithOptions(wf.CoAuthorPhase2ArtifactWorkflow, workflow.RegisterOptions{Name: ExecutionKindCoAuthor})
 	w.RegisterWorkflowWithOptions(wf.AssembleSDPReviewWorkflow, workflow.RegisterOptions{Name: ExecutionKindSDPReview})

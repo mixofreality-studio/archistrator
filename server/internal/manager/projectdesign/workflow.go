@@ -91,7 +91,7 @@ type Workflows struct {
 	OperationEst operationestimation.OperationEstimationEngine
 	Settlement   settlement.SettlementEngine
 	ProjectState projectstate.ProjectStateAccess
-	Pipeline     ConstructionPipelineAccess
+	Pipeline     constructionPipelineAccess
 
 	// Rail + Repo are the OPTIONAL git-forward PR rail (I-DESIGN-DISPATCH §2b). When both
 	// are non-nil AND a repo resolves, the per-artifact CoAuthorPhase2ArtifactWorkflow
@@ -99,7 +99,7 @@ type Workflows struct {
 	// branch-aware read-back/stage; when nil that path runs UNCHANGED (read-back/stage on
 	// main, no branch/PR ops). The AssembleSDPReviewWorkflow (the in-workflow three-Engine
 	// join) is UNCHANGED — it gets NO rail (only the per-artifact draft path does).
-	Rail SourceControlRail
+	Rail sourceControlRail
 	// Repo resolves the per-project RepoRef the rail verbs address. nil ⇒ the rail is
 	// dormant. Injected so the repo-resolution policy is swappable without a new RA edge.
 	Repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool)

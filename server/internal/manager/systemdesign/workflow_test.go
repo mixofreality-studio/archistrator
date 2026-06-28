@@ -19,7 +19,7 @@ import (
 // C-MSD-Δ regression spine — the AGENTIC-PIVOT dispatch → observe → read-back
 // child gate (systemDesignManager.md §0d). Method product → NO BDD; regression-
 // first, black-box at the WIRE SEAM. The LLM is stubbed at the EXTERNAL agentic-job
-// boundary — a FAKE ConstructionPipelineAccess (submit/observe) + a FAKE
+// boundary — a FAKE constructionPipelineAccess (submit/observe) + a FAKE
 // projectStateAccess serving the read-back model the Action "committed". The
 // Manager under test is NOT faked; the workflow drives the REAL dispatch → observe
 // → read-back → human-gate sequence over the Temporal in-memory test environment
@@ -250,7 +250,7 @@ func (p *fakePipeline) ObserveConstructionPipeline(_ context.Context, handle Pip
 	return obs, nil
 }
 
-var _ ConstructionPipelineAccess = (*fakePipeline)(nil)
+var _ constructionPipelineAccess = (*fakePipeline)(nil)
 
 // ---- helpers ----------------------------------------------------------------
 

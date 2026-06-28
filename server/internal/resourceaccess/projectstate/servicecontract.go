@@ -35,6 +35,16 @@ type ServiceContract struct {
 	// engines/managers/stubs. Carried on the struct so the codec preserves it across
 	// the EncodeProjectJSON → DecodeProjectJSON round-trip.
 	Infra []string `json:"infra,omitempty"`
+	// Deps is a MANAGER contract's ordered constructor dependency list. Each entry is
+	// either a COMPONENT dep ({name, component} — `component` is the dependency's
+	// contract key, resolved by modelgen to its published interface type) or a PLAIN
+	// dep ({name, goType[, goImport]} — a non-component constructor param such as a
+	// Temporal client, a config scalar, or a resolver func the generator cannot derive
+	// from a component). modelgen turns this list into the generated
+	// New<Iface>(deps…) <Iface> DI constructor. Empty for engines/RAs/stubs and for
+	// un-migrated managers. Carried on the struct so the codec preserves it across the
+	// EncodeProjectJSON → DecodeProjectJSON round-trip.
+	Deps []ContractDep `json:"deps,omitempty"`
 	// Stub marks an unbuilt component whose contract is authored (goPackage + $defs +
 	// interface) but whose implementation does not yet exist. modelgen emits a fully
 	// generated not-implemented impl (an unexported impl struct + no-arg public
@@ -49,6 +59,23 @@ type ServiceContract struct {
 	Defs map[string]json.RawMessage `json:"$defs,omitempty"`
 	// Interface is the component's interface (the RPC surface): name, layer, ops.
 	Interface ContractInterface `json:"interface"`
+}
+
+// ContractDep is one manager constructor dependency stored in a MANAGER
+// ServiceContract's Deps. A COMPONENT dep names a dependency contract by its key in
+// Component (resolved by modelgen to that component's published interface type); a
+// PLAIN dep instead carries an explicit GoType (+ optional GoImport) for a
+// constructor param that is not itself a component (a Temporal client, a config
+// scalar, a resolver func). Exactly one of Component / GoType is set.
+type ContractDep struct {
+	// Name is the constructor parameter name (and the builder argument name).
+	Name string `json:"name"`
+	// Component is the dependency's contract key (COMPONENT dep). Empty for a PLAIN dep.
+	Component string `json:"component,omitempty"`
+	// GoType is the verbatim Go type of a PLAIN dep. Empty for a COMPONENT dep.
+	GoType string `json:"goType,omitempty"`
+	// GoImport is the single import path a PLAIN dep's GoType needs (optional).
+	GoImport string `json:"goImport,omitempty"`
 }
 
 // ContractInterface mirrors codegen.Interface: the generated Go interface's name,

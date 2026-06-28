@@ -72,6 +72,23 @@ func main() {
 	if err := json.Unmarshal(top["serviceContracts"], &contracts); err != nil {
 		fatal("parse .serviceContracts in %s: %v", path, err)
 	}
+	// Build the dep resolver: each contract key → its published interface coordinates
+	// (goPackage + interface name). A MANAGER contract's `deps` reference dependency
+	// components by their contract key; modelgen resolves each to a constructor param
+	// typed as the dep's GENERATED/published interface (see emitManagerConstructor).
+	resolver := map[string]contractRef{}
+	for k, entry := range contracts {
+		var ref struct {
+			GoPackage string `json:"goPackage"`
+			Interface struct {
+				Name string `json:"name"`
+			} `json:"interface"`
+		}
+		if err := json.Unmarshal(entry, &ref); err != nil {
+			fatal("parse contract %q for resolver: %v", k, err)
+		}
+		resolver[k] = contractRef{goPackage: ref.GoPackage, iface: ref.Interface.Name}
+	}
 	keys := make([]string, 0, len(contracts))
 	for k := range contracts {
 		keys = append(keys, k)
@@ -87,10 +104,11 @@ func main() {
 		// engineImplAllowlist gets its pure impl (engines carry no infra). See
 		// genOne / emitRAImpl / emitEngineImpl.
 		var meta struct {
-			GoPackage string   `json:"goPackage"`
-			Component string   `json:"component"`
-			Infra     []string `json:"infra"`
-			Stub      bool     `json:"stub"`
+			GoPackage string        `json:"goPackage"`
+			Component string        `json:"component"`
+			Infra     []string      `json:"infra"`
+			Stub      bool          `json:"stub"`
+			Deps      []contractDep `json:"deps"`
 		}
 		if err := json.Unmarshal(entry, &meta); err != nil {
 			fatal("parse contract %q: %v", k, err)
@@ -98,7 +116,7 @@ func main() {
 		if meta.GoPackage == "" {
 			continue
 		}
-		if err := genOne(entry, meta.GoPackage, meta.Component, meta.Infra, meta.Stub); err != nil {
+		if err := genOne(entry, meta.GoPackage, meta.Component, meta.Infra, meta.Stub, meta.Deps, resolver); err != nil {
 			fatal("modelgen %s: %v", k, err)
 		}
 		wrote++
@@ -114,7 +132,7 @@ func main() {
 // same `$defs` + `interface`), so it feeds the UNCHANGED emission path directly:
 // the extra metadata keys land in Schema.Extra and are ignored, while $defs and
 // interface are read exactly as before — keeping the output byte-identical.
-func genOne(raw []byte, goPackage, component string, infra []string, stub bool) error {
+func genOne(raw []byte, goPackage, component string, infra []string, stub bool, deps []contractDep, resolver map[string]contractRef) error {
 	dir := goPackage
 	pkg := filepath.Base(goPackage)
 
@@ -202,6 +220,19 @@ func genOne(raw []byte, goPackage, component string, infra []string, stub bool) 
 		case iface.Layer == "engine":
 			if engineImplAllowlist[component] {
 				emitEngineImpl(&buf, iface)
+			}
+		case iface.Layer == "manager":
+			// A MANAGER with declared `deps` gains a generated public DI constructor
+			// New<Iface>(deps…) <Iface> delegating to the hand-written, unexported
+			// builder new<Iface>(deps…). The impl struct, the builder, and the
+			// interface methods are hand-written + unexported (managers carry real
+			// state — Temporal client, deps, config), so only the generated interface +
+			// models + constructor are public. Managers without deps (un-migrated)
+			// emit no constructor.
+			if len(deps) > 0 {
+				if err := emitManagerConstructor(&buf, iface, deps, resolver); err != nil {
+					return fmt.Errorf("emit manager constructor: %w", err)
+				}
 			}
 		}
 	}
@@ -566,6 +597,89 @@ func emitEngineImpl(buf *bytes.Buffer, iface codegen.Interface) {
 	fmt.Fprintf(buf, "// New%s returns the production %s.\n", iface.Name, iface.Name)
 	fmt.Fprintf(buf, "func New%s() %s { return %s{} }\n\n", iface.Name, iface.Name, struct_)
 	fmt.Fprintf(buf, "var _ %s = %s{}\n", iface.Name, struct_)
+}
+
+// serverModulePath is the Go module path of the server tree — the prefix modelgen
+// prepends to a dep's `goPackage` (e.g. internal/resourceaccess/projectstate) to
+// form the full import path of the dep's published-interface package.
+const serverModulePath = "github.com/mixofreality-studio/archistrator/server"
+
+// contractRef is a dependency contract's published-interface coordinates: the Go
+// package it lives in (goPackage, relative to the server module root) and the
+// generated interface's name. Built once from .serviceContracts for every contract
+// key, it lets a manager's `deps` resolve a dependency component → a typed
+// constructor parameter.
+type contractRef struct {
+	goPackage string
+	iface     string
+}
+
+// contractDep is one manager constructor dependency, declared in project.json under
+// `.serviceContracts.<mgr>.deps`. Two kinds:
+//
+//   - COMPONENT dep ({name, component}): `component` is the dependency's contract
+//     key; modelgen resolves it (via the resolver) to its goPackage + interface name
+//     and emits a param `name <pkg-base>.<Iface>`, importing the dep's package. This
+//     is the founder model — managers depend on each dependency's GENERATED/published
+//     interface, never a hand-written consumer mirror.
+//   - PLAIN dep ({name, goType[, goImport]}): a constructor param the generator can
+//     NOT derive from a component — a Temporal client, a config scalar (repoBase), a
+//     resolver func. `goType` is emitted verbatim; `goImport` (optional) is the single
+//     import path that type needs.
+type contractDep struct {
+	Name      string `json:"name"`
+	Component string `json:"component,omitempty"`
+	GoType    string `json:"goType,omitempty"`
+	GoImport  string `json:"goImport,omitempty"`
+}
+
+// emitManagerConstructor writes a manager's generated public DI constructor
+// New<Iface>(deps…) <Iface> delegating to the hand-written, unexported builder
+// new<Iface>(deps…). Each dep becomes one ordered constructor parameter: a COMPONENT
+// dep resolves to its published interface type (<pkg-base>.<Iface>, with the dep
+// package imported); a PLAIN dep emits its goType verbatim (with its optional import).
+// No struct, no assertion: the hand-written builder returns the interface, which IS
+// the compile-time proof (exactly the option-1 delegated-RA pattern).
+func emitManagerConstructor(buf *bytes.Buffer, iface codegen.Interface, deps []contractDep, resolver map[string]contractRef) error {
+	ctor := "New" + iface.Name
+	builder := "new" + iface.Name
+
+	params := make([]string, 0, len(deps))
+	args := make([]string, 0, len(deps))
+	for _, d := range deps {
+		var typ string
+		switch {
+		case d.Component != "":
+			ref, ok := resolver[d.Component]
+			if !ok {
+				return fmt.Errorf("dep %q: unknown component %q", d.Name, d.Component)
+			}
+			if ref.goPackage == "" || ref.iface == "" {
+				return fmt.Errorf("dep %q: component %q has no goPackage/interface (unbuilt?)", d.Name, d.Component)
+			}
+			pkg := filepath.Base(ref.goPackage)
+			pendingImports[serverModulePath+"/"+ref.goPackage] = ""
+			typ = pkg + "." + ref.iface
+		case d.GoType != "":
+			if d.GoImport != "" {
+				pendingImports[d.GoImport] = ""
+			}
+			typ = d.GoType
+		default:
+			return fmt.Errorf("dep %q: neither component nor goType set", d.Name)
+		}
+		params = append(params, d.Name+" "+typ)
+		args = append(args, d.Name)
+	}
+
+	fmt.Fprintf(buf, "// %s constructs the %s, delegating to the hand-written, unexported\n", ctor, iface.Name)
+	fmt.Fprintf(buf, "// builder %s in the manager package (which owns the stateful facade setup:\n", builder)
+	fmt.Fprintf(buf, "// the Temporal client, the deps, and config). The constructor returns the\n")
+	fmt.Fprintf(buf, "// interface, so the concrete manager impl stays unexported.\n")
+	fmt.Fprintf(buf, "func %s(%s) %s {\n", ctor, strings.Join(params, ", "), iface.Name)
+	fmt.Fprintf(buf, "\treturn %s(%s)\n", builder, strings.Join(args, ", "))
+	buf.WriteString("}\n\n")
+	return nil
 }
 
 // emitStubImpl writes the generated not-implemented implementation for a STUB

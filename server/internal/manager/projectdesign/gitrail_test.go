@@ -163,7 +163,7 @@ func (r *scriptedRail) MergePullRequest(_ context.Context, _ sourcecontrol.RepoR
 	return sourcecontrol.MergeResult{Merged: true, Commit: "merged-" + sourcecontrol.PullRequestRefString(pr)}, nil
 }
 
-var _ SourceControlRail = (*scriptedRail)(nil)
+var _ sourceControlRail = (*scriptedRail)(nil)
 
 // ---- seqProjectState: branch-aware read-back + ordered commit/read events ------
 
@@ -207,7 +207,7 @@ func (f *seqProjectState) CommitArtifact(ctx fwra.Context, projectID projectstat
 	return f.fakeProjectState.CommitArtifact(ctx, projectID, expectedVersion, kind)
 }
 
-func newRailWorkflows(ps projectstate.ProjectStateAccess, pipe *fakePipeline, rail SourceControlRail) *Workflows {
+func newRailWorkflows(ps projectstate.ProjectStateAccess, pipe *fakePipeline, rail sourceControlRail) *Workflows {
 	return &Workflows{
 		Estimation:   estimation.NewEstimationEngine(),
 		OperationEst: operationestimation.NewOperationEstimationEngine(),

@@ -6,6 +6,10 @@ package systemdesign
 import (
 	"encoding/json"
 	fwm "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/constructionpipeline"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
+	"go.temporal.io/sdk/client"
 )
 
 type AnchoredComment struct {
@@ -126,4 +130,12 @@ type SystemDesignManager interface {
 	SetResearchInput(rc fwm.Context, projectID ProjectID, research ResearchInput) (Version, error)
 	StartSystemDesign(rc fwm.Context, projectID ProjectID) (SessionRef, error)
 	SubmitReviewDecision(rc fwm.Context, projectID ProjectID, kind ArtifactKind, decision ReviewDecision, feedback *ReviewFeedback) error
+}
+
+// NewSystemDesignManager constructs the SystemDesignManager, delegating to the hand-written, unexported
+// builder newSystemDesignManager in the manager package (which owns the stateful facade setup:
+// the Temporal client, the deps, and config). The constructor returns the
+// interface, so the concrete manager impl stays unexported.
+func NewSystemDesignManager(client client.Client, projectState projectstate.ProjectStateAccess, pipeline constructionpipeline.ConstructionPipelineAccess, rail sourcecontrol.SourceControlAccess, repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool)) SystemDesignManager {
+	return newSystemDesignManager(client, projectState, pipeline, rail, repo)
 }

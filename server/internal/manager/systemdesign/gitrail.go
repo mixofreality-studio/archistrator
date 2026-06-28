@@ -45,23 +45,62 @@ var designWorkflowFileName = path.Base(sourcecontrol.DesignWorkflowPath)
 // are unperturbed.
 
 // ===========================================================================
-// Consumer port — the FROZEN IPullRequestRail subset (sourceControlAccess
+// Internal PR-rail seam — the FROZEN IPullRequestRail subset (sourceControlAccess
 // pullrequestrail.md) plus the one lifecycle op the Manager needs to mint the
-// credential (GetInstallationToken). The concrete *sourcecontrol.Access satisfies
-// this structurally; the composition root adapts it (cmd/server). Mirrors the
-// construction Manager's SourceControlRail (deps.go).
+// credential (GetInstallationToken). UNEXPORTED: the manager depends on the PUBLISHED
+// sourcecontrol.SourceControlAccess via its generated constructor; this seam is the
+// plain-ctx projection the hand-written Temporal activities consume and the tests
+// fake. The production implementation is railAdapterImpl (below), which RegisterWorker
+// wraps around the published interface — folding the former composition-root
+// railAdapter into the manager. The former EXPORTED consumer-mirror interface is
+// RETIRED.
 // ===========================================================================
 
-// SourceControlRail is the design Manager's consumer view of the PR rail. Every
+// sourceControlRail is the design Manager's consumer view of the PR rail. Every
 // provider-touching verb takes a Manager-threaded RepoCredential; the returns are
 // opaque handles the Manager carries across the Activity boundary as plain strings.
-type SourceControlRail interface {
+type sourceControlRail interface {
 	GetInstallationToken(ctx context.Context, repo sourcecontrol.RepoRef) (sourcecontrol.RepoCredential, error)
 	OpenBranch(ctx context.Context, repo sourcecontrol.RepoRef, branch sourcecontrol.BranchName, cred sourcecontrol.RepoCredential, key fwra.IdempotencyKey) (sourcecontrol.BranchRef, error)
 	OpenPullRequest(ctx context.Context, repo sourcecontrol.RepoRef, spec sourcecontrol.PullRequestSpec, cred sourcecontrol.RepoCredential, key fwra.IdempotencyKey) (sourcecontrol.PullRequestRef, error)
 	GetPullRequestStatus(ctx context.Context, repo sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, cred sourcecontrol.RepoCredential) (sourcecontrol.PullRequestStatus, error)
 	PostReview(ctx context.Context, repo sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, review sourcecontrol.ReviewSubmission, cred sourcecontrol.RepoCredential, key fwra.IdempotencyKey) error
 	MergePullRequest(ctx context.Context, repo sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, cred sourcecontrol.RepoCredential, key fwra.IdempotencyKey) (sourcecontrol.MergeResult, error)
+}
+
+// railAdapterImpl is the PRODUCTION sourceControlRail: the folded composition-root
+// railAdapter, now living in the manager. The concrete sourceControlAccess RA takes
+// the ResourceAccess call Context (fwra.Context) on every op, so railAdapterImpl
+// builds fwra.Context{Context, IdempotencyKey} at the boundary and delegates to the
+// PUBLISHED sourcecontrol.SourceControlAccess the generated constructor was given.
+type railAdapterImpl struct {
+	inner sourcecontrol.SourceControlAccess
+}
+
+var _ sourceControlRail = railAdapterImpl{}
+
+func (r railAdapterImpl) GetInstallationToken(ctx context.Context, repo sourcecontrol.RepoRef) (sourcecontrol.RepoCredential, error) {
+	return r.inner.GetInstallationToken(fwra.Context{Context: ctx}, repo)
+}
+
+func (r railAdapterImpl) OpenBranch(ctx context.Context, repo sourcecontrol.RepoRef, branch sourcecontrol.BranchName, cred sourcecontrol.RepoCredential, key fwra.IdempotencyKey) (sourcecontrol.BranchRef, error) {
+	return r.inner.OpenBranch(fwra.Context{Context: ctx, IdempotencyKey: key}, repo, branch, cred)
+}
+
+func (r railAdapterImpl) OpenPullRequest(ctx context.Context, repo sourcecontrol.RepoRef, spec sourcecontrol.PullRequestSpec, cred sourcecontrol.RepoCredential, key fwra.IdempotencyKey) (sourcecontrol.PullRequestRef, error) {
+	return r.inner.OpenPullRequest(fwra.Context{Context: ctx, IdempotencyKey: key}, repo, spec, cred)
+}
+
+func (r railAdapterImpl) GetPullRequestStatus(ctx context.Context, repo sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, cred sourcecontrol.RepoCredential) (sourcecontrol.PullRequestStatus, error) {
+	return r.inner.GetPullRequestStatus(fwra.Context{Context: ctx}, repo, pr, cred)
+}
+
+func (r railAdapterImpl) PostReview(ctx context.Context, repo sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, review sourcecontrol.ReviewSubmission, cred sourcecontrol.RepoCredential, key fwra.IdempotencyKey) error {
+	return r.inner.PostReview(fwra.Context{Context: ctx, IdempotencyKey: key}, repo, pr, review, cred)
+}
+
+func (r railAdapterImpl) MergePullRequest(ctx context.Context, repo sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, cred sourcecontrol.RepoCredential, key fwra.IdempotencyKey) (sourcecontrol.MergeResult, error) {
+	return r.inner.MergePullRequest(fwra.Context{Context: ctx, IdempotencyKey: key}, repo, pr, cred)
 }
 
 // ===========================================================================

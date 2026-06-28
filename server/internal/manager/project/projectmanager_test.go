@@ -11,6 +11,7 @@ import (
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/estimation"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 )
 
 // rc is the Manager-layer call Context the ops lead with (zero principal in tests).
@@ -83,13 +84,41 @@ func (f *fakeProjectStateAccess) ReadProject(_ fwra.Context, projectID projectst
 	return f.readProject, nil
 }
 
+// The projectManager now depends on the PUBLISHED projectstate.ProjectStateAccess
+// (the consumer-mirror was retired), so the fake satisfies the full surface. Only
+// CreateProject / ListProjects / ReadProject are exercised; the remaining verbs are
+// inert stubs present solely to satisfy the interface.
+var _ projectstate.ProjectStateAccess = (*fakeProjectStateAccess)(nil)
+
+func (f *fakeProjectStateAccess) AdvancePhase(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version) (projectstate.Version, error) {
+	return 0, nil
+}
+func (f *fakeProjectStateAccess) CommitArtifact(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ projectstate.ArtifactKind) (projectstate.Version, error) {
+	return 0, nil
+}
+func (f *fakeProjectStateAccess) ReadProjectVersion(_ fwra.Context, _ projectstate.ProjectID) (projectstate.Version, error) {
+	return 0, nil
+}
+func (f *fakeProjectStateAccess) RejectArtifact(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ projectstate.ArtifactKind, _ string) (projectstate.Version, error) {
+	return 0, nil
+}
+func (f *fakeProjectStateAccess) SetResearchInput(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ projectstate.ResearchInput) (projectstate.Version, error) {
+	return 0, nil
+}
+func (f *fakeProjectStateAccess) StageArtifactForReview(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ projectstate.ArtifactModel) (projectstate.Version, error) {
+	return 0, nil
+}
+func (f *fakeProjectStateAccess) WithdrawArtifact(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ projectstate.ArtifactKind, _ string) (projectstate.Version, error) {
+	return 0, nil
+}
+
 // --- CreateProject ----------------------------------------------------------
 
 // TestCreateProject_NameIsIdentityAndCallsRAOnce proves NAME-AS-IDENTITY (C-PM-Δ):
 // the returned project id IS the user-supplied name, and the RA is called exactly once.
 func TestCreateProject_NameIsIdentityAndCallsRAOnce(t *testing.T) {
 	fake := &fakeProjectStateAccess{}
-	m := NewManager(fake, nil, nil, "")
+	m := NewProjectManager(fake, nil, nil, "")
 
 	id, err := m.CreateProject(rc(), OwnerScope("alice@example.com"), "my-cool-system")
 	if err != nil {
@@ -117,7 +146,7 @@ func TestCreateProject_NameIsIdentityAndCallsRAOnce(t *testing.T) {
 
 func TestCreateProject_EmptyOwner_ContractMisuse(t *testing.T) {
 	fake := &fakeProjectStateAccess{}
-	m := NewManager(fake, nil, nil, "")
+	m := NewProjectManager(fake, nil, nil, "")
 
 	_, err := m.CreateProject(rc(), OwnerScope(""), "My Project")
 	if err == nil {
@@ -134,7 +163,7 @@ func TestCreateProject_EmptyOwner_ContractMisuse(t *testing.T) {
 
 func TestCreateProject_EmptyName_ContractMisuse(t *testing.T) {
 	fake := &fakeProjectStateAccess{}
-	m := NewManager(fake, nil, nil, "")
+	m := NewProjectManager(fake, nil, nil, "")
 
 	_, err := m.CreateProject(rc(), OwnerScope("alice"), "")
 	if err == nil {
@@ -148,7 +177,7 @@ func TestCreateProject_EmptyName_ContractMisuse(t *testing.T) {
 
 func TestCreateProject_RAConflict_MapsInfrastructure(t *testing.T) {
 	fake := &fakeProjectStateAccess{createErr: fwra.New(fwra.Conflict, "row exists")}
-	m := NewManager(fake, nil, nil, "")
+	m := NewProjectManager(fake, nil, nil, "")
 
 	_, err := m.CreateProject(rc(), OwnerScope("alice"), "P")
 	var me *fwm.Error
@@ -166,63 +195,91 @@ type callOrder struct{ seq []string }
 
 func (c *callOrder) record(name string) { c.seq = append(c.seq, name) }
 
+// fakeSourceControl is the test double over the PUBLISHED
+// sourcecontrol.SourceControlAccess (the consumer-mirror + composition-root adapter
+// were retired; the façade now calls the published interface directly). The
+// projectManager's CreateProject seating drives exactly three of its verbs —
+// AdoptProjectRepo → GetInstallationToken → CommitManagedFiles — which the call-order
+// test asserts; the remaining verbs are inert stubs.
 type fakeSourceControl struct {
 	order *callOrder
 
 	adoptCalls int
-	adoptSpec  RepoSpec
+	adoptSpec  sourcecontrol.RepoAdoptionSpec
 	adoptKey   fwra.IdempotencyKey
 	adoptErr   error
 
-	mintCalls int
-	mintErr   error
+	tokenCalls int
+	tokenErr   error
 
-	workflowCalls int
-	workflowKey   fwra.IdempotencyKey
-	workflowErr   error
+	commitCalls int
+	commitKey   fwra.IdempotencyKey
+	commitErr   error
 }
 
-func (f *fakeSourceControl) AdoptProjectRepo(_ context.Context, spec RepoSpec, key fwra.IdempotencyKey) (RepoRef, error) {
+var _ sourcecontrol.SourceControlAccess = (*fakeSourceControl)(nil)
+
+func (f *fakeSourceControl) AdoptProjectRepo(rc fwra.Context, spec sourcecontrol.RepoAdoptionSpec) (sourcecontrol.RepoRef, error) {
 	f.adoptCalls++
 	f.adoptSpec = spec
-	f.adoptKey = key
+	f.adoptKey = rc.IdempotencyKey
 	if f.order != nil {
 		f.order.record("adoptProjectRepo")
 	}
 	if f.adoptErr != nil {
-		return nil, f.adoptErr
+		return "", f.adoptErr
 	}
-	return fakeRepoRef(spec.RepoName), nil
+	// Return a well-formed RepoRef (account|owner/repo) so ManagedScaffoldFiles can
+	// derive the module path; name-as-identity makes owner==repo==RepoName here.
+	return sourcecontrol.RepoRef("acct|acct/" + spec.RepoName), nil
 }
 
-func (f *fakeSourceControl) MintRepoCredential(_ context.Context, _ RepoRef) (RepoCredential, error) {
-	f.mintCalls++
+func (f *fakeSourceControl) GetInstallationToken(_ fwra.Context, _ sourcecontrol.RepoRef) (sourcecontrol.RepoCredential, error) {
+	f.tokenCalls++
 	if f.order != nil {
-		f.order.record("mintRepoCredential")
+		f.order.record("getInstallationToken")
 	}
-	if f.mintErr != nil {
-		return nil, f.mintErr
+	if f.tokenErr != nil {
+		return sourcecontrol.RepoCredential{}, f.tokenErr
 	}
-	return fakeCred{}, nil
+	return sourcecontrol.RepoCredential{Bytes: []byte("tok")}, nil
 }
 
-func (f *fakeSourceControl) SeatAgenticWorkflow(_ context.Context, _ RepoRef, _ RepoCredential, key fwra.IdempotencyKey) error {
-	f.workflowCalls++
-	f.workflowKey = key
+func (f *fakeSourceControl) CommitManagedFiles(rc fwra.Context, _ sourcecontrol.RepoRef, _ []sourcecontrol.ManagedFile, _ sourcecontrol.RepoCredential) (sourcecontrol.CommitRef, error) {
+	f.commitCalls++
+	f.commitKey = rc.IdempotencyKey
 	if f.order != nil {
-		f.order.record("seatAgenticWorkflow")
+		f.order.record("commitManagedFiles")
 	}
-	return f.workflowErr
+	if f.commitErr != nil {
+		return "", f.commitErr
+	}
+	return sourcecontrol.CommitRef("commit"), nil
 }
 
-type fakeRepoRef string
+// --- inert stubs: the remaining published verbs the façade never calls -------
 
-func (r fakeRepoRef) IsZero() bool   { return r == "" }
-func (r fakeRepoRef) String() string { return string(r) }
-
-type fakeCred struct{}
-
-func (fakeCred) IsZero() bool { return false }
+func (f *fakeSourceControl) ConfigureBranchProtection(_ fwra.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.RepoCredential) error {
+	return nil
+}
+func (f *fakeSourceControl) GetPullRequestStatus(_ fwra.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.PullRequestRef, _ sourcecontrol.RepoCredential) (sourcecontrol.PullRequestStatus, error) {
+	return sourcecontrol.PullRequestStatus{}, nil
+}
+func (f *fakeSourceControl) InstallAuthorizeApp(_ fwra.Context, _ sourcecontrol.AccountRef) (sourcecontrol.Installation, error) {
+	return "", nil
+}
+func (f *fakeSourceControl) MergePullRequest(_ fwra.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.PullRequestRef, _ sourcecontrol.RepoCredential) (sourcecontrol.MergeResult, error) {
+	return sourcecontrol.MergeResult{}, nil
+}
+func (f *fakeSourceControl) OpenBranch(_ fwra.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.BranchName, _ sourcecontrol.RepoCredential) (sourcecontrol.BranchRef, error) {
+	return "", nil
+}
+func (f *fakeSourceControl) OpenPullRequest(_ fwra.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.PullRequestSpec, _ sourcecontrol.RepoCredential) (sourcecontrol.PullRequestRef, error) {
+	return "", nil
+}
+func (f *fakeSourceControl) PostReview(_ fwra.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.PullRequestRef, _ sourcecontrol.ReviewSubmission, _ sourcecontrol.RepoCredential) error {
+	return nil
+}
 
 type orderingProjectState struct {
 	*fakeProjectStateAccess
@@ -242,7 +299,7 @@ func TestCreateProject_AdoptThenSeatThenCreate(t *testing.T) {
 	order := &callOrder{}
 	ps := &orderingProjectState{fakeProjectStateAccess: &fakeProjectStateAccess{}, order: order}
 	sc := &fakeSourceControl{order: order}
-	m := NewManager(ps, sc, nil, "")
+	m := NewProjectManager(ps, sc, nil, "")
 
 	id, err := m.CreateProject(rc(), OwnerScope("alice@example.com"), "my-cool-system")
 	if err != nil {
@@ -251,14 +308,14 @@ func TestCreateProject_AdoptThenSeatThenCreate(t *testing.T) {
 	if id != ProjectID("my-cool-system") {
 		t.Fatalf("CreateProject: id = %q, want name-as-identity my-cool-system", id)
 	}
-	if sc.adoptCalls != 1 || sc.mintCalls != 1 || sc.workflowCalls != 1 {
-		t.Fatalf("source-control call counts: adopt=%d mint=%d workflow=%d, want 1 each",
-			sc.adoptCalls, sc.mintCalls, sc.workflowCalls)
+	if sc.adoptCalls != 1 || sc.tokenCalls != 1 || sc.commitCalls != 1 {
+		t.Fatalf("source-control call counts: adopt=%d token=%d commit=%d, want 1 each",
+			sc.adoptCalls, sc.tokenCalls, sc.commitCalls)
 	}
 	if ps.createCalls != 1 {
 		t.Fatalf("projectState.CreateProject called %d times, want 1", ps.createCalls)
 	}
-	want := []string{"adoptProjectRepo", "mintRepoCredential", "seatAgenticWorkflow", "createProject"}
+	want := []string{"adoptProjectRepo", "getInstallationToken", "commitManagedFiles", "createProject"}
 	if len(order.seq) != len(want) {
 		t.Fatalf("call order = %v, want %v", order.seq, want)
 	}
@@ -273,9 +330,9 @@ func TestCreateProject_AdoptThenSeatThenCreate(t *testing.T) {
 	if sc.adoptSpec.Title != "my-cool-system" {
 		t.Fatalf("AdoptProjectRepo Title = %q, want my-cool-system", sc.adoptSpec.Title)
 	}
-	if sc.adoptKey != ps.createKey || sc.workflowKey != ps.createKey {
-		t.Fatalf("idempotency keys diverged: adopt=%q workflow=%q create=%q",
-			sc.adoptKey, sc.workflowKey, ps.createKey)
+	if sc.adoptKey != ps.createKey || sc.commitKey != ps.createKey {
+		t.Fatalf("idempotency keys diverged: adopt=%q commit=%q create=%q",
+			sc.adoptKey, sc.commitKey, ps.createKey)
 	}
 }
 
@@ -284,7 +341,7 @@ func TestCreateProject_AdoptFailure_NoSeatingNoCreate(t *testing.T) {
 	order := &callOrder{}
 	ps := &orderingProjectState{fakeProjectStateAccess: &fakeProjectStateAccess{}, order: order}
 	sc := &fakeSourceControl{order: order, adoptErr: fwra.New(fwra.Transient, "github 503")}
-	m := NewManager(ps, sc, nil, "")
+	m := NewProjectManager(ps, sc, nil, "")
 
 	_, err := m.CreateProject(rc(), OwnerScope("alice"), "taken-repo")
 	if err == nil {
@@ -300,8 +357,8 @@ func TestCreateProject_AdoptFailure_NoSeatingNoCreate(t *testing.T) {
 	if sc.adoptCalls != 1 {
 		t.Fatalf("AdoptProjectRepo called %d times, want 1", sc.adoptCalls)
 	}
-	if sc.mintCalls != 0 || sc.workflowCalls != 0 {
-		t.Fatalf("seating must NOT run after adopt failure: mint=%d workflow=%d", sc.mintCalls, sc.workflowCalls)
+	if sc.tokenCalls != 0 || sc.commitCalls != 0 {
+		t.Fatalf("seating must NOT run after adopt failure: token=%d commit=%d", sc.tokenCalls, sc.commitCalls)
 	}
 	if ps.createCalls != 0 {
 		t.Fatalf("projectState.CreateProject must NOT be called after an adopt failure, got %d", ps.createCalls)
@@ -315,7 +372,7 @@ func TestCreateProject_AdoptFailure_NoSeatingNoCreate(t *testing.T) {
 // (nil sourceControl) still creates projects — repo-less, no adopt.
 func TestCreateProject_NilSourceControl_SkipsAdopt(t *testing.T) {
 	fake := &fakeProjectStateAccess{}
-	m := NewManager(fake, nil, nil, "")
+	m := NewProjectManager(fake, nil, nil, "")
 
 	id, err := m.CreateProject(rc(), OwnerScope("alice"), "dev-project")
 	if err != nil {
@@ -338,7 +395,7 @@ func TestListProjects_PassesThrough(t *testing.T) {
 		{ProjectID: "beta", Name: "B", Owner: "alice", Phase: projectstate.PhaseProjectDesign, CommittedCount: 9, TotalCount: 9, UpdatedAt: now},
 	}
 	fake := &fakeProjectStateAccess{listSummary: src}
-	m := NewManager(fake, nil, nil, "")
+	m := NewProjectManager(fake, nil, nil, "")
 
 	got, err := m.ListProjects(rc(), OwnerScope("alice"))
 	if err != nil {
@@ -363,7 +420,7 @@ func TestListProjects_PassesThrough(t *testing.T) {
 
 func TestListProjects_RAError_MapsInfrastructure(t *testing.T) {
 	fake := &fakeProjectStateAccess{listErr: fwra.New(fwra.Infrastructure, "db down")}
-	m := NewManager(fake, nil, nil, "")
+	m := NewProjectManager(fake, nil, nil, "")
 
 	_, err := m.ListProjects(rc(), OwnerScope("alice"))
 	var me *fwm.Error
@@ -404,7 +461,7 @@ func sampleProject(id projectstate.ProjectID) projectstate.Project {
 func TestGetProject_MapsAggregateToTypedSlots(t *testing.T) {
 	id := ProjectID("my-cool-system")
 	fake := &fakeProjectStateAccess{readProject: sampleProject(projectstate.ProjectID(id))}
-	m := NewManager(fake, nil, nil, "")
+	m := NewProjectManager(fake, nil, nil, "")
 
 	st, err := m.GetProject(rc(), id)
 	if err != nil {
@@ -509,7 +566,7 @@ func TestGetProject_ComputeNetworkAtRead(t *testing.T) {
 	}
 
 	fake := &fakeProjectStateAccess{readProject: p}
-	m := NewManager(fake, nil, estimation.NewEstimationEngine(), "")
+	m := NewProjectManager(fake, nil, estimation.NewEstimationEngine(), "")
 
 	st, err := m.GetProject(rc(), id)
 	if err != nil {
@@ -578,7 +635,7 @@ func TestGetProject_ComputeEarnedValueAtRead(t *testing.T) {
 	p.ConstructionProgress = &projectstate.ConstructionProgress{Week: 2, TotalWeeks: 4, HandOffModel: "senior", SupervisionCap: 3}
 
 	fake := &fakeProjectStateAccess{readProject: p}
-	m := NewManager(fake, nil, estimation.NewEstimationEngine(), "")
+	m := NewProjectManager(fake, nil, estimation.NewEstimationEngine(), "")
 
 	st, err := m.GetProject(rc(), id)
 	if err != nil {
@@ -609,7 +666,7 @@ func TestGetProject_ComposesPRRefAtRead(t *testing.T) {
 		"C-MST": {ActivityID: "C-MST", BranchName: "activity/C-MST", PullRequestRef: "44"},
 	}
 	fake := &fakeProjectStateAccess{readProject: p}
-	m := NewManager(fake, nil, estimation.NewEstimationEngine(), "https://github.com/acme/proj")
+	m := NewProjectManager(fake, nil, estimation.NewEstimationEngine(), "https://github.com/acme/proj")
 
 	st, err := m.GetProject(rc(), id)
 	if err != nil {
@@ -644,7 +701,7 @@ func TestGetProject_NilEstimator_NoCompute(t *testing.T) {
 		},
 	}
 	fake := &fakeProjectStateAccess{readProject: p}
-	m := NewManager(fake, nil, nil, "")
+	m := NewProjectManager(fake, nil, nil, "")
 
 	st, err := m.GetProject(rc(), id)
 	if err != nil {
@@ -679,7 +736,7 @@ func TestGetProject_OverwritesStaleCriticalPath(t *testing.T) {
 		},
 	}
 	fake := &fakeProjectStateAccess{readProject: p}
-	m := NewManager(fake, nil, estimation.NewEstimationEngine(), "")
+	m := NewProjectManager(fake, nil, estimation.NewEstimationEngine(), "")
 
 	st, err := m.GetProject(rc(), id)
 	if err != nil {
@@ -693,7 +750,7 @@ func TestGetProject_OverwritesStaleCriticalPath(t *testing.T) {
 
 func TestGetProject_NotFoundPassesThrough(t *testing.T) {
 	fake := &fakeProjectStateAccess{readErr: fwra.New(fwra.NotFound, "no row")}
-	m := NewManager(fake, nil, nil, "")
+	m := NewProjectManager(fake, nil, nil, "")
 
 	_, err := m.GetProject(rc(), ProjectID("missing"))
 	var me *fwm.Error
@@ -707,7 +764,7 @@ func TestGetProject_NotFoundPassesThrough(t *testing.T) {
 
 func TestGetProject_EmptyProjectID_ContractMisuse(t *testing.T) {
 	fake := &fakeProjectStateAccess{}
-	m := NewManager(fake, nil, nil, "")
+	m := NewProjectManager(fake, nil, nil, "")
 
 	_, err := m.GetProject(rc(), ProjectID(""))
 	var me *fwm.Error
@@ -728,7 +785,7 @@ func TestGetProject_EmptyProjectID_ContractMisuse(t *testing.T) {
 func TestProjectState_SlotWireShape(t *testing.T) {
 	id := ProjectID("my-cool-system")
 	fake := &fakeProjectStateAccess{readProject: sampleProject(projectstate.ProjectID(id))}
-	m := NewManager(fake, nil, nil, "")
+	m := NewProjectManager(fake, nil, nil, "")
 
 	st, err := m.GetProject(rc(), id)
 	if err != nil {

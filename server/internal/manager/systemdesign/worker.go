@@ -4,9 +4,6 @@ import (
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/worker"
 	"go.temporal.io/sdk/workflow"
-
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 )
 
 // RegisterWorker wires the systemDesignManager onto a Temporal Worker polling the
@@ -33,18 +30,27 @@ import (
 //     Activities (Mint/OpenBranch/OpenPullRequest/GetPullRequestStatus/PostReview/
 //     MergePullRequest) + the branch-aware ReadProjectOnBranch are registered regardless
 //     (an unwired rail simply never invokes them).
-func RegisterWorker(
-	w worker.Worker,
-	projectState projectstate.ProjectStateAccess,
-	pipeline ConstructionPipelineAccess,
-	rail SourceControlRail,
-	repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool),
-) {
+func RegisterWorker(w worker.Worker, m SystemDesignManager) {
+	impl, ok := m.(*systemDesignManager)
+	if !ok {
+		panic("systemdesign: RegisterWorker requires a *systemDesignManager from NewSystemDesignManager")
+	}
+
+	// Wire the published deps the constructor stored into the hand-written Temporal
+	// Workflows, wrapping them in the package's folded adapters (pipelineDispatchAdapter /
+	// railAdapterImpl) — the Option-B boundary mapping that replaces the former
+	// composition-root designPipelineAdapter / railAdapter. The rail is OPTIONAL: a dev
+	// server with no source-control credentials constructs the manager with a nil rail,
+	// leaving the PR-rail dormant (the CoAuthor spine runs read-back/stage on main).
+	var rail sourceControlRail
+	if impl.rail != nil {
+		rail = railAdapterImpl{inner: impl.rail}
+	}
 	wf := &Workflows{
-		ProjectState: projectState,
-		Pipeline:     pipeline,
+		ProjectState: impl.projectState,
+		Pipeline:     pipelineDispatchAdapter{inner: impl.pipeline},
 		Rail:         rail,
-		Repo:         repo,
+		Repo:         impl.repo,
 	}
 	w.RegisterWorkflowWithOptions(wf.SystemDesignPhaseWorkflow, workflow.RegisterOptions{Name: ExecutionKindPhase})
 	w.RegisterWorkflowWithOptions(wf.CoAuthorArtifactWorkflow, workflow.RegisterOptions{Name: ExecutionKindCoAuthor})

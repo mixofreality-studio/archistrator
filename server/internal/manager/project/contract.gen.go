@@ -6,6 +6,9 @@ package project
 import (
 	"encoding/json"
 	fwm "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/estimation"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 	"time"
 )
 
@@ -250,4 +253,12 @@ type ProjectManager interface {
 	CreateProject(rc fwm.Context, owner OwnerScope, name string) (ProjectID, error)
 	GetProject(rc fwm.Context, projectID ProjectID) (ProjectState, error)
 	ListProjects(rc fwm.Context, owner OwnerScope) ([]ProjectSummary, error)
+}
+
+// NewProjectManager constructs the ProjectManager, delegating to the hand-written, unexported
+// builder newProjectManager in the manager package (which owns the stateful facade setup:
+// the Temporal client, the deps, and config). The constructor returns the
+// interface, so the concrete manager impl stays unexported.
+func NewProjectManager(projectState projectstate.ProjectStateAccess, sourceControl sourcecontrol.SourceControlAccess, estimator estimation.EstimationEngine, repoBase string) ProjectManager {
+	return newProjectManager(projectState, sourceControl, estimator, repoBase)
 }

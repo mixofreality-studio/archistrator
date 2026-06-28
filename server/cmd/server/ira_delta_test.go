@@ -7,9 +7,11 @@ package main
 // REAL projectStateGitAdapter (over an EXTERNAL on-disk git repo). NO internal
 // component is faked: only the two external seams (GitHub REST + on-disk git) are.
 //
-// The production composition-root adapters are used verbatim: sourceControlAdapter
-// (the Manager port ↔ concrete RA bridge) and projectStateGitAdapter (the cred-binding
-// head-state bridge). So this exercises the SAME wiring main.go assembles.
+// The projectManager now consumes the PUBLISHED sourcecontrol.SourceControlAccess
+// DIRECTLY (the former composition-root sourceControlAdapter is retired — its
+// adopt-then-seat translation is folded into the Manager), threaded in alongside the
+// production projectStateGitAdapter (the cred-binding head-state bridge). So this
+// exercises the SAME wiring main.go assembles.
 //
 // What it proves (the dispatch's I-RA-Δ deliverable):
 //   - Adopt SUCCESS regardless of repo content (README/claude.yml present) + topic applied.
@@ -41,7 +43,7 @@ func iraRC(ctx context.Context) fwm.Context { return fwm.Context{Context: ctx} }
 
 // iraDeltaHarness bundles the wired-together pieces of one I-RA-Δ scenario.
 type iraDeltaHarness struct {
-	mgr     *project.Manager
+	mgr     project.ProjectManager
 	fakeGH  *gh.FakeGitHub
 	gitRepo *fwgithub.GitStore // the per-project on-disk git repo (projectstate seam)
 	ctx     context.Context
@@ -69,7 +71,6 @@ func newIRADeltaHarness(t *testing.T) *iraDeltaHarness {
 	if err != nil {
 		t.Fatalf("sourcecontrol.New: %v", err)
 	}
-	scAdapter := sourceControlAdapter{inner: scAccess}
 
 	// --- EXTERNAL seam 2: a real on-disk git repo (projectStateAccess git substrate). ---
 	projRepo := gh.StartLocalGitRepo(t, "main")
@@ -90,7 +91,7 @@ func newIRADeltaHarness(t *testing.T) *iraDeltaHarness {
 
 	// --- REAL Manager over both real RAs. nil estimator: this harness exercises
 	// project birth (CreateProject), not the GetProject compute-at-read path. ---
-	mgr := project.NewManager(stateAdapter, scAdapter, nil, "")
+	mgr := project.NewProjectManager(stateAdapter, scAccess, nil, "")
 
 	return &iraDeltaHarness{mgr: mgr, fakeGH: fake, gitRepo: rawRepo, ctx: context.Background()}
 }

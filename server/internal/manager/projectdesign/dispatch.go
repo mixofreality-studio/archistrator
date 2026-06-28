@@ -45,24 +45,118 @@ import (
 
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/constructionpipeline"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 )
 
 // ===========================================================================
-// Consumer port — constructionPipelineAccess (FROZEN; the design Managers are a
-// NEW caller, not a contract change — projectDesignManager.md §0.5.5). Mirrored as
-// a Temporal-free consumer interface + local value mirrors, exactly like the
-// systemdesign Manager's dispatch.go: the concrete constructionpipeline.Access is
-// adapted to this port at the composition root (cmd/server). The Manager imports no
-// GitHub/Temporal/constructionpipeline lexeme on this seam.
+// Internal activity/test seam — constructionPipelineAccess. The manager DEPENDS on
+// the PUBLISHED constructionpipeline.ConstructionPipelineAccess (taken by its
+// generated constructor); this UNEXPORTED seam is the Temporal-free, plain-ctx
+// projection the hand-written design Activities consume + the test fakes inject. The
+// folded pipelineDispatchAdapter (below) maps the published RA — formerly the
+// composition-root designProjectDesignPipelineAdapter — onto this seam. The former
+// EXPORTED consumer-mirror interface is RETIRED.
 // ===========================================================================
 
-// ConstructionPipelineAccess is the subset of the FROZEN constructionPipelineAccess
+// constructionPipelineAccess is the subset of the FROZEN constructionPipelineAccess
 // surface (constructionPipelineAccess.md §2) the Phase-2 draft path depends on:
 // dispatch (submit) + observe.
-type ConstructionPipelineAccess interface {
+type constructionPipelineAccess interface {
 	SubmitConstructionPipeline(ctx context.Context, spec PipelineSpec, idempotencyKey fwra.IdempotencyKey) (PipelineHandle, error)
 	ObserveConstructionPipeline(ctx context.Context, handle PipelineHandle) (PipelineObservation, error)
+}
+
+// pipelineDefaultToolchain is the placeholder toolchain stamped on the logical design
+// step (the real design recipe lives in the user's aiarch-design.yml workflow file).
+const pipelineDefaultToolchain = "go-1.23"
+
+// pipelineDispatchAdapter is the FOLDED composition-root designProjectDesignPipelineAdapter:
+// it maps this package's neutral, Temporal-serializable PipelineSpec/Handle/Observation
+// onto the PUBLISHED constructionpipeline.ConstructionPipelineAccess (building the fwra
+// call Context at the boundary). RegisterWorker wraps the published dep in this adapter
+// so the hand-written Workflows keep their plain-ctx seam.
+type pipelineDispatchAdapter struct {
+	inner constructionpipeline.ConstructionPipelineAccess
+}
+
+var _ constructionPipelineAccess = pipelineDispatchAdapter{}
+
+func (a pipelineDispatchAdapter) SubmitConstructionPipeline(ctx context.Context, spec PipelineSpec, idempotencyKey fwra.IdempotencyKey) (PipelineHandle, error) {
+	// Per-project-design-dispatch: decode the opaque per-project RepoRef → owner/repo so
+	// the RA dispatches the agentic DESIGN job to the USER'S per-project repo +
+	// aiarch-design.yml (NOT the central construction repo). Empty TargetRepo ⇒ zero
+	// RepoTarget ⇒ the RA falls back to the configured construction repo.
+	target, terr := designRepoTarget(spec.TargetRepo)
+	if terr != nil {
+		return PipelineHandle{}, terr
+	}
+	handle, err := a.inner.SubmitConstructionPipeline(fwra.Context{Context: ctx, IdempotencyKey: idempotencyKey}, constructionpipeline.PipelineSpec{
+		ProjectID: constructionpipeline.ProjectID(spec.ProjectID),
+		// A non-empty, well-formed step graph satisfies the RA's §2.1 pre-condition; the
+		// design recipe lives in the user's aiarch-design.yml workflow file, so the step is
+		// a logical placeholder. The Phase-2 DESIGN-job parameters ride on DispatchInputs.
+		Steps: []constructionpipeline.PipelineStep{{
+			Name:      "design",
+			Toolchain: constructionpipeline.ToolchainRef(pipelineDefaultToolchain),
+			Command:   []string{"sh", "-c", "true"},
+		}},
+		DispatchInputs: spec.DispatchInputs,
+		TargetRepo:     target,
+		WorkflowFile:   spec.WorkflowFile,
+	})
+	if err != nil {
+		return PipelineHandle{}, err
+	}
+	return PipelineHandle{Name: constructionpipeline.PipelineHandleString(handle)}, nil
+}
+
+func (a pipelineDispatchAdapter) ObserveConstructionPipeline(ctx context.Context, handle PipelineHandle) (PipelineObservation, error) {
+	obs, err := a.inner.ObserveConstructionPipeline(fwra.Context{Context: ctx}, constructionpipeline.ParsePipelineHandle(handle.Name))
+	if err != nil {
+		return PipelineObservation{}, err
+	}
+	return PipelineObservation{
+		Phase:      designPipelinePhase(obs.Phase),
+		Diagnostic: obs.Diagnostic,
+	}, nil
+}
+
+// designRepoTarget decodes an opaque per-project RepoRef String() into the RA's
+// infrastructure-neutral RepoTarget{Owner, Name}. Empty ⇒ a zero RepoTarget (the RA
+// falls back to the configured construction repo); a malformed ref surfaces the RA's
+// ContractMisuse. Uses sourcecontrol's own OwnerRepo accessor so the RepoRef encoding
+// stays owned by sourceControlAccess (no encoding leak here).
+func designRepoTarget(repoRef string) (constructionpipeline.RepoTarget, error) {
+	if repoRef == "" {
+		return constructionpipeline.RepoTarget{}, nil
+	}
+	owner, name, err := sourcecontrol.RepoRefOwnerRepo(sourcecontrol.RepoRefFromString(repoRef))
+	if err != nil {
+		return constructionpipeline.RepoTarget{}, err
+	}
+	return constructionpipeline.RepoTarget{Owner: owner, Name: name}, nil
+}
+
+// designPipelinePhase maps the RA's phase to this Manager's neutral phase, preserving
+// the Cancelled terminal distinctly (the design Manager treats any non-Succeeded
+// terminal as a StageDraftFailed gate).
+func designPipelinePhase(p constructionpipeline.PipelinePhase) PipelinePhase {
+	switch p {
+	case constructionpipeline.PhasePending:
+		return PipelinePending
+	case constructionpipeline.PhaseRunning:
+		return PipelineRunning
+	case constructionpipeline.PhaseSucceeded:
+		return PipelineSucceeded
+	case constructionpipeline.PhaseFailed:
+		return PipelineFailed
+	case constructionpipeline.PhaseCancelled:
+		return PipelineCancelled
+	default:
+		return PipelinePhaseUnknown
+	}
 }
 
 // PipelineSpec mirrors constructionPipelineAccess.md §3 (infrastructure-neutral),
