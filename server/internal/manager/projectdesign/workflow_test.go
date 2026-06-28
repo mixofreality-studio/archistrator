@@ -328,7 +328,7 @@ func registerCoAuthor(env *testsuite.TestWorkflowEnvironment, wf *Workflows) {
 func Test_assembleSdpReview_FourRows_Deterministic(t *testing.T) {
 	id := ProjectID(uuid.NewString())
 	wf := newWorkflows(nil)
-	proj := sdpReadyProject(id)
+	proj := sdpReadyProject(projectstate.ProjectID(id))
 
 	review, err := wf.assembleSdpReview(proj, "")
 	if err != nil {
@@ -369,7 +369,7 @@ func Test_assembleSdpReview_FourRows_Deterministic(t *testing.T) {
 func Test_assembleSdpReview_MissingPrerequisite_Errors(t *testing.T) {
 	id := ProjectID(uuid.NewString())
 	wf := newWorkflows(nil)
-	proj := sdpReadyProject(id)
+	proj := sdpReadyProject(projectstate.ProjectID(id))
 	proj.Network = projectstate.ArtifactSlot{} // drop a prerequisite
 
 	if _, err := wf.assembleSdpReview(proj, ""); err == nil {
@@ -389,7 +389,7 @@ func Test_CoAuthor_PlanDraftRoundTrip_DispatchObserveReadBack_AwaitsReview(t *te
 	env := ts.NewTestWorkflowEnvironment()
 
 	id := ProjectID(uuid.NewString())
-	ps := &fakeProjectState{project: planningAssumptionsReadBack(id)}
+	ps := &fakeProjectState{project: planningAssumptionsReadBack(projectstate.ProjectID(id))}
 	pipe := newFakePipeline() // default: dispatch observed Succeeded
 	wf := newCoAuthorWorkflows(ps, pipe)
 	registerCoAuthor(env, wf)
@@ -406,13 +406,13 @@ func Test_CoAuthor_PlanDraftRoundTrip_DispatchObserveReadBack_AwaitsReview(t *te
 		if view.Stage != StageAwaitingReview {
 			t.Fatalf("want StageAwaitingReview, got %d", view.Stage)
 		}
-		if _, ok := view.Draft.(*projectstate.PlanningAssumptions); !ok {
-			t.Fatalf("expected *projectstate.PlanningAssumptions read-back draft, got %T", view.Draft)
+		if view.Draft.Kind != "planningAssumptions" || view.Draft.Model == nil {
+			t.Fatalf("expected a staged planningAssumptions read-back draft envelope, got %+v", view.Draft)
 		}
 		env.SignalWorkflow(SignalReviewDecision, ReviewDecisionSignal{Decision: ReviewWithdraw})
 	}, 30*time.Second)
 
-	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: projectstate.KindPlanningAssumptions})
+	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: KindPlanningAssumptions})
 
 	if !env.IsWorkflowCompleted() {
 		t.Fatal("workflow did not complete")
@@ -463,7 +463,7 @@ func Test_CoAuthor_PhaseFailed_LandsInStageDraftFailed_NotPerpetualDrafting(t *t
 	env := ts.NewTestWorkflowEnvironment()
 
 	id := ProjectID(uuid.NewString())
-	ps := &fakeProjectState{project: planningAssumptionsReadBack(id)}
+	ps := &fakeProjectState{project: planningAssumptionsReadBack(projectstate.ProjectID(id))}
 	pipe := newFakePipeline(PipelineFailed)
 	pipe.diagnostic = "aiarch-validate found 2 violations"
 	wf := newCoAuthorWorkflows(ps, pipe)
@@ -485,13 +485,13 @@ func Test_CoAuthor_PhaseFailed_LandsInStageDraftFailed_NotPerpetualDrafting(t *t
 		if view.Stage != StageDraftFailed {
 			t.Fatalf("want StageDraftFailed after a terminal failure phase, got %d", view.Stage)
 		}
-		if view.FailureReason == "" {
+		if view.FailureReason == nil || *view.FailureReason == "" {
 			t.Fatal("StageDraftFailed must carry a human FailureReason (the neutral diagnostic)")
 		}
 		env.SignalWorkflow(SignalReviewDecision, ReviewDecisionSignal{Decision: ReviewWithdraw})
 	}, 30*time.Second)
 
-	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: projectstate.KindPlanningAssumptions})
+	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: KindPlanningAssumptions})
 
 	if !env.IsWorkflowCompleted() {
 		t.Fatal("workflow did not complete after withdraw from the draft-failed gate")
@@ -516,7 +516,7 @@ func Test_CoAuthor_PhaseCancelled_LandsInStageDraftFailed(t *testing.T) {
 	env := ts.NewTestWorkflowEnvironment()
 
 	id := ProjectID(uuid.NewString())
-	ps := &fakeProjectState{project: planningAssumptionsReadBack(id)}
+	ps := &fakeProjectState{project: planningAssumptionsReadBack(projectstate.ProjectID(id))}
 	pipe := newFakePipeline(PipelineCancelled)
 	wf := newCoAuthorWorkflows(ps, pipe)
 	registerCoAuthor(env, wf)
@@ -531,7 +531,7 @@ func Test_CoAuthor_PhaseCancelled_LandsInStageDraftFailed(t *testing.T) {
 		env.SignalWorkflow(SignalReviewDecision, ReviewDecisionSignal{Decision: ReviewWithdraw})
 	}, 30*time.Second)
 
-	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: projectstate.KindPlanningAssumptions})
+	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: KindPlanningAssumptions})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("PhaseCancelled must not crash the workflow: %v", err)
@@ -547,7 +547,7 @@ func Test_CoAuthor_DraftFailedThenRetry_DistinctIdempotencyKey(t *testing.T) {
 	env := ts.NewTestWorkflowEnvironment()
 
 	id := ProjectID(uuid.NewString())
-	ps := &fakeProjectState{project: planningAssumptionsReadBack(id)}
+	ps := &fakeProjectState{project: planningAssumptionsReadBack(projectstate.ProjectID(id))}
 	// First dispatch fails; the retry dispatch (2nd) succeeds → reaches AwaitingReview.
 	pipe := newFakePipeline(PipelineFailed, PipelineSucceeded)
 	pipe.diagnostic = "transient CI flake"
@@ -563,7 +563,7 @@ func Test_CoAuthor_DraftFailedThenRetry_DistinctIdempotencyKey(t *testing.T) {
 		env.SignalWorkflow(SignalReviewDecision, ReviewDecisionSignal{Decision: ReviewWithdraw})
 	}, 60*time.Second)
 
-	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: projectstate.KindPlanningAssumptions})
+	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: KindPlanningAssumptions})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)
@@ -589,7 +589,7 @@ func Test_CoAuthor_Reject_LoopsToFreshDispatch(t *testing.T) {
 	env := ts.NewTestWorkflowEnvironment()
 
 	id := ProjectID(uuid.NewString())
-	ps := &fakeProjectState{project: planningAssumptionsReadBack(id)}
+	ps := &fakeProjectState{project: planningAssumptionsReadBack(projectstate.ProjectID(id))}
 	pipe := newFakePipeline() // every dispatch Succeeds
 	wf := newCoAuthorWorkflows(ps, pipe)
 	registerCoAuthor(env, wf)
@@ -602,7 +602,7 @@ func Test_CoAuthor_Reject_LoopsToFreshDispatch(t *testing.T) {
 		env.SignalWorkflow(SignalReviewDecision, ReviewDecisionSignal{Decision: ReviewApprove})
 	}, 70*time.Second)
 
-	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: projectstate.KindPlanningAssumptions})
+	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: KindPlanningAssumptions})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)
@@ -628,7 +628,7 @@ func Test_CoAuthor_Reject_LoopsToFreshDispatch(t *testing.T) {
 // Engines still run in-process.
 func Test_AssembleSDPReviewWorkflow_Commit_HappyPath_EnginesRunInProcess(t *testing.T) {
 	id := ProjectID(uuid.NewString())
-	ps := &fakeProjectState{project: sdpReadyProject(id)}
+	ps := &fakeProjectState{project: sdpReadyProject(projectstate.ProjectID(id))}
 	wf := newWorkflows(ps) // REAL three estimate Engines; NO pipeline needed (no dispatch)
 
 	var ts testsuite.WorkflowTestSuite
@@ -643,7 +643,7 @@ func Test_AssembleSDPReviewWorkflow_Commit_HappyPath_EnginesRunInProcess(t *test
 	if err != nil {
 		t.Fatalf("pre-assembly: %v", err)
 	}
-	chosen := pre.Recommendation
+	chosen := OptionID(pre.Recommendation)
 
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(SignalSDPDecision, SDPDecisionSignal{Decision: SDPCommit, OptionID: &chosen})
@@ -678,14 +678,14 @@ func Test_AssembleSDPReviewWorkflow_Commit_HappyPath_EnginesRunInProcess(t *test
 		t.Fatalf("want exactly one KindSdpReview commit, got %v", ps.committed)
 	}
 	last := ps.staged[len(ps.staged)-1].(*projectstate.SdpReview)
-	if last.Recommendation != chosen {
+	if last.Recommendation != projectstate.OptionID(chosen) {
 		t.Fatalf("committed review recommendation = %s, want chosen %s", last.Recommendation, chosen)
 	}
 }
 
 func Test_AssembleSDPReviewWorkflow_RejectAll_ReassemblesThenCommits(t *testing.T) {
 	id := ProjectID(uuid.NewString())
-	ps := &fakeProjectState{project: sdpReadyProject(id)}
+	ps := &fakeProjectState{project: sdpReadyProject(projectstate.ProjectID(id))}
 	wf := newWorkflows(ps)
 
 	var ts testsuite.WorkflowTestSuite
@@ -697,7 +697,7 @@ func Test_AssembleSDPReviewWorkflow_RejectAll_ReassemblesThenCommits(t *testing.
 	env.RegisterActivity(wf.RejectArtifactActivity)
 
 	pre, _ := wf.assembleSdpReview(ps.project, "")
-	chosen := pre.Recommendation
+	chosen := OptionID(pre.Recommendation)
 
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(SignalSDPDecision, SDPDecisionSignal{Decision: SDPRejectAll, Feedback: &ReviewFeedback{Notes: "cut cost"}})
@@ -723,7 +723,7 @@ func Test_AssembleSDPReviewWorkflow_RejectAll_ReassemblesThenCommits(t *testing.
 
 func Test_Phase2AdvanceWorkflow_MissingArtifacts_NotAdvanced(t *testing.T) {
 	id := ProjectID(uuid.NewString())
-	proj := projectstate.Project{ID: id, Phase: projectstate.PhaseProjectDesign}
+	proj := projectstate.Project{ID: projectstate.ProjectID(id), Phase: projectstate.PhaseProjectDesign}
 	proj.PlanningAssumptions = committedSlot(&projectstate.PlanningAssumptions{CalendarDaysPerWeek: 5})
 	ps := &fakeProjectState{project: proj}
 	wf := newWorkflows(ps)
@@ -755,7 +755,7 @@ func Test_Phase2AdvanceWorkflow_MissingArtifacts_NotAdvanced(t *testing.T) {
 
 func Test_Phase2AdvanceWorkflow_AllCommittedWithOption_Advances(t *testing.T) {
 	id := ProjectID(uuid.NewString())
-	proj := sdpReadyProject(id)
+	proj := sdpReadyProject(projectstate.ProjectID(id))
 	proj.RiskModel = committedSlot(&projectstate.RiskModel{})
 	proj.SdpReview = committedSlot(&projectstate.SdpReview{
 		Options:        []projectstate.SdpOptionRow{{OptionID: "NormalSolution"}},

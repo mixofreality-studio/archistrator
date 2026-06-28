@@ -180,7 +180,7 @@ var raNotFoundErrType = fwmanager.RAErrType(fwra.NotFound)
 func (wf *Workflows) readProject(ctx workflow.Context, projectID ProjectID) (projectstate.Project, error) {
 	c := readProjectOpts(ctx)
 	var pe projectEnvelope
-	if err := workflow.ExecuteActivity(c, wf.ReadProjectActivity, projectID).Get(ctx, &pe); err != nil {
+	if err := workflow.ExecuteActivity(c, wf.ReadProjectActivity, projectstate.ProjectID(projectID)).Get(ctx, &pe); err != nil {
 		return projectstate.Project{}, err
 	}
 	return pe.decode()
@@ -308,7 +308,7 @@ func (wf *Workflows) CoAuthorPhase2ArtifactWorkflow(ctx workflow.Context, in CoA
 	// The SDP review is NOT co-authored here — it is assembled by
 	// AssembleSDPReviewWorkflow (contract §2.1 rejects KindSdpReview at the façade,
 	// belt-and-suspenders here).
-	if in.ArtifactKind == projectstate.KindSdpReview {
+	if in.ArtifactKind == KindSdpReview {
 		return CoAuthorUnknown, temporal.NewNonRetryableApplicationError(
 			"the SDP review is assembled, not co-authored; use RequestSDPCommit",
 			"WrongArtifactKind", nil)
@@ -333,7 +333,7 @@ func (wf *Workflows) CoAuthorPhase2ArtifactWorkflow(ctx workflow.Context, in CoA
 		if !isReadNotFound(err) {
 			return CoAuthorUnknown, err
 		}
-		proj = projectstate.Project{ID: in.ProjectID}
+		proj = projectstate.Project{ID: projectstate.ProjectID(in.ProjectID)}
 	} else {
 		proj = p
 		headVersion = p.Version
@@ -377,7 +377,7 @@ func (wf *Workflows) CoAuthorPhase2ArtifactWorkflow(ctx workflow.Context, in CoA
 			return CoAuthorUnknown, gerr
 		}
 
-		draftPrompt := architectDraftPrompt(in.ArtifactKind, proj, feedback)
+		draftPrompt := architectDraftPrompt(toPSKind(in.ArtifactKind), proj, feedback)
 		draftObs, derr := wf.dispatchAndObserve(ctx, DispatchDesignJobArgs{
 			ProjectID:     in.ProjectID,
 			ArtifactKind:  in.ArtifactKind,
@@ -439,7 +439,7 @@ func (wf *Workflows) CoAuthorPhase2ArtifactWorkflow(ctx workflow.Context, in CoA
 				c := mutateOpts(ctx)
 				var v projectstate.Version
 				e := workflow.ExecuteActivity(c, wf.StageArtifactForReviewActivity, StageArtifactForReviewArgs{
-					ProjectID: in.ProjectID, ExpectedVersion: expected, Model: draftEnvelope, Branch: gf.readBackBranch(),
+					ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, Model: draftEnvelope, Branch: gf.readBackBranch(),
 				}).Get(ctx, &v)
 				return v, e
 			})
@@ -494,7 +494,7 @@ func (wf *Workflows) CoAuthorPhase2ArtifactWorkflow(ctx workflow.Context, in CoA
 				c := mutateOpts(ctx)
 				var v projectstate.Version
 				e := workflow.ExecuteActivity(c, wf.CommitArtifactActivity, MutateArtifactArgs{
-					ProjectID: in.ProjectID, ExpectedVersion: expected, Kind: in.ArtifactKind,
+					ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, Kind: toPSKind(in.ArtifactKind),
 				}).Get(ctx, &v)
 				return v, e
 			})
@@ -511,7 +511,7 @@ func (wf *Workflows) CoAuthorPhase2ArtifactWorkflow(ctx workflow.Context, in CoA
 				c := mutateOpts(ctx)
 				var v projectstate.Version
 				e := workflow.ExecuteActivity(c, wf.RejectArtifactActivity, MutateArtifactArgs{
-					ProjectID: in.ProjectID, ExpectedVersion: expected, Kind: in.ArtifactKind, Notes: notes,
+					ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, Kind: toPSKind(in.ArtifactKind), Notes: notes,
 				}).Get(ctx, &v)
 				return v, e
 			})
@@ -532,7 +532,7 @@ func (wf *Workflows) CoAuthorPhase2ArtifactWorkflow(ctx workflow.Context, in CoA
 				c := mutateOpts(ctx)
 				var v projectstate.Version
 				e := workflow.ExecuteActivity(c, wf.WithdrawArtifactActivity, MutateArtifactArgs{
-					ProjectID: in.ProjectID, ExpectedVersion: expected, Kind: in.ArtifactKind, Notes: notes,
+					ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, Kind: toPSKind(in.ArtifactKind), Notes: notes,
 				}).Get(ctx, &v)
 				return v, e
 			})
@@ -587,7 +587,7 @@ func (wf *Workflows) AssembleSDPReviewWorkflow(ctx workflow.Context, in SDPRevie
 
 	state := &coAuthorState{
 		projectID:    in.ProjectID,
-		artifactKind: projectstate.KindSdpReview,
+		artifactKind: KindSdpReview,
 		stage:        StageAssemblingSDP,
 	}
 	if err := workflow.SetQueryHandler(ctx, QuerySessionState, state.view); err != nil {
@@ -635,11 +635,11 @@ func (wf *Workflows) AssembleSDPReviewWorkflow(ctx workflow.Context, in SDPRevie
 		// Step 7: branch on the architect's decision.
 		switch sig.Decision {
 		case SDPCommit:
-			if sig.OptionID == nil || !optionInReview(review, *sig.OptionID) {
+			if sig.OptionID == nil || !optionInReview(review, projectstate.OptionID(*sig.OptionID)) {
 				return temporal.NewNonRetryableApplicationError(
 					"SDP commit named an option not in the assembled review", "UnknownOption", nil)
 			}
-			chosen := *sig.OptionID
+			chosen := projectstate.OptionID(*sig.OptionID)
 
 			// Commit-time confirmation: RE-RUN the three engines on the chosen option,
 			// re-stage the review with Recommendation=chosen (records the architect's
@@ -695,7 +695,7 @@ func (wf *Workflows) stageReview(ctx workflow.Context, projectID ProjectID, revi
 		c := mutateOpts(ctx)
 		var got projectstate.Version
 		e := workflow.ExecuteActivity(c, wf.StageArtifactForReviewActivity, StageArtifactForReviewArgs{
-			ProjectID: projectID, ExpectedVersion: expected, Model: env,
+			ProjectID: projectstate.ProjectID(projectID), ExpectedVersion: expected, Model: env,
 		}).Get(ctx, &got)
 		return got, e
 	})
@@ -712,7 +712,7 @@ func (wf *Workflows) commitReview(ctx workflow.Context, projectID ProjectID, hea
 		c := mutateOpts(ctx)
 		var got projectstate.Version
 		e := workflow.ExecuteActivity(c, wf.CommitArtifactActivity, MutateArtifactArgs{
-			ProjectID: projectID, ExpectedVersion: expected, Kind: projectstate.KindSdpReview,
+			ProjectID: projectstate.ProjectID(projectID), ExpectedVersion: expected, Kind: projectstate.KindSdpReview,
 		}).Get(ctx, &got)
 		return got, e
 	})
@@ -729,7 +729,7 @@ func (wf *Workflows) rejectReview(ctx workflow.Context, projectID ProjectID, not
 		c := mutateOpts(ctx)
 		var got projectstate.Version
 		e := workflow.ExecuteActivity(c, wf.RejectArtifactActivity, MutateArtifactArgs{
-			ProjectID: projectID, ExpectedVersion: expected, Kind: projectstate.KindSdpReview, Notes: notes,
+			ProjectID: projectstate.ProjectID(projectID), ExpectedVersion: expected, Kind: projectstate.KindSdpReview, Notes: notes,
 		}).Get(ctx, &got)
 		return got, e
 	})
@@ -766,7 +766,7 @@ func (wf *Workflows) Phase2AdvanceWorkflow(ctx workflow.Context, in PhaseAdvance
 		if !isReadNotFound(err) {
 			return PhaseAdvanceResult{}, err
 		}
-		proj = projectstate.Project{ID: in.ProjectID}
+		proj = projectstate.Project{ID: projectstate.ProjectID(in.ProjectID)}
 	} else {
 		proj = p
 	}
@@ -775,14 +775,14 @@ func (wf *Workflows) Phase2AdvanceWorkflow(ctx workflow.Context, in PhaseAdvance
 	var missing []ArtifactKind
 	for _, kind := range projectstate.Phase2RequiredKinds() {
 		if slotFor(proj, kind).Status != projectstate.ReviewCommitted {
-			missing = append(missing, kind)
+			missing = append(missing, fromPSKind(kind))
 		}
 	}
 	// Option-bound check: the committed SdpReview slot's Model carries a non-empty
 	// Recommendation. If the SdpReview slot is itself missing it is already in
 	// `missing`; only flag the unbound-option case when the review IS committed.
 	if !optionBound(proj) && slotFor(proj, projectstate.KindSdpReview).Status == projectstate.ReviewCommitted {
-		missing = append(missing, projectstate.KindSdpReview)
+		missing = append(missing, KindSdpReview)
 	}
 	if len(missing) > 0 {
 		return PhaseAdvanceResult{Advanced: false, MissingArtifacts: missing}, nil
@@ -793,7 +793,7 @@ func (wf *Workflows) Phase2AdvanceWorkflow(ctx workflow.Context, in PhaseAdvance
 		c := mutateOpts(ctx)
 		var v projectstate.Version
 		e := workflow.ExecuteActivity(c, wf.AdvancePhaseActivity, AdvancePhaseArgs{
-			ProjectID: in.ProjectID, ExpectedVersion: expected,
+			ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected,
 		}).Get(ctx, &v)
 		return v, e
 	}); err != nil {
@@ -1099,13 +1099,17 @@ type coAuthorState struct {
 }
 
 func (s *coAuthorState) view() (SessionStateView, error) {
+	dm, err := draftModelFor(s.artifactKind, s.draft)
+	if err != nil {
+		return SessionStateView{}, err
+	}
 	return SessionStateView{
 		ProjectID:     s.projectID,
 		ArtifactKind:  s.artifactKind,
 		Stage:         s.stage,
-		Draft:         s.draft,
+		Draft:         dm,
 		Findings:      s.findings,
-		FailureReason: s.failureReason,
+		FailureReason: strPtrOrNil(s.failureReason),
 	}, nil
 }
 
@@ -1191,7 +1195,7 @@ func (wf *Workflows) awaitDraftFailedRecovery(
 				c := mutateOpts(ctx)
 				var v projectstate.Version
 				e := workflow.ExecuteActivity(c, wf.WithdrawArtifactActivity, MutateArtifactArgs{
-					ProjectID: projectID, ExpectedVersion: expected, Kind: kind, Notes: withdrawNotes,
+					ProjectID: projectstate.ProjectID(projectID), ExpectedVersion: expected, Kind: toPSKind(kind), Notes: withdrawNotes,
 				}).Get(ctx, &v)
 				return v, e
 			}); err != nil {
@@ -1220,8 +1224,10 @@ func signalNotes(f *ReviewFeedback) string {
 	return ""
 }
 
-// slotFor returns the named Project slot for a kind (Phase 1 + Phase 2).
-func slotFor(proj projectstate.Project, kind ArtifactKind) projectstate.ArtifactSlot {
+// slotFor returns the named Project slot for a kind (Phase 1 + Phase 2). Internal
+// (operates on the canonical projectstate.ArtifactKind); own-kind callers convert via
+// toPSKind at the boundary.
+func slotFor(proj projectstate.Project, kind projectstate.ArtifactKind) projectstate.ArtifactSlot {
 	switch kind {
 	case projectstate.KindMission:
 		return proj.Mission
@@ -1264,7 +1270,7 @@ func slotFor(proj projectstate.Project, kind ArtifactKind) projectstate.Artifact
 
 // committedModel returns the committed typed model in the slot named by kind, or a
 // FailedPrecondition error if the slot is not committed / not populated.
-func committedModel(proj projectstate.Project, kind ArtifactKind) (projectstate.ArtifactModel, error) {
+func committedModel(proj projectstate.Project, kind projectstate.ArtifactKind) (projectstate.ArtifactModel, error) {
 	slot := slotFor(proj, kind)
 	if slot.Status != projectstate.ReviewCommitted || slot.Model == nil {
 		return nil, fwmanager.New(fwmanager.FailedPrecondition,
@@ -1309,7 +1315,7 @@ func committedNetwork(proj projectstate.Project) (projectstate.Network, error) {
 	return *nw, nil
 }
 
-func committedSolution(proj projectstate.Project, kind ArtifactKind) (projectstate.Solution, error) {
+func committedSolution(proj projectstate.Project, kind projectstate.ArtifactKind) (projectstate.Solution, error) {
 	m, err := committedModel(proj, kind)
 	if err != nil {
 		return projectstate.Solution{}, err
@@ -1321,7 +1327,7 @@ func committedSolution(proj projectstate.Project, kind ArtifactKind) (projectsta
 	return *sol, nil
 }
 
-func wrongModelType(want ArtifactKind, got projectstate.ArtifactModel) error {
+func wrongModelType(want projectstate.ArtifactKind, got projectstate.ArtifactModel) error {
 	gotKind := "nil"
 	if got != nil {
 		gotKind = got.Kind().String()

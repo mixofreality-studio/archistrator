@@ -247,7 +247,7 @@ func Test_CoAuthorPhase2_Rail_BranchReconciliation_MergeBeforeCommit_PostMergeRe
 
 	id := ProjectID(uuid.NewString())
 	log := &seqLog{}
-	base := &fakeProjectState{project: planningAssumptionsReadBack(id)}
+	base := &fakeProjectState{project: planningAssumptionsReadBack(projectstate.ProjectID(id))}
 	ps := &seqProjectState{fakeProjectState: base, log: log}
 	pipe := newFakePipeline() // dispatch observed Succeeded
 	rail := newScriptedRail(true, log)
@@ -258,7 +258,7 @@ func Test_CoAuthorPhase2_Rail_BranchReconciliation_MergeBeforeCommit_PostMergeRe
 		env.SignalWorkflow(SignalReviewDecision, ReviewDecisionSignal{Decision: ReviewApprove})
 	}, 30*time.Second)
 
-	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: projectstate.KindPlanningAssumptions})
+	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: KindPlanningAssumptions})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("rail reconciliation workflow error: %v", err)
@@ -345,7 +345,7 @@ func Test_CoAuthorPhase2_Rail_RejectRedraftsOnNewSessionBranchAndNewPR(t *testin
 
 	id := ProjectID(uuid.NewString())
 	log := &seqLog{}
-	base := &fakeProjectState{project: planningAssumptionsReadBack(id)}
+	base := &fakeProjectState{project: planningAssumptionsReadBack(projectstate.ProjectID(id))}
 	ps := &seqProjectState{fakeProjectState: base, log: log}
 	pipe := newFakePipeline()
 	rail := newScriptedRail(true, log)
@@ -359,7 +359,7 @@ func Test_CoAuthorPhase2_Rail_RejectRedraftsOnNewSessionBranchAndNewPR(t *testin
 		env.SignalWorkflow(SignalReviewDecision, ReviewDecisionSignal{Decision: ReviewApprove})
 	}, 70*time.Second)
 
-	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: projectstate.KindPlanningAssumptions})
+	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: KindPlanningAssumptions})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("reject-redraft workflow error: %v", err)
@@ -398,7 +398,7 @@ func Test_CoAuthorPhase2_Rail_PhaseFailed_LandsInStageDraftFailed_NoApproveRailN
 
 	id := ProjectID(uuid.NewString())
 	log := &seqLog{}
-	base := &fakeProjectState{project: planningAssumptionsReadBack(id)}
+	base := &fakeProjectState{project: planningAssumptionsReadBack(projectstate.ProjectID(id))}
 	ps := &seqProjectState{fakeProjectState: base, log: log}
 	pipe := newFakePipeline(PipelineFailed)
 	pipe.diagnostic = "aiarch-validate found 2 violations"
@@ -424,7 +424,7 @@ func Test_CoAuthorPhase2_Rail_PhaseFailed_LandsInStageDraftFailed_NoApproveRailN
 		env.SignalWorkflow(SignalReviewDecision, ReviewDecisionSignal{Decision: ReviewWithdraw})
 	}, 30*time.Second)
 
-	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: projectstate.KindPlanningAssumptions})
+	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: KindPlanningAssumptions})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("a terminal job failure must NOT crash the rail-wired workflow: %v", err)
@@ -454,7 +454,7 @@ func Test_CoAuthorPhase2_Rail_RequiredCheckRed_BlocksMerge_NoCommit_Recovers(t *
 
 	id := ProjectID(uuid.NewString())
 	log := &seqLog{}
-	base := &fakeProjectState{project: planningAssumptionsReadBack(id)}
+	base := &fakeProjectState{project: planningAssumptionsReadBack(projectstate.ProjectID(id))}
 	ps := &seqProjectState{fakeProjectState: base, log: log}
 	pipe := newFakePipeline()           // draft Succeeds (the run was green) ...
 	rail := newScriptedRail(false, log) // ... but the PR's required check is RED at merge time
@@ -468,7 +468,7 @@ func Test_CoAuthorPhase2_Rail_RequiredCheckRed_BlocksMerge_NoCommit_Recovers(t *
 		env.SignalWorkflow(SignalReviewDecision, ReviewDecisionSignal{Decision: ReviewWithdraw})
 	}, 60*time.Second)
 
-	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: projectstate.KindPlanningAssumptions})
+	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: KindPlanningAssumptions})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("a not-green merge guard must not crash the workflow: %v", err)

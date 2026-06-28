@@ -193,7 +193,7 @@ type DispatchDesignJobArgs struct {
 func (wf *Workflows) DispatchDesignJobActivity(ctx context.Context, a DispatchDesignJobArgs) (PipelineHandle, error) {
 	key := activityIdempotencyKey(ctx)
 	inputs := map[string]string{
-		dispatchInputArtifactKind:  a.ArtifactKind.String(),
+		dispatchInputArtifactKind:  ArtifactKindString(a.ArtifactKind),
 		dispatchInputDesignPrompt:  a.Prompt,
 		dispatchInputTargetBranch:  a.TargetBranch,
 		dispatchInputPriorStateRef: a.PriorStateRef,
@@ -317,10 +317,10 @@ func (wf *Workflows) readBackCommittedModelOn(ctx workflow.Context, projectID Pr
 	if err != nil {
 		return nil, err
 	}
-	slot := slotFor(proj, kind)
+	slot := slotFor(proj, toPSKind(kind))
 	if slot.Model == nil {
 		return nil, temporal.NewNonRetryableApplicationError(
-			fmt.Sprintf("design job reported success but committed no %s model to read back", kind),
+			fmt.Sprintf("design job reported success but committed no %s model to read back", toPSKind(kind)),
 			"ReadBackEmpty", nil)
 	}
 	return slot.Model, nil

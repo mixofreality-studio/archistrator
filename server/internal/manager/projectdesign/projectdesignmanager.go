@@ -1,15 +1,28 @@
 package projectdesign
 
 import (
-	"context"
 	"errors"
 	"strings"
 
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/client"
 )
+
+// ProjectDesignManager is the generated service-contract interface for this component
+// — the public use-case surface of the projectDesignManager façade
+// (projectDesignManager.md §2). Each op leads with the Manager-layer call Context
+// (fwmanager.Context, embedding context.Context + the Principal); the *Manager derives
+// ctx := rc.Context inside. The concrete *Manager satisfies it; the consumer-side
+// dependency interfaces (ConstructionPipelineAccess / SourceControlRail) + the Temporal
+// Workflows struct stay hand-written and are NOT part of this contract.
+
+// Compile-time proof the concrete Manager satisfies the generated ProjectDesignManager
+// port.
+var _ ProjectDesignManager = (*Manager)(nil)
+
+// ProjectDesignManager is the port the webClient depends on. The generated form
+// (contract.gen.go) replaces this hand-written declaration after the bootstrap strip.
 
 // Manager is the projectDesignManager façade. It exposes the public use-case ops
 // (projectDesignManager.md §2) and OWNS Temporal. It is the Phase-2 twin of the
@@ -22,6 +35,8 @@ import (
 //
 // plus SubmitReviewDecision — Signal (reviewDecision, the per-artifact OQ-3 gate).
 //
+// Each op leads with the Manager-layer call Context (fwmanager.Context, embedding
+// context.Context + the Principal); the *Manager derives ctx := rc.Context inside.
 // Pre-condition checks the contract puts on the façade (Phase-2 kind, non-empty
 // projectId, Commit-requires-optionId, RejectAll-requires-feedback) are enforced
 // here before any downstream call (§2, §3). The Manager holds only a Temporal
@@ -40,15 +55,16 @@ func NewManager(c client.Client) *Manager { return &Manager{client: c} }
 // review is assembled via RequestSDPCommit, not co-authored). The phase-prerequisite
 // check (Phase 1 sealed, predecessors committed) is performed by the workflow on
 // head-state; the façade only checks kind validity.
-func (m *Manager) RequestArtifactDraft(ctx context.Context, projectID ProjectID, kind ArtifactKind, feedback *ReviewFeedback) (SessionRef, error) {
+func (m *Manager) RequestArtifactDraft(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind, feedback *ReviewFeedback) (SessionRef, error) {
+	ctx := rc.Context
 	if projectID == "" {
-		return SessionRef{}, newError(fwmanager.ContractMisuse, "empty projectId")
+		return "", newError(fwmanager.ContractMisuse, "empty projectId")
 	}
-	if !kind.IsPhase2() {
-		return SessionRef{}, newError(fwmanager.FailedPrecondition, "artifactKind is not a Phase-2 kind")
+	if !ArtifactKindIsPhase2(kind) {
+		return "", newError(fwmanager.FailedPrecondition, "artifactKind is not a Phase-2 kind")
 	}
-	if kind == projectstate.KindSdpReview {
-		return SessionRef{}, newError(fwmanager.FailedPrecondition, "use requestSDPCommit for the SDP review")
+	if kind == KindSdpReview {
+		return "", newError(fwmanager.FailedPrecondition, "use requestSDPCommit for the SDP review")
 	}
 
 	wfID := coAuthorWorkflowID(projectID, kind)
@@ -61,7 +77,7 @@ func (m *Manager) RequestArtifactDraft(ctx context.Context, projectID ProjectID,
 
 	we, err := m.client.ExecuteWorkflow(ctx, opts, ExecutionKindCoAuthor, in)
 	if err != nil {
-		return SessionRef{}, mapStartError(err)
+		return "", mapStartError(err)
 	}
 	return NewSessionRef(we.GetID()), nil
 }
@@ -70,9 +86,10 @@ func (m *Manager) RequestArtifactDraft(ctx context.Context, projectID ProjectID,
 // signal-with-start), workflow id {projectId}:sdpReview. Idempotent on the id
 // (UseExisting): a redundant start (or a replan re-entry) reuses the running
 // SDP-review workflow.
-func (m *Manager) RequestSDPCommit(ctx context.Context, projectID ProjectID) (SessionRef, error) {
+func (m *Manager) RequestSDPCommit(rc fwmanager.Context, projectID ProjectID) (SessionRef, error) {
+	ctx := rc.Context
 	if projectID == "" {
-		return SessionRef{}, newError(fwmanager.ContractMisuse, "empty projectId")
+		return "", newError(fwmanager.ContractMisuse, "empty projectId")
 	}
 
 	wfID := sdpReviewWorkflowID(projectID)
@@ -85,7 +102,7 @@ func (m *Manager) RequestSDPCommit(ctx context.Context, projectID ProjectID) (Se
 
 	we, err := m.client.ExecuteWorkflow(ctx, opts, ExecutionKindSDPReview, in)
 	if err != nil {
-		return SessionRef{}, mapStartError(err)
+		return "", mapStartError(err)
 	}
 	return NewSessionRef(we.GetID()), nil
 }
@@ -96,7 +113,8 @@ func (m *Manager) RequestSDPCommit(ctx context.Context, projectID ProjectID) (Se
 // Validate: decision ∈ {SDPCommit, SDPRejectAll}; SDPCommit requires a non-empty
 // optionID (ContractMisuse otherwise); SDPRejectAll requires feedback with
 // non-empty Notes (ContractMisuse otherwise).
-func (m *Manager) SubmitSDPDecision(ctx context.Context, projectID ProjectID, decision SDPDecision, optionID *OptionID, feedback *ReviewFeedback) error {
+func (m *Manager) SubmitSDPDecision(rc fwmanager.Context, projectID ProjectID, decision SDPDecision, optionID *OptionID, feedback *ReviewFeedback) error {
+	ctx := rc.Context
 	if projectID == "" {
 		return newError(fwmanager.ContractMisuse, "empty projectId")
 	}
@@ -125,11 +143,12 @@ func (m *Manager) SubmitSDPDecision(ctx context.Context, projectID ProjectID, de
 // Signal (SignalWorkflow to workflow id {projectId}:{artifactKind}, signal
 // reviewDecision). feedback required when decision == Reject. kind must be a
 // Phase-2 kind other than the SDP review.
-func (m *Manager) SubmitReviewDecision(ctx context.Context, projectID ProjectID, kind ArtifactKind, decision ReviewDecision, feedback *ReviewFeedback) error {
+func (m *Manager) SubmitReviewDecision(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind, decision ReviewDecision, feedback *ReviewFeedback) error {
+	ctx := rc.Context
 	if projectID == "" {
 		return newError(fwmanager.ContractMisuse, "empty projectId")
 	}
-	if !kind.IsPhase2() || kind == projectstate.KindSdpReview {
+	if !ArtifactKindIsPhase2(kind) || kind == KindSdpReview {
 		return newError(fwmanager.FailedPrecondition, "artifactKind is not a co-authored Phase-2 kind")
 	}
 	switch decision {
@@ -153,7 +172,8 @@ func (m *Manager) SubmitReviewDecision(ctx context.Context, projectID ProjectID,
 
 // AdvanceToConstruction — op 2.4. Temporal Workflow (entry; StartWorkflow,
 // workflow id {projectId}:phaseAdvance). Returns the gating outcome.
-func (m *Manager) AdvanceToConstruction(ctx context.Context, projectID ProjectID) (PhaseAdvanceResult, error) {
+func (m *Manager) AdvanceToConstruction(rc fwmanager.Context, projectID ProjectID) (PhaseAdvanceResult, error) {
+	ctx := rc.Context
 	if projectID == "" {
 		return PhaseAdvanceResult{}, newError(fwmanager.ContractMisuse, "empty projectId")
 	}
@@ -180,12 +200,13 @@ func (m *Manager) AdvanceToConstruction(ctx context.Context, projectID ProjectID
 // GetSessionState — op 2.5. Temporal Query (QueryWorkflow, query sessionState,
 // read-only). When kind == KindSdpReview, queries {projectId}:sdpReview; otherwise
 // {projectId}:{kind}.
-func (m *Manager) GetSessionState(ctx context.Context, projectID ProjectID, kind ArtifactKind) (SessionStateView, error) {
+func (m *Manager) GetSessionState(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind) (SessionStateView, error) {
+	ctx := rc.Context
 	if projectID == "" {
 		return SessionStateView{}, newError(fwmanager.ContractMisuse, "empty projectId")
 	}
 	var wfID string
-	if kind == projectstate.KindSdpReview {
+	if kind == KindSdpReview {
 		wfID = sdpReviewWorkflowID(projectID)
 	} else {
 		wfID = coAuthorWorkflowID(projectID, kind)

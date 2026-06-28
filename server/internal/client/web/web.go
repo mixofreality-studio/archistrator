@@ -35,8 +35,6 @@
 package web
 
 import (
-	"context"
-
 	fwm "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	"github.com/mixofreality-studio/archistrator-platform/framework-go/utilities/security"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/construction"
@@ -80,12 +78,12 @@ var _ SystemDesignEntry = (*systemdesign.Manager)(nil)
 // OQ-3), RequestSDPCommit (Workflow), SubmitSDPDecision (Signal),
 // AdvanceToConstruction (Workflow), GetSessionState (Query).
 type ProjectDesignEntry interface {
-	RequestArtifactDraft(ctx context.Context, projectID projectdesign.ProjectID, kind projectdesign.ArtifactKind, feedback *projectdesign.ReviewFeedback) (projectdesign.SessionRef, error)
-	SubmitReviewDecision(ctx context.Context, projectID projectdesign.ProjectID, kind projectdesign.ArtifactKind, decision projectdesign.ReviewDecision, feedback *projectdesign.ReviewFeedback) error
-	RequestSDPCommit(ctx context.Context, projectID projectdesign.ProjectID) (projectdesign.SessionRef, error)
-	SubmitSDPDecision(ctx context.Context, projectID projectdesign.ProjectID, decision projectdesign.SDPDecision, optionID *projectdesign.OptionID, feedback *projectdesign.ReviewFeedback) error
-	AdvanceToConstruction(ctx context.Context, projectID projectdesign.ProjectID) (projectdesign.PhaseAdvanceResult, error)
-	GetSessionState(ctx context.Context, projectID projectdesign.ProjectID, kind projectdesign.ArtifactKind) (projectdesign.SessionStateView, error)
+	RequestArtifactDraft(rc fwm.Context, projectID projectdesign.ProjectID, kind projectdesign.ArtifactKind, feedback *projectdesign.ReviewFeedback) (projectdesign.SessionRef, error)
+	SubmitReviewDecision(rc fwm.Context, projectID projectdesign.ProjectID, kind projectdesign.ArtifactKind, decision projectdesign.ReviewDecision, feedback *projectdesign.ReviewFeedback) error
+	RequestSDPCommit(rc fwm.Context, projectID projectdesign.ProjectID) (projectdesign.SessionRef, error)
+	SubmitSDPDecision(rc fwm.Context, projectID projectdesign.ProjectID, decision projectdesign.SDPDecision, optionID *projectdesign.OptionID, feedback *projectdesign.ReviewFeedback) error
+	AdvanceToConstruction(rc fwm.Context, projectID projectdesign.ProjectID) (projectdesign.PhaseAdvanceResult, error)
+	GetSessionState(rc fwm.Context, projectID projectdesign.ProjectID, kind projectdesign.ArtifactKind) (projectdesign.SessionStateView, error)
 }
 
 // compile-time proof the concrete Phase-2 Manager satisfies the narrow Client port.

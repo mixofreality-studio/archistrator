@@ -235,17 +235,17 @@ const mainBranch = "main"
 
 // designPRTitle / designPRBody are the human-facing PR text the Manager owns.
 func designPRTitle(kind ArtifactKind) string {
-	return fmt.Sprintf("aiarch: Phase-2 design %s", kind)
+	return fmt.Sprintf("aiarch: Phase-2 design %s", ArtifactKindString(kind))
 }
 
 func designPRBody(kind ArtifactKind) string {
-	return fmt.Sprintf("Automated agentic design draft of %s (aiarch project-design).", kind)
+	return fmt.Sprintf("Automated agentic design draft of %s (aiarch project-design).", ArtifactKindString(kind))
 }
 
 // designArchApprovalBody is the +1 relay's review body — the architect's in-app
 // approval relayed onto the PR (the "architecture +1").
 func designArchApprovalBody(kind ArtifactKind) string {
-	return fmt.Sprintf("architecture +1 relayed for %s", kind)
+	return fmt.Sprintf("architecture +1 relayed for %s", ArtifactKindString(kind))
 }
 
 // mintCredOpts — the credential mint. A rejected/expired App identity is terminal.

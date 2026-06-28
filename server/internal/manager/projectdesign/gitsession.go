@@ -181,7 +181,7 @@ func (wf *Workflows) readProjectOnBranch(ctx workflow.Context, projectID Project
 	c := readProjectOpts(ctx)
 	var pe projectEnvelope
 	if err := workflow.ExecuteActivity(c, wf.ReadProjectOnBranchActivity, ReadProjectOnBranchArgs{
-		ProjectID: projectID, Branch: branch,
+		ProjectID: projectstate.ProjectID(projectID), Branch: branch,
 	}).Get(ctx, &pe); err != nil {
 		return projectstate.Project{}, err
 	}

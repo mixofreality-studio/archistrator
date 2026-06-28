@@ -5,7 +5,6 @@ import (
 	"net/http"
 
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/projectdesign"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
 // This file is the HTTP binding for the UC2 driveDesignPhase (Phase-2) facet. Each
@@ -77,12 +76,12 @@ func (c *Client) handleRequestProjectArtifactDraft(w http.ResponseWriter, r *htt
 	if req.Feedback != nil {
 		feedback = &projectdesign.ReviewFeedback{Notes: *req.Feedback}
 	}
-	ref, err := c.projectDesign.RequestArtifactDraft(r.Context(), projectdesign.ProjectID(projectID), kind, feedback)
+	ref, err := c.projectDesign.RequestArtifactDraft(projectCtx(r), projectdesign.ProjectID(projectID), kind, feedback)
 	if err != nil {
 		writeManagerError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusAccepted, sessionRefResponse{SessionRef: ref.String()})
+	writeJSON(w, http.StatusAccepted, sessionRefResponse{SessionRef: string(ref)})
 }
 
 // handleSubmitProjectReviewDecision — driveDesignPhase{Phase2 SubmitReviewDecision}.
@@ -114,7 +113,7 @@ func (c *Client) handleSubmitProjectReviewDecision(w http.ResponseWriter, r *htt
 	if req.Feedback != nil {
 		feedback = &projectdesign.ReviewFeedback{Notes: *req.Feedback}
 	}
-	if err := c.projectDesign.SubmitReviewDecision(r.Context(), projectdesign.ProjectID(projectID), kind, decision, feedback); err != nil {
+	if err := c.projectDesign.SubmitReviewDecision(projectCtx(r), projectdesign.ProjectID(projectID), kind, decision, feedback); err != nil {
 		writeManagerError(w, err)
 		return
 	}
@@ -132,12 +131,12 @@ func (c *Client) handleRequestSDPCommit(w http.ResponseWriter, r *http.Request) 
 	if !c.authorizeProject(w, r, "drive-phase", string(projectID)) {
 		return
 	}
-	ref, err := c.projectDesign.RequestSDPCommit(r.Context(), projectdesign.ProjectID(projectID))
+	ref, err := c.projectDesign.RequestSDPCommit(projectCtx(r), projectdesign.ProjectID(projectID))
 	if err != nil {
 		writeManagerError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusAccepted, sessionRefResponse{SessionRef: ref.String()})
+	writeJSON(w, http.StatusAccepted, sessionRefResponse{SessionRef: string(ref)})
 }
 
 // handleSubmitSDPDecision — driveDesignPhase{SubmitSDPDecision}. Routes to
@@ -170,7 +169,7 @@ func (c *Client) handleSubmitSDPDecision(w http.ResponseWriter, r *http.Request)
 	if req.Feedback != nil {
 		feedback = &projectdesign.ReviewFeedback{Notes: *req.Feedback}
 	}
-	if err := c.projectDesign.SubmitSDPDecision(r.Context(), projectdesign.ProjectID(projectID), decision, optionID, feedback); err != nil {
+	if err := c.projectDesign.SubmitSDPDecision(projectCtx(r), projectdesign.ProjectID(projectID), decision, optionID, feedback); err != nil {
 		writeManagerError(w, err)
 		return
 	}
@@ -189,7 +188,7 @@ func (c *Client) handleAdvanceToConstruction(w http.ResponseWriter, r *http.Requ
 	if !c.authorizeProject(w, r, "drive-phase", string(projectID)) {
 		return
 	}
-	result, err := c.projectDesign.AdvanceToConstruction(r.Context(), projectdesign.ProjectID(projectID))
+	result, err := c.projectDesign.AdvanceToConstruction(projectCtx(r), projectdesign.ProjectID(projectID))
 	if err != nil {
 		writeManagerError(w, err)
 		return
@@ -218,7 +217,7 @@ func (c *Client) handleGetProjectSessionState(w http.ResponseWriter, r *http.Req
 	if !c.authorizeProject(w, r, "drive-phase", string(projectID)) {
 		return
 	}
-	view, err := c.projectDesign.GetSessionState(r.Context(), projectdesign.ProjectID(projectID), kind)
+	view, err := c.projectDesign.GetSessionState(projectCtx(r), projectdesign.ProjectID(projectID), kind)
 	if err != nil {
 		writeManagerError(w, err)
 		return
@@ -237,15 +236,15 @@ func (c *Client) handleGetProjectSessionState(w http.ResponseWriter, r *http.Req
 // ArtifactKind. The nine Phase-2 kinds are accepted on this surface; an unknown or
 // non-Phase-2 name is a client error.
 var phase2KindByName = map[string]projectdesign.ArtifactKind{
-	"planningAssumptions":  projectstate.KindPlanningAssumptions,
-	"activityList":         projectstate.KindActivityList,
-	"network":              projectstate.KindNetwork,
-	"normalSolution":       projectstate.KindNormalSolution,
-	"decompressedSolution": projectstate.KindDecompressedSolution,
-	"subcriticalSolution":  projectstate.KindSubcriticalSolution,
-	"compressedSolution":   projectstate.KindCompressedSolution,
-	"riskModel":            projectstate.KindRiskModel,
-	"sdpReview":            projectstate.KindSdpReview,
+	"planningAssumptions":  projectdesign.KindPlanningAssumptions,
+	"activityList":         projectdesign.KindActivityList,
+	"network":              projectdesign.KindNetwork,
+	"normalSolution":       projectdesign.KindNormalSolution,
+	"decompressedSolution": projectdesign.KindDecompressedSolution,
+	"subcriticalSolution":  projectdesign.KindSubcriticalSolution,
+	"compressedSolution":   projectdesign.KindCompressedSolution,
+	"riskModel":            projectdesign.KindRiskModel,
+	"sdpReview":            projectdesign.KindSdpReview,
 }
 
 // projectDesignKindWireName is the inverse of phase2KindByName for response shaping.
@@ -265,7 +264,7 @@ func parseProjectDesignKind(s string, allowSDPReview bool) (projectdesign.Artifa
 	if !ok {
 		return 0, fmt.Errorf("artifactKind %q is not a recognized Phase-2 kind", s)
 	}
-	if !allowSDPReview && kind == projectstate.KindSdpReview {
+	if !allowSDPReview && kind == projectdesign.KindSdpReview {
 		return 0, fmt.Errorf("artifactKind %q is assembled via /sdp/assemble, not co-authored as a draft", s)
 	}
 	return kind, nil
@@ -276,7 +275,7 @@ func projectDesignKindName(kind projectdesign.ArtifactKind) string {
 	if name, ok := projectDesignKindWireName[kind]; ok {
 		return name
 	}
-	return kind.String()
+	return projectdesign.ArtifactKindString(kind)
 }
 
 // parseProjectReviewDecision maps the wire decision string to the typed Phase-2

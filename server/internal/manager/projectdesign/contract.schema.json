@@ -1,0 +1,415 @@
+{
+  "$id": "archistrator://contract/projectdesign",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "ArtifactKind": {
+      "type": "integer",
+      "enum": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ],
+      "x-enum-varnames": [
+        "KindMission",
+        "KindGlossary",
+        "KindScrubbedRequirements",
+        "KindVolatilities",
+        "KindCoreUseCases",
+        "KindSystem",
+        "KindOperationalConcepts",
+        "KindStandardCheck",
+        "KindPlanningAssumptions",
+        "KindActivityList",
+        "KindNetwork",
+        "KindNormalSolution",
+        "KindSubcriticalSolution",
+        "KindCompressedSolution",
+        "KindDecompressedSolution",
+        "KindRiskModel",
+        "KindSdpReview"
+      ],
+      "x-go-base": "int"
+    },
+    "DraftModel": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "model": {
+          "type": [
+            "null"
+          ],
+          "x-go-import": "encoding/json",
+          "x-go-type": "json.RawMessage"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "additionalProperties": false
+    },
+    "Finding": {
+      "type": "object",
+      "properties": {
+        "ruleId": {
+          "$ref": "#/$defs/RuleID",
+          "x-go-name": "RuleID"
+        },
+        "severity": {
+          "$ref": "#/$defs/Severity"
+        },
+        "message": {
+          "type": "string"
+        },
+        "location": {
+          "type": [
+            "null"
+          ],
+          "$ref": "#/$defs/Location"
+        }
+      },
+      "required": [
+        "ruleId",
+        "severity",
+        "message"
+      ],
+      "additionalProperties": false
+    },
+    "Location": {
+      "type": "object",
+      "properties": {
+        "ordinal": {
+          "type": "integer"
+        },
+        "section": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "ordinal",
+        "section"
+      ],
+      "additionalProperties": false
+    },
+    "OptionID": {
+      "type": "string"
+    },
+    "PhaseAdvanceResult": {
+      "type": "object",
+      "properties": {
+        "advanced": {
+          "type": "boolean"
+        },
+        "missingArtifacts": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "$ref": "#/$defs/ArtifactKind"
+          }
+        }
+      },
+      "required": [
+        "advanced",
+        "missingArtifacts"
+      ],
+      "additionalProperties": false
+    },
+    "ProjectID": {
+      "type": "string"
+    },
+    "ReviewDecision": {
+      "type": "integer",
+      "enum": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "x-enum-varnames": [
+        "ReviewDecisionUnknown",
+        "ReviewApprove",
+        "ReviewReject",
+        "ReviewWithdraw"
+      ],
+      "x-go-base": "int"
+    },
+    "ReviewFeedback": {
+      "type": "object",
+      "properties": {
+        "notes": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "notes"
+      ],
+      "additionalProperties": false
+    },
+    "RuleID": {
+      "type": "string"
+    },
+    "SDPDecision": {
+      "type": "integer",
+      "enum": [
+        0,
+        1,
+        2
+      ],
+      "x-enum-varnames": [
+        "SDPDecisionUnknown",
+        "SDPCommit",
+        "SDPRejectAll"
+      ],
+      "x-go-base": "int"
+    },
+    "SessionRef": {
+      "type": "string"
+    },
+    "SessionStage": {
+      "type": "integer",
+      "enum": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ],
+      "x-enum-varnames": [
+        "SessionStageUnknown",
+        "StageDrafting",
+        "StageAssemblingSDP",
+        "StageAwaitingReview",
+        "StageRedrafting",
+        "StageCommitted",
+        "StageWithdrawn",
+        "StageRefused",
+        "StageDraftFailed"
+      ],
+      "x-go-base": "int"
+    },
+    "SessionStateView": {
+      "type": "object",
+      "properties": {
+        "projectId": {
+          "$ref": "#/$defs/ProjectID",
+          "x-go-name": "ProjectID"
+        },
+        "artifactKind": {
+          "$ref": "#/$defs/ArtifactKind"
+        },
+        "stage": {
+          "$ref": "#/$defs/SessionStage"
+        },
+        "draft": {
+          "$ref": "#/$defs/DraftModel"
+        },
+        "findings": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "$ref": "#/$defs/Finding"
+          }
+        },
+        "failureReason": {
+          "type": [
+            "null",
+            "string"
+          ]
+        }
+      },
+      "required": [
+        "projectId",
+        "artifactKind",
+        "stage",
+        "draft"
+      ],
+      "additionalProperties": false
+    },
+    "Severity": {
+      "type": "string",
+      "enum": [
+        "info",
+        "warning",
+        "error"
+      ],
+      "x-enum-varnames": [
+        "SeverityInfo",
+        "SeverityWarning",
+        "SeverityError"
+      ],
+      "x-go-base": "string"
+    }
+  },
+  "title": "projectdesign contract",
+  "interface": {
+    "name": "ProjectDesignManager",
+    "layer": "manager",
+    "operations": [
+      {
+        "name": "AdvanceToConstruction",
+        "params": [
+          {
+            "name": "projectID",
+            "schema": {
+              "$ref": "#/$defs/ProjectID"
+            }
+          }
+        ],
+        "result": {
+          "$ref": "#/$defs/PhaseAdvanceResult"
+        },
+        "error": true
+      },
+      {
+        "name": "GetSessionState",
+        "params": [
+          {
+            "name": "projectID",
+            "schema": {
+              "$ref": "#/$defs/ProjectID"
+            }
+          },
+          {
+            "name": "kind",
+            "schema": {
+              "$ref": "#/$defs/ArtifactKind"
+            }
+          }
+        ],
+        "result": {
+          "$ref": "#/$defs/SessionStateView"
+        },
+        "error": true
+      },
+      {
+        "name": "RequestArtifactDraft",
+        "params": [
+          {
+            "name": "projectID",
+            "schema": {
+              "$ref": "#/$defs/ProjectID"
+            }
+          },
+          {
+            "name": "kind",
+            "schema": {
+              "$ref": "#/$defs/ArtifactKind"
+            }
+          },
+          {
+            "name": "feedback",
+            "pointer": true,
+            "schema": {
+              "$ref": "#/$defs/ReviewFeedback"
+            }
+          }
+        ],
+        "result": {
+          "$ref": "#/$defs/SessionRef"
+        },
+        "error": true
+      },
+      {
+        "name": "RequestSDPCommit",
+        "params": [
+          {
+            "name": "projectID",
+            "schema": {
+              "$ref": "#/$defs/ProjectID"
+            }
+          }
+        ],
+        "result": {
+          "$ref": "#/$defs/SessionRef"
+        },
+        "error": true
+      },
+      {
+        "name": "SubmitReviewDecision",
+        "params": [
+          {
+            "name": "projectID",
+            "schema": {
+              "$ref": "#/$defs/ProjectID"
+            }
+          },
+          {
+            "name": "kind",
+            "schema": {
+              "$ref": "#/$defs/ArtifactKind"
+            }
+          },
+          {
+            "name": "decision",
+            "schema": {
+              "$ref": "#/$defs/ReviewDecision"
+            }
+          },
+          {
+            "name": "feedback",
+            "pointer": true,
+            "schema": {
+              "$ref": "#/$defs/ReviewFeedback"
+            }
+          }
+        ],
+        "error": true
+      },
+      {
+        "name": "SubmitSDPDecision",
+        "params": [
+          {
+            "name": "projectID",
+            "schema": {
+              "$ref": "#/$defs/ProjectID"
+            }
+          },
+          {
+            "name": "decision",
+            "schema": {
+              "$ref": "#/$defs/SDPDecision"
+            }
+          },
+          {
+            "name": "optionID",
+            "pointer": true,
+            "schema": {
+              "$ref": "#/$defs/OptionID"
+            }
+          },
+          {
+            "name": "feedback",
+            "pointer": true,
+            "schema": {
+              "$ref": "#/$defs/ReviewFeedback"
+            }
+          }
+        ],
+        "error": true
+      }
+    ]
+  }
+}
