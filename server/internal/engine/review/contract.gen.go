@@ -28,3 +28,13 @@ type Reviewer struct {
 type ReviewEngine interface {
 	ProposeReviews(rc fweng.Context, change ReviewChange, componentID string, artifactKind string, architectureGraph string, contracts []string) (ReviewSet, error)
 }
+
+// ReviewEngineImpl is the generated concrete ReviewEngine. Engines are pure (no
+// dependencies), so the impl carries no fields and the constructor takes none.
+// The interface methods are hand-written on this struct.
+type ReviewEngineImpl struct{}
+
+// NewReviewEngine returns the production ReviewEngine.
+func NewReviewEngine() ReviewEngine { return ReviewEngineImpl{} }
+
+var _ ReviewEngine = ReviewEngineImpl{}

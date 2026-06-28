@@ -273,26 +273,32 @@ func run(logger *slog.Logger) error { //nolint:gocognit,gocyclo,maintidx,nestif 
 	// StoreConstructionOutput/RetrieveConstructionOutput route through it. Nil when
 	// unconfigured (the construction slice then stages no outputs — acceptable for the
 	// empty-session runtime state).
-	var artifacts *artifact.Store
+	// Constructed via the GENERATED DI constructor artifact.NewGitArtifactAccess
+	// (from the contract's infra:["Git"] binding). The composition root supplies the
+	// satellite *GitBlobStore + the profile-specific auth resolver (artifact_auth.go):
+	// LOCAL needs no credential; CLOUD mints the installation token internally.
+	var artifacts artifact.ArtifactAccess
 	if cfg.ArtifactRepoURL != "" { //nolint:nestif
 		if cfg.ArtifactRepoLocal {
-			artifacts, err = artifact.NewLocalStore(cfg.ArtifactRepoURL)
-			if err != nil {
-				return err
+			blob, blobErr := githubinfra.NewGitBlobStore(cfg.ArtifactRepoURL)
+			if blobErr != nil {
+				return blobErr
 			}
+			artifacts = artifact.NewGitArtifactAccess(blob, localGitAuth())
 			logger.Info("artifactAccess (local git) ready", "repoURL", cfg.ArtifactRepoURL)
 		} else {
-			artifacts, err = artifact.NewCloudStore(artifact.CloudConfig{
-				RepoURL:        cfg.ArtifactRepoURL,
-				Owner:          cfg.ArtifactRepoOwner,
-				AppID:          cfg.GitHubAppID,
-				PrivateKeyPEM:  cfg.GitHubAppPrivateKeyPEM,
-				APIBaseURL:     cfg.GitHubAPIBaseURL,
-				InstallationID: cfg.GitHubInstallationID,
-			})
-			if err != nil {
-				return err
+			blob, authResolver, csErr := newCloudArtifactStore(
+				cfg.ArtifactRepoURL,
+				cfg.ArtifactRepoOwner,
+				cfg.GitHubAppID,
+				cfg.GitHubAppPrivateKeyPEM,
+				cfg.GitHubAPIBaseURL,
+				cfg.GitHubInstallationID,
+			)
+			if csErr != nil {
+				return csErr
 			}
+			artifacts = artifact.NewGitArtifactAccess(blob, authResolver)
 			logger.Info("artifactAccess (github) ready", "repoURL", cfg.ArtifactRepoURL)
 		}
 	}
@@ -383,7 +389,7 @@ func run(logger *slog.Logger) error { //nolint:gocognit,gocyclo,maintidx,nestif 
 	// deterministic Go realisation (see internal/engine/review).
 	handOffEngine := handoff.New()
 	interventionEngine := intervention.New()
-	reviewEngine := review.New()
+	reviewEngine := review.NewReviewEngine()
 
 	// Phase-2 estimate Engines — pure, deterministic, Temporal-free. The
 	// projectDesignManager calls them by value in its SDP-assembly workflow

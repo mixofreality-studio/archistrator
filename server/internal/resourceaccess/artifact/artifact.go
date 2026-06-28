@@ -18,10 +18,6 @@
 // Derived faithfully from the frozen artifactAccess.md contract (Phase-3 CAS).
 package artifact
 
-import (
-	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
-)
-
 // The ArtifactAccess port interface and its I/O value types (ConstructionOutput,
 // OutputTree, and the named scalar OutputPath) are now GENERATED from
 // contract.schema.json into contract.gen.go (schema-first; edit the schema and run
@@ -40,10 +36,9 @@ import (
 //     surfaces as fwra.NotFound. Byte-identical across retries.
 //   - RetrieveOutputTree returns the flat path->content-address snapshot at a
 //     tree-root address; an unknown address surfaces as fwra.NotFound.
-
-// Error is the shared ResourceAccess error model (framework-go), re-exported as
-// an alias so this component's contract reads in its own terms while every RA
-// component shares one fixed enum. Construct with fwra.New / fwra.Wrap using the
-// shared kinds (fwra.NotFound, fwra.Conflict, fwra.Auth, fwra.Transient,
-// fwra.Infrastructure, fwra.ContractMisuse).
-type Error = fwra.Error
+//
+// The shared ResourceAccess error model is framework-go's fwra.Error, constructed
+// with fwra.New / fwra.Wrap using the shared kinds (fwra.NotFound, fwra.Conflict,
+// fwra.Auth, fwra.Transient, fwra.Infrastructure, fwra.ContractMisuse). It is used
+// directly (no package-local alias) so this package exports ONLY its generated
+// contract surface.

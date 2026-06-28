@@ -4,6 +4,8 @@
 package artifact
 
 import (
+	"context"
+	fwgithub "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
@@ -25,3 +27,19 @@ type ArtifactAccess interface {
 	RetrieveOutputTree(rc fwra.Context, contentAddress string) (OutputTree, error)
 	StoreConstructionOutput(rc fwra.Context, content ConstructionOutput) (string, error)
 }
+
+// GitArtifactAccess is the generated Git-backed implementation of ArtifactAccess. Its fields
+// are the framework infrastructure client(s) the resource access is built on;
+// the interface methods are hand-written on this struct.
+type GitArtifactAccess struct {
+	git  *fwgithub.GitBlobStore
+	auth func(ctx context.Context) (fwgithub.GitAuth, error)
+}
+
+// NewGitArtifactAccess constructs a Git-backed ArtifactAccess over the supplied framework
+// infrastructure client(s).
+func NewGitArtifactAccess(git *fwgithub.GitBlobStore, auth func(ctx context.Context) (fwgithub.GitAuth, error)) ArtifactAccess {
+	return &GitArtifactAccess{git: git, auth: auth}
+}
+
+var _ ArtifactAccess = (*GitArtifactAccess)(nil)

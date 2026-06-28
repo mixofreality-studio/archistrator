@@ -57,49 +57,49 @@ import (
 // the-method-review-routing). Stable strings the Manager carries onto each worker
 // dispatch; their IDENTITIES, not any numeric value, are load-bearing.
 const (
-	// PerspectiveArchitecture — review against the committed architecture.dsl
+	// perspectiveArchitecture — review against the committed architecture.dsl
 	// (decomposition, call chains, layer rules).
-	PerspectiveArchitecture = "architecture"
-	// PerspectiveDetailedDesign — review against the component's D### detailed-design
+	perspectiveArchitecture = "architecture"
+	// perspectiveDetailedDesign — review against the component's D### detailed-design
 	// / service-contract.
-	PerspectiveDetailedDesign = "detailedDesign"
-	// PerspectiveUIDesign — review against the committed UI-design concept.
-	PerspectiveUIDesign = "uiDesign"
+	perspectiveDetailedDesign = "detailedDesign"
+	// perspectiveUIDesign — review against the committed UI-design concept.
+	perspectiveUIDesign = "uiDesign"
 )
 
 // Role names a reviewer role. Stable strings; the Manager maps a Role onto a
 // worker-class logical name for the dispatch (it is the reviewer's logical class).
 const (
-	// RoleArchitect — the architect User / architect-class reviewer.
-	RoleArchitect = "architect"
-	// RoleSeniorReviewer — a human-senior (or senior-class agent) reviewer.
-	RoleSeniorReviewer = "seniorReviewer"
-	// RoleUIDesigner — a UI-design reviewer.
-	RoleUIDesigner = "uiDesigner"
+	// roleArchitect — the architect User / architect-class reviewer.
+	roleArchitect = "architect"
+	// roleSeniorReviewer — a human-senior (or senior-class agent) reviewer.
+	roleSeniorReviewer = "seniorReviewer"
+	// roleUIDesigner — a UI-design reviewer.
+	roleUIDesigner = "uiDesigner"
 )
 
-// ArtifactKind classifies the produced change under review (mirrors the
+// reviewKind classifies the produced change under review (mirrors the
 // constructionManager's notion of the activity kind / artifact kind it passes as
 // the artifactKind string). The numeric ordering is Engine-internal and not a wire
 // contract.
-type ArtifactKind int
+type reviewKind int
 
 const (
-	// ArtifactKindUnknown — unset (a ContractMisuse on input: the Manager must pass
+	// kindUnknown — unset (a ContractMisuse on input: the Manager must pass
 	// a recognised artifactKind string).
-	ArtifactKindUnknown ArtifactKind = iota
-	// ArtifactKindDetailedDesign — a component's contract-design (service contract).
-	ArtifactKindDetailedDesign
-	// ArtifactKindConstruction — a component's construction code.
-	ArtifactKindConstruction
-	// ArtifactKindIntegration — an integration activity's output.
-	ArtifactKindIntegration
-	// ArtifactKindNoncoding — a non-coding work-product.
-	ArtifactKindNoncoding
-	// ArtifactKindUIDesign — a UI-design concept.
-	ArtifactKindUIDesign
-	// ArtifactKindUICode — UI code.
-	ArtifactKindUICode
+	kindUnknown reviewKind = iota
+	// kindDetailedDesign — a component's contract-design (service contract).
+	kindDetailedDesign
+	// kindConstruction — a component's construction code.
+	kindConstruction
+	// kindIntegration — an integration activity's output.
+	kindIntegration
+	// kindNoncoding — a non-coding work-product.
+	kindNoncoding
+	// kindUIDesign — a UI-design concept.
+	kindUIDesign
+	// kindUICode — UI code.
+	kindUICode
 )
 
 // artifactKindByName maps the artifactKind string the Manager passes (the
@@ -107,13 +107,13 @@ const (
 // names mirror constructionManager's ActivityKind.String() ("DetailedDesign",
 // "Construction", "Integration", "Noncoding") so the Manager's call is mechanical,
 // plus "UIDesign"/"UICode" for the client-facet review-routing cases.
-var artifactKindByName = map[string]ArtifactKind{
-	"DetailedDesign": ArtifactKindDetailedDesign,
-	"Construction":   ArtifactKindConstruction,
-	"Integration":    ArtifactKindIntegration,
-	"Noncoding":      ArtifactKindNoncoding,
-	"UIDesign":       ArtifactKindUIDesign,
-	"UICode":         ArtifactKindUICode,
+var artifactKindByName = map[string]reviewKind{
+	"DetailedDesign": kindDetailedDesign,
+	"Construction":   kindConstruction,
+	"Integration":    kindIntegration,
+	"Noncoding":      kindNoncoding,
+	"UIDesign":       kindUIDesign,
+	"UICode":         kindUICode,
 }
 
 // GENERATED CONTRACT SURFACE — the I/O models (ReviewChange, Reviewer, ReviewSet)
@@ -134,19 +134,14 @@ var artifactKindByName = map[string]ArtifactKind{
 //     bug). architectureGraph + contracts are accepted by value for forward-compatible
 //     policy refinement; the v1 policy keys on artifactKind alone and ignores them.
 
-// engine is the concrete, stateless ReviewEngine. No fields => no mutable state =>
-// trivially deterministic and reentrant.
-type engine struct{}
-
-// New returns the production ReviewEngine.
-func New() ReviewEngine { return engine{} }
-
-// Compile-time assertion that engine satisfies the port.
-var _ ReviewEngine = engine{}
+// The concrete ReviewEngine — the empty, stateless ReviewEngineImpl — and its
+// constructor NewReviewEngine() are GENERATED into contract.gen.go (an engine is
+// pure: no fields => no mutable state => trivially deterministic and reentrant).
+// The behaviour below is hand-written on the generated struct.
 
 // ProposeReviews implements ReviewEngine. It validates the input, classifies the
 // artifactKind, and computes the policy's reviewer set for that kind.
-func (engine) ProposeReviews(
+func (ReviewEngineImpl) ProposeReviews(
 	_ fweng.Context, // pure engine: carries identity/cancellation, ignored by v1 policy
 	change ReviewChange,
 	componentID string,
@@ -165,7 +160,7 @@ func (engine) ProposeReviews(
 	}
 
 	kind, ok := artifactKindByName[artifactKind]
-	if !ok || kind == ArtifactKindUnknown {
+	if !ok || kind == kindUnknown {
 		return ReviewSet{}, fweng.New(fweng.ContractMisuse,
 			"ProposeReviews: unrecognised artifactKind "+quote(artifactKind))
 	}
@@ -184,54 +179,54 @@ func (engine) ProposeReviews(
 // reviewersFor is the package-internal ReviewPolicy: the deterministic
 // artifactKind → reviewer-set mapping (the-method-review-routing). Swappable per
 // policy without touching the ProposeReviews surface.
-func reviewersFor(kind ArtifactKind) []Reviewer {
+func reviewersFor(kind reviewKind) []Reviewer {
 	switch kind {
-	case ArtifactKindDetailedDesign:
+	case kindDetailedDesign:
 		// The architect reviews the service-contract against the architecture; the
 		// architect+constructor may re-stage an amended contract by agreement.
 		return []Reviewer{{
-			Role:              RoleArchitect,
-			Perspective:       PerspectiveArchitecture,
+			Role:              roleArchitect,
+			Perspective:       perspectiveArchitecture,
 			ReferenceArtifact: "architecture",
 			MayAmend:          true,
 		}}
-	case ArtifactKindConstruction:
+	case kindConstruction:
 		// A senior reviews the code against the committed detailed-design.
 		return []Reviewer{{
-			Role:              RoleSeniorReviewer,
-			Perspective:       PerspectiveDetailedDesign,
+			Role:              roleSeniorReviewer,
+			Perspective:       perspectiveDetailedDesign,
 			ReferenceArtifact: "detailedDesign",
 			MayAmend:          false,
 		}}
-	case ArtifactKindIntegration:
+	case kindIntegration:
 		// A senior reviews integration against the architecture call-chains.
 		return []Reviewer{{
-			Role:              RoleSeniorReviewer,
-			Perspective:       PerspectiveArchitecture,
+			Role:              roleSeniorReviewer,
+			Perspective:       perspectiveArchitecture,
 			ReferenceArtifact: "architecture",
 			MayAmend:          false,
 		}}
-	case ArtifactKindNoncoding:
+	case kindNoncoding:
 		// A single architect sign-off.
 		return []Reviewer{{
-			Role:              RoleArchitect,
-			Perspective:       PerspectiveArchitecture,
+			Role:              roleArchitect,
+			Perspective:       perspectiveArchitecture,
 			ReferenceArtifact: "architecture",
 			MayAmend:          false,
 		}}
-	case ArtifactKindUIDesign:
+	case kindUIDesign:
 		// A UI designer reviews the concept; designer+constructor may re-stage.
 		return []Reviewer{{
-			Role:              RoleUIDesigner,
-			Perspective:       PerspectiveUIDesign,
+			Role:              roleUIDesigner,
+			Perspective:       perspectiveUIDesign,
 			ReferenceArtifact: "uiDesign",
 			MayAmend:          true,
 		}}
-	case ArtifactKindUICode:
+	case kindUICode:
 		// A senior reviews the UI code against the committed UI-design.
 		return []Reviewer{{
-			Role:              RoleSeniorReviewer,
-			Perspective:       PerspectiveUIDesign,
+			Role:              roleSeniorReviewer,
+			Perspective:       perspectiveUIDesign,
 			ReferenceArtifact: "uiDesign",
 			MayAmend:          false,
 		}}

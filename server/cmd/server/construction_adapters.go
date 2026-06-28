@@ -630,7 +630,7 @@ func managerPipelinePhase(p constructionpipeline.PipelinePhase) construction.Pip
 // unchanged; only this composition-root adapter knows the rc-shaped port.
 // ===========================================================================
 
-type artifactAdapter struct{ inner *artifact.Store }
+type artifactAdapter struct{ inner artifact.ArtifactAccess }
 
 var _ construction.ArtifactAccess = artifactAdapter{}
 

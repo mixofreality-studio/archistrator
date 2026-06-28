@@ -8667,6 +8667,9 @@
       "component": "artifactAccess",
       "layer": "ResourceAccess",
       "goPackage": "internal/resourceaccess/artifact",
+      "infra": [
+        "Git"
+      ],
       "title": "artifact contract",
       "$defs": {
         "ConstructionOutput": {

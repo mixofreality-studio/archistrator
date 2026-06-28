@@ -9,11 +9,13 @@ package artifact
 // gitstore_test.go; the CLOUD profile runs against a fake AppClient to prove the
 // internal-token-mint auth path threads a non-local GitAuth.
 //
-// This file lives IN-PACKAGE (package artifact) so it can build a Store over the
-// satellite *GitBlobStore via the internal newStore + a test auth source, and so
-// the cloud-token path can be exercised with a fake appClient. It still drives the
-// public surface (StoreConstructionOutput / RetrieveConstructionOutput /
-// RetrieveOutputTree) exactly as an external caller would.
+// This file lives IN-PACKAGE (package artifact) so it can build a GitArtifactAccess
+// over the satellite *GitBlobStore via the GENERATED NewGitArtifactAccess
+// constructor + a test auth resolver. It drives the public surface
+// (StoreConstructionOutput / RetrieveConstructionOutput / RetrieveOutputTree)
+// exactly as an external caller would. The cloud-profile token-mint path now lives
+// in the composition root (cmd/server/artifact_auth.go) — it is no longer part of
+// this package's surface, so it is exercised there, not here.
 //
 // Coverage (mirrors the retired gitea_test.go so nothing regresses):
 //  1. store -> non-empty content-address string; retrieve round-trips bytes+MIME.
@@ -24,20 +26,25 @@ package artifact
 //     unknown root -> fwra.NotFound.
 //  4. error-kind mapping: unknown address -> fwra.NotFound; malformed/empty ->
 //     fwra.ContractMisuse (before any git IO); empty content/key -> ContractMisuse.
-//  5. BOTH profiles: local path against the real repo; cloud token path against a
-//     fake AppClient (asserts a non-local GitAuth is threaded).
+//  5. the auth resolver is threaded into the satellite (a resolver that errors
+//     surfaces its error before any git IO completes).
 
 import (
 	"context"
 	"errors"
 	"strings"
 	"testing"
-	"time"
 
 	fwgithub "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github"
 	gh "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github/testinfra"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
+
+// localTestAuth is the LOCAL-profile auth resolver for the tests: a file:// remote
+// needs no HTTP credential.
+func localTestAuth(context.Context) (fwgithub.GitAuth, error) {
+	return fwgithub.GitAuth{Local: true}, nil
+}
 
 // rcWith builds the ResourceAccess call Context the port now takes from a plain
 // ctx + idempotency key (the cross-cutting params the hand-written surface passed
@@ -49,25 +56,25 @@ func rcWith(ctx context.Context, key fwra.IdempotencyKey) fwra.Context {
 // newLocalTestStore builds a Store over a REAL throwaway on-disk git repo using
 // the LOCAL profile (GitAuth.Local). This is the genuine git store the testing
 // doctrine mandates (skips if git is not on PATH).
-func newLocalTestStore(t *testing.T) (*Store, context.Context) {
+func newLocalTestStore(t *testing.T) (ArtifactAccess, context.Context) {
 	t.Helper()
 	repo := gh.StartLocalGitRepo(t, "main")
-	store, err := NewLocalStore(repo.URL)
+	blob, err := fwgithub.NewGitBlobStore(repo.URL)
 	if err != nil {
-		t.Fatalf("NewLocalStore: %v", err)
+		t.Fatalf("NewGitBlobStore: %v", err)
 	}
-	return store, context.Background()
+	return NewGitArtifactAccess(blob, localTestAuth), context.Background()
 }
 
-// newDummyStore builds a Store without any repo. Used only for the pre-condition
-// guards, which short-circuit BEFORE any git IO / auth.
-func newDummyStore(t *testing.T) (*Store, context.Context) {
+// newDummyStore builds a GitArtifactAccess without a usable repo. Used only for the
+// pre-condition guards, which short-circuit BEFORE any git IO / auth.
+func newDummyStore(t *testing.T) (ArtifactAccess, context.Context) {
 	t.Helper()
-	store, err := NewLocalStore("file:///nonexistent/repo.git")
+	blob, err := fwgithub.NewGitBlobStore("file:///nonexistent/repo.git")
 	if err != nil {
-		t.Fatalf("NewLocalStore (dummy): %v", err)
+		t.Fatalf("NewGitBlobStore (dummy): %v", err)
 	}
-	return store, context.Background()
+	return NewGitArtifactAccess(blob, localTestAuth), context.Background()
 }
 
 func assertKind(t *testing.T, err error, want fwra.Kind) {
@@ -316,77 +323,26 @@ func TestRetrieveOutputTreeUnknown(t *testing.T) {
 	assertKind(t, err, fwra.NotFound)
 }
 
-// --- CLOUD profile: internal-token-mint auth path ---------------------------
+// --- auth resolver seam -----------------------------------------------------
 
-// fakeAppClient is a stub satellite AppClient that records the minted token and
-// hands back a fixed one, so the cloud auth source can be exercised without any
-// network IO.
-type fakeAppClient struct {
-	installID int64
-	token     string
-	mintCalls int
-	findCalls int
-}
-
-func (f *fakeAppClient) FindInstallation(_ context.Context, _ string) (int64, error) {
-	f.findCalls++
-	return f.installID, nil
-}
-
-func (f *fakeAppClient) MintInstallationToken(_ context.Context, _ int64) (string, time.Time, error) {
-	f.mintCalls++
-	return f.token, time.Now().Add(time.Hour), nil
-}
-
-// capturingBlob records the GitAuth threaded into each call, so the cloud test can
-// assert a non-local token credential reaches the satellite.
-type capturingBlob struct {
-	lastAuth fwgithub.GitAuth
-}
-
-func (c *capturingBlob) StoreOutput(_ context.Context, _ string, _ []fwgithub.GitObjectFile, _ string, auth fwgithub.GitAuth) (string, error) {
-	c.lastAuth = auth
-	return "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef", nil
-}
-
-func (c *capturingBlob) ReadFileAtCommit(_ context.Context, _, _ string, auth fwgithub.GitAuth) ([]byte, error) {
-	c.lastAuth = auth
-	return nil, fwra.New(fwra.NotFound, "not found")
-}
-
-func (c *capturingBlob) ProbeFileAtBranchTip(_ context.Context, _, _ string, auth fwgithub.GitAuth) ([]byte, string, bool, error) {
-	c.lastAuth = auth
-	return nil, "", false, nil
-}
-
-func (c *capturingBlob) WalkTreeFiles(_ context.Context, _ string, auth fwgithub.GitAuth) ([]string, error) {
-	c.lastAuth = auth
-	return nil, nil
-}
-
-// TestCloudProfile_InternalTokenMint — the CLOUD profile mints the installation
-// token INTERNALLY (no credential on the surface, no sibling-RA call) and threads a
-// NON-local GitAuth.Token into the satellite. Same surface, different auth source.
-func TestCloudProfile_InternalTokenMint(t *testing.T) {
-	app := &fakeAppClient{installID: 42, token: "ghs-fake-installation-token"}
-	blob := &capturingBlob{}
-	store := newStore(blob, &cloudAuth{app: app, owner: "acme"})
-
-	addr, err := store.StoreConstructionOutput(rcWith(context.Background(), "wf:c"),
-		ConstructionOutput{Bytes: []byte("cloud bytes"), MIMEType: "text/plain"})
+// TestAuthResolverError — the per-call auth resolver supplied at construction is
+// threaded into every verb; a resolver that fails surfaces its error and no git IO
+// completes. This is the seam the composition root's profile resolvers
+// (local / cloud token-mint) plug into.
+func TestAuthResolverError(t *testing.T) {
+	repo := gh.StartLocalGitRepo(t, "main")
+	blob, err := fwgithub.NewGitBlobStore(repo.URL)
 	if err != nil {
-		t.Fatalf("StoreConstructionOutput (cloud): %v", err)
+		t.Fatalf("NewGitBlobStore: %v", err)
 	}
-	if addr == "" {
-		t.Fatal("expected non-empty cloud address")
+	wantErr := fwra.New(fwra.Auth, "auth resolver boom")
+	failingAuth := func(context.Context) (fwgithub.GitAuth, error) { return fwgithub.GitAuth{}, wantErr }
+	store := NewGitArtifactAccess(blob, failingAuth)
+
+	_, err = store.StoreConstructionOutput(rcWith(context.Background(), "wf:auth"),
+		ConstructionOutput{Bytes: []byte("bytes"), MIMEType: "text/plain"})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("StoreConstructionOutput: expected the auth resolver error, got %v", err)
 	}
-	if blob.lastAuth.Local {
-		t.Fatal("cloud profile threaded a LOCAL GitAuth; expected a token credential")
-	}
-	if blob.lastAuth.Token != app.token {
-		t.Fatalf("cloud GitAuth.Token = %q, want minted token %q", blob.lastAuth.Token, app.token)
-	}
-	if app.mintCalls == 0 {
-		t.Fatal("expected the installation token to be minted internally")
-	}
+	assertKind(t, err, fwra.Auth)
 }

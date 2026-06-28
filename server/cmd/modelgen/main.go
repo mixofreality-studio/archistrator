@@ -79,9 +79,15 @@ func main() {
 	for _, k := range keys {
 		entry := contracts[k]
 		// goPackage selects built entries (stubs have none) AND gives the output
-		// dir + package name. Empty ⇒ skip.
+		// dir + package name. Empty ⇒ skip. component + infra drive the GENERATED
+		// IMPL surface (the <Infra><Component> struct + DI constructor): an RA with
+		// a non-empty `infra` list gets one impl per infra; an engine on the
+		// engineImplAllowlist gets its pure impl (engines carry no infra). See
+		// genOne / emitRAImpl / emitEngineImpl.
 		var meta struct {
-			GoPackage string `json:"goPackage"`
+			GoPackage string   `json:"goPackage"`
+			Component string   `json:"component"`
+			Infra     []string `json:"infra"`
 		}
 		if err := json.Unmarshal(entry, &meta); err != nil {
 			fatal("parse contract %q: %v", k, err)
@@ -89,7 +95,7 @@ func main() {
 		if meta.GoPackage == "" {
 			continue
 		}
-		if err := genOne(entry, meta.GoPackage); err != nil {
+		if err := genOne(entry, meta.GoPackage, meta.Component, meta.Infra); err != nil {
 			fatal("modelgen %s: %v", k, err)
 		}
 		wrote++
@@ -105,7 +111,7 @@ func main() {
 // same `$defs` + `interface`), so it feeds the UNCHANGED emission path directly:
 // the extra metadata keys land in Schema.Extra and are ignored, while $defs and
 // interface are read exactly as before — keeping the output byte-identical.
-func genOne(raw []byte, goPackage string) error {
+func genOne(raw []byte, goPackage, component string, infra []string) error {
 	dir := goPackage
 	pkg := filepath.Base(goPackage)
 
@@ -153,16 +159,41 @@ func genOne(raw []byte, goPackage string) error {
 	// Interface (the RPC surface) lives under the document's `interface` key,
 	// carried via jsonschema-go's Extra map. Re-decode it into the typed
 	// descriptor and emit the Go interface.
+	var iface codegen.Interface
+	var haveIface bool
 	if ix, ok := doc.Extra["interface"]; ok {
 		ib, err := json.Marshal(ix)
 		if err != nil {
 			return fmt.Errorf("re-marshal interface: %w", err)
 		}
-		var iface codegen.Interface
 		if err := json.Unmarshal(ib, &iface); err != nil {
 			return fmt.Errorf("decode interface: %w", err)
 		}
 		emitInterface(&buf, iface)
+		haveIface = true
+	}
+
+	// GENERATED IMPL SURFACE — the concrete impl struct + public DI constructor
+	// that make the generated contract the ONLY public surface of the component's
+	// package. Emitted for the contracts that have been re-homed onto the generated
+	// struct: an RA with a non-empty `infra` list (one <Infra><Component> struct +
+	// New<Infra><Component>(client) constructor per infra), and an engine on the
+	// engineImplAllowlist (a pure <Component>Impl + New<Component>()). The hand-
+	// written interface methods hang off the generated struct; modelgen emits only
+	// the struct + constructor + a compile-time interface assertion.
+	if haveIface {
+		switch iface.Layer {
+		case "resourceaccess":
+			if len(infra) > 0 {
+				if err := emitRAImpl(&buf, iface, infra); err != nil {
+					return fmt.Errorf("emit RA impl: %w", err)
+				}
+			}
+		case "engine":
+			if engineImplAllowlist[component] {
+				emitEngineImpl(&buf, iface)
+			}
+		}
 	}
 
 	// Assemble: header + package + (imports collected during body emission) + body.
@@ -248,6 +279,115 @@ func returnClause(op codegen.Operation) string {
 	default:
 		return ""
 	}
+}
+
+// engineImplAllowlist gates which Engine contracts gain a generated impl struct +
+// constructor. Engines carry no `infra` field, so an explicit allowlist scopes the
+// impl emission while the mechanism is being PROVEN on a single engine (reviewEngine).
+// Extend this (or replace it with a per-contract opt-in) when sweeping the rest.
+var engineImplAllowlist = map[string]bool{
+	"reviewEngine": true,
+}
+
+// infraField is one constructor parameter / struct field an infra binding
+// contributes to the generated <Infra><Component> struct + constructor: the field
+// name, its Go type, and the imports that type needs (path -> alias, "" = none).
+type infraField struct {
+	name    string
+	typ     string
+	imports map[string]string
+}
+
+// infraBindings maps an APPROVED framework infra name to the field(s) its client
+// — plus any per-call dependency the satellite's API forces — contributes to the
+// generated <Infra><Component> struct + constructor. The client Go types are the
+// REAL framework-go-infrastructure-<infra> types the current hand-written impls are
+// built on. An infra absent from this map is rejected (only approved framework
+// infra may appear on a generated impl).
+//
+// Git: the artifact RA is built on framework-go-infrastructure-github's
+// *GitBlobStore (gitstore.go's NewLocalStore/NewCloudStore both wrap
+// fwgithub.NewGitBlobStore). That satellite's blob ops take a per-call
+// fwgithub.GitAuth, resolved differently per deployment profile (LOCAL =>
+// GitAuth{Local:true}; CLOUD => an internally-minted installation token), so the
+// Git binding contributes a SECOND field — an auth resolver func — alongside the
+// bare blob client. The composition root supplies both (the profile-specific auth
+// resolver lives there); this is the documented deviation from a pure
+// (module, client-type) mapping, forced by the satellite's per-call-auth surface.
+var infraBindings = map[string][]infraField{
+	"Git": {
+		{
+			name:    "git",
+			typ:     "*fwgithub.GitBlobStore",
+			imports: map[string]string{"github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github": "fwgithub"},
+		},
+		{
+			name: "auth",
+			typ:  "func(ctx context.Context) (fwgithub.GitAuth, error)",
+			imports: map[string]string{
+				"context": "",
+				"github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github": "fwgithub",
+			},
+		},
+	},
+}
+
+// emitRAImpl writes, for each infra the ResourceAccess uses, a concrete
+// <Infra><Component> struct holding that infra's framework client field(s) + a
+// public DI constructor New<Infra><Component>(client...) returning the generated
+// interface, plus a compile-time assertion. The interface methods are hand-written
+// on the returned struct (re-homed from the prior hand-written impl).
+func emitRAImpl(buf *bytes.Buffer, iface codegen.Interface, infra []string) error {
+	for _, name := range infra {
+		fields, ok := infraBindings[name]
+		if !ok {
+			return fmt.Errorf("unapproved/unknown infra %q (no framework binding)", name)
+		}
+		struct_ := name + iface.Name
+		for _, f := range fields {
+			for path, alias := range f.imports {
+				pendingImports[path] = alias
+			}
+		}
+		fmt.Fprintf(buf, "// %s is the generated %s-backed implementation of %s. Its fields\n", struct_, name, iface.Name)
+		fmt.Fprintf(buf, "// are the framework infrastructure client(s) the resource access is built on;\n")
+		fmt.Fprintf(buf, "// the interface methods are hand-written on this struct.\n")
+		fmt.Fprintf(buf, "type %s struct {\n", struct_)
+		for _, f := range fields {
+			fmt.Fprintf(buf, "\t%s %s\n", f.name, f.typ)
+		}
+		buf.WriteString("}\n\n")
+
+		params := make([]string, 0, len(fields))
+		inits := make([]string, 0, len(fields))
+		for _, f := range fields {
+			params = append(params, f.name+" "+f.typ)
+			inits = append(inits, f.name+": "+f.name)
+		}
+		fmt.Fprintf(buf, "// New%s constructs a %s-backed %s over the supplied framework\n", struct_, name, iface.Name)
+		fmt.Fprintf(buf, "// infrastructure client(s).\n")
+		fmt.Fprintf(buf, "func New%s(%s) %s {\n", struct_, strings.Join(params, ", "), iface.Name)
+		fmt.Fprintf(buf, "\treturn &%s{%s}\n", struct_, strings.Join(inits, ", "))
+		buf.WriteString("}\n\n")
+
+		fmt.Fprintf(buf, "var _ %s = (*%s)(nil)\n\n", iface.Name, struct_)
+	}
+	return nil
+}
+
+// emitEngineImpl writes the pure-engine impl: an empty <Component>Impl struct (no
+// dependencies — engines are pure), a public DI constructor New<Component>()
+// returning the generated interface, and a compile-time assertion. The interface
+// methods are hand-written on this struct.
+func emitEngineImpl(buf *bytes.Buffer, iface codegen.Interface) {
+	struct_ := iface.Name + "Impl"
+	fmt.Fprintf(buf, "// %s is the generated concrete %s. Engines are pure (no\n", struct_, iface.Name)
+	fmt.Fprintf(buf, "// dependencies), so the impl carries no fields and the constructor takes none.\n")
+	fmt.Fprintf(buf, "// The interface methods are hand-written on this struct.\n")
+	fmt.Fprintf(buf, "type %s struct{}\n\n", struct_)
+	fmt.Fprintf(buf, "// New%s returns the production %s.\n", iface.Name, iface.Name)
+	fmt.Fprintf(buf, "func New%s() %s { return %s{} }\n\n", iface.Name, iface.Name, struct_)
+	fmt.Fprintf(buf, "var _ %s = %s{}\n", iface.Name, struct_)
 }
 
 // emitType writes one named type. Enum schemas become a named scalar + a const
