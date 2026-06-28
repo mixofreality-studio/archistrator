@@ -25,7 +25,7 @@ import type {
   ConstructionProgress,
   ConstructionRow,
 } from '../../api/types';
-import type { ConstructionSessionState, OverrideKind } from '../../api/construction';
+import type { ConstructionSessionState, OverrideKind } from '../../api/types';
 import {
   buildStatusForStage,
   sessionIsLive,

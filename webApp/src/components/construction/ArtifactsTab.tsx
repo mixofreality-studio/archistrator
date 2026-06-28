@@ -17,7 +17,7 @@
 import { useState, useMemo, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
-import type { ConstructionSessionState } from '../../api/construction';
+import type { ConstructionSessionState } from '../../api/types';
 import { sessionIsLive } from '../../api/constructionAdapters';
 import type { ArtifactModelEnvelope, ConstructionRows, ProjectArtifactModelEnvelope, ProjectStateWithGit } from '../../api/types';
 import { narrowProject } from '../../api/projectAdapters';

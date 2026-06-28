@@ -7,11 +7,12 @@
  * The discriminator everywhere is the string `kind` on ArtifactModelEnvelope /
  * ArtifactSlotView; we narrow on it before reading the concrete typed model.
  */
-import type { components } from './schema';
 import type {
   ArtifactKindFull,
   ArtifactModelEnvelope,
   ArtifactSlotView,
+  ArtifactStageOrdinal,
+  ProjectPhase,
   ProjectState,
   PlanningAssumptionsModel,
   ActivityListModel,
@@ -21,9 +22,27 @@ import type {
   SdpReviewModel,
   Money,
 } from './types';
+import type {
+  ActivityNodeKind,
+  Axis,
+  CallMode,
+  Classification,
+  ComponentKind,
+  CoreUseCases,
+  DeploymentNode,
+  DeploymentProfile,
+  EdgeKind,
+  Glossary,
+  Layer,
+  MissionStatement,
+  OperationalConcepts,
+  ScrubbedRequirements,
+  StandardCheck,
+  System,
+  UseCaseDecision,
+  Volatilities,
+} from './models';
 import { METHOD_METADATA, PHASE1_ORDER, PHASE2_ORDER } from '../constants/MethodMetadata';
-
-type Schemas = components['schemas'];
 
 // ---------------------------------------------------------------------------
 // Phase spine — the three Method phases as locked/active/done cards.
@@ -67,7 +86,7 @@ const PHASE_META: Record<PhaseId, { index: number; title: string; subtitle: stri
 };
 
 /** Phase-ordinal for lock comparison — earlier phases unlock later ones. */
-const PHASE_ORDINAL: Record<Schemas['ProjectPhase'], number> = {
+const PHASE_ORDINAL: Record<ProjectPhase, number> = {
   systemDesign: 1,
   projectDesign: 2,
   construction: 3,
@@ -131,7 +150,7 @@ export interface ArtifactMeta {
 }
 
 /** Maps the ArtifactStage ordinal (0..4) to a display stage. */
-export function slotStageFromOrdinal(ordinal: Schemas['ArtifactStageOrdinal']): SlotStage {
+export function slotStageFromOrdinal(ordinal: ArtifactStageOrdinal): SlotStage {
   switch (ordinal) {
     case 0:
       return 'empty';
@@ -172,7 +191,7 @@ function toArtifactMeta(slot: ArtifactSlotView): ArtifactMeta {
 export interface VolatilityPoint {
   name: string;
   rationale: string;
-  axis: Schemas['Axis'];
+  axis: Axis;
   /** 0..1 — strength on Axis 2 (all customers, one moment). */
   x: number;
   /** 0..1 — strength on Axis 1 (same customer, over time). */
@@ -195,11 +214,11 @@ export function toVolatilityView(envelope: ArtifactModelEnvelope | undefined): V
   if (model === undefined) return EMPTY_VOLATILITY_VIEW;
   const items = model.items ?? [];
 
-  const axisCounts: Record<Schemas['Axis'], number> = {
+  const axisCounts: Record<Axis, number> = {
     sameCustomerOverTime: 0,
     allCustomersAtOneTime: 0,
   };
-  const totals: Record<Schemas['Axis'], number> = {
+  const totals: Record<Axis, number> = {
     sameCustomerOverTime: items.filter((i) => i.axis === 'sameCustomerOverTime').length,
     allCustomersAtOneTime: items.filter((i) => i.axis === 'allCustomersAtOneTime').length,
   };
@@ -234,8 +253,8 @@ export const AXIS2_LABEL = 'Axis 2 — all customers, one moment';
 export interface C4Component {
   id: string;
   name: string;
-  kind: Schemas['ComponentKind'];
-  layer: Schemas['Layer'];
+  kind: ComponentKind;
+  layer: Layer;
   /** The volatility this component encapsulates (empty for Resource / Utility). */
   encapsulates: string;
 }
@@ -243,7 +262,7 @@ export interface C4Component {
 export interface C4Relationship {
   from: string;
   to: string;
-  mode: Schemas['CallMode'];
+  mode: CallMode;
   label: string;
 }
 
@@ -392,7 +411,7 @@ export function toPerspective(view: C4View, componentId: string): PerspectiveMod
 export interface DeploymentInstance {
   componentId: string;
   name: string;
-  layer: Schemas['Layer'];
+  layer: Layer;
   note: string;
 }
 
@@ -406,7 +425,7 @@ export interface DeploymentNodeView {
 
 /** A pickable deployment-environment reference: its profile + display title. */
 export interface DeploymentProfileRef {
-  profile: Schemas['DeploymentProfile'];
+  profile: DeploymentProfile;
   title: string;
 }
 
@@ -430,19 +449,19 @@ export function listDeploymentProfiles(
 export function toDeploymentView(
   opEnvelope: ArtifactModelEnvelope | undefined,
   systemEnvelope: ArtifactModelEnvelope | undefined,
-  profile: Schemas['DeploymentProfile']
+  profile: DeploymentProfile
 ): DeploymentNodeView[] | undefined {
   const op = narrow(opEnvelope, 'operationalConcepts');
   const env = (op?.deployment?.environments ?? []).find((e) => e.profile === profile);
   if (env === undefined) return undefined;
 
   const system = narrow(systemEnvelope, 'system');
-  const byId = new Map<string, { name: string; layer: Schemas['Layer'] }>();
+  const byId = new Map<string, { name: string; layer: Layer }>();
   for (const c of system?.components ?? []) {
     byId.set(c.id, { name: c.name, layer: c.layer });
   }
 
-  const mapNode = (node: Schemas['DeploymentNode']): DeploymentNodeView => ({
+  const mapNode = (node: DeploymentNode): DeploymentNodeView => ({
     name: node.name,
     technology: node.technology,
     children: (node.children ?? []).map(mapNode),
@@ -466,7 +485,7 @@ export function toDeploymentView(
 
 export interface ActivityNodeView {
   id: string;
-  kind: Schemas['ActivityNodeKind'];
+  kind: ActivityNodeKind;
   label: string;
   /** The swim-lane (role) this node sits in. */
   lane: string;
@@ -475,7 +494,7 @@ export interface ActivityNodeView {
 export interface ActivityEdgeView {
   from: string;
   to: string;
-  kind: Schemas['EdgeKind'];
+  kind: EdgeKind;
   /** Guard text on a guardedFlow edge (empty otherwise). */
   guard: string;
 }
@@ -483,7 +502,7 @@ export interface ActivityEdgeView {
 export interface UseCaseView {
   id: string;
   name: string;
-  classification: Schemas['Classification'];
+  classification: Classification;
   rejectionReason: string;
   /** Distinct swim-lanes, in first-seen order. */
   lanes: string[];
@@ -505,7 +524,7 @@ export function toCoreUseCasesView(envelope: ArtifactModelEnvelope | undefined):
   return { useCases: decisions.map((d) => toUseCaseView(d)) };
 }
 
-function toUseCaseView(decision: Schemas['UseCaseDecision']): UseCaseView {
+function toUseCaseView(decision: UseCaseDecision): UseCaseView {
   const uc = decision.useCase;
   const activity = uc.activity ?? null;
   const rawNodes = activity?.nodes ?? [];
@@ -553,15 +572,15 @@ export function toMarkdown(envelope: ArtifactModelEnvelope | undefined): string 
   const { kind, model } = envelope;
   // Non-prose kinds (volatilities / coreUseCases / system) have dedicated diagram
   // adapters; everything else with no markdown projection renders nothing.
-  if (kind === 'mission') return missionToMarkdown(model as Schemas['MissionStatement']);
-  if (kind === 'glossary') return glossaryToMarkdown(model as Schemas['Glossary']);
+  if (kind === 'mission') return missionToMarkdown(model as MissionStatement);
+  if (kind === 'glossary') return glossaryToMarkdown(model as Glossary);
   if (kind === 'scrubbedRequirements') {
-    return scrubbedRequirementsToMarkdown(model as Schemas['ScrubbedRequirements']);
+    return scrubbedRequirementsToMarkdown(model as ScrubbedRequirements);
   }
   if (kind === 'operationalConcepts') {
-    return operationalConceptsToMarkdown(model as Schemas['OperationalConcepts']);
+    return operationalConceptsToMarkdown(model as OperationalConcepts);
   }
-  if (kind === 'standardCheck') return standardCheckToMarkdown(model as Schemas['StandardCheck']);
+  if (kind === 'standardCheck') return standardCheckToMarkdown(model as StandardCheck);
   // Phase-2 kinds — the home base passes these through ArtifactModelEnvelope
   // (ArtifactKindFull includes both phases); the model is the hand-mirrored type.
   if (kind === 'planningAssumptions')
@@ -580,7 +599,7 @@ export function toMarkdown(envelope: ArtifactModelEnvelope | undefined): string 
   return '';
 }
 
-function missionToMarkdown(m: Schemas['MissionStatement']): string {
+function missionToMarkdown(m: MissionStatement): string {
   const objectives = (m.objectives ?? [])
     .map((o) => `${String(o.number)}. ${o.statement}`)
     .join('\n');
@@ -590,7 +609,7 @@ function missionToMarkdown(m: Schemas['MissionStatement']): string {
   return parts.join('\n\n');
 }
 
-function glossaryToMarkdown(g: Schemas['Glossary']): string {
+function glossaryToMarkdown(g: Glossary): string {
   const items = g.items ?? [];
   if (items.length === 0) return '';
   const rows = items
@@ -603,14 +622,14 @@ function glossaryToMarkdown(g: Schemas['Glossary']): string {
   return `## Glossary\n\n${rows}`;
 }
 
-function scrubbedRequirementsToMarkdown(r: Schemas['ScrubbedRequirements']): string {
+function scrubbedRequirementsToMarkdown(r: ScrubbedRequirements): string {
   const items = r.items ?? [];
   if (items.length === 0) return '';
   const rows = items.map((i) => `- **${i.id}** — ${i.statement}`).join('\n');
   return `## Scrubbed Requirements\n\n${rows}`;
 }
 
-function operationalConceptsToMarkdown(o: Schemas['OperationalConcepts']): string {
+function operationalConceptsToMarkdown(o: OperationalConcepts): string {
   const decisions = o.decisions ?? [];
   if (decisions.length === 0) return '';
   const rows = decisions
@@ -619,7 +638,7 @@ function operationalConceptsToMarkdown(o: Schemas['OperationalConcepts']): strin
   return `## Operational Concepts\n\n${rows}`;
 }
 
-function standardCheckToMarkdown(s: Schemas['StandardCheck']): string {
+function standardCheckToMarkdown(s: StandardCheck): string {
   const items = s.items ?? [];
   if (items.length === 0) return '';
   const rows = items
@@ -680,7 +699,7 @@ function planningAssumptionsToMarkdown(m: PlanningAssumptionsModel): string {
   const parts: string[] = [];
 
   // Resources
-  if ((m.resources ?? []).length > 0) {
+  if (m.resources.length > 0) {
     parts.push(`## Resources\n\n${m.resources.map((r) => `- ${r}`).join('\n')}`);
   }
 
@@ -693,28 +712,24 @@ function planningAssumptionsToMarkdown(m: PlanningAssumptionsModel): string {
 
   // Declared usage
   const usage = m.declaredUsage;
-  if (usage) {
-    const rows = [
-      `- **Daily active users:** ${String(usage.expectedDailyActiveUsers)}`,
-      `- **Requests/minute:** ${String(usage.requestsPerMinute)}`,
-      `- **Avg payload:** ${String(usage.avgPayloadBytes)} bytes`,
-    ];
-    parts.push(`## Declared Usage\n\n${rows.join('\n')}`);
-  }
+  const usageRows = [
+    `- **Daily active users:** ${String(usage.expectedDailyActiveUsers)}`,
+    `- **Requests/minute:** ${String(usage.requestsPerMinute)}`,
+    `- **Avg payload:** ${String(usage.avgPayloadBytes)} bytes`,
+  ];
+  parts.push(`## Declared Usage\n\n${usageRows.join('\n')}`);
 
   // Settlement terms
   const t = m.terms;
-  if (t) {
-    const rows = [
-      `- **Revenue share:** ${labelFor(REVENUE_SHARE_LABELS, t.revenueShare)} (${String(t.revenueSharePercent)}%)`,
-      `- **Compute cost:** ${labelFor(COMPUTE_COST_LABELS, t.computeCost)} (markup ${String(t.computeMarkupPercent)}%)`,
-      `- **Schedule:** ${labelFor(SCHEDULE_LABELS, t.schedule)}`,
-    ];
-    parts.push(`## Settlement Terms\n\n${rows.join('\n')}`);
-  }
+  const termsRows = [
+    `- **Revenue share:** ${labelFor(REVENUE_SHARE_LABELS, t.revenueShare)} (${String(t.revenueSharePercent)}%)`,
+    `- **Compute cost:** ${labelFor(COMPUTE_COST_LABELS, t.computeCost)} (markup ${String(t.computeMarkupPercent)}%)`,
+    `- **Schedule:** ${labelFor(SCHEDULE_LABELS, t.schedule)}`,
+  ];
+  parts.push(`## Settlement Terms\n\n${termsRows.join('\n')}`);
 
   // Notes
-  if ((m.notes ?? '').length > 0) {
+  if (m.notes.length > 0) {
     parts.push(`## Notes\n\n${m.notes}`);
   }
 
@@ -722,7 +737,7 @@ function planningAssumptionsToMarkdown(m: PlanningAssumptionsModel): string {
 }
 
 function activityListToMarkdown(m: ActivityListModel): string {
-  const activities = m.activities ?? [];
+  const activities = m.activities;
   if (activities.length === 0) return '';
   const header = '| Activity | Effort (d) | Worker Class | Coding | Risk |';
   const sep = '|---|---|---|---|---|';
@@ -738,17 +753,17 @@ function activityListToMarkdown(m: ActivityListModel): string {
 function networkToMarkdown(m: NetworkModel): string {
   const parts: string[] = [];
 
-  const cp = m.criticalPath ?? [];
+  const cp = m.criticalPath;
   if (cp.length > 0) {
     parts.push(`## Critical Path\n\n${cp.join(' → ')}`);
   }
 
-  const deps = m.dependencies ?? [];
+  const deps = m.dependencies;
   if (deps.length > 0) {
     const header = '| Activity | Depends On |';
     const sep = '|---|---|';
     const rows = deps
-      .map((d) => `| ${d.activity} | ${(d.dependsOn ?? []).join(', ')} |`)
+      .map((d) => `| ${d.activity} | ${d.dependsOn.join(', ')} |`)
       .join('\n');
     parts.push(`## Dependencies\n\n${header}\n${sep}\n${rows}`);
   }
@@ -767,7 +782,7 @@ function solutionToMarkdown(m: SolutionModel): string {
   ];
   parts.push(`## Solution Parameters\n\n${settings.join('\n')}`);
 
-  const rates = m.classRates ?? {};
+  const rates = m.classRates;
   const classes = Object.keys(rates);
   if (classes.length > 0) {
     const header = '| Worker Class | Rate/day |';
@@ -785,7 +800,7 @@ function solutionToMarkdown(m: SolutionModel): string {
 }
 
 function riskModelToMarkdown(m: RiskModelModel): string {
-  const rows = m.rows ?? [];
+  const rows = m.rows;
   if (rows.length === 0) return '';
   const header = '| Option | Criticality Risk | Activity Risk | Composite |';
   const sep = '|---|---|---|---|';
@@ -801,15 +816,15 @@ function riskModelToMarkdown(m: RiskModelModel): string {
 function sdpReviewToMarkdown(m: SdpReviewModel): string {
   const parts: string[] = [];
 
-  if ((m.recommendation ?? '').length > 0) {
+  if (m.recommendation.length > 0) {
     parts.push(`## Recommendation\n\n**${m.recommendation}**`);
   }
 
-  if ((m.rationale ?? '').length > 0) {
+  if (m.rationale.length > 0) {
     parts.push(`## Rationale\n\n${m.rationale}`);
   }
 
-  const options = m.options ?? [];
+  const options = m.options;
   if (options.length > 0) {
     const header =
       '| Option | Solution | Duration (d) | Build Cost | Composite Risk | Monthly Cost | Per-Cycle Net | Rev Share % |';
@@ -831,14 +846,14 @@ function sdpReviewToMarkdown(m: SdpReviewModel): string {
 // ---------------------------------------------------------------------------
 
 interface ModelForKind {
-  mission: Schemas['MissionStatement'];
-  glossary: Schemas['Glossary'];
-  scrubbedRequirements: Schemas['ScrubbedRequirements'];
-  volatilities: Schemas['Volatilities'];
-  coreUseCases: Schemas['CoreUseCases'];
-  system: Schemas['System'];
-  operationalConcepts: Schemas['OperationalConcepts'];
-  standardCheck: Schemas['StandardCheck'];
+  mission: MissionStatement;
+  glossary: Glossary;
+  scrubbedRequirements: ScrubbedRequirements;
+  volatilities: Volatilities;
+  coreUseCases: CoreUseCases;
+  system: System;
+  operationalConcepts: OperationalConcepts;
+  standardCheck: StandardCheck;
 }
 
 /**

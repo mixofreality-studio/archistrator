@@ -19,7 +19,7 @@ import Button from '@mui/material/Button';
 import TuneIcon from '@mui/icons-material/Tune';
 import type { Tokens } from '../../theme/themes';
 import { useTokens } from '../../theme/ThemeContext';
-import type { AutoscalerDecision, OperationsView, WhatIfPoint } from '../../api/operations';
+import type { AutoscalerDecision, OperationsView, WhatIfPoint } from '../../api/operationsTypes';
 import { formatMoney, formatEventTime } from '../../api/operationsAdapters';
 import { useCostProjection } from '../../hooks/useCostProjection';
 import { useOperationAction } from '../../hooks/useOperationsMutations';

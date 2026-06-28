@@ -3,13 +3,14 @@
  * session is live (drafting / redrafting / awaitingReview) and stops once it
  * reaches a terminal stage (committed / withdrawn / refused / draftFailed).
  *
- * draftFailed is the async-design-job failure stage: terminal-at-the-Manager (it
- * does NOT auto-retry / keep generating), human-actionable via Retry or Withdraw —
- * so polling stops and the SPA renders the DraftFailedPanel rather than spinning.
+ * draftFailed is the async-design-job failure stage: terminal-at-the-Manager,
+ * human-actionable via Retry or Withdraw — so polling stops and the SPA renders
+ * the DraftFailedPanel rather than spinning.
  */
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
-import { getSessionState } from '../api/systemDesign';
-import { ApiError } from '../api/client';
+import { apiClient, ApiError, toApiError } from '../api/client';
+import { artifactKindToOrdinal } from '../api/enums';
+import { mapSessionState } from '../api/wire';
 import type { ArtifactKind, SessionStage, SessionStateResponse } from '../api/types';
 
 const POLL_INTERVAL_MS = 2000;
@@ -33,7 +34,14 @@ export function useSessionState(
 ): UseQueryResult<SessionStateResponse> {
   return useQuery<SessionStateResponse>({
     queryKey: sessionStateKey(projectId, kind),
-    queryFn: () => getSessionState(projectId, kind),
+    queryFn: async () => {
+      const { data, error, response } = await apiClient.GET(
+        '/api/v1/system-design/get-session-state/{projectID}',
+        { params: { path: { projectID: projectId }, query: { kind: artifactKindToOrdinal(kind) } } }
+      );
+      if (error !== undefined) throw toApiError(response.status, error);
+      return mapSessionState(data);
+    },
     enabled: enabled && projectId.length > 0,
     // A 404 means "no session started yet" — surface it without retry storms.
     retry: (count, error) => !(error instanceof ApiError && error.status === 404) && count < 1,

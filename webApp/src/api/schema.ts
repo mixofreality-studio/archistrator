@@ -4,42 +4,30 @@
  */
 
 export interface paths {
-    "/api/v1/projects": {
+    "/api/v1/construction/execute-next-activity/{projectID}": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /**
-         * List the authenticated owner's projects (landing grid).
-         * @description Routes to projectManager.ListProjects scoped to the principal's owner key — the catalog shows only the caller's own projects, newest-first.
-         */
-        get: operations["listProjects"];
+        get?: never;
         put?: never;
-        /**
-         * Create a new project.
-         * @description Routes to projectManager.CreateProject. NAME-AS-IDENTITY: the projectId IS the user-supplied repo name (name); CreateProject adopts that pre-existing repo (permissive resume if already .aiarch/-marked). The owner is derived from the authenticated principal (never a body field). No token is accepted — the user provisions CLAUDE_CODE_OAUTH_TOKEN via the Claude Code GitHub App. Returns the projectId the SPA scopes its phase routes under.
-         */
-        post: operations["createProject"];
+        post: operations["ExecuteNextActivity"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/projects/{projectId}": {
+    "/api/v1/construction/get-session-state/{projectID}/{activityID}": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /**
-         * Read one project's full typed head-state.
-         * @description Routes to projectManager.GetProject — every artifact slot's stage + typed model (via the shared ArtifactModelEnvelope).
-         */
-        get: operations["getProject"];
+        get: operations["GetSessionState"];
         put?: never;
         post?: never;
         delete?: never;
@@ -48,7 +36,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/projects/{projectId}/system-design/research-input": {
+    "/api/v1/construction/override-activity/{projectID}/{activityID}": {
         parameters: {
             query?: never;
             header?: never;
@@ -57,18 +45,14 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * Record the Phase-1 research-input corpus for a project.
-         * @description Routes to systemDesignManager.SetResearchInput (SYNC, non-Temporal — a single idempotent head-state write). This is the step BEFORE start: it records the ResearchInput Method INPUT so the project can satisfy startSystemDesign's ResearchInput-present precondition. No 409 here — this op CREATES the precondition rather than enforcing it.
-         */
-        post: operations["setResearchInput"];
+        post: operations["OverrideActivity"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/projects/{projectId}/system-design/start": {
+    "/api/v1/construction/pause-project/{projectID}": {
         parameters: {
             query?: never;
             header?: never;
@@ -77,18 +61,14 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * Start the Phase-1 parent workflow for a project.
-         * @description Routes to systemDesignManager.StartSystemDesign (Workflow). Precondition: the project's ResearchInput is present (else 409 failed_precondition). Returns once the parent start is durably accepted (the phase spans days).
-         */
-        post: operations["startSystemDesign"];
+        post: operations["PauseProject"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/projects/{projectId}/system-design/artifacts/draft": {
+    "/api/v1/construction/run-replan-sweep/{projectID}": {
         parameters: {
             query?: never;
             header?: never;
@@ -97,18 +77,14 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * Start/continue a co-authoring gate for one Method artifact.
-         * @description Routes to systemDesignManager.RequestArtifactDraft (Workflow). Idempotent on the per-(project,kind) workflow id. Returns the SessionRef once the draft workflow start is durably accepted, not once the draft is ready.
-         */
-        post: operations["requestArtifactDraft"];
+        post: operations["RunReplanSweep"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/projects/{projectId}/system-design/artifacts/review": {
+    "/api/v1/operations/apply-delinquency-policy/{customerID}": {
         parameters: {
             query?: never;
             header?: never;
@@ -117,18 +93,14 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * Deliver the architect's gate decision.
-         * @description Routes to systemDesignManager.SubmitReviewDecision (Signal) to the suspended co-author workflow. approve commits + advances; reject loops to draft with feedback; withdraw abandons. Returns 204 once the signal is durably enqueued.
-         */
-        post: operations["submitReviewDecision"];
+        post: operations["ApplyDelinquencyPolicy"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/projects/{projectId}/system-design/advance": {
+    "/api/v1/operations/deploy-after-construction/{operatedAppID}": {
         parameters: {
             query?: never;
             header?: never;
@@ -137,29 +109,37 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * Seal Phase 1 for a project (gating workflow).
-         * @description Routes to systemDesignManager.AdvancePhase (Workflow). A non-advanced result is the NORMAL gating answer (HTTP 200) naming the missing artifacts, not an error.
-         */
-        post: operations["advancePhase"];
+        post: operations["DeployAfterConstruction"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/projects/{projectId}/system-design/sessions/{artifactKind}": {
+    "/api/v1/operations/query-cost-projection/{operatedAppID}": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /**
-         * Read one co-authoring session's technical progress.
-         * @description Routes to systemDesignManager.GetSessionState (Query, read-only). Polled by the SPA to render progress. Not a property-like op — it is the design-phase activity's read relay (webClient.md factoring decision).
-         */
-        get: operations["getSessionState"];
+        get?: never;
+        put?: never;
+        post: operations["QueryCostProjection"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operations/query-operated-system-view/{operatedAppID}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["QueryOperatedSystemView"];
         put?: never;
         post?: never;
         delete?: never;
@@ -168,7 +148,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/projects/{projectId}/project-design/artifacts/draft": {
+    "/api/v1/operations/reconcile-operated-state": {
         parameters: {
             query?: never;
             header?: never;
@@ -177,18 +157,14 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * Start/continue a co-authoring gate for one Phase-2 Method artifact.
-         * @description Routes to projectDesignManager.RequestArtifactDraft (Workflow). The artifactKind is one of the eight draftable Phase-2 kinds (sdpReview is rejected — use /sdp/assemble). Idempotent on the per-(project,kind) id.
-         */
-        post: operations["requestProjectArtifactDraft"];
+        post: operations["ReconcileOperatedState"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/projects/{projectId}/project-design/artifacts/review": {
+    "/api/v1/operations/withdraw-system/{operatedAppID}": {
         parameters: {
             query?: never;
             header?: never;
@@ -197,18 +173,14 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * Deliver the architect's per-artifact Phase-2 gate decision.
-         * @description Routes to projectDesignManager.SubmitReviewDecision (per-artifact Signal, OQ-3). approve commits; reject loops to draft with feedback; withdraw abandons.
-         */
-        post: operations["submitProjectReviewDecision"];
+        post: operations["WithdrawSystem"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/projects/{projectId}/project-design/sdp/assemble": {
+    "/api/v1/project-design/advance-to-construction/{projectID}": {
         parameters: {
             query?: never;
             header?: never;
@@ -217,69 +189,21 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * Assemble the SDP review and suspend at the option-commitment gate.
-         * @description Routes to projectDesignManager.RequestSDPCommit (Workflow). Assembles the four options, calls the three estimate Engines per option, joins them into the SDP-review rows, stages the review and suspends awaiting the architect's decision. Idempotent on the {projectId}:sdpReview id.
-         */
-        post: operations["requestSDPCommit"];
+        post: operations["AdvanceToConstruction"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/projects/{projectId}/project-design/sdp/decision": {
+    "/api/v1/project-design/get-session-state/{projectID}": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
-        put?: never;
-        /**
-         * Deliver the architect's SDP option-commitment decision.
-         * @description Routes to projectDesignManager.SubmitSDPDecision (Signal). commit binds the named option (optionId required) and advances; rejectAll re-enters Phase 2 with feedback (required). Returns 204 once the signal is durably enqueued.
-         */
-        post: operations["submitSDPDecision"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/projects/{projectId}/project-design/advance": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Seal Phase 2 for a project (gating workflow).
-         * @description Routes to projectDesignManager.AdvanceToConstruction (Workflow). A non-advanced result is the NORMAL gating answer (HTTP 200) naming the missing artifacts / unbound option, not an error.
-         */
-        post: operations["advanceToConstruction"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/projects/{projectId}/project-design/sessions/{artifactKind}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Read one Phase-2 session's technical progress.
-         * @description Routes to projectDesignManager.GetSessionState (Query, read-only). The artifactKind may be any Phase-2 kind, including sdpReview (the SDP-review session). Polled by the SPA to render progress.
-         */
-        get: operations["getProjectSessionState"];
+        get: operations["GetSessionState_2"];
         put?: never;
         post?: never;
         delete?: never;
@@ -288,15 +212,94 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/healthz": {
+    "/api/v1/project-design/request-artifact-draft/{projectID}": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Liveness probe. */
-        get: operations["healthz"];
+        get?: never;
+        put?: never;
+        post: operations["RequestArtifactDraft"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/project-design/request-sdp-commit/{projectID}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["RequestSDPCommit"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/project-design/submit-review-decision/{projectID}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["SubmitReviewDecision"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/project-design/submit-sdp-decision/{projectID}/{optionID}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["SubmitSDPDecision"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/project/create-project": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["CreateProject"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/project/get-project/{projectID}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["GetProject"];
         put?: never;
         post?: never;
         delete?: never;
@@ -305,17 +308,112 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/readyz": {
+    "/api/v1/project/list-projects": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Readiness probe. */
-        get: operations["readyz"];
+        get: operations["ListProjects"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/system-design/advance-phase/{projectID}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["AdvancePhase"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/system-design/get-session-state/{projectID}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["GetSessionState_3"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/system-design/request-artifact-draft/{projectID}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["RequestArtifactDraft_2"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/system-design/set-research-input/{projectID}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["SetResearchInput"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/system-design/start-system-design/{projectID}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["StartSystemDesign"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/system-design/submit-review-decision/{projectID}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["SubmitReviewDecision_2"];
         delete?: never;
         options?: never;
         head?: never;
@@ -326,1048 +424,2744 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        /** @description NAME-AS-IDENTITY (C-PM-Δ, 2026-06-15): name IS the GitHub repository name the user has already created — the project identity. CreateProject ADOPTS that pre-existing user-named repo (permissive: resumes if the repo already carries an .aiarch/ marker). There is NO token/secret field — aiarch does no secret management; the user provisions CLAUDE_CODE_OAUTH_TOKEN by installing the Claude Code GitHub App (/install-github-app) on their repo. */
-        CreateProjectRequest: {
-            /** @description The user-created GitHub repository name == the project identity (name-as-identity). */
-            name: string;
+        ConstructionActivityID: string;
+        ConstructionActivityOverride: {
+            kind: components["schemas"]["ConstructionOverrideKind"];
+            notes: string;
         };
-        CreateProjectResponse: {
-            /** @description The project identity == the adopted repo name (a string, NOT a uuid). The SPA scopes its subsequent phase routes under this value. */
-            projectId: string;
+        ConstructionConstructionSessionView: {
+            activityId?: components["schemas"]["ConstructionActivityID"];
+            pipelinePhase?: components["schemas"]["ConstructionPipelinePhase"];
+            projectId: components["schemas"]["ConstructionProjectID"];
+            reviewSet?: components["schemas"]["ConstructionReviewSet"];
+            stage: components["schemas"]["ConstructionConstructionStage"];
+            variance?: components["schemas"]["ConstructionFlaggedVariance"];
         };
-        /** @description One catalog row for the landing grid (ListProjects). */
-        ProjectSummary: {
-            /** Format: uuid */
-            projectId: string;
-            name: string;
-            /** @description The owning principal's stable subject key. */
-            owner: string;
-            phase: components["schemas"]["ProjectPhase"];
-            /** @description Committed artifact slots in the current phase. */
-            committedCount: number;
-            /** @description Total required artifact slots in the current phase. */
-            totalCount: number;
-            /** Format: date-time */
-            updatedAt: string;
+        /** @enum {integer} */
+        ConstructionConstructionStage: 0 | 1 | 2 | 3 | 4 | 5 | 6;
+        ConstructionErrorResponse: {
+            code: string;
+            error: string;
         };
-        /** @description The full typed head-state of one project (GetProject) — every artifact slot's stage + typed model. Each slot's model serializes via the SAME discriminated ArtifactModelEnvelope the systemDesignManager session read emits, so the SPA decodes a model identically regardless of which read produced it. */
-        ProjectState: {
-            /** Format: uuid */
-            projectId: string;
-            name: string;
-            owner: string;
-            phase: components["schemas"]["ProjectPhase"];
-            /** @description Head-state optimistic-concurrency token. */
-            version: number;
-            research: components["schemas"]["ResearchInput"];
-            slots: components["schemas"]["ArtifactSlotView"][];
+        ConstructionFlaggedVariance: {
+            activityId: components["schemas"]["ConstructionActivityID"];
+            projectId: components["schemas"]["ConstructionProjectID"];
+            summary: string;
         };
-        /**
-         * @description The lifecycle phase the project currently sits in.
-         * @enum {string}
-         */
-        ProjectPhase: "systemDesign" | "projectDesign" | "construction" | "unknown";
-        /** @description One artifact slot of the head-state, typed. project.ArtifactSlotView's own MarshalJSON owns the wire form: kind is the camelCase STRING ArtifactKind wire name, stage is an integer ordinal (project.ArtifactStage carries no string codec), and model is the discriminated ArtifactModelEnvelope (model payload absent when the slot is empty). */
-        ArtifactSlotView: {
-            kind: components["schemas"]["ArtifactKindFull"];
-            stage: components["schemas"]["ArtifactStageOrdinal"];
-            model: components["schemas"]["ArtifactModelEnvelope"];
-            /** @description Architect rationale on Reject/Withdraw (omitted when empty). */
-            notes?: string;
+        /** @enum {integer} */
+        ConstructionOverrideKind: 0 | 1 | 2 | 3 | 4;
+        /** @enum {integer} */
+        ConstructionPipelinePhase: 0 | 1 | 2 | 3 | 4 | 5;
+        ConstructionProjectID: string;
+        ConstructionPumpResult: {
+            activityId?: components["schemas"]["ConstructionActivityID"];
+            dispatched: boolean;
         };
-        /**
-         * @description projectstate.ArtifactKind wire name across BOTH phases — Phase-1 (mission..standardCheck) and Phase-2 (planningAssumptions..sdpReview). The STRING discriminator the typed wire contract uses everywhere.
-         * @enum {string}
-         */
-        ArtifactKindFull: "mission" | "glossary" | "scrubbedRequirements" | "volatilities" | "coreUseCases" | "system" | "operationalConcepts" | "standardCheck" | "planningAssumptions" | "activityList" | "network" | "normalSolution" | "subcriticalSolution" | "compressedSolution" | "decompressedSolution" | "riskModel" | "sdpReview";
-        /**
-         * @description project.ArtifactStage ordinal (head-state slot stage): 0 Empty, 1 AwaitingReview, 2 Committed, 3 Rejected, 4 Withdrawn.
-         * @enum {integer}
-         */
-        ArtifactStageOrdinal: 0 | 1 | 2 | 3 | 4;
-        RequestArtifactDraftRequest: {
-            artifactKind: components["schemas"]["ArtifactKind"];
-            /** @description Optional free-text woven into the next draft on a re-entry. */
-            feedback?: string | null;
+        ConstructionReplanSweepResult: {
+            flaggedVariances?: null | components["schemas"]["ConstructionFlaggedVariance"][];
         };
-        SubmitReviewDecisionRequest: {
-            artifactKind: components["schemas"]["ArtifactKind"];
-            decision: components["schemas"]["ReviewDecision"];
-            /** @description The architect's rationale. REQUIRED by the Manager when decision is "reject"; optional on "withdraw"; ignored on "approve". */
-            feedback?: string | null;
-            /** @description Optional JSONPath-anchored "send back" comments. Consulted by the Manager ONLY on "reject" and woven into the architect-role redraft prompt beneath the feedback; ignored on "approve" / "withdraw". */
-            comments?: components["schemas"]["AnchoredComment"][];
+        ConstructionReviewSet: {
+            reviewers?: null | components["schemas"]["ConstructionReviewer"][];
         };
-        AnchoredComment: {
-            /** @description A path into the typed artifact model the comment refers to, e.g. "$.vision". Opaque guidance text this round — the server does not evaluate or validate it. */
-            jsonPath: string;
-            /** @description The architect's comment at that location. */
-            text: string;
-        };
-        SetResearchInputRequest: {
-            research: components["schemas"]["ResearchInput"];
-        };
-        ResearchInput: {
-            sources: components["schemas"]["ResearchSource"][];
-        };
-        ResearchSource: {
-            /** @description e.g. Founder brief, Competitor analysis, Customer interview #3 */
-            title: string;
-            /** @description The source corpus text the mission-draft prompt consumes. */
-            content: string;
-        };
-        SessionRefResponse: {
-            /** @description Opaque continuity token the SPA persists/echoes; never parsed. */
-            sessionRef: string;
-        };
-        PhaseAdvanceResponse: {
-            advanced: boolean;
-            /** @description Non-empty when advanced=false — the Phase-1 slots not yet Committed. A non-advanced result is the NORMAL gating answer (HTTP 200), not an error. */
-            missingArtifacts: components["schemas"]["ArtifactKind"][];
-        };
-        SessionStateResponse: {
-            /** Format: uuid */
-            projectId: string;
-            artifactKind: components["schemas"]["ArtifactKind"];
-            stage: components["schemas"]["SessionStage"];
-            view: components["schemas"]["SessionStateView"];
-        };
-        /** @description Point-in-time technical view of one Phase-1 co-authoring session, as emitted by systemDesignManager.SessionStateView.MarshalJSON. artifactKind is the string ArtifactKind wire name; stage is an integer ordinal (the SessionStage type carries no string codec), distinct from the outer SessionStateResponse's string stage field. */
-        SessionStateView: {
-            /** Format: uuid */
-            projectId: string;
-            artifactKind: components["schemas"]["ArtifactKind"];
-            stage: components["schemas"]["SessionStageOrdinal"];
-            draft: components["schemas"]["ArtifactModelEnvelope"];
-            /** @description Latest validation findings (omitted when empty). */
-            findings?: components["schemas"]["Finding"][];
-            /** @description Short human explanation set ONLY when stage is Refused (6) — a terminal worker fault (e.g. the AI worker is unavailable / out of credits). Gives the SPA a message + Retry affordance instead of a wedged generating screen. Omitted otherwise. */
-            failureReason?: string;
-        };
-        /**
-         * @description systemdesign.SessionStage as its integer ordinal: 0 Unknown, 1 Drafting, 2 AwaitingReview, 3 Redrafting, 4 Committed, 5 Withdrawn, 6 Refused.
-         * @enum {integer}
-         */
-        SessionStageOrdinal: 0 | 1 | 2 | 3 | 4 | 5 | 6;
-        /** @description The discriminated wire form of one typed Method model, mirroring modelEnvelope in internal/manager/systemdesign/codec.go (and project/ contract.go, projectdesign/codec.go — byte-identical) EXACTLY. `kind` is the STRING ArtifactKind wire name discriminator; `model` is the concrete model's own JSON (omitted entirely when there is no staged draft, leaving only {kind: "<name>"}). The kind→model-schema mapping (string discriminator over the `model` payload): mission→MissionStatement, glossary→Glossary, scrubbedRequirements→ScrubbedRequirements, volatilities→Volatilities, coreUseCases→CoreUseCases, system→System, operationalConcepts→OperationalConcepts, standardCheck→StandardCheck. */
-        ArtifactModelEnvelope: {
-            kind: components["schemas"]["ArtifactKindFull"];
-            /** @description The concrete model payload, selected by the sibling `kind` string name. Absent when no draft has been staged yet. The Phase-1 model schemas are fully enumerated; of the Phase-2 kinds, `network` → NetworkModel is now introduced (the first Phase-2 model schema in this contract); the remaining Phase-2 model schemas are TODO Phase-2. */
-            model?: components["schemas"]["MissionStatement"] | components["schemas"]["Glossary"] | components["schemas"]["ScrubbedRequirements"] | components["schemas"]["Volatilities"] | components["schemas"]["CoreUseCases"] | components["schemas"]["System"] | components["schemas"]["OperationalConcepts"] | components["schemas"]["StandardCheck"] | components["schemas"]["NetworkModel"];
-        };
-        /** @description projectstate.MissionStatement (ch. 5 business alignment). */
-        MissionStatement: {
-            /** @description ONE terse sentence. */
-            vision: string;
-            objectives?: components["schemas"]["Objective"][] | null;
-            /** @description Expressed in components, not features. */
-            mission: string;
-        };
-        Objective: {
-            number: number;
-            statement: string;
-        };
-        /** @description projectstate.Glossary (ch. 3 ubiquitous language). */
-        Glossary: {
-            items: components["schemas"]["GlossaryItem"][] | null;
-        };
-        GlossaryItem: {
-            term: string;
-            definition: string;
-            /** @description Who / What / How-activity / Where (the Four Questions); optional. */
-            category?: string;
-        };
-        /** @description projectstate.ScrubbedRequirements (OQ-2). */
-        ScrubbedRequirements: {
-            items: components["schemas"]["Requirement"][] | null;
-        };
-        Requirement: {
-            id: string;
-            statement: string;
-        };
-        /** @description projectstate.Volatilities (ch. 2, the two axes). */
-        Volatilities: {
-            items: components["schemas"]["Volatility"][] | null;
-        };
-        Volatility: {
-            name: string;
-            rationale: string;
-            axis: components["schemas"]["Axis"];
-        };
-        /**
-         * @description projectstate.Axis (the two volatility axes).
-         * @enum {string}
-         */
-        Axis: "sameCustomerOverTime" | "allCustomersAtOneTime";
-        /** @description projectstate.CoreUseCases (ch. 4 core-use-case selection). */
-        CoreUseCases: {
-            decisions: components["schemas"]["UseCaseDecision"][] | null;
-        };
-        UseCaseDecision: {
-            useCase: components["schemas"]["UseCase"];
-            /** @description Empty when the use case is core; the reason when rejected as a permutation. */
-            rejectionReason: string;
-        };
-        /** @description projectstate.UseCase (Grammar B, ch. 4). */
-        UseCase: {
-            id: string;
-            name: string;
-            actors?: components["schemas"]["Actor"][] | null;
-            trigger: components["schemas"]["Trigger"];
-            classification: components["schemas"]["Classification"];
-            /** @description Set when ClassNonCore and this is a permutation of a core UC. */
-            variationOf?: string | null;
-            /** @description Required when the use case has nested conditions (App C 1c). */
-            activity?: components["schemas"]["ActivityDiagram"] | null;
-        };
-        Actor: {
-            id: string;
+        ConstructionReviewer: {
+            mayAmend: boolean;
+            perspective: string;
+            referenceArtifact?: null | string;
             role: string;
         };
-        /**
-         * @description projectstate.Trigger (use-case trigger kind).
-         * @enum {string}
-         */
-        Trigger: "clientAction" | "timer" | "busMessage";
-        /**
-         * @description projectstate.Classification (Core vs NonCore).
-         * @enum {string}
-         */
-        Classification: "core" | "nonCore";
-        /** @description projectstate.ActivityDiagram. */
-        ActivityDiagram: {
-            nodes: components["schemas"]["ActivityNode"][] | null;
-            edges: components["schemas"]["ActivityEdge"][] | null;
+        /** @enum {integer} */
+        OperationsAutoscaleAction: 0 | 1 | 2 | 3 | 4;
+        OperationsAutoscaleDecisionView: {
+            Action: components["schemas"]["OperationsAutoscaleAction"];
+            /** Format: date-time */
+            At: string;
+            Published: boolean;
+            Reason: string;
         };
-        ActivityNode: {
-            id: string;
-            kind: components["schemas"]["ActivityNodeKind"];
-            label: string;
-            /** @description For NodeSwimLane; the role name. */
-            roleName: string;
-            linkedActorId?: string | null;
-            linkedCompId?: string | null;
+        /** @enum {integer} */
+        OperationsAutoscalerMode: 0 | 1 | 2;
+        OperationsAutoscalerView: {
+            Decisions: null | components["schemas"]["OperationsAutoscaleDecisionView"][];
+            Mode: components["schemas"]["OperationsAutoscalerMode"];
         };
-        /**
-         * @description projectstate.ActivityNodeKind. Book-enumerated: start, action, decision, merge, fork, join, end, swimLane, note. UML-general: loop, switch, goto, interruptEdge.
-         * @enum {string}
-         */
-        ActivityNodeKind: "start" | "action" | "decision" | "merge" | "fork" | "join" | "end" | "swimLane" | "note" | "loop" | "switch" | "goto" | "interruptEdge";
-        ActivityEdge: {
-            from: string;
-            to: string;
-            kind: components["schemas"]["EdgeKind"];
-            /** @description Non-empty only for guardedFlow. */
-            guard: string;
+        OperationsCostProjectionSeam: {
+            CurrentRunRate: components["schemas"]["OperationsMoney"];
+            ProjectedMonthlyCost: components["schemas"]["OperationsMoney"];
+            ScaleWhatIfCurve: components["schemas"]["OperationsWhatIfCurve"];
         };
-        /**
-         * @description projectstate.EdgeKind (activity-edge kind).
-         * @enum {string}
-         */
-        EdgeKind: "controlFlow" | "guardedFlow";
-        /** @description projectstate.System (Grammar A, ch. 3/4 static architecture). */
-        System: {
-            components: components["schemas"]["Component"][] | null;
-            relationships: components["schemas"]["Relationship"][] | null;
-            dynamicViews: components["schemas"]["DynamicView"][] | null;
+        OperationsDelinquencyContext: {
+            pauseNotWithdraw: boolean;
         };
-        Component: {
-            id: string;
-            name: string;
-            kind: components["schemas"]["ComponentKind"];
-            layer: components["schemas"]["Layer"];
-            /** @description The volatility this component owns; empty for Resource/Utility. */
-            encapsulates: string;
-            /** @description Non-empty only when kind == resourceAccess. */
-            atomicBusinessVerbs?: string[] | null;
+        OperationsDeployResult: {
+            published: boolean;
+            revision?: null | string;
         };
-        /**
-         * @description projectstate.ComponentKind (component taxonomy).
-         * @enum {string}
-         */
-        ComponentKind: "client" | "manager" | "engine" | "resourceAccess" | "resource" | "utility";
-        /**
-         * @description projectstate.Layer (layer set).
-         * @enum {string}
-         */
-        Layer: "client" | "manager" | "engine" | "resourceAccess" | "resource" | "utility";
-        Relationship: {
-            from: string;
-            to: string;
-            mode: components["schemas"]["CallMode"];
-            /** @description Destination-layer vocabulary. */
-            label: string;
+        OperationsDesiredStateChange: {
+            changeId: string;
+            patchKind: components["schemas"]["OperationsPatchKind"];
+            reason: components["schemas"]["OperationsDesiredStateReason"];
+            renderedDesiredState?: string;
         };
-        /**
-         * @description projectstate.CallMode (edge-mode set).
-         * @enum {string}
-         */
-        CallMode: "sync" | "queued" | "eventPubSub";
-        /** @description projectstate.DynamicView (one call chain per use case). */
-        DynamicView: {
-            useCaseId: string;
-            key: string;
-            title: string;
-            participants?: string[] | null;
-            edges?: components["schemas"]["Relationship"][] | null;
-        };
-        /** @description projectstate.OperationalConcepts (ch. 5). */
-        OperationalConcepts: {
-            decisions: components["schemas"]["OperationalDecision"][] | null;
-            deployment?: components["schemas"]["DeploymentTopology"];
-        };
-        /** @description projectstate.DeploymentTopology — the typed deployment model carried by OperationalConcepts. The deployed component graph is identical across profiles; instances are swapped at the durable-execution / client-transport / git seams. */
-        DeploymentTopology: {
-            deliveryStyle: components["schemas"]["DeliveryStyle"];
-            environments: components["schemas"]["DeploymentEnvironment"][] | null;
-        };
-        /**
-         * @description projectstate.DeliveryStyle — the closed set of system delivery styles. The set of deployment environments is DERIVED from it (test is always present): cloud→{cloud,test}, local→{local,test}, both→{cloud,local,test}.
-         * @enum {string}
-         */
-        DeliveryStyle: "cloud" | "local" | "both";
-        /**
-         * @description projectstate.DeploymentProfile — the closed set of deployment environment profiles.
-         * @enum {string}
-         */
-        DeploymentProfile: "cloud" | "local" | "test";
-        /** @description projectstate.DeploymentEnvironment — the set of nodes for one DeploymentProfile. */
-        DeploymentEnvironment: {
-            profile: components["schemas"]["DeploymentProfile"];
-            title: string;
-            nodes: components["schemas"]["DeploymentNode"][] | null;
-        };
-        /** @description projectstate.DeploymentNode — nestable cluster → namespace → instance. */
-        DeploymentNode: {
-            name: string;
-            technology: string;
-            children: components["schemas"]["DeploymentNode"][] | null;
-            instances: components["schemas"]["ContainerInstance"][] | null;
-        };
-        /** @description projectstate.ContainerInstance — places a System Component into a deployment node. componentId must reference a real System Component. */
-        ContainerInstance: {
-            /** @description Must reference a System Component. */
-            componentId: string;
-            /** @description Per-profile instance note (optional). */
-            note: string;
-        };
-        OperationalDecision: {
-            topic: string;
-            decision: string;
-            /** @description Objective number from MissionStatement. */
-            justifyingObjective: number;
-        };
-        /** @description projectstate.StandardCheck (App C design-standard walk). */
-        StandardCheck: {
-            items: components["schemas"]["CheckItem"][] | null;
-        };
-        CheckItem: {
-            section: string;
-            guideline: string;
-            status: components["schemas"]["CheckStatus"];
-            /** @description Required when status == waived. */
-            justification: string;
-        };
-        /**
-         * @description projectstate.CheckStatus (App C design-standard item outcome).
-         * @enum {string}
-         */
-        CheckStatus: "pass" | "waived" | "fail";
-        /** @description engine.Finding — one machine-checkable validation rule violation. */
-        Finding: {
-            ruleId: string;
-            severity: components["schemas"]["Severity"];
-            /** @description Human-readable; safe to weave into a re-draft prompt; no PII. */
-            message: string;
-            /** @description Optional; where in the typed model the finding sits. */
-            location?: components["schemas"]["FindingLocation"] | null;
-        };
-        /**
-         * @description engine.Severity (finding severity).
-         * @enum {string}
-         */
-        Severity: "info" | "warning" | "error";
-        /** @description engine.Location. */
-        FindingLocation: {
-            /** @description Stable position for deterministic finding ordering. */
-            ordinal: number;
-            /** @description Human-readable locus, e.g. "core use case 3". */
-            section: string;
-        };
-        ErrorResponse: {
-            /** @description Non-leaking, caller-safe detail. */
-            error: string;
-            /** @description Stable error code — one of bad_request, unauthenticated, forbidden, not_found, contract_misuse, failed_precondition, infrastructure, internal. */
+        /** @enum {integer} */
+        OperationsDesiredStateReason: 0 | 1 | 2 | 3 | 4;
+        OperationsErrorResponse: {
             code: string;
+            error: string;
         };
-        /**
-         * @description The Phase-1 Method artifact slot this UC1 surface accepts.
-         * @enum {string}
-         */
-        ArtifactKind: "mission" | "glossary" | "scrubbedRequirements" | "volatilities" | "coreUseCases" | "system" | "operationalConcepts" | "standardCheck";
-        /** @enum {string} */
-        ReviewDecision: "approve" | "reject" | "withdraw";
-        /**
-         * @description The wire string the SPA polls on and the client state machine consumes. draftFailed is the human-visible, human-actionable terminal-failure stage the session lands in when the dispatched ASYNC agentic DESIGN job (a GitHub Action running in the user's CI) reaches a typed terminal failure phase — the SPA renders "your design job failed — retry or withdraw", never a perpetual drafting spinner (the anti-wedge requirement).
-         * @enum {string}
-         */
-        SessionStage: "drafting" | "awaitingReview" | "redrafting" | "committed" | "withdrawn" | "refused" | "draftFailed" | "unknown";
-        /**
-         * @description The Phase-2 Method artifact slot this UC2 surface accepts. The eight draftable kinds are co-authored via /project-design/artifacts/draft; sdpReview is assembled via /project-design/sdp/assemble (it is rejected by the draft/review endpoints) and read via the sessions endpoint.
-         * @enum {string}
-         */
-        ProjectArtifactKind: "planningAssumptions" | "activityList" | "network" | "normalSolution" | "decompressedSolution" | "subcriticalSolution" | "compressedSolution" | "riskModel" | "sdpReview";
-        /** @description projectstate.NetworkDependency — one activity's predecessor set. */
-        NetworkDependency: {
-            activity: string;
-            dependsOn: string[];
+        OperationsHealthSnapshotView: {
+            Detail: string;
+            Phase: components["schemas"]["OperationsRuntimeStatusSeam"];
+            SloMet: boolean;
         };
-        /** @description projectstate.NetworkNodeCompute — the per-activity CPM result the compute-at- read pass derives for one dependency-graph node (the figures the retired client-side toNetworkView produced, now server-authoritative). */
-        NetworkNodeCompute: {
-            earliestStart: number;
-            earliestFinish: number;
-            latestStart: number;
-            latestFinish: number;
-            totalFloat: number;
-            freeFloat: number;
-            onCriticalPath: boolean;
-            /** @description Off-CP but within the near-critical float band. */
-            nearCritical: boolean;
-            /**
-             * @description Float-criticality band (Löwy ch.8 §2).
-             * @enum {string}
-             */
-            band: "critical" | "red" | "yellow" | "green";
-            /** @description Topological depth (longest-path layer) for the swimlane layout. */
-            column: number;
+        OperationsMoney: {
+            Currency: string;
+            MinorUnits: number;
         };
-        /** @description projectstate.NetworkSummary — the project-level CPM roll-up. */
-        NetworkSummary: {
-            /** @description Project duration = longest path. */
-            totalDurationDays: number;
-            /** @description Count of on-CP activities (NOT the CP day-sum). */
-            criticalPathActivityCount: number;
-            /** @description = totalDurationDays (the longest path is the CP length). */
-            criticalPathDays: number;
-            /** @description The loosest slack across all nodes. */
-            maxFloat: number;
-            /** @description Off-CP nodes inside the near-critical band. */
-            nearCriticalCount: number;
-        };
-        /** @description projectstate.NetworkMilestone — one authored zero-duration event node (M0–M5 + N-DOGFOOD). id/name/public/dependsOn are AUTHORED; onCriticalPath + eventTime are COMPUTED at read (eventTime = max predecessor earliest-finish; 0 with no predecessors) and are ABSENT on the authored on-disk document — present only on the wire after the server's compute-at-read pass. Milestones are EXCLUDED from the risk decomposition. */
-        NetworkMilestone: {
-            id: string;
-            name: string;
-            /** @description A demo-to-management gate vs an internal hurdle. */
-            public: boolean;
-            /** @description Predecessor activity ids (the fan-in). */
-            dependsOn?: string[];
-            /** @description Computed at read. */
-            onCriticalPath?: boolean;
-            /** @description Computed at read — sim-days; max predecessor earliestFinish. */
-            eventTime?: number;
-        };
-        /** @description projectstate.Network — the Phase-2 `network` slot model. AUTHORED inputs (dependencies, criticalPath, milestones) plus the compute-at-read block (computed, summary, milestone onCriticalPath/eventTime). The computed/summary blocks are absent in the stored document and present only on the wire the SPA reads (the projectManager fills them per read via the constructionEstimation Engine's ComputeNetwork op). */
-        NetworkModel: {
-            /** @description AUTHORED — the activity dependency edges (fan-in per activity). */
-            dependencies: components["schemas"]["NetworkDependency"][];
-            /** @description AUTHORED — activity names on the computed critical path. */
-            criticalPath: string[];
-            /** @description AUTHORED event nodes; onCriticalPath/eventTime computed at read. */
-            milestones?: components["schemas"]["NetworkMilestone"][];
-            /** @description COMPUTE-AT-READ — per-activity CPM result keyed by activity id. Absent on disk; present on the wire. */
-            computed?: {
-                [key: string]: components["schemas"]["NetworkNodeCompute"];
-            };
-            summary?: components["schemas"]["NetworkSummary"];
-        };
-        /**
-         * @description The architect's decision at the option-commitment gate.
-         * @enum {string}
-         */
-        SDPDecision: "commit" | "rejectAll";
-        /**
-         * @description Phase-2 (project design / UC2) session stage wire string. draftFailed is the human-actionable terminal-failure stage the session lands in when the dispatched async agentic design job fails in the user's CI — surfaced as a distinct stage so the SPA renders a retry/withdraw affordance, never a wedged generating spinner.
-         * @enum {string}
-         */
-        ProjectSessionStage: "drafting" | "assemblingSdp" | "awaitingReview" | "redrafting" | "committed" | "withdrawn" | "refused" | "draftFailed" | "unknown";
-        RequestProjectArtifactDraftRequest: {
-            artifactKind: components["schemas"]["ProjectArtifactKind"];
-            /** @description Optional free-text woven into the next draft on a re-entry. */
-            feedback?: string | null;
-        };
-        SubmitProjectReviewDecisionRequest: {
-            artifactKind: components["schemas"]["ProjectArtifactKind"];
-            decision: components["schemas"]["ReviewDecision"];
-            /** @description REQUIRED by the Manager when decision is "reject"; optional on "withdraw". */
-            feedback?: string | null;
-        };
-        SubmitSDPDecisionRequest: {
-            decision: components["schemas"]["SDPDecision"];
-            /** @description REQUIRED by the Manager when decision is "commit" — names the chosen option. */
-            optionId?: string | null;
-            /** @description REQUIRED by the Manager when decision is "rejectAll". */
-            feedback?: string | null;
-        };
-        ProjectPhaseAdvanceResponse: {
-            advanced: boolean;
-            /** @description Non-empty when advanced=false — the Phase-2 slots not yet Committed (or sdpReview not committed with a bound option). The NORMAL gating answer (HTTP 200), not an error. */
-            missingArtifacts: components["schemas"]["ProjectArtifactKind"][];
-        };
-        ProjectSessionStateResponse: {
+        OperationsOperatedSystemView: {
+            Autoscaler: components["schemas"]["OperationsAutoscalerView"];
+            CurrentRunRate: components["schemas"]["OperationsMoney"];
+            Health: components["schemas"]["OperationsHealthSnapshotView"];
+            InFlight: boolean;
             /** Format: uuid */
-            projectId: string;
-            artifactKind: components["schemas"]["ProjectArtifactKind"];
-            stage: components["schemas"]["ProjectSessionStage"];
-            /** @description The projectDesignManager.SessionStateView, serialized via the Manager's own discriminated JSON codec (carries the staged typed Draft / assembled SdpReview + latest findings). Opaque to the transport contract. */
-            view: Record<string, never>;
+            OperatedAppID: string;
+            Phase: components["schemas"]["OperationsRuntimeStatusSeam"];
+            RecentEvents: null | components["schemas"]["OperationsRuntimeStatusEventView"][];
+            Slos: null | components["schemas"]["OperationsSloRowView"][];
         };
+        /** @enum {integer} */
+        OperationsPatchKind: 0 | 1 | 2 | 3;
+        OperationsReconcileResult: {
+            observed: number;
+            republished: number;
+            transitions: number;
+        };
+        OperationsReconcileScope: {
+            appIds?: null | string[];
+        };
+        OperationsRuntimeStatusEventView: {
+            /** Format: date-time */
+            At: string;
+            From: components["schemas"]["OperationsRuntimeStatusSeam"];
+            Note: string;
+            To: components["schemas"]["OperationsRuntimeStatusSeam"];
+        };
+        /** @enum {integer} */
+        OperationsRuntimeStatusSeam: 0 | 1 | 2 | 3 | 4;
+        OperationsScalePoint: {
+            replicas: number;
+        };
+        OperationsScaleWhatIfPoints: {
+            points?: null | components["schemas"]["OperationsScalePoint"][];
+        };
+        OperationsSloRowView: {
+            Component: string;
+            Healthy: boolean;
+            Objective: string;
+            SloMet: boolean;
+        };
+        OperationsWhatIfCurve: {
+            Points: null | components["schemas"]["OperationsWhatIfPoint"][];
+        };
+        OperationsWhatIfPoint: {
+            ProjectedMonthlyCost: components["schemas"]["OperationsMoney"];
+            Replicas: number;
+        };
+        OperationsWithdrawReason: {
+            notes: string;
+        };
+        OperationsWithdrawResult: {
+            withdrawn: boolean;
+        };
+        /** @enum {integer} */
+        ProjectActivityBuildStatus: 0 | 1 | 2 | 3;
+        /** @enum {integer} */
+        ProjectActivityConstructionPhase: 0 | 1 | 2 | 3;
+        ProjectActivityConstructionStatus: {
+            ActivityID: string;
+            BuildStatus: components["schemas"]["ProjectActivityBuildStatus"];
+            CurrentPhase: components["schemas"]["ProjectActivityMethodPhase"];
+            FailureDetail: string;
+            FailureReason: components["schemas"]["ProjectFailureReason"];
+            Kind: components["schemas"]["ProjectActivityType"];
+            Phase: components["schemas"]["ProjectActivityConstructionPhase"];
+            Phases: null | components["schemas"]["ProjectPhaseCompletion"][];
+            Produced: null | components["schemas"]["ProjectProducedArtifact"][];
+            Type: components["schemas"]["ProjectActivityType"];
+            Variant: components["schemas"]["ProjectTestingVariant"];
+            /** Format: date-time */
+            completedAt?: null | string;
+            /** Format: date-time */
+            startedAt?: null | string;
+        };
+        ProjectActivityGitStatus: {
+            ActivityID: string;
+            ArchApproved: boolean;
+            BranchName: string;
+            BranchRef: string;
+            CICheck: components["schemas"]["ProjectCICheckState"];
+            CRLabel: string;
+            IsRevert: boolean;
+            Merged: boolean;
+            PrNumber: number;
+            PrURL: string;
+            PullRequestRef: string;
+            /** Format: date-time */
+            UpdatedAt: string;
+        };
+        ProjectActivityMethodPhase: string;
+        /** @enum {integer} */
+        ProjectActivityType: 0 | 1 | 2 | 3 | 4;
+        ProjectArtifactSlotModel: {
+            kind: string;
+            model?: null;
+        };
+        ProjectArtifactSlotView: {
+            kind: string;
+            model: components["schemas"]["ProjectArtifactSlotModel"];
+            notes?: null | string;
+            stage: components["schemas"]["ProjectArtifactStage"];
+        };
+        /** @enum {integer} */
+        ProjectArtifactStage: 0 | 1 | 2 | 3 | 4;
+        /** @enum {integer} */
+        ProjectCICheckState: 0 | 1 | 2;
+        ProjectConstructionProgress: {
+            EV: components["schemas"]["ProjectEVCurve"];
+            HandOffModel: string;
+            SupervisionCap: number;
+            TotalWeeks: number;
+            Week: number;
+        };
+        ProjectContractOp: {
+            Inputs: null | components["schemas"]["ProjectContractStruct"][];
+            Note: string;
+            Outputs: null | components["schemas"]["ProjectContractStruct"][];
+            Signature: string;
+            Stereotype: string;
+        };
+        ProjectContractParty: {
+            How: string;
+            Layer: string;
+            Name: string;
+        };
+        ProjectContractRevision: {
+            At: string;
+            By: string;
+            ByActivity: string;
+            Rev: string;
+            Summary: string;
+        };
+        ProjectContractStruct: {
+            Fields: null | components["schemas"]["ProjectGoField"][];
+            Name: string;
+        };
+        /** @enum {integer} */
+        ProjectDesignArtifactKind: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16;
+        ProjectDesignDraftModel: {
+            kind: string;
+            model?: null;
+        };
+        ProjectDesignErrorResponse: {
+            code: string;
+            error: string;
+        };
+        ProjectDesignFinding: {
+            location?: components["schemas"]["ProjectDesignLocation"];
+            message: string;
+            ruleId: components["schemas"]["ProjectDesignRuleID"];
+            severity: components["schemas"]["ProjectDesignSeverity"];
+        };
+        ProjectDesignLocation: {
+            ordinal: number;
+            section: string;
+        };
+        ProjectDesignOptionID: string;
+        ProjectDesignPhaseAdvanceResult: {
+            advanced: boolean;
+            missingArtifacts: null | components["schemas"]["ProjectDesignArtifactKind"][];
+        };
+        ProjectDesignProjectID: string;
+        /** @enum {integer} */
+        ProjectDesignReviewDecision: 0 | 1 | 2 | 3;
+        ProjectDesignReviewFeedback: {
+            notes: string;
+        };
+        ProjectDesignRuleID: string;
+        /** @enum {integer} */
+        ProjectDesignSDPDecision: 0 | 1 | 2;
+        ProjectDesignSessionRef: string;
+        /** @enum {integer} */
+        ProjectDesignSessionStage: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+        ProjectDesignSessionStateView: {
+            artifactKind: components["schemas"]["ProjectDesignArtifactKind"];
+            draft: components["schemas"]["ProjectDesignDraftModel"];
+            failureReason?: null | string;
+            findings?: null | components["schemas"]["ProjectDesignFinding"][];
+            projectId: components["schemas"]["ProjectDesignProjectID"];
+            stage: components["schemas"]["ProjectDesignSessionStage"];
+        };
+        /** @enum {string} */
+        ProjectDesignSeverity: "info" | "warning" | "error";
+        ProjectEVCurve: {
+            earned: null | number[];
+            planned: null | number[];
+            spi: number;
+            weeks: null | number[];
+        };
+        ProjectErrorResponse: {
+            code: string;
+            error: string;
+        };
+        /** @enum {integer} */
+        ProjectFailureReason: 0 | 1 | 2 | 3 | 4 | 5;
+        ProjectGoField: {
+            Name: string;
+            Note: string;
+            Type: string;
+        };
+        ProjectOwnerScope: string;
+        /** @enum {integer} */
+        ProjectPhase: 0 | 1 | 2;
+        ProjectPhaseCompletion: {
+            ArtifactRef: string;
+            Completed: boolean;
+            Phase: components["schemas"]["ProjectActivityMethodPhase"];
+            Weight: number;
+            /** Format: date-time */
+            completedAt?: null | string;
+        };
+        ProjectProducedArtifact: {
+            Kind: string;
+            Note: string;
+            Produced: boolean;
+            Source: string;
+            Title: string;
+        };
+        ProjectProjectID: string;
+        ProjectProjectState: {
+            ActivityConstruction: {
+                [key: string]: components["schemas"]["ProjectActivityConstructionStatus"];
+            };
+            GitRows: {
+                [key: string]: components["schemas"]["ProjectActivityGitStatus"];
+            };
+            Name: string;
+            Owner: components["schemas"]["ProjectOwnerScope"];
+            Phase: components["schemas"]["ProjectPhase"];
+            ProjectID: components["schemas"]["ProjectProjectID"];
+            Research: components["schemas"]["ProjectResearchInput"];
+            ServiceContracts: {
+                [key: string]: components["schemas"]["ProjectServiceContract"];
+            };
+            Slots: null | components["schemas"]["ProjectArtifactSlotView"][];
+            Version: number;
+            constructionProgress?: components["schemas"]["ProjectConstructionProgress"];
+        };
+        ProjectProjectSummary: {
+            CommittedCount: number;
+            Name: string;
+            Owner: components["schemas"]["ProjectOwnerScope"];
+            Phase: components["schemas"]["ProjectPhase"];
+            ProjectID: components["schemas"]["ProjectProjectID"];
+            TotalCount: number;
+            /** Format: date-time */
+            UpdatedAt: string;
+        };
+        ProjectResearchInput: {
+            Sources: null | components["schemas"]["ProjectResearchSource"][];
+        };
+        ProjectResearchSource: {
+            Content: string;
+            Title: string;
+        };
+        ProjectServiceContract: {
+            Component: string;
+            DataContracts: null | string[];
+            ErrorModel: string;
+            Idempotency: string;
+            Inbound: null | components["schemas"]["ProjectContractParty"][];
+            Layer: string;
+            Ops: null | components["schemas"]["ProjectContractOp"][];
+            Outbound: null | components["schemas"]["ProjectContractParty"][];
+            Revisions: null | components["schemas"]["ProjectContractRevision"][];
+            Status: string;
+            Stereotype: string;
+            Volatility: string;
+        };
+        /** @enum {integer} */
+        ProjectTestingVariant: 0 | 1 | 2 | 3 | 4;
+        SystemDesignAnchoredComment: {
+            jsonPath: string;
+            text: string;
+        };
+        /** @enum {integer} */
+        SystemDesignArtifactKind: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16;
+        SystemDesignDraftModel: {
+            kind: string;
+            model?: null;
+        };
+        SystemDesignErrorResponse: {
+            code: string;
+            error: string;
+        };
+        SystemDesignFinding: {
+            location?: components["schemas"]["SystemDesignLocation"];
+            message: string;
+            ruleId: components["schemas"]["SystemDesignRuleID"];
+            severity: components["schemas"]["SystemDesignSeverity"];
+        };
+        SystemDesignLocation: {
+            ordinal: number;
+            section: string;
+        };
+        SystemDesignPhaseAdvanceResult: {
+            advanced: boolean;
+            missingArtifacts: null | components["schemas"]["SystemDesignArtifactKind"][];
+        };
+        SystemDesignProjectID: string;
+        SystemDesignResearchInput: {
+            sources: null | components["schemas"]["SystemDesignResearchSource"][];
+        };
+        SystemDesignResearchSource: {
+            content: string;
+            title: string;
+        };
+        /** @enum {integer} */
+        SystemDesignReviewDecision: 0 | 1 | 2 | 3;
+        SystemDesignReviewFeedback: {
+            comments?: null | components["schemas"]["SystemDesignAnchoredComment"][];
+            notes: string;
+        };
+        SystemDesignRuleID: string;
+        SystemDesignSessionRef: string;
+        /** @enum {integer} */
+        SystemDesignSessionStage: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
+        SystemDesignSessionStateView: {
+            artifactKind: components["schemas"]["SystemDesignArtifactKind"];
+            draft: components["schemas"]["SystemDesignDraftModel"];
+            failureReason?: null | string;
+            findings?: null | components["schemas"]["SystemDesignFinding"][];
+            projectId: components["schemas"]["SystemDesignProjectID"];
+            stage: components["schemas"]["SystemDesignSessionStage"];
+        };
+        /** @enum {string} */
+        SystemDesignSeverity: "info" | "warning" | "error";
+        SystemDesignVersion: number;
     };
-    responses: {
-        /** @description Malformed request (invalid JSON, missing/invalid projectId or artifactKind). */
-        BadRequest: {
-            headers: {
-                [name: string]: unknown;
-            };
-            content: {
-                "application/json": components["schemas"]["ErrorResponse"];
-            };
-        };
-        /** @description Edge-forwarded claims absent or unresolvable to a principal. */
-        Unauthorized: {
-            headers: {
-                [name: string]: unknown;
-            };
-            content: {
-                "application/json": components["schemas"]["ErrorResponse"];
-            };
-        };
-        /** @description Authorization denied (fail-closed; a security error is treated as Deny). */
-        Forbidden: {
-            headers: {
-                [name: string]: unknown;
-            };
-            content: {
-                "application/json": components["schemas"]["ErrorResponse"];
-            };
-        };
-        /** @description Addressed a project or session that does not exist. */
-        NotFound: {
-            headers: {
-                [name: string]: unknown;
-            };
-            content: {
-                "application/json": components["schemas"]["ErrorResponse"];
-            };
-        };
-    };
-    parameters: {
-        /** @description The project aggregate id every project-scoped route is nested under. */
-        ProjectId: string;
-    };
+    responses: never;
+    parameters: never;
     requestBodies: never;
     headers: never;
     pathItems: never;
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    listProjects: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The owner's catalog rows. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProjectSummary"][];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-        };
-    };
-    createProject: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateProjectRequest"];
-            };
-        };
-        responses: {
-            /** @description Project created. */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CreateProjectResponse"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-        };
-    };
-    getProject: {
+    ExecuteNextActivity: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                /** @description The project aggregate id every project-scoped route is nested under. */
-                projectId: components["parameters"]["ProjectId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The project's typed head-state. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProjectState"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-        };
-    };
-    setResearchInput: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The project aggregate id every project-scoped route is nested under. */
-                projectId: components["parameters"]["ProjectId"];
+                projectID: components["schemas"]["ConstructionProjectID"];
             };
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["SetResearchInputRequest"];
+                "application/json": {
+                    tickID: string;
+                };
             };
         };
         responses: {
-            /** @description Research input durably recorded; the start precondition is now satisfiable. */
+            /** @description success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConstructionPumpResult"];
+                };
+            };
+            /** @description contract misuse */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConstructionErrorResponse"];
+                };
+            };
+            /** @description unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConstructionErrorResponse"];
+                };
+            };
+            /** @description forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConstructionErrorResponse"];
+                };
+            };
+            /** @description not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConstructionErrorResponse"];
+                };
+            };
+            /** @description failed precondition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConstructionErrorResponse"];
+                };
+            };
+            /** @description internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConstructionErrorResponse"];
+                };
+            };
+            /** @description infrastructure unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConstructionErrorResponse"];
+                };
+            };
+        };
+    };
+    GetSessionState: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectID: components["schemas"]["ConstructionProjectID"];
+                activityID: components["schemas"]["ConstructionActivityID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConstructionConstructionSessionView"];
+                };
+            };
+            /** @description contract misuse */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConstructionErrorResponse"];
+                };
+            };
+            /** @description unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConstructionErrorResponse"];
+                };
+            };
+            /** @description forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConstructionErrorResponse"];
+                };
+            };
+            /** @description not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConstructionErrorResponse"];
+                };
+            };
+            /** @description failed precondition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConstructionErrorResponse"];
+                };
+            };
+            /** @description internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConstructionErrorResponse"];
+                };
+            };
+            /** @description infrastructure unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConstructionErrorResponse"];
+                };
+            };
+        };
+    };
+    OverrideActivity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectID: components["schemas"]["ConstructionProjectID"];
+                activityID: components["schemas"]["ConstructionActivityID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    override: components["schemas"]["ConstructionActivityOverride"];
+                };
+            };
+        };
+        responses: {
+            /** @description no content */
             204: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-        };
-    };
-    startSystemDesign: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The project aggregate id every project-scoped route is nested under. */
-                projectId: components["parameters"]["ProjectId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Parent workflow durably accepted. */
-            202: {
+            /** @description contract misuse */
+            400: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SessionRefResponse"];
+                    "application/json": components["schemas"]["ConstructionErrorResponse"];
                 };
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            /** @description ResearchInput not populated (failed_precondition). */
+            /** @description unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConstructionErrorResponse"];
+                };
+            };
+            /** @description forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConstructionErrorResponse"];
+                };
+            };
+            /** @description not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConstructionErrorResponse"];
+                };
+            };
+            /** @description failed precondition */
             409: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
+                    "application/json": components["schemas"]["ConstructionErrorResponse"];
+                };
+            };
+            /** @description internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConstructionErrorResponse"];
+                };
+            };
+            /** @description infrastructure unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConstructionErrorResponse"];
                 };
             };
         };
     };
-    requestArtifactDraft: {
+    PauseProject: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                /** @description The project aggregate id every project-scoped route is nested under. */
-                projectId: components["parameters"]["ProjectId"];
+                projectID: components["schemas"]["ConstructionProjectID"];
             };
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["RequestArtifactDraftRequest"];
+                "application/json": {
+                    reason: string;
+                };
             };
         };
         responses: {
-            /** @description Draft workflow durably accepted. */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SessionRefResponse"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            /** @description Wrong-phase kind or blocked phase gate (failed_precondition). */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    submitReviewDecision: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The project aggregate id every project-scoped route is nested under. */
-                projectId: components["parameters"]["ProjectId"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SubmitReviewDecisionRequest"];
-            };
-        };
-        responses: {
-            /** @description Decision signal durably enqueued. */
+            /** @description no content */
             204: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            /** @description Session not in a reviewable stage — e.g. the gate is not awaiting a decision, or a decision was already delivered (failed_precondition). The Manager maps this to fwmanager.FailedPrecondition → HTTP 409. */
+            /** @description contract misuse */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConstructionErrorResponse"];
+                };
+            };
+            /** @description unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConstructionErrorResponse"];
+                };
+            };
+            /** @description forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConstructionErrorResponse"];
+                };
+            };
+            /** @description not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConstructionErrorResponse"];
+                };
+            };
+            /** @description failed precondition */
             409: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
+                    "application/json": components["schemas"]["ConstructionErrorResponse"];
                 };
             };
-        };
-    };
-    advancePhase: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The project aggregate id every project-scoped route is nested under. */
-                projectId: components["parameters"]["ProjectId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Gating outcome (advanced, or still-owed artifacts). */
-            200: {
+            /** @description internal error */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PhaseAdvanceResponse"];
+                    "application/json": components["schemas"]["ConstructionErrorResponse"];
                 };
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            /** @description The phase cannot be sealed in its current state — e.g. Phase 1 is not the project's active phase (failed_precondition). NOTE: still-owed artifacts are the NORMAL gating answer (HTTP 200, advanced=false with missingArtifacts), NOT a 409. A 409 is reserved for the Manager rejecting the advance attempt itself (fwmanager.FailedPrecondition). */
-            409: {
+            /** @description infrastructure unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
+                    "application/json": components["schemas"]["ConstructionErrorResponse"];
                 };
             };
         };
     };
-    getSessionState: {
+    RunReplanSweep: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                /** @description The project aggregate id every project-scoped route is nested under. */
-                projectId: components["parameters"]["ProjectId"];
-                artifactKind: components["schemas"]["ArtifactKind"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Point-in-time session view. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SessionStateResponse"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-        };
-    };
-    requestProjectArtifactDraft: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The project aggregate id every project-scoped route is nested under. */
-                projectId: components["parameters"]["ProjectId"];
+                projectID: components["schemas"]["ConstructionProjectID"];
             };
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["RequestProjectArtifactDraftRequest"];
+                "application/json": {
+                    tickID: string;
+                };
             };
         };
         responses: {
-            /** @description Draft workflow durably accepted. */
-            202: {
+            /** @description success */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SessionRefResponse"];
+                    "application/json": components["schemas"]["ConstructionReplanSweepResult"];
                 };
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            /** @description Non-Phase-2 kind, sdpReview, or blocked phase gate (failed_precondition). */
+            /** @description contract misuse */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConstructionErrorResponse"];
+                };
+            };
+            /** @description unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConstructionErrorResponse"];
+                };
+            };
+            /** @description forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConstructionErrorResponse"];
+                };
+            };
+            /** @description not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConstructionErrorResponse"];
+                };
+            };
+            /** @description failed precondition */
             409: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
+                    "application/json": components["schemas"]["ConstructionErrorResponse"];
+                };
+            };
+            /** @description internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConstructionErrorResponse"];
+                };
+            };
+            /** @description infrastructure unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConstructionErrorResponse"];
                 };
             };
         };
     };
-    submitProjectReviewDecision: {
+    ApplyDelinquencyPolicy: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                /** @description The project aggregate id every project-scoped route is nested under. */
-                projectId: components["parameters"]["ProjectId"];
+                customerID: string;
             };
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["SubmitProjectReviewDecisionRequest"];
+                "application/json": {
+                    delinquencyContext: components["schemas"]["OperationsDelinquencyContext"];
+                };
             };
         };
         responses: {
-            /** @description Decision signal durably enqueued. */
+            /** @description no content */
             204: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-        };
-    };
-    requestSDPCommit: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The project aggregate id every project-scoped route is nested under. */
-                projectId: components["parameters"]["ProjectId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description SDP-review workflow durably accepted. */
-            202: {
+            /** @description contract misuse */
+            400: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SessionRefResponse"];
+                    "application/json": components["schemas"]["OperationsErrorResponse"];
                 };
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
+            /** @description unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationsErrorResponse"];
+                };
+            };
+            /** @description forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationsErrorResponse"];
+                };
+            };
+            /** @description not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationsErrorResponse"];
+                };
+            };
+            /** @description failed precondition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationsErrorResponse"];
+                };
+            };
+            /** @description internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationsErrorResponse"];
+                };
+            };
+            /** @description infrastructure unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationsErrorResponse"];
+                };
+            };
         };
     };
-    submitSDPDecision: {
+    DeployAfterConstruction: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                /** @description The project aggregate id every project-scoped route is nested under. */
-                projectId: components["parameters"]["ProjectId"];
+                operatedAppID: string;
             };
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["SubmitSDPDecisionRequest"];
-            };
-        };
-        responses: {
-            /** @description Decision signal durably enqueued. */
-            204: {
-                headers: {
-                    [name: string]: unknown;
+                "application/json": {
+                    change: components["schemas"]["OperationsDesiredStateChange"];
                 };
-                content?: never;
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
         };
-    };
-    advanceToConstruction: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The project aggregate id every project-scoped route is nested under. */
-                projectId: components["parameters"]["ProjectId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
         responses: {
-            /** @description Gating outcome (advanced, or still-owed artifacts). */
+            /** @description success */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ProjectPhaseAdvanceResponse"];
+                    "application/json": components["schemas"]["OperationsDeployResult"];
                 };
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
+            /** @description contract misuse */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationsErrorResponse"];
+                };
+            };
+            /** @description unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationsErrorResponse"];
+                };
+            };
+            /** @description forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationsErrorResponse"];
+                };
+            };
+            /** @description not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationsErrorResponse"];
+                };
+            };
+            /** @description failed precondition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationsErrorResponse"];
+                };
+            };
+            /** @description internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationsErrorResponse"];
+                };
+            };
+            /** @description infrastructure unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationsErrorResponse"];
+                };
+            };
         };
     };
-    getProjectSessionState: {
+    QueryCostProjection: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                /** @description The project aggregate id every project-scoped route is nested under. */
-                projectId: components["parameters"]["ProjectId"];
-                artifactKind: components["schemas"]["ProjectArtifactKind"];
+                operatedAppID: string;
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": {
+                    points?: components["schemas"]["OperationsScaleWhatIfPoints"];
+                    requestID: string;
+                };
+            };
+        };
         responses: {
-            /** @description Point-in-time session view. */
+            /** @description success */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ProjectSessionStateResponse"];
+                    "application/json": components["schemas"]["OperationsCostProjectionSeam"];
                 };
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
+            /** @description contract misuse */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationsErrorResponse"];
+                };
+            };
+            /** @description unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationsErrorResponse"];
+                };
+            };
+            /** @description forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationsErrorResponse"];
+                };
+            };
+            /** @description not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationsErrorResponse"];
+                };
+            };
+            /** @description failed precondition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationsErrorResponse"];
+                };
+            };
+            /** @description internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationsErrorResponse"];
+                };
+            };
+            /** @description infrastructure unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationsErrorResponse"];
+                };
+            };
         };
     };
-    healthz: {
+    QueryOperatedSystemView: {
+        parameters: {
+            query: {
+                requestID: string;
+            };
+            header?: never;
+            path: {
+                operatedAppID: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationsOperatedSystemView"];
+                };
+            };
+            /** @description contract misuse */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationsErrorResponse"];
+                };
+            };
+            /** @description unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationsErrorResponse"];
+                };
+            };
+            /** @description forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationsErrorResponse"];
+                };
+            };
+            /** @description not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationsErrorResponse"];
+                };
+            };
+            /** @description failed precondition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationsErrorResponse"];
+                };
+            };
+            /** @description internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationsErrorResponse"];
+                };
+            };
+            /** @description infrastructure unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationsErrorResponse"];
+                };
+            };
+        };
+    };
+    ReconcileOperatedState: {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": {
+                    scope?: components["schemas"]["OperationsReconcileScope"];
+                    tickID: string;
+                };
+            };
+        };
         responses: {
-            /** @description OK. */
+            /** @description success */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        status?: string;
-                    };
+                    "application/json": components["schemas"]["OperationsReconcileResult"];
+                };
+            };
+            /** @description contract misuse */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationsErrorResponse"];
+                };
+            };
+            /** @description unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationsErrorResponse"];
+                };
+            };
+            /** @description forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationsErrorResponse"];
+                };
+            };
+            /** @description not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationsErrorResponse"];
+                };
+            };
+            /** @description failed precondition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationsErrorResponse"];
+                };
+            };
+            /** @description internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationsErrorResponse"];
+                };
+            };
+            /** @description infrastructure unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationsErrorResponse"];
                 };
             };
         };
     };
-    readyz: {
+    WithdrawSystem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                operatedAppID: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    changeID: string;
+                    reason: components["schemas"]["OperationsWithdrawReason"];
+                };
+            };
+        };
+        responses: {
+            /** @description success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationsWithdrawResult"];
+                };
+            };
+            /** @description contract misuse */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationsErrorResponse"];
+                };
+            };
+            /** @description unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationsErrorResponse"];
+                };
+            };
+            /** @description forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationsErrorResponse"];
+                };
+            };
+            /** @description not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationsErrorResponse"];
+                };
+            };
+            /** @description failed precondition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationsErrorResponse"];
+                };
+            };
+            /** @description internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationsErrorResponse"];
+                };
+            };
+            /** @description infrastructure unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationsErrorResponse"];
+                };
+            };
+        };
+    };
+    AdvanceToConstruction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectID: components["schemas"]["ProjectDesignProjectID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDesignPhaseAdvanceResult"];
+                };
+            };
+            /** @description contract misuse */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDesignErrorResponse"];
+                };
+            };
+            /** @description unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDesignErrorResponse"];
+                };
+            };
+            /** @description forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDesignErrorResponse"];
+                };
+            };
+            /** @description not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDesignErrorResponse"];
+                };
+            };
+            /** @description failed precondition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDesignErrorResponse"];
+                };
+            };
+            /** @description internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDesignErrorResponse"];
+                };
+            };
+            /** @description infrastructure unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDesignErrorResponse"];
+                };
+            };
+        };
+    };
+    GetSessionState_2: {
+        parameters: {
+            query: {
+                kind: components["schemas"]["ProjectDesignArtifactKind"];
+            };
+            header?: never;
+            path: {
+                projectID: components["schemas"]["ProjectDesignProjectID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDesignSessionStateView"];
+                };
+            };
+            /** @description contract misuse */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDesignErrorResponse"];
+                };
+            };
+            /** @description unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDesignErrorResponse"];
+                };
+            };
+            /** @description forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDesignErrorResponse"];
+                };
+            };
+            /** @description not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDesignErrorResponse"];
+                };
+            };
+            /** @description failed precondition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDesignErrorResponse"];
+                };
+            };
+            /** @description internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDesignErrorResponse"];
+                };
+            };
+            /** @description infrastructure unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDesignErrorResponse"];
+                };
+            };
+        };
+    };
+    RequestArtifactDraft: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectID: components["schemas"]["ProjectDesignProjectID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    feedback?: components["schemas"]["ProjectDesignReviewFeedback"];
+                    kind: components["schemas"]["ProjectDesignArtifactKind"];
+                };
+            };
+        };
+        responses: {
+            /** @description success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDesignSessionRef"];
+                };
+            };
+            /** @description contract misuse */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDesignErrorResponse"];
+                };
+            };
+            /** @description unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDesignErrorResponse"];
+                };
+            };
+            /** @description forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDesignErrorResponse"];
+                };
+            };
+            /** @description not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDesignErrorResponse"];
+                };
+            };
+            /** @description failed precondition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDesignErrorResponse"];
+                };
+            };
+            /** @description internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDesignErrorResponse"];
+                };
+            };
+            /** @description infrastructure unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDesignErrorResponse"];
+                };
+            };
+        };
+    };
+    RequestSDPCommit: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectID: components["schemas"]["ProjectDesignProjectID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDesignSessionRef"];
+                };
+            };
+            /** @description contract misuse */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDesignErrorResponse"];
+                };
+            };
+            /** @description unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDesignErrorResponse"];
+                };
+            };
+            /** @description forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDesignErrorResponse"];
+                };
+            };
+            /** @description not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDesignErrorResponse"];
+                };
+            };
+            /** @description failed precondition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDesignErrorResponse"];
+                };
+            };
+            /** @description internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDesignErrorResponse"];
+                };
+            };
+            /** @description infrastructure unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDesignErrorResponse"];
+                };
+            };
+        };
+    };
+    SubmitReviewDecision: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectID: components["schemas"]["ProjectDesignProjectID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    decision: components["schemas"]["ProjectDesignReviewDecision"];
+                    feedback?: components["schemas"]["ProjectDesignReviewFeedback"];
+                    kind: components["schemas"]["ProjectDesignArtifactKind"];
+                };
+            };
+        };
+        responses: {
+            /** @description no content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description contract misuse */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDesignErrorResponse"];
+                };
+            };
+            /** @description unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDesignErrorResponse"];
+                };
+            };
+            /** @description forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDesignErrorResponse"];
+                };
+            };
+            /** @description not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDesignErrorResponse"];
+                };
+            };
+            /** @description failed precondition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDesignErrorResponse"];
+                };
+            };
+            /** @description internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDesignErrorResponse"];
+                };
+            };
+            /** @description infrastructure unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDesignErrorResponse"];
+                };
+            };
+        };
+    };
+    SubmitSDPDecision: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectID: components["schemas"]["ProjectDesignProjectID"];
+                optionID: components["schemas"]["ProjectDesignOptionID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    decision: components["schemas"]["ProjectDesignSDPDecision"];
+                    feedback?: components["schemas"]["ProjectDesignReviewFeedback"];
+                };
+            };
+        };
+        responses: {
+            /** @description no content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description contract misuse */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDesignErrorResponse"];
+                };
+            };
+            /** @description unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDesignErrorResponse"];
+                };
+            };
+            /** @description forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDesignErrorResponse"];
+                };
+            };
+            /** @description not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDesignErrorResponse"];
+                };
+            };
+            /** @description failed precondition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDesignErrorResponse"];
+                };
+            };
+            /** @description internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDesignErrorResponse"];
+                };
+            };
+            /** @description infrastructure unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDesignErrorResponse"];
+                };
+            };
+        };
+    };
+    CreateProject: {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": {
+                    name: string;
+                    owner: components["schemas"]["ProjectOwnerScope"];
+                };
+            };
+        };
         responses: {
-            /** @description OK. */
+            /** @description success */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        status?: string;
-                    };
+                    "application/json": components["schemas"]["ProjectProjectID"];
+                };
+            };
+            /** @description contract misuse */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectErrorResponse"];
+                };
+            };
+            /** @description unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectErrorResponse"];
+                };
+            };
+            /** @description forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectErrorResponse"];
+                };
+            };
+            /** @description not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectErrorResponse"];
+                };
+            };
+            /** @description failed precondition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectErrorResponse"];
+                };
+            };
+            /** @description internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectErrorResponse"];
+                };
+            };
+            /** @description infrastructure unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectErrorResponse"];
+                };
+            };
+        };
+    };
+    GetProject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectID: components["schemas"]["ProjectProjectID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectProjectState"];
+                };
+            };
+            /** @description contract misuse */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectErrorResponse"];
+                };
+            };
+            /** @description unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectErrorResponse"];
+                };
+            };
+            /** @description forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectErrorResponse"];
+                };
+            };
+            /** @description not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectErrorResponse"];
+                };
+            };
+            /** @description failed precondition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectErrorResponse"];
+                };
+            };
+            /** @description internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectErrorResponse"];
+                };
+            };
+            /** @description infrastructure unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectErrorResponse"];
+                };
+            };
+        };
+    };
+    ListProjects: {
+        parameters: {
+            query: {
+                owner: components["schemas"]["ProjectOwnerScope"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectProjectSummary"][];
+                };
+            };
+            /** @description contract misuse */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectErrorResponse"];
+                };
+            };
+            /** @description unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectErrorResponse"];
+                };
+            };
+            /** @description forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectErrorResponse"];
+                };
+            };
+            /** @description not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectErrorResponse"];
+                };
+            };
+            /** @description failed precondition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectErrorResponse"];
+                };
+            };
+            /** @description internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectErrorResponse"];
+                };
+            };
+            /** @description infrastructure unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectErrorResponse"];
+                };
+            };
+        };
+    };
+    AdvancePhase: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectID: components["schemas"]["SystemDesignProjectID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignPhaseAdvanceResult"];
+                };
+            };
+            /** @description contract misuse */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description failed precondition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description infrastructure unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+        };
+    };
+    GetSessionState_3: {
+        parameters: {
+            query: {
+                kind: components["schemas"]["SystemDesignArtifactKind"];
+            };
+            header?: never;
+            path: {
+                projectID: components["schemas"]["SystemDesignProjectID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignSessionStateView"];
+                };
+            };
+            /** @description contract misuse */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description failed precondition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description infrastructure unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+        };
+    };
+    RequestArtifactDraft_2: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectID: components["schemas"]["SystemDesignProjectID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    feedback?: components["schemas"]["SystemDesignReviewFeedback"];
+                    kind: components["schemas"]["SystemDesignArtifactKind"];
+                };
+            };
+        };
+        responses: {
+            /** @description success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignSessionRef"];
+                };
+            };
+            /** @description contract misuse */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description failed precondition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description infrastructure unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+        };
+    };
+    SetResearchInput: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectID: components["schemas"]["SystemDesignProjectID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    research: components["schemas"]["SystemDesignResearchInput"];
+                };
+            };
+        };
+        responses: {
+            /** @description success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignVersion"];
+                };
+            };
+            /** @description contract misuse */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description failed precondition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description infrastructure unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+        };
+    };
+    StartSystemDesign: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectID: components["schemas"]["SystemDesignProjectID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignSessionRef"];
+                };
+            };
+            /** @description contract misuse */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description failed precondition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description infrastructure unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+        };
+    };
+    SubmitReviewDecision_2: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectID: components["schemas"]["SystemDesignProjectID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    decision: components["schemas"]["SystemDesignReviewDecision"];
+                    feedback?: components["schemas"]["SystemDesignReviewFeedback"];
+                    kind: components["schemas"]["SystemDesignArtifactKind"];
+                };
+            };
+        };
+        responses: {
+            /** @description no content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description contract misuse */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description failed precondition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description infrastructure unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
                 };
             };
         };

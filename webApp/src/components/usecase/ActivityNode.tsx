@@ -12,13 +12,12 @@ import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Typography from '@mui/material/Typography';
 import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
-import type { components } from '../../api/schema';
+import type { ActivityNodeKind } from '../../api/models';
 import { useTokens } from '../../theme/ThemeContext';
 import type { Tokens } from '../../theme/themes';
 import { useComments } from '../comments/CommentContext';
 import { NODE_DIMS } from './nodeDims';
 
-type ActivityNodeKind = components['schemas']['ActivityNodeKind'];
 
 export interface ActivityNodeData {
   label: string;

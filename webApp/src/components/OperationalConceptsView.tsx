@@ -17,14 +17,13 @@ import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import { useParams } from '@tanstack/react-router';
 import { listDeploymentProfiles, toMarkdown } from '../api/adapters';
 import type { ArtifactModelEnvelope } from '../api/types';
-import type { components } from '../api/schema';
+import type { DeploymentProfile } from '../api/models';
 import { useProject } from '../hooks/useProject';
 import { useTokens } from '../theme/ThemeContext';
 import { Prose } from './Prose';
 import { DeploymentFlow } from './flow/DeploymentFlow';
 import { UI_IDENTIFIERS } from '../constants/UIIdentifiers';
 
-type DeploymentProfile = components['schemas']['DeploymentProfile'];
 
 const PROFILE_LABEL: Record<DeploymentProfile, string> = {
   cloud: 'Cloud',

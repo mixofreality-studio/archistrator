@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "gen:api": "openapi-typescript ../server/api/openapi.yaml -o src/api/schema.ts",
+    "gen:api": "node scripts/gen-api.mjs",
     "prebuild": "npm run gen:api",
     "build": "tsc -b && vite build",
     "lint": "eslint .",

@@ -12,7 +12,7 @@ import Typography from '@mui/material/Typography';
 import Tooltip from '@mui/material/Tooltip';
 import type { Tokens } from '../../theme/themes';
 import { useTokens } from '../../theme/ThemeContext';
-import type { OperationsSlo, OperationsView } from '../../api/operations';
+import type { OperationsSlo, OperationsView } from '../../api/operationsTypes';
 import { normalizePhase, sloSummary, formatEventTime } from '../../api/operationsAdapters';
 import { UI_IDENTIFIERS } from '../../constants/UIIdentifiers';
 import { PhaseChip, SloPill, phaseColor } from './phase';

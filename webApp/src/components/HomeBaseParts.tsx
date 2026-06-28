@@ -158,10 +158,10 @@ export function TocRow({
 /** Extract revenueSharePercent from the committed planningAssumptions slot, if present. */
 function revenueShareValue(project: ProjectState): string {
   const slot = project.slots.find((s) => s.kind === 'planningAssumptions');
-  if (slot === undefined || slot.model === undefined) return '—';
-  const pa = slot.model as unknown as PlanningAssumptionsModel;
-  const pct = pa.terms?.revenueSharePercent;
-  if (pct === undefined || pct === 0) return '—';
+  const pa = slot?.model.model as PlanningAssumptionsModel | undefined;
+  if (pa === undefined) return '—';
+  const pct = pa.terms.revenueSharePercent;
+  if (pct === 0) return '—';
   return `${String(pct)}%`;
 }
 

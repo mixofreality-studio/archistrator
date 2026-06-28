@@ -17,7 +17,7 @@ import RocketLaunchOutlinedIcon from '@mui/icons-material/RocketLaunchOutlined';
 import TrendingUpOutlinedIcon from '@mui/icons-material/TrendingUpOutlined';
 import PowerSettingsNewIcon from '@mui/icons-material/PowerSettingsNew';
 import { useTokens } from '../../theme/ThemeContext';
-import type { OperationsView } from '../../api/operations';
+import type { OperationsView } from '../../api/operationsTypes';
 import { normalizePhase } from '../../api/operationsAdapters';
 import { useOperationAction, useWithdrawOperatedApp } from '../../hooks/useOperationsMutations';
 import { UI_IDENTIFIERS } from '../../constants/UIIdentifiers';
