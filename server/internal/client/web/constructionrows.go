@@ -1,6 +1,8 @@
 package web
 
 import (
+	"encoding/json"
+
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/project"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
@@ -132,8 +134,8 @@ func computeEV(acts []evActivity, deps []evDep, integrated map[string]bool, tota
 // constructionFromState projects the head-state map + progress scalars onto the wire shape and
 // computes EV. Returns (nil, nil) when there is no construction head-state (honest-empty).
 func constructionFromState(
-	rows map[string]projectstate.ActivityConstructionStatus,
-	progress *projectstate.ConstructionProgress,
+	rows map[string]project.ActivityConstructionStatus,
+	progress *project.ConstructionProgress,
 	acts []projectstate.ActivityItem,
 	deps []projectstate.NetworkDependency,
 	calDaysPerWeek int,
@@ -150,20 +152,20 @@ func constructionFromState(
 		}
 		row := constructionRowDTO{
 			ActivityID: r.ActivityID,
-			Kind:       r.Kind.String(),
-			Status:     r.BuildStatus.String(),
-			Phase:      r.Phase.String(),
+			Kind:       project.ActivityTypeName(r.Kind),
+			Status:     project.ActivityBuildStatusName(r.BuildStatus),
+			Phase:      project.ActivityConstructionPhaseName(r.Phase),
 			Produced:   prod,
 		}
 		// Surface the terminal-failure cause so the console can explain a failed node
 		// (the bounded-wait / autonomous-retry fix: a cancelled/failed run no longer
 		// shows as pending forever).
-		if r.Phase == projectstate.ActivityConstructionFailed || r.BuildStatus == projectstate.BuildFailed {
-			row.FailureReason = r.FailureReason.String()
+		if r.Phase == project.ActivityConstructionFailed || r.BuildStatus == project.BuildFailed {
+			row.FailureReason = project.FailureReasonName(r.FailureReason)
 			row.FailureDetail = r.FailureDetail
 		}
 		out[id] = row
-		if r.BuildStatus == projectstate.BuildIntegrated {
+		if r.BuildStatus == project.BuildIntegrated {
 			integrated[id] = true
 		}
 	}
@@ -178,51 +180,70 @@ func constructionFromState(
 			evD = append(evD, evDep{Activity: d.Activity, DependsOn: d.DependsOn})
 		}
 		prog = &constructionProgressDTO{
-			Week:           progress.Week,
-			TotalWeeks:     progress.TotalWeeks,
+			Week:           int(progress.Week),
+			TotalWeeks:     int(progress.TotalWeeks),
 			HandOffModel:   progress.HandOffModel,
-			SupervisionCap: progress.SupervisionCap,
-			EV:             computeEV(evA, evD, integrated, progress.TotalWeeks, calDaysPerWeek),
+			SupervisionCap: int(progress.SupervisionCap),
+			EV:             computeEV(evA, evD, integrated, int(progress.TotalWeeks), calDaysPerWeek),
 		}
 	}
 	return out, prog
 }
 
-// activityItemsFromState extracts the []ActivityItem from the ActivityList slot model.
-// Returns nil when the slot is absent or untyped.
-func activityItemsFromState(s project.ProjectState) []projectstate.ActivityItem {
+// slotModelRaw returns the opaque model JSON for the slot whose kind matches the
+// given projectstate ArtifactKind's canonical wire name, or nil when the slot is
+// absent/empty. The projectManager carries each slot's typed model OPAQUELY (a
+// {kind, raw-json} envelope), so the webClient decodes the raw JSON into the canonical
+// projectstate model here — the read-time enrichment seam (mirrors the manager's own
+// computeNetworkAtRead, which casts the same slots internally).
+func slotModelRaw(s project.ProjectState, kind projectstate.ArtifactKind) []byte {
+	wire := kind.WireName()
 	for _, slot := range s.Slots {
-		if slot.Kind == projectstate.KindActivityList && slot.Model != nil {
-			if al, ok := slot.Model.(*projectstate.ActivityList); ok {
-				return al.Activities
-			}
+		if slot.Kind == wire && slot.Model.Model != nil {
+			return *slot.Model.Model
 		}
 	}
 	return nil
 }
 
-// networkDepsFromState extracts the []NetworkDependency from the Network slot model.
-// Returns nil when the slot is absent or untyped.
-func networkDepsFromState(s project.ProjectState) []projectstate.NetworkDependency {
-	for _, slot := range s.Slots {
-		if slot.Kind == projectstate.KindNetwork && slot.Model != nil {
-			if n, ok := slot.Model.(*projectstate.Network); ok {
-				return n.Dependencies
-			}
-		}
+// activityItemsFromState extracts the []ActivityItem from the ActivityList slot model.
+// Returns nil when the slot is absent or empty.
+func activityItemsFromState(s project.ProjectState) []projectstate.ActivityItem {
+	raw := slotModelRaw(s, projectstate.KindActivityList)
+	if raw == nil {
+		return nil
 	}
-	return nil
+	var al projectstate.ActivityList
+	if err := json.Unmarshal(raw, &al); err != nil {
+		return nil
+	}
+	return al.Activities
+}
+
+// networkDepsFromState extracts the []NetworkDependency from the Network slot model.
+// Returns nil when the slot is absent or empty.
+func networkDepsFromState(s project.ProjectState) []projectstate.NetworkDependency {
+	raw := slotModelRaw(s, projectstate.KindNetwork)
+	if raw == nil {
+		return nil
+	}
+	var n projectstate.Network
+	if err := json.Unmarshal(raw, &n); err != nil {
+		return nil
+	}
+	return n.Dependencies
 }
 
 // calendarDaysFromState extracts the CalendarDaysPerWeek from the PlanningAssumptions
 // slot model. Returns 5 (the standard 5-day workweek) when the slot is absent.
 func calendarDaysFromState(s project.ProjectState) int {
-	for _, slot := range s.Slots {
-		if slot.Kind == projectstate.KindPlanningAssumptions && slot.Model != nil {
-			if pa, ok := slot.Model.(*projectstate.PlanningAssumptions); ok && pa.CalendarDaysPerWeek > 0 {
-				return int(pa.CalendarDaysPerWeek)
-			}
-		}
+	raw := slotModelRaw(s, projectstate.KindPlanningAssumptions)
+	if raw == nil {
+		return 5
+	}
+	var pa projectstate.PlanningAssumptions
+	if err := json.Unmarshal(raw, &pa); err == nil && pa.CalendarDaysPerWeek > 0 {
+		return int(pa.CalendarDaysPerWeek)
 	}
 	return 5
 }

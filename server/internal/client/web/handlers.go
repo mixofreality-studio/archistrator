@@ -290,12 +290,12 @@ func (c *Client) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	id, err := c.project.CreateProject(r.Context(), ownerScopeFor(principal), req.Name)
+	id, err := c.project.CreateProject(projectCtx(r), ownerScopeFor(principal), req.Name)
 	if err != nil {
 		writeManagerError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, createProjectResponse{ProjectID: id.String()})
+	writeJSON(w, http.StatusCreated, createProjectResponse{ProjectID: string(id)})
 }
 
 // handleListProjects — project catalog{ListProjects}. Routes to
@@ -310,7 +310,7 @@ func (c *Client) handleListProjects(w http.ResponseWriter, r *http.Request) {
 	if !c.authorizeCatalog(w, r, "list-projects", principal) {
 		return
 	}
-	summaries, err := c.project.ListProjects(r.Context(), ownerScopeFor(principal))
+	summaries, err := c.project.ListProjects(projectCtx(r), ownerScopeFor(principal))
 	if err != nil {
 		writeManagerError(w, err)
 		return
@@ -334,12 +334,24 @@ func (c *Client) handleGetProject(w http.ResponseWriter, r *http.Request) {
 	if !c.authorizeProject(w, r, "read-project", projectID.String()) {
 		return
 	}
-	state, err := c.project.GetProject(r.Context(), projectID)
+	state, err := c.project.GetProject(projectCtx(r), project.ProjectID(projectID.String()))
 	if err != nil {
 		writeManagerError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, c.projectStateFromManager(state))
+}
+
+// projectCtx builds the Manager-layer call Context for a projectManager op from an
+// HTTP request: the request context plus the authenticated principal (if the auth
+// middleware put one on the context; the zero principal is a safe stopgap). Mirrors
+// constructionCtx (construction.go) / operationsCtx (operations.go).
+func projectCtx(r *http.Request) fwmanager.Context {
+	rc := fwmanager.Context{Context: r.Context()}
+	if p, ok := security.PrincipalFrom(r.Context()); ok {
+		rc.Principal = p
+	}
+	return rc
 }
 
 func (c *Client) handleHealth(w http.ResponseWriter, _ *http.Request) {

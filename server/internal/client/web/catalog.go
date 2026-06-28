@@ -4,7 +4,6 @@ import (
 	"strconv"
 
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/project"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
 // This file is the HTTP/JSON wire binding for the project CATALOG facet
@@ -53,12 +52,12 @@ type projectSummaryResponse struct {
 // projectSummaryFromManager maps a projectManager ProjectSummary onto the wire row.
 func projectSummaryFromManager(s project.ProjectSummary) projectSummaryResponse {
 	return projectSummaryResponse{
-		ProjectID:      s.ProjectID.String(),
+		ProjectID:      string(s.ProjectID),
 		Name:           s.Name,
 		Owner:          string(s.Owner),
 		Phase:          phaseName(s.Phase),
-		CommittedCount: s.CommittedCount,
-		TotalCount:     s.TotalCount,
+		CommittedCount: int(s.CommittedCount),
+		TotalCount:     int(s.TotalCount),
 		UpdatedAt:      s.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z07:00"),
 	}
 }
@@ -146,7 +145,7 @@ func (c *Client) projectStateFromManager(s project.ProjectState) projectStateRes
 		activityItemsFromState(s), networkDepsFromState(s), calendarDaysFromState(s),
 	)
 	return projectStateResponse{
-		ProjectID:            s.ProjectID.String(),
+		ProjectID:            string(s.ProjectID),
 		Name:                 s.Name,
 		Owner:                string(s.Owner),
 		Phase:                phaseName(s.Phase),
@@ -225,18 +224,18 @@ func projectPRRef(ref, repoBase string) (prNumber int, prURL string) {
 // constructionStageName / runtimeStatusName enum-mappers.
 func ciStatusName(s project.CICheckState) string {
 	switch s {
-	case projectstate.CICheckSuccess:
+	case project.CICheckSuccess:
 		return "success"
-	case projectstate.CICheckFailure:
+	case project.CICheckFailure:
 		return "failed"
 	default:
 		return "in_progress"
 	}
 }
 
-// researchInputFromState mirrors projectstate.ResearchInput onto the wire research
+// researchInputFromState mirrors project.ResearchInput onto the wire research
 // DTO (the inverse of setResearchInputRequest.toResearchInput).
-func researchInputFromState(r projectstate.ResearchInput) researchInputDTO {
+func researchInputFromState(r project.ResearchInput) researchInputDTO {
 	sources := make([]researchSourceDTO, 0, len(r.Sources))
 	for _, s := range r.Sources {
 		sources = append(sources, researchSourceDTO{Title: s.Title, Content: s.Content})
@@ -244,14 +243,14 @@ func researchInputFromState(r projectstate.ResearchInput) researchInputDTO {
 	return researchInputDTO{Sources: sources}
 }
 
-// phaseName renders a projectstate.Phase onto the wire as a stable string.
-func phaseName(p projectstate.Phase) string {
+// phaseName renders a project.Phase onto the wire as a stable string.
+func phaseName(p project.Phase) string {
 	switch p {
-	case projectstate.PhaseSystemDesign:
+	case project.PhaseSystemDesign:
 		return "systemDesign"
-	case projectstate.PhaseProjectDesign:
+	case project.PhaseProjectDesign:
 		return "projectDesign"
-	case projectstate.PhaseConstruction:
+	case project.PhaseConstruction:
 		return "construction"
 	default:
 		return "unknown"

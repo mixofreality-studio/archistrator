@@ -2,7 +2,6 @@ package web
 
 import (
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/project"
-	ps "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
 // servicecontracts.go projects the typed service-contract corpus onto camelCase
@@ -116,7 +115,7 @@ func serviceContractsFromState(s project.ProjectState) map[string]serviceContrac
 // contractStructsToDTO projects a slice of ContractStruct model values onto their
 // wire DTO equivalents. Returns nil when the input is nil/empty (caller uses
 // nilIfEmpty to ensure honest-empty omission on the wire).
-func contractStructsToDTO(structs []ps.ContractStruct) []contractStructDTO {
+func contractStructsToDTO(structs []project.ContractStruct) []contractStructDTO {
 	if len(structs) == 0 {
 		return nil
 	}

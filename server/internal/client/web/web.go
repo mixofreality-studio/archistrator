@@ -104,9 +104,9 @@ var _ ProjectDesignEntry = (*projectdesign.Manager)(nil)
 // project is owned by its creator and the catalog is per-owner — the projectId is
 // never an owner-supplied body field.
 type ProjectEntry interface {
-	CreateProject(ctx context.Context, owner project.OwnerScope, name string) (project.ProjectID, error)
-	ListProjects(ctx context.Context, owner project.OwnerScope) ([]project.ProjectSummary, error)
-	GetProject(ctx context.Context, projectID project.ProjectID) (project.ProjectState, error)
+	CreateProject(rc fwm.Context, owner project.OwnerScope, name string) (project.ProjectID, error)
+	ListProjects(rc fwm.Context, owner project.OwnerScope) ([]project.ProjectSummary, error)
+	GetProject(rc fwm.Context, projectID project.ProjectID) (project.ProjectState, error)
 }
 
 // compile-time proof the concrete projectManager satisfies the narrow Client port.

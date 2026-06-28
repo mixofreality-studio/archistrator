@@ -64,15 +64,15 @@ type credBoundStore struct {
 	cred  ps.RepoCredential
 }
 
-func (a credBoundStore) CreateProject(rc fwra.Context, projectID project.ProjectID, owner project.OwnerScope, name string) (project.Version, error) {
+func (a credBoundStore) CreateProject(rc fwra.Context, projectID ps.ProjectID, owner ps.OwnerScope, name string) (ps.Version, error) {
 	return a.store.CreateProject(rc.Context, projectID, owner, name, a.cred, rc.IdempotencyKey)
 }
 
-func (a credBoundStore) ListProjects(rc fwra.Context, owner project.OwnerScope) ([]project.ProjectSummary, error) {
+func (a credBoundStore) ListProjects(rc fwra.Context, owner ps.OwnerScope) ([]ps.ProjectSummary, error) {
 	return a.store.ListProjects(rc.Context, owner, a.cred)
 }
 
-func (a credBoundStore) ReadProject(rc fwra.Context, projectID project.ProjectID) (ps.Project, error) {
+func (a credBoundStore) ReadProject(rc fwra.Context, projectID ps.ProjectID) (ps.Project, error) {
 	return a.store.ReadProject(rc.Context, projectID, a.cred)
 }
 

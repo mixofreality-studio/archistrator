@@ -1,0 +1,831 @@
+{
+  "$id": "archistrator://contract/project",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "ActivityBuildStatus": {
+      "type": "integer",
+      "enum": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "x-enum-varnames": [
+        "BuildInConstruction",
+        "BuildInReview",
+        "BuildIntegrated",
+        "BuildFailed"
+      ],
+      "x-go-base": "int"
+    },
+    "ActivityConstructionPhase": {
+      "type": "integer",
+      "enum": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "x-enum-varnames": [
+        "ActivityConstructionNotStarted",
+        "ActivityConstructionRunning",
+        "ActivityConstructionDone",
+        "ActivityConstructionFailed"
+      ],
+      "x-go-base": "int"
+    },
+    "ActivityConstructionStatus": {
+      "type": "object",
+      "properties": {
+        "ActivityID": {
+          "type": "string"
+        },
+        "Type": {
+          "$ref": "#/$defs/ActivityType"
+        },
+        "Kind": {
+          "$ref": "#/$defs/ActivityType"
+        },
+        "Variant": {
+          "$ref": "#/$defs/TestingVariant"
+        },
+        "Phase": {
+          "$ref": "#/$defs/ActivityConstructionPhase"
+        },
+        "Phases": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "$ref": "#/$defs/PhaseCompletion"
+          }
+        },
+        "CurrentPhase": {
+          "$ref": "#/$defs/ActivityMethodPhase"
+        },
+        "startedAt": {
+          "type": [
+            "null",
+            "string"
+          ],
+          "format": "date-time",
+          "x-go-import": "time",
+          "x-go-type": "time.Time"
+        },
+        "completedAt": {
+          "type": [
+            "null",
+            "string"
+          ],
+          "format": "date-time",
+          "x-go-import": "time",
+          "x-go-type": "time.Time"
+        },
+        "BuildStatus": {
+          "$ref": "#/$defs/ActivityBuildStatus"
+        },
+        "Produced": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "$ref": "#/$defs/ProducedArtifact"
+          }
+        },
+        "FailureReason": {
+          "$ref": "#/$defs/FailureReason"
+        },
+        "FailureDetail": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "ActivityID",
+        "Type",
+        "Kind",
+        "Variant",
+        "Phase",
+        "Phases",
+        "CurrentPhase",
+        "BuildStatus",
+        "Produced",
+        "FailureReason",
+        "FailureDetail"
+      ],
+      "additionalProperties": false
+    },
+    "ActivityGitStatus": {
+      "type": "object",
+      "properties": {
+        "ActivityID": {
+          "type": "string"
+        },
+        "BranchName": {
+          "type": "string"
+        },
+        "BranchRef": {
+          "type": "string"
+        },
+        "PullRequestRef": {
+          "type": "string"
+        },
+        "CICheck": {
+          "$ref": "#/$defs/CICheckState"
+        },
+        "ArchApproved": {
+          "type": "boolean"
+        },
+        "Merged": {
+          "type": "boolean"
+        },
+        "CRLabel": {
+          "type": "string"
+        },
+        "IsRevert": {
+          "type": "boolean"
+        },
+        "UpdatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "x-go-import": "time",
+          "x-go-type": "time.Time"
+        }
+      },
+      "required": [
+        "ActivityID",
+        "BranchName",
+        "BranchRef",
+        "PullRequestRef",
+        "CICheck",
+        "ArchApproved",
+        "Merged",
+        "CRLabel",
+        "IsRevert",
+        "UpdatedAt"
+      ],
+      "additionalProperties": false
+    },
+    "ActivityMethodPhase": {
+      "type": "string"
+    },
+    "ActivityType": {
+      "type": "integer",
+      "enum": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "x-enum-varnames": [
+        "ActivityTypeService",
+        "ActivityTypeFrontend",
+        "ActivityTypeTesting",
+        "ActivityTypeDeployment",
+        "ActivityTypeDocumentation"
+      ],
+      "x-go-base": "int"
+    },
+    "ArtifactSlotModel": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "model": {
+          "type": [
+            "null"
+          ],
+          "x-go-import": "encoding/json",
+          "x-go-type": "json.RawMessage"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "additionalProperties": false
+    },
+    "ArtifactSlotView": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "stage": {
+          "$ref": "#/$defs/ArtifactStage"
+        },
+        "model": {
+          "$ref": "#/$defs/ArtifactSlotModel"
+        },
+        "notes": {
+          "type": [
+            "null",
+            "string"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "stage",
+        "model"
+      ],
+      "additionalProperties": false
+    },
+    "ArtifactStage": {
+      "type": "integer",
+      "enum": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "x-enum-varnames": [
+        "StageEmpty",
+        "StageAwaitingReview",
+        "StageCommitted",
+        "StageRejected",
+        "StageWithdrawn"
+      ],
+      "x-go-base": "int"
+    },
+    "CICheckState": {
+      "type": "integer",
+      "enum": [
+        0,
+        1,
+        2
+      ],
+      "x-enum-varnames": [
+        "CICheckPending",
+        "CICheckSuccess",
+        "CICheckFailure"
+      ],
+      "x-go-base": "int"
+    },
+    "ConstructionProgress": {
+      "type": "object",
+      "properties": {
+        "Week": {
+          "type": "integer"
+        },
+        "TotalWeeks": {
+          "type": "integer"
+        },
+        "HandOffModel": {
+          "type": "string"
+        },
+        "SupervisionCap": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "Week",
+        "TotalWeeks",
+        "HandOffModel",
+        "SupervisionCap"
+      ],
+      "additionalProperties": false
+    },
+    "ContractOp": {
+      "type": "object",
+      "properties": {
+        "Signature": {
+          "type": "string"
+        },
+        "Stereotype": {
+          "type": "string"
+        },
+        "Note": {
+          "type": "string"
+        },
+        "Inputs": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "$ref": "#/$defs/ContractStruct"
+          }
+        },
+        "Outputs": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "$ref": "#/$defs/ContractStruct"
+          }
+        }
+      },
+      "required": [
+        "Signature",
+        "Stereotype",
+        "Note",
+        "Inputs",
+        "Outputs"
+      ],
+      "additionalProperties": false
+    },
+    "ContractParty": {
+      "type": "object",
+      "properties": {
+        "Name": {
+          "type": "string"
+        },
+        "Layer": {
+          "type": "string"
+        },
+        "How": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "Name",
+        "Layer",
+        "How"
+      ],
+      "additionalProperties": false
+    },
+    "ContractRevision": {
+      "type": "object",
+      "properties": {
+        "Rev": {
+          "type": "string"
+        },
+        "At": {
+          "type": "string"
+        },
+        "By": {
+          "type": "string"
+        },
+        "ByActivity": {
+          "type": "string"
+        },
+        "Summary": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "Rev",
+        "At",
+        "By",
+        "ByActivity",
+        "Summary"
+      ],
+      "additionalProperties": false
+    },
+    "ContractStruct": {
+      "type": "object",
+      "properties": {
+        "Name": {
+          "type": "string"
+        },
+        "Fields": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "$ref": "#/$defs/GoField"
+          }
+        }
+      },
+      "required": [
+        "Name",
+        "Fields"
+      ],
+      "additionalProperties": false
+    },
+    "FailureReason": {
+      "type": "integer",
+      "enum": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "x-enum-varnames": [
+        "FailureReasonUnknown",
+        "PipelineFailed",
+        "PipelineCancelled",
+        "PipelineTimedOut",
+        "VarianceExhausted",
+        "EscalationTimedOut"
+      ],
+      "x-go-base": "int"
+    },
+    "GoField": {
+      "type": "object",
+      "properties": {
+        "Name": {
+          "type": "string"
+        },
+        "Type": {
+          "type": "string"
+        },
+        "Note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "Name",
+        "Type",
+        "Note"
+      ],
+      "additionalProperties": false
+    },
+    "OwnerScope": {
+      "type": "string"
+    },
+    "Phase": {
+      "type": "integer",
+      "enum": [
+        0,
+        1,
+        2
+      ],
+      "x-enum-varnames": [
+        "PhaseSystemDesign",
+        "PhaseProjectDesign",
+        "PhaseConstruction"
+      ],
+      "x-go-base": "int"
+    },
+    "PhaseCompletion": {
+      "type": "object",
+      "properties": {
+        "Phase": {
+          "$ref": "#/$defs/ActivityMethodPhase"
+        },
+        "Weight": {
+          "type": "integer"
+        },
+        "Completed": {
+          "type": "boolean"
+        },
+        "completedAt": {
+          "type": [
+            "null",
+            "string"
+          ],
+          "format": "date-time",
+          "x-go-import": "time",
+          "x-go-type": "time.Time"
+        },
+        "ArtifactRef": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "Phase",
+        "Weight",
+        "Completed",
+        "ArtifactRef"
+      ],
+      "additionalProperties": false
+    },
+    "ProducedArtifact": {
+      "type": "object",
+      "properties": {
+        "Kind": {
+          "type": "string"
+        },
+        "Title": {
+          "type": "string"
+        },
+        "Source": {
+          "type": "string"
+        },
+        "Produced": {
+          "type": "boolean"
+        },
+        "Note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "Kind",
+        "Title",
+        "Source",
+        "Produced",
+        "Note"
+      ],
+      "additionalProperties": false
+    },
+    "ProjectID": {
+      "type": "string"
+    },
+    "ProjectState": {
+      "type": "object",
+      "properties": {
+        "ProjectID": {
+          "$ref": "#/$defs/ProjectID"
+        },
+        "Name": {
+          "type": "string"
+        },
+        "Owner": {
+          "$ref": "#/$defs/OwnerScope"
+        },
+        "Phase": {
+          "$ref": "#/$defs/Phase"
+        },
+        "Version": {
+          "type": "integer"
+        },
+        "Research": {
+          "$ref": "#/$defs/ResearchInput"
+        },
+        "Slots": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "$ref": "#/$defs/ArtifactSlotView"
+          }
+        },
+        "GitRows": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/ActivityGitStatus"
+          }
+        },
+        "ActivityConstruction": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/ActivityConstructionStatus"
+          }
+        },
+        "constructionProgress": {
+          "type": [
+            "null"
+          ],
+          "$ref": "#/$defs/ConstructionProgress"
+        },
+        "ServiceContracts": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/ServiceContract"
+          }
+        }
+      },
+      "required": [
+        "ProjectID",
+        "Name",
+        "Owner",
+        "Phase",
+        "Version",
+        "Research",
+        "Slots",
+        "GitRows",
+        "ActivityConstruction",
+        "ServiceContracts"
+      ],
+      "additionalProperties": false
+    },
+    "ProjectSummary": {
+      "type": "object",
+      "properties": {
+        "ProjectID": {
+          "$ref": "#/$defs/ProjectID"
+        },
+        "Name": {
+          "type": "string"
+        },
+        "Owner": {
+          "$ref": "#/$defs/OwnerScope"
+        },
+        "Phase": {
+          "$ref": "#/$defs/Phase"
+        },
+        "CommittedCount": {
+          "type": "integer"
+        },
+        "TotalCount": {
+          "type": "integer"
+        },
+        "UpdatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "x-go-import": "time",
+          "x-go-type": "time.Time"
+        }
+      },
+      "required": [
+        "ProjectID",
+        "Name",
+        "Owner",
+        "Phase",
+        "CommittedCount",
+        "TotalCount",
+        "UpdatedAt"
+      ],
+      "additionalProperties": false
+    },
+    "ResearchInput": {
+      "type": "object",
+      "properties": {
+        "Sources": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "$ref": "#/$defs/ResearchSource"
+          }
+        }
+      },
+      "required": [
+        "Sources"
+      ],
+      "additionalProperties": false
+    },
+    "ResearchSource": {
+      "type": "object",
+      "properties": {
+        "Title": {
+          "type": "string"
+        },
+        "Content": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "Title",
+        "Content"
+      ],
+      "additionalProperties": false
+    },
+    "ServiceContract": {
+      "type": "object",
+      "properties": {
+        "Component": {
+          "type": "string"
+        },
+        "Layer": {
+          "type": "string"
+        },
+        "Stereotype": {
+          "type": "string"
+        },
+        "Volatility": {
+          "type": "string"
+        },
+        "Status": {
+          "type": "string"
+        },
+        "Inbound": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "$ref": "#/$defs/ContractParty"
+          }
+        },
+        "Outbound": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "$ref": "#/$defs/ContractParty"
+          }
+        },
+        "Ops": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "$ref": "#/$defs/ContractOp"
+          }
+        },
+        "DataContracts": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "ErrorModel": {
+          "type": "string"
+        },
+        "Idempotency": {
+          "type": "string"
+        },
+        "Revisions": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "$ref": "#/$defs/ContractRevision"
+          }
+        }
+      },
+      "required": [
+        "Component",
+        "Layer",
+        "Stereotype",
+        "Volatility",
+        "Status",
+        "Inbound",
+        "Outbound",
+        "Ops",
+        "DataContracts",
+        "ErrorModel",
+        "Idempotency",
+        "Revisions"
+      ],
+      "additionalProperties": false
+    },
+    "TestingVariant": {
+      "type": "integer",
+      "enum": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "x-enum-varnames": [
+        "TestVariantPlan",
+        "TestVariantHarness",
+        "TestVariantPerf",
+        "TestVariantSystemTest",
+        "TestVariantQAProcess"
+      ],
+      "x-go-base": "int"
+    }
+  },
+  "title": "project contract",
+  "interface": {
+    "name": "ProjectManager",
+    "layer": "manager",
+    "operations": [
+      {
+        "name": "CreateProject",
+        "params": [
+          {
+            "name": "owner",
+            "schema": {
+              "$ref": "#/$defs/OwnerScope"
+            }
+          },
+          {
+            "name": "name",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "result": {
+          "$ref": "#/$defs/ProjectID"
+        },
+        "error": true
+      },
+      {
+        "name": "GetProject",
+        "params": [
+          {
+            "name": "projectID",
+            "schema": {
+              "$ref": "#/$defs/ProjectID"
+            }
+          }
+        ],
+        "result": {
+          "$ref": "#/$defs/ProjectState"
+        },
+        "error": true
+      },
+      {
+        "name": "ListProjects",
+        "params": [
+          {
+            "name": "owner",
+            "schema": {
+              "$ref": "#/$defs/OwnerScope"
+            }
+          }
+        ],
+        "result": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ProjectSummary"
+          }
+        },
+        "error": true
+      }
+    ]
+  }
+}

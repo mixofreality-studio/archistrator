@@ -2,34 +2,33 @@ package project
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 
 	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
-	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
+	fwm "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/estimation"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
-// Manager is the projectManager façade — a THIN Manager over the project
-// head-state aggregate (architecture.dsl `projectManager`). It holds NO Temporal
-// client and owns NO durable workflow; it is the project CATALOG + cross-phase
-// typed read the webClient talks to for the three non-co-authoring operations.
+// Compile-time proof the concrete Manager satisfies the generated ProjectManager
+// port. Each op leads with the Manager-layer call Context (fwm.Context, embedding
+// context.Context + the Principal); the *Manager derives ctx := rc.Context inside.
+var _ ProjectManager = (*Manager)(nil)
+
+// Manager is the projectManager façade — a THIN Manager over the project head-state
+// aggregate (architecture.dsl `projectManager`). It holds NO Temporal client and owns
+// NO durable workflow; it is the project CATALOG + cross-phase typed read the
+// webClient talks to for the three non-co-authoring operations.
 //
 // At project BIRTH it drives the downward sourceControlAccess edges that ADOPT the
-// user's repo and SEAT the agentic-design workflow file (caller-home ratified ==
-// project birth), synchronously before projectState.CreateProject, so a project is
-// never cataloged without an adopted, workflow-seated source-control repo.
-// sourceControl is optional (nil when the GitHub App is unconfigured — a dev server
-// with no creds): when nil, project creation proceeds repo-less so a credential-free
-// dev stack still functions (the I-RA nil-guard, preserved).
-//
-// CORRECTION (2026-06-15, founder ruling): aiarch does NO secret management. The
-// CLAUDE_CODE_OAUTH_TOKEN the design workflow reads is provisioned by the Claude Code
-// GitHub App when the USER runs /install-github-app on their repo — a user onboarding
-// prerequisite, never seated by aiarch. The old per-request agenticToken parameter +
-// the WriteAgenticToken seating step are gone.
+// user's repo and SEAT the agentic-design workflow file, synchronously before
+// projectState.CreateProject, so a project is never cataloged without an adopted,
+// workflow-seated source-control repo. sourceControl is optional (nil when the GitHub
+// App is unconfigured — a dev server with no creds): when nil, project creation
+// proceeds repo-less.
 type Manager struct {
 	projectState  ProjectStateAccess
 	sourceControl SourceControlAccess         // optional; nil ⇒ repo-less create (dev, no creds)
@@ -38,55 +37,35 @@ type Manager struct {
 
 // NewManager constructs a Manager over the (narrow) projectStateAccess port, the
 // (optional) sourceControlAccess port, and the constructionEstimationEngine it calls
-// at READ time to populate the network computed block (compute-at-read, founder gate
-// 2026-06-19). Pass a nil SourceControlAccess to run repo-less (a dev server with no
-// GitHub App credentials). The estimator is a pure, deterministic Engine — a downward
-// Manager→Engine edge; nil disables the network compute (the read returns the authored
-// network unenriched) so existing tests that pass nil keep compiling.
+// at READ time to populate the network computed block (compute-at-read). Pass a nil
+// SourceControlAccess to run repo-less (a dev server with no GitHub App credentials).
+// The estimator is a pure, deterministic Engine — a downward Manager→Engine edge; nil
+// disables the network compute (the read returns the authored network unenriched).
 func NewManager(ps ProjectStateAccess, sc SourceControlAccess, estimator estimation.EstimationEngine) *Manager {
 	return &Manager{projectState: ps, sourceControl: sc, estimator: estimator}
 }
 
-// CreateProject births a new project. NAME-AS-IDENTITY (C-PM-Δ, 2026-06-15): the
-// USER supplies the repo name, which IS the project identity (project name == repo
-// name); the server no longer mints a UUID. The supplied name is validated, then —
-// IN ORDER, preserving the I-RA call-order guarantee + idempotent re-convergence —
-// the Manager:
+// CreateProject births a new project. NAME-AS-IDENTITY (C-PM-Δ): the USER supplies
+// the repo name, which IS the project identity (project name == repo name). The
+// supplied name is validated, then — IN ORDER, preserving the I-RA call-order
+// guarantee + idempotent re-convergence — the Manager:
 //
 //  1. ADOPTS the user's existing repo (sourceControlAccess.AdoptProjectRepo).
-//     Adopt is permissive (2026-06-16): it succeeds regardless of repo content; only
-//     NotUnderInstallation surfaces as an error → creation does NOT proceed. (The
-//     strict-empty RepoNotEmpty hard-fail is gone; a repo with committed .aiarch/state
-//     is RESUMED by projectStateAccess.CreateProject in step 3.)
-//  2. SEATS the agentic-design workflow file (caller-home ratified == project birth):
-//     a. mints a short-lived credential (MintRepoCredential),
-//     b. commits the claude-code-action DESIGN workflow file (SeatAgenticWorkflow).
+//  2. SEATS the agentic-design workflow file: mint a short-lived credential, then
+//     commit the claude-code-action DESIGN workflow file.
 //  3. creates the head-state row (projectStateAccess.CreateProject), STRICTLY AFTER
 //     the above, keyed on the repo name as identity.
 //
 // Returns the project id (== the adopted repo name). Validation errors (empty
-// owner/name) surface as ContractMisuse before any RA call.
-//
-// ORDER GUARANTEE: adopt → seat (workflow file) → create. Every write is idempotent —
-// adopt re-converges on the repo name, the workflow file is overwrite-if-changed, and
-// CreateProject dedups on the createProject idempotency key — so a retry after a
-// partial failure RE-CONVERGES rather than duplicating. The repo handle is NOT
-// threaded into projectState: the repo name IS the identity, so the handle is
-// re-derivable, and the head-state stays free of a redundant (and provider-leaking)
-// repo-ref column (sourceControlAccess.md §10.1 Q7).
-//
-// CORRECTION (2026-06-15, founder ruling): aiarch does NO secret management. The
-// CLAUDE_CODE_OAUTH_TOKEN the design workflow reads is provisioned by the Claude Code
-// GitHub App when the USER runs /install-github-app on their repo — a user onboarding
-// prerequisite, never seated by aiarch. The old per-request agenticToken parameter +
-// the WriteAgenticToken seating step are gone; seating is now just committing the
-// workflow file (which still needs an installation token via MintRepoCredential).
-func (m *Manager) CreateProject(ctx context.Context, owner OwnerScope, name string) (ProjectID, error) {
+// owner/name) surface as ContractMisuse before any RA call. Every write is idempotent
+// — a retry after a partial failure RE-CONVERGES rather than duplicating.
+func (m *Manager) CreateProject(rc fwm.Context, owner OwnerScope, name string) (ProjectID, error) {
+	ctx := rc.Context
 	if owner == "" {
-		return "", newError(fwmanager.ContractMisuse, "empty owner")
+		return "", newError(fwm.ContractMisuse, "empty owner")
 	}
 	if name == "" {
-		return "", newError(fwmanager.ContractMisuse, "empty name")
+		return "", newError(fwm.ContractMisuse, "empty name")
 	}
 
 	// NAME-AS-IDENTITY: the user-supplied name IS the project identity == repo name.
@@ -101,9 +80,6 @@ func (m *Manager) CreateProject(ctx context.Context, owner OwnerScope, name stri
 		if err != nil {
 			return "", mapRAError(err)
 		}
-		// Seat the agentic-design workflow file (committing it needs an installation
-		// token). The OAuth secret it reads is user-provisioned via the Claude Code
-		// GitHub App — not aiarch's concern.
 		cred, err := m.sourceControl.MintRepoCredential(ctx, repo)
 		if err != nil {
 			return "", mapRAError(err)
@@ -113,7 +89,8 @@ func (m *Manager) CreateProject(ctx context.Context, owner OwnerScope, name stri
 		}
 	}
 
-	if _, err := m.projectState.CreateProject(fwra.Context{Context: ctx, IdempotencyKey: key}, projectID, owner, name); err != nil {
+	if _, err := m.projectState.CreateProject(fwra.Context{Context: ctx, IdempotencyKey: key},
+		projectstate.ProjectID(projectID), projectstate.OwnerScope(owner), name); err != nil {
 		return "", mapRAError(err)
 	}
 	return projectID, nil
@@ -121,50 +98,60 @@ func (m *Manager) CreateProject(ctx context.Context, owner OwnerScope, name stri
 
 // createProjectIdempotencyKey derives the stable logical idempotency key for "create
 // this project". The project id IS the user-supplied repo name and unique per
-// project, so it is itself the natural dedup token: a retry carrying the same name
-// collapses to a no-op across adopt, seating, and the RA dedup ledger.
+// project, so it is itself the natural dedup token.
 func createProjectIdempotencyKey(projectID ProjectID) fwra.IdempotencyKey {
 	return fwra.IdempotencyKey(fmt.Sprintf("%s:createProject", projectID))
 }
 
 // ListProjects returns the landing-grid catalog for owner, newest-first (the RA's
-// ordering). A pass-through over projectStateAccess.ListProjects.
-func (m *Manager) ListProjects(ctx context.Context, owner OwnerScope) ([]ProjectSummary, error) {
+// ordering). A pass-through over projectStateAccess.ListProjects, mapped to the
+// contract ProjectSummary.
+func (m *Manager) ListProjects(rc fwm.Context, owner OwnerScope) ([]ProjectSummary, error) {
+	ctx := rc.Context
 	if owner == "" {
-		return nil, newError(fwmanager.ContractMisuse, "empty owner")
+		return nil, newError(fwm.ContractMisuse, "empty owner")
 	}
-	summaries, err := m.projectState.ListProjects(fwra.Context{Context: ctx}, owner)
+	summaries, err := m.projectState.ListProjects(fwra.Context{Context: ctx}, projectstate.OwnerScope(owner))
 	if err != nil {
 		return nil, mapRAError(err)
 	}
-	return summaries, nil
+	out := make([]ProjectSummary, 0, len(summaries))
+	for _, s := range summaries {
+		out = append(out, summaryToContract(s))
+	}
+	return out, nil
 }
 
-// GetProject returns the full typed head-state for one project, mapping the Project
-// aggregate's named typed slots into ProjectState's stable-ordered ArtifactSlotView
-// list. fwra.NotFound passes through as fwmanager.NotFound.
-func (m *Manager) GetProject(ctx context.Context, projectID ProjectID) (ProjectState, error) {
+// GetProject returns the full typed head-state for one project, mapping the
+// projectstate.Project aggregate's named typed slots into the contract ProjectState.
+// fwra.NotFound passes through as fwm.NotFound.
+func (m *Manager) GetProject(rc fwm.Context, projectID ProjectID) (ProjectState, error) {
+	ctx := rc.Context
 	if projectID == "" {
-		return ProjectState{}, newError(fwmanager.ContractMisuse, "empty projectId")
+		return ProjectState{}, newError(fwm.ContractMisuse, "empty projectId")
 	}
-	proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectID)
+	proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID))
 	if err != nil {
 		return ProjectState{}, mapRAError(err)
 	}
 	m.computeNetworkAtRead(&proj)
-	return projectStateFromAggregate(proj), nil
+	return projectStateToContract(proj), nil
 }
+
+// ---------------------------------------------------------------------------
+// Compute-at-read enrichment (INTERNAL impl). Operates on the projectstate.Project
+// aggregate BEFORE mapping to the contract — it casts the Network + ActivityList
+// slots to typed and runs the estimation Engine, filling the Network slot's computed
+// block. This is NOT contract surface (it field-maps into the Engine's slim Option-B
+// types), so it does not force generating those types into project's contract.
+// ---------------------------------------------------------------------------
 
 // computeNetworkAtRead populates the Network slot's COMPUTE-AT-READ block (per-node CPM
 // figures, criticality bands, milestone event times, summary) by running the
 // constructionEstimationEngine.ComputeNetwork over the AUTHORED network × activity list.
-// This is the compute-at-read wiring (founder gate 2026-06-19): the math that formerly
-// ran client-side (toNetworkView) now runs server-side on every read, so the SPA renders
-// authoritative figures. It is a NO-OP when the estimator is nil (a test/dev Manager
-// wired without one) or the Network slot has no authored model. The authored fields
-// (dependencies, criticalPath, milestones) are preserved untouched; only the computed
-// fields are filled. A compute error (only a degenerate-input guard) is swallowed — the
-// authored network is still served unenriched rather than failing the whole read.
+// NO-OP when the estimator is nil or the Network slot has no authored model. The
+// authored fields (dependencies, milestones) are preserved untouched; only the computed
+// fields are filled. A compute error (a degenerate-input guard) is swallowed.
 func (m *Manager) computeNetworkAtRead(p *projectstate.Project) {
 	if m.estimator == nil {
 		return
@@ -200,15 +187,8 @@ func (m *Manager) computeNetworkAtRead(p *projectstate.Project) {
 	}
 	net.Computed = computed
 
-	// Overwrite the served criticalPath[] with the engine's computed float-0 ACTIVITY set
-	// (task #14, architect-ruled 2026-06-19). The authored criticalPath[] in project.json
-	// is the stale PRE-agentic-pivot CP (27 names); the engine recomputes the authoritative
-	// post-pivot float-0 set. Serving the computed set keeps the wire self-consistent — the
-	// SPA's CP-highlight then matches the float-0 colouring from `computed[].onCriticalPath`.
-	// Milestones are deliberately EXCLUDED (solution.Nodes holds only activities; milestones
-	// carry their own onCriticalPath on the milestone objects), so criticalPath[] stays an
-	// activity list per its existing semantics + the webApp NetworkView usage. Sorted for a
-	// deterministic wire order.
+	// Overwrite the served criticalPath[] with the engine's computed float-0 ACTIVITY
+	// set (the authored criticalPath[] may be stale). Sorted for a deterministic wire order.
 	computedCP := make([]string, 0, len(solution.Nodes))
 	for id, n := range solution.Nodes {
 		if n.OnCriticalPath {
@@ -234,8 +214,6 @@ func (m *Manager) computeNetworkAtRead(p *projectstate.Project) {
 	}
 	for i := range net.Milestones {
 		if ms, found := computedByID[net.Milestones[i].ID]; found {
-			// Set the computed pointers non-nil so they emit on the wire even when the
-			// computed value is false / 0 (the authored on-disk doc leaves them nil).
 			onCP := ms.OnCriticalPath
 			event := ms.EventTime
 			net.Milestones[i].OnCriticalPath = &onCP
@@ -246,9 +224,7 @@ func (m *Manager) computeNetworkAtRead(p *projectstate.Project) {
 
 // toEstimationActivityList converts the canonical projectstate.ActivityList to the
 // constructionEstimationEngine's OWN SLIM ActivityList at the call boundary (Option B
-// full encapsulation: the Engine redefines every domain type it uses as its own
-// generated def and imports no projectstate, so the Manager maps field-by-field here).
-// ComputeNetwork reads only Name + EffortDays, so only those cross.
+// full encapsulation). ComputeNetwork reads only Name + EffortDays.
 func toEstimationActivityList(al projectstate.ActivityList) estimation.ActivityList {
 	out := estimation.ActivityList{Activities: make([]estimation.ActivityItem, 0, len(al.Activities))}
 	for _, a := range al.Activities {
@@ -258,10 +234,8 @@ func toEstimationActivityList(al projectstate.ActivityList) estimation.ActivityL
 }
 
 // toEstimationNetwork converts the canonical projectstate.Network to the
-// constructionEstimationEngine's OWN SLIM Network at the call boundary (Option B full
-// encapsulation). ComputeNetwork reads only the AUTHORED Dependencies + Milestones
-// (it COMPUTES the rest), so only those — and only the authored milestone id + fan-in —
-// cross.
+// constructionEstimationEngine's OWN SLIM Network at the call boundary. ComputeNetwork
+// reads only the AUTHORED Dependencies + Milestones (it COMPUTES the rest).
 func toEstimationNetwork(net projectstate.Network) estimation.Network {
 	deps := make([]estimation.NetworkDependency, 0, len(net.Dependencies))
 	for _, d := range net.Dependencies {
@@ -277,43 +251,289 @@ func toEstimationNetwork(net projectstate.Network) estimation.Network {
 	return estimation.Network{Dependencies: deps, Milestones: milestones}
 }
 
-// projectStateFromAggregate maps the head-state Project aggregate to the typed
-// ProjectState transport shape. It emits one ArtifactSlotView per defined
-// ArtifactKind in the stable slot order, deriving each slot's Stage from its
-// stored ArtifactReviewStatus and carrying its typed Model (nil when empty) and
-// architect Notes. Findings/Critique are session-transient and absent from the
-// head-state, so they are not mapped here.
-func projectStateFromAggregate(p projectstate.Project) ProjectState {
+// ---------------------------------------------------------------------------
+// projectstate → contract conversions (the Manager boundary). The aggregate's value
+// shapes are field-mapped into project's OWN contract types so the generated contract
+// imports no projectstate. The per-slot artifact model is carried OPAQUELY as a
+// {kind, raw-json} envelope.
+// ---------------------------------------------------------------------------
+
+// summaryToContract maps a projectstate.ProjectSummary onto the contract ProjectSummary.
+func summaryToContract(s projectstate.ProjectSummary) ProjectSummary {
+	return ProjectSummary{
+		ProjectID:      ProjectID(s.ProjectID),
+		Name:           s.Name,
+		Owner:          OwnerScope(s.Owner),
+		Phase:          Phase(int(s.Phase)),
+		CommittedCount: int64(s.CommittedCount),
+		TotalCount:     int64(s.TotalCount),
+		UpdatedAt:      s.UpdatedAt,
+	}
+}
+
+// projectStateToContract maps the head-state Project aggregate to the contract
+// ProjectState transport shape.
+func projectStateToContract(p projectstate.Project) ProjectState {
+	return ProjectState{
+		ProjectID:            ProjectID(p.ID),
+		Name:                 p.Name,
+		Owner:                OwnerScope(p.Owner),
+		Phase:                Phase(int(p.Phase)),
+		Version:              int64(p.Version),
+		Research:             researchToContract(p.ResearchInput),
+		Slots:                slotsToContract(p),
+		GitRows:              gitRowsToContract(p.ActivityGit),
+		ActivityConstruction: constructionRowsToContract(p.ActivityConstruction),
+		ConstructionProgress: constructionProgressToContract(p.ConstructionProgress),
+		ServiceContracts:     serviceContractsToContract(p.ServiceContracts),
+	}
+}
+
+// researchToContract maps the Phase-1 research corpus.
+func researchToContract(r projectstate.ResearchInput) ResearchInput {
+	sources := make([]ResearchSource, 0, len(r.Sources))
+	for _, s := range r.Sources {
+		sources = append(sources, ResearchSource{Title: s.Title, Content: s.Content})
+	}
+	return ResearchInput{Sources: sources}
+}
+
+// slotsToContract emits one ArtifactSlotView per defined ArtifactKind in the stable
+// slot order, deriving each slot's Stage from its stored ArtifactReviewStatus and
+// carrying its typed Model OPAQUELY (the {kind, raw-json} envelope).
+func slotsToContract(p projectstate.Project) []ArtifactSlotView {
 	kinds := projectstate.AllArtifactKinds()
 	slots := make([]ArtifactSlotView, 0, len(kinds))
 	for _, kind := range kinds {
 		slot := slotForKind(p, kind)
 		slots = append(slots, ArtifactSlotView{
-			Kind:  kind,
+			Kind:  kind.WireName(),
 			Stage: stageForStatus(slot.Status),
-			Model: slot.Model,
-			Notes: slot.Notes,
+			Model: encodeSlotModel(kind, slot.Model),
+			Notes: notesPtr(slot.Notes),
 		})
 	}
-	return ProjectState{
-		ProjectID:            p.ID,
-		Name:                 p.Name,
-		Owner:                p.Owner,
-		Phase:                p.Phase,
-		Version:              p.Version,
-		Research:             p.ResearchInput,
-		Slots:                slots,
-		GitRows:              p.ActivityGit,          // carried WHOLE (GIT.3); nil until the first git Record* in Phase 3
-		ActivityConstruction: p.ActivityConstruction, // carried WHOLE; nil until Phase 3 RecordActivityStarted
-		ConstructionProgress: p.ConstructionProgress, // carried WHOLE; nil until seeded by the bootstrap generator
-		ServiceContracts:     p.ServiceContracts,     // carried WHOLE; nil until seeded by the construction bootstrapper
+	return slots
+}
+
+// encodeSlotModel carries the slot's typed model OPAQUELY: the canonical camelCase
+// kind wire name + the concrete model's own JSON (nil when the slot is empty). project
+// never names the concrete projectstate model types or the sealed ArtifactModel sum
+// here — the model is marshaled to raw JSON and passed through to the SPA verbatim.
+func encodeSlotModel(kind projectstate.ArtifactKind, m projectstate.ArtifactModel) ArtifactSlotModel {
+	env := ArtifactSlotModel{Kind: kind.WireName()}
+	if m != nil {
+		if raw, err := json.Marshal(m); err == nil {
+			rm := json.RawMessage(raw)
+			env.Model = &rm
+		}
+	}
+	return env
+}
+
+// notesPtr maps an architect-notes string to the optional contract field: nil for the
+// empty string (omitted on the wire), &notes otherwise.
+func notesPtr(notes string) *string {
+	if notes == "" {
+		return nil
+	}
+	n := notes
+	return &n
+}
+
+// stageForStatus maps the stored per-slot ArtifactReviewStatus to the contract stage.
+func stageForStatus(s projectstate.ArtifactReviewStatus) ArtifactStage {
+	switch s {
+	case projectstate.ReviewAwaitingReview:
+		return StageAwaitingReview
+	case projectstate.ReviewCommitted:
+		return StageCommitted
+	case projectstate.ReviewRejected:
+		return StageRejected
+	case projectstate.ReviewWithdrawn:
+		return StageWithdrawn
+	default:
+		return StageEmpty
 	}
 }
 
-// slotForKind reads the named slot for kind off the Project aggregate. Mirrors the
-// closed slot set; an unknown kind (impossible for AllArtifactKinds) yields the
-// zero slot.
-func slotForKind(p projectstate.Project, kind ArtifactKind) projectstate.ArtifactSlot {
+// gitRowsToContract maps the per-activity git head-state map (honest-empty: nil in ⇒
+// nil out, so the slot is omitted on the wire).
+func gitRowsToContract(rows map[string]projectstate.ActivityGitStatus) map[string]ActivityGitStatus {
+	if len(rows) == 0 {
+		return nil
+	}
+	out := make(map[string]ActivityGitStatus, len(rows))
+	for id, g := range rows {
+		out[id] = ActivityGitStatus{
+			ActivityID:     g.ActivityID,
+			BranchName:     g.BranchName,
+			BranchRef:      g.BranchRef,
+			PullRequestRef: g.PullRequestRef,
+			CICheck:        CICheckState(int(g.CICheck)),
+			ArchApproved:   g.ArchApproved,
+			Merged:         g.Merged,
+			CRLabel:        g.CRLabel,
+			IsRevert:       g.IsRevert,
+			UpdatedAt:      g.UpdatedAt,
+		}
+	}
+	return out
+}
+
+// constructionRowsToContract maps the per-activity construction head-state map
+// (honest-empty: nil in ⇒ nil out).
+func constructionRowsToContract(rows map[string]projectstate.ActivityConstructionStatus) map[string]ActivityConstructionStatus {
+	if len(rows) == 0 {
+		return nil
+	}
+	out := make(map[string]ActivityConstructionStatus, len(rows))
+	for id, r := range rows {
+		out[id] = ActivityConstructionStatus{
+			ActivityID:    r.ActivityID,
+			Type:          ActivityType(int(r.Type)),
+			Kind:          ActivityType(int(r.Kind)),
+			Variant:       TestingVariant(int(r.Variant)),
+			Phase:         ActivityConstructionPhase(int(r.Phase)),
+			Phases:        phasesToContract(r.Phases),
+			CurrentPhase:  ActivityMethodPhase(string(r.CurrentPhase)),
+			StartedAt:     r.StartedAt,
+			CompletedAt:   r.CompletedAt,
+			BuildStatus:   ActivityBuildStatus(int(r.BuildStatus)),
+			Produced:      producedToContract(r.Produced),
+			FailureReason: FailureReason(int(r.FailureReason)),
+			FailureDetail: r.FailureDetail,
+		}
+	}
+	return out
+}
+
+// phasesToContract maps the App-A internal phase-completion records.
+func phasesToContract(phases []projectstate.PhaseCompletion) []PhaseCompletion {
+	if len(phases) == 0 {
+		return nil
+	}
+	out := make([]PhaseCompletion, 0, len(phases))
+	for _, ph := range phases {
+		out = append(out, PhaseCompletion{
+			Phase:       ActivityMethodPhase(string(ph.Phase)),
+			Weight:      int64(ph.Weight),
+			Completed:   ph.Completed,
+			CompletedAt: ph.CompletedAt,
+			ArtifactRef: ph.ArtifactRef,
+		})
+	}
+	return out
+}
+
+// producedToContract maps the produced-artifact cards.
+func producedToContract(produced []projectstate.ProducedArtifact) []ProducedArtifact {
+	if len(produced) == 0 {
+		return nil
+	}
+	out := make([]ProducedArtifact, 0, len(produced))
+	for _, p := range produced {
+		out = append(out, ProducedArtifact{Kind: p.Kind, Title: p.Title, Source: p.Source, Produced: p.Produced, Note: p.Note})
+	}
+	return out
+}
+
+// constructionProgressToContract maps the project-level Phase-3 framing scalars
+// (nil in ⇒ nil out).
+func constructionProgressToContract(p *projectstate.ConstructionProgress) *ConstructionProgress {
+	if p == nil {
+		return nil
+	}
+	return &ConstructionProgress{
+		Week:           int64(p.Week),
+		TotalWeeks:     int64(p.TotalWeeks),
+		HandOffModel:   p.HandOffModel,
+		SupervisionCap: int64(p.SupervisionCap),
+	}
+}
+
+// serviceContractsToContract maps the typed service-contract corpus (honest-empty:
+// nil in ⇒ nil out).
+func serviceContractsToContract(scs map[string]projectstate.ServiceContract) map[string]ServiceContract {
+	if len(scs) == 0 {
+		return nil
+	}
+	out := make(map[string]ServiceContract, len(scs))
+	for name, sc := range scs {
+		out[name] = ServiceContract{
+			Component:     sc.Component,
+			Layer:         sc.Layer,
+			Stereotype:    sc.Stereotype,
+			Volatility:    sc.Volatility,
+			Status:        sc.Status,
+			Inbound:       partiesToContract(sc.Inbound),
+			Outbound:      partiesToContract(sc.Outbound),
+			Ops:           opsToContract(sc.Ops),
+			DataContracts: sc.DataContracts,
+			ErrorModel:    sc.ErrorModel,
+			Idempotency:   sc.Idempotency,
+			Revisions:     revisionsToContract(sc.Revisions),
+		}
+	}
+	return out
+}
+
+func partiesToContract(parties []projectstate.ContractParty) []ContractParty {
+	if len(parties) == 0 {
+		return nil
+	}
+	out := make([]ContractParty, 0, len(parties))
+	for _, p := range parties {
+		out = append(out, ContractParty{Name: p.Name, Layer: p.Layer, How: p.How})
+	}
+	return out
+}
+
+func opsToContract(ops []projectstate.ContractOp) []ContractOp {
+	if len(ops) == 0 {
+		return nil
+	}
+	out := make([]ContractOp, 0, len(ops))
+	for _, op := range ops {
+		out = append(out, ContractOp{
+			Signature:  op.Signature,
+			Stereotype: op.Stereotype,
+			Note:       op.Note,
+			Inputs:     structsToContract(op.Inputs),
+			Outputs:    structsToContract(op.Outputs),
+		})
+	}
+	return out
+}
+
+func structsToContract(structs []projectstate.ContractStruct) []ContractStruct {
+	if len(structs) == 0 {
+		return nil
+	}
+	out := make([]ContractStruct, 0, len(structs))
+	for _, cs := range structs {
+		fields := make([]GoField, 0, len(cs.Fields))
+		for _, f := range cs.Fields {
+			fields = append(fields, GoField{Name: f.Name, Type: f.Type, Note: f.Note})
+		}
+		out = append(out, ContractStruct{Name: cs.Name, Fields: fields})
+	}
+	return out
+}
+
+func revisionsToContract(revs []projectstate.ContractRevision) []ContractRevision {
+	if len(revs) == 0 {
+		return nil
+	}
+	out := make([]ContractRevision, 0, len(revs))
+	for _, r := range revs {
+		out = append(out, ContractRevision{Rev: r.Rev, At: r.At, By: r.By, ByActivity: r.ByActivity, Summary: r.Summary})
+	}
+	return out
+}
+
+// slotForKind reads the named slot for kind off the Project aggregate.
+func slotForKind(p projectstate.Project, kind projectstate.ArtifactKind) projectstate.ArtifactSlot {
 	switch kind {
 	case projectstate.KindMission:
 		return p.Mission

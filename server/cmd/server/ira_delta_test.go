@@ -27,12 +27,17 @@ import (
 
 	fwgithub "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github"
 	gh "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github/testinfra"
+	fwm "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/project"
 	ps "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 )
 
 const iraDeltaAccount = "acme"
+
+// iraRC wraps a request context in the Manager-layer call Context the projectManager
+// ops lead with (zero principal stopgap in these composition-root tests).
+func iraRC(ctx context.Context) fwm.Context { return fwm.Context{Context: ctx} }
 
 // iraDeltaHarness bundles the wired-together pieces of one I-RA-Δ scenario.
 type iraDeltaHarness struct {
@@ -116,7 +121,7 @@ func TestIRADelta_AdoptSucceedsWithPreExistingContent_ThenCreates(t *testing.T) 
 	h.fakeGH.SeedRepoFile(iraDeltaAccount, "my-system", "README.md", []byte("# hello"))
 	h.fakeGH.SeedRepoFile(iraDeltaAccount, "my-system", ".github/workflows/claude.yml", []byte("name: claude"))
 
-	id, err := h.mgr.CreateProject(h.ctx, project.OwnerScope("alice@example.com"), "my-system")
+	id, err := h.mgr.CreateProject(iraRC(h.ctx), project.OwnerScope("alice@example.com"), "my-system")
 	if err != nil {
 		t.Fatalf("CreateProject over a non-empty repo must SUCCEED (permissive adopt), got: %v", err)
 	}
@@ -150,7 +155,7 @@ func TestIRADelta_NotUnderInstallation_DoesNotCreate(t *testing.T) {
 	seedInstallationFor(h.fakeGH, iraDeltaAccount)
 	// The repo is NOT seeded → GET /repos/acme/ghost 404s under the installation.
 
-	_, err := h.mgr.CreateProject(h.ctx, project.OwnerScope("alice@example.com"), "ghost")
+	_, err := h.mgr.CreateProject(iraRC(h.ctx), project.OwnerScope("alice@example.com"), "ghost")
 	if err == nil {
 		t.Fatal("CreateProject must FAIL when the repo is not under the installation")
 	}
@@ -180,7 +185,7 @@ func TestIRADelta_FreshCreate_EmptyRepo(t *testing.T) {
 	seedInstallationFor(h.fakeGH, iraDeltaAccount)
 	h.fakeGH.SeedEmptyRepo(iraDeltaAccount, "fresh-svc", true)
 
-	id, err := h.mgr.CreateProject(h.ctx, project.OwnerScope("bob@example.com"), "fresh-svc")
+	id, err := h.mgr.CreateProject(iraRC(h.ctx), project.OwnerScope("bob@example.com"), "fresh-svc")
 	if err != nil {
 		t.Fatalf("CreateProject (fresh empty repo): %v", err)
 	}
@@ -200,11 +205,11 @@ func TestIRADelta_FreshCreate_EmptyRepo(t *testing.T) {
 		t.Fatalf("the committed design workflow file is empty")
 	}
 	// createProject — the project is born at version 1 with name-as-identity.
-	st, err := h.mgr.GetProject(h.ctx, id)
+	st, err := h.mgr.GetProject(iraRC(h.ctx), id)
 	if err != nil {
 		t.Fatalf("GetProject: %v", err)
 	}
-	if st.ProjectID != id || st.Version != 1 || st.Phase != ps.PhaseSystemDesign {
+	if st.ProjectID != id || st.Version != 1 || st.Phase != project.PhaseSystemDesign {
 		t.Fatalf("fresh project = id=%s v=%d phase=%v, want fresh-svc/1/SystemDesign", st.ProjectID, st.Version, st.Phase)
 	}
 	assertProjectStateCommitted(t, h, "fresh-svc", "fresh-svc")
@@ -252,7 +257,7 @@ func TestIRADelta_ResumeFromExistingAiarchState(t *testing.T) {
 	}
 
 	// CreateProject against the repo with prior state → RESUME (no error, no clobber).
-	id, err := h.mgr.CreateProject(h.ctx, project.OwnerScope("carol@example.com"), "resumed-svc")
+	id, err := h.mgr.CreateProject(iraRC(h.ctx), project.OwnerScope("carol@example.com"), "resumed-svc")
 	if err != nil {
 		t.Fatalf("CreateProject (resume) must NOT error on an existing .aiarch/ state, got: %v", err)
 	}
@@ -261,18 +266,18 @@ func TestIRADelta_ResumeFromExistingAiarchState(t *testing.T) {
 	}
 
 	// The returned project reflects CURRENT PROGRESS — the prior version/phase/slot SURVIVE.
-	st, err := h.mgr.GetProject(h.ctx, id)
+	st, err := h.mgr.GetProject(iraRC(h.ctx), id)
 	if err != nil {
 		t.Fatalf("GetProject (resumed): %v", err)
 	}
-	if st.Version != 4 || st.Phase != ps.PhaseProjectDesign || st.Name != "Resumed Service" {
+	if st.Version != 4 || st.Phase != project.PhaseProjectDesign || st.Name != "Resumed Service" {
 		t.Fatalf("resume clobbered/reset state: got v%d/%v/%q, want v4/ProjectDesign/Resumed Service",
 			st.Version, st.Phase, st.Name)
 	}
 	// The committed Mission slot from the prior run survives the resume.
 	var missionStage project.ArtifactStage = -1
 	for _, slot := range st.Slots {
-		if slot.Kind == ps.KindMission {
+		if slot.Kind == ps.KindMission.WireName() {
 			missionStage = slot.Stage
 		}
 	}
@@ -296,7 +301,7 @@ func TestIRADelta_WorkflowFileIdempotent(t *testing.T) {
 	seedInstallationFor(h.fakeGH, iraDeltaAccount)
 	h.fakeGH.SeedEmptyRepo(iraDeltaAccount, "idem-svc", true)
 
-	if _, err := h.mgr.CreateProject(h.ctx, project.OwnerScope("alice"), "idem-svc"); err != nil {
+	if _, err := h.mgr.CreateProject(iraRC(h.ctx), project.OwnerScope("alice"), "idem-svc"); err != nil {
 		t.Fatalf("CreateProject (first): %v", err)
 	}
 	putsAfterFirst := countIRARequests(h.fakeGH, "PUT", "/repos/acme/idem-svc/contents/"+sourcecontrol.DesignWorkflowPath)
@@ -306,7 +311,7 @@ func TestIRADelta_WorkflowFileIdempotent(t *testing.T) {
 
 	// Second create against the SAME repo: the on-disk state already exists → RESUME;
 	// the workflow file is byte-identical → no second Contents PUT.
-	if _, err := h.mgr.CreateProject(h.ctx, project.OwnerScope("alice"), "idem-svc"); err != nil {
+	if _, err := h.mgr.CreateProject(iraRC(h.ctx), project.OwnerScope("alice"), "idem-svc"); err != nil {
 		t.Fatalf("CreateProject (second, resume) must not error, got: %v", err)
 	}
 	putsAfterSecond := countIRARequests(h.fakeGH, "PUT", "/repos/acme/idem-svc/contents/"+sourcecontrol.DesignWorkflowPath)

@@ -54,6 +54,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/settlement"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/construction"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/operations"
+	"github.com/mixofreality-studio/archistrator/server/internal/manager/project"
 	mgrsettlement "github.com/mixofreality-studio/archistrator/server/internal/manager/settlement"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/constructionpipeline"
@@ -715,6 +716,57 @@ var registry = []component{
 		},
 		ifaceName: "SettlementManager",
 		iface:     reflect.TypeOf((*mgrsettlement.SettlementManager)(nil)).Elem(),
+	},
+	{
+		name: "project",
+		dir:  "internal/manager/project",
+		models: []any{
+			// The full transitive closure of ProjectManager's OWN port I/O types. All
+			// defined in this package — FULL ENCAPSULATION: the generated contract pulls
+			// NO external (projectstate) dep and NO Temporal dep (this Manager owns no
+			// Temporal; the consumer-side dependency ports in ports.go stay hand-written
+			// and are NOT part of this contract). The per-slot artifact MODEL is carried
+			// OPAQUELY via ArtifactSlotModel ({kind, raw-json}) — project never
+			// regenerates or shares projectstate's sealed ArtifactModel sum or its 17
+			// variants. The enum canonical-name lookups live in behavior.go as free
+			// functions (the operations DesiredStateReason precedent) so the generated
+			// enums carry no behavior. ProjectID / OwnerScope are this Manager's OWN
+			// named-string types (converted to/from projectstate at the RA boundary).
+			project.ResearchSource{},
+			project.ResearchInput{},
+			project.ProjectSummary{},
+			project.ActivityGitStatus{},
+			project.ProducedArtifact{},
+			project.PhaseCompletion{},
+			project.ActivityConstructionStatus{},
+			project.ConstructionProgress{},
+			project.GoField{},
+			project.ContractStruct{},
+			project.ContractOp{},
+			project.ContractParty{},
+			project.ContractRevision{},
+			project.ServiceContract{},
+			project.ArtifactSlotModel{},
+			project.ArtifactSlotView{},
+			project.ProjectState{},
+			// Enums (one zero value each — const blocks captured from this dir).
+			project.Phase(0),
+			project.ArtifactStage(0),
+			project.CICheckState(0),
+			project.ActivityType(0),
+			project.TestingVariant(0),
+			project.ActivityConstructionPhase(0),
+			project.ActivityBuildStatus(0),
+			project.FailureReason(0),
+			// Named scalars (bare identifier newtypes — no const block). ProjectID /
+			// OwnerScope are the catalog identities; ActivityMethodPhase is the opaque
+			// App-A internal phase-id string.
+			project.ProjectID(""),
+			project.OwnerScope(""),
+			project.ActivityMethodPhase(""),
+		},
+		ifaceName: "ProjectManager",
+		iface:     reflect.TypeOf((*project.ProjectManager)(nil)).Elem(),
 	},
 	{
 		// projectstate is the LAST + highest-stakes RA: the project.json PERSISTENCE
