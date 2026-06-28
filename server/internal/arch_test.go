@@ -90,6 +90,7 @@ func TestMethodLayering(t *testing.T) {
 		"github.com/jackc/pgx",            // sanctioned Postgres driver
 		"github.com/go-git/",              // sanctioned Git/Gitea client (go-git + go-billy)
 		"go.temporal.io/",                 // sanctioned durable-execution substrate
+		"github.com/modelcontextprotocol/go-sdk", // sanctioned MCP substrate for the generated mcpClient tool surface (internal/client/mcp/*, framework-go-mcp-generator output)
 	}
 	arch.Check(t, spec)
 }

@@ -1,6 +1,6 @@
 # aiarch server — developer make targets.
 
-.PHONY: test test-short fmt vet lint sumtype-check method-check gen-schemas gen-models gen bootstrap
+.PHONY: test test-short fmt vet lint sumtype-check method-check gen-schemas gen-models gen gen-client bootstrap
 
 # Contract codegen pipeline, all-Go (jsonschema-go). project.json
 # (.serviceContracts) is the OWNER of every built component's contract; modelgen
@@ -17,7 +17,15 @@
 gen-models:
 	go run ./cmd/modelgen
 
-gen: gen-models
+# gen-client — generate the entire CLIENT layer (internal/client/{web,mcp}) +
+# the merged api/openapi.yaml from project.json .serviceContracts (cmd/clientgen,
+# driving framework-go-http-generator + framework-go-mcp-generator). Reproducible
+# + idempotent; internal/client carries ZERO hand-written Go. Runs in workspace
+# mode (the generators are local sibling modules in go.work).
+gen-client:
+	go run ./cmd/clientgen
+
+gen: gen-models gen-client
 
 gen-schemas:
 	go run ./cmd/schemagen
