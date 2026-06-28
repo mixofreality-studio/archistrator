@@ -258,7 +258,7 @@ func run(logger *slog.Logger) error { //nolint:gocognit,gocyclo,maintidx,nestif 
 	// Constructed at boot so its constructor-applied DDL reconciles the schema
 	// on every deploy (R-PG-US convention); billingManager (UC5 period close)
 	// is the reader-to-come — no Manager consumes the port yet.
-	if _, err := usagelog.NewStore(ctx, pool); err != nil {
+	if _, err := usagelog.NewPostgresUsageAccess(ctx, pool); err != nil {
 		return err
 	}
 	logger.Info("usageAccess (postgres) ready")
@@ -309,22 +309,23 @@ func run(logger *slog.Logger) error { //nolint:gocognit,gocyclo,maintidx,nestif 
 	// observes/cancels the runs. Constructed only when the construction repo is
 	// configured; nil otherwise (the pump then never submits a pipeline — acceptable
 	// empty-session state, and the pump is unwired anyway pending the schedulerClient).
-	var pipeline *constructionpipeline.Access
+	var pipeline constructionpipeline.ConstructionPipelineAccess
 	if cfg.ConstructionRepoOwner != "" && cfg.ConstructionRepoName != "" {
-		actionsClient, acErr := constructionpipeline.NewActionsClient(constructionpipeline.ActionsConfig{
-			AppID:          cfg.GitHubAppID,
-			PrivateKeyPEM:  cfg.GitHubAppPrivateKeyPEM,
-			APIBaseURL:     cfg.GitHubAPIBaseURL,
-			InstallationID: cfg.GitHubInstallationID,
-			Owner:          cfg.ConstructionRepoOwner,
-			Repo:           cfg.ConstructionRepoName,
-			WorkflowFile:   cfg.ConstructionWorkflowFile,
-			Ref:            cfg.ConstructionRef,
-		})
+		// option-1 generated-DI: the composition root builds the framework GitHub App
+		// client, then the generated NewGitHubActionsConstructionPipelineAccess wires the
+		// token-caching seam + the (unexported) impl behind the interface.
+		appClient, acErr := githubinfra.NewAppClient(cfg.GitHubAppID, cfg.GitHubAppPrivateKeyPEM, cfg.GitHubAPIBaseURL)
 		if acErr != nil {
 			return acErr
 		}
-		pipeline, err = constructionpipeline.New(actionsClient)
+		pipeline, err = constructionpipeline.NewGitHubActionsConstructionPipelineAccess(
+			appClient,
+			cfg.ConstructionRepoOwner,
+			cfg.ConstructionRepoName,
+			cfg.ConstructionWorkflowFile,
+			cfg.ConstructionRef,
+			cfg.GitHubInstallationID,
+		)
 		if err != nil {
 			return err
 		}

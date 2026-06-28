@@ -5,15 +5,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 
 	fwllm "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-llm"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
-// OllamaWorker is the concrete WorkerAccess implementation backed by an Ollama
-// HTTP endpoint — a real, locally-runnable LLM Worker Provider. It implements
-// the generic typed worker surface (Generate + Cancel) of workerAccess.md §2f.
+// ollamaWorker is the concrete WorkerAccess implementation backed by an Ollama
+// HTTP endpoint — a real, locally-runnable LLM Worker Provider. It is UNEXPORTED —
+// the package's public surface is the generated WorkerAccess interface + models +
+// the generated NewOllamaWorkerAccess constructor (option-1 generated-DI). It
+// implements the generic typed worker surface (Generate + Cancel) of
+// workerAccess.md §2f.
 //
 // The Ollama HTTP transport itself lives in the sanctioned llm infrastructure
 // module (fwllm.Client); this struct owns the workerAccess DOMAIN behaviour on
@@ -31,7 +33,7 @@ import (
 //   - imports NO Temporal — idempotencyKey is an ordinary parameter.
 //   - imports NO Method-model types — no projectstate, no artifact.
 //   - RA-never-calls-RA — calls NO sibling ResourceAccess.
-type OllamaWorker struct {
+type ollamaWorker struct {
 	client *fwllm.Client
 
 	// classModels maps a logical WorkerClass to the concrete provider model that
@@ -48,23 +50,24 @@ type OllamaWorker struct {
 }
 
 // compile-time proof the concrete impl satisfies the port.
-var _ WorkerAccess = (*OllamaWorker)(nil)
+var _ WorkerAccess = (*ollamaWorker)(nil)
 
-// NewOllamaWorker builds an OllamaWorker against an Ollama HTTP endpoint serving
-// the given default model. classModels may override the model per WorkerClass (nil
-// is fine — every class then uses defaultModel). The caller (production wiring /
-// tests) owns the endpoint+model choice; the contract never sees it.
-func NewOllamaWorker(baseURL, defaultModel string, classModels map[WorkerClass]string) (*OllamaWorker, error) {
-	if strings.TrimSpace(baseURL) == "" {
-		return nil, fwra.New(fwra.ContractMisuse, "ollama worker: empty baseURL")
+// newOllamaWorkerAccess is the hand-written, unexported builder behind the generated
+// NewOllamaWorkerAccess constructor (option-1 delegated DI). It builds the impl over
+// a framework *fwllm.Client (the composition root / tests own the endpoint+timeout
+// choice when they construct the client) and returns the WorkerAccess interface so
+// the concrete struct + its *idemStore stay unexported. classModels may override the
+// model per WorkerClass (nil is fine — every class then uses defaultModel); the
+// contract never sees the model choice.
+func newOllamaWorkerAccess(client *fwllm.Client, defaultModel string, classModels map[WorkerClass]string) (WorkerAccess, error) {
+	if client == nil {
+		return nil, fwra.New(fwra.ContractMisuse, "ollama worker: nil client")
 	}
 	if strings.TrimSpace(defaultModel) == "" {
 		return nil, fwra.New(fwra.ContractMisuse, "ollama worker: empty defaultModel")
 	}
-	return &OllamaWorker{
-		// A generous client timeout; the Manager's Activity owns the real
-		// StartToClose. Worker runs are slow.
-		client:       fwllm.NewClient(baseURL, 5*time.Minute),
+	return &ollamaWorker{
+		client:       client,
 		classModels:  copyClassModels(classModels),
 		defaultModel: defaultModel,
 		idemStore:    newIdemStore(),
@@ -78,7 +81,7 @@ func NewOllamaWorker(baseURL, defaultModel string, classModels map[WorkerClass]s
 // (fwra.NotFound semantics) is SUCCESS — the desired post-condition ("this run
 // consumes no further Worker resource") already holds, which makes cancel safe
 // to retry (workerAccess.md §2f.3).
-func (w *OllamaWorker) Cancel(rc fwra.Context) error {
+func (w *ollamaWorker) Cancel(rc fwra.Context) error {
 	if err := requireKey(rc.IdempotencyKey); err != nil {
 		return err
 	}
@@ -95,7 +98,7 @@ func (w *OllamaWorker) Cancel(rc fwra.Context) error {
 // Idempotency: a retry carrying the same key replays the recorded bytes without
 // re-invoking the provider. A Cancel(key) followed by Generate(key) returns nil
 // bytes with nil error (treated as cancelled by the caller).
-func (w *OllamaWorker) Generate(rc fwra.Context, spec GenerateSpec) (json.RawMessage, error) {
+func (w *ollamaWorker) Generate(rc fwra.Context, spec GenerateSpec) (json.RawMessage, error) {
 	if err := requireKey(rc.IdempotencyKey); err != nil {
 		return nil, err
 	}
@@ -128,7 +131,7 @@ func (w *OllamaWorker) Generate(rc fwra.Context, spec GenerateSpec) (json.RawMes
 // unsupported model returns no tool calls (treated as end_turn).
 //
 // Idempotency mirrors Generate.
-func (w *OllamaWorker) GenerateToolTurn(rc fwra.Context, spec ToolTurnSpec) (AssistantTurn, error) {
+func (w *ollamaWorker) GenerateToolTurn(rc fwra.Context, spec ToolTurnSpec) (AssistantTurn, error) {
 	if err := requireKey(rc.IdempotencyKey); err != nil {
 		return AssistantTurn{}, err
 	}
@@ -201,7 +204,7 @@ func toOllamaChatMessages(system string, msgs []Message) []fwllm.ChatMessage {
 // sets Format:"json" on the request to instruct Ollama to constrain its output to
 // valid JSON. The provider error is already a typed fwra.Error from the llm infra
 // module (workerAccess.md §3f).
-func (w *OllamaWorker) generateJSON(ctx context.Context, class WorkerClass, prompt string) (fwllm.GenerateResponse, error) {
+func (w *ollamaWorker) generateJSON(ctx context.Context, class WorkerClass, prompt string) (fwllm.GenerateResponse, error) {
 	return w.client.Generate(ctx, fwllm.GenerateRequest{
 		Model:  resolveModel(w.classModels, w.defaultModel, class),
 		Prompt: prompt,

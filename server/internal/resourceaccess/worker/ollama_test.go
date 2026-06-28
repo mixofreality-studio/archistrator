@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
+	fwllm "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-llm"
 	llminfra "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-llm/testinfra"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
@@ -202,9 +204,9 @@ func TestGenerateTypedData_AfterCancel_ReturnsZeroT(t *testing.T) {
 // under -short.
 func TestGenerate_RoundTrip(t *testing.T) {
 	o := llminfra.StartOllama(t) // skips under -short
-	w, err := NewOllamaWorker(o.BaseURL, o.Model, map[WorkerClass]string{"planner": o.Model})
+	w, err := NewOllamaWorkerAccess(fwllm.NewClient(o.BaseURL, 5*time.Minute), o.Model, map[WorkerClass]string{"planner": o.Model})
 	if err != nil {
-		t.Fatalf("NewOllamaWorker: %v", err)
+		t.Fatalf("NewOllamaWorkerAccess: %v", err)
 	}
 
 	got, err := w.Generate(rc(context.Background(), "wf-e2e:act-1"), GenerateSpec{
@@ -226,13 +228,17 @@ func TestGenerate_RoundTrip(t *testing.T) {
 func jsonRaw(s string) json.RawMessage { return json.RawMessage(s) }
 
 // newDeadWorker builds a worker pointed at a reserved/unbound port (no container).
-func newDeadWorker(t *testing.T) *OllamaWorker {
+// It builds the concrete (unexported) impl directly so the test can drive the
+// embedded *idemStore replay path (w.record); the public generated constructor
+// returns the interface.
+func newDeadWorker(t *testing.T) *ollamaWorker {
 	t.Helper()
-	w, err := NewOllamaWorker("http://127.0.0.1:1", "qwen2.5:0.5b", nil)
-	if err != nil {
-		t.Fatalf("NewOllamaWorker: %v", err)
+	return &ollamaWorker{
+		client:       fwllm.NewClient("http://127.0.0.1:1", 5*time.Minute),
+		classModels:  copyClassModels(nil),
+		defaultModel: "qwen2.5:0.5b",
+		idemStore:    newIdemStore(),
 	}
-	return w
 }
 
 func assertKind(t *testing.T, err error, want fwra.Kind) {
@@ -270,10 +276,10 @@ func assertUnmarshalError(t *testing.T, err error) {
 
 // TestNewOllamaWorker_RejectsEmptyConfig — constructor pre-condition guards.
 func TestNewOllamaWorker_RejectsEmptyConfig(t *testing.T) {
-	if _, err := NewOllamaWorker("", "m", nil); err == nil {
-		t.Fatal("expected error for empty baseURL")
+	if _, err := NewOllamaWorkerAccess(nil, "m", nil); err == nil {
+		t.Fatal("expected error for nil client")
 	}
-	if _, err := NewOllamaWorker("http://x", "", nil); err == nil {
+	if _, err := NewOllamaWorkerAccess(fwllm.NewClient("http://x", time.Minute), "", nil); err == nil {
 		t.Fatal("expected error for empty defaultModel")
 	}
 }

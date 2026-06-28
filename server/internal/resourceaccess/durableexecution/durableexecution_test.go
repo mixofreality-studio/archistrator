@@ -91,13 +91,13 @@ func assertKind(t *testing.T, err error, want fwra.Kind) {
 // ---- U1, U2: StartOrSignalExecution pre-conditions (nil client: never reached) ----
 
 func TestStartOrSignal_EmptyID_ContractMisuse(t *testing.T) {
-	r := NewRuntime(nil, testTable()) // nil client: a pre-condition failure must NOT touch it
+	r := NewTemporalDurableExecutionAccess(nil, testTable()) // nil client: a pre-condition failure must NOT touch it
 	_, err := r.StartOrSignalExecution(rc(t.Context()), "systemDesignPhase1", "", "", ExecutionPayload{})
 	assertKind(t, err, fwra.ContractMisuse)
 }
 
 func TestStartOrSignal_UnknownKind_ContractMisuse_NoRuntime(t *testing.T) {
-	r := NewRuntime(nil, testTable()) // nil client proves the unknown-kind check is local
+	r := NewTemporalDurableExecutionAccess(nil, testTable()) // nil client proves the unknown-kind check is local
 	_, err := r.StartOrSignalExecution(rc(t.Context()), "noSuchKind", "proj:phase1", "", ExecutionPayload{})
 	assertKind(t, err, fwra.ContractMisuse)
 }
@@ -105,13 +105,13 @@ func TestStartOrSignal_UnknownKind_ContractMisuse_NoRuntime(t *testing.T) {
 // ---- U3, U4: DeliverSignal pre-conditions ----
 
 func TestDeliverSignal_EmptyTarget_ContractMisuse(t *testing.T) {
-	r := NewRuntime(nil, testTable())
+	r := NewTemporalDurableExecutionAccess(nil, testTable())
 	err := r.DeliverSignal(rc(t.Context()), "", "applyDelinquencyPolicy", ExecutionPayload{})
 	assertKind(t, err, fwra.ContractMisuse)
 }
 
 func TestDeliverSignal_EmptySignal_ContractMisuse(t *testing.T) {
-	r := NewRuntime(nil, testTable())
+	r := NewTemporalDurableExecutionAccess(nil, testTable())
 	err := r.DeliverSignal(rc(t.Context()), "operations:reconcile", "", ExecutionPayload{})
 	assertKind(t, err, fwra.ContractMisuse)
 }
@@ -119,13 +119,13 @@ func TestDeliverSignal_EmptySignal_ContractMisuse(t *testing.T) {
 // ---- U5, U6: RegisterSchedule pre-conditions ----
 
 func TestRegisterSchedule_EmptyID_ContractMisuse(t *testing.T) {
-	r := NewRuntime(nil, testTable())
+	r := NewTemporalDurableExecutionAccess(nil, testTable())
 	err := r.RegisterSchedule(rc(t.Context()), "", ScheduleSpec{ExecutionKind: "settlementCycle", Cadence: Cadence{Every: time.Hour}})
 	assertKind(t, err, fwra.ContractMisuse)
 }
 
 func TestRegisterSchedule_UnknownKind_ContractMisuse_NoRuntime(t *testing.T) {
-	r := NewRuntime(nil, testTable())
+	r := NewTemporalDurableExecutionAccess(nil, testTable())
 	err := r.RegisterSchedule(rc(t.Context()), "shortfallSweep", ScheduleSpec{ExecutionKind: "noSuchKind", Cadence: Cadence{Every: time.Hour}})
 	assertKind(t, err, fwra.ContractMisuse)
 }
@@ -133,7 +133,7 @@ func TestRegisterSchedule_UnknownKind_ContractMisuse_NoRuntime(t *testing.T) {
 // ---- U7: QueryExecutionState pre-condition ----
 
 func TestQueryExecutionState_EmptyID_ContractMisuse(t *testing.T) {
-	r := NewRuntime(nil, testTable())
+	r := NewTemporalDurableExecutionAccess(nil, testTable())
 	_, err := r.QueryExecutionState(rc(t.Context()), "", "costProjection", ExecutionPayload{})
 	assertKind(t, err, fwra.ContractMisuse)
 }

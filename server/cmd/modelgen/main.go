@@ -306,6 +306,35 @@ type infraField struct {
 	imports map[string]string
 }
 
+// infraBinding is one APPROVED framework infra's generated-impl shape. Two modes:
+//
+//   - ARTIFACT mode (delegated=false, the Stage-1 thin-wrapper): modelgen emits a
+//     concrete <Infra><Component> struct holding the framework client field(s) (the
+//     params), a public New<Infra><Component>(params) <Iface> constructor, and a
+//     compile-time assertion. The interface methods are hand-written on the
+//     generated (exported) struct. Used by artifact (Git).
+//   - OPTION-1 DELEGATED mode (delegated=true, the stateful RAs): modelgen emits ONLY
+//     the public delegating constructor
+//     New<Infra><Component>(params) (<Iface>[, error]) whose body is
+//     `return new<Infra><Component>(args)`. The impl struct, the unexported builder
+//     new<Infra><Component>, and the interface methods are ALL hand-written +
+//     unexported in the RA package (so the concrete impl + its package-local state —
+//     token caches, a kindRegistry, DDL-applying constructors, idempotency stores,
+//     seam interfaces — stay unexported; only the generated interface + models + the
+//     constructor are public). No generated struct, no generated assertion (the
+//     hand-written builder returning the interface is the compile-time proof).
+//
+// returnsError selects the constructor's return signature: (<Iface>, error) when the
+// hand-written builder can fail (validation / DDL), or just <Iface> when construction
+// is infallible. params are the constructor parameters (the framework client(s) +
+// any ctx/extra the hand-written builder needs); their types are the REAL framework /
+// package-local Go types the current hand-written impls are built on.
+type infraBinding struct {
+	delegated    bool
+	returnsError bool
+	params       []infraField
+}
+
 // infraBindings maps an APPROVED framework infra name to the field(s) its client
 // — plus any per-call dependency the satellite's API forces — contributes to the
 // generated <Infra><Component> struct + constructor. The client Go types are the
@@ -322,20 +351,99 @@ type infraField struct {
 // bare blob client. The composition root supplies both (the profile-specific auth
 // resolver lives there); this is the documented deviation from a pure
 // (module, client-type) mapping, forced by the satellite's per-call-auth surface.
-var infraBindings = map[string][]infraField{
+var infraBindings = map[string]infraBinding{
+	// artifact (Stage-1 thin wrapper): generated exported struct + constructor.
 	"Git": {
-		{
-			name:    "git",
-			typ:     "*fwgithub.GitBlobStore",
-			imports: map[string]string{"github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github": "fwgithub"},
-		},
-		{
-			name: "auth",
-			typ:  "func(ctx context.Context) (fwgithub.GitAuth, error)",
-			imports: map[string]string{
-				"context": "",
-				"github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github": "fwgithub",
+		params: []infraField{
+			{
+				name:    "git",
+				typ:     "*fwgithub.GitBlobStore",
+				imports: map[string]string{"github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github": "fwgithub"},
 			},
+			{
+				name: "auth",
+				typ:  "func(ctx context.Context) (fwgithub.GitAuth, error)",
+				imports: map[string]string{
+					"context": "",
+					"github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github": "fwgithub",
+				},
+			},
+		},
+	},
+
+	// --- OPTION-1 DELEGATED RAs (stateful; impl hand-written + unexported) -------
+
+	// usagelog → Postgres. The hand-written builder applies the embedded schema.sql
+	// DDL, so construction can fail (returnsError). Param types are the current
+	// NewPostgresUsageAccess(ctx, pool) shape.
+	"Postgres": {
+		delegated:    true,
+		returnsError: true,
+		params: []infraField{
+			{name: "ctx", typ: "context.Context", imports: map[string]string{"context": ""}},
+			{name: "pool", typ: "*pgxpool.Pool", imports: map[string]string{"github.com/jackc/pgx/v5/pgxpool": ""}},
+		},
+	},
+
+	// durableexecution → Temporal. framework-go-infrastructure-temporal has NO client
+	// wrapper, so the constructor takes the RAW go.temporal.io/sdk/client.Client the
+	// impl uses (the documented exception — no framework type exists). The kind→binding
+	// table builds the hand-written kindRegistry. Construction is infallible.
+	"Temporal": {
+		delegated:    true,
+		returnsError: false,
+		params: []infraField{
+			{name: "cl", typ: "client.Client", imports: map[string]string{"go.temporal.io/sdk/client": ""}},
+			{name: "table", typ: "map[ExecutionKind]KindBinding"},
+		},
+	},
+
+	// constructionpipeline → GitHubActions. The hand-written builder wires the
+	// ghActionsClient seam (token-caching ghActionsRESTClient) over the framework
+	// *fwgithub.AppClient + the repo/workflow config, then the Access impl. Validation
+	// can fail (returnsError).
+	"GitHubActions": {
+		delegated:    true,
+		returnsError: true,
+		params: []infraField{
+			{name: "app", typ: "*fwgithub.AppClient", imports: map[string]string{"github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github": "fwgithub"}},
+			{name: "owner", typ: "string"},
+			{name: "repo", typ: "string"},
+			{name: "workflowFile", typ: "string"},
+			{name: "ref", typ: "string"},
+			{name: "installationID", typ: "int64"},
+		},
+	},
+
+	// worker → per-client constructors (NOT one "LLM"). Each delegates to its
+	// hand-written unexported impl (which holds its *idemStore + config).
+	"Anthropic": {
+		delegated:    true,
+		returnsError: true,
+		params: []infraField{
+			{name: "client", typ: "*fwllm.AnthropicClient", imports: map[string]string{"github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-llm": "fwllm"}},
+			{name: "defaultModel", typ: "string"},
+			{name: "classModels", typ: "map[WorkerClass]string"},
+		},
+	},
+	"Ollama": {
+		delegated:    true,
+		returnsError: true,
+		params: []infraField{
+			{name: "client", typ: "*fwllm.Client", imports: map[string]string{"github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-llm": "fwllm"}},
+			{name: "defaultModel", typ: "string"},
+			{name: "classModels", typ: "map[WorkerClass]string"},
+		},
+	},
+	// Replay decorates an optional real WorkerAccess delegate with on-disk cassettes;
+	// mode is the package-local ReplayMode param type, delegate the contract interface.
+	"Replay": {
+		delegated:    true,
+		returnsError: true,
+		params: []infraField{
+			{name: "dir", typ: "string"},
+			{name: "mode", typ: "ReplayMode"},
+			{name: "delegate", typ: "WorkerAccess"},
 		},
 	},
 }
@@ -347,28 +455,34 @@ var infraBindings = map[string][]infraField{
 // on the returned struct (re-homed from the prior hand-written impl).
 func emitRAImpl(buf *bytes.Buffer, iface codegen.Interface, infra []string) error {
 	for _, name := range infra {
-		fields, ok := infraBindings[name]
+		binding, ok := infraBindings[name]
 		if !ok {
 			return fmt.Errorf("unapproved/unknown infra %q (no framework binding)", name)
 		}
-		struct_ := name + iface.Name
-		for _, f := range fields {
+		for _, f := range binding.params {
 			for path, alias := range f.imports {
 				pendingImports[path] = alias
 			}
 		}
+		if binding.delegated {
+			emitDelegatingConstructor(buf, iface, name, binding)
+			continue
+		}
+
+		// ARTIFACT mode (Stage-1 thin wrapper): generated exported struct + constructor.
+		struct_ := name + iface.Name
 		fmt.Fprintf(buf, "// %s is the generated %s-backed implementation of %s. Its fields\n", struct_, name, iface.Name)
 		fmt.Fprintf(buf, "// are the framework infrastructure client(s) the resource access is built on;\n")
 		fmt.Fprintf(buf, "// the interface methods are hand-written on this struct.\n")
 		fmt.Fprintf(buf, "type %s struct {\n", struct_)
-		for _, f := range fields {
+		for _, f := range binding.params {
 			fmt.Fprintf(buf, "\t%s %s\n", f.name, f.typ)
 		}
 		buf.WriteString("}\n\n")
 
-		params := make([]string, 0, len(fields))
-		inits := make([]string, 0, len(fields))
-		for _, f := range fields {
+		params := make([]string, 0, len(binding.params))
+		inits := make([]string, 0, len(binding.params))
+		for _, f := range binding.params {
 			params = append(params, f.name+" "+f.typ)
 			inits = append(inits, f.name+": "+f.name)
 		}
@@ -381,6 +495,37 @@ func emitRAImpl(buf *bytes.Buffer, iface codegen.Interface, infra []string) erro
 		fmt.Fprintf(buf, "var _ %s = (*%s)(nil)\n\n", iface.Name, struct_)
 	}
 	return nil
+}
+
+// emitDelegatingConstructor writes the OPTION-1 (delegated) public constructor for a
+// stateful RA: New<Infra><Component>(params) (<Iface>[, error]) whose body delegates
+// to the hand-written, unexported builder new<Infra><Component>(args). NOTHING else
+// is generated for this infra — the impl struct, the builder, and the interface
+// methods are hand-written + unexported in the RA package, so the concrete impl and
+// its package-local state stay unexported (only the generated interface + models +
+// this constructor are public). No compile-time assertion is emitted here: the
+// hand-written builder returns the interface, which IS the compile-time proof.
+func emitDelegatingConstructor(buf *bytes.Buffer, iface codegen.Interface, name string, binding infraBinding) {
+	ctor := "New" + name + iface.Name
+	builder := "new" + name + iface.Name
+
+	params := make([]string, 0, len(binding.params))
+	args := make([]string, 0, len(binding.params))
+	for _, f := range binding.params {
+		params = append(params, f.name+" "+f.typ)
+		args = append(args, f.name)
+	}
+	ret := iface.Name
+	if binding.returnsError {
+		ret = "(" + iface.Name + ", error)"
+	}
+
+	fmt.Fprintf(buf, "// %s constructs the %s-backed %s, delegating to the hand-written,\n", ctor, name, iface.Name)
+	fmt.Fprintf(buf, "// unexported builder %s in the RA package (which owns the stateful setup).\n", builder)
+	fmt.Fprintf(buf, "// The constructor returns the interface, so the concrete impl stays unexported.\n")
+	fmt.Fprintf(buf, "func %s(%s) %s {\n", ctor, strings.Join(params, ", "), ret)
+	fmt.Fprintf(buf, "\treturn %s(%s)\n", builder, strings.Join(args, ", "))
+	buf.WriteString("}\n\n")
 }
 
 // emitEngineImpl writes the pure-engine impl: an empty <Component>Impl struct (no

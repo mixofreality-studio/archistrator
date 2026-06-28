@@ -5,6 +5,7 @@ package durableexecution
 
 import (
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	"go.temporal.io/sdk/client"
 	"time"
 )
 
@@ -62,4 +63,11 @@ type DurableExecutionAccess interface {
 	QueryExecutionState(rc fwra.Context, executionID ExecutionID, queryName QueryName, args ExecutionPayload) (ExecutionStateView, error)
 	RegisterSchedule(rc fwra.Context, scheduleID ScheduleID, spec ScheduleSpec) error
 	StartOrSignalExecution(rc fwra.Context, executionKind ExecutionKind, executionID ExecutionID, signalName SignalName, payload ExecutionPayload) (ExecutionHandle, error)
+}
+
+// NewTemporalDurableExecutionAccess constructs the Temporal-backed DurableExecutionAccess, delegating to the hand-written,
+// unexported builder newTemporalDurableExecutionAccess in the RA package (which owns the stateful setup).
+// The constructor returns the interface, so the concrete impl stays unexported.
+func NewTemporalDurableExecutionAccess(cl client.Client, table map[ExecutionKind]KindBinding) DurableExecutionAccess {
+	return newTemporalDurableExecutionAccess(cl, table)
 }

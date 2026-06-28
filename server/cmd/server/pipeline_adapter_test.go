@@ -8,7 +8,7 @@ import (
 
 // TestPipelineAdapter_DispatchInputs asserts that dispatchInputsFor maps
 // ActivityID → "activity_id" and ComponentID → "component_id".
-// pipelineAdapter.inner is *constructionpipeline.Access (a concrete struct, not an
+// pipelineAdapter.inner is the constructionpipeline.ConstructionPipelineAccess interface (not a concrete struct,
 // interface), so we test the pure mapping helper directly — no fake adapter needed.
 func TestPipelineAdapter_DispatchInputs(t *testing.T) {
 	inputs := dispatchInputsFor(construction.PipelineSpec{

@@ -8,13 +8,15 @@ import (
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
-// AnthropicWorker is the PRODUCTION WorkerAccess implementation, backed by the
+// anthropicWorker is the PRODUCTION WorkerAccess implementation, backed by the
 // Anthropic Messages API (official anthropic-sdk-go, wrapped by the sanctioned llm
-// infrastructure module's AnthropicClient). It implements the generic typed worker
-// surface (Generate + Cancel) of workerAccess.md §2f, exactly as OllamaWorker
-// does — the two are interchangeable concrete realizations of the same port. The
-// composition root wires this worker in production; OllamaWorker is the test-only
-// provider (testcontainers / docker-compose).
+// infrastructure module's AnthropicClient). It is UNEXPORTED — the package's public
+// surface is the generated WorkerAccess interface + models + the generated
+// NewAnthropicWorkerAccess constructor (option-1 generated-DI). It implements the
+// generic typed worker surface (Generate + Cancel) of workerAccess.md §2f, exactly
+// as ollamaWorker does — the two are interchangeable concrete realizations of the
+// same port. The composition root wires this worker in production; ollamaWorker is
+// the test-only provider (testcontainers / docker-compose).
 //
 // Infrastructure-opacity (workerAccess.md §3f): the Anthropic API key, model name,
 // max-tokens cap and token meters live ENTIRELY inside this struct (and the opaque
@@ -27,7 +29,7 @@ import (
 //   - imports NO Temporal — idempotencyKey is an ordinary parameter.
 //   - imports NO Method-model types — no projectstate, no artifact.
 //   - RA-never-calls-RA — calls NO sibling ResourceAccess.
-type AnthropicWorker struct {
+type anthropicWorker struct {
 	client *fwllm.AnthropicClient
 
 	// classModels maps a logical WorkerClass to the concrete Claude model that
@@ -45,7 +47,7 @@ type AnthropicWorker struct {
 }
 
 // compile-time proof the concrete impl satisfies the port.
-var _ WorkerAccess = (*AnthropicWorker)(nil)
+var _ WorkerAccess = (*anthropicWorker)(nil)
 
 // jsonOnlySystem is the provider-mechanical instruction that constrains the
 // response to a bare JSON value — the Anthropic analog of Ollama's Format:"json"
@@ -55,22 +57,23 @@ var _ WorkerAccess = (*AnthropicWorker)(nil)
 const jsonOnlySystem = "Respond with exactly one valid JSON value and nothing else. " +
 	"Do not add prose, explanation, or Markdown code fences."
 
-// NewAnthropicWorker builds an AnthropicWorker against the Anthropic API. apiKey is
-// required; baseURL is optional (empty uses the SDK default endpoint). defaultModel
-// is the fallback Claude model id; classModels may override it per WorkerClass (nil
-// is fine — every class then uses defaultModel). The caller (production wiring)
-// owns the key+model choice; the contract never sees it.
-func NewAnthropicWorker(apiKey, baseURL, defaultModel string, classModels map[WorkerClass]string) (*AnthropicWorker, error) {
-	if strings.TrimSpace(apiKey) == "" {
-		return nil, fwra.New(fwra.ContractMisuse, "anthropic worker: empty apiKey")
+// newAnthropicWorkerAccess is the hand-written, unexported builder behind the
+// generated NewAnthropicWorkerAccess constructor (option-1 delegated DI). It builds
+// the impl over a framework *fwllm.AnthropicClient (the composition root owns the
+// key+endpoint+max-tokens choice when it constructs the client) and returns the
+// WorkerAccess interface so the concrete struct + its *idemStore stay unexported.
+// defaultModel is the fallback Claude model id; classModels may override it per
+// WorkerClass (nil is fine — every class then uses defaultModel). The contract never
+// sees the model choice.
+func newAnthropicWorkerAccess(client *fwllm.AnthropicClient, defaultModel string, classModels map[WorkerClass]string) (WorkerAccess, error) {
+	if client == nil {
+		return nil, fwra.New(fwra.ContractMisuse, "anthropic worker: nil client")
 	}
 	if strings.TrimSpace(defaultModel) == "" {
 		return nil, fwra.New(fwra.ContractMisuse, "anthropic worker: empty defaultModel")
 	}
-	return &AnthropicWorker{
-		// A 0 max-tokens lets the client pick its generous default; the Manager's
-		// Activity owns the real StartToClose deadline.
-		client:       fwllm.NewAnthropicClient(apiKey, baseURL, 0),
+	return &anthropicWorker{
+		client:       client,
 		classModels:  copyClassModels(classModels),
 		defaultModel: defaultModel,
 		idemStore:    newIdemStore(),
@@ -83,7 +86,7 @@ func NewAnthropicWorker(apiKey, baseURL, defaultModel string, classModels map[Wo
 // observes it as a nil message. An unknown / already-terminal run (fwra.NotFound
 // semantics) is SUCCESS — the desired post-condition already holds, which makes
 // cancel safe to retry (workerAccess.md §2f.3).
-func (w *AnthropicWorker) Cancel(rc fwra.Context) error {
+func (w *anthropicWorker) Cancel(rc fwra.Context) error {
 	if err := requireKey(rc.IdempotencyKey); err != nil {
 		return err
 	}
@@ -100,7 +103,7 @@ func (w *AnthropicWorker) Cancel(rc fwra.Context) error {
 // Idempotency: a retry carrying the same key replays the recorded bytes without
 // re-invoking (and re-billing) the provider. A Cancel(key) followed by
 // Generate(key) returns nil bytes with nil error (treated as cancelled).
-func (w *AnthropicWorker) Generate(rc fwra.Context, spec GenerateSpec) (json.RawMessage, error) {
+func (w *anthropicWorker) Generate(rc fwra.Context, spec GenerateSpec) (json.RawMessage, error) {
 	if err := requireKey(rc.IdempotencyKey); err != nil {
 		return nil, err
 	}
@@ -135,7 +138,7 @@ func (w *AnthropicWorker) Generate(rc fwra.Context, spec GenerateSpec) (json.Raw
 //
 // Idempotency mirrors Generate: a retry on the same key replays the recorded
 // AssistantTurn; a Cancel(key) first replays as a zero AssistantTurn (cancelled).
-func (w *AnthropicWorker) GenerateToolTurn(rc fwra.Context, spec ToolTurnSpec) (AssistantTurn, error) {
+func (w *anthropicWorker) GenerateToolTurn(rc fwra.Context, spec ToolTurnSpec) (AssistantTurn, error) {
 	if err := requireKey(rc.IdempotencyKey); err != nil {
 		return AssistantTurn{}, err
 	}

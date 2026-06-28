@@ -94,7 +94,7 @@ func scheduledWorkflow(ctx workflow.Context, _ []byte) error {
 
 // integrationRuntime spins a test Worker registering the two workflow types and
 // returns a Runtime over the dev-server client bound to the test registry.
-func integrationRuntime(t *testing.T) (*Runtime, client.Client) {
+func integrationRuntime(t *testing.T) (DurableExecutionAccess, client.Client) {
 	t.Helper()
 	if testing.Short() {
 		t.Skip("integration: skipped under -short (requires the Temporal dev server)")
@@ -109,7 +109,7 @@ func integrationRuntime(t *testing.T) (*Runtime, client.Client) {
 	}
 	t.Cleanup(w.Stop)
 
-	r := NewRuntime(c, map[ExecutionKind]KindBinding{
+	r := NewTemporalDurableExecutionAccess(c, map[ExecutionKind]KindBinding{
 		kindSignalWaiter: {WorkflowType: wtSignalWaiter, TaskQueue: testTaskQueue},
 		kindScheduled:    {WorkflowType: wtScheduled, TaskQueue: testTaskQueue},
 	})
@@ -125,7 +125,7 @@ func uniqueID(t *testing.T, prefix string) ExecutionID {
 
 // waitForStatus polls queryExecutionState until the status matches or the timeout
 // elapses.
-func waitForStatus(t *testing.T, r *Runtime, id ExecutionID, want ExecutionStatus) ExecutionStateView {
+func waitForStatus(t *testing.T, r DurableExecutionAccess, id ExecutionID, want ExecutionStatus) ExecutionStateView {
 	t.Helper()
 	ctx := t.Context()
 	deadline := time.Now().Add(integrationWaitTimeout)

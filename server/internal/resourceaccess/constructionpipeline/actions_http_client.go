@@ -27,33 +27,6 @@ import (
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
-// ActionsConfig carries the construction-pipeline GitHub binding the composition
-// root supplies. Owner/Repo/WorkflowFile/Ref identify WHERE the construction
-// workflow runs; the App identity authenticates to it.
-type ActionsConfig struct {
-	// AppID is the numeric GitHub App id (as a string).
-	AppID string
-	// PrivateKeyPEM is the App's RSA private key (PEM).
-	PrivateKeyPEM string
-	// APIBaseURL is the REST root ("" == github.com; a GHE host or a test fake
-	// overrides it).
-	APIBaseURL string
-	// InstallationID is the App installation on the user's account/org. When 0, the
-	// client discovers it on first use via FindInstallation(Owner).
-	InstallationID int64
-	// Owner is the repo owner (user or org) the construction workflow lives under.
-	Owner string
-	// Repo is the repo name.
-	Repo string
-	// WorkflowFile is the aiarch construction workflow file name (e.g.
-	// "aiarch-construct.yml") the RA dispatches. It MUST stamp
-	// run-name: aiarch-cp-${{ inputs.idempotency_token }} so the launched run carries
-	// the dedup name (see github satellite RunNamePrefix / DispatchInputKeyIdempotencyToken).
-	WorkflowFile string
-	// Ref is the git ref to dispatch against (e.g. "main").
-	Ref string
-}
-
 // appClient is the satellite surface this seam depends on — declared as an
 // interface so the seam realisation is unit-testable against a satellite fake if
 // ever needed, and so the dependency is explicit. The satellite *AppClient
@@ -86,35 +59,49 @@ var _ ghActionsClient = (*ghActionsRESTClient)(nil)
 // tokenRefreshSkew re-mints the installation token a little before its hard expiry.
 const tokenRefreshSkew = 60 * time.Second
 
-// NewActionsClient builds the concrete GitHub-Actions seam from the App identity +
-// repo binding. It validates config eagerly (a missing field / bad key is a
-// configuration error surfaced as fwra.ContractMisuse) but performs no network IO;
-// the installation token is minted lazily on first use.
-func NewActionsClient(cfg ActionsConfig) (*ghActionsRESTClient, error) {
-	if strings.TrimSpace(cfg.Owner) == "" {
-		return nil, fwra.New(fwra.ContractMisuse, "NewActionsClient: empty Owner")
-	}
-	if strings.TrimSpace(cfg.Repo) == "" {
-		return nil, fwra.New(fwra.ContractMisuse, "NewActionsClient: empty Repo")
-	}
-	if strings.TrimSpace(cfg.WorkflowFile) == "" {
-		return nil, fwra.New(fwra.ContractMisuse, "NewActionsClient: empty WorkflowFile")
-	}
-	ref := strings.TrimSpace(cfg.Ref)
-	if ref == "" {
-		ref = "main"
-	}
-	app, err := fwgithub.NewAppClient(cfg.AppID, cfg.PrivateKeyPEM, cfg.APIBaseURL)
+// newGitHubActionsConstructionPipelineAccess is the hand-written, unexported builder
+// behind the generated NewGitHubActionsConstructionPipelineAccess constructor
+// (option-1 delegated DI). It wires the token-caching ghActionsRESTClient seam over
+// the framework *fwgithub.AppClient + the repo/workflow config, then the access impl,
+// returning the ConstructionPipelineAccess interface so the concrete impl + its seam
+// stay unexported. The composition root (cmd/server/main.go) builds the App client via
+// fwgithub.NewAppClient and passes it here.
+func newGitHubActionsConstructionPipelineAccess(app *fwgithub.AppClient, owner, repo, workflowFile, ref string, installationID int64) (ConstructionPipelineAccess, error) {
+	seam, err := newActionsRESTClient(app, owner, repo, workflowFile, ref, installationID)
 	if err != nil {
 		return nil, err
 	}
+	return newAccess(seam)
+}
+
+// newActionsRESTClient builds the concrete GitHub-Actions seam from the App client +
+// repo binding. It validates config eagerly (a missing field is a configuration error
+// surfaced as fwra.ContractMisuse) but performs no network IO; the installation token
+// is minted lazily on first use.
+func newActionsRESTClient(app *fwgithub.AppClient, owner, repo, workflowFile, ref string, installationID int64) (*ghActionsRESTClient, error) {
+	if app == nil {
+		return nil, fwra.New(fwra.ContractMisuse, "constructionpipeline: nil github app client")
+	}
+	if strings.TrimSpace(owner) == "" {
+		return nil, fwra.New(fwra.ContractMisuse, "constructionpipeline: empty Owner")
+	}
+	if strings.TrimSpace(repo) == "" {
+		return nil, fwra.New(fwra.ContractMisuse, "constructionpipeline: empty Repo")
+	}
+	if strings.TrimSpace(workflowFile) == "" {
+		return nil, fwra.New(fwra.ContractMisuse, "constructionpipeline: empty WorkflowFile")
+	}
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		ref = "main"
+	}
 	return &ghActionsRESTClient{
 		app:            app,
-		owner:          cfg.Owner,
-		repo:           cfg.Repo,
-		workflowFile:   cfg.WorkflowFile,
+		owner:          owner,
+		repo:           repo,
+		workflowFile:   workflowFile,
 		ref:            ref,
-		installationID: cfg.InstallationID,
+		installationID: installationID,
 	}, nil
 }
 

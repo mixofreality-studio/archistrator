@@ -10357,6 +10357,9 @@
       "component": "constructionPipelineAccess",
       "layer": "ResourceAccess",
       "goPackage": "internal/resourceaccess/constructionpipeline",
+      "infra": [
+        "GitHubActions"
+      ],
       "title": "constructionpipeline contract",
       "$defs": {
         "ArtifactRef": {
@@ -10677,6 +10680,9 @@
       "component": "durableExecutionAccess",
       "layer": "ResourceAccess",
       "goPackage": "internal/resourceaccess/durableexecution",
+      "infra": [
+        "Temporal"
+      ],
       "title": "durableexecution contract",
       "$defs": {
         "Cadence": {
@@ -15946,6 +15952,9 @@
       "component": "usageAccess",
       "layer": "ResourceAccess",
       "goPackage": "internal/resourceaccess/usagelog",
+      "infra": [
+        "Postgres"
+      ],
       "title": "usagelog contract",
       "$defs": {
         "ComputeUnits": {
@@ -16181,6 +16190,11 @@
       "component": "workerAccess",
       "layer": "ResourceAccess",
       "goPackage": "internal/resourceaccess/worker",
+      "infra": [
+        "Anthropic",
+        "Ollama",
+        "Replay"
+      ],
       "title": "worker contract",
       "$defs": {
         "AssistantTurn": {

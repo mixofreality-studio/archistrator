@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	fwllm "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-llm"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
@@ -18,25 +19,30 @@ import (
 // newOfflineAnthropicWorker builds a worker with a dummy key. Tests must never
 // drive an unrecorded key through Generate (that would call the real API); they
 // pre-record results to exercise the replay paths.
-func newOfflineAnthropicWorker(t *testing.T) *AnthropicWorker {
+func newOfflineAnthropicWorker(t *testing.T) *anthropicWorker {
 	t.Helper()
-	w, err := NewAnthropicWorker("test-key", "", "claude-opus-4-8", map[WorkerClass]string{
-		"architect":      "claude-opus-4-8",
-		"productManager": "claude-sonnet-4-6",
-	})
-	if err != nil {
-		t.Fatalf("NewAnthropicWorker: %v", err)
+	// Build the concrete (unexported) impl directly so the test can drive the
+	// embedded *idemStore replay path (w.record). The public generated constructor
+	// NewAnthropicWorkerAccess returns the interface; this white-box helper needs the
+	// concrete type. A dummy key client is never dialled (tests pre-record results).
+	return &anthropicWorker{
+		client: fwllm.NewAnthropicClient("test-key", "", 0),
+		classModels: copyClassModels(map[WorkerClass]string{
+			"architect":      "claude-opus-4-8",
+			"productManager": "claude-sonnet-4-6",
+		}),
+		defaultModel: "claude-opus-4-8",
+		idemStore:    newIdemStore(),
 	}
-	return w
 }
 
-// TestNewAnthropicWorker_RejectsEmptyConfig — constructor pre-condition guards: an
-// empty API key or empty default model is fwra.ContractMisuse.
+// TestNewAnthropicWorker_RejectsEmptyConfig — constructor pre-condition guards: a
+// nil client or empty default model is fwra.ContractMisuse.
 func TestNewAnthropicWorker_RejectsEmptyConfig(t *testing.T) {
-	if _, err := NewAnthropicWorker("", "", "claude-opus-4-8", nil); err == nil {
-		t.Fatal("expected error for empty apiKey")
+	if _, err := NewAnthropicWorkerAccess(nil, "claude-opus-4-8", nil); err == nil {
+		t.Fatal("expected error for nil client")
 	}
-	if _, err := NewAnthropicWorker("k", "", "", nil); err == nil {
+	if _, err := NewAnthropicWorkerAccess(fwllm.NewAnthropicClient("k", "", 0), "", nil); err == nil {
 		t.Fatal("expected error for empty defaultModel")
 	}
 }

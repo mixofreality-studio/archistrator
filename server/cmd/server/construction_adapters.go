@@ -523,12 +523,14 @@ func (a reviewAdapter) ProposeReviews(
 
 // ===========================================================================
 // constructionPipelineAccess adapter — construction.ConstructionPipelineAccess
-// over *constructionpipeline.Access. The Manager's mirror carries an
+// over the constructionpipeline.ConstructionPipelineAccess interface. The Manager's mirror carries an
 // infrastructure-neutral PipelineSpec/Handle/Observation distinct from the RA's
 // own (richer) types; this bridges them.
 // ===========================================================================
 
-type pipelineAdapter struct{ inner *constructionpipeline.Access }
+type pipelineAdapter struct {
+	inner constructionpipeline.ConstructionPipelineAccess
+}
 
 var _ construction.ConstructionPipelineAccess = pipelineAdapter{}
 
@@ -536,7 +538,7 @@ var _ construction.ConstructionPipelineAccess = pipelineAdapter{}
 // implies. The Manager's mirror carries no per-step toolchain/command (it submits
 // "build this repo@ref"); the composition root supplies a single default build
 // step here. The toolchain image map is configured in config.go and passed to
-// constructionpipeline.New, so this logical ref resolves to a concrete image.
+// NewGitHubActionsConstructionPipelineAccess, so this logical ref resolves to a concrete image.
 const pipelineDefaultToolchain = "go-1.23"
 
 // dispatchInputsFor builds the DispatchInputs bag for a construction pipeline
@@ -644,7 +646,7 @@ func (a artifactAdapter) RetrieveConstructionOutput(ctx context.Context, content
 
 // ===========================================================================
 // DESIGN-dispatch adapter — systemdesign.ConstructionPipelineAccess over
-// *constructionpipeline.Access (the UC1 agentic-pivot, D-MSD-Δ). The same FROZEN
+// the constructionpipeline.ConstructionPipelineAccess interface (the UC1 agentic-pivot, D-MSD-Δ). The same FROZEN
 // constructionPipelineAccess RA backs BOTH the construction Manager (UC3) and the
 // design Manager (UC1) — the design Manager is a NEW caller. This adapter bridges
 // systemdesign's own neutral PipelineSpec/Handle/Observation (which carry the
@@ -652,7 +654,9 @@ func (a artifactAdapter) RetrieveConstructionOutput(ctx context.Context, content
 // forwarding the four DESIGN-job inputs on PipelineSpec.DispatchInputs.
 // ===========================================================================
 
-type designPipelineAdapter struct{ inner *constructionpipeline.Access }
+type designPipelineAdapter struct {
+	inner constructionpipeline.ConstructionPipelineAccess
+}
 
 var _ systemdesign.ConstructionPipelineAccess = designPipelineAdapter{}
 
@@ -745,7 +749,7 @@ func designPipelinePhase(p constructionpipeline.PipelinePhase) systemdesign.Pipe
 
 // ===========================================================================
 // DESIGN-dispatch adapter (Phase 2) — projectdesign.ConstructionPipelineAccess
-// over *constructionpipeline.Access (the UC2 agentic-pivot, D-MPD-Δ — the twin of
+// over the constructionpipeline.ConstructionPipelineAccess interface (the UC2 agentic-pivot, D-MPD-Δ — the twin of
 // the systemdesign adapter above). The SAME FROZEN constructionPipelineAccess RA
 // backs the construction Manager (UC3) AND both design Managers (UC1/UC2 — each a
 // NEW caller). This adapter bridges projectdesign's own neutral PipelineSpec/Handle/
@@ -754,7 +758,9 @@ func designPipelinePhase(p constructionpipeline.PipelinePhase) systemdesign.Pipe
 // PipelineSpec.DispatchInputs.
 // ===========================================================================
 
-type designProjectDesignPipelineAdapter struct{ inner *constructionpipeline.Access }
+type designProjectDesignPipelineAdapter struct {
+	inner constructionpipeline.ConstructionPipelineAccess
+}
 
 var _ projectdesign.ConstructionPipelineAccess = designProjectDesignPipelineAdapter{}
 

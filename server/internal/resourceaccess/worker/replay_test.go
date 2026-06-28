@@ -36,16 +36,16 @@ func writeCassetteFile(t *testing.T, dir, key, responseJSON string) {
 // TestNewReplayWorker_Guards — empty dir and unknown mode are ContractMisuse;
 // record_on_miss requires a non-nil delegate.
 func TestNewReplayWorker_Guards(t *testing.T) {
-	if _, err := NewReplayWorker("", ReplayStrict, nil); err == nil {
+	if _, err := NewReplayWorkerAccess("", ReplayStrict, nil); err == nil {
 		t.Fatal("expected error for empty dir")
 	}
-	if _, err := NewReplayWorker(t.TempDir(), "bogus", nil); err == nil {
+	if _, err := NewReplayWorkerAccess(t.TempDir(), "bogus", nil); err == nil {
 		t.Fatal("expected error for unknown mode")
 	}
-	if _, err := NewReplayWorker(t.TempDir(), ReplayRecordOnMiss, nil); err == nil {
+	if _, err := NewReplayWorkerAccess(t.TempDir(), ReplayRecordOnMiss, nil); err == nil {
 		t.Fatal("expected error: record_on_miss requires a delegate")
 	}
-	if _, err := NewReplayWorker(t.TempDir(), ReplayStrict, nil); err != nil {
+	if _, err := NewReplayWorkerAccess(t.TempDir(), ReplayStrict, nil); err != nil {
 		t.Fatalf("strict mode with nil delegate is valid: %v", err)
 	}
 }
@@ -54,7 +54,7 @@ func TestNewReplayWorker_Guards(t *testing.T) {
 // delegate (strict, delegate nil).
 func TestReplay_Hit_ReturnsCassetteBytes(t *testing.T) {
 	dir := t.TempDir()
-	w, err := NewReplayWorker(dir, ReplayStrict, nil)
+	w, err := NewReplayWorkerAccess(dir, ReplayStrict, nil)
 	if err != nil {
 		t.Fatalf("NewReplayWorker: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestReplay_Hit_ReturnsCassetteBytes(t *testing.T) {
 // *fwra.Error (ContractMisuse) that names the key and dir.
 func TestReplay_StrictMiss_IsLoudError(t *testing.T) {
 	dir := t.TempDir()
-	w, err := NewReplayWorker(dir, ReplayStrict, nil)
+	w, err := NewReplayWorkerAccess(dir, ReplayStrict, nil)
 	if err != nil {
 		t.Fatalf("NewReplayWorker: %v", err)
 	}
@@ -92,7 +92,7 @@ func TestReplay_StrictMiss_IsLoudError(t *testing.T) {
 // TestReplay_ContractMisuse_GuardsFirst — empty key / empty prompt are rejected
 // before any disk lookup.
 func TestReplay_ContractMisuse_GuardsFirst(t *testing.T) {
-	w, _ := NewReplayWorker(t.TempDir(), ReplayStrict, nil)
+	w, _ := NewReplayWorkerAccess(t.TempDir(), ReplayStrict, nil)
 	ctx := context.Background()
 	if _, err := w.Generate(rc(ctx, ""), GenerateSpec{WorkerClass: "architect", Prompt: "x"}); err == nil {
 		t.Fatal("empty key must be ContractMisuse")
@@ -156,7 +156,7 @@ func (f *fakeDelegate) GenerateToolTurn(_ fwra.Context, _ ToolTurnSpec) (Assista
 func TestRecordOnMiss_GeneratesThenReplaysFromDisk(t *testing.T) {
 	dir := t.TempDir()
 	del := &fakeDelegate{resp: json.RawMessage(`{"drafted":true}`)}
-	w, err := NewReplayWorker(dir, ReplayRecordOnMiss, del)
+	w, err := NewReplayWorkerAccess(dir, ReplayRecordOnMiss, del)
 	if err != nil {
 		t.Fatalf("NewReplayWorker: %v", err)
 	}
@@ -178,7 +178,7 @@ func TestRecordOnMiss_GeneratesThenReplaysFromDisk(t *testing.T) {
 	}
 
 	// A FRESH strict worker over the same dir replays without any delegate.
-	w2, err := NewReplayWorker(dir, ReplayStrict, nil)
+	w2, err := NewReplayWorkerAccess(dir, ReplayStrict, nil)
 	if err != nil {
 		t.Fatalf("NewReplayWorker (replay): %v", err)
 	}
@@ -196,7 +196,7 @@ func TestRecordOnMiss_GeneratesThenReplaysFromDisk(t *testing.T) {
 func TestRecordOnMiss_WithinRunRetry_DoesNotReinvoke(t *testing.T) {
 	dir := t.TempDir()
 	del := &fakeDelegate{resp: json.RawMessage(`{"x":1}`)}
-	w, _ := NewReplayWorker(dir, ReplayRecordOnMiss, del)
+	w, _ := NewReplayWorkerAccess(dir, ReplayRecordOnMiss, del)
 	spec := GenerateSpec{WorkerClass: "architect", Prompt: "draft"}
 	const key = fwra.IdempotencyKey("wf:act-1")
 
@@ -216,7 +216,7 @@ func TestRecordOnMiss_WithinRunRetry_DoesNotReinvoke(t *testing.T) {
 func TestRecordOnMiss_CancelThenGenerate_ReturnsNil(t *testing.T) {
 	dir := t.TempDir()
 	del := &fakeDelegate{resp: json.RawMessage(`{"x":1}`)}
-	w, _ := NewReplayWorker(dir, ReplayRecordOnMiss, del)
+	w, _ := NewReplayWorkerAccess(dir, ReplayRecordOnMiss, del)
 	const key = fwra.IdempotencyKey("wf-cancel:act-1")
 	if err := w.Cancel(rc(context.Background(), key)); err != nil {
 		t.Fatalf("Cancel: %v", err)

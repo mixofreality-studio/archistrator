@@ -183,9 +183,9 @@ func (f *fakeActions) cancelRun(_ context.Context, tgt ghTarget, runID int64) er
 
 // newAccessForTest builds an Access with a synchronous resolve (the fake's dispatch
 // creates the run immediately, so one resolve attempt and no delay suffices).
-func newAccessForTest(t *testing.T, f *fakeActions) *Access {
+func newAccessForTest(t *testing.T, f *fakeActions) *access {
 	t.Helper()
-	a, err := New(f)
+	a, err := newAccess(f)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -230,7 +230,7 @@ func obsRC(ctx context.Context) fwra.Context {
 }
 
 func TestNewRejectsNilClient(t *testing.T) {
-	if _, err := New(nil); kind(err) != fwra.ContractMisuse {
+	if _, err := newAccess(nil); kind(err) != fwra.ContractMisuse {
 		t.Fatalf("New(nil) kind = %v, want ContractMisuse", kind(err))
 	}
 }

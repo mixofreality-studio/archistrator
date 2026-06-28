@@ -5,6 +5,7 @@ package worker
 
 import (
 	"encoding/json"
+	fwllm "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-llm"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
@@ -61,4 +62,25 @@ type WorkerAccess interface {
 	Cancel(rc fwra.Context) error
 	Generate(rc fwra.Context, spec GenerateSpec) (json.RawMessage, error)
 	GenerateToolTurn(rc fwra.Context, spec ToolTurnSpec) (AssistantTurn, error)
+}
+
+// NewAnthropicWorkerAccess constructs the Anthropic-backed WorkerAccess, delegating to the hand-written,
+// unexported builder newAnthropicWorkerAccess in the RA package (which owns the stateful setup).
+// The constructor returns the interface, so the concrete impl stays unexported.
+func NewAnthropicWorkerAccess(client *fwllm.AnthropicClient, defaultModel string, classModels map[WorkerClass]string) (WorkerAccess, error) {
+	return newAnthropicWorkerAccess(client, defaultModel, classModels)
+}
+
+// NewOllamaWorkerAccess constructs the Ollama-backed WorkerAccess, delegating to the hand-written,
+// unexported builder newOllamaWorkerAccess in the RA package (which owns the stateful setup).
+// The constructor returns the interface, so the concrete impl stays unexported.
+func NewOllamaWorkerAccess(client *fwllm.Client, defaultModel string, classModels map[WorkerClass]string) (WorkerAccess, error) {
+	return newOllamaWorkerAccess(client, defaultModel, classModels)
+}
+
+// NewReplayWorkerAccess constructs the Replay-backed WorkerAccess, delegating to the hand-written,
+// unexported builder newReplayWorkerAccess in the RA package (which owns the stateful setup).
+// The constructor returns the interface, so the concrete impl stays unexported.
+func NewReplayWorkerAccess(dir string, mode ReplayMode, delegate WorkerAccess) (WorkerAccess, error) {
+	return newReplayWorkerAccess(dir, mode, delegate)
 }

@@ -43,11 +43,11 @@ func rc(ctx context.Context) fwra.Context { return fwra.Context{Context: ctx} }
 
 // newStore spins a fresh Postgres, applies the schema via NewStore, and hands
 // back the Store plus the raw pool (for row-count probes and the trigger test).
-func newStore(t *testing.T) (*usagelog.Store, *pgxpool.Pool, context.Context) {
+func newStore(t *testing.T) (usagelog.UsageAccess, *pgxpool.Pool, context.Context) {
 	t.Helper()
 	pool := postgresinfra.StartPostgres(t)
 	ctx := context.Background()
-	store, err := usagelog.NewStore(ctx, pool)
+	store, err := usagelog.NewPostgresUsageAccess(ctx, pool)
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
@@ -407,7 +407,7 @@ func TestContractMisuse(t *testing.T) {
 	assertKind(t, err, fwra.ContractMisuse)
 
 	// Constructor misuse.
-	_, err = usagelog.NewStore(ctx, nil)
+	_, err = usagelog.NewPostgresUsageAccess(ctx, nil)
 	assertKind(t, err, fwra.ContractMisuse)
 }
 
@@ -419,7 +419,7 @@ func TestSchemaIdempotent(t *testing.T) {
 	if _, err := store.RecordComputeUsage(rc(ctx), []usagelog.UsageEvent{tokenEvent(customer, "2026-06", "ev-boot", 1)}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	if _, err := usagelog.NewStore(ctx, pool); err != nil {
+	if _, err := usagelog.NewPostgresUsageAccess(ctx, pool); err != nil {
 		t.Fatalf("second NewStore (redeploy) must succeed: %v", err)
 	}
 	if n := rowCount(t, pool, ctx, "ev-boot"); n != 1 {

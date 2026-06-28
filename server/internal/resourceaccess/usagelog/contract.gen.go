@@ -4,7 +4,9 @@
 package usagelog
 
 import (
+	"context"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"time"
 )
@@ -45,4 +47,11 @@ type UsageAccess interface {
 	ReadRange(rc fwra.Context, query UsageRangeQuery) ([]UsageEvent, error)
 	RecordComputeUsage(rc fwra.Context, events []UsageEvent) ([]EntryRef, error)
 	RecordFinalUsage(rc fwra.Context, events []UsageEvent) ([]EntryRef, error)
+}
+
+// NewPostgresUsageAccess constructs the Postgres-backed UsageAccess, delegating to the hand-written,
+// unexported builder newPostgresUsageAccess in the RA package (which owns the stateful setup).
+// The constructor returns the interface, so the concrete impl stays unexported.
+func NewPostgresUsageAccess(ctx context.Context, pool *pgxpool.Pool) (UsageAccess, error) {
+	return newPostgresUsageAccess(ctx, pool)
 }

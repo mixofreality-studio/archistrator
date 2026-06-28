@@ -38,9 +38,12 @@ const (
 	ReplayRecordOnMiss ReplayMode = "record_on_miss"
 )
 
-// ReplayWorker decorates an optional real WorkerAccess delegate with on-disk
-// cassette replay. delegate is nil in strict mode.
-type ReplayWorker struct {
+// replayWorker decorates an optional real WorkerAccess delegate with on-disk
+// cassette replay. delegate is nil in strict mode. It is UNEXPORTED — the package's
+// public surface is the generated WorkerAccess interface + models + the generated
+// NewReplayWorkerAccess constructor (option-1 generated-DI; ReplayMode is its mode
+// param type).
+type replayWorker struct {
 	dir      string
 	mode     ReplayMode
 	delegate WorkerAccess
@@ -49,12 +52,15 @@ type ReplayWorker struct {
 }
 
 // compile-time proof the decorator satisfies the port.
-var _ WorkerAccess = (*ReplayWorker)(nil)
+var _ WorkerAccess = (*replayWorker)(nil)
 
-// NewReplayWorker builds a ReplayWorker over a cassette directory. In strict mode
-// delegate may be nil; in record_on_miss mode delegate is required (it serves
-// misses). An unknown mode or empty dir is ContractMisuse.
-func NewReplayWorker(dir string, mode ReplayMode, delegate WorkerAccess) (*ReplayWorker, error) {
+// newReplayWorkerAccess is the hand-written, unexported builder behind the generated
+// NewReplayWorkerAccess constructor (option-1 delegated DI). It builds the decorator
+// over a cassette directory and returns the WorkerAccess interface so the concrete
+// struct + its *idemStore stay unexported. In strict mode delegate may be nil; in
+// record_on_miss mode delegate is required (it serves misses). An unknown mode or
+// empty dir is ContractMisuse.
+func newReplayWorkerAccess(dir string, mode ReplayMode, delegate WorkerAccess) (WorkerAccess, error) {
 	if strings.TrimSpace(dir) == "" {
 		return nil, fwra.New(fwra.ContractMisuse, "replay worker: empty cassette dir")
 	}
@@ -67,12 +73,12 @@ func NewReplayWorker(dir string, mode ReplayMode, delegate WorkerAccess) (*Repla
 	default:
 		return nil, fwra.New(fwra.ContractMisuse, fmt.Sprintf("replay worker: unknown mode %q", mode))
 	}
-	return &ReplayWorker{dir: dir, mode: mode, delegate: delegate, idemStore: newIdemStore()}, nil
+	return &replayWorker{dir: dir, mode: mode, delegate: delegate, idemStore: newIdemStore()}, nil
 }
 
 // Cancel records the cancelled marker for within-run replay (no durable provider
 // job to abort), matching OllamaWorker.Cancel. Idempotent.
-func (w *ReplayWorker) Cancel(rc fwra.Context) error {
+func (w *replayWorker) Cancel(rc fwra.Context) error {
 	if err := requireKey(rc.IdempotencyKey); err != nil {
 		return err
 	}
@@ -84,7 +90,7 @@ func (w *ReplayWorker) Cancel(rc fwra.Context) error {
 // either errors (strict) or generates-and-records via the delegate
 // (record_on_miss). Same contract as the other workers: empty key/prompt are
 // ContractMisuse; a within-run retry replays via idemStore.
-func (w *ReplayWorker) Generate(rc fwra.Context, spec GenerateSpec) (json.RawMessage, error) {
+func (w *replayWorker) Generate(rc fwra.Context, spec GenerateSpec) (json.RawMessage, error) {
 	if err := requireKey(rc.IdempotencyKey); err != nil {
 		return nil, err
 	}
@@ -118,7 +124,7 @@ func (w *ReplayWorker) Generate(rc fwra.Context, spec GenerateSpec) (json.RawMes
 // a distinct Messages history, so it gets its own cassette; the model's
 // self-correction turn (a re-submit after an error tool_result) records as just
 // another cassette, replayed deterministically.
-func (w *ReplayWorker) GenerateToolTurn(rc fwra.Context, spec ToolTurnSpec) (AssistantTurn, error) {
+func (w *replayWorker) GenerateToolTurn(rc fwra.Context, spec ToolTurnSpec) (AssistantTurn, error) {
 	if err := requireKey(rc.IdempotencyKey); err != nil {
 		return AssistantTurn{}, err
 	}
@@ -231,7 +237,7 @@ type toolTurnEnvelope struct {
 
 // readTurnCassette returns (turn, true, nil) on a hit, (zero, false, nil) on a
 // miss, and a wrapped *fwra.Error on a corrupt/unreadable file.
-func (w *ReplayWorker) readTurnCassette(key string) (AssistantTurn, bool, error) {
+func (w *replayWorker) readTurnCassette(key string) (AssistantTurn, bool, error) {
 	path := filepath.Join(w.dir, key+".json")
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -249,7 +255,7 @@ func (w *ReplayWorker) readTurnCassette(key string) (AssistantTurn, bool, error)
 
 // writeTurnCassette persists the tool-turn envelope atomically (temp file + rename)
 // under the shared write mutex.
-func (w *ReplayWorker) writeTurnCassette(key string, spec ToolTurnSpec, turn AssistantTurn) error {
+func (w *replayWorker) writeTurnCassette(key string, spec ToolTurnSpec, turn AssistantTurn) error {
 	w.writeMu.Lock()
 	defer w.writeMu.Unlock()
 
@@ -293,7 +299,7 @@ type cassetteEnvelope struct {
 
 // readCassette returns (response, true, nil) on a hit, (nil, false, nil) on a
 // miss, and a wrapped *fwra.Error on a corrupt/unreadable file.
-func (w *ReplayWorker) readCassette(key string) (json.RawMessage, bool, error) {
+func (w *replayWorker) readCassette(key string) (json.RawMessage, bool, error) {
 	path := filepath.Join(w.dir, key+".json")
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -320,7 +326,7 @@ func (w *ReplayWorker) readCassette(key string) (json.RawMessage, bool, error) {
 // delegate, persists the response as a cassette, records it for within-run replay,
 // and returns it. A nil (cancelled) delegate response is passed through without a
 // disk write.
-func (w *ReplayWorker) generateAndRecord(rc fwra.Context, key string, spec GenerateSpec) (json.RawMessage, error) {
+func (w *replayWorker) generateAndRecord(rc fwra.Context, key string, spec GenerateSpec) (json.RawMessage, error) {
 	raw, err := w.delegate.Generate(rc, spec)
 	if err != nil {
 		return nil, err
@@ -338,7 +344,7 @@ func (w *ReplayWorker) generateAndRecord(rc fwra.Context, key string, spec Gener
 
 // writeCassette persists the envelope atomically (temp file + rename) under a
 // mutex so parallel activities never observe a partial file.
-func (w *ReplayWorker) writeCassette(key string, spec GenerateSpec, raw json.RawMessage) error {
+func (w *replayWorker) writeCassette(key string, spec GenerateSpec, raw json.RawMessage) error {
 	w.writeMu.Lock()
 	defer w.writeMu.Unlock()
 

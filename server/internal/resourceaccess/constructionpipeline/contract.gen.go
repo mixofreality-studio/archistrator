@@ -4,6 +4,7 @@
 package constructionpipeline
 
 import (
+	fwgithub "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"time"
 )
@@ -93,4 +94,11 @@ type ConstructionPipelineAccess interface {
 	CancelConstructionPipeline(rc fwra.Context, handle PipelineHandle) error
 	ObserveConstructionPipeline(rc fwra.Context, handle PipelineHandle) (PipelineObservation, error)
 	SubmitConstructionPipeline(rc fwra.Context, spec PipelineSpec) (PipelineHandle, error)
+}
+
+// NewGitHubActionsConstructionPipelineAccess constructs the GitHubActions-backed ConstructionPipelineAccess, delegating to the hand-written,
+// unexported builder newGitHubActionsConstructionPipelineAccess in the RA package (which owns the stateful setup).
+// The constructor returns the interface, so the concrete impl stays unexported.
+func NewGitHubActionsConstructionPipelineAccess(app *fwgithub.AppClient, owner string, repo string, workflowFile string, ref string, installationID int64) (ConstructionPipelineAccess, error) {
+	return newGitHubActionsConstructionPipelineAccess(app, owner, repo, workflowFile, ref, installationID)
 }
