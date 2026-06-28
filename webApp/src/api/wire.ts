@@ -212,10 +212,12 @@ function mapConstructionProgress(
 }
 
 function mapRecord<W, A>(
-  m: Record<string, W> | undefined,
+  m: Record<string, W> | null | undefined,
   f: (w: W) => A
 ): Record<string, A> | undefined {
-  if (m === undefined) return undefined;
+  // Go nil maps serialize as JSON `null` (not omitted), so guard null too
+  // (mirrors the findings/failureReason null-handling elsewhere in this file).
+  if (m === undefined || m === null) return undefined;
   const keys = Object.keys(m);
   if (keys.length === 0) return undefined;
   const out: Record<string, A> = {};
