@@ -266,7 +266,7 @@ func Test_CoAuthor_Rail_BranchReconciliation_MergeBeforeCommit_PostMergeReadOnMa
 		env.SignalWorkflow(SignalReviewDecision, ReviewDecisionSignal{Decision: ReviewApprove})
 	}, 30*time.Second)
 
-	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: projectstate.KindSystem})
+	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("rail reconciliation workflow error: %v", err)
@@ -386,7 +386,7 @@ func Test_CoAuthor_Rail_RejectRedraftsOnNewSessionBranchAndNewPR(t *testing.T) {
 		env.SignalWorkflow(SignalReviewDecision, ReviewDecisionSignal{Decision: ReviewApprove})
 	}, 70*time.Second)
 
-	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: projectstate.KindSystem})
+	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("reject-redraft workflow error: %v", err)
@@ -457,7 +457,7 @@ func Test_CoAuthor_Rail_PhaseFailed_LandsInStageDraftFailed_NoApproveRailNoCommi
 		env.SignalWorkflow(SignalReviewDecision, ReviewDecisionSignal{Decision: ReviewWithdraw})
 	}, 30*time.Second)
 
-	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: projectstate.KindSystem})
+	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("a terminal job failure must NOT crash the rail-wired workflow: %v", err)
@@ -508,7 +508,7 @@ func Test_CoAuthor_Rail_RequiredCheckRed_BlocksMerge_NoCommit_Recovers(t *testin
 		env.SignalWorkflow(SignalReviewDecision, ReviewDecisionSignal{Decision: ReviewWithdraw})
 	}, 60*time.Second)
 
-	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: projectstate.KindSystem})
+	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("a not-green merge guard must not crash the workflow: %v", err)

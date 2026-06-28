@@ -230,7 +230,7 @@ type DispatchDesignJobArgs struct {
 func (wf *Workflows) DispatchDesignJobActivity(ctx context.Context, a DispatchDesignJobArgs) (PipelineHandle, error) {
 	key := activityIdempotencyKey(ctx)
 	inputs := map[string]string{
-		dispatchInputArtifactKind:  a.ArtifactKind.String(),
+		dispatchInputArtifactKind:  ArtifactKindString(a.ArtifactKind),
 		dispatchInputDesignPrompt:  a.Prompt,
 		dispatchInputTargetBranch:  a.TargetBranch,
 		dispatchInputPriorStateRef: a.PriorStateRef,
@@ -388,7 +388,7 @@ func (wf *Workflows) readBackCritiqueOn(ctx workflow.Context, projectID ProjectI
 		// Empty / unknown verdict after a PhaseSucceeded critique job: the safe default
 		// is a draft failure, not a silent approve (see the doc comment's justification).
 		return Critique{}, temporal.NewNonRetryableApplicationError(
-			fmt.Sprintf("critique job reported success but committed no critique verdict for %s (read-back carrier empty)", kind),
+			fmt.Sprintf("critique job reported success but committed no critique verdict for %s (read-back carrier empty)", ArtifactKindString(kind)),
 			"CritiqueReadBackEmpty", nil)
 	}
 }
@@ -416,7 +416,7 @@ func (wf *Workflows) readBackCommittedModelOn(ctx workflow.Context, projectID Pr
 	slot := slotFor(proj, kind)
 	if slot.Model == nil {
 		return nil, temporal.NewNonRetryableApplicationError(
-			fmt.Sprintf("design job reported success but committed no %s model to read back", kind),
+			fmt.Sprintf("design job reported success but committed no %s model to read back", ArtifactKindString(kind)),
 			"ReadBackEmpty", nil)
 	}
 	return slot.Model, nil

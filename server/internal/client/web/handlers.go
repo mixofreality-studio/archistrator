@@ -119,10 +119,10 @@ func (c *Client) handleSetResearchInput(w http.ResponseWriter, r *http.Request) 
 		writeClientError(w, err)
 		return
 	}
-	if !c.authorizeProject(w, r, "drive-phase", projectID.String()) {
+	if !c.authorizeProject(w, r, "drive-phase", string(projectID)) {
 		return
 	}
-	if _, err := c.systemDesign.SetResearchInput(r.Context(), projectID, research); err != nil {
+	if _, err := c.systemDesign.SetResearchInput(projectCtx(r), projectID, research); err != nil {
 		writeManagerError(w, err)
 		return
 	}
@@ -137,15 +137,15 @@ func (c *Client) handleStartSystemDesign(w http.ResponseWriter, r *http.Request)
 		writeClientError(w, err)
 		return
 	}
-	if !c.authorizeProject(w, r, "drive-phase", projectID.String()) {
+	if !c.authorizeProject(w, r, "drive-phase", string(projectID)) {
 		return
 	}
-	ref, err := c.systemDesign.StartSystemDesign(r.Context(), projectID)
+	ref, err := c.systemDesign.StartSystemDesign(projectCtx(r), projectID)
 	if err != nil {
 		writeManagerError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusAccepted, sessionRefResponse{SessionRef: ref.String()})
+	writeJSON(w, http.StatusAccepted, sessionRefResponse{SessionRef: string(ref)})
 }
 
 // handleRequestArtifactDraft — driveDesignPhase{RequestArtifactDraft}. Routes to
@@ -165,19 +165,19 @@ func (c *Client) handleRequestArtifactDraft(w http.ResponseWriter, r *http.Reque
 		writeClientError(w, err)
 		return
 	}
-	if !c.authorizeProject(w, r, "drive-phase", projectID.String()) {
+	if !c.authorizeProject(w, r, "drive-phase", string(projectID)) {
 		return
 	}
 	var feedback *systemdesign.ReviewFeedback
 	if req.Feedback != nil {
 		feedback = &systemdesign.ReviewFeedback{Notes: *req.Feedback}
 	}
-	ref, err := c.systemDesign.RequestArtifactDraft(r.Context(), projectID, kind, feedback)
+	ref, err := c.systemDesign.RequestArtifactDraft(projectCtx(r), projectID, kind, feedback)
 	if err != nil {
 		writeManagerError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusAccepted, sessionRefResponse{SessionRef: ref.String()})
+	writeJSON(w, http.StatusAccepted, sessionRefResponse{SessionRef: string(ref)})
 }
 
 // handleSubmitReviewDecision — driveDesignPhase{SubmitReviewDecision}. Routes to
@@ -202,11 +202,11 @@ func (c *Client) handleSubmitReviewDecision(w http.ResponseWriter, r *http.Reque
 		writeClientError(w, err)
 		return
 	}
-	if !c.authorizeProject(w, r, "approve-artifact", projectID.String()) {
+	if !c.authorizeProject(w, r, "approve-artifact", string(projectID)) {
 		return
 	}
 	feedback := req.toReviewFeedback()
-	if err := c.systemDesign.SubmitReviewDecision(r.Context(), projectID, kind, decision, feedback); err != nil {
+	if err := c.systemDesign.SubmitReviewDecision(projectCtx(r), projectID, kind, decision, feedback); err != nil {
 		writeManagerError(w, err)
 		return
 	}
@@ -222,10 +222,10 @@ func (c *Client) handleAdvancePhase(w http.ResponseWriter, r *http.Request) {
 		writeClientError(w, err)
 		return
 	}
-	if !c.authorizeProject(w, r, "drive-phase", projectID.String()) {
+	if !c.authorizeProject(w, r, "drive-phase", string(projectID)) {
 		return
 	}
-	result, err := c.systemDesign.AdvancePhase(r.Context(), projectID)
+	result, err := c.systemDesign.AdvancePhase(projectCtx(r), projectID)
 	if err != nil {
 		writeManagerError(w, err)
 		return
@@ -251,16 +251,16 @@ func (c *Client) handleGetSessionState(w http.ResponseWriter, r *http.Request) {
 		writeClientError(w, err)
 		return
 	}
-	if !c.authorizeProject(w, r, "drive-phase", projectID.String()) {
+	if !c.authorizeProject(w, r, "drive-phase", string(projectID)) {
 		return
 	}
-	view, err := c.systemDesign.GetSessionState(r.Context(), projectID, kind)
+	view, err := c.systemDesign.GetSessionState(projectCtx(r), projectID, kind)
 	if err != nil {
 		writeManagerError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, sessionStateResponse{
-		ProjectID:    projectID.String(),
+		ProjectID:    string(projectID),
 		ArtifactKind: artifactKindName(kind),
 		Stage:        sessionStageName(view.Stage),
 		View:         view,
@@ -331,10 +331,10 @@ func (c *Client) handleGetProject(w http.ResponseWriter, r *http.Request) {
 		writeClientError(w, err)
 		return
 	}
-	if !c.authorizeProject(w, r, "read-project", projectID.String()) {
+	if !c.authorizeProject(w, r, "read-project", string(projectID)) {
 		return
 	}
-	state, err := c.project.GetProject(projectCtx(r), project.ProjectID(projectID.String()))
+	state, err := c.project.GetProject(projectCtx(r), project.ProjectID(string(projectID)))
 	if err != nil {
 		writeManagerError(w, err)
 		return

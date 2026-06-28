@@ -1,7 +1,6 @@
 package systemdesign
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"hash/fnv"
@@ -13,6 +12,19 @@ import (
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/client"
 )
+
+// SystemDesignManager is the generated service-contract interface for this component
+// — the public use-case surface of the systemDesignManager façade
+// (systemDesignManager.md §2). Each op leads with the Manager-layer call Context
+// (fwmanager.Context, embedding context.Context + the Principal); the *Manager derives
+// ctx := rc.Context inside. The concrete *Manager satisfies it; the consumer-side
+// dependency interfaces + the Temporal Workflows struct stay hand-written and are NOT
+// part of this contract.
+
+// Compile-time proof the concrete Manager satisfies the generated SystemDesignManager
+// port. Each op leads with the Manager-layer call Context (fwmanager.Context); the
+// *Manager derives ctx := rc.Context inside.
+var _ SystemDesignManager = (*Manager)(nil)
 
 // Manager is the systemDesignManager façade. It exposes the public use-case ops
 // (systemDesignManager.md §2) and OWNS Temporal. The 2026-05-29 re-cut adds
@@ -59,22 +71,23 @@ func NewManager(c client.Client, ps projectstate.ProjectStateAccess) *Manager {
 // SYNC from the Client's POV: returns once the parent start is durably accepted,
 // not once Phase 1 completes (it spans days of human review; the SPA polls
 // getSessionState / reads head-state).
-func (m *Manager) StartSystemDesign(ctx context.Context, projectID ProjectID) (SessionRef, error) {
+func (m *Manager) StartSystemDesign(rc fwmanager.Context, projectID ProjectID) (SessionRef, error) {
+	ctx := rc.Context
 	if projectID == "" {
-		return SessionRef{}, newError(fwmanager.ContractMisuse, "empty projectId")
+		return "", newError(fwmanager.ContractMisuse, "empty projectId")
 	}
 
 	// Pre-condition: ResearchInput must be present. A brand-new project with no row
 	// (fwra.NotFound) likewise fails the precondition — research has not been set.
-	proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectID)
+	proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID))
 	if err != nil {
 		if isResearchReadNotFound(err) {
-			return SessionRef{}, newError(fwmanager.FailedPrecondition, "research not populated (project has no state)")
+			return "", newError(fwmanager.FailedPrecondition, "research not populated (project has no state)")
 		}
-		return SessionRef{}, mapReadProjectError(err)
+		return "", mapReadProjectError(err)
 	}
 	if proj.ResearchInput.IsZero() {
-		return SessionRef{}, newError(fwmanager.FailedPrecondition, "research not populated")
+		return "", newError(fwmanager.FailedPrecondition, "research not populated")
 	}
 
 	wfID := systemDesignPhaseWorkflowID(projectID)
@@ -85,7 +98,7 @@ func (m *Manager) StartSystemDesign(ctx context.Context, projectID ProjectID) (S
 	}
 	we, err := m.client.ExecuteWorkflow(ctx, opts, ExecutionKindPhase, PhaseInput{ProjectID: projectID})
 	if err != nil {
-		return SessionRef{}, mapStartError(err)
+		return "", mapStartError(err)
 	}
 	return NewSessionRef(we.GetID()), nil
 }
@@ -121,12 +134,13 @@ func isResearchReadNotFound(err error) bool {
 // the existing run otherwise), preserving the §2.1 idempotent-on-id post-condition.
 //
 // RequestArtifactDraft is the exported public op.
-func (m *Manager) RequestArtifactDraft(ctx context.Context, projectID ProjectID, kind ArtifactKind, feedback *ReviewFeedback) (SessionRef, error) {
+func (m *Manager) RequestArtifactDraft(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind, feedback *ReviewFeedback) (SessionRef, error) {
+	ctx := rc.Context
 	if projectID == "" {
-		return SessionRef{}, newError(fwmanager.ContractMisuse, "empty projectId")
+		return "", newError(fwmanager.ContractMisuse, "empty projectId")
 	}
-	if !kind.IsPhase1() {
-		return SessionRef{}, newError(fwmanager.FailedPrecondition, "artifactKind is not a Phase-1 kind")
+	if !ArtifactKindIsPhase1(kind) {
+		return "", newError(fwmanager.FailedPrecondition, "artifactKind is not a Phase-1 kind")
 	}
 
 	wfID := coAuthorWorkflowID(projectID, kind)
@@ -142,7 +156,7 @@ func (m *Manager) RequestArtifactDraft(ctx context.Context, projectID ProjectID,
 
 	we, err := m.client.SignalWithStartWorkflow(ctx, wfID, SignalRedraft, RedraftSignal{Feedback: feedback}, opts, ExecutionKindCoAuthor, in)
 	if err != nil {
-		return SessionRef{}, mapStartError(err)
+		return "", mapStartError(err)
 	}
 	return NewSessionRef(we.GetID()), nil
 }
@@ -152,11 +166,12 @@ func (m *Manager) RequestArtifactDraft(ctx context.Context, projectID ProjectID,
 // decision == Reject.
 //
 // SubmitReviewDecision is the exported public op.
-func (m *Manager) SubmitReviewDecision(ctx context.Context, projectID ProjectID, kind ArtifactKind, decision ReviewDecision, feedback *ReviewFeedback) error {
+func (m *Manager) SubmitReviewDecision(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind, decision ReviewDecision, feedback *ReviewFeedback) error {
+	ctx := rc.Context
 	if projectID == "" {
 		return newError(fwmanager.ContractMisuse, "empty projectId")
 	}
-	if !kind.IsPhase1() {
+	if !ArtifactKindIsPhase1(kind) {
 		return newError(fwmanager.FailedPrecondition, "artifactKind is not a Phase-1 kind")
 	}
 	switch decision {
@@ -182,7 +197,8 @@ func (m *Manager) SubmitReviewDecision(ctx context.Context, projectID ProjectID,
 // {projectId}:phaseAdvance). Returns the gating outcome.
 //
 // AdvancePhase is the exported public op.
-func (m *Manager) AdvancePhase(ctx context.Context, projectID ProjectID) (PhaseAdvanceResult, error) {
+func (m *Manager) AdvancePhase(rc fwmanager.Context, projectID ProjectID) (PhaseAdvanceResult, error) {
+	ctx := rc.Context
 	if projectID == "" {
 		return PhaseAdvanceResult{}, newError(fwmanager.ContractMisuse, "empty projectId")
 	}
@@ -210,7 +226,8 @@ func (m *Manager) AdvancePhase(ctx context.Context, projectID ProjectID) (PhaseA
 // read-only). Returns a point-in-time technical view without mutating state.
 //
 // GetSessionState is the exported public op.
-func (m *Manager) GetSessionState(ctx context.Context, projectID ProjectID, kind ArtifactKind) (SessionStateView, error) {
+func (m *Manager) GetSessionState(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind) (SessionStateView, error) {
+	ctx := rc.Context
 	if projectID == "" {
 		return SessionStateView{}, newError(fwmanager.ContractMisuse, "empty projectId")
 	}
@@ -242,29 +259,32 @@ func (m *Manager) GetSessionState(ctx context.Context, projectID ProjectID, kind
 //
 // Returns the resulting head Version (the SPA may use it for optimistic display;
 // the frozen surface is the write itself).
-func (m *Manager) SetResearchInput(ctx context.Context, projectID ProjectID, research ResearchInput) (Version, error) {
+func (m *Manager) SetResearchInput(rc fwmanager.Context, projectID ProjectID, research ResearchInput) (Version, error) {
+	ctx := rc.Context
 	if projectID == "" {
 		return 0, newError(fwmanager.ContractMisuse, "empty projectId")
 	}
-	if research.IsZero() {
+	if researchIsZero(research) {
 		return 0, newError(fwmanager.ContractMisuse, "empty research (no sources)")
 	}
 
 	key := researchInputIdempotencyKey(projectID, research)
+	psID := projectstate.ProjectID(projectID)
+	psResearch := toPSResearch(research)
 
 	// Sync-path optimistic-concurrency loop. The first write uses the head Version
 	// just read; on a Conflict (a concurrent mutation bumped the row) re-read and
 	// re-apply. Bounded so a pathological write-storm cannot spin forever.
 	var lastErr error
 	for attempt := 0; attempt < setResearchInputMaxAttempts; attempt++ {
-		proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectID)
+		proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, psID)
 		if err != nil {
 			return 0, mapReadProjectError(err)
 		}
 
-		newVersion, err := m.projectState.SetResearchInput(fwra.Context{Context: ctx, IdempotencyKey: key}, projectID, proj.Version, research)
+		newVersion, err := m.projectState.SetResearchInput(fwra.Context{Context: ctx, IdempotencyKey: key}, psID, proj.Version, psResearch)
 		if err == nil {
-			return newVersion, nil
+			return Version(newVersion), nil
 		}
 		if isRAConflict(err) {
 			lastErr = err

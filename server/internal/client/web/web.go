@@ -58,12 +58,12 @@ import (
 // §2): StartSystemDesign (Workflow), RequestArtifactDraft (Workflow),
 // SubmitReviewDecision (Signal), AdvancePhase (Workflow), GetSessionState (Query).
 type SystemDesignEntry interface {
-	StartSystemDesign(ctx context.Context, projectID systemdesign.ProjectID) (systemdesign.SessionRef, error)
-	SetResearchInput(ctx context.Context, projectID systemdesign.ProjectID, research systemdesign.ResearchInput) (systemdesign.Version, error)
-	RequestArtifactDraft(ctx context.Context, projectID systemdesign.ProjectID, kind systemdesign.ArtifactKind, feedback *systemdesign.ReviewFeedback) (systemdesign.SessionRef, error)
-	SubmitReviewDecision(ctx context.Context, projectID systemdesign.ProjectID, kind systemdesign.ArtifactKind, decision systemdesign.ReviewDecision, feedback *systemdesign.ReviewFeedback) error
-	AdvancePhase(ctx context.Context, projectID systemdesign.ProjectID) (systemdesign.PhaseAdvanceResult, error)
-	GetSessionState(ctx context.Context, projectID systemdesign.ProjectID, kind systemdesign.ArtifactKind) (systemdesign.SessionStateView, error)
+	StartSystemDesign(rc fwm.Context, projectID systemdesign.ProjectID) (systemdesign.SessionRef, error)
+	SetResearchInput(rc fwm.Context, projectID systemdesign.ProjectID, research systemdesign.ResearchInput) (systemdesign.Version, error)
+	RequestArtifactDraft(rc fwm.Context, projectID systemdesign.ProjectID, kind systemdesign.ArtifactKind, feedback *systemdesign.ReviewFeedback) (systemdesign.SessionRef, error)
+	SubmitReviewDecision(rc fwm.Context, projectID systemdesign.ProjectID, kind systemdesign.ArtifactKind, decision systemdesign.ReviewDecision, feedback *systemdesign.ReviewFeedback) error
+	AdvancePhase(rc fwm.Context, projectID systemdesign.ProjectID) (systemdesign.PhaseAdvanceResult, error)
+	GetSessionState(rc fwm.Context, projectID systemdesign.ProjectID, kind systemdesign.ArtifactKind) (systemdesign.SessionStateView, error)
 }
 
 // compile-time proof the concrete Manager satisfies the narrow Client port. If

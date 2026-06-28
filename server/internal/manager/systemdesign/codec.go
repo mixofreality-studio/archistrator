@@ -32,6 +32,26 @@ type modelEnvelope struct {
 	Model json.RawMessage           `json:"model,omitempty"`
 }
 
+// draftModelFor builds the OPAQUE public DraftModel envelope ({kind, model}) the
+// session read carries the staged typed draft as. Kind is the artifactKind's canonical
+// camelCase wire name (always set, so the SPA gets {"kind":"mission"} even before a
+// draft is staged); Model is the concrete model's own JSON, omitted when nil. This is
+// the public-surface twin of modelEnvelope (the Temporal/Activity carrier) — the same
+// {kind, model} wire shape the SPA decodes, with Kind as a plain string so the
+// generated contract carries no projectstate ArtifactKind.
+func draftModelFor(kind ArtifactKind, model projectstate.ArtifactModel) (DraftModel, error) {
+	env := DraftModel{Kind: ArtifactKindWireName(kind)}
+	if model != nil {
+		raw, err := json.Marshal(model)
+		if err != nil {
+			return DraftModel{}, fmt.Errorf("encode draft model %s: %w", model.Kind(), err)
+		}
+		rm := json.RawMessage(raw)
+		env.Model = &rm
+	}
+	return env, nil
+}
+
 // encodeModel wraps a (possibly nil) typed model into its envelope.
 func encodeModel(model projectstate.ArtifactModel) (modelEnvelope, error) {
 	if model == nil {
@@ -98,7 +118,7 @@ type projectEnvelope struct {
 func encodeProject(p projectstate.Project) (projectEnvelope, error) {
 	out := projectEnvelope{ID: p.ID, Version: p.Version, Phase: p.Phase, Research: p.ResearchInput, Slots: map[projectstate.ArtifactKind]slotEnvelope{}}
 	for _, kind := range allSlotKinds() {
-		slot := slotFor(p, kind)
+		slot := slotFor(p, ArtifactKind(kind))
 		if slot.Status == projectstate.ReviewNone && slot.Model == nil {
 			continue
 		}

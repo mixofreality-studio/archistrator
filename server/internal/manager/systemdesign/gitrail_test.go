@@ -183,7 +183,7 @@ func Test_CoAuthor_RailEnabled_BranchPRReadBackPlusOneMerge_HappyPath(t *testing
 		env.SignalWorkflow(SignalReviewDecision, ReviewDecisionSignal{Decision: ReviewApprove})
 	}, 30*time.Second)
 
-	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: projectstate.KindSystem})
+	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("rail happy path workflow error: %v", err)
@@ -237,7 +237,7 @@ func Test_CoAuthor_RailEnabled_ApproveButPRNotGreen_DoesNotMerge_Recovers(t *tes
 		env.SignalWorkflow(SignalReviewDecision, ReviewDecisionSignal{Decision: ReviewWithdraw})
 	}, 60*time.Second)
 
-	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: projectstate.KindSystem})
+	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("a not-green merge guard must not crash the workflow: %v", err)

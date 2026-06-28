@@ -25,11 +25,15 @@ func asSystemDesignError(t *testing.T, err error) *fwmanager.Error {
 	return sde
 }
 
+// bgRC is the Manager-layer call Context the façade ops now lead with (fwm.Context
+// embedding a background context.Context; the zero Principal is a safe test stopgap).
+func bgRC() fwmanager.Context { return fwmanager.Context{Context: context.Background()} }
+
 // ---- StartSystemDesign (op 2.0, 2026-05-29) façade preconditions ------------
 
 func Test_StartSystemDesign_EmptyProjectID(t *testing.T) {
 	m := NewManager(nil, nil)
-	_, err := m.StartSystemDesign(context.Background(), ProjectID(""))
+	_, err := m.StartSystemDesign(bgRC(), ProjectID(""))
 	if got := asSystemDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %d", got)
 	}
@@ -41,7 +45,7 @@ func Test_StartSystemDesign_EmptyProjectID(t *testing.T) {
 func Test_StartSystemDesign_ResearchAbsent_FailedPrecondition(t *testing.T) {
 	ps := &renderFakeProjectState{readErr: fwra.New(fwra.NotFound, "no row yet")}
 	m := NewManager(nil, ps)
-	_, err := m.StartSystemDesign(context.Background(), ProjectID(uuid.NewString()))
+	_, err := m.StartSystemDesign(bgRC(), ProjectID(uuid.NewString()))
 	if got := asSystemDesignError(t, err).Kind; got != fwmanager.FailedPrecondition {
 		t.Fatalf("want FailedPrecondition for absent research (no project row), got %d", got)
 	}
@@ -50,9 +54,9 @@ func Test_StartSystemDesign_ResearchAbsent_FailedPrecondition(t *testing.T) {
 // A project that exists but has an empty ResearchInput -> FailedPrecondition.
 func Test_StartSystemDesign_ResearchEmpty_FailedPrecondition(t *testing.T) {
 	pid := ProjectID(uuid.NewString())
-	ps := &renderFakeProjectState{project: projectstate.Project{ID: pid}} // zero ResearchInput
+	ps := &renderFakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid)}} // zero ResearchInput
 	m := NewManager(nil, ps)
-	_, err := m.StartSystemDesign(context.Background(), pid)
+	_, err := m.StartSystemDesign(bgRC(), pid)
 	if got := asSystemDesignError(t, err).Kind; got != fwmanager.FailedPrecondition {
 		t.Fatalf("want FailedPrecondition for empty research, got %d", got)
 	}
@@ -60,7 +64,7 @@ func Test_StartSystemDesign_ResearchEmpty_FailedPrecondition(t *testing.T) {
 
 func Test_RequestArtifactDraft_EmptyProjectID(t *testing.T) {
 	m := NewManager(nil, nil)
-	_, err := m.RequestArtifactDraft(context.Background(), ProjectID(""), projectstate.KindMission, nil)
+	_, err := m.RequestArtifactDraft(bgRC(), ProjectID(""), KindMission, nil)
 	if got := asSystemDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %d", got)
 	}
@@ -69,7 +73,7 @@ func Test_RequestArtifactDraft_EmptyProjectID(t *testing.T) {
 func Test_RequestArtifactDraft_WrongPhaseKind(t *testing.T) {
 	m := NewManager(nil, nil)
 	// A Phase-2 kind is a Client bug for the Phase-1 Manager.
-	_, err := m.RequestArtifactDraft(context.Background(), ProjectID(uuid.NewString()), projectstate.KindSdpReview, nil)
+	_, err := m.RequestArtifactDraft(bgRC(), ProjectID(uuid.NewString()), KindSdpReview, nil)
 	if got := asSystemDesignError(t, err).Kind; got != fwmanager.FailedPrecondition {
 		t.Fatalf("want FailedPrecondition, got %d", got)
 	}
@@ -78,13 +82,13 @@ func Test_RequestArtifactDraft_WrongPhaseKind(t *testing.T) {
 func Test_SubmitReviewDecision_RejectRequiresFeedback(t *testing.T) {
 	m := NewManager(nil, nil)
 	pid := ProjectID(uuid.NewString())
-	err := m.SubmitReviewDecision(context.Background(), pid, projectstate.KindMission, ReviewReject, nil)
+	err := m.SubmitReviewDecision(bgRC(), pid, KindMission, ReviewReject, nil)
 	if got := asSystemDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse for Reject without feedback, got %d", got)
 	}
 
 	// Reject with empty notes is also misuse.
-	err = m.SubmitReviewDecision(context.Background(), pid, projectstate.KindMission, ReviewReject, &ReviewFeedback{Notes: ""})
+	err = m.SubmitReviewDecision(bgRC(), pid, KindMission, ReviewReject, &ReviewFeedback{Notes: ""})
 	if got := asSystemDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse for Reject with empty notes, got %d", got)
 	}
@@ -92,7 +96,7 @@ func Test_SubmitReviewDecision_RejectRequiresFeedback(t *testing.T) {
 
 func Test_SubmitReviewDecision_UnknownDecision(t *testing.T) {
 	m := NewManager(nil, nil)
-	err := m.SubmitReviewDecision(context.Background(), ProjectID(uuid.NewString()), projectstate.KindMission, ReviewDecisionUnknown, nil)
+	err := m.SubmitReviewDecision(bgRC(), ProjectID(uuid.NewString()), KindMission, ReviewDecisionUnknown, nil)
 	if got := asSystemDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse for unknown decision, got %d", got)
 	}
@@ -100,7 +104,7 @@ func Test_SubmitReviewDecision_UnknownDecision(t *testing.T) {
 
 func Test_SubmitReviewDecision_WrongPhaseKind(t *testing.T) {
 	m := NewManager(nil, nil)
-	err := m.SubmitReviewDecision(context.Background(), ProjectID(uuid.NewString()), projectstate.KindActivityList, ReviewApprove, nil)
+	err := m.SubmitReviewDecision(bgRC(), ProjectID(uuid.NewString()), KindActivityList, ReviewApprove, nil)
 	if got := asSystemDesignError(t, err).Kind; got != fwmanager.FailedPrecondition {
 		t.Fatalf("want FailedPrecondition, got %d", got)
 	}
@@ -108,7 +112,7 @@ func Test_SubmitReviewDecision_WrongPhaseKind(t *testing.T) {
 
 func Test_AdvancePhase_EmptyProjectID(t *testing.T) {
 	m := NewManager(nil, nil)
-	_, err := m.AdvancePhase(context.Background(), ProjectID(""))
+	_, err := m.AdvancePhase(bgRC(), ProjectID(""))
 	if got := asSystemDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %d", got)
 	}
@@ -116,7 +120,7 @@ func Test_AdvancePhase_EmptyProjectID(t *testing.T) {
 
 func Test_GetSessionState_EmptyProjectID(t *testing.T) {
 	m := NewManager(nil, nil)
-	_, err := m.GetSessionState(context.Background(), ProjectID(""), projectstate.KindMission)
+	_, err := m.GetSessionState(bgRC(), ProjectID(""), KindMission)
 	if got := asSystemDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %d", got)
 	}
@@ -127,14 +131,14 @@ func Test_SessionRef_OpaqueValueSemantics(t *testing.T) {
 	a := NewSessionRef("proj-1:1")
 	b := NewSessionRef("proj-1:1")
 	c := NewSessionRef("proj-1:2")
-	if !a.Equal(b) {
+	if a != b {
 		t.Fatal("equal refs should compare equal")
 	}
-	if a.Equal(c) {
+	if a == c {
 		t.Fatal("different refs should not compare equal")
 	}
-	if a.String() != "proj-1:1" {
-		t.Fatalf("unexpected String(): %q", a.String())
+	if string(a) != "proj-1:1" {
+		t.Fatalf("unexpected ref string: %q", string(a))
 	}
 }
 
@@ -191,23 +195,23 @@ var _ projectstate.ProjectStateAccess = (*renderFakeProjectState)(nil)
 
 // IsPhase1 covers the Phase-1 subset gate the contract uses.
 func Test_ArtifactKind_IsPhase1(t *testing.T) {
-	phase1 := []projectstate.ArtifactKind{
-		projectstate.KindMission, projectstate.KindGlossary, projectstate.KindScrubbedRequirements,
-		projectstate.KindVolatilities, projectstate.KindCoreUseCases, projectstate.KindSystem,
-		projectstate.KindOperationalConcepts, projectstate.KindStandardCheck,
+	phase1 := []ArtifactKind{
+		KindMission, KindGlossary, KindScrubbedRequirements,
+		KindVolatilities, KindCoreUseCases, KindSystem,
+		KindOperationalConcepts, KindStandardCheck,
 	}
 	for _, k := range phase1 {
-		if !k.IsPhase1() {
-			t.Fatalf("kind %s should be Phase 1", k)
+		if !ArtifactKindIsPhase1(k) {
+			t.Fatalf("kind %s should be Phase 1", ArtifactKindString(k))
 		}
 	}
-	notPhase1 := []projectstate.ArtifactKind{
-		projectstate.KindSdpReview, projectstate.KindActivityList,
-		projectstate.KindNetwork, projectstate.KindRiskModel,
+	notPhase1 := []ArtifactKind{
+		KindSdpReview, KindActivityList,
+		KindNetwork, KindRiskModel,
 	}
 	for _, k := range notPhase1 {
-		if k.IsPhase1() {
-			t.Fatalf("kind %s should NOT be Phase 1", k)
+		if ArtifactKindIsPhase1(k) {
+			t.Fatalf("kind %s should NOT be Phase 1", ArtifactKindString(k))
 		}
 	}
 }

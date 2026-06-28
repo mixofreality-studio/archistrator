@@ -1,7 +1,6 @@
 package systemdesign
 
 import (
-	"context"
 	"testing"
 
 	"github.com/google/uuid"
@@ -87,8 +86,8 @@ func (f *setResearchFakeState) ListProjects(fwra.Context, projectstate.OwnerScop
 
 var _ projectstate.ProjectStateAccess = (*setResearchFakeState)(nil)
 
-func sampleResearch() projectstate.ResearchInput {
-	return projectstate.ResearchInput{Sources: []projectstate.ResearchSource{
+func sampleResearch() ResearchInput {
+	return ResearchInput{Sources: []ResearchSource{
 		{Title: "Founder brief", Content: "We are building X for Y."},
 	}}
 }
@@ -97,7 +96,7 @@ func sampleResearch() projectstate.ResearchInput {
 
 func Test_SetResearchInput_EmptyProjectID(t *testing.T) {
 	m := NewManager(nil, &setResearchFakeState{})
-	_, err := m.SetResearchInput(context.Background(), ProjectID(""), sampleResearch())
+	_, err := m.SetResearchInput(bgRC(), ProjectID(""), sampleResearch())
 	if got := asSystemDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse for empty projectId, got %d", got)
 	}
@@ -105,7 +104,7 @@ func Test_SetResearchInput_EmptyProjectID(t *testing.T) {
 
 func Test_SetResearchInput_EmptyResearch(t *testing.T) {
 	m := NewManager(nil, &setResearchFakeState{})
-	_, err := m.SetResearchInput(context.Background(), ProjectID(uuid.NewString()), projectstate.ResearchInput{})
+	_, err := m.SetResearchInput(bgRC(), ProjectID(uuid.NewString()), ResearchInput{})
 	if got := asSystemDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse for empty research, got %d", got)
 	}
@@ -118,7 +117,7 @@ func Test_SetResearchInput_HappyPath_RecordsWrite(t *testing.T) {
 	m := NewManager(nil, ps)
 	research := sampleResearch()
 
-	v, err := m.SetResearchInput(context.Background(), ProjectID(uuid.NewString()), research)
+	v, err := m.SetResearchInput(bgRC(), ProjectID(uuid.NewString()), research)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -149,10 +148,10 @@ func Test_SetResearchInput_IdempotencyKey_StableForSameResearch(t *testing.T) {
 	ps2 := &setResearchFakeState{}
 	m1 := NewManager(nil, ps1)
 	m2 := NewManager(nil, ps2)
-	if _, err := m1.SetResearchInput(context.Background(), pid, research); err != nil {
+	if _, err := m1.SetResearchInput(bgRC(), pid, research); err != nil {
 		t.Fatalf("write 1: %v", err)
 	}
-	if _, err := m2.SetResearchInput(context.Background(), pid, research); err != nil {
+	if _, err := m2.SetResearchInput(bgRC(), pid, research); err != nil {
 		t.Fatalf("write 2: %v", err)
 	}
 	if ps1.gotKeys[0] != ps2.gotKeys[0] {
@@ -160,10 +159,10 @@ func Test_SetResearchInput_IdempotencyKey_StableForSameResearch(t *testing.T) {
 	}
 
 	// A different research payload must derive a DIFFERENT key.
-	other := projectstate.ResearchInput{Sources: []projectstate.ResearchSource{{Title: "Competitor analysis", Content: "Z does W."}}}
+	other := ResearchInput{Sources: []ResearchSource{{Title: "Competitor analysis", Content: "Z does W."}}}
 	ps3 := &setResearchFakeState{}
 	m3 := NewManager(nil, ps3)
-	if _, err := m3.SetResearchInput(context.Background(), pid, other); err != nil {
+	if _, err := m3.SetResearchInput(bgRC(), pid, other); err != nil {
 		t.Fatalf("write 3: %v", err)
 	}
 	if ps3.gotKeys[0] == ps1.gotKeys[0] {
@@ -177,7 +176,7 @@ func Test_SetResearchInput_ConflictThenSuccess_ReReads(t *testing.T) {
 	ps := &setResearchFakeState{headVersion: 3, conflictsBeforeSuccess: 2}
 	m := NewManager(nil, ps)
 
-	v, err := m.SetResearchInput(context.Background(), ProjectID(uuid.NewString()), sampleResearch())
+	v, err := m.SetResearchInput(bgRC(), ProjectID(uuid.NewString()), sampleResearch())
 	if err != nil {
 		t.Fatalf("expected success after conflicts, got %v", err)
 	}
@@ -203,7 +202,7 @@ func Test_SetResearchInput_ConflictThenSuccess_ReReads(t *testing.T) {
 func Test_SetResearchInput_ConflictExhausted_Infrastructure(t *testing.T) {
 	ps := &setResearchFakeState{conflictsBeforeSuccess: setResearchInputMaxAttempts + 1}
 	m := NewManager(nil, ps)
-	_, err := m.SetResearchInput(context.Background(), ProjectID(uuid.NewString()), sampleResearch())
+	_, err := m.SetResearchInput(bgRC(), ProjectID(uuid.NewString()), sampleResearch())
 	if got := asSystemDesignError(t, err).Kind; got != fwmanager.Infrastructure {
 		t.Fatalf("want Infrastructure after exhausting conflict retries, got %d", got)
 	}
@@ -218,7 +217,7 @@ func Test_SetResearchInput_NotFound_Passthrough(t *testing.T) {
 	// ReadProject succeeds but the write surfaces NotFound (no project aggregate).
 	ps := &setResearchNotFoundOnWrite{}
 	m := NewManager(nil, ps)
-	_, err := m.SetResearchInput(context.Background(), ProjectID(uuid.NewString()), sampleResearch())
+	_, err := m.SetResearchInput(bgRC(), ProjectID(uuid.NewString()), sampleResearch())
 	if got := asSystemDesignError(t, err).Kind; got != fwmanager.NotFound {
 		t.Fatalf("want NotFound passthrough, got %d", got)
 	}
@@ -227,7 +226,7 @@ func Test_SetResearchInput_NotFound_Passthrough(t *testing.T) {
 func Test_SetResearchInput_ReadNotFound_Propagates(t *testing.T) {
 	ps := &setResearchFakeState{readErr: fwra.New(fwra.NotFound, "no row yet")}
 	m := NewManager(nil, ps)
-	_, err := m.SetResearchInput(context.Background(), ProjectID(uuid.NewString()), sampleResearch())
+	_, err := m.SetResearchInput(bgRC(), ProjectID(uuid.NewString()), sampleResearch())
 	if got := asSystemDesignError(t, err).Kind; got != fwmanager.NotFound {
 		t.Fatalf("want NotFound when ReadProject reports no row, got %d", got)
 	}

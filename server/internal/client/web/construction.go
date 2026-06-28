@@ -86,7 +86,7 @@ func (c *Client) handleGetConstructionSessionState(w http.ResponseWriter, r *htt
 		aid := construction.ActivityID(a)
 		activityID = &aid
 	}
-	if !c.authorizeProject(w, r, "read-project", projectID.String()) {
+	if !c.authorizeProject(w, r, "read-project", string(projectID)) {
 		return
 	}
 	view, err := c.construction.GetSessionState(constructionCtx(r), construction.ProjectID(projectID), activityID)
@@ -95,7 +95,7 @@ func (c *Client) handleGetConstructionSessionState(w http.ResponseWriter, r *htt
 		return
 	}
 	resp := constructionSessionStateResponse{
-		ProjectID: projectID.String(),
+		ProjectID: string(projectID),
 		Stage:     constructionStageName(view.Stage),
 		View:      view,
 	}
@@ -123,7 +123,7 @@ func (c *Client) handlePauseProject(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	if !c.authorizeProject(w, r, "drive-phase", projectID.String()) {
+	if !c.authorizeProject(w, r, "drive-phase", string(projectID)) {
 		return
 	}
 	if err := c.construction.PauseProject(constructionCtx(r), construction.ProjectID(projectID), req.Reason); err != nil {
@@ -157,7 +157,7 @@ func (c *Client) handleOverrideActivity(w http.ResponseWriter, r *http.Request) 
 		writeClientError(w, err)
 		return
 	}
-	if !c.authorizeProject(w, r, "drive-phase", projectID.String()) {
+	if !c.authorizeProject(w, r, "drive-phase", string(projectID)) {
 		return
 	}
 	override := construction.ActivityOverride{Kind: kind, Notes: req.Notes}
@@ -191,7 +191,7 @@ func (c *Client) handleBeginConstruction(w http.ResponseWriter, r *http.Request)
 		writeClientError(w, err)
 		return
 	}
-	if !c.authorizeProject(w, r, "drive-phase", projectID.String()) {
+	if !c.authorizeProject(w, r, "drive-phase", string(projectID)) {
 		return
 	}
 	// A time-bucketed tick id collapses a double-click WITHIN THE SAME MINUTE onto the
@@ -203,10 +203,10 @@ func (c *Client) handleBeginConstruction(w http.ResponseWriter, r *http.Request)
 	go func() {
 		res, err := c.construction.ExecuteNextActivity(fwm.Context{Context: context.Background()}, construction.ProjectID(projectID), tickID)
 		if err != nil {
-			slog.Error("construction begin pump returned an error", "projectId", projectID.String(), "err", err)
+			slog.Error("construction begin pump returned an error", "projectId", string(projectID), "err", err)
 			return
 		}
-		slog.Info("construction begin pump cascade quiesced", "projectId", projectID.String(), "dispatched", res.Dispatched)
+		slog.Info("construction begin pump cascade quiesced", "projectId", string(projectID), "dispatched", res.Dispatched)
 	}()
 	writeJSON(w, http.StatusAccepted, beginConstructionResponse{Accepted: true, TickID: tickID})
 }

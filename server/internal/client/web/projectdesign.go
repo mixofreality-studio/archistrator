@@ -70,14 +70,14 @@ func (c *Client) handleRequestProjectArtifactDraft(w http.ResponseWriter, r *htt
 		writeClientError(w, err)
 		return
 	}
-	if !c.authorizeProject(w, r, "drive-phase", projectID.String()) {
+	if !c.authorizeProject(w, r, "drive-phase", string(projectID)) {
 		return
 	}
 	var feedback *projectdesign.ReviewFeedback
 	if req.Feedback != nil {
 		feedback = &projectdesign.ReviewFeedback{Notes: *req.Feedback}
 	}
-	ref, err := c.projectDesign.RequestArtifactDraft(r.Context(), projectID, kind, feedback)
+	ref, err := c.projectDesign.RequestArtifactDraft(r.Context(), projectdesign.ProjectID(projectID), kind, feedback)
 	if err != nil {
 		writeManagerError(w, err)
 		return
@@ -107,14 +107,14 @@ func (c *Client) handleSubmitProjectReviewDecision(w http.ResponseWriter, r *htt
 		writeClientError(w, err)
 		return
 	}
-	if !c.authorizeProject(w, r, "approve-artifact", projectID.String()) {
+	if !c.authorizeProject(w, r, "approve-artifact", string(projectID)) {
 		return
 	}
 	var feedback *projectdesign.ReviewFeedback
 	if req.Feedback != nil {
 		feedback = &projectdesign.ReviewFeedback{Notes: *req.Feedback}
 	}
-	if err := c.projectDesign.SubmitReviewDecision(r.Context(), projectID, kind, decision, feedback); err != nil {
+	if err := c.projectDesign.SubmitReviewDecision(r.Context(), projectdesign.ProjectID(projectID), kind, decision, feedback); err != nil {
 		writeManagerError(w, err)
 		return
 	}
@@ -129,10 +129,10 @@ func (c *Client) handleRequestSDPCommit(w http.ResponseWriter, r *http.Request) 
 		writeClientError(w, err)
 		return
 	}
-	if !c.authorizeProject(w, r, "drive-phase", projectID.String()) {
+	if !c.authorizeProject(w, r, "drive-phase", string(projectID)) {
 		return
 	}
-	ref, err := c.projectDesign.RequestSDPCommit(r.Context(), projectID)
+	ref, err := c.projectDesign.RequestSDPCommit(r.Context(), projectdesign.ProjectID(projectID))
 	if err != nil {
 		writeManagerError(w, err)
 		return
@@ -158,7 +158,7 @@ func (c *Client) handleSubmitSDPDecision(w http.ResponseWriter, r *http.Request)
 		writeClientError(w, err)
 		return
 	}
-	if !c.authorizeProject(w, r, "approve-artifact", projectID.String()) {
+	if !c.authorizeProject(w, r, "approve-artifact", string(projectID)) {
 		return
 	}
 	var optionID *projectdesign.OptionID
@@ -170,7 +170,7 @@ func (c *Client) handleSubmitSDPDecision(w http.ResponseWriter, r *http.Request)
 	if req.Feedback != nil {
 		feedback = &projectdesign.ReviewFeedback{Notes: *req.Feedback}
 	}
-	if err := c.projectDesign.SubmitSDPDecision(r.Context(), projectID, decision, optionID, feedback); err != nil {
+	if err := c.projectDesign.SubmitSDPDecision(r.Context(), projectdesign.ProjectID(projectID), decision, optionID, feedback); err != nil {
 		writeManagerError(w, err)
 		return
 	}
@@ -186,10 +186,10 @@ func (c *Client) handleAdvanceToConstruction(w http.ResponseWriter, r *http.Requ
 		writeClientError(w, err)
 		return
 	}
-	if !c.authorizeProject(w, r, "drive-phase", projectID.String()) {
+	if !c.authorizeProject(w, r, "drive-phase", string(projectID)) {
 		return
 	}
-	result, err := c.projectDesign.AdvanceToConstruction(r.Context(), projectID)
+	result, err := c.projectDesign.AdvanceToConstruction(r.Context(), projectdesign.ProjectID(projectID))
 	if err != nil {
 		writeManagerError(w, err)
 		return
@@ -215,16 +215,16 @@ func (c *Client) handleGetProjectSessionState(w http.ResponseWriter, r *http.Req
 		writeClientError(w, err)
 		return
 	}
-	if !c.authorizeProject(w, r, "drive-phase", projectID.String()) {
+	if !c.authorizeProject(w, r, "drive-phase", string(projectID)) {
 		return
 	}
-	view, err := c.projectDesign.GetSessionState(r.Context(), projectID, kind)
+	view, err := c.projectDesign.GetSessionState(r.Context(), projectdesign.ProjectID(projectID), kind)
 	if err != nil {
 		writeManagerError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, projectSessionStateResponse{
-		ProjectID:    projectID.String(),
+		ProjectID:    string(projectID),
 		ArtifactKind: projectDesignKindName(kind),
 		Stage:        projectSessionStageName(view.Stage),
 		View:         view,

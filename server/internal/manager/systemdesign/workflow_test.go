@@ -309,7 +309,7 @@ func awaitingSlot(model projectstate.ArtifactModel, verdict, critiqueNotes strin
 func systemReadBack(t *testing.T, id ProjectID) projectstate.Project {
 	t.Helper()
 	return projectstate.Project{
-		ID:                   id,
+		ID:                   projectstate.ProjectID(id),
 		Version:              3,
 		Mission:              committedSlot(mustMission(t)),
 		Glossary:             committedSlot(mustGlossary(t)),
@@ -349,13 +349,13 @@ func Test_CoAuthor_DraftRoundTrip_DispatchObserveReadBack_AwaitsReview(t *testin
 		if view.Stage != StageAwaitingReview {
 			t.Fatalf("want StageAwaitingReview, got %d", view.Stage)
 		}
-		if _, ok := view.Draft.(*projectstate.System); !ok {
-			t.Fatalf("expected *projectstate.System read-back draft, got %T", view.Draft)
+		if view.Draft.Kind != "system" || view.Draft.Model == nil {
+			t.Fatalf("expected a staged system read-back draft envelope, got %+v", view.Draft)
 		}
 		env.SignalWorkflow(SignalReviewDecision, ReviewDecisionSignal{Decision: ReviewWithdraw})
 	}, 30*time.Second)
 
-	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: projectstate.KindSystem})
+	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
 
 	if !env.IsWorkflowCompleted() {
 		t.Fatal("workflow did not complete")
@@ -412,7 +412,7 @@ func Test_CoAuthor_Approve_Commits(t *testing.T) {
 	// Mission read-back: the slot carries the Action-committed Mission; the critique
 	// carrier verdict is "approve" so the PM round-trip ratifies and the gate proceeds.
 	ps := &fakeProjectState{project: projectstate.Project{
-		ID:      id,
+		ID:      projectstate.ProjectID(id),
 		Version: 1,
 		Mission: awaitingSlot(mustMission(t), projectstate.CritiqueVerdictApprove, ""),
 	}}
@@ -424,7 +424,7 @@ func Test_CoAuthor_Approve_Commits(t *testing.T) {
 		env.SignalWorkflow(SignalReviewDecision, ReviewDecisionSignal{Decision: ReviewApprove})
 	}, 30*time.Second)
 
-	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: projectstate.KindMission})
+	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: KindMission})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)
@@ -481,14 +481,14 @@ func Test_CoAuthor_PhaseFailed_LandsInStageDraftFailed_NotPerpetualDrafting(t *t
 		if view.Stage != StageDraftFailed {
 			t.Fatalf("want StageDraftFailed after a terminal failure phase, got %d", view.Stage)
 		}
-		if view.FailureReason == "" {
+		if view.FailureReason == nil || *view.FailureReason == "" {
 			t.Fatal("StageDraftFailed must carry a human FailureReason (the neutral diagnostic)")
 		}
 		// Suspended on the SAME reviewDecision gate — Withdraw ends it.
 		env.SignalWorkflow(SignalReviewDecision, ReviewDecisionSignal{Decision: ReviewWithdraw})
 	}, 30*time.Second)
 
-	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: projectstate.KindSystem})
+	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
 
 	if !env.IsWorkflowCompleted() {
 		t.Fatal("workflow did not complete after withdraw from the draft-failed gate")
@@ -528,7 +528,7 @@ func Test_CoAuthor_PhaseCancelled_LandsInStageDraftFailed(t *testing.T) {
 		env.SignalWorkflow(SignalReviewDecision, ReviewDecisionSignal{Decision: ReviewWithdraw})
 	}, 30*time.Second)
 
-	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: projectstate.KindSystem})
+	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("PhaseCancelled must not crash the workflow: %v", err)
@@ -560,7 +560,7 @@ func Test_CoAuthor_DraftFailedThenRetry_DistinctIdempotencyKey(t *testing.T) {
 		env.SignalWorkflow(SignalReviewDecision, ReviewDecisionSignal{Decision: ReviewWithdraw})
 	}, 60*time.Second)
 
-	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: projectstate.KindSystem})
+	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)
@@ -593,7 +593,7 @@ func Test_CoAuthor_PMCritiqueRevise_SecondRoundTrip_StagesForHumanGate(t *testin
 	// The Mission slot's critique carrier is persistently "revise" with notes
 	// (CritiqueRevise every round) — the critic never converges.
 	ps := &fakeProjectState{project: projectstate.Project{
-		ID:      id,
+		ID:      projectstate.ProjectID(id),
 		Version: 1,
 		Mission: awaitingSlot(mustMission(t), projectstate.CritiqueVerdictRevise, "tighten the vision sentence"),
 	}}
@@ -625,7 +625,7 @@ func Test_CoAuthor_PMCritiqueRevise_SecondRoundTrip_StagesForHumanGate(t *testin
 		env.SignalWorkflow(SignalReviewDecision, ReviewDecisionSignal{Decision: ReviewApprove})
 	}, 90*time.Second)
 
-	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: projectstate.KindMission})
+	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: KindMission})
 
 	if !env.IsWorkflowCompleted() {
 		t.Fatal("workflow did not complete (PM non-convergence must stage, not hang/crash)")
@@ -665,7 +665,7 @@ func Test_CoAuthor_Reject_LoopsToFreshDispatch(t *testing.T) {
 		env.SignalWorkflow(SignalReviewDecision, ReviewDecisionSignal{Decision: ReviewApprove})
 	}, 70*time.Second)
 
-	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: projectstate.KindSystem})
+	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)
@@ -698,7 +698,7 @@ func Test_CoAuthor_RejectNotes_DoNotLeakIntoCritiqueReadBack(t *testing.T) {
 	id := ProjectID(uuid.NewString())
 	// Mission starts with an "approve" critique carrier so the FIRST round ratifies.
 	ps := &fakeProjectState{project: projectstate.Project{
-		ID:      id,
+		ID:      projectstate.ProjectID(id),
 		Version: 1,
 		Mission: awaitingSlot(mustMission(t), projectstate.CritiqueVerdictApprove, ""),
 	}}
@@ -724,7 +724,7 @@ func Test_CoAuthor_RejectNotes_DoNotLeakIntoCritiqueReadBack(t *testing.T) {
 		env.SignalWorkflow(SignalReviewDecision, ReviewDecisionSignal{Decision: ReviewApprove})
 	}, 80*time.Second)
 
-	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: projectstate.KindMission})
+	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: KindMission})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)
@@ -752,7 +752,7 @@ func Test_CoAuthor_CritiqueMissingVerdict_LandsInStageDraftFailed_NotSilentAppro
 	id := ProjectID(uuid.NewString())
 	// Mission draft read-back is fine, but the critique carrier verdict is EMPTY.
 	ps := &fakeProjectState{project: projectstate.Project{
-		ID:      id,
+		ID:      projectstate.ProjectID(id),
 		Version: 1,
 		Mission: awaitingSlot(mustMission(t), "", ""),
 	}}
@@ -772,13 +772,13 @@ func Test_CoAuthor_CritiqueMissingVerdict_LandsInStageDraftFailed_NotSilentAppro
 		if view.Stage != StageDraftFailed {
 			t.Fatalf("a missing critique verdict must land in StageDraftFailed (NOT silent approve), got stage %d", view.Stage)
 		}
-		if view.FailureReason == "" {
+		if view.FailureReason == nil || *view.FailureReason == "" {
 			t.Fatal("StageDraftFailed from a missing verdict must carry a human FailureReason")
 		}
 		env.SignalWorkflow(SignalReviewDecision, ReviewDecisionSignal{Decision: ReviewWithdraw})
 	}, 30*time.Second)
 
-	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: projectstate.KindMission})
+	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: KindMission})
 
 	if !env.IsWorkflowCompleted() {
 		t.Fatal("workflow did not complete after withdraw from the missing-verdict gate")
@@ -818,7 +818,7 @@ func Test_Phase_AllStepsApproved_SealsPhase1(t *testing.T) {
 	env.OnWorkflow(ExecutionKindCoAuthor, mock.Anything, mock.Anything).
 		Return(CoAuthorApproved, nil).Times(len(projectstate.Phase1RequiredKinds()))
 
-	env.ExecuteWorkflow(ExecutionKindPhase, PhaseInput{ProjectID: proj.ID})
+	env.ExecuteWorkflow(ExecutionKindPhase, PhaseInput{ProjectID: ProjectID(proj.ID)})
 
 	if !env.IsWorkflowCompleted() {
 		t.Fatal("parent workflow did not complete")
@@ -844,7 +844,7 @@ func Test_Phase_StepWithdrawn_HaltsSequence_NoSeal(t *testing.T) {
 	env.OnWorkflow(ExecutionKindCoAuthor, mock.Anything, mock.Anything).
 		Return(CoAuthorWithdrawn, nil).Once()
 
-	env.ExecuteWorkflow(ExecutionKindPhase, PhaseInput{ProjectID: proj.ID})
+	env.ExecuteWorkflow(ExecutionKindPhase, PhaseInput{ProjectID: ProjectID(proj.ID)})
 
 	if !env.IsWorkflowCompleted() {
 		t.Fatal("parent workflow did not complete")
@@ -864,12 +864,12 @@ func Test_PhaseAdvance_Blocked_MissingArtifacts(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
 
-	proj := projectstate.Project{ID: ProjectID(uuid.NewString()), Version: 1, Mission: committedSlot(mustMission(t))}
+	proj := projectstate.Project{ID: projectstate.ProjectID(uuid.NewString()), Version: 1, Mission: committedSlot(mustMission(t))}
 	ps := &fakeProjectState{project: proj}
 	wf := newWorkflows(ps, newFakePipeline())
 	registerPhaseAdvance(env, wf)
 
-	env.ExecuteWorkflow(ExecutionKindPhaseAdvance, PhaseAdvanceInput{ProjectID: proj.ID})
+	env.ExecuteWorkflow(ExecutionKindPhaseAdvance, PhaseAdvanceInput{ProjectID: ProjectID(proj.ID)})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)
@@ -884,14 +884,14 @@ func Test_PhaseAdvance_Blocked_MissingArtifacts(t *testing.T) {
 	if len(res.MissingArtifacts) == 0 {
 		t.Fatal("want a non-empty MissingArtifacts set")
 	}
-	missing := map[projectstate.ArtifactKind]bool{}
+	missing := map[ArtifactKind]bool{}
 	for _, k := range res.MissingArtifacts {
 		missing[k] = true
 	}
-	if missing[projectstate.KindMission] {
+	if missing[KindMission] {
 		t.Fatalf("Mission is committed and must NOT be missing: %v", res.MissingArtifacts)
 	}
-	if !missing[projectstate.KindStandardCheck] {
+	if !missing[KindStandardCheck] {
 		t.Fatalf("StandardCheck is uncommitted and must be missing: %v", res.MissingArtifacts)
 	}
 	if ps.advanced != 0 {
@@ -910,7 +910,7 @@ func Test_PhaseAdvance_AllCommitted_Advances(t *testing.T) {
 	wf := newWorkflows(ps, newFakePipeline())
 	registerPhaseAdvance(env, wf)
 
-	env.ExecuteWorkflow(ExecutionKindPhaseAdvance, PhaseAdvanceInput{ProjectID: proj.ID})
+	env.ExecuteWorkflow(ExecutionKindPhaseAdvance, PhaseAdvanceInput{ProjectID: ProjectID(proj.ID)})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)
@@ -935,7 +935,7 @@ func allPhase1Committed(t *testing.T) projectstate.Project {
 		t.Fatalf("NewGlossary: %v", err)
 	}
 	return projectstate.Project{
-		ID:                   ProjectID(uuid.NewString()),
+		ID:                   projectstate.ProjectID(uuid.NewString()),
 		Version:              8,
 		Mission:              committedSlot(mustMission(t)),
 		Glossary:             committedSlot(g),

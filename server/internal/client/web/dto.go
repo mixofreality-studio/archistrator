@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/systemdesign"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
 // This file holds the HTTP/JSON wire DTOs for the UC1 driveDesignPhase facet and
@@ -155,14 +154,14 @@ func parseProjectID(s string) (systemdesign.ProjectID, error) {
 // an unknown or non-Phase-1 name is a client error (the Manager would also
 // reject it, but rejecting at the transport edge gives a clean 400).
 var phase1KindByName = map[string]systemdesign.ArtifactKind{
-	"mission":              projectstate.KindMission,
-	"glossary":             projectstate.KindGlossary,
-	"scrubbedRequirements": projectstate.KindScrubbedRequirements,
-	"volatilities":         projectstate.KindVolatilities,
-	"coreUseCases":         projectstate.KindCoreUseCases,
-	"system":               projectstate.KindSystem,
-	"operationalConcepts":  projectstate.KindOperationalConcepts,
-	"standardCheck":        projectstate.KindStandardCheck,
+	"mission":              systemdesign.KindMission,
+	"glossary":             systemdesign.KindGlossary,
+	"scrubbedRequirements": systemdesign.KindScrubbedRequirements,
+	"volatilities":         systemdesign.KindVolatilities,
+	"coreUseCases":         systemdesign.KindCoreUseCases,
+	"system":               systemdesign.KindSystem,
+	"operationalConcepts":  systemdesign.KindOperationalConcepts,
+	"standardCheck":        systemdesign.KindStandardCheck,
 }
 
 // kindWireName is the inverse of phase1KindByName for response shaping.
@@ -189,7 +188,7 @@ func artifactKindName(kind systemdesign.ArtifactKind) string {
 	if name, ok := kindWireName[kind]; ok {
 		return name
 	}
-	return kind.String()
+	return systemdesign.ArtifactKindString(kind)
 }
 
 // parseReviewDecision maps the wire decision string to the typed ReviewDecision.

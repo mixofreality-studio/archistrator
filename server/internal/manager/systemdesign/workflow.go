@@ -293,7 +293,7 @@ func (wf *Workflows) SystemDesignPhaseWorkflow(ctx workflow.Context, in PhaseInp
 	// Drive the seven steps in fixed Method order. For each step, spawn the child
 	// gate and auto-advance only on the child's Approve outcome; a Withdraw holds
 	// the phase at that step (the operator re-enters via requestArtifactDraft).
-	for _, kind := range projectstate.Phase1RequiredKinds() {
+	for _, kind := range phase1RequiredKinds() {
 		childID := coAuthorWorkflowID(in.ProjectID, kind)
 		cctx := workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
 			WorkflowID: childID,
@@ -308,10 +308,10 @@ func (wf *Workflows) SystemDesignPhaseWorkflow(ctx workflow.Context, in PhaseInp
 		if outcome != CoAuthorApproved {
 			// The human withdrew this step; the phase does not advance. The parent
 			// stops here — re-entry is via a fresh requestArtifactDraft on the step.
-			logger.Info("co-author step not approved; halting phase sequence", "kind", kind.String(), "outcome", int(outcome))
+			logger.Info("co-author step not approved; halting phase sequence", "kind", ArtifactKindString(kind), "outcome", int(outcome))
 			return nil
 		}
-		logger.Info("co-author step approved; advancing phase sequence", "kind", kind.String())
+		logger.Info("co-author step approved; advancing phase sequence", "kind", ArtifactKindString(kind))
 	}
 
 	// All seven steps approved → seal Phase 1 (advancePhase). The parent runs the
@@ -430,7 +430,7 @@ func (wf *Workflows) CoAuthorArtifactWorkflow(ctx workflow.Context, in CoAuthorI
 		if !isReadNotFound(err) {
 			return CoAuthorUnknown, err
 		}
-		proj = projectstate.Project{ID: in.ProjectID}
+		proj = projectstate.Project{ID: projectstate.ProjectID(in.ProjectID)}
 	} else {
 		proj = p
 		headVersion = p.Version
@@ -482,7 +482,7 @@ func (wf *Workflows) CoAuthorArtifactWorkflow(ctx workflow.Context, in CoAuthorI
 			return CoAuthorUnknown, gerr
 		}
 
-		draftPrompt := architectDraftPrompt(in.ArtifactKind, proj, feedback)
+		draftPrompt := architectDraftPrompt(toPSKind(in.ArtifactKind), proj, feedback)
 		draftObs, derr := wf.dispatchAndObserve(ctx, DispatchDesignJobArgs{
 			ProjectID:     in.ProjectID,
 			ArtifactKind:  in.ArtifactKind,
@@ -536,12 +536,12 @@ func (wf *Workflows) CoAuthorArtifactWorkflow(ctx workflow.Context, in CoAuthorI
 		// read-back producing a typed Critique. On CritiqueRevise the loop re-dispatches
 		// the architect-role draft with the critique Notes woven in, BEFORE the human
 		// gate. Architect-owned steps skip this entirely.
-		if kindHasPMCritique(in.ArtifactKind) {
+		if kindHasPMCritique(toPSKind(in.ArtifactKind)) {
 			// The critique session branch (per-attempt). The PM-critique Action commits its
 			// verdict carrier here; no PR/merge happens for critique (only the draft path
 			// gets the rail). Inert when the rail is dormant.
 			critiqueBranch := designBranch(in.ProjectID, in.ArtifactKind, DispatchTargetCritique, branchAttempt)
-			critPrompt := pmCritiquePrompt(in.ArtifactKind, draft)
+			critPrompt := pmCritiquePrompt(toPSKind(in.ArtifactKind), draft)
 			critObs, cerr := wf.dispatchAndObserve(ctx, DispatchDesignJobArgs{
 				ProjectID:     in.ProjectID,
 				ArtifactKind:  in.ArtifactKind,
@@ -626,7 +626,7 @@ func (wf *Workflows) CoAuthorArtifactWorkflow(ctx workflow.Context, in CoAuthorI
 				c := mutateOpts(ctx)
 				var v projectstate.Version
 				e := workflow.ExecuteActivity(c, wf.StageArtifactForReviewActivity, StageArtifactForReviewArgs{
-					ProjectID: in.ProjectID, ExpectedVersion: expected, Model: draftEnvelope, Branch: gf.readBackBranch(),
+					ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, Model: draftEnvelope, Branch: gf.readBackBranch(),
 				}).Get(ctx, &v)
 				return v, e
 			})
@@ -684,7 +684,7 @@ func (wf *Workflows) CoAuthorArtifactWorkflow(ctx workflow.Context, in CoAuthorI
 				c := mutateOpts(ctx)
 				var v projectstate.Version
 				e := workflow.ExecuteActivity(c, wf.CommitArtifactActivity, MutateArtifactArgs{
-					ProjectID: in.ProjectID, ExpectedVersion: expected, Kind: in.ArtifactKind,
+					ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, Kind: toPSKind(in.ArtifactKind),
 				}).Get(ctx, &v)
 				return v, e
 			})
@@ -701,7 +701,7 @@ func (wf *Workflows) CoAuthorArtifactWorkflow(ctx workflow.Context, in CoAuthorI
 				c := mutateOpts(ctx)
 				var v projectstate.Version
 				e := workflow.ExecuteActivity(c, wf.RejectArtifactActivity, MutateArtifactArgs{
-					ProjectID: in.ProjectID, ExpectedVersion: expected, Kind: in.ArtifactKind, Notes: rejectFeedback.Notes,
+					ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, Kind: toPSKind(in.ArtifactKind), Notes: rejectFeedback.Notes,
 				}).Get(ctx, &v)
 				return v, e
 			})
@@ -726,7 +726,7 @@ func (wf *Workflows) CoAuthorArtifactWorkflow(ctx workflow.Context, in CoAuthorI
 				c := mutateOpts(ctx)
 				var v projectstate.Version
 				e := workflow.ExecuteActivity(c, wf.WithdrawArtifactActivity, MutateArtifactArgs{
-					ProjectID: in.ProjectID, ExpectedVersion: expected, Kind: in.ArtifactKind, Notes: notes,
+					ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, Kind: toPSKind(in.ArtifactKind), Notes: notes,
 				}).Get(ctx, &v)
 				return v, e
 			})
@@ -772,14 +772,14 @@ func (wf *Workflows) runPhaseAdvance(ctx workflow.Context, projectID ProjectID) 
 		if !isReadNotFound(err) {
 			return PhaseAdvanceResult{}, err
 		}
-		proj = projectstate.Project{ID: projectID}
+		proj = projectstate.Project{ID: projectstate.ProjectID(projectID)}
 	} else {
 		proj = p
 	}
 
 	// Gate: every required Phase-1 kind must be Committed.
 	var missing []ArtifactKind
-	for _, kind := range projectstate.Phase1RequiredKinds() {
+	for _, kind := range phase1RequiredKinds() {
 		if slotFor(proj, kind).Status != projectstate.ReviewCommitted {
 			missing = append(missing, kind)
 		}
@@ -800,7 +800,7 @@ func (wf *Workflows) runPhaseAdvance(ctx workflow.Context, projectID ProjectID) 
 		c := mutateOpts(ctx)
 		var v projectstate.Version
 		e := workflow.ExecuteActivity(c, wf.AdvancePhaseActivity, AdvancePhaseArgs{
-			ProjectID: projectID, ExpectedVersion: expected,
+			ProjectID: projectstate.ProjectID(projectID), ExpectedVersion: expected,
 		}).Get(ctx, &v)
 		return v, e
 	}); err != nil {
@@ -838,13 +838,17 @@ func (s *coAuthorState) view() (SessionStateView, error) {
 			Message:  "PM critique did not converge after max attempts; latest note: " + s.unresolvedCritique,
 		})
 	}
+	draft, err := draftModelFor(s.artifactKind, s.draft)
+	if err != nil {
+		return SessionStateView{}, err
+	}
 	return SessionStateView{
 		ProjectID:     s.projectID,
 		ArtifactKind:  s.artifactKind,
 		Stage:         s.stage,
-		Draft:         s.draft,
+		Draft:         draft,
 		Findings:      findings,
-		FailureReason: s.failureReason,
+		FailureReason: strPtrOrNil(s.failureReason),
 	}, nil
 }
 
@@ -875,21 +879,21 @@ func reviewFeedbackOrZero(f *ReviewFeedback) ReviewFeedback {
 // slotFor returns the named Project slot for a Phase-1 kind.
 func slotFor(proj projectstate.Project, kind ArtifactKind) projectstate.ArtifactSlot {
 	switch kind {
-	case projectstate.KindMission:
+	case KindMission:
 		return proj.Mission
-	case projectstate.KindGlossary:
+	case KindGlossary:
 		return proj.Glossary
-	case projectstate.KindScrubbedRequirements:
+	case KindScrubbedRequirements:
 		return proj.ScrubbedRequirements
-	case projectstate.KindVolatilities:
+	case KindVolatilities:
 		return proj.Volatilities
-	case projectstate.KindCoreUseCases:
+	case KindCoreUseCases:
 		return proj.CoreUseCases
-	case projectstate.KindSystem:
+	case KindSystem:
 		return proj.SystemDesign
-	case projectstate.KindOperationalConcepts:
+	case KindOperationalConcepts:
 		return proj.OperationalConcepts
-	case projectstate.KindStandardCheck:
+	case KindStandardCheck:
 		return proj.StandardCheck
 	default:
 		return projectstate.ArtifactSlot{}
@@ -971,7 +975,7 @@ func (wf *Workflows) awaitDraftFailedRecovery(
 				c := mutateOpts(ctx)
 				var v projectstate.Version
 				e := workflow.ExecuteActivity(c, wf.WithdrawArtifactActivity, MutateArtifactArgs{
-					ProjectID: projectID, ExpectedVersion: expected, Kind: kind, Notes: withdrawNotes,
+					ProjectID: projectstate.ProjectID(projectID), ExpectedVersion: expected, Kind: toPSKind(kind), Notes: withdrawNotes,
 				}).Get(ctx, &v)
 				return v, e
 			}); err != nil {

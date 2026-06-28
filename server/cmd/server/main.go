@@ -461,7 +461,12 @@ func run(logger *slog.Logger) error { //nolint:gocognit,gocyclo,maintidx,nestif 
 			}
 			return ref, true
 		}
-		designRepoSD = repoFor
+		// systemdesign now owns its ProjectID type (not a projectstate alias), so bridge
+		// the resolver at the boundary; projectdesign.ProjectID is still a projectstate
+		// alias so repoFor satisfies it directly.
+		designRepoSD = func(pid systemdesign.ProjectID) (sourcecontrol.RepoRef, bool) {
+			return repoFor(projectstate.ProjectID(pid))
+		}
 		designRepoPD = repoFor
 		logger.Info("design PR rail (github) ready — agentic design drafts use branch→PR→read-back→+1→merge", "account", cfg.GitHubAccount)
 	} else {

@@ -56,6 +56,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/operations"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/project"
 	mgrsettlement "github.com/mixofreality-studio/archistrator/server/internal/manager/settlement"
+	mgrsystemdesign "github.com/mixofreality-studio/archistrator/server/internal/manager/systemdesign"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/constructionpipeline"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/durableexecution"
@@ -767,6 +768,52 @@ var registry = []component{
 		},
 		ifaceName: "ProjectManager",
 		iface:     reflect.TypeOf((*project.ProjectManager)(nil)).Elem(),
+	},
+	{
+		name: "systemdesign",
+		dir:  "internal/manager/systemdesign",
+		models: []any{
+			// The full transitive closure of SystemDesignManager's OWN port I/O types
+			// (systemDesignManager.md §2/§3). All defined in this package — FULL
+			// ENCAPSULATION: the generated contract pulls NO external (projectstate) dep
+			// and NO Temporal dep (the Manager OWNS Temporal behind the port; the
+			// consumer-side dependency interfaces + the Temporal Workflows struct stay
+			// hand-written and are NOT part of this contract). The staged typed DRAFT is
+			// carried OPAQUELY via DraftModel ({kind, model}) — systemdesign never
+			// regenerates or shares projectstate's sealed ArtifactModel sum or its 17
+			// variants. ProjectID / ArtifactKind / ResearchInput / Version are this
+			// Manager's OWN named types (converted to/from projectstate at the RA
+			// boundary; the ArtifactKind ordinals MIRROR projectstate for a
+			// meaning-preserving cast). The enum/identity behavior lives in behavior.go as
+			// free functions (the operations DesiredStateReason precedent) so the
+			// generated types carry no behavior. SessionRef is the opaque continuity token
+			// (a named string scalar; NewSessionRef is a free function). Critique /
+			// CritiqueVerdict are NOT on the port surface — they stay hand-written.
+			mgrsystemdesign.ResearchSource{},
+			mgrsystemdesign.ResearchInput{},
+			mgrsystemdesign.AnchoredComment{},
+			mgrsystemdesign.ReviewFeedback{},
+			mgrsystemdesign.PhaseAdvanceResult{},
+			mgrsystemdesign.DraftModel{},
+			mgrsystemdesign.Location{},
+			mgrsystemdesign.Finding{},
+			mgrsystemdesign.SessionStateView{},
+			// Enums (one zero value each — const blocks captured from this dir). Severity
+			// is a STRING enum (its value IS the camelCase wire name); the rest are int.
+			mgrsystemdesign.ArtifactKind(0),
+			mgrsystemdesign.ReviewDecision(0),
+			mgrsystemdesign.SessionStage(0),
+			mgrsystemdesign.Severity(""),
+			// Named scalars (bare identifier newtypes — no const block). ProjectID is the
+			// catalog identity; SessionRef is the opaque session continuity token; Version
+			// is the head-state optimistic-concurrency token; RuleID is a finding's rule id.
+			mgrsystemdesign.ProjectID(""),
+			mgrsystemdesign.SessionRef(""),
+			mgrsystemdesign.Version(0),
+			mgrsystemdesign.RuleID(""),
+		},
+		ifaceName: "SystemDesignManager",
+		iface:     reflect.TypeOf((*mgrsystemdesign.SystemDesignManager)(nil)).Elem(),
 	},
 	{
 		// projectstate is the LAST + highest-stakes RA: the project.json PERSISTENCE
