@@ -208,6 +208,19 @@ func (a *projectStateGitAdapter) ReadProject(rc fwra.Context, projectID projects
 	return a.store.ReadProject(ctx, projectID, cred)
 }
 
+// ReadProjectVersion serves the cheap version-only read over the git substrate. The
+// git head-state read still hydrates the whole project.json blob, but the verb keeps
+// the Manager↔RA contract honest: the Temporal Activity returns only the uint64
+// Version across the boundary, not the entire encoded aggregate (architect's fast-
+// follow). Absence stays fwra.NotFound via the underlying ReadProject.
+func (a *projectStateGitAdapter) ReadProjectVersion(rc fwra.Context, projectID projectstate.ProjectID) (projectstate.Version, error) {
+	p, err := a.ReadProject(rc, projectID)
+	if err != nil {
+		return 0, err
+	}
+	return p.Version, nil
+}
+
 // Compile-time proof the git adapter also serves the branch-aware extension the design
 // Managers consume during the AwaitingReview window (I-DESIGN-DISPATCH §2a).
 var _ projectstate.BranchAwareProjectStateAccess = (*projectStateGitAdapter)(nil)

@@ -692,6 +692,30 @@ func (s *Store) ReadProject(rc fwra.Context, projectID ProjectID) (Project, erro
 	return p, nil
 }
 
+// ReadProjectVersion serves the cheap version-only read: just the head-state
+// optimistic-concurrency token, WITHOUT decoding the whole aggregate. The three
+// design/construction Managers' Conflict re-read→re-apply loops need only the
+// current Version to seed the next attempt; shipping the entire encoded Project
+// across the Temporal Activity boundary for a single uint64 is wasteful. An absent
+// row is fwra.NotFound — identical absence semantics to ReadProject, so callers
+// branch on a brand-new project the same way.
+func (s *Store) ReadProjectVersion(rc fwra.Context, projectID ProjectID) (Version, error) {
+	ctx := rc.Context
+	if projectID == "" {
+		return 0, fwra.New(fwra.ContractMisuse, "projectstate.ReadProjectVersion: zero projectID")
+	}
+	const q = `SELECT version FROM project_state WHERE project_id = $1`
+	var version int64
+	err := s.pool.QueryRow(ctx, q, projectID).Scan(&version)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, fwra.New(fwra.NotFound, fmt.Sprintf("projectstate.ReadProjectVersion: no state for project %s", projectID))
+	}
+	if err != nil {
+		return 0, fwpg.MapError(err, "projectstate.ReadProjectVersion")
+	}
+	return Version(version), nil
+}
+
 // decodeResearch parses the research JSONB column into p.ResearchInput. An empty
 // or NULL-ish column ('{}' default) decodes to the zero ResearchInput (no sources).
 func decodeResearch(raw []byte, p *Project) error {

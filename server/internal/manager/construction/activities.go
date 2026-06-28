@@ -47,6 +47,18 @@ func (wf *Workflows) ReadProjectActivity(ctx context.Context, projectID projects
 	return encodeProject(proj), nil
 }
 
+// ---- ReadProjectVersionActivity (wraps projectStateAccess.ReadProjectVersion) ----
+// Cheap version-only read; no idempotency key. Returns just the head-state Version
+// across the Temporal boundary instead of the whole encoded aggregate — the
+// read-your-writes seed and the applyRecovering Conflict loop need only the token.
+func (wf *Workflows) ReadProjectVersionActivity(ctx context.Context, projectID projectstate.ProjectID) (projectstate.Version, error) {
+	v, err := wf.ProjectState.ReadProjectVersion(ctx, projectID)
+	if err != nil {
+		return 0, fwmanager.MapError(err)
+	}
+	return v, nil
+}
+
 // ---- GenerateWorkActivity (wraps the generic typed worker) ------------------
 // The work-dispatch step (constructionManager.md §6.3 step 2 / step 5 review
 // fan-out). The Manager's SEQUENCE assembled the prompt (prompts.go) and chose the

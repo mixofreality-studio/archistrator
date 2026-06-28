@@ -64,6 +64,7 @@ func RegisterWorker(
 	w.RegisterWorkflowWithOptions(wf.Phase2AdvanceWorkflow, workflow.RegisterOptions{Name: ExecutionKindPhaseAdvance})
 
 	w.RegisterActivityWithOptions(wf.ReadProjectActivity, activity.RegisterOptions{Name: actReadProject})
+	w.RegisterActivityWithOptions(wf.ReadProjectVersionActivity, activity.RegisterOptions{Name: actReadProjectVersion})
 	w.RegisterActivityWithOptions(wf.ReadProjectOnBranchActivity, activity.RegisterOptions{Name: actReadProjectOnBranch})
 	w.RegisterActivityWithOptions(wf.DispatchDesignJobActivity, activity.RegisterOptions{Name: actDispatchDesignJob})
 	w.RegisterActivityWithOptions(wf.ObserveDesignJobActivity, activity.RegisterOptions{Name: actObserveDesignJob})

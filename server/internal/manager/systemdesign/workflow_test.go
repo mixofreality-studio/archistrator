@@ -67,6 +67,15 @@ func (f *fakeProjectState) ReadProject(_ fwra.Context, _ projectstate.ProjectID)
 	return f.project, nil
 }
 
+func (f *fakeProjectState) ReadProjectVersion(_ fwra.Context, _ projectstate.ProjectID) (projectstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.notFound {
+		return 0, fwra.New(fwra.NotFound, "no row yet")
+	}
+	return f.project.Version, nil
+}
+
 func (f *fakeProjectState) bump() projectstate.Version {
 	f.version++
 	return f.version
@@ -254,6 +263,7 @@ func newWorkflows(ps *fakeProjectState, pipe *fakePipeline) *Workflows {
 func registerCoAuthor(env *testsuite.TestWorkflowEnvironment, wf *Workflows) {
 	env.RegisterWorkflowWithOptions(wf.CoAuthorArtifactWorkflow, workflow.RegisterOptions{Name: ExecutionKindCoAuthor})
 	env.RegisterActivity(wf.ReadProjectActivity)
+	env.RegisterActivity(wf.ReadProjectVersionActivity)
 	env.RegisterActivity(wf.DispatchDesignJobActivity)
 	env.RegisterActivity(wf.ObserveDesignJobActivity)
 	env.RegisterActivity(wf.StageArtifactForReviewActivity)
@@ -265,6 +275,7 @@ func registerCoAuthor(env *testsuite.TestWorkflowEnvironment, wf *Workflows) {
 func registerPhaseAdvance(env *testsuite.TestWorkflowEnvironment, wf *Workflows) {
 	env.RegisterWorkflowWithOptions(wf.PhaseAdvanceWorkflow, workflow.RegisterOptions{Name: ExecutionKindPhaseAdvance})
 	env.RegisterActivity(wf.ReadProjectActivity)
+	env.RegisterActivity(wf.ReadProjectVersionActivity)
 	env.RegisterActivity(wf.AdvancePhaseActivity)
 }
 
@@ -800,6 +811,7 @@ func registerPhase(env *testsuite.TestWorkflowEnvironment, wf *Workflows) {
 	env.RegisterWorkflowWithOptions(wf.SystemDesignPhaseWorkflow, workflow.RegisterOptions{Name: ExecutionKindPhase})
 	env.RegisterWorkflowWithOptions(wf.CoAuthorArtifactWorkflow, workflow.RegisterOptions{Name: ExecutionKindCoAuthor})
 	env.RegisterActivity(wf.ReadProjectActivity)
+	env.RegisterActivity(wf.ReadProjectVersionActivity)
 	env.RegisterActivity(wf.AdvancePhaseActivity)
 }
 

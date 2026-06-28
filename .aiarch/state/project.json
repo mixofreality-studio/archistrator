@@ -13901,6 +13901,21 @@
             "error": true
           },
           {
+            "name": "ReadProjectVersion",
+            "params": [
+              {
+                "name": "projectID",
+                "schema": {
+                  "x-go-type": "ProjectID"
+                }
+              }
+            ],
+            "result": {
+              "x-go-type": "Version"
+            },
+            "error": true
+          },
+          {
             "name": "RejectArtifact",
             "params": [
               {

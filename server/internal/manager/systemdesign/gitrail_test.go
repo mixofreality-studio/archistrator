@@ -147,6 +147,7 @@ func newRailWorkflows(ps projectstate.ProjectStateAccess, pipe *fakePipeline, ra
 func registerRailCoAuthor(env *testsuite.TestWorkflowEnvironment, wf *Workflows) {
 	env.RegisterWorkflowWithOptions(wf.CoAuthorArtifactWorkflow, workflow.RegisterOptions{Name: ExecutionKindCoAuthor})
 	env.RegisterActivity(wf.ReadProjectActivity)
+	env.RegisterActivity(wf.ReadProjectVersionActivity)
 	env.RegisterActivity(wf.ReadProjectOnBranchActivity)
 	env.RegisterActivity(wf.DispatchDesignJobActivity)
 	env.RegisterActivity(wf.ObserveDesignJobActivity)

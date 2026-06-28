@@ -57,6 +57,18 @@ func (wf *Workflows) ReadProjectActivity(ctx context.Context, projectID projects
 	return encodeProject(proj)
 }
 
+// ---- ReadProjectVersionActivity (wraps projectStateAccess.ReadProjectVersion) ----
+// Cheap version-only read; no idempotency key. Returns just the head-state Version
+// across the Temporal boundary instead of the whole encoded aggregate — the
+// applyRecovering Conflict loop needs only the token to re-seed its next attempt.
+func (wf *Workflows) ReadProjectVersionActivity(ctx context.Context, projectID projectstate.ProjectID) (projectstate.Version, error) {
+	v, err := wf.ProjectState.ReadProjectVersion(fwra.Context{Context: ctx}, projectID)
+	if err != nil {
+		return 0, fwmanager.MapError(err)
+	}
+	return v, nil
+}
+
 // ---- ReadProjectOnBranchActivity (branch-aware read-back, I-DESIGN-DISPATCH §2a) ----
 // The agentic design rail reads back the not-yet-merged draft on the SESSION BRANCH
 // during the AwaitingReview window. This Activity routes to the branch-aware extension

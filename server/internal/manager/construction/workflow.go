@@ -867,13 +867,28 @@ func (wf *Workflows) readProject(ctx workflow.Context, projectID ProjectID) (pro
 	return decodeProject(pe), nil
 }
 
-// readVersion reads the current head Version (0 for a brand-new project).
+// readVersionE runs the cheap ReadProjectVersion Activity and returns ONLY the
+// head-state optimistic-concurrency token, surfacing errors (including the brand-new
+// project's fwra.NotFound) to the caller. Replaces the wasteful whole-aggregate read
+// that shipped the entire encoded Project across the Temporal Activity boundary for a
+// uint64 (architect's fast-follow).
+func (wf *Workflows) readVersionE(ctx workflow.Context, projectID ProjectID) (projectstate.Version, error) {
+	c := readProjectOpts(ctx)
+	var v projectstate.Version
+	if err := workflow.ExecuteActivity(c, wf.ReadProjectVersionActivity, projectstate.ProjectID(projectID)).Get(ctx, &v); err != nil {
+		return 0, err
+	}
+	return v, nil
+}
+
+// readVersion reads the current head Version (0 for a brand-new project or on any
+// read error — the read-your-writes seed treats absence as version 0).
 func (wf *Workflows) readVersion(ctx workflow.Context, projectID ProjectID) projectstate.Version {
-	p, err := wf.readProject(ctx, projectID)
+	v, err := wf.readVersionE(ctx, projectID)
 	if err != nil {
 		return 0
 	}
-	return p.Version
+	return v
 }
 
 // recordChangeReviewed applies the head-state transition with the Conflict loop.
@@ -938,7 +953,7 @@ func (wf *Workflows) applyRecovering(
 				"head-state conflict did not converge within bounded attempts",
 				"MutateConflictExhausted", err)
 		}
-		p, rerr := wf.readProject(ctx, projectID)
+		v, rerr := wf.readVersionE(ctx, projectID)
 		if rerr != nil {
 			if isReadNotFound(rerr) {
 				expected = 0
@@ -946,7 +961,7 @@ func (wf *Workflows) applyRecovering(
 			}
 			return 0, rerr
 		}
-		expected = p.Version
+		expected = v
 		workflow.GetLogger(ctx).Info("head-state conflict; re-read version and retrying",
 			"attempt", attempt+1, "nextExpectedVersion", expected)
 	}

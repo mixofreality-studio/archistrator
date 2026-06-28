@@ -78,6 +78,15 @@ func (f *fakeProjectState) ReadProject(_ context.Context, _ projectstate.Project
 	return f.project, nil
 }
 
+func (f *fakeProjectState) ReadProjectVersion(_ context.Context, _ projectstate.ProjectID) (projectstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.notFound {
+		return 0, fwra.New(fwra.NotFound, "no row yet")
+	}
+	return f.project.Version, nil
+}
+
 func (f *fakeProjectState) bump() projectstate.Version {
 	f.version++
 	f.project.Version = f.version
@@ -321,6 +330,7 @@ var _ ReviewEngine = (*fakeReview)(nil)
 func registerConstruct(env *testsuite.TestWorkflowEnvironment, wf *Workflows) {
 	env.RegisterWorkflowWithOptions(wf.ConstructActivityWorkflow, workflow.RegisterOptions{Name: ExecutionKindConstructActivity})
 	env.RegisterActivity(wf.ReadProjectActivity)
+	env.RegisterActivity(wf.ReadProjectVersionActivity)
 	env.RegisterActivity(wf.GenerateWorkActivity)
 	env.RegisterActivity(wf.CancelWorkerActivity)
 	env.RegisterActivity(wf.SubmitPipelineActivity)
@@ -339,6 +349,7 @@ func registerPump(env *testsuite.TestWorkflowEnvironment, wf *Workflows) {
 	// The pump now waits for child COMPLETION (self-cascade), so the per-activity
 	// child runs end-to-end and ALL its activities must be registered.
 	env.RegisterActivity(wf.ReadProjectActivity)
+	env.RegisterActivity(wf.ReadProjectVersionActivity)
 	env.RegisterActivity(wf.GenerateWorkActivity)
 	env.RegisterActivity(wf.CancelWorkerActivity)
 	env.RegisterActivity(wf.SubmitPipelineActivity)
@@ -354,6 +365,7 @@ func registerPump(env *testsuite.TestWorkflowEnvironment, wf *Workflows) {
 func registerSupervision(env *testsuite.TestWorkflowEnvironment, wf *Workflows) {
 	env.RegisterWorkflowWithOptions(wf.ProjectSupervisionWorkflow, workflow.RegisterOptions{Name: ExecutionKindProjectSupervision})
 	env.RegisterActivity(wf.ReadProjectActivity)
+	env.RegisterActivity(wf.ReadProjectVersionActivity)
 	env.RegisterActivity(wf.CancelWorkerActivity)
 	env.RegisterActivity(wf.CancelPipelineActivity)
 	env.RegisterActivity(wf.RecordOperatorPausedActivity)
@@ -362,6 +374,7 @@ func registerSupervision(env *testsuite.TestWorkflowEnvironment, wf *Workflows) 
 func registerReplanSweep(env *testsuite.TestWorkflowEnvironment, wf *Workflows) {
 	env.RegisterWorkflowWithOptions(wf.ReplanSweepWorkflow, workflow.RegisterOptions{Name: ExecutionKindReplanSweep})
 	env.RegisterActivity(wf.ReadProjectActivity)
+	env.RegisterActivity(wf.ReadProjectVersionActivity)
 }
 
 func sampleActivity() ConstructionActivity {

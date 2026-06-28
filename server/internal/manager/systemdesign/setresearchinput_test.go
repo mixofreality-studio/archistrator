@@ -42,6 +42,14 @@ func (f *setResearchFakeState) ReadProject(fwra.Context, projectstate.ProjectID)
 	return projectstate.Project{Version: f.headVersion}, nil
 }
 
+func (f *setResearchFakeState) ReadProjectVersion(fwra.Context, projectstate.ProjectID) (projectstate.Version, error) {
+	f.readCalls++
+	if f.readErr != nil {
+		return 0, f.readErr
+	}
+	return f.headVersion, nil
+}
+
 func (f *setResearchFakeState) SetResearchInput(rc fwra.Context, _ projectstate.ProjectID, expectedVersion projectstate.Version, research projectstate.ResearchInput) (projectstate.Version, error) {
 	f.gotExpected = append(f.gotExpected, expectedVersion)
 	f.gotResearch = append(f.gotResearch, research)

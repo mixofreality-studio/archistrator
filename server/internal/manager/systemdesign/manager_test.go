@@ -158,6 +158,13 @@ func (f *renderFakeProjectState) ReadProject(_ fwra.Context, _ projectstate.Proj
 	return f.project, nil
 }
 
+func (f *renderFakeProjectState) ReadProjectVersion(_ fwra.Context, _ projectstate.ProjectID) (projectstate.Version, error) {
+	if f.readErr != nil {
+		return 0, f.readErr
+	}
+	return f.project.Version, nil
+}
+
 func (f *renderFakeProjectState) StageArtifactForReview(fwra.Context, projectstate.ProjectID, projectstate.Version, projectstate.ArtifactModel) (projectstate.Version, error) {
 	panic("renderFakeProjectState.StageArtifactForReview must not be called by these façade-precondition tests")
 }

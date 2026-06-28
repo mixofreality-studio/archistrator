@@ -71,6 +71,15 @@ func (f *fakeProjectState) ReadProject(_ fwra.Context, _ projectstate.ProjectID)
 	return f.project, nil
 }
 
+func (f *fakeProjectState) ReadProjectVersion(_ fwra.Context, _ projectstate.ProjectID) (projectstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.notFound {
+		return 0, fwra.New(fwra.NotFound, "no row yet")
+	}
+	return f.project.Version, nil
+}
+
 func (f *fakeProjectState) bump() projectstate.Version {
 	f.version++
 	return f.version
@@ -315,6 +324,7 @@ func registerName(name string) workflow.RegisterOptions {
 func registerCoAuthor(env *testsuite.TestWorkflowEnvironment, wf *Workflows) {
 	env.RegisterWorkflowWithOptions(wf.CoAuthorPhase2ArtifactWorkflow, registerName(ExecutionKindCoAuthor))
 	env.RegisterActivity(wf.ReadProjectActivity)
+	env.RegisterActivity(wf.ReadProjectVersionActivity)
 	env.RegisterActivity(wf.DispatchDesignJobActivity)
 	env.RegisterActivity(wf.ObserveDesignJobActivity)
 	env.RegisterActivity(wf.StageArtifactForReviewActivity)
@@ -635,6 +645,7 @@ func Test_AssembleSDPReviewWorkflow_Commit_HappyPath_EnginesRunInProcess(t *test
 	env := ts.NewTestWorkflowEnvironment()
 	env.RegisterWorkflowWithOptions(wf.AssembleSDPReviewWorkflow, registerName(ExecutionKindSDPReview))
 	env.RegisterActivity(wf.ReadProjectActivity)
+	env.RegisterActivity(wf.ReadProjectVersionActivity)
 	env.RegisterActivity(wf.StageArtifactForReviewActivity)
 	env.RegisterActivity(wf.CommitArtifactActivity)
 	env.RegisterActivity(wf.RejectArtifactActivity)
@@ -692,6 +703,7 @@ func Test_AssembleSDPReviewWorkflow_RejectAll_ReassemblesThenCommits(t *testing.
 	env := ts.NewTestWorkflowEnvironment()
 	env.RegisterWorkflowWithOptions(wf.AssembleSDPReviewWorkflow, registerName(ExecutionKindSDPReview))
 	env.RegisterActivity(wf.ReadProjectActivity)
+	env.RegisterActivity(wf.ReadProjectVersionActivity)
 	env.RegisterActivity(wf.StageArtifactForReviewActivity)
 	env.RegisterActivity(wf.CommitArtifactActivity)
 	env.RegisterActivity(wf.RejectArtifactActivity)
@@ -732,6 +744,7 @@ func Test_Phase2AdvanceWorkflow_MissingArtifacts_NotAdvanced(t *testing.T) {
 	env := ts.NewTestWorkflowEnvironment()
 	env.RegisterWorkflowWithOptions(wf.Phase2AdvanceWorkflow, registerName(ExecutionKindPhaseAdvance))
 	env.RegisterActivity(wf.ReadProjectActivity)
+	env.RegisterActivity(wf.ReadProjectVersionActivity)
 	env.RegisterActivity(wf.AdvancePhaseActivity)
 
 	env.ExecuteWorkflow(ExecutionKindPhaseAdvance, PhaseAdvanceInput{ProjectID: id})
@@ -768,6 +781,7 @@ func Test_Phase2AdvanceWorkflow_AllCommittedWithOption_Advances(t *testing.T) {
 	env := ts.NewTestWorkflowEnvironment()
 	env.RegisterWorkflowWithOptions(wf.Phase2AdvanceWorkflow, registerName(ExecutionKindPhaseAdvance))
 	env.RegisterActivity(wf.ReadProjectActivity)
+	env.RegisterActivity(wf.ReadProjectVersionActivity)
 	env.RegisterActivity(wf.AdvancePhaseActivity)
 
 	env.ExecuteWorkflow(ExecutionKindPhaseAdvance, PhaseAdvanceInput{ProjectID: id})

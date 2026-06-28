@@ -47,6 +47,10 @@ func (a pgConstructionPS) ReadProject(ctx context.Context, projectID projectstat
 	return a.Store.ReadProject(fwra.Context{Context: ctx}, projectID)
 }
 
+func (a pgConstructionPS) ReadProjectVersion(ctx context.Context, projectID projectstate.ProjectID) (projectstate.Version, error) {
+	return a.Store.ReadProjectVersion(fwra.Context{Context: ctx}, projectID)
+}
+
 // constructionProjectStateAdapter binds a credentialMinter over the cred-threaded
 // *projectstate.GitStore and presents the construction Manager's no-cred
 // ProjectStateAccess. Each verb mints the project-scoped credential just-in-time
@@ -64,6 +68,18 @@ func (a constructionProjectStateAdapter) ReadProject(ctx context.Context, projec
 		return projectstate.Project{}, err
 	}
 	return a.store.ReadProject(ctx, projectID, cred)
+}
+
+// ReadProjectVersion serves the cheap version-only read over the git substrate. The
+// git head-state read still hydrates the whole project.json blob, but the verb keeps
+// the Activity payload to the uint64 Version across the Temporal boundary instead of
+// the entire encoded aggregate. Absence stays fwra.NotFound via ReadProject.
+func (a constructionProjectStateAdapter) ReadProjectVersion(ctx context.Context, projectID projectstate.ProjectID) (projectstate.Version, error) {
+	p, err := a.ReadProject(ctx, projectID)
+	if err != nil {
+		return 0, err
+	}
+	return p.Version, nil
 }
 
 func (a constructionProjectStateAdapter) RecordChangeReviewed(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {

@@ -112,6 +112,7 @@ type Workflows struct {
 // method value on wf, so the registered name and the call stay in lockstep.
 const (
 	actReadProject         = "ReadProjectActivity"
+	actReadProjectVersion  = "ReadProjectVersionActivity"
 	actReadProjectOnBranch = "ReadProjectOnBranchActivity"
 	actDispatchDesignJob   = "DispatchDesignJobActivity"
 	actObserveDesignJob    = "ObserveDesignJobActivity"
@@ -190,6 +191,21 @@ func (wf *Workflows) readProject(ctx workflow.Context, projectID ProjectID) (pro
 	return pe.decode()
 }
 
+// readVersion runs the cheap ReadProjectVersion Activity and returns only the
+// head-state optimistic-concurrency token — the single value the Conflict re-read
+// loop needs to seed its next attempt. A brand-new project surfaces fwra.NotFound
+// (see isReadNotFound), identical to readProject's absence semantics. Replaces the
+// wasteful whole-aggregate read that shipped the entire encoded Project across the
+// Temporal Activity boundary for a uint64.
+func (wf *Workflows) readVersion(ctx workflow.Context, projectID ProjectID) (projectstate.Version, error) {
+	c := readProjectOpts(ctx)
+	var v projectstate.Version
+	if err := workflow.ExecuteActivity(c, wf.ReadProjectVersionActivity, projectID).Get(ctx, &v); err != nil {
+		return 0, err
+	}
+	return v, nil
+}
+
 // applyRecovering executes one head-state mutation Activity with a workflow-level
 // Conflict re-read→re-apply loop (D-PA §6/§7).
 func (wf *Workflows) applyRecovering(
@@ -212,7 +228,7 @@ func (wf *Workflows) applyRecovering(
 				"head-state conflict did not converge within bounded attempts",
 				"MutateConflictExhausted", err)
 		}
-		p, rerr := wf.readProject(ctx, projectID)
+		v, rerr := wf.readVersion(ctx, projectID)
 		if rerr != nil {
 			if isReadNotFound(rerr) {
 				expected = 0
@@ -220,7 +236,7 @@ func (wf *Workflows) applyRecovering(
 			}
 			return 0, rerr
 		}
-		expected = p.Version
+		expected = v
 		workflow.GetLogger(ctx).Info("head-state conflict; re-read version and retrying",
 			"attempt", attempt+1, "nextExpectedVersion", expected)
 	}

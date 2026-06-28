@@ -14,6 +14,7 @@ type ProjectStateAccess interface {
 	CreateProject(rc fwra.Context, projectID ProjectID, owner OwnerScope, name string) (Version, error)
 	ListProjects(rc fwra.Context, owner OwnerScope) ([]ProjectSummary, error)
 	ReadProject(rc fwra.Context, projectID ProjectID) (Project, error)
+	ReadProjectVersion(rc fwra.Context, projectID ProjectID) (Version, error)
 	RejectArtifact(rc fwra.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, notes string) (Version, error)
 	SetResearchInput(rc fwra.Context, projectID ProjectID, expectedVersion Version, research ResearchInput) (Version, error)
 	StageArtifactForReview(rc fwra.Context, projectID ProjectID, expectedVersion Version, model ArtifactModel) (Version, error)

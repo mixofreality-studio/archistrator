@@ -59,6 +59,7 @@ const (
 // registered name and the call stay in lockstep (constructionManager.md §6.4).
 const (
 	actReadProject             = "ReadProjectActivity"
+	actReadProjectVersion      = "ReadProjectVersionActivity"
 	actGenerateWork            = "GenerateWorkActivity"
 	actCancelWorker            = "CancelWorkerActivity"
 	actSubmitPipeline          = "SubmitPipelineActivity"
@@ -106,6 +107,7 @@ func RegisterWorker(w worker.Worker, deps Deps) {
 	w.RegisterWorkflowWithOptions(wf.ProjectSupervisionWorkflow, workflow.RegisterOptions{Name: ExecutionKindProjectSupervision})
 
 	w.RegisterActivityWithOptions(wf.ReadProjectActivity, activity.RegisterOptions{Name: actReadProject})
+	w.RegisterActivityWithOptions(wf.ReadProjectVersionActivity, activity.RegisterOptions{Name: actReadProjectVersion})
 	w.RegisterActivityWithOptions(wf.GenerateWorkActivity, activity.RegisterOptions{Name: actGenerateWork})
 	w.RegisterActivityWithOptions(wf.CancelWorkerActivity, activity.RegisterOptions{Name: actCancelWorker})
 	w.RegisterActivityWithOptions(wf.SubmitPipelineActivity, activity.RegisterOptions{Name: actSubmitPipeline})

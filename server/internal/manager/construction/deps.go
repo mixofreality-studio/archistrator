@@ -48,6 +48,7 @@ import (
 // (the Manager-consumer view; cred is threaded separately via GitActivityStatusAccess).
 type ProjectStateAccess interface {
 	ReadProject(ctx context.Context, projectID projectstate.ProjectID) (projectstate.Project, error)
+	ReadProjectVersion(ctx context.Context, projectID projectstate.ProjectID) (projectstate.Version, error)
 	RecordChangeReviewed(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
 	RecordActivityExited(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, outcome projectstate.ActivityOutcome, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
 	RecordActivityFailed(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, reason projectstate.FailureReason, detail string, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
