@@ -1,12 +1,14 @@
 package systemdesign
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 
 	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 	fwm "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
@@ -538,37 +540,288 @@ func calendarDaysPerWeek(p projectstate.Project) int {
 }
 
 // serviceContractsToContract maps the typed service-contract corpus (honest-empty:
-// nil in ⇒ nil out) onto the legacy web-transport ServiceContract DTO. Transitional
-// bridge: the op LIST is derived from the document's interface; the narrative
-// transport fields are left empty (the SPA contract view is regenerated later).
+// nil in ⇒ nil out) onto the web-transport ServiceContract DTO. The contract
+// DOCUMENT (its `interface` operations resolved against the document's `$defs`) is
+// the source of truth: each op's parameters become input ContractStructs, its result
+// becomes an output ContractStruct, and — when the op can fail — the layer's typed
+// error becomes a final output box. Every struct's fields are resolved from the
+// referenced `$def`'s properties (order-preserved). This is what feeds the SPA's
+// «interface» diagram boxes; nothing is fabricated and nothing is served empty.
 func serviceContractsToContract(scs map[string]projectstate.ServiceContract) map[string]ServiceContract {
 	if len(scs) == 0 {
 		return nil
 	}
 	out := make(map[string]ServiceContract, len(scs))
 	for name, sc := range scs {
+		layerErr := layerErrorName(sc.Layer)
+		anyError := false
+		for _, op := range sc.Interface.Operations {
+			if op.Error {
+				anyError = true
+				break
+			}
+		}
+		errorModel := ""
+		if anyError {
+			errorModel = "Operations fail with " + layerErr + " — the typed " + sc.Layer + " fault."
+		}
 		out[name] = ServiceContract{
-			Component:  sc.Component,
-			Layer:      sc.Layer,
-			Stereotype: sc.Title,
-			Ops:        opsFromInterface(sc.Interface),
+			Component:     sc.Component,
+			Layer:         sc.Layer,
+			Stereotype:    sc.Title,
+			Ops:           opsFromInterface(sc.Interface, sc.Defs, layerErr),
+			DataContracts: dataContractNames(sc.Defs),
+			ErrorModel:    errorModel,
 		}
 	}
 	return out
 }
 
 // opsFromInterface derives the transport op list from the contract document's
-// interface — one ContractOp per interface operation, carrying the op name as the
-// Signature. Returns nil when the interface has no operations (honest-empty).
-func opsFromInterface(iface projectstate.ContractInterface) []ContractOp {
+// interface, resolving each op's params/result/error against the document's `$defs`
+// into the input/output ContractStructs + a `name(params) → (result, error)`
+// signature the SPA diagram renders. Returns nil for an empty interface.
+func opsFromInterface(iface projectstate.ContractInterface, defs map[string]json.RawMessage, layerErr string) []ContractOp {
 	if len(iface.Operations) == 0 {
 		return nil
 	}
 	out := make([]ContractOp, 0, len(iface.Operations))
 	for _, op := range iface.Operations {
-		out = append(out, ContractOp{Signature: op.Name})
+		inputs := make([]ContractStruct, 0, len(op.Params))
+		for _, p := range op.Params {
+			inputs = append(inputs, structFromSchema(p.Name, p.Schema, defs))
+		}
+		var outputs []ContractStruct
+		if len(op.Result) > 0 {
+			outputs = append(outputs, structFromSchema("result", op.Result, defs))
+		}
+		if op.Error {
+			outputs = append(outputs, ContractStruct{
+				Name:   layerErr,
+				Fields: []GoField{{Name: "fault", Type: layerErr}},
+			})
+		}
+		out = append(out, ContractOp{
+			Signature: opSignature(op, layerErr),
+			Inputs:    inputs,
+			Outputs:   outputs,
+		})
 	}
 	return out
+}
+
+// opSignature renders one operation as `name(p: T, …) → (Result, error)`, using the
+// same `→` separator the SPA signature parser recognises. Pointer params are starred.
+func opSignature(op projectstate.ContractOperation, layerErr string) string {
+	params := make([]string, 0, len(op.Params))
+	for _, p := range op.Params {
+		t := schemaTypeName(p.Schema, defaultTypeName)
+		if p.Pointer {
+			t = "*" + t
+		}
+		params = append(params, p.Name+": "+t)
+	}
+	sig := op.Name + "(" + strings.Join(params, ", ") + ")"
+	var rets []string
+	if len(op.Result) > 0 {
+		rets = append(rets, schemaTypeName(op.Result, defaultTypeName))
+	}
+	if op.Error {
+		rets = append(rets, layerErr)
+	}
+	switch len(rets) {
+	case 0:
+		// no declared return
+	case 1:
+		sig += " → " + rets[0]
+	default:
+		sig += " → (" + strings.Join(rets, ", ") + ")"
+	}
+	return sig
+}
+
+// structFromSchema resolves one JSON Schema node into a ContractStruct: the box is
+// titled with the node's resolved Go-ish type name, and its fields are the referenced
+// `$def`'s (or inline object's) properties. A scalar / array / external type has no
+// sub-fields, so it carries a single self-field named selfName so no box is empty.
+func structFromSchema(selfName string, raw json.RawMessage, defs map[string]json.RawMessage) ContractStruct {
+	typeName := schemaTypeName(raw, selfName)
+	fields := objectFields(raw, defs)
+	if len(fields) == 0 {
+		fields = []GoField{{Name: selfName, Type: typeName}}
+	}
+	return ContractStruct{Name: typeName, Fields: fields}
+}
+
+const defaultTypeName = "value"
+
+// layerErrorName maps a Method layer to its framework error type, the typed fault
+// every op on that layer returns on failure.
+func layerErrorName(layer string) string {
+	switch strings.ToLower(layer) {
+	case "resourceaccess":
+		return "fwra.Error"
+	case "engine":
+		return "fweng.Error"
+	case "manager":
+		return "fwm.Error"
+	default:
+		return "error"
+	}
+}
+
+// dataContractNames returns the document's `$defs` names (the data contracts),
+// sorted for a deterministic wire order. nil when there are none.
+func dataContractNames(defs map[string]json.RawMessage) []string {
+	if len(defs) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(defs))
+	for k := range defs {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// schemaTypeName resolves a JSON Schema node to a Go-ish type name: an array → []T,
+// an explicit x-go-type → that, a `$ref` → its base name, otherwise the mapped
+// primitive. fallback is returned when the node is empty / unrecognised.
+func schemaTypeName(raw json.RawMessage, fallback string) string {
+	if len(raw) == 0 {
+		return fallback
+	}
+	var n struct {
+		Ref     string          `json:"$ref"`
+		Type    json.RawMessage `json:"type"`
+		Items   json.RawMessage `json:"items"`
+		XGoType string          `json:"x-go-type"`
+	}
+	if err := json.Unmarshal(raw, &n); err != nil {
+		return fallback
+	}
+	if len(n.Items) > 0 {
+		return "[]" + schemaTypeName(n.Items, fallback)
+	}
+	if n.XGoType != "" {
+		return n.XGoType
+	}
+	if n.Ref != "" {
+		return refBase(n.Ref)
+	}
+	return primitiveTypeName(n.Type, fallback)
+}
+
+// primitiveTypeName maps a JSON Schema `type` (a string OR a ["null", T] union) to a
+// Go-ish primitive name.
+func primitiveTypeName(rawType json.RawMessage, fallback string) string {
+	if len(rawType) == 0 {
+		return fallback
+	}
+	kind := ""
+	var single string
+	if err := json.Unmarshal(rawType, &single); err == nil {
+		kind = single
+	} else {
+		var union []string
+		if err := json.Unmarshal(rawType, &union); err == nil {
+			for _, k := range union {
+				if k != "null" {
+					kind = k
+					break
+				}
+			}
+		}
+	}
+	switch kind {
+	case "string":
+		return "string"
+	case "integer":
+		return "int"
+	case "number":
+		return "float64"
+	case "boolean":
+		return "bool"
+	case "object":
+		return "object"
+	case "array":
+		return "[]any"
+	case "":
+		return fallback
+	default:
+		return kind
+	}
+}
+
+// refBase returns the trailing name of a JSON Schema `$ref` (e.g. "#/$defs/Foo" → "Foo").
+func refBase(ref string) string {
+	if i := strings.LastIndex(ref, "/"); i >= 0 {
+		return ref[i+1:]
+	}
+	return ref
+}
+
+// objectFields resolves a schema node's properties into ordered GoFields. It follows
+// a single `$ref` into defs, then reads the resolved object's `properties` in
+// declaration order (json.Decoder token stream preserves key order). Non-object
+// nodes (scalars, arrays, enums) have no properties → nil.
+func objectFields(raw json.RawMessage, defs map[string]json.RawMessage) []GoField {
+	if len(raw) == 0 {
+		return nil
+	}
+	var head struct {
+		Ref        string          `json:"$ref"`
+		Properties json.RawMessage `json:"properties"`
+	}
+	if err := json.Unmarshal(raw, &head); err != nil {
+		return nil
+	}
+	if head.Ref != "" {
+		target, ok := defs[refBase(head.Ref)]
+		if !ok {
+			return nil
+		}
+		return objectFields(target, defs)
+	}
+	if len(head.Properties) == 0 {
+		return nil
+	}
+	return orderedProperties(head.Properties)
+}
+
+// orderedProperties decodes a JSON Schema `properties` object into ordered GoFields,
+// preserving the on-disk key order. Each field's type is resolved from its schema and
+// its name honours an `x-go-name` override when present.
+func orderedProperties(props json.RawMessage) []GoField {
+	dec := json.NewDecoder(bytes.NewReader(props))
+	tok, err := dec.Token()
+	if err != nil {
+		return nil
+	}
+	if d, ok := tok.(json.Delim); !ok || d != '{' {
+		return nil
+	}
+	var fields []GoField
+	for dec.More() {
+		keyTok, err := dec.Token()
+		if err != nil {
+			return fields
+		}
+		key, _ := keyTok.(string)
+		var val json.RawMessage
+		if err := dec.Decode(&val); err != nil {
+			return fields
+		}
+		name := key
+		var override struct {
+			XGoName string `json:"x-go-name"`
+		}
+		if json.Unmarshal(val, &override) == nil && override.XGoName != "" {
+			name = override.XGoName
+		}
+		fields = append(fields, GoField{Name: name, Type: schemaTypeName(val, key)})
+	}
+	return fields
 }
 
 // slotForKind reads the named slot for kind off the Project aggregate.
