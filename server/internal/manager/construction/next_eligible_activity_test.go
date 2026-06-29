@@ -1,9 +1,8 @@
-package main
+package construction
 
 import (
 	"testing"
 
-	"github.com/mixofreality-studio/archistrator/server/internal/manager/construction"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
@@ -197,7 +196,7 @@ func TestNextEligibleActivity_ProjectExportDogfood(t *testing.T) {
 	if got.EstimateDays != 3 {
 		t.Fatalf("expected EstimateDays=3, got %f", got.EstimateDays)
 	}
-	if got.Kind != construction.ActivityKindConstruction {
+	if got.Kind != ActivityKindConstruction {
 		t.Fatalf("expected Kind=ActivityKindConstruction (Coding=true), got %v", got.Kind)
 	}
 }
@@ -230,7 +229,7 @@ func TestNextEligibleActivity_HydratedFields(t *testing.T) {
 		t.Fatalf("expected EstimateDays=13, got %f", got.EstimateDays)
 	}
 	// Kind is determined by Coding flag: Coding=true → ActivityKindConstruction.
-	if got.Kind != construction.ActivityKindConstruction {
+	if got.Kind != ActivityKindConstruction {
 		t.Fatalf("expected Kind=ActivityKindConstruction, got %v", got.Kind)
 	}
 }

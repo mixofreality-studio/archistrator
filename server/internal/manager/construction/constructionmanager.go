@@ -4,32 +4,97 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/client"
 
 	fwm "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/handoff"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/constructionpipeline"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/durableexecution"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
+	workeraccess "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/worker"
 )
 
-// Manager is the constructionManager façade. It exposes the five public use-case
-// ops (constructionManager.md §2) and OWNS Temporal. The Temporal-backed ops:
+// constructionManager is the constructionManager façade — the concrete
+// implementation of the GENERATED ConstructionManager interface (contract.gen.go). It
+// exposes the five public use-case ops (constructionManager.md §2) and OWNS Temporal.
+// The Temporal-backed ops:
 //   - ExecuteNextActivity — Workflow (entry; scheduler-triggered pump)
 //   - RunReplanSweep      — Workflow (entry; scheduler-triggered variance sweep)
 //   - PauseProject        — Signal (operatorPauseRequested)
 //   - OverrideActivity    — Signal (operatorOverride, to the per-activity child)
 //   - GetSessionState     — Query (sessionState, read-only)
 //
-// The Manager holds only a Temporal client; the façade pre-condition checks
-// (non-empty ids, non-empty reason, known OverrideKind) are enforced here before
-// any Temporal call (constructionManager.md §2/§3.5). The downstream Engines/RA
-// are held on the Workflows struct (workflow.go), reached only from workflow code.
-type Manager struct {
+// The façade methods use only the Temporal client; the pre-condition checks
+// (non-empty ids, non-empty reason, known OverrideKind) are enforced here before any
+// Temporal call (§2/§3.5). It ALSO stores the PUBLISHED downstream deps the GENERATED
+// constructor was given so RegisterWorker can fold them (adapters.go) into the
+// hand-written Temporal Workflows. The former exported consumer-mirror interfaces +
+// the composition-root adapters are RETIRED; the Manager depends on the deps'
+// PUBLISHED interfaces and adapts them internally.
+type constructionManager struct {
 	client client.Client
+
+	projectState           projectstate.ProjectStateAccess
+	artifact               artifact.ArtifactAccess
+	worker                 workeraccess.WorkerAccess
+	durable                durableexecution.DurableExecutionAccess
+	handOff                handoff.HandOffEngine
+	intervention           intervention.InterventionEngine
+	review                 review.ReviewEngine
+	pipeline               constructionpipeline.ConstructionPipelineAccess
+	rail                   sourcecontrol.SourceControlAccess
+	constructionTransition projectstate.ConstructionTransitionAccess
+	gitActivityStatus      projectstate.GitActivityStatusAccess
+	escalationWaitTimeout  time.Duration
+	interventionMode       string
 }
 
-// NewManager constructs a Manager over an existing Temporal client.
-func NewManager(c client.Client) *Manager {
-	return &Manager{client: c}
+// Compile-time proof the concrete constructionManager satisfies the generated port.
+var _ ConstructionManager = (*constructionManager)(nil)
+
+// newConstructionManager is the hand-written, unexported builder the generated
+// NewConstructionManager constructor delegates to. It wires the Temporal client + the
+// published deps into the façade. The façade itself uses only the client; the deps are
+// stored for RegisterWorker (worker.go), which folds them into the Temporal Workflows.
+func newConstructionManager(
+	c client.Client,
+	projectState projectstate.ProjectStateAccess,
+	art artifact.ArtifactAccess,
+	wrk workeraccess.WorkerAccess,
+	durable durableexecution.DurableExecutionAccess,
+	handOff handoff.HandOffEngine,
+	interventionEng intervention.InterventionEngine,
+	reviewEng review.ReviewEngine,
+	pipeline constructionpipeline.ConstructionPipelineAccess,
+	rail sourcecontrol.SourceControlAccess,
+	constructionTransition projectstate.ConstructionTransitionAccess,
+	gitActivityStatus projectstate.GitActivityStatusAccess,
+	escalationWaitTimeout time.Duration,
+	interventionMode string,
+) *constructionManager {
+	return &constructionManager{
+		client:                 c,
+		projectState:           projectState,
+		artifact:               art,
+		worker:                 wrk,
+		durable:                durable,
+		handOff:                handOff,
+		intervention:           interventionEng,
+		review:                 reviewEng,
+		pipeline:               pipeline,
+		rail:                   rail,
+		constructionTransition: constructionTransition,
+		gitActivityStatus:      gitActivityStatus,
+		escalationWaitTimeout:  escalationWaitTimeout,
+		interventionMode:       interventionMode,
+	}
 }
 
 // ExecuteNextActivity — op 2.1. Temporal Workflow (entry; scheduler-triggered).
@@ -41,7 +106,7 @@ func NewManager(c client.Client) *Manager {
 // tickID is the scheduler firing id (Temporal-native firing idempotency: schedule
 // firing id = workflow id). SYNC from the scheduler's POV: returns once the pump
 // tick is durably accepted + run (the child runs asynchronously).
-func (m *Manager) ExecuteNextActivity(rc fwm.Context, projectID ProjectID, tickID string) (PumpResult, error) {
+func (m *constructionManager) ExecuteNextActivity(rc fwm.Context, projectID ProjectID, tickID string) (PumpResult, error) {
 	ctx := rc.Context
 	if projectID == "" {
 		return PumpResult{}, newError(fwm.ContractMisuse, "empty projectId")
@@ -72,7 +137,7 @@ func (m *Manager) ExecuteNextActivity(rc fwm.Context, projectID ProjectID, tickI
 // them to the operator dashboard — it does NOT auto-replan. An empty result is a
 // normal quiet sweep. A nil projectID sweeps all in-flight projects (workflow id
 // :all:replanSweep:{tickId}).
-func (m *Manager) RunReplanSweep(rc fwm.Context, projectID *ProjectID, tickID string) (ReplanSweepResult, error) {
+func (m *constructionManager) RunReplanSweep(rc fwm.Context, projectID *ProjectID, tickID string) (ReplanSweepResult, error) {
 	ctx := rc.Context
 	if tickID == "" {
 		return ReplanSweepResult{}, newError(fwm.ContractMisuse, "empty tickId")
@@ -108,7 +173,7 @@ func (m *Manager) RunReplanSweep(rc fwm.Context, projectID *ProjectID, tickID st
 // awaitSignal and runs the pause branch (interventionEngine.applyPausePolicy →
 // PausePlan, then the Manager EXECUTES the cancels/records). SYNC from the
 // operator's POV: returns once the signal is durably enqueued.
-func (m *Manager) PauseProject(rc fwm.Context, projectID ProjectID, reason string) error {
+func (m *constructionManager) PauseProject(rc fwm.Context, projectID ProjectID, reason string) error {
 	ctx := rc.Context
 	if projectID == "" {
 		return newError(fwm.ContractMisuse, "empty projectId")
@@ -139,7 +204,7 @@ func (m *Manager) PauseProject(rc fwm.Context, projectID ProjectID, reason strin
 // child workflow {projectId}:{activityId}. The operator's steer is fed through the
 // SAME decide→execute machinery as the automatic variance path. SYNC: returns once
 // the signal is durably enqueued.
-func (m *Manager) OverrideActivity(rc fwm.Context, projectID ProjectID, activityID ActivityID, override ActivityOverride) error {
+func (m *constructionManager) OverrideActivity(rc fwm.Context, projectID ProjectID, activityID ActivityID, override ActivityOverride) error {
 	ctx := rc.Context
 	if projectID == "" {
 		return newError(fwm.ContractMisuse, "empty projectId")
@@ -166,7 +231,7 @@ func (m *Manager) OverrideActivity(rc fwm.Context, projectID ProjectID, activity
 // point-in-time technical view without mutating state. When activityID is non-nil
 // it queries the per-activity child {projectId}:{activityId}; otherwise the
 // project-level pump view (constructionManager.md §6.2).
-func (m *Manager) GetSessionState(rc fwm.Context, projectID ProjectID, activityID *ActivityID) (ConstructionSessionView, error) {
+func (m *constructionManager) GetSessionState(rc fwm.Context, projectID ProjectID, activityID *ActivityID) (ConstructionSessionView, error) {
 	ctx := rc.Context
 	if projectID == "" {
 		return ConstructionSessionView{}, newError(fwm.ContractMisuse, "empty projectId")

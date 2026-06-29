@@ -69,7 +69,7 @@ type failCall struct {
 	detail     string
 }
 
-func (f *fakeProjectState) ReadProject(_ context.Context, _ projectstate.ProjectID) (projectstate.Project, error) {
+func (f *fakeProjectState) ReadProject(_ fwra.Context, _ projectstate.ProjectID) (projectstate.Project, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.notFound {
@@ -78,7 +78,7 @@ func (f *fakeProjectState) ReadProject(_ context.Context, _ projectstate.Project
 	return f.project, nil
 }
 
-func (f *fakeProjectState) ReadProjectVersion(_ context.Context, _ projectstate.ProjectID) (projectstate.Version, error) {
+func (f *fakeProjectState) ReadProjectVersion(_ fwra.Context, _ projectstate.ProjectID) (projectstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.notFound {
@@ -104,7 +104,7 @@ func (f *fakeProjectState) maybeConflict() error {
 	return nil
 }
 
-func (f *fakeProjectState) RecordChangeReviewed(_ context.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *fakeProjectState) RecordChangeReviewed(_ context.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if err := f.maybeConflict(); err != nil {
@@ -114,7 +114,7 @@ func (f *fakeProjectState) RecordChangeReviewed(_ context.Context, _ projectstat
 	return f.bump(), nil
 }
 
-func (f *fakeProjectState) RecordActivityExited(_ context.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, outcome projectstate.ActivityOutcome, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *fakeProjectState) RecordActivityExited(_ context.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, outcome projectstate.ActivityOutcome, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if err := f.maybeConflict(); err != nil {
@@ -124,7 +124,7 @@ func (f *fakeProjectState) RecordActivityExited(_ context.Context, _ projectstat
 	return f.bump(), nil
 }
 
-func (f *fakeProjectState) RecordActivityFailed(_ context.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, reason projectstate.FailureReason, detail string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *fakeProjectState) RecordActivityFailed(_ context.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, reason projectstate.FailureReason, detail string, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if err := f.maybeConflict(); err != nil {
@@ -134,7 +134,7 @@ func (f *fakeProjectState) RecordActivityFailed(_ context.Context, _ projectstat
 	return f.bump(), nil
 }
 
-func (f *fakeProjectState) RecordOperatorPaused(_ context.Context, _ projectstate.ProjectID, _ projectstate.Version, reason string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *fakeProjectState) RecordOperatorPaused(_ context.Context, _ projectstate.ProjectID, _ projectstate.Version, reason string, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if err := f.maybeConflict(); err != nil {
@@ -144,7 +144,7 @@ func (f *fakeProjectState) RecordOperatorPaused(_ context.Context, _ projectstat
 	return f.bump(), nil
 }
 
-func (f *fakeProjectState) RecordPhaseStarted(_ context.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ActivityMethodPhase, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *fakeProjectState) RecordPhaseStarted(_ context.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ActivityMethodPhase, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if err := f.maybeConflict(); err != nil {
@@ -153,7 +153,7 @@ func (f *fakeProjectState) RecordPhaseStarted(_ context.Context, _ projectstate.
 	return f.bump(), nil
 }
 
-func (f *fakeProjectState) RecordPhaseCompleted(_ context.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ActivityMethodPhase, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *fakeProjectState) RecordPhaseCompleted(_ context.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ActivityMethodPhase, _ string, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if err := f.maybeConflict(); err != nil {
@@ -162,7 +162,7 @@ func (f *fakeProjectState) RecordPhaseCompleted(_ context.Context, _ projectstat
 	return f.bump(), nil
 }
 
-func (f *fakeProjectState) RecordServiceContractProduced(_ context.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ServiceContract, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *fakeProjectState) RecordServiceContractProduced(_ context.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ServiceContract, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if err := f.maybeConflict(); err != nil {
@@ -171,7 +171,7 @@ func (f *fakeProjectState) RecordServiceContractProduced(_ context.Context, _ pr
 	return f.bump(), nil
 }
 
-func (f *fakeProjectState) RecordPhaseArtifactProduced(_ context.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ string, _ projectstate.PhaseArtifactPayload, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *fakeProjectState) RecordPhaseArtifactProduced(_ context.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ string, _ projectstate.PhaseArtifactPayload, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if err := f.maybeConflict(); err != nil {
@@ -180,7 +180,8 @@ func (f *fakeProjectState) RecordPhaseArtifactProduced(_ context.Context, _ proj
 	return f.bump(), nil
 }
 
-var _ ProjectStateAccess = (*fakeProjectState)(nil)
+var _ projectStateReader = (*fakeProjectState)(nil)
+var _ constructionTransitionAccess = (*fakeProjectState)(nil)
 
 // fakeWorker is the generic typed worker double. It returns a scripted raw-JSON
 // body per Generate call (the last is repeated), or genErr verbatim. badJSON, when
@@ -217,7 +218,7 @@ func (w *fakeWorker) Cancel(_ context.Context, key fwra.IdempotencyKey) error {
 	return nil
 }
 
-var _ WorkerAccess = (*fakeWorker)(nil)
+var _ workerAccess = (*fakeWorker)(nil)
 
 // fakePipeline serves a scripted terminal observation after one running poll.
 type fakePipeline struct {
@@ -255,7 +256,7 @@ func (p *fakePipeline) CancelConstructionPipeline(_ context.Context, handle Pipe
 	return nil
 }
 
-var _ ConstructionPipelineAccess = (*fakePipeline)(nil)
+var _ constructionPipelineAccess = (*fakePipeline)(nil)
 
 // fakeArtifacts records stored outputs and returns a deterministic address.
 type fakeArtifacts struct {
@@ -274,7 +275,7 @@ func (a *fakeArtifacts) RetrieveConstructionOutput(_ context.Context, _ string) 
 	return artifact.ConstructionOutput{}, nil
 }
 
-var _ ArtifactAccess = (*fakeArtifacts)(nil)
+var _ artifactAccess = (*fakeArtifacts)(nil)
 
 // fakeHandOff returns a scripted worker class.
 type fakeHandOff struct {
@@ -292,7 +293,7 @@ func (h *fakeHandOff) PickWorkerClass(_ ConstructionActivity, _ HandOffPolicy) (
 	return h.class, nil
 }
 
-var _ HandOffEngine = (*fakeHandOff)(nil)
+var _ handOffEngine = (*fakeHandOff)(nil)
 
 // fakeIntervention returns scripted directives/plans.
 type fakeIntervention struct {
@@ -311,7 +312,7 @@ func (i *fakeIntervention) ApplyPausePolicy(_ string, _ PauseRequestContext) (Pa
 	return i.plan, nil
 }
 
-var _ InterventionEngine = (*fakeIntervention)(nil)
+var _ interventionEngine = (*fakeIntervention)(nil)
 
 // fakeReview returns a scripted reviewer set.
 type fakeReview struct {
@@ -322,7 +323,7 @@ func (r *fakeReview) ProposeReviews(_ ReviewChange, _ string, _ string, _ string
 	return r.set, nil
 }
 
-var _ ReviewEngine = (*fakeReview)(nil)
+var _ reviewEngine = (*fakeReview)(nil)
 
 // ---- helpers ----------------------------------------------------------------
 
@@ -393,7 +394,7 @@ func Test_Construct_HappyPath_RecordsReviewedAndExited(t *testing.T) {
 	pipe := &fakePipeline{phase: PipelineSucceeded}
 	art := &fakeArtifacts{}
 	w := &fakeWorker{}
-	wf := newWorkflows(Deps{
+	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{class: AIWorker}, Intervention: &fakeIntervention{directive: DirectiveRetry},
 		Review: &fakeReview{}, ProjectState: ps, Pipeline: pipe, Artifacts: art, Workers: w,
 	})
@@ -430,7 +431,7 @@ func Test_Construct_ArchitectOnly_AwaitsOverride_SkipExits(t *testing.T) {
 
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(uuid.NewString()), Version: 1, Phase: 2}}
 	w := &fakeWorker{}
-	wf := newWorkflows(Deps{
+	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{class: ArchitectOnly}, Intervention: &fakeIntervention{directive: DirectiveRetry},
 		Review: &fakeReview{}, ProjectState: ps, Pipeline: &fakePipeline{}, Artifacts: &fakeArtifacts{}, Workers: w,
 	})
@@ -466,7 +467,7 @@ func Test_Construct_PipelineFailed_Takeover_CancelsWorker_ThenCompletes(t *testi
 	// The pipeline fails on the first run, then a flippable fake makes it succeed.
 	pipe := &flippablePipeline{first: PipelineFailed, rest: PipelineSucceeded}
 	w := &fakeWorker{}
-	wf := newWorkflows(Deps{
+	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{class: AIWorker}, Intervention: &fakeIntervention{directive: DirectiveTakeover},
 		Review: &fakeReview{}, ProjectState: ps, Pipeline: pipe, Artifacts: &fakeArtifacts{}, Workers: w,
 	})
@@ -519,7 +520,7 @@ func (p *flippablePipeline) CancelConstructionPipeline(_ context.Context, handle
 	return nil
 }
 
-var _ ConstructionPipelineAccess = (*flippablePipeline)(nil)
+var _ constructionPipelineAccess = (*flippablePipeline)(nil)
 
 // The §6.5 Conflict discipline: a recordChangeReviewed that returns fwra.Conflict
 // twice before succeeding drives the workflow-level re-read→re-apply loop; the
@@ -529,7 +530,7 @@ func Test_Construct_ConflictOnRecord_ReReadReApply_Succeeds(t *testing.T) {
 	env := ts.NewTestWorkflowEnvironment()
 
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(uuid.NewString()), Version: 1, Phase: 2}, conflictFirst: 2}
-	wf := newWorkflows(Deps{
+	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{class: AIWorker}, Intervention: &fakeIntervention{directive: DirectiveRetry},
 		Review: &fakeReview{}, ProjectState: ps, Pipeline: &fakePipeline{phase: PipelineSucceeded},
 		Artifacts: &fakeArtifacts{}, Workers: &fakeWorker{},
@@ -560,7 +561,7 @@ func Test_Pump_NoEligibleActivity_QuietTick(t *testing.T) {
 	env := ts.NewTestWorkflowEnvironment()
 
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(uuid.NewString()), Version: 1, Phase: 2}}
-	wf := newWorkflows(Deps{
+	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{}, Intervention: &fakeIntervention{}, Review: &fakeReview{},
 		ProjectState: ps, Pipeline: &fakePipeline{}, Artifacts: &fakeArtifacts{}, Workers: &fakeWorker{},
 		NextEligibleActivity: nil,
@@ -587,7 +588,7 @@ func Test_Pump_ProjectNotFound_QuietTick(t *testing.T) {
 	env := ts.NewTestWorkflowEnvironment()
 
 	ps := &fakeProjectState{notFound: true}
-	wf := newWorkflows(Deps{
+	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{}, Intervention: &fakeIntervention{}, Review: &fakeReview{},
 		ProjectState: ps, Pipeline: &fakePipeline{}, Artifacts: &fakeArtifacts{}, Workers: &fakeWorker{},
 	})
@@ -615,7 +616,7 @@ func Test_Pump_EligibleActivity_RunsChild_ThenContinueAsNew(t *testing.T) {
 
 	pid := ProjectID(uuid.NewString())
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
-	wf := newWorkflows(Deps{
+	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{class: AIWorker}, Intervention: &fakeIntervention{directive: DirectiveRetry},
 		Review: &fakeReview{}, ProjectState: ps, Pipeline: &fakePipeline{phase: PipelineSucceeded},
 		Artifacts: &fakeArtifacts{}, Workers: &fakeWorker{},
@@ -651,7 +652,7 @@ func Test_Pump_DrainedNetwork_QuietNoContinueAsNew(t *testing.T) {
 
 	pid := ProjectID(uuid.NewString())
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
-	wf := newWorkflows(Deps{
+	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{class: AIWorker}, Intervention: &fakeIntervention{}, Review: &fakeReview{},
 		ProjectState: ps, Pipeline: &fakePipeline{}, Artifacts: &fakeArtifacts{}, Workers: &fakeWorker{},
 		NextEligibleActivity: func(_ projectstate.Project) (ConstructionActivity, bool) {
@@ -683,7 +684,7 @@ func Test_Pump_PauseSignal_HaltsCascade_NoDispatch(t *testing.T) {
 
 	pid := ProjectID(uuid.NewString())
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
-	wf := newWorkflows(Deps{
+	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{class: AIWorker}, Intervention: &fakeIntervention{directive: DirectiveRetry},
 		Review: &fakeReview{}, ProjectState: ps, Pipeline: &fakePipeline{phase: PipelineSucceeded},
 		Artifacts: &fakeArtifacts{}, Workers: &fakeWorker{},
@@ -730,7 +731,7 @@ func Test_Pause_AppliesPolicy_CancelsPipeline_RecordsPaused(t *testing.T) {
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 2, Phase: 2}}
 	pipe := &fakePipeline{}
 	w := &fakeWorker{}
-	wf := newWorkflows(Deps{
+	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{}, Review: &fakeReview{},
 		Intervention: &fakeIntervention{plan: PausePlan{PipelinesToCancel: []string{"wf-C-1"}, RecordPaused: true}},
 		ProjectState: ps, Pipeline: pipe, Artifacts: &fakeArtifacts{}, Workers: w,
@@ -766,7 +767,7 @@ func Test_ReplanSweep_QuietSweep_EmptyResult(t *testing.T) {
 
 	pid := ProjectID(uuid.NewString())
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
-	wf := newWorkflows(Deps{
+	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{}, Intervention: &fakeIntervention{}, Review: &fakeReview{},
 		ProjectState: ps, Pipeline: &fakePipeline{}, Artifacts: &fakeArtifacts{}, Workers: &fakeWorker{},
 	})
@@ -826,4 +827,4 @@ func (cancelledWorker) Generate(context.Context, workerGenerateSpec, fwra.Idempo
 }
 func (cancelledWorker) Cancel(context.Context, fwra.IdempotencyKey) error { return nil }
 
-var _ WorkerAccess = cancelledWorker{}
+var _ workerAccess = cancelledWorker{}

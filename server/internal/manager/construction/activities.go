@@ -40,7 +40,7 @@ func activityIdempotencyKey(ctx context.Context) fwra.IdempotencyKey {
 // ---- ReadProjectActivity (wraps projectStateAccess.readProject) -------------
 // Pure whole-aggregate read; no idempotency key (constructionManager.md §6.4).
 func (wf *Workflows) ReadProjectActivity(ctx context.Context, projectID projectstate.ProjectID) (projectEnvelope, error) {
-	proj, err := wf.ProjectState.ReadProject(ctx, projectID)
+	proj, err := wf.ProjectState.ReadProject(fwra.Context{Context: ctx}, projectID)
 	if err != nil {
 		return projectEnvelope{}, fwmanager.MapError(err)
 	}
@@ -52,7 +52,7 @@ func (wf *Workflows) ReadProjectActivity(ctx context.Context, projectID projects
 // across the Temporal boundary instead of the whole encoded aggregate — the
 // read-your-writes seed and the applyRecovering Conflict loop need only the token.
 func (wf *Workflows) ReadProjectVersionActivity(ctx context.Context, projectID projectstate.ProjectID) (projectstate.Version, error) {
-	v, err := wf.ProjectState.ReadProjectVersion(ctx, projectID)
+	v, err := wf.ProjectState.ReadProjectVersion(fwra.Context{Context: ctx}, projectID)
 	if err != nil {
 		return 0, fwmanager.MapError(err)
 	}
@@ -133,15 +133,17 @@ func (wf *Workflows) StoreConstructionOutputActivity(ctx context.Context, output
 // canonical Temporal Type() and the workflow-level applyRecovering loop re-reads
 // the head version and re-applies with the SAME key (constructionManager.md §6.5).
 
-// RecordChangeReviewedArgs bundles the inputs for recordChangeReviewed.
+// RecordChangeReviewedArgs bundles the inputs for recordChangeReviewed. Cred is the
+// Manager-threaded credential (empty/zero in the dev/dry-run profile).
 type RecordChangeReviewedArgs struct {
 	ProjectID       projectstate.ProjectID
 	ExpectedVersion projectstate.Version
 	ActivityID      string
+	Cred            railCredEnvelope
 }
 
 func (wf *Workflows) RecordChangeReviewedActivity(ctx context.Context, a RecordChangeReviewedArgs) (projectstate.Version, error) {
-	return mapErr(wf.ProjectState.RecordChangeReviewed(ctx, a.ProjectID, a.ExpectedVersion, a.ActivityID, activityIdempotencyKey(ctx)))
+	return mapErr(wf.ConstructionTransition.RecordChangeReviewed(ctx, a.ProjectID, a.ExpectedVersion, a.ActivityID, a.Cred.toProjectState(), activityIdempotencyKey(ctx)))
 }
 
 // RecordActivityExitedArgs bundles the inputs for recordActivityExited.
@@ -150,10 +152,11 @@ type RecordActivityExitedArgs struct {
 	ExpectedVersion projectstate.Version
 	ActivityID      string
 	Outcome         projectstate.ActivityOutcome
+	Cred            railCredEnvelope
 }
 
 func (wf *Workflows) RecordActivityExitedActivity(ctx context.Context, a RecordActivityExitedArgs) (projectstate.Version, error) {
-	return mapErr(wf.ProjectState.RecordActivityExited(ctx, a.ProjectID, a.ExpectedVersion, a.ActivityID, a.Outcome, activityIdempotencyKey(ctx)))
+	return mapErr(wf.ConstructionTransition.RecordActivityExited(ctx, a.ProjectID, a.ExpectedVersion, a.ActivityID, a.Outcome, a.Cred.toProjectState(), activityIdempotencyKey(ctx)))
 }
 
 // RecordActivityFailedArgs bundles the inputs for recordActivityFailed (the
@@ -164,10 +167,11 @@ type RecordActivityFailedArgs struct {
 	ActivityID      string
 	Reason          projectstate.FailureReason
 	Detail          string
+	Cred            railCredEnvelope
 }
 
 func (wf *Workflows) RecordActivityFailedActivity(ctx context.Context, a RecordActivityFailedArgs) (projectstate.Version, error) {
-	return mapErr(wf.ProjectState.RecordActivityFailed(ctx, a.ProjectID, a.ExpectedVersion, a.ActivityID, a.Reason, a.Detail, activityIdempotencyKey(ctx)))
+	return mapErr(wf.ConstructionTransition.RecordActivityFailed(ctx, a.ProjectID, a.ExpectedVersion, a.ActivityID, a.Reason, a.Detail, a.Cred.toProjectState(), activityIdempotencyKey(ctx)))
 }
 
 // RecordOperatorPausedArgs bundles the inputs for recordOperatorPaused.
@@ -175,8 +179,9 @@ type RecordOperatorPausedArgs struct {
 	ProjectID       projectstate.ProjectID
 	ExpectedVersion projectstate.Version
 	Reason          string
+	Cred            railCredEnvelope
 }
 
 func (wf *Workflows) RecordOperatorPausedActivity(ctx context.Context, a RecordOperatorPausedArgs) (projectstate.Version, error) {
-	return mapErr(wf.ProjectState.RecordOperatorPaused(ctx, a.ProjectID, a.ExpectedVersion, a.Reason, activityIdempotencyKey(ctx)))
+	return mapErr(wf.ConstructionTransition.RecordOperatorPaused(ctx, a.ProjectID, a.ExpectedVersion, a.Reason, a.Cred.toProjectState(), activityIdempotencyKey(ctx)))
 }

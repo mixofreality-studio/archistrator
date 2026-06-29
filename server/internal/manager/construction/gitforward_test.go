@@ -100,7 +100,7 @@ func (r *stubRail) MergePullRequest(_ context.Context, _ sourcecontrol.RepoRef, 
 	return sourcecontrol.MergeResult{Commit: "main-sha", Merged: r.merged}, nil
 }
 
-var _ SourceControlRail = (*stubRail)(nil)
+var _ sourceControlRail = (*stubRail)(nil)
 
 // ---- stubGitStatus: an in-memory git head-state mirror ----------------------
 
@@ -235,7 +235,7 @@ func (s *stubGitStatus) constructionPhase(activityID string) (projectstate.Activ
 	return c.Phase, ok
 }
 
-var _ GitActivityStatusAccess = (*stubGitStatus)(nil)
+var _ gitActivityStatusAccess = (*stubGitStatus)(nil)
 
 // ---- helpers ----------------------------------------------------------------
 
@@ -261,7 +261,7 @@ func registerConstructGit(env *testsuite.TestWorkflowEnvironment, wf *Workflows)
 // rail + git store, a fixed repo resolver, and the happy-path engine fakes.
 func gitWiredWorkflows(ps *fakeProjectState, rail *stubRail, git *stubGitStatus, mergeable bool) *Workflows {
 	rail.merged = mergeable
-	d := Deps{
+	d := wfDeps{
 		HandOff:      &fakeHandOff{class: AIWorker},
 		Intervention: &fakeIntervention{directive: DirectiveRetry},
 		Review:       &fakeReview{},
@@ -269,10 +269,14 @@ func gitWiredWorkflows(ps *fakeProjectState, rail *stubRail, git *stubGitStatus,
 		Pipeline:     &fakePipeline{phase: PipelineSucceeded},
 		Artifacts:    &fakeArtifacts{},
 		Workers:      &fakeWorker{},
+		// git-forward slice wired directly (the former WithGitForward composition helper
+		// is retired — RegisterWorker now folds these from the manager's stored deps).
+		Rail:      rail,
+		GitStatus: git,
+		Repo: func(_ ProjectID) (sourcecontrol.RepoRef, bool) {
+			return sourcecontrol.RepoRefFromString("repo-1"), true
+		},
 	}
-	d = d.WithGitForward(rail, git, func(_ ProjectID) (sourcecontrol.RepoRef, bool) {
-		return sourcecontrol.RepoRefFromString("repo-1"), true
-	})
 	return newWorkflows(d)
 }
 
@@ -428,7 +432,7 @@ func Test_GitForward_Dormant_WhenUnwired(t *testing.T) {
 
 	pid := ProjectID(uuid.NewString())
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}, version: 1}
-	wf := newWorkflows(Deps{
+	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{class: AIWorker}, Intervention: &fakeIntervention{directive: DirectiveRetry},
 		Review: &fakeReview{}, ProjectState: ps, Pipeline: &fakePipeline{phase: PipelineSucceeded},
 		Artifacts: &fakeArtifacts{}, Workers: &fakeWorker{},

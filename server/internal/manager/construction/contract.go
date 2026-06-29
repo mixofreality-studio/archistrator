@@ -65,7 +65,7 @@ import (
 // port. Each op leads with the Manager-layer call Context (fwm.Context); the *Manager
 // derives ctx := rc.Context inside (constructionmanager.go). The *ProjectID /
 // *ActivityID pointer params are load-bearing (nil ⇒ sweep-all / project-level query).
-var _ ConstructionManager = (*Manager)(nil)
+var _ ConstructionManager = (*constructionManager)(nil)
 
 // overrideKindName returns the canonical name for an override kind. Kept as a FREE
 // FUNCTION (not a method) so the generated OverrideKind scalar carries no behavior

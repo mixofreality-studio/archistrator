@@ -13,7 +13,7 @@ import (
 // deserializes — workerAccess.md §0b). A response that cannot be unmarshalled is a
 // *workerUnmarshalError (carrying the raw bytes), distinct from a transport error;
 // a nil (cancelled) response returns the zero value with nil error.
-func generateConstructionOutput(ctx context.Context, w WorkerAccess, spec workerGenerateSpec, key fwra.IdempotencyKey) (artifact.ConstructionOutput, error) {
+func generateConstructionOutput(ctx context.Context, w workerAccess, spec workerGenerateSpec, key fwra.IdempotencyKey) (artifact.ConstructionOutput, error) {
 	var zero artifact.ConstructionOutput
 	raw, err := w.Generate(ctx, spec, key)
 	if err != nil {

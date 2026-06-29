@@ -28,53 +28,48 @@ import (
 //     I/O and NON-deterministic; the workflow invokes the Activity methods on this
 //     same struct via workflow.ExecuteActivity (activities.go).
 
-// Deps bundles every downstream dependency the constructionManager orchestrates,
-// passed to RegisterWorker (worker.go) and held on the Workflows struct. Each
-// field is a CONSUMER-DEFINED interface (deps.go): the existing concrete RA types
-// are adapted at the composition root; the not-yet-built Engines/RA are unit-tested
-// with fakes.
-type Deps struct {
-	HandOff      HandOffEngine
-	Intervention InterventionEngine
-	Review       ReviewEngine
+// wfDeps bundles every downstream seam the constructionManager orchestrates,
+// assembled by RegisterWorker (worker.go) from the Manager's stored PUBLISHED deps
+// and held on the Workflows struct. Each field is an unexported consumer seam
+// (deps.go): the published engine/RA types are folded into them via the adapters
+// (adapters.go); the unit tests inject in-package fakes. It is a package-internal
+// builder input (the public Deps/WireDeps/WithGitForward were retired).
+type wfDeps struct {
+	HandOff      handOffEngine
+	Intervention interventionEngine
+	Review       reviewEngine
 
-	ProjectState ProjectStateAccess
-	Pipeline     ConstructionPipelineAccess
-	Artifacts    ArtifactAccess
-	Workers      WorkerAccess
+	// ProjectState serves the whole-aggregate reads; ConstructionTransition serves the
+	// cred-threaded Phase-3 head-state transition writes. When ConstructionTransition is
+	// nil, newWorkflows derives it from ProjectState if that value also satisfies the
+	// transition seam (the in-package fakes satisfy both).
+	ProjectState           projectStateReader
+	ConstructionTransition constructionTransitionAccess
+	Pipeline               constructionPipelineAccess
+	Artifacts              artifactAccess
+	Workers                workerAccess
 
 	// Rail + GitStatus are the OPTIONAL git-forward slice (C-MCN-GIT). When both are
 	// non-nil the per-activity spine wraps each activity in a branch→PR→CI→+1→merge
 	// lifecycle and mirrors the rail returns onto the per-activity git head-state.
-	// When either is nil the git-forward lifecycle is dormant (the live Postgres-store
-	// composition that predates the GitStore) and the spine runs unchanged.
-	Rail      SourceControlRail
-	GitStatus GitActivityStatusAccess
+	Rail      sourceControlRail
+	GitStatus gitActivityStatusAccess
 
 	// Repo resolves the per-project RepoRef the rail verbs address. nil ⇒ the
-	// git-forward slice is dormant (no repo to open branches/PRs in). Injected so the
-	// repo-resolution policy (deterministic per-project repo name) is swappable
-	// without a new RA edge — exactly like NextEligibleActivity.
+	// git-forward slice is dormant (no repo to open branches/PRs in).
 	Repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool)
 
 	// NextEligibleActivity resolves the next eligible construction activity for a
-	// project from its head-state (the Manager's own pure selection over the
-	// committed network — constructionManager.md §6.3 step 1). It returns
-	// (activity, true) when one is eligible, or (_, false) for a quiet tick. It is
-	// a Manager-internal pure helper (NOT a downstream edge); injected so the pump's
-	// eligibility policy is testable and swappable without a new RA edge.
+	// project from its head-state (the Manager's own pure selection).
 	NextEligibleActivity func(proj projectstate.Project) (ConstructionActivity, bool)
 
-	// Policy is the project's committed HandOffPolicy / InterventionPolicy snapshot
-	// the Manager feeds the Engines by value. In production the Manager reads it
-	// from head-state; held here as the construction-time seam value.
+	// HandOffPolicy / InterventionPolicy are the project's committed policy snapshots
+	// the Manager feeds the Engines by value.
 	HandOffPolicy      HandOffPolicy
 	InterventionPolicy InterventionPolicy
 
 	// EscalationWaitTimeout bounds how long an escalated/ArchitectOnly activity waits
-	// for an operator override before it terminally FAILS the activity (head-state
-	// reflects EscalationTimedOut instead of hanging forever). 0 == wait-forever
-	// (the supervised mode). Default 30m from config.
+	// for an operator override before it terminally FAILS the activity. 0 == wait-forever.
 	EscalationWaitTimeout time.Duration
 }
 
@@ -82,17 +77,18 @@ type Deps struct {
 // receiver and the activity receiver (no separate Activities type, mirroring
 // systemdesign).
 type Workflows struct {
-	HandOff      HandOffEngine
-	Intervention InterventionEngine
-	Review       ReviewEngine
+	HandOff      handOffEngine
+	Intervention interventionEngine
+	Review       reviewEngine
 
-	ProjectState ProjectStateAccess
-	Pipeline     ConstructionPipelineAccess
-	Artifacts    ArtifactAccess
-	Workers      WorkerAccess
+	ProjectState           projectStateReader
+	ConstructionTransition constructionTransitionAccess
+	Pipeline               constructionPipelineAccess
+	Artifacts              artifactAccess
+	Workers                workerAccess
 
-	Rail      SourceControlRail
-	GitStatus GitActivityStatusAccess
+	Rail      sourceControlRail
+	GitStatus gitActivityStatusAccess
 	Repo      func(projectID ProjectID) (sourcecontrol.RepoRef, bool)
 
 	NextEligibleActivity  func(proj projectstate.Project) (ConstructionActivity, bool)
@@ -101,23 +97,32 @@ type Workflows struct {
 	EscalationWaitTimeout time.Duration
 }
 
-// newWorkflows builds the Workflows receiver from the injected Deps.
-func newWorkflows(d Deps) *Workflows {
+// newWorkflows builds the Workflows receiver from the injected seams. When the
+// ConstructionTransition seam is not supplied explicitly it is derived from the
+// ProjectState value if that value also satisfies the transition seam.
+func newWorkflows(d wfDeps) *Workflows {
+	ct := d.ConstructionTransition
+	if ct == nil {
+		if derived, ok := d.ProjectState.(constructionTransitionAccess); ok {
+			ct = derived
+		}
+	}
 	return &Workflows{
-		HandOff:               d.HandOff,
-		Intervention:          d.Intervention,
-		Review:                d.Review,
-		ProjectState:          d.ProjectState,
-		Pipeline:              d.Pipeline,
-		Artifacts:             d.Artifacts,
-		Workers:               d.Workers,
-		Rail:                  d.Rail,
-		GitStatus:             d.GitStatus,
-		Repo:                  d.Repo,
-		NextEligibleActivity:  d.NextEligibleActivity,
-		HandOffPolicy:         d.HandOffPolicy,
-		InterventionPolicy:    d.InterventionPolicy,
-		EscalationWaitTimeout: d.EscalationWaitTimeout,
+		HandOff:                d.HandOff,
+		Intervention:           d.Intervention,
+		Review:                 d.Review,
+		ProjectState:           d.ProjectState,
+		ConstructionTransition: ct,
+		Pipeline:               d.Pipeline,
+		Artifacts:              d.Artifacts,
+		Workers:                d.Workers,
+		Rail:                   d.Rail,
+		GitStatus:              d.GitStatus,
+		Repo:                   d.Repo,
+		NextEligibleActivity:   d.NextEligibleActivity,
+		HandOffPolicy:          d.HandOffPolicy,
+		InterventionPolicy:     d.InterventionPolicy,
+		EscalationWaitTimeout:  d.EscalationWaitTimeout,
 	}
 }
 
@@ -404,7 +409,7 @@ func (wf *Workflows) ConstructActivityWorkflow(ctx workflow.Context, in Construc
 			// the FAILURE in head-state (so the activity is no longer stuck Running) before
 			// returning the terminal error.
 			if v, e := wf.recordActivityFailed(ctx, in, headVersion, projectstate.VarianceExhausted,
-				"construction supervision exceeded max attempts"); e != nil {
+				"construction supervision exceeded max attempts", startedCred); e != nil {
 				return e
 			} else {
 				headVersion = v
@@ -429,7 +434,7 @@ func (wf *Workflows) ConstructActivityWorkflow(ctx workflow.Context, in Construc
 			sig, got := wf.awaitOverrideBounded(ctx, overrideCh)
 			if !got {
 				v, e := wf.recordActivityFailed(ctx, in, headVersion, projectstate.EscalationTimedOut,
-					"architect override timed out: no operator steer within the escalation-wait window")
+					"architect override timed out: no operator steer within the escalation-wait window", startedCred)
 				if e != nil {
 					return e
 				}
@@ -500,7 +505,7 @@ func (wf *Workflows) ConstructActivityWorkflow(ctx workflow.Context, in Construc
 		}
 
 		// --- Step 6: record the change reviewed (head-state) --------------------
-		if v, e := wf.recordChangeReviewed(ctx, in, headVersion); e != nil {
+		if v, e := wf.recordChangeReviewed(ctx, in, headVersion, startedCred); e != nil {
 			return e
 		} else {
 			headVersion = v
@@ -516,7 +521,7 @@ func (wf *Workflows) ConstructActivityWorkflow(ctx workflow.Context, in Construc
 		}
 
 		// --- Step 8: record the binary activity exit (head-state) ---------------
-		if v, e := wf.recordActivityExited(ctx, in, headVersion, projectstate.ActivityOutcomeCompleted); e != nil {
+		if v, e := wf.recordActivityExited(ctx, in, headVersion, projectstate.ActivityOutcomeCompleted, startedCred); e != nil {
 			return e
 		} else {
 			headVersion = v
@@ -699,7 +704,7 @@ func (wf *Workflows) handleVariance(
 		if !got {
 			_ = failReason // underlying cause is carried in detail below; the terminal reason is EscalationTimedOut
 			v, e := wf.recordActivityFailed(ctx, in, *headVersion, projectstate.EscalationTimedOut,
-				"escalation timed out: no operator override within the escalation-wait window (underlying: "+detail+")")
+				"escalation timed out: no operator override within the escalation-wait window (underlying: "+detail+")", startedCred)
 			if e != nil {
 				return false, e
 			}
@@ -741,7 +746,7 @@ func (wf *Workflows) executeOverride(
 		state.stage = StageDispatching
 		return false, nil
 	case OverrideSkip:
-		v, e := wf.recordActivityExited(ctx, in, *headVersion, projectstate.ActivityOutcomeSkipped)
+		v, e := wf.recordActivityExited(ctx, in, *headVersion, projectstate.ActivityOutcomeSkipped, startedCred)
 		if e != nil {
 			return false, e
 		}
@@ -891,25 +896,26 @@ func (wf *Workflows) readVersion(ctx workflow.Context, projectID ProjectID) proj
 	return v
 }
 
-// recordChangeReviewed applies the head-state transition with the Conflict loop.
-func (wf *Workflows) recordChangeReviewed(ctx workflow.Context, in ConstructActivityInput, seed projectstate.Version) (projectstate.Version, error) {
+// recordChangeReviewed applies the head-state transition with the Conflict loop. The
+// Manager-minted cred is threaded into the write (empty/zero in dev/dry-run).
+func (wf *Workflows) recordChangeReviewed(ctx workflow.Context, in ConstructActivityInput, seed projectstate.Version, cred railCredEnvelope) (projectstate.Version, error) {
 	return wf.applyRecovering(ctx, in.ProjectID, seed, func(expected projectstate.Version) (projectstate.Version, error) {
 		c := recordOpts(ctx)
 		var v projectstate.Version
 		e := workflow.ExecuteActivity(c, wf.RecordChangeReviewedActivity, RecordChangeReviewedArgs{
-			ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, ActivityID: string(in.ActivityID),
+			ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, ActivityID: string(in.ActivityID), Cred: cred,
 		}).Get(ctx, &v)
 		return v, e
 	})
 }
 
 // recordActivityExited applies the binary-exit head-state transition.
-func (wf *Workflows) recordActivityExited(ctx workflow.Context, in ConstructActivityInput, seed projectstate.Version, outcome projectstate.ActivityOutcome) (projectstate.Version, error) {
+func (wf *Workflows) recordActivityExited(ctx workflow.Context, in ConstructActivityInput, seed projectstate.Version, outcome projectstate.ActivityOutcome, cred railCredEnvelope) (projectstate.Version, error) {
 	return wf.applyRecovering(ctx, in.ProjectID, seed, func(expected projectstate.Version) (projectstate.Version, error) {
 		c := recordOpts(ctx)
 		var v projectstate.Version
 		e := workflow.ExecuteActivity(c, wf.RecordActivityExitedActivity, RecordActivityExitedArgs{
-			ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, ActivityID: string(in.ActivityID), Outcome: outcome,
+			ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, ActivityID: string(in.ActivityID), Outcome: outcome, Cred: cred,
 		}).Get(ctx, &v)
 		return v, e
 	})
@@ -920,12 +926,12 @@ func (wf *Workflows) recordActivityExited(ctx workflow.Context, in ConstructActi
 // loop as recordActivityExited. It lands Phase=Failed / BuildStatus=BuildFailed and
 // records the reason+detail so head-state reflects the terminal instead of leaving
 // the activity stuck Running.
-func (wf *Workflows) recordActivityFailed(ctx workflow.Context, in ConstructActivityInput, seed projectstate.Version, reason projectstate.FailureReason, detail string) (projectstate.Version, error) {
+func (wf *Workflows) recordActivityFailed(ctx workflow.Context, in ConstructActivityInput, seed projectstate.Version, reason projectstate.FailureReason, detail string, cred railCredEnvelope) (projectstate.Version, error) {
 	return wf.applyRecovering(ctx, in.ProjectID, seed, func(expected projectstate.Version) (projectstate.Version, error) {
 		c := recordOpts(ctx)
 		var v projectstate.Version
 		e := workflow.ExecuteActivity(c, wf.RecordActivityFailedActivity, RecordActivityFailedArgs{
-			ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, ActivityID: string(in.ActivityID), Reason: reason, Detail: detail,
+			ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, ActivityID: string(in.ActivityID), Reason: reason, Detail: detail, Cred: cred,
 		}).Get(ctx, &v)
 		return v, e
 	})

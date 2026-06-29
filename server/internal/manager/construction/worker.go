@@ -1,7 +1,6 @@
 package construction
 
 import (
-	"context"
 	"time"
 
 	"go.temporal.io/sdk/activity"
@@ -98,7 +97,44 @@ const (
 // by value) and are NOT Activities. The durableExecutionAccess in-workflow
 // primitives (awaitSignal / startTimer / executeChild) are the Manager's own code
 // (category A) and are NOT Activities either.
-func RegisterWorker(w worker.Worker, deps Deps) {
+func RegisterWorker(w worker.Worker, m ConstructionManager) {
+	impl, ok := m.(*constructionManager)
+	if !ok {
+		panic("construction: RegisterWorker requires a *constructionManager from NewConstructionManager")
+	}
+
+	// Fold the published deps the constructor stored into the unexported seams the
+	// Workflows struct holds (adapters.go) — the Option-B boundary mapping that
+	// replaces the former composition-root WireDeps/WithGitForward.
+	engPolicy, mgrPolicy := constructionInterventionPolicy(impl.interventionMode)
+
+	deps := wfDeps{
+		HandOff:                handoffAdapter{inner: impl.handOff},
+		Intervention:           interventionAdapter{inner: impl.intervention, policy: engPolicy},
+		Review:                 reviewAdapter{inner: impl.review},
+		ProjectState:           impl.projectState,
+		ConstructionTransition: impl.constructionTransition,
+		Pipeline:               pipelineAdapter{inner: impl.pipeline},
+		Artifacts:              artifactAdapter{inner: impl.artifact},
+		Workers:                workerAdapter{inner: impl.worker},
+		NextEligibleActivity:   nextEligibleActivity,
+		HandOffPolicy:          HandOffPolicy{},
+		InterventionPolicy:     mgrPolicy,
+		EscalationWaitTimeout:  impl.escalationWaitTimeout,
+	}
+	// OPTIONAL PR rail (dormant until a per-project Repo resolver is also wired —
+	// gitEnabled gates on Rail+GitStatus+Repo). nil rail leaves it unset.
+	if impl.rail != nil {
+		deps.Rail = railAdapter{inner: impl.rail}
+	}
+	// OPTIONAL per-activity git head-state slice. The gitActivityStatus dep (the
+	// published 4-verb facet) must ALSO satisfy the started/completed construction
+	// facet for the pump's eligibility cascade; the concrete git store/adapter do, so
+	// type-assert onto the combined seam. nil/unsatisfied ⇒ dormant.
+	if gs, gok := impl.gitActivityStatus.(gitActivityStatusAccess); gok {
+		deps.GitStatus = gs
+	}
+
 	wf := newWorkflows(deps)
 
 	w.RegisterWorkflowWithOptions(wf.PumpNextActivityWorkflow, workflow.RegisterOptions{Name: ExecutionKindPump})
@@ -134,24 +170,4 @@ func RegisterWorker(w worker.Worker, deps Deps) {
 	w.RegisterActivityWithOptions(wf.RecordActivityMergedActivity, activity.RegisterOptions{Name: actRecordActivityMerged})
 	w.RegisterActivityWithOptions(wf.RecordActivityStartedActivity, activity.RegisterOptions{Name: actRecordActivityStarted})
 	w.RegisterActivityWithOptions(wf.RecordActivityCompletedActivity, activity.RegisterOptions{Name: actRecordActivityCompleted})
-}
-
-// RegisterSchedules registers (idempotently) the nextActivity (30s) +
-// replanSweep (5m) Temporal Schedules at startup via durableExecutionAccess
-// (constructionManager.md §6.1; FU-MCN-1). Called once at process start.
-func RegisterSchedules(ctx context.Context, durable DurableExecutionAccess) error {
-	if err := durable.RegisterSchedule(ctx, scheduleSpec{
-		ID:           scheduleIDNextActivity,
-		WorkflowType: ExecutionKindPump,
-		TaskQueue:    TaskQueue,
-		IntervalSecs: int(nextActivityInterval / time.Second),
-	}); err != nil {
-		return err
-	}
-	return durable.RegisterSchedule(ctx, scheduleSpec{
-		ID:           scheduleIDReplanSweep,
-		WorkflowType: ExecutionKindReplanSweep,
-		TaskQueue:    TaskQueue,
-		IntervalSecs: int(replanSweepInterval / time.Second),
-	})
 }

@@ -9971,6 +9971,68 @@
       "component": "constructionManager",
       "layer": "Manager",
       "goPackage": "internal/manager/construction",
+      "deps": [
+        {
+          "name": "client",
+          "goType": "client.Client",
+          "goImport": "go.temporal.io/sdk/client"
+        },
+        {
+          "name": "projectState",
+          "component": "projectStateAccess"
+        },
+        {
+          "name": "artifact",
+          "component": "artifactAccess"
+        },
+        {
+          "name": "worker",
+          "component": "workerAccess"
+        },
+        {
+          "name": "durableExecution",
+          "component": "durableExecutionAccess"
+        },
+        {
+          "name": "handOff",
+          "component": "handOffEngine"
+        },
+        {
+          "name": "intervention",
+          "component": "interventionEngine"
+        },
+        {
+          "name": "review",
+          "component": "reviewEngine"
+        },
+        {
+          "name": "pipeline",
+          "component": "constructionPipelineAccess"
+        },
+        {
+          "name": "rail",
+          "component": "sourceControlAccess"
+        },
+        {
+          "name": "constructionTransition",
+          "goType": "projectstate.ConstructionTransitionAccess",
+          "goImport": "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+        },
+        {
+          "name": "gitActivityStatus",
+          "goType": "projectstate.GitActivityStatusAccess",
+          "goImport": "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+        },
+        {
+          "name": "escalationWaitTimeout",
+          "goType": "time.Duration",
+          "goImport": "time"
+        },
+        {
+          "name": "interventionMode",
+          "goType": "string"
+        }
+      ],
       "title": "construction contract",
       "$defs": {
         "ActivityID": {
@@ -13732,9 +13794,7 @@
       "component": "projectStateAccess",
       "layer": "ResourceAccess",
       "goPackage": "internal/resourceaccess/projectstate",
-      "infra": [
-        "Postgres"
-      ],
+      "infra": [],
       "title": "projectstate contract",
       "interface": {
         "name": "ProjectStateAccess",

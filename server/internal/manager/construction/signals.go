@@ -82,7 +82,9 @@ func (wf *Workflows) runPauseBranch(ctx workflow.Context, projectID ProjectID, r
 			c := recordOpts(ctx)
 			var v projectstate.Version
 			e := workflow.ExecuteActivity(c, wf.RecordOperatorPausedActivity, RecordOperatorPausedArgs{
-				ProjectID: projectstate.ProjectID(projectID), ExpectedVersion: expected, Reason: reason,
+				// Project-level pause has no per-activity minted cred; the cred-binding git
+				// adapter mints just-in-time and the local store ignores an empty cred.
+				ProjectID: projectstate.ProjectID(projectID), ExpectedVersion: expected, Reason: reason, Cred: railCredEnvelope{},
 			}).Get(ctx, &v)
 			return v, e
 		}); err != nil {

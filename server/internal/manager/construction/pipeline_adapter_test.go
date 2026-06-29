@@ -1,9 +1,8 @@
-package main
+package construction
 
 import (
 	"testing"
 
-	"github.com/mixofreality-studio/archistrator/server/internal/manager/construction"
 )
 
 // TestPipelineAdapter_DispatchInputs asserts that dispatchInputsFor maps
@@ -11,7 +10,7 @@ import (
 // pipelineAdapter.inner is the constructionpipeline.ConstructionPipelineAccess interface (not a concrete struct,
 // interface), so we test the pure mapping helper directly — no fake adapter needed.
 func TestPipelineAdapter_DispatchInputs(t *testing.T) {
-	inputs := dispatchInputsFor(construction.PipelineSpec{
+	inputs := dispatchInputsFor(PipelineSpec{
 		ActivityID:  "C-PE",
 		ComponentID: "projectExport",
 	})
@@ -27,7 +26,7 @@ func TestPipelineAdapter_DispatchInputs(t *testing.T) {
 // fields on PipelineSpec are emitted as "phase" and "role" keys in the dispatch
 // inputs map (REQ-2 + Plan 1 Task 6).
 func TestDispatchInputsFor_WithPhaseAndRole(t *testing.T) {
-	spec := construction.PipelineSpec{
+	spec := PipelineSpec{
 		ActivityID:  "C-PE",
 		ComponentID: "projectExport",
 		Phase:       "requirements",
@@ -51,7 +50,7 @@ func TestDispatchInputsFor_WithPhaseAndRole(t *testing.T) {
 // are NOT emitted — callers that do not set them get only activity_id/component_id,
 // so existing workflow dispatches that rely on workflow-declared defaults are unaffected.
 func TestDispatchInputsFor_EmptyPhaseOmitted(t *testing.T) {
-	spec := construction.PipelineSpec{
+	spec := PipelineSpec{
 		ActivityID:  "C-PE",
 		ComponentID: "projectExport",
 		// Phase and Role intentionally empty

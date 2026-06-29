@@ -100,7 +100,7 @@ func main() {
 //     installation token is minted in-seam.
 //  3. Postgres   — neither git profile applies: the legacy head-state store, so a
 //     credential-less dev server still boots and serves.
-func buildDesignProjectState(cfg config, pgStore projectstate.ProjectStateAccess, sc sourcecontrol.SourceControlCatalogAccess, logger *slog.Logger) (projectstate.ProjectStateAccess, error) {
+func buildDesignProjectState(cfg config, sc sourcecontrol.SourceControlCatalogAccess, logger *slog.Logger) (projectstate.ProjectStateAccess, error) {
 	switch {
 	case cfg.ProjectStateGitLocal:
 		if cfg.ProjectStateGitRepoURL == "" {
@@ -143,8 +143,9 @@ func buildDesignProjectState(cfg config, pgStore projectstate.ProjectStateAccess
 		}, nil
 
 	default:
-		logger.Warn("projectStateAccess (postgres) — git substrate NOT configured; UC1/UC2 design artifacts persist to Postgres, NOT GitHub (set ARCHISTRATOR_GITHUB_APP_ID + ARCHISTRATOR_GITHUB_APP_PRIVATE_KEY_PEM + ARCHISTRATOR_GITHUB_ACCOUNT for live GitHub artifact commits, or ARCHISTRATOR_PROJECT_STATE_GIT_LOCAL=true for on-disk git)")
-		return pgStore, nil
+		// The Postgres projectStateAccess store was retired: projectStateAccess is
+		// git-only now. A server with neither git profile cannot serve head-state.
+		return nil, fmt.Errorf("projectStateAccess requires a git substrate: set ARCHISTRATOR_PROJECT_STATE_GIT_LOCAL=true (on-disk git) or the GitHub App config (ARCHISTRATOR_GITHUB_APP_ID + ARCHISTRATOR_GITHUB_APP_PRIVATE_KEY_PEM + ARCHISTRATOR_GITHUB_ACCOUNT)")
 	}
 }
 
@@ -240,17 +241,14 @@ func run(logger *slog.Logger) error { //nolint:gocognit,gocyclo,maintidx,nestif 
 	defer tc.Close()
 	logger.Info("temporal client dialed", "hostPort", cfg.TemporalHostPort, "namespace", cfg.TemporalNamespace)
 
-	// Postgres-backed projectStateAccess (head-state aggregate).
+	// Postgres pool — retained for the usageAccess ledger (usagelog). The Postgres
+	// projectStateAccess store was RETIRED: projectStateAccess is now git-only (the
+	// design managers + the construction Manager all share the git substrate).
 	pool, err := postgresinfra.NewPool(ctx, cfg.PostgresURL)
 	if err != nil {
 		return err
 	}
 	defer pool.Close()
-	ps, err := projectstate.NewPostgresProjectStateAccess(ctx, pool)
-	if err != nil {
-		return err
-	}
-	logger.Info("projectStateAccess (postgres) ready")
 
 	// Postgres-backed usageAccess (append-only usage_log ledger, C-UA).
 	// Constructed at boot so its constructor-applied DDL reconciles the schema
@@ -382,8 +380,7 @@ func run(logger *slog.Logger) error { //nolint:gocognit,gocyclo,maintidx,nestif 
 	//   - CLOUD  (GitHub App + account configured): the user's GitHub repos, with the
 	//            installation token minted in-seam by sourceControlAccess.
 	//   - else   the Postgres store (a dev server with neither git profile still runs).
-	// The construction/usage RAs keep the Postgres `ps` — only the design managers swap.
-	designProjectState, err := buildDesignProjectState(cfg, ps, scConcrete, logger)
+	designProjectState, err := buildDesignProjectState(cfg, scConcrete, logger)
 	if err != nil {
 		return err
 	}
@@ -518,47 +515,20 @@ func run(logger *slog.Logger) error { //nolint:gocognit,gocyclo,maintidx,nestif 
 	defer wpd.Stop()
 	logger.Info("embedded temporal worker started", "taskQueue", projectdesign.TaskQueue)
 
-	// Phase-3 (construction) Manager — the UC3 façade. It holds only the Temporal
-	// client (it owns Temporal); the webClient relays superviseConstruction intents
-	// (GetSessionState / PauseProject / OverrideActivity) to it. The embedded
-	// construction Worker is registered ONLY when its real downstream deps are
-	// configured (artifactAccess + constructionPipelineAccess present): without a
-	// live Argo cluster the pump has nothing to drive, and the console still renders
-	// with empty/quiet sessions.
-	constructionManager := construction.NewManager(tc)
-
-	// constructionManager projectState SUBSTRATE (the load-bearing fix). The per-activity
-	// construction head-state (status + the transition records) lives in the SAME Project
-	// aggregate as the design slots, so the construction Manager MUST share the substrate
-	// the design Managers use — otherwise it cannot see a git-substrate project (the
-	// dogfooded `archistrator` project lives in the git-local store, not Postgres, and the
-	// pump was inert because this dep pointed at Postgres). When the git substrate is
-	// active, point construction at the git store (sharing the design head-state store via
-	// the same credentialMinter); else keep the Postgres `ps` (the legacy composition).
-	// constructionGitStatus lights up the per-activity construction-status records
-	// (RecordActivityStarted/Completed) that drive the pump's eligibility cascade.
-	// The Postgres *Store's ReadProject now takes the RA call Context (fwra.Context,
-	// the in-scope ProjectStateAccess port refactor); the construction Manager's
-	// ctx-based ProjectStateAccess mirror still expects (ctx). pgConstructionPS is the
-	// composition-root shim that bridges ONLY ReadProject (ctx → fwra.Context); the
-	// construction-transition Record* verbs stay ctx-based on *Store (out of scope),
-	// reached through the embedded pointer unchanged.
-	constructionPS := construction.ProjectStateAccess(newPGConstructionPS(ps))
-	var constructionGitStatus construction.GitActivityStatusAccess
-	if gitAdapter, ok := designProjectState.(*projectStateGitAdapter); ok {
-		constructionPS = constructionProjectStateAdapter{store: gitAdapter.store, minter: gitAdapter.minter}
-		constructionGitStatus = gitAdapter.store // the concrete *GitStore satisfies the git head-state seam
-		logger.Info("constructionManager projectState → git substrate (shares the design head-state store; status cascade live)")
-	}
-
-	// The three EXTERNAL-effect construction deps. Real GitHub-Actions pipeline + artifact
-	// store + LLM worker by default (registered only when configured); the dry-run profile
-	// swaps in instant in-memory stubs so the pump cascades with no GitHub Actions / LLM
-	// (config-gated demo/dogfood; never the prod default — construction_dryrun.go).
+	// Phase-3 (construction) Manager — the UC3 façade, built via its GENERATED DI
+	// constructor (founder model 2026-06-28). The constructor takes the published deps
+	// directly; the Manager folds the dep→activity mapping (the former composition-root
+	// construction adapters) internally and registers its own Worker from its stored
+	// deps via RegisterWorker(wc, m). The façade itself holds only the Temporal client.
+	//
+	// The three EXTERNAL-effect construction deps (pipeline + artifact store + LLM
+	// worker) default to nil (worker not registered) unless the dry-run profile is set
+	// (instant in-memory stubs — construction_dryrun.go) or the real GitHub-Actions
+	// pipeline + artifact store are configured.
 	registerConstruction := false
 	var (
-		constructionPipeline  construction.ConstructionPipelineAccess
-		constructionArtifacts construction.ArtifactAccess
+		constructionPipeline  constructionpipeline.ConstructionPipelineAccess
+		constructionArtifacts artifact.ArtifactAccess
 		constructionWorkers   workeraccess.WorkerAccess
 	)
 	switch {
@@ -569,64 +539,56 @@ func run(logger *slog.Logger) error { //nolint:gocognit,gocyclo,maintidx,nestif 
 		registerConstruction = true
 		logger.Warn("construction Worker DRY-RUN mode — pipeline/artifact/worker effects are STUBBED (no GitHub Actions run, no LLM call); the real pump + per-activity lifecycle + head-state cascade run end-to-end")
 	case pipeline != nil && artifacts != nil:
-		constructionPipeline = pipelineAdapter{inner: pipeline}
-		constructionArtifacts = artifactAdapter{inner: artifacts}
-		// Construction does NOT use a server-side LLM. The real work (and review)
-		// runs in GitHub Actions via claude-code-action on the user's token; the
-		// server only dispatches + observes the pipeline. dryRunWorker is a no-LLM
-		// stub that satisfies the legacy GenerateWork/review seam with a valid
-		// ConstructionOutput so the workflow advances to the real GH-Actions dispatch.
-		// (Removing the GenerateWork/review steps entirely is the Plan 3 follow-up.)
+		constructionPipeline = pipeline
+		constructionArtifacts = artifacts
+		// Construction does NOT use a server-side LLM. dryRunWorker is a no-LLM stub
+		// that satisfies the worker seam with a valid ConstructionOutput so the workflow
+		// advances to the real GH-Actions dispatch.
 		constructionWorkers = dryRunWorker{}
 		registerConstruction = true
 	}
 
+	// The construction-transition + git head-state writes share the design head-state
+	// GIT substrate. designProjectState is always the git adapter now (the Postgres
+	// store is retired); the concrete *GitStore satisfies both cred-threaded ports.
+	// The Manager threads the (rail-minted, empty in dev/dry-run) credential into the
+	// writes itself; the local git store ignores an empty credential.
+	var constructionTransition projectstate.ConstructionTransitionAccess
+	var constructionGitStatus projectstate.GitActivityStatusAccess
+	if gitAdapter, ok := designProjectState.(*projectStateGitAdapter); ok {
+		constructionTransition = gitAdapter.store
+		constructionGitStatus = gitAdapter.store
+		logger.Info("constructionManager → git substrate (shares the design head-state store; status cascade live)")
+	}
+
+	// scAccess (nil ⇒ PR rail dormant) is the construction rail; durableExecution is
+	// nil (schedule registration belongs to the unbuilt schedulerClient — the console's
+	// manual "Begin construction" supersedes the schedule for the dry-run).
+	constructionManager := construction.NewConstructionManager(
+		tc,
+		designProjectState,
+		constructionArtifacts,
+		constructionWorkers,
+		nil, // durableExecution — schedules unwired (schedulerClient concern)
+		handOffEngine,
+		interventionEngine,
+		reviewEngine,
+		constructionPipeline,
+		scAccess,
+		constructionTransition,
+		constructionGitStatus,
+		cfg.ConstructionEscalationTimeout,
+		cfg.ConstructionInterventionMode,
+	)
+
 	if registerConstruction {
-		// Intervention regime: Tiered{RetryBudget:2} by default (autonomous retry,
-		// escalate after budget), or EscalateEverything for supervised mode. The engine
-		// policy (fed to the Engine via the adapter) and the Manager mirror are derived
-		// from the same config so they stay in lock-step.
-		engPolicy, mgrPolicy := constructionInterventionPolicy(cfg.ConstructionInterventionMode)
-		deps := construction.WireDeps(
-			handoffAdapter{inner: handOffEngine},
-			interventionAdapter{inner: interventionEngine, policy: engPolicy},
-			reviewAdapter{inner: reviewEngine},
-			constructionPS,
-			constructionPipeline,
-			constructionArtifacts,
-			constructionWorkers, // the generic typed worker (adapted to the unexported seam in-package)
-			nextEligibleActivity,
-			construction.HandOffPolicy{},
-			mgrPolicy,
-		)
-		// Bound the escalation wait so a cancelled/failed GH-Actions run or an
-		// unanswered escalation FAILS the activity (head-state EscalationTimedOut)
-		// instead of hanging forever. 0 == wait-forever (supervised mode).
-		deps.EscalationWaitTimeout = cfg.ConstructionEscalationTimeout
-		// Light up the construction-status head-state slice so the pump's eligibility
-		// cascade advances (RecordActivityStarted/Completed). The PR rail (first arg) +
-		// per-project repo resolver (third arg) stay nil — the status records are
-		// INDEPENDENT of the branch→PR→merge lifecycle (gitforward.go startedCred), so the
-		// local/dry-run profile cascades without any GitHub rail.
-		if constructionGitStatus != nil {
-			deps = deps.WithGitForward(nil, constructionGitStatus, nil)
-		}
 		wc := worker.New(tc, construction.TaskQueue, worker.Options{})
-		construction.RegisterWorker(wc, deps)
+		construction.RegisterWorker(wc, constructionManager)
 		if err := wc.Start(); err != nil {
 			return err
 		}
 		defer wc.Stop()
 		logger.Info("embedded temporal worker started", "taskQueue", construction.TaskQueue, "dryRun", cfg.ConstructionDryRun)
-
-		// TODO(schedulerClient): register the nextActivity (30s) + replanSweep (5m)
-		// Temporal Schedules. construction.RegisterSchedules needs a
-		// construction.DurableExecutionAccess, whose RegisterSchedule signature names
-		// the UNEXPORTED construction.scheduleSpec — so no composition-root adapter can
-		// satisfy it (frozen-deps.go seam gap; see log/C-MCN-reconcile.md). Schedule
-		// registration belongs to the unbuilt schedulerClient. The console's manual
-		// "Begin construction" (POST .../construction/begin → ExecuteNextActivity, which
-		// self-cascades via ContinueAsNew) supersedes the schedule for the dry-run.
 	} else {
 		logger.Warn("construction Worker NOT registered — set ARCHISTRATOR_CONSTRUCTION_DRYRUN=true for the stubbed pump, or configure artifactAccess + constructionPipelineAccess for the real one; the UC3 pump is dormant (GetSessionState still answers with empty/quiet sessions)")
 	}
