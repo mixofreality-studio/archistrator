@@ -6,6 +6,15 @@ package operations
 import (
 	"github.com/google/uuid"
 	fwm "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/autoscaler"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/operationestimation"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/durableexecution"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedruntime"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedsystemstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usagelog"
+	"go.temporal.io/sdk/client"
 	"time"
 )
 
@@ -169,4 +178,12 @@ type OperationsManager interface {
 	QueryOperatedSystemView(rc fwm.Context, operatedAppID uuid.UUID, requestID string) (OperatedSystemView, error)
 	ReconcileOperatedState(rc fwm.Context, tickID string, scope *ReconcileScope) (ReconcileResult, error)
 	WithdrawSystem(rc fwm.Context, operatedAppID uuid.UUID, changeID string, reason WithdrawReason) (WithdrawResult, error)
+}
+
+// NewOperationsManager constructs the OperationsManager, delegating to the hand-written, unexported
+// builder newOperationsManager in the manager package (which owns the stateful facade setup:
+// the Temporal client, the deps, and config). The constructor returns the
+// interface, so the concrete manager impl stays unexported.
+func NewOperationsManager(client client.Client, operatedSystemState operatedsystemstate.OperatedSystemStateAccess, operatedRuntime operatedruntime.OperatedRuntimeAccess, usage usagelog.UsageAccess, artifact artifact.ArtifactAccess, durableExecution durableexecution.DurableExecutionAccess, intervention intervention.InterventionEngine, autoscaler autoscaler.AutoscalerEngine, operationEstimation operationestimation.OperationEstimationEngine) OperationsManager {
+	return newOperationsManager(client, operatedSystemState, operatedRuntime, usage, artifact, durableExecution, intervention, autoscaler, operationEstimation)
 }

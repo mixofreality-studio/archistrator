@@ -48,7 +48,7 @@ import (
 // SettlementStateAccess mirrors settlementStateAccess.md §2 (post FU-MST-1) — the
 // settlement/customer head-state RA. Reads are pure; writes carry the version guard +
 // dedup-first idempotency key.
-type SettlementStateAccess interface {
+type settlementStateAccess interface {
 	// ReadSettlement returns the whole head-state aggregate (NotFound if no row).
 	ReadSettlement(ctx context.Context, customerID CustomerID) (Settlement, error)
 	// ReadPersistentlyDelinquentCustomers returns the persistently-delinquent customer
@@ -131,7 +131,7 @@ type DelinquencyScope struct {
 // RevenueLedgerAccess mirrors revenueLedgerAccess.md §2 — the append-only Revenue
 // Ledger. Writes are idempotent on entry.GatewayEventID (a duplicate is success, not
 // an error); reads are pure. There is NO Conflict kind on this contract.
-type RevenueLedgerAccess interface {
+type revenueLedgerAccess interface {
 	// RecordInboundRevenue appends an inbound revenue fact (dedup on GatewayEventID).
 	RecordInboundRevenue(ctx context.Context, entry RevenueEntrySeam) (EntryRefSeam, error)
 	// RecordReversal appends a reversal/chargeback fact (dedup on GatewayEventID).
@@ -185,7 +185,7 @@ type ReversalEntrySeam struct {
 
 // UsageAccess mirrors usageAccess.md §2.3 — the cycle-scope read this Manager uses to
 // fold a whole cycle's usage at close. Pure read; no key.
-type UsageAccess interface {
+type usageAccess interface {
 	// ReadRange replays the cycle's usage facts (OperatedAppID nil ⇒ whole cycle).
 	ReadRange(ctx context.Context, query UsageRangeQuerySeam) ([]UsageEventSeam, error)
 }
@@ -227,7 +227,7 @@ type UsageEventSeam struct {
 // calls (settlementManager.md §5.2/§6.4). The Manager moves money here by VALUE; the
 // gateway dedups on the Manager-supplied idempotency key. SEAM — D-MA is unbuilt
 // (FU-MST-2); replace with the owner import when it lands.
-type MerchantGatewayAccess interface {
+type merchantGatewayAccess interface {
 	// PayoutCustomer pays the (positive) net to the customer. idempotencyKey =
 	// settle:{customerId}:{cycleId} (Stripe-native dedup).
 	PayoutCustomer(ctx context.Context, customerID CustomerID, amount Money, idempotencyKey string) error
@@ -250,7 +250,7 @@ type MerchantGatewayAccess interface {
 // OperatedRuntimeAccess mirrors the one operatedRuntimeAccess verb this Manager uses at
 // onboarding (settlementManager.md §5.2). Idempotent on the caller-supplied key (git
 // content-address).
-type OperatedRuntimeAccess interface {
+type operatedRuntimeAccess interface {
 	// WirePaymentConfig wires the gateway binding into the deployed app's runtime
 	// (folds into publishDesiredState; D-OR §2.5).
 	WirePaymentConfig(ctx context.Context, deployedAppID DeployedAppID, binding GatewayBindingSeam, idempotencyKey fwra.IdempotencyKey) error
@@ -267,7 +267,7 @@ type OperatedRuntimeAccess interface {
 // ===========================================================================
 
 // DurableExecutionAccess is the Manager's consumer view: the two category-B verbs.
-type DurableExecutionAccess interface {
+type durableExecutionAccess interface {
 	// DeliverSignal delivers a queued signal to another Manager's workflow (the one
 	// sanctioned M→M edge: applyDelinquencyPolicy → operationsManager).
 	DeliverSignal(ctx context.Context, targetWorkflowID string, signalName string, payload deliverSignalPayload) error
@@ -301,7 +301,7 @@ type scheduleSpec struct {
 
 // SettlementEngine mirrors settlementEngine.md §2.1/§2.2 — the signed-net + routing
 // compute. The Engine STATES the directive; the Manager EXECUTES it.
-type SettlementEngine interface {
+type settlementEngine interface {
 	// ComputeNet computes the cycle's signed net + routing directive (UC6 close).
 	ComputeNet(revenue CycleRevenueSeam, usage CycleUsageSeam, terms SettlementTermsSeam) (SettlementResultSeam, error)
 	// RecomputeNet recomputes the corrected net + DELTA directive after a reversal
@@ -395,7 +395,7 @@ type ReSettlementInputSeam struct {
 
 // InterventionEngine mirrors interventionEngine.md §2.3 — the settlement-failure
 // decision. The Engine DECIDES {Retry | Delay | Escalate}; the Manager EXECUTES.
-type InterventionEngine interface {
+type interventionEngine interface {
 	DecideOnSettlementFailure(failure SettlementFailureSeam) (SettlementFailureDirectiveSeam, error)
 }
 

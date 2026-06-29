@@ -50,10 +50,13 @@ import (
 // drives the §6.5 re-read→re-apply loop.
 // ===========================================================================
 
-// OperatedSystemStateAccess mirrors operatedSystemStateAccess.md §2 — the
+// operatedSystemStateAccess mirrors operatedSystemStateAccess.md §2 — the
 // operated-system head-state RA. Reads are pure; writes carry the version guard +
-// dedup-first idempotency key.
-type OperatedSystemStateAccess interface {
+// dedup-first idempotency key. UNEXPORTED downstream seam (founder DI model
+// 2026-06-28): the GENERATED NewOperationsManager takes the dep's PUBLISHED
+// operatedsystemstate.OperatedSystemStateAccess; the folded adapter (adapters.go)
+// bridges it to this seam.
+type operatedSystemStateAccess interface {
 	// ReadOperatedSystem returns the whole head-state (NotFound if no row).
 	ReadOperatedSystem(ctx context.Context, operatedAppID OperatedAppID) (OperatedSystem, error)
 	// ReadInFlightOperatedApps returns the in-flight operated apps for a scope
@@ -135,10 +138,11 @@ type InFlightScope struct {
 // table commits to: getApplicationHealth / getSloStatus / readComputeAttribution).
 // ===========================================================================
 
-// OperatedRuntimeAccess mirrors operatedRuntimeAccess.md §2 — the GitOps/cluster/
+// operatedRuntimeAccess mirrors operatedRuntimeAccess.md §2 — the GitOps/cluster/
 // observability fronting. Writes return at durable acceptance (NOT convergence);
-// reads observe infrastructure-driven convergence.
-type OperatedRuntimeAccess interface {
+// reads observe infrastructure-driven convergence. UNEXPORTED seam; the folded
+// adapter bridges the published operatedruntime.OperatedRuntimeAccess to it.
+type operatedRuntimeAccess interface {
 	// PublishDesiredState commits the rendered desired state (git commit). Idempotent
 	// on content; the caller-supplied key lands in the commit message.
 	PublishDesiredState(ctx context.Context, appID OperatedAppID, desired RuntimeDesiredState, idempotencyKey fwra.IdempotencyKey) error
@@ -196,10 +200,11 @@ type ComputeUnitsSeam struct {
 // idempotent — NO Conflict, NO version guard) + one range-read.
 // ===========================================================================
 
-// UsageAccess mirrors usageAccess.md §2 — the append-only compute-usage ledger.
+// usageAccess mirrors usageAccess.md §2 — the append-only compute-usage ledger.
 // Writes are idempotent on event.RuntimeEventID (a duplicate is success, not an
-// error); reads are pure.
-type UsageAccess interface {
+// error); reads are pure. UNEXPORTED seam; the folded adapter bridges the published
+// usagelog.UsageAccess to it (dropping the published []EntryRef return).
+type usageAccess interface {
 	// RecordComputeUsage appends observed compute-usage facts (per reconcile tick).
 	RecordComputeUsage(ctx context.Context, events []UsageEventSeam) error
 	// RecordFinalUsage appends the final usage batch at withdraw.
@@ -237,10 +242,12 @@ type UsageRangeQuerySeam struct {
 // address (a string), matching the package's content-address discipline.
 // ===========================================================================
 
-// ArtifactAccess is the Manager's consumer view of artifactAccess for the deploy
+// artifactAccess is the Manager's consumer view of artifactAccess for the deploy
 // path: retrieve the deployable bundle for a constructed app
-// (operationsManager.md §6.4 RetrieveDeployableBundleActivity).
-type ArtifactAccess interface {
+// (operationsManager.md §6.4 RetrieveDeployableBundleActivity). UNEXPORTED seam; the
+// folded adapter bridges the published artifact.ArtifactAccess (escalation E-1: over
+// RetrieveConstructionOutput until the frozen retrieveDeployableBundle verb lands).
+type artifactAccess interface {
 	RetrieveDeployableBundle(ctx context.Context, deployableBundleRef string) (DeployableBundle, error)
 }
 
@@ -262,8 +269,10 @@ type DeployableBundle struct {
 // NOT RA methods.
 // ===========================================================================
 
-// DurableExecutionAccess is the Manager's consumer view: the one startup op.
-type DurableExecutionAccess interface {
+// durableExecutionAccess is the Manager's consumer view: the one startup op.
+// UNEXPORTED seam; the folded adapter bridges the published
+// durableexecution.DurableExecutionAccess to it.
+type durableExecutionAccess interface {
 	RegisterSchedule(ctx context.Context, spec scheduleSpec) error
 }
 
@@ -283,9 +292,11 @@ type scheduleSpec struct {
 // Activity, no idempotency key, imports no Temporal).
 // ===========================================================================
 
-// InterventionEngine mirrors interventionEngine.md §2.2 — the operate-time health
-// intervention decision. The Engine DECIDES; the Manager EXECUTES.
-type InterventionEngine interface {
+// interventionEngine mirrors interventionEngine.md §2.2 — the operate-time health
+// intervention decision. The Engine DECIDES; the Manager EXECUTES. UNEXPORTED seam;
+// the folded adapter bridges the published intervention.InterventionEngine to it
+// (folding the policy into the published HealthChange.Policy).
+type interventionEngine interface {
 	DecideOnHealth(change HealthChange, policy InterventionPolicy) (HealthDirective, error)
 }
 
@@ -324,9 +335,10 @@ const (
 // in-workflow. DECIDE → the Manager EXECUTES (renders revised manifests, publishes).
 // ===========================================================================
 
-// AutoscalerEngine mirrors autoscalerEngine.md §2.1 — the autoscale decision. The
+// autoscalerEngine mirrors autoscalerEngine.md §2.1 — the autoscale decision. The
 // Engine DECIDES; the Manager EXECUTES a republish on a non-NoChange decision.
-type AutoscalerEngine interface {
+// UNEXPORTED seam; the folded adapter bridges the published autoscaler.AutoscalerEngine.
+type autoscalerEngine interface {
 	ProposeDesiredState(telemetry Telemetry, currentDesired AutoscalerDesiredState, policy AutoscalerPolicy, infrastructureKind InfrastructureKind) (AutoscaleDecisionSeam, error)
 }
 
@@ -401,9 +413,11 @@ type AutoscaleDecisionSeam struct {
 // deterministic, direct in-workflow (read-only path). DECIDE / project, no mutation.
 // ===========================================================================
 
-// OperationEstimationEngine mirrors operationEstimationEngine.md §2.2 — the op-time
-// read-side cost projection. Pure; no mutation.
-type OperationEstimationEngine interface {
+// operationEstimationEngine mirrors operationEstimationEngine.md §2.2 — the op-time
+// read-side cost projection. Pure; no mutation. UNEXPORTED seam; the folded adapter
+// bridges the published operationestimation.OperationEstimationEngine to it
+// (aggregating the seam's usage events into the published ObservedUsage shape).
+type operationEstimationEngine interface {
 	ProjectForOperatedApp(observedUsage ObservedUsage, infrastructureKind InfrastructureKind, scaleWhatIfPoints []ScalePoint) (CostProjectionSeam, error)
 }
 

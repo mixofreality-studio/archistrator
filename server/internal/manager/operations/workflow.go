@@ -29,14 +29,14 @@ import (
 // adapted at the composition root; the not-yet-built Engines/RA are unit-tested with
 // fakes.
 type Deps struct {
-	Intervention InterventionEngine
-	Autoscaler   AutoscalerEngine
-	Estimation   OperationEstimationEngine
+	Intervention interventionEngine
+	Autoscaler   autoscalerEngine
+	Estimation   operationEstimationEngine
 
-	OperatedSystemState OperatedSystemStateAccess
-	OperatedRuntime     OperatedRuntimeAccess
-	Usage               UsageAccess
-	Artifacts           ArtifactAccess
+	OperatedSystemState operatedSystemStateAccess
+	OperatedRuntime     operatedRuntimeAccess
+	Usage               usageAccess
+	Artifacts           artifactAccess
 
 	// Policy snapshots fed to the Engines by value. In production the Manager reads
 	// them from head-state; held here as the construction-time seam values.
@@ -55,14 +55,14 @@ type Deps struct {
 // receiver and the activity receiver (no separate Activities type, mirroring
 // construction).
 type Workflows struct {
-	Intervention InterventionEngine
-	Autoscaler   AutoscalerEngine
-	Estimation   OperationEstimationEngine
+	Intervention interventionEngine
+	Autoscaler   autoscalerEngine
+	Estimation   operationEstimationEngine
 
-	OperatedSystemState OperatedSystemStateAccess
-	OperatedRuntime     OperatedRuntimeAccess
-	Usage               UsageAccess
-	Artifacts           ArtifactAccess
+	OperatedSystemState operatedSystemStateAccess
+	OperatedRuntime     operatedRuntimeAccess
+	Usage               usageAccess
+	Artifacts           artifactAccess
 
 	InterventionPolicy InterventionPolicy
 	AutoscalerPolicy   AutoscalerPolicy

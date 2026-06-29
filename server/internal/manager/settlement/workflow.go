@@ -29,30 +29,30 @@ import (
 // CONSUMER-DEFINED interface (deps.go): the concrete RA types are adapted at the
 // composition root; the not-yet-built Engines/RA are unit-tested with fakes.
 type Deps struct {
-	Settlement   SettlementEngine
-	Intervention InterventionEngine
+	Settlement   settlementEngine
+	Intervention interventionEngine
 
-	SettlementState SettlementStateAccess
-	RevenueLedger   RevenueLedgerAccess
-	Usage           UsageAccess
-	Gateway         MerchantGatewayAccess
-	OperatedRuntime OperatedRuntimeAccess
-	Durable         DurableExecutionAccess
+	SettlementState settlementStateAccess
+	RevenueLedger   revenueLedgerAccess
+	Usage           usageAccess
+	Gateway         merchantGatewayAccess
+	OperatedRuntime operatedRuntimeAccess
+	Durable         durableExecutionAccess
 }
 
 // Workflows is the single settlementManager component struct — BOTH the workflow
 // receiver and the activity receiver (no separate Activities type, mirroring
 // operations/construction).
 type Workflows struct {
-	Settlement   SettlementEngine
-	Intervention InterventionEngine
+	Settlement   settlementEngine
+	Intervention interventionEngine
 
-	SettlementState SettlementStateAccess
-	RevenueLedger   RevenueLedgerAccess
-	Usage           UsageAccess
-	Gateway         MerchantGatewayAccess
-	OperatedRuntime OperatedRuntimeAccess
-	Durable         DurableExecutionAccess
+	SettlementState settlementStateAccess
+	RevenueLedger   revenueLedgerAccess
+	Usage           usageAccess
+	Gateway         merchantGatewayAccess
+	OperatedRuntime operatedRuntimeAccess
+	Durable         durableExecutionAccess
 }
 
 // newWorkflows builds the Workflows receiver from the injected Deps.

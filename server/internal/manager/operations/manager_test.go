@@ -81,7 +81,7 @@ func asOperationsError(t *testing.T, err error) *fwmgr.Error {
 // ---- A1/A2: DeployAfterConstruction id checks -------------------------------
 
 func Test_Deploy_EmptyOperatedAppID(t *testing.T) {
-	m := NewManager(nil)
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.DeployAfterConstruction(bgCtx(), uuid.Nil,
 		DesiredStateChange{Reason: ReasonDeployAfterConstruction, ChangeID: "c1"})
 	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
@@ -90,7 +90,7 @@ func Test_Deploy_EmptyOperatedAppID(t *testing.T) {
 }
 
 func Test_Deploy_EmptyChangeID(t *testing.T) {
-	m := NewManager(nil)
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.DeployAfterConstruction(bgCtx(), uuid.New(),
 		DesiredStateChange{Reason: ReasonOperator, ChangeID: ""})
 	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
@@ -101,7 +101,7 @@ func Test_Deploy_EmptyChangeID(t *testing.T) {
 // ---- A3/A4/A5: the reason discriminator rejection (OQ-5) --------------------
 
 func Test_Deploy_RejectsReservedAutoscaleReason(t *testing.T) {
-	m := NewManager(nil)
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.DeployAfterConstruction(bgCtx(), uuid.New(),
 		DesiredStateChange{Reason: ReasonAutoscale, ChangeID: "c1"})
 	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
@@ -110,7 +110,7 @@ func Test_Deploy_RejectsReservedAutoscaleReason(t *testing.T) {
 }
 
 func Test_Deploy_RejectsReservedDelinquencyReason(t *testing.T) {
-	m := NewManager(nil)
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.DeployAfterConstruction(bgCtx(), uuid.New(),
 		DesiredStateChange{Reason: ReasonDelinquency, ChangeID: "c1"})
 	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
@@ -119,7 +119,7 @@ func Test_Deploy_RejectsReservedDelinquencyReason(t *testing.T) {
 }
 
 func Test_Deploy_RejectsUnknownReason(t *testing.T) {
-	m := NewManager(nil)
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.DeployAfterConstruction(bgCtx(), uuid.New(),
 		DesiredStateChange{Reason: ReasonUnknown, ChangeID: "c1"})
 	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
@@ -130,7 +130,7 @@ func Test_Deploy_RejectsUnknownReason(t *testing.T) {
 // ---- A6: ReconcileOperatedState ---------------------------------------------
 
 func Test_Reconcile_EmptyTickID(t *testing.T) {
-	m := NewManager(nil)
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.ReconcileOperatedState(bgCtx(), "", nil)
 	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -140,7 +140,7 @@ func Test_Reconcile_EmptyTickID(t *testing.T) {
 // ---- A7: WithdrawSystem ------------------------------------------------------
 
 func Test_Withdraw_EmptyOperatedAppID(t *testing.T) {
-	m := NewManager(nil)
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.WithdrawSystem(bgCtx(), uuid.Nil, "c1", WithdrawReason{})
 	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -148,7 +148,7 @@ func Test_Withdraw_EmptyOperatedAppID(t *testing.T) {
 }
 
 func Test_Withdraw_EmptyChangeID(t *testing.T) {
-	m := NewManager(nil)
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.WithdrawSystem(bgCtx(), uuid.New(), "", WithdrawReason{})
 	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -158,7 +158,7 @@ func Test_Withdraw_EmptyChangeID(t *testing.T) {
 // ---- A8: QueryCostProjection ------------------------------------------------
 
 func Test_CostProjection_EmptyOperatedAppID(t *testing.T) {
-	m := NewManager(nil)
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.QueryCostProjection(bgCtx(), uuid.Nil, "r1", nil)
 	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -166,7 +166,7 @@ func Test_CostProjection_EmptyOperatedAppID(t *testing.T) {
 }
 
 func Test_CostProjection_EmptyRequestID(t *testing.T) {
-	m := NewManager(nil)
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.QueryCostProjection(bgCtx(), uuid.New(), "", nil)
 	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -176,7 +176,7 @@ func Test_CostProjection_EmptyRequestID(t *testing.T) {
 // ---- A8b: QueryOperatedSystemView (op 2.7) ----------------------------------
 
 func Test_View_EmptyOperatedAppID(t *testing.T) {
-	m := NewManager(nil)
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.QueryOperatedSystemView(bgCtx(), uuid.Nil, "r1")
 	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -184,7 +184,7 @@ func Test_View_EmptyOperatedAppID(t *testing.T) {
 }
 
 func Test_View_EmptyRequestID(t *testing.T) {
-	m := NewManager(nil)
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.QueryOperatedSystemView(bgCtx(), uuid.New(), "")
 	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -194,7 +194,7 @@ func Test_View_EmptyRequestID(t *testing.T) {
 // ---- A9: ApplyDelinquencyPolicy ---------------------------------------------
 
 func Test_Delinquency_EmptyCustomerID(t *testing.T) {
-	m := NewManager(nil)
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	err := m.ApplyDelinquencyPolicy(bgCtx(), uuid.Nil, DelinquencyContext{})
 	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)

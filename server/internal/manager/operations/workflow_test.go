@@ -117,7 +117,7 @@ func (f *fakeOperatedState) RecordDelinquencyAction(_ context.Context, _ Operate
 	return f.bump(), nil
 }
 
-var _ OperatedSystemStateAccess = (*fakeOperatedState)(nil)
+var _ operatedSystemStateAccess = (*fakeOperatedState)(nil)
 
 // fakeRuntime records publish/withdraw + serves scripted reads.
 type fakeRuntime struct {
@@ -157,7 +157,7 @@ func (r *fakeRuntime) ReadComputeAttribution(_ context.Context, _ OperatedAppID,
 	return r.attribution, nil
 }
 
-var _ OperatedRuntimeAccess = (*fakeRuntime)(nil)
+var _ operatedRuntimeAccess = (*fakeRuntime)(nil)
 
 // fakeUsage records appends + serves a scripted range.
 type fakeUsage struct {
@@ -186,7 +186,7 @@ func (u *fakeUsage) ReadRange(_ context.Context, _ UsageRangeQuerySeam) ([]Usage
 	return u.rangeEvents, nil
 }
 
-var _ UsageAccess = (*fakeUsage)(nil)
+var _ usageAccess = (*fakeUsage)(nil)
 
 // fakeArtifacts serves a scripted deployable bundle.
 type fakeArtifacts struct {
@@ -201,7 +201,7 @@ func (a *fakeArtifacts) RetrieveDeployableBundle(_ context.Context, _ string) (D
 	return DeployableBundle{}, nil
 }
 
-var _ ArtifactAccess = (*fakeArtifacts)(nil)
+var _ artifactAccess = (*fakeArtifacts)(nil)
 
 // fakeIntervention returns a scripted health directive.
 type fakeIntervention struct {
@@ -215,7 +215,7 @@ func (i *fakeIntervention) DecideOnHealth(_ HealthChange, _ InterventionPolicy) 
 	return i.directive, nil
 }
 
-var _ InterventionEngine = (*fakeIntervention)(nil)
+var _ interventionEngine = (*fakeIntervention)(nil)
 
 // fakeAutoscaler returns a scripted decision.
 type fakeAutoscaler struct {
@@ -226,7 +226,7 @@ func (a *fakeAutoscaler) ProposeDesiredState(_ Telemetry, _ AutoscalerDesiredSta
 	return a.decision, nil
 }
 
-var _ AutoscalerEngine = (*fakeAutoscaler)(nil)
+var _ autoscalerEngine = (*fakeAutoscaler)(nil)
 
 // fakeEstimation returns a scripted projection.
 type fakeEstimation struct {
@@ -239,7 +239,7 @@ func (e *fakeEstimation) ProjectForOperatedApp(_ ObservedUsage, _ Infrastructure
 	return e.projection, nil
 }
 
-var _ OperationEstimationEngine = (*fakeEstimation)(nil)
+var _ operationEstimationEngine = (*fakeEstimation)(nil)
 
 // ---- helpers ----------------------------------------------------------------
 

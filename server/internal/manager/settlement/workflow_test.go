@@ -110,7 +110,7 @@ func (f *fakeSettlementState) ResettleCycle(_ context.Context, _ CustomerID, _ V
 	return f.bump(), nil
 }
 
-var _ SettlementStateAccess = (*fakeSettlementState)(nil)
+var _ settlementStateAccess = (*fakeSettlementState)(nil)
 
 // fakeRevenueLedger records appends + serves a scripted range.
 type fakeRevenueLedger struct {
@@ -149,7 +149,7 @@ func (r *fakeRevenueLedger) ReadRange(_ context.Context, _ CustomerID, _ CycleID
 	return out, nil
 }
 
-var _ RevenueLedgerAccess = (*fakeRevenueLedger)(nil)
+var _ revenueLedgerAccess = (*fakeRevenueLedger)(nil)
 
 // fakeUsage serves a scripted usage range.
 type fakeUsage struct {
@@ -160,7 +160,7 @@ func (u *fakeUsage) ReadRange(_ context.Context, _ UsageRangeQuerySeam) ([]Usage
 	return u.rangeEvents, nil
 }
 
-var _ UsageAccess = (*fakeUsage)(nil)
+var _ usageAccess = (*fakeUsage)(nil)
 
 // fakeGateway records money moves; declineCharge makes ChargeCustomer fail terminally
 // (RA Auth) the first declineChargeFirst times.
@@ -207,7 +207,7 @@ func (g *fakeGateway) ValidateStoredInstrument(_ context.Context, _ CustomerID, 
 	return nil
 }
 
-var _ MerchantGatewayAccess = (*fakeGateway)(nil)
+var _ merchantGatewayAccess = (*fakeGateway)(nil)
 
 // fakeRuntime records wirePaymentConfig calls.
 type fakeRuntime struct {
@@ -219,7 +219,7 @@ func (r *fakeRuntime) WirePaymentConfig(_ context.Context, _ DeployedAppID, _ Ga
 	return nil
 }
 
-var _ OperatedRuntimeAccess = (*fakeRuntime)(nil)
+var _ operatedRuntimeAccess = (*fakeRuntime)(nil)
 
 // fakeDurable records delivered signals + registered schedules.
 type fakeDurable struct {
@@ -243,7 +243,7 @@ func (d *fakeDurable) RegisterSchedule(_ context.Context, spec scheduleSpec) err
 	return nil
 }
 
-var _ DurableExecutionAccess = (*fakeDurable)(nil)
+var _ durableExecutionAccess = (*fakeDurable)(nil)
 
 // fakeSettlementEngine returns a scripted SettlementResult for compute + recompute.
 type fakeSettlementEngine struct {
@@ -263,7 +263,7 @@ func (e *fakeSettlementEngine) RecomputeNet(_ ReSettlementInputSeam) (Settlement
 	return e.recomputeResult, nil
 }
 
-var _ SettlementEngine = (*fakeSettlementEngine)(nil)
+var _ settlementEngine = (*fakeSettlementEngine)(nil)
 
 // fakeIntervention returns a scripted settlement-failure directive.
 type fakeIntervention struct {
@@ -274,7 +274,7 @@ func (i *fakeIntervention) DecideOnSettlementFailure(_ SettlementFailureSeam) (S
 	return i.directive, nil
 }
 
-var _ InterventionEngine = (*fakeIntervention)(nil)
+var _ interventionEngine = (*fakeIntervention)(nil)
 
 // ---- helpers ----------------------------------------------------------------
 

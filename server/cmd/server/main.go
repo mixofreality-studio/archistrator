@@ -46,6 +46,7 @@ import (
 	operationsweb "github.com/mixofreality-studio/archistrator/server/internal/client/web/operations"
 	projectdesignweb "github.com/mixofreality-studio/archistrator/server/internal/client/web/projectdesign"
 	systemdesignweb "github.com/mixofreality-studio/archistrator/server/internal/client/web/systemdesign"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/autoscaler"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/estimation"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/handoff"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
@@ -55,10 +56,16 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/construction"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/operations"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/projectdesign"
+	"github.com/mixofreality-studio/archistrator/server/internal/manager/settlement"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/systemdesign"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/constructionpipeline"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/merchantgateway"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedruntime"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedsystemstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/revenueledger"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/settlementstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usagelog"
 	workeraccess "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/worker"
@@ -252,9 +259,11 @@ func run(logger *slog.Logger) error { //nolint:gocognit,gocyclo,maintidx,nestif 
 
 	// Postgres-backed usageAccess (append-only usage_log ledger, C-UA).
 	// Constructed at boot so its constructor-applied DDL reconciles the schema
-	// on every deploy (R-PG-US convention); billingManager (UC5 period close)
-	// is the reader-to-come — no Manager consumes the port yet.
-	if _, err := usagelog.NewPostgresUsageAccess(ctx, pool); err != nil {
+	// on every deploy (R-PG-US convention). The operationsManager consumes it
+	// (reconcile-tick compute usage + final usage at withdraw); billingManager
+	// (UC5 period close) is the reader-to-come.
+	usageAccess, err := usagelog.NewPostgresUsageAccess(ctx, pool)
+	if err != nil {
 		return err
 	}
 	logger.Info("usageAccess (postgres) ready")
@@ -595,14 +604,72 @@ func run(logger *slog.Logger) error { //nolint:gocognit,gocyclo,maintidx,nestif 
 
 	// --- Client + HTTP server --------------------------------------------------
 
-	// UC4 (operations) Manager — the operateDeliveredSystem façade. Like the
-	// construction Manager it holds only the Temporal client (it owns Temporal); the
-	// webClient relays operate intents (Deploy / Scale / UpdateAutoscalerPolicy →
-	// DeployAfterConstruction, Withdraw → WithdrawSystem, QueryCostProjection) to it.
-	// The operatedStateReconcile Schedule + the operations Worker are scheduler/worker
-	// concerns wired separately (the console's deploy/withdraw/cost ops are accepted as
-	// durable workflow starts regardless).
-	operationsManager := operations.NewManager(tc)
+	// UC4 (operations) Manager — the operateDeliveredSystem façade, built via its
+	// GENERATED DI constructor (founder model 2026-06-28). The constructor takes the
+	// published deps directly; the Manager folds the dep→activity mapping (the former
+	// composition-root operations adapters) internally and registers its own Worker from
+	// its stored deps via RegisterWorker(wo, m). The not-yet-built head-state +
+	// runtime RAs (operatedSystemState / operatedRuntime) are the generated no-arg STUBS
+	// (their methods return not-implemented at runtime — the deploy/reconcile workflows
+	// fail fast against them, which is fine until those RAs are built); usage is the real
+	// Postgres ledger, artifact the real git store, and the three engines the real pure
+	// impls. durableExecution is nil (schedule registration belongs to the unbuilt
+	// schedulerClient; the Worker + façade do not dereference it).
+	operationsManager := operations.NewOperationsManager(
+		tc,
+		operatedsystemstate.NewOperatedSystemStateAccess(),
+		operatedruntime.NewOperatedRuntimeAccess(),
+		usageAccess,
+		artifacts,
+		nil, // durableExecution — schedules unwired (schedulerClient concern)
+		interventionEngine,
+		autoscaler.NewAutoscalerEngine(),
+		operationEstimator,
+	)
+
+	// Phase-4 (operations) Worker — one Worker per Manager task queue. The Manager
+	// registers its own workflows/activities (incl. the three Engines) from its stored
+	// deps. The console's deploy/withdraw/cost ops are durable workflow starts the Worker
+	// drives; the operatedStateReconcile Schedule remains a scheduler concern.
+	wo := worker.New(tc, operations.TaskQueue, worker.Options{})
+	operations.RegisterWorker(wo, operationsManager)
+	if err := wo.Start(); err != nil {
+		return err
+	}
+	defer wo.Stop()
+	logger.Info("embedded temporal worker started", "taskQueue", operations.TaskQueue)
+
+	// UC5/UC6 (settlement) Manager — the monetiseDeliveredSystem façade, built via its
+	// GENERATED DI constructor (founder model 2026-06-28). Not web-exposed (no client
+	// Handler); driven by its own Schedules + cross-Manager signals. The settlement-state /
+	// revenue-ledger / merchant-gateway RAs are the generated no-arg STUBS (their methods
+	// return not-implemented at runtime — the onboard/close/sweep workflows fail fast
+	// against them until those RAs are built); usage is the real Postgres ledger,
+	// operatedRuntime the generated stub, settlement + intervention the real pure engines.
+	// durableExecution is nil (schedule registration belongs to the unbuilt schedulerClient;
+	// the Worker + façade do not dereference it).
+	settlementManager := settlement.NewSettlementManager(
+		tc,
+		settlementstate.NewSettlementStateAccess(),
+		revenueledger.NewRevenueLedgerAccess(),
+		usageAccess,
+		merchantgateway.NewMerchantGatewayAccess(),
+		operatedruntime.NewOperatedRuntimeAccess(),
+		nil, // durableExecution — schedules unwired (schedulerClient concern)
+		settlementEstimator,
+		interventionEngine,
+	)
+
+	// Settlement Worker — one Worker per Manager task queue. The Manager registers its own
+	// workflows/activities (incl. the two Engines) from its stored deps via
+	// RegisterWorker(ws, m).
+	ws := worker.New(tc, settlement.TaskQueue, worker.Options{})
+	settlement.RegisterWorker(ws, settlementManager)
+	if err := ws.Start(); err != nil {
+		return err
+	}
+	defer ws.Stop()
+	logger.Info("embedded temporal worker started", "taskQueue", settlement.TaskQueue)
 
 	// CLIENT LAYER — 100% GENERATED from project.json (.serviceContracts). Each
 	// per-manager Handler (internal/client/web/<mgr>, generated by

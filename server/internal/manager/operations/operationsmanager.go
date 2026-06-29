@@ -10,6 +10,14 @@ import (
 	"go.temporal.io/sdk/client"
 
 	fwmgr "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/autoscaler"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/operationestimation"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/durableexecution"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedruntime"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedsystemstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usagelog"
 )
 
 // OperationsManager is the operationsManager port — the public use-case surface of
@@ -20,34 +28,82 @@ import (
 //
 // SCHEMA-FIRST: this interface (and the port I/O types) are GENERATED into
 // contract.gen.go from contract.schema.json (edit the schema + `make gen`; do NOT
-// hand-edit the generated surface). The concrete *Manager below satisfies it; the
-// consumer-side dependency interfaces (deps.go) and the Temporal Workflows struct
-// stay hand-written and are NOT part of this contract.
+// hand-edit the generated surface). The concrete *operationsManager below satisfies it;
+// the consumer-side dependency seams (deps.go) and the Temporal Workflows struct stay
+// hand-written and are NOT part of this contract.
 
-// Compile-time proof the concrete Manager satisfies the generated OperationsManager
-// port. Each op leads with the Manager-layer call Context (fwmgr.Context); the
-// *Manager derives ctx := rc.Context inside.
-var _ OperationsManager = (*Manager)(nil)
+// Compile-time proof the concrete operationsManager satisfies the generated
+// OperationsManager port. Each op leads with the Manager-layer call Context
+// (fwmgr.Context); the *operationsManager derives ctx := rc.Context inside.
+var _ OperationsManager = (*operationsManager)(nil)
 
-// Manager is the operationsManager façade. It exposes the five public use-case ops
-// (operationsManager.md §2) and OWNS Temporal. The Temporal-backed ops:
+// operationsManager is the operationsManager façade. It exposes the five public
+// use-case ops (operationsManager.md §2) and OWNS Temporal. The Temporal-backed ops:
 //   - DeployAfterConstruction — Workflow (entry; operator deploy / scale / policy)
 //   - ReconcileOperatedState  — Workflow (entry; Schedule-triggered observe+autoscale)
 //   - WithdrawSystem          — Workflow (entry; terminal withdraw)
 //   - QueryCostProjection     — Workflow (entry; short-lived read-only)
 //   - ApplyDelinquencyPolicy  — Signal (queued, cross-Manager; signal-with-start)
 //
-// The Manager holds only a Temporal client; the façade pre-condition checks
-// (non-empty ids, the reason-discriminator rejection) are enforced here before any
-// Temporal call (operationsManager.md §2/§3.4). The downstream Engines/RA are held
-// on the Workflows struct (workflow.go), reached only from workflow code.
-type Manager struct {
+// The façade methods use only the Temporal client; the pre-condition checks (non-empty
+// ids, the reason-discriminator rejection) are enforced here before any Temporal call
+// (operationsManager.md §2/§3.4). It ALSO stores the PUBLISHED downstream deps the
+// GENERATED constructor (contract.gen.go: NewOperationsManager) was given so
+// RegisterWorker (worker.go) can fold them (adapters.go) into the hand-written Temporal
+// Workflows. Per the founder DI model (2026-06-28) the former exported consumer-mirror
+// interfaces + the composition-root adapters are RETIRED; the Manager depends on the
+// deps' PUBLISHED interfaces and adapts them internally.
+type operationsManager struct {
 	client client.Client
+
+	operatedSystemState operatedsystemstate.OperatedSystemStateAccess
+	operatedRuntime     operatedruntime.OperatedRuntimeAccess
+	usage               usagelog.UsageAccess
+	artifact            artifact.ArtifactAccess
+	durableExecution    durableexecution.DurableExecutionAccess
+	intervention        intervention.InterventionEngine
+	autoscaler          autoscaler.AutoscalerEngine
+	operationEstimation operationestimation.OperationEstimationEngine
+
+	// Policy/config snapshots folded into the Workflows struct by RegisterWorker. They
+	// are construction-time seam defaults (in production the Manager reads them from
+	// head-state / the operated app's billing context). InfrastructureKind defaults to
+	// the launch infrastructure; the rest are zero (matching what the composition root
+	// passes today — the operations Worker carries no policy config yet).
+	interventionPolicy InterventionPolicy
+	autoscalerPolicy   AutoscalerPolicy
+	infrastructureKind InfrastructureKind
+	currentCycleID     string
+	customerID         CustomerID
 }
 
-// NewManager constructs a Manager over an existing Temporal client.
-func NewManager(c client.Client) *Manager {
-	return &Manager{client: c}
+// newOperationsManager is the hand-written, unexported builder the generated
+// NewOperationsManager constructor delegates to. It wires the Temporal client + the
+// published deps into the façade. The façade itself uses only the client; the deps are
+// stored for RegisterWorker (worker.go), which folds them into the Temporal Workflows.
+func newOperationsManager(
+	c client.Client,
+	operatedSystemState operatedsystemstate.OperatedSystemStateAccess,
+	operatedRuntime operatedruntime.OperatedRuntimeAccess,
+	usage usagelog.UsageAccess,
+	art artifact.ArtifactAccess,
+	durableExecution durableexecution.DurableExecutionAccess,
+	interventionEng intervention.InterventionEngine,
+	autoscalerEng autoscaler.AutoscalerEngine,
+	operationEstimation operationestimation.OperationEstimationEngine,
+) *operationsManager {
+	return &operationsManager{
+		client:              c,
+		operatedSystemState: operatedSystemState,
+		operatedRuntime:     operatedRuntime,
+		usage:               usage,
+		artifact:            art,
+		durableExecution:    durableExecution,
+		intervention:        interventionEng,
+		autoscaler:          autoscalerEng,
+		operationEstimation: operationEstimation,
+		infrastructureKind:  InfrastructureKindGoTemporalPostgres,
+	}
 }
 
 // DeployAfterConstruction — op 2.1. Temporal Workflow (entry; StartWorkflow, id
@@ -63,7 +119,7 @@ func NewManager(c client.Client) *Manager {
 //
 // SYNC from the Client's POV: returns once the desired state is durably published,
 // NOT once ArgoCD has converged (convergence is observed later via 2.2).
-func (m *Manager) DeployAfterConstruction(rc fwmgr.Context, operatedAppID OperatedAppID, change DesiredStateChange) (DeployResult, error) {
+func (m *operationsManager) DeployAfterConstruction(rc fwmgr.Context, operatedAppID OperatedAppID, change DesiredStateChange) (DeployResult, error) {
 	ctx := rc.Context
 	if operatedAppID == uuid.Nil {
 		return DeployResult{}, newError(fwmgr.ContractMisuse, "empty operatedAppId")
@@ -107,7 +163,7 @@ func (m *Manager) DeployAfterConstruction(rc fwmgr.Context, operatedAppID Operat
 // execution per firing. Not invoked directly by a human caller — fired by
 // schedulerClient via the operatedStateReconcile Schedule. SYNC within the firing:
 // returns once the tick's observations + any republishes are durably recorded.
-func (m *Manager) ReconcileOperatedState(rc fwmgr.Context, tickID string, scope *ReconcileScope) (ReconcileResult, error) {
+func (m *operationsManager) ReconcileOperatedState(rc fwmgr.Context, tickID string, scope *ReconcileScope) (ReconcileResult, error) {
 	ctx := rc.Context
 	if tickID == "" {
 		return ReconcileResult{}, newError(fwmgr.ContractMisuse, "empty tickId")
@@ -138,7 +194,7 @@ func (m *Manager) ReconcileOperatedState(rc fwmgr.Context, tickID string, scope 
 // {operatedAppId}:withdraw:{changeId}). Withdraws the runtime → records final usage →
 // withdraws the head-state. Idempotent on the id; an already-withdrawn app is a no-op
 // success. SYNC: returns once the withdrawal is durably recorded.
-func (m *Manager) WithdrawSystem(rc fwmgr.Context, operatedAppID OperatedAppID, changeID string, reason WithdrawReason) (WithdrawResult, error) {
+func (m *operationsManager) WithdrawSystem(rc fwmgr.Context, operatedAppID OperatedAppID, changeID string, reason WithdrawReason) (WithdrawResult, error) {
 	ctx := rc.Context
 	if operatedAppID == uuid.Nil {
 		return WithdrawResult{}, newError(fwmgr.ContractMisuse, "empty operatedAppId")
@@ -171,7 +227,7 @@ func (m *Manager) WithdrawSystem(rc fwmgr.Context, operatedAppID OperatedAppID, 
 // {operatedAppId}:costProjection:{requestId}). Reads observed usage + recent
 // desired-state history → runs operationEstimationEngine.ProjectForOperatedApp
 // (direct in-workflow). MUTATES NO STATE. SYNC, side-effect-free.
-func (m *Manager) QueryCostProjection(rc fwmgr.Context, operatedAppID OperatedAppID, requestID string, points *ScaleWhatIfPoints) (CostProjection, error) {
+func (m *operationsManager) QueryCostProjection(rc fwmgr.Context, operatedAppID OperatedAppID, requestID string, points *ScaleWhatIfPoints) (CostProjection, error) {
 	ctx := rc.Context
 	if operatedAppID == uuid.Nil {
 		return CostProjection{}, newError(fwmgr.ContractMisuse, "empty operatedAppId")
@@ -208,7 +264,7 @@ func (m *Manager) QueryCostProjection(rc fwmgr.Context, operatedAppID OperatedAp
 // + current run-rate (operationEstimationEngine, run-rate only — nil what-if). MUTATES
 // NO STATE. SYNC, side-effect-free. Mirrors QueryCostProjection (§2.4) in shape
 // (operationsRead-ruling.md §A).
-func (m *Manager) QueryOperatedSystemView(rc fwmgr.Context, operatedAppID OperatedAppID, requestID string) (OperatedSystemView, error) {
+func (m *operationsManager) QueryOperatedSystemView(rc fwmgr.Context, operatedAppID OperatedAppID, requestID string) (OperatedSystemView, error) {
 	ctx := rc.Context
 	if operatedAppID == uuid.Nil {
 		return OperatedSystemView{}, newError(fwmgr.ContractMisuse, "empty operatedAppId")
@@ -243,7 +299,7 @@ func (m *Manager) QueryOperatedSystemView(rc fwmgr.Context, operatedAppID Operat
 // pause-or-withdraw patch per BillingTerms. QUEUED/async: returns once the signal is
 // durably enqueued; the enforcement runs in the workflow. Late/duplicate delivery is
 // idempotent (signal-with-start re-derivation).
-func (m *Manager) ApplyDelinquencyPolicy(rc fwmgr.Context, customerID CustomerID, delinquencyContext DelinquencyContext) error {
+func (m *operationsManager) ApplyDelinquencyPolicy(rc fwmgr.Context, customerID CustomerID, delinquencyContext DelinquencyContext) error {
 	ctx := rc.Context
 	if customerID == uuid.Nil {
 		return newError(fwmgr.ContractMisuse, "empty customerId")

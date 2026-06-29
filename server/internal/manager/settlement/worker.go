@@ -6,6 +6,8 @@ import (
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/worker"
 	"go.temporal.io/sdk/workflow"
+
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/durableexecution"
 )
 
 // ---------------------------------------------------------------------------
@@ -92,7 +94,25 @@ const (
 // The two Engines' verbs are called DIRECTLY from workflow code (deterministic, by
 // value) and are NOT Activities. The durableExecutionAccess in-workflow primitive
 // (awaitSignal) is the Manager's own code (category A) and is NOT an Activity either.
-func RegisterWorker(w worker.Worker, deps Deps) {
+func RegisterWorker(w worker.Worker, m SettlementManager) {
+	impl, ok := m.(*settlementManager)
+	if !ok {
+		panic("settlement: RegisterWorker requires a *settlementManager from NewSettlementManager")
+	}
+
+	// Fold the published deps the constructor stored into the unexported seams the
+	// Workflows struct holds (adapters.go) — the Option-B boundary mapping that replaces
+	// the former composition-root Deps wiring.
+	deps := Deps{
+		Settlement:      settlementEngineAdapter{inner: impl.settlement},
+		Intervention:    interventionAdapter{inner: impl.intervention},
+		SettlementState: settlementStateAdapter{inner: impl.settlementState},
+		RevenueLedger:   revenueLedgerAdapter{inner: impl.revenueLedger},
+		Usage:           usageAdapter{inner: impl.usage},
+		Gateway:         merchantGatewayAdapter{inner: impl.merchantGateway},
+		OperatedRuntime: operatedRuntimeAdapter{inner: impl.operatedRuntime},
+		Durable:         durableAdapter{inner: impl.durableExecution},
+	}
 	wf := newWorkflows(deps)
 
 	w.RegisterWorkflowWithOptions(wf.OnboardWorkflow, workflow.RegisterOptions{Name: ExecutionKindOnboard})
@@ -129,8 +149,8 @@ func RegisterWorker(w worker.Worker, deps Deps) {
 // FU-MST-3). Called once at process start. The per-customer closeSettlementCycle:<customerId>
 // Schedule is NOT registered here — it is registered per-customer at onboarding (op 2.1,
 // RegisterScheduleActivity).
-func RegisterSchedules(ctx context.Context, durable DurableExecutionAccess) error {
-	return durable.RegisterSchedule(ctx, scheduleSpec{
+func RegisterSchedules(ctx context.Context, durable durableexecution.DurableExecutionAccess) error {
+	return durableAdapter{inner: durable}.RegisterSchedule(ctx, scheduleSpec{
 		ID:           scheduleIDShortfallSweep,
 		WorkflowType: ExecutionKindShortfallSweep,
 		TaskQueue:    TaskQueue,

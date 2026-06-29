@@ -12691,6 +12691,45 @@
       "component": "operationsManager",
       "layer": "Manager",
       "goPackage": "internal/manager/operations",
+      "deps": [
+        {
+          "name": "client",
+          "goType": "client.Client",
+          "goImport": "go.temporal.io/sdk/client"
+        },
+        {
+          "name": "operatedSystemState",
+          "component": "operatedSystemStateAccess"
+        },
+        {
+          "name": "operatedRuntime",
+          "component": "operatedRuntimeAccess"
+        },
+        {
+          "name": "usage",
+          "component": "usageAccess"
+        },
+        {
+          "name": "artifact",
+          "component": "artifactAccess"
+        },
+        {
+          "name": "durableExecution",
+          "component": "durableExecutionAccess"
+        },
+        {
+          "name": "intervention",
+          "component": "interventionEngine"
+        },
+        {
+          "name": "autoscaler",
+          "component": "autoscalerEngine"
+        },
+        {
+          "name": "operationEstimation",
+          "component": "operationEstimationEngine"
+        }
+      ],
       "title": "operations contract",
       "$defs": {
         "AutoscaleAction": {
@@ -14678,6 +14717,45 @@
       "component": "settlementManager",
       "layer": "Manager",
       "goPackage": "internal/manager/settlement",
+      "deps": [
+        {
+          "name": "client",
+          "goType": "client.Client",
+          "goImport": "go.temporal.io/sdk/client"
+        },
+        {
+          "name": "settlementState",
+          "component": "settlementStateAccess"
+        },
+        {
+          "name": "revenueLedger",
+          "component": "revenueLedgerAccess"
+        },
+        {
+          "name": "usage",
+          "component": "usageAccess"
+        },
+        {
+          "name": "merchantGateway",
+          "component": "merchantGatewayAccess"
+        },
+        {
+          "name": "operatedRuntime",
+          "component": "operatedRuntimeAccess"
+        },
+        {
+          "name": "durableExecution",
+          "component": "durableExecutionAccess"
+        },
+        {
+          "name": "settlement",
+          "component": "settlementEngine"
+        },
+        {
+          "name": "intervention",
+          "component": "interventionEngine"
+        }
+      ],
       "title": "settlement-manager contract",
       "$defs": {
         "CloseCycleResult": {

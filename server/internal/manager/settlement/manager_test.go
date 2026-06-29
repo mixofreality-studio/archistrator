@@ -84,7 +84,7 @@ func testCtx() fwmgr.Context {
 // ---- A1: OnboardPaymentIntegration ------------------------------------------
 
 func Test_Onboard_EmptyDeployedAppID(t *testing.T) {
-	m := NewManager(nil)
+	m := newSettlementManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.OnboardPaymentIntegration(testCtx(), uuid.Nil)
 	if got := asSettlementError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -94,7 +94,7 @@ func Test_Onboard_EmptyDeployedAppID(t *testing.T) {
 // ---- A2: RegisterCustomer ----------------------------------------------------
 
 func Test_Register_EmptyCustomerID(t *testing.T) {
-	m := NewManager(nil)
+	m := newSettlementManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.RegisterCustomer(testCtx(), uuid.Nil)
 	if got := asSettlementError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -104,7 +104,7 @@ func Test_Register_EmptyCustomerID(t *testing.T) {
 // ---- A3/A4: CloseSettlementCycle --------------------------------------------
 
 func Test_Close_EmptyCustomerID(t *testing.T) {
-	m := NewManager(nil)
+	m := newSettlementManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.CloseSettlementCycle(testCtx(), uuid.Nil, "cycle-1")
 	if got := asSettlementError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -112,7 +112,7 @@ func Test_Close_EmptyCustomerID(t *testing.T) {
 }
 
 func Test_Close_EmptyCycleID(t *testing.T) {
-	m := NewManager(nil)
+	m := newSettlementManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.CloseSettlementCycle(testCtx(), uuid.New(), "")
 	if got := asSettlementError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -122,7 +122,7 @@ func Test_Close_EmptyCycleID(t *testing.T) {
 // ---- A5: RunShortfallSweep --------------------------------------------------
 
 func Test_Sweep_EmptyTickID(t *testing.T) {
-	m := NewManager(nil)
+	m := newSettlementManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.RunShortfallSweep(testCtx(), "")
 	if got := asSettlementError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -132,7 +132,7 @@ func Test_Sweep_EmptyTickID(t *testing.T) {
 // ---- A6: RecordInboundRevenue -----------------------------------------------
 
 func Test_RecordInbound_EmptyCustomerID(t *testing.T) {
-	m := NewManager(nil)
+	m := newSettlementManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	err := m.RecordInboundRevenue(testCtx(), GatewayRevenueEvent{CycleID: "c1", GatewayEventID: "g1"})
 	if got := asSettlementError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -140,7 +140,7 @@ func Test_RecordInbound_EmptyCustomerID(t *testing.T) {
 }
 
 func Test_RecordInbound_EmptyCycleID(t *testing.T) {
-	m := NewManager(nil)
+	m := newSettlementManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	err := m.RecordInboundRevenue(testCtx(), GatewayRevenueEvent{CustomerID: uuid.New(), GatewayEventID: "g1"})
 	if got := asSettlementError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -148,7 +148,7 @@ func Test_RecordInbound_EmptyCycleID(t *testing.T) {
 }
 
 func Test_RecordInbound_EmptyGatewayEventID(t *testing.T) {
-	m := NewManager(nil)
+	m := newSettlementManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	err := m.RecordInboundRevenue(testCtx(), GatewayRevenueEvent{CustomerID: uuid.New(), CycleID: "c1"})
 	if got := asSettlementError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -158,7 +158,7 @@ func Test_RecordInbound_EmptyGatewayEventID(t *testing.T) {
 // ---- A7: RecordRevenueReversal ----------------------------------------------
 
 func Test_RecordReversal_EmptyGatewayEventID(t *testing.T) {
-	m := NewManager(nil)
+	m := newSettlementManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	err := m.RecordRevenueReversal(testCtx(), GatewayReversalEvent{CustomerID: uuid.New(), CycleID: "c1"})
 	if got := asSettlementError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -166,7 +166,7 @@ func Test_RecordReversal_EmptyGatewayEventID(t *testing.T) {
 }
 
 func Test_RecordReversal_EmptyCustomerID(t *testing.T) {
-	m := NewManager(nil)
+	m := newSettlementManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	err := m.RecordRevenueReversal(testCtx(), GatewayReversalEvent{CycleID: "c1", GatewayEventID: "g1"})
 	if got := asSettlementError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)

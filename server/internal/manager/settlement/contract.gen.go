@@ -6,6 +6,15 @@ package settlement
 import (
 	"github.com/google/uuid"
 	fwm "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/settlement"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/durableexecution"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/merchantgateway"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedruntime"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/revenueledger"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/settlementstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usagelog"
+	"go.temporal.io/sdk/client"
 	"time"
 )
 
@@ -62,4 +71,12 @@ type SettlementManager interface {
 	RecordRevenueReversal(rc fwm.Context, event GatewayReversalEvent) error
 	RegisterCustomer(rc fwm.Context, customerID uuid.UUID) (SettlementRef, error)
 	RunShortfallSweep(rc fwm.Context, tickID string) (ShortfallSweepResult, error)
+}
+
+// NewSettlementManager constructs the SettlementManager, delegating to the hand-written, unexported
+// builder newSettlementManager in the manager package (which owns the stateful facade setup:
+// the Temporal client, the deps, and config). The constructor returns the
+// interface, so the concrete manager impl stays unexported.
+func NewSettlementManager(client client.Client, settlementState settlementstate.SettlementStateAccess, revenueLedger revenueledger.RevenueLedgerAccess, usage usagelog.UsageAccess, merchantGateway merchantgateway.MerchantGatewayAccess, operatedRuntime operatedruntime.OperatedRuntimeAccess, durableExecution durableexecution.DurableExecutionAccess, settlement settlement.SettlementEngine, intervention intervention.InterventionEngine) SettlementManager {
+	return newSettlementManager(client, settlementState, revenueLedger, usage, merchantGateway, operatedRuntime, durableExecution, settlement, intervention)
 }

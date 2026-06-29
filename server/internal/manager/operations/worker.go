@@ -7,6 +7,8 @@ import (
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/worker"
 	"go.temporal.io/sdk/workflow"
+
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/durableexecution"
 )
 
 // ---------------------------------------------------------------------------
@@ -93,7 +95,29 @@ const (
 // value) and are NOT Activities. The durableExecutionAccess in-workflow primitives
 // (awaitSignal / startTimer) are the Manager's own code (category A) and are NOT
 // Activities either.
-func RegisterWorker(w worker.Worker, deps Deps) {
+func RegisterWorker(w worker.Worker, m OperationsManager) {
+	impl, ok := m.(*operationsManager)
+	if !ok {
+		panic("operations: RegisterWorker requires a *operationsManager from NewOperationsManager")
+	}
+
+	// Fold the published deps the constructor stored into the unexported seams the
+	// Workflows struct holds (adapters.go) — the Option-B boundary mapping that replaces
+	// the former composition-root Deps wiring.
+	deps := Deps{
+		Intervention:        interventionAdapter{inner: impl.intervention},
+		Autoscaler:          autoscalerAdapter{inner: impl.autoscaler},
+		Estimation:          estimationAdapter{inner: impl.operationEstimation},
+		OperatedSystemState: operatedSystemStateAdapter{inner: impl.operatedSystemState},
+		OperatedRuntime:     operatedRuntimeAdapter{inner: impl.operatedRuntime},
+		Usage:               usageAdapter{inner: impl.usage},
+		Artifacts:           artifactAdapter{inner: impl.artifact},
+		InterventionPolicy:  impl.interventionPolicy,
+		AutoscalerPolicy:    impl.autoscalerPolicy,
+		InfrastructureKind:  impl.infrastructureKind,
+		CurrentCycleID:      impl.currentCycleID,
+		CustomerID:          impl.customerID,
+	}
 	wf := newWorkflows(deps)
 
 	w.RegisterWorkflowWithOptions(wf.DeployWorkflow, workflow.RegisterOptions{Name: ExecutionKindDeploy})
@@ -128,8 +152,8 @@ func RegisterWorker(w worker.Worker, deps Deps) {
 // Temporal Schedule at startup via durableExecutionAccess (operationsManager.md
 // §6.1; C-MOP-3). Called once at process start. The cadence is the single tunable
 // knob.
-func RegisterSchedules(ctx context.Context, durable DurableExecutionAccess) error {
-	return durable.RegisterSchedule(ctx, scheduleSpec{
+func RegisterSchedules(ctx context.Context, durable durableexecution.DurableExecutionAccess) error {
+	return durableAdapter{inner: durable}.RegisterSchedule(ctx, scheduleSpec{
 		ID:           scheduleIDReconcile,
 		WorkflowType: ExecutionKindReconcile,
 		TaskQueue:    TaskQueue,
