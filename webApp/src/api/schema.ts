@@ -276,54 +276,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/project/create-project": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["CreateProject"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/project/get-project/{projectID}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["GetProject"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/project/list-projects": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["ListProjects"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/system-design/advance-phase/{projectID}": {
         parameters: {
             query?: never;
@@ -340,6 +292,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/system-design/create-project": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["CreateProject"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/system-design/get-project/{projectID}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["GetProject"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/system-design/get-session-state/{projectID}": {
         parameters: {
             query?: never;
@@ -348,6 +332,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["GetSessionState_3"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/system-design/list-projects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["ListProjects"];
         put?: never;
         post?: never;
         delete?: never;
@@ -573,89 +573,6 @@ export interface components {
             withdrawn: boolean;
         };
         /** @enum {integer} */
-        ProjectActivityBuildStatus: 0 | 1 | 2 | 3;
-        /** @enum {integer} */
-        ProjectActivityConstructionPhase: 0 | 1 | 2 | 3;
-        ProjectActivityConstructionStatus: {
-            ActivityID: string;
-            BuildStatus: components["schemas"]["ProjectActivityBuildStatus"];
-            CurrentPhase: components["schemas"]["ProjectActivityMethodPhase"];
-            FailureDetail: string;
-            FailureReason: components["schemas"]["ProjectFailureReason"];
-            Kind: components["schemas"]["ProjectActivityType"];
-            Phase: components["schemas"]["ProjectActivityConstructionPhase"];
-            Phases: null | components["schemas"]["ProjectPhaseCompletion"][];
-            Produced: null | components["schemas"]["ProjectProducedArtifact"][];
-            Type: components["schemas"]["ProjectActivityType"];
-            Variant: components["schemas"]["ProjectTestingVariant"];
-            /** Format: date-time */
-            completedAt?: null | string;
-            /** Format: date-time */
-            startedAt?: null | string;
-        };
-        ProjectActivityGitStatus: {
-            ActivityID: string;
-            ArchApproved: boolean;
-            BranchName: string;
-            BranchRef: string;
-            CICheck: components["schemas"]["ProjectCICheckState"];
-            CRLabel: string;
-            IsRevert: boolean;
-            Merged: boolean;
-            PrNumber: number;
-            PrURL: string;
-            PullRequestRef: string;
-            /** Format: date-time */
-            UpdatedAt: string;
-        };
-        ProjectActivityMethodPhase: string;
-        /** @enum {integer} */
-        ProjectActivityType: 0 | 1 | 2 | 3 | 4;
-        ProjectArtifactSlotModel: {
-            kind: string;
-            model?: null;
-        };
-        ProjectArtifactSlotView: {
-            kind: string;
-            model: components["schemas"]["ProjectArtifactSlotModel"];
-            notes?: null | string;
-            stage: components["schemas"]["ProjectArtifactStage"];
-        };
-        /** @enum {integer} */
-        ProjectArtifactStage: 0 | 1 | 2 | 3 | 4;
-        /** @enum {integer} */
-        ProjectCICheckState: 0 | 1 | 2;
-        ProjectConstructionProgress: {
-            EV: components["schemas"]["ProjectEVCurve"];
-            HandOffModel: string;
-            SupervisionCap: number;
-            TotalWeeks: number;
-            Week: number;
-        };
-        ProjectContractOp: {
-            Inputs: null | components["schemas"]["ProjectContractStruct"][];
-            Note: string;
-            Outputs: null | components["schemas"]["ProjectContractStruct"][];
-            Signature: string;
-            Stereotype: string;
-        };
-        ProjectContractParty: {
-            How: string;
-            Layer: string;
-            Name: string;
-        };
-        ProjectContractRevision: {
-            At: string;
-            By: string;
-            ByActivity: string;
-            Rev: string;
-            Summary: string;
-        };
-        ProjectContractStruct: {
-            Fields: null | components["schemas"]["ProjectGoField"][];
-            Name: string;
-        };
-        /** @enum {integer} */
         ProjectDesignArtifactKind: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16;
         ProjectDesignDraftModel: {
             kind: string;
@@ -702,123 +619,178 @@ export interface components {
         };
         /** @enum {string} */
         ProjectDesignSeverity: "info" | "warning" | "error";
-        ProjectEVCurve: {
-            earned: null | number[];
-            planned: null | number[];
-            spi: number;
-            weeks: null | number[];
-        };
-        ProjectErrorResponse: {
-            code: string;
-            error: string;
-        };
         /** @enum {integer} */
-        ProjectFailureReason: 0 | 1 | 2 | 3 | 4 | 5;
-        ProjectGoField: {
-            Name: string;
-            Note: string;
-            Type: string;
-        };
-        ProjectOwnerScope: string;
+        SystemDesignActivityBuildStatus: 0 | 1 | 2 | 3;
         /** @enum {integer} */
-        ProjectPhase: 0 | 1 | 2;
-        ProjectPhaseCompletion: {
-            ArtifactRef: string;
-            Completed: boolean;
-            Phase: components["schemas"]["ProjectActivityMethodPhase"];
-            Weight: number;
+        SystemDesignActivityConstructionPhase: 0 | 1 | 2 | 3;
+        SystemDesignActivityConstructionStatus: {
+            ActivityID: string;
+            BuildStatus: components["schemas"]["SystemDesignActivityBuildStatus"];
+            CurrentPhase: components["schemas"]["SystemDesignActivityMethodPhase"];
+            FailureDetail: string;
+            FailureReason: components["schemas"]["SystemDesignFailureReason"];
+            Kind: components["schemas"]["SystemDesignActivityType"];
+            Phase: components["schemas"]["SystemDesignActivityConstructionPhase"];
+            Phases: null | components["schemas"]["SystemDesignPhaseCompletion"][];
+            Produced: null | components["schemas"]["SystemDesignProducedArtifact"][];
+            Type: components["schemas"]["SystemDesignActivityType"];
+            Variant: components["schemas"]["SystemDesignTestingVariant"];
             /** Format: date-time */
             completedAt?: null | string;
+            /** Format: date-time */
+            startedAt?: null | string;
         };
-        ProjectProducedArtifact: {
-            Kind: string;
-            Note: string;
-            Produced: boolean;
-            Source: string;
-            Title: string;
-        };
-        ProjectProjectID: string;
-        ProjectProjectState: {
-            ActivityConstruction: {
-                [key: string]: components["schemas"]["ProjectActivityConstructionStatus"];
-            };
-            GitRows: {
-                [key: string]: components["schemas"]["ProjectActivityGitStatus"];
-            };
-            Name: string;
-            Owner: components["schemas"]["ProjectOwnerScope"];
-            Phase: components["schemas"]["ProjectPhase"];
-            ProjectID: components["schemas"]["ProjectProjectID"];
-            Research: components["schemas"]["ProjectResearchInput"];
-            ServiceContracts: {
-                [key: string]: components["schemas"]["ProjectServiceContract"];
-            };
-            Slots: null | components["schemas"]["ProjectArtifactSlotView"][];
-            Version: number;
-            constructionProgress?: components["schemas"]["ProjectConstructionProgress"];
-        };
-        ProjectProjectSummary: {
-            CommittedCount: number;
-            Name: string;
-            Owner: components["schemas"]["ProjectOwnerScope"];
-            Phase: components["schemas"]["ProjectPhase"];
-            ProjectID: components["schemas"]["ProjectProjectID"];
-            TotalCount: number;
+        SystemDesignActivityGitStatus: {
+            ActivityID: string;
+            ArchApproved: boolean;
+            BranchName: string;
+            BranchRef: string;
+            CICheck: components["schemas"]["SystemDesignCICheckState"];
+            CRLabel: string;
+            IsRevert: boolean;
+            Merged: boolean;
+            PrNumber: number;
+            PrURL: string;
+            PullRequestRef: string;
             /** Format: date-time */
             UpdatedAt: string;
         };
-        ProjectResearchInput: {
-            Sources: null | components["schemas"]["ProjectResearchSource"][];
-        };
-        ProjectResearchSource: {
-            Content: string;
-            Title: string;
-        };
-        ProjectServiceContract: {
-            Component: string;
-            DataContracts: null | string[];
-            ErrorModel: string;
-            Idempotency: string;
-            Inbound: null | components["schemas"]["ProjectContractParty"][];
-            Layer: string;
-            Ops: null | components["schemas"]["ProjectContractOp"][];
-            Outbound: null | components["schemas"]["ProjectContractParty"][];
-            Revisions: null | components["schemas"]["ProjectContractRevision"][];
-            Status: string;
-            Stereotype: string;
-            Volatility: string;
-        };
+        SystemDesignActivityMethodPhase: string;
         /** @enum {integer} */
-        ProjectTestingVariant: 0 | 1 | 2 | 3 | 4;
+        SystemDesignActivityType: 0 | 1 | 2 | 3 | 4;
         SystemDesignAnchoredComment: {
             jsonPath: string;
             text: string;
         };
         /** @enum {integer} */
         SystemDesignArtifactKind: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16;
+        SystemDesignArtifactSlotModel: {
+            kind: string;
+            model?: null;
+        };
+        SystemDesignArtifactSlotView: {
+            kind: string;
+            model: components["schemas"]["SystemDesignArtifactSlotModel"];
+            notes?: null | string;
+            stage: components["schemas"]["SystemDesignArtifactStage"];
+        };
+        /** @enum {integer} */
+        SystemDesignArtifactStage: 0 | 1 | 2 | 3 | 4;
+        /** @enum {integer} */
+        SystemDesignCICheckState: 0 | 1 | 2;
+        SystemDesignConstructionProgress: {
+            EV: components["schemas"]["SystemDesignEVCurve"];
+            HandOffModel: string;
+            SupervisionCap: number;
+            TotalWeeks: number;
+            Week: number;
+        };
+        SystemDesignContractOp: {
+            Inputs: null | components["schemas"]["SystemDesignContractStruct"][];
+            Note: string;
+            Outputs: null | components["schemas"]["SystemDesignContractStruct"][];
+            Signature: string;
+            Stereotype: string;
+        };
+        SystemDesignContractParty: {
+            How: string;
+            Layer: string;
+            Name: string;
+        };
+        SystemDesignContractRevision: {
+            At: string;
+            By: string;
+            ByActivity: string;
+            Rev: string;
+            Summary: string;
+        };
+        SystemDesignContractStruct: {
+            Fields: null | components["schemas"]["SystemDesignGoField"][];
+            Name: string;
+        };
         SystemDesignDraftModel: {
             kind: string;
             model?: null;
+        };
+        SystemDesignEVCurve: {
+            earned: null | number[];
+            planned: null | number[];
+            spi: number;
+            weeks: null | number[];
         };
         SystemDesignErrorResponse: {
             code: string;
             error: string;
         };
+        /** @enum {integer} */
+        SystemDesignFailureReason: 0 | 1 | 2 | 3 | 4 | 5;
         SystemDesignFinding: {
             location?: components["schemas"]["SystemDesignLocation"];
             message: string;
             ruleId: components["schemas"]["SystemDesignRuleID"];
             severity: components["schemas"]["SystemDesignSeverity"];
         };
+        SystemDesignGoField: {
+            Name: string;
+            Note: string;
+            Type: string;
+        };
         SystemDesignLocation: {
             ordinal: number;
             section: string;
         };
+        SystemDesignOwnerScope: string;
+        /** @enum {integer} */
+        SystemDesignPhase: 0 | 1 | 2;
         SystemDesignPhaseAdvanceResult: {
             advanced: boolean;
             missingArtifacts: null | components["schemas"]["SystemDesignArtifactKind"][];
         };
+        SystemDesignPhaseCompletion: {
+            ArtifactRef: string;
+            Completed: boolean;
+            Phase: components["schemas"]["SystemDesignActivityMethodPhase"];
+            Weight: number;
+            /** Format: date-time */
+            completedAt?: null | string;
+        };
+        SystemDesignProducedArtifact: {
+            Kind: string;
+            Note: string;
+            Produced: boolean;
+            Source: string;
+            Title: string;
+        };
         SystemDesignProjectID: string;
+        SystemDesignProjectState: {
+            ActivityConstruction: {
+                [key: string]: components["schemas"]["SystemDesignActivityConstructionStatus"];
+            };
+            GitRows: {
+                [key: string]: components["schemas"]["SystemDesignActivityGitStatus"];
+            };
+            Name: string;
+            Owner: components["schemas"]["SystemDesignOwnerScope"];
+            Phase: components["schemas"]["SystemDesignPhase"];
+            ProjectID: components["schemas"]["SystemDesignProjectID"];
+            Research: components["schemas"]["SystemDesignResearchInput"];
+            ServiceContracts: {
+                [key: string]: components["schemas"]["SystemDesignServiceContract"];
+            };
+            Slots: null | components["schemas"]["SystemDesignArtifactSlotView"][];
+            Version: number;
+            constructionProgress?: components["schemas"]["SystemDesignConstructionProgress"];
+        };
+        SystemDesignProjectSummary: {
+            CommittedCount: number;
+            Name: string;
+            Owner: components["schemas"]["SystemDesignOwnerScope"];
+            Phase: components["schemas"]["SystemDesignPhase"];
+            ProjectID: components["schemas"]["SystemDesignProjectID"];
+            TotalCount: number;
+            /** Format: date-time */
+            UpdatedAt: string;
+        };
         SystemDesignResearchInput: {
             sources: null | components["schemas"]["SystemDesignResearchSource"][];
         };
@@ -833,6 +805,20 @@ export interface components {
             notes: string;
         };
         SystemDesignRuleID: string;
+        SystemDesignServiceContract: {
+            Component: string;
+            DataContracts: null | string[];
+            ErrorModel: string;
+            Idempotency: string;
+            Inbound: null | components["schemas"]["SystemDesignContractParty"][];
+            Layer: string;
+            Ops: null | components["schemas"]["SystemDesignContractOp"][];
+            Outbound: null | components["schemas"]["SystemDesignContractParty"][];
+            Revisions: null | components["schemas"]["SystemDesignContractRevision"][];
+            Status: string;
+            Stereotype: string;
+            Volatility: string;
+        };
         SystemDesignSessionRef: string;
         /** @enum {integer} */
         SystemDesignSessionStage: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
@@ -846,6 +832,8 @@ export interface components {
         };
         /** @enum {string} */
         SystemDesignSeverity: "info" | "warning" | "error";
+        /** @enum {integer} */
+        SystemDesignTestingVariant: 0 | 1 | 2 | 3 | 4;
         SystemDesignVersion: number;
     };
     responses: never;
@@ -2375,266 +2363,6 @@ export interface operations {
             };
         };
     };
-    CreateProject: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    name: string;
-                    owner: components["schemas"]["ProjectOwnerScope"];
-                };
-            };
-        };
-        responses: {
-            /** @description success */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProjectProjectID"];
-                };
-            };
-            /** @description contract misuse */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProjectErrorResponse"];
-                };
-            };
-            /** @description unauthenticated */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProjectErrorResponse"];
-                };
-            };
-            /** @description forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProjectErrorResponse"];
-                };
-            };
-            /** @description not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProjectErrorResponse"];
-                };
-            };
-            /** @description failed precondition */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProjectErrorResponse"];
-                };
-            };
-            /** @description internal error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProjectErrorResponse"];
-                };
-            };
-            /** @description infrastructure unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProjectErrorResponse"];
-                };
-            };
-        };
-    };
-    GetProject: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                projectID: components["schemas"]["ProjectProjectID"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description success */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProjectProjectState"];
-                };
-            };
-            /** @description contract misuse */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProjectErrorResponse"];
-                };
-            };
-            /** @description unauthenticated */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProjectErrorResponse"];
-                };
-            };
-            /** @description forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProjectErrorResponse"];
-                };
-            };
-            /** @description not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProjectErrorResponse"];
-                };
-            };
-            /** @description failed precondition */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProjectErrorResponse"];
-                };
-            };
-            /** @description internal error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProjectErrorResponse"];
-                };
-            };
-            /** @description infrastructure unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProjectErrorResponse"];
-                };
-            };
-        };
-    };
-    ListProjects: {
-        parameters: {
-            query: {
-                owner: components["schemas"]["ProjectOwnerScope"];
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description success */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProjectProjectSummary"][];
-                };
-            };
-            /** @description contract misuse */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProjectErrorResponse"];
-                };
-            };
-            /** @description unauthenticated */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProjectErrorResponse"];
-                };
-            };
-            /** @description forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProjectErrorResponse"];
-                };
-            };
-            /** @description not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProjectErrorResponse"];
-                };
-            };
-            /** @description failed precondition */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProjectErrorResponse"];
-                };
-            };
-            /** @description internal error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProjectErrorResponse"];
-                };
-            };
-            /** @description infrastructure unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProjectErrorResponse"];
-                };
-            };
-        };
-    };
     AdvancePhase: {
         parameters: {
             query?: never;
@@ -2653,6 +2381,181 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SystemDesignPhaseAdvanceResult"];
+                };
+            };
+            /** @description contract misuse */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description failed precondition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description infrastructure unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+        };
+    };
+    CreateProject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    name: string;
+                    owner: components["schemas"]["SystemDesignOwnerScope"];
+                };
+            };
+        };
+        responses: {
+            /** @description success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignProjectID"];
+                };
+            };
+            /** @description contract misuse */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description failed precondition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description infrastructure unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+        };
+    };
+    GetProject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectID: components["schemas"]["SystemDesignProjectID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignProjectState"];
                 };
             };
             /** @description contract misuse */
@@ -2740,6 +2643,91 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SystemDesignSessionStateView"];
+                };
+            };
+            /** @description contract misuse */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description failed precondition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description infrastructure unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+        };
+    };
+    ListProjects: {
+        parameters: {
+            query: {
+                owner: components["schemas"]["SystemDesignOwnerScope"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignProjectSummary"][];
                 };
             };
             /** @description contract misuse */

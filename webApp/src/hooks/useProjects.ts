@@ -20,7 +20,7 @@ export function useProjects(): UseQueryResult<ProjectSummary[]> {
   return useQuery<ProjectSummary[]>({
     queryKey: [...projectsKey(), owner],
     queryFn: async () => {
-      const { data, error, response } = await apiClient.GET('/api/v1/project/list-projects', {
+      const { data, error, response } = await apiClient.GET('/api/v1/system-design/list-projects', {
         params: { query: { owner } },
       });
       if (error !== undefined) throw toApiError(response.status, error);

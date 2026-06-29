@@ -25,7 +25,7 @@ export function useProject(
     queryKey: projectKey(projectId),
     queryFn: async () => {
       const { data, error, response } = await apiClient.GET(
-        '/api/v1/project/get-project/{projectID}',
+        '/api/v1/system-design/get-project/{projectID}',
         { params: { path: { projectID: projectId } } }
       );
       if (error !== undefined) throw toApiError(response.status, error);

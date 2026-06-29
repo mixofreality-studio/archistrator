@@ -14,7 +14,7 @@ export function useCreateProject(): UseMutationResult<string, Error, string> {
   const owner = useUser().sub;
   return useMutation<string, Error, string>({
     mutationFn: async (name: string) => {
-      const { data, error, response } = await apiClient.POST('/api/v1/project/create-project', {
+      const { data, error, response } = await apiClient.POST('/api/v1/system-design/create-project', {
         body: { name, owner },
       });
       if (error !== undefined) throw toApiError(response.status, error);

@@ -86,7 +86,7 @@ function mapProjectEnvelope(w: { kind: string; model?: unknown }): ProjectArtifa
 
 // --- project catalog + head-state ------------------------------------------
 
-export function mapProjectSummary(w: Schemas['ProjectProjectSummary']): ProjectSummary {
+export function mapProjectSummary(w: Schemas['SystemDesignProjectSummary']): ProjectSummary {
   return {
     projectId: w.ProjectID,
     name: w.Name,
@@ -98,11 +98,11 @@ export function mapProjectSummary(w: Schemas['ProjectProjectSummary']): ProjectS
   };
 }
 
-function mapResearchInput(w: Schemas['ProjectResearchInput']): ResearchInput {
-  return { sources: (w.Sources ?? []).map((s) => ({ title: s.Title, content: s.Content })) };
+function mapResearchInput(w: Schemas['SystemDesignResearchInput']): ResearchInput {
+  return { sources: (w.sources ?? []).map((s) => ({ title: s.title, content: s.content })) };
 }
 
-function mapSlot(w: Schemas['ProjectArtifactSlotView']): ArtifactSlotView {
+function mapSlot(w: Schemas['SystemDesignArtifactSlotView']): ArtifactSlotView {
   return {
     kind: w.kind as ArtifactKindFull,
     stage: w.stage,
@@ -111,7 +111,7 @@ function mapSlot(w: Schemas['ProjectArtifactSlotView']): ArtifactSlotView {
   };
 }
 
-function mapGitRow(w: Schemas['ProjectActivityGitStatus']): GitRow {
+function mapGitRow(w: Schemas['SystemDesignActivityGitStatus']): GitRow {
   return {
     branchName: w.BranchName,
     ...(w.PrNumber > 0 ? { prNumber: w.PrNumber } : {}),
@@ -125,11 +125,11 @@ function mapGitRow(w: Schemas['ProjectActivityGitStatus']): GitRow {
   };
 }
 
-function mapProducedArtifact(w: Schemas['ProjectProducedArtifact']): ProducedArtifactRow {
+function mapProducedArtifact(w: Schemas['SystemDesignProducedArtifact']): ProducedArtifactRow {
   return { kind: w.Kind, title: w.Title, source: w.Source, produced: w.Produced, note: w.Note };
 }
 
-function mapConstructionRow(w: Schemas['ProjectActivityConstructionStatus']): ConstructionRow {
+function mapConstructionRow(w: Schemas['SystemDesignActivityConstructionStatus']): ConstructionRow {
   return {
     activityId: w.ActivityID,
     kind: activityRowKindFromOrdinal(w.Kind),
@@ -139,7 +139,7 @@ function mapConstructionRow(w: Schemas['ProjectActivityConstructionStatus']): Co
   };
 }
 
-function mapServiceContract(w: Schemas['ProjectServiceContract']): ServiceContract {
+function mapServiceContract(w: Schemas['SystemDesignServiceContract']): ServiceContract {
   return {
     component: w.Component,
     layer: w.Layer,
@@ -195,7 +195,7 @@ function mapServiceContract(w: Schemas['ProjectServiceContract']): ServiceContra
 }
 
 function mapConstructionProgress(
-  w: Schemas['ProjectConstructionProgress']
+  w: Schemas['SystemDesignConstructionProgress']
 ): ConstructionProgress {
   return {
     week: w.Week,
@@ -225,7 +225,7 @@ function mapRecord<W, A>(
   return out;
 }
 
-export function mapProjectState(w: Schemas['ProjectProjectState']): ProjectStateWithGit {
+export function mapProjectState(w: Schemas['SystemDesignProjectState']): ProjectStateWithGit {
   const base: ProjectState = {
     projectId: w.ProjectID,
     name: w.Name,
@@ -235,14 +235,14 @@ export function mapProjectState(w: Schemas['ProjectProjectState']): ProjectState
     research: mapResearchInput(w.Research),
     slots: (w.Slots ?? []).map(mapSlot),
   };
-  const gitRows = mapRecord<Schemas['ProjectActivityGitStatus'], GitRow>(w.GitRows, mapGitRow) as
+  const gitRows = mapRecord<Schemas['SystemDesignActivityGitStatus'], GitRow>(w.GitRows, mapGitRow) as
     | GitRows
     | undefined;
   const constructionRows = mapRecord<
-    Schemas['ProjectActivityConstructionStatus'],
+    Schemas['SystemDesignActivityConstructionStatus'],
     ConstructionRow
   >(w.ActivityConstruction, mapConstructionRow) as ConstructionRows | undefined;
-  const serviceContracts = mapRecord<Schemas['ProjectServiceContract'], ServiceContract>(
+  const serviceContracts = mapRecord<Schemas['SystemDesignServiceContract'], ServiceContract>(
     w.ServiceContracts,
     mapServiceContract
   ) as ServiceContracts | undefined;
