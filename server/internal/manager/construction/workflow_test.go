@@ -226,19 +226,19 @@ type fakePipeline struct {
 
 	phase     PipelinePhase // terminal phase to serve
 	diag      string
-	submitted []PipelineSpec
-	cancelled []PipelineHandle
+	submitted []pipelineSpec
+	cancelled []pipelineHandle
 	polls     int
 }
 
-func (p *fakePipeline) SubmitConstructionPipeline(_ context.Context, spec PipelineSpec, _ fwra.IdempotencyKey) (PipelineHandle, error) {
+func (p *fakePipeline) SubmitConstructionPipeline(_ context.Context, spec pipelineSpec, _ fwra.IdempotencyKey) (pipelineHandle, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.submitted = append(p.submitted, spec)
-	return PipelineHandle{Name: "wf-" + spec.ActivityID}, nil
+	return pipelineHandle{Name: "wf-" + spec.ActivityID}, nil
 }
 
-func (p *fakePipeline) ObserveConstructionPipeline(_ context.Context, _ PipelineHandle) (PipelineObservation, error) {
+func (p *fakePipeline) ObserveConstructionPipeline(_ context.Context, _ pipelineHandle) (pipelineObservation, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.polls++
@@ -246,10 +246,10 @@ func (p *fakePipeline) ObserveConstructionPipeline(_ context.Context, _ Pipeline
 	if ph == PipelinePhaseUnknown {
 		ph = PipelineSucceeded
 	}
-	return PipelineObservation{Phase: ph, Diagnostic: p.diag}, nil
+	return pipelineObservation{Phase: ph, Diagnostic: p.diag}, nil
 }
 
-func (p *fakePipeline) CancelConstructionPipeline(_ context.Context, handle PipelineHandle) error {
+func (p *fakePipeline) CancelConstructionPipeline(_ context.Context, handle pipelineHandle) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.cancelled = append(p.cancelled, handle)
@@ -279,16 +279,16 @@ var _ artifactAccess = (*fakeArtifacts)(nil)
 
 // fakeHandOff returns a scripted worker class.
 type fakeHandOff struct {
-	class WorkerClass
+	class workerClass
 	err   error
 }
 
-func (h *fakeHandOff) PickWorkerClass(_ ConstructionActivity, _ HandOffPolicy) (WorkerClass, error) {
+func (h *fakeHandOff) PickWorkerClass(_ constructionActivity, _ handOffPolicy) (workerClass, error) {
 	if h.err != nil {
-		return WorkerClassUnknown, h.err
+		return workerClassUnknown, h.err
 	}
-	if h.class == WorkerClassUnknown {
-		return AIWorker, nil
+	if h.class == workerClassUnknown {
+		return aiWorker, nil
 	}
 	return h.class, nil
 }
@@ -297,18 +297,18 @@ var _ handOffEngine = (*fakeHandOff)(nil)
 
 // fakeIntervention returns scripted directives/plans.
 type fakeIntervention struct {
-	directive VarianceDirective
-	plan      PausePlan
+	directive varianceDirective
+	plan      pausePlan
 }
 
-func (i *fakeIntervention) DecideOnVariance(_ ConstructionVariance) (VarianceDirective, error) {
-	if i.directive == DirectiveUnknown {
-		return DirectiveEscalate, nil
+func (i *fakeIntervention) DecideOnVariance(_ constructionVariance) (varianceDirective, error) {
+	if i.directive == directiveUnknown {
+		return directiveEscalate, nil
 	}
 	return i.directive, nil
 }
 
-func (i *fakeIntervention) ApplyPausePolicy(_ string, _ PauseRequestContext) (PausePlan, error) {
+func (i *fakeIntervention) ApplyPausePolicy(_ string, _ pauseRequestContext) (pausePlan, error) {
 	return i.plan, nil
 }
 
@@ -319,7 +319,7 @@ type fakeReview struct {
 	set ReviewSet
 }
 
-func (r *fakeReview) ProposeReviews(_ ReviewChange, _ string, _ string, _ string, _ []string) (ReviewSet, error) {
+func (r *fakeReview) ProposeReviews(_ reviewChange, _ string, _ string, _ string, _ []string) (ReviewSet, error) {
 	return r.set, nil
 }
 
@@ -328,8 +328,8 @@ var _ reviewEngine = (*fakeReview)(nil)
 // ---- helpers ----------------------------------------------------------------
 
 // registerConstruct registers the per-activity child workflow + its activities.
-func registerConstruct(env *testsuite.TestWorkflowEnvironment, wf *Workflows) {
-	env.RegisterWorkflowWithOptions(wf.ConstructActivityWorkflow, workflow.RegisterOptions{Name: ExecutionKindConstructActivity})
+func registerConstruct(env *testsuite.TestWorkflowEnvironment, wf *workflows) {
+	env.RegisterWorkflowWithOptions(wf.ConstructActivityWorkflow, workflow.RegisterOptions{Name: executionKindConstructActivity})
 	env.RegisterActivity(wf.ReadProjectActivity)
 	env.RegisterActivity(wf.ReadProjectVersionActivity)
 	env.RegisterActivity(wf.GenerateWorkActivity)
@@ -344,9 +344,9 @@ func registerConstruct(env *testsuite.TestWorkflowEnvironment, wf *Workflows) {
 	env.RegisterActivity(wf.RecordOperatorPausedActivity)
 }
 
-func registerPump(env *testsuite.TestWorkflowEnvironment, wf *Workflows) {
-	env.RegisterWorkflowWithOptions(wf.PumpNextActivityWorkflow, workflow.RegisterOptions{Name: ExecutionKindPump})
-	env.RegisterWorkflowWithOptions(wf.ConstructActivityWorkflow, workflow.RegisterOptions{Name: ExecutionKindConstructActivity})
+func registerPump(env *testsuite.TestWorkflowEnvironment, wf *workflows) {
+	env.RegisterWorkflowWithOptions(wf.PumpNextActivityWorkflow, workflow.RegisterOptions{Name: executionKindPump})
+	env.RegisterWorkflowWithOptions(wf.ConstructActivityWorkflow, workflow.RegisterOptions{Name: executionKindConstructActivity})
 	// The pump now waits for child COMPLETION (self-cascade), so the per-activity
 	// child runs end-to-end and ALL its activities must be registered.
 	env.RegisterActivity(wf.ReadProjectActivity)
@@ -363,8 +363,8 @@ func registerPump(env *testsuite.TestWorkflowEnvironment, wf *Workflows) {
 	env.RegisterActivity(wf.RecordOperatorPausedActivity)
 }
 
-func registerSupervision(env *testsuite.TestWorkflowEnvironment, wf *Workflows) {
-	env.RegisterWorkflowWithOptions(wf.ProjectSupervisionWorkflow, workflow.RegisterOptions{Name: ExecutionKindProjectSupervision})
+func registerSupervision(env *testsuite.TestWorkflowEnvironment, wf *workflows) {
+	env.RegisterWorkflowWithOptions(wf.ProjectSupervisionWorkflow, workflow.RegisterOptions{Name: executionKindProjectSupervision})
 	env.RegisterActivity(wf.ReadProjectActivity)
 	env.RegisterActivity(wf.ReadProjectVersionActivity)
 	env.RegisterActivity(wf.CancelWorkerActivity)
@@ -372,14 +372,14 @@ func registerSupervision(env *testsuite.TestWorkflowEnvironment, wf *Workflows) 
 	env.RegisterActivity(wf.RecordOperatorPausedActivity)
 }
 
-func registerReplanSweep(env *testsuite.TestWorkflowEnvironment, wf *Workflows) {
-	env.RegisterWorkflowWithOptions(wf.ReplanSweepWorkflow, workflow.RegisterOptions{Name: ExecutionKindReplanSweep})
+func registerReplanSweep(env *testsuite.TestWorkflowEnvironment, wf *workflows) {
+	env.RegisterWorkflowWithOptions(wf.ReplanSweepWorkflow, workflow.RegisterOptions{Name: executionKindReplanSweep})
 	env.RegisterActivity(wf.ReadProjectActivity)
 	env.RegisterActivity(wf.ReadProjectVersionActivity)
 }
 
-func sampleActivity() ConstructionActivity {
-	return ConstructionActivity{ActivityID: "C-XYZ", Kind: ActivityKindConstruction, ComponentID: "comp-1", Layer: "engine"}
+func sampleActivity() constructionActivity {
+	return constructionActivity{ActivityID: "C-XYZ", Kind: activityKindConstruction, ComponentID: "comp-1", Layer: "engine"}
 }
 
 // ---- Tests: per-activity spine (ConstructActivityWorkflow) ------------------
@@ -395,12 +395,12 @@ func Test_Construct_HappyPath_RecordsReviewedAndExited(t *testing.T) {
 	art := &fakeArtifacts{}
 	w := &fakeWorker{}
 	wf := newWorkflows(wfDeps{
-		HandOff: &fakeHandOff{class: AIWorker}, Intervention: &fakeIntervention{directive: DirectiveRetry},
+		HandOff: &fakeHandOff{class: aiWorker}, Intervention: &fakeIntervention{directive: directiveRetry},
 		Review: &fakeReview{}, ProjectState: ps, Pipeline: pipe, Artifacts: art, Workers: w,
 	})
 	registerConstruct(env, wf)
 
-	env.ExecuteWorkflow(ExecutionKindConstructActivity, ConstructActivityInput{
+	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{
 		ProjectID: ProjectID(ps.project.ID), ActivityID: "C-XYZ", Activity: sampleActivity(),
 	})
 
@@ -423,7 +423,7 @@ func Test_Construct_HappyPath_RecordsReviewedAndExited(t *testing.T) {
 	}
 }
 
-// ArchitectOnly skips dispatch + pipeline and awaits an operator override; a Skip
+// architectOnly skips dispatch + pipeline and awaits an operator override; a Skip
 // override exits the activity with the operator-skip outcome and no worker dispatch.
 func Test_Construct_ArchitectOnly_AwaitsOverride_SkipExits(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
@@ -432,16 +432,16 @@ func Test_Construct_ArchitectOnly_AwaitsOverride_SkipExits(t *testing.T) {
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(uuid.NewString()), Version: 1, Phase: 2}}
 	w := &fakeWorker{}
 	wf := newWorkflows(wfDeps{
-		HandOff: &fakeHandOff{class: ArchitectOnly}, Intervention: &fakeIntervention{directive: DirectiveRetry},
+		HandOff: &fakeHandOff{class: architectOnly}, Intervention: &fakeIntervention{directive: directiveRetry},
 		Review: &fakeReview{}, ProjectState: ps, Pipeline: &fakePipeline{}, Artifacts: &fakeArtifacts{}, Workers: w,
 	})
 	registerConstruct(env, wf)
 
 	env.RegisterDelayedCallback(func() {
-		env.SignalWorkflow(SignalOperatorOverride, OperatorOverrideSignal{Override: ActivityOverride{Kind: OverrideSkip}})
+		env.SignalWorkflow(signalOperatorOverride, operatorOverrideSignal{Override: ActivityOverride{Kind: OverrideSkip}})
 	}, time.Millisecond)
 
-	env.ExecuteWorkflow(ExecutionKindConstructActivity, ConstructActivityInput{
+	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{
 		ProjectID: ProjectID(ps.project.ID), ActivityID: "C-ARCH", Activity: sampleActivity(),
 	})
 
@@ -449,7 +449,7 @@ func Test_Construct_ArchitectOnly_AwaitsOverride_SkipExits(t *testing.T) {
 		t.Fatalf("workflow error: %v", err)
 	}
 	if len(w.prompts) != 0 {
-		t.Fatalf("ArchitectOnly must NOT dispatch a worker, got %d dispatches", len(w.prompts))
+		t.Fatalf("architectOnly must NOT dispatch a worker, got %d dispatches", len(w.prompts))
 	}
 	if len(ps.exited) != 1 || ps.exited[0].outcome != projectstate.ActivityOutcomeSkipped {
 		t.Fatalf("want one recordActivityExited(Skipped), got %v", ps.exited)
@@ -468,12 +468,12 @@ func Test_Construct_PipelineFailed_Takeover_CancelsWorker_ThenCompletes(t *testi
 	pipe := &flippablePipeline{first: PipelineFailed, rest: PipelineSucceeded}
 	w := &fakeWorker{}
 	wf := newWorkflows(wfDeps{
-		HandOff: &fakeHandOff{class: AIWorker}, Intervention: &fakeIntervention{directive: DirectiveTakeover},
+		HandOff: &fakeHandOff{class: aiWorker}, Intervention: &fakeIntervention{directive: directiveTakeover},
 		Review: &fakeReview{}, ProjectState: ps, Pipeline: pipe, Artifacts: &fakeArtifacts{}, Workers: w,
 	})
 	registerConstruct(env, wf)
 
-	env.ExecuteWorkflow(ExecutionKindConstructActivity, ConstructActivityInput{
+	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{
 		ProjectID: ProjectID(ps.project.ID), ActivityID: "C-PF", Activity: sampleActivity(),
 	})
 
@@ -494,26 +494,26 @@ type flippablePipeline struct {
 	first     PipelinePhase
 	rest      PipelinePhase
 	submits   int
-	cancelled []PipelineHandle
+	cancelled []pipelineHandle
 }
 
-func (p *flippablePipeline) SubmitConstructionPipeline(_ context.Context, spec PipelineSpec, _ fwra.IdempotencyKey) (PipelineHandle, error) {
+func (p *flippablePipeline) SubmitConstructionPipeline(_ context.Context, spec pipelineSpec, _ fwra.IdempotencyKey) (pipelineHandle, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.submits++
-	return PipelineHandle{Name: "wf"}, nil
+	return pipelineHandle{Name: "wf"}, nil
 }
 
-func (p *flippablePipeline) ObserveConstructionPipeline(_ context.Context, _ PipelineHandle) (PipelineObservation, error) {
+func (p *flippablePipeline) ObserveConstructionPipeline(_ context.Context, _ pipelineHandle) (pipelineObservation, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.submits <= 1 {
-		return PipelineObservation{Phase: p.first, Diagnostic: "boom"}, nil
+		return pipelineObservation{Phase: p.first, Diagnostic: "boom"}, nil
 	}
-	return PipelineObservation{Phase: p.rest}, nil
+	return pipelineObservation{Phase: p.rest}, nil
 }
 
-func (p *flippablePipeline) CancelConstructionPipeline(_ context.Context, handle PipelineHandle) error {
+func (p *flippablePipeline) CancelConstructionPipeline(_ context.Context, handle pipelineHandle) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.cancelled = append(p.cancelled, handle)
@@ -531,13 +531,13 @@ func Test_Construct_ConflictOnRecord_ReReadReApply_Succeeds(t *testing.T) {
 
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(uuid.NewString()), Version: 1, Phase: 2}, conflictFirst: 2}
 	wf := newWorkflows(wfDeps{
-		HandOff: &fakeHandOff{class: AIWorker}, Intervention: &fakeIntervention{directive: DirectiveRetry},
+		HandOff: &fakeHandOff{class: aiWorker}, Intervention: &fakeIntervention{directive: directiveRetry},
 		Review: &fakeReview{}, ProjectState: ps, Pipeline: &fakePipeline{phase: PipelineSucceeded},
 		Artifacts: &fakeArtifacts{}, Workers: &fakeWorker{},
 	})
 	registerConstruct(env, wf)
 
-	env.ExecuteWorkflow(ExecutionKindConstructActivity, ConstructActivityInput{
+	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{
 		ProjectID: ProjectID(ps.project.ID), ActivityID: "C-CONF", Activity: sampleActivity(),
 	})
 
@@ -568,7 +568,7 @@ func Test_Pump_NoEligibleActivity_QuietTick(t *testing.T) {
 	})
 	registerPump(env, wf)
 
-	env.ExecuteWorkflow(ExecutionKindPump, PumpInput{ProjectID: ProjectID(ps.project.ID)})
+	env.ExecuteWorkflow(executionKindPump, pumpInput{ProjectID: ProjectID(ps.project.ID)})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("pump error: %v", err)
@@ -594,7 +594,7 @@ func Test_Pump_ProjectNotFound_QuietTick(t *testing.T) {
 	})
 	registerPump(env, wf)
 
-	env.ExecuteWorkflow(ExecutionKindPump, PumpInput{ProjectID: ProjectID(uuid.NewString())})
+	env.ExecuteWorkflow(executionKindPump, pumpInput{ProjectID: ProjectID(uuid.NewString())})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("pump error: %v", err)
@@ -608,7 +608,7 @@ func Test_Pump_ProjectNotFound_QuietTick(t *testing.T) {
 
 // An eligible activity ⇒ the pump runs the per-activity child to COMPLETION, then
 // SELF-CASCADES via ContinueAsNew (Task 3). The test env surfaces ContinueAsNew as a
-// *workflow.ContinueAsNewError carrying the next PumpInput. The child's spine ran
+// *workflow.ContinueAsNewError carrying the next pumpInput. The child's spine ran
 // end-to-end (one reviewed + one completed exit recorded).
 func Test_Pump_EligibleActivity_RunsChild_ThenContinueAsNew(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
@@ -617,22 +617,22 @@ func Test_Pump_EligibleActivity_RunsChild_ThenContinueAsNew(t *testing.T) {
 	pid := ProjectID(uuid.NewString())
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
 	wf := newWorkflows(wfDeps{
-		HandOff: &fakeHandOff{class: AIWorker}, Intervention: &fakeIntervention{directive: DirectiveRetry},
+		HandOff: &fakeHandOff{class: aiWorker}, Intervention: &fakeIntervention{directive: directiveRetry},
 		Review: &fakeReview{}, ProjectState: ps, Pipeline: &fakePipeline{phase: PipelineSucceeded},
 		Artifacts: &fakeArtifacts{}, Workers: &fakeWorker{},
-		NextEligibleActivity: func(_ projectstate.Project) (ConstructionActivity, bool) {
+		NextEligibleActivity: func(_ projectstate.Project) (constructionActivity, bool) {
 			return sampleActivity(), true
 		},
 	})
 	registerPump(env, wf)
 
-	env.ExecuteWorkflow(ExecutionKindPump, PumpInput{ProjectID: pid})
+	env.ExecuteWorkflow(executionKindPump, pumpInput{ProjectID: pid})
 
 	if !env.IsWorkflowCompleted() {
 		t.Fatal("pump did not complete")
 	}
 	// A successful eligible dispatch self-cascades: the terminal "error" is a
-	// ContinueAsNewError carrying the next tick's PumpInput (NOT a real failure).
+	// ContinueAsNewError carrying the next tick's pumpInput (NOT a real failure).
 	err := env.GetWorkflowError()
 	var canErr *workflow.ContinueAsNewError
 	if !errors.As(err, &canErr) {
@@ -653,15 +653,15 @@ func Test_Pump_DrainedNetwork_QuietNoContinueAsNew(t *testing.T) {
 	pid := ProjectID(uuid.NewString())
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
 	wf := newWorkflows(wfDeps{
-		HandOff: &fakeHandOff{class: AIWorker}, Intervention: &fakeIntervention{}, Review: &fakeReview{},
+		HandOff: &fakeHandOff{class: aiWorker}, Intervention: &fakeIntervention{}, Review: &fakeReview{},
 		ProjectState: ps, Pipeline: &fakePipeline{}, Artifacts: &fakeArtifacts{}, Workers: &fakeWorker{},
-		NextEligibleActivity: func(_ projectstate.Project) (ConstructionActivity, bool) {
-			return ConstructionActivity{}, false // network drained
+		NextEligibleActivity: func(_ projectstate.Project) (constructionActivity, bool) {
+			return constructionActivity{}, false // network drained
 		},
 	})
 	registerPump(env, wf)
 
-	env.ExecuteWorkflow(ExecutionKindPump, PumpInput{ProjectID: pid})
+	env.ExecuteWorkflow(executionKindPump, pumpInput{ProjectID: pid})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("drained pump must be a clean quiet tick, got %v", err)
@@ -685,10 +685,10 @@ func Test_Pump_PauseSignal_HaltsCascade_NoDispatch(t *testing.T) {
 	pid := ProjectID(uuid.NewString())
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
 	wf := newWorkflows(wfDeps{
-		HandOff: &fakeHandOff{class: AIWorker}, Intervention: &fakeIntervention{directive: DirectiveRetry},
+		HandOff: &fakeHandOff{class: aiWorker}, Intervention: &fakeIntervention{directive: directiveRetry},
 		Review: &fakeReview{}, ProjectState: ps, Pipeline: &fakePipeline{phase: PipelineSucceeded},
 		Artifacts: &fakeArtifacts{}, Workers: &fakeWorker{},
-		NextEligibleActivity: func(_ projectstate.Project) (ConstructionActivity, bool) {
+		NextEligibleActivity: func(_ projectstate.Project) (constructionActivity, bool) {
 			return sampleActivity(), true // an activity IS eligible — but the pause wins
 		},
 	})
@@ -697,10 +697,10 @@ func Test_Pump_PauseSignal_HaltsCascade_NoDispatch(t *testing.T) {
 	// Deliver the pause Signal so it is already queued when the pump checks (the pump's
 	// non-blocking ReceiveAsync observes it at the top, before any dispatch).
 	env.RegisterDelayedCallback(func() {
-		env.SignalWorkflow(SignalOperatorPauseRequested, OperatorPauseSignal{ProjectID: pid, Reason: "operator halt"})
+		env.SignalWorkflow(signalOperatorPauseRequested, operatorPauseSignal{ProjectID: pid, Reason: "operator halt"})
 	}, 0)
 
-	env.ExecuteWorkflow(ExecutionKindPump, PumpInput{ProjectID: pid})
+	env.ExecuteWorkflow(executionKindPump, pumpInput{ProjectID: pid})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("paused pump must be a clean quiet tick (no ContinueAsNew), got %v", err)
@@ -733,16 +733,16 @@ func Test_Pause_AppliesPolicy_CancelsPipeline_RecordsPaused(t *testing.T) {
 	w := &fakeWorker{}
 	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{}, Review: &fakeReview{},
-		Intervention: &fakeIntervention{plan: PausePlan{PipelinesToCancel: []string{"wf-C-1"}, RecordPaused: true}},
+		Intervention: &fakeIntervention{plan: pausePlan{PipelinesToCancel: []string{"wf-C-1"}, RecordPaused: true}},
 		ProjectState: ps, Pipeline: pipe, Artifacts: &fakeArtifacts{}, Workers: w,
 	})
 	registerSupervision(env, wf)
 
 	env.RegisterDelayedCallback(func() {
-		env.SignalWorkflow(SignalOperatorPauseRequested, OperatorPauseSignal{ProjectID: pid, Reason: "operator halt"})
+		env.SignalWorkflow(signalOperatorPauseRequested, operatorPauseSignal{ProjectID: pid, Reason: "operator halt"})
 	}, time.Millisecond)
 
-	env.ExecuteWorkflow(ExecutionKindProjectSupervision, ProjectSupervisionInput{ProjectID: pid})
+	env.ExecuteWorkflow(executionKindProjectSupervision, projectSupervisionInput{ProjectID: pid})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("supervision error: %v", err)
@@ -773,7 +773,7 @@ func Test_ReplanSweep_QuietSweep_EmptyResult(t *testing.T) {
 	})
 	registerReplanSweep(env, wf)
 
-	env.ExecuteWorkflow(ExecutionKindReplanSweep, ReplanSweepInput{ProjectID: &pid})
+	env.ExecuteWorkflow(executionKindReplanSweep, replanSweepInput{ProjectID: &pid})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("sweep error: %v", err)

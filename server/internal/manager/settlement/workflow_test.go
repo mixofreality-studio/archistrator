@@ -37,8 +37,8 @@ import (
 type fakeSettlementState struct {
 	mu sync.Mutex
 
-	settlement Settlement
-	delinquent []CustomerSummary
+	settlement settlementHead
+	delinquent []customerSummary
 	notFound   bool
 
 	// settleConflictFirst, when >0, returns fwra.Conflict on the first N settleCycle
@@ -46,51 +46,51 @@ type fakeSettlementState struct {
 	// money-affecting write.
 	settleConflictFirst int
 
-	registered []CustomerID
-	bound      []CustomerID
-	settled    []SettlementOutcomeSeam
-	resettled  []SettlementOutcomeSeam
+	registered []customerID
+	bound      []customerID
+	settled    []settlementOutcomeSeam
+	resettled  []settlementOutcomeSeam
 	readN      int
-	version    Version
+	version    version
 }
 
-func (f *fakeSettlementState) ReadSettlement(_ context.Context, _ CustomerID) (Settlement, error) {
+func (f *fakeSettlementState) ReadSettlement(_ context.Context, _ customerID) (settlementHead, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.readN++
 	if f.notFound {
-		return Settlement{}, fwra.New(fwra.NotFound, "no row")
+		return settlementHead{}, fwra.New(fwra.NotFound, "no row")
 	}
 	return f.settlement, nil
 }
 
-func (f *fakeSettlementState) ReadPersistentlyDelinquentCustomers(_ context.Context, _ DelinquencyScope) ([]CustomerSummary, error) {
+func (f *fakeSettlementState) ReadPersistentlyDelinquentCustomers(_ context.Context, _ delinquencyScope) ([]customerSummary, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.delinquent, nil
 }
 
-func (f *fakeSettlementState) bump() Version {
+func (f *fakeSettlementState) bump() version {
 	f.version++
 	f.settlement.Version = f.version
 	return f.version
 }
 
-func (f *fakeSettlementState) RegisterCustomer(_ context.Context, c CustomerID, _ Version, _ CustomerProfileSeam, _ fwra.IdempotencyKey) (Version, error) {
+func (f *fakeSettlementState) RegisterCustomer(_ context.Context, c customerID, _ version, _ customerProfileSeam, _ fwra.IdempotencyKey) (version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.registered = append(f.registered, c)
 	return f.bump(), nil
 }
 
-func (f *fakeSettlementState) BindGatewayLive(_ context.Context, c CustomerID, _ Version, _ GatewayBindingSeam, _ fwra.IdempotencyKey) (Version, error) {
+func (f *fakeSettlementState) BindGatewayLive(_ context.Context, c customerID, _ version, _ gatewayBindingSeam, _ fwra.IdempotencyKey) (version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.bound = append(f.bound, c)
 	return f.bump(), nil
 }
 
-func (f *fakeSettlementState) SettleCycle(_ context.Context, _ CustomerID, _ Version, _ CycleID, outcome SettlementOutcomeSeam, _ fwra.IdempotencyKey) (Version, error) {
+func (f *fakeSettlementState) SettleCycle(_ context.Context, _ customerID, _ version, _ cycleID, outcome settlementOutcomeSeam, _ fwra.IdempotencyKey) (version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.settleConflictFirst > 0 {
@@ -103,7 +103,7 @@ func (f *fakeSettlementState) SettleCycle(_ context.Context, _ CustomerID, _ Ver
 	return f.bump(), nil
 }
 
-func (f *fakeSettlementState) ResettleCycle(_ context.Context, _ CustomerID, _ Version, _ CycleID, correction SettlementOutcomeSeam, _ fwra.IdempotencyKey) (Version, error) {
+func (f *fakeSettlementState) ResettleCycle(_ context.Context, _ customerID, _ version, _ cycleID, correction settlementOutcomeSeam, _ fwra.IdempotencyKey) (version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.resettled = append(f.resettled, correction)
@@ -116,35 +116,35 @@ var _ settlementStateAccess = (*fakeSettlementState)(nil)
 type fakeRevenueLedger struct {
 	mu sync.Mutex
 
-	rangeEntries []RevenueEntrySeam
-	inbound      []RevenueEntrySeam
-	reversals    []ReversalEntrySeam
+	rangeEntries []revenueEntrySeam
+	inbound      []revenueEntrySeam
+	reversals    []reversalEntrySeam
 }
 
-func (r *fakeRevenueLedger) RecordInboundRevenue(_ context.Context, entry RevenueEntrySeam) (EntryRefSeam, error) {
+func (r *fakeRevenueLedger) RecordInboundRevenue(_ context.Context, entry revenueEntrySeam) (entryRefSeam, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.inbound = append(r.inbound, entry)
 	r.rangeEntries = append(r.rangeEntries, entry)
-	return EntryRefSeam("ref"), nil
+	return entryRefSeam("ref"), nil
 }
 
-func (r *fakeRevenueLedger) RecordReversal(_ context.Context, reversal ReversalEntrySeam) (EntryRefSeam, error) {
+func (r *fakeRevenueLedger) RecordReversal(_ context.Context, reversal reversalEntrySeam) (entryRefSeam, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.reversals = append(r.reversals, reversal)
 	// A reversal is a new negative fact appended to the same log readRange replays.
-	r.rangeEntries = append(r.rangeEntries, RevenueEntrySeam{
+	r.rangeEntries = append(r.rangeEntries, revenueEntrySeam{
 		CustomerID: reversal.CustomerID, CycleID: reversal.CycleID,
-		Kind: RevenueKindReversal, Amount: reversal.Amount, GatewayEventID: reversal.GatewayEventID,
+		Kind: revenueKindReversal, Amount: reversal.Amount, GatewayEventID: reversal.GatewayEventID,
 	})
-	return EntryRefSeam("revref"), nil
+	return entryRefSeam("revref"), nil
 }
 
-func (r *fakeRevenueLedger) ReadRange(_ context.Context, _ CustomerID, _ CycleID) ([]RevenueEntrySeam, error) {
+func (r *fakeRevenueLedger) ReadRange(_ context.Context, _ customerID, _ cycleID) ([]revenueEntrySeam, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	out := make([]RevenueEntrySeam, len(r.rangeEntries))
+	out := make([]revenueEntrySeam, len(r.rangeEntries))
 	copy(out, r.rangeEntries)
 	return out, nil
 }
@@ -153,10 +153,10 @@ var _ revenueLedgerAccess = (*fakeRevenueLedger)(nil)
 
 // fakeUsage serves a scripted usage range.
 type fakeUsage struct {
-	rangeEvents []UsageEventSeam
+	rangeEvents []usageEventSeam
 }
 
-func (u *fakeUsage) ReadRange(_ context.Context, _ UsageRangeQuerySeam) ([]UsageEventSeam, error) {
+func (u *fakeUsage) ReadRange(_ context.Context, _ usageRangeQuerySeam) ([]usageEventSeam, error) {
 	return u.rangeEvents, nil
 }
 
@@ -175,14 +175,14 @@ type fakeGateway struct {
 	validated int
 }
 
-func (g *fakeGateway) PayoutCustomer(_ context.Context, _ CustomerID, amount Money, _ string) error {
+func (g *fakeGateway) PayoutCustomer(_ context.Context, _ customerID, amount Money, _ string) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.payouts = append(g.payouts, amount)
 	return nil
 }
 
-func (g *fakeGateway) ChargeCustomer(_ context.Context, _ CustomerID, amount Money, _ string) error {
+func (g *fakeGateway) ChargeCustomer(_ context.Context, _ customerID, amount Money, _ string) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if g.declineChargeFirst > 0 {
@@ -193,14 +193,14 @@ func (g *fakeGateway) ChargeCustomer(_ context.Context, _ CustomerID, amount Mon
 	return nil
 }
 
-func (g *fakeGateway) CreateConnectedAccount(_ context.Context, _ CustomerID, _ string) (GatewayBindingSeam, error) {
+func (g *fakeGateway) CreateConnectedAccount(_ context.Context, _ customerID, _ string) (gatewayBindingSeam, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.created++
-	return GatewayBindingSeam{ConnectedAccountID: "acct-1"}, nil
+	return gatewayBindingSeam{ConnectedAccountID: "acct-1"}, nil
 }
 
-func (g *fakeGateway) ValidateStoredInstrument(_ context.Context, _ CustomerID, _ string) error {
+func (g *fakeGateway) ValidateStoredInstrument(_ context.Context, _ customerID, _ string) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.validated++
@@ -214,7 +214,7 @@ type fakeRuntime struct {
 	wired int
 }
 
-func (r *fakeRuntime) WirePaymentConfig(_ context.Context, _ DeployedAppID, _ GatewayBindingSeam, _ fwra.IdempotencyKey) error {
+func (r *fakeRuntime) WirePaymentConfig(_ context.Context, _ deployedAppID, _ gatewayBindingSeam, _ fwra.IdempotencyKey) error {
 	r.wired++
 	return nil
 }
@@ -247,18 +247,18 @@ var _ durableExecutionAccess = (*fakeDurable)(nil)
 
 // fakeSettlementEngine returns a scripted SettlementResult for compute + recompute.
 type fakeSettlementEngine struct {
-	computeResult   SettlementResultSeam
-	recomputeResult SettlementResultSeam
+	computeResult   settlementResultSeam
+	recomputeResult settlementResultSeam
 	computeN        int
 	recomputeN      int
 }
 
-func (e *fakeSettlementEngine) ComputeNet(_ CycleRevenueSeam, _ CycleUsageSeam, _ SettlementTermsSeam) (SettlementResultSeam, error) {
+func (e *fakeSettlementEngine) ComputeNet(_ cycleRevenueSeam, _ cycleUsageSeam, _ settlementTermsSeam) (settlementResultSeam, error) {
 	e.computeN++
 	return e.computeResult, nil
 }
 
-func (e *fakeSettlementEngine) RecomputeNet(_ ReSettlementInputSeam) (SettlementResultSeam, error) {
+func (e *fakeSettlementEngine) RecomputeNet(_ reSettlementInputSeam) (settlementResultSeam, error) {
 	e.recomputeN++
 	return e.recomputeResult, nil
 }
@@ -267,10 +267,10 @@ var _ settlementEngine = (*fakeSettlementEngine)(nil)
 
 // fakeIntervention returns a scripted settlement-failure directive.
 type fakeIntervention struct {
-	directive SettlementFailureDirectiveSeam
+	directive settlementFailureDirectiveSeam
 }
 
-func (i *fakeIntervention) DecideOnSettlementFailure(_ SettlementFailureSeam) (SettlementFailureDirectiveSeam, error) {
+func (i *fakeIntervention) DecideOnSettlementFailure(_ settlementFailureSeam) (settlementFailureDirectiveSeam, error) {
 	return i.directive, nil
 }
 
@@ -289,7 +289,7 @@ type fakes struct {
 	interv  *fakeIntervention
 }
 
-func baseDeps() (Deps, *fakes) {
+func baseDeps() (wfDeps, *fakes) {
 	f := &fakes{
 		state:   &fakeSettlementState{},
 		ledger:  &fakeRevenueLedger{},
@@ -298,9 +298,9 @@ func baseDeps() (Deps, *fakes) {
 		runtime: &fakeRuntime{},
 		durable: &fakeDurable{},
 		engine:  &fakeSettlementEngine{},
-		interv:  &fakeIntervention{directive: SettlementRetry},
+		interv:  &fakeIntervention{directive: settlementRetry},
 	}
-	return Deps{
+	return wfDeps{
 		Settlement:      f.engine,
 		Intervention:    f.interv,
 		SettlementState: f.state,
@@ -312,8 +312,8 @@ func baseDeps() (Deps, *fakes) {
 	}, f
 }
 
-func registerOnboard(env *testsuite.TestWorkflowEnvironment, wf *Workflows) {
-	env.RegisterWorkflowWithOptions(wf.OnboardWorkflow, workflow.RegisterOptions{Name: ExecutionKindOnboard})
+func registerOnboard(env *testsuite.TestWorkflowEnvironment, wf *workflows) {
+	env.RegisterWorkflowWithOptions(wf.OnboardWorkflow, workflow.RegisterOptions{Name: executionKindOnboard})
 	env.RegisterActivity(wf.ReadSettlementActivity)
 	env.RegisterActivity(wf.CreateConnectedAccountActivity)
 	env.RegisterActivity(wf.WirePaymentConfigActivity)
@@ -321,14 +321,14 @@ func registerOnboard(env *testsuite.TestWorkflowEnvironment, wf *Workflows) {
 	env.RegisterActivity(wf.RegisterScheduleActivity)
 }
 
-func registerRegister(env *testsuite.TestWorkflowEnvironment, wf *Workflows) {
-	env.RegisterWorkflowWithOptions(wf.RegisterCustomerWorkflow, workflow.RegisterOptions{Name: ExecutionKindRegister})
+func registerRegister(env *testsuite.TestWorkflowEnvironment, wf *workflows) {
+	env.RegisterWorkflowWithOptions(wf.RegisterCustomerWorkflow, workflow.RegisterOptions{Name: executionKindRegister})
 	env.RegisterActivity(wf.ValidateStoredInstrumentActivity)
 	env.RegisterActivity(wf.RegisterCustomerActivity)
 }
 
-func registerClose(env *testsuite.TestWorkflowEnvironment, wf *Workflows) {
-	env.RegisterWorkflowWithOptions(wf.CloseCycleWorkflow, workflow.RegisterOptions{Name: ExecutionKindClose})
+func registerClose(env *testsuite.TestWorkflowEnvironment, wf *workflows) {
+	env.RegisterWorkflowWithOptions(wf.CloseCycleWorkflow, workflow.RegisterOptions{Name: executionKindClose})
 	env.RegisterActivity(wf.ReadSettlementActivity)
 	env.RegisterActivity(wf.ReadRevenueRangeActivity)
 	env.RegisterActivity(wf.ReadUsageRangeActivity)
@@ -340,15 +340,15 @@ func registerClose(env *testsuite.TestWorkflowEnvironment, wf *Workflows) {
 	env.RegisterActivity(wf.RecordReversalActivity)
 }
 
-func registerSweep(env *testsuite.TestWorkflowEnvironment, wf *Workflows) {
-	env.RegisterWorkflowWithOptions(wf.ShortfallSweepWorkflow, workflow.RegisterOptions{Name: ExecutionKindShortfallSweep})
+func registerSweep(env *testsuite.TestWorkflowEnvironment, wf *workflows) {
+	env.RegisterWorkflowWithOptions(wf.ShortfallSweepWorkflow, workflow.RegisterOptions{Name: executionKindShortfallSweep})
 	env.RegisterActivity(wf.ReadDelinquentActivity)
 	env.RegisterActivity(wf.DeliverDelinquencySignalActivity)
 }
 
 // boundSettlement returns a registered + gateway-bound settlement at the given version.
-func boundSettlement(id CustomerID, version Version) Settlement {
-	return Settlement{ID: id, Version: version, Registered: true, GatewayBound: true}
+func boundSettlement(id customerID, version version) settlementHead {
+	return settlementHead{ID: id, Version: version, Registered: true, GatewayBound: true}
 }
 
 func usd(minor int64) Money { return Money{MinorUnits: minor, Currency: "USD"} }
@@ -363,11 +363,11 @@ func Test_Onboard_HappyPath(t *testing.T) {
 
 	deps, f := baseDeps()
 	cid := uuid.New()
-	f.state.settlement = Settlement{ID: cid, Version: 2}
+	f.state.settlement = settlementHead{ID: cid, Version: 2}
 	wf := newWorkflows(deps)
 	registerOnboard(env, wf)
 
-	env.ExecuteWorkflow(ExecutionKindOnboard, OnboardInput{DeployedAppID: uuid.New()})
+	env.ExecuteWorkflow(executionKindOnboard, onboardInput{DeployedAppID: uuid.New()})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)
@@ -404,7 +404,7 @@ func Test_Onboard_NoAggregate_FailedPrecondition(t *testing.T) {
 	wf := newWorkflows(deps)
 	registerOnboard(env, wf)
 
-	env.ExecuteWorkflow(ExecutionKindOnboard, OnboardInput{DeployedAppID: uuid.New()})
+	env.ExecuteWorkflow(executionKindOnboard, onboardInput{DeployedAppID: uuid.New()})
 
 	if env.GetWorkflowError() == nil {
 		t.Fatal("want a FailedPrecondition error for a missing settlement aggregate")
@@ -426,7 +426,7 @@ func Test_Register_HappyPath(t *testing.T) {
 	wf := newWorkflows(deps)
 	registerRegister(env, wf)
 
-	env.ExecuteWorkflow(ExecutionKindRegister, RegisterInput{CustomerID: cid})
+	env.ExecuteWorkflow(executionKindRegister, registerInput{CustomerID: cid})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)
@@ -449,11 +449,11 @@ func Test_Close_Payout(t *testing.T) {
 	deps, f := baseDeps()
 	cid := uuid.New()
 	f.state.settlement = boundSettlement(cid, 3)
-	f.engine.computeResult = SettlementResultSeam{SignedNet: usd(5000), RoutingDirective: RoutingPayout}
+	f.engine.computeResult = settlementResultSeam{SignedNet: usd(5000), RoutingDirective: routingPayout}
 	wf := newWorkflows(deps)
 	registerClose(env, wf)
 
-	env.ExecuteWorkflow(ExecutionKindClose, CloseInput{CustomerID: cid, CycleID: "cycle-1"})
+	env.ExecuteWorkflow(executionKindClose, closeInput{CustomerID: cid, CycleID: "cycle-1"})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)
@@ -469,7 +469,7 @@ func Test_Close_Payout(t *testing.T) {
 	if len(f.gateway.charges) != 0 {
 		t.Fatalf("payout must not charge, got %v", f.gateway.charges)
 	}
-	if len(f.state.settled) != 1 || f.state.settled[0].Directive != RoutingPayout {
+	if len(f.state.settled) != 1 || f.state.settled[0].Directive != routingPayout {
 		t.Fatalf("want one settleCycle(Payout), got %v", f.state.settled)
 	}
 }
@@ -483,11 +483,11 @@ func Test_Close_Charge_ExactMagnitude(t *testing.T) {
 	deps, f := baseDeps()
 	cid := uuid.New()
 	f.state.settlement = boundSettlement(cid, 1)
-	f.engine.computeResult = SettlementResultSeam{SignedNet: usd(-1299), RoutingDirective: RoutingCharge}
+	f.engine.computeResult = settlementResultSeam{SignedNet: usd(-1299), RoutingDirective: routingCharge}
 	wf := newWorkflows(deps)
 	registerClose(env, wf)
 
-	env.ExecuteWorkflow(ExecutionKindClose, CloseInput{CustomerID: cid, CycleID: "cycle-1"})
+	env.ExecuteWorkflow(executionKindClose, closeInput{CustomerID: cid, CycleID: "cycle-1"})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)
@@ -515,11 +515,11 @@ func Test_Close_NoAction(t *testing.T) {
 	deps, f := baseDeps()
 	cid := uuid.New()
 	f.state.settlement = boundSettlement(cid, 1)
-	f.engine.computeResult = SettlementResultSeam{SignedNet: usd(0), RoutingDirective: RoutingNoAction}
+	f.engine.computeResult = settlementResultSeam{SignedNet: usd(0), RoutingDirective: routingNoAction}
 	wf := newWorkflows(deps)
 	registerClose(env, wf)
 
-	env.ExecuteWorkflow(ExecutionKindClose, CloseInput{CustomerID: cid, CycleID: "cycle-1"})
+	env.ExecuteWorkflow(executionKindClose, closeInput{CustomerID: cid, CycleID: "cycle-1"})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)
@@ -527,7 +527,7 @@ func Test_Close_NoAction(t *testing.T) {
 	if len(f.gateway.payouts) != 0 || len(f.gateway.charges) != 0 {
 		t.Fatalf("NoAction must move no money; payouts=%v charges=%v", f.gateway.payouts, f.gateway.charges)
 	}
-	if len(f.state.settled) != 1 || f.state.settled[0].Directive != RoutingNoAction {
+	if len(f.state.settled) != 1 || f.state.settled[0].Directive != routingNoAction {
 		t.Fatalf("want one settleCycle(NoAction), got %v", f.state.settled)
 	}
 }
@@ -540,11 +540,11 @@ func Test_Close_NotBound_FailedPrecondition(t *testing.T) {
 
 	deps, f := baseDeps()
 	cid := uuid.New()
-	f.state.settlement = Settlement{ID: cid, Version: 1, Registered: true, GatewayBound: false}
+	f.state.settlement = settlementHead{ID: cid, Version: 1, Registered: true, GatewayBound: false}
 	wf := newWorkflows(deps)
 	registerClose(env, wf)
 
-	env.ExecuteWorkflow(ExecutionKindClose, CloseInput{CustomerID: cid, CycleID: "cycle-1"})
+	env.ExecuteWorkflow(executionKindClose, closeInput{CustomerID: cid, CycleID: "cycle-1"})
 
 	if env.GetWorkflowError() == nil {
 		t.Fatal("want a FailedPrecondition for a not-gateway-bound customer")
@@ -563,18 +563,18 @@ func Test_Close_DrainsInboundRevenueSignals(t *testing.T) {
 	deps, f := baseDeps()
 	cid := uuid.New()
 	f.state.settlement = boundSettlement(cid, 1)
-	f.engine.computeResult = SettlementResultSeam{SignedNet: usd(100), RoutingDirective: RoutingPayout}
+	f.engine.computeResult = settlementResultSeam{SignedNet: usd(100), RoutingDirective: routingPayout}
 	wf := newWorkflows(deps)
 	registerClose(env, wf)
 
 	// Deliver an inbound-revenue signal at start (drained before close).
 	env.RegisterDelayedCallback(func() {
-		env.SignalWorkflow(SignalInboundRevenueReceived, GatewayRevenueEvent{
+		env.SignalWorkflow(signalInboundRevenueReceived, GatewayRevenueEvent{
 			GatewayEventID: "g1", CustomerID: cid, CycleID: "cycle-1", Amount: usd(100),
 		})
 	}, 0)
 
-	env.ExecuteWorkflow(ExecutionKindClose, CloseInput{CustomerID: cid, CycleID: "cycle-1"})
+	env.ExecuteWorkflow(executionKindClose, closeInput{CustomerID: cid, CycleID: "cycle-1"})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)
@@ -594,13 +594,13 @@ func Test_Close_ChargeDecline_Retry_Recharges(t *testing.T) {
 	deps, f := baseDeps()
 	cid := uuid.New()
 	f.state.settlement = boundSettlement(cid, 1)
-	f.engine.computeResult = SettlementResultSeam{SignedNet: usd(-2000), RoutingDirective: RoutingCharge}
+	f.engine.computeResult = settlementResultSeam{SignedNet: usd(-2000), RoutingDirective: routingCharge}
 	f.gateway.declineChargeFirst = 1 // first charge declines, retry succeeds
-	f.interv.directive = SettlementRetry
+	f.interv.directive = settlementRetry
 	wf := newWorkflows(deps)
 	registerClose(env, wf)
 
-	env.ExecuteWorkflow(ExecutionKindClose, CloseInput{CustomerID: cid, CycleID: "cycle-1"})
+	env.ExecuteWorkflow(executionKindClose, closeInput{CustomerID: cid, CycleID: "cycle-1"})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)
@@ -626,13 +626,13 @@ func Test_Close_ChargeDecline_Escalate_FlagsDelinquency(t *testing.T) {
 	deps, f := baseDeps()
 	cid := uuid.New()
 	f.state.settlement = boundSettlement(cid, 1)
-	f.engine.computeResult = SettlementResultSeam{SignedNet: usd(-2000), RoutingDirective: RoutingCharge}
+	f.engine.computeResult = settlementResultSeam{SignedNet: usd(-2000), RoutingDirective: routingCharge}
 	f.gateway.declineChargeFirst = 99 // never succeeds
-	f.interv.directive = SettlementEscalate
+	f.interv.directive = settlementEscalate
 	wf := newWorkflows(deps)
 	registerClose(env, wf)
 
-	env.ExecuteWorkflow(ExecutionKindClose, CloseInput{CustomerID: cid, CycleID: "cycle-1"})
+	env.ExecuteWorkflow(executionKindClose, closeInput{CustomerID: cid, CycleID: "cycle-1"})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)
@@ -658,13 +658,13 @@ func Test_Close_ChargeDecline_Delay_NoEscalation(t *testing.T) {
 	deps, f := baseDeps()
 	cid := uuid.New()
 	f.state.settlement = boundSettlement(cid, 1)
-	f.engine.computeResult = SettlementResultSeam{SignedNet: usd(-2000), RoutingDirective: RoutingCharge}
+	f.engine.computeResult = settlementResultSeam{SignedNet: usd(-2000), RoutingDirective: routingCharge}
 	f.gateway.declineChargeFirst = 99
-	f.interv.directive = SettlementDelay
+	f.interv.directive = settlementDelay
 	wf := newWorkflows(deps)
 	registerClose(env, wf)
 
-	env.ExecuteWorkflow(ExecutionKindClose, CloseInput{CustomerID: cid, CycleID: "cycle-1"})
+	env.ExecuteWorkflow(executionKindClose, closeInput{CustomerID: cid, CycleID: "cycle-1"})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)
@@ -690,20 +690,20 @@ func Test_Close_Chargeback_ForwardOnlyRecompute(t *testing.T) {
 	deps, f := baseDeps()
 	cid := uuid.New()
 	f.state.settlement = boundSettlement(cid, 1)
-	f.engine.computeResult = SettlementResultSeam{SignedNet: usd(5000), RoutingDirective: RoutingPayout}
+	f.engine.computeResult = settlementResultSeam{SignedNet: usd(5000), RoutingDirective: routingPayout}
 	// After the reversal, the corrected net is a charge of 1500 (delta to claw back).
-	f.engine.recomputeResult = SettlementResultSeam{SignedNet: usd(-1500), RoutingDirective: RoutingCharge}
+	f.engine.recomputeResult = settlementResultSeam{SignedNet: usd(-1500), RoutingDirective: routingCharge}
 	wf := newWorkflows(deps)
 	registerClose(env, wf)
 
 	// Deliver a chargeback after the initial settle (drained by awaitChargeback).
 	env.RegisterDelayedCallback(func() {
-		env.SignalWorkflow(SignalChargebackReceived, GatewayReversalEvent{
+		env.SignalWorkflow(signalChargebackReceived, GatewayReversalEvent{
 			GatewayEventID: "cb1", CustomerID: cid, CycleID: "cycle-1", Amount: usd(-6500),
 		})
 	}, 0)
 
-	env.ExecuteWorkflow(ExecutionKindClose, CloseInput{CustomerID: cid, CycleID: "cycle-1"})
+	env.ExecuteWorkflow(executionKindClose, closeInput{CustomerID: cid, CycleID: "cycle-1"})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)
@@ -732,14 +732,14 @@ func Test_Sweep_SignalsEachDelinquentCustomer(t *testing.T) {
 
 	deps, f := baseDeps()
 	c1, c2 := uuid.New(), uuid.New()
-	f.state.delinquent = []CustomerSummary{
+	f.state.delinquent = []customerSummary{
 		{ID: c1, PauseNotWithdraw: true},
 		{ID: c2, PauseNotWithdraw: false},
 	}
 	wf := newWorkflows(deps)
 	registerSweep(env, wf)
 
-	env.ExecuteWorkflow(ExecutionKindShortfallSweep, ShortfallSweepInput{})
+	env.ExecuteWorkflow(executionKindShortfallSweep, shortfallSweepInput{})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)
@@ -768,7 +768,7 @@ func Test_Sweep_QuietSweep_NoSignals(t *testing.T) {
 	wf := newWorkflows(deps)
 	registerSweep(env, wf)
 
-	env.ExecuteWorkflow(ExecutionKindShortfallSweep, ShortfallSweepInput{})
+	env.ExecuteWorkflow(executionKindShortfallSweep, shortfallSweepInput{})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)
@@ -796,11 +796,11 @@ func Test_Close_SettleConflict_ReReadReApply_ConvergesToOne(t *testing.T) {
 	cid := uuid.New()
 	f.state.settlement = boundSettlement(cid, 1)
 	f.state.settleConflictFirst = 2 // first two settleCycle calls Conflict, then succeed
-	f.engine.computeResult = SettlementResultSeam{SignedNet: usd(0), RoutingDirective: RoutingNoAction}
+	f.engine.computeResult = settlementResultSeam{SignedNet: usd(0), RoutingDirective: routingNoAction}
 	wf := newWorkflows(deps)
 	registerClose(env, wf)
 
-	env.ExecuteWorkflow(ExecutionKindClose, CloseInput{CustomerID: cid, CycleID: "cycle-1"})
+	env.ExecuteWorkflow(executionKindClose, closeInput{CustomerID: cid, CycleID: "cycle-1"})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)

@@ -24,11 +24,11 @@ import (
 //     durableExecutionAccess) are I/O and NON-deterministic; the workflow invokes the
 //     Activity methods on this same struct via workflow.ExecuteActivity (activities.go).
 
-// Deps bundles every downstream dependency the settlementManager orchestrates, passed
+// wfDeps bundles every downstream dependency the settlementManager orchestrates, passed
 // to RegisterWorker (worker.go) and held on the Workflows struct. Each field is a
 // CONSUMER-DEFINED interface (deps.go): the concrete RA types are adapted at the
 // composition root; the not-yet-built Engines/RA are unit-tested with fakes.
-type Deps struct {
+type wfDeps struct {
 	Settlement   settlementEngine
 	Intervention interventionEngine
 
@@ -43,7 +43,7 @@ type Deps struct {
 // Workflows is the single settlementManager component struct — BOTH the workflow
 // receiver and the activity receiver (no separate Activities type, mirroring
 // operations/construction).
-type Workflows struct {
+type workflows struct {
 	Settlement   settlementEngine
 	Intervention interventionEngine
 
@@ -55,9 +55,9 @@ type Workflows struct {
 	Durable         durableExecutionAccess
 }
 
-// newWorkflows builds the Workflows receiver from the injected Deps.
-func newWorkflows(d Deps) *Workflows {
-	return &Workflows{
+// newWorkflows builds the Workflows receiver from the injected wfDeps.
+func newWorkflows(d wfDeps) *workflows {
+	return &workflows{
 		Settlement:      d.Settlement,
 		Intervention:    d.Intervention,
 		SettlementState: d.SettlementState,
@@ -193,8 +193,8 @@ var gatewayDeclineErrType = fwmgr.RAErrType(fwra.Auth)
 // ===========================================================================
 
 // OnboardInput is the start payload for OnboardWorkflow.
-type OnboardInput struct {
-	DeployedAppID DeployedAppID
+type onboardInput struct {
+	DeployedAppID deployedAppID
 }
 
 // OnboardWorkflow drives UC5 onboard (settlementManager.md §6.3):
@@ -203,7 +203,7 @@ type OnboardInput struct {
 //  3. WirePaymentConfigActivity (operatedRuntimeAccess → publishDesiredState).
 //  4. BindGatewayLiveActivity (head-state; Conflict loop).
 //  5. RegisterScheduleActivity (the per-customer closeSettlementCycle:<customerId> Schedule).
-func (wf *Workflows) OnboardWorkflow(ctx workflow.Context, in OnboardInput) (SettlementRef, error) {
+func (wf *workflows) OnboardWorkflow(ctx workflow.Context, in onboardInput) (SettlementRef, error) {
 	logger := workflow.GetLogger(ctx)
 
 	// Resolve the settlement aggregate. The head-state row carries the customerId the
@@ -251,14 +251,14 @@ func (wf *Workflows) OnboardWorkflow(ctx workflow.Context, in OnboardInput) (Set
 // ===========================================================================
 
 // RegisterInput is the start payload for RegisterCustomerWorkflow.
-type RegisterInput struct {
-	CustomerID CustomerID
+type registerInput struct {
+	CustomerID customerID
 }
 
 // RegisterCustomerWorkflow drives ncuc1 (settlementManager.md §6.3):
 //  1. ValidateStoredInstrumentActivity (merchantGatewayAccess; zero-amount auth).
 //  2. RegisterCustomerActivity (head-state; opens the aggregate; Conflict loop).
-func (wf *Workflows) RegisterCustomerWorkflow(ctx workflow.Context, in RegisterInput) (SettlementRef, error) {
+func (wf *workflows) RegisterCustomerWorkflow(ctx workflow.Context, in registerInput) (SettlementRef, error) {
 	logger := workflow.GetLogger(ctx)
 
 	if verr := wf.validateStoredInstrument(ctx, in.CustomerID); verr != nil {
@@ -282,9 +282,9 @@ func (wf *Workflows) RegisterCustomerWorkflow(ctx workflow.Context, in RegisterI
 // ===========================================================================
 
 // CloseInput is the start payload for CloseCycleWorkflow.
-type CloseInput struct {
-	CustomerID CustomerID
-	CycleID    CycleID
+type closeInput struct {
+	CustomerID customerID
+	CycleID    cycleID
 }
 
 // CloseCycleWorkflow drives UC6 cycle-close (settlementManager.md §6.3):
@@ -296,7 +296,7 @@ type CloseInput struct {
 //  5. execute the directive: Payout / Charge (on failure decide→execute) / NoAction.
 //  6. SettleCycleActivity (head-state; Conflict loop).
 //  7. await chargebackReceived → forward-only RecomputeCycle saga (§6.3).
-func (wf *Workflows) CloseCycleWorkflow(ctx workflow.Context, in CloseInput) (CloseCycleResult, error) {
+func (wf *workflows) CloseCycleWorkflow(ctx workflow.Context, in closeInput) (CloseCycleResult, error) {
 	logger := workflow.GetLogger(ctx)
 
 	// Drain any inbound-revenue signals delivered before/at close (signal-with-start
@@ -335,7 +335,7 @@ func (wf *Workflows) CloseCycleWorkflow(ctx workflow.Context, in CloseInput) (Cl
 	}
 
 	// Record the settlement outcome (head-state; Conflict loop).
-	outcome := SettlementOutcomeSeam{
+	outcome := settlementOutcomeSeam{
 		Net:       result.SignedNet,
 		Directive: result.RoutingDirective,
 		Escalated: escalated,
@@ -369,11 +369,11 @@ func (wf *Workflows) CloseCycleWorkflow(ctx workflow.Context, in CloseInput) (Cl
 // decide→execute {Retry|Escalate|Delay}); NoAction → skip. Returns whether the cycle
 // was escalated (the OQ-4 head-state escalation flag). attempt seeds the re-charge
 // budget for the Retry directive.
-func (wf *Workflows) routeNet(ctx workflow.Context, customerID CustomerID, cycleID CycleID, result SettlementResultSeam, attempt int) (escalated bool, err error) {
+func (wf *workflows) routeNet(ctx workflow.Context, customerID customerID, cycleID cycleID, result settlementResultSeam, attempt int) (escalated bool, err error) {
 	switch result.RoutingDirective {
-	case RoutingPayout:
+	case routingPayout:
 		return false, wf.payoutCustomer(ctx, customerID, cycleID, result.SignedNet)
-	case RoutingCharge:
+	case routingCharge:
 		// Charge the positive magnitude of the negative shortfall net.
 		chargeAmount := Money{MinorUnits: -result.SignedNet.MinorUnits, Currency: result.SignedNet.Currency}
 		cerr := wf.chargeCustomer(ctx, customerID, cycleID, chargeAmount)
@@ -385,7 +385,7 @@ func (wf *Workflows) routeNet(ctx workflow.Context, customerID CustomerID, cycle
 		}
 		// On a charge DECLINE, decide+execute (interventionEngine, direct in-workflow).
 		return wf.handleChargeFailure(ctx, customerID, cycleID, result, attempt)
-	case RoutingNoAction:
+	case routingNoAction:
 		return false, nil
 	default:
 		return false, temporal.NewNonRetryableApplicationError(
@@ -399,30 +399,30 @@ func (wf *Workflows) routeNet(ctx workflow.Context, customerID CustomerID, cycle
 //     carries no escalation; the sweep re-attempts). Returns escalated=false.
 //   - Escalate→ flag delinquency on head-state (escalated=true); the operator dashboard
 //     reads it via readSettlement (no new DSL edge; §6.3).
-func (wf *Workflows) handleChargeFailure(ctx workflow.Context, customerID CustomerID, cycleID CycleID, result SettlementResultSeam, attempt int) (escalated bool, err error) {
-	directive, derr := wf.Intervention.DecideOnSettlementFailure(SettlementFailureSeam{
+func (wf *workflows) handleChargeFailure(ctx workflow.Context, customerID customerID, cycleID cycleID, result settlementResultSeam, attempt int) (escalated bool, err error) {
+	directive, derr := wf.Intervention.DecideOnSettlementFailure(settlementFailureSeam{
 		CustomerID:   customerID,
 		CycleID:      cycleID,
-		Kind:         SettlementFailureChargeDeclined,
+		Kind:         settlementFailureChargeDeclined,
 		AttemptCount: attempt + 1,
 	})
 	if derr != nil {
 		return false, fwmgr.MapError(derr)
 	}
 	switch directive {
-	case SettlementRetry:
+	case settlementRetry:
 		if attempt+1 >= maxChargeRetries {
 			// Budget exhausted — flip to an escalation rather than loop forever.
 			return true, nil
 		}
 		// EXECUTE Retry: re-route the same net (re-enters the charge).
 		return wf.routeNet(ctx, customerID, cycleID, result, attempt+1)
-	case SettlementDelay:
+	case settlementDelay:
 		// EXECUTE Delay: leave for the next shortfallSweep; no escalation flag.
 		workflow.GetLogger(ctx).Info("charge delayed to next shortfall sweep",
 			"customerId", customerID.String(), "cycleId", cycleID)
 		return false, nil
-	case SettlementEscalate:
+	case settlementEscalate:
 		// EXECUTE Escalate: flag delinquency on the head-state outcome (read by the
 		// operator dashboard via readSettlement; no new edge).
 		workflow.GetLogger(ctx).Warn("settlement charge escalated to delinquency",
@@ -437,8 +437,8 @@ func (wf *Workflows) handleChargeFailure(ctx workflow.Context, customerID Custom
 // drainInboundRevenue appends any inbound-revenue signals already enqueued on the cycle
 // workflow (non-blocking). Each append is idempotent on the gateway event id (§2.5);
 // the net is (re)computed at close, not here.
-func (wf *Workflows) drainInboundRevenue(ctx workflow.Context, customerID CustomerID, cycleID CycleID) {
-	ch := workflow.GetSignalChannel(ctx, SignalInboundRevenueReceived)
+func (wf *workflows) drainInboundRevenue(ctx workflow.Context, customerID customerID, cycleID cycleID) {
+	ch := workflow.GetSignalChannel(ctx, signalInboundRevenueReceived)
 	for {
 		var event GatewayRevenueEvent
 		if !ch.ReceiveAsync(&event) {
@@ -449,10 +449,10 @@ func (wf *Workflows) drainInboundRevenue(ctx workflow.Context, customerID Custom
 		if event.CycleID != cycleID {
 			continue
 		}
-		_ = wf.recordInboundRevenue(ctx, RevenueEntrySeam{
+		_ = wf.recordInboundRevenue(ctx, revenueEntrySeam{
 			CustomerID:     customerID,
 			CycleID:        cycleID,
-			Kind:           RevenueKindInbound,
+			Kind:           revenueKindInbound,
 			Amount:         event.Amount,
 			GatewayEventID: event.GatewayEventID,
 			OccurredAt:     event.OccurredAt,
@@ -464,8 +464,8 @@ func (wf *Workflows) drainInboundRevenue(ctx workflow.Context, customerID Custom
 // and, on arrival, runs the forward-only recompute saga (§6.3). The wait is the
 // Manager's own in-workflow primitive (awaitSignal — category A). It returns once a
 // chargeback is handled or the cycle window elapses with none.
-func (wf *Workflows) awaitChargeback(ctx workflow.Context, customerID CustomerID, cycleID CycleID, prior SettlementResultSeam) {
-	ch := workflow.GetSignalChannel(ctx, SignalChargebackReceived)
+func (wf *workflows) awaitChargeback(ctx workflow.Context, customerID customerID, cycleID cycleID, prior settlementResultSeam) {
+	ch := workflow.GetSignalChannel(ctx, signalChargebackReceived)
 	var event GatewayReversalEvent
 	if !ch.ReceiveAsync(&event) {
 		// No chargeback pending — the close completes; a later chargeback re-derives a
@@ -484,9 +484,9 @@ func (wf *Workflows) awaitChargeback(ctx workflow.Context, customerID CustomerID
 //  3. settlementEngine.RecomputeNet (direct, by value) → corrected net + DELTA directive.
 //  4. ResettleCycleActivity (head-state correction; Conflict loop).
 //  5. route the DELTA charge/payout via the gateway. No rollback (forward-only).
-func (wf *Workflows) recomputeCycle(ctx workflow.Context, customerID CustomerID, cycleID CycleID, event GatewayReversalEvent, prior SettlementResultSeam) error {
+func (wf *workflows) recomputeCycle(ctx workflow.Context, customerID customerID, cycleID cycleID, event GatewayReversalEvent, prior settlementResultSeam) error {
 	// Append the reversal (idempotent on the chargeback's gateway event id).
-	if err := wf.recordReversal(ctx, ReversalEntrySeam{
+	if err := wf.recordReversal(ctx, reversalEntrySeam{
 		CustomerID:     customerID,
 		CycleID:        cycleID,
 		Amount:         event.Amount,
@@ -516,7 +516,7 @@ func (wf *Workflows) recomputeCycle(ctx workflow.Context, customerID CustomerID,
 	}
 
 	// Recompute the corrected net + DELTA directive — DIRECT, by value, in-workflow.
-	corrected, cerr := wf.Settlement.RecomputeNet(ReSettlementInputSeam{
+	corrected, cerr := wf.Settlement.RecomputeNet(reSettlementInputSeam{
 		Revenue:      revenue,
 		Usage:        usage,
 		Terms:        settlement.Terms,
@@ -527,7 +527,7 @@ func (wf *Workflows) recomputeCycle(ctx workflow.Context, customerID CustomerID,
 	}
 
 	// Record the correction (head-state in place; Conflict loop).
-	correction := SettlementOutcomeSeam{
+	correction := settlementOutcomeSeam{
 		Net:       corrected.SignedNet,
 		Directive: corrected.RoutingDirective,
 	}
@@ -545,7 +545,7 @@ func (wf *Workflows) recomputeCycle(ctx workflow.Context, customerID CustomerID,
 // ===========================================================================
 
 // ShortfallSweepInput is the start payload for ShortfallSweepWorkflow (platform scope).
-type ShortfallSweepInput struct {
+type shortfallSweepInput struct {
 	ProjectID string // optional scope narrow; empty ⇒ platform-wide
 }
 
@@ -555,15 +555,15 @@ type ShortfallSweepInput struct {
 //     Signal to operationsManager (the single sanctioned queued M→M edge).
 //
 // Does NOT pause/withdraw apps itself — that is operationsManager's scope downstream.
-func (wf *Workflows) ShortfallSweepWorkflow(ctx workflow.Context, in ShortfallSweepInput) (ShortfallSweepResult, error) {
+func (wf *workflows) ShortfallSweepWorkflow(ctx workflow.Context, in shortfallSweepInput) (ShortfallSweepResult, error) {
 	logger := workflow.GetLogger(ctx)
 
-	customers, err := wf.readDelinquent(ctx, DelinquencyScope{ProjectID: in.ProjectID})
+	customers, err := wf.readDelinquent(ctx, delinquencyScope{ProjectID: in.ProjectID})
 	if err != nil {
 		return ShortfallSweepResult{}, err
 	}
 
-	result := ShortfallSweepResult{SignalledCustomers: []CustomerID{}}
+	result := ShortfallSweepResult{SignalledCustomers: []customerID{}}
 	for _, c := range customers {
 		if derr := wf.deliverDelinquencySignal(ctx, c.ID, c.PauseNotWithdraw); derr != nil {
 			return ShortfallSweepResult{}, derr
@@ -580,11 +580,11 @@ func (wf *Workflows) ShortfallSweepWorkflow(ctx workflow.Context, in ShortfallSw
 // ---------------------------------------------------------------------------
 
 // readSettlement runs the ReadSettlementActivity (whole head-state read).
-func (wf *Workflows) readSettlement(ctx workflow.Context, customerID CustomerID) (Settlement, error) {
+func (wf *workflows) readSettlement(ctx workflow.Context, customerID customerID) (settlementHead, error) {
 	c := readHeadOpts(ctx)
-	var s Settlement
+	var s settlementHead
 	if err := workflow.ExecuteActivity(c, wf.ReadSettlementActivity, customerID).Get(ctx, &s); err != nil {
-		return Settlement{}, err
+		return settlementHead{}, err
 	}
 	return s, nil
 }
@@ -594,7 +594,7 @@ func (wf *Workflows) readSettlement(ctx workflow.Context, customerID CustomerID)
 // the deployedAppId so the RA resolves the owning customer. Modelled as the same
 // ReadSettlementActivity over the deployedApp's resolved customer; here the deployedApp
 // id IS the resolution input the RA maps to the customer aggregate.
-func (wf *Workflows) readSettlementByDeployedApp(ctx workflow.Context, deployedAppID DeployedAppID) (Settlement, error) {
+func (wf *workflows) readSettlementByDeployedApp(ctx workflow.Context, deployedAppID deployedAppID) (settlementHead, error) {
 	// The settlement aggregate is per-customer; the onboarding RA read resolves the
 	// owning customer from the deployed app. We pass the deployedAppId as the read key;
 	// the RA returns the customer's Settlement (ID = customerId).
@@ -603,13 +603,13 @@ func (wf *Workflows) readSettlementByDeployedApp(ctx workflow.Context, deployedA
 
 // foldRevenue reads the cycle's revenue facts and folds them into the Engine's
 // CycleRevenue value snapshot (exact minor-unit signed sum; never a float).
-func (wf *Workflows) foldRevenue(ctx workflow.Context, customerID CustomerID, cycleID CycleID) (CycleRevenueSeam, error) {
+func (wf *workflows) foldRevenue(ctx workflow.Context, customerID customerID, cycleID cycleID) (cycleRevenueSeam, error) {
 	c := ledgerOpts(ctx)
-	var entries []RevenueEntrySeam
-	if err := workflow.ExecuteActivity(c, wf.ReadRevenueRangeActivity, ReadRevenueRangeArgs{
+	var entries []revenueEntrySeam
+	if err := workflow.ExecuteActivity(c, wf.ReadRevenueRangeActivity, readRevenueRangeArgs{
 		CustomerID: customerID, CycleID: cycleID,
 	}).Get(ctx, &entries); err != nil {
-		return CycleRevenueSeam{}, err
+		return cycleRevenueSeam{}, err
 	}
 
 	var gross int64
@@ -620,7 +620,7 @@ func (wf *Workflows) foldRevenue(ctx workflow.Context, customerID CustomerID, cy
 			currency = e.Amount.Currency
 		}
 	}
-	return CycleRevenueSeam{
+	return cycleRevenueSeam{
 		CustomerID:   customerID,
 		CycleID:      cycleID,
 		GrossInbound: Money{MinorUnits: gross, Currency: currency},
@@ -631,20 +631,20 @@ func (wf *Workflows) foldRevenue(ctx workflow.Context, customerID CustomerID, cy
 
 // foldUsage reads the cycle's usage facts (whole cycle; OperatedAppID nil) and folds
 // them into the Engine's CycleUsage value snapshot.
-func (wf *Workflows) foldUsage(ctx workflow.Context, customerID CustomerID, cycleID CycleID) (CycleUsageSeam, error) {
+func (wf *workflows) foldUsage(ctx workflow.Context, customerID customerID, cycleID cycleID) (cycleUsageSeam, error) {
 	c := ledgerOpts(ctx)
-	var events []UsageEventSeam
-	if err := workflow.ExecuteActivity(c, wf.ReadUsageRangeActivity, UsageRangeQuerySeam{
+	var events []usageEventSeam
+	if err := workflow.ExecuteActivity(c, wf.ReadUsageRangeActivity, usageRangeQuerySeam{
 		CustomerID: customerID, CycleID: cycleID, OperatedAppID: nil,
 	}).Get(ctx, &events); err != nil {
-		return CycleUsageSeam{}, err
+		return cycleUsageSeam{}, err
 	}
 
 	var units float64
 	for _, e := range events {
 		units += e.Units.Amount
 	}
-	return CycleUsageSeam{
+	return cycleUsageSeam{
 		CustomerID:         customerID,
 		CycleID:            cycleID,
 		ComputeUnitSeconds: units,
@@ -652,9 +652,9 @@ func (wf *Workflows) foldUsage(ctx workflow.Context, customerID CustomerID, cycl
 }
 
 // readDelinquent runs the ReadDelinquentActivity (cross-row read).
-func (wf *Workflows) readDelinquent(ctx workflow.Context, scope DelinquencyScope) ([]CustomerSummary, error) {
+func (wf *workflows) readDelinquent(ctx workflow.Context, scope delinquencyScope) ([]customerSummary, error) {
 	c := readHeadOpts(ctx)
-	var out []CustomerSummary
+	var out []customerSummary
 	if err := workflow.ExecuteActivity(c, wf.ReadDelinquentActivity, scope).Get(ctx, &out); err != nil {
 		return nil, err
 	}
@@ -665,57 +665,57 @@ func (wf *Workflows) readDelinquent(ctx workflow.Context, scope DelinquencyScope
 // Gateway / runtime / ledger / durable write helpers.
 // ---------------------------------------------------------------------------
 
-func (wf *Workflows) createConnectedAccount(ctx workflow.Context, customerID CustomerID) (GatewayBindingSeam, error) {
+func (wf *workflows) createConnectedAccount(ctx workflow.Context, customerID customerID) (gatewayBindingSeam, error) {
 	c := gatewayOpts(ctx)
-	var b GatewayBindingSeam
+	var b gatewayBindingSeam
 	err := workflow.ExecuteActivity(c, wf.CreateConnectedAccountActivity, customerID).Get(ctx, &b)
 	return b, err
 }
 
-func (wf *Workflows) validateStoredInstrument(ctx workflow.Context, customerID CustomerID) error {
+func (wf *workflows) validateStoredInstrument(ctx workflow.Context, customerID customerID) error {
 	c := gatewayOpts(ctx)
 	return workflow.ExecuteActivity(c, wf.ValidateStoredInstrumentActivity, customerID).Get(ctx, nil)
 }
 
-func (wf *Workflows) payoutCustomer(ctx workflow.Context, customerID CustomerID, cycleID CycleID, amount Money) error {
+func (wf *workflows) payoutCustomer(ctx workflow.Context, customerID customerID, cycleID cycleID, amount Money) error {
 	c := gatewayOpts(ctx)
-	return workflow.ExecuteActivity(c, wf.PayoutCustomerActivity, GatewayMoveArgs{
+	return workflow.ExecuteActivity(c, wf.PayoutCustomerActivity, gatewayMoveArgs{
 		CustomerID: customerID, CycleID: cycleID, Amount: amount,
 	}).Get(ctx, nil)
 }
 
-func (wf *Workflows) chargeCustomer(ctx workflow.Context, customerID CustomerID, cycleID CycleID, amount Money) error {
+func (wf *workflows) chargeCustomer(ctx workflow.Context, customerID customerID, cycleID cycleID, amount Money) error {
 	c := gatewayOpts(ctx)
-	return workflow.ExecuteActivity(c, wf.ChargeCustomerActivity, GatewayMoveArgs{
+	return workflow.ExecuteActivity(c, wf.ChargeCustomerActivity, gatewayMoveArgs{
 		CustomerID: customerID, CycleID: cycleID, Amount: amount,
 	}).Get(ctx, nil)
 }
 
-func (wf *Workflows) wirePaymentConfig(ctx workflow.Context, deployedAppID DeployedAppID, binding GatewayBindingSeam) error {
+func (wf *workflows) wirePaymentConfig(ctx workflow.Context, deployedAppID deployedAppID, binding gatewayBindingSeam) error {
 	c := runtimeOpts(ctx)
-	return workflow.ExecuteActivity(c, wf.WirePaymentConfigActivity, WirePaymentConfigArgs{
+	return workflow.ExecuteActivity(c, wf.WirePaymentConfigActivity, wirePaymentConfigArgs{
 		DeployedAppID: deployedAppID, Binding: binding,
 	}).Get(ctx, nil)
 }
 
-func (wf *Workflows) recordInboundRevenue(ctx workflow.Context, entry RevenueEntrySeam) error {
+func (wf *workflows) recordInboundRevenue(ctx workflow.Context, entry revenueEntrySeam) error {
 	c := ledgerOpts(ctx)
 	return workflow.ExecuteActivity(c, wf.RecordInboundRevenueActivity, entry).Get(ctx, nil)
 }
 
-func (wf *Workflows) recordReversal(ctx workflow.Context, reversal ReversalEntrySeam) error {
+func (wf *workflows) recordReversal(ctx workflow.Context, reversal reversalEntrySeam) error {
 	c := ledgerOpts(ctx)
 	return workflow.ExecuteActivity(c, wf.RecordReversalActivity, reversal).Get(ctx, nil)
 }
 
-func (wf *Workflows) deliverDelinquencySignal(ctx workflow.Context, customerID CustomerID, pauseNotWithdraw bool) error {
+func (wf *workflows) deliverDelinquencySignal(ctx workflow.Context, customerID customerID, pauseNotWithdraw bool) error {
 	c := durableOpts(ctx)
-	return workflow.ExecuteActivity(c, wf.DeliverDelinquencySignalActivity, DeliverDelinquencyArgs{
+	return workflow.ExecuteActivity(c, wf.DeliverDelinquencySignalActivity, deliverDelinquencyArgs{
 		CustomerID: customerID, PauseNotWithdraw: pauseNotWithdraw,
 	}).Get(ctx, nil)
 }
 
-func (wf *Workflows) registerCloseSchedule(ctx workflow.Context, customerID CustomerID) error {
+func (wf *workflows) registerCloseSchedule(ctx workflow.Context, customerID customerID) error {
 	c := durableOpts(ctx)
 	return workflow.ExecuteActivity(c, wf.RegisterScheduleActivity, customerID).Get(ctx, nil)
 }
@@ -724,44 +724,44 @@ func (wf *Workflows) registerCloseSchedule(ctx workflow.Context, customerID Cust
 // Head-state recovering write helpers (§6.5 Conflict re-read→re-apply loop).
 // ---------------------------------------------------------------------------
 
-func (wf *Workflows) registerCustomer(ctx workflow.Context, customerID CustomerID, seed Version) (Version, error) {
-	return wf.applyRecovering(ctx, customerID, seed, func(expected Version) (Version, error) {
+func (wf *workflows) registerCustomer(ctx workflow.Context, customerID customerID, seed version) (version, error) {
+	return wf.applyRecovering(ctx, customerID, seed, func(expected version) (version, error) {
 		c := recordHeadOpts(ctx)
-		var v Version
-		e := workflow.ExecuteActivity(c, wf.RegisterCustomerActivity, RegisterCustomerArgs{
+		var v version
+		e := workflow.ExecuteActivity(c, wf.RegisterCustomerActivity, registerCustomerArgs{
 			CustomerID: customerID, ExpectedVersion: expected,
 		}).Get(ctx, &v)
 		return v, e
 	})
 }
 
-func (wf *Workflows) bindGatewayLive(ctx workflow.Context, customerID CustomerID, seed Version, binding GatewayBindingSeam) (Version, error) {
-	return wf.applyRecovering(ctx, customerID, seed, func(expected Version) (Version, error) {
+func (wf *workflows) bindGatewayLive(ctx workflow.Context, customerID customerID, seed version, binding gatewayBindingSeam) (version, error) {
+	return wf.applyRecovering(ctx, customerID, seed, func(expected version) (version, error) {
 		c := recordHeadOpts(ctx)
-		var v Version
-		e := workflow.ExecuteActivity(c, wf.BindGatewayLiveActivity, BindGatewayLiveArgs{
+		var v version
+		e := workflow.ExecuteActivity(c, wf.BindGatewayLiveActivity, bindGatewayLiveArgs{
 			CustomerID: customerID, ExpectedVersion: expected, Binding: binding,
 		}).Get(ctx, &v)
 		return v, e
 	})
 }
 
-func (wf *Workflows) settleCycle(ctx workflow.Context, customerID CustomerID, seed Version, cycleID CycleID, outcome SettlementOutcomeSeam) (Version, error) {
-	return wf.applyRecovering(ctx, customerID, seed, func(expected Version) (Version, error) {
+func (wf *workflows) settleCycle(ctx workflow.Context, customerID customerID, seed version, cycleID cycleID, outcome settlementOutcomeSeam) (version, error) {
+	return wf.applyRecovering(ctx, customerID, seed, func(expected version) (version, error) {
 		c := recordHeadOpts(ctx)
-		var v Version
-		e := workflow.ExecuteActivity(c, wf.SettleCycleActivity, SettleCycleArgs{
+		var v version
+		e := workflow.ExecuteActivity(c, wf.SettleCycleActivity, settleCycleArgs{
 			CustomerID: customerID, ExpectedVersion: expected, CycleID: cycleID, Outcome: outcome,
 		}).Get(ctx, &v)
 		return v, e
 	})
 }
 
-func (wf *Workflows) resettleCycle(ctx workflow.Context, customerID CustomerID, seed Version, cycleID CycleID, correction SettlementOutcomeSeam) (Version, error) {
-	return wf.applyRecovering(ctx, customerID, seed, func(expected Version) (Version, error) {
+func (wf *workflows) resettleCycle(ctx workflow.Context, customerID customerID, seed version, cycleID cycleID, correction settlementOutcomeSeam) (version, error) {
+	return wf.applyRecovering(ctx, customerID, seed, func(expected version) (version, error) {
 		c := recordHeadOpts(ctx)
-		var v Version
-		e := workflow.ExecuteActivity(c, wf.ResettleCycleActivity, ResettleCycleArgs{
+		var v version
+		e := workflow.ExecuteActivity(c, wf.ResettleCycleActivity, resettleCycleArgs{
 			CustomerID: customerID, ExpectedVersion: expected, CycleID: cycleID, Correction: correction,
 		}).Get(ctx, &v)
 		return v, e
@@ -773,12 +773,12 @@ func (wf *Workflows) resettleCycle(ctx workflow.Context, customerID CustomerID, 
 // On a stale-version fwra.Conflict it re-reads the true head Version and re-applies with
 // the SAME idempotency key (dedup-first ordering preserves idempotent replay of the
 // money-affecting write).
-func (wf *Workflows) applyRecovering(
+func (wf *workflows) applyRecovering(
 	ctx workflow.Context,
-	customerID CustomerID,
-	seed Version,
-	apply func(expected Version) (Version, error),
-) (Version, error) {
+	customerID customerID,
+	seed version,
+	apply func(expected version) (version, error),
+) (version, error) {
 	expected := seed
 	for attempt := 0; ; attempt++ {
 		v, err := apply(expected)

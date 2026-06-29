@@ -18,7 +18,7 @@ func asConstructionError(t *testing.T, err error) *fwmanager.Error {
 	t.Helper()
 	var ce *fwmanager.Error
 	if !errors.As(err, &ce) {
-		t.Fatalf("expected *ConstructionError, got %T: %v", err, err)
+		t.Fatalf("expected *constructionError, got %T: %v", err, err)
 	}
 	return ce
 }
@@ -145,7 +145,7 @@ func Test_WorkflowIDDerivation(t *testing.T) {
 	}
 }
 
-// ---- OverrideKind / WorkerClass / ActivityKind String coverage --------------
+// ---- OverrideKind / WorkerClass / activityKind String coverage --------------
 
 func Test_OverrideKind_String(t *testing.T) {
 	cases := map[OverrideKind]string{

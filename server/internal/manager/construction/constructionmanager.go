@@ -35,7 +35,7 @@ import (
 // (non-empty ids, non-empty reason, known OverrideKind) are enforced here before any
 // Temporal call (§2/§3.5). It ALSO stores the PUBLISHED downstream deps the GENERATED
 // constructor was given so RegisterWorker can fold them (adapters.go) into the
-// hand-written Temporal Workflows. The former exported consumer-mirror interfaces +
+// hand-written Temporal workflows. The former exported consumer-mirror interfaces +
 // the composition-root adapters are RETIRED; the Manager depends on the deps'
 // PUBLISHED interfaces and adapts them internally.
 type constructionManager struct {
@@ -62,7 +62,7 @@ var _ ConstructionManager = (*constructionManager)(nil)
 // newConstructionManager is the hand-written, unexported builder the generated
 // NewConstructionManager constructor delegates to. It wires the Temporal client + the
 // published deps into the façade. The façade itself uses only the client; the deps are
-// stored for RegisterWorker (worker.go), which folds them into the Temporal Workflows.
+// stored for RegisterWorker (worker.go), which folds them into the Temporal workflows.
 func newConstructionManager(
 	c client.Client,
 	projectState projectstate.ProjectStateAccess,
@@ -121,7 +121,7 @@ func (m *constructionManager) ExecuteNextActivity(rc fwm.Context, projectID Proj
 		TaskQueue:                TaskQueue,
 		WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
 	}
-	we, err := m.client.ExecuteWorkflow(ctx, opts, ExecutionKindPump, PumpInput{ProjectID: projectID})
+	we, err := m.client.ExecuteWorkflow(ctx, opts, executionKindPump, pumpInput{ProjectID: projectID})
 	if err != nil {
 		return PumpResult{}, mapStartError(err)
 	}
@@ -142,7 +142,7 @@ func (m *constructionManager) RunReplanSweep(rc fwm.Context, projectID *ProjectI
 	if tickID == "" {
 		return ReplanSweepResult{}, newError(fwm.ContractMisuse, "empty tickId")
 	}
-	var in ReplanSweepInput
+	var in replanSweepInput
 	if projectID != nil {
 		if *projectID == "" {
 			return ReplanSweepResult{}, newError(fwm.ContractMisuse, "empty projectId")
@@ -157,7 +157,7 @@ func (m *constructionManager) RunReplanSweep(rc fwm.Context, projectID *ProjectI
 		TaskQueue:                TaskQueue,
 		WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
 	}
-	we, err := m.client.ExecuteWorkflow(ctx, opts, ExecutionKindReplanSweep, in)
+	we, err := m.client.ExecuteWorkflow(ctx, opts, executionKindReplanSweep, in)
 	if err != nil {
 		return ReplanSweepResult{}, mapStartError(err)
 	}
@@ -171,7 +171,7 @@ func (m *constructionManager) RunReplanSweep(rc fwm.Context, projectID *ProjectI
 // PauseProject — op 2.3. Temporal Signal (operatorPauseRequested) to the project's
 // in-flight construction execution(s). The suspended supervision resumes on its
 // awaitSignal and runs the pause branch (interventionEngine.applyPausePolicy →
-// PausePlan, then the Manager EXECUTES the cancels/records). SYNC from the
+// pausePlan, then the Manager EXECUTES the cancels/records). SYNC from the
 // operator's POV: returns once the signal is durably enqueued.
 func (m *constructionManager) PauseProject(rc fwm.Context, projectID ProjectID, reason string) error {
 	ctx := rc.Context
@@ -183,7 +183,7 @@ func (m *constructionManager) PauseProject(rc fwm.Context, projectID ProjectID, 
 	}
 
 	wfID := pauseTargetWorkflowID(projectID)
-	sig := OperatorPauseSignal{ProjectID: projectID, Reason: reason}
+	sig := operatorPauseSignal{ProjectID: projectID, Reason: reason}
 	// Signal-with-start: the project-level supervision workflow resumes on its
 	// awaitSignal and runs the pause branch; if not running, it is started
 	// (constructionManager.md §6.2 — startOrSignalExecution semantics).
@@ -192,8 +192,8 @@ func (m *constructionManager) PauseProject(rc fwm.Context, projectID ProjectID, 
 		TaskQueue:                TaskQueue,
 		WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
 	}
-	_, err := m.client.SignalWithStartWorkflow(ctx, wfID, SignalOperatorPauseRequested, sig,
-		opts, ExecutionKindProjectSupervision, ProjectSupervisionInput{ProjectID: projectID})
+	_, err := m.client.SignalWithStartWorkflow(ctx, wfID, signalOperatorPauseRequested, sig,
+		opts, executionKindProjectSupervision, projectSupervisionInput{ProjectID: projectID})
 	if err != nil {
 		return mapSignalError(err)
 	}
@@ -220,8 +220,8 @@ func (m *constructionManager) OverrideActivity(rc fwm.Context, projectID Project
 	}
 
 	wfID := constructActivityWorkflowID(projectID, activityID)
-	sig := OperatorOverrideSignal{Override: override}
-	if err := m.client.SignalWorkflow(ctx, wfID, "", SignalOperatorOverride, sig); err != nil {
+	sig := operatorOverrideSignal{Override: override}
+	if err := m.client.SignalWorkflow(ctx, wfID, "", signalOperatorOverride, sig); err != nil {
 		return mapSignalError(err)
 	}
 	return nil
@@ -247,7 +247,7 @@ func (m *constructionManager) GetSessionState(rc fwm.Context, projectID ProjectI
 		wfID = pauseTargetWorkflowID(projectID)
 	}
 
-	enc, err := m.client.QueryWorkflow(ctx, wfID, "", QuerySessionState)
+	enc, err := m.client.QueryWorkflow(ctx, wfID, "", querySessionState)
 	if err != nil {
 		return ConstructionSessionView{}, mapQueryError(err)
 	}

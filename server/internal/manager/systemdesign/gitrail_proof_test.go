@@ -231,8 +231,8 @@ func (f *seqProjectState) CommitArtifact(ctx fwra.Context, projectID projectstat
 	return f.fakeProjectState.CommitArtifact(ctx, projectID, expectedVersion, kind)
 }
 
-func newSeqRailWorkflows(ps projectstate.ProjectStateAccess, pipe *fakePipeline, rail sourceControlRail) *Workflows {
-	return &Workflows{
+func newSeqRailWorkflows(ps projectstate.ProjectStateAccess, pipe *fakePipeline, rail sourceControlRail) *workflows {
+	return &workflows{
 		ProjectState: ps,
 		Pipeline:     pipe,
 		Rail:         rail,
@@ -263,19 +263,19 @@ func Test_CoAuthor_Rail_BranchReconciliation_MergeBeforeCommit_PostMergeReadOnMa
 	registerRailCoAuthor(env, wf)
 
 	env.RegisterDelayedCallback(func() {
-		env.SignalWorkflow(SignalReviewDecision, ReviewDecisionSignal{Decision: ReviewApprove})
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
 	}, 30*time.Second)
 
-	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("rail reconciliation workflow error: %v", err)
 	}
-	var outcome CoAuthorOutcome
+	var outcome coAuthorOutcome
 	if err := env.GetWorkflowResult(&outcome); err != nil {
 		t.Fatalf("decode outcome: %v", err)
 	}
-	if outcome != CoAuthorApproved {
+	if outcome != coAuthorApproved {
 		t.Fatalf("want CoAuthorApproved, got %d", outcome)
 	}
 
@@ -380,13 +380,13 @@ func Test_CoAuthor_Rail_RejectRedraftsOnNewSessionBranchAndNewPR(t *testing.T) {
 
 	// First gate: REJECT → fresh attempt branch + PR. Second gate: APPROVE → merge.
 	env.RegisterDelayedCallback(func() {
-		env.SignalWorkflow(SignalReviewDecision, ReviewDecisionSignal{Decision: ReviewReject, Feedback: &ReviewFeedback{Notes: "rework decomposition"}})
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewReject, Feedback: &ReviewFeedback{Notes: "rework decomposition"}})
 	}, 30*time.Second)
 	env.RegisterDelayedCallback(func() {
-		env.SignalWorkflow(SignalReviewDecision, ReviewDecisionSignal{Decision: ReviewApprove})
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
 	}, 70*time.Second)
 
-	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("reject-redraft workflow error: %v", err)
@@ -433,14 +433,14 @@ func Test_CoAuthor_Rail_PhaseFailed_LandsInStageDraftFailed_NoApproveRailNoCommi
 	log := &seqLog{}
 	base := &fakeProjectState{project: systemReadBack(t, id)}
 	ps := &seqProjectState{fakeProjectState: base, log: log}
-	pipe := newFakePipeline(PipelineFailed)
+	pipe := newFakePipeline(pipelineFailed)
 	pipe.diagnostic = "aiarch-validate found 2 violations"
 	rail := newScriptedRail(true, log)
 	wf := newSeqRailWorkflows(ps, pipe, rail)
 	registerRailCoAuthor(env, wf)
 
 	env.RegisterDelayedCallback(func() {
-		enc, err := env.QueryWorkflow(QuerySessionState)
+		enc, err := env.QueryWorkflow(querySessionState)
 		if err != nil {
 			t.Fatalf("QueryWorkflow: %v", err)
 		}
@@ -454,10 +454,10 @@ func Test_CoAuthor_Rail_PhaseFailed_LandsInStageDraftFailed_NoApproveRailNoCommi
 		if view.Stage != StageDraftFailed {
 			t.Fatalf("want StageDraftFailed after a terminal failure phase, got %d", view.Stage)
 		}
-		env.SignalWorkflow(SignalReviewDecision, ReviewDecisionSignal{Decision: ReviewWithdraw})
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
 	}, 30*time.Second)
 
-	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("a terminal job failure must NOT crash the rail-wired workflow: %v", err)
@@ -502,13 +502,13 @@ func Test_CoAuthor_Rail_RequiredCheckRed_BlocksMerge_NoCommit_Recovers(t *testin
 	registerRailCoAuthor(env, wf)
 
 	env.RegisterDelayedCallback(func() {
-		env.SignalWorkflow(SignalReviewDecision, ReviewDecisionSignal{Decision: ReviewApprove})
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
 	}, 30*time.Second)
 	env.RegisterDelayedCallback(func() {
-		env.SignalWorkflow(SignalReviewDecision, ReviewDecisionSignal{Decision: ReviewWithdraw})
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
 	}, 60*time.Second)
 
-	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("a not-green merge guard must not crash the workflow: %v", err)

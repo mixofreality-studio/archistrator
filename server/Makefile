@@ -1,6 +1,6 @@
 # aiarch server — developer make targets.
 
-.PHONY: test test-short fmt vet lint sumtype-check method-check gen-schemas gen-models gen gen-client bootstrap
+.PHONY: test test-short fmt vet lint sumtype-check method-check encapsulation-check gen-schemas gen-models gen gen-client bootstrap
 
 # Contract codegen pipeline, all-Go (jsonschema-go). project.json
 # (.serviceContracts) is the OWNER of every built component's contract; modelgen
@@ -72,3 +72,14 @@ sumtype-check:
 # Reads .aiarch/state/project.json from the repo root (one level up).
 method-check:
 	GOWORK=off go test ./internal/... -run TestMethod -v
+
+# ENCAPSULATION GATE. Enforces that the ONLY exported symbols in the
+# engine/resourceaccess/manager packages are the generated contract surface
+# (contract.gen.go + the in-package types it structurally references) plus the
+# small DOCUMENTED allowlist in internal/arch_test.go. Fails the moment any new
+# non-generated public symbol appears in those layers. Also runs as part of
+# `test`/`test-short` (it is an ordinary `go test`), but exposed here as a
+# dedicated gate. To regenerate the allowlist after an intentional contract
+# change: ENCAP_DUMP=1 GOWORK=off go test ./internal/ -run TestGeneratedOnlyPublic -v
+encapsulation-check:
+	GOWORK=off go test ./internal/ -run TestGeneratedOnlyPublic

@@ -12,7 +12,7 @@ import (
 // gitactivities.go holds the Manager-owned Temporal Activity wrappers for the
 // git-forward slice (C-MCN-GIT): the PR rail verbs (sourceControlAccess /
 // IPullRequestRail) and the per-activity git head-state Record verbs
-// (projectStateAccess §GIT-HEAD-STATE). They are METHODS ON THE Workflows STRUCT,
+// (projectStateAccess §GIT-HEAD-STATE). They are METHODS ON THE workflows STRUCT,
 // like the rest (activities.go). Each runs the port call inside an Activity because
 // rail/RA operations are I/O and would break replay determinism on the workflow
 // goroutine.
@@ -42,7 +42,7 @@ import (
 // MintRepoCredentialActivity wraps GetInstallationToken — the Manager mints the
 // short-lived credential it threads into every other rail/record verb. Read-shaped
 // (no idempotency key); a rejected/expired identity surfaces fwra.Auth (terminal).
-func (wf *Workflows) MintRepoCredentialActivity(ctx context.Context, repoRef string) (railCredEnvelope, error) {
+func (wf *workflows) MintRepoCredentialActivity(ctx context.Context, repoRef string) (railCredEnvelope, error) {
 	cred, err := wf.Rail.GetInstallationToken(ctx, sourcecontrol.RepoRefFromString(repoRef))
 	if err != nil {
 		return railCredEnvelope{}, fwmanager.MapError(err)
@@ -50,8 +50,8 @@ func (wf *Workflows) MintRepoCredentialActivity(ctx context.Context, repoRef str
 	return railCredEnvelope{Bytes: cred.Bytes, ExpiresAt: cred.ExpiresAt}, nil
 }
 
-// OpenBranchArgs bundles the OpenBranch inputs across the Activity boundary.
-type OpenBranchArgs struct {
+// openBranchArgs bundles the OpenBranch inputs across the Activity boundary.
+type openBranchArgs struct {
 	RepoRef string
 	Branch  string
 	Cred    railCredEnvelope
@@ -59,7 +59,7 @@ type OpenBranchArgs struct {
 
 // OpenBranchActivity wraps IPullRequestRail.OpenBranch → the opaque BranchRef
 // (its String() form). Idempotent on the deterministic branch name.
-func (wf *Workflows) OpenBranchActivity(ctx context.Context, a OpenBranchArgs) (string, error) {
+func (wf *workflows) OpenBranchActivity(ctx context.Context, a openBranchArgs) (string, error) {
 	br, err := wf.Rail.OpenBranch(ctx,
 		sourcecontrol.RepoRefFromString(a.RepoRef),
 		sourcecontrol.BranchName(a.Branch),
@@ -72,10 +72,10 @@ func (wf *Workflows) OpenBranchActivity(ctx context.Context, a OpenBranchArgs) (
 	return sourcecontrol.BranchRefString(br), nil
 }
 
-// OpenPullRequestArgs bundles the OpenPullRequest inputs across the Activity
+// openPullRequestArgs bundles the OpenPullRequest inputs across the Activity
 // boundary. The cr-NN change-request label rides in Hints (PullRequestSpec.Hints) —
 // not a first-class field (sourcecontrol.go §3).
-type OpenPullRequestArgs struct {
+type openPullRequestArgs struct {
 	RepoRef string
 	Head    string
 	Base    string
@@ -87,7 +87,7 @@ type OpenPullRequestArgs struct {
 
 // OpenPullRequestActivity wraps IPullRequestRail.OpenPullRequest → the opaque
 // PullRequestRef (its String() form). Idempotent on the head branch.
-func (wf *Workflows) OpenPullRequestActivity(ctx context.Context, a OpenPullRequestArgs) (string, error) {
+func (wf *workflows) OpenPullRequestActivity(ctx context.Context, a openPullRequestArgs) (string, error) {
 	pr, err := wf.Rail.OpenPullRequest(ctx,
 		sourcecontrol.RepoRefFromString(a.RepoRef),
 		sourcecontrol.PullRequestSpec{
@@ -106,8 +106,8 @@ func (wf *Workflows) OpenPullRequestActivity(ctx context.Context, a OpenPullRequ
 	return sourcecontrol.PullRequestRefString(pr), nil
 }
 
-// GetPullRequestStatusArgs bundles the status read inputs.
-type GetPullRequestStatusArgs struct {
+// getPullRequestStatusArgs bundles the status read inputs.
+type getPullRequestStatusArgs struct {
 	RepoRef string
 	PRRef   string
 	Cred    railCredEnvelope
@@ -115,25 +115,25 @@ type GetPullRequestStatusArgs struct {
 
 // GetPullRequestStatusActivity wraps GetPullRequestStatus → the provider-neutral
 // CI rollup the Manager mirrors. Pure read.
-func (wf *Workflows) GetPullRequestStatusActivity(ctx context.Context, a GetPullRequestStatusArgs) (PullRequestStatusView, error) {
+func (wf *workflows) GetPullRequestStatusActivity(ctx context.Context, a getPullRequestStatusArgs) (pullRequestStatusView, error) {
 	st, err := wf.Rail.GetPullRequestStatus(ctx,
 		sourcecontrol.RepoRefFromString(a.RepoRef),
 		sourcecontrol.PullRequestRefFromString(a.PRRef),
 		a.Cred.toRail(),
 	)
 	if err != nil {
-		return PullRequestStatusView{}, fwmanager.MapError(err)
+		return pullRequestStatusView{}, fwmanager.MapError(err)
 	}
-	return PullRequestStatusView{
+	return pullRequestStatusView{
 		CheckRollup:   mapCheckState(st.CheckRollup),
 		ApprovalCount: int(st.ApprovalCount),
 		Mergeable:     st.Mergeable,
 	}, nil
 }
 
-// PostReviewArgs bundles the +1-relay inputs. Verdict is the rail's ReviewVerdict
+// postReviewArgs bundles the +1-relay inputs. Verdict is the rail's ReviewVerdict
 // (carried as int across the boundary; the spine only relays Approve).
-type PostReviewArgs struct {
+type postReviewArgs struct {
 	RepoRef string
 	PRRef   string
 	Verdict int
@@ -143,7 +143,7 @@ type PostReviewArgs struct {
 
 // PostReviewActivity wraps PostReview — relays the architecture +1 (Approve) to the
 // PR. Idempotent on re-post.
-func (wf *Workflows) PostReviewActivity(ctx context.Context, a PostReviewArgs) (struct{}, error) {
+func (wf *workflows) PostReviewActivity(ctx context.Context, a postReviewArgs) (struct{}, error) {
 	err := wf.Rail.PostReview(ctx,
 		sourcecontrol.RepoRefFromString(a.RepoRef),
 		sourcecontrol.PullRequestRefFromString(a.PRRef),
@@ -157,8 +157,8 @@ func (wf *Workflows) PostReviewActivity(ctx context.Context, a PostReviewArgs) (
 	return struct{}{}, nil
 }
 
-// MergePullRequestArgs bundles the gated-merge inputs.
-type MergePullRequestArgs struct {
+// mergePullRequestArgs bundles the gated-merge inputs.
+type mergePullRequestArgs struct {
 	RepoRef string
 	PRRef   string
 	Cred    railCredEnvelope
@@ -168,7 +168,7 @@ type MergePullRequestArgs struct {
 // landed (MergeResult.Merged). The Manager PERFORMS the merge; interventionEngine is
 // the AUTHORITY for when (the gate decision happens in workflow code before this).
 // Idempotent (already-merged maps to Merged=true inside the rail).
-func (wf *Workflows) MergePullRequestActivity(ctx context.Context, a MergePullRequestArgs) (bool, error) {
+func (wf *workflows) MergePullRequestActivity(ctx context.Context, a mergePullRequestArgs) (bool, error) {
 	mr, err := wf.Rail.MergePullRequest(ctx,
 		sourcecontrol.RepoRefFromString(a.RepoRef),
 		sourcecontrol.PullRequestRefFromString(a.PRRef),
@@ -188,8 +188,8 @@ func (wf *Workflows) MergePullRequestActivity(ctx context.Context, a MergePullRe
 // and re-applies with the SAME idempotency key (no double-record).
 // ===========================================================================
 
-// RecordActivityBranchOpenedArgs bundles the branch-opened record (PR-tolerant upsert).
-type RecordActivityBranchOpenedArgs struct {
+// recordActivityBranchOpenedArgs bundles the branch-opened record (PR-tolerant upsert).
+type recordActivityBranchOpenedArgs struct {
 	ProjectID       projectstate.ProjectID
 	ExpectedVersion projectstate.Version
 	ActivityID      string
@@ -201,13 +201,13 @@ type RecordActivityBranchOpenedArgs struct {
 	Cred            railCredEnvelope
 }
 
-func (wf *Workflows) RecordActivityBranchOpenedActivity(ctx context.Context, a RecordActivityBranchOpenedArgs) (projectstate.Version, error) {
+func (wf *workflows) RecordActivityBranchOpenedActivity(ctx context.Context, a recordActivityBranchOpenedArgs) (projectstate.Version, error) {
 	return mapErr(wf.GitStatus.RecordActivityBranchOpened(ctx, a.ProjectID, a.ExpectedVersion, a.ActivityID,
 		a.Branch, a.BranchRef, a.PRRef, a.CRLabel, a.IsRevert, a.Cred.toProjectState(), activityIdempotencyKey(ctx)))
 }
 
-// RecordActivityCIObservedArgs bundles the CI-observed record (the poll-loop verb).
-type RecordActivityCIObservedArgs struct {
+// recordActivityCIObservedArgs bundles the CI-observed record (the poll-loop verb).
+type recordActivityCIObservedArgs struct {
 	ProjectID       projectstate.ProjectID
 	ExpectedVersion projectstate.Version
 	ActivityID      string
@@ -215,61 +215,61 @@ type RecordActivityCIObservedArgs struct {
 	Cred            railCredEnvelope
 }
 
-func (wf *Workflows) RecordActivityCIObservedActivity(ctx context.Context, a RecordActivityCIObservedArgs) (projectstate.Version, error) {
+func (wf *workflows) RecordActivityCIObservedActivity(ctx context.Context, a recordActivityCIObservedArgs) (projectstate.Version, error) {
 	return mapErr(wf.GitStatus.RecordActivityCIObserved(ctx, a.ProjectID, a.ExpectedVersion, a.ActivityID,
 		a.CICheck, a.Cred.toProjectState(), activityIdempotencyKey(ctx)))
 }
 
-// RecordActivityArchApprovedArgs bundles the arch-+1 record.
-type RecordActivityArchApprovedArgs struct {
+// recordActivityArchApprovedArgs bundles the arch-+1 record.
+type recordActivityArchApprovedArgs struct {
 	ProjectID       projectstate.ProjectID
 	ExpectedVersion projectstate.Version
 	ActivityID      string
 	Cred            railCredEnvelope
 }
 
-func (wf *Workflows) RecordActivityArchApprovedActivity(ctx context.Context, a RecordActivityArchApprovedArgs) (projectstate.Version, error) {
+func (wf *workflows) RecordActivityArchApprovedActivity(ctx context.Context, a recordActivityArchApprovedArgs) (projectstate.Version, error) {
 	return mapErr(wf.GitStatus.RecordActivityArchApproved(ctx, a.ProjectID, a.ExpectedVersion, a.ActivityID,
 		a.Cred.toProjectState(), activityIdempotencyKey(ctx)))
 }
 
-// RecordActivityMergedArgs bundles the terminal merged record.
-type RecordActivityMergedArgs struct {
+// recordActivityMergedArgs bundles the terminal merged record.
+type recordActivityMergedArgs struct {
 	ProjectID       projectstate.ProjectID
 	ExpectedVersion projectstate.Version
 	ActivityID      string
 	Cred            railCredEnvelope
 }
 
-func (wf *Workflows) RecordActivityMergedActivity(ctx context.Context, a RecordActivityMergedArgs) (projectstate.Version, error) {
+func (wf *workflows) RecordActivityMergedActivity(ctx context.Context, a recordActivityMergedArgs) (projectstate.Version, error) {
 	return mapErr(wf.GitStatus.RecordActivityMerged(ctx, a.ProjectID, a.ExpectedVersion, a.ActivityID,
 		a.Cred.toProjectState(), activityIdempotencyKey(ctx)))
 }
 
-// RecordActivityStartedArgs bundles the per-activity construction-started record
+// recordActivityStartedArgs bundles the per-activity construction-started record
 // (Phase → Running). It powers the pump's eligibility gating (Task 3).
-type RecordActivityStartedArgs struct {
+type recordActivityStartedArgs struct {
 	ProjectID       projectstate.ProjectID
 	ExpectedVersion projectstate.Version
 	ActivityID      string
 	Cred            railCredEnvelope
 }
 
-func (wf *Workflows) RecordActivityStartedActivity(ctx context.Context, a RecordActivityStartedArgs) (projectstate.Version, error) {
+func (wf *workflows) RecordActivityStartedActivity(ctx context.Context, a recordActivityStartedArgs) (projectstate.Version, error) {
 	return mapErr(wf.GitStatus.RecordActivityStarted(ctx, a.ProjectID, a.ExpectedVersion, a.ActivityID,
 		a.Cred.toProjectState(), activityIdempotencyKey(ctx)))
 }
 
-// RecordActivityCompletedArgs bundles the per-activity construction-completed record
+// recordActivityCompletedArgs bundles the per-activity construction-completed record
 // (Phase → Done). It unblocks dependents in the pump's eligibility selection (Task 3).
-type RecordActivityCompletedArgs struct {
+type recordActivityCompletedArgs struct {
 	ProjectID       projectstate.ProjectID
 	ExpectedVersion projectstate.Version
 	ActivityID      string
 	Cred            railCredEnvelope
 }
 
-func (wf *Workflows) RecordActivityCompletedActivity(ctx context.Context, a RecordActivityCompletedArgs) (projectstate.Version, error) {
+func (wf *workflows) RecordActivityCompletedActivity(ctx context.Context, a recordActivityCompletedArgs) (projectstate.Version, error) {
 	return mapErr(wf.GitStatus.RecordActivityCompleted(ctx, a.ProjectID, a.ExpectedVersion, a.ActivityID,
 		a.Cred.toProjectState(), activityIdempotencyKey(ctx)))
 }
@@ -297,10 +297,10 @@ func (c railCredEnvelope) toProjectState() projectstate.RepoCredential {
 	return projectstate.RepoCredential{Bytes: c.Bytes, ExpiresAt: c.ExpiresAt}
 }
 
-// PullRequestStatusView is the Manager-local Activity-boundary projection of the
+// pullRequestStatusView is the Manager-local Activity-boundary projection of the
 // rail's PullRequestStatus (a reflection the Manager feeds interventionEngine — NOT a
 // gate). CheckRollup is the provider-neutral CI rollup the git head-state mirrors.
-type PullRequestStatusView struct {
+type pullRequestStatusView struct {
 	CheckRollup   projectstate.CICheckState
 	ApprovalCount int
 	Mergeable     bool

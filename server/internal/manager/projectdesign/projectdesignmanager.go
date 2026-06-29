@@ -21,7 +21,7 @@ import (
 // (fwmanager.Context, embedding context.Context + the Principal); the *projectDesignManager derives
 // ctx := rc.Context inside. The concrete *projectDesignManager satisfies it; the consumer-side
 // dependency seams (constructionPipelineAccess / sourceControlRail) + the Temporal
-// Workflows struct stay hand-written and are NOT part of this contract.
+// workflows struct stay hand-written and are NOT part of this contract.
 
 // Compile-time proof the concrete projectDesignManager satisfies the generated
 // ProjectDesignManager port.
@@ -51,7 +51,7 @@ var _ ProjectDesignManager = (*projectDesignManager)(nil)
 // published sourcecontrol.SourceControlAccess (the PR rail), the three estimation
 // Engines (the in-workflow SDP-assembly join), and the per-project repo resolver — so
 // RegisterWorker can wire them (via the package's folded adapters) into the
-// hand-written Temporal Workflows. The former exported consumer-mirror interfaces +
+// hand-written Temporal workflows. The former exported consumer-mirror interfaces +
 // the composition-root adapters are RETIRED; the manager now depends on the deps'
 // PUBLISHED interfaces and adapts them internally (Option-B boundary mapping).
 type projectDesignManager struct {
@@ -105,7 +105,7 @@ func (m *projectDesignManager) RequestArtifactDraft(rc fwmanager.Context, projec
 	if projectID == "" {
 		return "", newError(fwmanager.ContractMisuse, "empty projectId")
 	}
-	if !ArtifactKindIsPhase2(kind) {
+	if !artifactKindIsPhase2(kind) {
 		return "", newError(fwmanager.FailedPrecondition, "artifactKind is not a Phase-2 kind")
 	}
 	if kind == KindSdpReview {
@@ -118,13 +118,13 @@ func (m *projectDesignManager) RequestArtifactDraft(rc fwmanager.Context, projec
 		TaskQueue:                TaskQueue,
 		WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
 	}
-	in := CoAuthorInput{ProjectID: projectID, ArtifactKind: kind, Feedback: feedback}
+	in := coAuthorInput{ProjectID: projectID, ArtifactKind: kind, Feedback: feedback}
 
-	we, err := m.client.ExecuteWorkflow(ctx, opts, ExecutionKindCoAuthor, in)
+	we, err := m.client.ExecuteWorkflow(ctx, opts, executionKindCoAuthor, in)
 	if err != nil {
 		return "", mapStartError(err)
 	}
-	return NewSessionRef(we.GetID()), nil
+	return newSessionRef(we.GetID()), nil
 }
 
 // RequestSDPCommit — op 2.2. Temporal Workflow (entry; StartWorkflow /
@@ -143,13 +143,13 @@ func (m *projectDesignManager) RequestSDPCommit(rc fwmanager.Context, projectID 
 		TaskQueue:                TaskQueue,
 		WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
 	}
-	in := SDPReviewInput{ProjectID: projectID}
+	in := sdpReviewInput{ProjectID: projectID}
 
-	we, err := m.client.ExecuteWorkflow(ctx, opts, ExecutionKindSDPReview, in)
+	we, err := m.client.ExecuteWorkflow(ctx, opts, executionKindSDPReview, in)
 	if err != nil {
 		return "", mapStartError(err)
 	}
-	return NewSessionRef(we.GetID()), nil
+	return newSessionRef(we.GetID()), nil
 }
 
 // SubmitSDPDecision — op 2.3. Temporal Signal (SignalWorkflow to workflow id
@@ -177,8 +177,8 @@ func (m *projectDesignManager) SubmitSDPDecision(rc fwmanager.Context, projectID
 	}
 
 	wfID := sdpReviewWorkflowID(projectID)
-	sig := SDPDecisionSignal{Decision: decision, OptionID: optionID, Feedback: feedback}
-	if err := m.client.SignalWorkflow(ctx, wfID, "", SignalSDPDecision, sig); err != nil {
+	sig := sdpDecisionSignal{Decision: decision, OptionID: optionID, Feedback: feedback}
+	if err := m.client.SignalWorkflow(ctx, wfID, "", signalSDPDecision, sig); err != nil {
 		return mapSignalError(err)
 	}
 	return nil
@@ -193,7 +193,7 @@ func (m *projectDesignManager) SubmitReviewDecision(rc fwmanager.Context, projec
 	if projectID == "" {
 		return newError(fwmanager.ContractMisuse, "empty projectId")
 	}
-	if !ArtifactKindIsPhase2(kind) || kind == KindSdpReview {
+	if !artifactKindIsPhase2(kind) || kind == KindSdpReview {
 		return newError(fwmanager.FailedPrecondition, "artifactKind is not a co-authored Phase-2 kind")
 	}
 	switch decision {
@@ -208,8 +208,8 @@ func (m *projectDesignManager) SubmitReviewDecision(rc fwmanager.Context, projec
 	}
 
 	wfID := coAuthorWorkflowID(projectID, kind)
-	sig := ReviewDecisionSignal{Decision: decision, Feedback: feedback}
-	if err := m.client.SignalWorkflow(ctx, wfID, "", SignalReviewDecision, sig); err != nil {
+	sig := reviewDecisionSignal{Decision: decision, Feedback: feedback}
+	if err := m.client.SignalWorkflow(ctx, wfID, "", signalReviewDecision, sig); err != nil {
 		return mapSignalError(err)
 	}
 	return nil
@@ -228,9 +228,9 @@ func (m *projectDesignManager) AdvanceToConstruction(rc fwmanager.Context, proje
 		ID:        wfID,
 		TaskQueue: TaskQueue,
 	}
-	in := PhaseAdvanceInput{ProjectID: projectID}
+	in := phaseAdvanceInput{ProjectID: projectID}
 
-	we, err := m.client.ExecuteWorkflow(ctx, opts, ExecutionKindPhaseAdvance, in)
+	we, err := m.client.ExecuteWorkflow(ctx, opts, executionKindPhaseAdvance, in)
 	if err != nil {
 		return PhaseAdvanceResult{}, mapStartError(err)
 	}
@@ -257,7 +257,7 @@ func (m *projectDesignManager) GetSessionState(rc fwmanager.Context, projectID P
 		wfID = coAuthorWorkflowID(projectID, kind)
 	}
 
-	enc, err := m.client.QueryWorkflow(ctx, wfID, "", QuerySessionState)
+	enc, err := m.client.QueryWorkflow(ctx, wfID, "", querySessionState)
 	if err != nil {
 		return SessionStateView{}, mapQueryError(err)
 	}

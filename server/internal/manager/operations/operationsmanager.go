@@ -70,11 +70,11 @@ type operationsManager struct {
 	// head-state / the operated app's billing context). InfrastructureKind defaults to
 	// the launch infrastructure; the rest are zero (matching what the composition root
 	// passes today — the operations Worker carries no policy config yet).
-	interventionPolicy InterventionPolicy
-	autoscalerPolicy   AutoscalerPolicy
-	infrastructureKind InfrastructureKind
+	interventionPolicy interventionPolicy
+	autoscalerPolicy   autoscalerPolicy
+	infrastructureKind infrastructureKind
 	currentCycleID     string
-	customerID         CustomerID
+	customerID         customerID
 }
 
 // newOperationsManager is the hand-written, unexported builder the generated
@@ -102,7 +102,7 @@ func newOperationsManager(
 		intervention:        interventionEng,
 		autoscaler:          autoscalerEng,
 		operationEstimation: operationEstimation,
-		infrastructureKind:  InfrastructureKindGoTemporalPostgres,
+		infrastructureKind:  infrastructureKindGoTemporalPostgres,
 	}
 }
 
@@ -119,7 +119,7 @@ func newOperationsManager(
 //
 // SYNC from the Client's POV: returns once the desired state is durably published,
 // NOT once ArgoCD has converged (convergence is observed later via 2.2).
-func (m *operationsManager) DeployAfterConstruction(rc fwmgr.Context, operatedAppID OperatedAppID, change DesiredStateChange) (DeployResult, error) {
+func (m *operationsManager) DeployAfterConstruction(rc fwmgr.Context, operatedAppID operatedAppID, change DesiredStateChange) (DeployResult, error) {
 	ctx := rc.Context
 	if operatedAppID == uuid.Nil {
 		return DeployResult{}, newError(fwmgr.ContractMisuse, "empty operatedAppId")
@@ -144,7 +144,7 @@ func (m *operationsManager) DeployAfterConstruction(rc fwmgr.Context, operatedAp
 		TaskQueue:                TaskQueue,
 		WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
 	}
-	we, err := m.client.ExecuteWorkflow(ctx, opts, ExecutionKindDeploy, DeployInput{
+	we, err := m.client.ExecuteWorkflow(ctx, opts, executionKindDeploy, deployInput{
 		OperatedAppID: operatedAppID,
 		Change:        change,
 	})
@@ -168,7 +168,7 @@ func (m *operationsManager) ReconcileOperatedState(rc fwmgr.Context, tickID stri
 	if tickID == "" {
 		return ReconcileResult{}, newError(fwmgr.ContractMisuse, "empty tickId")
 	}
-	in := ReconcileInput{}
+	in := reconcileInput{}
 	if scope != nil {
 		in.Scope = scope.AppIDs
 	}
@@ -179,7 +179,7 @@ func (m *operationsManager) ReconcileOperatedState(rc fwmgr.Context, tickID stri
 		TaskQueue:                TaskQueue,
 		WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
 	}
-	we, err := m.client.ExecuteWorkflow(ctx, opts, ExecutionKindReconcile, in)
+	we, err := m.client.ExecuteWorkflow(ctx, opts, executionKindReconcile, in)
 	if err != nil {
 		return ReconcileResult{}, mapStartError(err)
 	}
@@ -194,7 +194,7 @@ func (m *operationsManager) ReconcileOperatedState(rc fwmgr.Context, tickID stri
 // {operatedAppId}:withdraw:{changeId}). Withdraws the runtime → records final usage →
 // withdraws the head-state. Idempotent on the id; an already-withdrawn app is a no-op
 // success. SYNC: returns once the withdrawal is durably recorded.
-func (m *operationsManager) WithdrawSystem(rc fwmgr.Context, operatedAppID OperatedAppID, changeID string, reason WithdrawReason) (WithdrawResult, error) {
+func (m *operationsManager) WithdrawSystem(rc fwmgr.Context, operatedAppID operatedAppID, changeID string, reason WithdrawReason) (WithdrawResult, error) {
 	ctx := rc.Context
 	if operatedAppID == uuid.Nil {
 		return WithdrawResult{}, newError(fwmgr.ContractMisuse, "empty operatedAppId")
@@ -209,7 +209,7 @@ func (m *operationsManager) WithdrawSystem(rc fwmgr.Context, operatedAppID Opera
 		TaskQueue:                TaskQueue,
 		WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
 	}
-	we, err := m.client.ExecuteWorkflow(ctx, opts, ExecutionKindWithdraw, WithdrawInput{
+	we, err := m.client.ExecuteWorkflow(ctx, opts, executionKindWithdraw, withdrawInput{
 		OperatedAppID: operatedAppID,
 		Reason:        reason,
 	})
@@ -227,15 +227,15 @@ func (m *operationsManager) WithdrawSystem(rc fwmgr.Context, operatedAppID Opera
 // {operatedAppId}:costProjection:{requestId}). Reads observed usage + recent
 // desired-state history → runs operationEstimationEngine.ProjectForOperatedApp
 // (direct in-workflow). MUTATES NO STATE. SYNC, side-effect-free.
-func (m *operationsManager) QueryCostProjection(rc fwmgr.Context, operatedAppID OperatedAppID, requestID string, points *ScaleWhatIfPoints) (CostProjection, error) {
+func (m *operationsManager) QueryCostProjection(rc fwmgr.Context, operatedAppID operatedAppID, requestID string, points *ScaleWhatIfPoints) (costProjection, error) {
 	ctx := rc.Context
 	if operatedAppID == uuid.Nil {
-		return CostProjection{}, newError(fwmgr.ContractMisuse, "empty operatedAppId")
+		return costProjection{}, newError(fwmgr.ContractMisuse, "empty operatedAppId")
 	}
 	if requestID == "" {
-		return CostProjection{}, newError(fwmgr.ContractMisuse, "empty requestId")
+		return costProjection{}, newError(fwmgr.ContractMisuse, "empty requestId")
 	}
-	in := CostProjectionInput{OperatedAppID: operatedAppID}
+	in := costProjectionInput{OperatedAppID: operatedAppID}
 	if points != nil {
 		in.ScaleWhatIfPoints = points.Points
 	}
@@ -246,13 +246,13 @@ func (m *operationsManager) QueryCostProjection(rc fwmgr.Context, operatedAppID 
 		TaskQueue:                TaskQueue,
 		WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
 	}
-	we, err := m.client.ExecuteWorkflow(ctx, opts, ExecutionKindCostProjection, in)
+	we, err := m.client.ExecuteWorkflow(ctx, opts, executionKindCostProjection, in)
 	if err != nil {
-		return CostProjection{}, mapStartError(err)
+		return costProjection{}, mapStartError(err)
 	}
-	var result CostProjection
+	var result costProjection
 	if err := we.Get(ctx, &result); err != nil {
-		return CostProjection{}, newError(fwmgr.Infrastructure, err.Error())
+		return costProjection{}, newError(fwmgr.Infrastructure, err.Error())
 	}
 	return result, nil
 }
@@ -264,7 +264,7 @@ func (m *operationsManager) QueryCostProjection(rc fwmgr.Context, operatedAppID 
 // + current run-rate (operationEstimationEngine, run-rate only — nil what-if). MUTATES
 // NO STATE. SYNC, side-effect-free. Mirrors QueryCostProjection (§2.4) in shape
 // (operationsRead-ruling.md §A).
-func (m *operationsManager) QueryOperatedSystemView(rc fwmgr.Context, operatedAppID OperatedAppID, requestID string) (OperatedSystemView, error) {
+func (m *operationsManager) QueryOperatedSystemView(rc fwmgr.Context, operatedAppID operatedAppID, requestID string) (OperatedSystemView, error) {
 	ctx := rc.Context
 	if operatedAppID == uuid.Nil {
 		return OperatedSystemView{}, newError(fwmgr.ContractMisuse, "empty operatedAppId")
@@ -279,7 +279,7 @@ func (m *operationsManager) QueryOperatedSystemView(rc fwmgr.Context, operatedAp
 		TaskQueue:                TaskQueue,
 		WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
 	}
-	we, err := m.client.ExecuteWorkflow(ctx, opts, ExecutionKindOperatedSystemView, ViewInput{
+	we, err := m.client.ExecuteWorkflow(ctx, opts, executionKindOperatedSystemView, viewInput{
 		OperatedAppID: operatedAppID,
 	})
 	if err != nil {
@@ -299,21 +299,21 @@ func (m *operationsManager) QueryOperatedSystemView(rc fwmgr.Context, operatedAp
 // pause-or-withdraw patch per BillingTerms. QUEUED/async: returns once the signal is
 // durably enqueued; the enforcement runs in the workflow. Late/duplicate delivery is
 // idempotent (signal-with-start re-derivation).
-func (m *operationsManager) ApplyDelinquencyPolicy(rc fwmgr.Context, customerID CustomerID, delinquencyContext DelinquencyContext) error {
+func (m *operationsManager) ApplyDelinquencyPolicy(rc fwmgr.Context, customerID customerID, delinquencyContext DelinquencyContext) error {
 	ctx := rc.Context
 	if customerID == uuid.Nil {
 		return newError(fwmgr.ContractMisuse, "empty customerId")
 	}
 
 	wfID := delinquencyWorkflowID(customerID)
-	sig := ApplyDelinquencySignal{CustomerID: customerID, Context: delinquencyContext}
+	sig := applyDelinquencySignal{CustomerID: customerID, Context: delinquencyContext}
 	opts := client.StartWorkflowOptions{
 		ID:                       wfID,
 		TaskQueue:                TaskQueue,
 		WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
 	}
-	_, err := m.client.SignalWithStartWorkflow(ctx, wfID, SignalApplyDelinquencyPolicy, sig,
-		opts, ExecutionKindDelinquency, DelinquencyInput{CustomerID: customerID})
+	_, err := m.client.SignalWithStartWorkflow(ctx, wfID, signalApplyDelinquencyPolicy, sig,
+		opts, executionKindDelinquency, delinquencyInput{CustomerID: customerID})
 	if err != nil {
 		return mapSignalError(err)
 	}
@@ -323,7 +323,7 @@ func (m *operationsManager) ApplyDelinquencyPolicy(rc fwmgr.Context, customerID 
 // --- workflow id derivation (continuity tokens; operationsManager.md §6.1) ----
 
 // deployWorkflowID derives {operatedAppId}:deploy:{changeId}.
-func deployWorkflowID(operatedAppID OperatedAppID, changeID string) string {
+func deployWorkflowID(operatedAppID operatedAppID, changeID string) string {
 	return fmt.Sprintf("%s:deploy:%s", operatedAppID, changeID)
 }
 
@@ -334,24 +334,24 @@ func reconcileWorkflowID(tickID string) string {
 }
 
 // withdrawWorkflowID derives {operatedAppId}:withdraw:{changeId}.
-func withdrawWorkflowID(operatedAppID OperatedAppID, changeID string) string {
+func withdrawWorkflowID(operatedAppID operatedAppID, changeID string) string {
 	return fmt.Sprintf("%s:withdraw:%s", operatedAppID, changeID)
 }
 
 // costProjectionWorkflowID derives {operatedAppId}:costProjection:{requestId}.
-func costProjectionWorkflowID(operatedAppID OperatedAppID, requestID string) string {
+func costProjectionWorkflowID(operatedAppID operatedAppID, requestID string) string {
 	return fmt.Sprintf("%s:costProjection:%s", operatedAppID, requestID)
 }
 
 // viewWorkflowID derives {operatedAppId}:view:{requestId} (the short-lived read-only
 // operator-view continuity token; operationsRead-ruling.md §A).
-func viewWorkflowID(operatedAppID OperatedAppID, requestID string) string {
+func viewWorkflowID(operatedAppID operatedAppID, requestID string) string {
 	return fmt.Sprintf("%s:view:%s", operatedAppID, requestID)
 }
 
 // delinquencyWorkflowID derives the customer's delinquency-enforcement workflow id
 // {customerId}:delinquency (the signal-with-start continuity token).
-func delinquencyWorkflowID(customerID CustomerID) string {
+func delinquencyWorkflowID(customerID customerID) string {
 	return fmt.Sprintf("%s:delinquency", customerID)
 }
 

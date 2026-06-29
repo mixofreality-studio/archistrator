@@ -10,7 +10,7 @@ import (
 
 // RegisterWorker wires the projectDesignManager onto a Temporal Worker polling the
 // project-design task queue (projectDesignManager.md §6.1). The Manager's workflow
-// dependencies live on a single Workflows struct (there is no separate Activities
+// dependencies live on a single workflows struct (there is no separate Activities
 // type).
 //
 // 2026-06-15 agentic-pivot re-cut (projectDesignManager.md §0.5 / D-MPD-Δ):
@@ -36,10 +36,11 @@ import (
 //     NO rail (only the per-artifact draft path does). The rail Activities + the
 //     branch-aware ReadProjectOnBranch are registered regardless (an unwired rail never
 //     invokes them).
+//
 // It takes the constructed ProjectDesignManager and reads the Worker-side deps off
 // its (unexported) impl, wrapping the published constructionpipeline / sourcecontrol
-// deps in the package's folded adapters before handing them to the Workflows struct.
-// The published rail is OPTIONAL: a nil rail leaves the Workflows.Rail seam nil so the
+// deps in the package's folded adapters before handing them to the workflows struct.
+// The published rail is OPTIONAL: a nil rail leaves the workflows.Rail seam nil so the
 // branch→PR→merge path stays dormant (a dev server with no source-control creds).
 func RegisterWorker(w worker.Worker, m ProjectDesignManager) {
 	impl, ok := m.(*projectDesignManager)
@@ -50,7 +51,7 @@ func RegisterWorker(w worker.Worker, m ProjectDesignManager) {
 	if impl.rail != nil {
 		rail = railAdapterImpl{inner: impl.rail}
 	}
-	wf := &Workflows{
+	wf := &workflows{
 		Estimation:   impl.estimator,
 		OperationEst: impl.opEstimator,
 		Settlement:   impl.settlement,
@@ -59,9 +60,9 @@ func RegisterWorker(w worker.Worker, m ProjectDesignManager) {
 		Rail:         rail,
 		Repo:         impl.repo,
 	}
-	w.RegisterWorkflowWithOptions(wf.CoAuthorPhase2ArtifactWorkflow, workflow.RegisterOptions{Name: ExecutionKindCoAuthor})
-	w.RegisterWorkflowWithOptions(wf.AssembleSDPReviewWorkflow, workflow.RegisterOptions{Name: ExecutionKindSDPReview})
-	w.RegisterWorkflowWithOptions(wf.Phase2AdvanceWorkflow, workflow.RegisterOptions{Name: ExecutionKindPhaseAdvance})
+	w.RegisterWorkflowWithOptions(wf.CoAuthorPhase2ArtifactWorkflow, workflow.RegisterOptions{Name: executionKindCoAuthor})
+	w.RegisterWorkflowWithOptions(wf.AssembleSDPReviewWorkflow, workflow.RegisterOptions{Name: executionKindSDPReview})
+	w.RegisterWorkflowWithOptions(wf.Phase2AdvanceWorkflow, workflow.RegisterOptions{Name: executionKindPhaseAdvance})
 
 	w.RegisterActivityWithOptions(wf.ReadProjectActivity, activity.RegisterOptions{Name: actReadProject})
 	w.RegisterActivityWithOptions(wf.ReadProjectVersionActivity, activity.RegisterOptions{Name: actReadProjectVersion})

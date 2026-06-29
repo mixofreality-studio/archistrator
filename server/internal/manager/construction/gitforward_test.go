@@ -241,7 +241,7 @@ var _ gitActivityStatusAccess = (*stubGitStatus)(nil)
 
 // registerConstructGit registers the per-activity workflow + ALL activities including
 // the git-forward ones.
-func registerConstructGit(env *testsuite.TestWorkflowEnvironment, wf *Workflows) {
+func registerConstructGit(env *testsuite.TestWorkflowEnvironment, wf *workflows) {
 	registerConstruct(env, wf)
 	env.RegisterActivity(wf.MintRepoCredentialActivity)
 	env.RegisterActivity(wf.OpenBranchActivity)
@@ -257,13 +257,13 @@ func registerConstructGit(env *testsuite.TestWorkflowEnvironment, wf *Workflows)
 	env.RegisterActivity(wf.RecordActivityCompletedActivity)
 }
 
-// gitWiredWorkflows builds a Workflows with the git-forward slice wired to the supplied
+// gitWiredWorkflows builds a workflows with the git-forward slice wired to the supplied
 // rail + git store, a fixed repo resolver, and the happy-path engine fakes.
-func gitWiredWorkflows(ps *fakeProjectState, rail *stubRail, git *stubGitStatus, mergeable bool) *Workflows {
+func gitWiredWorkflows(ps *fakeProjectState, rail *stubRail, git *stubGitStatus, mergeable bool) *workflows {
 	rail.merged = mergeable
 	d := wfDeps{
-		HandOff:      &fakeHandOff{class: AIWorker},
-		Intervention: &fakeIntervention{directive: DirectiveRetry},
+		HandOff:      &fakeHandOff{class: aiWorker},
+		Intervention: &fakeIntervention{directive: directiveRetry},
 		Review:       &fakeReview{},
 		ProjectState: ps,
 		Pipeline:     &fakePipeline{phase: PipelineSucceeded},
@@ -282,7 +282,7 @@ func gitWiredWorkflows(ps *fakeProjectState, rail *stubRail, git *stubGitStatus,
 
 // gitSampleActivity carries a cr-NN label + revert flag so the recorded row's CR fields
 // are asserted end-to-end.
-func gitSampleActivity() ConstructionActivity {
+func gitSampleActivity() constructionActivity {
 	a := sampleActivity()
 	a.ActivityID = "C-MST"
 	a.CRLabel = "cr-021"
@@ -304,7 +304,7 @@ func Test_GitForward_FullLifecycle_RecordsHeadState(t *testing.T) {
 	wf := gitWiredWorkflows(ps, rail, git, true /*mergeable*/)
 	registerConstructGit(env, wf)
 
-	env.ExecuteWorkflow(ExecutionKindConstructActivity, ConstructActivityInput{
+	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{
 		ProjectID: pid, ActivityID: "C-MST", Activity: gitSampleActivity(),
 	})
 
@@ -378,7 +378,7 @@ func Test_Construction_StartedThenCompleted_RecordedOnHeadState(t *testing.T) {
 	wf := gitWiredWorkflows(ps, rail, git, true /*mergeable*/)
 	registerConstructGit(env, wf)
 
-	env.ExecuteWorkflow(ExecutionKindConstructActivity, ConstructActivityInput{
+	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{
 		ProjectID: pid, ActivityID: "C-MST", Activity: gitSampleActivity(),
 	})
 
@@ -408,8 +408,8 @@ func Test_GitForward_CIFailure_MirroredNotGated(t *testing.T) {
 	wf := gitWiredWorkflows(ps, rail, git, true)
 	registerConstructGit(env, wf)
 
-	env.ExecuteWorkflow(ExecutionKindConstructActivity, ConstructActivityInput{
-		ProjectID: pid, ActivityID: "C-CI", Activity: ConstructionActivity{ActivityID: "C-CI", Kind: ActivityKindConstruction, ComponentID: "c"},
+	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{
+		ProjectID: pid, ActivityID: "C-CI", Activity: constructionActivity{ActivityID: "C-CI", Kind: activityKindConstruction, ComponentID: "c"},
 	})
 
 	if err := env.GetWorkflowError(); err != nil {
@@ -433,14 +433,14 @@ func Test_GitForward_Dormant_WhenUnwired(t *testing.T) {
 	pid := ProjectID(uuid.NewString())
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}, version: 1}
 	wf := newWorkflows(wfDeps{
-		HandOff: &fakeHandOff{class: AIWorker}, Intervention: &fakeIntervention{directive: DirectiveRetry},
+		HandOff: &fakeHandOff{class: aiWorker}, Intervention: &fakeIntervention{directive: directiveRetry},
 		Review: &fakeReview{}, ProjectState: ps, Pipeline: &fakePipeline{phase: PipelineSucceeded},
 		Artifacts: &fakeArtifacts{}, Workers: &fakeWorker{},
 		// no WithGitForward — Rail/GitStatus/Repo nil.
 	})
 	registerConstruct(env, wf)
 
-	env.ExecuteWorkflow(ExecutionKindConstructActivity, ConstructActivityInput{
+	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{
 		ProjectID: pid, ActivityID: "C-NO-GIT", Activity: sampleActivity(),
 	})
 	if err := env.GetWorkflowError(); err != nil {
@@ -493,8 +493,8 @@ func Test_GitForward_RecordsConvergeMonotonically(t *testing.T) {
 	wf := gitWiredWorkflows(ps, rail, git, true)
 	registerConstructGit(env, wf)
 
-	env.ExecuteWorkflow(ExecutionKindConstructActivity, ConstructActivityInput{
-		ProjectID: pid, ActivityID: "C-MONO", Activity: ConstructionActivity{ActivityID: "C-MONO", Kind: ActivityKindConstruction, ComponentID: "c"},
+	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{
+		ProjectID: pid, ActivityID: "C-MONO", Activity: constructionActivity{ActivityID: "C-MONO", Kind: activityKindConstruction, ComponentID: "c"},
 	})
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)

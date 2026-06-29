@@ -47,14 +47,14 @@ import (
 // (memory: Method data models live in their owning RA).
 // ---------------------------------------------------------------------------
 
-// OperatedAppID is the operated-system aggregate identifier; a plain uuid.UUID,
+// operatedAppID is the operated-system aggregate identifier; a plain uuid.UUID,
 // canonical in operatedSystemStateAccess (operationsManager.md §3.0 / OQ-3 →
 // standardised on OperatedAppId, not deployedAppId).
-type OperatedAppID = uuid.UUID
+type operatedAppID = uuid.UUID
 
-// CustomerID is the billing-customer aggregate identifier; a plain uuid.UUID,
+// customerID is the billing-customer aggregate identifier; a plain uuid.UUID,
 // canonical in settlementStateAccess (operationsManager.md §3.0).
-type CustomerID = uuid.UUID
+type customerID = uuid.UUID
 
 // DesiredStateReason discriminates the operator-chosen desired-state mutation
 // (operationsManager.md §3.1). The reason is LOAD-BEARING: DeployAfterConstruction
@@ -127,12 +127,12 @@ type CustomerID = uuid.UUID
 // Transitions the head-state transitions recorded (Path B), and Republished the
 // autoscaler-driven republishes (Path C, non-NoChange).
 
-// CostProjection is the read-only op-time cost projection returned by
+// costProjection is the read-only op-time cost projection returned by
 // QueryCostProjection (operationsManager.md §3.3 — CANONICAL in
 // operationEstimationEngine.md §3). Mirrored as the Manager-local seam shape (deps.go
-// CostProjection); re-exported here as the façade result. NO state mutation produces
+// costProjection); re-exported here as the façade result. NO state mutation produces
 // it.
-type CostProjection = CostProjectionSeam
+type costProjection = CostProjectionSeam
 
 // ---------------------------------------------------------------------------
 // OperatedSystemView — op 2.7 façade type (operationsRead-ruling.md §B). The
@@ -190,9 +190,9 @@ type CostProjection = CostProjectionSeam
 // FailedPrecondition, NotFound, Unauthorized, Infrastructure.
 // ---------------------------------------------------------------------------
 
-// OperationsError is the typed façade error (operationsManager.md §3.4). It is an
-// alias for fwmgr.Error so errors.As(&OperationsError) call sites work.
-type OperationsError = fwmgr.Error
+// operationsError is the typed façade error (operationsManager.md §3.4). It is an
+// alias for fwmgr.Error so errors.As(&operationsError) call sites work.
+type operationsError = fwmgr.Error
 
 func newError(kind fwmgr.Kind, detail string) *fwmgr.Error {
 	return fwmgr.New(kind, detail)

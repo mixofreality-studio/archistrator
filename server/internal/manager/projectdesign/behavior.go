@@ -15,9 +15,9 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
-// NewSessionRef constructs a SessionRef from an infrastructure identity. Internal to
+// newSessionRef constructs a SessionRef from an infrastructure identity. Internal to
 // the Manager; Clients only ever receive and echo SessionRefs.
-func NewSessionRef(opaque string) SessionRef { return SessionRef(opaque) }
+func newSessionRef(opaque string) SessionRef { return SessionRef(opaque) }
 
 // toPSKind converts projectdesign's OWN ArtifactKind to the canonical
 // projectstate.ArtifactKind (ordinal-preserving) for behavior + RA-boundary calls.
@@ -27,15 +27,15 @@ func toPSKind(k ArtifactKind) projectstate.ArtifactKind { return projectstate.Ar
 // ArtifactKind (ordinal-preserving) at the read boundary.
 func fromPSKind(k projectstate.ArtifactKind) ArtifactKind { return ArtifactKind(k) }
 
-// ArtifactKindString returns the PascalCase Go-identifier name for an ArtifactKind
+// artifactKindString returns the PascalCase Go-identifier name for an ArtifactKind
 // (the dispatch-input + PR-title + diagnostic form). Mirrors projectstate String().
-func ArtifactKindString(k ArtifactKind) string { return toPSKind(k).String() }
+func artifactKindString(k ArtifactKind) string { return toPSKind(k).String() }
 
-// ArtifactKindWireName returns the canonical camelCase wire name for an ArtifactKind.
-func ArtifactKindWireName(k ArtifactKind) string { return toPSKind(k).WireName() }
+// artifactKindWireName returns the canonical camelCase wire name for an ArtifactKind.
+func artifactKindWireName(k ArtifactKind) string { return toPSKind(k).WireName() }
 
-// ArtifactKindIsPhase2 reports whether the kind belongs to The Method's Phase 2.
-func ArtifactKindIsPhase2(k ArtifactKind) bool { return toPSKind(k).IsPhase2() }
+// artifactKindIsPhase2 reports whether the kind belongs to The Method's Phase 2.
+func artifactKindIsPhase2(k ArtifactKind) bool { return toPSKind(k).IsPhase2() }
 
 // phase2RequiredKinds returns the ordered set of Phase-2 required artifact kinds
 // (projectdesign's OWN type), mirroring projectstate.Phase2RequiredKinds().

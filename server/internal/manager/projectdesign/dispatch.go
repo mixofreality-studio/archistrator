@@ -9,7 +9,7 @@ package projectdesign
 //               (never persisted) and dispatches a claude-code-action DESIGN job via
 //               the FROZEN constructionPipelineAccess.SubmitConstructionPipeline verb,
 //               carrying {artifact_kind, design_prompt, target_branch,
-//               prior_state_ref} on the additive PipelineSpec.DispatchInputs field
+//               prior_state_ref} on the additive pipelineSpec.DispatchInputs field
 //               (C-WF-DESIGN input schema, ADDED by C-MSD-Δ). The RA reserves +
 //               stamps idempotency_token itself; the Manager MUST NOT set it.
 //   - OBSERVE   the Manager polls ObserveConstructionPipeline(handle) between
@@ -64,8 +64,8 @@ import (
 // surface (constructionPipelineAccess.md §2) the Phase-2 draft path depends on:
 // dispatch (submit) + observe.
 type constructionPipelineAccess interface {
-	SubmitConstructionPipeline(ctx context.Context, spec PipelineSpec, idempotencyKey fwra.IdempotencyKey) (PipelineHandle, error)
-	ObserveConstructionPipeline(ctx context.Context, handle PipelineHandle) (PipelineObservation, error)
+	SubmitConstructionPipeline(ctx context.Context, spec pipelineSpec, idempotencyKey fwra.IdempotencyKey) (pipelineHandle, error)
+	ObserveConstructionPipeline(ctx context.Context, handle pipelineHandle) (pipelineObservation, error)
 }
 
 // pipelineDefaultToolchain is the placeholder toolchain stamped on the logical design
@@ -73,24 +73,24 @@ type constructionPipelineAccess interface {
 const pipelineDefaultToolchain = "go-1.23"
 
 // pipelineDispatchAdapter is the FOLDED composition-root designProjectDesignPipelineAdapter:
-// it maps this package's neutral, Temporal-serializable PipelineSpec/Handle/Observation
+// it maps this package's neutral, Temporal-serializable pipelineSpec/Handle/Observation
 // onto the PUBLISHED constructionpipeline.ConstructionPipelineAccess (building the fwra
 // call Context at the boundary). RegisterWorker wraps the published dep in this adapter
-// so the hand-written Workflows keep their plain-ctx seam.
+// so the hand-written workflows keep their plain-ctx seam.
 type pipelineDispatchAdapter struct {
 	inner constructionpipeline.ConstructionPipelineAccess
 }
 
 var _ constructionPipelineAccess = pipelineDispatchAdapter{}
 
-func (a pipelineDispatchAdapter) SubmitConstructionPipeline(ctx context.Context, spec PipelineSpec, idempotencyKey fwra.IdempotencyKey) (PipelineHandle, error) {
+func (a pipelineDispatchAdapter) SubmitConstructionPipeline(ctx context.Context, spec pipelineSpec, idempotencyKey fwra.IdempotencyKey) (pipelineHandle, error) {
 	// Per-project-design-dispatch: decode the opaque per-project RepoRef → owner/repo so
 	// the RA dispatches the agentic DESIGN job to the USER'S per-project repo +
 	// aiarch-design.yml (NOT the central construction repo). Empty TargetRepo ⇒ zero
 	// RepoTarget ⇒ the RA falls back to the configured construction repo.
 	target, terr := designRepoTarget(spec.TargetRepo)
 	if terr != nil {
-		return PipelineHandle{}, terr
+		return pipelineHandle{}, terr
 	}
 	handle, err := a.inner.SubmitConstructionPipeline(fwra.Context{Context: ctx, IdempotencyKey: idempotencyKey}, constructionpipeline.PipelineSpec{
 		ProjectID: constructionpipeline.ProjectID(spec.ProjectID),
@@ -107,17 +107,17 @@ func (a pipelineDispatchAdapter) SubmitConstructionPipeline(ctx context.Context,
 		WorkflowFile:   spec.WorkflowFile,
 	})
 	if err != nil {
-		return PipelineHandle{}, err
+		return pipelineHandle{}, err
 	}
-	return PipelineHandle{Name: constructionpipeline.PipelineHandleString(handle)}, nil
+	return pipelineHandle{Name: constructionpipeline.PipelineHandleString(handle)}, nil
 }
 
-func (a pipelineDispatchAdapter) ObserveConstructionPipeline(ctx context.Context, handle PipelineHandle) (PipelineObservation, error) {
+func (a pipelineDispatchAdapter) ObserveConstructionPipeline(ctx context.Context, handle pipelineHandle) (pipelineObservation, error) {
 	obs, err := a.inner.ObserveConstructionPipeline(fwra.Context{Context: ctx}, constructionpipeline.ParsePipelineHandle(handle.Name))
 	if err != nil {
-		return PipelineObservation{}, err
+		return pipelineObservation{}, err
 	}
-	return PipelineObservation{
+	return pipelineObservation{
 		Phase:      designPipelinePhase(obs.Phase),
 		Diagnostic: obs.Diagnostic,
 	}, nil
@@ -142,24 +142,24 @@ func designRepoTarget(repoRef string) (constructionpipeline.RepoTarget, error) {
 // designPipelinePhase maps the RA's phase to this Manager's neutral phase, preserving
 // the Cancelled terminal distinctly (the design Manager treats any non-Succeeded
 // terminal as a StageDraftFailed gate).
-func designPipelinePhase(p constructionpipeline.PipelinePhase) PipelinePhase {
+func designPipelinePhase(p constructionpipeline.PipelinePhase) pipelinePhase {
 	switch p {
 	case constructionpipeline.PhasePending:
-		return PipelinePending
+		return pipelinePending
 	case constructionpipeline.PhaseRunning:
-		return PipelineRunning
+		return pipelineRunning
 	case constructionpipeline.PhaseSucceeded:
-		return PipelineSucceeded
+		return pipelineSucceeded
 	case constructionpipeline.PhaseFailed:
-		return PipelineFailed
+		return pipelineFailed
 	case constructionpipeline.PhaseCancelled:
-		return PipelineCancelled
+		return pipelineCancelled
 	default:
-		return PipelinePhaseUnknown
+		return pipelinePhaseUnknown
 	}
 }
 
-// PipelineSpec mirrors constructionPipelineAccess.md §3 (infrastructure-neutral),
+// pipelineSpec mirrors constructionPipelineAccess.md §3 (infrastructure-neutral),
 // carrying ONLY the fields the design dispatch fills. DispatchInputs is the additive
 // optional field (ADDED by C-MSD-Δ) that forwards the four DESIGN-job parameters;
 // the RA stamps idempotency_token itself.
@@ -169,7 +169,7 @@ func designPipelinePhase(p constructionpipeline.PipelinePhase) PipelinePhase {
 // NOT the central construction repo + aiarch-construct.yml. TargetRepo is the opaque
 // per-project RepoRef String() (the rail's repoRef); empty ⇒ the RA falls back to the
 // configured construction repo (the dormant-rail / non-git path is unchanged).
-type PipelineSpec struct {
+type pipelineSpec struct {
 	ProjectID      ProjectID
 	DispatchInputs map[string]string
 	// TargetRepo is the opaque per-project RepoRef (sourcecontrol.RepoRef.String()).
@@ -180,45 +180,45 @@ type PipelineSpec struct {
 	WorkflowFile string
 }
 
-// PipelineHandle mirrors constructionPipelineAccess.md §3 — an opaque, immutable
+// pipelineHandle mirrors constructionPipelineAccess.md §3 — an opaque, immutable
 // identity for one dispatched job; persisted across the Activity boundary as a plain
 // string (the Manager never parses it).
-type PipelineHandle struct {
+type pipelineHandle struct {
 	Name string
 }
 
 // IsZero reports whether no job is addressed.
-func (h PipelineHandle) IsZero() bool { return h.Name == "" }
+func (h pipelineHandle) IsZero() bool { return h.Name == "" }
 
-// PipelinePhase mirrors constructionPipelineAccess.md §3 — the infrastructure-neutral
+// pipelinePhase mirrors constructionPipelineAccess.md §3 — the infrastructure-neutral
 // lifecycle phase the Manager branches on. The terminal trio drives the observe
 // loop's exit + the failure path.
-type PipelinePhase int
+type pipelinePhase int
 
 const (
-	PipelinePhaseUnknown PipelinePhase = iota
-	PipelinePending
-	PipelineRunning
-	PipelineSucceeded
-	PipelineFailed
-	PipelineCancelled
+	pipelinePhaseUnknown pipelinePhase = iota
+	pipelinePending
+	pipelineRunning
+	pipelineSucceeded
+	pipelineFailed
+	pipelineCancelled
 )
 
 // IsTerminal reports whether the phase is one the job can no longer leave.
-func (p PipelinePhase) IsTerminal() bool {
+func (p pipelinePhase) IsTerminal() bool {
 	switch p {
-	case PipelineSucceeded, PipelineFailed, PipelineCancelled:
+	case pipelineSucceeded, pipelineFailed, pipelineCancelled:
 		return true
 	default:
 		return false
 	}
 }
 
-// PipelineObservation mirrors constructionPipelineAccess.md §3 — a point-in-time,
+// pipelineObservation mirrors constructionPipelineAccess.md §3 — a point-in-time,
 // infrastructure-neutral view carrying the phase and (on terminal failure) a neutral
 // Diagnostic summary (NOT a log firehose).
-type PipelineObservation struct {
-	Phase      PipelinePhase
+type pipelineObservation struct {
+	Phase      pipelinePhase
 	Diagnostic string
 }
 
@@ -260,10 +260,10 @@ func designBranch(projectID ProjectID, kind ArtifactKind, attempt int) string {
 	return base
 }
 
-// DispatchDesignJobArgs bundles the dispatch inputs for the Activity boundary. The
+// dispatchDesignJobArgs bundles the dispatch inputs for the Activity boundary. The
 // Manager's SEQUENCE composed Prompt in-memory (prompts.go); ArtifactKind + Branch +
 // PriorStateRef ride into the DispatchInputs map inside the Activity.
-type DispatchDesignJobArgs struct {
+type dispatchDesignJobArgs struct {
 	ProjectID     ProjectID
 	ArtifactKind  ArtifactKind
 	Prompt        string
@@ -284,10 +284,10 @@ type DispatchDesignJobArgs struct {
 // invocation (same ActivityID) collapses to the same job at the RA. The RA reserves +
 // stamps idempotency_token; the Manager forwards only the four DESIGN parameters in
 // DispatchInputs.
-func (wf *Workflows) DispatchDesignJobActivity(ctx context.Context, a DispatchDesignJobArgs) (PipelineHandle, error) {
+func (wf *workflows) DispatchDesignJobActivity(ctx context.Context, a dispatchDesignJobArgs) (pipelineHandle, error) {
 	key := activityIdempotencyKey(ctx)
 	inputs := map[string]string{
-		dispatchInputArtifactKind:  ArtifactKindString(a.ArtifactKind),
+		dispatchInputArtifactKind:  artifactKindString(a.ArtifactKind),
 		dispatchInputDesignPrompt:  a.Prompt,
 		dispatchInputTargetBranch:  a.TargetBranch,
 		dispatchInputPriorStateRef: a.PriorStateRef,
@@ -295,14 +295,14 @@ func (wf *Workflows) DispatchDesignJobActivity(ctx context.Context, a DispatchDe
 	// Per-project-design-dispatch: target the per-project repo + aiarch-design.yml when
 	// the rail resolved a repo (TargetRepo non-empty), else leave both empty so the RA
 	// falls back to the configured construction repo (dormant-rail / non-git path).
-	spec := PipelineSpec{ProjectID: a.ProjectID, DispatchInputs: inputs}
+	spec := pipelineSpec{ProjectID: a.ProjectID, DispatchInputs: inputs}
 	if a.TargetRepo != "" {
 		spec.TargetRepo = a.TargetRepo
 		spec.WorkflowFile = designWorkflowFileName
 	}
 	handle, err := wf.Pipeline.SubmitConstructionPipeline(ctx, spec, key)
 	if err != nil {
-		return PipelineHandle{}, fwmanager.MapError(err)
+		return pipelineHandle{}, fwmanager.MapError(err)
 	}
 	return handle, nil
 }
@@ -310,10 +310,10 @@ func (wf *Workflows) DispatchDesignJobActivity(ctx context.Context, a DispatchDe
 // ObserveDesignJobActivity is a single point-in-time read of the dispatched job's
 // phase (pull-shaped, side-effect-free; constructionPipelineAccess.md §2.2). The
 // workflow loops it between durable timer waits until the observation is terminal.
-func (wf *Workflows) ObserveDesignJobActivity(ctx context.Context, handle PipelineHandle) (PipelineObservation, error) {
+func (wf *workflows) ObserveDesignJobActivity(ctx context.Context, handle pipelineHandle) (pipelineObservation, error) {
 	obs, err := wf.Pipeline.ObserveConstructionPipeline(ctx, handle)
 	if err != nil {
-		return PipelineObservation{}, fwmanager.MapError(err)
+		return pipelineObservation{}, fwmanager.MapError(err)
 	}
 	return obs, nil
 }
@@ -324,36 +324,36 @@ func (wf *Workflows) ObserveDesignJobActivity(ctx context.Context, handle Pipeli
 // returns the terminal observation; the caller decides success (read-back) vs failure
 // (the StageDraftFailed gate). It NEVER infers failure from a timeout-as-success
 // (§0.5.4): a stuck job that never terminates within the bounded poll budget is
-// surfaced as an explicit PipelineFailed with a neutral diagnostic, so the caller
+// surfaced as an explicit pipelineFailed with a neutral diagnostic, so the caller
 // still lands the session at the human gate.
-func (wf *Workflows) dispatchAndObserve(ctx workflow.Context, args DispatchDesignJobArgs) (PipelineObservation, error) {
-	var handle PipelineHandle
+func (wf *workflows) dispatchAndObserve(ctx workflow.Context, args dispatchDesignJobArgs) (pipelineObservation, error) {
+	var handle pipelineHandle
 	if err := workflow.ExecuteActivity(dispatchOpts(ctx), wf.DispatchDesignJobActivity, args).Get(ctx, &handle); err != nil {
-		return PipelineObservation{}, err
+		return pipelineObservation{}, err
 	}
 	if handle.IsZero() {
-		return PipelineObservation{}, temporal.NewNonRetryableApplicationError(
+		return pipelineObservation{}, temporal.NewNonRetryableApplicationError(
 			"dispatch returned an empty pipeline handle", "EmptyPipelineHandle", nil)
 	}
 
 	for poll := 0; poll < maxObservePolls; poll++ {
-		var obs PipelineObservation
+		var obs pipelineObservation
 		if err := workflow.ExecuteActivity(observeOpts(ctx), wf.ObserveDesignJobActivity, handle).Get(ctx, &obs); err != nil {
-			return PipelineObservation{}, err
+			return pipelineObservation{}, err
 		}
 		if obs.Phase.IsTerminal() {
 			return obs, nil
 		}
 		// Not yet terminal — space the next observe with a durable in-workflow timer.
 		if err := workflow.Sleep(ctx, observePollInterval); err != nil {
-			return PipelineObservation{}, err
+			return pipelineObservation{}, err
 		}
 	}
 	// Bounded poll budget exhausted without a terminal phase. Treat as an explicit
 	// terminal failure (NOT a success, NOT a perpetual Drafting) so the caller routes
 	// to the StageDraftFailed human gate.
-	return PipelineObservation{
-		Phase:      PipelineFailed,
+	return pipelineObservation{
+		Phase:      pipelineFailed,
 		Diagnostic: "design job did not reach a terminal state within the observation window",
 	}, nil
 }
@@ -398,7 +398,7 @@ func observeOpts(ctx workflow.Context) workflow.Context {
 // violation between the Action and the read-back (the job claimed success but
 // committed nothing) — surfaced as a terminal error routed to the gate, never a
 // silent empty draft.
-func (wf *Workflows) readBackCommittedModel(ctx workflow.Context, projectID ProjectID, kind ArtifactKind) (projectstate.ArtifactModel, error) {
+func (wf *workflows) readBackCommittedModel(ctx workflow.Context, projectID ProjectID, kind ArtifactKind) (projectstate.ArtifactModel, error) {
 	return wf.readBackCommittedModelOn(ctx, projectID, kind, "")
 }
 
@@ -406,7 +406,7 @@ func (wf *Workflows) readBackCommittedModel(ctx workflow.Context, projectID Proj
 // (I-DESIGN-DISPATCH §2a): the draft Action commits the typed JSON on the SESSION
 // BRANCH, so the read-back reads that branch while the human reviews the not-yet-merged
 // draft. branch=="" reads main (the dormant-rail / non-git behavior).
-func (wf *Workflows) readBackCommittedModelOn(ctx workflow.Context, projectID ProjectID, kind ArtifactKind, branch string) (projectstate.ArtifactModel, error) {
+func (wf *workflows) readBackCommittedModelOn(ctx workflow.Context, projectID ProjectID, kind ArtifactKind, branch string) (projectstate.ArtifactModel, error) {
 	proj, err := wf.readProjectOnBranch(ctx, projectID, branch)
 	if err != nil {
 		return nil, err

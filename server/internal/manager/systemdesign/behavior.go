@@ -14,23 +14,23 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
-// NewSessionRef constructs a SessionRef from an infrastructure identity. Internal to
+// newSessionRef constructs a SessionRef from an infrastructure identity. Internal to
 // the Manager; Clients only ever receive and echo SessionRefs.
-func NewSessionRef(opaque string) SessionRef { return SessionRef(opaque) }
+func newSessionRef(opaque string) SessionRef { return SessionRef(opaque) }
 
 // toPSKind converts systemdesign's OWN ArtifactKind to the canonical
 // projectstate.ArtifactKind (ordinal-preserving) for behavior + RA-boundary calls.
 func toPSKind(k ArtifactKind) projectstate.ArtifactKind { return projectstate.ArtifactKind(k) }
 
-// ArtifactKindString returns the PascalCase Go-identifier name for an ArtifactKind
+// artifactKindString returns the PascalCase Go-identifier name for an ArtifactKind
 // (the dispatch-input + PR-title + diagnostic form). Mirrors projectstate String().
-func ArtifactKindString(k ArtifactKind) string { return toPSKind(k).String() }
+func artifactKindString(k ArtifactKind) string { return toPSKind(k).String() }
 
-// ArtifactKindWireName returns the canonical camelCase wire name for an ArtifactKind.
-func ArtifactKindWireName(k ArtifactKind) string { return toPSKind(k).WireName() }
+// artifactKindWireName returns the canonical camelCase wire name for an ArtifactKind.
+func artifactKindWireName(k ArtifactKind) string { return toPSKind(k).WireName() }
 
-// ArtifactKindIsPhase1 reports whether the kind belongs to The Method's Phase 1.
-func ArtifactKindIsPhase1(k ArtifactKind) bool { return toPSKind(k).IsPhase1() }
+// artifactKindIsPhase1 reports whether the kind belongs to The Method's Phase 1.
+func artifactKindIsPhase1(k ArtifactKind) bool { return toPSKind(k).IsPhase1() }
 
 // phase1RequiredKinds returns the ordered set of Phase-1 artifact kinds (systemdesign's
 // OWN type), mirroring projectstate.Phase1RequiredKinds().

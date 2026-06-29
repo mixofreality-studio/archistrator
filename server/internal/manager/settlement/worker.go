@@ -22,14 +22,14 @@ const TaskQueue = "settlement"
 // ExecutionKinds — the registered workflow names (settlementManager.md §6.2).
 const (
 	// ExecutionKindOnboard is the UC5 payment-integration onboarding workflow.
-	ExecutionKindOnboard = "settlementOnboardPayment"
+	executionKindOnboard = "settlementOnboardPayment"
 	// ExecutionKindRegister is the ncuc1 customer-registration workflow.
-	ExecutionKindRegister = "settlementRegisterCustomer"
+	executionKindRegister = "settlementRegisterCustomer"
 	// ExecutionKindClose is the UC6 cycle-close workflow (also hosts the inbound/
 	// chargeback Signals and the forward-only recompute saga).
-	ExecutionKindClose = "settlementCloseCycle"
+	executionKindClose = "settlementCloseCycle"
 	// ExecutionKindShortfallSweep is the ncuc5 shortfall-sweep workflow.
-	ExecutionKindShortfallSweep = "settlementShortfallSweep"
+	executionKindShortfallSweep = "settlementShortfallSweep"
 )
 
 // Schedule ids + cadence (settlementManager.md §6.1; operational-concepts.md §4).
@@ -102,8 +102,8 @@ func RegisterWorker(w worker.Worker, m SettlementManager) {
 
 	// Fold the published deps the constructor stored into the unexported seams the
 	// Workflows struct holds (adapters.go) — the Option-B boundary mapping that replaces
-	// the former composition-root Deps wiring.
-	deps := Deps{
+	// the former composition-root wfDeps wiring.
+	deps := wfDeps{
 		Settlement:      settlementEngineAdapter{inner: impl.settlement},
 		Intervention:    interventionAdapter{inner: impl.intervention},
 		SettlementState: settlementStateAdapter{inner: impl.settlementState},
@@ -115,10 +115,10 @@ func RegisterWorker(w worker.Worker, m SettlementManager) {
 	}
 	wf := newWorkflows(deps)
 
-	w.RegisterWorkflowWithOptions(wf.OnboardWorkflow, workflow.RegisterOptions{Name: ExecutionKindOnboard})
-	w.RegisterWorkflowWithOptions(wf.RegisterCustomerWorkflow, workflow.RegisterOptions{Name: ExecutionKindRegister})
-	w.RegisterWorkflowWithOptions(wf.CloseCycleWorkflow, workflow.RegisterOptions{Name: ExecutionKindClose})
-	w.RegisterWorkflowWithOptions(wf.ShortfallSweepWorkflow, workflow.RegisterOptions{Name: ExecutionKindShortfallSweep})
+	w.RegisterWorkflowWithOptions(wf.OnboardWorkflow, workflow.RegisterOptions{Name: executionKindOnboard})
+	w.RegisterWorkflowWithOptions(wf.RegisterCustomerWorkflow, workflow.RegisterOptions{Name: executionKindRegister})
+	w.RegisterWorkflowWithOptions(wf.CloseCycleWorkflow, workflow.RegisterOptions{Name: executionKindClose})
+	w.RegisterWorkflowWithOptions(wf.ShortfallSweepWorkflow, workflow.RegisterOptions{Name: executionKindShortfallSweep})
 
 	// The Activities (settlementManager.md §6.4), one per RA call.
 	w.RegisterActivityWithOptions(wf.ReadSettlementActivity, activity.RegisterOptions{Name: actReadSettlement})
@@ -152,7 +152,7 @@ func RegisterWorker(w worker.Worker, m SettlementManager) {
 func RegisterSchedules(ctx context.Context, durable durableexecution.DurableExecutionAccess) error {
 	return durableAdapter{inner: durable}.RegisterSchedule(ctx, scheduleSpec{
 		ID:           scheduleIDShortfallSweep,
-		WorkflowType: ExecutionKindShortfallSweep,
+		WorkflowType: executionKindShortfallSweep,
 		TaskQueue:    TaskQueue,
 		IntervalSecs: shortfallSweepIntervalSecs,
 	})

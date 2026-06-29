@@ -46,15 +46,15 @@ func RegisterWorker(w worker.Worker, m SystemDesignManager) {
 	if impl.rail != nil {
 		rail = railAdapterImpl{inner: impl.rail}
 	}
-	wf := &Workflows{
+	wf := &workflows{
 		ProjectState: impl.projectState,
 		Pipeline:     pipelineDispatchAdapter{inner: impl.pipeline},
 		Rail:         rail,
 		Repo:         impl.repo,
 	}
-	w.RegisterWorkflowWithOptions(wf.SystemDesignPhaseWorkflow, workflow.RegisterOptions{Name: ExecutionKindPhase})
-	w.RegisterWorkflowWithOptions(wf.CoAuthorArtifactWorkflow, workflow.RegisterOptions{Name: ExecutionKindCoAuthor})
-	w.RegisterWorkflowWithOptions(wf.PhaseAdvanceWorkflow, workflow.RegisterOptions{Name: ExecutionKindPhaseAdvance})
+	w.RegisterWorkflowWithOptions(wf.SystemDesignPhaseWorkflow, workflow.RegisterOptions{Name: executionKindPhase})
+	w.RegisterWorkflowWithOptions(wf.CoAuthorArtifactWorkflow, workflow.RegisterOptions{Name: executionKindCoAuthor})
+	w.RegisterWorkflowWithOptions(wf.PhaseAdvanceWorkflow, workflow.RegisterOptions{Name: executionKindPhaseAdvance})
 
 	w.RegisterActivityWithOptions(wf.ReadProjectActivity, activity.RegisterOptions{Name: actReadProject})
 	w.RegisterActivityWithOptions(wf.ReadProjectVersionActivity, activity.RegisterOptions{Name: actReadProjectVersion})

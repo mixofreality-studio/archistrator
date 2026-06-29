@@ -58,23 +58,23 @@ import (
 // bridges it to this seam.
 type operatedSystemStateAccess interface {
 	// ReadOperatedSystem returns the whole head-state (NotFound if no row).
-	ReadOperatedSystem(ctx context.Context, operatedAppID OperatedAppID) (OperatedSystem, error)
+	ReadOperatedSystem(ctx context.Context, operatedAppID operatedAppID) (operatedSystem, error)
 	// ReadInFlightOperatedApps returns the in-flight operated apps for a scope
 	// (empty AppIDs ⇒ all; a customer scope for the delinquency sweep).
-	ReadInFlightOperatedApps(ctx context.Context, scope InFlightScope) ([]OperatedSystemSummary, error)
+	ReadInFlightOperatedApps(ctx context.Context, scope inFlightScope) ([]operatedSystemSummary, error)
 	// PublishDesiredState records the head-state desired-state transition (additive).
-	PublishDesiredState(ctx context.Context, operatedAppID OperatedAppID, expectedVersion Version, reason DesiredStateReason, decision *AutoscaleDecisionSeam, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	PublishDesiredState(ctx context.Context, operatedAppID operatedAppID, expectedVersion version, reason DesiredStateReason, decision *autoscaleDecisionSeam, idempotencyKey fwra.IdempotencyKey) (version, error)
 	// RecordRuntimeStatusChange records an observed runtime-status transition.
-	RecordRuntimeStatusChange(ctx context.Context, operatedAppID OperatedAppID, expectedVersion Version, status RuntimeStatusSeam, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	RecordRuntimeStatusChange(ctx context.Context, operatedAppID operatedAppID, expectedVersion version, status RuntimeStatusSeam, idempotencyKey fwra.IdempotencyKey) (version, error)
 	// WithdrawSystem marks the operated system withdrawn (head-state terminal).
-	WithdrawSystem(ctx context.Context, operatedAppID OperatedAppID, expectedVersion Version, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	WithdrawSystem(ctx context.Context, operatedAppID operatedAppID, expectedVersion version, idempotencyKey fwra.IdempotencyKey) (version, error)
 	// RecordDelinquencyAction records a delinquency-handling action.
-	RecordDelinquencyAction(ctx context.Context, operatedAppID OperatedAppID, expectedVersion Version, action DelinquencyAction, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	RecordDelinquencyAction(ctx context.Context, operatedAppID operatedAppID, expectedVersion version, action delinquencyAction, idempotencyKey fwra.IdempotencyKey) (version, error)
 }
 
-// Version is the operated-system optimistic-concurrency version
-// (operatedSystemStateAccess.md §3). Mirrors the owning RA's Version type.
-type Version uint64
+// version is the operated-system optimistic-concurrency version
+// (operatedSystemStateAccess.md §3). Mirrors the owning RA's version type.
+type version uint64
 
 // RuntimeStatusSeam mirrors operatedSystemStateAccess.md §3 RuntimeStatus enum
 // (e.g. Pending | Healthy | Degraded | Withdrawn). Manager-local seam.
@@ -89,44 +89,44 @@ type Version uint64
 
 // RuntimeStatusWithdrawn is a withdrawn app.
 
-// DelinquencyAction mirrors operatedSystemStateAccess.md §3 — the recorded
+// delinquencyAction mirrors operatedSystemStateAccess.md §3 — the recorded
 // delinquency-handling action.
-type DelinquencyAction int
+type delinquencyAction int
 
 const (
-	// DelinquencyActionUnknown is the zero value.
-	DelinquencyActionUnknown DelinquencyAction = iota
-	// DelinquencyActionPaused records a pause (replicas=0) enforcement.
-	DelinquencyActionPaused
-	// DelinquencyActionWithdrawn records a withdraw enforcement.
-	DelinquencyActionWithdrawn
+	// delinquencyActionUnknown is the zero value.
+	delinquencyActionUnknown delinquencyAction = iota
+	// delinquencyActionPaused records a pause (replicas=0) enforcement.
+	delinquencyActionPaused
+	// delinquencyActionWithdrawn records a withdraw enforcement.
+	delinquencyActionWithdrawn
 )
 
-// OperatedSystem mirrors operatedSystemStateAccess.md §3 — the head-state aggregate
+// operatedSystem mirrors operatedSystemStateAccess.md §3 — the head-state aggregate
 // the workflow reads to carry expectedVersion forward and resolve the published
 // desired state for a republish.
-type OperatedSystem struct {
-	ID                  OperatedAppID
-	Version             Version
+type operatedSystem struct {
+	ID                  operatedAppID
+	Version             version
 	Status              RuntimeStatusSeam
 	InFlight            bool
 	DeployableBundleRef string // empty ⇒ no constructed output present (deploy pre-condition fails)
 }
 
-// OperatedSystemSummary mirrors operatedSystemStateAccess.md §3 — one in-flight app
+// operatedSystemSummary mirrors operatedSystemStateAccess.md §3 — one in-flight app
 // in the reconcile-tick / delinquency-sweep cross-row read.
-type OperatedSystemSummary struct {
-	ID      OperatedAppID
-	Version Version
+type operatedSystemSummary struct {
+	ID      operatedAppID
+	Version version
 	Status  RuntimeStatusSeam
 }
 
-// InFlightScope is the consumer-side scope for ReadInFlightOperatedApps. Empty ⇒ all
+// inFlightScope is the consumer-side scope for ReadInFlightOperatedApps. Empty ⇒ all
 // in-flight apps (the default reconcile tick); CustomerID set ⇒ the delinquent
 // customer's apps (the delinquency sweep, operationsManager.md §2.5).
-type InFlightScope struct {
-	AppIDs     []OperatedAppID
-	CustomerID *CustomerID
+type inFlightScope struct {
+	AppIDs     []operatedAppID
+	CustomerID *customerID
 }
 
 // ===========================================================================
@@ -145,51 +145,51 @@ type InFlightScope struct {
 type operatedRuntimeAccess interface {
 	// PublishDesiredState commits the rendered desired state (git commit). Idempotent
 	// on content; the caller-supplied key lands in the commit message.
-	PublishDesiredState(ctx context.Context, appID OperatedAppID, desired RuntimeDesiredState, idempotencyKey fwra.IdempotencyKey) error
+	PublishDesiredState(ctx context.Context, appID operatedAppID, desired runtimeDesiredState, idempotencyKey fwra.IdempotencyKey) error
 	// Withdraw removes the desired state (ArgoCD prunes). NotFound ⇒ success.
-	Withdraw(ctx context.Context, appID OperatedAppID, idempotencyKey fwra.IdempotencyKey) error
+	Withdraw(ctx context.Context, appID operatedAppID, idempotencyKey fwra.IdempotencyKey) error
 	// GetApplicationHealth reads the observed health snapshot (pure).
-	GetApplicationHealth(ctx context.Context, appID OperatedAppID) (RuntimeStatusSeam, error)
+	GetApplicationHealth(ctx context.Context, appID operatedAppID) (RuntimeStatusSeam, error)
 	// GetSloStatus reads the observed SLO posture (pure).
-	GetSloStatus(ctx context.Context, appID OperatedAppID) (SloStatusSeam, error)
+	GetSloStatus(ctx context.Context, appID operatedAppID) (sloStatusSeam, error)
 	// ReadComputeAttribution reads observed compute consumption over a window (pure).
-	ReadComputeAttribution(ctx context.Context, appID OperatedAppID, window AttributionWindow) (ComputeAttribution, error)
+	ReadComputeAttribution(ctx context.Context, appID operatedAppID, window attributionWindow) (computeAttribution, error)
 }
 
-// RuntimeDesiredState mirrors operatedRuntimeAccess.md §3 DesiredState — the
+// runtimeDesiredState mirrors operatedRuntimeAccess.md §3 DesiredState — the
 // infrastructure-neutral rendered desired-state the Manager publishes. The bytes are
 // opaque (replicas=0 etc. live inside them, not as contract fields).
-type RuntimeDesiredState struct {
+type runtimeDesiredState struct {
 	Bytes       []byte
 	ContentType string
 }
 
-// SloStatusSeam mirrors the SLO-posture portion of operatedRuntimeAccess.md §3
+// sloStatusSeam mirrors the SLO-posture portion of operatedRuntimeAccess.md §3
 // RuntimeStatus (the frozen contract collapses health + SLO into one RuntimeStatus;
 // this Manager keeps the §6.4-table per-verb seam name for the SLO read).
-type SloStatusSeam struct {
+type sloStatusSeam struct {
 	SloMet bool
 	Detail string
 }
 
-// AttributionWindow mirrors operatedRuntimeAccess.md §3 — the closed time range to
+// attributionWindow mirrors operatedRuntimeAccess.md §3 — the closed time range to
 // attribute consumption over (the reconcile-tick interval for Path B).
-type AttributionWindow struct {
+type attributionWindow struct {
 	From time.Time
 	To   time.Time
 }
 
-// ComputeAttribution mirrors operatedRuntimeAccess.md §3 — per-app infrastructure-
+// computeAttribution mirrors operatedRuntimeAccess.md §3 — per-app infrastructure-
 // neutral observed consumption (ComputeUnits + an opaque source meter id). The
 // Manager forwards it to usageAccess.recordComputeUsage on the tick.
-type ComputeAttribution struct {
-	Units          ComputeUnitsSeam
+type computeAttribution struct {
+	Units          computeUnitsSeam
 	RuntimeEventID string // the runtime-supplied globally-unique dedup token for the usage append
 }
 
-// ComputeUnitsSeam mirrors operatedRuntimeAccess.md / usageAccess.md §3 ComputeUnits
+// computeUnitsSeam mirrors operatedRuntimeAccess.md / usageAccess.md §3 ComputeUnits
 // — an infrastructure-neutral metered quantity (never priced, never a cloud lexeme).
-type ComputeUnitsSeam struct {
+type computeUnitsSeam struct {
 	Amount float64
 	Unit   string
 }
@@ -206,31 +206,31 @@ type ComputeUnitsSeam struct {
 // usagelog.UsageAccess to it (dropping the published []EntryRef return).
 type usageAccess interface {
 	// RecordComputeUsage appends observed compute-usage facts (per reconcile tick).
-	RecordComputeUsage(ctx context.Context, events []UsageEventSeam) error
+	RecordComputeUsage(ctx context.Context, events []usageEventSeam) error
 	// RecordFinalUsage appends the final usage batch at withdraw.
-	RecordFinalUsage(ctx context.Context, events []UsageEventSeam) error
+	RecordFinalUsage(ctx context.Context, events []usageEventSeam) error
 	// ReadRange replays the cycle's usage facts (the cost-projection read keys on
 	// OperatedAppID + lastCycle).
-	ReadRange(ctx context.Context, query UsageRangeQuerySeam) ([]UsageEventSeam, error)
+	ReadRange(ctx context.Context, query usageRangeQuerySeam) ([]usageEventSeam, error)
 }
 
-// UsageEventSeam mirrors usageAccess.md §3 UsageEvent — one observed compute-usage
+// usageEventSeam mirrors usageAccess.md §3 UsageEvent — one observed compute-usage
 // fact carrying its runtime-supplied dedup id.
-type UsageEventSeam struct {
-	OperatedAppID  OperatedAppID
-	CustomerID     CustomerID
+type usageEventSeam struct {
+	OperatedAppID  operatedAppID
+	CustomerID     customerID
 	CycleID        string
-	Units          ComputeUnitsSeam
+	Units          computeUnitsSeam
 	RuntimeEventID string
 	ObservedAt     time.Time
 }
 
-// UsageRangeQuerySeam mirrors usageAccess.md §3 UsageRangeQuery — the cycle-scope read
+// usageRangeQuerySeam mirrors usageAccess.md §3 UsageRangeQuery — the cycle-scope read
 // query (OperatedAppID set ⇒ one app's facts, for the ncuc6 cost projection).
-type UsageRangeQuerySeam struct {
-	CustomerID    CustomerID
+type usageRangeQuerySeam struct {
+	CustomerID    customerID
 	CycleID       string
-	OperatedAppID *OperatedAppID
+	OperatedAppID *operatedAppID
 }
 
 // ===========================================================================
@@ -248,14 +248,14 @@ type UsageRangeQuerySeam struct {
 // folded adapter bridges the published artifact.ArtifactAccess (escalation E-1: over
 // RetrieveConstructionOutput until the frozen retrieveDeployableBundle verb lands).
 type artifactAccess interface {
-	RetrieveDeployableBundle(ctx context.Context, deployableBundleRef string) (DeployableBundle, error)
+	RetrieveDeployableBundle(ctx context.Context, deployableBundleRef string) (deployableBundle, error)
 }
 
-// DeployableBundle mirrors the constructed-output bundle retrieved for a first
+// deployableBundle mirrors the constructed-output bundle retrieved for a first
 // deploy. Re-uses the existing artifact.ConstructionOutput shape as the bundle body
 // (the deployable bundle IS a construction output — artifactAccess.md), kept as a
 // thin Manager-local wrapper so the seam stays narrow.
-type DeployableBundle struct {
+type deployableBundle struct {
 	Output artifact.ConstructionOutput
 }
 
@@ -297,36 +297,36 @@ type scheduleSpec struct {
 // the folded adapter bridges the published intervention.InterventionEngine to it
 // (folding the policy into the published HealthChange.Policy).
 type interventionEngine interface {
-	DecideOnHealth(change HealthChange, policy InterventionPolicy) (HealthDirective, error)
+	DecideOnHealth(change healthChange, policy interventionPolicy) (healthDirective, error)
 }
 
-// HealthChange mirrors interventionEngine.md §3 — the observed health/SLO transition.
-type HealthChange struct {
-	AppID      OperatedAppID
+// healthChange mirrors interventionEngine.md §3 — the observed health/SLO transition.
+type healthChange struct {
+	AppID      operatedAppID
 	FromStatus RuntimeStatusSeam
 	ToStatus   RuntimeStatusSeam
 	SloMet     bool
 }
 
-// InterventionPolicy mirrors interventionEngine.md §3 — the committed intervention
+// interventionPolicy mirrors interventionEngine.md §3 — the committed intervention
 // policy snapshot, fed BY VALUE. The casting RULE is package-internal to the Engine.
-type InterventionPolicy struct {
+type interventionPolicy struct {
 	RetryBudget int
 	SLATier     string
 }
 
-// HealthDirective mirrors interventionEngine.md §2.2/§3 — the Engine's decision
+// healthDirective mirrors interventionEngine.md §2.2/§3 — the Engine's decision
 // {Retry | Escalate}.
-type HealthDirective int
+type healthDirective int
 
 const (
-	// HealthDirectiveUnknown is the zero value.
-	HealthDirectiveUnknown HealthDirective = iota
-	// HealthDirectiveRetry: no human action — re-observe / let the runtime self-heal;
+	// healthDirectiveUnknown is the zero value.
+	healthDirectiveUnknown healthDirective = iota
+	// healthDirectiveRetry: no human action — re-observe / let the runtime self-heal;
 	// the Manager records the status change and re-publishes prior desired state.
-	HealthDirectiveRetry
-	// HealthDirectiveEscalate: page the operator — the Manager surfaces it.
-	HealthDirectiveEscalate
+	healthDirectiveRetry
+	// healthDirectiveEscalate: page the operator — the Manager surfaces it.
+	healthDirectiveEscalate
 )
 
 // ===========================================================================
@@ -339,29 +339,29 @@ const (
 // Engine DECIDES; the Manager EXECUTES a republish on a non-NoChange decision.
 // UNEXPORTED seam; the folded adapter bridges the published autoscaler.AutoscalerEngine.
 type autoscalerEngine interface {
-	ProposeDesiredState(telemetry Telemetry, currentDesired AutoscalerDesiredState, policy AutoscalerPolicy, infrastructureKind InfrastructureKind) (AutoscaleDecisionSeam, error)
+	ProposeDesiredState(telemetry telemetry, currentDesired autoscalerDesiredState, policy autoscalerPolicy, infrastructureKind infrastructureKind) (autoscaleDecisionSeam, error)
 }
 
-// Telemetry mirrors autoscalerEngine.md §3 — the observed load snapshot the Manager
+// telemetry mirrors autoscalerEngine.md §3 — the observed load snapshot the Manager
 // assembles from the Path B reads.
-type Telemetry struct {
+type telemetry struct {
 	RequestsPerSecond float64
 	P95LatencyMs      float64
 	CurrentReplicas   int
 	CPUUtilization    float64
 }
 
-// AutoscalerDesiredState mirrors autoscalerEngine.md §3 DesiredState — the current
+// autoscalerDesiredState mirrors autoscalerEngine.md §3 DesiredState — the current
 // desired state the autoscaler compares against (Replicas=0 ⇒ paused).
-type AutoscalerDesiredState struct {
-	InfrastructureKind InfrastructureKind
+type autoscalerDesiredState struct {
+	InfrastructureKind infrastructureKind
 	Replicas           int
 }
 
-// AutoscalerPolicy mirrors autoscalerEngine.md §3 — the customer-tunable autoscaler
+// autoscalerPolicy mirrors autoscalerEngine.md §3 — the customer-tunable autoscaler
 // policy (fed by value; the casting RULE is package-internal).
-type AutoscalerPolicy struct {
-	Kind             InfrastructureKind
+type autoscalerPolicy struct {
+	Kind             infrastructureKind
 	Mode             AutoscalerMode
 	MinReplicas      int
 	BaselineReplicas int
@@ -375,15 +375,15 @@ type AutoscalerPolicy struct {
 
 // AutoscalerModeManual ⇒ the Engine always returns NoChange.
 
-// InfrastructureKind mirrors autoscalerEngine.md / operationEstimationEngine.md §3 —
+// infrastructureKind mirrors autoscalerEngine.md / operationEstimationEngine.md §3 —
 // the opaque infrastructure discriminator (CustomerAppInfrastructure volatility).
-type InfrastructureKind int
+type infrastructureKind int
 
 const (
-	// InfrastructureKindUnknown is the zero value.
-	InfrastructureKindUnknown InfrastructureKind = iota
-	// InfrastructureKindGoTemporalPostgres is the launch infrastructure.
-	InfrastructureKindGoTemporalPostgres
+	// infrastructureKindUnknown is the zero value.
+	infrastructureKindUnknown infrastructureKind = iota
+	// infrastructureKindGoTemporalPostgres is the launch infrastructure.
+	infrastructureKindGoTemporalPostgres
 )
 
 // AutoscaleAction mirrors autoscalerEngine.md §3 Decision — the closed decision set.
@@ -398,10 +398,10 @@ const (
 
 // AutoscaleResume resumes from zero to ToBaseline.
 
-// AutoscaleDecisionSeam mirrors autoscalerEngine.md §3 Decision — the sum-type the
+// autoscaleDecisionSeam mirrors autoscalerEngine.md §3 Decision — the sum-type the
 // Engine returns. Delta is bounded by the policy on ScaleUp/ScaleDown; ToBaseline is
 // the resume-from-zero target.
-type AutoscaleDecisionSeam struct {
+type autoscaleDecisionSeam struct {
 	Action     AutoscaleAction
 	Delta      int
 	ToBaseline int
@@ -418,13 +418,13 @@ type AutoscaleDecisionSeam struct {
 // bridges the published operationestimation.OperationEstimationEngine to it
 // (aggregating the seam's usage events into the published ObservedUsage shape).
 type operationEstimationEngine interface {
-	ProjectForOperatedApp(observedUsage ObservedUsage, infrastructureKind InfrastructureKind, scaleWhatIfPoints []ScalePoint) (CostProjectionSeam, error)
+	ProjectForOperatedApp(observedUsage observedUsage, infrastructureKind infrastructureKind, scaleWhatIfPoints []ScalePoint) (CostProjectionSeam, error)
 }
 
-// ObservedUsage mirrors operationEstimationEngine.md §3 — the observed-usage snapshot
+// observedUsage mirrors operationEstimationEngine.md §3 — the observed-usage snapshot
 // the Manager populates from usageAccess.readRange(operatedAppId, lastCycle).
-type ObservedUsage struct {
-	Events []UsageEventSeam
+type observedUsage struct {
+	Events []usageEventSeam
 }
 
 // Money mirrors operationEstimationEngine.md §3 Money — an infrastructure-neutral

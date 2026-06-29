@@ -43,14 +43,14 @@ type settlementStateAdapter struct {
 
 var _ settlementStateAccess = settlementStateAdapter{}
 
-func (a settlementStateAdapter) ReadSettlement(ctx context.Context, customerID CustomerID) (Settlement, error) {
+func (a settlementStateAdapter) ReadSettlement(ctx context.Context, customerID customerID) (settlementHead, error) {
 	s, err := a.inner.ReadSettlement(fwra.Context{Context: ctx}, customerID)
 	if err != nil {
-		return Settlement{}, err
+		return settlementHead{}, err
 	}
-	return Settlement{
+	return settlementHead{
 		ID:            s.ID,
-		Version:       Version(s.Version),
+		Version:       version(s.Version),
 		GatewayBound:  s.GatewayBound,
 		Registered:    s.Registered,
 		Terms:         settlementTermsFromState(s.Terms),
@@ -58,21 +58,21 @@ func (a settlementStateAdapter) ReadSettlement(ctx context.Context, customerID C
 	}, nil
 }
 
-func (a settlementStateAdapter) ReadPersistentlyDelinquentCustomers(ctx context.Context, scope DelinquencyScope) ([]CustomerSummary, error) {
+func (a settlementStateAdapter) ReadPersistentlyDelinquentCustomers(ctx context.Context, scope delinquencyScope) ([]customerSummary, error) {
 	rows, err := a.inner.ReadPersistentlyDelinquentCustomers(fwra.Context{Context: ctx}, settlementstate.DelinquencyScope{
 		ProjectID: scope.ProjectID,
 	})
 	if err != nil {
 		return nil, err
 	}
-	out := make([]CustomerSummary, 0, len(rows))
+	out := make([]customerSummary, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, CustomerSummary{ID: r.ID, PauseNotWithdraw: r.PauseNotWithdraw})
+		out = append(out, customerSummary{ID: r.ID, PauseNotWithdraw: r.PauseNotWithdraw})
 	}
 	return out, nil
 }
 
-func (a settlementStateAdapter) RegisterCustomer(ctx context.Context, customerID CustomerID, expectedVersion Version, profile CustomerProfileSeam, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (a settlementStateAdapter) RegisterCustomer(ctx context.Context, customerID customerID, expectedVersion version, profile customerProfileSeam, idempotencyKey fwra.IdempotencyKey) (version, error) {
 	v, err := a.inner.RegisterCustomer(
 		fwra.Context{Context: ctx, IdempotencyKey: idempotencyKey},
 		customerID,
@@ -80,10 +80,10 @@ func (a settlementStateAdapter) RegisterCustomer(ctx context.Context, customerID
 		settlementstate.CustomerProfile{PayoutAccountRef: profile.PayoutAccountRef},
 		idempotencyKey,
 	)
-	return Version(v), err
+	return version(v), err
 }
 
-func (a settlementStateAdapter) BindGatewayLive(ctx context.Context, customerID CustomerID, expectedVersion Version, binding GatewayBindingSeam, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (a settlementStateAdapter) BindGatewayLive(ctx context.Context, customerID customerID, expectedVersion version, binding gatewayBindingSeam, idempotencyKey fwra.IdempotencyKey) (version, error) {
 	v, err := a.inner.BindGatewayLive(
 		fwra.Context{Context: ctx, IdempotencyKey: idempotencyKey},
 		customerID,
@@ -91,10 +91,10 @@ func (a settlementStateAdapter) BindGatewayLive(ctx context.Context, customerID 
 		settlementstate.GatewayBinding{ConnectedAccountID: binding.ConnectedAccountID},
 		idempotencyKey,
 	)
-	return Version(v), err
+	return version(v), err
 }
 
-func (a settlementStateAdapter) SettleCycle(ctx context.Context, customerID CustomerID, expectedVersion Version, cycle CycleID, outcome SettlementOutcomeSeam, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (a settlementStateAdapter) SettleCycle(ctx context.Context, customerID customerID, expectedVersion version, cycle cycleID, outcome settlementOutcomeSeam, idempotencyKey fwra.IdempotencyKey) (version, error) {
 	v, err := a.inner.SettleCycle(
 		fwra.Context{Context: ctx, IdempotencyKey: idempotencyKey},
 		customerID,
@@ -103,10 +103,10 @@ func (a settlementStateAdapter) SettleCycle(ctx context.Context, customerID Cust
 		settlementOutcomeToState(outcome),
 		idempotencyKey,
 	)
-	return Version(v), err
+	return version(v), err
 }
 
-func (a settlementStateAdapter) ResettleCycle(ctx context.Context, customerID CustomerID, expectedVersion Version, cycle CycleID, correction SettlementOutcomeSeam, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (a settlementStateAdapter) ResettleCycle(ctx context.Context, customerID customerID, expectedVersion version, cycle cycleID, correction settlementOutcomeSeam, idempotencyKey fwra.IdempotencyKey) (version, error) {
 	v, err := a.inner.ResettleCycle(
 		fwra.Context{Context: ctx, IdempotencyKey: idempotencyKey},
 		customerID,
@@ -115,11 +115,11 @@ func (a settlementStateAdapter) ResettleCycle(ctx context.Context, customerID Cu
 		settlementOutcomeToState(correction),
 		idempotencyKey,
 	)
-	return Version(v), err
+	return version(v), err
 }
 
-func settlementTermsFromState(t settlementstate.SettlementTerms) SettlementTermsSeam {
-	return SettlementTermsSeam{
+func settlementTermsFromState(t settlementstate.SettlementTerms) settlementTermsSeam {
+	return settlementTermsSeam{
 		RevenueShareKind: int(t.RevenueShareKind),
 		ComputeCostKind:  int(t.ComputeCostKind),
 		ScheduleKind:     int(t.ScheduleKind),
@@ -127,7 +127,7 @@ func settlementTermsFromState(t settlementstate.SettlementTerms) SettlementTerms
 	}
 }
 
-func settlementOutcomeToState(o SettlementOutcomeSeam) settlementstate.SettlementOutcome {
+func settlementOutcomeToState(o settlementOutcomeSeam) settlementstate.SettlementOutcome {
 	return settlementstate.SettlementOutcome{
 		Net:       settlementstate.Money{MinorUnits: o.Net.MinorUnits, Currency: o.Net.Currency},
 		Directive: routingDirectiveToState(o.Directive),
@@ -135,11 +135,11 @@ func settlementOutcomeToState(o SettlementOutcomeSeam) settlementstate.Settlemen
 	}
 }
 
-func routingDirectiveToState(d RoutingDirectiveSeam) settlementstate.RoutingDirective {
+func routingDirectiveToState(d routingDirectiveSeam) settlementstate.RoutingDirective {
 	switch d {
-	case RoutingPayout:
+	case routingPayout:
 		return settlementstate.RoutingPayout
-	case RoutingCharge:
+	case routingCharge:
 		return settlementstate.RoutingCharge
 	default:
 		return settlementstate.RoutingNoAction
@@ -156,7 +156,7 @@ type revenueLedgerAdapter struct {
 
 var _ revenueLedgerAccess = revenueLedgerAdapter{}
 
-func (a revenueLedgerAdapter) RecordInboundRevenue(ctx context.Context, entry RevenueEntrySeam) (EntryRefSeam, error) {
+func (a revenueLedgerAdapter) RecordInboundRevenue(ctx context.Context, entry revenueEntrySeam) (entryRefSeam, error) {
 	ref, err := a.inner.RecordInboundRevenue(fwra.Context{Context: ctx}, revenueledger.RevenueEntry{
 		CustomerID:     entry.CustomerID,
 		CycleID:        string(entry.CycleID),
@@ -165,10 +165,10 @@ func (a revenueLedgerAdapter) RecordInboundRevenue(ctx context.Context, entry Re
 		GatewayEventID: entry.GatewayEventID,
 		OccurredAt:     entry.OccurredAt,
 	})
-	return EntryRefSeam(ref), err
+	return entryRefSeam(ref), err
 }
 
-func (a revenueLedgerAdapter) RecordReversal(ctx context.Context, reversal ReversalEntrySeam) (EntryRefSeam, error) {
+func (a revenueLedgerAdapter) RecordReversal(ctx context.Context, reversal reversalEntrySeam) (entryRefSeam, error) {
 	ref, err := a.inner.RecordReversal(fwra.Context{Context: ctx}, revenueledger.ReversalEntry{
 		CustomerID:             reversal.CustomerID,
 		CycleID:                string(reversal.CycleID),
@@ -177,19 +177,19 @@ func (a revenueLedgerAdapter) RecordReversal(ctx context.Context, reversal Rever
 		ReversesGatewayEventID: reversal.ReversesGatewayEventID,
 		OccurredAt:             reversal.OccurredAt,
 	})
-	return EntryRefSeam(ref), err
+	return entryRefSeam(ref), err
 }
 
-func (a revenueLedgerAdapter) ReadRange(ctx context.Context, customerID CustomerID, cycleID CycleID) ([]RevenueEntrySeam, error) {
+func (a revenueLedgerAdapter) ReadRange(ctx context.Context, customerID customerID, cycleID cycleID) ([]revenueEntrySeam, error) {
 	entries, err := a.inner.ReadRange(fwra.Context{Context: ctx}, customerID, string(cycleID))
 	if err != nil {
 		return nil, err
 	}
-	out := make([]RevenueEntrySeam, 0, len(entries))
+	out := make([]revenueEntrySeam, 0, len(entries))
 	for _, e := range entries {
-		out = append(out, RevenueEntrySeam{
+		out = append(out, revenueEntrySeam{
 			CustomerID:     e.CustomerID,
-			CycleID:        CycleID(e.CycleID),
+			CycleID:        string(e.CycleID),
 			Kind:           revenueKindFromLedger(e.Kind),
 			Amount:         Money{MinorUnits: e.Amount.MinorUnits, Currency: e.Amount.Currency},
 			GatewayEventID: e.GatewayEventID,
@@ -199,18 +199,18 @@ func (a revenueLedgerAdapter) ReadRange(ctx context.Context, customerID Customer
 	return out, nil
 }
 
-func revenueKindToLedger(k RevenueKindSeam) revenueledger.RevenueKind {
-	if k == RevenueKindReversal {
+func revenueKindToLedger(k revenueKindSeam) revenueledger.RevenueKind {
+	if k == revenueKindReversal {
 		return revenueledger.RevenueKindReversal
 	}
 	return revenueledger.RevenueKindInbound
 }
 
-func revenueKindFromLedger(k revenueledger.RevenueKind) RevenueKindSeam {
+func revenueKindFromLedger(k revenueledger.RevenueKind) revenueKindSeam {
 	if k == revenueledger.RevenueKindReversal {
-		return RevenueKindReversal
+		return revenueKindReversal
 	}
-	return RevenueKindInbound
+	return revenueKindInbound
 }
 
 // ===========================================================================
@@ -223,7 +223,7 @@ type usageAdapter struct {
 
 var _ usageAccess = usageAdapter{}
 
-func (a usageAdapter) ReadRange(ctx context.Context, query UsageRangeQuerySeam) ([]UsageEventSeam, error) {
+func (a usageAdapter) ReadRange(ctx context.Context, query usageRangeQuerySeam) ([]usageEventSeam, error) {
 	events, err := a.inner.ReadRange(fwra.Context{Context: ctx}, usagelog.UsageRangeQuery{
 		CustomerID:    query.CustomerID,
 		CycleID:       usagelog.CycleID(query.CycleID),
@@ -232,13 +232,13 @@ func (a usageAdapter) ReadRange(ctx context.Context, query UsageRangeQuerySeam) 
 	if err != nil {
 		return nil, err
 	}
-	out := make([]UsageEventSeam, 0, len(events))
+	out := make([]usageEventSeam, 0, len(events))
 	for _, e := range events {
-		out = append(out, UsageEventSeam{
+		out = append(out, usageEventSeam{
 			CustomerID:    e.CustomerID,
 			OperatedAppID: e.OperatedAppID,
-			CycleID:       CycleID(e.CycleID),
-			Units:         ComputeUnitsSeam{Amount: e.Units.Amount, Unit: e.Units.Unit},
+			CycleID:       cycleID(e.CycleID),
+			Units:         computeUnitsSeam{Amount: e.Units.Amount, Unit: e.Units.Unit},
 			OccurredAt:    e.OccurredAt,
 		})
 	}
@@ -256,7 +256,7 @@ type merchantGatewayAdapter struct {
 
 var _ merchantGatewayAccess = merchantGatewayAdapter{}
 
-func (a merchantGatewayAdapter) PayoutCustomer(ctx context.Context, customerID CustomerID, amount Money, idempotencyKey string) error {
+func (a merchantGatewayAdapter) PayoutCustomer(ctx context.Context, customerID customerID, amount Money, idempotencyKey string) error {
 	return a.inner.PayoutCustomer(
 		fwra.Context{Context: ctx, IdempotencyKey: fwra.IdempotencyKey(idempotencyKey)},
 		customerID,
@@ -265,7 +265,7 @@ func (a merchantGatewayAdapter) PayoutCustomer(ctx context.Context, customerID C
 	)
 }
 
-func (a merchantGatewayAdapter) ChargeCustomer(ctx context.Context, customerID CustomerID, amount Money, idempotencyKey string) error {
+func (a merchantGatewayAdapter) ChargeCustomer(ctx context.Context, customerID customerID, amount Money, idempotencyKey string) error {
 	return a.inner.ChargeCustomer(
 		fwra.Context{Context: ctx, IdempotencyKey: fwra.IdempotencyKey(idempotencyKey)},
 		customerID,
@@ -274,19 +274,19 @@ func (a merchantGatewayAdapter) ChargeCustomer(ctx context.Context, customerID C
 	)
 }
 
-func (a merchantGatewayAdapter) CreateConnectedAccount(ctx context.Context, customerID CustomerID, idempotencyKey string) (GatewayBindingSeam, error) {
+func (a merchantGatewayAdapter) CreateConnectedAccount(ctx context.Context, customerID customerID, idempotencyKey string) (gatewayBindingSeam, error) {
 	b, err := a.inner.CreateConnectedAccount(
 		fwra.Context{Context: ctx, IdempotencyKey: fwra.IdempotencyKey(idempotencyKey)},
 		customerID,
 		idempotencyKey,
 	)
 	if err != nil {
-		return GatewayBindingSeam{}, err
+		return gatewayBindingSeam{}, err
 	}
-	return GatewayBindingSeam{ConnectedAccountID: b.ConnectedAccountID}, nil
+	return gatewayBindingSeam{ConnectedAccountID: b.ConnectedAccountID}, nil
 }
 
-func (a merchantGatewayAdapter) ValidateStoredInstrument(ctx context.Context, customerID CustomerID, idempotencyKey string) error {
+func (a merchantGatewayAdapter) ValidateStoredInstrument(ctx context.Context, customerID customerID, idempotencyKey string) error {
 	return a.inner.ValidateStoredInstrument(
 		fwra.Context{Context: ctx, IdempotencyKey: fwra.IdempotencyKey(idempotencyKey)},
 		customerID,
@@ -305,7 +305,7 @@ type operatedRuntimeAdapter struct {
 
 var _ operatedRuntimeAccess = operatedRuntimeAdapter{}
 
-func (a operatedRuntimeAdapter) WirePaymentConfig(ctx context.Context, deployedAppID DeployedAppID, binding GatewayBindingSeam, idempotencyKey fwra.IdempotencyKey) error {
+func (a operatedRuntimeAdapter) WirePaymentConfig(ctx context.Context, deployedAppID deployedAppID, binding gatewayBindingSeam, idempotencyKey fwra.IdempotencyKey) error {
 	return a.inner.WirePaymentConfig(
 		fwra.Context{Context: ctx, IdempotencyKey: idempotencyKey},
 		deployedAppID,
@@ -362,7 +362,7 @@ type settlementEngineAdapter struct {
 
 var _ settlementEngine = settlementEngineAdapter{}
 
-func (a settlementEngineAdapter) ComputeNet(revenue CycleRevenueSeam, usage CycleUsageSeam, terms SettlementTermsSeam) (SettlementResultSeam, error) {
+func (a settlementEngineAdapter) ComputeNet(revenue cycleRevenueSeam, usage cycleUsageSeam, terms settlementTermsSeam) (settlementResultSeam, error) {
 	res, err := a.inner.ComputeNet(
 		fweng.Context{Context: context.Background()},
 		cycleRevenueToEngine(revenue),
@@ -370,12 +370,12 @@ func (a settlementEngineAdapter) ComputeNet(revenue CycleRevenueSeam, usage Cycl
 		settlementTermsToEngine(terms),
 	)
 	if err != nil {
-		return SettlementResultSeam{}, err
+		return settlementResultSeam{}, err
 	}
 	return settlementResultFromEngine(res), nil
 }
 
-func (a settlementEngineAdapter) RecomputeNet(affected ReSettlementInputSeam) (SettlementResultSeam, error) {
+func (a settlementEngineAdapter) RecomputeNet(affected reSettlementInputSeam) (settlementResultSeam, error) {
 	res, err := a.inner.RecomputeNet(
 		fweng.Context{Context: context.Background()},
 		settlementengine.ReSettlementInput{
@@ -386,23 +386,23 @@ func (a settlementEngineAdapter) RecomputeNet(affected ReSettlementInputSeam) (S
 		},
 	)
 	if err != nil {
-		return SettlementResultSeam{}, err
+		return settlementResultSeam{}, err
 	}
 	return settlementResultFromEngine(res), nil
 }
 
-func cycleRevenueToEngine(r CycleRevenueSeam) settlementengine.CycleRevenue {
+func cycleRevenueToEngine(r cycleRevenueSeam) settlementengine.CycleRevenue {
 	return settlementengine.CycleRevenue{
 		GrossInbound: settlementengine.Money{MinorUnits: r.GrossInbound.MinorUnits, Currency: r.GrossInbound.Currency},
 		EventCount:   int64(r.EventCount),
 	}
 }
 
-func cycleUsageToEngine(u CycleUsageSeam) settlementengine.CycleUsage {
+func cycleUsageToEngine(u cycleUsageSeam) settlementengine.CycleUsage {
 	return settlementengine.CycleUsage{ComputeUnitSeconds: u.ComputeUnitSeconds}
 }
 
-func settlementTermsToEngine(t SettlementTermsSeam) settlementengine.SettlementTerms {
+func settlementTermsToEngine(t settlementTermsSeam) settlementengine.SettlementTerms {
 	return settlementengine.SettlementTerms{
 		RevenueShare: settlementengine.RevenueShareKind(t.RevenueShareKind),
 		ComputeCost:  settlementengine.ComputeCostKind(t.ComputeCostKind),
@@ -410,7 +410,7 @@ func settlementTermsToEngine(t SettlementTermsSeam) settlementengine.SettlementT
 	}
 }
 
-func settlementResultToEngine(r SettlementResultSeam) settlementengine.SettlementResult {
+func settlementResultToEngine(r settlementResultSeam) settlementengine.SettlementResult {
 	return settlementengine.SettlementResult{
 		SignedNet:           settlementengine.Money{MinorUnits: r.SignedNet.MinorUnits, Currency: r.SignedNet.Currency},
 		RoutingDirective:    routingDirectiveToEngine(r.RoutingDirective),
@@ -419,8 +419,8 @@ func settlementResultToEngine(r SettlementResultSeam) settlementengine.Settlemen
 	}
 }
 
-func settlementResultFromEngine(r settlementengine.SettlementResult) SettlementResultSeam {
-	return SettlementResultSeam{
+func settlementResultFromEngine(r settlementengine.SettlementResult) settlementResultSeam {
+	return settlementResultSeam{
 		SignedNet:           Money{MinorUnits: r.SignedNet.MinorUnits, Currency: r.SignedNet.Currency},
 		RoutingDirective:    routingDirectiveFromEngine(r.RoutingDirective),
 		RevenueShareApplied: Money{MinorUnits: r.RevenueShareApplied.MinorUnits, Currency: r.RevenueShareApplied.Currency},
@@ -428,25 +428,25 @@ func settlementResultFromEngine(r settlementengine.SettlementResult) SettlementR
 	}
 }
 
-func routingDirectiveToEngine(d RoutingDirectiveSeam) settlementengine.RoutingDirective {
+func routingDirectiveToEngine(d routingDirectiveSeam) settlementengine.RoutingDirective {
 	switch d {
-	case RoutingPayout:
+	case routingPayout:
 		return settlementengine.RoutingPayout
-	case RoutingCharge:
+	case routingCharge:
 		return settlementengine.RoutingCharge
 	default:
 		return settlementengine.RoutingNoAction
 	}
 }
 
-func routingDirectiveFromEngine(d settlementengine.RoutingDirective) RoutingDirectiveSeam {
+func routingDirectiveFromEngine(d settlementengine.RoutingDirective) routingDirectiveSeam {
 	switch d {
 	case settlementengine.RoutingPayout:
-		return RoutingPayout
+		return routingPayout
 	case settlementengine.RoutingCharge:
-		return RoutingCharge
+		return routingCharge
 	default:
-		return RoutingNoAction
+		return routingNoAction
 	}
 }
 
@@ -461,7 +461,7 @@ type interventionAdapter struct {
 
 var _ interventionEngine = interventionAdapter{}
 
-func (a interventionAdapter) DecideOnSettlementFailure(failure SettlementFailureSeam) (SettlementFailureDirectiveSeam, error) {
+func (a interventionAdapter) DecideOnSettlementFailure(failure settlementFailureSeam) (settlementFailureDirectiveSeam, error) {
 	d, err := a.inner.DecideOnSettlementFailure(fweng.Context{Context: context.Background()}, intervention.SettlementFailure{
 		CustomerID:   intervention.CustomerID(failure.CustomerID.String()),
 		CycleID:      intervention.CycleID(string(failure.CycleID)),
@@ -470,25 +470,25 @@ func (a interventionAdapter) DecideOnSettlementFailure(failure SettlementFailure
 		ShortfallAge: int64(failure.ShortfallAge),
 	})
 	if err != nil {
-		return SettlementRetry, err
+		return settlementRetry, err
 	}
 	switch d {
 	case intervention.SettlementDelay:
-		return SettlementDelay, nil
+		return settlementDelay, nil
 	case intervention.SettlementEscalate:
-		return SettlementEscalate, nil
+		return settlementEscalate, nil
 	default:
-		return SettlementRetry, nil
+		return settlementRetry, nil
 	}
 }
 
-func settlementFailureKindToEngine(k SettlementFailureKindSeam) intervention.SettlementFailureKind {
+func settlementFailureKindToEngine(k settlementFailureKindSeam) intervention.SettlementFailureKind {
 	switch k {
-	case SettlementFailureChargeDeclined:
+	case settlementFailureChargeDeclined:
 		return intervention.ChargeDeclined
-	case SettlementFailureDisputed:
+	case settlementFailureDisputed:
 		return intervention.Disputed
-	case SettlementFailureChargedBack:
+	case settlementFailureChargedBack:
 		return intervention.ChargedBack
 	default:
 		return intervention.SettlementFailureKindUnknown

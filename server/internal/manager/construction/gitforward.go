@@ -55,7 +55,7 @@ type gitForward struct {
 // gitEnabled reports whether the git-forward slice is wired AND a repo resolves for
 // this project. When false the spine runs unchanged (the live Postgres-store
 // composition that predates the GitStore).
-func (wf *Workflows) gitEnabled(projectID ProjectID) (sourcecontrol.RepoRef, bool) {
+func (wf *workflows) gitEnabled(projectID ProjectID) (sourcecontrol.RepoRef, bool) {
 	if wf.Rail == nil || wf.GitStatus == nil || wf.Repo == nil {
 		return sourcecontrol.RepoRef(""), false
 	}
@@ -67,9 +67,9 @@ func (wf *Workflows) gitEnabled(projectID ProjectID) (sourcecontrol.RepoRef, boo
 // (the PR-tolerant fused upsert — births the row with branch+PR and CICheck=Pending).
 // It returns the populated gitForward and advances *headVersion. A nil/dormant slice
 // returns a disabled gitForward and touches nothing.
-func (wf *Workflows) openActivityBranchAndPR(
+func (wf *workflows) openActivityBranchAndPR(
 	ctx workflow.Context,
-	in ConstructActivityInput,
+	in constructActivityInput,
 	preMintedCred railCredEnvelope,
 	headVersion *projectstate.Version,
 ) (gitForward, error) {
@@ -97,7 +97,7 @@ func (wf *Workflows) openActivityBranchAndPR(
 	// Rail: cut the per-activity branch.
 	c := railOpts(ctx)
 	var branchRef string
-	if err := workflow.ExecuteActivity(c, wf.OpenBranchActivity, OpenBranchArgs{
+	if err := workflow.ExecuteActivity(c, wf.OpenBranchActivity, openBranchArgs{
 		RepoRef: sourcecontrol.RepoRefString(repoRef), Branch: gf.branch, Cred: cred,
 	}).Get(ctx, &branchRef); err != nil {
 		return gitForward{}, err
@@ -106,7 +106,7 @@ func (wf *Workflows) openActivityBranchAndPR(
 
 	// Rail: open the PR (base = main; cr-NN label rides in Hints).
 	var prRef string
-	if err := workflow.ExecuteActivity(c, wf.OpenPullRequestActivity, OpenPullRequestArgs{
+	if err := workflow.ExecuteActivity(c, wf.OpenPullRequestActivity, openPullRequestArgs{
 		RepoRef: sourcecontrol.RepoRefString(repoRef),
 		Head:    gf.branch,
 		Base:    mainBranch,
@@ -123,7 +123,7 @@ func (wf *Workflows) openActivityBranchAndPR(
 	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
 		rc := recordOpts(ctx)
 		var out projectstate.Version
-		e := workflow.ExecuteActivity(rc, wf.RecordActivityBranchOpenedActivity, RecordActivityBranchOpenedArgs{
+		e := workflow.ExecuteActivity(rc, wf.RecordActivityBranchOpenedActivity, recordActivityBranchOpenedArgs{
 			ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, ActivityID: string(in.ActivityID),
 			Branch: gf.branch, BranchRef: gf.branchRef, PRRef: gf.prRef,
 			CRLabel: gf.crLabel, IsRevert: gf.isRevert, Cred: cred,
@@ -141,35 +141,35 @@ func (wf *Workflows) openActivityBranchAndPR(
 // (the poll-loop verb — D-PA-GIT §5). Called between the spine's durable waits while
 // the pipeline runs. Returns the observed reflection so the caller can feed it into the
 // variance machinery. A dormant slice is a no-op returning Pending.
-func (wf *Workflows) observeCIAndRecord(
+func (wf *workflows) observeCIAndRecord(
 	ctx workflow.Context,
-	in ConstructActivityInput,
+	in constructActivityInput,
 	gf *gitForward,
 	headVersion *projectstate.Version,
-) (PullRequestStatusView, error) {
+) (pullRequestStatusView, error) {
 	if !gf.enabled {
-		return PullRequestStatusView{CheckRollup: projectstate.CICheckPending}, nil
+		return pullRequestStatusView{CheckRollup: projectstate.CICheckPending}, nil
 	}
 
 	c := railOpts(ctx)
-	var st PullRequestStatusView
-	if err := workflow.ExecuteActivity(c, wf.GetPullRequestStatusActivity, GetPullRequestStatusArgs{
+	var st pullRequestStatusView
+	if err := workflow.ExecuteActivity(c, wf.GetPullRequestStatusActivity, getPullRequestStatusArgs{
 		RepoRef: sourcecontrol.RepoRefString(gf.repoRef), PRRef: gf.prRef, Cred: gf.cred,
 	}).Get(ctx, &st); err != nil {
-		return PullRequestStatusView{}, err
+		return pullRequestStatusView{}, err
 	}
 
 	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
 		rc := recordOpts(ctx)
 		var out projectstate.Version
-		e := workflow.ExecuteActivity(rc, wf.RecordActivityCIObservedActivity, RecordActivityCIObservedArgs{
+		e := workflow.ExecuteActivity(rc, wf.RecordActivityCIObservedActivity, recordActivityCIObservedArgs{
 			ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, ActivityID: string(in.ActivityID),
 			CICheck: st.CheckRollup, Cred: gf.cred,
 		}).Get(ctx, &out)
 		return out, e
 	})
 	if err != nil {
-		return PullRequestStatusView{}, err
+		return pullRequestStatusView{}, err
 	}
 	*headVersion = v
 	return st, nil
@@ -179,9 +179,9 @@ func (wf *Workflows) observeCIAndRecord(
 // and records the audit-worthy ArchApproved fact (D-PA-GIT §5). Called once the
 // activity's review has passed (the architect's in-app sign-off). A dormant slice is a
 // no-op.
-func (wf *Workflows) relayArchApprovalAndRecord(
+func (wf *workflows) relayArchApprovalAndRecord(
 	ctx workflow.Context,
-	in ConstructActivityInput,
+	in constructActivityInput,
 	gf *gitForward,
 	headVersion *projectstate.Version,
 ) error {
@@ -190,7 +190,7 @@ func (wf *Workflows) relayArchApprovalAndRecord(
 	}
 
 	c := railOpts(ctx)
-	if err := workflow.ExecuteActivity(c, wf.PostReviewActivity, PostReviewArgs{
+	if err := workflow.ExecuteActivity(c, wf.PostReviewActivity, postReviewArgs{
 		RepoRef: sourcecontrol.RepoRefString(gf.repoRef), PRRef: gf.prRef,
 		Verdict: int(sourcecontrol.ReviewApprove), Body: archApprovalBody(in.ActivityID),
 		Cred: gf.cred,
@@ -201,7 +201,7 @@ func (wf *Workflows) relayArchApprovalAndRecord(
 	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
 		rc := recordOpts(ctx)
 		var out projectstate.Version
-		e := workflow.ExecuteActivity(rc, wf.RecordActivityArchApprovedActivity, RecordActivityArchApprovedArgs{
+		e := workflow.ExecuteActivity(rc, wf.RecordActivityArchApprovedActivity, recordActivityArchApprovedArgs{
 			ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, ActivityID: string(in.ActivityID), Cred: gf.cred,
 		}).Get(ctx, &out)
 		return out, e
@@ -218,9 +218,9 @@ func (wf *Workflows) relayArchApprovalAndRecord(
 // (D-PA-GIT §5). A dormant slice is a no-op. A non-Merged result (e.g. not yet
 // mergeable) is surfaced as a non-retryable terminal so the spine does NOT record a
 // false merge — the activity's variance machinery handles the not-yet-mergeable case.
-func (wf *Workflows) mergeAndRecord(
+func (wf *workflows) mergeAndRecord(
 	ctx workflow.Context,
-	in ConstructActivityInput,
+	in constructActivityInput,
 	gf *gitForward,
 	headVersion *projectstate.Version,
 ) error {
@@ -230,7 +230,7 @@ func (wf *Workflows) mergeAndRecord(
 
 	c := railOpts(ctx)
 	var merged bool
-	if err := workflow.ExecuteActivity(c, wf.MergePullRequestActivity, MergePullRequestArgs{
+	if err := workflow.ExecuteActivity(c, wf.MergePullRequestActivity, mergePullRequestArgs{
 		RepoRef: sourcecontrol.RepoRefString(gf.repoRef), PRRef: gf.prRef, Cred: gf.cred,
 	}).Get(ctx, &merged); err != nil {
 		return err
@@ -243,7 +243,7 @@ func (wf *Workflows) mergeAndRecord(
 	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
 		rc := recordOpts(ctx)
 		var out projectstate.Version
-		e := workflow.ExecuteActivity(rc, wf.RecordActivityMergedActivity, RecordActivityMergedArgs{
+		e := workflow.ExecuteActivity(rc, wf.RecordActivityMergedActivity, recordActivityMergedArgs{
 			ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, ActivityID: string(in.ActivityID), Cred: gf.cred,
 		}).Get(ctx, &out)
 		return out, e
@@ -265,9 +265,9 @@ func (wf *Workflows) mergeAndRecord(
 // idempotency the pump already relies on). It mints a credential ONCE for the
 // started+completed pair via the supplied gitForward.cred when the branch lifecycle
 // has already minted one, else mints its own.
-func (wf *Workflows) recordActivityStarted(
+func (wf *workflows) recordActivityStarted(
 	ctx workflow.Context,
-	in ConstructActivityInput,
+	in constructActivityInput,
 	cred railCredEnvelope,
 	headVersion *projectstate.Version,
 ) error {
@@ -277,7 +277,7 @@ func (wf *Workflows) recordActivityStarted(
 	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
 		rc := recordOpts(ctx)
 		var out projectstate.Version
-		e := workflow.ExecuteActivity(rc, wf.RecordActivityStartedActivity, RecordActivityStartedArgs{
+		e := workflow.ExecuteActivity(rc, wf.RecordActivityStartedActivity, recordActivityStartedArgs{
 			ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, ActivityID: string(in.ActivityID), Cred: cred,
 		}).Get(ctx, &out)
 		return out, e
@@ -293,9 +293,9 @@ func (wf *Workflows) recordActivityStarted(
 // head-state at the END of the spine (Task 3), alongside RecordActivityExited. This
 // is what unblocks dependents in the pump's eligibility selection (allDepsDone). A
 // dormant slice is a no-op.
-func (wf *Workflows) recordActivityCompleted(
+func (wf *workflows) recordActivityCompleted(
 	ctx workflow.Context,
-	in ConstructActivityInput,
+	in constructActivityInput,
 	cred railCredEnvelope,
 	headVersion *projectstate.Version,
 ) error {
@@ -305,7 +305,7 @@ func (wf *Workflows) recordActivityCompleted(
 	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
 		rc := recordOpts(ctx)
 		var out projectstate.Version
-		e := workflow.ExecuteActivity(rc, wf.RecordActivityCompletedActivity, RecordActivityCompletedArgs{
+		e := workflow.ExecuteActivity(rc, wf.RecordActivityCompletedActivity, recordActivityCompletedArgs{
 			ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, ActivityID: string(in.ActivityID), Cred: cred,
 		}).Get(ctx, &out)
 		return out, e
@@ -336,7 +336,7 @@ func (wf *Workflows) recordActivityCompleted(
 //     idempotency.
 //
 // Minted/resolved ONCE at the top of the spine and reused for the completed record.
-func (wf *Workflows) startedCred(ctx workflow.Context, projectID ProjectID) (railCredEnvelope, bool, error) {
+func (wf *workflows) startedCred(ctx workflow.Context, projectID ProjectID) (railCredEnvelope, bool, error) {
 	if wf.GitStatus == nil {
 		return railCredEnvelope{}, false, nil
 	}
@@ -354,7 +354,7 @@ func (wf *Workflows) startedCred(ctx workflow.Context, projectID ProjectID) (rai
 
 // mintCred runs MintRepoCredentialActivity → the short-lived credential the Manager
 // threads into every rail + record verb for this activity's lifecycle.
-func (wf *Workflows) mintCred(ctx workflow.Context, repoRef sourcecontrol.RepoRef) (railCredEnvelope, error) {
+func (wf *workflows) mintCred(ctx workflow.Context, repoRef sourcecontrol.RepoRef) (railCredEnvelope, error) {
 	c := mintCredOpts(ctx)
 	var cred railCredEnvelope
 	err := workflow.ExecuteActivity(c, wf.MintRepoCredentialActivity, sourcecontrol.RepoRefString(repoRef)).Get(ctx, &cred)

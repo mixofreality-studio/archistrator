@@ -99,7 +99,7 @@ func newSettlementManager(
 // records the binding → registers the per-customer closeSettlementCycle Schedule.
 // Idempotent on the id (a redundant start returns the running SettlementRef). SYNC:
 // returns once the onboarding workflow is durably accepted.
-func (m *settlementManager) OnboardPaymentIntegration(rc fwmgr.Context, deployedAppID DeployedAppID) (SettlementRef, error) {
+func (m *settlementManager) OnboardPaymentIntegration(rc fwmgr.Context, deployedAppID deployedAppID) (SettlementRef, error) {
 	ctx := rc.Context
 	if deployedAppID == uuid.Nil {
 		return SettlementRef{}, newError(fwmgr.ContractMisuse, "empty deployedAppId")
@@ -115,7 +115,7 @@ func (m *settlementManager) OnboardPaymentIntegration(rc fwmgr.Context, deployed
 		TaskQueue:                TaskQueue,
 		WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
 	}
-	we, err := m.client.ExecuteWorkflow(ctx, opts, ExecutionKindOnboard, OnboardInput{
+	we, err := m.client.ExecuteWorkflow(ctx, opts, executionKindOnboard, onboardInput{
 		DeployedAppID: deployedAppID,
 	})
 	if err != nil {
@@ -131,7 +131,7 @@ func (m *settlementManager) OnboardPaymentIntegration(rc fwmgr.Context, deployed
 // RegisterCustomer — op 2.2. Temporal Workflow (entry; StartWorkflow, id
 // {customerId}:register). Validates the stored instrument (zero-amount auth) → opens
 // the settlement aggregate. Idempotent on the id. SYNC.
-func (m *settlementManager) RegisterCustomer(rc fwmgr.Context, customerID CustomerID) (SettlementRef, error) {
+func (m *settlementManager) RegisterCustomer(rc fwmgr.Context, customerID customerID) (SettlementRef, error) {
 	ctx := rc.Context
 	if customerID == uuid.Nil {
 		return SettlementRef{}, newError(fwmgr.ContractMisuse, "empty customerId")
@@ -143,7 +143,7 @@ func (m *settlementManager) RegisterCustomer(rc fwmgr.Context, customerID Custom
 		TaskQueue:                TaskQueue,
 		WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
 	}
-	we, err := m.client.ExecuteWorkflow(ctx, opts, ExecutionKindRegister, RegisterInput{
+	we, err := m.client.ExecuteWorkflow(ctx, opts, executionKindRegister, registerInput{
 		CustomerID: customerID,
 	})
 	if err != nil {
@@ -163,7 +163,7 @@ func (m *settlementManager) RegisterCustomer(rc fwmgr.Context, customerID Custom
 // (payout/charge/skip; on charge failure decides+executes {Retry|Escalate|Delay}) →
 // records the outcome. Idempotent on the id (a redundant firing collapses to the
 // running close). SYNC from the scheduler's POV.
-func (m *settlementManager) CloseSettlementCycle(rc fwmgr.Context, customerID CustomerID, cycleID CycleID) (CloseCycleResult, error) {
+func (m *settlementManager) CloseSettlementCycle(rc fwmgr.Context, customerID customerID, cycleID cycleID) (CloseCycleResult, error) {
 	ctx := rc.Context
 	if customerID == uuid.Nil {
 		return CloseCycleResult{}, newError(fwmgr.ContractMisuse, "empty customerId")
@@ -178,7 +178,7 @@ func (m *settlementManager) CloseSettlementCycle(rc fwmgr.Context, customerID Cu
 		TaskQueue:                TaskQueue,
 		WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
 	}
-	we, err := m.client.ExecuteWorkflow(ctx, opts, ExecutionKindClose, CloseInput{
+	we, err := m.client.ExecuteWorkflow(ctx, opts, executionKindClose, closeInput{
 		CustomerID: customerID,
 		CycleID:    cycleID,
 	})
@@ -209,7 +209,7 @@ func (m *settlementManager) RunShortfallSweep(rc fwmgr.Context, tickID string) (
 		TaskQueue:                TaskQueue,
 		WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
 	}
-	we, err := m.client.ExecuteWorkflow(ctx, opts, ExecutionKindShortfallSweep, ShortfallSweepInput{})
+	we, err := m.client.ExecuteWorkflow(ctx, opts, executionKindShortfallSweep, shortfallSweepInput{})
 	if err != nil {
 		return ShortfallSweepResult{}, mapStartError(err)
 	}
@@ -244,8 +244,8 @@ func (m *settlementManager) RecordInboundRevenue(rc fwmgr.Context, event Gateway
 		TaskQueue:                TaskQueue,
 		WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
 	}
-	_, err := m.client.SignalWithStartWorkflow(ctx, wfID, SignalInboundRevenueReceived, event,
-		opts, ExecutionKindClose, CloseInput{CustomerID: event.CustomerID, CycleID: event.CycleID})
+	_, err := m.client.SignalWithStartWorkflow(ctx, wfID, signalInboundRevenueReceived, event,
+		opts, executionKindClose, closeInput{CustomerID: event.CustomerID, CycleID: event.CycleID})
 	if err != nil {
 		return mapSignalError(err)
 	}
@@ -276,8 +276,8 @@ func (m *settlementManager) RecordRevenueReversal(rc fwmgr.Context, event Gatewa
 		TaskQueue:                TaskQueue,
 		WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
 	}
-	_, err := m.client.SignalWithStartWorkflow(ctx, wfID, SignalChargebackReceived, event,
-		opts, ExecutionKindClose, CloseInput{CustomerID: event.CustomerID, CycleID: event.CycleID})
+	_, err := m.client.SignalWithStartWorkflow(ctx, wfID, signalChargebackReceived, event,
+		opts, executionKindClose, closeInput{CustomerID: event.CustomerID, CycleID: event.CycleID})
 	if err != nil {
 		return mapSignalError(err)
 	}
@@ -290,18 +290,18 @@ func (m *settlementManager) RecordRevenueReversal(rc fwmgr.Context, event Gatewa
 // {customerId}:onboard once resolved; the Manager seeds the start token on the
 // deployedAppId (resolved to the customer inside the workflow). The id family is
 // deterministic so a redundant start collapses (§6.1 / §2.1).
-func onboardWorkflowID(deployedAppID DeployedAppID) string {
+func onboardWorkflowID(deployedAppID deployedAppID) string {
 	return fmt.Sprintf("%s:onboard", deployedAppID)
 }
 
 // registerWorkflowID derives {customerId}:register.
-func registerWorkflowID(customerID CustomerID) string {
+func registerWorkflowID(customerID customerID) string {
 	return fmt.Sprintf("%s:register", customerID)
 }
 
 // closeWorkflowID derives {customerId}:{cycleId}:close — the continuity token the
 // inbound/reversal/chargeback Signals target (§6.1).
-func closeWorkflowID(customerID CustomerID, cycleID CycleID) string {
+func closeWorkflowID(customerID customerID, cycleID cycleID) string {
 	return fmt.Sprintf("%s:%s:close", customerID, cycleID)
 }
 

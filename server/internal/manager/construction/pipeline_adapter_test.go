@@ -2,7 +2,6 @@ package construction
 
 import (
 	"testing"
-
 )
 
 // TestPipelineAdapter_DispatchInputs asserts that dispatchInputsFor maps
@@ -10,7 +9,7 @@ import (
 // pipelineAdapter.inner is the constructionpipeline.ConstructionPipelineAccess interface (not a concrete struct,
 // interface), so we test the pure mapping helper directly — no fake adapter needed.
 func TestPipelineAdapter_DispatchInputs(t *testing.T) {
-	inputs := dispatchInputsFor(PipelineSpec{
+	inputs := dispatchInputsFor(pipelineSpec{
 		ActivityID:  "C-PE",
 		ComponentID: "projectExport",
 	})
@@ -23,10 +22,10 @@ func TestPipelineAdapter_DispatchInputs(t *testing.T) {
 }
 
 // TestDispatchInputsFor_WithPhaseAndRole asserts that non-empty Phase and Role
-// fields on PipelineSpec are emitted as "phase" and "role" keys in the dispatch
+// fields on pipelineSpec are emitted as "phase" and "role" keys in the dispatch
 // inputs map (REQ-2 + Plan 1 Task 6).
 func TestDispatchInputsFor_WithPhaseAndRole(t *testing.T) {
-	spec := PipelineSpec{
+	spec := pipelineSpec{
 		ActivityID:  "C-PE",
 		ComponentID: "projectExport",
 		Phase:       "requirements",
@@ -50,7 +49,7 @@ func TestDispatchInputsFor_WithPhaseAndRole(t *testing.T) {
 // are NOT emitted — callers that do not set them get only activity_id/component_id,
 // so existing workflow dispatches that rely on workflow-declared defaults are unaffected.
 func TestDispatchInputsFor_EmptyPhaseOmitted(t *testing.T) {
-	spec := PipelineSpec{
+	spec := pipelineSpec{
 		ActivityID:  "C-PE",
 		ComponentID: "projectExport",
 		// Phase and Role intentionally empty

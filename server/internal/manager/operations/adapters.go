@@ -42,21 +42,21 @@ type operatedSystemStateAdapter struct {
 
 var _ operatedSystemStateAccess = operatedSystemStateAdapter{}
 
-func (a operatedSystemStateAdapter) ReadOperatedSystem(ctx context.Context, operatedAppID OperatedAppID) (OperatedSystem, error) {
+func (a operatedSystemStateAdapter) ReadOperatedSystem(ctx context.Context, operatedAppID operatedAppID) (operatedSystem, error) {
 	op, err := a.inner.ReadOperatedSystem(fwra.Context{Context: ctx}, operatedAppID)
 	if err != nil {
-		return OperatedSystem{}, err
+		return operatedSystem{}, err
 	}
-	return OperatedSystem{
+	return operatedSystem{
 		ID:                  op.ID,
-		Version:             Version(op.Version),
+		Version:             version(op.Version),
 		Status:              runtimeStatusFromState(op.Status),
 		InFlight:            op.InFlight,
 		DeployableBundleRef: op.DeployableBundleRef,
 	}, nil
 }
 
-func (a operatedSystemStateAdapter) ReadInFlightOperatedApps(ctx context.Context, scope InFlightScope) ([]OperatedSystemSummary, error) {
+func (a operatedSystemStateAdapter) ReadInFlightOperatedApps(ctx context.Context, scope inFlightScope) ([]operatedSystemSummary, error) {
 	apps, err := a.inner.ReadInFlightOperatedApps(fwra.Context{Context: ctx}, operatedsystemstate.InFlightScope{
 		AppIDs:     scope.AppIDs,
 		CustomerID: scope.CustomerID,
@@ -64,18 +64,18 @@ func (a operatedSystemStateAdapter) ReadInFlightOperatedApps(ctx context.Context
 	if err != nil {
 		return nil, err
 	}
-	out := make([]OperatedSystemSummary, 0, len(apps))
+	out := make([]operatedSystemSummary, 0, len(apps))
 	for _, s := range apps {
-		out = append(out, OperatedSystemSummary{
+		out = append(out, operatedSystemSummary{
 			ID:      s.ID,
-			Version: Version(s.Version),
+			Version: version(s.Version),
 			Status:  runtimeStatusFromState(s.Status),
 		})
 	}
 	return out, nil
 }
 
-func (a operatedSystemStateAdapter) PublishDesiredState(ctx context.Context, operatedAppID OperatedAppID, expectedVersion Version, reason DesiredStateReason, decision *AutoscaleDecisionSeam, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (a operatedSystemStateAdapter) PublishDesiredState(ctx context.Context, operatedAppID operatedAppID, expectedVersion version, reason DesiredStateReason, decision *autoscaleDecisionSeam, idempotencyKey fwra.IdempotencyKey) (version, error) {
 	v, err := a.inner.PublishDesiredState(
 		fwra.Context{Context: ctx, IdempotencyKey: idempotencyKey},
 		operatedAppID,
@@ -84,10 +84,10 @@ func (a operatedSystemStateAdapter) PublishDesiredState(ctx context.Context, ope
 		autoscaleDecisionToState(decision),
 		idempotencyKey,
 	)
-	return Version(v), err
+	return version(v), err
 }
 
-func (a operatedSystemStateAdapter) RecordRuntimeStatusChange(ctx context.Context, operatedAppID OperatedAppID, expectedVersion Version, status RuntimeStatusSeam, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (a operatedSystemStateAdapter) RecordRuntimeStatusChange(ctx context.Context, operatedAppID operatedAppID, expectedVersion version, status RuntimeStatusSeam, idempotencyKey fwra.IdempotencyKey) (version, error) {
 	v, err := a.inner.RecordRuntimeStatusChange(
 		fwra.Context{Context: ctx, IdempotencyKey: idempotencyKey},
 		operatedAppID,
@@ -95,20 +95,20 @@ func (a operatedSystemStateAdapter) RecordRuntimeStatusChange(ctx context.Contex
 		runtimeStatusToState(status),
 		idempotencyKey,
 	)
-	return Version(v), err
+	return version(v), err
 }
 
-func (a operatedSystemStateAdapter) WithdrawSystem(ctx context.Context, operatedAppID OperatedAppID, expectedVersion Version, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (a operatedSystemStateAdapter) WithdrawSystem(ctx context.Context, operatedAppID operatedAppID, expectedVersion version, idempotencyKey fwra.IdempotencyKey) (version, error) {
 	v, err := a.inner.WithdrawSystem(
 		fwra.Context{Context: ctx, IdempotencyKey: idempotencyKey},
 		operatedAppID,
 		operatedsystemstate.Version(expectedVersion),
 		idempotencyKey,
 	)
-	return Version(v), err
+	return version(v), err
 }
 
-func (a operatedSystemStateAdapter) RecordDelinquencyAction(ctx context.Context, operatedAppID OperatedAppID, expectedVersion Version, action DelinquencyAction, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (a operatedSystemStateAdapter) RecordDelinquencyAction(ctx context.Context, operatedAppID operatedAppID, expectedVersion version, action delinquencyAction, idempotencyKey fwra.IdempotencyKey) (version, error) {
 	v, err := a.inner.RecordDelinquencyAction(
 		fwra.Context{Context: ctx, IdempotencyKey: idempotencyKey},
 		operatedAppID,
@@ -116,7 +116,7 @@ func (a operatedSystemStateAdapter) RecordDelinquencyAction(ctx context.Context,
 		delinquencyActionToState(action),
 		idempotencyKey,
 	)
-	return Version(v), err
+	return version(v), err
 }
 
 func runtimeStatusFromState(s operatedsystemstate.RuntimeStatus) RuntimeStatusSeam {
@@ -164,11 +164,11 @@ func desiredStateReasonToState(r DesiredStateReason) operatedsystemstate.Desired
 	}
 }
 
-func delinquencyActionToState(a DelinquencyAction) operatedsystemstate.DelinquencyAction {
+func delinquencyActionToState(a delinquencyAction) operatedsystemstate.DelinquencyAction {
 	switch a {
-	case DelinquencyActionPaused:
+	case delinquencyActionPaused:
 		return operatedsystemstate.DelinquencyActionPaused
-	case DelinquencyActionWithdrawn:
+	case delinquencyActionWithdrawn:
 		return operatedsystemstate.DelinquencyActionWithdrawn
 	default:
 		return operatedsystemstate.DelinquencyActionUnknown
@@ -190,7 +190,7 @@ func autoscaleActionToState(a AutoscaleAction) operatedsystemstate.AutoscaleActi
 	}
 }
 
-func autoscaleDecisionToState(d *AutoscaleDecisionSeam) *operatedsystemstate.AutoscaleDecision {
+func autoscaleDecisionToState(d *autoscaleDecisionSeam) *operatedsystemstate.AutoscaleDecision {
 	if d == nil {
 		return nil
 	}
@@ -211,7 +211,7 @@ type operatedRuntimeAdapter struct {
 
 var _ operatedRuntimeAccess = operatedRuntimeAdapter{}
 
-func (a operatedRuntimeAdapter) PublishDesiredState(ctx context.Context, appID OperatedAppID, desired RuntimeDesiredState, idempotencyKey fwra.IdempotencyKey) error {
+func (a operatedRuntimeAdapter) PublishDesiredState(ctx context.Context, appID operatedAppID, desired runtimeDesiredState, idempotencyKey fwra.IdempotencyKey) error {
 	return a.inner.PublishDesiredState(
 		fwra.Context{Context: ctx, IdempotencyKey: idempotencyKey},
 		appID,
@@ -220,11 +220,11 @@ func (a operatedRuntimeAdapter) PublishDesiredState(ctx context.Context, appID O
 	)
 }
 
-func (a operatedRuntimeAdapter) Withdraw(ctx context.Context, appID OperatedAppID, idempotencyKey fwra.IdempotencyKey) error {
+func (a operatedRuntimeAdapter) Withdraw(ctx context.Context, appID operatedAppID, idempotencyKey fwra.IdempotencyKey) error {
 	return a.inner.Withdraw(fwra.Context{Context: ctx, IdempotencyKey: idempotencyKey}, appID, idempotencyKey)
 }
 
-func (a operatedRuntimeAdapter) GetApplicationHealth(ctx context.Context, appID OperatedAppID) (RuntimeStatusSeam, error) {
+func (a operatedRuntimeAdapter) GetApplicationHealth(ctx context.Context, appID operatedAppID) (RuntimeStatusSeam, error) {
 	s, err := a.inner.GetApplicationHealth(fwra.Context{Context: ctx}, appID)
 	if err != nil {
 		return RuntimeStatusUnknown, err
@@ -232,24 +232,24 @@ func (a operatedRuntimeAdapter) GetApplicationHealth(ctx context.Context, appID 
 	return runtimeStatusFromRuntime(s), nil
 }
 
-func (a operatedRuntimeAdapter) GetSloStatus(ctx context.Context, appID OperatedAppID) (SloStatusSeam, error) {
+func (a operatedRuntimeAdapter) GetSloStatus(ctx context.Context, appID operatedAppID) (sloStatusSeam, error) {
 	s, err := a.inner.GetSloStatus(fwra.Context{Context: ctx}, appID)
 	if err != nil {
-		return SloStatusSeam{}, err
+		return sloStatusSeam{}, err
 	}
-	return SloStatusSeam{SloMet: s.SloMet, Detail: s.Detail}, nil
+	return sloStatusSeam{SloMet: s.SloMet, Detail: s.Detail}, nil
 }
 
-func (a operatedRuntimeAdapter) ReadComputeAttribution(ctx context.Context, appID OperatedAppID, window AttributionWindow) (ComputeAttribution, error) {
+func (a operatedRuntimeAdapter) ReadComputeAttribution(ctx context.Context, appID operatedAppID, window attributionWindow) (computeAttribution, error) {
 	att, err := a.inner.ReadComputeAttribution(fwra.Context{Context: ctx}, appID, operatedruntime.AttributionWindow{
 		From: window.From,
 		To:   window.To,
 	})
 	if err != nil {
-		return ComputeAttribution{}, err
+		return computeAttribution{}, err
 	}
-	return ComputeAttribution{
-		Units:          ComputeUnitsSeam{Amount: att.Units.Amount, Unit: att.Units.Unit},
+	return computeAttribution{
+		Units:          computeUnitsSeam{Amount: att.Units.Amount, Unit: att.Units.Unit},
 		RuntimeEventID: att.RuntimeEventID,
 	}, nil
 }
@@ -279,17 +279,17 @@ type usageAdapter struct {
 
 var _ usageAccess = usageAdapter{}
 
-func (a usageAdapter) RecordComputeUsage(ctx context.Context, events []UsageEventSeam) error {
+func (a usageAdapter) RecordComputeUsage(ctx context.Context, events []usageEventSeam) error {
 	_, err := a.inner.RecordComputeUsage(fwra.Context{Context: ctx}, usageEventsToLog(events))
 	return err
 }
 
-func (a usageAdapter) RecordFinalUsage(ctx context.Context, events []UsageEventSeam) error {
+func (a usageAdapter) RecordFinalUsage(ctx context.Context, events []usageEventSeam) error {
 	_, err := a.inner.RecordFinalUsage(fwra.Context{Context: ctx}, usageEventsToLog(events))
 	return err
 }
 
-func (a usageAdapter) ReadRange(ctx context.Context, query UsageRangeQuerySeam) ([]UsageEventSeam, error) {
+func (a usageAdapter) ReadRange(ctx context.Context, query usageRangeQuerySeam) ([]usageEventSeam, error) {
 	events, err := a.inner.ReadRange(fwra.Context{Context: ctx}, usagelog.UsageRangeQuery{
 		CustomerID:    query.CustomerID,
 		CycleID:       usagelog.CycleID(query.CycleID),
@@ -298,13 +298,13 @@ func (a usageAdapter) ReadRange(ctx context.Context, query UsageRangeQuerySeam) 
 	if err != nil {
 		return nil, err
 	}
-	out := make([]UsageEventSeam, 0, len(events))
+	out := make([]usageEventSeam, 0, len(events))
 	for _, e := range events {
-		out = append(out, UsageEventSeam{
+		out = append(out, usageEventSeam{
 			OperatedAppID:  e.OperatedAppID,
 			CustomerID:     e.CustomerID,
 			CycleID:        string(e.CycleID),
-			Units:          ComputeUnitsSeam{Amount: e.Units.Amount, Unit: e.Units.Unit},
+			Units:          computeUnitsSeam{Amount: e.Units.Amount, Unit: e.Units.Unit},
 			RuntimeEventID: string(e.RuntimeEventID),
 			ObservedAt:     e.OccurredAt,
 		})
@@ -312,7 +312,7 @@ func (a usageAdapter) ReadRange(ctx context.Context, query UsageRangeQuerySeam) 
 	return out, nil
 }
 
-func usageEventsToLog(events []UsageEventSeam) []usagelog.UsageEvent {
+func usageEventsToLog(events []usageEventSeam) []usagelog.UsageEvent {
 	out := make([]usagelog.UsageEvent, 0, len(events))
 	for _, e := range events {
 		out = append(out, usagelog.UsageEvent{
@@ -340,12 +340,12 @@ type artifactAdapter struct {
 
 var _ artifactAccess = artifactAdapter{}
 
-func (a artifactAdapter) RetrieveDeployableBundle(ctx context.Context, deployableBundleRef string) (DeployableBundle, error) {
+func (a artifactAdapter) RetrieveDeployableBundle(ctx context.Context, deployableBundleRef string) (deployableBundle, error) {
 	out, err := a.inner.RetrieveConstructionOutput(fwra.Context{Context: ctx}, deployableBundleRef)
 	if err != nil {
-		return DeployableBundle{}, err
+		return deployableBundle{}, err
 	}
-	return DeployableBundle{Output: out}, nil
+	return deployableBundle{Output: out}, nil
 }
 
 // ===========================================================================
@@ -382,7 +382,7 @@ type interventionAdapter struct {
 
 var _ interventionEngine = interventionAdapter{}
 
-func (a interventionAdapter) DecideOnHealth(change HealthChange, policy InterventionPolicy) (HealthDirective, error) {
+func (a interventionAdapter) DecideOnHealth(change healthChange, policy interventionPolicy) (healthDirective, error) {
 	d, err := a.inner.DecideOnHealth(fweng.Context{Context: context.Background()}, intervention.HealthChange{
 		OperatedAppID: intervention.OperatedAppID(change.AppID.String()),
 		FromHealth:    healthStatusFromSeam(change.FromStatus),
@@ -391,15 +391,15 @@ func (a interventionAdapter) DecideOnHealth(change HealthChange, policy Interven
 		Policy:        interventionPolicyToEngine(policy),
 	})
 	if err != nil {
-		return HealthDirectiveUnknown, err
+		return healthDirectiveUnknown, err
 	}
 	switch d {
 	case intervention.HealthRetry:
-		return HealthDirectiveRetry, nil
+		return healthDirectiveRetry, nil
 	case intervention.HealthEscalate:
-		return HealthDirectiveEscalate, nil
+		return healthDirectiveEscalate, nil
 	default:
-		return HealthDirectiveUnknown, nil
+		return healthDirectiveUnknown, nil
 	}
 }
 
@@ -423,7 +423,7 @@ func sloStatusFromMet(met bool) intervention.SLOStatus {
 	return intervention.SLOOutOfBudget
 }
 
-func interventionPolicyToEngine(p InterventionPolicy) intervention.InterventionPolicy {
+func interventionPolicyToEngine(p interventionPolicy) intervention.InterventionPolicy {
 	return intervention.InterventionPolicy{
 		RetryBudget: int64(p.RetryBudget),
 		SLATier:     slaTierFromString(p.SLATier),
@@ -451,7 +451,7 @@ type autoscalerAdapter struct {
 
 var _ autoscalerEngine = autoscalerAdapter{}
 
-func (a autoscalerAdapter) ProposeDesiredState(telemetry Telemetry, currentDesired AutoscalerDesiredState, policy AutoscalerPolicy, infrastructureKind InfrastructureKind) (AutoscaleDecisionSeam, error) {
+func (a autoscalerAdapter) ProposeDesiredState(telemetry telemetry, currentDesired autoscalerDesiredState, policy autoscalerPolicy, infrastructureKind infrastructureKind) (autoscaleDecisionSeam, error) {
 	d, err := a.inner.ProposeDesiredState(
 		fweng.Context{Context: context.Background()},
 		autoscaler.Telemetry{
@@ -473,18 +473,18 @@ func (a autoscalerAdapter) ProposeDesiredState(telemetry Telemetry, currentDesir
 		infraKindToAutoscaler(infrastructureKind),
 	)
 	if err != nil {
-		return AutoscaleDecisionSeam{}, err
+		return autoscaleDecisionSeam{}, err
 	}
-	return AutoscaleDecisionSeam{
+	return autoscaleDecisionSeam{
 		Action:     autoscaleActionFromDecision(d.Kind),
 		Delta:      int(d.Delta),
 		ToBaseline: int(d.ToBaseline),
 	}, nil
 }
 
-func infraKindToAutoscaler(k InfrastructureKind) autoscaler.InfrastructureKind {
+func infraKindToAutoscaler(k infrastructureKind) autoscaler.InfrastructureKind {
 	switch k {
-	case InfrastructureKindGoTemporalPostgres:
+	case infrastructureKindGoTemporalPostgres:
 		return autoscaler.InfrastructureKindGoTemporalPostgres
 	default:
 		return autoscaler.InfrastructureKindUnknown
@@ -527,7 +527,7 @@ type estimationAdapter struct {
 
 var _ operationEstimationEngine = estimationAdapter{}
 
-func (a estimationAdapter) ProjectForOperatedApp(observedUsage ObservedUsage, infrastructureKind InfrastructureKind, scaleWhatIfPoints []ScalePoint) (CostProjectionSeam, error) {
+func (a estimationAdapter) ProjectForOperatedApp(observedUsage observedUsage, infrastructureKind infrastructureKind, scaleWhatIfPoints []ScalePoint) (CostProjectionSeam, error) {
 	var computeUnitSeconds float64
 	for _, e := range observedUsage.Events {
 		computeUnitSeconds += e.Units.Amount
@@ -555,9 +555,9 @@ func (a estimationAdapter) ProjectForOperatedApp(observedUsage ObservedUsage, in
 	}, nil
 }
 
-func infraKindToEstimation(k InfrastructureKind) operationestimation.InfrastructureKind {
+func infraKindToEstimation(k infrastructureKind) operationestimation.InfrastructureKind {
 	switch k {
-	case InfrastructureKindGoTemporalPostgres:
+	case infrastructureKindGoTemporalPostgres:
 		return operationestimation.InfrastructureKindGoTemporalPostgres
 	default:
 		return operationestimation.InfrastructureKindUnknown

@@ -149,30 +149,30 @@ import (
 // port surface, so they stay hand-written and are NOT in the generated contract.
 // ---------------------------------------------------------------------------
 
-// Critique is the PM-critique result. On Revise the Manager's sequence loops back to
+// critique is the PM-critique result. On Revise the Manager's sequence loops back to
 // the architect-role draft step with Notes woven in, BEFORE the human gate.
-type Critique struct {
-	Verdict CritiqueVerdict `json:"verdict"`
+type critique struct {
+	Verdict critiqueVerdict `json:"verdict"`
 	Notes   string          `json:"notes"`
 }
 
-// CritiqueVerdict is the closed PM verdict set.
-type CritiqueVerdict int
+// critiqueVerdict is the closed PM verdict set.
+type critiqueVerdict int
 
 const (
-	CritiqueUnknown CritiqueVerdict = iota
-	CritiqueApprove                 // PM ratifies the draft; proceed to the human gate
-	CritiqueRevise                  // PM asks for revision; loop back to the draft step with Notes
+	critiqueUnknown critiqueVerdict = iota
+	critiqueApprove                 // PM ratifies the draft; proceed to the human gate
+	critiqueRevise                  // PM asks for revision; loop back to the draft step with Notes
 )
 
 // Validate is the optional mechanical shape hook GenerateTypedData[Critique] runs
 // after unmarshal. A Revise verdict must carry Notes; an out-of-range verdict is
 // unconstructable.
-func (c *Critique) Validate() error {
+func (c *critique) Validate() error {
 	switch c.Verdict {
-	case CritiqueApprove:
+	case critiqueApprove:
 		return nil
-	case CritiqueRevise:
+	case critiqueRevise:
 		if c.Notes == "" {
 			return fmt.Errorf("Critique: Revise verdict requires Notes")
 		}
@@ -187,9 +187,9 @@ func (c *Critique) Validate() error {
 // façade boundary — distinct from the workflow's own failure handling.
 // ---------------------------------------------------------------------------
 
-// SystemDesignError is the typed façade error — an alias for fwmanager.Error so
-// existing errors.As(&SystemDesignError) call sites keep working without change.
-type SystemDesignError = fwmanager.Error
+// systemDesignError is the typed façade error — an alias for fwmanager.Error so
+// existing errors.As(&systemDesignError) call sites keep working without change.
+type systemDesignError = fwmanager.Error
 
 func newError(kind fwmanager.Kind, detail string) *fwmanager.Error {
 	return fwmanager.New(kind, detail)

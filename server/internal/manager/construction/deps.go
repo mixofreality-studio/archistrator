@@ -17,7 +17,7 @@ import (
 // into the unexported seams below (the former composition-root adapters are FOLDED
 // into this package — adapters.go). The seams stay unexported so the package's only
 // public surface is the generated interface + models + NewConstructionManager +
-// RegisterWorker (+ the Workflows struct the Temporal worker needs).
+// RegisterWorker (+ the workflows struct the Temporal worker needs).
 //
 // How each seam is reached differs by determinism class:
 //   - the three Engines (handOff / intervention / review) are PURE, deterministic,
@@ -125,15 +125,15 @@ type workerAccess interface {
 // ===========================================================================
 
 type handOffEngine interface {
-	PickWorkerClass(activity ConstructionActivity, policy HandOffPolicy) (WorkerClass, error)
+	PickWorkerClass(activity constructionActivity, policy handOffPolicy) (workerClass, error)
 }
 
-// ConstructionActivity is the by-value activity snapshot the Manager feeds the
+// constructionActivity is the by-value activity snapshot the Manager feeds the
 // handOffEngine. CRLabel/IsRevert are the git-forward per-activity facts threaded
 // into the PR open + the head-state mirror.
-type ConstructionActivity struct {
+type constructionActivity struct {
 	ActivityID   string
-	Kind         ActivityKind
+	Kind         activityKind
 	ComponentID  string
 	Layer        string
 	EstimateDays float64
@@ -141,84 +141,84 @@ type ConstructionActivity struct {
 	IsRevert     bool
 }
 
-// ActivityKind is the Manager-local activity-kind vocabulary.
-type ActivityKind int
+// activityKind is the Manager-local activity-kind vocabulary.
+type activityKind int
 
 const (
-	ActivityKindUnknown ActivityKind = iota
-	ActivityKindDetailedDesign
-	ActivityKindConstruction
-	ActivityKindIntegration
-	ActivityKindNoncoding
+	activityKindUnknown activityKind = iota
+	activityKindDetailedDesign
+	activityKindConstruction
+	activityKindIntegration
+	activityKindNoncoding
 )
 
 // String returns the canonical name for an activity kind.
-func (k ActivityKind) String() string {
+func (k activityKind) String() string {
 	switch k {
-	case ActivityKindDetailedDesign:
+	case activityKindDetailedDesign:
 		return "DetailedDesign"
-	case ActivityKindConstruction:
+	case activityKindConstruction:
 		return "Construction"
-	case ActivityKindIntegration:
+	case activityKindIntegration:
 		return "Integration"
-	case ActivityKindNoncoding:
+	case activityKindNoncoding:
 		return "Noncoding"
 	default:
 		return "Unknown"
 	}
 }
 
-// WorkerClass is the Manager-local cast worker arrangement.
-type WorkerClass int
+// workerClass is the Manager-local cast worker arrangement.
+type workerClass int
 
 const (
-	WorkerClassUnknown WorkerClass = iota
-	AIWorker
-	HumanSeniorWorker
-	HumanJuniorWorker
-	// ArchitectOnly means skip dispatch and await the architect.
-	ArchitectOnly
+	workerClassUnknown workerClass = iota
+	aiWorker
+	humanSeniorWorker
+	humanJuniorWorker
+	// architectOnly means skip dispatch and await the architect.
+	architectOnly
 )
 
 // String returns the canonical worker-class name (used as the worker's logical class).
-func (c WorkerClass) String() string {
+func (c workerClass) String() string {
 	switch c {
-	case AIWorker:
+	case aiWorker:
 		return "ai"
-	case HumanSeniorWorker:
+	case humanSeniorWorker:
 		return "humanSenior"
-	case HumanJuniorWorker:
+	case humanJuniorWorker:
 		return "humanJunior"
-	case ArchitectOnly:
+	case architectOnly:
 		return "architectOnly"
 	default:
 		return "unknown"
 	}
 }
 
-// HandOffPolicy is the committed policy snapshot (by value).
-type HandOffPolicy struct {
+// handOffPolicy is the committed policy snapshot (by value).
+type handOffPolicy struct {
 	PreferAI         bool
 	SeniorOnlyLayers []string
 }
 
-// InterventionMode is the coarse intervention regime the composition root translates
+// interventionMode is the coarse intervention regime the composition root translates
 // into intervention.InterventionMode.
-type InterventionMode int
+type interventionMode int
 
 const (
-	// InterventionModeUnknown — no mode set (zero value).
-	InterventionModeUnknown InterventionMode = iota
-	// InterventionModeEscalateEverything — every variance escalates to an operator.
-	InterventionModeEscalateEverything
-	// InterventionModeTiered — severity tiers + retry budgets decide retry vs
+	// interventionModeUnknown — no mode set (zero value).
+	interventionModeUnknown interventionMode = iota
+	// interventionModeEscalateEverything — every variance escalates to an operator.
+	interventionModeEscalateEverything
+	// interventionModeTiered — severity tiers + retry budgets decide retry vs
 	// escalate vs takeover before flipping to a human (the autonomous-retry default).
-	InterventionModeTiered
+	interventionModeTiered
 )
 
-// InterventionPolicy is the committed policy snapshot fed by value to the Engine.
-type InterventionPolicy struct {
-	Mode        InterventionMode
+// interventionPolicy is the committed policy snapshot fed by value to the Engine.
+type interventionPolicy struct {
+	Mode        interventionMode
 	RetryBudget int
 	SLATier     string
 }
@@ -230,48 +230,48 @@ type InterventionPolicy struct {
 // ===========================================================================
 
 type interventionEngine interface {
-	DecideOnVariance(variance ConstructionVariance) (VarianceDirective, error)
-	ApplyPausePolicy(projectID string, ctx PauseRequestContext) (PausePlan, error)
+	DecideOnVariance(variance constructionVariance) (varianceDirective, error)
+	ApplyPausePolicy(projectID string, ctx pauseRequestContext) (pausePlan, error)
 }
 
-// ConstructionVariance is the by-value variance the Manager feeds the Engine.
-type ConstructionVariance struct {
+// constructionVariance is the by-value variance the Manager feeds the Engine.
+type constructionVariance struct {
 	ActivityID      string
-	Kind            VarianceKind
+	Kind            varianceKind
 	Detail          string
 	AttemptCount    int
 	OperatorSourced bool
 }
 
-// VarianceKind is the Manager-local variance taxonomy.
-type VarianceKind int
+// varianceKind is the Manager-local variance taxonomy.
+type varianceKind int
 
 const (
-	VarianceKindUnknown VarianceKind = iota
-	VarianceScheduleOverrun
-	VariancePipelineFailed
-	VarianceReviewFailed
-	VarianceWorkerRefused
-	VarianceOperatorOverride
+	varianceKindUnknown varianceKind = iota
+	varianceScheduleOverrun
+	variancePipelineFailed
+	varianceReviewFailed
+	varianceWorkerRefused
+	varianceOperatorOverride
 )
 
-// VarianceDirective is the Engine's decision.
-type VarianceDirective int
+// varianceDirective is the Engine's decision.
+type varianceDirective int
 
 const (
-	DirectiveUnknown VarianceDirective = iota
-	DirectiveRetry
-	DirectiveEscalate
-	DirectiveTakeover
+	directiveUnknown varianceDirective = iota
+	directiveRetry
+	directiveEscalate
+	directiveTakeover
 )
 
-// PauseRequestContext is the by-value pause request.
-type PauseRequestContext struct {
+// pauseRequestContext is the by-value pause request.
+type pauseRequestContext struct {
 	Reason string
 }
 
-// PausePlan is the plan the Manager EXECUTES.
-type PausePlan struct {
+// pausePlan is the plan the Manager EXECUTES.
+type pausePlan struct {
 	PipelinesToCancel []string
 	RecordPaused      bool
 	NotifyTargets     []string
@@ -284,11 +284,11 @@ type PausePlan struct {
 // ===========================================================================
 
 type reviewEngine interface {
-	ProposeReviews(change ReviewChange, componentID string, artifactKind string, architectureGraph string, contracts []string) (ReviewSet, error)
+	ProposeReviews(change reviewChange, componentID string, artifactKind string, architectureGraph string, contracts []string) (ReviewSet, error)
 }
 
-// ReviewChange is the by-value description of the produced change under review.
-type ReviewChange struct {
+// reviewChange is the by-value description of the produced change under review.
+type reviewChange struct {
 	ActivityID  string
 	ComponentID string
 	// ContentAddress points at the staged construction output (artifactAccess).
@@ -302,13 +302,13 @@ type ReviewChange struct {
 // ===========================================================================
 
 type constructionPipelineAccess interface {
-	SubmitConstructionPipeline(ctx context.Context, spec PipelineSpec, idempotencyKey fwra.IdempotencyKey) (PipelineHandle, error)
-	ObserveConstructionPipeline(ctx context.Context, handle PipelineHandle) (PipelineObservation, error)
-	CancelConstructionPipeline(ctx context.Context, handle PipelineHandle) error
+	SubmitConstructionPipeline(ctx context.Context, spec pipelineSpec, idempotencyKey fwra.IdempotencyKey) (pipelineHandle, error)
+	ObserveConstructionPipeline(ctx context.Context, handle pipelineHandle) (pipelineObservation, error)
+	CancelConstructionPipeline(ctx context.Context, handle pipelineHandle) error
 }
 
-// PipelineSpec is the Manager's infrastructure-neutral dispatch spec.
-type PipelineSpec struct {
+// pipelineSpec is the Manager's infrastructure-neutral dispatch spec.
+type pipelineSpec struct {
 	ActivityID  string
 	ComponentID string
 	RepoURL     string
@@ -319,13 +319,13 @@ type PipelineSpec struct {
 	Role string
 }
 
-// PipelineHandle is the Manager's opaque handle.
-type PipelineHandle struct {
+// pipelineHandle is the Manager's opaque handle.
+type pipelineHandle struct {
 	Name string
 }
 
-// PipelineObservation is the Manager's neutral pipeline observation.
-type PipelineObservation struct {
+// pipelineObservation is the Manager's neutral pipeline observation.
+type pipelineObservation struct {
 	Phase      PipelinePhase
 	Diagnostic string
 }

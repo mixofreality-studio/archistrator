@@ -16,7 +16,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 )
 
-// This file holds the Workflows struct (the Manager's downstream dependency set),
+// This file holds the workflows struct (the Manager's downstream dependency set),
 // the three workflow bodies (the encapsulated ConstructionPhaseWorkflow volatility
 // — constructionManager.md §6.3), the signal/query handlers, the workflow-level
 // Conflict re-read→re-apply loop (§6.5), and the pump's eligibility helper.
@@ -30,7 +30,7 @@ import (
 
 // wfDeps bundles every downstream seam the constructionManager orchestrates,
 // assembled by RegisterWorker (worker.go) from the Manager's stored PUBLISHED deps
-// and held on the Workflows struct. Each field is an unexported consumer seam
+// and held on the workflows struct. Each field is an unexported consumer seam
 // (deps.go): the published engine/RA types are folded into them via the adapters
 // (adapters.go); the unit tests inject in-package fakes. It is a package-internal
 // builder input (the public Deps/WireDeps/WithGitForward were retired).
@@ -61,22 +61,22 @@ type wfDeps struct {
 
 	// NextEligibleActivity resolves the next eligible construction activity for a
 	// project from its head-state (the Manager's own pure selection).
-	NextEligibleActivity func(proj projectstate.Project) (ConstructionActivity, bool)
+	NextEligibleActivity func(proj projectstate.Project) (constructionActivity, bool)
 
 	// HandOffPolicy / InterventionPolicy are the project's committed policy snapshots
 	// the Manager feeds the Engines by value.
-	HandOffPolicy      HandOffPolicy
-	InterventionPolicy InterventionPolicy
+	HandOffPolicy      handOffPolicy
+	InterventionPolicy interventionPolicy
 
-	// EscalationWaitTimeout bounds how long an escalated/ArchitectOnly activity waits
+	// EscalationWaitTimeout bounds how long an escalated/architectOnly activity waits
 	// for an operator override before it terminally FAILS the activity. 0 == wait-forever.
 	EscalationWaitTimeout time.Duration
 }
 
-// Workflows is the single constructionManager component struct — BOTH the workflow
+// workflows is the single constructionManager component struct — BOTH the workflow
 // receiver and the activity receiver (no separate Activities type, mirroring
 // systemdesign).
-type Workflows struct {
+type workflows struct {
 	HandOff      handOffEngine
 	Intervention interventionEngine
 	Review       reviewEngine
@@ -91,23 +91,23 @@ type Workflows struct {
 	GitStatus gitActivityStatusAccess
 	Repo      func(projectID ProjectID) (sourcecontrol.RepoRef, bool)
 
-	NextEligibleActivity  func(proj projectstate.Project) (ConstructionActivity, bool)
-	HandOffPolicy         HandOffPolicy
-	InterventionPolicy    InterventionPolicy
+	NextEligibleActivity  func(proj projectstate.Project) (constructionActivity, bool)
+	HandOffPolicy         handOffPolicy
+	InterventionPolicy    interventionPolicy
 	EscalationWaitTimeout time.Duration
 }
 
-// newWorkflows builds the Workflows receiver from the injected seams. When the
+// newWorkflows builds the workflows receiver from the injected seams. When the
 // ConstructionTransition seam is not supplied explicitly it is derived from the
 // ProjectState value if that value also satisfies the transition seam.
-func newWorkflows(d wfDeps) *Workflows {
+func newWorkflows(d wfDeps) *workflows {
 	ct := d.ConstructionTransition
 	if ct == nil {
 		if derived, ok := d.ProjectState.(constructionTransitionAccess); ok {
 			ct = derived
 		}
 	}
-	return &Workflows{
+	return &workflows{
 		HandOff:                d.HandOff,
 		Intervention:           d.Intervention,
 		Review:                 d.Review,
@@ -247,12 +247,12 @@ var raNotFoundErrType = fwmanager.RAErrType(fwra.NotFound)
 // PumpNextActivityWorkflow — op 2.1 entry (scheduler-triggered, 30s).
 // ===========================================================================
 
-// PumpInput is the start payload for PumpNextActivityWorkflow.
-type PumpInput struct {
+// pumpInput is the start payload for PumpNextActivityWorkflow.
+type pumpInput struct {
 	ProjectID ProjectID
 }
 
-func (wf *Workflows) PumpNextActivityWorkflow(ctx workflow.Context, in PumpInput) (PumpResult, error) {
+func (wf *workflows) PumpNextActivityWorkflow(ctx workflow.Context, in pumpInput) (PumpResult, error) {
 	logger := workflow.GetLogger(ctx)
 
 	// PAUSE GATE (Task 3): the cascade halts the moment a pause Signal is observed on
@@ -264,8 +264,8 @@ func (wf *Workflows) PumpNextActivityWorkflow(ctx workflow.Context, in PumpInput
 	// dispatch so a pause never races a half-dispatched activity. The signal survives
 	// ContinueAsNew (same workflow id across the cascade), so a pause sent mid-cascade
 	// is honored on the next iteration even if it arrives between ticks.
-	pauseCh := workflow.GetSignalChannel(ctx, SignalOperatorPauseRequested)
-	var pauseSig OperatorPauseSignal
+	pauseCh := workflow.GetSignalChannel(ctx, signalOperatorPauseRequested)
+	var pauseSig operatorPauseSignal
 	if pauseCh.ReceiveAsync(&pauseSig) {
 		logger.Info("pump cascade paused by operator signal — going quiet without continue-as-new",
 			"projectId", string(in.ProjectID), "reason", pauseSig.Reason)
@@ -299,7 +299,7 @@ func (wf *Workflows) PumpNextActivityWorkflow(ctx workflow.Context, in PumpInput
 		WorkflowID:        childID,
 		ParentClosePolicy: enumspb.PARENT_CLOSE_POLICY_ABANDON,
 	})
-	child := workflow.ExecuteChildWorkflow(cctx, ExecutionKindConstructActivity, ConstructActivityInput{
+	child := workflow.ExecuteChildWorkflow(cctx, executionKindConstructActivity, constructActivityInput{
 		ProjectID:  in.ProjectID,
 		ActivityID: ActivityID(activity.ActivityID),
 		Activity:   activity,
@@ -314,7 +314,7 @@ func (wf *Workflows) PumpNextActivityWorkflow(ctx workflow.Context, in PumpInput
 
 	// Pace the cascade with a short durable wait (workflow.Sleep — replay-safe; NOT
 	// time.Sleep), then ContinueAsNew to pick the next eligible activity. ContinueAsNew
-	// carries ONLY PumpInput (no accumulated state ⇒ unbounded history is avoided and
+	// carries ONLY pumpInput (no accumulated state ⇒ unbounded history is avoided and
 	// determinism is trivial). The conflict/quiet-tick semantics keep the prod 30s
 	// schedule compatible: a schedule re-fire onto a cascading pump uses the existing
 	// USE_EXISTING conflict policy (constructionmanager.go) and the cascade's own
@@ -322,14 +322,14 @@ func (wf *Workflows) PumpNextActivityWorkflow(ctx workflow.Context, in PumpInput
 	if err := workflow.Sleep(ctx, pumpPaceInterval); err != nil {
 		return PumpResult{}, err
 	}
-	return PumpResult{}, workflow.NewContinueAsNewError(ctx, ExecutionKindPump, PumpInput{ProjectID: in.ProjectID})
+	return PumpResult{}, workflow.NewContinueAsNewError(ctx, executionKindPump, pumpInput{ProjectID: in.ProjectID})
 }
 
 // nextEligible resolves the next eligible activity via the injected helper. With no
 // helper wired (or no eligible activity) it is a quiet tick.
-func (wf *Workflows) nextEligible(proj projectstate.Project) (ConstructionActivity, bool) {
+func (wf *workflows) nextEligible(proj projectstate.Project) (constructionActivity, bool) {
 	if wf.NextEligibleActivity == nil {
-		return ConstructionActivity{}, false
+		return constructionActivity{}, false
 	}
 	return wf.NextEligibleActivity(proj)
 }
@@ -339,11 +339,11 @@ func (wf *Workflows) nextEligible(proj projectstate.Project) (ConstructionActivi
 // §6.3). Loop/supervise until exited.
 // ===========================================================================
 
-// ConstructActivityInput is the start payload for the per-activity child workflow.
-type ConstructActivityInput struct {
+// constructActivityInput is the start payload for the per-activity child workflow.
+type constructActivityInput struct {
 	ProjectID  ProjectID
 	ActivityID ActivityID
-	Activity   ConstructionActivity
+	Activity   constructionActivity
 }
 
 // constructState is the live technical state backing the sessionState Query.
@@ -368,16 +368,16 @@ func (s *constructState) view() (ConstructionSessionView, error) {
 	}, nil
 }
 
-func (wf *Workflows) ConstructActivityWorkflow(ctx workflow.Context, in ConstructActivityInput) error {
+func (wf *workflows) ConstructActivityWorkflow(ctx workflow.Context, in constructActivityInput) error {
 	logger := workflow.GetLogger(ctx)
 
 	state := &constructState{projectID: in.ProjectID, activityID: in.ActivityID, stage: StageDispatching}
-	if err := workflow.SetQueryHandler(ctx, QuerySessionState, state.view); err != nil {
+	if err := workflow.SetQueryHandler(ctx, querySessionState, state.view); err != nil {
 		return err
 	}
 
 	// Operator-override signal channel (constructionManager.md §6.3 override branch).
-	overrideCh := workflow.GetSignalChannel(ctx, SignalOperatorOverride)
+	overrideCh := workflow.GetSignalChannel(ctx, signalOperatorOverride)
 
 	// Carry expectedVersion forward (read-your-writes; §6.5).
 	headVersion := wf.readVersion(ctx, in.ProjectID)
@@ -399,7 +399,7 @@ func (wf *Workflows) ConstructActivityWorkflow(ctx workflow.Context, in Construc
 	}
 
 	// git-forward lifecycle state (C-MCN-GIT). Opened lazily on the first non-
-	// ArchitectOnly dispatch and carried across supervision-loop iterations (a branch
+	// architectOnly dispatch and carried across supervision-loop iterations (a branch
 	// + PR is born once per activity, not per retry). Dormant when the slice is unwired.
 	var gf gitForward
 
@@ -425,11 +425,11 @@ func (wf *Workflows) ConstructActivityWorkflow(ctx workflow.Context, in Construc
 			return fwmanager.MapError(herr)
 		}
 
-		// ArchitectOnly ⇒ skip dispatch + pipeline; await the architect via override
+		// architectOnly ⇒ skip dispatch + pipeline; await the architect via override
 		// (handOffEngine OQ-2). The architect's steer arrives on operatorOverride, BOUNDED
 		// by EscalationWaitTimeout: if no architect override arrives within the window the
 		// activity terminally FAILS (EscalationTimedOut) instead of hanging forever.
-		if class == ArchitectOnly {
+		if class == architectOnly {
 			state.stage = StageAwaitingTakeover
 			sig, got := wf.awaitOverrideBounded(ctx, overrideCh)
 			if !got {
@@ -481,7 +481,7 @@ func (wf *Workflows) ConstructActivityWorkflow(ctx workflow.Context, in Construc
 			}
 			if obs.Phase == PipelineFailed || obs.Phase == PipelineCancelled {
 				failReason := deriveFailureReason(obs.Phase, obs.Diagnostic)
-				done, vErr := wf.handleVariance(ctx, in, VariancePipelineFailed, obs.Diagnostic, failReason, attempt, &headVersion, state, overrideCh, gitOn, startedCred)
+				done, vErr := wf.handleVariance(ctx, in, variancePipelineFailed, obs.Diagnostic, failReason, attempt, &headVersion, state, overrideCh, gitOn, startedCred)
 				if vErr != nil {
 					return vErr
 				}
@@ -543,10 +543,10 @@ func (wf *Workflows) ConstructActivityWorkflow(ctx workflow.Context, in Construc
 }
 
 // dispatchWork runs the worker dispatch Activity for the cast class.
-func (wf *Workflows) dispatchWork(ctx workflow.Context, class WorkerClass, activity ConstructionActivity) (artifact.ConstructionOutput, error) {
+func (wf *workflows) dispatchWork(ctx workflow.Context, class workerClass, activity constructionActivity) (artifact.ConstructionOutput, error) {
 	c := generateWorkerOpts(ctx)
 	var out artifact.ConstructionOutput
-	err := workflow.ExecuteActivity(c, wf.GenerateWorkActivity, GenerateWorkArgs{
+	err := workflow.ExecuteActivity(c, wf.GenerateWorkActivity, generateWorkArgs{
 		WorkerClass: class.String(),
 		Prompt:      constructionPrompt(activity, class),
 	}).Get(ctx, &out)
@@ -569,29 +569,29 @@ var servicePhases = []projectstate.ActivityMethodPhase{
 // waits until the pipeline reaches a terminal phase (§6.3 step 3). On each observe it
 // ALSO reads the PR's CI rollup and mirrors it onto the head-state (the git-forward
 // poll-loop verb, C-MCN-GIT) — dormant when the git slice is unwired.
-func (wf *Workflows) runPipeline(ctx workflow.Context, in ConstructActivityInput, phase projectstate.ActivityMethodPhase, state *constructState, gf *gitForward, headVersion *projectstate.Version) (PipelineObservation, error) {
+func (wf *workflows) runPipeline(ctx workflow.Context, in constructActivityInput, phase projectstate.ActivityMethodPhase, state *constructState, gf *gitForward, headVersion *projectstate.Version) (pipelineObservation, error) {
 	sc := submitPipelineOpts(ctx)
-	var handle PipelineHandle
-	if err := workflow.ExecuteActivity(sc, wf.SubmitPipelineActivity, PipelineSpec{
+	var handle pipelineHandle
+	if err := workflow.ExecuteActivity(sc, wf.SubmitPipelineActivity, pipelineSpec{
 		ActivityID:  string(in.ActivityID),
 		ComponentID: in.Activity.ComponentID,
 		Phase:       phase.String(),
 	}).Get(ctx, &handle); err != nil {
-		return PipelineObservation{}, err
+		return pipelineObservation{}, err
 	}
 
 	oc := observePipelineOpts(ctx)
 	for poll := 0; poll < maxPipelinePolls; poll++ {
-		var obs PipelineObservation
+		var obs pipelineObservation
 		if err := workflow.ExecuteActivity(oc, wf.ObservePipelineActivity, handle).Get(ctx, &obs); err != nil {
-			return PipelineObservation{}, err
+			return pipelineObservation{}, err
 		}
 		ph := obs.Phase
 		state.pipelinePhase = &ph
 
 		// Mirror the PR's CI rollup onto the head-state on the same cadence.
 		if _, cerr := wf.observeCIAndRecord(ctx, in, gf, headVersion); cerr != nil {
-			return PipelineObservation{}, cerr
+			return pipelineObservation{}, cerr
 		}
 
 		if obs.Phase == PipelineSucceeded || obs.Phase == PipelineFailed {
@@ -600,12 +600,12 @@ func (wf *Workflows) runPipeline(ctx workflow.Context, in ConstructActivityInput
 		// Durable wait between polls (the Manager's own startTimer — category A).
 		_ = workflow.Sleep(ctx, pipelinePollInterval)
 	}
-	return PipelineObservation{Phase: PipelineFailed, Diagnostic: "pipeline did not reach a terminal phase within the poll budget"}, nil
+	return pipelineObservation{Phase: PipelineFailed, Diagnostic: "pipeline did not reach a terminal phase within the poll budget"}, nil
 }
 
 // storeOutput stages the construction output via artifactAccess (the content
 // address is a plain string — artifactAccess.md §2).
-func (wf *Workflows) storeOutput(ctx workflow.Context, output artifact.ConstructionOutput) (string, error) {
+func (wf *workflows) storeOutput(ctx workflow.Context, output artifact.ConstructionOutput) (string, error) {
 	c := storeOutputOpts(ctx)
 	var addr string
 	err := workflow.ExecuteActivity(c, wf.StoreConstructionOutputActivity, output).Get(ctx, &addr)
@@ -615,9 +615,9 @@ func (wf *Workflows) storeOutput(ctx workflow.Context, output artifact.Construct
 // routeReview computes the reviewer set (DECIDE — direct in-workflow Engine call),
 // fans out one worker dispatch per reviewer, and gates on the verdicts. On a
 // mayAmend verdict it re-stages the amended output. Returns reviewOK.
-func (wf *Workflows) routeReview(ctx workflow.Context, in ConstructActivityInput, state *constructState) (bool, error) {
+func (wf *workflows) routeReview(ctx workflow.Context, in constructActivityInput, state *constructState) (bool, error) {
 	set, rerr := wf.Review.ProposeReviews(
-		ReviewChange{ActivityID: string(in.ActivityID), ComponentID: in.Activity.ComponentID},
+		reviewChange{ActivityID: string(in.ActivityID), ComponentID: in.Activity.ComponentID},
 		in.Activity.ComponentID,
 		in.Activity.Kind.String(),
 		"", // architectureGraph — Manager-supplied snapshot (seam)
@@ -631,7 +631,7 @@ func (wf *Workflows) routeReview(ctx workflow.Context, in ConstructActivityInput
 	c := generateWorkerOpts(ctx)
 	for _, reviewer := range set.Reviewers {
 		var out artifact.ConstructionOutput
-		if err := workflow.ExecuteActivity(c, wf.GenerateWorkActivity, GenerateWorkArgs{
+		if err := workflow.ExecuteActivity(c, wf.GenerateWorkActivity, generateWorkArgs{
 			WorkerClass: reviewer.Role,
 			Prompt:      reviewPrompt(in.Activity, reviewer),
 		}).Get(ctx, &out); err != nil {
@@ -657,10 +657,10 @@ func (wf *Workflows) routeReview(ctx workflow.Context, in ConstructActivityInput
 // (DECIDE) and EXECUTES the directive: Retry → loop again (return done=false);
 // Escalate → await an operator override and execute it; Takeover → re-dispatch
 // (loop). Returns done=true when the activity has reached a terminal exit.
-func (wf *Workflows) handleVariance(
+func (wf *workflows) handleVariance(
 	ctx workflow.Context,
-	in ConstructActivityInput,
-	kind VarianceKind,
+	in constructActivityInput,
+	kind varianceKind,
 	detail string,
 	failReason projectstate.FailureReason,
 	attempt int,
@@ -672,7 +672,7 @@ func (wf *Workflows) handleVariance(
 ) (bool, error) {
 	state.variance = &FlaggedVariance{ProjectID: in.ProjectID, ActivityID: in.ActivityID, Summary: detail}
 
-	directive, derr := wf.Intervention.DecideOnVariance(ConstructionVariance{
+	directive, derr := wf.Intervention.DecideOnVariance(constructionVariance{
 		ActivityID:   string(in.ActivityID),
 		Kind:         kind,
 		Detail:       detail,
@@ -683,10 +683,10 @@ func (wf *Workflows) handleVariance(
 	}
 
 	switch directive {
-	case DirectiveRetry:
+	case directiveRetry:
 		state.stage = StageDispatching
 		return false, nil // loop to re-dispatch
-	case DirectiveTakeover:
+	case directiveTakeover:
 		// EXECUTE takeover: abandon the in-flight worker, then loop to re-dispatch
 		// under a changed arrangement.
 		if err := wf.cancelWorker(ctx); err != nil {
@@ -694,7 +694,7 @@ func (wf *Workflows) handleVariance(
 		}
 		state.stage = StageDispatching
 		return false, nil
-	case DirectiveEscalate:
+	case directiveEscalate:
 		// EXECUTE escalate: surface to the operator + await an override signal, BOUNDED
 		// by EscalationWaitTimeout. On timeout (no operator answered the escalation), the
 		// activity terminally FAILS (head-state reflects EscalationTimedOut) instead of
@@ -723,9 +723,9 @@ func (wf *Workflows) handleVariance(
 // machinery as the automatic variance path (constructionManager.md §2.4 / §6.3
 // override branch). Returns done=true when the override terminally exits the
 // activity (Skip), false when it loops back into supervision (Retry/Takeover/Reassign).
-func (wf *Workflows) executeOverride(
+func (wf *workflows) executeOverride(
 	ctx workflow.Context,
-	in ConstructActivityInput,
+	in constructActivityInput,
 	override ActivityOverride,
 	headVersion *projectstate.Version,
 	state *constructState,
@@ -787,8 +787,8 @@ func deriveFailureReason(phase PipelinePhase, diagnostic string) projectstate.Fa
 // wait-forever (the supervised EscalateEverything mode) — it blocks on the receive
 // with no timer, preserving the legacy behaviour. The timer is a durable
 // workflow.NewTimer (replay-safe), raced via a workflow.NewSelector.
-func (wf *Workflows) awaitOverrideBounded(ctx workflow.Context, overrideCh workflow.ReceiveChannel) (OperatorOverrideSignal, bool) {
-	var sig OperatorOverrideSignal
+func (wf *workflows) awaitOverrideBounded(ctx workflow.Context, overrideCh workflow.ReceiveChannel) (operatorOverrideSignal, bool) {
+	var sig operatorOverrideSignal
 	if wf.EscalationWaitTimeout <= 0 {
 		// Supervised / wait-forever: block on the override receive (legacy behaviour).
 		overrideCh.Receive(ctx, &sig)
@@ -812,7 +812,7 @@ func (wf *Workflows) awaitOverrideBounded(ctx workflow.Context, overrideCh workf
 
 // cancelWorker runs the worker-abandon Activity (the takeover / operator-pause
 // path — workerAccess.Cancel).
-func (wf *Workflows) cancelWorker(ctx workflow.Context) error {
+func (wf *workflows) cancelWorker(ctx workflow.Context) error {
 	c := cancelWorkerOpts(ctx)
 	return workflow.ExecuteActivity(c, wf.CancelWorkerActivity, struct{}{}).Get(ctx, nil)
 }
@@ -822,12 +822,12 @@ func (wf *Workflows) cancelWorker(ctx workflow.Context) error {
 // variances; NO dispatch, NO auto-replan.
 // ===========================================================================
 
-// ReplanSweepInput is the start payload for ReplanSweepWorkflow.
-type ReplanSweepInput struct {
+// replanSweepInput is the start payload for ReplanSweepWorkflow.
+type replanSweepInput struct {
 	ProjectID *ProjectID // nil ⇒ sweep all in-flight projects
 }
 
-func (wf *Workflows) ReplanSweepWorkflow(ctx workflow.Context, in ReplanSweepInput) (ReplanSweepResult, error) {
+func (wf *workflows) ReplanSweepWorkflow(ctx workflow.Context, in replanSweepInput) (ReplanSweepResult, error) {
 	// v1: the sweep reads the named project's head-state (the all-projects sweep is
 	// a future fan-out — constructionManager.md §2.2). It surfaces over-threshold
 	// variances; it never dispatches and never auto-replans. With no project named
@@ -853,7 +853,7 @@ func (wf *Workflows) ReplanSweepWorkflow(ctx workflow.Context, in ReplanSweepInp
 // empty set unless an eligibility/variance helper is wired (the head-state
 // variance-aggregate fill is the D-PA follow-up); the sweep's role is to SURFACE,
 // never to auto-replan.
-func (wf *Workflows) flagVariances(_ projectstate.Project) []FlaggedVariance {
+func (wf *workflows) flagVariances(_ projectstate.Project) []FlaggedVariance {
 	return nil
 }
 
@@ -862,7 +862,7 @@ func (wf *Workflows) flagVariances(_ projectstate.Project) []FlaggedVariance {
 // ---------------------------------------------------------------------------
 
 // readProject runs the ReadProjectActivity and returns the projected head-state.
-func (wf *Workflows) readProject(ctx workflow.Context, projectID ProjectID) (projectstate.Project, error) {
+func (wf *workflows) readProject(ctx workflow.Context, projectID ProjectID) (projectstate.Project, error) {
 	c := readProjectOpts(ctx)
 	var pe projectEnvelope
 	// Convert the Manager's OWN ProjectID to projectStateAccess's at the RA boundary.
@@ -877,7 +877,7 @@ func (wf *Workflows) readProject(ctx workflow.Context, projectID ProjectID) (pro
 // project's fwra.NotFound) to the caller. Replaces the wasteful whole-aggregate read
 // that shipped the entire encoded Project across the Temporal Activity boundary for a
 // uint64 (architect's fast-follow).
-func (wf *Workflows) readVersionE(ctx workflow.Context, projectID ProjectID) (projectstate.Version, error) {
+func (wf *workflows) readVersionE(ctx workflow.Context, projectID ProjectID) (projectstate.Version, error) {
 	c := readProjectOpts(ctx)
 	var v projectstate.Version
 	if err := workflow.ExecuteActivity(c, wf.ReadProjectVersionActivity, projectstate.ProjectID(projectID)).Get(ctx, &v); err != nil {
@@ -888,7 +888,7 @@ func (wf *Workflows) readVersionE(ctx workflow.Context, projectID ProjectID) (pr
 
 // readVersion reads the current head Version (0 for a brand-new project or on any
 // read error — the read-your-writes seed treats absence as version 0).
-func (wf *Workflows) readVersion(ctx workflow.Context, projectID ProjectID) projectstate.Version {
+func (wf *workflows) readVersion(ctx workflow.Context, projectID ProjectID) projectstate.Version {
 	v, err := wf.readVersionE(ctx, projectID)
 	if err != nil {
 		return 0
@@ -898,11 +898,11 @@ func (wf *Workflows) readVersion(ctx workflow.Context, projectID ProjectID) proj
 
 // recordChangeReviewed applies the head-state transition with the Conflict loop. The
 // Manager-minted cred is threaded into the write (empty/zero in dev/dry-run).
-func (wf *Workflows) recordChangeReviewed(ctx workflow.Context, in ConstructActivityInput, seed projectstate.Version, cred railCredEnvelope) (projectstate.Version, error) {
+func (wf *workflows) recordChangeReviewed(ctx workflow.Context, in constructActivityInput, seed projectstate.Version, cred railCredEnvelope) (projectstate.Version, error) {
 	return wf.applyRecovering(ctx, in.ProjectID, seed, func(expected projectstate.Version) (projectstate.Version, error) {
 		c := recordOpts(ctx)
 		var v projectstate.Version
-		e := workflow.ExecuteActivity(c, wf.RecordChangeReviewedActivity, RecordChangeReviewedArgs{
+		e := workflow.ExecuteActivity(c, wf.RecordChangeReviewedActivity, recordChangeReviewedArgs{
 			ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, ActivityID: string(in.ActivityID), Cred: cred,
 		}).Get(ctx, &v)
 		return v, e
@@ -910,11 +910,11 @@ func (wf *Workflows) recordChangeReviewed(ctx workflow.Context, in ConstructActi
 }
 
 // recordActivityExited applies the binary-exit head-state transition.
-func (wf *Workflows) recordActivityExited(ctx workflow.Context, in ConstructActivityInput, seed projectstate.Version, outcome projectstate.ActivityOutcome, cred railCredEnvelope) (projectstate.Version, error) {
+func (wf *workflows) recordActivityExited(ctx workflow.Context, in constructActivityInput, seed projectstate.Version, outcome projectstate.ActivityOutcome, cred railCredEnvelope) (projectstate.Version, error) {
 	return wf.applyRecovering(ctx, in.ProjectID, seed, func(expected projectstate.Version) (projectstate.Version, error) {
 		c := recordOpts(ctx)
 		var v projectstate.Version
-		e := workflow.ExecuteActivity(c, wf.RecordActivityExitedActivity, RecordActivityExitedArgs{
+		e := workflow.ExecuteActivity(c, wf.RecordActivityExitedActivity, recordActivityExitedArgs{
 			ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, ActivityID: string(in.ActivityID), Outcome: outcome, Cred: cred,
 		}).Get(ctx, &v)
 		return v, e
@@ -926,11 +926,11 @@ func (wf *Workflows) recordActivityExited(ctx workflow.Context, in ConstructActi
 // loop as recordActivityExited. It lands Phase=Failed / BuildStatus=BuildFailed and
 // records the reason+detail so head-state reflects the terminal instead of leaving
 // the activity stuck Running.
-func (wf *Workflows) recordActivityFailed(ctx workflow.Context, in ConstructActivityInput, seed projectstate.Version, reason projectstate.FailureReason, detail string, cred railCredEnvelope) (projectstate.Version, error) {
+func (wf *workflows) recordActivityFailed(ctx workflow.Context, in constructActivityInput, seed projectstate.Version, reason projectstate.FailureReason, detail string, cred railCredEnvelope) (projectstate.Version, error) {
 	return wf.applyRecovering(ctx, in.ProjectID, seed, func(expected projectstate.Version) (projectstate.Version, error) {
 		c := recordOpts(ctx)
 		var v projectstate.Version
-		e := workflow.ExecuteActivity(c, wf.RecordActivityFailedActivity, RecordActivityFailedArgs{
+		e := workflow.ExecuteActivity(c, wf.RecordActivityFailedActivity, recordActivityFailedArgs{
 			ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, ActivityID: string(in.ActivityID), Reason: reason, Detail: detail, Cred: cred,
 		}).Get(ctx, &v)
 		return v, e
@@ -939,7 +939,7 @@ func (wf *Workflows) recordActivityFailed(ctx workflow.Context, in ConstructActi
 
 // applyRecovering executes one head-state mutation Activity with a workflow-level
 // Conflict re-read→re-apply loop (§6.5; identical discipline to systemdesign).
-func (wf *Workflows) applyRecovering(
+func (wf *workflows) applyRecovering(
 	ctx workflow.Context,
 	projectID ProjectID,
 	seed projectstate.Version,

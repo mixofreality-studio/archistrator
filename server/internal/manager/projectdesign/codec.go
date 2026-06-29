@@ -40,7 +40,7 @@ type modelEnvelope struct {
 // with Kind as a plain string so the generated contract carries no projectstate
 // ArtifactKind.
 func draftModelFor(kind ArtifactKind, model projectstate.ArtifactModel) (DraftModel, error) {
-	env := DraftModel{Kind: ArtifactKindWireName(kind)}
+	env := DraftModel{Kind: artifactKindWireName(kind)}
 	if model != nil {
 		raw, err := json.Marshal(model)
 		if err != nil {

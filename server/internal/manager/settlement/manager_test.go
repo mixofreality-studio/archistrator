@@ -196,10 +196,10 @@ func Test_WorkflowIDDerivation(t *testing.T) {
 // ---- A9: RoutingDirective String coverage -----------------------------------
 
 func Test_RoutingDirective_String(t *testing.T) {
-	cases := map[RoutingDirectiveSeam]string{
-		RoutingNoAction: "NoAction",
-		RoutingPayout:   "Payout",
-		RoutingCharge:   "Charge",
+	cases := map[routingDirectiveSeam]string{
+		routingNoAction: "NoAction",
+		routingPayout:   "Payout",
+		routingCharge:   "Charge",
 	}
 	for d, want := range cases {
 		if got := d.String(); got != want {

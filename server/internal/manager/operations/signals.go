@@ -23,17 +23,17 @@ import (
 // than a hard withdraw. The decision is upstream (Settlement); this Manager carries
 // and executes it.
 
-// ApplyDelinquencySignal is the applyDelinquencyPolicy payload (operationsManager.md
+// applyDelinquencySignal is the applyDelinquencyPolicy payload (operationsManager.md
 // §2.5). Delivered by settlementManager to {customerId}:delinquency.
-type ApplyDelinquencySignal struct {
-	CustomerID CustomerID
+type applyDelinquencySignal struct {
+	CustomerID customerID
 	Context    DelinquencyContext
 }
 
-// DelinquencyInput is the start payload for the delinquency-enforcement workflow. It
+// delinquencyInput is the start payload for the delinquency-enforcement workflow. It
 // is started (signal-with-start) by the applyDelinquencyPolicy Signal.
-type DelinquencyInput struct {
-	CustomerID CustomerID
+type delinquencyInput struct {
+	CustomerID customerID
 }
 
 // DelinquencyEnforcementWorkflow hosts the ncuc5 delinquency-enforcement branch. It is
@@ -41,11 +41,11 @@ type DelinquencyInput struct {
 // against it. This is a Manager-owned WORKFLOW TYPE (implementation), not a public
 // façade op — the five public ops are unchanged (operationsManager.md §6.2). The
 // workflow resumes on awaitSignal, then EXECUTES the pause-or-withdraw per app.
-func (wf *Workflows) DelinquencyEnforcementWorkflow(ctx workflow.Context, in DelinquencyInput) error {
+func (wf *workflows) DelinquencyEnforcementWorkflow(ctx workflow.Context, in delinquencyInput) error {
 	// awaitSignal("applyDelinquencyPolicy") — the Manager's own in-workflow primitive
 	// (D-DA category A). Resumes the enforcement branch with the delivered context.
-	sigCh := workflow.GetSignalChannel(ctx, SignalApplyDelinquencyPolicy)
-	var sig ApplyDelinquencySignal
+	sigCh := workflow.GetSignalChannel(ctx, signalApplyDelinquencyPolicy)
+	var sig applyDelinquencySignal
 	sigCh.Receive(ctx, &sig)
 
 	return wf.runDelinquencyBranch(ctx, in.CustomerID, sig.Context)
@@ -56,24 +56,24 @@ func (wf *Workflows) DelinquencyEnforcementWorkflow(ctx workflow.Context, in Del
 //  2. Per app, per BillingTerms: PublishDesiredStateActivity(pause-or-withdraw-patch)
 //     (replicas=0 or removed).
 //  3. RecordDelinquencyActionActivity (operatedSystemStateAccess.recordDelinquencyAction).
-func (wf *Workflows) runDelinquencyBranch(ctx workflow.Context, customerID CustomerID, dctx DelinquencyContext) error {
+func (wf *workflows) runDelinquencyBranch(ctx workflow.Context, customerID customerID, dctx DelinquencyContext) error {
 	logger := workflow.GetLogger(ctx)
 	cid := customerID
-	apps, err := wf.readInFlightOperatedApps(ctx, InFlightScope{CustomerID: &cid})
+	apps, err := wf.readInFlightOperatedApps(ctx, inFlightScope{CustomerID: &cid})
 	if err != nil {
 		return err
 	}
 
-	action := DelinquencyActionWithdrawn
+	action := delinquencyActionWithdrawn
 	if dctx.PauseNotWithdraw {
-		action = DelinquencyActionPaused
+		action = delinquencyActionPaused
 	}
 
 	for _, app := range apps {
 		// EXECUTE the BillingTerms-derived enforcement: a pause publishes replicas=0
 		// (via publishDesiredState); a hard withdraw removes the runtime.
 		if dctx.PauseNotWithdraw {
-			if perr := wf.publishDesiredState(ctx, app.ID, RuntimeDesiredState{ContentType: "application/desired-state"}); perr != nil {
+			if perr := wf.publishDesiredState(ctx, app.ID, runtimeDesiredState{ContentType: "application/desired-state"}); perr != nil {
 				return perr
 			}
 		} else {

@@ -196,12 +196,12 @@ func TestNextEligibleActivity_ProjectExportDogfood(t *testing.T) {
 	if got.EstimateDays != 3 {
 		t.Fatalf("expected EstimateDays=3, got %f", got.EstimateDays)
 	}
-	if got.Kind != ActivityKindConstruction {
-		t.Fatalf("expected Kind=ActivityKindConstruction (Coding=true), got %v", got.Kind)
+	if got.Kind != activityKindConstruction {
+		t.Fatalf("expected Kind=activityKindConstruction (Coding=true), got %v", got.Kind)
 	}
 }
 
-// TestNextEligibleActivity_HydratedFields checks that the returned ConstructionActivity
+// TestNextEligibleActivity_HydratedFields checks that the returned constructionActivity
 // is fully hydrated from the ActivityList item (Kind, ComponentID stay zero/empty since
 // the ActivityList has no component/kind — only the fields that map cleanly are set).
 func TestNextEligibleActivity_HydratedFields(t *testing.T) {
@@ -228,8 +228,8 @@ func TestNextEligibleActivity_HydratedFields(t *testing.T) {
 	if got.EstimateDays != 13 {
 		t.Fatalf("expected EstimateDays=13, got %f", got.EstimateDays)
 	}
-	// Kind is determined by Coding flag: Coding=true → ActivityKindConstruction.
-	if got.Kind != ActivityKindConstruction {
-		t.Fatalf("expected Kind=ActivityKindConstruction, got %v", got.Kind)
+	// Kind is determined by Coding flag: Coding=true → activityKindConstruction.
+	if got.Kind != activityKindConstruction {
+		t.Fatalf("expected Kind=activityKindConstruction, got %v", got.Kind)
 	}
 }

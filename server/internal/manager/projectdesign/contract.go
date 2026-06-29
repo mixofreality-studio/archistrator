@@ -26,7 +26,7 @@
 // projectstate's sealed ArtifactModel sum or its 17 variants.
 //
 // The consumer-side dependency interfaces (ConstructionPipelineAccess /
-// SourceControlRail), the Temporal Workflows struct + workflow inputs/signals, and
+// SourceControlRail), the Temporal workflows struct + workflow inputs/signals, and
 // the internal SDP-assembly (assembleSdpReview over projectstate.Project) stay
 // HAND-WRITTEN and are NOT part of the generated contract.
 //
@@ -34,8 +34,8 @@
 //   - projectdesignmanager.go : the Manager + the ProjectDesignManager port (§6.2)
 //   - contract.go             : the public façade types (§2, §3) — generated surface
 //   - behavior.go             : free functions over the contract value types
-//   - workflow.go             : the Workflows deps struct + workflow bodies + signal/query handlers (§6.3)
-//   - activities.go           : the Manager-owned Activity wrappers, as methods on Workflows (§6.4)
+//   - workflow.go             : the workflows deps struct + workflow bodies + signal/query handlers (§6.3)
+//   - activities.go           : the Manager-owned Activity wrappers, as methods on workflows (§6.4)
 //   - errors.go               : the port-error -> Temporal-error translation (§6.4)
 //   - prompts.go              : the Phase-2 architect-role draft prompt corpus
 //   - worker.go               : worker registration of workflows + activities (§6.1)
@@ -74,7 +74,7 @@ import (
 // SessionRef is an opaque, infrastructure-opaque reference to a running Phase-2
 // session (an artifact-co-authoring session or the SDP-review session — contract
 // §3.1). It wraps the underlying durable-execution identity as an opaque string the
-// Client persists/echoes and never parses. Construction is via the NewSessionRef
+// Client persists/echoes and never parses. Construction is via the newSessionRef
 // free function (behavior.go).
 
 // ReviewDecision is the architect's commit-authority decision at the per-artifact
@@ -151,10 +151,10 @@ import (
 // workflow's own failure handling. Kinds follow the framework-go standard set.
 // ---------------------------------------------------------------------------
 
-// ProjectDesignError is the typed façade error (contract §3.5). It is an alias
-// for fwmanager.Error so errors.As(&ProjectDesignError) call sites and test
+// projectDesignError is the typed façade error (contract §3.5). It is an alias
+// for fwmanager.Error so errors.As(&projectDesignError) call sites and test
 // helpers work without change.
-type ProjectDesignError = fwmanager.Error
+type projectDesignError = fwmanager.Error
 
 func newError(kind fwmanager.Kind, detail string) *fwmanager.Error {
 	return fwmanager.New(kind, detail)

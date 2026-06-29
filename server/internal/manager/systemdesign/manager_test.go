@@ -128,9 +128,9 @@ func Test_GetSessionState_EmptyProjectID(t *testing.T) {
 
 // SessionRef is opaque: it round-trips and compares by value, never parsed.
 func Test_SessionRef_OpaqueValueSemantics(t *testing.T) {
-	a := NewSessionRef("proj-1:1")
-	b := NewSessionRef("proj-1:1")
-	c := NewSessionRef("proj-1:2")
+	a := newSessionRef("proj-1:1")
+	b := newSessionRef("proj-1:1")
+	c := newSessionRef("proj-1:2")
 	if a != b {
 		t.Fatal("equal refs should compare equal")
 	}
@@ -208,8 +208,8 @@ func Test_ArtifactKind_IsPhase1(t *testing.T) {
 		KindOperationalConcepts, KindStandardCheck,
 	}
 	for _, k := range phase1 {
-		if !ArtifactKindIsPhase1(k) {
-			t.Fatalf("kind %s should be Phase 1", ArtifactKindString(k))
+		if !artifactKindIsPhase1(k) {
+			t.Fatalf("kind %s should be Phase 1", artifactKindString(k))
 		}
 	}
 	notPhase1 := []ArtifactKind{
@@ -217,8 +217,8 @@ func Test_ArtifactKind_IsPhase1(t *testing.T) {
 		KindNetwork, KindRiskModel,
 	}
 	for _, k := range notPhase1 {
-		if ArtifactKindIsPhase1(k) {
-			t.Fatalf("kind %s should NOT be Phase 1", ArtifactKindString(k))
+		if artifactKindIsPhase1(k) {
+			t.Fatalf("kind %s should NOT be Phase 1", artifactKindString(k))
 		}
 	}
 }

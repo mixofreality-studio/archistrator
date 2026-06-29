@@ -18,7 +18,7 @@ func asProjectDesignError(t *testing.T, err error) *fwmanager.Error {
 	t.Helper()
 	var pde *fwmanager.Error
 	if !errors.As(err, &pde) {
-		t.Fatalf("expected *ProjectDesignError, got %T: %v", err, err)
+		t.Fatalf("expected *projectDesignError, got %T: %v", err, err)
 	}
 	return pde
 }

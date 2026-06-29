@@ -23,27 +23,27 @@ const TaskQueue = "operations"
 // Signal names (operationsManager.md §6.1/§6.2). The delinquency Signal is the one
 // inbound queued cross-Manager edge (settlementManager → operationsManager).
 const (
-	// SignalApplyDelinquencyPolicy resumes the delinquency-enforcement branch; backs
+	// signalApplyDelinquencyPolicy resumes the delinquency-enforcement branch; backs
 	// ApplyDelinquencyPolicy (ncuc5). Delivered by settlementManager.
-	SignalApplyDelinquencyPolicy = "applyDelinquencyPolicy"
+	signalApplyDelinquencyPolicy = "applyDelinquencyPolicy"
 )
 
 // ExecutionKinds — the registered workflow names (operationsManager.md §6.2).
 const (
-	// ExecutionKindDeploy is the operator deploy / scale / policy republish workflow.
-	ExecutionKindDeploy = "operationsDeploy"
-	// ExecutionKindReconcile is the Schedule-triggered observe+autoscale tick.
-	ExecutionKindReconcile = "operationsReconcile"
-	// ExecutionKindWithdraw is the terminal withdraw workflow.
-	ExecutionKindWithdraw = "operationsWithdraw"
-	// ExecutionKindCostProjection is the short-lived read-only cost-projection workflow.
-	ExecutionKindCostProjection = "operationsCostProjection"
-	// ExecutionKindOperatedSystemView is the short-lived read-only operator-view workflow
+	// executionKindDeploy is the operator deploy / scale / policy republish workflow.
+	executionKindDeploy = "operationsDeploy"
+	// executionKindReconcile is the Schedule-triggered observe+autoscale tick.
+	executionKindReconcile = "operationsReconcile"
+	// executionKindWithdraw is the terminal withdraw workflow.
+	executionKindWithdraw = "operationsWithdraw"
+	// executionKindCostProjection is the short-lived read-only cost-projection workflow.
+	executionKindCostProjection = "operationsCostProjection"
+	// executionKindOperatedSystemView is the short-lived read-only operator-view workflow
 	// (operationsRead-ruling.md §A — composes the existing reads, no mutation).
-	ExecutionKindOperatedSystemView = "operationsOperatedSystemView"
-	// ExecutionKindDelinquency is the queued delinquency-enforcement workflow (resumed
+	executionKindOperatedSystemView = "operationsOperatedSystemView"
+	// executionKindDelinquency is the queued delinquency-enforcement workflow (resumed
 	// by the applyDelinquencyPolicy Signal).
-	ExecutionKindDelinquency = "operationsDelinquencyEnforcement"
+	executionKindDelinquency = "operationsDelinquencyEnforcement"
 )
 
 // Schedule id + cadence (operationsManager.md §6.1; operational-concepts.md §4).
@@ -103,8 +103,8 @@ func RegisterWorker(w worker.Worker, m OperationsManager) {
 
 	// Fold the published deps the constructor stored into the unexported seams the
 	// Workflows struct holds (adapters.go) — the Option-B boundary mapping that replaces
-	// the former composition-root Deps wiring.
-	deps := Deps{
+	// the former composition-root wfDeps wiring.
+	deps := wfDeps{
 		Intervention:        interventionAdapter{inner: impl.intervention},
 		Autoscaler:          autoscalerAdapter{inner: impl.autoscaler},
 		Estimation:          estimationAdapter{inner: impl.operationEstimation},
@@ -120,12 +120,12 @@ func RegisterWorker(w worker.Worker, m OperationsManager) {
 	}
 	wf := newWorkflows(deps)
 
-	w.RegisterWorkflowWithOptions(wf.DeployWorkflow, workflow.RegisterOptions{Name: ExecutionKindDeploy})
-	w.RegisterWorkflowWithOptions(wf.ReconcileWorkflow, workflow.RegisterOptions{Name: ExecutionKindReconcile})
-	w.RegisterWorkflowWithOptions(wf.WithdrawWorkflow, workflow.RegisterOptions{Name: ExecutionKindWithdraw})
-	w.RegisterWorkflowWithOptions(wf.CostProjectionWorkflow, workflow.RegisterOptions{Name: ExecutionKindCostProjection})
-	w.RegisterWorkflowWithOptions(wf.ViewWorkflow, workflow.RegisterOptions{Name: ExecutionKindOperatedSystemView})
-	w.RegisterWorkflowWithOptions(wf.DelinquencyEnforcementWorkflow, workflow.RegisterOptions{Name: ExecutionKindDelinquency})
+	w.RegisterWorkflowWithOptions(wf.DeployWorkflow, workflow.RegisterOptions{Name: executionKindDeploy})
+	w.RegisterWorkflowWithOptions(wf.ReconcileWorkflow, workflow.RegisterOptions{Name: executionKindReconcile})
+	w.RegisterWorkflowWithOptions(wf.WithdrawWorkflow, workflow.RegisterOptions{Name: executionKindWithdraw})
+	w.RegisterWorkflowWithOptions(wf.CostProjectionWorkflow, workflow.RegisterOptions{Name: executionKindCostProjection})
+	w.RegisterWorkflowWithOptions(wf.ViewWorkflow, workflow.RegisterOptions{Name: executionKindOperatedSystemView})
+	w.RegisterWorkflowWithOptions(wf.DelinquencyEnforcementWorkflow, workflow.RegisterOptions{Name: executionKindDelinquency})
 
 	// The 15 Activities (operationsManager.md §6.4), one per RA call.
 	w.RegisterActivityWithOptions(wf.ReadOperatedSystemActivity, activity.RegisterOptions{Name: actReadOperatedSystem})
@@ -155,7 +155,7 @@ func RegisterWorker(w worker.Worker, m OperationsManager) {
 func RegisterSchedules(ctx context.Context, durable durableexecution.DurableExecutionAccess) error {
 	return durableAdapter{inner: durable}.RegisterSchedule(ctx, scheduleSpec{
 		ID:           scheduleIDReconcile,
-		WorkflowType: ExecutionKindReconcile,
+		WorkflowType: executionKindReconcile,
 		TaskQueue:    TaskQueue,
 		IntervalSecs: int(reconcileInterval / time.Second),
 	})

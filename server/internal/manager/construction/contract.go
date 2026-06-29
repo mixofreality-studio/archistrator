@@ -24,8 +24,8 @@
 // File layout (mirrors internal/manager/systemdesign):
 //   - constructionmanager.go : the Manager that translates public ops into Temporal client calls (§6.2)
 //   - contract.go            : the public façade types + the consumer-side dep interfaces (§3, §5)
-//   - workflow.go            : the Workflows deps struct + workflow bodies + signal/query handlers (§6.3, §6.6)
-//   - activities.go          : the Manager-owned Activity wrappers, as methods on Workflows (§6.4)
+//   - workflow.go            : the workflows deps struct + workflow bodies + signal/query handlers (§6.3, §6.6)
+//   - activities.go          : the Manager-owned Activity wrappers, as methods on workflows (§6.4)
 //   - errors.go              : the port-error -> Temporal-error translation (§6.4)
 //   - worker.go              : worker registration of workflows + activities + Schedules (§6.1)
 //
@@ -58,7 +58,7 @@ import (
 // The Manager (which OWNS Temporal) converts to/from projectStateAccess's
 // projectstate.ProjectID at the RA boundary (workflow.go / signals.go /
 // gitforward.go). The consumer-side dependency interfaces (deps.go) and the Temporal
-// Workflows struct stay hand-written and are NOT part of this contract.
+// workflows struct stay hand-written and are NOT part of this contract.
 // ---------------------------------------------------------------------------
 
 // Compile-time proof the concrete Manager satisfies the generated ConstructionManager
@@ -93,9 +93,9 @@ func overrideKindName(k OverrideKind) string {
 // FailedPrecondition, NotFound, Unauthorized, Infrastructure.
 // ---------------------------------------------------------------------------
 
-// ConstructionError is the typed façade error (constructionManager.md §3.5). It is
-// an alias for fwm.Error so errors.As(&ConstructionError) call sites work.
-type ConstructionError = fwm.Error
+// constructionError is the typed façade error (constructionManager.md §3.5). It is
+// an alias for fwm.Error so errors.As(&constructionError) call sites work.
+type constructionError = fwm.Error
 
 func newError(kind fwm.Kind, detail string) *fwm.Error {
 	return fwm.New(kind, detail)

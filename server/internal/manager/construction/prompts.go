@@ -17,7 +17,7 @@ const constructorHeader = "You are a Worker constructing a single Method compone
 const reviewerHeader = "You are a reviewer in the Method construction review set. Review the produced change from your assigned perspective and report your verdict.\n"
 
 // constructionPrompt assembles the worker-role construction prompt for one activity.
-func constructionPrompt(activity ConstructionActivity, class WorkerClass) string {
+func constructionPrompt(activity constructionActivity, class workerClass) string {
 	var b strings.Builder
 	b.WriteString(constructorHeader)
 	fmt.Fprintf(&b, "Activity: %s (kind %s)\n", activity.ActivityID, activity.Kind.String())
@@ -28,7 +28,7 @@ func constructionPrompt(activity ConstructionActivity, class WorkerClass) string
 }
 
 // reviewPrompt assembles the reviewer-role prompt for one reviewer in the set.
-func reviewPrompt(activity ConstructionActivity, reviewer Reviewer) string {
+func reviewPrompt(activity constructionActivity, reviewer Reviewer) string {
 	var b strings.Builder
 	b.WriteString(reviewerHeader)
 	fmt.Fprintf(&b, "Activity: %s\n", activity.ActivityID)

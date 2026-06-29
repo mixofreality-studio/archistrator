@@ -39,20 +39,20 @@ import (
 // nextEligibleActivity resolves the next eligible construction activity for a project
 // from its head-state. An activity is eligible iff it is NotStarted and every dep is
 // Done. Iteration is ActivityList declaration order with a name tie-break.
-func nextEligibleActivity(proj projectstate.Project) (ConstructionActivity, bool) { //nolint:gocognit,gocyclo // sequential eligibility guards + dependency walk; inherently branchy
+func nextEligibleActivity(proj projectstate.Project) (constructionActivity, bool) { //nolint:gocognit,gocyclo // sequential eligibility guards + dependency walk; inherently branchy
 	if proj.Network.Status != projectstate.ReviewCommitted {
-		return ConstructionActivity{}, false
+		return constructionActivity{}, false
 	}
 	network, ok := proj.Network.Model.(*projectstate.Network)
 	if !ok || network == nil {
-		return ConstructionActivity{}, false
+		return constructionActivity{}, false
 	}
 	if proj.ActivityList.Status != projectstate.ReviewCommitted {
-		return ConstructionActivity{}, false
+		return constructionActivity{}, false
 	}
 	activityList, ok := proj.ActivityList.Model.(*projectstate.ActivityList)
 	if !ok || activityList == nil {
-		return ConstructionActivity{}, false
+		return constructionActivity{}, false
 	}
 
 	itemByName := make(map[string]projectstate.ActivityItem, len(activityList.Activities))
@@ -81,7 +81,7 @@ func nextEligibleActivity(proj projectstate.Project) (ConstructionActivity, bool
 		candidates = append(candidates, candidate{declIdx: i, activity: name})
 	}
 	if len(candidates) == 0 {
-		return ConstructionActivity{}, false
+		return constructionActivity{}, false
 	}
 	sort.SliceStable(candidates, func(i, j int) bool {
 		if candidates[i].declIdx != candidates[j].declIdx {
@@ -100,7 +100,7 @@ func nextEligibleActivity(proj projectstate.Project) (ConstructionActivity, bool
 	if !ok {
 		slog.Warn("construction pump: no service-contract key resolves for activity — skipping dispatch",
 			"activityId", chosen, "title", item.Title)
-		return ConstructionActivity{}, false
+		return constructionActivity{}, false
 	}
 	return hydrateConstructionActivity(chosen, item, component), true
 }
@@ -196,14 +196,14 @@ func allDepsDone(deps []string, status map[string]projectstate.ActivityConstruct
 	return true
 }
 
-// hydrateConstructionActivity populates a ConstructionActivity from the activity id +
+// hydrateConstructionActivity populates a constructionActivity from the activity id +
 // its ActivityList item. Coding=true → Construction; Coding=false → Noncoding.
-func hydrateConstructionActivity(activityID string, item projectstate.ActivityItem, componentID string) ConstructionActivity {
-	kind := ActivityKindNoncoding
+func hydrateConstructionActivity(activityID string, item projectstate.ActivityItem, componentID string) constructionActivity {
+	kind := activityKindNoncoding
 	if item.Coding {
-		kind = ActivityKindConstruction
+		kind = activityKindConstruction
 	}
-	return ConstructionActivity{
+	return constructionActivity{
 		ActivityID:   activityID,
 		Kind:         kind,
 		ComponentID:  componentID,
@@ -219,7 +219,7 @@ type handoffAdapter struct{ inner handoff.HandOffEngine }
 
 var _ handOffEngine = handoffAdapter{}
 
-func (a handoffAdapter) PickWorkerClass(activity ConstructionActivity, policy HandOffPolicy) (WorkerClass, error) {
+func (a handoffAdapter) PickWorkerClass(activity constructionActivity, policy handOffPolicy) (workerClass, error) {
 	cls, err := a.inner.PickWorkerClass(
 		fweng.Context{Context: context.Background()},
 		handoff.ConstructionActivity{
@@ -235,38 +235,38 @@ func (a handoffAdapter) PickWorkerClass(activity ConstructionActivity, policy Ha
 		},
 	)
 	if err != nil {
-		return WorkerClassUnknown, err
+		return workerClassUnknown, err
 	}
 	return managerWorkerClass(cls), nil
 }
 
-func handoffActivityKind(k ActivityKind) handoff.ActivityKind {
+func handoffActivityKind(k activityKind) handoff.ActivityKind {
 	switch k {
-	case ActivityKindDetailedDesign:
+	case activityKindDetailedDesign:
 		return handoff.ActivityKindDetailedDesign
-	case ActivityKindConstruction:
+	case activityKindConstruction:
 		return handoff.ActivityKindConstruction
-	case ActivityKindIntegration:
+	case activityKindIntegration:
 		return handoff.ActivityKindIntegration
-	case ActivityKindNoncoding:
+	case activityKindNoncoding:
 		return handoff.ActivityKindNoncoding
 	default:
 		return handoff.ActivityKindUnknown
 	}
 }
 
-func managerWorkerClass(c handoff.WorkerClass) WorkerClass {
+func managerWorkerClass(c handoff.WorkerClass) workerClass {
 	switch c {
 	case handoff.AIWorker:
-		return AIWorker
+		return aiWorker
 	case handoff.HumanSeniorWorker:
-		return HumanSeniorWorker
+		return humanSeniorWorker
 	case handoff.HumanJuniorWorker:
-		return HumanJuniorWorker
+		return humanJuniorWorker
 	case handoff.ArchitectOnly:
-		return ArchitectOnly
+		return architectOnly
 	default:
-		return WorkerClassUnknown
+		return workerClassUnknown
 	}
 }
 
@@ -282,7 +282,7 @@ type interventionAdapter struct {
 
 var _ interventionEngine = interventionAdapter{}
 
-func (a interventionAdapter) DecideOnVariance(v ConstructionVariance) (VarianceDirective, error) {
+func (a interventionAdapter) DecideOnVariance(v constructionVariance) (varianceDirective, error) {
 	d, err := a.inner.DecideOnVariance(fweng.Context{Context: context.Background()}, intervention.ConstructionVariance{
 		ProjectID:    intervention.ProjectID(v.ActivityID),
 		ActivityID:   intervention.ActivityID(v.ActivityID),
@@ -291,18 +291,18 @@ func (a interventionAdapter) DecideOnVariance(v ConstructionVariance) (VarianceD
 		Policy:       a.policy,
 	})
 	if err != nil {
-		return DirectiveUnknown, err
+		return directiveUnknown, err
 	}
 	return managerVarianceDirective(d), nil
 }
 
-func (a interventionAdapter) ApplyPausePolicy(projectID string, ctx PauseRequestContext) (PausePlan, error) {
+func (a interventionAdapter) ApplyPausePolicy(projectID string, ctx pauseRequestContext) (pausePlan, error) {
 	plan, err := a.inner.ApplyPausePolicy(fweng.Context{Context: context.Background()}, intervention.PauseRequestContext{
 		ProjectID: intervention.ProjectID(projectID),
 		Reason:    ctx.Reason,
 	})
 	if err != nil {
-		return PausePlan{}, err
+		return pausePlan{}, err
 	}
 	cancels := make([]string, 0, len(plan.PipelinesToCancel))
 	for _, p := range plan.PipelinesToCancel {
@@ -312,7 +312,7 @@ func (a interventionAdapter) ApplyPausePolicy(projectID string, ctx PauseRequest
 	for _, n := range plan.NotifyTargets {
 		notify = append(notify, string(n))
 	}
-	return PausePlan{
+	return pausePlan{
 		PipelinesToCancel: cancels,
 		RecordPaused:      plan.RecordPaused,
 		NotifyTargets:     notify,
@@ -321,44 +321,44 @@ func (a interventionAdapter) ApplyPausePolicy(projectID string, ctx PauseRequest
 
 // constructionInterventionPolicy maps the configured intervention-mode string to the
 // paired (engine, manager-mirror) intervention policies.
-func constructionInterventionPolicy(mode string) (intervention.InterventionPolicy, InterventionPolicy) {
+func constructionInterventionPolicy(mode string) (intervention.InterventionPolicy, interventionPolicy) {
 	switch mode {
 	case "escalate-everything", "escalateEverything", "supervised":
 		return intervention.InterventionPolicy{Mode: intervention.EscalateEverything},
-			InterventionPolicy{Mode: InterventionModeEscalateEverything}
+			interventionPolicy{Mode: interventionModeEscalateEverything}
 	default:
 		return intervention.InterventionPolicy{Mode: intervention.Tiered, RetryBudget: 2},
-			InterventionPolicy{Mode: InterventionModeTiered, RetryBudget: 2}
+			interventionPolicy{Mode: interventionModeTiered, RetryBudget: 2}
 	}
 }
 
-func interventionVarianceKind(k VarianceKind) intervention.VarianceKind {
+func interventionVarianceKind(k varianceKind) intervention.VarianceKind {
 	switch k {
-	case VarianceReviewFailed:
+	case varianceReviewFailed:
 		return intervention.ReviewFailedUnresolvable
-	case VarianceWorkerRefused:
+	case varianceWorkerRefused:
 		return intervention.WorkerMiss
-	case VarianceScheduleOverrun:
+	case varianceScheduleOverrun:
 		return intervention.EstimateOverrun
-	case VariancePipelineFailed:
+	case variancePipelineFailed:
 		return intervention.WorkerMiss
-	case VarianceOperatorOverride:
+	case varianceOperatorOverride:
 		return intervention.EstimateOverrun
 	default:
 		return intervention.VarianceKindUnknown
 	}
 }
 
-func managerVarianceDirective(d intervention.VarianceDirective) VarianceDirective {
+func managerVarianceDirective(d intervention.VarianceDirective) varianceDirective {
 	switch d {
 	case intervention.VarianceRetry:
-		return DirectiveRetry
+		return directiveRetry
 	case intervention.VarianceEscalate:
-		return DirectiveEscalate
+		return directiveEscalate
 	case intervention.VarianceTakeover:
-		return DirectiveTakeover
+		return directiveTakeover
 	default:
-		return DirectiveUnknown
+		return directiveUnknown
 	}
 }
 
@@ -370,7 +370,7 @@ type reviewAdapter struct{ inner review.ReviewEngine }
 
 var _ reviewEngine = reviewAdapter{}
 
-func (a reviewAdapter) ProposeReviews(change ReviewChange, componentID string, artifactKind string, architectureGraph string, contracts []string) (ReviewSet, error) {
+func (a reviewAdapter) ProposeReviews(change reviewChange, componentID string, artifactKind string, architectureGraph string, contracts []string) (ReviewSet, error) {
 	set, err := a.inner.ProposeReviews(
 		fweng.Context{Context: context.Background()},
 		review.ReviewChange{
@@ -414,11 +414,11 @@ type pipelineAdapter struct {
 var _ constructionPipelineAccess = pipelineAdapter{}
 
 // pipelineDefaultToolchain is the single logical build step the Manager's neutral
-// PipelineSpec implies (the image map resolves it to a concrete image).
+// pipelineSpec implies (the image map resolves it to a concrete image).
 const pipelineDefaultToolchain = "go-1.23"
 
 // dispatchInputsFor builds the DispatchInputs bag for a construction pipeline dispatch.
-func dispatchInputsFor(spec PipelineSpec) map[string]string {
+func dispatchInputsFor(spec pipelineSpec) map[string]string {
 	m := map[string]string{
 		"activity_id":  spec.ActivityID,
 		"component_id": spec.ComponentID,
@@ -432,7 +432,7 @@ func dispatchInputsFor(spec PipelineSpec) map[string]string {
 	return m
 }
 
-func (a pipelineAdapter) SubmitConstructionPipeline(ctx context.Context, spec PipelineSpec, idempotencyKey fwra.IdempotencyKey) (PipelineHandle, error) {
+func (a pipelineAdapter) SubmitConstructionPipeline(ctx context.Context, spec pipelineSpec, idempotencyKey fwra.IdempotencyKey) (pipelineHandle, error) {
 	handle, err := a.inner.SubmitConstructionPipeline(fwra.Context{Context: ctx, IdempotencyKey: idempotencyKey}, constructionpipeline.PipelineSpec{
 		ActivityID: constructionpipeline.ConstructionActivityID(spec.ActivityID),
 		Steps: []constructionpipeline.PipelineStep{{
@@ -444,23 +444,23 @@ func (a pipelineAdapter) SubmitConstructionPipeline(ctx context.Context, spec Pi
 		DispatchInputs: dispatchInputsFor(spec),
 	})
 	if err != nil {
-		return PipelineHandle{}, err
+		return pipelineHandle{}, err
 	}
-	return PipelineHandle{Name: constructionpipeline.PipelineHandleString(handle)}, nil
+	return pipelineHandle{Name: constructionpipeline.PipelineHandleString(handle)}, nil
 }
 
-func (a pipelineAdapter) ObserveConstructionPipeline(ctx context.Context, handle PipelineHandle) (PipelineObservation, error) {
+func (a pipelineAdapter) ObserveConstructionPipeline(ctx context.Context, handle pipelineHandle) (pipelineObservation, error) {
 	obs, err := a.inner.ObserveConstructionPipeline(fwra.Context{Context: ctx}, constructionpipeline.ParsePipelineHandle(handle.Name))
 	if err != nil {
-		return PipelineObservation{}, err
+		return pipelineObservation{}, err
 	}
-	return PipelineObservation{
+	return pipelineObservation{
 		Phase:      managerPipelinePhase(obs.Phase),
 		Diagnostic: obs.Diagnostic,
 	}, nil
 }
 
-func (a pipelineAdapter) CancelConstructionPipeline(ctx context.Context, handle PipelineHandle) error {
+func (a pipelineAdapter) CancelConstructionPipeline(ctx context.Context, handle pipelineHandle) error {
 	return a.inner.CancelConstructionPipeline(fwra.Context{Context: ctx}, constructionpipeline.ParsePipelineHandle(handle.Name))
 }
 
@@ -526,7 +526,9 @@ func (a workerAdapter) Cancel(ctx context.Context, idempotencyKey fwra.Idempoten
 // sourcecontrol.SourceControlAccess (the folded composition-root railAdapter).
 // ===========================================================================
 
-type railAdapter struct{ inner sourcecontrol.SourceControlAccess }
+type railAdapter struct {
+	inner sourcecontrol.SourceControlAccess
+}
 
 var _ sourceControlRail = railAdapter{}
 

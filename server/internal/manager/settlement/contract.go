@@ -58,16 +58,16 @@ import (
 // CustomerID is the canonical settlement aggregate identity (settlementManager.md
 // §3.0). One settlement aggregate per customer; shared by revenueLedgerAccess,
 // usageAccess, and (post FU-MST-1) settlementStateAccess.
-type CustomerID = uuid.UUID
+type customerID = uuid.UUID
 
 // CycleID is the billing cycle a settlement folds at close. Agreed string across
 // revenueLedgerAccess / usageAccess / settlementStateAccess (settlementManager.md §3.0).
-type CycleID = string
+type cycleID = string
 
 // DeployedAppID is the operated-app identity owned by the operations side; it is
 // NOT the settlement aggregate key. op 2.1 resolves it to a CustomerID
 // (settlementManager.md §3.0 / §2.1).
-type DeployedAppID = uuid.UUID
+type deployedAppID = uuid.UUID
 
 // ---------------------------------------------------------------------------
 // Money — exact integer minor units + currency. NEVER a float (settlementManager.md
@@ -162,7 +162,7 @@ type DeployedAppID = uuid.UUID
 // SettlementError is the typed façade error (settlementManager.md §3.1). It is an
 // alias for fwmgr.Error so errors.As(&SettlementError) call sites work — the SAME
 // shared Manager error model the peer Managers use.
-type SettlementError = fwmgr.Error
+type settlementError = fwmgr.Error
 
 func newError(kind fwmgr.Kind, detail string) *fwmgr.Error {
 	return fwmgr.New(kind, detail)

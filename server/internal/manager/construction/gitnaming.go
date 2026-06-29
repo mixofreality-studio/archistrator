@@ -32,7 +32,7 @@ func prTitle(activityID ActivityID) string {
 	return fmt.Sprintf("aiarch: construction activity %s", activityID)
 }
 
-func prBody(activity ConstructionActivity) string {
+func prBody(activity constructionActivity) string {
 	return fmt.Sprintf("Automated construction of component %s (%s, layer %s).",
 		activity.ComponentID, activity.Kind.String(), activity.Layer)
 }

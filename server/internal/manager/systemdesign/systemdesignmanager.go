@@ -120,11 +120,11 @@ func (m *systemDesignManager) StartSystemDesign(rc fwmanager.Context, projectID 
 		TaskQueue:                TaskQueue,
 		WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
 	}
-	we, err := m.client.ExecuteWorkflow(ctx, opts, ExecutionKindPhase, PhaseInput{ProjectID: projectID})
+	we, err := m.client.ExecuteWorkflow(ctx, opts, executionKindPhase, phaseInput{ProjectID: projectID})
 	if err != nil {
 		return "", mapStartError(err)
 	}
-	return NewSessionRef(we.GetID()), nil
+	return newSessionRef(we.GetID()), nil
 }
 
 // isResearchReadNotFound reports whether a ReadProject error is the brand-new
@@ -163,7 +163,7 @@ func (m *systemDesignManager) RequestArtifactDraft(rc fwmanager.Context, project
 	if projectID == "" {
 		return "", newError(fwmanager.ContractMisuse, "empty projectId")
 	}
-	if !ArtifactKindIsPhase1(kind) {
+	if !artifactKindIsPhase1(kind) {
 		return "", newError(fwmanager.FailedPrecondition, "artifactKind is not a Phase-1 kind")
 	}
 
@@ -176,13 +176,13 @@ func (m *systemDesignManager) RequestArtifactDraft(rc fwmanager.Context, project
 		// (systemDesignManager.md §2.1 post-condition). The signal rides along.
 		WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
 	}
-	in := CoAuthorInput{ProjectID: projectID, ArtifactKind: kind, Feedback: feedback}
+	in := coAuthorInput{ProjectID: projectID, ArtifactKind: kind, Feedback: feedback}
 
-	we, err := m.client.SignalWithStartWorkflow(ctx, wfID, SignalRedraft, RedraftSignal{Feedback: feedback}, opts, ExecutionKindCoAuthor, in)
+	we, err := m.client.SignalWithStartWorkflow(ctx, wfID, lSignalRedraft, redraftSignal{Feedback: feedback}, opts, executionKindCoAuthor, in)
 	if err != nil {
 		return "", mapStartError(err)
 	}
-	return NewSessionRef(we.GetID()), nil
+	return newSessionRef(we.GetID()), nil
 }
 
 // submitReviewDecision — op 2.2. Temporal Signal (SignalWorkflow to workflow id
@@ -195,7 +195,7 @@ func (m *systemDesignManager) SubmitReviewDecision(rc fwmanager.Context, project
 	if projectID == "" {
 		return newError(fwmanager.ContractMisuse, "empty projectId")
 	}
-	if !ArtifactKindIsPhase1(kind) {
+	if !artifactKindIsPhase1(kind) {
 		return newError(fwmanager.FailedPrecondition, "artifactKind is not a Phase-1 kind")
 	}
 	switch decision {
@@ -210,8 +210,8 @@ func (m *systemDesignManager) SubmitReviewDecision(rc fwmanager.Context, project
 	}
 
 	wfID := coAuthorWorkflowID(projectID, kind)
-	sig := ReviewDecisionSignal{Decision: decision, Feedback: feedback}
-	if err := m.client.SignalWorkflow(ctx, wfID, "", SignalReviewDecision, sig); err != nil {
+	sig := reviewDecisionSignal{Decision: decision, Feedback: feedback}
+	if err := m.client.SignalWorkflow(ctx, wfID, "", signalReviewDecision, sig); err != nil {
 		return mapSignalError(err)
 	}
 	return nil
@@ -232,9 +232,9 @@ func (m *systemDesignManager) AdvancePhase(rc fwmanager.Context, projectID Proje
 		ID:        wfID,
 		TaskQueue: TaskQueue,
 	}
-	in := PhaseAdvanceInput{ProjectID: projectID}
+	in := phaseAdvanceInput{ProjectID: projectID}
 
-	we, err := m.client.ExecuteWorkflow(ctx, opts, ExecutionKindPhaseAdvance, in)
+	we, err := m.client.ExecuteWorkflow(ctx, opts, executionKindPhaseAdvance, in)
 	if err != nil {
 		return PhaseAdvanceResult{}, mapStartError(err)
 	}
@@ -257,7 +257,7 @@ func (m *systemDesignManager) GetSessionState(rc fwmanager.Context, projectID Pr
 	}
 	wfID := coAuthorWorkflowID(projectID, kind)
 
-	enc, err := m.client.QueryWorkflow(ctx, wfID, "", QuerySessionState)
+	enc, err := m.client.QueryWorkflow(ctx, wfID, "", querySessionState)
 	if err != nil {
 		return SessionStateView{}, mapQueryError(err)
 	}
