@@ -5,3 +5,6 @@ server/server
 server/cmd/server/server
 .npmrc
 server/.env
+
+# local research material (e.g. the Righting Software book) — not committed
+research/
