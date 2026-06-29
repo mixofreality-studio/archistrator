@@ -2,6 +2,8 @@ go 1.25.4
 
 use (
 	../archistrator-platform/framework-go
+	../archistrator-platform/framework-go-http-generator
+	../archistrator-platform/framework-go-mcp-generator
 	../archistrator-platform/framework-go-infrastructure-github
 	../archistrator-platform/framework-go-infrastructure-keycloak
 	../archistrator-platform/framework-go-infrastructure-llm

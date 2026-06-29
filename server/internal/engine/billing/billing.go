@@ -50,15 +50,16 @@
 // is a package-internal Strategy registration + a new enum constant — NOT a
 // contract amendment.
 //
-// Imports ONLY projectstate (the shared Money/OptionID value types owned by
-// projectStateAccess — the same downward engine→projectstate edge the sibling
-// Engines use) and framework-go/engine (the shared Engine error model, fweng).
+// Imports ONLY framework-go/engine (the shared Engine error model, fweng). Per
+// Option B full encapsulation the contract redefines every domain type it uses
+// as its OWN generated def (contract.gen.go: Money, OptionID, plus the billing
+// I/O structs and the ServicePricingKind enum), so this package imports NO
+// projectstate — the calling Managers convert the canonical projectstate
+// Money/OptionID to billing.Money/billing.OptionID at the call boundary.
 package billing
 
 import (
 	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
-
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
 // ---------------------------------------------------------------------------
@@ -70,14 +71,28 @@ import (
 // that build them (see C-BE completion notes, escalations).
 // ---------------------------------------------------------------------------
 
+// Money is an exact integer-minor-units amount plus an ISO-4217 currency. NEVER
+// a float (billingEngine.md §3). Charge-only: the Engine only ever states a
+// non-negative amount. This MIRRORS projectstate.Money (the canonical Phase-2
+// money type owned by projectStateAccess); per Option B full encapsulation the
+// contract redefines it as billing's OWN def so this Engine imports nothing —
+// the calling Managers convert projectstate.Money ↔ billing.Money at the call
+// boundary.
+
+// signed minor units, e.g. 1299 == 12.99
+// ISO-4217, e.g. "USD"
+
+// OptionID identifies one assembled ProjectOption within an SDP review. Mirrors
+// projectstate.OptionID; the contract redefines it as billing's own type so the
+// Engine imports nothing (Option B full encapsulation). The projectDesignManager
+// converts at the boundary.
+
 // CustomerID identifies the billed customer. Canonical home (future):
 // billingStateAccess. Not load-bearing in the price computation — carried for
 // audit/labeling on the period snapshot.
-type CustomerID string
 
 // PeriodID identifies one closed billing period for a customer. Canonical home
 // (future): usageAccess / billingStateAccess. Audit/labeling only.
-type PeriodID string
 
 // PeriodUsage is a value snapshot of the billing period's metered usage, read
 // by the Manager from usageAccess.readRange(customerId, periodId) and passed in
@@ -85,31 +100,24 @@ type PeriodID string
 // compute (operation phase) — usageAccess was repurposed 2026-06-09 to meter
 // tokens + hosting. Canonical home: usageAccess. This Engine does not own it
 // and does not read it from anywhere.
-type PeriodUsage struct {
-	CustomerID         CustomerID
-	PeriodID           PeriodID
-	ConstructionTokens int64   // Σ construction-token consumption over the period (build phase)
-	ComputeUnitSeconds float64 // Σ hosting/compute consumed over the period (operation phase)
-	StorageBytesMonths float64 // hosting storage component (byte-months)
-	EgressBytes        float64 // hosting egress component (bytes)
-	Currency           string  // ISO-4217; the invoice currency for the period
-}
+
+// Σ construction-token consumption over the period (build phase)
+// Σ hosting/compute consumed over the period (operation phase)
+// hosting storage component (byte-months)
+// hosting egress component (bytes)
+// ISO-4217; the invoice currency for the period
 
 // ServicePricingKind is the pricing-regime discriminator the Engine pivots on
 // (the Strategy key). The launch regime is a flat markup over the raw
 // infrastructure + token bill; future regimes (tiered floors, free-tier
 // subsidies, FinOps attribution, volume discounts, per-feature cost) are
 // additive constants + package-internal Strategy registrations.
-type ServicePricingKind int
 
-const (
-	// ServicePricingUnknown is the zero value — no regime declared. Pricing
-	// under it is forbidden (InvalidInput "unknown pricing", never a default).
-	ServicePricingUnknown ServicePricingKind = iota
-	// ServicePricingFlatMarkup is the launch regime: invoice = raw token cost
-	// + raw hosting cost, each marked up by MarkupPercent.
-	ServicePricingFlatMarkup
-)
+// ServicePricingUnknown is the zero value — no regime declared. Pricing
+// under it is forbidden (InvalidInput "unknown pricing", never a default).
+
+// ServicePricingFlatMarkup is the launch regime: invoice = raw token cost
+// + raw hosting cost, each marked up by MarkupPercent.
 
 // ServicePricing is the customer's service-pricing-policy snapshot, read by
 // the Manager from billing head-state via servicePricingFor(customerID) and
@@ -118,16 +126,14 @@ const (
 // revenue-share, NO settlement-schedule, NO shortfall parameters — those left
 // with the reversed merchant-of-record model. The internal SHAPE is the
 // volatility; the FACT that the policy exists is stable.
-type ServicePricing struct {
-	Kind ServicePricingKind
-	// MarkupPercent is the FlatMarkup regime parameter: the markup applied
-	// over the raw token + hosting bill (e.g. 25.0 == raw × 1.25). A negative
-	// percent is a legal regime parameter (a subsidy/discount), but a markup
-	// that drives a computed amount negative breaks the charge-only invariant
-	// and surfaces as InternalInvariant — this Engine never states a payout.
-	MarkupPercent float64
-	Currency      string // ISO-4217; must match the period usage's currency
-}
+
+// MarkupPercent is the FlatMarkup regime parameter: the markup applied
+// over the raw token + hosting bill (e.g. 25.0 == raw × 1.25). A negative
+// percent is a legal regime parameter (a subsidy/discount), but a markup
+// that drives a computed amount negative breaks the charge-only invariant
+// and surfaces as InternalInvariant — this Engine never states a payout.
+
+// ISO-4217; must match the period usage's currency
 
 // ProjectOption is the input to PriceServiceForOption: the committed project
 // option, which carries the customer's ServicePricing policy by value (the
@@ -141,10 +147,8 @@ type ServicePricing struct {
 // option-shaping fields (network, worker mix, usage assumption) are read by
 // the two estimation Engines; this Engine ignores them, so the snapshot does
 // not carry them.
-type ProjectOption struct {
-	OptionID projectstate.OptionID
-	Pricing  ServicePricing // the customer's service-pricing policy carried on the option
-}
+
+// the customer's service-pricing policy carried on the option
 
 // ---------------------------------------------------------------------------
 // Output value objects (contract §3) — owned by this Engine; computation
@@ -157,14 +161,13 @@ type ProjectOption struct {
 // the Manager renders into the customer-facing bill statement. It is NOT a
 // signed net (charge-only — there is no payout) and NOT the executed charge —
 // the Manager executes that via billingGatewayAccess.chargeUser.
-type ServiceInvoice struct {
-	// ServiceInvoiceAmount is non-negative: the priced sum of tokens + hosting
-	// under ServicePricing. Zero is valid (zero usage / fully free-tier) — the
-	// Manager then issues no charge.
-	ServiceInvoiceAmount projectstate.Money
-	TokenCharge          projectstate.Money // the construction-token component (for the statement)
-	HostingCharge        projectstate.Money // the hosting/compute component (for the statement)
-}
+
+// ServiceInvoiceAmount is non-negative: the priced sum of tokens + hosting
+// under ServicePricing. Zero is valid (zero usage / fully free-tier) — the
+// Manager then issues no charge.
+
+// the construction-token component (for the statement)
+// the hosting/compute component (for the statement)
 
 // HostingRate is the per-unit hosting price the commit-time projection
 // surfaces, so the SDP row can show "$X build + $Y/unit hosting". A RATE, not
@@ -177,12 +180,11 @@ type ServiceInvoice struct {
 // dimensions are surfaced per GiB instead. The senior's mayAmend amendment
 // (D-BE review 2026-06-10: surface the metered egress dimension on the rate)
 // is preserved — egress is a first-class rate field, per GiB.
-type HostingRate struct {
-	PerComputeUnitSecond projectstate.Money // hosting compute rate, per compute-unit-second
-	PerStorageGiBMonth   projectstate.Money // hosting storage rate, per GiB-month
-	PerEgressGiB         projectstate.Money // hosting egress rate, per GiB (senior-amendment dimension)
-	Currency             string             // ISO-4217
-}
+
+// hosting compute rate, per compute-unit-second
+// hosting storage rate, per GiB-month
+// hosting egress rate, per GiB (senior-amendment dimension)
+// ISO-4217
 
 // ServiceCostProjection is the output of PriceServiceForOption: the
 // service-cost numbers the Manager binds to the committed option for the SDP
@@ -191,10 +193,9 @@ type HostingRate struct {
 // forecast by the MANAGER (never by an Engine→Engine call). A PROJECTION of
 // pricing — what aiarch would charge — not an invoiced amount (no metered
 // usage exists at commit time).
-type ServiceCostProjection struct {
-	TokenCostEstimate projectstate.Money // what aiarch's token pricing implies for this option's build
-	HostingRate       HostingRate        // the hosting rate the ServicePricing policy implies
-}
+
+// what aiarch's token pricing implies for this option's build
+// the hosting rate the ServicePricing policy implies
 
 // ---------------------------------------------------------------------------
 // Contract surface (contract §2). Two operations, two callers, ZERO outbound
@@ -203,38 +204,30 @@ type ServiceCostProjection struct {
 // ---------------------------------------------------------------------------
 
 // BillingEngine is the frozen two-operation Engine surface.
-type BillingEngine interface {
-	// PriceUsage — UC5 period-close service-invoice amount. Given the period's
-	// metered usage and the customer's service-pricing policy, returns the
-	// non-negative amount aiarch charges the user for the period. Called by
-	// billingManager directly from closeBillingPeriod workflow code.
-	// (billingEngine.md §2.1)
-	PriceUsage(usage PeriodUsage, servicePricing ServicePricing) (ServiceInvoice, error)
 
-	// PriceServiceForOption — UC2 commit-time service-cost projection. Takes
-	// only the option (which carries the customer's ServicePricing policy by
-	// value); returns the token-cost estimate + hosting rate bound to the
-	// committed option for the SDP confirmation row. Called by
-	// projectDesignManager. (billingEngine.md §2.2)
-	PriceServiceForOption(option ProjectOption) (ServiceCostProjection, error)
-}
+// PriceUsage — UC5 period-close service-invoice amount. Given the period's
+// metered usage and the customer's service-pricing policy, returns the
+// non-negative amount aiarch charges the user for the period. Called by
+// billingManager directly from closeBillingPeriod workflow code.
+// (billingEngine.md §2.1)
 
-// New returns the stateless billing Engine. Safe to share across calls and
-// across the two calling Managers (stateless ⇒ no shared-state hazard).
-func New() BillingEngine { return engine{} }
+// PriceServiceForOption — UC2 commit-time service-cost projection. Takes
+// only the option (which carries the customer's ServicePricing policy by
+// value); returns the token-cost estimate + hosting rate bound to the
+// committed option for the SDP confirmation row. Called by
+// projectDesignManager. (billingEngine.md §2.2)
 
-// engine is the stateless implementation. It holds no fields — all behaviour
-// is a pure function of the inputs, pivoting on the package-internal
-// pricingStrategy registry.
-type engine struct{}
-
-// Compile-time assertion that engine satisfies the port.
-var _ BillingEngine = engine{}
+// The stateless implementation of BillingEngine — BillingEngineImpl — and its
+// constructor NewBillingEngine() are GENERATED into contract.gen.go. It holds no
+// fields — all behaviour is a pure function of the inputs, pivoting on the
+// package-internal pricingStrategy registry. Safe to share across calls and across
+// the two calling Managers (stateless ⇒ no shared-state hazard). The behaviour
+// below is hand-written on the generated struct.
 
 // PriceUsage prices a closed period's metered usage under the customer's
 // ServicePricing policy. All money math is exact int64 minor units.
 // (billingEngine.md §2.1)
-func (engine) PriceUsage(usage PeriodUsage, servicePricing ServicePricing) (ServiceInvoice, error) {
+func (BillingEngineImpl) PriceUsage(_ fweng.Context, usage PeriodUsage, servicePricing ServicePricing) (ServiceInvoice, error) {
 	// Pre-conditions — Manager wiring bugs, not "no-invoice-possible" outcomes
 	// (contract §2.1 / §3: structurally-invalid input folds into ContractMisuse;
 	// no separate InvalidInput-for-semantics kind on a no-parse-step Engine).
@@ -293,7 +286,7 @@ func (engine) PriceUsage(usage PeriodUsage, servicePricing ServicePricing) (Serv
 // PriceServiceForOption projects the committed option's service cost (token
 // estimate + hosting rate) under the option-carried ServicePricing policy.
 // (billingEngine.md §2.2)
-func (engine) PriceServiceForOption(option ProjectOption) (ServiceCostProjection, error) {
+func (BillingEngineImpl) PriceServiceForOption(_ fweng.Context, option ProjectOption) (ServiceCostProjection, error) {
 	// Pre-conditions — a nil/empty option is a Manager bug (contract §2.2).
 	if option.OptionID == "" {
 		return ServiceCostProjection{}, fweng.New(fweng.ContractMisuse,
@@ -400,17 +393,17 @@ func (flatMarkupStrategy) priceUsage(usage PeriodUsage, pricing ServicePricing) 
 	hostingCharge := applyMarkup(rawHostingCostMinorUnits(usage), pricing.MarkupPercent)
 
 	return ServiceInvoice{
-		ServiceInvoiceAmount: projectstate.Money{MinorUnits: tokenCharge + hostingCharge, Currency: currency},
-		TokenCharge:          projectstate.Money{MinorUnits: tokenCharge, Currency: currency},
-		HostingCharge:        projectstate.Money{MinorUnits: hostingCharge, Currency: currency},
+		ServiceInvoiceAmount: Money{MinorUnits: tokenCharge + hostingCharge, Currency: currency},
+		TokenCharge:          Money{MinorUnits: tokenCharge, Currency: currency},
+		HostingCharge:        Money{MinorUnits: hostingCharge, Currency: currency},
 	}
 }
 
 func (flatMarkupStrategy) project(option ProjectOption) ServiceCostProjection {
 	pricing := option.Pricing
 	currency := pricing.Currency
-	money := func(minor int64) projectstate.Money {
-		return projectstate.Money{MinorUnits: minor, Currency: currency}
+	money := func(minor int64) Money {
+		return Money{MinorUnits: minor, Currency: currency}
 	}
 
 	return ServiceCostProjection{

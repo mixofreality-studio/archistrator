@@ -125,3 +125,41 @@ func copyClassModels(classModels map[WorkerClass]string) map[WorkerClass]string 
 	}
 	return cm
 }
+
+// --- pointer/value bridges for the generated `omitempty` contract fields --------
+//
+// The generated contract types (contract.gen.go) render the source `,omitempty`
+// JSON tags as OPTIONAL fields → Go POINTERS (*string, *bool, *json.RawMessage).
+// The provider infra types (fwllm.*) take plain values, so these tiny helpers
+// bridge the two directions inside the concrete workers. They are NOT contract
+// surface — pure within-package conversion utilities.
+
+func strPtr(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+func strVal(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
+}
+
+func boolVal(p *bool) bool { return p != nil && *p }
+
+func rawPtr(r json.RawMessage) *json.RawMessage {
+	if len(r) == 0 {
+		return nil
+	}
+	return &r
+}
+
+func rawVal(p *json.RawMessage) json.RawMessage {
+	if p == nil {
+		return nil
+	}
+	return *p
+}

@@ -36,7 +36,7 @@ type railCall struct {
 }
 
 // fakeRail records every PR-rail verb and serves a scripted PR status. checkGreen
-// drives the merge guard. It satisfies the design Manager's SourceControlRail.
+// drives the merge guard. It satisfies the design Manager's sourceControlRail.
 type fakeRail struct {
 	mu         sync.Mutex
 	calls      []railCall
@@ -63,15 +63,15 @@ func (r *fakeRail) verbCount(verb string) int {
 }
 
 func (r *fakeRail) GetInstallationToken(_ context.Context, repo sourcecontrol.RepoRef) (sourcecontrol.RepoCredential, error) {
-	r.record(railCall{verb: "GetInstallationToken", repo: repo.String()})
+	r.record(railCall{verb: "GetInstallationToken", repo: sourcecontrol.RepoRefString(repo)})
 	return sourcecontrol.RepoCredential{Bytes: []byte("tok"), ExpiresAt: time.Now().Add(time.Hour)}, nil
 }
 
 func (r *fakeRail) OpenBranch(_ context.Context, repo sourcecontrol.RepoRef, branch sourcecontrol.BranchName, _ sourcecontrol.RepoCredential, _ fwra.IdempotencyKey) (sourcecontrol.BranchRef, error) {
-	r.record(railCall{verb: "OpenBranch", repo: repo.String(), branch: string(branch)})
+	r.record(railCall{verb: "OpenBranch", repo: sourcecontrol.RepoRefString(repo), branch: string(branch)})
 	// The Manager discards the BranchRef (it only ensures the branch exists); a zero
 	// ref is fine — the workflow never re-materializes a branch handle.
-	return sourcecontrol.BranchRef{}, nil
+	return sourcecontrol.BranchRef(""), nil
 }
 
 func (r *fakeRail) OpenPullRequest(_ context.Context, repo sourcecontrol.RepoRef, spec sourcecontrol.PullRequestSpec, _ sourcecontrol.RepoCredential, _ fwra.IdempotencyKey) (sourcecontrol.PullRequestRef, error) {
@@ -79,12 +79,12 @@ func (r *fakeRail) OpenPullRequest(_ context.Context, repo sourcecontrol.RepoRef
 	r.openedPRs++
 	prRef := "pr/" + string(spec.Head)
 	r.mu.Unlock()
-	r.record(railCall{verb: "OpenPullRequest", repo: repo.String(), branch: string(spec.Head), prRef: prRef})
+	r.record(railCall{verb: "OpenPullRequest", repo: sourcecontrol.RepoRefString(repo), branch: string(spec.Head), prRef: prRef})
 	return sourcecontrol.PullRequestRefFromString(prRef), nil
 }
 
 func (r *fakeRail) GetPullRequestStatus(_ context.Context, repo sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, _ sourcecontrol.RepoCredential) (sourcecontrol.PullRequestStatus, error) {
-	r.record(railCall{verb: "GetPullRequestStatus", repo: repo.String(), prRef: pr.String()})
+	r.record(railCall{verb: "GetPullRequestStatus", repo: sourcecontrol.RepoRefString(repo), prRef: sourcecontrol.PullRequestRefString(pr)})
 	rollup := sourcecontrol.CheckFailure
 	if r.checkGreen {
 		rollup = sourcecontrol.CheckSuccess
@@ -93,16 +93,16 @@ func (r *fakeRail) GetPullRequestStatus(_ context.Context, repo sourcecontrol.Re
 }
 
 func (r *fakeRail) PostReview(_ context.Context, repo sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, _ sourcecontrol.ReviewSubmission, _ sourcecontrol.RepoCredential, _ fwra.IdempotencyKey) error {
-	r.record(railCall{verb: "PostReview", repo: repo.String(), prRef: pr.String()})
+	r.record(railCall{verb: "PostReview", repo: sourcecontrol.RepoRefString(repo), prRef: sourcecontrol.PullRequestRefString(pr)})
 	return nil
 }
 
 func (r *fakeRail) MergePullRequest(_ context.Context, repo sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, _ sourcecontrol.RepoCredential, _ fwra.IdempotencyKey) (sourcecontrol.MergeResult, error) {
-	r.record(railCall{verb: "MergePullRequest", repo: repo.String(), prRef: pr.String()})
+	r.record(railCall{verb: "MergePullRequest", repo: sourcecontrol.RepoRefString(repo), prRef: sourcecontrol.PullRequestRefString(pr)})
 	return sourcecontrol.MergeResult{Merged: true, Commit: "merged"}, nil
 }
 
-var _ SourceControlRail = (*fakeRail)(nil)
+var _ sourceControlRail = (*fakeRail)(nil)
 
 // ---- branchAwareFakeProjectState: read-back/stage capture by branch ----------
 
@@ -123,18 +123,18 @@ func (f *branchAwareFakeProjectState) ReadProjectOnBranch(ctx context.Context, p
 	f.mu.Lock()
 	f.readBranches = append(f.readBranches, branch)
 	f.mu.Unlock()
-	return f.fakeProjectState.ReadProject(ctx, projectID)
+	return f.fakeProjectState.ReadProject(fwra.Context{Context: ctx}, projectID)
 }
 
 func (f *branchAwareFakeProjectState) StageArtifactForReviewOnBranch(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, model projectstate.ArtifactModel, key fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.mu.Lock()
 	f.stageBranches = append(f.stageBranches, branch)
 	f.mu.Unlock()
-	return f.fakeProjectState.StageArtifactForReview(ctx, projectID, expectedVersion, model, key)
+	return f.fakeProjectState.StageArtifactForReview(fwra.Context{Context: ctx, IdempotencyKey: key}, projectID, expectedVersion, model)
 }
 
-func newRailWorkflows(ps projectstate.ProjectStateAccess, pipe *fakePipeline, rail SourceControlRail) *Workflows {
-	return &Workflows{
+func newRailWorkflows(ps projectstate.ProjectStateAccess, pipe *fakePipeline, rail sourceControlRail) *workflows {
+	return &workflows{
 		ProjectState: ps,
 		Pipeline:     pipe,
 		Rail:         rail,
@@ -144,9 +144,10 @@ func newRailWorkflows(ps projectstate.ProjectStateAccess, pipe *fakePipeline, ra
 	}
 }
 
-func registerRailCoAuthor(env *testsuite.TestWorkflowEnvironment, wf *Workflows) {
-	env.RegisterWorkflowWithOptions(wf.CoAuthorArtifactWorkflow, workflow.RegisterOptions{Name: ExecutionKindCoAuthor})
+func registerRailCoAuthor(env *testsuite.TestWorkflowEnvironment, wf *workflows) {
+	env.RegisterWorkflowWithOptions(wf.CoAuthorArtifactWorkflow, workflow.RegisterOptions{Name: executionKindCoAuthor})
 	env.RegisterActivity(wf.ReadProjectActivity)
+	env.RegisterActivity(wf.ReadProjectVersionActivity)
 	env.RegisterActivity(wf.ReadProjectOnBranchActivity)
 	env.RegisterActivity(wf.DispatchDesignJobActivity)
 	env.RegisterActivity(wf.ObserveDesignJobActivity)
@@ -180,19 +181,19 @@ func Test_CoAuthor_RailEnabled_BranchPRReadBackPlusOneMerge_HappyPath(t *testing
 	registerRailCoAuthor(env, wf)
 
 	env.RegisterDelayedCallback(func() {
-		env.SignalWorkflow(SignalReviewDecision, ReviewDecisionSignal{Decision: ReviewApprove})
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
 	}, 30*time.Second)
 
-	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: projectstate.KindSystem})
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("rail happy path workflow error: %v", err)
 	}
-	var outcome CoAuthorOutcome
+	var outcome coAuthorOutcome
 	if err := env.GetWorkflowResult(&outcome); err != nil {
 		t.Fatalf("decode outcome: %v", err)
 	}
-	if outcome != CoAuthorApproved {
+	if outcome != coAuthorApproved {
 		t.Fatalf("want CoAuthorApproved, got %d", outcome)
 	}
 	// The rail ran the full settled sequence exactly once each.
@@ -231,13 +232,13 @@ func Test_CoAuthor_RailEnabled_ApproveButPRNotGreen_DoesNotMerge_Recovers(t *tes
 
 	// First Approve hits the not-green guard → StageDraftFailed; then Withdraw ends it.
 	env.RegisterDelayedCallback(func() {
-		env.SignalWorkflow(SignalReviewDecision, ReviewDecisionSignal{Decision: ReviewApprove})
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
 	}, 30*time.Second)
 	env.RegisterDelayedCallback(func() {
-		env.SignalWorkflow(SignalReviewDecision, ReviewDecisionSignal{Decision: ReviewWithdraw})
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
 	}, 60*time.Second)
 
-	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: projectstate.KindSystem})
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("a not-green merge guard must not crash the workflow: %v", err)

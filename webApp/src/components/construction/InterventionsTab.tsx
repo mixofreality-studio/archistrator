@@ -30,7 +30,7 @@ import Button from '@mui/material/Button';
 import TextField from '@mui/material/TextField';
 import Alert from '@mui/material/Alert';
 import PauseCircleOutlineIcon from '@mui/icons-material/PauseCircleOutline';
-import type { ConstructionSessionState, OverrideKind } from '../../api/construction';
+import type { ConstructionSessionState, OverrideKind } from '../../api/types';
 import type { ConstructionRows, GitRow, ProjectArtifactModelEnvelope, ProjectStateWithGit } from '../../api/types';
 import { sessionIsLive, activeActivityId } from '../../api/constructionAdapters';
 import { narrowProject } from '../../api/projectAdapters';

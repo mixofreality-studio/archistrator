@@ -40,7 +40,6 @@ package durableexecution
 // import none.
 
 import (
-	"context"
 	"errors"
 	"time"
 
@@ -52,10 +51,14 @@ import (
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
-// Runtime is the concrete Temporal-client-backed implementation of the
-// DurableExecutionAccess port. It holds the control-plane client handle and the
-// ExecutionKind registry; it imports Temporal but exposes only the opaque port.
-type Runtime struct {
+// temporalDurableExecutionAccess is the concrete Temporal-client-backed
+// implementation of the DurableExecutionAccess port. It is UNEXPORTED — the
+// package's only public surface is the generated DurableExecutionAccess interface +
+// models + the generated NewTemporalDurableExecutionAccess constructor (plus the
+// KindBinding construction-input type and the value-type behaviour free functions).
+// It holds the control-plane client handle and the ExecutionKind registry; it
+// imports Temporal but exposes only the opaque port.
+type temporalDurableExecutionAccess struct {
 	// cl is the Temporal control-plane client (already bound to the runtime's
 	// namespace by the constructor's caller). Used ONLY for control-plane RPC —
 	// this RA never runs inside a workflow, so it holds no Worker.
@@ -65,15 +68,15 @@ type Runtime struct {
 	registry *kindRegistry
 }
 
-// Compile-time proof the concrete Runtime satisfies the port. If the port drifts,
+// Compile-time proof the concrete impl satisfies the port. If the port drifts,
 // this line breaks the build — the guard The Method wants between a frozen
 // contract and its construction.
-var _ DurableExecutionAccess = (*Runtime)(nil)
+var _ DurableExecutionAccess = (*temporalDurableExecutionAccess)(nil)
 
 // KindBinding is the construction-time binding of a logical ExecutionKind to its
 // infrastructure workflow-type name and task queue. The aiarch-server bootstrap
-// supplies the SAME table to NewRuntime and to its Worker registration so the
-// names line up. It is exported only so the bootstrap can build the table; it
+// supplies the SAME table to NewTemporalDurableExecutionAccess and to its Worker
+// registration so the names line up. It is exported only so the bootstrap can build the table; it
 // carries no Temporal lexeme (a "WorkflowType" string is just the control-plane
 // address).
 type KindBinding struct {
@@ -83,32 +86,40 @@ type KindBinding struct {
 	TaskQueue string
 }
 
-// NewRuntime builds a Runtime over a Temporal control-plane client and the
-// ExecutionKind → binding table. The constructor performs no IO; infrastructure
-// failures surface lazily on the first call as typed fwra errors. cl must be
-// non-nil; an empty table is allowed (every StartOrSignal/Schedule then surfaces
-// fwra.ContractMisuse for an unknown kind, which is the correct pre-condition
-// failure).
-func NewRuntime(cl client.Client, table map[ExecutionKind]KindBinding) *Runtime {
+// newTemporalDurableExecutionAccess is the hand-written, unexported builder behind
+// the generated NewTemporalDurableExecutionAccess constructor (option-1 delegated
+// DI). It builds the impl over a Temporal control-plane client and the
+// ExecutionKind → binding table — constructing the hand-written kindRegistry — and
+// returns the DurableExecutionAccess interface so the concrete struct stays
+// unexported. The constructor performs no IO; infrastructure failures surface
+// lazily on the first call as typed fwra errors. cl must be non-nil; an empty table
+// is allowed (every StartOrSignal/Schedule then surfaces fwra.ContractMisuse for an
+// unknown kind, which is the correct pre-condition failure).
+func newTemporalDurableExecutionAccess(cl client.Client, table map[ExecutionKind]KindBinding) DurableExecutionAccess {
 	internal := make(map[ExecutionKind]kindBinding, len(table))
 	for k, b := range table {
 		internal[k] = kindBinding{workflowType: b.WorkflowType, taskQueue: b.TaskQueue}
 	}
-	return &Runtime{cl: cl, registry: newKindRegistry(internal)}
+	return &temporalDurableExecutionAccess{cl: cl, registry: newKindRegistry(internal)}
 }
 
 // StartOrSignalExecution implements the Client entry verb (durableExecutionAccess.md
 // §2.1). Empty signalName → cold start (idempotent on ExecutionID); set signalName
 // → signal-with-start. Returns once durably accepted.
-func (r *Runtime) StartOrSignalExecution(ctx context.Context, executionKind ExecutionKind, executionID ExecutionID, signalName SignalName, payload ExecutionPayload) (ExecutionHandle, error) {
+func (r *temporalDurableExecutionAccess) StartOrSignalExecution(rc fwra.Context, executionKind ExecutionKind, executionID ExecutionID, signalName SignalName, payload ExecutionPayload) (ExecutionHandle, error) {
+	// The cross-cutting ctx (and, where a verb needs them, Principal / IdempotencyKey)
+	// now ride the ResourceAccess call Context. fwra.Context embeds context.Context; the
+	// runtime is natively idempotent on the caller-supplied ExecutionID, so this verb
+	// reads only ctx here. The package still imports no Temporal on its surface.
+	ctx := rc.Context
 	if executionID == "" {
-		return ExecutionHandle{}, fwra.New(fwra.ContractMisuse, "durableexecution.StartOrSignalExecution: empty executionID")
+		return "", fwra.New(fwra.ContractMisuse, "durableexecution.StartOrSignalExecution: empty executionID")
 	}
 	binding, ok := r.registry.resolve(executionKind)
 	if !ok {
 		// The logical ErrUnknownKind — a caller pre-condition violation owned by this
 		// contract, surfaced WITHOUT consulting the runtime.
-		return ExecutionHandle{}, fwra.New(fwra.ContractMisuse, "durableexecution.StartOrSignalExecution: unknown executionKind "+string(executionKind))
+		return "", fwra.New(fwra.ContractMisuse, "durableexecution.StartOrSignalExecution: unknown executionKind "+string(executionKind))
 	}
 
 	opts := client.StartWorkflowOptions{
@@ -141,16 +152,17 @@ func (r *Runtime) StartOrSignalExecution(ctx context.Context, executionKind Exec
 		// §2.1, §6: AlreadyExists is mapped to success, never surfaced).
 		if temporal.IsWorkflowExecutionAlreadyStartedError(err) {
 			existing := r.cl.GetWorkflow(ctx, string(executionID), "")
-			return ExecutionHandle{opaque: handleString(existing.GetID(), existing.GetRunID())}, nil
+			return ExecutionHandle(handleString(existing.GetID(), existing.GetRunID())), nil
 		}
-		return ExecutionHandle{}, mapStartError(err)
+		return "", mapStartError(err)
 	}
-	return ExecutionHandle{opaque: handleString(run.GetID(), run.GetRunID())}, nil
+	return ExecutionHandle(handleString(run.GetID(), run.GetRunID())), nil
 }
 
 // DeliverSignal implements the cross-execution fire-and-forget signal
 // (durableExecutionAccess.md §2.2). void return; at-least-once to the channel.
-func (r *Runtime) DeliverSignal(ctx context.Context, targetExecutionID ExecutionID, signalName SignalName, payload ExecutionPayload) error {
+func (r *temporalDurableExecutionAccess) DeliverSignal(rc fwra.Context, targetExecutionID ExecutionID, signalName SignalName, payload ExecutionPayload) error {
+	ctx := rc.Context
 	if targetExecutionID == "" {
 		return fwra.New(fwra.ContractMisuse, "durableexecution.DeliverSignal: empty targetExecutionID")
 	}
@@ -166,7 +178,8 @@ func (r *Runtime) DeliverSignal(ctx context.Context, targetExecutionID Execution
 // RegisterSchedule implements idempotent recurring-schedule registration
 // (durableExecutionAccess.md §2.3). Idempotent on ScheduleID; last-writer-wins on
 // a changed spec.
-func (r *Runtime) RegisterSchedule(ctx context.Context, scheduleID ScheduleID, spec ScheduleSpec) error {
+func (r *temporalDurableExecutionAccess) RegisterSchedule(rc fwra.Context, scheduleID ScheduleID, spec ScheduleSpec) error {
+	ctx := rc.Context
 	if scheduleID == "" {
 		return fwra.New(fwra.ContractMisuse, "durableexecution.RegisterSchedule: empty scheduleID")
 	}
@@ -218,7 +231,8 @@ func (r *Runtime) RegisterSchedule(ctx context.Context, scheduleID ScheduleID, s
 
 // QueryExecutionState implements the read-only technical query
 // (durableExecutionAccess.md §2.4). Side-effect-free.
-func (r *Runtime) QueryExecutionState(ctx context.Context, executionID ExecutionID, queryName QueryName, args ExecutionPayload) (ExecutionStateView, error) {
+func (r *temporalDurableExecutionAccess) QueryExecutionState(rc fwra.Context, executionID ExecutionID, queryName QueryName, args ExecutionPayload) (ExecutionStateView, error) {
+	ctx := rc.Context
 	if executionID == "" {
 		return ExecutionStateView{}, fwra.New(fwra.ContractMisuse, "durableexecution.QueryExecutionState: empty executionID")
 	}
@@ -229,7 +243,7 @@ func (r *Runtime) QueryExecutionState(ctx context.Context, executionID Execution
 	}
 	info := desc.GetWorkflowExecutionInfo()
 	view := ExecutionStateView{
-		Handle: ExecutionHandle{opaque: handleString(string(executionID), info.GetExecution().GetRunId())},
+		Handle: ExecutionHandle(handleString(string(executionID), info.GetExecution().GetRunId())),
 		Status: mapStatus(info.GetStatus()),
 	}
 	if st := info.GetStartTime(); st != nil {

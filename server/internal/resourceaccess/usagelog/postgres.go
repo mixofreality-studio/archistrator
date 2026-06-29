@@ -16,21 +16,23 @@ import (
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
-// Store is the concrete, Postgres-backed implementation of UsageAccess
-// (usageAccess.md §6 infrastructure mapping; schema authored by R-PG-US).
-// The ledger lives in the append-only usage_log table: INSERT-only rows
-// deduped by UNIQUE(runtime_event_id), with a store-level trigger rejecting
-// every UPDATE/DELETE. The struct imports NO Temporal (layer rule): the
-// runtime event id arrives as an ordinary field on each event and is never
-// read from ambient context.
-type Store struct {
+// postgresUsageAccess is the concrete, Postgres-backed implementation of
+// UsageAccess (usageAccess.md §6 infrastructure mapping; schema authored by
+// R-PG-US). It is UNEXPORTED — the package's only public surface is the generated
+// UsageAccess interface + models + the generated NewPostgresUsageAccess
+// constructor (option-1 generated-DI). The ledger lives in the append-only
+// usage_log table: INSERT-only rows deduped by UNIQUE(runtime_event_id), with a
+// store-level trigger rejecting every UPDATE/DELETE. The struct imports NO
+// Temporal (layer rule): the runtime event id arrives as an ordinary field on
+// each event and is never read from ambient context.
+type postgresUsageAccess struct {
 	pool *pgxpool.Pool
 }
 
-// Compile-time proof the concrete Store satisfies the port. If the port ever
+// Compile-time proof the concrete impl satisfies the port. If the port ever
 // drifts, this line breaks the build — exactly the guard The Method wants
 // between a contract and its construction.
-var _ UsageAccess = (*Store)(nil)
+var _ UsageAccess = (*postgresUsageAccess)(nil)
 
 // schemaDDL is the deterministic, idempotent migration for the append-only
 // ledger, authored by R-PG-US (schema.sql in this package IS the migration).
@@ -42,29 +44,37 @@ var _ UsageAccess = (*Store)(nil)
 //go:embed schema.sql
 var schemaDDL string
 
-// NewStore builds a Store over an existing pgx pool and applies the embedded,
-// idempotent schema (DDL). Safe to run on every boot/redeploy.
-func NewStore(ctx context.Context, pool *pgxpool.Pool) (*Store, error) {
+// newPostgresUsageAccess is the hand-written, unexported builder behind the
+// generated NewPostgresUsageAccess constructor (option-1 delegated DI). It builds
+// the impl over an existing pgx pool and applies the embedded, idempotent schema
+// (DDL) — the stateful setup the builder owns — returning the UsageAccess
+// interface so the concrete struct stays unexported. Safe to run on every
+// boot/redeploy.
+func newPostgresUsageAccess(ctx context.Context, pool *pgxpool.Pool) (UsageAccess, error) {
 	if pool == nil {
-		return nil, fwra.New(fwra.ContractMisuse, "usagelog.NewStore: nil pool")
+		return nil, fwra.New(fwra.ContractMisuse, "usagelog.NewPostgresUsageAccess: nil pool")
 	}
 	if _, err := pool.Exec(ctx, schemaDDL); err != nil {
-		return nil, fwra.Wrap(fwra.Infrastructure, err, "usagelog.NewStore: apply schema")
+		return nil, fwra.Wrap(fwra.Infrastructure, err, "usagelog.NewPostgresUsageAccess: apply schema")
 	}
-	return &Store{pool: pool}, nil
+	return &postgresUsageAccess{pool: pool}, nil
 }
 
 // RecordComputeUsage appends a batch of observed usage facts (contract §2.1).
-func (s *Store) RecordComputeUsage(ctx context.Context, events []UsageEvent) ([]EntryRef, error) {
-	return s.appendBatch(ctx, "usagelog.RecordComputeUsage", events)
+// The cross-cutting ctx now rides the ResourceAccess call Context (fwra.Context
+// embeds context.Context); this port carries NO fwra.IdempotencyKey — dedup is
+// the domain RuntimeEventID field on each event (DB UNIQUE constraint), so the
+// component stays Temporal-free and the behaviour is byte-identical.
+func (s *postgresUsageAccess) RecordComputeUsage(rc fwra.Context, events []UsageEvent) ([]EntryRef, error) {
+	return s.appendBatch(rc.Context, "usagelog.RecordComputeUsage", events)
 }
 
 // RecordFinalUsage appends the final usage batch captured at withdraw
 // (contract §2.2). Same table, same transaction shape, same idempotency as
 // RecordComputeUsage — the "final" distinction is the business moment, not a
 // column this seam exposes (contract §6).
-func (s *Store) RecordFinalUsage(ctx context.Context, events []UsageEvent) ([]EntryRef, error) {
-	return s.appendBatch(ctx, "usagelog.RecordFinalUsage", events)
+func (s *postgresUsageAccess) RecordFinalUsage(rc fwra.Context, events []UsageEvent) ([]EntryRef, error) {
+	return s.appendBatch(rc.Context, "usagelog.RecordFinalUsage", events)
 }
 
 // insertSQL appends one immutable fact. ON CONFLICT (runtime_event_id)
@@ -86,7 +96,7 @@ const selectExistingSQL = `SELECT entry_id FROM usage_log WHERE runtime_event_id
 // dedup on UNIQUE(runtime_event_id). For each duplicate the PRIOR entry's ref
 // is selected and returned in that row's position — idempotent no-op success,
 // never a public Duplicate error. Refs are returned in input order.
-func (s *Store) appendBatch(ctx context.Context, op string, events []UsageEvent) ([]EntryRef, error) {
+func (s *postgresUsageAccess) appendBatch(ctx context.Context, op string, events []UsageEvent) ([]EntryRef, error) {
 	for i := range events {
 		if err := validateEvent(op, i, &events[i]); err != nil {
 			return nil, err
@@ -182,7 +192,8 @@ func (s *Store) appendBatch(ctx context.Context, op string, events []UsageEvent)
 // (contract §2.3): whole period when query.OperatedAppID is nil, one operated
 // app's facts when set. Pure read; an empty period returns an empty
 // (non-nil) slice, never NotFound.
-func (s *Store) ReadRange(ctx context.Context, query UsageRangeQuery) ([]UsageEvent, error) {
+func (s *postgresUsageAccess) ReadRange(rc fwra.Context, query UsageRangeQuery) ([]UsageEvent, error) {
+	ctx := rc.Context
 	const op = "usagelog.ReadRange"
 	if query.CustomerID == uuid.Nil {
 		return nil, fwra.New(fwra.ContractMisuse, op+": zero CustomerID")

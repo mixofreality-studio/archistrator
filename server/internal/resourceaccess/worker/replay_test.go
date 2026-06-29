@@ -36,16 +36,16 @@ func writeCassetteFile(t *testing.T, dir, key, responseJSON string) {
 // TestNewReplayWorker_Guards — empty dir and unknown mode are ContractMisuse;
 // record_on_miss requires a non-nil delegate.
 func TestNewReplayWorker_Guards(t *testing.T) {
-	if _, err := NewReplayWorker("", ReplayStrict, nil); err == nil {
+	if _, err := NewReplayWorkerAccess("", ReplayStrict, nil); err == nil {
 		t.Fatal("expected error for empty dir")
 	}
-	if _, err := NewReplayWorker(t.TempDir(), "bogus", nil); err == nil {
+	if _, err := NewReplayWorkerAccess(t.TempDir(), "bogus", nil); err == nil {
 		t.Fatal("expected error for unknown mode")
 	}
-	if _, err := NewReplayWorker(t.TempDir(), ReplayRecordOnMiss, nil); err == nil {
+	if _, err := NewReplayWorkerAccess(t.TempDir(), ReplayRecordOnMiss, nil); err == nil {
 		t.Fatal("expected error: record_on_miss requires a delegate")
 	}
-	if _, err := NewReplayWorker(t.TempDir(), ReplayStrict, nil); err != nil {
+	if _, err := NewReplayWorkerAccess(t.TempDir(), ReplayStrict, nil); err != nil {
 		t.Fatalf("strict mode with nil delegate is valid: %v", err)
 	}
 }
@@ -54,7 +54,7 @@ func TestNewReplayWorker_Guards(t *testing.T) {
 // delegate (strict, delegate nil).
 func TestReplay_Hit_ReturnsCassetteBytes(t *testing.T) {
 	dir := t.TempDir()
-	w, err := NewReplayWorker(dir, ReplayStrict, nil)
+	w, err := NewReplayWorkerAccess(dir, ReplayStrict, nil)
 	if err != nil {
 		t.Fatalf("NewReplayWorker: %v", err)
 	}
@@ -62,7 +62,7 @@ func TestReplay_Hit_ReturnsCassetteBytes(t *testing.T) {
 	key := cassetteKey(spec)
 	writeCassetteFile(t, dir, key, `{"term":"aggregate"}`)
 
-	got, err := w.Generate(context.Background(), spec, "wf:act-1")
+	got, err := w.Generate(rc(context.Background(), "wf:act-1"), spec)
 	if err != nil {
 		t.Fatalf("Generate: %v", err)
 	}
@@ -75,11 +75,11 @@ func TestReplay_Hit_ReturnsCassetteBytes(t *testing.T) {
 // *fwra.Error (ContractMisuse) that names the key and dir.
 func TestReplay_StrictMiss_IsLoudError(t *testing.T) {
 	dir := t.TempDir()
-	w, err := NewReplayWorker(dir, ReplayStrict, nil)
+	w, err := NewReplayWorkerAccess(dir, ReplayStrict, nil)
 	if err != nil {
 		t.Fatalf("NewReplayWorker: %v", err)
 	}
-	_, err = w.Generate(context.Background(), GenerateSpec{WorkerClass: "architect", Prompt: "no cassette"}, "wf:act-1")
+	_, err = w.Generate(rc(context.Background(), "wf:act-1"), GenerateSpec{WorkerClass: "architect", Prompt: "no cassette"})
 	var fe *fwra.Error
 	if err == nil {
 		t.Fatal("expected a loud error on strict miss")
@@ -92,12 +92,12 @@ func TestReplay_StrictMiss_IsLoudError(t *testing.T) {
 // TestReplay_ContractMisuse_GuardsFirst — empty key / empty prompt are rejected
 // before any disk lookup.
 func TestReplay_ContractMisuse_GuardsFirst(t *testing.T) {
-	w, _ := NewReplayWorker(t.TempDir(), ReplayStrict, nil)
+	w, _ := NewReplayWorkerAccess(t.TempDir(), ReplayStrict, nil)
 	ctx := context.Background()
-	if _, err := w.Generate(ctx, GenerateSpec{WorkerClass: "architect", Prompt: "x"}, ""); err == nil {
+	if _, err := w.Generate(rc(ctx, ""), GenerateSpec{WorkerClass: "architect", Prompt: "x"}); err == nil {
 		t.Fatal("empty key must be ContractMisuse")
 	}
-	if _, err := w.Generate(ctx, GenerateSpec{WorkerClass: "architect", Prompt: "  "}, "k"); err == nil {
+	if _, err := w.Generate(rc(ctx, "k"), GenerateSpec{WorkerClass: "architect", Prompt: "  "}); err == nil {
 		t.Fatal("empty prompt must be ContractMisuse")
 	}
 }
@@ -140,12 +140,12 @@ type fakeDelegate struct {
 	calls int
 }
 
-func (f *fakeDelegate) Generate(_ context.Context, _ GenerateSpec, _ fwra.IdempotencyKey) (json.RawMessage, error) {
+func (f *fakeDelegate) Generate(_ fwra.Context, _ GenerateSpec) (json.RawMessage, error) {
 	f.calls++
 	return f.resp, nil
 }
-func (f *fakeDelegate) Cancel(_ context.Context, _ fwra.IdempotencyKey) error { return nil }
-func (f *fakeDelegate) GenerateToolTurn(_ context.Context, _ ToolTurnSpec, _ fwra.IdempotencyKey) (AssistantTurn, error) {
+func (f *fakeDelegate) Cancel(_ fwra.Context) error { return nil }
+func (f *fakeDelegate) GenerateToolTurn(_ fwra.Context, _ ToolTurnSpec) (AssistantTurn, error) {
 	f.calls++
 	return AssistantTurn{StopReason: "end_turn"}, nil
 }
@@ -156,13 +156,13 @@ func (f *fakeDelegate) GenerateToolTurn(_ context.Context, _ ToolTurnSpec, _ fwr
 func TestRecordOnMiss_GeneratesThenReplaysFromDisk(t *testing.T) {
 	dir := t.TempDir()
 	del := &fakeDelegate{resp: json.RawMessage(`{"drafted":true}`)}
-	w, err := NewReplayWorker(dir, ReplayRecordOnMiss, del)
+	w, err := NewReplayWorkerAccess(dir, ReplayRecordOnMiss, del)
 	if err != nil {
 		t.Fatalf("NewReplayWorker: %v", err)
 	}
 	spec := GenerateSpec{WorkerClass: "architect", Prompt: "draft the mission"}
 
-	got, err := w.Generate(context.Background(), spec, "wf:act-1")
+	got, err := w.Generate(rc(context.Background(), "wf:act-1"), spec)
 	if err != nil {
 		t.Fatalf("Generate (miss): %v", err)
 	}
@@ -178,11 +178,11 @@ func TestRecordOnMiss_GeneratesThenReplaysFromDisk(t *testing.T) {
 	}
 
 	// A FRESH strict worker over the same dir replays without any delegate.
-	w2, err := NewReplayWorker(dir, ReplayStrict, nil)
+	w2, err := NewReplayWorkerAccess(dir, ReplayStrict, nil)
 	if err != nil {
 		t.Fatalf("NewReplayWorker (replay): %v", err)
 	}
-	got2, err := w2.Generate(context.Background(), spec, "wf2:act-1")
+	got2, err := w2.Generate(rc(context.Background(), "wf2:act-1"), spec)
 	if err != nil {
 		t.Fatalf("Generate (replay): %v", err)
 	}
@@ -196,14 +196,14 @@ func TestRecordOnMiss_GeneratesThenReplaysFromDisk(t *testing.T) {
 func TestRecordOnMiss_WithinRunRetry_DoesNotReinvoke(t *testing.T) {
 	dir := t.TempDir()
 	del := &fakeDelegate{resp: json.RawMessage(`{"x":1}`)}
-	w, _ := NewReplayWorker(dir, ReplayRecordOnMiss, del)
+	w, _ := NewReplayWorkerAccess(dir, ReplayRecordOnMiss, del)
 	spec := GenerateSpec{WorkerClass: "architect", Prompt: "draft"}
 	const key = fwra.IdempotencyKey("wf:act-1")
 
-	if _, err := w.Generate(context.Background(), spec, key); err != nil {
+	if _, err := w.Generate(rc(context.Background(), key), spec); err != nil {
 		t.Fatalf("first Generate: %v", err)
 	}
-	if _, err := w.Generate(context.Background(), spec, key); err != nil {
+	if _, err := w.Generate(rc(context.Background(), key), spec); err != nil {
 		t.Fatalf("retry Generate: %v", err)
 	}
 	if del.calls != 1 {
@@ -216,12 +216,12 @@ func TestRecordOnMiss_WithinRunRetry_DoesNotReinvoke(t *testing.T) {
 func TestRecordOnMiss_CancelThenGenerate_ReturnsNil(t *testing.T) {
 	dir := t.TempDir()
 	del := &fakeDelegate{resp: json.RawMessage(`{"x":1}`)}
-	w, _ := NewReplayWorker(dir, ReplayRecordOnMiss, del)
+	w, _ := NewReplayWorkerAccess(dir, ReplayRecordOnMiss, del)
 	const key = fwra.IdempotencyKey("wf-cancel:act-1")
-	if err := w.Cancel(context.Background(), key); err != nil {
+	if err := w.Cancel(rc(context.Background(), key)); err != nil {
 		t.Fatalf("Cancel: %v", err)
 	}
-	got, err := w.Generate(context.Background(), GenerateSpec{WorkerClass: "architect", Prompt: "draft"}, key)
+	got, err := w.Generate(rc(context.Background(), key), GenerateSpec{WorkerClass: "architect", Prompt: "draft"})
 	if err != nil {
 		t.Fatalf("expected nil error after cancel, got %v", err)
 	}

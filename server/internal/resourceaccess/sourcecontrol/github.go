@@ -118,9 +118,14 @@ type githubClient interface {
 // match), so the satellite client IS the seam implementation — no adapter needed.
 var _ githubClient = (*fwgithub.AppClient)(nil)
 
-// Access is the concrete GitHub-App-backed sourceControlAccess. It implements both
-// ISourceControlLifecycle and IPullRequestRail over a single githubClient.
-type Access struct {
+// access is the concrete GitHub-App-backed sourceControlAccess. It implements the
+// single merged SourceControlAccess port (all ten ops) over a single githubClient.
+// It is UNEXPORTED (option-1 generated-DI): the package's only public surface is the
+// generated SourceControlAccess interface + models + the generated
+// NewGitHubSourceControlAccess constructor (plus the small hand-written catalog/locator
+// surface — SourceControlCatalogAccess + ProjectRepoRef — the projectstate catalog
+// consumes, and the established free-function/named-scalar/error-alias exceptions).
+type access struct {
 	client githubClient
 	// account is the org login under which repos are provisioned and installations
 	// discovered. Provider-opaque to callers (it rides inside AccountRef/RepoRef);
@@ -144,26 +149,29 @@ type cachedToken struct {
 	expiresAt time.Time
 }
 
-// compile-time proof Access satisfies both contract faces and the combined port.
+// compile-time proof access satisfies the merged port + the catalog/locator surface.
 var (
-	_ SourceControlLifecycle = (*Access)(nil)
-	_ PullRequestRail        = (*Access)(nil)
-	_ SourceControlAccess    = (*Access)(nil)
+	_ SourceControlAccess        = (*access)(nil)
+	_ SourceControlCatalogAccess = (*access)(nil)
 )
 
-// New builds the GitHub-App-backed Access. client is the satellite client (or a
-// fake in tests); account is the org login; appSlug is the App slug for branch
-// protection. It performs no IO.
-func New(client githubClient, account, appSlug string, repoPrivate bool) (*Access, error) {
+// newGitHubSourceControlAccess is the hand-written, unexported builder behind the
+// generated NewGitHubSourceControlAccess constructor (option-1 delegated DI). client is
+// the framework GitHub-App satellite client (*fwgithub.AppClient, which satisfies the
+// unexported githubClient seam directly; tests point a real AppClient at a fake GitHub
+// HTTP boundary); defaultAccount is the org login; appSlug is the App slug for branch
+// protection. It performs no IO and returns the SourceControlAccess interface so the
+// concrete impl stays unexported.
+func newGitHubSourceControlAccess(client *fwgithub.AppClient, defaultAccount, appSlug string, repoPrivate bool) (SourceControlAccess, error) {
 	if client == nil {
-		return nil, fwra.New(fwra.ContractMisuse, "New: nil github client")
+		return nil, fwra.New(fwra.ContractMisuse, "NewGitHubSourceControlAccess: nil github client")
 	}
-	if strings.TrimSpace(account) == "" {
-		return nil, fwra.New(fwra.ContractMisuse, "New: empty account")
+	if strings.TrimSpace(defaultAccount) == "" {
+		return nil, fwra.New(fwra.ContractMisuse, "NewGitHubSourceControlAccess: empty account")
 	}
-	return &Access{
+	return &access{
 		client:         client,
-		defaultAccount: strings.TrimSpace(account),
+		defaultAccount: strings.TrimSpace(defaultAccount),
 		appSlug:        strings.TrimSpace(appSlug),
 		repoPrivate:    repoPrivate,
 		now:            time.Now,
@@ -176,13 +184,13 @@ func New(client githubClient, account, appSlug string, repoPrivate bool) (*Acces
 // ---------------------------------------------------------------------------
 
 func makeRepoRef(account, fullName string) RepoRef {
-	return RepoRef{opaque: account + repoRefSep + fullName}
+	return RepoRef(account + repoRefSep + fullName)
 }
 
 // splitRepoRef recovers (account, fullName) from an opaque RepoRef. A malformed
 // ref (no separator / empty parts) is a ContractMisuse the caller's verb surfaces.
 func splitRepoRef(r RepoRef) (account, fullName string, err error) {
-	parts := strings.SplitN(r.opaque, repoRefSep, 2)
+	parts := strings.SplitN(string(r), repoRefSep, 2)
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 		return "", "", fwra.New(fwra.ContractMisuse, "sourcecontrol: malformed RepoRef")
 	}
@@ -207,16 +215,20 @@ func deterministicRepoName(p ProjectID) string {
 // InstallAuthorizeApp discovers/confirms the installation for `account`. NotFound
 // (the contract's NotInstalled) surfaces from the satellite when the App is not
 // installed. Idempotent on account (pure discovery).
-func (a *Access) InstallAuthorizeApp(ctx context.Context, account AccountRef, _ fwra.IdempotencyKey) (Installation, error) {
+func (a *access) InstallAuthorizeApp(rc fwra.Context, account AccountRef) (Installation, error) {
+	// The cross-cutting ctx (and the optional IdempotencyKey, carried for traceability)
+	// now ride the ResourceAccess call Context. fwra.Context embeds context.Context;
+	// this verb is idempotent on the account, so it reads only ctx here.
+	ctx := rc.Context
 	acct := a.resolveAccount(account)
 	if acct == "" {
-		return Installation{}, fwra.New(fwra.ContractMisuse, "InstallAuthorizeApp: empty account")
+		return "", fwra.New(fwra.ContractMisuse, "InstallAuthorizeApp: empty account")
 	}
 	id, err := a.client.FindInstallation(ctx, acct)
 	if err != nil {
-		return Installation{}, err
+		return "", err
 	}
-	return Installation{opaque: itoa64(id)}, nil
+	return Installation(itoa64(id)), nil
 }
 
 // AdoptProjectRepo verifies the user's EXISTING repo (spec.RepoName under
@@ -240,17 +252,18 @@ func (a *Access) InstallAuthorizeApp(ctx context.Context, account AccountRef, _ 
 //
 // Idempotent on the repo name: re-adopting an already-tagged repo re-applies the
 // topic/description (converged → effective no-op).
-func (a *Access) AdoptProjectRepo(ctx context.Context, spec RepoAdoptionSpec, _ fwra.IdempotencyKey) (RepoRef, error) {
+func (a *access) AdoptProjectRepo(rc fwra.Context, spec RepoAdoptionSpec) (RepoRef, error) {
+	ctx := rc.Context
 	if strings.TrimSpace(spec.RepoName) == "" {
-		return RepoRef{}, fwra.New(fwra.ContractMisuse, "AdoptProjectRepo: empty RepoName")
+		return "", fwra.New(fwra.ContractMisuse, "AdoptProjectRepo: empty RepoName")
 	}
 	acct := a.resolveAccount(spec.Account)
 	if acct == "" {
-		return RepoRef{}, fwra.New(fwra.ContractMisuse, "AdoptProjectRepo: empty account")
+		return "", fwra.New(fwra.ContractMisuse, "AdoptProjectRepo: empty account")
 	}
 	instToken, err := a.installationTokenForAccount(ctx, acct)
 	if err != nil {
-		return RepoRef{}, err
+		return "", err
 	}
 	fullName := acct + "/" + spec.RepoName
 
@@ -259,10 +272,10 @@ func (a *Access) AdoptProjectRepo(ctx context.Context, spec RepoAdoptionSpec, _ 
 	//    re-surface as the actionable NotUnderInstallation onboarding block.
 	if _, err := a.client.GetRepoMetadata(ctx, fullName, instToken); err != nil {
 		if kindOfErr(err) == fwra.NotFound {
-			return RepoRef{}, fwra.New(fwra.NotFound,
+			return "", fwra.New(fwra.NotFound,
 				"AdoptProjectRepo: NotUnderInstallation — repo "+fullName+" is not reachable under the aiarch App installation (install the App on this repo, or move it under the installed org)")
 		}
-		return RepoRef{}, err
+		return "", err
 	}
 
 	// 2. Adopt regardless of content: apply the project-title description + the
@@ -272,9 +285,27 @@ func (a *Access) AdoptProjectRepo(ctx context.Context, spec RepoAdoptionSpec, _ 
 	//    blocker — RESUME (loading any committed project state) is handled by
 	//    projectStateAccess.CreateProject, not here.
 	if err := a.client.SetRepoTopics(ctx, fullName, instToken, []string{projectRepoTopic}); err != nil {
-		return RepoRef{}, err
+		return "", err
 	}
 	return makeRepoRef(acct, fullName), nil
+}
+
+// SourceControlCatalogAccess is the small hand-written catalog/locator/token surface the
+// projectStateAccess catalog + git-credential minter consume at the COMPOSITION ROOT
+// (cmd/server). These ops are deliberately NOT on the merged SourceControlAccess contract:
+// ListProjectRepos returns the provider-neutral ProjectRepoRef catalog rows; RepoRefForProject
+// is a pure re-derivation of the deterministic per-project repo ref (no IO); the
+// GetInstallationToken*For* verbs mint installation-scoped credentials the catalog enumeration
+// + per-project git reads run under. They keep their plain context.Context signatures (the
+// catalog/minter call them with ctx, not the RA call Context). The unexported access impl
+// satisfies this alongside SourceControlAccess — it is the AUXILIARY hand-written public
+// surface the option-1 sweep keeps off the frozen 10-op contract (reported, not forced onto
+// the generated interface).
+type SourceControlCatalogAccess interface {
+	ListProjectRepos(ctx context.Context, account AccountRef) ([]ProjectRepoRef, error)
+	RepoRefForProject(account AccountRef, projectID ProjectID) (RepoRef, error)
+	GetInstallationTokenForProject(ctx context.Context, account AccountRef, projectID ProjectID) (RepoCredential, error)
+	GetInstallationTokenForAccount(ctx context.Context, account AccountRef) (RepoCredential, error)
 }
 
 // ProjectRepoRef is the discovery row ListProjectRepos returns: the per-project repo
@@ -311,7 +342,7 @@ func (r ProjectRepoRef) ProjectID() string {
 // ProvisionProjectRepo), but is accepted to mirror the provider-neutral cred-threaded
 // shape the projectstate RA's other verbs use; a zero cred is permitted here because
 // the in-seam mint owns the credential for enumeration.
-func (a *Access) ListProjectRepos(ctx context.Context, account AccountRef) ([]ProjectRepoRef, error) {
+func (a *access) ListProjectRepos(ctx context.Context, account AccountRef) ([]ProjectRepoRef, error) {
 	acct := a.resolveAccount(account)
 	if acct == "" {
 		return nil, fwra.New(fwra.ContractMisuse, "ListProjectRepos: empty account")
@@ -363,8 +394,9 @@ func kindOfErr(err error) fwra.Kind {
 
 // GetInstallationToken mints (or serves a still-valid in-seam-cached) short-lived
 // RepoCredential scoped to `repo`. Returned, never recorded sideways.
-func (a *Access) GetInstallationToken(ctx context.Context, repo RepoRef) (RepoCredential, error) {
-	if repo.IsZero() {
+func (a *access) GetInstallationToken(rc fwra.Context, repo RepoRef) (RepoCredential, error) {
+	ctx := rc.Context
+	if RepoRefIsZero(repo) {
 		return RepoCredential{}, fwra.New(fwra.ContractMisuse, "GetInstallationToken: zero RepoRef")
 	}
 	acct, _, err := splitRepoRef(repo)
@@ -373,7 +405,7 @@ func (a *Access) GetInstallationToken(ctx context.Context, repo RepoRef) (RepoCr
 	}
 
 	// In-seam cache (D-SC Q4): serve a still-valid token (with a safety margin).
-	if tok, ok := a.cachedToken(repo.String()); ok {
+	if tok, ok := a.cachedToken(RepoRefString(repo)); ok {
 		return RepoCredential{Bytes: []byte(tok.token), ExpiresAt: tok.expiresAt}, nil
 	}
 
@@ -385,7 +417,7 @@ func (a *Access) GetInstallationToken(ctx context.Context, repo RepoRef) (RepoCr
 	if err != nil {
 		return RepoCredential{}, err
 	}
-	a.storeToken(repo.String(), cachedToken{token: token, expiresAt: expiresAt})
+	a.storeToken(RepoRefString(repo), cachedToken{token: token, expiresAt: expiresAt})
 	return RepoCredential{Bytes: []byte(token), ExpiresAt: expiresAt}, nil
 }
 
@@ -402,13 +434,14 @@ func (a *Access) GetInstallationToken(ctx context.Context, repo RepoRef) (RepoCr
 // is independently idempotent, so a retry after a partial seat re-converges every
 // file. Files are committed in a STABLE order (sorted by path) for deterministic
 // commit history. The returned CommitRef is the LAST file's resulting commit.
-func (a *Access) CommitManagedFiles(ctx context.Context, repo RepoRef, files []ManagedFile, cred RepoCredential, _ fwra.IdempotencyKey) (CommitRef, error) {
+func (a *access) CommitManagedFiles(rc fwra.Context, repo RepoRef, files []ManagedFile, cred RepoCredential) (CommitRef, error) {
+	ctx := rc.Context
 	_, fullName, err := a.requireRepoCred(repo, cred)
 	if err != nil {
-		return CommitRef{}, err
+		return "", err
 	}
 	if len(files) == 0 {
-		return CommitRef{}, fwra.New(fwra.ContractMisuse, "CommitManagedFiles: empty fileset")
+		return "", fwra.New(fwra.ContractMisuse, "CommitManagedFiles: empty fileset")
 	}
 
 	// Validate the whole set BEFORE any write, so an off-allowlist or empty-content
@@ -418,14 +451,14 @@ func (a *Access) CommitManagedFiles(ctx context.Context, repo RepoRef, files []M
 	copy(ordered, files)
 	for _, f := range ordered {
 		if strings.TrimSpace(f.Path) == "" {
-			return CommitRef{}, fwra.New(fwra.ContractMisuse, "CommitManagedFiles: empty path")
+			return "", fwra.New(fwra.ContractMisuse, "CommitManagedFiles: empty path")
 		}
 		if !isManagedFilePath(f.Path) {
-			return CommitRef{}, fwra.New(fwra.ContractMisuse,
+			return "", fwra.New(fwra.ContractMisuse,
 				"CommitManagedFiles: path "+f.Path+" is not an aiarch-managed file (must be under "+workflowPathPrefix+" or a scaffold root: go.mod / aiarch_method_test.go)")
 		}
 		if len(f.Content) == 0 {
-			return CommitRef{}, fwra.New(fwra.ContractMisuse, "CommitManagedFiles: empty content for "+f.Path)
+			return "", fwra.New(fwra.ContractMisuse, "CommitManagedFiles: empty content for "+f.Path)
 		}
 	}
 	sort.Slice(ordered, func(i, j int) bool { return ordered[i].Path < ordered[j].Path })
@@ -438,11 +471,11 @@ func (a *Access) CommitManagedFiles(ctx context.Context, repo RepoRef, files []M
 			// retryable Conflict on this seam (retry-by-re-read). Override Retryable=true.
 			if fe := asFwraError(perr); fe != nil && fe.Kind == fwra.Conflict {
 				fe.Retryable = true
-				return CommitRef{}, fe
+				return "", fe
 			}
-			return CommitRef{}, perr
+			return "", perr
 		}
-		last = CommitRef{opaque: commitSHA}
+		last = CommitRef(commitSHA)
 	}
 	return last, nil
 }
@@ -464,13 +497,13 @@ func asFwraError(err error) *fwra.Error {
 // when it holds only the projectID, never reaching into this RA's private repo-name
 // encoding from outside. Idempotency-anchored: the same project always resolves to the
 // same ref. Empty account/projectID is a ContractMisuse.
-func (a *Access) RepoRefForProject(account AccountRef, projectID ProjectID) (RepoRef, error) {
+func (a *access) RepoRefForProject(account AccountRef, projectID ProjectID) (RepoRef, error) {
 	acct := a.resolveAccount(account)
 	if acct == "" {
-		return RepoRef{}, fwra.New(fwra.ContractMisuse, "RepoRefForProject: empty account")
+		return "", fwra.New(fwra.ContractMisuse, "RepoRefForProject: empty account")
 	}
 	if strings.TrimSpace(string(projectID)) == "" {
-		return RepoRef{}, fwra.New(fwra.ContractMisuse, "RepoRefForProject: empty projectID")
+		return "", fwra.New(fwra.ContractMisuse, "RepoRefForProject: empty projectID")
 	}
 	fullName := acct + "/" + deterministicRepoName(projectID)
 	return makeRepoRef(acct, fullName), nil
@@ -482,18 +515,21 @@ func (a *Access) RepoRefForProject(account AccountRef, projectID ProjectID) (Rep
 // wiring frequently holds the projectID rather than a previously-returned RepoRef
 // (e.g. when threading the credential into projectStateAccess on every head-state
 // verb), and re-deriving the deterministic ref here keeps that encoding inside the RA.
-func (a *Access) GetInstallationTokenForProject(ctx context.Context, account AccountRef, projectID ProjectID) (RepoCredential, error) {
+func (a *access) GetInstallationTokenForProject(ctx context.Context, account AccountRef, projectID ProjectID) (RepoCredential, error) {
 	repo, err := a.RepoRefForProject(account, projectID)
 	if err != nil {
 		return RepoCredential{}, err
 	}
-	return a.GetInstallationToken(ctx, repo)
+	// GetInstallationToken is now an RA-context verb; wrap the plain ctx into the
+	// ResourceAccess call Context at this in-RA convenience seam (this helper is not
+	// itself a contract op, so it keeps its plain-ctx signature for its callers).
+	return a.GetInstallationToken(fwra.Context{Context: ctx}, repo)
 }
 
 // installationTokenForAccount mints an installation token for an account (used by
 // the lifecycle write verbs, which are scoped to the account rather than a repo).
 // It does not consult the per-repo cache (no RepoRef exists yet at provision time).
-func (a *Access) installationTokenForAccount(ctx context.Context, account string) (string, error) {
+func (a *access) installationTokenForAccount(ctx context.Context, account string) (string, error) {
 	id, err := a.client.FindInstallation(ctx, account)
 	if err != nil {
 		return "", err
@@ -508,7 +544,7 @@ func (a *Access) installationTokenForAccount(ctx context.Context, account string
 // per-project head-state reads run under (ListProjects fans a single installation
 // token across all discovered project repos). Unlike the per-repo verbs it is not
 // cached (it is not addressed by a RepoRef); the catalog read mints it once per call.
-func (a *Access) GetInstallationTokenForAccount(ctx context.Context, account AccountRef) (RepoCredential, error) {
+func (a *access) GetInstallationTokenForAccount(ctx context.Context, account AccountRef) (RepoCredential, error) {
 	acct := a.resolveAccount(account)
 	if acct == "" {
 		return RepoCredential{}, fwra.New(fwra.ContractMisuse, "GetInstallationTokenForAccount: empty account")
@@ -529,46 +565,49 @@ func (a *Access) GetInstallationTokenForAccount(ctx context.Context, account Acc
 // ---------------------------------------------------------------------------
 
 // OpenBranch cuts `branch` from main. An existing branch is an idempotent success.
-func (a *Access) OpenBranch(ctx context.Context, repo RepoRef, branch BranchName, cred RepoCredential, _ fwra.IdempotencyKey) (BranchRef, error) {
+func (a *access) OpenBranch(rc fwra.Context, repo RepoRef, branch BranchName, cred RepoCredential) (BranchRef, error) {
+	ctx := rc.Context
 	_, fullName, err := a.requireRepoCred(repo, cred)
 	if err != nil {
-		return BranchRef{}, err
+		return "", err
 	}
 	if strings.TrimSpace(string(branch)) == "" {
-		return BranchRef{}, fwra.New(fwra.ContractMisuse, "OpenBranch: empty branch")
+		return "", fwra.New(fwra.ContractMisuse, "OpenBranch: empty branch")
 	}
 	if _, err := a.client.CreateBranch(ctx, fullName, "main", string(branch), credStr(cred)); err != nil {
-		return BranchRef{}, err
+		return "", err
 	}
-	return BranchRef{opaque: string(branch)}, nil
+	return BranchRef(string(branch)), nil
 }
 
 // OpenPullRequest proposes head→base into main. An existing open PR for the
 // head→base pair is an idempotent success returning the existing ref.
-func (a *Access) OpenPullRequest(ctx context.Context, repo RepoRef, spec PullRequestSpec, cred RepoCredential, _ fwra.IdempotencyKey) (PullRequestRef, error) {
+func (a *access) OpenPullRequest(rc fwra.Context, repo RepoRef, spec PullRequestSpec, cred RepoCredential) (PullRequestRef, error) {
+	ctx := rc.Context
 	_, fullName, err := a.requireRepoCred(repo, cred)
 	if err != nil {
-		return PullRequestRef{}, err
+		return "", err
 	}
 	if strings.TrimSpace(string(spec.Head)) == "" {
-		return PullRequestRef{}, fwra.New(fwra.ContractMisuse, "OpenPullRequest: empty head")
+		return "", fwra.New(fwra.ContractMisuse, "OpenPullRequest: empty head")
 	}
 	base := string(spec.Base)
 	if strings.TrimSpace(base) == "" {
 		base = "main"
 	}
 	if string(spec.Head) == base {
-		return PullRequestRef{}, fwra.New(fwra.ContractMisuse, "OpenPullRequest: head == base")
+		return "", fwra.New(fwra.ContractMisuse, "OpenPullRequest: head == base")
 	}
 	number, _, err := a.client.OpenPullRequest(ctx, fullName, string(spec.Head), base, spec.Title, spec.Body, credStr(cred))
 	if err != nil {
-		return PullRequestRef{}, err
+		return "", err
 	}
-	return PullRequestRef{opaque: itoa(number)}, nil
+	return PullRequestRef(itoa(number)), nil
 }
 
 // GetPullRequestStatus reads the dumb reflection of CI-green + approvals.
-func (a *Access) GetPullRequestStatus(ctx context.Context, repo RepoRef, pr PullRequestRef, cred RepoCredential) (PullRequestStatus, error) {
+func (a *access) GetPullRequestStatus(rc fwra.Context, repo RepoRef, pr PullRequestRef, cred RepoCredential) (PullRequestStatus, error) {
+	ctx := rc.Context
 	_, fullName, err := a.requireRepoCred(repo, cred)
 	if err != nil {
 		return PullRequestStatus{}, err
@@ -583,13 +622,14 @@ func (a *Access) GetPullRequestStatus(ctx context.Context, repo RepoRef, pr Pull
 	}
 	return PullRequestStatus{
 		CheckRollup:   mapRollup(st.Rollup),
-		ApprovalCount: st.ApprovalCount,
+		ApprovalCount: int64(st.ApprovalCount),
 		Mergeable:     st.Mergeable,
 	}, nil
 }
 
 // PostReview relays the in-app human architecture approval as a real PR review.
-func (a *Access) PostReview(ctx context.Context, repo RepoRef, pr PullRequestRef, review ReviewSubmission, cred RepoCredential, _ fwra.IdempotencyKey) error {
+func (a *access) PostReview(rc fwra.Context, repo RepoRef, pr PullRequestRef, review ReviewSubmission, cred RepoCredential) error {
+	ctx := rc.Context
 	_, fullName, err := a.requireRepoCred(repo, cred)
 	if err != nil {
 		return err
@@ -604,7 +644,8 @@ func (a *Access) PostReview(ctx context.Context, repo RepoRef, pr PullRequestRef
 // MergePullRequest performs the gated merge. The when-to-merge authority is
 // interventionEngine; this verb only performs. Already-merged is an idempotent
 // success; not-mergeable / conflict surface as Conflict for the Manager to route.
-func (a *Access) MergePullRequest(ctx context.Context, repo RepoRef, pr PullRequestRef, cred RepoCredential, _ fwra.IdempotencyKey) (MergeResult, error) {
+func (a *access) MergePullRequest(rc fwra.Context, repo RepoRef, pr PullRequestRef, cred RepoCredential) (MergeResult, error) {
+	ctx := rc.Context
 	_, fullName, err := a.requireRepoCred(repo, cred)
 	if err != nil {
 		return MergeResult{}, err
@@ -624,7 +665,8 @@ func (a *Access) MergePullRequest(ctx context.Context, repo RepoRef, pr PullRequ
 }
 
 // ConfigureBranchProtection provisions the App-only-merger backstop on main.
-func (a *Access) ConfigureBranchProtection(ctx context.Context, repo RepoRef, cred RepoCredential, _ fwra.IdempotencyKey) error {
+func (a *access) ConfigureBranchProtection(rc fwra.Context, repo RepoRef, cred RepoCredential) error {
+	ctx := rc.Context
 	_, fullName, err := a.requireRepoCred(repo, cred)
 	if err != nil {
 		return err
@@ -638,7 +680,7 @@ func (a *Access) ConfigureBranchProtection(ctx context.Context, repo RepoRef, cr
 
 // resolveAccount picks the caller-supplied account or falls back to the
 // composition-root default.
-func (a *Access) resolveAccount(account AccountRef) string {
+func (a *access) resolveAccount(account AccountRef) string {
 	if s := strings.TrimSpace(string(account)); s != "" {
 		return s
 	}
@@ -647,17 +689,17 @@ func (a *Access) resolveAccount(account AccountRef) string {
 
 // requireRepoCred validates a (repo, cred) pair common to every PR-rail verb and
 // returns the decoded (account, fullName).
-func (a *Access) requireRepoCred(repo RepoRef, cred RepoCredential) (account, fullName string, err error) {
-	if repo.IsZero() {
+func (a *access) requireRepoCred(repo RepoRef, cred RepoCredential) (account, fullName string, err error) {
+	if RepoRefIsZero(repo) {
 		return "", "", fwra.New(fwra.ContractMisuse, "sourcecontrol: zero RepoRef")
 	}
-	if cred.IsZero() {
+	if RepoCredentialIsZero(cred) {
 		return "", "", fwra.New(fwra.ContractMisuse, "sourcecontrol: empty RepoCredential")
 	}
 	return splitRepoRef(repo)
 }
 
-func (a *Access) cachedToken(key string) (cachedToken, bool) {
+func (a *access) cachedToken(key string) (cachedToken, bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	tok, ok := a.tokenCache[key]
@@ -671,7 +713,7 @@ func (a *Access) cachedToken(key string) (cachedToken, bool) {
 	return tok, true
 }
 
-func (a *Access) storeToken(key string, tok cachedToken) {
+func (a *access) storeToken(key string, tok cachedToken) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.tokenCache[key] = tok
@@ -702,10 +744,10 @@ func reviewEvent(v ReviewVerdict) string {
 }
 
 func prNumber(pr PullRequestRef) (int, error) {
-	if pr.IsZero() {
+	if PullRequestRefIsZero(pr) {
 		return 0, fwra.New(fwra.ContractMisuse, "sourcecontrol: zero PullRequestRef")
 	}
-	n, err := strconv.Atoi(pr.opaque)
+	n, err := strconv.Atoi(string(pr))
 	if err != nil {
 		return 0, fwra.New(fwra.ContractMisuse, "sourcecontrol: malformed PullRequestRef")
 	}

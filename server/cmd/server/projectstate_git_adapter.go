@@ -80,7 +80,7 @@ func (localCredentialMinter) catalogCredential(context.Context) (projectstate.Re
 // composition root bridges them, exactly as sourcecontrol_adapter.go bridges the
 // RepoSpec/RepoRef shapes.
 type cloudCredentialMinter struct {
-	sc      *sourcecontrol.Access
+	sc      sourcecontrol.SourceControlCatalogAccess
 	account sourcecontrol.AccountRef
 }
 
@@ -112,15 +112,17 @@ type projectStateGitAdapter struct {
 
 var _ projectstate.ProjectStateAccess = (*projectStateGitAdapter)(nil)
 
-func (a *projectStateGitAdapter) CreateProject(ctx context.Context, projectID projectstate.ProjectID, owner projectstate.OwnerScope, name string, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
+func (a *projectStateGitAdapter) CreateProject(rc fwra.Context, projectID projectstate.ProjectID, owner projectstate.OwnerScope, name string) (projectstate.Version, error) {
+	ctx := rc.Context
 	cred, err := a.minter.credentialFor(ctx, projectID)
 	if err != nil {
 		return 0, err
 	}
-	return a.store.CreateProject(ctx, projectID, owner, name, cred, idempotencyKey)
+	return a.store.CreateProject(ctx, projectID, owner, name, cred, rc.IdempotencyKey)
 }
 
-func (a *projectStateGitAdapter) ListProjects(ctx context.Context, owner projectstate.OwnerScope) ([]projectstate.ProjectSummary, error) {
+func (a *projectStateGitAdapter) ListProjects(rc fwra.Context, owner projectstate.OwnerScope) ([]projectstate.ProjectSummary, error) {
+	ctx := rc.Context
 	// Discover-by-enumeration: the catalog seam (wired into the GitStore via WithCatalog)
 	// enumerates the project repos itself; the per-project head-state reads inside
 	// ListProjects mint their own per-project credential through this same minter (the
@@ -143,60 +145,80 @@ func (a *projectStateGitAdapter) catalogCredential(ctx context.Context) (project
 	return a.minter.catalogCredential(ctx)
 }
 
-func (a *projectStateGitAdapter) StageArtifactForReview(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, model projectstate.ArtifactModel, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
+func (a *projectStateGitAdapter) StageArtifactForReview(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, model projectstate.ArtifactModel) (projectstate.Version, error) {
+	ctx := rc.Context
 	cred, err := a.minter.credentialFor(ctx, projectID)
 	if err != nil {
 		return 0, err
 	}
-	return a.store.StageArtifactForReview(ctx, projectID, expectedVersion, model, cred, idempotencyKey)
+	return a.store.StageArtifactForReview(ctx, projectID, expectedVersion, model, cred, rc.IdempotencyKey)
 }
 
-func (a *projectStateGitAdapter) CommitArtifact(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, kind projectstate.ArtifactKind, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
+func (a *projectStateGitAdapter) CommitArtifact(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, kind projectstate.ArtifactKind) (projectstate.Version, error) {
+	ctx := rc.Context
 	cred, err := a.minter.credentialFor(ctx, projectID)
 	if err != nil {
 		return 0, err
 	}
-	return a.store.CommitArtifact(ctx, projectID, expectedVersion, kind, cred, idempotencyKey)
+	return a.store.CommitArtifact(ctx, projectID, expectedVersion, kind, cred, rc.IdempotencyKey)
 }
 
-func (a *projectStateGitAdapter) RejectArtifact(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, kind projectstate.ArtifactKind, notes string, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
+func (a *projectStateGitAdapter) RejectArtifact(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, kind projectstate.ArtifactKind, notes string) (projectstate.Version, error) {
+	ctx := rc.Context
 	cred, err := a.minter.credentialFor(ctx, projectID)
 	if err != nil {
 		return 0, err
 	}
-	return a.store.RejectArtifact(ctx, projectID, expectedVersion, kind, notes, cred, idempotencyKey)
+	return a.store.RejectArtifact(ctx, projectID, expectedVersion, kind, notes, cred, rc.IdempotencyKey)
 }
 
-func (a *projectStateGitAdapter) WithdrawArtifact(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, kind projectstate.ArtifactKind, notes string, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
+func (a *projectStateGitAdapter) WithdrawArtifact(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, kind projectstate.ArtifactKind, notes string) (projectstate.Version, error) {
+	ctx := rc.Context
 	cred, err := a.minter.credentialFor(ctx, projectID)
 	if err != nil {
 		return 0, err
 	}
-	return a.store.WithdrawArtifact(ctx, projectID, expectedVersion, kind, notes, cred, idempotencyKey)
+	return a.store.WithdrawArtifact(ctx, projectID, expectedVersion, kind, notes, cred, rc.IdempotencyKey)
 }
 
-func (a *projectStateGitAdapter) AdvancePhase(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
+func (a *projectStateGitAdapter) AdvancePhase(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version) (projectstate.Version, error) {
+	ctx := rc.Context
 	cred, err := a.minter.credentialFor(ctx, projectID)
 	if err != nil {
 		return 0, err
 	}
-	return a.store.AdvancePhase(ctx, projectID, expectedVersion, cred, idempotencyKey)
+	return a.store.AdvancePhase(ctx, projectID, expectedVersion, cred, rc.IdempotencyKey)
 }
 
-func (a *projectStateGitAdapter) SetResearchInput(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, research projectstate.ResearchInput, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
+func (a *projectStateGitAdapter) SetResearchInput(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, research projectstate.ResearchInput) (projectstate.Version, error) {
+	ctx := rc.Context
 	cred, err := a.minter.credentialFor(ctx, projectID)
 	if err != nil {
 		return 0, err
 	}
-	return a.store.SetResearchInput(ctx, projectID, expectedVersion, research, cred, idempotencyKey)
+	return a.store.SetResearchInput(ctx, projectID, expectedVersion, research, cred, rc.IdempotencyKey)
 }
 
-func (a *projectStateGitAdapter) ReadProject(ctx context.Context, projectID projectstate.ProjectID) (projectstate.Project, error) {
+func (a *projectStateGitAdapter) ReadProject(rc fwra.Context, projectID projectstate.ProjectID) (projectstate.Project, error) {
+	ctx := rc.Context
 	cred, err := a.minter.credentialFor(ctx, projectID)
 	if err != nil {
 		return projectstate.Project{}, err
 	}
 	return a.store.ReadProject(ctx, projectID, cred)
+}
+
+// ReadProjectVersion serves the cheap version-only read over the git substrate. The
+// git head-state read still hydrates the whole project.json blob, but the verb keeps
+// the Manager↔RA contract honest: the Temporal Activity returns only the uint64
+// Version across the boundary, not the entire encoded aggregate (architect's fast-
+// follow). Absence stays fwra.NotFound via the underlying ReadProject.
+func (a *projectStateGitAdapter) ReadProjectVersion(rc fwra.Context, projectID projectstate.ProjectID) (projectstate.Version, error) {
+	p, err := a.ReadProject(rc, projectID)
+	if err != nil {
+		return 0, err
+	}
+	return p.Version, nil
 }
 
 // Compile-time proof the git adapter also serves the branch-aware extension the design
@@ -288,7 +310,7 @@ func (l gitRepoLocator) ProjectRepoOnBranch(projectID projectstate.ProjectID, br
 // (C-PA-AD entanglement resolved). Discovery still filters on the aiarch-project topic
 // inside ListProjectRepos; this seam just stops re-parsing the name.
 type cloudProjectCatalog struct {
-	sc      *sourcecontrol.Access
+	sc      sourcecontrol.SourceControlCatalogAccess
 	account sourcecontrol.AccountRef
 }
 

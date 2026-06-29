@@ -116,7 +116,7 @@ func (r *scriptedRail) OpenBranch(_ context.Context, _ sourcecontrol.RepoRef, br
 	r.calls["OpenBranch"]++
 	r.openedBranches = append(r.openedBranches, string(branch))
 	r.mu.Unlock()
-	return sourcecontrol.BranchRef{}, nil
+	return sourcecontrol.BranchRef(""), nil
 }
 
 func (r *scriptedRail) OpenPullRequest(_ context.Context, _ sourcecontrol.RepoRef, spec sourcecontrol.PullRequestSpec, _ sourcecontrol.RepoCredential, _ fwra.IdempotencyKey) (sourcecontrol.PullRequestRef, error) {
@@ -155,15 +155,15 @@ func (r *scriptedRail) PostReview(_ context.Context, _ sourcecontrol.RepoRef, _ 
 func (r *scriptedRail) MergePullRequest(_ context.Context, _ sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, _ sourcecontrol.RepoCredential, _ fwra.IdempotencyKey) (sourcecontrol.MergeResult, error) {
 	r.mu.Lock()
 	r.calls["MergePullRequest"]++
-	r.mergedPRs = append(r.mergedPRs, pr.String())
+	r.mergedPRs = append(r.mergedPRs, sourcecontrol.PullRequestRefString(pr))
 	r.mu.Unlock()
 	if r.log != nil {
-		r.log.add("merge", pr.String())
+		r.log.add("merge", sourcecontrol.PullRequestRefString(pr))
 	}
-	return sourcecontrol.MergeResult{Merged: true, Commit: "merged-" + pr.String()}, nil
+	return sourcecontrol.MergeResult{Merged: true, Commit: "merged-" + sourcecontrol.PullRequestRefString(pr)}, nil
 }
 
-var _ SourceControlRail = (*scriptedRail)(nil)
+var _ sourceControlRail = (*scriptedRail)(nil)
 
 // ---- seqProjectState: branch-aware read-back + ordered commit/read events ------
 
@@ -178,7 +178,7 @@ type seqProjectState struct {
 
 var _ projectstate.BranchAwareProjectStateAccess = (*seqProjectState)(nil)
 
-func (f *seqProjectState) ReadProject(ctx context.Context, projectID projectstate.ProjectID) (projectstate.Project, error) {
+func (f *seqProjectState) ReadProject(ctx fwra.Context, projectID projectstate.ProjectID) (projectstate.Project, error) {
 	f.log.add("readMain", "")
 	f.mu.Lock()
 	f.readBranches = append(f.readBranches, "")
@@ -191,7 +191,7 @@ func (f *seqProjectState) ReadProjectOnBranch(ctx context.Context, projectID pro
 	f.mu.Lock()
 	f.readBranches = append(f.readBranches, branch)
 	f.mu.Unlock()
-	return f.fakeProjectState.ReadProject(ctx, projectID)
+	return f.fakeProjectState.ReadProject(fwra.Context{Context: ctx}, projectID)
 }
 
 func (f *seqProjectState) StageArtifactForReviewOnBranch(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, model projectstate.ArtifactModel, key fwra.IdempotencyKey) (projectstate.Version, error) {
@@ -199,19 +199,19 @@ func (f *seqProjectState) StageArtifactForReviewOnBranch(ctx context.Context, pr
 	f.mu.Lock()
 	f.stageBranches = append(f.stageBranches, branch)
 	f.mu.Unlock()
-	return f.fakeProjectState.StageArtifactForReview(ctx, projectID, expectedVersion, model, key)
+	return f.fakeProjectState.StageArtifactForReview(fwra.Context{Context: ctx, IdempotencyKey: key}, projectID, expectedVersion, model)
 }
 
-func (f *seqProjectState) CommitArtifact(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, kind projectstate.ArtifactKind, key fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *seqProjectState) CommitArtifact(ctx fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, kind projectstate.ArtifactKind) (projectstate.Version, error) {
 	f.log.add("commit", "")
-	return f.fakeProjectState.CommitArtifact(ctx, projectID, expectedVersion, kind, key)
+	return f.fakeProjectState.CommitArtifact(ctx, projectID, expectedVersion, kind)
 }
 
-func newRailWorkflows(ps projectstate.ProjectStateAccess, pipe *fakePipeline, rail SourceControlRail) *Workflows {
-	return &Workflows{
-		Estimation:   estimation.New(),
-		OperationEst: operationestimation.New(),
-		Settlement:   settlement.New(),
+func newRailWorkflows(ps projectstate.ProjectStateAccess, pipe *fakePipeline, rail sourceControlRail) *workflows {
+	return &workflows{
+		Estimation:   estimation.NewEstimationEngine(),
+		OperationEst: operationestimation.NewOperationEstimationEngine(),
+		Settlement:   settlement.NewSettlementEngine(),
 		ProjectState: ps,
 		Pipeline:     pipe,
 		Rail:         rail,
@@ -221,9 +221,10 @@ func newRailWorkflows(ps projectstate.ProjectStateAccess, pipe *fakePipeline, ra
 	}
 }
 
-func registerRailCoAuthor(env *testsuite.TestWorkflowEnvironment, wf *Workflows) {
-	env.RegisterWorkflowWithOptions(wf.CoAuthorPhase2ArtifactWorkflow, workflow.RegisterOptions{Name: ExecutionKindCoAuthor})
+func registerRailCoAuthor(env *testsuite.TestWorkflowEnvironment, wf *workflows) {
+	env.RegisterWorkflowWithOptions(wf.CoAuthorPhase2ArtifactWorkflow, workflow.RegisterOptions{Name: executionKindCoAuthor})
 	env.RegisterActivity(wf.ReadProjectActivity)
+	env.RegisterActivity(wf.ReadProjectVersionActivity)
 	env.RegisterActivity(wf.ReadProjectOnBranchActivity)
 	env.RegisterActivity(wf.DispatchDesignJobActivity)
 	env.RegisterActivity(wf.ObserveDesignJobActivity)
@@ -247,7 +248,7 @@ func Test_CoAuthorPhase2_Rail_BranchReconciliation_MergeBeforeCommit_PostMergeRe
 
 	id := ProjectID(uuid.NewString())
 	log := &seqLog{}
-	base := &fakeProjectState{project: planningAssumptionsReadBack(id)}
+	base := &fakeProjectState{project: planningAssumptionsReadBack(projectstate.ProjectID(id))}
 	ps := &seqProjectState{fakeProjectState: base, log: log}
 	pipe := newFakePipeline() // dispatch observed Succeeded
 	rail := newScriptedRail(true, log)
@@ -255,20 +256,20 @@ func Test_CoAuthorPhase2_Rail_BranchReconciliation_MergeBeforeCommit_PostMergeRe
 	registerRailCoAuthor(env, wf)
 
 	env.RegisterDelayedCallback(func() {
-		env.SignalWorkflow(SignalReviewDecision, ReviewDecisionSignal{Decision: ReviewApprove})
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
 	}, 30*time.Second)
 
-	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: projectstate.KindPlanningAssumptions})
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindPlanningAssumptions})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("rail reconciliation workflow error: %v", err)
 	}
-	var outcome CoAuthorOutcome
+	var outcome coAuthorOutcome
 	if err := env.GetWorkflowResult(&outcome); err != nil {
 		t.Fatalf("decode outcome: %v", err)
 	}
-	if outcome != CoAuthorApproved {
-		t.Fatalf("want CoAuthorApproved, got %d", outcome)
+	if outcome != coAuthorApproved {
+		t.Fatalf("want coAuthorApproved, got %d", outcome)
 	}
 
 	if len(pipe.submits) != 1 {
@@ -345,7 +346,7 @@ func Test_CoAuthorPhase2_Rail_RejectRedraftsOnNewSessionBranchAndNewPR(t *testin
 
 	id := ProjectID(uuid.NewString())
 	log := &seqLog{}
-	base := &fakeProjectState{project: planningAssumptionsReadBack(id)}
+	base := &fakeProjectState{project: planningAssumptionsReadBack(projectstate.ProjectID(id))}
 	ps := &seqProjectState{fakeProjectState: base, log: log}
 	pipe := newFakePipeline()
 	rail := newScriptedRail(true, log)
@@ -353,13 +354,13 @@ func Test_CoAuthorPhase2_Rail_RejectRedraftsOnNewSessionBranchAndNewPR(t *testin
 	registerRailCoAuthor(env, wf)
 
 	env.RegisterDelayedCallback(func() {
-		env.SignalWorkflow(SignalReviewDecision, ReviewDecisionSignal{Decision: ReviewReject, Feedback: &ReviewFeedback{Notes: "rework the staffing assumptions"}})
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewReject, Feedback: &ReviewFeedback{Notes: "rework the staffing assumptions"}})
 	}, 30*time.Second)
 	env.RegisterDelayedCallback(func() {
-		env.SignalWorkflow(SignalReviewDecision, ReviewDecisionSignal{Decision: ReviewApprove})
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
 	}, 70*time.Second)
 
-	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: projectstate.KindPlanningAssumptions})
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindPlanningAssumptions})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("reject-redraft workflow error: %v", err)
@@ -398,16 +399,16 @@ func Test_CoAuthorPhase2_Rail_PhaseFailed_LandsInStageDraftFailed_NoApproveRailN
 
 	id := ProjectID(uuid.NewString())
 	log := &seqLog{}
-	base := &fakeProjectState{project: planningAssumptionsReadBack(id)}
+	base := &fakeProjectState{project: planningAssumptionsReadBack(projectstate.ProjectID(id))}
 	ps := &seqProjectState{fakeProjectState: base, log: log}
-	pipe := newFakePipeline(PipelineFailed)
+	pipe := newFakePipeline(pipelineFailed)
 	pipe.diagnostic = "aiarch-validate found 2 violations"
 	rail := newScriptedRail(true, log)
 	wf := newRailWorkflows(ps, pipe, rail)
 	registerRailCoAuthor(env, wf)
 
 	env.RegisterDelayedCallback(func() {
-		enc, err := env.QueryWorkflow(QuerySessionState)
+		enc, err := env.QueryWorkflow(querySessionState)
 		if err != nil {
 			t.Fatalf("QueryWorkflow: %v", err)
 		}
@@ -421,10 +422,10 @@ func Test_CoAuthorPhase2_Rail_PhaseFailed_LandsInStageDraftFailed_NoApproveRailN
 		if view.Stage != StageDraftFailed {
 			t.Fatalf("want StageDraftFailed after a terminal failure phase, got %d", view.Stage)
 		}
-		env.SignalWorkflow(SignalReviewDecision, ReviewDecisionSignal{Decision: ReviewWithdraw})
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
 	}, 30*time.Second)
 
-	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: projectstate.KindPlanningAssumptions})
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindPlanningAssumptions})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("a terminal job failure must NOT crash the rail-wired workflow: %v", err)
@@ -454,7 +455,7 @@ func Test_CoAuthorPhase2_Rail_RequiredCheckRed_BlocksMerge_NoCommit_Recovers(t *
 
 	id := ProjectID(uuid.NewString())
 	log := &seqLog{}
-	base := &fakeProjectState{project: planningAssumptionsReadBack(id)}
+	base := &fakeProjectState{project: planningAssumptionsReadBack(projectstate.ProjectID(id))}
 	ps := &seqProjectState{fakeProjectState: base, log: log}
 	pipe := newFakePipeline()           // draft Succeeds (the run was green) ...
 	rail := newScriptedRail(false, log) // ... but the PR's required check is RED at merge time
@@ -462,13 +463,13 @@ func Test_CoAuthorPhase2_Rail_RequiredCheckRed_BlocksMerge_NoCommit_Recovers(t *
 	registerRailCoAuthor(env, wf)
 
 	env.RegisterDelayedCallback(func() {
-		env.SignalWorkflow(SignalReviewDecision, ReviewDecisionSignal{Decision: ReviewApprove})
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
 	}, 30*time.Second)
 	env.RegisterDelayedCallback(func() {
-		env.SignalWorkflow(SignalReviewDecision, ReviewDecisionSignal{Decision: ReviewWithdraw})
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
 	}, 60*time.Second)
 
-	env.ExecuteWorkflow(ExecutionKindCoAuthor, CoAuthorInput{ProjectID: id, ArtifactKind: projectstate.KindPlanningAssumptions})
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindPlanningAssumptions})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("a not-green merge guard must not crash the workflow: %v", err)

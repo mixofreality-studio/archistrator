@@ -264,8 +264,8 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
           beginPending={startDesign.isPending || requestDraft.isPending}
           blurb={meta.blurb}
           commentCount={comments.length}
-          committedEnvelope={committedEnvelope}
           committed={spine[safeIndex]?.committed === true}
+          committedEnvelope={committedEnvelope}
           decisionPending={decisionPending}
           draftFailed={draftFailed}
           failureReason={failureReason}

@@ -11,11 +11,11 @@ This skill is the project-design twin of `[[the-method-system-design-standard-ch
 
 ## Canonical source
 
-**Primary:** Löwy, [Appendix C — Design Standard](../../../../rightingsoftware/OEBPS/xhtml/appc.xhtml). Focus areas:
+**Primary:** Löwy, [Appendix C — Design Standard](../../../research/rightingsoftware/OEBPS/xhtml/appc.xhtml). Focus areas:
 
-- [§4 "Project Design Guidelines"](../../../../rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec4) — the seven subsections walked below
-- [§5 "Project Tracking Guidelines"](../../../../rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec5) (forward-look — full check during construction)
-- [§2 "Directives"](../../../../rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec2) — Directives 5–9 in particular
+- [§4 "Project Design Guidelines"](../../../research/rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec4) — the seven subsections walked below
+- [§5 "Project Tracking Guidelines"](../../../research/rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec5) (forward-look — full check during construction)
+- [§2 "Directives"](../../../research/rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec2) — Directives 5–9 in particular
 
 ## Input
 

@@ -9,75 +9,73 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 )
 
-// This file declares the Manager's CONSUMER-SIDE dependency interfaces (the Go
-// "accept interfaces" idiom). Per the senior hand-off, several collaborators are
-// not yet built (their own C-* construction activities have not run), so this
-// Manager is built against their FROZEN CONTRACTS as interfaces it declares here,
-// and unit-tested with fakes:
+// deps.go declares the Manager's INTERNAL downstream seams (unexported) plus the
+// hand-written domain VALUE types the Manager's workflow vocabulary uses. Per the
+// founder DI model (2026-06-28) the constructionManager's GENERATED constructor
+// (contract.gen.go: NewConstructionManager) takes the dependencies' PUBLISHED
+// interfaces directly; RegisterWorker (worker.go) folds those published interfaces
+// into the unexported seams below (the former composition-root adapters are FOLDED
+// into this package — adapters.go). The seams stay unexported so the package's only
+// public surface is the generated interface + models + NewConstructionManager +
+// RegisterWorker (+ the workflows struct the Temporal worker needs).
 //
-//   - HandOffEngine               — handOffEngine.md §2/§3 (FROZEN; not yet built)
-//   - InterventionEngine          — interventionEngine.md §2/§3 (FROZEN; not yet built)
-//   - ReviewEngine                — reviewEngine seam (hand-run; OQ-4 — see C-MCN.md)
-//   - ConstructionPipelineAccess  — constructionPipelineAccess.md §2/§3 (FROZEN; not yet built)
+// How each seam is reached differs by determinism class:
+//   - the three Engines (handOff / intervention / review) are PURE, deterministic,
+//     called DIRECTLY in-workflow (no Activity wrapper — replay-safe);
+//   - the ResourceAccess ports (projectState read / constructionTransition write /
+//     gitActivityStatus / pipeline / artifacts / workers / rail) are I/O and reached
+//     through Temporal Activities (activities.go / gitactivities.go).
 //
-// The collaborators that DO exist are imported directly and consumed via narrow
-// consumer interfaces declared here so the test fakes stay small and so the
-// concrete RA types satisfy them structurally:
-//
-//   - ProjectStateAccess (read + the additive construction-transition verbs)  — exists
-//   - ArtifactAccess (StoreConstructionOutput / RetrieveConstructionOutput)   — exists
-//   - WorkerAccess (the generic typed worker: Generate / Cancel)             — exists
-//   - DurableExecutionAccess (RegisterSchedule)                              — exists
-//
-// The data types each not-yet-built Engine/RA exchanges are declared here in the
-// Manager-local seam form mirroring the frozen contract, to be replaced by an
-// import of the owning package when that component lands. This keeps the Method
-// discipline "models live in their owning RA/Engine" intact: when the owner ships,
-// these local mirrors are deleted and the import substituted; no public façade op
-// changes (constructionManager.md OQ-1/OQ-7).
+// projectState reads are satisfied DIRECTLY by the published
+// projectstate.ProjectStateAccess (narrowed to the two read verbs here); the
+// construction-transition writes are satisfied DIRECTLY by the published
+// projectstate.ConstructionTransitionAccess (cred-threaded). The git head-state seam
+// composes the two published git facets (GitActivityStatusAccess +
+// GitActivityConstructionAccess). The Engines + pipeline/artifact/worker seams are
+// served by the folded adapters that bridge the published engine/RA shapes.
 
 // ===========================================================================
-// projectStateAccess — EXISTS. Narrow consumer interface (read + the additive
-// Phase-3 construction-transition verbs). The concrete *projectstate.Store
-// satisfies this.
+// projectState read seam — the two whole-aggregate read verbs the Manager needs.
+// rc-based: the published projectstate.ProjectStateAccess satisfies it directly
+// (interface narrowing); the Manager builds the rc Context inside the read Activity.
 // ===========================================================================
 
-// ProjectStateAccess is the Manager's narrow consumer view of projectStateAccess:
-// the whole-aggregate read plus the additive Phase-3 transition verbs
-// (constructionManager.md §5.3; projectstate/construction.go). No cred parameter
-// (the Manager-consumer view; cred is threaded separately via GitActivityStatusAccess).
-type ProjectStateAccess interface {
-	ReadProject(ctx context.Context, projectID projectstate.ProjectID) (projectstate.Project, error)
-	RecordChangeReviewed(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	RecordActivityExited(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, outcome projectstate.ActivityOutcome, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	RecordActivityFailed(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, reason projectstate.FailureReason, detail string, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	RecordOperatorPaused(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, reason string, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	RecordPhaseStarted(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, phase projectstate.ActivityMethodPhase, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	RecordPhaseCompleted(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, phase projectstate.ActivityMethodPhase, artifactRef string, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	RecordServiceContractProduced(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, component string, contract projectstate.ServiceContract, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	RecordPhaseArtifactProduced(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, mapKey string, payload projectstate.PhaseArtifactPayload, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
+type projectStateReader interface {
+	ReadProject(rc fwra.Context, projectID projectstate.ProjectID) (projectstate.Project, error)
+	ReadProjectVersion(rc fwra.Context, projectID projectstate.ProjectID) (projectstate.Version, error)
 }
 
 // ===========================================================================
-// git-forward slice (C-MCN-GIT) — TWO additive consumer interfaces, optional/
-// nil-tolerant. The construction Manager is the ONLY component that touches both
-// the PR rail (sourceControlAccess) and the per-activity git head-state mirror
-// (projectStateAccess §GIT-HEAD-STATE) — D-PA-GIT §5. Both are Manager→RA downward
-// edges (legal per [[the-method-layers]]); the `cred` is Manager-minted via
-// GetInstallationToken and threaded IN (RA imports no Temporal). When neither is
-// wired (the live Postgres-store composition that predates the GitStore), the
-// git-forward lifecycle is dormant and the existing non-git spine is unchanged.
+// construction-transition write seam — the additive Phase-3 head-state transition
+// verbs (cred-threaded). The published projectstate.ConstructionTransitionAccess
+// satisfies this directly (it is a superset). The Manager threads the rail-minted
+// credential into every write (empty/zero in the dev/dry-run profile, which the
+// local git store ignores).
 // ===========================================================================
 
-// SourceControlRail is the Manager's consumer view of the FROZEN IPullRequestRail
-// face of sourceControlAccess (sourceControlAccess-pullrequestrail.md) plus the one
-// lifecycle op the Manager needs to mint the credential (GetInstallationToken). The
-// concrete *sourcecontrol.Access satisfies this structurally. Every provider-touching
-// verb takes a Manager-threaded RepoCredential; the returns are opaque handles the
-// Manager records via the git head-state verbs. ConfigureBranchProtection is the
-// schedulerClient/provisioning concern, NOT consumed on the per-activity spine, so it
-// is deliberately absent from this narrow consumer view.
-type SourceControlRail interface {
+type constructionTransitionAccess interface {
+	RecordChangeReviewed(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
+	RecordActivityExited(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, outcome projectstate.ActivityOutcome, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
+	RecordActivityFailed(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, reason projectstate.FailureReason, detail string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
+	RecordOperatorPaused(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, reason string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
+	RecordPhaseStarted(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, phase projectstate.ActivityMethodPhase, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
+	RecordPhaseCompleted(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, phase projectstate.ActivityMethodPhase, artifactRef string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
+	RecordServiceContractProduced(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, component string, contract projectstate.ServiceContract, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
+	RecordPhaseArtifactProduced(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, mapKey string, payload projectstate.PhaseArtifactPayload, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
+}
+
+// ===========================================================================
+// git-forward slice (C-MCN-GIT). The construction Manager is the ONLY component
+// touching both the PR rail (sourceControlAccess) and the per-activity git
+// head-state mirror. Both are Manager→RA downward edges; the cred is Manager-minted
+// via GetInstallationToken and threaded IN.
+// ===========================================================================
+
+// sourceControlRail is the Manager's consumer view of the FROZEN IPullRequestRail
+// face of sourceControlAccess plus GetInstallationToken (mint). The folded
+// railAdapter (adapters.go) bridges the published sourcecontrol.SourceControlAccess
+// to it.
+type sourceControlRail interface {
 	GetInstallationToken(ctx context.Context, repo sourcecontrol.RepoRef) (sourcecontrol.RepoCredential, error)
 	OpenBranch(ctx context.Context, repo sourcecontrol.RepoRef, branch sourcecontrol.BranchName, cred sourcecontrol.RepoCredential, key fwra.IdempotencyKey) (sourcecontrol.BranchRef, error)
 	OpenPullRequest(ctx context.Context, repo sourcecontrol.RepoRef, spec sourcecontrol.PullRequestSpec, cred sourcecontrol.RepoCredential, key fwra.IdempotencyKey) (sourcecontrol.PullRequestRef, error)
@@ -86,97 +84,56 @@ type SourceControlRail interface {
 	MergePullRequest(ctx context.Context, repo sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, cred sourcecontrol.RepoCredential, key fwra.IdempotencyKey) (sourcecontrol.MergeResult, error)
 }
 
-// GitActivityStatusAccess is the Manager's consumer view of the additive
-// per-activity git head-state Record verbs (projectStateAccess.md §GIT-HEAD-STATE;
-// projectstate/gitactivity.go). The concrete *projectstate.GitStore satisfies it.
-// Each carries the Manager-threaded cred + expectedVersion + idempotencyKey and is
-// idempotent + ref-CAS-convergent (the workflow re-reads HEAD on Conflict and
-// re-applies with the SAME key — no double-record).
-//
-// NOTE the cred type is projectstate.RepoCredential, NOT sourcecontrol's: the two RAs
-// keep STRUCTURALLY-IDENTICAL-BUT-DISTINCT credential types (the NoSideways layer rule
-// forbids projectstate importing sourcecontrol — projectstate/credential.go). The
-// Manager is the seam that converts the rail's sourcecontrol.RepoCredential into the
-// projectstate.RepoCredential it threads here (convertCred, gitforward.go).
-type GitActivityStatusAccess interface {
+// gitActivityStatusAccess composes the two published per-activity git head-state
+// facets — projectstate.GitActivityStatusAccess (branch/CI/+1/merge) and
+// projectstate.GitActivityConstructionAccess (started/completed). The concrete
+// *projectstate.GitStore (and the composition-root git adapter) satisfy both, so the
+// builder type-asserts the gitActivityStatus dep onto this combined seam.
+type gitActivityStatusAccess interface {
 	RecordActivityBranchOpened(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID, branch, branchRef, prRef, crLabel string, isRevert bool, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
 	RecordActivityCIObserved(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, ci projectstate.CICheckState, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
 	RecordActivityArchApproved(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
 	RecordActivityMerged(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-
-	// RecordActivityStarted / RecordActivityCompleted mark the per-activity
-	// construction lifecycle (Task 1: projectstate/gitactivityconstruction.go) —
-	// Running at the top of the per-activity spine, Done at its end. They mirror the
-	// four git head-state verbs above EXACTLY (cred-threaded, expectedVersion CAS,
-	// idempotent on key); the concrete *projectstate.GitStore satisfies them. They
-	// power the construction pump's eligibility selection (nextEligibleActivity reads
-	// proj.ActivityConstruction): Started flips the activity out of NotStarted so the
-	// pump does not re-dispatch it, Completed flips it to Done so dependents unblock.
 	RecordActivityStarted(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
 	RecordActivityCompleted(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
 }
 
 // ===========================================================================
-// artifactAccess — EXISTS. The Manager consumes the frozen interface directly.
+// artifactAccess seam — the frozen content-addressable store for Phase-3
+// construction outputs. The folded artifactAdapter (adapters.go) bridges the
+// published artifact.ArtifactAccess to it.
 // ===========================================================================
 
-// ArtifactAccess is the Manager's consumer view of artifactAccess (the frozen
-// content-addressable store for Phase-3 construction outputs, artifactAccess.md).
-// The content address is a plain string compared by value (artifactAccess.md §2).
-type ArtifactAccess interface {
+type artifactAccess interface {
 	StoreConstructionOutput(ctx context.Context, output artifact.ConstructionOutput, idempotencyKey fwra.IdempotencyKey) (contentAddress string, err error)
 	RetrieveConstructionOutput(ctx context.Context, contentAddress string) (artifact.ConstructionOutput, error)
 }
 
 // ===========================================================================
-// workerAccess — EXISTS (the GENERIC typed worker, workerAccess.md §0b). The
-// Manager's SEQUENCE owns the prompt and asks GenerateTypedData[ConstructionOutput];
-// Cancel is the operator-pause / takeover abandon path (the DSL-static Cancel(key)
-// edge). NOTE: the contract's "Dispatch(spec,key)→FileUpload" passages are
-// SUPERSEDED by this generic surface (see contract top note + C-MCN.md).
+// workerAccess seam — the GENERIC typed worker. The folded workerAdapter
+// (adapters.go) bridges the published worker.WorkerAccess to it.
 // ===========================================================================
 
-// WorkerAccess is the Manager's consumer view of the generic typed worker. Only
-// Generate (the raw round-trip the GenerateTypedData[T] helper wraps) and Cancel
-// are needed.
-type WorkerAccess interface {
+type workerAccess interface {
 	Generate(ctx context.Context, spec workerGenerateSpec, idempotencyKey fwra.IdempotencyKey) ([]byte, error)
 	Cancel(ctx context.Context, idempotencyKey fwra.IdempotencyKey) error
 }
 
 // ===========================================================================
-// durableExecutionAccess — EXISTS. Only RegisterSchedule is a contract op this
-// Manager calls (at startup). The in-workflow primitives (awaitSignal / startTimer
-// / executeChild) are the Manager's OWN workflow code (D-DA category A), NOT RA
-// methods — they live in workflow.go.
+// handOffEngine seam — pure, deterministic, called DIRECTLY in-workflow. The folded
+// handoffAdapter (adapters.go) bridges the published handoff.HandOffEngine to it.
 // ===========================================================================
 
-// DurableExecutionAccess is the Manager's consumer view: the one startup op.
-type DurableExecutionAccess interface {
-	RegisterSchedule(ctx context.Context, spec scheduleSpec) error
+type handOffEngine interface {
+	PickWorkerClass(activity constructionActivity, policy handOffPolicy) (workerClass, error)
 }
 
-// ===========================================================================
-// handOffEngine — FROZEN, NOT YET BUILT. Consumer interface + local mirrors of its
-// frozen types (handOffEngine.md §2/§3). DECIDE: the Manager feeds activity+policy
-// BY VALUE and acts on the returned WorkerClass.
-// ===========================================================================
-
-// HandOffEngine mirrors handOffEngine.md §2 — pure, deterministic, called DIRECTLY
-// in-workflow (no Activity, no idempotency key).
-type HandOffEngine interface {
-	PickWorkerClass(activity ConstructionActivity, policy HandOffPolicy) (WorkerClass, error)
-}
-
-// ConstructionActivity mirrors handOffEngine.md §3 (by-value activity snapshot).
-// CRLabel/IsRevert are the git-forward (C-MCN-GIT) per-activity facts the Manager
-// threads into the PR open + the head-state mirror: the cr-NN change-request group
-// label (op-concepts §15 — a label across the CR activity PRs, "" when not a CR
-// activity) and whether this activity's PR carries inverse commits (a revert PR). They
-// are not handOff inputs; they are inert in the non-git spine.
-type ConstructionActivity struct {
+// constructionActivity is the by-value activity snapshot the Manager feeds the
+// handOffEngine. CRLabel/IsRevert are the git-forward per-activity facts threaded
+// into the PR open + the head-state mirror.
+type constructionActivity struct {
 	ActivityID   string
-	Kind         ActivityKind
+	Kind         activityKind
 	ComponentID  string
 	Layer        string
 	EstimateDays float64
@@ -184,265 +141,202 @@ type ConstructionActivity struct {
 	IsRevert     bool
 }
 
-// ActivityKind mirrors handOffEngine.md §3.
-type ActivityKind int
+// activityKind is the Manager-local activity-kind vocabulary.
+type activityKind int
 
 const (
-	ActivityKindUnknown ActivityKind = iota
-	ActivityKindDetailedDesign
-	ActivityKindConstruction
-	ActivityKindIntegration
-	ActivityKindNoncoding
+	activityKindUnknown activityKind = iota
+	activityKindDetailedDesign
+	activityKindConstruction
+	activityKindIntegration
+	activityKindNoncoding
 )
 
 // String returns the canonical name for an activity kind.
-func (k ActivityKind) String() string {
+func (k activityKind) String() string {
 	switch k {
-	case ActivityKindDetailedDesign:
+	case activityKindDetailedDesign:
 		return "DetailedDesign"
-	case ActivityKindConstruction:
+	case activityKindConstruction:
 		return "Construction"
-	case ActivityKindIntegration:
+	case activityKindIntegration:
 		return "Integration"
-	case ActivityKindNoncoding:
+	case activityKindNoncoding:
 		return "Noncoding"
 	default:
 		return "Unknown"
 	}
 }
 
-// WorkerClass mirrors handOffEngine.md §3 (the cast worker arrangement).
-type WorkerClass int
+// workerClass is the Manager-local cast worker arrangement.
+type workerClass int
 
 const (
-	WorkerClassUnknown WorkerClass = iota
-	AIWorker
-	HumanSeniorWorker
-	HumanJuniorWorker
-	// ArchitectOnly means skip dispatch and await the architect (handOffEngine OQ-2).
-	ArchitectOnly
+	workerClassUnknown workerClass = iota
+	aiWorker
+	humanSeniorWorker
+	humanJuniorWorker
+	// architectOnly means skip dispatch and await the architect.
+	architectOnly
 )
 
 // String returns the canonical worker-class name (used as the worker's logical class).
-func (c WorkerClass) String() string {
+func (c workerClass) String() string {
 	switch c {
-	case AIWorker:
+	case aiWorker:
 		return "ai"
-	case HumanSeniorWorker:
+	case humanSeniorWorker:
 		return "humanSenior"
-	case HumanJuniorWorker:
+	case humanJuniorWorker:
 		return "humanJunior"
-	case ArchitectOnly:
+	case architectOnly:
 		return "architectOnly"
 	default:
 		return "unknown"
 	}
 }
 
-// HandOffPolicy mirrors handOffEngine.md §3 (committed policy snapshot, by value).
-type HandOffPolicy struct {
+// handOffPolicy is the committed policy snapshot (by value).
+type handOffPolicy struct {
 	PreferAI         bool
 	SeniorOnlyLayers []string
 }
 
-// InterventionMode mirrors interventionEngine.md §3 — the coarse intervention regime
-// the composition root translates into intervention.InterventionMode. The Manager
-// holds it as an opaque policy value; the casting RULE behind each mode is
-// package-internal to the Engine.
-type InterventionMode int
+// interventionMode is the coarse intervention regime the composition root translates
+// into intervention.InterventionMode.
+type interventionMode int
 
 const (
-	// InterventionModeUnknown — no mode set (zero value).
-	InterventionModeUnknown InterventionMode = iota
-	// InterventionModeEscalateEverything — every variance escalates to an operator
-	// (the supervised regime). Pairs with EscalationWaitTimeout == 0 (wait-forever).
-	InterventionModeEscalateEverything
-	// InterventionModeTiered — severity tiers + retry budgets decide retry vs
+	// interventionModeUnknown — no mode set (zero value).
+	interventionModeUnknown interventionMode = iota
+	// interventionModeEscalateEverything — every variance escalates to an operator.
+	interventionModeEscalateEverything
+	// interventionModeTiered — severity tiers + retry budgets decide retry vs
 	// escalate vs takeover before flipping to a human (the autonomous-retry default).
-	InterventionModeTiered
+	interventionModeTiered
 )
 
-// InterventionPolicy mirrors interventionEngine.md §3 (committed policy snapshot,
-// fed BY VALUE to the Engine). The casting RULE is package-internal to the Engine;
-// the Manager holds the opaque policy value.
-type InterventionPolicy struct {
-	// Mode is the coarse intervention regime (Tiered default vs EscalateEverything
-	// supervised). The composition root reads it instead of hard-coding the regime.
-	Mode        InterventionMode
+// interventionPolicy is the committed policy snapshot fed by value to the Engine.
+type interventionPolicy struct {
+	Mode        interventionMode
 	RetryBudget int
 	SLATier     string
 }
 
 // ===========================================================================
-// interventionEngine — FROZEN, NOT YET BUILT. Consumer interface + local mirrors
-// (interventionEngine.md §2/§3). DECIDE → the Manager EXECUTES.
+// interventionEngine seam — pure, deterministic, called DIRECTLY in-workflow. The
+// Engine DECIDES; the Manager EXECUTES. The folded interventionAdapter bridges the
+// published intervention.InterventionEngine to it.
 // ===========================================================================
 
-// InterventionEngine mirrors interventionEngine.md §2 — pure, deterministic,
-// called DIRECTLY in-workflow. The Engine DECIDES; the Manager EXECUTES.
-type InterventionEngine interface {
-	DecideOnVariance(variance ConstructionVariance) (VarianceDirective, error)
-	ApplyPausePolicy(projectID string, ctx PauseRequestContext) (PausePlan, error)
+type interventionEngine interface {
+	DecideOnVariance(variance constructionVariance) (varianceDirective, error)
+	ApplyPausePolicy(projectID string, ctx pauseRequestContext) (pausePlan, error)
 }
 
-// ConstructionVariance mirrors interventionEngine.md §3.
-type ConstructionVariance struct {
-	ActivityID string
-	Kind       VarianceKind
-	Detail     string
-	// AttemptCount is the number of supervision-loop attempts so far on this activity
-	// (the loop's `attempt` counter). The Tiered intervention policy keys retry-budget
-	// exhaustion on it (composition root threads it into intervention.ConstructionVariance);
-	// EscalateEverything ignores it.
+// constructionVariance is the by-value variance the Manager feeds the Engine.
+type constructionVariance struct {
+	ActivityID      string
+	Kind            varianceKind
+	Detail          string
 	AttemptCount    int
 	OperatorSourced bool
 }
 
-// VarianceKind mirrors interventionEngine.md §3.
-type VarianceKind int
+// varianceKind is the Manager-local variance taxonomy.
+type varianceKind int
 
 const (
-	VarianceKindUnknown VarianceKind = iota
-	VarianceScheduleOverrun
-	VariancePipelineFailed
-	VarianceReviewFailed
-	VarianceWorkerRefused
-	VarianceOperatorOverride
+	varianceKindUnknown varianceKind = iota
+	varianceScheduleOverrun
+	variancePipelineFailed
+	varianceReviewFailed
+	varianceWorkerRefused
+	varianceOperatorOverride
 )
 
-// VarianceDirective mirrors interventionEngine.md §3 (the Engine's decision).
-type VarianceDirective int
+// varianceDirective is the Engine's decision.
+type varianceDirective int
 
 const (
-	DirectiveUnknown VarianceDirective = iota
-	DirectiveRetry
-	DirectiveEscalate
-	DirectiveTakeover
+	directiveUnknown varianceDirective = iota
+	directiveRetry
+	directiveEscalate
+	directiveTakeover
 )
 
-// PauseRequestContext mirrors interventionEngine.md §3.
-type PauseRequestContext struct {
+// pauseRequestContext is the by-value pause request.
+type pauseRequestContext struct {
 	Reason string
 }
 
-// PausePlan mirrors interventionEngine.md §3 (the plan the Manager EXECUTES).
-type PausePlan struct {
+// pausePlan is the plan the Manager EXECUTES.
+type pausePlan struct {
 	PipelinesToCancel []string
 	RecordPaused      bool
 	NotifyTargets     []string
 }
 
 // ===========================================================================
-// reviewEngine — HAND-RUN (OQ-4). Consumer interface + local mirrors of the
-// proposeReviews(change, componentId, artifactKind, architectureGraph, contracts)
-// → ReviewSet seam (constructionManager.md §5.3 / §9 OQ-4). NO standalone contract
-// file exists; this is the contract-edge gap routed to the architect.
+// reviewEngine seam — pure, deterministic, called DIRECTLY in-workflow. Returns the
+// reviewer set the Manager fans out. The folded reviewAdapter bridges the published
+// review.ReviewEngine to it.
 // ===========================================================================
 
-// ReviewEngine mirrors the reviewEngine seam — pure, deterministic, called
-// DIRECTLY in-workflow. Returns the reviewer set the Manager fans out.
-type ReviewEngine interface {
-	ProposeReviews(change ReviewChange, componentID string, artifactKind string, architectureGraph string, contracts []string) (ReviewSet, error)
+type reviewEngine interface {
+	ProposeReviews(change reviewChange, componentID string, artifactKind string, architectureGraph string, contracts []string) (ReviewSet, error)
 }
 
-// ReviewChange is the by-value description of the produced change under review.
-type ReviewChange struct {
+// reviewChange is the by-value description of the produced change under review.
+type reviewChange struct {
 	ActivityID  string
 	ComponentID string
 	// ContentAddress points at the staged construction output (artifactAccess).
 	ContentAddress string
 }
 
-// ReviewSet is the reviewer set (which roles review, from what perspective, with
-// mayAmend). The Manager fans out one worker dispatch per Reviewer.
-type ReviewSet struct {
-	Reviewers []Reviewer `json:"reviewers,omitempty"`
-}
-
-// Reviewer is one reviewer assignment within a ReviewSet.
-type Reviewer struct {
-	Role        string `json:"role"`
-	Perspective string `json:"perspective"`
-	// ReferenceArtifact is the artifact the reviewer reviews against.
-	ReferenceArtifact string `json:"referenceArtifact,omitempty"`
-	// MayAmend, when true, lets a reviewer+constructor agreement re-stage an
-	// amended contract/UI-design.
-	MayAmend bool `json:"mayAmend"`
-}
-
 // ===========================================================================
-// constructionPipelineAccess — FROZEN, NOT YET BUILT. Consumer interface + local
-// mirrors (constructionPipelineAccess.md §2/§3). Each verb is Activity-wrapped.
+// constructionPipelineAccess seam — each verb is Activity-wrapped. The folded
+// pipelineAdapter bridges the published constructionpipeline.ConstructionPipelineAccess
+// to it.
 // ===========================================================================
 
-// ConstructionPipelineAccess mirrors constructionPipelineAccess.md §2.
-type ConstructionPipelineAccess interface {
-	SubmitConstructionPipeline(ctx context.Context, spec PipelineSpec, idempotencyKey fwra.IdempotencyKey) (PipelineHandle, error)
-	ObserveConstructionPipeline(ctx context.Context, handle PipelineHandle) (PipelineObservation, error)
-	CancelConstructionPipeline(ctx context.Context, handle PipelineHandle) error
+type constructionPipelineAccess interface {
+	SubmitConstructionPipeline(ctx context.Context, spec pipelineSpec, idempotencyKey fwra.IdempotencyKey) (pipelineHandle, error)
+	ObserveConstructionPipeline(ctx context.Context, handle pipelineHandle) (pipelineObservation, error)
+	CancelConstructionPipeline(ctx context.Context, handle pipelineHandle) error
 }
 
-// PipelineSpec mirrors constructionPipelineAccess.md §3 (infrastructure-neutral).
-type PipelineSpec struct {
+// pipelineSpec is the Manager's infrastructure-neutral dispatch spec.
+type pipelineSpec struct {
 	ActivityID  string
 	ComponentID string
 	RepoURL     string
 	Ref         string
-	// Phase is the ActivityMethodPhase.String() for the current activity phase
-	// being dispatched. Empty when the pipeline does not correspond to a specific
-	// method phase (e.g. a legacy whole-activity dispatch).
+	// Phase is the ActivityMethodPhase.String() for the current activity phase.
 	Phase string
-	// Role is the WorkerClass.String() for the assigned worker role (handOffEngine
-	// output). Empty when the role is determined by the pipeline infrastructure.
+	// Role is the WorkerClass.String() for the assigned worker role.
 	Role string
 }
 
-// PipelineHandle mirrors constructionPipelineAccess.md §3.
-type PipelineHandle struct {
+// pipelineHandle is the Manager's opaque handle.
+type pipelineHandle struct {
 	Name string
 }
 
-// PipelinePhase mirrors constructionPipelineAccess.md §3.
-type PipelinePhase int
-
-const (
-	PipelinePhaseUnknown PipelinePhase = iota
-	PipelinePending
-	PipelineRunning
-	PipelineSucceeded
-	PipelineFailed
-	// PipelineCancelled — the pipeline run was cancelled (a distinct terminal from
-	// PipelineFailed; the composition root maps RA PhaseCancelled to this instead of
-	// flattening it to PipelineFailed). Both terminals route to the variance path, but
-	// the Manager derives a distinct FailureReason (PipelineCancelled) for head-state.
-	PipelineCancelled
-)
-
-// PipelineObservation mirrors constructionPipelineAccess.md §3.
-type PipelineObservation struct {
+// pipelineObservation is the Manager's neutral pipeline observation.
+type pipelineObservation struct {
 	Phase      PipelinePhase
 	Diagnostic string
 }
 
 // ===========================================================================
-// Local seam types for the EXISTING workerAccess + durableExecutionAccess consumer
-// interfaces (kept minimal; mirror the real package shapes structurally so the
-// concrete RA types are adaptable at the composition root).
+// Local seam value carriers for the worker seam.
 // ===========================================================================
 
 // workerGenerateSpec mirrors worker.GenerateSpec's caller-owned fields the Manager
-// fills (WorkerClass logical name + the assembled Prompt). The composition root
-// adapts the concrete worker.WorkerAccess to this consumer interface.
+// fills (WorkerClass logical name + the assembled Prompt).
 type workerGenerateSpec struct {
 	WorkerClass string
 	Prompt      string
-}
-
-// scheduleSpec mirrors durableexecution.ScheduleSpec for the one startup op.
-type scheduleSpec struct {
-	ID           string
-	WorkflowType string
-	TaskQueue    string
-	IntervalSecs int
-	WorkflowID   string
 }

@@ -37,7 +37,7 @@ func activityIdempotencyKey(ctx context.Context) fwra.IdempotencyKey {
 
 // gatewayIdempotencyKey derives the Stripe Idempotency-Key settle:{customerId}:{cycleId}
 // for the money-moving gateway Activities (settlementManager.md §6.4 line 264/706).
-func gatewayIdempotencyKey(customerID CustomerID, cycleID CycleID) string {
+func gatewayIdempotencyKey(customerID customerID, cycleID cycleID) string {
 	return fmt.Sprintf("settle:%s:%s", customerID, cycleID)
 }
 
@@ -47,67 +47,67 @@ func gatewayIdempotencyKey(customerID CustomerID, cycleID CycleID) string {
 
 // ReadSettlementActivity wraps settlementStateAccess.readSettlement. Pure whole-aggregate
 // read; no idempotency key.
-func (wf *Workflows) ReadSettlementActivity(ctx context.Context, customerID CustomerID) (Settlement, error) {
+func (wf *workflows) ReadSettlementActivity(ctx context.Context, customerID customerID) (settlementHead, error) {
 	return mapErr(wf.SettlementState.ReadSettlement(ctx, customerID))
 }
 
 // ReadDelinquentActivity wraps settlementStateAccess.readPersistentlyDelinquentCustomers.
 // Pure cross-row read; no idempotency key.
-func (wf *Workflows) ReadDelinquentActivity(ctx context.Context, scope DelinquencyScope) ([]CustomerSummary, error) {
+func (wf *workflows) ReadDelinquentActivity(ctx context.Context, scope delinquencyScope) ([]customerSummary, error) {
 	return mapErr(wf.SettlementState.ReadPersistentlyDelinquentCustomers(ctx, scope))
 }
 
 // RegisterCustomerArgs bundles the register head-state write inputs.
-type RegisterCustomerArgs struct {
-	CustomerID      CustomerID
-	ExpectedVersion Version
+type registerCustomerArgs struct {
+	CustomerID      customerID
+	ExpectedVersion version
 }
 
 // RegisterCustomerActivity wraps settlementStateAccess.registerCustomer. idempotencyKey =
 // "${workflowId}:${activityId}"; a stale expectedVersion surfaces fwra.Conflict for the
 // §6.5 re-read loop.
-func (wf *Workflows) RegisterCustomerActivity(ctx context.Context, a RegisterCustomerArgs) (Version, error) {
-	return mapErr(wf.SettlementState.RegisterCustomer(ctx, a.CustomerID, a.ExpectedVersion, CustomerProfileSeam{}, activityIdempotencyKey(ctx)))
+func (wf *workflows) RegisterCustomerActivity(ctx context.Context, a registerCustomerArgs) (version, error) {
+	return mapErr(wf.SettlementState.RegisterCustomer(ctx, a.CustomerID, a.ExpectedVersion, customerProfileSeam{}, activityIdempotencyKey(ctx)))
 }
 
 // BindGatewayLiveArgs bundles the bind head-state write inputs.
-type BindGatewayLiveArgs struct {
-	CustomerID      CustomerID
-	ExpectedVersion Version
-	Binding         GatewayBindingSeam
+type bindGatewayLiveArgs struct {
+	CustomerID      customerID
+	ExpectedVersion version
+	Binding         gatewayBindingSeam
 }
 
 // BindGatewayLiveActivity wraps settlementStateAccess.bindGatewayLive.
-func (wf *Workflows) BindGatewayLiveActivity(ctx context.Context, a BindGatewayLiveArgs) (Version, error) {
+func (wf *workflows) BindGatewayLiveActivity(ctx context.Context, a bindGatewayLiveArgs) (version, error) {
 	return mapErr(wf.SettlementState.BindGatewayLive(ctx, a.CustomerID, a.ExpectedVersion, a.Binding, activityIdempotencyKey(ctx)))
 }
 
 // SettleCycleArgs bundles the settle head-state write inputs.
-type SettleCycleArgs struct {
-	CustomerID      CustomerID
-	ExpectedVersion Version
-	CycleID         CycleID
-	Outcome         SettlementOutcomeSeam
+type settleCycleArgs struct {
+	CustomerID      customerID
+	ExpectedVersion version
+	CycleID         cycleID
+	Outcome         settlementOutcomeSeam
 }
 
 // SettleCycleActivity wraps settlementStateAccess.settleCycle (the money-affecting
 // head-state outcome record). idempotencyKey = "${workflowId}:${activityId}"; the
 // dedup-first ledger makes an idempotent replay a no-op success (§6.5).
-func (wf *Workflows) SettleCycleActivity(ctx context.Context, a SettleCycleArgs) (Version, error) {
+func (wf *workflows) SettleCycleActivity(ctx context.Context, a settleCycleArgs) (version, error) {
 	return mapErr(wf.SettlementState.SettleCycle(ctx, a.CustomerID, a.ExpectedVersion, a.CycleID, a.Outcome, activityIdempotencyKey(ctx)))
 }
 
 // ResettleCycleArgs bundles the resettle head-state write inputs.
-type ResettleCycleArgs struct {
-	CustomerID      CustomerID
-	ExpectedVersion Version
-	CycleID         CycleID
-	Correction      SettlementOutcomeSeam
+type resettleCycleArgs struct {
+	CustomerID      customerID
+	ExpectedVersion version
+	CycleID         cycleID
+	Correction      settlementOutcomeSeam
 }
 
 // ResettleCycleActivity wraps settlementStateAccess.resettleCycle (the chargeback
 // correction record).
-func (wf *Workflows) ResettleCycleActivity(ctx context.Context, a ResettleCycleArgs) (Version, error) {
+func (wf *workflows) ResettleCycleActivity(ctx context.Context, a resettleCycleArgs) (version, error) {
 	return mapErr(wf.SettlementState.ResettleCycle(ctx, a.CustomerID, a.ExpectedVersion, a.CycleID, a.Correction, activityIdempotencyKey(ctx)))
 }
 
@@ -117,30 +117,30 @@ func (wf *Workflows) ResettleCycleActivity(ctx context.Context, a ResettleCycleA
 
 // RecordInboundRevenueActivity wraps revenueLedgerAccess.recordInboundRevenue. Dedup-id
 // idempotent on entry.GatewayEventID (NO Conflict on this append-only ledger).
-func (wf *Workflows) RecordInboundRevenueActivity(ctx context.Context, entry RevenueEntrySeam) (EntryRefSeam, error) {
+func (wf *workflows) RecordInboundRevenueActivity(ctx context.Context, entry revenueEntrySeam) (entryRefSeam, error) {
 	return mapErr(wf.RevenueLedger.RecordInboundRevenue(ctx, entry))
 }
 
 // RecordReversalActivity wraps revenueLedgerAccess.recordReversal. Dedup-id idempotent
 // on the chargeback's GatewayEventID.
-func (wf *Workflows) RecordReversalActivity(ctx context.Context, reversal ReversalEntrySeam) (EntryRefSeam, error) {
+func (wf *workflows) RecordReversalActivity(ctx context.Context, reversal reversalEntrySeam) (entryRefSeam, error) {
 	return mapErr(wf.RevenueLedger.RecordReversal(ctx, reversal))
 }
 
 // ReadRevenueRangeArgs bundles the revenue range-read inputs.
-type ReadRevenueRangeArgs struct {
-	CustomerID CustomerID
-	CycleID    CycleID
+type readRevenueRangeArgs struct {
+	CustomerID customerID
+	CycleID    cycleID
 }
 
 // ReadRevenueRangeActivity wraps revenueLedgerAccess.readRange. Pure read; no key.
-func (wf *Workflows) ReadRevenueRangeActivity(ctx context.Context, a ReadRevenueRangeArgs) ([]RevenueEntrySeam, error) {
+func (wf *workflows) ReadRevenueRangeActivity(ctx context.Context, a readRevenueRangeArgs) ([]revenueEntrySeam, error) {
 	return mapErr(wf.RevenueLedger.ReadRange(ctx, a.CustomerID, a.CycleID))
 }
 
 // ReadUsageRangeActivity wraps usageAccess.readRange (whole cycle; OperatedAppID nil).
 // Pure read; no key.
-func (wf *Workflows) ReadUsageRangeActivity(ctx context.Context, query UsageRangeQuerySeam) ([]UsageEventSeam, error) {
+func (wf *workflows) ReadUsageRangeActivity(ctx context.Context, query usageRangeQuerySeam) ([]usageEventSeam, error) {
 	return mapErr(wf.Usage.ReadRange(ctx, query))
 }
 
@@ -150,31 +150,31 @@ func (wf *Workflows) ReadUsageRangeActivity(ctx context.Context, query UsageRang
 // =============================================================================
 
 // GatewayMoveArgs bundles a payout/charge money-move inputs.
-type GatewayMoveArgs struct {
-	CustomerID CustomerID
-	CycleID    CycleID
+type gatewayMoveArgs struct {
+	CustomerID customerID
+	CycleID    cycleID
 	Amount     Money
 }
 
 // PayoutCustomerActivity wraps merchantGatewayAccess.payoutCustomer.
-func (wf *Workflows) PayoutCustomerActivity(ctx context.Context, a GatewayMoveArgs) (struct{}, error) {
+func (wf *workflows) PayoutCustomerActivity(ctx context.Context, a gatewayMoveArgs) (struct{}, error) {
 	return struct{}{}, fwmgr.MapError(wf.Gateway.PayoutCustomer(ctx, a.CustomerID, a.Amount, gatewayIdempotencyKey(a.CustomerID, a.CycleID)))
 }
 
 // ChargeCustomerActivity wraps merchantGatewayAccess.chargeCustomer. A terminal decline
 // (RA Auth) surfaces to the workflow's decideOnSettlementFailure branch (OQ-4).
-func (wf *Workflows) ChargeCustomerActivity(ctx context.Context, a GatewayMoveArgs) (struct{}, error) {
+func (wf *workflows) ChargeCustomerActivity(ctx context.Context, a gatewayMoveArgs) (struct{}, error) {
 	return struct{}{}, fwmgr.MapError(wf.Gateway.ChargeCustomer(ctx, a.CustomerID, a.Amount, gatewayIdempotencyKey(a.CustomerID, a.CycleID)))
 }
 
 // CreateConnectedAccountActivity wraps merchantGatewayAccess.createConnectedAccount.
-func (wf *Workflows) CreateConnectedAccountActivity(ctx context.Context, customerID CustomerID) (GatewayBindingSeam, error) {
+func (wf *workflows) CreateConnectedAccountActivity(ctx context.Context, customerID customerID) (gatewayBindingSeam, error) {
 	return mapErr(wf.Gateway.CreateConnectedAccount(ctx, customerID, fmt.Sprintf("onboard:%s", customerID)))
 }
 
 // ValidateStoredInstrumentActivity wraps merchantGatewayAccess.validateStoredInstrument
 // (zero-amount auth at registration).
-func (wf *Workflows) ValidateStoredInstrumentActivity(ctx context.Context, customerID CustomerID) (struct{}, error) {
+func (wf *workflows) ValidateStoredInstrumentActivity(ctx context.Context, customerID customerID) (struct{}, error) {
 	return struct{}{}, fwmgr.MapError(wf.Gateway.ValidateStoredInstrument(ctx, customerID, fmt.Sprintf("validate:%s", customerID)))
 }
 
@@ -183,14 +183,14 @@ func (wf *Workflows) ValidateStoredInstrumentActivity(ctx context.Context, custo
 // =============================================================================
 
 // WirePaymentConfigArgs bundles the runtime-wiring inputs.
-type WirePaymentConfigArgs struct {
-	DeployedAppID DeployedAppID
-	Binding       GatewayBindingSeam
+type wirePaymentConfigArgs struct {
+	DeployedAppID deployedAppID
+	Binding       gatewayBindingSeam
 }
 
 // WirePaymentConfigActivity wraps operatedRuntimeAccess.wirePaymentConfig (git
 // commit; content-idempotent on the "${workflowId}:${activityId}" key).
-func (wf *Workflows) WirePaymentConfigActivity(ctx context.Context, a WirePaymentConfigArgs) (struct{}, error) {
+func (wf *workflows) WirePaymentConfigActivity(ctx context.Context, a wirePaymentConfigArgs) (struct{}, error) {
 	return struct{}{}, fwmgr.MapError(wf.OperatedRuntime.WirePaymentConfig(ctx, a.DeployedAppID, a.Binding, activityIdempotencyKey(ctx)))
 }
 
@@ -199,8 +199,8 @@ func (wf *Workflows) WirePaymentConfigActivity(ctx context.Context, a WirePaymen
 // =============================================================================
 
 // DeliverDelinquencyArgs bundles the queued cross-Manager signal inputs.
-type DeliverDelinquencyArgs struct {
-	CustomerID       CustomerID
+type deliverDelinquencyArgs struct {
+	CustomerID       customerID
 	PauseNotWithdraw bool
 }
 
@@ -209,7 +209,7 @@ type DeliverDelinquencyArgs struct {
 // forget; dedup is the receiving handler's concern (D-DA §9 OQ3). The target is the
 // customer's operations delinquency workflow ({customerId}:delinquency — operationsManager
 // signal-with-start continuity token).
-func (wf *Workflows) DeliverDelinquencySignalActivity(ctx context.Context, a DeliverDelinquencyArgs) (struct{}, error) {
+func (wf *workflows) DeliverDelinquencySignalActivity(ctx context.Context, a deliverDelinquencyArgs) (struct{}, error) {
 	targetWorkflowID := fmt.Sprintf("%s:delinquency", a.CustomerID)
 	return struct{}{}, fwmgr.MapError(wf.Durable.DeliverSignal(ctx, targetWorkflowID, signalApplyDelinquencyPolicy, deliverSignalPayload{
 		CustomerID:       a.CustomerID,
@@ -220,10 +220,10 @@ func (wf *Workflows) DeliverDelinquencySignalActivity(ctx context.Context, a Del
 // RegisterScheduleActivity wraps durableExecutionAccess.registerSchedule for the
 // per-customer closeSettlementCycle:<customerId> Schedule (idempotent by id). Registered
 // at onboarding (op 2.1).
-func (wf *Workflows) RegisterScheduleActivity(ctx context.Context, customerID CustomerID) (struct{}, error) {
+func (wf *workflows) RegisterScheduleActivity(ctx context.Context, customerID customerID) (struct{}, error) {
 	return struct{}{}, fwmgr.MapError(wf.Durable.RegisterSchedule(ctx, scheduleSpec{
 		ID:           fmt.Sprintf("%s:%s", scheduleIDCloseCyclePrefix, customerID),
-		WorkflowType: ExecutionKindClose,
+		WorkflowType: executionKindClose,
 		TaskQueue:    TaskQueue,
 		IntervalSecs: closeCycleDefaultIntervalSecs,
 	}))

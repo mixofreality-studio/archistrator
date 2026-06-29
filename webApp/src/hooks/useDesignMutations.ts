@@ -9,13 +9,18 @@ import {
   type UseMutationResult,
   type QueryClient,
 } from '@tanstack/react-query';
+import { apiClient, toApiError } from '../api/client';
 import {
-  advancePhase,
-  requestArtifactDraft,
-  submitReviewDecision,
-  type ReviewDecisionDetail,
-} from '../api/systemDesign';
-import type { ArtifactKind, PhaseAdvanceResponse, ReviewDecision } from '../api/types';
+  artifactKindToOrdinal,
+  reviewDecisionToOrdinal,
+  systemArtifactKindFromOrdinal,
+} from '../api/enums';
+import type {
+  ArtifactKind,
+  PhaseAdvanceResponse,
+  ReviewDecision,
+  ReviewDecisionDetail,
+} from '../api/types';
 import { projectKey } from './useProject';
 import { sessionStateKey } from './useSessionState';
 
@@ -40,7 +45,20 @@ export function useRequestArtifactDraft(
 ): UseMutationResult<string, Error, RequestDraftVars> {
   const client = useQueryClient();
   return useMutation<string, Error, RequestDraftVars>({
-    mutationFn: (vars) => requestArtifactDraft(projectId, vars.kind, vars.feedback),
+    mutationFn: async (vars) => {
+      const { data, error, response } = await apiClient.POST(
+        '/api/v1/system-design/request-artifact-draft/{projectID}',
+        {
+          params: { path: { projectID: projectId } },
+          body: {
+            kind: artifactKindToOrdinal(vars.kind),
+            ...(vars.feedback !== undefined ? { feedback: { notes: vars.feedback } } : {}),
+          },
+        }
+      );
+      if (error !== undefined) throw toApiError(response.status, error);
+      return data;
+    },
     onSuccess: (_data, vars) => invalidateArtifact(client, projectId, vars.kind),
   });
 }
@@ -57,7 +75,27 @@ export function useSubmitReviewDecision(
   const client = useQueryClient();
   return useMutation<undefined, Error, ReviewDecisionVars>({
     mutationFn: async (vars) => {
-      await submitReviewDecision(projectId, vars.kind, vars.decision, vars.detail);
+      const detail = vars.detail ?? {};
+      const hasFeedback = detail.feedback !== undefined || detail.comments !== undefined;
+      const { error, response } = await apiClient.POST(
+        '/api/v1/system-design/submit-review-decision/{projectID}',
+        {
+          params: { path: { projectID: projectId } },
+          body: {
+            kind: artifactKindToOrdinal(vars.kind),
+            decision: reviewDecisionToOrdinal(vars.decision),
+            ...(hasFeedback
+              ? {
+                  feedback: {
+                    notes: detail.feedback ?? '',
+                    ...(detail.comments !== undefined ? { comments: detail.comments } : {}),
+                  },
+                }
+              : {}),
+          },
+        }
+      );
+      if (error !== undefined) throw toApiError(response.status, error);
       return undefined;
     },
     onSuccess: (_data, vars) => invalidateArtifact(client, projectId, vars.kind),
@@ -70,7 +108,17 @@ export function useAdvancePhase(
 ): UseMutationResult<PhaseAdvanceResponse, Error, undefined> {
   const client = useQueryClient();
   return useMutation<PhaseAdvanceResponse, Error, undefined>({
-    mutationFn: () => advancePhase(projectId),
+    mutationFn: async () => {
+      const { data, error, response } = await apiClient.POST(
+        '/api/v1/system-design/advance-phase/{projectID}',
+        { params: { path: { projectID: projectId } } }
+      );
+      if (error !== undefined) throw toApiError(response.status, error);
+      return {
+        advanced: data.advanced,
+        missingArtifacts: (data.missingArtifacts ?? []).map(systemArtifactKindFromOrdinal),
+      };
+    },
     onSuccess: () => client.invalidateQueries({ queryKey: projectKey(projectId) }),
   });
 }

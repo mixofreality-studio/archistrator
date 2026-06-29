@@ -1,7 +1,6 @@
 package settlement
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -11,10 +10,35 @@ import (
 	"go.temporal.io/sdk/client"
 
 	fwmgr "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
+	settlementengine "github.com/mixofreality-studio/archistrator/server/internal/engine/settlement"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/durableexecution"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/merchantgateway"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedruntime"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/revenueledger"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/settlementstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usagelog"
 )
 
-// Manager is the settlementManager façade. It exposes the six public use-case ops
-// (settlementManager.md §2) and OWNS Temporal. The Temporal-backed ops:
+// SettlementManager is the settlementManager port — the public use-case surface of the
+// façade (settlementManager.md §2). Each op leads with the Manager-layer call Context
+// (fwmgr.Context, embedding context.Context + the Principal); the *Manager derives
+// ctx := rc.Context inside.
+//
+// SCHEMA-FIRST: this interface (and the port I/O types) are GENERATED into
+// contract.gen.go from contract.schema.json (edit the schema + `make gen`; do NOT
+// hand-edit the generated surface). The concrete *Manager below satisfies it; the
+// consumer-side dependency interfaces (deps.go) and the Temporal Workflows struct
+// (workflow.go) stay hand-written and are NOT part of this contract.
+
+// Compile-time proof the concrete settlementManager satisfies the generated
+// SettlementManager port. Each op leads with the Manager-layer call Context
+// (fwmgr.Context); the impl derives ctx := rc.Context inside.
+var _ SettlementManager = (*settlementManager)(nil)
+
+// settlementManager is the settlementManager façade — the concrete implementation of the
+// GENERATED SettlementManager interface (contract.gen.go). It exposes the six public
+// use-case ops (settlementManager.md §2) and OWNS Temporal. The Temporal-backed ops:
 //   - OnboardPaymentIntegration — Workflow (entry; StartWorkflow, id {customerId}:onboard)
 //   - RegisterCustomer          — Workflow (entry; StartWorkflow, id {customerId}:register)
 //   - CloseSettlementCycle      — Workflow (entry; StartWorkflow, id {customerId}:{cycleId}:close)
@@ -22,17 +46,51 @@ import (
 //   - RecordInboundRevenue      — Signal (SignalWithStart inboundRevenueReceived → close id)
 //   - RecordRevenueReversal     — Signal (SignalWithStart chargebackReceived → close id)
 //
-// The Manager holds only a Temporal client; the façade pre-condition checks (non-empty
-// ids) are enforced here before any Temporal call (settlementManager.md §2/§3.1). The
-// downstream Engines/RA are held on the Workflows struct (workflow.go), reached only
-// from workflow code.
-type Manager struct {
+// The façade methods use only the Temporal client; the pre-condition checks (non-empty
+// ids) are enforced here before any Temporal call (settlementManager.md §2/§3.1). It ALSO
+// stores the PUBLISHED downstream deps the GENERATED constructor was given so
+// RegisterWorker can fold them (adapters.go) into the hand-written Temporal Workflows.
+// The former exported consumer-mirror interfaces are RETIRED; the Manager depends on the
+// deps' PUBLISHED interfaces and adapts them internally.
+type settlementManager struct {
 	client client.Client
+
+	settlementState  settlementstate.SettlementStateAccess
+	revenueLedger    revenueledger.RevenueLedgerAccess
+	usage            usagelog.UsageAccess
+	merchantGateway  merchantgateway.MerchantGatewayAccess
+	operatedRuntime  operatedruntime.OperatedRuntimeAccess
+	durableExecution durableexecution.DurableExecutionAccess
+	settlement       settlementengine.SettlementEngine
+	intervention     intervention.InterventionEngine
 }
 
-// NewManager constructs a Manager over an existing Temporal client.
-func NewManager(c client.Client) *Manager {
-	return &Manager{client: c}
+// newSettlementManager is the hand-written, unexported builder the generated
+// NewSettlementManager constructor delegates to. It wires the Temporal client + the
+// published deps into the façade. The façade itself uses only the client; the deps are
+// stored for RegisterWorker (worker.go), which folds them into the Temporal Workflows.
+func newSettlementManager(
+	c client.Client,
+	settlementState settlementstate.SettlementStateAccess,
+	revenueLedger revenueledger.RevenueLedgerAccess,
+	usage usagelog.UsageAccess,
+	merchantGateway merchantgateway.MerchantGatewayAccess,
+	operatedRuntime operatedruntime.OperatedRuntimeAccess,
+	durableExecution durableexecution.DurableExecutionAccess,
+	settlement settlementengine.SettlementEngine,
+	interventionEng intervention.InterventionEngine,
+) *settlementManager {
+	return &settlementManager{
+		client:           c,
+		settlementState:  settlementState,
+		revenueLedger:    revenueLedger,
+		usage:            usage,
+		merchantGateway:  merchantGateway,
+		operatedRuntime:  operatedRuntime,
+		durableExecution: durableExecution,
+		settlement:       settlement,
+		intervention:     interventionEng,
+	}
 }
 
 // OnboardPaymentIntegration — op 2.1. Temporal Workflow (entry; StartWorkflow, id
@@ -41,7 +99,8 @@ func NewManager(c client.Client) *Manager {
 // records the binding → registers the per-customer closeSettlementCycle Schedule.
 // Idempotent on the id (a redundant start returns the running SettlementRef). SYNC:
 // returns once the onboarding workflow is durably accepted.
-func (m *Manager) OnboardPaymentIntegration(ctx context.Context, deployedAppID DeployedAppID) (SettlementRef, error) {
+func (m *settlementManager) OnboardPaymentIntegration(rc fwmgr.Context, deployedAppID deployedAppID) (SettlementRef, error) {
+	ctx := rc.Context
 	if deployedAppID == uuid.Nil {
 		return SettlementRef{}, newError(fwmgr.ContractMisuse, "empty deployedAppId")
 	}
@@ -56,7 +115,7 @@ func (m *Manager) OnboardPaymentIntegration(ctx context.Context, deployedAppID D
 		TaskQueue:                TaskQueue,
 		WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
 	}
-	we, err := m.client.ExecuteWorkflow(ctx, opts, ExecutionKindOnboard, OnboardInput{
+	we, err := m.client.ExecuteWorkflow(ctx, opts, executionKindOnboard, onboardInput{
 		DeployedAppID: deployedAppID,
 	})
 	if err != nil {
@@ -72,7 +131,8 @@ func (m *Manager) OnboardPaymentIntegration(ctx context.Context, deployedAppID D
 // RegisterCustomer — op 2.2. Temporal Workflow (entry; StartWorkflow, id
 // {customerId}:register). Validates the stored instrument (zero-amount auth) → opens
 // the settlement aggregate. Idempotent on the id. SYNC.
-func (m *Manager) RegisterCustomer(ctx context.Context, customerID CustomerID) (SettlementRef, error) {
+func (m *settlementManager) RegisterCustomer(rc fwmgr.Context, customerID customerID) (SettlementRef, error) {
+	ctx := rc.Context
 	if customerID == uuid.Nil {
 		return SettlementRef{}, newError(fwmgr.ContractMisuse, "empty customerId")
 	}
@@ -83,7 +143,7 @@ func (m *Manager) RegisterCustomer(ctx context.Context, customerID CustomerID) (
 		TaskQueue:                TaskQueue,
 		WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
 	}
-	we, err := m.client.ExecuteWorkflow(ctx, opts, ExecutionKindRegister, RegisterInput{
+	we, err := m.client.ExecuteWorkflow(ctx, opts, executionKindRegister, registerInput{
 		CustomerID: customerID,
 	})
 	if err != nil {
@@ -103,7 +163,8 @@ func (m *Manager) RegisterCustomer(ctx context.Context, customerID CustomerID) (
 // (payout/charge/skip; on charge failure decides+executes {Retry|Escalate|Delay}) →
 // records the outcome. Idempotent on the id (a redundant firing collapses to the
 // running close). SYNC from the scheduler's POV.
-func (m *Manager) CloseSettlementCycle(ctx context.Context, customerID CustomerID, cycleID CycleID) (CloseCycleResult, error) {
+func (m *settlementManager) CloseSettlementCycle(rc fwmgr.Context, customerID customerID, cycleID cycleID) (CloseCycleResult, error) {
+	ctx := rc.Context
 	if customerID == uuid.Nil {
 		return CloseCycleResult{}, newError(fwmgr.ContractMisuse, "empty customerId")
 	}
@@ -117,7 +178,7 @@ func (m *Manager) CloseSettlementCycle(ctx context.Context, customerID CustomerI
 		TaskQueue:                TaskQueue,
 		WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
 	}
-	we, err := m.client.ExecuteWorkflow(ctx, opts, ExecutionKindClose, CloseInput{
+	we, err := m.client.ExecuteWorkflow(ctx, opts, executionKindClose, closeInput{
 		CustomerID: customerID,
 		CycleID:    cycleID,
 	})
@@ -136,7 +197,8 @@ func (m *Manager) CloseSettlementCycle(ctx context.Context, customerID CustomerI
 // persistently-delinquent customer set and, for each, delivers a queued
 // applyDelinquencyPolicy Signal to operationsManager (the single sanctioned queued M→M
 // edge). Does NOT pause/withdraw apps itself. SYNC.
-func (m *Manager) RunShortfallSweep(ctx context.Context, tickID string) (ShortfallSweepResult, error) {
+func (m *settlementManager) RunShortfallSweep(rc fwmgr.Context, tickID string) (ShortfallSweepResult, error) {
+	ctx := rc.Context
 	if tickID == "" {
 		return ShortfallSweepResult{}, newError(fwmgr.ContractMisuse, "empty tickId")
 	}
@@ -147,7 +209,7 @@ func (m *Manager) RunShortfallSweep(ctx context.Context, tickID string) (Shortfa
 		TaskQueue:                TaskQueue,
 		WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
 	}
-	we, err := m.client.ExecuteWorkflow(ctx, opts, ExecutionKindShortfallSweep, ShortfallSweepInput{})
+	we, err := m.client.ExecuteWorkflow(ctx, opts, executionKindShortfallSweep, shortfallSweepInput{})
 	if err != nil {
 		return ShortfallSweepResult{}, mapStartError(err)
 	}
@@ -164,7 +226,8 @@ func (m *Manager) RunShortfallSweep(ctx context.Context, tickID string) (Shortfa
 // fact to the Revenue Ledger (idempotent on the gateway event id). SYNC from the
 // Client's POV: returns once the signal is durably enqueued. Signature verified
 // upstream — this façade does not re-verify.
-func (m *Manager) RecordInboundRevenue(ctx context.Context, event GatewayRevenueEvent) error {
+func (m *settlementManager) RecordInboundRevenue(rc fwmgr.Context, event GatewayRevenueEvent) error {
+	ctx := rc.Context
 	if event.CustomerID == uuid.Nil {
 		return newError(fwmgr.ContractMisuse, "empty customerId")
 	}
@@ -181,8 +244,8 @@ func (m *Manager) RecordInboundRevenue(ctx context.Context, event GatewayRevenue
 		TaskQueue:                TaskQueue,
 		WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
 	}
-	_, err := m.client.SignalWithStartWorkflow(ctx, wfID, SignalInboundRevenueReceived, event,
-		opts, ExecutionKindClose, CloseInput{CustomerID: event.CustomerID, CycleID: event.CycleID})
+	_, err := m.client.SignalWithStartWorkflow(ctx, wfID, signalInboundRevenueReceived, event,
+		opts, executionKindClose, closeInput{CustomerID: event.CustomerID, CycleID: event.CycleID})
 	if err != nil {
 		return mapSignalError(err)
 	}
@@ -195,7 +258,8 @@ func (m *Manager) RecordInboundRevenue(ctx context.Context, event GatewayRevenue
 // completed). The cycle workflow appends the reversal (idempotent on the chargeback's
 // gateway event id), recomputes the net forward-only, records the correction, and
 // routes the delta. Compensation is forward-only; no rollback. SYNC.
-func (m *Manager) RecordRevenueReversal(ctx context.Context, event GatewayReversalEvent) error {
+func (m *settlementManager) RecordRevenueReversal(rc fwmgr.Context, event GatewayReversalEvent) error {
+	ctx := rc.Context
 	if event.CustomerID == uuid.Nil {
 		return newError(fwmgr.ContractMisuse, "empty customerId")
 	}
@@ -212,8 +276,8 @@ func (m *Manager) RecordRevenueReversal(ctx context.Context, event GatewayRevers
 		TaskQueue:                TaskQueue,
 		WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
 	}
-	_, err := m.client.SignalWithStartWorkflow(ctx, wfID, SignalChargebackReceived, event,
-		opts, ExecutionKindClose, CloseInput{CustomerID: event.CustomerID, CycleID: event.CycleID})
+	_, err := m.client.SignalWithStartWorkflow(ctx, wfID, signalChargebackReceived, event,
+		opts, executionKindClose, closeInput{CustomerID: event.CustomerID, CycleID: event.CycleID})
 	if err != nil {
 		return mapSignalError(err)
 	}
@@ -226,18 +290,18 @@ func (m *Manager) RecordRevenueReversal(ctx context.Context, event GatewayRevers
 // {customerId}:onboard once resolved; the Manager seeds the start token on the
 // deployedAppId (resolved to the customer inside the workflow). The id family is
 // deterministic so a redundant start collapses (§6.1 / §2.1).
-func onboardWorkflowID(deployedAppID DeployedAppID) string {
+func onboardWorkflowID(deployedAppID deployedAppID) string {
 	return fmt.Sprintf("%s:onboard", deployedAppID)
 }
 
 // registerWorkflowID derives {customerId}:register.
-func registerWorkflowID(customerID CustomerID) string {
+func registerWorkflowID(customerID customerID) string {
 	return fmt.Sprintf("%s:register", customerID)
 }
 
 // closeWorkflowID derives {customerId}:{cycleId}:close — the continuity token the
 // inbound/reversal/chargeback Signals target (§6.1).
-func closeWorkflowID(customerID CustomerID, cycleID CycleID) string {
+func closeWorkflowID(customerID customerID, cycleID cycleID) string {
 	return fmt.Sprintf("%s:%s:close", customerID, cycleID)
 }
 

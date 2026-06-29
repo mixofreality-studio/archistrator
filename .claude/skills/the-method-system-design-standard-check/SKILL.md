@@ -9,12 +9,12 @@ The final gate before project design begins. Every item in Appendix C's System D
 
 ## Canonical source
 
-**Primary:** Löwy, [Appendix C — Design Standard](../../../../rightingsoftware/OEBPS/xhtml/appc.xhtml). Focus areas:
+**Primary:** Löwy, [Appendix C — Design Standard](../../../research/rightingsoftware/OEBPS/xhtml/appc.xhtml). Focus areas:
 
-- [§1 "The Prime Directive"](../../../../rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec1)
-- [§2 "Directives"](../../../../rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec2)
-- [§3 "System Design Guidelines"](../../../../rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec3)
-- [§6 "Service Contract Design Guidelines"](../../../../rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec6) (forward-look — full check during construction)
+- [§1 "The Prime Directive"](../../../research/rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec1)
+- [§2 "Directives"](../../../research/rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec2)
+- [§3 "System Design Guidelines"](../../../research/rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec3)
+- [§6 "Service Contract Design Guidelines"](../../../research/rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec6) (forward-look — full check during construction)
 
 ## Input
 

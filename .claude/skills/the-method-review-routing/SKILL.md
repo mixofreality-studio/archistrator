@@ -13,8 +13,8 @@ Encapsulates the **ReviewPolicy** volatility (see the committed `.volatilities` 
 
 ## Canonical source
 
-- Löwy, [Ch. 14 §5 "The Hand-Off"](../../../../rightingsoftware/OEBPS/xhtml/ch14.xhtml#ch14lev1sec5) — the review chain this extends.
-- [App C §3.4](../../../../rightingsoftware/OEBPS/xhtml/appc.xhtml) — integrate incrementally; review is part of the activity exit.
+- Löwy, [Ch. 14 §5 "The Hand-Off"](../../../research/rightingsoftware/OEBPS/xhtml/ch14.xhtml#ch14lev1sec5) — the review chain this extends.
+- [App C §3.4](../../../research/rightingsoftware/OEBPS/xhtml/appc.xhtml) — integrate incrementally; review is part of the activity exit.
 
 ## Relationship to other skills
 

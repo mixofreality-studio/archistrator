@@ -11,14 +11,14 @@ You produce it for the SDP review so management can see the trap and reject it.
 
 ## Canonical source
 
-**Primary:** Löwy, [Ch. 11 §3.3 "Going Subcritical"](../../../../rightingsoftware/OEBPS/xhtml/ch11.xhtml#ch11lev2sec9) — the worked example with the 7th iteration of the normal-solution search.
+**Primary:** Löwy, [Ch. 11 §3.3 "Going Subcritical"](../../../research/rightingsoftware/OEBPS/xhtml/ch11.xhtml#ch11lev2sec9) — the worked example with the 7th iteration of the normal-solution search.
 
 **Supporting:**
-- [Ch. 7 §9 "Project Cost"](../../../../rightingsoftware/OEBPS/xhtml/ch07.xhtml#ch07lev1sec9) — indirect cost behavior over time
-- [Ch. 9 §5 "Project Cost Elements"](../../../../rightingsoftware/OEBPS/xhtml/ch09.xhtml#ch09lev1sec5) — total/direct/indirect costs
-- [Ch. 9 §5.7 "Staffing and Cost Elements"](../../../../rightingsoftware/OEBPS/xhtml/ch09.xhtml#ch09lev2sec13)
+- [Ch. 7 §9 "Project Cost"](../../../research/rightingsoftware/OEBPS/xhtml/ch07.xhtml#ch07lev1sec9) — indirect cost behavior over time
+- [Ch. 9 §5 "Project Cost Elements"](../../../research/rightingsoftware/OEBPS/xhtml/ch09.xhtml#ch09lev1sec5) — total/direct/indirect costs
+- [Ch. 9 §5.7 "Staffing and Cost Elements"](../../../research/rightingsoftware/OEBPS/xhtml/ch09.xhtml#ch09lev2sec13)
 
-**Standard reference:** [Appendix C §4.1e](../../../../rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec4) — *"Design several options for the project; at a minimum, design normal, compressed, and subcritical solutions."*
+**Standard reference:** [Appendix C §4.1e](../../../research/rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec4) — *"Design several options for the project; at a minimum, design normal, compressed, and subcritical solutions."*
 
 ## Input
 

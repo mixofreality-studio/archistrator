@@ -20,7 +20,7 @@ import ReplayIcon from '@mui/icons-material/Replay';
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
 import SkipNextIcon from '@mui/icons-material/SkipNext';
 import OpenWithIcon from '@mui/icons-material/OpenWith';
-import type { ConstructionSessionState, OverrideKind } from '../../api/construction';
+import type { ConstructionSessionState, OverrideKind } from '../../api/types';
 import type { GitRow } from '../../api/types';
 import { STAGE_LABEL } from '../../api/constructionAdapters';
 import { useTokens } from '../../theme/ThemeContext';

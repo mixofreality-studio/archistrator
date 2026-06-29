@@ -10,7 +10,7 @@ import { useMemo, type ReactNode } from 'react';
 import type { Node } from '@xyflow/react';
 import { toDeploymentView, type DeploymentNodeView } from '../../api/adapters';
 import type { ArtifactModelEnvelope } from '../../api/types';
-import type { components } from '../../api/schema';
+import type { Layer, DeploymentProfile } from '../../api/models';
 import { useTokens } from '../../theme/ThemeContext';
 import type { Tokens } from '../../theme/themes';
 import { layerColors, LAYER_LABEL } from './flowLayout';
@@ -65,7 +65,7 @@ function emit(
   x: number,
   y: number,
   t: Tokens,
-  colors: Record<components['schemas']['Layer'], string>,
+  colors: Record<Layer, string>,
   out: Node[]
 ): void {
   out.push({
@@ -127,7 +127,7 @@ export function DeploymentFlow({
 }: {
   opEnvelope: ArtifactModelEnvelope | undefined;
   systemEnvelope: ArtifactModelEnvelope | undefined;
-  profile: components['schemas']['DeploymentProfile'];
+  profile: DeploymentProfile;
   height?: number;
 }): ReactNode {
   const t = useTokens();

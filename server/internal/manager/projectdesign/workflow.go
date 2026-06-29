@@ -1,6 +1,7 @@
 package projectdesign
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math"
@@ -9,6 +10,7 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
+	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/estimation"
@@ -28,33 +30,33 @@ const TaskQueue = "project-design"
 
 // Signal and query names (contract §6.5).
 const (
-	// SignalReviewDecision resumes a suspended CoAuthorPhase2ArtifactWorkflow at
+	// signalReviewDecision resumes a suspended CoAuthorPhase2ArtifactWorkflow at
 	// the per-artifact AwaitingReview gate; backs submitReviewDecision (OQ-3).
-	SignalReviewDecision = "reviewDecision"
-	// SignalRedraft resumes a CoAuthorPhase2ArtifactWorkflow that landed in the
+	signalReviewDecision = "reviewDecision"
+	// signalRedraft resumes a CoAuthorPhase2ArtifactWorkflow that landed in the
 	// StageDraftFailed recovery gate (a terminal Phase-2 design-job failure). It
 	// re-enters the dispatch loop in the SAME live workflow so the user's "Retry
 	// draft" recovers without a fresh run. Backs requestArtifactDraft's retry path
 	// (signal-with-start; projectDesignManager.md §2.1 / §0.5.4).
-	SignalRedraft = "redraft"
-	// SignalSDPDecision resumes the AssembleSDPReviewWorkflow at the option-commit
+	signalRedraft = "redraft"
+	// signalSDPDecision resumes the AssembleSDPReviewWorkflow at the option-commit
 	// gate; backs submitSDPDecision.
-	SignalSDPDecision = "sdpDecision"
-	// QuerySessionState returns a SessionStateView; backs getSessionState.
-	QuerySessionState = "sessionState"
+	signalSDPDecision = "sdpDecision"
+	// querySessionState returns a SessionStateView; backs getSessionState.
+	querySessionState = "sessionState"
 )
 
 // ExecutionKinds for the durable-execution control plane (contract §6.2).
 const (
-	// ExecutionKindCoAuthor is the per-artifact Phase-2 co-authoring gate.
-	ExecutionKindCoAuthor = "projectDesignCoAuthor"
-	// ExecutionKindSDPReview is the UC2 SDP-review assembly + option-commit gate.
-	ExecutionKindSDPReview = "projectDesignSDPReview"
-	// ExecutionKindPhaseAdvance is the short-lived Phase-2 seal gating workflow.
-	ExecutionKindPhaseAdvance = "projectDesignPhaseAdvance"
+	// executionKindCoAuthor is the per-artifact Phase-2 co-authoring gate.
+	executionKindCoAuthor = "projectDesignCoAuthor"
+	// executionKindSDPReview is the UC2 SDP-review assembly + option-commit gate.
+	executionKindSDPReview = "projectDesignSDPReview"
+	// executionKindPhaseAdvance is the short-lived Phase-2 seal gating workflow.
+	executionKindPhaseAdvance = "projectDesignPhaseAdvance"
 )
 
-// Workflows is the single projectDesignManager component struct. It holds ALL the
+// workflows is the single projectDesignManager component struct. It holds ALL the
 // downstream dependencies the Manager orchestrates and is BOTH the workflow
 // receiver and the activity receiver — there is no separate Activities type.
 //
@@ -84,12 +86,12 @@ const (
 // survives; the in-flight cancel is constructionPipelineAccess.cancel) and
 // artifactValidationEngine (Phase-2 validation is the required CI check inside the
 // Action, surfaced as the job's terminal phase). Both are removed from this struct.
-type Workflows struct {
+type workflows struct {
 	Estimation   estimation.EstimationEngine
 	OperationEst operationestimation.OperationEstimationEngine
 	Settlement   settlement.SettlementEngine
 	ProjectState projectstate.ProjectStateAccess
-	Pipeline     ConstructionPipelineAccess
+	Pipeline     constructionPipelineAccess
 
 	// Rail + Repo are the OPTIONAL git-forward PR rail (I-DESIGN-DISPATCH §2b). When both
 	// are non-nil AND a repo resolves, the per-artifact CoAuthorPhase2ArtifactWorkflow
@@ -97,7 +99,7 @@ type Workflows struct {
 	// branch-aware read-back/stage; when nil that path runs UNCHANGED (read-back/stage on
 	// main, no branch/PR ops). The AssembleSDPReviewWorkflow (the in-workflow three-Engine
 	// join) is UNCHANGED — it gets NO rail (only the per-artifact draft path does).
-	Rail SourceControlRail
+	Rail sourceControlRail
 	// Repo resolves the per-project RepoRef the rail verbs address. nil ⇒ the rail is
 	// dormant. Injected so the repo-resolution policy is swappable without a new RA edge.
 	Repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool)
@@ -108,6 +110,7 @@ type Workflows struct {
 // method value on wf, so the registered name and the call stay in lockstep.
 const (
 	actReadProject         = "ReadProjectActivity"
+	actReadProjectVersion  = "ReadProjectVersionActivity"
 	actReadProjectOnBranch = "ReadProjectOnBranchActivity"
 	actDispatchDesignJob   = "DispatchDesignJobActivity"
 	actObserveDesignJob    = "ObserveDesignJobActivity"
@@ -175,18 +178,32 @@ var raNotFoundErrType = fwmanager.RAErrType(fwra.NotFound)
 
 // readProject runs the ReadProject Activity and returns the whole head-state
 // aggregate. A brand-new project surfaces fwra.NotFound (see isReadNotFound).
-func (wf *Workflows) readProject(ctx workflow.Context, projectID ProjectID) (projectstate.Project, error) {
+func (wf *workflows) readProject(ctx workflow.Context, projectID ProjectID) (projectstate.Project, error) {
 	c := readProjectOpts(ctx)
 	var pe projectEnvelope
-	if err := workflow.ExecuteActivity(c, wf.ReadProjectActivity, projectID).Get(ctx, &pe); err != nil {
+	if err := workflow.ExecuteActivity(c, wf.ReadProjectActivity, projectstate.ProjectID(projectID)).Get(ctx, &pe); err != nil {
 		return projectstate.Project{}, err
 	}
 	return pe.decode()
 }
 
+// readVersion runs the cheap ReadProjectVersion Activity and returns only the
+// head-state optimistic-concurrency token — the single value the Conflict re-read
+// loop needs to seed its next attempt. A brand-new project surfaces fwra.NotFound
+// (see isReadNotFound). Replaces the wasteful whole-aggregate read that shipped the
+// entire encoded Project across the Temporal Activity boundary for a uint64.
+func (wf *workflows) readVersion(ctx workflow.Context, projectID ProjectID) (projectstate.Version, error) {
+	c := readProjectOpts(ctx)
+	var v projectstate.Version
+	if err := workflow.ExecuteActivity(c, wf.ReadProjectVersionActivity, projectstate.ProjectID(projectID)).Get(ctx, &v); err != nil {
+		return 0, err
+	}
+	return v, nil
+}
+
 // applyRecovering executes one head-state mutation Activity with a workflow-level
 // Conflict re-read→re-apply loop.
-func (wf *Workflows) applyRecovering(
+func (wf *workflows) applyRecovering(
 	ctx workflow.Context,
 	projectID ProjectID,
 	seed projectstate.Version,
@@ -206,7 +223,7 @@ func (wf *Workflows) applyRecovering(
 				"head-state conflict did not converge within bounded attempts",
 				"MutateConflictExhausted", err)
 		}
-		p, rerr := wf.readProject(ctx, projectID)
+		v, rerr := wf.readVersion(ctx, projectID)
 		if rerr != nil {
 			if isReadNotFound(rerr) {
 				expected = 0
@@ -214,7 +231,7 @@ func (wf *Workflows) applyRecovering(
 			}
 			return 0, rerr
 		}
-		expected = p.Version
+		expected = v
 		workflow.GetLogger(ctx).Info("head-state conflict; re-read version and retrying",
 			"attempt", attempt+1, "nextExpectedVersion", expected)
 	}
@@ -267,8 +284,8 @@ func coAuthorWorkflowID(projectID ProjectID, kind ArtifactKind) string {
 	return fmt.Sprintf("%s:%d", projectID, int(kind))
 }
 
-// CoAuthorInput is the start payload for CoAuthorPhase2ArtifactWorkflow.
-type CoAuthorInput struct {
+// coAuthorInput is the start payload for CoAuthorPhase2ArtifactWorkflow.
+type coAuthorInput struct {
 	ProjectID    ProjectID
 	ArtifactKind ArtifactKind
 	// Feedback is the optional re-request feedback for the explicit
@@ -276,38 +293,38 @@ type CoAuthorInput struct {
 	Feedback *ReviewFeedback
 }
 
-// CoAuthorOutcome is the workflow's terminal report — whether the human gate
+// coAuthorOutcome is the workflow's terminal report — whether the human gate
 // approved or withdrew.
-type CoAuthorOutcome int
+type coAuthorOutcome int
 
 const (
-	CoAuthorUnknown CoAuthorOutcome = iota
-	CoAuthorApproved
-	CoAuthorWithdrawn
+	coAuthorUnknown coAuthorOutcome = iota
+	coAuthorApproved
+	coAuthorWithdrawn
 )
 
-// ReviewDecisionSignal is the reviewDecision signal payload (contract §6.5).
-type ReviewDecisionSignal struct {
+// reviewDecisionSignal is the reviewDecision signal payload (contract §6.5).
+type reviewDecisionSignal struct {
 	Decision ReviewDecision
 	Feedback *ReviewFeedback
 }
 
-// RedraftSignal is the redraft signal payload — the "Retry draft" lever delivered to
+// redraftSignal is the redraft signal payload — the "Retry draft" lever delivered to
 // a CoAuthorPhase2ArtifactWorkflow suspended in the StageDraftFailed recovery gate
 // (requestArtifactDraft's retry path). Feedback is the optional re-request feedback
 // woven into the next draft dispatch.
-type RedraftSignal struct {
+type redraftSignal struct {
 	Feedback *ReviewFeedback
 }
 
-func (wf *Workflows) CoAuthorPhase2ArtifactWorkflow(ctx workflow.Context, in CoAuthorInput) (CoAuthorOutcome, error) {
+func (wf *workflows) CoAuthorPhase2ArtifactWorkflow(ctx workflow.Context, in coAuthorInput) (coAuthorOutcome, error) {
 	logger := workflow.GetLogger(ctx)
 
 	// The SDP review is NOT co-authored here — it is assembled by
 	// AssembleSDPReviewWorkflow (contract §2.1 rejects KindSdpReview at the façade,
 	// belt-and-suspenders here).
-	if in.ArtifactKind == projectstate.KindSdpReview {
-		return CoAuthorUnknown, temporal.NewNonRetryableApplicationError(
+	if in.ArtifactKind == KindSdpReview {
+		return coAuthorUnknown, temporal.NewNonRetryableApplicationError(
 			"the SDP review is assembled, not co-authored; use RequestSDPCommit",
 			"WrongArtifactKind", nil)
 	}
@@ -318,8 +335,8 @@ func (wf *Workflows) CoAuthorPhase2ArtifactWorkflow(ctx workflow.Context, in CoA
 		artifactKind: in.ArtifactKind,
 		stage:        StageDrafting,
 	}
-	if err := workflow.SetQueryHandler(ctx, QuerySessionState, state.view); err != nil {
-		return CoAuthorUnknown, err
+	if err := workflow.SetQueryHandler(ctx, querySessionState, state.view); err != nil {
+		return coAuthorUnknown, err
 	}
 
 	// Carry expectedVersion forward in workflow state (read-your-writes).
@@ -329,9 +346,9 @@ func (wf *Workflows) CoAuthorPhase2ArtifactWorkflow(ctx workflow.Context, in CoA
 	var proj projectstate.Project
 	if p, err := wf.readProject(ctx, in.ProjectID); err != nil {
 		if !isReadNotFound(err) {
-			return CoAuthorUnknown, err
+			return coAuthorUnknown, err
 		}
-		proj = projectstate.Project{ID: in.ProjectID}
+		proj = projectstate.Project{ID: projectstate.ProjectID(in.ProjectID)}
 	} else {
 		proj = p
 		headVersion = p.Version
@@ -372,11 +389,11 @@ func (wf *Workflows) CoAuthorPhase2ArtifactWorkflow(ctx workflow.Context, in CoA
 		// and the spine runs unchanged (read-back/stage on main, no branch/PR ops).
 		gf, gerr := wf.beginSession(ctx, in.ProjectID, sessionBranch)
 		if gerr != nil {
-			return CoAuthorUnknown, gerr
+			return coAuthorUnknown, gerr
 		}
 
-		draftPrompt := architectDraftPrompt(in.ArtifactKind, proj, feedback)
-		draftObs, derr := wf.dispatchAndObserve(ctx, DispatchDesignJobArgs{
+		draftPrompt := architectDraftPrompt(toPSKind(in.ArtifactKind), proj, feedback)
+		draftObs, derr := wf.dispatchAndObserve(ctx, dispatchDesignJobArgs{
 			ProjectID:     in.ProjectID,
 			ArtifactKind:  in.ArtifactKind,
 			Prompt:        draftPrompt,
@@ -389,9 +406,9 @@ func (wf *Workflows) CoAuthorPhase2ArtifactWorkflow(ctx workflow.Context, in CoA
 		if derr != nil {
 			// A TRANSIENT dispatch/observe fault that exhausted its retry budget is an
 			// infrastructure escalation (not a ran-but-failed job): close the workflow.
-			return CoAuthorUnknown, derr
+			return coAuthorUnknown, derr
 		}
-		if draftObs.Phase != PipelineSucceeded {
+		if draftObs.Phase != pipelineSucceeded {
 			// The job RAN and FAILED (drafting failed or the required CI validation check
 			// went red) — a terminal-at-the-Manager fault. Do NOT crash the workflow and do
 			// NOT loop: land the session in the human-visible StageDraftFailed and suspend
@@ -400,7 +417,7 @@ func (wf *Workflows) CoAuthorPhase2ArtifactWorkflow(ctx workflow.Context, in CoA
 			logger.Warn("Phase-2 design draft job reached a terminal failure phase; entering StageDraftFailed", "diagnostic", draftObs.Diagnostic)
 			outcome, retry, recErr := wf.awaitDraftFailedRecovery(ctx, in.ProjectID, in.ArtifactKind, headVersion, draftObs.Diagnostic, state, &feedback)
 			if recErr != nil {
-				return CoAuthorUnknown, recErr
+				return coAuthorUnknown, recErr
 			}
 			if !retry {
 				return outcome, nil
@@ -412,14 +429,14 @@ func (wf *Workflows) CoAuthorPhase2ArtifactWorkflow(ctx workflow.Context, in CoA
 		// Idempotent on head — if the Action already opened it the rail returns the
 		// existing handle (authoritative for the merge step).
 		if err := wf.openPR(ctx, &gf, in.ArtifactKind); err != nil {
-			return CoAuthorUnknown, err
+			return coAuthorUnknown, err
 		}
 		// READ-BACK on the SESSION BRANCH (§2a): the Action committed the typed Phase-2
 		// JSON on the session branch; read it back as the not-yet-merged draft. A dormant
 		// rail reads main (readBackBranch() == "").
 		model, rbErr := wf.readBackCommittedModelOn(ctx, in.ProjectID, in.ArtifactKind, gf.readBackBranch())
 		if rbErr != nil {
-			return CoAuthorUnknown, rbErr
+			return coAuthorUnknown, rbErr
 		}
 		draft = model
 		state.findings = nil
@@ -430,27 +447,27 @@ func (wf *Workflows) CoAuthorPhase2ArtifactWorkflow(ctx workflow.Context, in CoA
 		// Step 4: stageArtifactForReview, with the workflow-level Conflict loop.
 		draftEnvelope, encErr := encodeModel(draft)
 		if encErr != nil {
-			return CoAuthorUnknown, fwmanager.MapError(encErr)
+			return coAuthorUnknown, fwmanager.MapError(encErr)
 		}
 		{
 			newVersion, err := wf.applyRecovering(ctx, in.ProjectID, headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
 				c := mutateOpts(ctx)
 				var v projectstate.Version
-				e := workflow.ExecuteActivity(c, wf.StageArtifactForReviewActivity, StageArtifactForReviewArgs{
-					ProjectID: in.ProjectID, ExpectedVersion: expected, Model: draftEnvelope, Branch: gf.readBackBranch(),
+				e := workflow.ExecuteActivity(c, wf.StageArtifactForReviewActivity, stageArtifactForReviewArgs{
+					ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, Model: draftEnvelope, Branch: gf.readBackBranch(),
 				}).Get(ctx, &v)
 				return v, e
 			})
 			if err != nil {
-				return CoAuthorUnknown, err
+				return coAuthorUnknown, err
 			}
 			headVersion = newVersion
 		}
 		state.stage = StageAwaitingReview
 
 		// Step 6: awaitSignal("reviewDecision") — in-workflow primitive; suspend.
-		var sig ReviewDecisionSignal
-		workflow.GetSignalChannel(ctx, SignalReviewDecision).Receive(ctx, &sig)
+		var sig reviewDecisionSignal
+		workflow.GetSignalChannel(ctx, signalReviewDecision).Receive(ctx, &sig)
 
 		// Step 7: branch on the architect's decision (the commit authority).
 		switch sig.Decision {
@@ -460,7 +477,7 @@ func (wf *Workflows) CoAuthorPhase2ArtifactWorkflow(ctx workflow.Context, in CoA
 			// dormant rail returns merged=true with no rail ops (the non-git spine).
 			merged, mErr := wf.mergeOnApprove(ctx, &gf, in.ArtifactKind)
 			if mErr != nil {
-				return CoAuthorUnknown, mErr
+				return coAuthorUnknown, mErr
 			}
 			if !merged {
 				// The merge guard was NOT green (the required CI check is red on the PR): do
@@ -469,7 +486,7 @@ func (wf *Workflows) CoAuthorPhase2ArtifactWorkflow(ctx workflow.Context, in CoA
 				logger.Warn("Phase-2 design PR not mergeable at approve (CI not green); entering StageDraftFailed")
 				outcome, retry, recErr := wf.awaitDraftFailedRecovery(ctx, in.ProjectID, in.ArtifactKind, headVersion, "the design PR is not green — its required CI check has not passed", state, &feedback)
 				if recErr != nil {
-					return CoAuthorUnknown, recErr
+					return coAuthorUnknown, recErr
 				}
 				if !retry {
 					return outcome, nil
@@ -485,36 +502,36 @@ func (wf *Workflows) CoAuthorPhase2ArtifactWorkflow(ctx workflow.Context, in CoA
 				if mp, rerr := wf.readProject(ctx, in.ProjectID); rerr == nil {
 					headVersion = mp.Version
 				} else if !isReadNotFound(rerr) {
-					return CoAuthorUnknown, rerr
+					return coAuthorUnknown, rerr
 				}
 			}
 			newVersion, err := wf.applyRecovering(ctx, in.ProjectID, headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
 				c := mutateOpts(ctx)
 				var v projectstate.Version
-				e := workflow.ExecuteActivity(c, wf.CommitArtifactActivity, MutateArtifactArgs{
-					ProjectID: in.ProjectID, ExpectedVersion: expected, Kind: in.ArtifactKind,
+				e := workflow.ExecuteActivity(c, wf.CommitArtifactActivity, mutateArtifactArgs{
+					ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, Kind: toPSKind(in.ArtifactKind),
 				}).Get(ctx, &v)
 				return v, e
 			})
 			if err != nil {
-				return CoAuthorUnknown, err
+				return coAuthorUnknown, err
 			}
 			headVersion = newVersion
 			state.stage = StageCommitted
-			return CoAuthorApproved, nil
+			return coAuthorApproved, nil
 
 		case ReviewReject:
 			notes := signalNotes(sig.Feedback)
 			newVersion, err := wf.applyRecovering(ctx, in.ProjectID, headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
 				c := mutateOpts(ctx)
 				var v projectstate.Version
-				e := workflow.ExecuteActivity(c, wf.RejectArtifactActivity, MutateArtifactArgs{
-					ProjectID: in.ProjectID, ExpectedVersion: expected, Kind: in.ArtifactKind, Notes: notes,
+				e := workflow.ExecuteActivity(c, wf.RejectArtifactActivity, mutateArtifactArgs{
+					ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, Kind: toPSKind(in.ArtifactKind), Notes: notes,
 				}).Get(ctx, &v)
 				return v, e
 			})
 			if err != nil {
-				return CoAuthorUnknown, err
+				return coAuthorUnknown, err
 			}
 			headVersion = newVersion
 			// A fresh REJECT needs a NEW session branch + PR next attempt (the rejected PR
@@ -529,20 +546,20 @@ func (wf *Workflows) CoAuthorPhase2ArtifactWorkflow(ctx workflow.Context, in CoA
 			newVersion, err := wf.applyRecovering(ctx, in.ProjectID, headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
 				c := mutateOpts(ctx)
 				var v projectstate.Version
-				e := workflow.ExecuteActivity(c, wf.WithdrawArtifactActivity, MutateArtifactArgs{
-					ProjectID: in.ProjectID, ExpectedVersion: expected, Kind: in.ArtifactKind, Notes: notes,
+				e := workflow.ExecuteActivity(c, wf.WithdrawArtifactActivity, mutateArtifactArgs{
+					ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, Kind: toPSKind(in.ArtifactKind), Notes: notes,
 				}).Get(ctx, &v)
 				return v, e
 			})
 			if err != nil {
-				return CoAuthorUnknown, err
+				return coAuthorUnknown, err
 			}
 			headVersion = newVersion
 			state.stage = StageWithdrawn
-			return CoAuthorWithdrawn, nil
+			return coAuthorWithdrawn, nil
 
 		default:
-			return CoAuthorUnknown, temporal.NewNonRetryableApplicationError("unknown review decision", "UnknownReviewDecision", nil)
+			return coAuthorUnknown, temporal.NewNonRetryableApplicationError("unknown review decision", "UnknownReviewDecision", nil)
 		}
 	}
 }
@@ -568,27 +585,27 @@ func sdpReviewWorkflowID(projectID ProjectID) string {
 	return fmt.Sprintf("%s:sdpReview", projectID)
 }
 
-// SDPReviewInput is the start payload for AssembleSDPReviewWorkflow.
-type SDPReviewInput struct {
+// sdpReviewInput is the start payload for AssembleSDPReviewWorkflow.
+type sdpReviewInput struct {
 	ProjectID ProjectID
 }
 
-// SDPDecisionSignal is the sdpDecision signal payload (contract §6.5).
-type SDPDecisionSignal struct {
+// sdpDecisionSignal is the sdpDecision signal payload (contract §6.5).
+type sdpDecisionSignal struct {
 	Decision SDPDecision
 	OptionID *OptionID
 	Feedback *ReviewFeedback
 }
 
-func (wf *Workflows) AssembleSDPReviewWorkflow(ctx workflow.Context, in SDPReviewInput) error {
+func (wf *workflows) AssembleSDPReviewWorkflow(ctx workflow.Context, in sdpReviewInput) error {
 	logger := workflow.GetLogger(ctx)
 
 	state := &coAuthorState{
 		projectID:    in.ProjectID,
-		artifactKind: projectstate.KindSdpReview,
+		artifactKind: KindSdpReview,
 		stage:        StageAssemblingSDP,
 	}
-	if err := workflow.SetQueryHandler(ctx, QuerySessionState, state.view); err != nil {
+	if err := workflow.SetQueryHandler(ctx, querySessionState, state.view); err != nil {
 		return err
 	}
 
@@ -627,17 +644,17 @@ func (wf *Workflows) AssembleSDPReviewWorkflow(ctx workflow.Context, in SDPRevie
 		state.stage = StageAwaitingReview
 
 		// Step 6: awaitSignal("sdpDecision") — suspend durably.
-		var sig SDPDecisionSignal
-		workflow.GetSignalChannel(ctx, SignalSDPDecision).Receive(ctx, &sig)
+		var sig sdpDecisionSignal
+		workflow.GetSignalChannel(ctx, signalSDPDecision).Receive(ctx, &sig)
 
 		// Step 7: branch on the architect's decision.
 		switch sig.Decision {
 		case SDPCommit:
-			if sig.OptionID == nil || !optionInReview(review, *sig.OptionID) {
+			if sig.OptionID == nil || !optionInReview(review, projectstate.OptionID(*sig.OptionID)) {
 				return temporal.NewNonRetryableApplicationError(
 					"SDP commit named an option not in the assembled review", "UnknownOption", nil)
 			}
-			chosen := *sig.OptionID
+			chosen := projectstate.OptionID(*sig.OptionID)
 
 			// Commit-time confirmation: RE-RUN the three engines on the chosen option,
 			// re-stage the review with Recommendation=chosen (records the architect's
@@ -684,7 +701,7 @@ func (wf *Workflows) AssembleSDPReviewWorkflow(ctx workflow.Context, in SDPRevie
 
 // stageReview stages the SdpReview into its slot (status AwaitingReview), updating
 // headVersion via the workflow-level Conflict loop.
-func (wf *Workflows) stageReview(ctx workflow.Context, projectID ProjectID, review *projectstate.SdpReview, headVersion *projectstate.Version) error {
+func (wf *workflows) stageReview(ctx workflow.Context, projectID ProjectID, review *projectstate.SdpReview, headVersion *projectstate.Version) error {
 	env, encErr := encodeModel(review)
 	if encErr != nil {
 		return fwmanager.MapError(encErr)
@@ -692,8 +709,8 @@ func (wf *Workflows) stageReview(ctx workflow.Context, projectID ProjectID, revi
 	v, err := wf.applyRecovering(ctx, projectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
 		c := mutateOpts(ctx)
 		var got projectstate.Version
-		e := workflow.ExecuteActivity(c, wf.StageArtifactForReviewActivity, StageArtifactForReviewArgs{
-			ProjectID: projectID, ExpectedVersion: expected, Model: env,
+		e := workflow.ExecuteActivity(c, wf.StageArtifactForReviewActivity, stageArtifactForReviewArgs{
+			ProjectID: projectstate.ProjectID(projectID), ExpectedVersion: expected, Model: env,
 		}).Get(ctx, &got)
 		return got, e
 	})
@@ -705,12 +722,12 @@ func (wf *Workflows) stageReview(ctx workflow.Context, projectID ProjectID, revi
 }
 
 // commitReview commits the SdpReview slot.
-func (wf *Workflows) commitReview(ctx workflow.Context, projectID ProjectID, headVersion *projectstate.Version) error {
+func (wf *workflows) commitReview(ctx workflow.Context, projectID ProjectID, headVersion *projectstate.Version) error {
 	v, err := wf.applyRecovering(ctx, projectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
 		c := mutateOpts(ctx)
 		var got projectstate.Version
-		e := workflow.ExecuteActivity(c, wf.CommitArtifactActivity, MutateArtifactArgs{
-			ProjectID: projectID, ExpectedVersion: expected, Kind: projectstate.KindSdpReview,
+		e := workflow.ExecuteActivity(c, wf.CommitArtifactActivity, mutateArtifactArgs{
+			ProjectID: projectstate.ProjectID(projectID), ExpectedVersion: expected, Kind: projectstate.KindSdpReview,
 		}).Get(ctx, &got)
 		return got, e
 	})
@@ -722,12 +739,12 @@ func (wf *Workflows) commitReview(ctx workflow.Context, projectID ProjectID, hea
 }
 
 // rejectReview records a rejected SdpReview outcome.
-func (wf *Workflows) rejectReview(ctx workflow.Context, projectID ProjectID, notes string, headVersion *projectstate.Version) error {
+func (wf *workflows) rejectReview(ctx workflow.Context, projectID ProjectID, notes string, headVersion *projectstate.Version) error {
 	v, err := wf.applyRecovering(ctx, projectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
 		c := mutateOpts(ctx)
 		var got projectstate.Version
-		e := workflow.ExecuteActivity(c, wf.RejectArtifactActivity, MutateArtifactArgs{
-			ProjectID: projectID, ExpectedVersion: expected, Kind: projectstate.KindSdpReview, Notes: notes,
+		e := workflow.ExecuteActivity(c, wf.RejectArtifactActivity, mutateArtifactArgs{
+			ProjectID: projectstate.ProjectID(projectID), ExpectedVersion: expected, Kind: projectstate.KindSdpReview, Notes: notes,
 		}).Get(ctx, &got)
 		return got, e
 	})
@@ -753,18 +770,18 @@ func phaseAdvanceWorkflowID(projectID ProjectID) string {
 	return fmt.Sprintf("%s:phaseAdvance", projectID)
 }
 
-// PhaseAdvanceInput is the start payload for Phase2AdvanceWorkflow.
-type PhaseAdvanceInput struct {
+// phaseAdvanceInput is the start payload for Phase2AdvanceWorkflow.
+type phaseAdvanceInput struct {
 	ProjectID ProjectID
 }
 
-func (wf *Workflows) Phase2AdvanceWorkflow(ctx workflow.Context, in PhaseAdvanceInput) (PhaseAdvanceResult, error) {
+func (wf *workflows) Phase2AdvanceWorkflow(ctx workflow.Context, in phaseAdvanceInput) (PhaseAdvanceResult, error) {
 	var proj projectstate.Project
 	if p, err := wf.readProject(ctx, in.ProjectID); err != nil {
 		if !isReadNotFound(err) {
 			return PhaseAdvanceResult{}, err
 		}
-		proj = projectstate.Project{ID: in.ProjectID}
+		proj = projectstate.Project{ID: projectstate.ProjectID(in.ProjectID)}
 	} else {
 		proj = p
 	}
@@ -773,14 +790,14 @@ func (wf *Workflows) Phase2AdvanceWorkflow(ctx workflow.Context, in PhaseAdvance
 	var missing []ArtifactKind
 	for _, kind := range projectstate.Phase2RequiredKinds() {
 		if slotFor(proj, kind).Status != projectstate.ReviewCommitted {
-			missing = append(missing, kind)
+			missing = append(missing, fromPSKind(kind))
 		}
 	}
 	// Option-bound check: the committed SdpReview slot's Model carries a non-empty
 	// Recommendation. If the SdpReview slot is itself missing it is already in
 	// `missing`; only flag the unbound-option case when the review IS committed.
 	if !optionBound(proj) && slotFor(proj, projectstate.KindSdpReview).Status == projectstate.ReviewCommitted {
-		missing = append(missing, projectstate.KindSdpReview)
+		missing = append(missing, KindSdpReview)
 	}
 	if len(missing) > 0 {
 		return PhaseAdvanceResult{Advanced: false, MissingArtifacts: missing}, nil
@@ -790,8 +807,8 @@ func (wf *Workflows) Phase2AdvanceWorkflow(ctx workflow.Context, in PhaseAdvance
 	if _, err := wf.applyRecovering(ctx, in.ProjectID, proj.Version, func(expected projectstate.Version) (projectstate.Version, error) {
 		c := mutateOpts(ctx)
 		var v projectstate.Version
-		e := workflow.ExecuteActivity(c, wf.AdvancePhaseActivity, AdvancePhaseArgs{
-			ProjectID: in.ProjectID, ExpectedVersion: expected,
+		e := workflow.ExecuteActivity(c, wf.AdvancePhaseActivity, advancePhaseArgs{
+			ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected,
 		}).Get(ctx, &v)
 		return v, e
 	}); err != nil {
@@ -820,7 +837,7 @@ func optionBound(proj projectstate.Project) bool {
 // state, runs the three Engines per option, joins into the SdpReview, and picks the
 // recommendation. Returns a non-retryable terminal on a missing prerequisite or an
 // Engine error. feedback is woven into the Rationale on a re-assembly.
-func (wf *Workflows) assembleSdpReview(proj projectstate.Project, feedback string) (*projectstate.SdpReview, error) {
+func (wf *workflows) assembleSdpReview(proj projectstate.Project, feedback string) (*projectstate.SdpReview, error) {
 	pa, alErr := committedPlanningAssumptions(proj)
 	if alErr != nil {
 		return nil, sdpIncomplete(alErr)
@@ -842,15 +859,20 @@ func (wf *Workflows) assembleSdpReview(proj projectstate.Project, feedback strin
 		}
 		opt := assembleOption(kind, pa, al, nw, sol)
 
-		ce, eErr := wf.Estimation.EstimateForOption(opt)
+		ce, eErr := wf.Estimation.EstimateForOption(fweng.Context{Context: context.Background()}, toEstimationOption(opt))
 		if eErr != nil {
 			return nil, escalateEngine("estimationEngine", kind, eErr)
 		}
-		of, oErr := wf.OperationEst.EstimateForOption(opt, opt.DeclaredUsage, opt.InfrastructureKind)
+		of, oErr := wf.OperationEst.EstimateForOption(
+			fweng.Context{Context: context.Background()},
+			toOperationOption(opt),
+			toOperationUsage(opt.DeclaredUsage),
+			operationestimation.InfrastructureKind(opt.InfrastructureKind),
+		)
 		if oErr != nil {
 			return nil, escalateEngine("operationEstimationEngine", kind, oErr)
 		}
-		proj2, pErr := wf.Settlement.ProjectCommitTimeRevenueShareAndComputeCost(opt)
+		proj2, pErr := wf.Settlement.ProjectCommitTimeRevenueShareAndComputeCost(fweng.Context{Context: context.Background()}, toSettlementOption(opt))
 		if pErr != nil {
 			return nil, escalateEngine("settlementEngine", kind, pErr)
 		}
@@ -859,10 +881,10 @@ func (wf *Workflows) assembleSdpReview(proj projectstate.Project, feedback strin
 			OptionID:             opt.OptionID,
 			SolutionKind:         kind,
 			DurationDays:         ce.DurationDays,
-			BuildCost:            ce.BuildCost,
+			BuildCost:            toProjectStateMoneyFromEstimation(ce.BuildCost),
 			CompositeRisk:        ce.Risk.Composite,
 			ProjectedMonthlyCost: monthlyCostAtDeclaredLoad(of.UsageCostCurve),
-			ExpectedPerCycleNet:  of.PayoutVsShortfallForecast.ExpectedPerCycleNet,
+			ExpectedPerCycleNet:  toProjectStateMoney(of.PayoutVsShortfallForecast.ExpectedPerCycleNet),
 			RevenueSharePercent:  proj2.RevenueSharePercent,
 		})
 	}
@@ -872,6 +894,56 @@ func (wf *Workflows) assembleSdpReview(proj projectstate.Project, feedback strin
 		rationale = rationale + " (re-assembled with architect feedback: " + feedback + ")"
 	}
 	return &projectstate.SdpReview{Options: rows, Recommendation: rec, Rationale: rationale}, nil
+}
+
+// toSettlementOption converts the canonical projectstate option to the
+// settlementEngine's OWN ProjectOption snapshot at the call boundary (Option B full
+// encapsulation: the Engine redefines every domain type it uses as its own generated
+// def and imports no projectstate, so the Manager maps field-by-field here). The
+// Engine reads only the option's settlement Terms, so only OptionID + Terms cross.
+func toSettlementOption(opt projectstate.ProjectOption) settlement.ProjectOption {
+	t := opt.Terms
+	return settlement.ProjectOption{
+		OptionID: settlement.OptionID(opt.OptionID),
+		Terms: settlement.SettlementTerms{
+			RevenueShare:         settlement.RevenueShareKind(t.RevenueShare),
+			RevenueSharePercent:  t.RevenueSharePercent,
+			ComputeCost:          settlement.ComputeCostKind(t.ComputeCost),
+			ComputeMarkupPercent: t.ComputeMarkupPercent,
+			Schedule:             settlement.ScheduleKind(t.Schedule),
+		},
+	}
+}
+
+// toOperationOption converts the canonical projectstate option to the
+// operationEstimationEngine's OWN slim ProjectOption snapshot at the call boundary
+// (Option B full encapsulation: the Engine redefines every domain type it uses as its
+// own generated def and imports no projectstate, so the Manager maps field-by-field
+// here). The Engine reads only the option's settlement Terms, so only OptionID + Terms
+// cross.
+func toOperationOption(opt projectstate.ProjectOption) operationestimation.ProjectOption {
+	t := opt.Terms
+	return operationestimation.ProjectOption{
+		OptionID: operationestimation.OptionID(opt.OptionID),
+		Terms: operationestimation.SettlementTerms{
+			RevenueShare:         operationestimation.RevenueShareKind(t.RevenueShare),
+			RevenueSharePercent:  t.RevenueSharePercent,
+			ComputeCost:          operationestimation.ComputeCostKind(t.ComputeCost),
+			ComputeMarkupPercent: t.ComputeMarkupPercent,
+			Schedule:             operationestimation.ScheduleKind(t.Schedule),
+		},
+	}
+}
+
+// toOperationUsage converts the canonical declared-usage snapshot to the
+// operationEstimationEngine's OWN UsageAssumption at the call boundary. The integer
+// fields widen to int64 in the generated contract def.
+func toOperationUsage(u projectstate.UsageAssumption) operationestimation.UsageAssumption {
+	return operationestimation.UsageAssumption{
+		ExpectedDailyActiveUsers: int64(u.ExpectedDailyActiveUsers),
+		RequestsPerMinute:        u.RequestsPerMinute,
+		AvgPayloadBytes:          int64(u.AvgPayloadBytes),
+	}
 }
 
 // assembleOption builds one ProjectOption by value from the committed Phase-2 slots
@@ -920,7 +992,7 @@ func assembleOption(
 // monthlyCostAtDeclaredLoad picks the UsageCostCurve point nearest LoadMultiplier==1.0
 // (the declared-usage point). Deterministic.
 func monthlyCostAtDeclaredLoad(curve operationestimation.UsageCostCurve) projectstate.Money {
-	best := projectstate.Money{}
+	best := operationestimation.Money{}
 	bestDist := math.MaxFloat64
 	for _, p := range curve.Points {
 		d := math.Abs(p.LoadMultiplier - 1.0)
@@ -929,7 +1001,53 @@ func monthlyCostAtDeclaredLoad(curve operationestimation.UsageCostCurve) project
 			best = p.ProjectedMonthlyCost
 		}
 	}
-	return best
+	// Convert the Engine's OWN Money back to the canonical projectstate.Money at the
+	// boundary (Option B full encapsulation).
+	return toProjectStateMoney(best)
+}
+
+// toProjectStateMoney converts the operationEstimationEngine's OWN Money back to the
+// canonical projectstate.Money at the call boundary (Option B full encapsulation).
+func toProjectStateMoney(m operationestimation.Money) projectstate.Money {
+	return projectstate.Money{MinorUnits: m.MinorUnits, Currency: m.Currency}
+}
+
+// toEstimationOption converts the canonical projectstate option to the
+// constructionEstimationEngine's OWN SLIM ProjectOption snapshot at the call boundary
+// (Option B full encapsulation: the Engine redefines every domain type it uses as its
+// own generated def and imports no projectstate, so the Manager maps field-by-field
+// here). The Engine reads only the construction-side network + worker mix + calendar,
+// so only those (plus OptionID for audit) cross — the settlement Terms / declared usage
+// / infra / solution kind do NOT. The generated WorkerMix.StaffingCap + OptionActivity.
+// RiskBucket widen int → int64.
+func toEstimationOption(opt projectstate.ProjectOption) estimation.ProjectOption {
+	activities := make([]estimation.OptionActivity, 0, len(opt.Network.Activities))
+	for _, a := range opt.Network.Activities {
+		activities = append(activities, estimation.OptionActivity{
+			ActivityId:     a.ActivityID,
+			EffortDays:     a.EffortDays,
+			WorkerClass:    a.WorkerClass,
+			OnCriticalPath: a.OnCriticalPath,
+			RiskBucket:     int64(a.RiskBucket),
+		})
+	}
+	rates := make(map[string]estimation.Money, len(opt.WorkerMix.ClassRates))
+	for cls, m := range opt.WorkerMix.ClassRates {
+		rates[cls] = estimation.Money{MinorUnits: m.MinorUnits, Currency: m.Currency}
+	}
+	return estimation.ProjectOption{
+		OptionId:            estimation.OptionID(opt.OptionID),
+		Network:             estimation.ActivityNetwork{Activities: activities},
+		WorkerMix:           estimation.WorkerMix{ClassRates: rates, StaffingCap: int64(opt.WorkerMix.StaffingCap)},
+		CalendarDaysPerWeek: opt.CalendarDaysPerWeek,
+	}
+}
+
+// toProjectStateMoneyFromEstimation converts the constructionEstimationEngine's OWN
+// Money back to the canonical projectstate.Money at the call boundary (Option B full
+// encapsulation).
+func toProjectStateMoneyFromEstimation(m estimation.Money) projectstate.Money {
+	return projectstate.Money{MinorUnits: m.MinorUnits, Currency: m.Currency}
 }
 
 // recommendOption picks the row with the best (lowest CompositeRisk, tie-break
@@ -996,13 +1114,17 @@ type coAuthorState struct {
 }
 
 func (s *coAuthorState) view() (SessionStateView, error) {
+	dm, err := draftModelFor(s.artifactKind, s.draft)
+	if err != nil {
+		return SessionStateView{}, err
+	}
 	return SessionStateView{
 		ProjectID:     s.projectID,
 		ArtifactKind:  s.artifactKind,
 		Stage:         s.stage,
-		Draft:         s.draft,
+		Draft:         dm,
 		Findings:      s.findings,
-		FailureReason: s.failureReason,
+		FailureReason: strPtrOrNil(s.failureReason),
 	}, nil
 }
 
@@ -1023,14 +1145,14 @@ func stageForAttempt(attempt int) SessionStage {
 // escalated to the human gate, not absorbed in an auto-retry budget.
 //
 // Recovery levers:
-//   - SignalRedraft (requestArtifactDraft's "Retry draft") → re-dispatch in place.
-//   - SignalReviewDecision{Reject} → Retry-via-Reject: re-dispatch with the reject
+//   - signalRedraft (requestArtifactDraft's "Retry draft") → re-dispatch in place.
+//   - signalReviewDecision{Reject} → Retry-via-Reject: re-dispatch with the reject
 //     feedback woven in (the contract's "human Retry (via reject)" path).
-//   - SignalReviewDecision{Withdraw} → withdraw + end gracefully (CoAuthorWithdrawn).
+//   - signalReviewDecision{Withdraw} → withdraw + end gracefully (coAuthorWithdrawn).
 //
 // Returns (outcome, retry, err): retry==true means re-dispatch the draft (the caller
 // increments redraftCount and loops); retry==false means end with outcome.
-func (wf *Workflows) awaitDraftFailedRecovery(
+func (wf *workflows) awaitDraftFailedRecovery(
 	ctx workflow.Context,
 	projectID ProjectID,
 	kind ArtifactKind,
@@ -1038,13 +1160,13 @@ func (wf *Workflows) awaitDraftFailedRecovery(
 	diagnostic string,
 	state *coAuthorState,
 	feedback *string,
-) (CoAuthorOutcome, bool, error) {
+) (coAuthorOutcome, bool, error) {
 	// Surface the human-visible failed stage + the neutral diagnostic for the Query.
 	state.stage = StageDraftFailed
 	state.failureReason = draftFailedReason(diagnostic)
 
-	redraftCh := workflow.GetSignalChannel(ctx, SignalRedraft)
-	reviewCh := workflow.GetSignalChannel(ctx, SignalReviewDecision)
+	redraftCh := workflow.GetSignalChannel(ctx, signalRedraft)
+	reviewCh := workflow.GetSignalChannel(ctx, signalReviewDecision)
 
 	for {
 		var retry bool
@@ -1053,7 +1175,7 @@ func (wf *Workflows) awaitDraftFailedRecovery(
 
 		sel := workflow.NewSelector(ctx)
 		sel.AddReceive(redraftCh, func(c workflow.ReceiveChannel, _ bool) {
-			var sig RedraftSignal
+			var sig redraftSignal
 			c.Receive(ctx, &sig)
 			if sig.Feedback != nil {
 				*feedback = sig.Feedback.Notes
@@ -1061,7 +1183,7 @@ func (wf *Workflows) awaitDraftFailedRecovery(
 			retry = true
 		})
 		sel.AddReceive(reviewCh, func(c workflow.ReceiveChannel, _ bool) {
-			var sig ReviewDecisionSignal
+			var sig reviewDecisionSignal
 			c.Receive(ctx, &sig)
 			switch sig.Decision {
 			case ReviewWithdraw:
@@ -1081,20 +1203,20 @@ func (wf *Workflows) awaitDraftFailedRecovery(
 			// Clear the failed state before re-entering the draft loop.
 			state.stage = StageRedrafting
 			state.failureReason = ""
-			return CoAuthorUnknown, true, nil
+			return coAuthorUnknown, true, nil
 		}
 		if withdraw {
 			if _, err := wf.applyRecovering(ctx, projectID, headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
 				c := mutateOpts(ctx)
 				var v projectstate.Version
-				e := workflow.ExecuteActivity(c, wf.WithdrawArtifactActivity, MutateArtifactArgs{
-					ProjectID: projectID, ExpectedVersion: expected, Kind: kind, Notes: withdrawNotes,
+				e := workflow.ExecuteActivity(c, wf.WithdrawArtifactActivity, mutateArtifactArgs{
+					ProjectID: projectstate.ProjectID(projectID), ExpectedVersion: expected, Kind: toPSKind(kind), Notes: withdrawNotes,
 				}).Get(ctx, &v)
 				return v, e
 			}); err != nil {
-				return CoAuthorUnknown, false, err
+				return coAuthorUnknown, false, err
 			}
-			return CoAuthorWithdrawn, false, nil
+			return coAuthorWithdrawn, false, nil
 		}
 		// A non-actionable review decision at the failed gate: stay suspended.
 	}
@@ -1117,8 +1239,10 @@ func signalNotes(f *ReviewFeedback) string {
 	return ""
 }
 
-// slotFor returns the named Project slot for a kind (Phase 1 + Phase 2).
-func slotFor(proj projectstate.Project, kind ArtifactKind) projectstate.ArtifactSlot {
+// slotFor returns the named Project slot for a kind (Phase 1 + Phase 2). Internal
+// (operates on the canonical projectstate.ArtifactKind); own-kind callers convert via
+// toPSKind at the boundary.
+func slotFor(proj projectstate.Project, kind projectstate.ArtifactKind) projectstate.ArtifactSlot {
 	switch kind {
 	case projectstate.KindMission:
 		return proj.Mission
@@ -1161,7 +1285,7 @@ func slotFor(proj projectstate.Project, kind ArtifactKind) projectstate.Artifact
 
 // committedModel returns the committed typed model in the slot named by kind, or a
 // FailedPrecondition error if the slot is not committed / not populated.
-func committedModel(proj projectstate.Project, kind ArtifactKind) (projectstate.ArtifactModel, error) {
+func committedModel(proj projectstate.Project, kind projectstate.ArtifactKind) (projectstate.ArtifactModel, error) {
 	slot := slotFor(proj, kind)
 	if slot.Status != projectstate.ReviewCommitted || slot.Model == nil {
 		return nil, fwmanager.New(fwmanager.FailedPrecondition,
@@ -1206,7 +1330,7 @@ func committedNetwork(proj projectstate.Project) (projectstate.Network, error) {
 	return *nw, nil
 }
 
-func committedSolution(proj projectstate.Project, kind ArtifactKind) (projectstate.Solution, error) {
+func committedSolution(proj projectstate.Project, kind projectstate.ArtifactKind) (projectstate.Solution, error) {
 	m, err := committedModel(proj, kind)
 	if err != nil {
 		return projectstate.Solution{}, err
@@ -1218,7 +1342,7 @@ func committedSolution(proj projectstate.Project, kind ArtifactKind) (projectsta
 	return *sol, nil
 }
 
-func wrongModelType(want ArtifactKind, got projectstate.ArtifactModel) error {
+func wrongModelType(want projectstate.ArtifactKind, got projectstate.ArtifactModel) error {
 	gotKind := "nil"
 	if got != nil {
 		gotKind = got.Kind().String()

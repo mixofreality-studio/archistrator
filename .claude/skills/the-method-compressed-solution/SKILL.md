@@ -12,14 +12,14 @@ Rules from the book: parallel work *first*, top resources *second*, never below 
 ## Canonical source
 
 **Primary:**
-- Löwy, [Ch. 9 §1 "Accelerating Software Projects"](../../../../rightingsoftware/OEBPS/xhtml/ch09.xhtml#ch09lev1sec1)
-- [Ch. 9 §2 "Schedule Compression"](../../../../rightingsoftware/OEBPS/xhtml/ch09.xhtml#ch09lev1sec2)
-- [Ch. 9 §3 "Time-Cost Curve"](../../../../rightingsoftware/OEBPS/xhtml/ch09.xhtml#ch09lev1sec3)
-- [Ch. 9 §4 "Avoiding Classic Mistakes"](../../../../rightingsoftware/OEBPS/xhtml/ch09.xhtml#ch09lev1sec4) — death zone
-- [Ch. 9 §6 "Network Compression"](../../../../rightingsoftware/OEBPS/xhtml/ch09.xhtml#ch09lev1sec6)
-- [Ch. 11 §4 "Network Compression"](../../../../rightingsoftware/OEBPS/xhtml/ch11.xhtml#ch11lev1sec4) — worked example with iterations
+- Löwy, [Ch. 9 §1 "Accelerating Software Projects"](../../../research/rightingsoftware/OEBPS/xhtml/ch09.xhtml#ch09lev1sec1)
+- [Ch. 9 §2 "Schedule Compression"](../../../research/rightingsoftware/OEBPS/xhtml/ch09.xhtml#ch09lev1sec2)
+- [Ch. 9 §3 "Time-Cost Curve"](../../../research/rightingsoftware/OEBPS/xhtml/ch09.xhtml#ch09lev1sec3)
+- [Ch. 9 §4 "Avoiding Classic Mistakes"](../../../research/rightingsoftware/OEBPS/xhtml/ch09.xhtml#ch09lev1sec4) — death zone
+- [Ch. 9 §6 "Network Compression"](../../../research/rightingsoftware/OEBPS/xhtml/ch09.xhtml#ch09lev1sec6)
+- [Ch. 11 §4 "Network Compression"](../../../research/rightingsoftware/OEBPS/xhtml/ch11.xhtml#ch11lev1sec4) — worked example with iterations
 
-**Standard reference:** [Appendix C §4.6 "Time and cost"](../../../../rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec4) — items 6a–6g.
+**Standard reference:** [Appendix C §4.6 "Time and cost"](../../../research/rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec4) — items 6a–6g.
 
 ## Input
 

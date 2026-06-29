@@ -22,21 +22,65 @@
 //	an unregistered infrastructureKind, a semantically-unusable input, an all-zero
 //	declared usage with no forecast basis, or a broken internal invariant.
 //
-// Imports: ONLY projectstate (input value types, the downward engine→projectstate
-// edge) and framework-go/engine (the shared Engine error model, aliased fweng).
+// Imports ONLY framework-go/engine (the shared Engine error model, aliased fweng).
+// Per Option B full encapsulation the contract redefines every domain type it uses
+// as its OWN generated def (contract.gen.go: Money, ProjectOption, SettlementTerms,
+// UsageAssumption, the InfrastructureKind/settlement-terms enums), so this package
+// imports NO projectstate — the projectDesignManager converts the canonical
+// projectstate option/usage/infra to operationestimation.* at the call boundary.
 //
 // Strategy axis (CustomerAppInfrastructure): the Engine pivots internally on the
-// opaque projectstate.InfrastructureKind discriminator. Adding a new infrastructure
-// constituent is a package-internal cost-model addition + a new enum constant — NOT
-// a contract amendment. Unknown infrastructure ⇒ fweng.InvalidInput, never a silent
-// default to the wrong cost rules.
+// opaque InfrastructureKind discriminator. Adding a new infrastructure constituent
+// is a package-internal cost-model addition + a new enum constant — NOT a contract
+// amendment. Unknown infrastructure ⇒ fweng.InvalidInput, never a silent default to
+// the wrong cost rules.
 package operationestimation
 
 import (
 	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
-
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
+
+// ---------------------------------------------------------------------------
+// Domain types redefined as this component's OWN defs (Option B full
+// encapsulation). They MIRROR projectstate (the canonical home owned by
+// projectStateAccess); the projectDesignManager converts at the call boundary.
+// Per the settlement/billing precedent the slim ProjectOption carries only the
+// slice this Engine reads (OptionID for audit + the settlement Terms).
+// ---------------------------------------------------------------------------
+
+// Money is an exact integer-minor-units amount plus an ISO-4217 currency. NEVER a
+// float. Signed: a positive net is a payout, a negative net is a shortfall charge.
+// Mirrors projectstate.Money.
+
+// OptionID identifies one assembled ProjectOption within an SDP review. Mirrors
+// projectstate.OptionID.
+
+// InfrastructureKind is the opaque discriminator this Engine pivots on. The launch
+// infrastructure is Go + Temporal + Postgres; future kinds are additive. Mirrors
+// projectstate.InfrastructureKind.
+
+// RevenueShareKind is the closed set of aiarch revenue-share regimes. Mirrors
+// projectstate.RevenueShareKind.
+
+// ComputeCostKind is the closed set of compute pass-through pricing regimes. Mirrors
+// projectstate.ComputeCostKind.
+
+// ScheduleKind is the settlement cadence. Mirrors projectstate.ScheduleKind.
+
+// SettlementTerms is the customer's settlement-terms snapshot carried BY VALUE on the
+// option. The Engine reads RevenueSharePercent (and derives currency from the terms).
+// Mirrors projectstate.SettlementTerms.
+
+// UsageAssumption is the customer's DECLARED expectation of end-user load, fed to
+// EstimateForOption for the operation-side forecast. Mirrors
+// projectstate.UsageAssumption (integer fields widen to int64 in the generated def).
+
+// ProjectOption is the input to EstimateForOption: the committed project option as
+// this Engine needs it — it reads ONLY the customer's settlement Terms (and carries
+// OptionID for audit/labeling). The canonical Phase-2 option model is owned by
+// projectStateAccess (projectstate.ProjectOption) and carries many more fields; per
+// the settlement/billing precedent the contract carries only the slice it reads. The
+// projectDesignManager converts the canonical option at the call boundary.
 
 // ---------------------------------------------------------------------------
 // Output value objects (owned by this Engine — they are computation results, not
@@ -46,73 +90,48 @@ import (
 
 // CostCurvePoint is the projected monthly operating cost at one load multiple of
 // the declared usage.
-type CostCurvePoint struct {
-	LoadMultiplier       float64
-	ProjectedMonthlyCost projectstate.Money
-}
 
 // UsageCostCurve is projected operating cost as a function of load level, plotted
 // at discrete multipliers. Monotonic non-decreasing in LoadMultiplier; always
 // includes the 1.0 (declared-usage) point.
-type UsageCostCurve struct {
-	Points []CostCurvePoint
-}
 
 // PayoutShortfallForecast is the expected payout-or-shortfall per settlement cycle
 // with a ± sensitivity band around the declared assumption.
-type PayoutShortfallForecast struct {
-	// ExpectedPerCycleNet is signed: positive == payout to the customer; negative
-	// == shortfall charge to the customer.
-	ExpectedPerCycleNet projectstate.Money
-	// SensitivityLow is the net at the low edge of the ± usage band (cheaper, so a
-	// larger payout / smaller shortfall).
-	SensitivityLow projectstate.Money
-	// SensitivityHigh is the net at the high edge of the ± usage band (costlier, so
-	// a smaller payout / larger shortfall).
-	SensitivityHigh projectstate.Money
-}
+
+// ExpectedPerCycleNet is signed: positive == payout to the customer; negative
+// == shortfall charge to the customer.
+
+// SensitivityLow is the net at the low edge of the ± usage band (cheaper, so a
+// larger payout / smaller shortfall).
+
+// SensitivityHigh is the net at the high edge of the ± usage band (costlier, so
+// a smaller payout / larger shortfall).
 
 // OperationForecast is the design-time output of EstimateForOption.
-type OperationForecast struct {
-	UsageCostCurve            UsageCostCurve
-	PayoutVsShortfallForecast PayoutShortfallForecast
-}
 
 // ObservedUsage is a snapshot of what an operated app is ACTUALLY using, read by
 // the Manager (operationsManager via usageAccess.readRange) and passed in by value.
 // The Engine treats it as an infrastructure-agnostic value; it reads no clock.
-type ObservedUsage struct {
-	ComputeUnitSeconds float64 // metered compute consumed over the window
-	RequestCount       int64
-	StorageBytesMonths float64 // metered storage over the window
-	EgressBytes        float64
-	ObservedReplicas   int // representative capacity over the window
-}
+
+// metered compute consumed over the window
+
+// metered storage over the window
+
+// representative capacity over the window
 
 // ScalePoint is one op-time "what-if" load level. LoadMultiplier must be > 0;
 // 1.0 == current observed load.
-type ScalePoint struct {
-	LoadMultiplier float64
-}
 
 // WhatIfPoint is the projected monthly cost at one ScalePoint.
-type WhatIfPoint struct {
-	LoadMultiplier       float64
-	ProjectedMonthlyCost projectstate.Money
-}
 
 // WhatIfCurve is the projected cost at each requested ScalePoint plus the
 // current-load (1.0) point. Monotonic non-decreasing in LoadMultiplier.
-type WhatIfCurve struct {
-	Points []WhatIfPoint
-}
 
 // CostProjection is the op-time output of ProjectForOperatedApp.
-type CostProjection struct {
-	CurrentRunRate       projectstate.Money // extrapolated cost-per-cycle at current observed load
-	ProjectedMonthlyCost projectstate.Money // run-rate normalized to a calendar month
-	ScaleWhatIfCurve     WhatIfCurve        // projected cost at each requested ScalePoint (+ current-load point)
-}
+
+// extrapolated cost-per-cycle at current observed load
+// run-rate normalized to a calendar month
+// projected cost at each requested ScalePoint (+ current-load point)
 
 // ---------------------------------------------------------------------------
 // Contract surface.
@@ -121,35 +140,23 @@ type CostProjection struct {
 // OperationEstimationEngine is the frozen two-operation Engine surface. Both ops
 // are pure deterministic functions; both return *fweng.Error on programmer/contract
 // misuse only.
-type OperationEstimationEngine interface {
-	// EstimateForOption is the design-time SDP-review forecast: given a project
-	// option, the customer's declared usage assumptions, and the chosen
-	// infrastructure kind, produce the usage→operating-cost curve and the
-	// payout-vs-shortfall forecast. Called by projectDesignManager.
-	EstimateForOption(
-		option projectstate.ProjectOption,
-		declaredUsage projectstate.UsageAssumption,
-		infrastructureKind projectstate.InfrastructureKind,
-	) (OperationForecast, error)
 
-	// ProjectForOperatedApp is the op-time read-side projection: given observed
-	// usage on an already-operated app and a set of scale what-if points, produce
-	// the current run-rate, projected monthly cost, and the what-if curve. Called
-	// by operationsManager.
-	ProjectForOperatedApp(
-		observedUsage ObservedUsage,
-		infrastructureKind projectstate.InfrastructureKind,
-		scaleWhatIfPoints []ScalePoint,
-	) (CostProjection, error)
-}
+// EstimateForOption is the design-time SDP-review forecast: given a project
+// option, the customer's declared usage assumptions, and the chosen
+// infrastructure kind, produce the usage→operating-cost curve and the
+// payout-vs-shortfall forecast. Called by projectDesignManager.
 
-// New returns the default OperationEstimationEngine. It is stateless and safe to
-// share/reuse across calls and Managers.
-func New() OperationEstimationEngine { return engine{} }
+// ProjectForOperatedApp is the op-time read-side projection: given observed
+// usage on an already-operated app and a set of scale what-if points, produce
+// the current run-rate, projected monthly cost, and the what-if curve. Called
+// by operationsManager.
 
-// engine is the stateless implementation. It holds no fields — all behaviour is a
-// pure function of the inputs, pivoting on the package-internal cost-Strategy table.
-type engine struct{}
+// The stateless implementation of OperationEstimationEngine —
+// OperationEstimationEngineImpl — and its constructor NewOperationEstimationEngine()
+// are GENERATED into contract.gen.go. It holds no fields — all behaviour is a pure
+// function of the inputs, pivoting on the package-internal cost-Strategy table. Safe
+// to share/reuse across calls and Managers. The behaviour below is hand-written on
+// the generated struct.
 
 // ---------------------------------------------------------------------------
 // Internal cost-Strategy axis (CustomerAppInfrastructure). NOT on the contract.
@@ -171,11 +178,11 @@ type infrastructureCostModel interface {
 // costModelFor resolves the cost Strategy for an infrastructure kind, or reports an
 // UnknownInfrastructure-style InvalidInput when none is registered. The Engine never
 // falls back to a default Strategy (that would forecast against the wrong cost rules).
-func costModelFor(kind projectstate.InfrastructureKind) (infrastructureCostModel, *fweng.Error) {
+func costModelFor(kind InfrastructureKind) (infrastructureCostModel, *fweng.Error) {
 	switch kind {
-	case projectstate.InfrastructureKindGoTemporalPostgres:
+	case InfrastructureKindGoTemporalPostgres:
 		return goTemporalPostgresCostModel{}, nil
-	case projectstate.InfrastructureKindUnknown:
+	case InfrastructureKindUnknown:
 		return nil, fweng.New(fweng.InvalidInput, "unknown infrastructure kind")
 	default:
 		return nil, fweng.New(fweng.InvalidInput, "unknown infrastructure kind")
@@ -248,10 +255,11 @@ const arpuCentsPerDAUPerMonth = 300.0
 // defaultCurrency is used unless the option's settlement terms imply otherwise.
 const defaultCurrency = "USD"
 
-func (engine) EstimateForOption(
-	option projectstate.ProjectOption,
-	declaredUsage projectstate.UsageAssumption,
-	infrastructureKind projectstate.InfrastructureKind,
+func (OperationEstimationEngineImpl) EstimateForOption(
+	_ fweng.Context,
+	option ProjectOption,
+	declaredUsage UsageAssumption,
+	infrastructureKind InfrastructureKind,
 ) (OperationForecast, error) {
 	model, ierr := costModelFor(infrastructureKind)
 	if ierr != nil {
@@ -324,9 +332,10 @@ func (engine) EstimateForOption(
 // Op-time projection.
 // ---------------------------------------------------------------------------
 
-func (engine) ProjectForOperatedApp(
+func (OperationEstimationEngineImpl) ProjectForOperatedApp(
+	_ fweng.Context,
 	observedUsage ObservedUsage,
-	infrastructureKind projectstate.InfrastructureKind,
+	infrastructureKind InfrastructureKind,
 	scaleWhatIfPoints []ScalePoint,
 ) (CostProjection, error) {
 	model, ierr := costModelFor(infrastructureKind)
@@ -379,14 +388,14 @@ func (engine) ProjectForOperatedApp(
 // Pure helpers (no I/O, no clock, no RNG).
 // ---------------------------------------------------------------------------
 
-// minorUnits builds a projectstate.Money from a minor-units amount and currency.
-func minorUnits(amount int64, currency string) projectstate.Money {
-	return projectstate.Money{MinorUnits: amount, Currency: currency}
+// minorUnits builds a Money from a minor-units amount and currency.
+func minorUnits(amount int64, currency string) Money {
+	return Money{MinorUnits: amount, Currency: currency}
 }
 
 // roundToMinorUnits deterministically rounds cents (a float) to the nearest integer
 // minor unit, half away from zero. No math.Round dependency to keep the import set
-// to the two allowed packages.
+// to the single allowed package.
 func roundToMinorUnits(cents float64) int64 {
 	if cents >= 0 {
 		return int64(cents + 0.5)
@@ -397,7 +406,7 @@ func roundToMinorUnits(cents float64) int64 {
 // currencyFor derives the forecast currency from the option's settlement terms.
 // The launch terms imply USD; the field exists so a future negotiated-currency
 // regime is a model change, not a signature change.
-func currencyFor(_ projectstate.SettlementTerms) string {
+func currencyFor(_ SettlementTerms) string {
 	return defaultCurrency
 }
 

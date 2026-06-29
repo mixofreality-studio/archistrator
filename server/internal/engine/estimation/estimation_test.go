@@ -6,29 +6,27 @@ import (
 	"testing"
 
 	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
-
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
 // usd builds a USD Money rate.
-func usd(minor int64) projectstate.Money {
-	return projectstate.Money{MinorUnits: minor, Currency: "USD"}
+func usd(minor int64) Money {
+	return Money{MinorUnits: minor, Currency: "USD"}
 }
 
 // mixedActivityOption is a representative happy-path option: 3 activities, 2 of
 // them on the critical path, a 5 d/wk calendar (stretch 1.0).
-func mixedActivityOption() projectstate.ProjectOption {
-	return projectstate.ProjectOption{
-		OptionID: "normal",
-		Network: projectstate.ActivityNetwork{
-			Activities: []projectstate.OptionActivity{
-				{ActivityID: "a1", EffortDays: 5, WorkerClass: "senior", OnCriticalPath: true, RiskBucket: 8},
-				{ActivityID: "a2", EffortDays: 10, WorkerClass: "junior", OnCriticalPath: true, RiskBucket: 5},
-				{ActivityID: "a3", EffortDays: 5, WorkerClass: "senior", OnCriticalPath: false, RiskBucket: 2},
+func mixedActivityOption() ProjectOption {
+	return ProjectOption{
+		OptionId: "normal",
+		Network: ActivityNetwork{
+			Activities: []OptionActivity{
+				{ActivityId: "a1", EffortDays: 5, WorkerClass: "senior", OnCriticalPath: true, RiskBucket: 8},
+				{ActivityId: "a2", EffortDays: 10, WorkerClass: "junior", OnCriticalPath: true, RiskBucket: 5},
+				{ActivityId: "a3", EffortDays: 5, WorkerClass: "senior", OnCriticalPath: false, RiskBucket: 2},
 			},
 		},
-		WorkerMix: projectstate.WorkerMix{
-			ClassRates:  map[string]projectstate.Money{"senior": usd(100000), "junior": usd(40000)},
+		WorkerMix: WorkerMix{
+			ClassRates:  map[string]Money{"senior": usd(100000), "junior": usd(40000)},
 			StaffingCap: 2,
 		},
 		CalendarDaysPerWeek: 5,
@@ -38,12 +36,12 @@ func mixedActivityOption() projectstate.ProjectOption {
 func TestEstimateForOption(t *testing.T) {
 	type want struct {
 		duration  float64
-		buildCost projectstate.Money
+		buildCost Money
 		risk      RiskScore
 	}
 	tests := []struct {
 		name        string
-		option      projectstate.ProjectOption
+		option      ProjectOption
 		wantErrKind fweng.Kind // -1 sentinel below means "no error expected"
 		want        want
 	}{
@@ -66,16 +64,16 @@ func TestEstimateForOption(t *testing.T) {
 		},
 		{
 			name: "all activities on critical path",
-			option: projectstate.ProjectOption{
-				OptionID: "compressed",
-				Network: projectstate.ActivityNetwork{
-					Activities: []projectstate.OptionActivity{
-						{ActivityID: "a1", EffortDays: 4, WorkerClass: "w", OnCriticalPath: true, RiskBucket: 13},
-						{ActivityID: "a2", EffortDays: 6, WorkerClass: "w", OnCriticalPath: true, RiskBucket: 13},
+			option: ProjectOption{
+				OptionId: "compressed",
+				Network: ActivityNetwork{
+					Activities: []OptionActivity{
+						{ActivityId: "a1", EffortDays: 4, WorkerClass: "w", OnCriticalPath: true, RiskBucket: 13},
+						{ActivityId: "a2", EffortDays: 6, WorkerClass: "w", OnCriticalPath: true, RiskBucket: 13},
 					},
 				},
-				WorkerMix: projectstate.WorkerMix{
-					ClassRates:  map[string]projectstate.Money{"w": usd(10000)},
+				WorkerMix: WorkerMix{
+					ClassRates:  map[string]Money{"w": usd(10000)},
 					StaffingCap: 3,
 				},
 				CalendarDaysPerWeek: 5,
@@ -93,16 +91,16 @@ func TestEstimateForOption(t *testing.T) {
 		},
 		{
 			name: "no critical path falls back to parallelism and calendar stretch",
-			option: projectstate.ProjectOption{
-				OptionID: "subcritical",
-				Network: projectstate.ActivityNetwork{
-					Activities: []projectstate.OptionActivity{
-						{ActivityID: "a1", EffortDays: 10, WorkerClass: "w", OnCriticalPath: false, RiskBucket: 1},
-						{ActivityID: "a2", EffortDays: 10, WorkerClass: "w", OnCriticalPath: false, RiskBucket: 1},
+			option: ProjectOption{
+				OptionId: "subcritical",
+				Network: ActivityNetwork{
+					Activities: []OptionActivity{
+						{ActivityId: "a1", EffortDays: 10, WorkerClass: "w", OnCriticalPath: false, RiskBucket: 1},
+						{ActivityId: "a2", EffortDays: 10, WorkerClass: "w", OnCriticalPath: false, RiskBucket: 1},
 					},
 				},
-				WorkerMix: projectstate.WorkerMix{
-					ClassRates:  map[string]projectstate.Money{"w": usd(1000)},
+				WorkerMix: WorkerMix{
+					ClassRates:  map[string]Money{"w": usd(1000)},
 					StaffingCap: 2,
 				},
 				CalendarDaysPerWeek: 2, // stretch = 5/2 = 2.5
@@ -120,50 +118,50 @@ func TestEstimateForOption(t *testing.T) {
 		},
 		{
 			name: "contract misuse: empty network",
-			option: projectstate.ProjectOption{
-				OptionID:  "empty",
-				Network:   projectstate.ActivityNetwork{Activities: nil},
-				WorkerMix: projectstate.WorkerMix{ClassRates: map[string]projectstate.Money{}},
+			option: ProjectOption{
+				OptionId:  "empty",
+				Network:   ActivityNetwork{Activities: nil},
+				WorkerMix: WorkerMix{ClassRates: map[string]Money{}},
 			},
 			wantErrKind: fweng.ContractMisuse,
 		},
 		{
 			name: "contract misuse: negative effort",
-			option: projectstate.ProjectOption{
-				OptionID: "bad-effort",
-				Network: projectstate.ActivityNetwork{
-					Activities: []projectstate.OptionActivity{
-						{ActivityID: "a1", EffortDays: -1, WorkerClass: "w", OnCriticalPath: true, RiskBucket: 1},
+			option: ProjectOption{
+				OptionId: "bad-effort",
+				Network: ActivityNetwork{
+					Activities: []OptionActivity{
+						{ActivityId: "a1", EffortDays: -1, WorkerClass: "w", OnCriticalPath: true, RiskBucket: 1},
 					},
 				},
-				WorkerMix: projectstate.WorkerMix{ClassRates: map[string]projectstate.Money{"w": usd(1000)}},
+				WorkerMix: WorkerMix{ClassRates: map[string]Money{"w": usd(1000)}},
 			},
 			wantErrKind: fweng.ContractMisuse,
 		},
 		{
 			name: "contract misuse: unknown worker class",
-			option: projectstate.ProjectOption{
-				OptionID: "bad-class",
-				Network: projectstate.ActivityNetwork{
-					Activities: []projectstate.OptionActivity{
-						{ActivityID: "a1", EffortDays: 5, WorkerClass: "ghost", OnCriticalPath: true, RiskBucket: 1},
+			option: ProjectOption{
+				OptionId: "bad-class",
+				Network: ActivityNetwork{
+					Activities: []OptionActivity{
+						{ActivityId: "a1", EffortDays: 5, WorkerClass: "ghost", OnCriticalPath: true, RiskBucket: 1},
 					},
 				},
-				WorkerMix: projectstate.WorkerMix{ClassRates: map[string]projectstate.Money{"w": usd(1000)}},
+				WorkerMix: WorkerMix{ClassRates: map[string]Money{"w": usd(1000)}},
 			},
 			wantErrKind: fweng.ContractMisuse,
 		},
 		{
 			name: "contract misuse: mixed rate currencies",
-			option: projectstate.ProjectOption{
-				OptionID: "bad-currency",
-				Network: projectstate.ActivityNetwork{
-					Activities: []projectstate.OptionActivity{
-						{ActivityID: "a1", EffortDays: 5, WorkerClass: "usd", OnCriticalPath: true, RiskBucket: 1},
-						{ActivityID: "a2", EffortDays: 5, WorkerClass: "eur", OnCriticalPath: true, RiskBucket: 1},
+			option: ProjectOption{
+				OptionId: "bad-currency",
+				Network: ActivityNetwork{
+					Activities: []OptionActivity{
+						{ActivityId: "a1", EffortDays: 5, WorkerClass: "usd", OnCriticalPath: true, RiskBucket: 1},
+						{ActivityId: "a2", EffortDays: 5, WorkerClass: "eur", OnCriticalPath: true, RiskBucket: 1},
 					},
 				},
-				WorkerMix: projectstate.WorkerMix{ClassRates: map[string]projectstate.Money{
+				WorkerMix: WorkerMix{ClassRates: map[string]Money{
 					"usd": {MinorUnits: 1000, Currency: "USD"},
 					"eur": {MinorUnits: 1000, Currency: "EUR"},
 				}},
@@ -172,10 +170,10 @@ func TestEstimateForOption(t *testing.T) {
 		},
 	}
 
-	eng := New()
+	eng := NewEstimationEngine()
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := eng.EstimateForOption(tc.option)
+			got, err := eng.EstimateForOption(fweng.Context{}, tc.option)
 
 			if tc.wantErrKind != -1 {
 				if err == nil {
@@ -222,11 +220,11 @@ func TestEstimateForOption(t *testing.T) {
 // TestDeterminism asserts the pure-function contract: identical input twice ->
 // byte-identical output (contract §6, FU-EE-B twice-called identical-output).
 func TestDeterminism(t *testing.T) {
-	eng := New()
+	eng := NewEstimationEngine()
 	opt := mixedActivityOption()
 
-	first, err1 := eng.EstimateForOption(opt)
-	second, err2 := eng.EstimateForOption(opt)
+	first, err1 := eng.EstimateForOption(fweng.Context{}, opt)
+	second, err2 := eng.EstimateForOption(fweng.Context{}, opt)
 
 	if err1 != nil || err2 != nil {
 		t.Fatalf("unexpected errors: %v / %v", err1, err2)

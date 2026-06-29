@@ -5,32 +5,31 @@ import (
 	"testing"
 
 	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
-
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
 // launchTerms is the registered launch regime: flat 10% revenue share, flat compute
-// markup of 20%, monthly schedule. Both pivot regimes are known.
-func launchTerms() projectstate.SettlementTerms {
-	return projectstate.SettlementTerms{
-		RevenueShare:         projectstate.RevenueShareLaunchFlat10,
+// markup of 20%, monthly schedule. Both pivot regimes are known. Uses the Engine's
+// OWN generated SettlementTerms (Option B full encapsulation — no projectstate import).
+func launchTerms() SettlementTerms {
+	return SettlementTerms{
+		RevenueShare:         RevenueShareLaunchFlat10,
 		RevenueSharePercent:  10.0,
-		ComputeCost:          projectstate.ComputeCostFlatMarkup,
+		ComputeCost:          ComputeCostFlatMarkup,
 		ComputeMarkupPercent: 20.0,
-		Schedule:             projectstate.ScheduleMonthly,
+		Schedule:             ScheduleMonthly,
 	}
 }
 
-func usd(minor int64) projectstate.Money {
-	return projectstate.Money{MinorUnits: minor, Currency: "USD"}
+func usd(minor int64) Money {
+	return Money{MinorUnits: minor, Currency: "USD"}
 }
 
 func TestProjectCommitTimeRevenueShareAndComputeCost(t *testing.T) {
-	e := New()
+	e := NewSettlementEngine()
 
 	tests := []struct {
 		name      string
-		terms     projectstate.SettlementTerms
+		terms     SettlementTerms
 		want      Projection
 		wantErr   bool
 		errKind   fweng.Kind
@@ -40,17 +39,17 @@ func TestProjectCommitTimeRevenueShareAndComputeCost(t *testing.T) {
 			name:  "happy path echoes the regime kinds and percents",
 			terms: launchTerms(),
 			want: Projection{
-				RevenueShareKind:     projectstate.RevenueShareLaunchFlat10,
+				RevenueShareKind:     RevenueShareLaunchFlat10,
 				RevenueSharePercent:  10.0,
-				ComputeCostKind:      projectstate.ComputeCostFlatMarkup,
+				ComputeCostKind:      ComputeCostFlatMarkup,
 				ComputeMarkupPercent: 20.0,
 			},
 		},
 		{
 			name: "unknown revenue share is unknown-terms error",
-			terms: projectstate.SettlementTerms{
-				RevenueShare: projectstate.RevenueShareUnknown,
-				ComputeCost:  projectstate.ComputeCostFlatMarkup,
+			terms: SettlementTerms{
+				RevenueShare: RevenueShareUnknown,
+				ComputeCost:  ComputeCostFlatMarkup,
 			},
 			wantErr:   true,
 			errKind:   fweng.InvalidInput,
@@ -58,9 +57,9 @@ func TestProjectCommitTimeRevenueShareAndComputeCost(t *testing.T) {
 		},
 		{
 			name: "unknown compute cost is unknown-terms error",
-			terms: projectstate.SettlementTerms{
-				RevenueShare: projectstate.RevenueShareLaunchFlat10,
-				ComputeCost:  projectstate.ComputeCostUnknown,
+			terms: SettlementTerms{
+				RevenueShare: RevenueShareLaunchFlat10,
+				ComputeCost:  ComputeCostUnknown,
 			},
 			wantErr:   true,
 			errKind:   fweng.InvalidInput,
@@ -71,7 +70,8 @@ func TestProjectCommitTimeRevenueShareAndComputeCost(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := e.ProjectCommitTimeRevenueShareAndComputeCost(
-				projectstate.ProjectOption{OptionID: "opt-1", Terms: tt.terms},
+				fweng.Context{},
+				ProjectOption{OptionID: "opt-1", Terms: tt.terms},
 			)
 			if tt.wantErr {
 				assertEngineErr(t, err, tt.errKind, tt.errDetail)
@@ -88,13 +88,13 @@ func TestProjectCommitTimeRevenueShareAndComputeCost(t *testing.T) {
 }
 
 func TestComputeNet(t *testing.T) {
-	e := New()
+	e := NewSettlementEngine()
 
 	tests := []struct {
 		name      string
 		revenue   CycleRevenue
 		usage     CycleUsage
-		terms     projectstate.SettlementTerms
+		terms     SettlementTerms
 		want      SettlementResult
 		wantErr   bool
 		errKind   fweng.Kind
@@ -146,9 +146,9 @@ func TestComputeNet(t *testing.T) {
 			name:    "unknown terms is unknown-terms error",
 			revenue: CycleRevenue{GrossInbound: usd(100000)},
 			usage:   CycleUsage{ComputeUnitSeconds: 100},
-			terms: projectstate.SettlementTerms{
-				RevenueShare: projectstate.RevenueShareUnknown,
-				ComputeCost:  projectstate.ComputeCostUnknown,
+			terms: SettlementTerms{
+				RevenueShare: RevenueShareUnknown,
+				ComputeCost:  ComputeCostUnknown,
 			},
 			wantErr:   true,
 			errKind:   fweng.InvalidInput,
@@ -164,7 +164,7 @@ func TestComputeNet(t *testing.T) {
 		},
 		{
 			name:    "empty currency is contract misuse",
-			revenue: CycleRevenue{GrossInbound: projectstate.Money{MinorUnits: 100000, Currency: ""}},
+			revenue: CycleRevenue{GrossInbound: Money{MinorUnits: 100000, Currency: ""}},
 			usage:   CycleUsage{},
 			terms:   launchTerms(),
 			wantErr: true,
@@ -174,7 +174,7 @@ func TestComputeNet(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := e.ComputeNet(tt.revenue, tt.usage, tt.terms)
+			got, err := e.ComputeNet(fweng.Context{}, tt.revenue, tt.usage, tt.terms)
 			if tt.wantErr {
 				assertEngineErr(t, err, tt.errKind, tt.errDetail)
 				return
@@ -190,17 +190,17 @@ func TestComputeNet(t *testing.T) {
 }
 
 func TestRecomputeNet(t *testing.T) {
-	e := New()
+	e := NewSettlementEngine()
 
 	// A chargeback reversal halved the gross from 100000 to 50000. The corrected
 	// net is computed fresh from the reversal-adjusted revenue; the Manager computes
 	// the delta vs PriorSettled (not the Engine's job).
-	prior, err := e.ComputeNet(CycleRevenue{GrossInbound: usd(100000)}, CycleUsage{ComputeUnitSeconds: 100}, launchTerms())
+	prior, err := e.ComputeNet(fweng.Context{}, CycleRevenue{GrossInbound: usd(100000)}, CycleUsage{ComputeUnitSeconds: 100}, launchTerms())
 	if err != nil {
 		t.Fatalf("seeding prior settlement: %v", err)
 	}
 
-	got, err := e.RecomputeNet(ReSettlementInput{
+	got, err := e.RecomputeNet(fweng.Context{}, ReSettlementInput{
 		Revenue:      CycleRevenue{GrossInbound: usd(50000)},
 		Usage:        CycleUsage{ComputeUnitSeconds: 100},
 		Terms:        launchTerms(),
@@ -222,9 +222,9 @@ func TestRecomputeNet(t *testing.T) {
 	}
 
 	// RecomputeNet honours the same money-safety guard.
-	_, err = e.RecomputeNet(ReSettlementInput{
+	_, err = e.RecomputeNet(fweng.Context{}, ReSettlementInput{
 		Revenue: CycleRevenue{GrossInbound: usd(50000)},
-		Terms:   projectstate.SettlementTerms{RevenueShare: projectstate.RevenueShareUnknown, ComputeCost: projectstate.ComputeCostUnknown},
+		Terms:   SettlementTerms{RevenueShare: RevenueShareUnknown, ComputeCost: ComputeCostUnknown},
 	})
 	assertEngineErr(t, err, fweng.InvalidInput, "unknown terms")
 }
@@ -232,17 +232,17 @@ func TestRecomputeNet(t *testing.T) {
 // TestDeterminism asserts that identical inputs yield identical outputs across
 // repeated invocations (the Engine reads no clock/RNG/state).
 func TestDeterminism(t *testing.T) {
-	e := New()
+	e := NewSettlementEngine()
 	revenue := CycleRevenue{GrossInbound: usd(123456), EventCount: 3}
 	usage := CycleUsage{ComputeUnitSeconds: 250, StorageBytesMonths: 10, EgressBytes: 5}
 	terms := launchTerms()
 
-	first, err := e.ComputeNet(revenue, usage, terms)
+	first, err := e.ComputeNet(fweng.Context{}, revenue, usage, terms)
 	if err != nil {
 		t.Fatalf("first call: %v", err)
 	}
 	for i := 0; i < 100; i++ {
-		got, err := e.ComputeNet(revenue, usage, terms)
+		got, err := e.ComputeNet(fweng.Context{}, revenue, usage, terms)
 		if err != nil {
 			t.Fatalf("call %d: %v", i, err)
 		}
@@ -256,16 +256,17 @@ func TestDeterminism(t *testing.T) {
 // float money path): the computation over money produces equality with a
 // hand-computed int64, and the share+cost+net reconcile exactly.
 func TestMoneyIsExactInt64(t *testing.T) {
-	e := New()
+	e := NewSettlementEngine()
 	// gross 99 cents, 33% share. 99*3300/10000 = 326700/10000 = 32 (integer floor).
 	// compute 0. net = 99 - 32 - 0 = 67.
 	got, err := e.ComputeNet(
+		fweng.Context{},
 		CycleRevenue{GrossInbound: usd(99)},
 		CycleUsage{},
-		projectstate.SettlementTerms{
-			RevenueShare:         projectstate.RevenueShareNegotiatedRate,
+		SettlementTerms{
+			RevenueShare:         RevenueShareNegotiatedRate,
 			RevenueSharePercent:  33.0,
-			ComputeCost:          projectstate.ComputeCostFlatMarkup,
+			ComputeCost:          ComputeCostFlatMarkup,
 			ComputeMarkupPercent: 0,
 		},
 	)

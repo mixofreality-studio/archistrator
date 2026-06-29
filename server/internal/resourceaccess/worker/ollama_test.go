@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
+	fwllm "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-llm"
 	llminfra "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-llm/testinfra"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
@@ -32,10 +34,10 @@ func TestGenerate_ContractMisuse(t *testing.T) {
 	w := newDeadWorker(t)
 	ctx := context.Background()
 
-	_, err := w.Generate(ctx, GenerateSpec{WorkerClass: "planner", Prompt: "do x"}, "")
+	_, err := w.Generate(rc(ctx, ""), GenerateSpec{WorkerClass: "planner", Prompt: "do x"})
 	assertKind(t, err, fwra.ContractMisuse)
 
-	_, err = w.Generate(ctx, GenerateSpec{WorkerClass: "planner", Prompt: "   "}, "k1")
+	_, err = w.Generate(rc(ctx, "k1"), GenerateSpec{WorkerClass: "planner", Prompt: "   "})
 	assertKind(t, err, fwra.ContractMisuse)
 }
 
@@ -50,7 +52,7 @@ func TestGenerate_Idempotency_ReplaysWithoutProviderCall(t *testing.T) {
 	recorded := jsonRaw(`{"hello":"world"}`)
 	w.record(key, recorded)
 
-	got, err := w.Generate(ctx, GenerateSpec{WorkerClass: "planner", Prompt: "draft it"}, key)
+	got, err := w.Generate(rc(ctx, key), GenerateSpec{WorkerClass: "planner", Prompt: "draft it"})
 	if err != nil {
 		t.Fatalf("replay must not invoke the provider (got error %v)", err)
 	}
@@ -59,7 +61,7 @@ func TestGenerate_Idempotency_ReplaysWithoutProviderCall(t *testing.T) {
 	}
 
 	// A DISTINCT key has no recording, so it DOES dial the dead endpoint → error.
-	if _, err := w.Generate(ctx, GenerateSpec{WorkerClass: "planner", Prompt: "draft it"}, "wf:act-2"); err == nil {
+	if _, err := w.Generate(rc(ctx, "wf:act-2"), GenerateSpec{WorkerClass: "planner", Prompt: "draft it"}); err == nil {
 		t.Fatal("a distinct (unrecorded) key must invoke the provider and error against the dead endpoint")
 	}
 }
@@ -72,11 +74,11 @@ func TestGenerate_AfterCancel_ReturnsNil(t *testing.T) {
 	ctx := context.Background()
 	const key = fwra.IdempotencyKey("wf-cancel:act-1")
 
-	if err := w.Cancel(ctx, key); err != nil {
+	if err := w.Cancel(rc(ctx, key)); err != nil {
 		t.Fatalf("Cancel: %v", err)
 	}
 
-	got, err := w.Generate(ctx, GenerateSpec{WorkerClass: "planner", Prompt: "draft it"}, key)
+	got, err := w.Generate(rc(ctx, key), GenerateSpec{WorkerClass: "planner", Prompt: "draft it"})
 	if err != nil {
 		t.Fatalf("expected nil error after cancel-then-generate, got: %v", err)
 	}
@@ -89,7 +91,7 @@ func TestGenerate_AfterCancel_ReturnsNil(t *testing.T) {
 // success (returns nil).
 func TestCancel_UnknownKey_Success(t *testing.T) {
 	w := newDeadWorker(t)
-	if err := w.Cancel(context.Background(), "never-dispatched"); err != nil {
+	if err := w.Cancel(rc(context.Background(), "never-dispatched")); err != nil {
 		t.Fatalf("Cancel on an unknown key must succeed, got: %v", err)
 	}
 }
@@ -181,7 +183,7 @@ func TestGenerateTypedData_AfterCancel_ReturnsZeroT(t *testing.T) {
 	w := newDeadWorker(t)
 	ctx := context.Background()
 	const key = fwra.IdempotencyKey("typed:cancel")
-	if err := w.Cancel(ctx, key); err != nil {
+	if err := w.Cancel(rc(ctx, key)); err != nil {
 		t.Fatalf("Cancel: %v", err)
 	}
 
@@ -202,15 +204,15 @@ func TestGenerateTypedData_AfterCancel_ReturnsZeroT(t *testing.T) {
 // under -short.
 func TestGenerate_RoundTrip(t *testing.T) {
 	o := llminfra.StartOllama(t) // skips under -short
-	w, err := NewOllamaWorker(o.BaseURL, o.Model, map[WorkerClass]string{"planner": o.Model})
+	w, err := NewOllamaWorkerAccess(fwllm.NewClient(o.BaseURL, 5*time.Minute), o.Model, map[WorkerClass]string{"planner": o.Model})
 	if err != nil {
-		t.Fatalf("NewOllamaWorker: %v", err)
+		t.Fatalf("NewOllamaWorkerAccess: %v", err)
 	}
 
-	got, err := w.Generate(context.Background(), GenerateSpec{
+	got, err := w.Generate(rc(context.Background(), "wf-e2e:act-1"), GenerateSpec{
 		WorkerClass: "planner",
 		Prompt:      `Respond with a JSON object {"word":"hello"} and nothing else.`,
-	}, "wf-e2e:act-1")
+	})
 	if err != nil {
 		t.Fatalf("Generate: %v", err)
 	}
@@ -226,13 +228,17 @@ func TestGenerate_RoundTrip(t *testing.T) {
 func jsonRaw(s string) json.RawMessage { return json.RawMessage(s) }
 
 // newDeadWorker builds a worker pointed at a reserved/unbound port (no container).
-func newDeadWorker(t *testing.T) *OllamaWorker {
+// It builds the concrete (unexported) impl directly so the test can drive the
+// embedded *idemStore replay path (w.record); the public generated constructor
+// returns the interface.
+func newDeadWorker(t *testing.T) *ollamaWorker {
 	t.Helper()
-	w, err := NewOllamaWorker("http://127.0.0.1:1", "qwen2.5:0.5b", nil)
-	if err != nil {
-		t.Fatalf("NewOllamaWorker: %v", err)
+	return &ollamaWorker{
+		client:       fwllm.NewClient("http://127.0.0.1:1", 5*time.Minute),
+		classModels:  copyClassModels(nil),
+		defaultModel: "qwen2.5:0.5b",
+		idemStore:    newIdemStore(),
 	}
-	return w
 }
 
 func assertKind(t *testing.T, err error, want fwra.Kind) {
@@ -270,10 +276,10 @@ func assertUnmarshalError(t *testing.T, err error) {
 
 // TestNewOllamaWorker_RejectsEmptyConfig — constructor pre-condition guards.
 func TestNewOllamaWorker_RejectsEmptyConfig(t *testing.T) {
-	if _, err := NewOllamaWorker("", "m", nil); err == nil {
-		t.Fatal("expected error for empty baseURL")
+	if _, err := NewOllamaWorkerAccess(nil, "m", nil); err == nil {
+		t.Fatal("expected error for nil client")
 	}
-	if _, err := NewOllamaWorker("http://x", "", nil); err == nil {
+	if _, err := NewOllamaWorkerAccess(fwllm.NewClient("http://x", time.Minute), "", nil); err == nil {
 		t.Fatal("expected error for empty defaultModel")
 	}
 }

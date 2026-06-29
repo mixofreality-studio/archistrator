@@ -75,11 +75,17 @@ func asSettlementError(t *testing.T, err error) *fwmgr.Error {
 	return se
 }
 
+// testCtx builds a Manager-layer call Context for the façade pre-condition tests (the
+// zero Principal is fine — these checks short-circuit before any Temporal call).
+func testCtx() fwmgr.Context {
+	return fwmgr.Context{Context: context.Background()}
+}
+
 // ---- A1: OnboardPaymentIntegration ------------------------------------------
 
 func Test_Onboard_EmptyDeployedAppID(t *testing.T) {
-	m := NewManager(nil)
-	_, err := m.OnboardPaymentIntegration(context.Background(), uuid.Nil)
+	m := newSettlementManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	_, err := m.OnboardPaymentIntegration(testCtx(), uuid.Nil)
 	if got := asSettlementError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
 	}
@@ -88,8 +94,8 @@ func Test_Onboard_EmptyDeployedAppID(t *testing.T) {
 // ---- A2: RegisterCustomer ----------------------------------------------------
 
 func Test_Register_EmptyCustomerID(t *testing.T) {
-	m := NewManager(nil)
-	_, err := m.RegisterCustomer(context.Background(), uuid.Nil)
+	m := newSettlementManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	_, err := m.RegisterCustomer(testCtx(), uuid.Nil)
 	if got := asSettlementError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
 	}
@@ -98,16 +104,16 @@ func Test_Register_EmptyCustomerID(t *testing.T) {
 // ---- A3/A4: CloseSettlementCycle --------------------------------------------
 
 func Test_Close_EmptyCustomerID(t *testing.T) {
-	m := NewManager(nil)
-	_, err := m.CloseSettlementCycle(context.Background(), uuid.Nil, "cycle-1")
+	m := newSettlementManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	_, err := m.CloseSettlementCycle(testCtx(), uuid.Nil, "cycle-1")
 	if got := asSettlementError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
 	}
 }
 
 func Test_Close_EmptyCycleID(t *testing.T) {
-	m := NewManager(nil)
-	_, err := m.CloseSettlementCycle(context.Background(), uuid.New(), "")
+	m := newSettlementManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	_, err := m.CloseSettlementCycle(testCtx(), uuid.New(), "")
 	if got := asSettlementError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
 	}
@@ -116,8 +122,8 @@ func Test_Close_EmptyCycleID(t *testing.T) {
 // ---- A5: RunShortfallSweep --------------------------------------------------
 
 func Test_Sweep_EmptyTickID(t *testing.T) {
-	m := NewManager(nil)
-	_, err := m.RunShortfallSweep(context.Background(), "")
+	m := newSettlementManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	_, err := m.RunShortfallSweep(testCtx(), "")
 	if got := asSettlementError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
 	}
@@ -126,24 +132,24 @@ func Test_Sweep_EmptyTickID(t *testing.T) {
 // ---- A6: RecordInboundRevenue -----------------------------------------------
 
 func Test_RecordInbound_EmptyCustomerID(t *testing.T) {
-	m := NewManager(nil)
-	err := m.RecordInboundRevenue(context.Background(), GatewayRevenueEvent{CycleID: "c1", GatewayEventID: "g1"})
+	m := newSettlementManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	err := m.RecordInboundRevenue(testCtx(), GatewayRevenueEvent{CycleID: "c1", GatewayEventID: "g1"})
 	if got := asSettlementError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
 	}
 }
 
 func Test_RecordInbound_EmptyCycleID(t *testing.T) {
-	m := NewManager(nil)
-	err := m.RecordInboundRevenue(context.Background(), GatewayRevenueEvent{CustomerID: uuid.New(), GatewayEventID: "g1"})
+	m := newSettlementManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	err := m.RecordInboundRevenue(testCtx(), GatewayRevenueEvent{CustomerID: uuid.New(), GatewayEventID: "g1"})
 	if got := asSettlementError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
 	}
 }
 
 func Test_RecordInbound_EmptyGatewayEventID(t *testing.T) {
-	m := NewManager(nil)
-	err := m.RecordInboundRevenue(context.Background(), GatewayRevenueEvent{CustomerID: uuid.New(), CycleID: "c1"})
+	m := newSettlementManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	err := m.RecordInboundRevenue(testCtx(), GatewayRevenueEvent{CustomerID: uuid.New(), CycleID: "c1"})
 	if got := asSettlementError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
 	}
@@ -152,16 +158,16 @@ func Test_RecordInbound_EmptyGatewayEventID(t *testing.T) {
 // ---- A7: RecordRevenueReversal ----------------------------------------------
 
 func Test_RecordReversal_EmptyGatewayEventID(t *testing.T) {
-	m := NewManager(nil)
-	err := m.RecordRevenueReversal(context.Background(), GatewayReversalEvent{CustomerID: uuid.New(), CycleID: "c1"})
+	m := newSettlementManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	err := m.RecordRevenueReversal(testCtx(), GatewayReversalEvent{CustomerID: uuid.New(), CycleID: "c1"})
 	if got := asSettlementError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
 	}
 }
 
 func Test_RecordReversal_EmptyCustomerID(t *testing.T) {
-	m := NewManager(nil)
-	err := m.RecordRevenueReversal(context.Background(), GatewayReversalEvent{CycleID: "c1", GatewayEventID: "g1"})
+	m := newSettlementManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	err := m.RecordRevenueReversal(testCtx(), GatewayReversalEvent{CycleID: "c1", GatewayEventID: "g1"})
 	if got := asSettlementError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
 	}
@@ -190,10 +196,10 @@ func Test_WorkflowIDDerivation(t *testing.T) {
 // ---- A9: RoutingDirective String coverage -----------------------------------
 
 func Test_RoutingDirective_String(t *testing.T) {
-	cases := map[RoutingDirectiveSeam]string{
-		RoutingNoAction: "NoAction",
-		RoutingPayout:   "Payout",
-		RoutingCharge:   "Charge",
+	cases := map[routingDirectiveSeam]string{
+		routingNoAction: "NoAction",
+		routingPayout:   "Payout",
+		routingCharge:   "Charge",
 	}
 	for d, want := range cases {
 		if got := d.String(); got != want {

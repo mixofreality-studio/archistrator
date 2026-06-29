@@ -1,7 +1,6 @@
 package systemdesign
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"hash/fnv"
@@ -9,14 +8,30 @@ import (
 
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/estimation"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/constructionpipeline"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/client"
 )
 
-// Manager is the systemDesignManager façade. It exposes the public use-case ops
-// (systemDesignManager.md §2) and OWNS Temporal. The 2026-05-29 re-cut adds
-// startSystemDesign (parent kickoff). The Temporal-backed ops:
+// SystemDesignManager is the generated service-contract interface for this component
+// — the public use-case surface of the systemDesignManager façade
+// (systemDesignManager.md §2). Each op leads with the Manager-layer call Context
+// (fwmanager.Context, embedding context.Context + the Principal); the
+// *systemDesignManager derives ctx := rc.Context inside. The concrete
+// *systemDesignManager satisfies it; the internal dependency seams + the Temporal
+// Workflows struct stay hand-written and are NOT part of this contract.
+
+// Compile-time proof the concrete systemDesignManager satisfies the generated
+// SystemDesignManager port. Each op leads with the Manager-layer call Context
+// (fwmanager.Context); the *systemDesignManager derives ctx := rc.Context inside.
+var _ SystemDesignManager = (*systemDesignManager)(nil)
+
+// systemDesignManager is the systemDesignManager façade. It exposes the public
+// use-case ops (systemDesignManager.md §2) and OWNS Temporal. The 2026-05-29 re-cut
+// adds startSystemDesign (parent kickoff). The Temporal-backed ops:
 //   - StartSystemDesign  — Workflow (entry, parent SystemDesignPhaseWorkflow)
 //   - RequestArtifactDraft — Workflow (entry, child CoAuthorArtifactWorkflow gate)
 //   - SubmitReviewDecision — Signal (reviewDecision, to the child gate)
@@ -27,21 +42,42 @@ import (
 // (the client renders typed models). The Manager exposes no RenderArtifact op and
 // holds no RenderingEngine.
 //
-// The Manager holds a Temporal client AND a direct reference to projectStateAccess
-// (for the StartSystemDesign ResearchInput precondition + the sync SetResearchInput
-// write op). Pre-condition checks the contract puts on the façade (Phase-1 kind,
-// non-empty projectId, Reject-requires-feedback, ResearchInput present) are
-// enforced here before any downstream call (§2, §3).
-type Manager struct {
+// The façade methods use only the Temporal client + projectStateAccess (for the
+// StartSystemDesign ResearchInput precondition + the sync SetResearchInput write op).
+// It ALSO stores the three Worker-side deps it was constructed with — the published
+// constructionpipeline.ConstructionPipelineAccess (design-job dispatch), the published
+// sourcecontrol.SourceControlAccess (the PR rail), and the per-project repo resolver —
+// so RegisterWorker can wire them (via the package's folded adapters) into the
+// hand-written Temporal Workflows. The former exported consumer-mirror interfaces +
+// the composition-root adapters are RETIRED; the manager now depends on the deps'
+// PUBLISHED interfaces and adapts them internally (Option-B boundary mapping).
+//
+// Pre-condition checks the contract puts on the façade (Phase-1 kind, non-empty
+// projectId, Reject-requires-feedback, ResearchInput present) are enforced here before
+// any downstream call (§2, §3).
+type systemDesignManager struct {
 	client       client.Client
 	projectState projectstate.ProjectStateAccess
+	pipeline     constructionpipeline.ConstructionPipelineAccess
+	rail         sourcecontrol.SourceControlAccess
+	repo         func(projectID ProjectID) (sourcecontrol.RepoRef, bool)
+	// estimator + repoBase serve the folded CATALOG ops (CreateProject/GetProject/
+	// ListProjects — the former projectManager). estimator is the
+	// constructionEstimationEngine run at GetProject READ time (compute-at-read CPM +
+	// EV/SPI); nil disables compute. repoBase composes each git row's prUrl
+	// (<repoBase>/pull/<ref>); "" omits prUrl. The project's permanent identity is its
+	// living system design, so these reads belong on this Manager.
+	estimator estimation.EstimationEngine
+	repoBase  string
 }
 
-// NewManager constructs a Manager over an existing Temporal client plus the
-// projectStateAccess port (for the StartSystemDesign precondition + the sync
-// SetResearchInput write op).
-func NewManager(c client.Client, ps projectstate.ProjectStateAccess) *Manager {
-	return &Manager{client: c, projectState: ps}
+// newSystemDesignManager is the hand-written, unexported builder the generated
+// NewSystemDesignManager constructor delegates to. It wires the Temporal client + the
+// published deps into the façade. The façade itself uses only client + projectState;
+// pipeline/rail/repo are stored for RegisterWorker (rail may be nil — a dev server
+// with no source-control credentials runs the design spine repo-less).
+func newSystemDesignManager(c client.Client, ps projectstate.ProjectStateAccess, pipeline constructionpipeline.ConstructionPipelineAccess, rail sourcecontrol.SourceControlAccess, repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool), estimator estimation.EstimationEngine, repoBase string) *systemDesignManager {
+	return &systemDesignManager{client: c, projectState: ps, pipeline: pipeline, rail: rail, repo: repo, estimator: estimator, repoBase: repoBase}
 }
 
 // StartSystemDesign — op 2.0 (2026-05-29). Temporal Workflow (entry;
@@ -59,22 +95,23 @@ func NewManager(c client.Client, ps projectstate.ProjectStateAccess) *Manager {
 // SYNC from the Client's POV: returns once the parent start is durably accepted,
 // not once Phase 1 completes (it spans days of human review; the SPA polls
 // getSessionState / reads head-state).
-func (m *Manager) StartSystemDesign(ctx context.Context, projectID ProjectID) (SessionRef, error) {
+func (m *systemDesignManager) StartSystemDesign(rc fwmanager.Context, projectID ProjectID) (SessionRef, error) {
+	ctx := rc.Context
 	if projectID == "" {
-		return SessionRef{}, newError(fwmanager.ContractMisuse, "empty projectId")
+		return "", newError(fwmanager.ContractMisuse, "empty projectId")
 	}
 
 	// Pre-condition: ResearchInput must be present. A brand-new project with no row
 	// (fwra.NotFound) likewise fails the precondition — research has not been set.
-	proj, err := m.projectState.ReadProject(ctx, projectID)
+	proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID))
 	if err != nil {
 		if isResearchReadNotFound(err) {
-			return SessionRef{}, newError(fwmanager.FailedPrecondition, "research not populated (project has no state)")
+			return "", newError(fwmanager.FailedPrecondition, "research not populated (project has no state)")
 		}
-		return SessionRef{}, mapReadProjectError(err)
+		return "", mapReadProjectError(err)
 	}
 	if proj.ResearchInput.IsZero() {
-		return SessionRef{}, newError(fwmanager.FailedPrecondition, "research not populated")
+		return "", newError(fwmanager.FailedPrecondition, "research not populated")
 	}
 
 	wfID := systemDesignPhaseWorkflowID(projectID)
@@ -83,11 +120,11 @@ func (m *Manager) StartSystemDesign(ctx context.Context, projectID ProjectID) (S
 		TaskQueue:                TaskQueue,
 		WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
 	}
-	we, err := m.client.ExecuteWorkflow(ctx, opts, ExecutionKindPhase, PhaseInput{ProjectID: projectID})
+	we, err := m.client.ExecuteWorkflow(ctx, opts, executionKindPhase, phaseInput{ProjectID: projectID})
 	if err != nil {
-		return SessionRef{}, mapStartError(err)
+		return "", mapStartError(err)
 	}
-	return NewSessionRef(we.GetID()), nil
+	return newSessionRef(we.GetID()), nil
 }
 
 // isResearchReadNotFound reports whether a ReadProject error is the brand-new
@@ -121,12 +158,13 @@ func isResearchReadNotFound(err error) bool {
 // the existing run otherwise), preserving the §2.1 idempotent-on-id post-condition.
 //
 // RequestArtifactDraft is the exported public op.
-func (m *Manager) RequestArtifactDraft(ctx context.Context, projectID ProjectID, kind ArtifactKind, feedback *ReviewFeedback) (SessionRef, error) {
+func (m *systemDesignManager) RequestArtifactDraft(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind, feedback *ReviewFeedback) (SessionRef, error) {
+	ctx := rc.Context
 	if projectID == "" {
-		return SessionRef{}, newError(fwmanager.ContractMisuse, "empty projectId")
+		return "", newError(fwmanager.ContractMisuse, "empty projectId")
 	}
-	if !kind.IsPhase1() {
-		return SessionRef{}, newError(fwmanager.FailedPrecondition, "artifactKind is not a Phase-1 kind")
+	if !artifactKindIsPhase1(kind) {
+		return "", newError(fwmanager.FailedPrecondition, "artifactKind is not a Phase-1 kind")
 	}
 
 	wfID := coAuthorWorkflowID(projectID, kind)
@@ -138,13 +176,13 @@ func (m *Manager) RequestArtifactDraft(ctx context.Context, projectID ProjectID,
 		// (systemDesignManager.md §2.1 post-condition). The signal rides along.
 		WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
 	}
-	in := CoAuthorInput{ProjectID: projectID, ArtifactKind: kind, Feedback: feedback}
+	in := coAuthorInput{ProjectID: projectID, ArtifactKind: kind, Feedback: feedback}
 
-	we, err := m.client.SignalWithStartWorkflow(ctx, wfID, SignalRedraft, RedraftSignal{Feedback: feedback}, opts, ExecutionKindCoAuthor, in)
+	we, err := m.client.SignalWithStartWorkflow(ctx, wfID, lSignalRedraft, redraftSignal{Feedback: feedback}, opts, executionKindCoAuthor, in)
 	if err != nil {
-		return SessionRef{}, mapStartError(err)
+		return "", mapStartError(err)
 	}
-	return NewSessionRef(we.GetID()), nil
+	return newSessionRef(we.GetID()), nil
 }
 
 // submitReviewDecision — op 2.2. Temporal Signal (SignalWorkflow to workflow id
@@ -152,11 +190,12 @@ func (m *Manager) RequestArtifactDraft(ctx context.Context, projectID ProjectID,
 // decision == Reject.
 //
 // SubmitReviewDecision is the exported public op.
-func (m *Manager) SubmitReviewDecision(ctx context.Context, projectID ProjectID, kind ArtifactKind, decision ReviewDecision, feedback *ReviewFeedback) error {
+func (m *systemDesignManager) SubmitReviewDecision(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind, decision ReviewDecision, feedback *ReviewFeedback) error {
+	ctx := rc.Context
 	if projectID == "" {
 		return newError(fwmanager.ContractMisuse, "empty projectId")
 	}
-	if !kind.IsPhase1() {
+	if !artifactKindIsPhase1(kind) {
 		return newError(fwmanager.FailedPrecondition, "artifactKind is not a Phase-1 kind")
 	}
 	switch decision {
@@ -171,8 +210,8 @@ func (m *Manager) SubmitReviewDecision(ctx context.Context, projectID ProjectID,
 	}
 
 	wfID := coAuthorWorkflowID(projectID, kind)
-	sig := ReviewDecisionSignal{Decision: decision, Feedback: feedback}
-	if err := m.client.SignalWorkflow(ctx, wfID, "", SignalReviewDecision, sig); err != nil {
+	sig := reviewDecisionSignal{Decision: decision, Feedback: feedback}
+	if err := m.client.SignalWorkflow(ctx, wfID, "", signalReviewDecision, sig); err != nil {
 		return mapSignalError(err)
 	}
 	return nil
@@ -182,7 +221,8 @@ func (m *Manager) SubmitReviewDecision(ctx context.Context, projectID ProjectID,
 // {projectId}:phaseAdvance). Returns the gating outcome.
 //
 // AdvancePhase is the exported public op.
-func (m *Manager) AdvancePhase(ctx context.Context, projectID ProjectID) (PhaseAdvanceResult, error) {
+func (m *systemDesignManager) AdvancePhase(rc fwmanager.Context, projectID ProjectID) (PhaseAdvanceResult, error) {
+	ctx := rc.Context
 	if projectID == "" {
 		return PhaseAdvanceResult{}, newError(fwmanager.ContractMisuse, "empty projectId")
 	}
@@ -192,9 +232,9 @@ func (m *Manager) AdvancePhase(ctx context.Context, projectID ProjectID) (PhaseA
 		ID:        wfID,
 		TaskQueue: TaskQueue,
 	}
-	in := PhaseAdvanceInput{ProjectID: projectID}
+	in := phaseAdvanceInput{ProjectID: projectID}
 
-	we, err := m.client.ExecuteWorkflow(ctx, opts, ExecutionKindPhaseAdvance, in)
+	we, err := m.client.ExecuteWorkflow(ctx, opts, executionKindPhaseAdvance, in)
 	if err != nil {
 		return PhaseAdvanceResult{}, mapStartError(err)
 	}
@@ -210,13 +250,14 @@ func (m *Manager) AdvancePhase(ctx context.Context, projectID ProjectID) (PhaseA
 // read-only). Returns a point-in-time technical view without mutating state.
 //
 // GetSessionState is the exported public op.
-func (m *Manager) GetSessionState(ctx context.Context, projectID ProjectID, kind ArtifactKind) (SessionStateView, error) {
+func (m *systemDesignManager) GetSessionState(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind) (SessionStateView, error) {
+	ctx := rc.Context
 	if projectID == "" {
 		return SessionStateView{}, newError(fwmanager.ContractMisuse, "empty projectId")
 	}
 	wfID := coAuthorWorkflowID(projectID, kind)
 
-	enc, err := m.client.QueryWorkflow(ctx, wfID, "", QuerySessionState)
+	enc, err := m.client.QueryWorkflow(ctx, wfID, "", querySessionState)
 	if err != nil {
 		return SessionStateView{}, mapQueryError(err)
 	}
@@ -242,29 +283,32 @@ func (m *Manager) GetSessionState(ctx context.Context, projectID ProjectID, kind
 //
 // Returns the resulting head Version (the SPA may use it for optimistic display;
 // the frozen surface is the write itself).
-func (m *Manager) SetResearchInput(ctx context.Context, projectID ProjectID, research ResearchInput) (Version, error) {
+func (m *systemDesignManager) SetResearchInput(rc fwmanager.Context, projectID ProjectID, research ResearchInput) (Version, error) {
+	ctx := rc.Context
 	if projectID == "" {
 		return 0, newError(fwmanager.ContractMisuse, "empty projectId")
 	}
-	if research.IsZero() {
+	if researchIsZero(research) {
 		return 0, newError(fwmanager.ContractMisuse, "empty research (no sources)")
 	}
 
 	key := researchInputIdempotencyKey(projectID, research)
+	psID := projectstate.ProjectID(projectID)
+	psResearch := toPSResearch(research)
 
 	// Sync-path optimistic-concurrency loop. The first write uses the head Version
 	// just read; on a Conflict (a concurrent mutation bumped the row) re-read and
 	// re-apply. Bounded so a pathological write-storm cannot spin forever.
 	var lastErr error
 	for attempt := 0; attempt < setResearchInputMaxAttempts; attempt++ {
-		proj, err := m.projectState.ReadProject(ctx, projectID)
+		proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, psID)
 		if err != nil {
 			return 0, mapReadProjectError(err)
 		}
 
-		newVersion, err := m.projectState.SetResearchInput(ctx, projectID, proj.Version, research, key)
+		newVersion, err := m.projectState.SetResearchInput(fwra.Context{Context: ctx, IdempotencyKey: key}, psID, proj.Version, psResearch)
 		if err == nil {
-			return newVersion, nil
+			return Version(newVersion), nil
 		}
 		if isRAConflict(err) {
 			lastErr = err

@@ -10,13 +10,13 @@ The activity list becomes a directed graph of dependencies. Calculate floats. Id
 ## Canonical source
 
 **Primary:**
-- Löwy, [Ch. 7 §7 "Critical Path Analysis"](../../../../rightingsoftware/OEBPS/xhtml/ch07.xhtml#ch07lev1sec7)
-- [Ch. 7 §7.1 "Project Network"](../../../../rightingsoftware/OEBPS/xhtml/ch07.xhtml#ch07lev2sec11)
-- [Ch. 7 §7.2 "The Critical Path"](../../../../rightingsoftware/OEBPS/xhtml/ch07.xhtml#ch07lev2sec12)
-- [Ch. 8 §1 "The Network Diagram"](../../../../rightingsoftware/OEBPS/xhtml/ch08.xhtml#ch08lev1sec1) — node vs arrow diagrams
-- [Ch. 8 §2 "Floats"](../../../../rightingsoftware/OEBPS/xhtml/ch08.xhtml#ch08lev1sec2) — total and free float
+- Löwy, [Ch. 7 §7 "Critical Path Analysis"](../../../research/rightingsoftware/OEBPS/xhtml/ch07.xhtml#ch07lev1sec7)
+- [Ch. 7 §7.1 "Project Network"](../../../research/rightingsoftware/OEBPS/xhtml/ch07.xhtml#ch07lev2sec11)
+- [Ch. 7 §7.2 "The Critical Path"](../../../research/rightingsoftware/OEBPS/xhtml/ch07.xhtml#ch07lev2sec12)
+- [Ch. 8 §1 "The Network Diagram"](../../../research/rightingsoftware/OEBPS/xhtml/ch08.xhtml#ch08lev1sec1) — node vs arrow diagrams
+- [Ch. 8 §2 "Floats"](../../../research/rightingsoftware/OEBPS/xhtml/ch08.xhtml#ch08lev1sec2) — total and free float
 
-**Standard reference:** [Appendix C §4.5 "Project network"](../../../../rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec4) — items 5a–5j.
+**Standard reference:** [Appendix C §4.5 "Project network"](../../../research/rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec4) — items 5a–5j.
 
 **Schema:** [NETWORK-SCHEMA.md](NETWORK-SCHEMA.md) (co-located with this skill) — documents the shape of the network data. The typed `.network` JSON slot mirrors this shape; the YAML in the schema doc is illustrative of the fields, not a file you write.
 

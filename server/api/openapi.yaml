@@ -1,1725 +1,3329 @@
-openapi: 3.1.0
-
-# =============================================================================
-# archistrator — webClient (UC1 driveDesignPhase facet) HTTP API.
-#
-# SOURCE OF TRUTH for the per-Manager REST surface the systemDesignManager's
-# driveDesignPhase intents are bound to (operational-concepts.md §12/§13: a
-# per-Manager OpenAPI from which the Go server handlers AND the TypeScript SPA
-# client are generated). This file is authored to match the hand-written
-# handlers in internal/client/web/handlers.go + dto.go EXACTLY — it is faithful
-# and minimal, covering only the UC1 webClient endpoints that exist today.
-#
-# Codegen note (deliverable 1): codegen (oapi-codegen) is NOT run against this
-# spec. The hand-written stdlib net/http handlers already build green and pass
-# TestMethodLayering; regenerating server stubs would force a large refactor of
-# working code for no contract gain. The spec is therefore the source of truth
-# the TS client is generated from next (operational-concepts §13), and the Go
-# handlers are kept faithful to it by review, not by generation. When the TS
-# client is generated, point oapi-codegen / openapi-typescript at THIS file.
-#
-# Contract authority: implementation/contracts/webClient.md (FROZEN) — the
-# IWebEntry.driveDesignPhase facet — and systemDesignManager.md §2. Every path
-# below routes to EXACTLY ONE Manager op.
-# =============================================================================
-
-info:
-  title: archistrator webClient — System & Project Design (UC1 + UC2)
-  version: 0.2.0
-  description: >
-    The human-operator web entry surface for Phase-1 system design (UC1,
-    systemDesignManager) and Phase-2 project design (UC2, projectDesignManager) —
-    the driveDesignPhase facet of IWebEntry. Each endpoint is a thin routing facet:
-    decode → resolve principal + authorize (security Utility) → invoke exactly one
-    Manager op → shape the reply. The Client holds no business logic, no state, no
-    cross-Manager sequencing.
-
-servers:
-  - url: /
-    description: In-cluster service (fronted by Envoy Gateway; TLS + JWT validation at the edge).
-
-# -----------------------------------------------------------------------------
-# Security: the request carries a Keycloak access token in the Authorization
-# header (Envoy forwards it unchanged). The server validates the token itself —
-# signature against the realm JWKS, issuer, expiry — into a typed principal
-# (framework-go/utilities/security via the keycloak validator), then authorizes
-# the intent. 401 when the token is absent/invalid; 403 on policy Deny (fail-closed).
-# -----------------------------------------------------------------------------
 components:
-  securitySchemes:
-    bearerAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
-      description: >
-        A Keycloak access token. The server verifies the RS256 signature against
-        the realm JWKS, checks the issuer and expiry, maps the claims
-        (preferred_username, email, realm_access.roles, organization) to a
-        principal, then calls Authorize. 401 when the token is absent/invalid;
-        403 on policy Deny (fail-closed).
-
-  schemas:
-    # The project is identified by the {projectId} PATH parameter on every
-    # project-scoped route — it is NOT a request-body field. The request bodies
-    # below therefore carry only the intent payload.
-
-    CreateProjectRequest:
-      type: object
-      required: [name]
-      additionalProperties: false
-      description: >
-        NAME-AS-IDENTITY (C-PM-Δ, 2026-06-15): name IS the GitHub repository name the
-        user has already created — the project identity. CreateProject ADOPTS that
-        pre-existing user-named repo (permissive: resumes if the repo already carries
-        an .aiarch/ marker). There is NO token/secret field — aiarch does no secret
-        management; the user provisions CLAUDE_CODE_OAUTH_TOKEN by installing the
-        Claude Code GitHub App (/install-github-app) on their repo.
-      properties:
-        name:
-          type: string
-          description: >
-            The user-created GitHub repository name == the project identity (name-as-identity).
-
-    CreateProjectResponse:
-      type: object
-      required: [projectId]
-      additionalProperties: false
-      properties:
-        projectId:
-          type: string
-          description: >
-            The project identity == the adopted repo name (a string, NOT a uuid). The
-            SPA scopes its subsequent phase routes under this value.
-
-    ProjectSummary:
-      type: object
-      required: [projectId, name, owner, phase, committedCount, totalCount, updatedAt]
-      additionalProperties: false
-      description: One catalog row for the landing grid (ListProjects).
-      properties:
-        projectId:
-          type: string
-          format: uuid
-        name:
-          type: string
-        owner:
-          type: string
-          description: The owning principal's stable subject key.
-        phase:
-          $ref: '#/components/schemas/ProjectPhase'
-        committedCount:
-          type: integer
-          description: Committed artifact slots in the current phase.
-        totalCount:
-          type: integer
-          description: Total required artifact slots in the current phase.
-        updatedAt:
-          type: string
-          format: date-time
-
-    ProjectState:
-      type: object
-      required: [projectId, name, owner, phase, version, research, slots]
-      additionalProperties: false
-      description: >
-        The full typed head-state of one project (GetProject) — every artifact
-        slot's stage + typed model. Each slot's model serializes via the SAME
-        discriminated ArtifactModelEnvelope the systemDesignManager session read
-        emits, so the SPA decodes a model identically regardless of which read
-        produced it.
-      properties:
-        projectId:
-          type: string
-          format: uuid
-        name:
-          type: string
-        owner:
-          type: string
-        phase:
-          $ref: '#/components/schemas/ProjectPhase'
-        version:
-          type: integer
-          description: Head-state optimistic-concurrency token.
-        research:
-          $ref: '#/components/schemas/ResearchInput'
-        slots:
-          type: array
-          items:
-            $ref: '#/components/schemas/ArtifactSlotView'
-
-    ProjectPhase:
-      type: string
-      description: The lifecycle phase the project currently sits in.
-      enum: [systemDesign, projectDesign, construction, unknown]
-
-    ArtifactSlotView:
-      type: object
-      required: [kind, stage, model]
-      additionalProperties: false
-      description: >
-        One artifact slot of the head-state, typed. project.ArtifactSlotView's own
-        MarshalJSON owns the wire form: kind is the camelCase STRING ArtifactKind
-        wire name, stage is an integer ordinal (project.ArtifactStage carries no
-        string codec), and model is the discriminated ArtifactModelEnvelope (model
-        payload absent when the slot is empty).
-      properties:
-        kind:
-          $ref: '#/components/schemas/ArtifactKindFull'
-        stage:
-          $ref: '#/components/schemas/ArtifactStageOrdinal'
-        model:
-          $ref: '#/components/schemas/ArtifactModelEnvelope'
-        notes:
-          type: string
-          description: Architect rationale on Reject/Withdraw (omitted when empty).
-
-    ArtifactKindFull:
-      type: string
-      description: >
-        projectstate.ArtifactKind wire name across BOTH phases — Phase-1
-        (mission..standardCheck) and Phase-2 (planningAssumptions..sdpReview). The
-        STRING discriminator the typed wire contract uses everywhere.
-      enum:
-        - mission
-        - glossary
-        - scrubbedRequirements
-        - volatilities
-        - coreUseCases
-        - system
-        - operationalConcepts
-        - standardCheck
-        - planningAssumptions
-        - activityList
-        - network
-        - normalSolution
-        - subcriticalSolution
-        - compressedSolution
-        - decompressedSolution
-        - riskModel
-        - sdpReview
-
-    ArtifactStageOrdinal:
-      type: integer
-      description: >
-        project.ArtifactStage ordinal (head-state slot stage): 0 Empty,
-        1 AwaitingReview, 2 Committed, 3 Rejected, 4 Withdrawn.
-      enum: [0, 1, 2, 3, 4]
-
-    RequestArtifactDraftRequest:
-      type: object
-      required: [artifactKind]
-      additionalProperties: false
-      properties:
-        artifactKind:
-          $ref: '#/components/schemas/ArtifactKind'
-        feedback:
-          type: string
-          nullable: true
-          description: Optional free-text woven into the next draft on a re-entry.
-
-    SubmitReviewDecisionRequest:
-      type: object
-      required: [artifactKind, decision]
-      additionalProperties: false
-      properties:
-        artifactKind:
-          $ref: '#/components/schemas/ArtifactKind'
-        decision:
-          $ref: '#/components/schemas/ReviewDecision'
-        feedback:
-          type: string
-          nullable: true
-          description: >
-            The architect's rationale. REQUIRED by the Manager when decision is
-            "reject"; optional on "withdraw"; ignored on "approve".
-        comments:
-          type: array
-          description: >
-            Optional JSONPath-anchored "send back" comments. Consulted by the
-            Manager ONLY on "reject" and woven into the architect-role redraft
-            prompt beneath the feedback; ignored on "approve" / "withdraw".
-          items:
-            $ref: '#/components/schemas/AnchoredComment'
-
-    AnchoredComment:
-      type: object
-      required: [jsonPath, text]
-      additionalProperties: false
-      properties:
-        jsonPath:
-          type: string
-          description: >
-            A path into the typed artifact model the comment refers to,
-            e.g. "$.vision". Opaque guidance text this round — the server does
-            not evaluate or validate it.
-        text:
-          type: string
-          description: The architect's comment at that location.
-
-    SetResearchInputRequest:
-      type: object
-      required: [research]
-      additionalProperties: false
-      properties:
-        research:
-          $ref: '#/components/schemas/ResearchInput'
-
-    ResearchInput:
-      type: object
-      required: [sources]
-      additionalProperties: false
-      properties:
-        sources:
-          type: array
-          minItems: 1
-          items:
-            $ref: '#/components/schemas/ResearchSource'
-
-    ResearchSource:
-      type: object
-      required: [title, content]
-      additionalProperties: false
-      properties:
-        title:
-          type: string
-          description: "e.g. Founder brief, Competitor analysis, Customer interview #3"
-        content:
-          type: string
-          description: The source corpus text the mission-draft prompt consumes.
-
-    SessionRefResponse:
-      type: object
-      required: [sessionRef]
-      additionalProperties: false
-      properties:
-        sessionRef:
-          type: string
-          description: Opaque continuity token the SPA persists/echoes; never parsed.
-
-    PhaseAdvanceResponse:
-      type: object
-      required: [advanced, missingArtifacts]
-      additionalProperties: false
-      properties:
-        advanced:
-          type: boolean
-        missingArtifacts:
-          type: array
-          items:
-            $ref: '#/components/schemas/ArtifactKind'
-          description: >
-            Non-empty when advanced=false — the Phase-1 slots not yet Committed.
-            A non-advanced result is the NORMAL gating answer (HTTP 200), not an error.
-
-    SessionStateResponse:
-      type: object
-      required: [projectId, artifactKind, stage, view]
-      additionalProperties: false
-      properties:
-        projectId:
-          type: string
-          format: uuid
-        artifactKind:
-          $ref: '#/components/schemas/ArtifactKind'
-        stage:
-          $ref: '#/components/schemas/SessionStage'
-        view:
-          $ref: '#/components/schemas/SessionStateView'
-
-    # --- Phase-1 typed session view + artifact models ------------------------
-    #
-    # The `view` field above is the systemDesignManager.SessionStateView, emitted
-    # by that type's own MarshalJSON (internal/manager/systemdesign/codec.go +
-    # contract.go). Its own JSON carries `artifactKind` as the camelCase STRING wire
-    # name (projectstate.ArtifactKind.MarshalJSON), `stage` as an integer ordinal
-    # (systemdesign.SessionStage, which has no string codec), and the staged draft as
-    # a discriminated ArtifactModelEnvelope ({kind: "<name>", model: <model>}). These
-    # schemas mirror the Go-emitted bytes EXACTLY — the Go code is the source of
-    # truth. Phase-1 model field names are camelCase (json tags on the projectstate
-    # structs); ordinal enums the SPA reads serialize as string names.
-    SessionStateView:
-      type: object
-      required: [projectId, artifactKind, stage, draft]
-      additionalProperties: false
-      description: >
-        Point-in-time technical view of one Phase-1 co-authoring session, as
-        emitted by systemDesignManager.SessionStateView.MarshalJSON. artifactKind is
-        the string ArtifactKind wire name; stage is an integer ordinal (the
-        SessionStage type carries no string codec), distinct from the outer
-        SessionStateResponse's string stage field.
-      properties:
-        projectId:
-          type: string
-          format: uuid
-        artifactKind:
-          $ref: '#/components/schemas/ArtifactKind'
-        stage:
-          $ref: '#/components/schemas/SessionStageOrdinal'
-        draft:
-          $ref: '#/components/schemas/ArtifactModelEnvelope'
-        findings:
-          type: array
-          description: Latest validation findings (omitted when empty).
-          items:
-            $ref: '#/components/schemas/Finding'
-        failureReason:
-          type: string
-          description: >
-            Short human explanation set ONLY when stage is Refused (6) — a terminal
-            worker fault (e.g. the AI worker is unavailable / out of credits). Gives
-            the SPA a message + Retry affordance instead of a wedged generating
-            screen. Omitted otherwise.
-
-    SessionStageOrdinal:
-      type: integer
-      description: >
-        systemdesign.SessionStage as its integer ordinal: 0 Unknown, 1 Drafting,
-        2 AwaitingReview, 3 Redrafting, 4 Committed, 5 Withdrawn, 6 Refused.
-      enum: [0, 1, 2, 3, 4, 5, 6]
-
-    ArtifactModelEnvelope:
-      type: object
-      required: [kind]
-      additionalProperties: false
-      description: >
-        The discriminated wire form of one typed Method model, mirroring
-        modelEnvelope in internal/manager/systemdesign/codec.go (and project/
-        contract.go, projectdesign/codec.go — byte-identical) EXACTLY. `kind` is the
-        STRING ArtifactKind wire name discriminator; `model` is the concrete model's
-        own JSON (omitted entirely when there is no staged draft, leaving only
-        {kind: "<name>"}). The kind→model-schema mapping (string discriminator over
-        the `model` payload):
-        mission→MissionStatement, glossary→Glossary,
-        scrubbedRequirements→ScrubbedRequirements, volatilities→Volatilities,
-        coreUseCases→CoreUseCases, system→System,
-        operationalConcepts→OperationalConcepts, standardCheck→StandardCheck.
-      properties:
-        kind:
-          $ref: '#/components/schemas/ArtifactKindFull'
-        model:
-          description: >
-            The concrete model payload, selected by the sibling `kind` string name.
-            Absent when no draft has been staged yet. The Phase-1 model schemas are
-            fully enumerated; of the Phase-2 kinds, `network` → NetworkModel is now
-            introduced (the first Phase-2 model schema in this contract); the remaining
-            Phase-2 model schemas are TODO Phase-2.
-          oneOf:
-            - $ref: '#/components/schemas/MissionStatement'
-            - $ref: '#/components/schemas/Glossary'
-            - $ref: '#/components/schemas/ScrubbedRequirements'
-            - $ref: '#/components/schemas/Volatilities'
-            - $ref: '#/components/schemas/CoreUseCases'
-            - $ref: '#/components/schemas/System'
-            - $ref: '#/components/schemas/OperationalConcepts'
-            - $ref: '#/components/schemas/StandardCheck'
-            - $ref: '#/components/schemas/NetworkModel'
-
-    # --- Phase-1 typed artifact models (camelCase fields; string enum names) ---
-
-    MissionStatement:
-      type: object
-      required: [vision, mission]
-      additionalProperties: false
-      description: projectstate.MissionStatement (ch. 5 business alignment).
-      properties:
-        vision:
-          type: string
-          description: ONE terse sentence.
-        objectives:
-          type: array
-          nullable: true
-          items:
-            $ref: '#/components/schemas/Objective'
-        mission:
-          type: string
-          description: Expressed in components, not features.
-
-    Objective:
-      type: object
-      required: [number, statement]
-      additionalProperties: false
-      properties:
-        number:
-          type: integer
-        statement:
-          type: string
-
-    Glossary:
-      type: object
-      required: [items]
-      additionalProperties: false
-      description: projectstate.Glossary (ch. 3 ubiquitous language).
-      properties:
-        items:
-          type: array
-          nullable: true
-          items:
-            $ref: '#/components/schemas/GlossaryItem'
-
-    GlossaryItem:
-      type: object
-      required: [term, definition]
-      additionalProperties: false
-      properties:
-        term:
-          type: string
-        definition:
-          type: string
-        category:
-          type: string
-          description: "Who / What / How-activity / Where (the Four Questions); optional."
-
-    ScrubbedRequirements:
-      type: object
-      required: [items]
-      additionalProperties: false
-      description: projectstate.ScrubbedRequirements (OQ-2).
-      properties:
-        items:
-          type: array
-          nullable: true
-          items:
-            $ref: '#/components/schemas/Requirement'
-
-    Requirement:
-      type: object
-      required: [id, statement]
-      additionalProperties: false
-      properties:
-        id:
-          type: string
-        statement:
-          type: string
-
-    Volatilities:
-      type: object
-      required: [items]
-      additionalProperties: false
-      description: projectstate.Volatilities (ch. 2, the two axes).
-      properties:
-        items:
-          type: array
-          nullable: true
-          items:
-            $ref: '#/components/schemas/Volatility'
-
-    Volatility:
-      type: object
-      required: [name, rationale, axis]
-      additionalProperties: false
-      properties:
-        name:
-          type: string
-        rationale:
-          type: string
-        axis:
-          $ref: '#/components/schemas/Axis'
-
-    Axis:
-      type: string
-      description: projectstate.Axis (the two volatility axes).
-      enum: [sameCustomerOverTime, allCustomersAtOneTime]
-
-    CoreUseCases:
-      type: object
-      required: [decisions]
-      additionalProperties: false
-      description: projectstate.CoreUseCases (ch. 4 core-use-case selection).
-      properties:
-        decisions:
-          type: array
-          nullable: true
-          items:
-            $ref: '#/components/schemas/UseCaseDecision'
-
-    UseCaseDecision:
-      type: object
-      required: [useCase, rejectionReason]
-      additionalProperties: false
-      properties:
-        useCase:
-          $ref: '#/components/schemas/UseCase'
-        rejectionReason:
-          type: string
-          description: Empty when the use case is core; the reason when rejected as a permutation.
-
-    UseCase:
-      type: object
-      required: [id, name, trigger, classification]
-      additionalProperties: false
-      description: projectstate.UseCase (Grammar B, ch. 4).
-      properties:
-        id:
-          type: string
-        name:
-          type: string
-        actors:
-          type: array
-          nullable: true
-          items:
-            $ref: '#/components/schemas/Actor'
-        trigger:
-          $ref: '#/components/schemas/Trigger'
-        classification:
-          $ref: '#/components/schemas/Classification'
-        variationOf:
-          type: string
-          nullable: true
-          description: Set when ClassNonCore and this is a permutation of a core UC.
-        activity:
-          oneOf:
-            - $ref: '#/components/schemas/ActivityDiagram'
-          nullable: true
-          description: Required when the use case has nested conditions (App C 1c).
-
-    Actor:
-      type: object
-      required: [id, role]
-      additionalProperties: false
-      properties:
-        id:
-          type: string
-        role:
-          type: string
-
-    Trigger:
-      type: string
-      description: projectstate.Trigger (use-case trigger kind).
-      enum: [clientAction, timer, busMessage]
-
-    Classification:
-      type: string
-      description: projectstate.Classification (Core vs NonCore).
-      enum: [core, nonCore]
-
-    ActivityDiagram:
-      type: object
-      required: [nodes, edges]
-      additionalProperties: false
-      description: projectstate.ActivityDiagram.
-      properties:
-        nodes:
-          type: array
-          nullable: true
-          items:
-            $ref: '#/components/schemas/ActivityNode'
-        edges:
-          type: array
-          nullable: true
-          items:
-            $ref: '#/components/schemas/ActivityEdge'
-
-    ActivityNode:
-      type: object
-      required: [id, kind, label, roleName]
-      additionalProperties: false
-      properties:
-        id:
-          type: string
-        kind:
-          $ref: '#/components/schemas/ActivityNodeKind'
-        label:
-          type: string
-        roleName:
-          type: string
-          description: For NodeSwimLane; the role name.
-        linkedActorId:
-          type: string
-          nullable: true
-        linkedCompId:
-          type: string
-          nullable: true
-
-    ActivityNodeKind:
-      type: string
-      description: >
-        projectstate.ActivityNodeKind. Book-enumerated: start, action, decision,
-        merge, fork, join, end, swimLane, note. UML-general: loop, switch, goto,
-        interruptEdge.
-      enum:
-        - start
-        - action
-        - decision
-        - merge
-        - fork
-        - join
-        - end
-        - swimLane
-        - note
-        - loop
-        - switch
-        - goto
-        - interruptEdge
-
-    ActivityEdge:
-      type: object
-      required: [from, to, kind, guard]
-      additionalProperties: false
-      properties:
-        from:
-          type: string
-        to:
-          type: string
-        kind:
-          $ref: '#/components/schemas/EdgeKind'
-        guard:
-          type: string
-          description: Non-empty only for guardedFlow.
-
-    EdgeKind:
-      type: string
-      description: projectstate.EdgeKind (activity-edge kind).
-      enum: [controlFlow, guardedFlow]
-
-    System:
-      type: object
-      required: [components, relationships, dynamicViews]
-      additionalProperties: false
-      description: projectstate.System (Grammar A, ch. 3/4 static architecture).
-      properties:
-        components:
-          type: array
-          nullable: true
-          items:
-            $ref: '#/components/schemas/Component'
-        relationships:
-          type: array
-          nullable: true
-          items:
-            $ref: '#/components/schemas/Relationship'
-        dynamicViews:
-          type: array
-          nullable: true
-          items:
-            $ref: '#/components/schemas/DynamicView'
-
-    Component:
-      type: object
-      required: [id, name, kind, layer, encapsulates]
-      additionalProperties: false
-      properties:
-        id:
-          type: string
-        name:
-          type: string
-        kind:
-          $ref: '#/components/schemas/ComponentKind'
-        layer:
-          $ref: '#/components/schemas/Layer'
-        encapsulates:
-          type: string
-          description: The volatility this component owns; empty for Resource/Utility.
-        atomicBusinessVerbs:
-          type: array
-          nullable: true
-          description: Non-empty only when kind == resourceAccess.
-          items:
+    schemas:
+        ConstructionActivityID:
             type: string
-
-    ComponentKind:
-      type: string
-      description: projectstate.ComponentKind (component taxonomy).
-      enum: [client, manager, engine, resourceAccess, resource, utility]
-
-    Layer:
-      type: string
-      description: projectstate.Layer (layer set).
-      enum: [client, manager, engine, resourceAccess, resource, utility]
-
-    Relationship:
-      type: object
-      required: [from, to, mode, label]
-      additionalProperties: false
-      properties:
-        from:
-          type: string
-        to:
-          type: string
-        mode:
-          $ref: '#/components/schemas/CallMode'
-        label:
-          type: string
-          description: Destination-layer vocabulary.
-
-    CallMode:
-      type: string
-      description: projectstate.CallMode (edge-mode set).
-      enum: [sync, queued, eventPubSub]
-
-    DynamicView:
-      type: object
-      required: [useCaseId, key, title]
-      additionalProperties: false
-      description: projectstate.DynamicView (one call chain per use case).
-      properties:
-        useCaseId:
-          type: string
-        key:
-          type: string
-        title:
-          type: string
-        participants:
-          type: array
-          nullable: true
-          items:
+        ConstructionActivityOverride:
+            additionalProperties: false
+            properties:
+                kind:
+                    $ref: '#/components/schemas/ConstructionOverrideKind'
+                notes:
+                    type: string
+            required:
+                - kind
+                - notes
+            type: object
+        ConstructionConstructionSessionView:
+            additionalProperties: false
+            properties:
+                activityId:
+                    $ref: '#/components/schemas/ConstructionActivityID'
+                    type:
+                        - "null"
+                    x-go-name: ActivityID
+                pipelinePhase:
+                    $ref: '#/components/schemas/ConstructionPipelinePhase'
+                    type:
+                        - "null"
+                projectId:
+                    $ref: '#/components/schemas/ConstructionProjectID'
+                    x-go-name: ProjectID
+                reviewSet:
+                    $ref: '#/components/schemas/ConstructionReviewSet'
+                    type:
+                        - "null"
+                stage:
+                    $ref: '#/components/schemas/ConstructionConstructionStage'
+                variance:
+                    $ref: '#/components/schemas/ConstructionFlaggedVariance'
+                    type:
+                        - "null"
+            required:
+                - projectId
+                - stage
+            type: object
+        ConstructionConstructionStage:
+            enum:
+                - 0
+                - 1
+                - 2
+                - 3
+                - 4
+                - 5
+                - 6
+            type: integer
+            x-enum-varnames:
+                - ConstructionStageUnknown
+                - StageDispatching
+                - StagePipelineRunning
+                - StageReviewing
+                - StageAwaitingTakeover
+                - StagePaused
+                - StageExited
+            x-go-base: int
+        ConstructionErrorResponse:
+            additionalProperties: false
+            properties:
+                code:
+                    type: string
+                error:
+                    type: string
+            required:
+                - error
+                - code
+            type: object
+        ConstructionFlaggedVariance:
+            additionalProperties: false
+            properties:
+                activityId:
+                    $ref: '#/components/schemas/ConstructionActivityID'
+                    x-go-name: ActivityID
+                projectId:
+                    $ref: '#/components/schemas/ConstructionProjectID'
+                    x-go-name: ProjectID
+                summary:
+                    type: string
+            required:
+                - projectId
+                - activityId
+                - summary
+            type: object
+        ConstructionOverrideKind:
+            enum:
+                - 0
+                - 1
+                - 2
+                - 3
+                - 4
+            type: integer
+            x-enum-varnames:
+                - OverrideUnknown
+                - OverrideTakeover
+                - OverrideRetry
+                - OverrideSkip
+                - OverrideReassign
+            x-go-base: int
+        ConstructionPipelinePhase:
+            enum:
+                - 0
+                - 1
+                - 2
+                - 3
+                - 4
+                - 5
+            type: integer
+            x-enum-varnames:
+                - PipelinePhaseUnknown
+                - PipelinePending
+                - PipelineRunning
+                - PipelineSucceeded
+                - PipelineFailed
+                - PipelineCancelled
+            x-go-base: int
+        ConstructionProjectID:
             type: string
-        edges:
-          type: array
-          nullable: true
-          items:
-            $ref: '#/components/schemas/Relationship'
-
-    OperationalConcepts:
-      type: object
-      required: [decisions]
-      additionalProperties: false
-      description: projectstate.OperationalConcepts (ch. 5).
-      properties:
-        decisions:
-          type: array
-          nullable: true
-          items:
-            $ref: '#/components/schemas/OperationalDecision'
-        deployment:
-          $ref: '#/components/schemas/DeploymentTopology'
-
-    DeploymentTopology:
-      type: object
-      required: [deliveryStyle, environments]
-      additionalProperties: false
-      description: >
-        projectstate.DeploymentTopology — the typed deployment model carried by
-        OperationalConcepts. The deployed component graph is identical across
-        profiles; instances are swapped at the durable-execution / client-transport
-        / git seams.
-      properties:
-        deliveryStyle:
-          $ref: '#/components/schemas/DeliveryStyle'
-        environments:
-          type: array
-          nullable: true
-          items:
-            $ref: '#/components/schemas/DeploymentEnvironment'
-
-    DeliveryStyle:
-      type: string
-      description: >
-        projectstate.DeliveryStyle — the closed set of system delivery styles.
-        The set of deployment environments is DERIVED from it (test is always
-        present): cloud→{cloud,test}, local→{local,test}, both→{cloud,local,test}.
-      enum: [cloud, local, both]
-
-    DeploymentProfile:
-      type: string
-      description: projectstate.DeploymentProfile — the closed set of deployment environment profiles.
-      enum: [cloud, local, test]
-
-    DeploymentEnvironment:
-      type: object
-      required: [profile, title, nodes]
-      additionalProperties: false
-      description: projectstate.DeploymentEnvironment — the set of nodes for one DeploymentProfile.
-      properties:
-        profile:
-          $ref: '#/components/schemas/DeploymentProfile'
-        title:
-          type: string
-        nodes:
-          type: array
-          nullable: true
-          items:
-            $ref: '#/components/schemas/DeploymentNode'
-
-    DeploymentNode:
-      type: object
-      required: [name, technology, children, instances]
-      additionalProperties: false
-      description: projectstate.DeploymentNode — nestable cluster → namespace → instance.
-      properties:
-        name:
-          type: string
-        technology:
-          type: string
-        children:
-          type: array
-          nullable: true
-          items:
-            $ref: '#/components/schemas/DeploymentNode'
-        instances:
-          type: array
-          nullable: true
-          items:
-            $ref: '#/components/schemas/ContainerInstance'
-
-    ContainerInstance:
-      type: object
-      required: [componentId, note]
-      additionalProperties: false
-      description: >
-        projectstate.ContainerInstance — places a System Component into a
-        deployment node. componentId must reference a real System Component.
-      properties:
-        componentId:
-          type: string
-          description: Must reference a System Component.
-        note:
-          type: string
-          description: Per-profile instance note (optional).
-
-    OperationalDecision:
-      type: object
-      required: [topic, decision, justifyingObjective]
-      additionalProperties: false
-      properties:
-        topic:
-          type: string
-        decision:
-          type: string
-        justifyingObjective:
-          type: integer
-          description: Objective number from MissionStatement.
-
-    StandardCheck:
-      type: object
-      required: [items]
-      additionalProperties: false
-      description: projectstate.StandardCheck (App C design-standard walk).
-      properties:
-        items:
-          type: array
-          nullable: true
-          items:
-            $ref: '#/components/schemas/CheckItem'
-
-    CheckItem:
-      type: object
-      required: [section, guideline, status, justification]
-      additionalProperties: false
-      properties:
-        section:
-          type: string
-        guideline:
-          type: string
-        status:
-          $ref: '#/components/schemas/CheckStatus'
-        justification:
-          type: string
-          description: Required when status == waived.
-
-    CheckStatus:
-      type: string
-      description: projectstate.CheckStatus (App C design-standard item outcome).
-      enum: [pass, waived, fail]
-
-    # --- engine.Finding (camelCase; string severity) --------------------------
-
-    Finding:
-      type: object
-      required: [ruleId, severity, message]
-      additionalProperties: false
-      description: engine.Finding — one machine-checkable validation rule violation.
-      properties:
-        ruleId:
-          type: string
-        severity:
-          $ref: '#/components/schemas/Severity'
-        message:
-          type: string
-          description: Human-readable; safe to weave into a re-draft prompt; no PII.
-        location:
-          oneOf:
-            - $ref: '#/components/schemas/FindingLocation'
-          nullable: true
-          description: Optional; where in the typed model the finding sits.
-
-    Severity:
-      type: string
-      description: engine.Severity (finding severity).
-      enum: [info, warning, error]
-
-    FindingLocation:
-      type: object
-      required: [ordinal, section]
-      additionalProperties: false
-      description: engine.Location.
-      properties:
-        ordinal:
-          type: integer
-          description: Stable position for deterministic finding ordering.
-        section:
-          type: string
-          description: 'Human-readable locus, e.g. "core use case 3".'
-
-    ErrorResponse:
-      type: object
-      required: [error, code]
-      additionalProperties: false
-      properties:
-        error:
-          type: string
-          description: Non-leaking, caller-safe detail.
-        code:
-          type: string
-          description: >
-            Stable error code — one of bad_request, unauthenticated, forbidden,
-            not_found, contract_misuse, failed_precondition, infrastructure, internal.
-
-    ArtifactKind:
-      type: string
-      description: The Phase-1 Method artifact slot this UC1 surface accepts.
-      enum:
-        - mission
-        - glossary
-        - scrubbedRequirements
-        - volatilities
-        - coreUseCases
-        - system
-        - operationalConcepts
-        - standardCheck
-
-    ReviewDecision:
-      type: string
-      enum: [approve, reject, withdraw]
-
-    SessionStage:
-      type: string
-      description: >
-        The wire string the SPA polls on and the client state machine consumes.
-        draftFailed is the human-visible, human-actionable terminal-failure stage
-        the session lands in when the dispatched ASYNC agentic DESIGN job (a GitHub
-        Action running in the user's CI) reaches a typed terminal failure phase —
-        the SPA renders "your design job failed — retry or withdraw", never a
-        perpetual drafting spinner (the anti-wedge requirement).
-      enum:
-        - drafting
-        - awaitingReview
-        - redrafting
-        - committed
-        - withdrawn
-        - refused
-        - draftFailed
-        - unknown
-
-    # --- Phase-2 (project design / UC2) schemas ------------------------------
-
-    ProjectArtifactKind:
-      type: string
-      description: >
-        The Phase-2 Method artifact slot this UC2 surface accepts. The eight
-        draftable kinds are co-authored via /project-design/artifacts/draft;
-        sdpReview is assembled via /project-design/sdp/assemble (it is rejected by
-        the draft/review endpoints) and read via the sessions endpoint.
-      enum:
-        - planningAssumptions
-        - activityList
-        - network
-        - normalSolution
-        - decompressedSolution
-        - subcriticalSolution
-        - compressedSolution
-        - riskModel
-        - sdpReview
-
-    # --- Project network model (Phase-2 `network` slot) ----------------------
-    # The first Phase-2 typed-model schema introduced into this contract. The
-    # `network` slot's `model` payload (carried in ArtifactModelEnvelope) is a
-    # NetworkModel. It mirrors projectstate.Network EXACTLY: AUTHORED inputs
-    # (dependencies, criticalPath, milestones) + a COMPUTE-AT-READ block the
-    # projectManager fills by running constructionEstimationEngine.ComputeNetwork on
-    # every read (founder gate 2026-06-19 — the CPM + criticality-band math moved off
-    # the webApp client onto the server). The computed/summary blocks + the milestone
-    # onCriticalPath/eventTime are absent on the stored document and present only on
-    # the wire.
-
-    NetworkDependency:
-      type: object
-      required: [activity, dependsOn]
-      additionalProperties: false
-      description: projectstate.NetworkDependency — one activity's predecessor set.
-      properties:
-        activity:
-          type: string
-        dependsOn:
-          type: array
-          items:
+        ConstructionPumpResult:
+            additionalProperties: false
+            properties:
+                activityId:
+                    $ref: '#/components/schemas/ConstructionActivityID'
+                    type:
+                        - "null"
+                    x-go-name: ActivityID
+                dispatched:
+                    type: boolean
+            required:
+                - dispatched
+            type: object
+        ConstructionReplanSweepResult:
+            additionalProperties: false
+            properties:
+                flaggedVariances:
+                    items:
+                        $ref: '#/components/schemas/ConstructionFlaggedVariance'
+                    type:
+                        - "null"
+                        - array
+            type: object
+        ConstructionReviewSet:
+            additionalProperties: false
+            properties:
+                reviewers:
+                    items:
+                        $ref: '#/components/schemas/ConstructionReviewer'
+                    type:
+                        - "null"
+                        - array
+            type: object
+        ConstructionReviewer:
+            additionalProperties: false
+            properties:
+                mayAmend:
+                    type: boolean
+                perspective:
+                    type: string
+                referenceArtifact:
+                    type:
+                        - "null"
+                        - string
+                role:
+                    type: string
+            required:
+                - role
+                - perspective
+                - mayAmend
+            type: object
+        OperationsAutoscaleAction:
+            enum:
+                - 0
+                - 1
+                - 2
+                - 3
+                - 4
+            type: integer
+            x-enum-varnames:
+                - AutoscaleNoChange
+                - AutoscaleScaleUp
+                - AutoscaleScaleDown
+                - AutoscalePause
+                - AutoscaleResume
+            x-go-base: int
+        OperationsAutoscaleDecisionView:
+            additionalProperties: false
+            properties:
+                Action:
+                    $ref: '#/components/schemas/OperationsAutoscaleAction'
+                At:
+                    format: date-time
+                    type: string
+                    x-go-import: time
+                    x-go-type: time.Time
+                Published:
+                    type: boolean
+                Reason:
+                    type: string
+            required:
+                - At
+                - Action
+                - Reason
+                - Published
+            type: object
+        OperationsAutoscalerMode:
+            enum:
+                - 0
+                - 1
+                - 2
+            type: integer
+            x-enum-varnames:
+                - AutoscalerModeUnknown
+                - AutoscalerModeAuto
+                - AutoscalerModeManual
+            x-go-base: int
+        OperationsAutoscalerView:
+            additionalProperties: false
+            properties:
+                Decisions:
+                    items:
+                        $ref: '#/components/schemas/OperationsAutoscaleDecisionView'
+                    type:
+                        - "null"
+                        - array
+                Mode:
+                    $ref: '#/components/schemas/OperationsAutoscalerMode'
+            required:
+                - Mode
+                - Decisions
+            type: object
+        OperationsCostProjectionSeam:
+            additionalProperties: false
+            properties:
+                CurrentRunRate:
+                    $ref: '#/components/schemas/OperationsMoney'
+                ProjectedMonthlyCost:
+                    $ref: '#/components/schemas/OperationsMoney'
+                ScaleWhatIfCurve:
+                    $ref: '#/components/schemas/OperationsWhatIfCurve'
+            required:
+                - CurrentRunRate
+                - ProjectedMonthlyCost
+                - ScaleWhatIfCurve
+            type: object
+        OperationsDelinquencyContext:
+            additionalProperties: false
+            properties:
+                pauseNotWithdraw:
+                    type: boolean
+            required:
+                - pauseNotWithdraw
+            type: object
+        OperationsDeployResult:
+            additionalProperties: false
+            properties:
+                published:
+                    type: boolean
+                revision:
+                    type:
+                        - "null"
+                        - string
+            required:
+                - published
+            type: object
+        OperationsDesiredStateChange:
+            additionalProperties: false
+            properties:
+                changeId:
+                    type: string
+                    x-go-name: ChangeID
+                patchKind:
+                    $ref: '#/components/schemas/OperationsPatchKind'
+                reason:
+                    $ref: '#/components/schemas/OperationsDesiredStateReason'
+                renderedDesiredState:
+                    contentEncoding: base64
+                    type: string
+                    x-go-type: '[]byte'
+            required:
+                - reason
+                - patchKind
+                - changeId
+            type: object
+        OperationsDesiredStateReason:
+            enum:
+                - 0
+                - 1
+                - 2
+                - 3
+                - 4
+            type: integer
+            x-enum-varnames:
+                - ReasonUnknown
+                - ReasonDeployAfterConstruction
+                - ReasonOperator
+                - ReasonAutoscale
+                - ReasonDelinquency
+            x-go-base: int
+        OperationsErrorResponse:
+            additionalProperties: false
+            properties:
+                code:
+                    type: string
+                error:
+                    type: string
+            required:
+                - error
+                - code
+            type: object
+        OperationsHealthSnapshotView:
+            additionalProperties: false
+            properties:
+                Detail:
+                    type: string
+                Phase:
+                    $ref: '#/components/schemas/OperationsRuntimeStatusSeam'
+                SloMet:
+                    type: boolean
+            required:
+                - SloMet
+                - Detail
+                - Phase
+            type: object
+        OperationsMoney:
+            additionalProperties: false
+            properties:
+                Currency:
+                    type: string
+                MinorUnits:
+                    type: integer
+            required:
+                - MinorUnits
+                - Currency
+            type: object
+        OperationsOperatedSystemView:
+            additionalProperties: false
+            properties:
+                Autoscaler:
+                    $ref: '#/components/schemas/OperationsAutoscalerView'
+                CurrentRunRate:
+                    $ref: '#/components/schemas/OperationsMoney'
+                Health:
+                    $ref: '#/components/schemas/OperationsHealthSnapshotView'
+                InFlight:
+                    type: boolean
+                OperatedAppID:
+                    format: uuid
+                    type: string
+                    x-go-import: github.com/google/uuid
+                    x-go-type: uuid.UUID
+                Phase:
+                    $ref: '#/components/schemas/OperationsRuntimeStatusSeam'
+                RecentEvents:
+                    items:
+                        $ref: '#/components/schemas/OperationsRuntimeStatusEventView'
+                    type:
+                        - "null"
+                        - array
+                Slos:
+                    items:
+                        $ref: '#/components/schemas/OperationsSloRowView'
+                    type:
+                        - "null"
+                        - array
+            required:
+                - OperatedAppID
+                - Phase
+                - InFlight
+                - Health
+                - Slos
+                - RecentEvents
+                - Autoscaler
+                - CurrentRunRate
+            type: object
+        OperationsPatchKind:
+            enum:
+                - 0
+                - 1
+                - 2
+                - 3
+            type: integer
+            x-enum-varnames:
+                - PatchKindUnknown
+                - PatchFullBundle
+                - PatchScale
+                - PatchPolicy
+            x-go-base: int
+        OperationsReconcileResult:
+            additionalProperties: false
+            properties:
+                observed:
+                    type: integer
+                republished:
+                    type: integer
+                transitions:
+                    type: integer
+            required:
+                - observed
+                - transitions
+                - republished
+            type: object
+        OperationsReconcileScope:
+            additionalProperties: false
+            properties:
+                appIds:
+                    items:
+                        format: uuid
+                        type: string
+                        x-go-import: github.com/google/uuid
+                        x-go-type: uuid.UUID
+                    type:
+                        - "null"
+                        - array
+                    x-go-name: AppIDs
+            type: object
+        OperationsRuntimeStatusEventView:
+            additionalProperties: false
+            properties:
+                At:
+                    format: date-time
+                    type: string
+                    x-go-import: time
+                    x-go-type: time.Time
+                From:
+                    $ref: '#/components/schemas/OperationsRuntimeStatusSeam'
+                Note:
+                    type: string
+                To:
+                    $ref: '#/components/schemas/OperationsRuntimeStatusSeam'
+            required:
+                - At
+                - From
+                - To
+                - Note
+            type: object
+        OperationsRuntimeStatusSeam:
+            enum:
+                - 0
+                - 1
+                - 2
+                - 3
+                - 4
+            type: integer
+            x-enum-varnames:
+                - RuntimeStatusUnknown
+                - RuntimeStatusPending
+                - RuntimeStatusHealthy
+                - RuntimeStatusDegraded
+                - RuntimeStatusWithdrawn
+            x-go-base: int
+        OperationsScalePoint:
+            additionalProperties: false
+            properties:
+                replicas:
+                    type: integer
+            required:
+                - replicas
+            type: object
+        OperationsScaleWhatIfPoints:
+            additionalProperties: false
+            properties:
+                points:
+                    items:
+                        $ref: '#/components/schemas/OperationsScalePoint'
+                    type:
+                        - "null"
+                        - array
+            type: object
+        OperationsSloRowView:
+            additionalProperties: false
+            properties:
+                Component:
+                    type: string
+                Healthy:
+                    type: boolean
+                Objective:
+                    type: string
+                SloMet:
+                    type: boolean
+            required:
+                - Component
+                - Objective
+                - SloMet
+                - Healthy
+            type: object
+        OperationsWhatIfCurve:
+            additionalProperties: false
+            properties:
+                Points:
+                    items:
+                        $ref: '#/components/schemas/OperationsWhatIfPoint'
+                    type:
+                        - "null"
+                        - array
+            required:
+                - Points
+            type: object
+        OperationsWhatIfPoint:
+            additionalProperties: false
+            properties:
+                ProjectedMonthlyCost:
+                    $ref: '#/components/schemas/OperationsMoney'
+                Replicas:
+                    type: integer
+            required:
+                - Replicas
+                - ProjectedMonthlyCost
+            type: object
+        OperationsWithdrawReason:
+            additionalProperties: false
+            properties:
+                notes:
+                    type: string
+            required:
+                - notes
+            type: object
+        OperationsWithdrawResult:
+            additionalProperties: false
+            properties:
+                withdrawn:
+                    type: boolean
+            required:
+                - withdrawn
+            type: object
+        ProjectDesignArtifactKind:
+            enum:
+                - 0
+                - 1
+                - 2
+                - 3
+                - 4
+                - 5
+                - 6
+                - 7
+                - 8
+                - 9
+                - 10
+                - 11
+                - 12
+                - 13
+                - 14
+                - 15
+                - 16
+            type: integer
+            x-enum-varnames:
+                - KindMission
+                - KindGlossary
+                - KindScrubbedRequirements
+                - KindVolatilities
+                - KindCoreUseCases
+                - KindSystem
+                - KindOperationalConcepts
+                - KindStandardCheck
+                - KindPlanningAssumptions
+                - KindActivityList
+                - KindNetwork
+                - KindNormalSolution
+                - KindSubcriticalSolution
+                - KindCompressedSolution
+                - KindDecompressedSolution
+                - KindRiskModel
+                - KindSdpReview
+            x-go-base: int
+        ProjectDesignDraftModel:
+            additionalProperties: false
+            properties:
+                kind:
+                    type: string
+                model:
+                    type:
+                        - "null"
+                    x-go-import: encoding/json
+                    x-go-type: json.RawMessage
+            required:
+                - kind
+            type: object
+        ProjectDesignErrorResponse:
+            additionalProperties: false
+            properties:
+                code:
+                    type: string
+                error:
+                    type: string
+            required:
+                - error
+                - code
+            type: object
+        ProjectDesignFinding:
+            additionalProperties: false
+            properties:
+                location:
+                    $ref: '#/components/schemas/ProjectDesignLocation'
+                    type:
+                        - "null"
+                message:
+                    type: string
+                ruleId:
+                    $ref: '#/components/schemas/ProjectDesignRuleID'
+                    x-go-name: RuleID
+                severity:
+                    $ref: '#/components/schemas/ProjectDesignSeverity'
+            required:
+                - ruleId
+                - severity
+                - message
+            type: object
+        ProjectDesignLocation:
+            additionalProperties: false
+            properties:
+                ordinal:
+                    type: integer
+                section:
+                    type: string
+            required:
+                - ordinal
+                - section
+            type: object
+        ProjectDesignOptionID:
             type: string
-
-    NetworkNodeCompute:
-      type: object
-      required:
-        - earliestStart
-        - earliestFinish
-        - latestStart
-        - latestFinish
-        - totalFloat
-        - freeFloat
-        - onCriticalPath
-        - nearCritical
-        - band
-        - column
-      additionalProperties: false
-      description: >
-        projectstate.NetworkNodeCompute — the per-activity CPM result the compute-at-
-        read pass derives for one dependency-graph node (the figures the retired
-        client-side toNetworkView produced, now server-authoritative).
-      properties:
-        earliestStart:
-          type: number
-        earliestFinish:
-          type: number
-        latestStart:
-          type: number
-        latestFinish:
-          type: number
-        totalFloat:
-          type: number
-        freeFloat:
-          type: number
-        onCriticalPath:
-          type: boolean
-        nearCritical:
-          type: boolean
-          description: Off-CP but within the near-critical float band.
-        band:
-          type: string
-          description: Float-criticality band (Löwy ch.8 §2).
-          enum: [critical, red, yellow, green]
-        column:
-          type: integer
-          description: Topological depth (longest-path layer) for the swimlane layout.
-
-    NetworkSummary:
-      type: object
-      required:
-        - totalDurationDays
-        - criticalPathActivityCount
-        - criticalPathDays
-        - maxFloat
-        - nearCriticalCount
-      additionalProperties: false
-      description: projectstate.NetworkSummary — the project-level CPM roll-up.
-      properties:
-        totalDurationDays:
-          type: number
-          description: Project duration = longest path.
-        criticalPathActivityCount:
-          type: integer
-          description: Count of on-CP activities (NOT the CP day-sum).
-        criticalPathDays:
-          type: number
-          description: '= totalDurationDays (the longest path is the CP length).'
-        maxFloat:
-          type: number
-          description: The loosest slack across all nodes.
-        nearCriticalCount:
-          type: integer
-          description: Off-CP nodes inside the near-critical band.
-
-    NetworkMilestone:
-      type: object
-      required: [id, name, public]
-      additionalProperties: false
-      description: >
-        projectstate.NetworkMilestone — one authored zero-duration event node (M0–M5 +
-        N-DOGFOOD). id/name/public/dependsOn are AUTHORED; onCriticalPath + eventTime
-        are COMPUTED at read (eventTime = max predecessor earliest-finish; 0 with no
-        predecessors) and are ABSENT on the authored on-disk document — present only on
-        the wire after the server's compute-at-read pass. Milestones are EXCLUDED from
-        the risk decomposition.
-      properties:
-        id:
-          type: string
-        name:
-          type: string
-        public:
-          type: boolean
-          description: A demo-to-management gate vs an internal hurdle.
-        dependsOn:
-          type: array
-          description: Predecessor activity ids (the fan-in).
-          items:
+        ProjectDesignPhaseAdvanceResult:
+            additionalProperties: false
+            properties:
+                advanced:
+                    type: boolean
+                missingArtifacts:
+                    items:
+                        $ref: '#/components/schemas/ProjectDesignArtifactKind'
+                    type:
+                        - "null"
+                        - array
+            required:
+                - advanced
+                - missingArtifacts
+            type: object
+        ProjectDesignProjectID:
             type: string
-        onCriticalPath:
-          type: boolean
-          description: Computed at read.
-        eventTime:
-          type: number
-          description: Computed at read — sim-days; max predecessor earliestFinish.
-
-    NetworkModel:
-      type: object
-      required: [dependencies, criticalPath]
-      additionalProperties: false
-      description: >
-        projectstate.Network — the Phase-2 `network` slot model. AUTHORED inputs
-        (dependencies, criticalPath, milestones) plus the compute-at-read block
-        (computed, summary, milestone onCriticalPath/eventTime). The computed/summary
-        blocks are absent in the stored document and present only on the wire the SPA
-        reads (the projectManager fills them per read via the constructionEstimation
-        Engine's ComputeNetwork op).
-      properties:
-        dependencies:
-          type: array
-          description: AUTHORED — the activity dependency edges (fan-in per activity).
-          items:
-            $ref: '#/components/schemas/NetworkDependency'
-        criticalPath:
-          type: array
-          description: AUTHORED — activity names on the computed critical path.
-          items:
+        ProjectDesignReviewDecision:
+            enum:
+                - 0
+                - 1
+                - 2
+                - 3
+            type: integer
+            x-enum-varnames:
+                - ReviewDecisionUnknown
+                - ReviewApprove
+                - ReviewReject
+                - ReviewWithdraw
+            x-go-base: int
+        ProjectDesignReviewFeedback:
+            additionalProperties: false
+            properties:
+                notes:
+                    type: string
+            required:
+                - notes
+            type: object
+        ProjectDesignRuleID:
             type: string
-        milestones:
-          type: array
-          description: AUTHORED event nodes; onCriticalPath/eventTime computed at read.
-          items:
-            $ref: '#/components/schemas/NetworkMilestone'
-        computed:
-          type: object
-          description: >
-            COMPUTE-AT-READ — per-activity CPM result keyed by activity id. Absent on
-            disk; present on the wire.
-          additionalProperties:
-            $ref: '#/components/schemas/NetworkNodeCompute'
-        summary:
-          $ref: '#/components/schemas/NetworkSummary'
-
-    SDPDecision:
-      type: string
-      description: The architect's decision at the option-commitment gate.
-      enum: [commit, rejectAll]
-
-    ProjectSessionStage:
-      type: string
-      description: >
-        Phase-2 (project design / UC2) session stage wire string. draftFailed is the
-        human-actionable terminal-failure stage the session lands in when the
-        dispatched async agentic design job fails in the user's CI — surfaced as a
-        distinct stage so the SPA renders a retry/withdraw affordance, never a wedged
-        generating spinner.
-      enum:
-        - drafting
-        - assemblingSdp
-        - awaitingReview
-        - redrafting
-        - committed
-        - withdrawn
-        - refused
-        - draftFailed
-        - unknown
-
-    RequestProjectArtifactDraftRequest:
-      type: object
-      required: [artifactKind]
-      additionalProperties: false
-      properties:
-        artifactKind:
-          $ref: '#/components/schemas/ProjectArtifactKind'
-        feedback:
-          type: string
-          nullable: true
-          description: Optional free-text woven into the next draft on a re-entry.
-
-    SubmitProjectReviewDecisionRequest:
-      type: object
-      required: [artifactKind, decision]
-      additionalProperties: false
-      properties:
-        artifactKind:
-          $ref: '#/components/schemas/ProjectArtifactKind'
-        decision:
-          $ref: '#/components/schemas/ReviewDecision'
-        feedback:
-          type: string
-          nullable: true
-          description: REQUIRED by the Manager when decision is "reject"; optional on "withdraw".
-
-    SubmitSDPDecisionRequest:
-      type: object
-      required: [decision]
-      additionalProperties: false
-      properties:
-        decision:
-          $ref: '#/components/schemas/SDPDecision'
-        optionId:
-          type: string
-          nullable: true
-          description: REQUIRED by the Manager when decision is "commit" — names the chosen option.
-        feedback:
-          type: string
-          nullable: true
-          description: REQUIRED by the Manager when decision is "rejectAll".
-
-    ProjectPhaseAdvanceResponse:
-      type: object
-      required: [advanced, missingArtifacts]
-      additionalProperties: false
-      properties:
-        advanced:
-          type: boolean
-        missingArtifacts:
-          type: array
-          items:
-            $ref: '#/components/schemas/ProjectArtifactKind'
-          description: >
-            Non-empty when advanced=false — the Phase-2 slots not yet Committed (or
-            sdpReview not committed with a bound option). The NORMAL gating answer
-            (HTTP 200), not an error.
-
-    ProjectSessionStateResponse:
-      type: object
-      required: [projectId, artifactKind, stage, view]
-      additionalProperties: false
-      properties:
-        projectId:
-          type: string
-          format: uuid
-        artifactKind:
-          $ref: '#/components/schemas/ProjectArtifactKind'
-        stage:
-          $ref: '#/components/schemas/ProjectSessionStage'
-        view:
-          type: object
-          description: >
-            The projectDesignManager.SessionStateView, serialized via the Manager's
-            own discriminated JSON codec (carries the staged typed Draft / assembled
-            SdpReview + latest findings). Opaque to the transport contract.
-
-  responses:
-    BadRequest:
-      description: Malformed request (invalid JSON, missing/invalid projectId or artifactKind).
-      content:
-        application/json:
-          schema: { $ref: '#/components/schemas/ErrorResponse' }
-    Unauthorized:
-      description: Edge-forwarded claims absent or unresolvable to a principal.
-      content:
-        application/json:
-          schema: { $ref: '#/components/schemas/ErrorResponse' }
-    Forbidden:
-      description: Authorization denied (fail-closed; a security error is treated as Deny).
-      content:
-        application/json:
-          schema: { $ref: '#/components/schemas/ErrorResponse' }
-    NotFound:
-      description: Addressed a project or session that does not exist.
-      content:
-        application/json:
-          schema: { $ref: '#/components/schemas/ErrorResponse' }
-
-  parameters:
-    ProjectId:
-      name: projectId
-      in: path
-      required: true
-      description: The project aggregate id every project-scoped route is nested under.
-      schema: { type: string, format: uuid }
-
-security:
-  - bearerAuth: []
-
+        ProjectDesignSDPDecision:
+            enum:
+                - 0
+                - 1
+                - 2
+            type: integer
+            x-enum-varnames:
+                - SDPDecisionUnknown
+                - SDPCommit
+                - SDPRejectAll
+            x-go-base: int
+        ProjectDesignSessionRef:
+            type: string
+        ProjectDesignSessionStage:
+            enum:
+                - 0
+                - 1
+                - 2
+                - 3
+                - 4
+                - 5
+                - 6
+                - 7
+                - 8
+            type: integer
+            x-enum-varnames:
+                - SessionStageUnknown
+                - StageDrafting
+                - StageAssemblingSDP
+                - StageAwaitingReview
+                - StageRedrafting
+                - StageCommitted
+                - StageWithdrawn
+                - StageRefused
+                - StageDraftFailed
+            x-go-base: int
+        ProjectDesignSessionStateView:
+            additionalProperties: false
+            properties:
+                artifactKind:
+                    $ref: '#/components/schemas/ProjectDesignArtifactKind'
+                draft:
+                    $ref: '#/components/schemas/ProjectDesignDraftModel'
+                failureReason:
+                    type:
+                        - "null"
+                        - string
+                findings:
+                    items:
+                        $ref: '#/components/schemas/ProjectDesignFinding'
+                    type:
+                        - "null"
+                        - array
+                projectId:
+                    $ref: '#/components/schemas/ProjectDesignProjectID'
+                    x-go-name: ProjectID
+                stage:
+                    $ref: '#/components/schemas/ProjectDesignSessionStage'
+            required:
+                - projectId
+                - artifactKind
+                - stage
+                - draft
+            type: object
+        ProjectDesignSeverity:
+            enum:
+                - info
+                - warning
+                - error
+            type: string
+            x-enum-varnames:
+                - SeverityInfo
+                - SeverityWarning
+                - SeverityError
+            x-go-base: string
+        SystemDesignActivityBuildStatus:
+            enum:
+                - 0
+                - 1
+                - 2
+                - 3
+            type: integer
+            x-enum-varnames:
+                - BuildInConstruction
+                - BuildInReview
+                - BuildIntegrated
+                - BuildFailed
+            x-go-base: int
+        SystemDesignActivityConstructionPhase:
+            enum:
+                - 0
+                - 1
+                - 2
+                - 3
+            type: integer
+            x-enum-varnames:
+                - ActivityConstructionNotStarted
+                - ActivityConstructionRunning
+                - ActivityConstructionDone
+                - ActivityConstructionFailed
+            x-go-base: int
+        SystemDesignActivityConstructionStatus:
+            additionalProperties: false
+            properties:
+                ActivityID:
+                    type: string
+                BuildStatus:
+                    $ref: '#/components/schemas/SystemDesignActivityBuildStatus'
+                CurrentPhase:
+                    $ref: '#/components/schemas/SystemDesignActivityMethodPhase'
+                FailureDetail:
+                    type: string
+                FailureReason:
+                    $ref: '#/components/schemas/SystemDesignFailureReason'
+                Kind:
+                    $ref: '#/components/schemas/SystemDesignActivityType'
+                Phase:
+                    $ref: '#/components/schemas/SystemDesignActivityConstructionPhase'
+                Phases:
+                    items:
+                        $ref: '#/components/schemas/SystemDesignPhaseCompletion'
+                    type:
+                        - "null"
+                        - array
+                Produced:
+                    items:
+                        $ref: '#/components/schemas/SystemDesignProducedArtifact'
+                    type:
+                        - "null"
+                        - array
+                Type:
+                    $ref: '#/components/schemas/SystemDesignActivityType'
+                Variant:
+                    $ref: '#/components/schemas/SystemDesignTestingVariant'
+                completedAt:
+                    format: date-time
+                    type:
+                        - "null"
+                        - string
+                    x-go-import: time
+                    x-go-type: time.Time
+                startedAt:
+                    format: date-time
+                    type:
+                        - "null"
+                        - string
+                    x-go-import: time
+                    x-go-type: time.Time
+            required:
+                - ActivityID
+                - Type
+                - Kind
+                - Variant
+                - Phase
+                - Phases
+                - CurrentPhase
+                - BuildStatus
+                - Produced
+                - FailureReason
+                - FailureDetail
+            type: object
+        SystemDesignActivityGitStatus:
+            additionalProperties: false
+            properties:
+                ActivityID:
+                    type: string
+                ArchApproved:
+                    type: boolean
+                BranchName:
+                    type: string
+                BranchRef:
+                    type: string
+                CICheck:
+                    $ref: '#/components/schemas/SystemDesignCICheckState'
+                CRLabel:
+                    type: string
+                IsRevert:
+                    type: boolean
+                Merged:
+                    type: boolean
+                PrNumber:
+                    type: integer
+                PrURL:
+                    type: string
+                PullRequestRef:
+                    type: string
+                UpdatedAt:
+                    format: date-time
+                    type: string
+                    x-go-import: time
+                    x-go-type: time.Time
+            required:
+                - ActivityID
+                - BranchName
+                - BranchRef
+                - PullRequestRef
+                - PrNumber
+                - PrURL
+                - CICheck
+                - ArchApproved
+                - Merged
+                - CRLabel
+                - IsRevert
+                - UpdatedAt
+            type: object
+        SystemDesignActivityMethodPhase:
+            type: string
+        SystemDesignActivityType:
+            enum:
+                - 0
+                - 1
+                - 2
+                - 3
+                - 4
+            type: integer
+            x-enum-varnames:
+                - ActivityTypeService
+                - ActivityTypeFrontend
+                - ActivityTypeTesting
+                - ActivityTypeDeployment
+                - ActivityTypeDocumentation
+            x-go-base: int
+        SystemDesignAnchoredComment:
+            additionalProperties: false
+            properties:
+                jsonPath:
+                    type: string
+                    x-go-name: JSONPath
+                text:
+                    type: string
+            required:
+                - jsonPath
+                - text
+            type: object
+        SystemDesignArtifactKind:
+            enum:
+                - 0
+                - 1
+                - 2
+                - 3
+                - 4
+                - 5
+                - 6
+                - 7
+                - 8
+                - 9
+                - 10
+                - 11
+                - 12
+                - 13
+                - 14
+                - 15
+                - 16
+            type: integer
+            x-enum-varnames:
+                - KindMission
+                - KindGlossary
+                - KindScrubbedRequirements
+                - KindVolatilities
+                - KindCoreUseCases
+                - KindSystem
+                - KindOperationalConcepts
+                - KindStandardCheck
+                - KindPlanningAssumptions
+                - KindActivityList
+                - KindNetwork
+                - KindNormalSolution
+                - KindSubcriticalSolution
+                - KindCompressedSolution
+                - KindDecompressedSolution
+                - KindRiskModel
+                - KindSdpReview
+            x-go-base: int
+        SystemDesignArtifactSlotModel:
+            additionalProperties: false
+            properties:
+                kind:
+                    type: string
+                model:
+                    type:
+                        - "null"
+                    x-go-import: encoding/json
+                    x-go-type: json.RawMessage
+            required:
+                - kind
+            type: object
+        SystemDesignArtifactSlotView:
+            additionalProperties: false
+            properties:
+                kind:
+                    type: string
+                model:
+                    $ref: '#/components/schemas/SystemDesignArtifactSlotModel'
+                notes:
+                    type:
+                        - "null"
+                        - string
+                stage:
+                    $ref: '#/components/schemas/SystemDesignArtifactStage'
+            required:
+                - kind
+                - stage
+                - model
+            type: object
+        SystemDesignArtifactStage:
+            enum:
+                - 0
+                - 1
+                - 2
+                - 3
+                - 4
+            type: integer
+            x-enum-varnames:
+                - ArtifactStageEmpty
+                - ArtifactStageAwaitingReview
+                - ArtifactStageCommitted
+                - ArtifactStageRejected
+                - ArtifactStageWithdrawn
+            x-go-base: int
+        SystemDesignCICheckState:
+            enum:
+                - 0
+                - 1
+                - 2
+            type: integer
+            x-enum-varnames:
+                - CICheckPending
+                - CICheckSuccess
+                - CICheckFailure
+            x-go-base: int
+        SystemDesignConstructionProgress:
+            additionalProperties: false
+            properties:
+                EV:
+                    $ref: '#/components/schemas/SystemDesignEVCurve'
+                HandOffModel:
+                    type: string
+                SupervisionCap:
+                    type: integer
+                TotalWeeks:
+                    type: integer
+                Week:
+                    type: integer
+            required:
+                - Week
+                - TotalWeeks
+                - HandOffModel
+                - SupervisionCap
+                - EV
+            type: object
+        SystemDesignContractOp:
+            additionalProperties: false
+            properties:
+                Inputs:
+                    items:
+                        $ref: '#/components/schemas/SystemDesignContractStruct'
+                    type:
+                        - "null"
+                        - array
+                Note:
+                    type: string
+                Outputs:
+                    items:
+                        $ref: '#/components/schemas/SystemDesignContractStruct'
+                    type:
+                        - "null"
+                        - array
+                Signature:
+                    type: string
+                Stereotype:
+                    type: string
+            required:
+                - Signature
+                - Stereotype
+                - Note
+                - Inputs
+                - Outputs
+            type: object
+        SystemDesignContractParty:
+            additionalProperties: false
+            properties:
+                How:
+                    type: string
+                Layer:
+                    type: string
+                Name:
+                    type: string
+            required:
+                - Name
+                - Layer
+                - How
+            type: object
+        SystemDesignContractRevision:
+            additionalProperties: false
+            properties:
+                At:
+                    type: string
+                By:
+                    type: string
+                ByActivity:
+                    type: string
+                Rev:
+                    type: string
+                Summary:
+                    type: string
+            required:
+                - Rev
+                - At
+                - By
+                - ByActivity
+                - Summary
+            type: object
+        SystemDesignContractStruct:
+            additionalProperties: false
+            properties:
+                Fields:
+                    items:
+                        $ref: '#/components/schemas/SystemDesignGoField'
+                    type:
+                        - "null"
+                        - array
+                Name:
+                    type: string
+            required:
+                - Name
+                - Fields
+            type: object
+        SystemDesignDraftModel:
+            additionalProperties: false
+            properties:
+                kind:
+                    type: string
+                model:
+                    type:
+                        - "null"
+                    x-go-import: encoding/json
+                    x-go-type: json.RawMessage
+            required:
+                - kind
+            type: object
+        SystemDesignEVCurve:
+            additionalProperties: false
+            properties:
+                earned:
+                    items:
+                        type: number
+                    type:
+                        - "null"
+                        - array
+                planned:
+                    items:
+                        type: number
+                    type:
+                        - "null"
+                        - array
+                spi:
+                    type: number
+                    x-go-name: SPI
+                weeks:
+                    items:
+                        type: integer
+                    type:
+                        - "null"
+                        - array
+            required:
+                - weeks
+                - earned
+                - planned
+                - spi
+            type: object
+        SystemDesignErrorResponse:
+            additionalProperties: false
+            properties:
+                code:
+                    type: string
+                error:
+                    type: string
+            required:
+                - error
+                - code
+            type: object
+        SystemDesignFailureReason:
+            enum:
+                - 0
+                - 1
+                - 2
+                - 3
+                - 4
+                - 5
+            type: integer
+            x-enum-varnames:
+                - FailureReasonUnknown
+                - FailureReasonPipelineFailed
+                - FailureReasonPipelineCancelled
+                - FailureReasonPipelineTimedOut
+                - FailureReasonVarianceExhausted
+                - FailureReasonEscalationTimedOut
+            x-go-base: int
+        SystemDesignFinding:
+            additionalProperties: false
+            properties:
+                location:
+                    $ref: '#/components/schemas/SystemDesignLocation'
+                    type:
+                        - "null"
+                message:
+                    type: string
+                ruleId:
+                    $ref: '#/components/schemas/SystemDesignRuleID'
+                    x-go-name: RuleID
+                severity:
+                    $ref: '#/components/schemas/SystemDesignSeverity'
+            required:
+                - ruleId
+                - severity
+                - message
+            type: object
+        SystemDesignGoField:
+            additionalProperties: false
+            properties:
+                Name:
+                    type: string
+                Note:
+                    type: string
+                Type:
+                    type: string
+            required:
+                - Name
+                - Type
+                - Note
+            type: object
+        SystemDesignLocation:
+            additionalProperties: false
+            properties:
+                ordinal:
+                    type: integer
+                section:
+                    type: string
+            required:
+                - ordinal
+                - section
+            type: object
+        SystemDesignOwnerScope:
+            type: string
+        SystemDesignPhase:
+            enum:
+                - 0
+                - 1
+                - 2
+            type: integer
+            x-enum-varnames:
+                - PhaseSystemDesign
+                - PhaseProjectDesign
+                - PhaseConstruction
+            x-go-base: int
+        SystemDesignPhaseAdvanceResult:
+            additionalProperties: false
+            properties:
+                advanced:
+                    type: boolean
+                missingArtifacts:
+                    items:
+                        $ref: '#/components/schemas/SystemDesignArtifactKind'
+                    type:
+                        - "null"
+                        - array
+            required:
+                - advanced
+                - missingArtifacts
+            type: object
+        SystemDesignPhaseCompletion:
+            additionalProperties: false
+            properties:
+                ArtifactRef:
+                    type: string
+                Completed:
+                    type: boolean
+                Phase:
+                    $ref: '#/components/schemas/SystemDesignActivityMethodPhase'
+                Weight:
+                    type: integer
+                completedAt:
+                    format: date-time
+                    type:
+                        - "null"
+                        - string
+                    x-go-import: time
+                    x-go-type: time.Time
+            required:
+                - Phase
+                - Weight
+                - Completed
+                - ArtifactRef
+            type: object
+        SystemDesignProducedArtifact:
+            additionalProperties: false
+            properties:
+                Kind:
+                    type: string
+                Note:
+                    type: string
+                Produced:
+                    type: boolean
+                Source:
+                    type: string
+                Title:
+                    type: string
+            required:
+                - Kind
+                - Title
+                - Source
+                - Produced
+                - Note
+            type: object
+        SystemDesignProjectID:
+            type: string
+        SystemDesignProjectState:
+            additionalProperties: false
+            properties:
+                ActivityConstruction:
+                    additionalProperties:
+                        $ref: '#/components/schemas/SystemDesignActivityConstructionStatus'
+                    type: object
+                GitRows:
+                    additionalProperties:
+                        $ref: '#/components/schemas/SystemDesignActivityGitStatus'
+                    type: object
+                Name:
+                    type: string
+                Owner:
+                    $ref: '#/components/schemas/SystemDesignOwnerScope'
+                Phase:
+                    $ref: '#/components/schemas/SystemDesignPhase'
+                ProjectID:
+                    $ref: '#/components/schemas/SystemDesignProjectID'
+                Research:
+                    $ref: '#/components/schemas/SystemDesignResearchInput'
+                ServiceContracts:
+                    additionalProperties:
+                        $ref: '#/components/schemas/SystemDesignServiceContract'
+                    type: object
+                Slots:
+                    items:
+                        $ref: '#/components/schemas/SystemDesignArtifactSlotView'
+                    type:
+                        - "null"
+                        - array
+                Version:
+                    type: integer
+                constructionProgress:
+                    $ref: '#/components/schemas/SystemDesignConstructionProgress'
+                    type:
+                        - "null"
+            required:
+                - ProjectID
+                - Name
+                - Owner
+                - Phase
+                - Version
+                - Research
+                - Slots
+                - GitRows
+                - ActivityConstruction
+                - ServiceContracts
+            type: object
+        SystemDesignProjectSummary:
+            additionalProperties: false
+            properties:
+                CommittedCount:
+                    type: integer
+                Name:
+                    type: string
+                Owner:
+                    $ref: '#/components/schemas/SystemDesignOwnerScope'
+                Phase:
+                    $ref: '#/components/schemas/SystemDesignPhase'
+                ProjectID:
+                    $ref: '#/components/schemas/SystemDesignProjectID'
+                TotalCount:
+                    type: integer
+                UpdatedAt:
+                    format: date-time
+                    type: string
+                    x-go-import: time
+                    x-go-type: time.Time
+            required:
+                - ProjectID
+                - Name
+                - Owner
+                - Phase
+                - CommittedCount
+                - TotalCount
+                - UpdatedAt
+            type: object
+        SystemDesignResearchInput:
+            additionalProperties: false
+            properties:
+                sources:
+                    items:
+                        $ref: '#/components/schemas/SystemDesignResearchSource'
+                    type:
+                        - "null"
+                        - array
+            required:
+                - sources
+            type: object
+        SystemDesignResearchSource:
+            additionalProperties: false
+            properties:
+                content:
+                    type: string
+                title:
+                    type: string
+            required:
+                - title
+                - content
+            type: object
+        SystemDesignReviewDecision:
+            enum:
+                - 0
+                - 1
+                - 2
+                - 3
+            type: integer
+            x-enum-varnames:
+                - ReviewDecisionUnknown
+                - ReviewApprove
+                - ReviewReject
+                - ReviewWithdraw
+            x-go-base: int
+        SystemDesignReviewFeedback:
+            additionalProperties: false
+            properties:
+                comments:
+                    items:
+                        $ref: '#/components/schemas/SystemDesignAnchoredComment'
+                    type:
+                        - "null"
+                        - array
+                notes:
+                    type: string
+            required:
+                - notes
+            type: object
+        SystemDesignRuleID:
+            type: string
+        SystemDesignServiceContract:
+            additionalProperties: false
+            properties:
+                Component:
+                    type: string
+                DataContracts:
+                    items:
+                        type: string
+                    type:
+                        - "null"
+                        - array
+                ErrorModel:
+                    type: string
+                Idempotency:
+                    type: string
+                Inbound:
+                    items:
+                        $ref: '#/components/schemas/SystemDesignContractParty'
+                    type:
+                        - "null"
+                        - array
+                Layer:
+                    type: string
+                Ops:
+                    items:
+                        $ref: '#/components/schemas/SystemDesignContractOp'
+                    type:
+                        - "null"
+                        - array
+                Outbound:
+                    items:
+                        $ref: '#/components/schemas/SystemDesignContractParty'
+                    type:
+                        - "null"
+                        - array
+                Revisions:
+                    items:
+                        $ref: '#/components/schemas/SystemDesignContractRevision'
+                    type:
+                        - "null"
+                        - array
+                Status:
+                    type: string
+                Stereotype:
+                    type: string
+                Volatility:
+                    type: string
+            required:
+                - Component
+                - Layer
+                - Stereotype
+                - Volatility
+                - Status
+                - Inbound
+                - Outbound
+                - Ops
+                - DataContracts
+                - ErrorModel
+                - Idempotency
+                - Revisions
+            type: object
+        SystemDesignSessionRef:
+            type: string
+        SystemDesignSessionStage:
+            enum:
+                - 0
+                - 1
+                - 2
+                - 3
+                - 4
+                - 5
+                - 6
+                - 7
+            type: integer
+            x-enum-varnames:
+                - SessionStageUnknown
+                - StageDrafting
+                - StageAwaitingReview
+                - StageRedrafting
+                - StageCommitted
+                - StageWithdrawn
+                - StageRefused
+                - StageDraftFailed
+            x-go-base: int
+        SystemDesignSessionStateView:
+            additionalProperties: false
+            properties:
+                artifactKind:
+                    $ref: '#/components/schemas/SystemDesignArtifactKind'
+                draft:
+                    $ref: '#/components/schemas/SystemDesignDraftModel'
+                failureReason:
+                    type:
+                        - "null"
+                        - string
+                findings:
+                    items:
+                        $ref: '#/components/schemas/SystemDesignFinding'
+                    type:
+                        - "null"
+                        - array
+                projectId:
+                    $ref: '#/components/schemas/SystemDesignProjectID'
+                    x-go-name: ProjectID
+                stage:
+                    $ref: '#/components/schemas/SystemDesignSessionStage'
+            required:
+                - projectId
+                - artifactKind
+                - stage
+                - draft
+            type: object
+        SystemDesignSeverity:
+            enum:
+                - info
+                - warning
+                - error
+            type: string
+            x-enum-varnames:
+                - SeverityInfo
+                - SeverityWarning
+                - SeverityError
+            x-go-base: string
+        SystemDesignTestingVariant:
+            enum:
+                - 0
+                - 1
+                - 2
+                - 3
+                - 4
+            type: integer
+            x-enum-varnames:
+                - TestVariantPlan
+                - TestVariantHarness
+                - TestVariantPerf
+                - TestVariantSystemTest
+                - TestVariantQAProcess
+            x-go-base: int
+        SystemDesignVersion:
+            type: integer
+info:
+    title: archistrator API
+    version: 1.0.0
+openapi: 3.1.0
 paths:
-  # --- project CATALOG facet → projectManager -----------------------------------
-
-  /api/v1/projects:
-    post:
-      operationId: createProject
-      summary: Create a new project.
-      description: >
-        Routes to projectManager.CreateProject. NAME-AS-IDENTITY: the projectId IS the
-        user-supplied repo name (name); CreateProject adopts that pre-existing repo
-        (permissive resume if already .aiarch/-marked). The owner is derived from the
-        authenticated principal (never a body field). No token is accepted — the user
-        provisions CLAUDE_CODE_OAUTH_TOKEN via the Claude Code GitHub App. Returns the
-        projectId the SPA scopes its phase routes under.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/CreateProjectRequest' }
-      responses:
-        '201':
-          description: Project created.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/CreateProjectResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-    get:
-      operationId: listProjects
-      summary: List the authenticated owner's projects (landing grid).
-      description: >
-        Routes to projectManager.ListProjects scoped to the principal's owner key —
-        the catalog shows only the caller's own projects, newest-first.
-      responses:
-        '200':
-          description: The owner's catalog rows.
-          content:
-            application/json:
-              schema:
-                type: array
-                items: { $ref: '#/components/schemas/ProjectSummary' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-
-  /api/v1/projects/{projectId}:
-    get:
-      operationId: getProject
-      summary: Read one project's full typed head-state.
-      description: >
-        Routes to projectManager.GetProject — every artifact slot's stage + typed
-        model (via the shared ArtifactModelEnvelope).
-      parameters:
-        - $ref: '#/components/parameters/ProjectId'
-      responses:
-        '200':
-          description: The project's typed head-state.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ProjectState' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-
-  # --- driveDesignPhase facet → systemDesignManager (project-scoped URLs) --------
-
-  /api/v1/projects/{projectId}/system-design/research-input:
-    post:
-      operationId: setResearchInput
-      summary: Record the Phase-1 research-input corpus for a project.
-      description: >
-        Routes to systemDesignManager.SetResearchInput (SYNC, non-Temporal — a
-        single idempotent head-state write). This is the step BEFORE start: it
-        records the ResearchInput Method INPUT so the project can satisfy
-        startSystemDesign's ResearchInput-present precondition. No 409 here — this
-        op CREATES the precondition rather than enforcing it.
-      parameters:
-        - $ref: '#/components/parameters/ProjectId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/SetResearchInputRequest' }
-      responses:
-        '204':
-          description: Research input durably recorded; the start precondition is now satisfiable.
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-
-  /api/v1/projects/{projectId}/system-design/start:
-    post:
-      operationId: startSystemDesign
-      summary: Start the Phase-1 parent workflow for a project.
-      description: >
-        Routes to systemDesignManager.StartSystemDesign (Workflow). Precondition:
-        the project's ResearchInput is present (else 409 failed_precondition).
-        Returns once the parent start is durably accepted (the phase spans days).
-      parameters:
-        - $ref: '#/components/parameters/ProjectId'
-      responses:
-        '202':
-          description: Parent workflow durably accepted.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/SessionRefResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '409':
-          description: ResearchInput not populated (failed_precondition).
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ErrorResponse' }
-
-  /api/v1/projects/{projectId}/system-design/artifacts/draft:
-    post:
-      operationId: requestArtifactDraft
-      summary: Start/continue a co-authoring gate for one Method artifact.
-      description: >
-        Routes to systemDesignManager.RequestArtifactDraft (Workflow). Idempotent
-        on the per-(project,kind) workflow id. Returns the SessionRef once the
-        draft workflow start is durably accepted, not once the draft is ready.
-      parameters:
-        - $ref: '#/components/parameters/ProjectId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/RequestArtifactDraftRequest' }
-      responses:
-        '202':
-          description: Draft workflow durably accepted.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/SessionRefResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '409':
-          description: Wrong-phase kind or blocked phase gate (failed_precondition).
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ErrorResponse' }
-
-  /api/v1/projects/{projectId}/system-design/artifacts/review:
-    post:
-      operationId: submitReviewDecision
-      summary: Deliver the architect's gate decision.
-      description: >
-        Routes to systemDesignManager.SubmitReviewDecision (Signal) to the
-        suspended co-author workflow. approve commits + advances; reject loops to
-        draft with feedback; withdraw abandons. Returns 204 once the signal is
-        durably enqueued.
-      parameters:
-        - $ref: '#/components/parameters/ProjectId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/SubmitReviewDecisionRequest' }
-      responses:
-        '204':
-          description: Decision signal durably enqueued.
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '409':
-          description: >
-            Session not in a reviewable stage — e.g. the gate is not awaiting a
-            decision, or a decision was already delivered (failed_precondition).
-            The Manager maps this to fwmanager.FailedPrecondition → HTTP 409.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ErrorResponse' }
-
-  /api/v1/projects/{projectId}/system-design/advance:
-    post:
-      operationId: advancePhase
-      summary: Seal Phase 1 for a project (gating workflow).
-      description: >
-        Routes to systemDesignManager.AdvancePhase (Workflow). A non-advanced
-        result is the NORMAL gating answer (HTTP 200) naming the missing
-        artifacts, not an error.
-      parameters:
-        - $ref: '#/components/parameters/ProjectId'
-      responses:
-        '200':
-          description: Gating outcome (advanced, or still-owed artifacts).
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/PhaseAdvanceResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '409':
-          description: >
-            The phase cannot be sealed in its current state — e.g. Phase 1 is not
-            the project's active phase (failed_precondition). NOTE: still-owed
-            artifacts are the NORMAL gating answer (HTTP 200, advanced=false with
-            missingArtifacts), NOT a 409. A 409 is reserved for the Manager
-            rejecting the advance attempt itself (fwmanager.FailedPrecondition).
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ErrorResponse' }
-
-  /api/v1/projects/{projectId}/system-design/sessions/{artifactKind}:
-    get:
-      operationId: getSessionState
-      summary: Read one co-authoring session's technical progress.
-      description: >
-        Routes to systemDesignManager.GetSessionState (Query, read-only). Polled
-        by the SPA to render progress. Not a property-like op — it is the
-        design-phase activity's read relay (webClient.md factoring decision).
-      parameters:
-        - $ref: '#/components/parameters/ProjectId'
-        - name: artifactKind
-          in: path
-          required: true
-          schema: { $ref: '#/components/schemas/ArtifactKind' }
-      responses:
-        '200':
-          description: Point-in-time session view.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/SessionStateResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-
-  # --- driveDesignPhase facet → projectDesignManager (UC2; project-scoped URLs) --
-
-  /api/v1/projects/{projectId}/project-design/artifacts/draft:
-    post:
-      operationId: requestProjectArtifactDraft
-      summary: Start/continue a co-authoring gate for one Phase-2 Method artifact.
-      description: >
-        Routes to projectDesignManager.RequestArtifactDraft (Workflow). The
-        artifactKind is one of the eight draftable Phase-2 kinds (sdpReview is
-        rejected — use /sdp/assemble). Idempotent on the per-(project,kind) id.
-      parameters:
-        - $ref: '#/components/parameters/ProjectId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/RequestProjectArtifactDraftRequest' }
-      responses:
-        '202':
-          description: Draft workflow durably accepted.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/SessionRefResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '409':
-          description: Non-Phase-2 kind, sdpReview, or blocked phase gate (failed_precondition).
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ErrorResponse' }
-
-  /api/v1/projects/{projectId}/project-design/artifacts/review:
-    post:
-      operationId: submitProjectReviewDecision
-      summary: Deliver the architect's per-artifact Phase-2 gate decision.
-      description: >
-        Routes to projectDesignManager.SubmitReviewDecision (per-artifact Signal,
-        OQ-3). approve commits; reject loops to draft with feedback; withdraw abandons.
-      parameters:
-        - $ref: '#/components/parameters/ProjectId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/SubmitProjectReviewDecisionRequest' }
-      responses:
-        '204':
-          description: Decision signal durably enqueued.
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-
-  /api/v1/projects/{projectId}/project-design/sdp/assemble:
-    post:
-      operationId: requestSDPCommit
-      summary: Assemble the SDP review and suspend at the option-commitment gate.
-      description: >
-        Routes to projectDesignManager.RequestSDPCommit (Workflow). Assembles the
-        four options, calls the three estimate Engines per option, joins them into
-        the SDP-review rows, stages the review and suspends awaiting the architect's
-        decision. Idempotent on the {projectId}:sdpReview id.
-      parameters:
-        - $ref: '#/components/parameters/ProjectId'
-      responses:
-        '202':
-          description: SDP-review workflow durably accepted.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/SessionRefResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-
-  /api/v1/projects/{projectId}/project-design/sdp/decision:
-    post:
-      operationId: submitSDPDecision
-      summary: Deliver the architect's SDP option-commitment decision.
-      description: >
-        Routes to projectDesignManager.SubmitSDPDecision (Signal). commit binds the
-        named option (optionId required) and advances; rejectAll re-enters Phase 2
-        with feedback (required). Returns 204 once the signal is durably enqueued.
-      parameters:
-        - $ref: '#/components/parameters/ProjectId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/SubmitSDPDecisionRequest' }
-      responses:
-        '204':
-          description: Decision signal durably enqueued.
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-
-  /api/v1/projects/{projectId}/project-design/advance:
-    post:
-      operationId: advanceToConstruction
-      summary: Seal Phase 2 for a project (gating workflow).
-      description: >
-        Routes to projectDesignManager.AdvanceToConstruction (Workflow). A
-        non-advanced result is the NORMAL gating answer (HTTP 200) naming the
-        missing artifacts / unbound option, not an error.
-      parameters:
-        - $ref: '#/components/parameters/ProjectId'
-      responses:
-        '200':
-          description: Gating outcome (advanced, or still-owed artifacts).
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ProjectPhaseAdvanceResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-
-  /api/v1/projects/{projectId}/project-design/sessions/{artifactKind}:
-    get:
-      operationId: getProjectSessionState
-      summary: Read one Phase-2 session's technical progress.
-      description: >
-        Routes to projectDesignManager.GetSessionState (Query, read-only). The
-        artifactKind may be any Phase-2 kind, including sdpReview (the SDP-review
-        session). Polled by the SPA to render progress.
-      parameters:
-        - $ref: '#/components/parameters/ProjectId'
-        - name: artifactKind
-          in: path
-          required: true
-          schema: { $ref: '#/components/schemas/ProjectArtifactKind' }
-      responses:
-        '200':
-          description: Point-in-time session view.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ProjectSessionStateResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-
-  # --- liveness/readiness — OUTSIDE the auth boundary (no principal needed) -----
-  /healthz:
-    get:
-      operationId: healthz
-      summary: Liveness probe.
-      security: []
-      responses:
-        '200':
-          description: OK.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  status: { type: string }
-  /readyz:
-    get:
-      operationId: readyz
-      summary: Readiness probe.
-      security: []
-      responses:
-        '200':
-          description: OK.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  status: { type: string }
+    /api/v1/construction/execute-next-activity/{projectID}:
+        post:
+            operationId: ExecuteNextActivity
+            parameters:
+                - in: path
+                  name: projectID
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/ConstructionProjectID'
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            properties:
+                                tickID:
+                                    type: string
+                            required:
+                                - tickID
+                            type: object
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionPumpResult'
+                    description: success
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
+    /api/v1/construction/get-session-state/{projectID}/{activityID}:
+        get:
+            operationId: GetSessionState
+            parameters:
+                - in: path
+                  name: projectID
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/ConstructionProjectID'
+                - in: path
+                  name: activityID
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/ConstructionActivityID'
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionConstructionSessionView'
+                    description: success
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
+    /api/v1/construction/override-activity/{projectID}/{activityID}:
+        post:
+            operationId: OverrideActivity
+            parameters:
+                - in: path
+                  name: projectID
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/ConstructionProjectID'
+                - in: path
+                  name: activityID
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/ConstructionActivityID'
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            properties:
+                                override:
+                                    $ref: '#/components/schemas/ConstructionActivityOverride'
+                            required:
+                                - override
+                            type: object
+                required: true
+            responses:
+                "204":
+                    description: no content
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
+    /api/v1/construction/pause-project/{projectID}:
+        post:
+            operationId: PauseProject
+            parameters:
+                - in: path
+                  name: projectID
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/ConstructionProjectID'
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            properties:
+                                reason:
+                                    type: string
+                            required:
+                                - reason
+                            type: object
+                required: true
+            responses:
+                "204":
+                    description: no content
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
+    /api/v1/construction/run-replan-sweep/{projectID}:
+        post:
+            operationId: RunReplanSweep
+            parameters:
+                - in: path
+                  name: projectID
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/ConstructionProjectID'
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            properties:
+                                tickID:
+                                    type: string
+                            required:
+                                - tickID
+                            type: object
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionReplanSweepResult'
+                    description: success
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
+    /api/v1/operations/apply-delinquency-policy/{customerID}:
+        post:
+            operationId: ApplyDelinquencyPolicy
+            parameters:
+                - in: path
+                  name: customerID
+                  required: true
+                  schema:
+                    format: uuid
+                    type: string
+                    x-go-import: github.com/google/uuid
+                    x-go-type: uuid.UUID
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            properties:
+                                delinquencyContext:
+                                    $ref: '#/components/schemas/OperationsDelinquencyContext'
+                            required:
+                                - delinquencyContext
+                            type: object
+                required: true
+            responses:
+                "204":
+                    description: no content
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
+    /api/v1/operations/deploy-after-construction/{operatedAppID}:
+        post:
+            operationId: DeployAfterConstruction
+            parameters:
+                - in: path
+                  name: operatedAppID
+                  required: true
+                  schema:
+                    format: uuid
+                    type: string
+                    x-go-import: github.com/google/uuid
+                    x-go-type: uuid.UUID
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            properties:
+                                change:
+                                    $ref: '#/components/schemas/OperationsDesiredStateChange'
+                            required:
+                                - change
+                            type: object
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsDeployResult'
+                    description: success
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
+    /api/v1/operations/query-cost-projection/{operatedAppID}:
+        post:
+            operationId: QueryCostProjection
+            parameters:
+                - in: path
+                  name: operatedAppID
+                  required: true
+                  schema:
+                    format: uuid
+                    type: string
+                    x-go-import: github.com/google/uuid
+                    x-go-type: uuid.UUID
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            properties:
+                                points:
+                                    $ref: '#/components/schemas/OperationsScaleWhatIfPoints'
+                                requestID:
+                                    type: string
+                            required:
+                                - requestID
+                            type: object
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsCostProjectionSeam'
+                    description: success
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
+    /api/v1/operations/query-operated-system-view/{operatedAppID}:
+        get:
+            operationId: QueryOperatedSystemView
+            parameters:
+                - in: path
+                  name: operatedAppID
+                  required: true
+                  schema:
+                    format: uuid
+                    type: string
+                    x-go-import: github.com/google/uuid
+                    x-go-type: uuid.UUID
+                - in: query
+                  name: requestID
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsOperatedSystemView'
+                    description: success
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
+    /api/v1/operations/reconcile-operated-state:
+        post:
+            operationId: ReconcileOperatedState
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            properties:
+                                scope:
+                                    $ref: '#/components/schemas/OperationsReconcileScope'
+                                tickID:
+                                    type: string
+                            required:
+                                - tickID
+                            type: object
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsReconcileResult'
+                    description: success
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
+    /api/v1/operations/withdraw-system/{operatedAppID}:
+        post:
+            operationId: WithdrawSystem
+            parameters:
+                - in: path
+                  name: operatedAppID
+                  required: true
+                  schema:
+                    format: uuid
+                    type: string
+                    x-go-import: github.com/google/uuid
+                    x-go-type: uuid.UUID
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            properties:
+                                changeID:
+                                    type: string
+                                reason:
+                                    $ref: '#/components/schemas/OperationsWithdrawReason'
+                            required:
+                                - changeID
+                                - reason
+                            type: object
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsWithdrawResult'
+                    description: success
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OperationsErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
+    /api/v1/project-design/advance-to-construction/{projectID}:
+        post:
+            operationId: AdvanceToConstruction
+            parameters:
+                - in: path
+                  name: projectID
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/ProjectDesignProjectID'
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignPhaseAdvanceResult'
+                    description: success
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
+    /api/v1/project-design/get-session-state/{projectID}:
+        get:
+            operationId: GetSessionState
+            parameters:
+                - in: path
+                  name: projectID
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/ProjectDesignProjectID'
+                - in: query
+                  name: kind
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/ProjectDesignArtifactKind'
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignSessionStateView'
+                    description: success
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
+    /api/v1/project-design/request-artifact-draft/{projectID}:
+        post:
+            operationId: RequestArtifactDraft
+            parameters:
+                - in: path
+                  name: projectID
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/ProjectDesignProjectID'
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            properties:
+                                feedback:
+                                    $ref: '#/components/schemas/ProjectDesignReviewFeedback'
+                                kind:
+                                    $ref: '#/components/schemas/ProjectDesignArtifactKind'
+                            required:
+                                - kind
+                            type: object
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignSessionRef'
+                    description: success
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
+    /api/v1/project-design/request-sdp-commit/{projectID}:
+        post:
+            operationId: RequestSDPCommit
+            parameters:
+                - in: path
+                  name: projectID
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/ProjectDesignProjectID'
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignSessionRef'
+                    description: success
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
+    /api/v1/project-design/submit-review-decision/{projectID}:
+        post:
+            operationId: SubmitReviewDecision
+            parameters:
+                - in: path
+                  name: projectID
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/ProjectDesignProjectID'
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            properties:
+                                decision:
+                                    $ref: '#/components/schemas/ProjectDesignReviewDecision'
+                                feedback:
+                                    $ref: '#/components/schemas/ProjectDesignReviewFeedback'
+                                kind:
+                                    $ref: '#/components/schemas/ProjectDesignArtifactKind'
+                            required:
+                                - kind
+                                - decision
+                            type: object
+                required: true
+            responses:
+                "204":
+                    description: no content
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
+    /api/v1/project-design/submit-sdp-decision/{projectID}/{optionID}:
+        post:
+            operationId: SubmitSDPDecision
+            parameters:
+                - in: path
+                  name: projectID
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/ProjectDesignProjectID'
+                - in: path
+                  name: optionID
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/ProjectDesignOptionID'
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            properties:
+                                decision:
+                                    $ref: '#/components/schemas/ProjectDesignSDPDecision'
+                                feedback:
+                                    $ref: '#/components/schemas/ProjectDesignReviewFeedback'
+                            required:
+                                - decision
+                            type: object
+                required: true
+            responses:
+                "204":
+                    description: no content
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
+    /api/v1/system-design/advance-phase/{projectID}:
+        post:
+            operationId: AdvancePhase
+            parameters:
+                - in: path
+                  name: projectID
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/SystemDesignProjectID'
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignPhaseAdvanceResult'
+                    description: success
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
+    /api/v1/system-design/create-project:
+        post:
+            operationId: CreateProject
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            properties:
+                                name:
+                                    type: string
+                                owner:
+                                    $ref: '#/components/schemas/SystemDesignOwnerScope'
+                            required:
+                                - owner
+                                - name
+                            type: object
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignProjectID'
+                    description: success
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
+    /api/v1/system-design/get-project/{projectID}:
+        get:
+            operationId: GetProject
+            parameters:
+                - in: path
+                  name: projectID
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/SystemDesignProjectID'
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignProjectState'
+                    description: success
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
+    /api/v1/system-design/get-session-state/{projectID}:
+        get:
+            operationId: GetSessionState
+            parameters:
+                - in: path
+                  name: projectID
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/SystemDesignProjectID'
+                - in: query
+                  name: kind
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/SystemDesignArtifactKind'
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignSessionStateView'
+                    description: success
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
+    /api/v1/system-design/list-projects:
+        get:
+            operationId: ListProjects
+            parameters:
+                - in: query
+                  name: owner
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/SystemDesignOwnerScope'
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                items:
+                                    $ref: '#/components/schemas/SystemDesignProjectSummary'
+                                type: array
+                    description: success
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
+    /api/v1/system-design/request-artifact-draft/{projectID}:
+        post:
+            operationId: RequestArtifactDraft
+            parameters:
+                - in: path
+                  name: projectID
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/SystemDesignProjectID'
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            properties:
+                                feedback:
+                                    $ref: '#/components/schemas/SystemDesignReviewFeedback'
+                                kind:
+                                    $ref: '#/components/schemas/SystemDesignArtifactKind'
+                            required:
+                                - kind
+                            type: object
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignSessionRef'
+                    description: success
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
+    /api/v1/system-design/set-research-input/{projectID}:
+        post:
+            operationId: SetResearchInput
+            parameters:
+                - in: path
+                  name: projectID
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/SystemDesignProjectID'
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            properties:
+                                research:
+                                    $ref: '#/components/schemas/SystemDesignResearchInput'
+                            required:
+                                - research
+                            type: object
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignVersion'
+                    description: success
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
+    /api/v1/system-design/start-system-design/{projectID}:
+        post:
+            operationId: StartSystemDesign
+            parameters:
+                - in: path
+                  name: projectID
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/SystemDesignProjectID'
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignSessionRef'
+                    description: success
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
+    /api/v1/system-design/submit-review-decision/{projectID}:
+        post:
+            operationId: SubmitReviewDecision
+            parameters:
+                - in: path
+                  name: projectID
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/SystemDesignProjectID'
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            properties:
+                                decision:
+                                    $ref: '#/components/schemas/SystemDesignReviewDecision'
+                                feedback:
+                                    $ref: '#/components/schemas/SystemDesignReviewFeedback'
+                                kind:
+                                    $ref: '#/components/schemas/SystemDesignArtifactKind'
+                            required:
+                                - kind
+                                - decision
+                            type: object
+                required: true
+            responses:
+                "204":
+                    description: no content
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []

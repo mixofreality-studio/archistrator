@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	fwllm "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-llm"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
@@ -18,25 +19,30 @@ import (
 // newOfflineAnthropicWorker builds a worker with a dummy key. Tests must never
 // drive an unrecorded key through Generate (that would call the real API); they
 // pre-record results to exercise the replay paths.
-func newOfflineAnthropicWorker(t *testing.T) *AnthropicWorker {
+func newOfflineAnthropicWorker(t *testing.T) *anthropicWorker {
 	t.Helper()
-	w, err := NewAnthropicWorker("test-key", "", "claude-opus-4-8", map[WorkerClass]string{
-		"architect":      "claude-opus-4-8",
-		"productManager": "claude-sonnet-4-6",
-	})
-	if err != nil {
-		t.Fatalf("NewAnthropicWorker: %v", err)
+	// Build the concrete (unexported) impl directly so the test can drive the
+	// embedded *idemStore replay path (w.record). The public generated constructor
+	// NewAnthropicWorkerAccess returns the interface; this white-box helper needs the
+	// concrete type. A dummy key client is never dialled (tests pre-record results).
+	return &anthropicWorker{
+		client: fwllm.NewAnthropicClient("test-key", "", 0),
+		classModels: copyClassModels(map[WorkerClass]string{
+			"architect":      "claude-opus-4-8",
+			"productManager": "claude-sonnet-4-6",
+		}),
+		defaultModel: "claude-opus-4-8",
+		idemStore:    newIdemStore(),
 	}
-	return w
 }
 
-// TestNewAnthropicWorker_RejectsEmptyConfig — constructor pre-condition guards: an
-// empty API key or empty default model is fwra.ContractMisuse.
+// TestNewAnthropicWorker_RejectsEmptyConfig — constructor pre-condition guards: a
+// nil client or empty default model is fwra.ContractMisuse.
 func TestNewAnthropicWorker_RejectsEmptyConfig(t *testing.T) {
-	if _, err := NewAnthropicWorker("", "", "claude-opus-4-8", nil); err == nil {
-		t.Fatal("expected error for empty apiKey")
+	if _, err := NewAnthropicWorkerAccess(nil, "claude-opus-4-8", nil); err == nil {
+		t.Fatal("expected error for nil client")
 	}
-	if _, err := NewAnthropicWorker("k", "", "", nil); err == nil {
+	if _, err := NewAnthropicWorkerAccess(fwllm.NewAnthropicClient("k", "", 0), "", nil); err == nil {
 		t.Fatal("expected error for empty defaultModel")
 	}
 }
@@ -47,10 +53,10 @@ func TestAnthropicGenerate_ContractMisuse(t *testing.T) {
 	w := newOfflineAnthropicWorker(t)
 	ctx := context.Background()
 
-	if _, err := w.Generate(ctx, GenerateSpec{WorkerClass: "architect", Prompt: "do x"}, ""); !isKind(err, fwra.ContractMisuse) {
+	if _, err := w.Generate(rc(ctx, ""), GenerateSpec{WorkerClass: "architect", Prompt: "do x"}); !isKind(err, fwra.ContractMisuse) {
 		t.Fatalf("empty key: expected ContractMisuse, got %v", err)
 	}
-	if _, err := w.Generate(ctx, GenerateSpec{WorkerClass: "architect", Prompt: "   "}, "k1"); !isKind(err, fwra.ContractMisuse) {
+	if _, err := w.Generate(rc(ctx, "k1"), GenerateSpec{WorkerClass: "architect", Prompt: "   "}); !isKind(err, fwra.ContractMisuse) {
 		t.Fatalf("empty prompt: expected ContractMisuse, got %v", err)
 	}
 }
@@ -66,7 +72,7 @@ func TestAnthropicGenerate_Idempotency_ReplaysWithoutProviderCall(t *testing.T) 
 	recorded := jsonRaw(`{"hello":"world"}`)
 	w.record(key, recorded)
 
-	got, err := w.Generate(ctx, GenerateSpec{WorkerClass: "architect", Prompt: "draft it"}, key)
+	got, err := w.Generate(rc(ctx, key), GenerateSpec{WorkerClass: "architect", Prompt: "draft it"})
 	if err != nil {
 		t.Fatalf("replay must not invoke the provider (got error %v)", err)
 	}
@@ -82,10 +88,10 @@ func TestAnthropicGenerate_AfterCancel_ReturnsNil(t *testing.T) {
 	ctx := context.Background()
 	const key = fwra.IdempotencyKey("wf-cancel:act-1")
 
-	if err := w.Cancel(ctx, key); err != nil {
+	if err := w.Cancel(rc(ctx, key)); err != nil {
 		t.Fatalf("Cancel: %v", err)
 	}
-	got, err := w.Generate(ctx, GenerateSpec{WorkerClass: "architect", Prompt: "draft it"}, key)
+	got, err := w.Generate(rc(ctx, key), GenerateSpec{WorkerClass: "architect", Prompt: "draft it"})
 	if err != nil {
 		t.Fatalf("expected nil error after cancel-then-generate, got: %v", err)
 	}
@@ -98,7 +104,7 @@ func TestAnthropicGenerate_AfterCancel_ReturnsNil(t *testing.T) {
 // no-op success.
 func TestAnthropicCancel_UnknownKey_Success(t *testing.T) {
 	w := newOfflineAnthropicWorker(t)
-	if err := w.Cancel(context.Background(), "never-dispatched"); err != nil {
+	if err := w.Cancel(rc(context.Background(), "never-dispatched")); err != nil {
 		t.Fatalf("Cancel on an unknown key must succeed, got: %v", err)
 	}
 }
@@ -123,6 +129,12 @@ func TestResolveModel_PerWorkerClass(t *testing.T) {
 			t.Fatalf("resolveModel(%q): got %q, want %q", c.class, got, c.want)
 		}
 	}
+}
+
+// rc builds the ResourceAccess call Context the WorkerAccess methods now take
+// (it embeds context.Context and carries the idempotency key). Test-only helper.
+func rc(ctx context.Context, key fwra.IdempotencyKey) fwra.Context {
+	return fwra.Context{Context: ctx, IdempotencyKey: key}
 }
 
 // isKind reports whether err is an *fwra.Error of the given kind.

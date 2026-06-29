@@ -14,8 +14,8 @@ import (
 
 // This file holds the Manager-owned Temporal Activity wrappers — one per
 // ResourceAccess call the workflow makes (constructionManager.md §6.4). They are
-// METHODS ON THE Workflows STRUCT: there is no separate Activities type. The RA
-// dependencies live as fields on Workflows (workflow.go) and are reached on the
+// METHODS ON THE workflows STRUCT: there is no separate Activities type. The RA
+// dependencies live as fields on workflows (workflow.go) and are reached on the
 // struct, but the calls run inside Temporal Activities because those RA operations
 // are I/O / non-deterministic and would break replay determinism if invoked on the
 // workflow goroutine. The three Engines (handOffEngine, interventionEngine,
@@ -39,12 +39,24 @@ func activityIdempotencyKey(ctx context.Context) fwra.IdempotencyKey {
 
 // ---- ReadProjectActivity (wraps projectStateAccess.readProject) -------------
 // Pure whole-aggregate read; no idempotency key (constructionManager.md §6.4).
-func (wf *Workflows) ReadProjectActivity(ctx context.Context, projectID projectstate.ProjectID) (projectEnvelope, error) {
-	proj, err := wf.ProjectState.ReadProject(ctx, projectID)
+func (wf *workflows) ReadProjectActivity(ctx context.Context, projectID projectstate.ProjectID) (projectEnvelope, error) {
+	proj, err := wf.ProjectState.ReadProject(fwra.Context{Context: ctx}, projectID)
 	if err != nil {
 		return projectEnvelope{}, fwmanager.MapError(err)
 	}
 	return encodeProject(proj), nil
+}
+
+// ---- ReadProjectVersionActivity (wraps projectStateAccess.ReadProjectVersion) ----
+// Cheap version-only read; no idempotency key. Returns just the head-state Version
+// across the Temporal boundary instead of the whole encoded aggregate — the
+// read-your-writes seed and the applyRecovering Conflict loop need only the token.
+func (wf *workflows) ReadProjectVersionActivity(ctx context.Context, projectID projectstate.ProjectID) (projectstate.Version, error) {
+	v, err := wf.ProjectState.ReadProjectVersion(fwra.Context{Context: ctx}, projectID)
+	if err != nil {
+		return 0, fwmanager.MapError(err)
+	}
+	return v, nil
 }
 
 // ---- GenerateWorkActivity (wraps the generic typed worker) ------------------
@@ -58,9 +70,9 @@ func (wf *Workflows) ReadProjectActivity(ctx context.Context, projectID projects
 // non-retryable WorkerRefused terminal routed into intervention; transport/auth/
 // quota errors bubble up via the canonical mapping for the RetryPolicy to act.
 
-// GenerateWorkArgs bundles the generic worker dispatch inputs for the Activity
+// generateWorkArgs bundles the generic worker dispatch inputs for the Activity
 // boundary.
-type GenerateWorkArgs struct {
+type generateWorkArgs struct {
 	WorkerClass string
 	Prompt      string
 }
@@ -69,7 +81,7 @@ type GenerateWorkArgs struct {
 // refused terminal (the worker ran but produced a non-ConstructionOutput).
 const workerRefusedErrType = "WorkerRefused"
 
-func (wf *Workflows) GenerateWorkActivity(ctx context.Context, a GenerateWorkArgs) (artifact.ConstructionOutput, error) {
+func (wf *workflows) GenerateWorkActivity(ctx context.Context, a generateWorkArgs) (artifact.ConstructionOutput, error) {
 	key := activityIdempotencyKey(ctx)
 	out, err := generateConstructionOutput(ctx, wf.Workers, workerGenerateSpec{
 		WorkerClass: a.WorkerClass,
@@ -84,7 +96,7 @@ func (wf *Workflows) GenerateWorkActivity(ctx context.Context, a GenerateWorkArg
 // ---- CancelWorkerActivity (wraps workerAccess.Cancel) -----------------------
 // The operator-pause / takeover abandon path (DSL-static Cancel(key) edge,
 // constructionManager.md §6.3). Idempotent: an unknown key is success in the RA.
-func (wf *Workflows) CancelWorkerActivity(ctx context.Context, _ struct{}) (struct{}, error) {
+func (wf *workflows) CancelWorkerActivity(ctx context.Context, _ struct{}) (struct{}, error) {
 	return struct{}{}, fwmanager.MapError(wf.Workers.Cancel(ctx, activityIdempotencyKey(ctx)))
 }
 
@@ -92,18 +104,18 @@ func (wf *Workflows) CancelWorkerActivity(ctx context.Context, _ struct{}) (stru
 
 // SubmitPipelineActivity wraps submitConstructionPipeline (UC3 543). Deterministic
 // Argo name from the caller-supplied key.
-func (wf *Workflows) SubmitPipelineActivity(ctx context.Context, spec PipelineSpec) (PipelineHandle, error) {
+func (wf *workflows) SubmitPipelineActivity(ctx context.Context, spec pipelineSpec) (pipelineHandle, error) {
 	return mapErr(wf.Pipeline.SubmitConstructionPipeline(ctx, spec, activityIdempotencyKey(ctx)))
 }
 
 // ObservePipelineActivity wraps observeConstructionPipeline (UC3 545). Pure read.
-func (wf *Workflows) ObservePipelineActivity(ctx context.Context, handle PipelineHandle) (PipelineObservation, error) {
+func (wf *workflows) ObservePipelineActivity(ctx context.Context, handle pipelineHandle) (pipelineObservation, error) {
 	return mapErr(wf.Pipeline.ObserveConstructionPipeline(ctx, handle))
 }
 
 // CancelPipelineActivity wraps cancelConstructionPipeline (NCUC2 656). Idempotent
 // on intent (ErrNotFound ⇒ success in the RA).
-func (wf *Workflows) CancelPipelineActivity(ctx context.Context, handle PipelineHandle) (struct{}, error) {
+func (wf *workflows) CancelPipelineActivity(ctx context.Context, handle pipelineHandle) (struct{}, error) {
 	return struct{}{}, fwmanager.MapError(wf.Pipeline.CancelConstructionPipeline(ctx, handle))
 }
 
@@ -111,7 +123,7 @@ func (wf *Workflows) CancelPipelineActivity(ctx context.Context, handle Pipeline
 
 // StoreConstructionOutputActivity wraps storeConstructionOutput (UC3 546/549).
 // Content-addressable; caller-supplied key.
-func (wf *Workflows) StoreConstructionOutputActivity(ctx context.Context, output artifact.ConstructionOutput) (string, error) {
+func (wf *workflows) StoreConstructionOutputActivity(ctx context.Context, output artifact.ConstructionOutput) (string, error) {
 	return mapErr(wf.Artifacts.StoreConstructionOutput(ctx, output, activityIdempotencyKey(ctx)))
 }
 
@@ -121,50 +133,55 @@ func (wf *Workflows) StoreConstructionOutputActivity(ctx context.Context, output
 // canonical Temporal Type() and the workflow-level applyRecovering loop re-reads
 // the head version and re-applies with the SAME key (constructionManager.md §6.5).
 
-// RecordChangeReviewedArgs bundles the inputs for recordChangeReviewed.
-type RecordChangeReviewedArgs struct {
+// recordChangeReviewedArgs bundles the inputs for recordChangeReviewed. Cred is the
+// Manager-threaded credential (empty/zero in the dev/dry-run profile).
+type recordChangeReviewedArgs struct {
 	ProjectID       projectstate.ProjectID
 	ExpectedVersion projectstate.Version
 	ActivityID      string
+	Cred            railCredEnvelope
 }
 
-func (wf *Workflows) RecordChangeReviewedActivity(ctx context.Context, a RecordChangeReviewedArgs) (projectstate.Version, error) {
-	return mapErr(wf.ProjectState.RecordChangeReviewed(ctx, a.ProjectID, a.ExpectedVersion, a.ActivityID, activityIdempotencyKey(ctx)))
+func (wf *workflows) RecordChangeReviewedActivity(ctx context.Context, a recordChangeReviewedArgs) (projectstate.Version, error) {
+	return mapErr(wf.ConstructionTransition.RecordChangeReviewed(ctx, a.ProjectID, a.ExpectedVersion, a.ActivityID, a.Cred.toProjectState(), activityIdempotencyKey(ctx)))
 }
 
-// RecordActivityExitedArgs bundles the inputs for recordActivityExited.
-type RecordActivityExitedArgs struct {
+// recordActivityExitedArgs bundles the inputs for recordActivityExited.
+type recordActivityExitedArgs struct {
 	ProjectID       projectstate.ProjectID
 	ExpectedVersion projectstate.Version
 	ActivityID      string
 	Outcome         projectstate.ActivityOutcome
+	Cred            railCredEnvelope
 }
 
-func (wf *Workflows) RecordActivityExitedActivity(ctx context.Context, a RecordActivityExitedArgs) (projectstate.Version, error) {
-	return mapErr(wf.ProjectState.RecordActivityExited(ctx, a.ProjectID, a.ExpectedVersion, a.ActivityID, a.Outcome, activityIdempotencyKey(ctx)))
+func (wf *workflows) RecordActivityExitedActivity(ctx context.Context, a recordActivityExitedArgs) (projectstate.Version, error) {
+	return mapErr(wf.ConstructionTransition.RecordActivityExited(ctx, a.ProjectID, a.ExpectedVersion, a.ActivityID, a.Outcome, a.Cred.toProjectState(), activityIdempotencyKey(ctx)))
 }
 
-// RecordActivityFailedArgs bundles the inputs for recordActivityFailed (the
+// recordActivityFailedArgs bundles the inputs for recordActivityFailed (the
 // terminal-FAILURE head-state transition — bounded-wait / autonomous-retry fix).
-type RecordActivityFailedArgs struct {
+type recordActivityFailedArgs struct {
 	ProjectID       projectstate.ProjectID
 	ExpectedVersion projectstate.Version
 	ActivityID      string
 	Reason          projectstate.FailureReason
 	Detail          string
+	Cred            railCredEnvelope
 }
 
-func (wf *Workflows) RecordActivityFailedActivity(ctx context.Context, a RecordActivityFailedArgs) (projectstate.Version, error) {
-	return mapErr(wf.ProjectState.RecordActivityFailed(ctx, a.ProjectID, a.ExpectedVersion, a.ActivityID, a.Reason, a.Detail, activityIdempotencyKey(ctx)))
+func (wf *workflows) RecordActivityFailedActivity(ctx context.Context, a recordActivityFailedArgs) (projectstate.Version, error) {
+	return mapErr(wf.ConstructionTransition.RecordActivityFailed(ctx, a.ProjectID, a.ExpectedVersion, a.ActivityID, a.Reason, a.Detail, a.Cred.toProjectState(), activityIdempotencyKey(ctx)))
 }
 
-// RecordOperatorPausedArgs bundles the inputs for recordOperatorPaused.
-type RecordOperatorPausedArgs struct {
+// recordOperatorPausedArgs bundles the inputs for recordOperatorPaused.
+type recordOperatorPausedArgs struct {
 	ProjectID       projectstate.ProjectID
 	ExpectedVersion projectstate.Version
 	Reason          string
+	Cred            railCredEnvelope
 }
 
-func (wf *Workflows) RecordOperatorPausedActivity(ctx context.Context, a RecordOperatorPausedArgs) (projectstate.Version, error) {
-	return mapErr(wf.ProjectState.RecordOperatorPaused(ctx, a.ProjectID, a.ExpectedVersion, a.Reason, activityIdempotencyKey(ctx)))
+func (wf *workflows) RecordOperatorPausedActivity(ctx context.Context, a recordOperatorPausedArgs) (projectstate.Version, error) {
+	return mapErr(wf.ConstructionTransition.RecordOperatorPaused(ctx, a.ProjectID, a.ExpectedVersion, a.Reason, a.Cred.toProjectState(), activityIdempotencyKey(ctx)))
 }

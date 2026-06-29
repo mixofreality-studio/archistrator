@@ -108,7 +108,7 @@ func decodeProject(e projectEnvelope) projectstate.Project {
 // when the worker's response arrives without a transport error BUT cannot be
 // unmarshalled into a ConstructionOutput — "the worker ran but produced something
 // that is not a ConstructionOutput". The Manager routes it through intervention
-// (constructionManager.md §6.3 step 7: VarianceWorkerRefused).
+// (constructionManager.md §6.3 step 7: varianceWorkerRefused).
 type workerUnmarshalError struct {
 	Raw []byte
 	Err error

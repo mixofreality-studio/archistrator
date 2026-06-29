@@ -49,16 +49,16 @@ func (gf gitSession) readBackBranch() string {
 // the configured construction repo (the non-git / Postgres path is unchanged).
 func (gf gitSession) dispatchRepo() string {
 	if gf.enabled {
-		return gf.repoRef.String()
+		return sourcecontrol.RepoRefString(gf.repoRef)
 	}
 	return ""
 }
 
 // gitEnabled reports whether the PR rail is wired AND a repo resolves for this project.
 // When false the spine runs unchanged (read-back/stage on main, no branch/PR ops).
-func (wf *Workflows) gitEnabled(projectID ProjectID) (sourcecontrol.RepoRef, bool) {
+func (wf *workflows) gitEnabled(projectID ProjectID) (sourcecontrol.RepoRef, bool) {
 	if wf.Rail == nil || wf.Repo == nil {
-		return sourcecontrol.RepoRef{}, false
+		return sourcecontrol.RepoRef(""), false
 	}
 	return wf.Repo(projectID)
 }
@@ -67,7 +67,7 @@ func (wf *Workflows) gitEnabled(projectID ProjectID) (sourcecontrol.RepoRef, boo
 // mint the credential, then OpenBranch(sessionBranch) (ensure the branch exists before
 // the Action drafts on it). A dormant slice returns a disabled session and touches
 // nothing. The session branch is per-attempt (designBranch threads the attempt suffix).
-func (wf *Workflows) beginSession(ctx workflow.Context, projectID ProjectID, sessionBranch string) (gitSession, error) {
+func (wf *workflows) beginSession(ctx workflow.Context, projectID ProjectID, sessionBranch string) (gitSession, error) {
 	repoRef, ok := wf.gitEnabled(projectID)
 	if !ok {
 		return gitSession{enabled: false}, nil
@@ -81,8 +81,8 @@ func (wf *Workflows) beginSession(ctx workflow.Context, projectID ProjectID, ses
 	gf.cred = cred
 
 	var branchRef string
-	if err := workflow.ExecuteActivity(railOpts(ctx), wf.OpenBranchActivity, OpenBranchArgs{
-		RepoRef: repoRef.String(), Branch: sessionBranch, Cred: cred,
+	if err := workflow.ExecuteActivity(railOpts(ctx), wf.OpenBranchActivity, openBranchArgs{
+		RepoRef: sourcecontrol.RepoRefString(repoRef), Branch: sessionBranch, Cred: cred,
 	}).Get(ctx, &branchRef); err != nil {
 		return gitSession{}, err
 	}
@@ -93,13 +93,13 @@ func (wf *Workflows) beginSession(ctx workflow.Context, projectID ProjectID, ses
 // Idempotent on head — if the Action already opened a PR the rail returns the existing
 // handle (the server's open is the authoritative handle for the merge step). A dormant
 // session is a no-op.
-func (wf *Workflows) openPR(ctx workflow.Context, gf *gitSession, kind ArtifactKind) error {
+func (wf *workflows) openPR(ctx workflow.Context, gf *gitSession, kind ArtifactKind) error {
 	if !gf.enabled {
 		return nil
 	}
 	var prRef string
-	if err := workflow.ExecuteActivity(railOpts(ctx), wf.OpenPullRequestActivity, OpenPullRequestArgs{
-		RepoRef: gf.repoRef.String(),
+	if err := workflow.ExecuteActivity(railOpts(ctx), wf.OpenPullRequestActivity, openPullRequestArgs{
+		RepoRef: sourcecontrol.RepoRefString(gf.repoRef),
 		Head:    gf.branch,
 		Base:    mainBranch,
 		Title:   designPRTitle(kind),
@@ -119,7 +119,7 @@ func (wf *Workflows) openPR(ctx workflow.Context, gf *gitSession, kind ArtifactK
 // was not green (the caller routes that to the StageDraftFailed recovery gate — the PR
 // is not green, do NOT merge, never wedge). A dormant session returns ok=true (the
 // non-git spine commits on main with no rail).
-func (wf *Workflows) mergeOnApprove(ctx workflow.Context, gf *gitSession, kind ArtifactKind) (bool, error) {
+func (wf *workflows) mergeOnApprove(ctx workflow.Context, gf *gitSession, kind ArtifactKind) (bool, error) {
 	if !gf.enabled {
 		return true, nil
 	}
@@ -127,9 +127,9 @@ func (wf *Workflows) mergeOnApprove(ctx workflow.Context, gf *gitSession, kind A
 	// Merge guard: the required CI check must be green before the App merges (the
 	// "blocks merge" trust boundary). A non-green PR is NOT merged — the caller routes
 	// to recovery.
-	var st PullRequestStatusView
-	if err := workflow.ExecuteActivity(railOpts(ctx), wf.GetPullRequestStatusActivity, GetPullRequestStatusArgs{
-		RepoRef: gf.repoRef.String(), PRRef: gf.prRef, Cred: gf.cred,
+	var st pullRequestStatusView
+	if err := workflow.ExecuteActivity(railOpts(ctx), wf.GetPullRequestStatusActivity, getPullRequestStatusArgs{
+		RepoRef: sourcecontrol.RepoRefString(gf.repoRef), PRRef: gf.prRef, Cred: gf.cred,
 	}).Get(ctx, &st); err != nil {
 		return false, err
 	}
@@ -138,16 +138,16 @@ func (wf *Workflows) mergeOnApprove(ctx workflow.Context, gf *gitSession, kind A
 	}
 
 	// Relay the architecture +1 (the counted approval + audit).
-	if err := workflow.ExecuteActivity(railOpts(ctx), wf.PostReviewActivity, PostReviewArgs{
-		RepoRef: gf.repoRef.String(), PRRef: gf.prRef, Body: designArchApprovalBody(kind), Cred: gf.cred,
+	if err := workflow.ExecuteActivity(railOpts(ctx), wf.PostReviewActivity, postReviewArgs{
+		RepoRef: sourcecontrol.RepoRefString(gf.repoRef), PRRef: gf.prRef, Body: designArchApprovalBody(kind), Cred: gf.cred,
 	}).Get(ctx, nil); err != nil {
 		return false, err
 	}
 
 	// App-mediated merge of sessionBranch → main.
 	var merged bool
-	if err := workflow.ExecuteActivity(railOpts(ctx), wf.MergePullRequestActivity, MergePullRequestArgs{
-		RepoRef: gf.repoRef.String(), PRRef: gf.prRef, Cred: gf.cred,
+	if err := workflow.ExecuteActivity(railOpts(ctx), wf.MergePullRequestActivity, mergePullRequestArgs{
+		RepoRef: sourcecontrol.RepoRefString(gf.repoRef), PRRef: gf.prRef, Cred: gf.cred,
 	}).Get(ctx, &merged); err != nil {
 		return false, err
 	}
@@ -162,9 +162,9 @@ func (wf *Workflows) mergeOnApprove(ctx workflow.Context, gf *gitSession, kind A
 
 // mintCred runs MintRepoCredentialActivity → the short-lived credential threaded into
 // every rail verb for this draft attempt's lifecycle.
-func (wf *Workflows) mintCred(ctx workflow.Context, repoRef sourcecontrol.RepoRef) (railCredEnvelope, error) {
+func (wf *workflows) mintCred(ctx workflow.Context, repoRef sourcecontrol.RepoRef) (railCredEnvelope, error) {
 	var cred railCredEnvelope
-	err := workflow.ExecuteActivity(mintCredOpts(ctx), wf.MintRepoCredentialActivity, repoRef.String()).Get(ctx, &cred)
+	err := workflow.ExecuteActivity(mintCredOpts(ctx), wf.MintRepoCredentialActivity, sourcecontrol.RepoRefString(repoRef)).Get(ctx, &cred)
 	return cred, err
 }
 
@@ -174,14 +174,14 @@ func (wf *Workflows) mintCred(ctx workflow.Context, repoRef sourcecontrol.RepoRe
 // purely additive and the default path is unchanged. The read runs in an Activity
 // (I/O), reusing the ReadProjectActivity for branch=="" and ReadProjectOnBranchActivity
 // otherwise.
-func (wf *Workflows) readProjectOnBranch(ctx workflow.Context, projectID ProjectID, branch string) (projectstate.Project, error) {
+func (wf *workflows) readProjectOnBranch(ctx workflow.Context, projectID ProjectID, branch string) (projectstate.Project, error) {
 	if branch == "" {
 		return wf.readProject(ctx, projectID)
 	}
 	c := readProjectOpts(ctx)
 	var pe projectEnvelope
-	if err := workflow.ExecuteActivity(c, wf.ReadProjectOnBranchActivity, ReadProjectOnBranchArgs{
-		ProjectID: projectID, Branch: branch,
+	if err := workflow.ExecuteActivity(c, wf.ReadProjectOnBranchActivity, readProjectOnBranchArgs{
+		ProjectID: projectstate.ProjectID(projectID), Branch: branch,
 	}).Get(ctx, &pe); err != nil {
 		return projectstate.Project{}, err
 	}

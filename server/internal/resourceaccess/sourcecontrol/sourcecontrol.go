@@ -35,96 +35,57 @@
 //     protection are no-op successes. The optional caller-supplied
 //     fwra.IdempotencyKey is carried for traceability only.
 //
-// The concrete GitHub-App-backed implementation (Access) lives in github.go; the
+// The concrete GitHub-App-backed implementation (the UNEXPORTED access impl, built by
+// the generated NewGitHubSourceControlAccess constructor) lives in github.go; the
 // vendor REST/JWT wire code lives in the framework-go-infrastructure-github
 // satellite behind the githubClient seam — the ONLY place this RA speaks GitHub.
 package sourcecontrol
 
 import (
-	"context"
-	"strings"
-	"time"
-
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
 // SourceControlAccess is the component's ResourceAccess port — the Go-surface
 // name the layer convention requires (a *Access-suffixed exported interface,
-// every method error-returning). It is the union of the two FROZEN contract
-// faces: ISourceControlLifecycle (lifecycle establishment) and IPullRequestRail
-// (the git-forward branch→PR→gate→merge rail). The two faces are kept as their
-// own named interfaces below so the contract vocabulary stays visible; this
-// embeds both for the single composition-root port + the arch-layer naming rule.
-type SourceControlAccess interface {
-	SourceControlLifecycle
-	PullRequestRail
-}
-
-// ---------------------------------------------------------------------------
-// Contract #1 — ISourceControlLifecycle (sourceControlAccess.md, FROZEN).
-// ---------------------------------------------------------------------------
-
-// SourceControlLifecycle is the provider-opaque repo-standing-establishment port
-// (2026-06-15 agentic-pivot re-cut: 3 → 5 ops; 2026-06-15 correction: → 4 ops —
-// writeActionsSecret REMOVED). FOUR atomic verbs, each importing no Temporal —
-// each a facet of "aiarch establishes and holds standing in the user's own repo":
+// every method error-returning). It is the SINGLE merged port (founder decision
+// 2026-06-25): the two former contract faces — ISourceControlLifecycle (lifecycle
+// establishment) and IPullRequestRail (the git-forward branch→PR→gate→merge rail)
+// — are now ONE flat interface listing all ten ops. The merge keeps a single
+// composition-root port + the arch-layer naming rule, and gives the codegen a
+// concrete method set to reflect (the schema-first pipeline regenerates the flat
+// interface into contract.gen.go).
 //
+// Contract #1 — lifecycle (sourceControlAccess.md, FROZEN), FOUR atomic verbs:
 //   - InstallAuthorizeApp — discover/confirm aiarch's standing authorization on
 //     an account; NotFound (the contract's "NotInstalled") if the user has not
-//     installed the App. Idempotent on account. (UNCHANGED.)
+//     installed the App. Idempotent on account.
 //   - AdoptProjectRepo — verify the user's EXISTING repo is reachable under the
 //     App installation, then tag it (aiarch-project topic + project-title
 //     description) and return its RepoRef. PERMISSIVE-RESUME (founder ruling
-//     2026-06-16): SUCCEEDS regardless of repo content (README/claude.yml/a prior
-//     .aiarch tree are all fine); the ONLY error is NotUnderInstallation (the App
-//     must be installed). The strict-empty RepoNotEmpty/Conflict hard-fail is GONE.
-//     A repo with committed .aiarch/state is RESUMED by projectStateAccess.createProject,
-//     not rejected here. Idempotent on the repo name. (REPLACES ProvisionProjectRepo
-//     and the prior strict-empty policy.)
+//     2026-06-16): SUCCEEDS regardless of repo content; the ONLY error is
+//     NotUnderInstallation (the App must be installed). Idempotent on the repo name.
 //   - GetInstallationToken — mint (or serve an in-seam-cached, still-valid) short
 //     lived RepoCredential the OTHER GitHub-fronting seams authenticate with.
-//     Returned-not-recorded; mint-on-demand; no idempotency key (read-shaped).
-//     (UNCHANGED.)
+//     Returned-not-recorded; mint-on-demand.
 //   - CommitManagedFiles — seat the aiarch-MANAGED project scaffold (the
 //     claude-code-action DESIGN workflow under .github/workflows/ PLUS the go-test
 //     gate scaffold: go.mod + the aiarch_method_test.go that runs methodcheck.Check)
-//     in ONE birth seat. Each file's path must be on the managed-file ALLOWLIST
-//     (under .github/workflows/, OR a known scaffold root: go.mod / the method test
-//     file) — arbitrary paths are rejected (it seats ONLY aiarch-managed files).
-//     Each file is overwrite-if-changed (byte-identical → no-op). 2026-06-16 generalization
-//     of CommitAgenticWorkflowFile: instead of adding a 5th op, the single-file
-//     workflow seat became a fileset seat so the workflow + the go-test gate land
-//     together at birth. (SC-B, generalized.)
+//     in ONE birth seat. Each file's path must be on the managed-file ALLOWLIST;
+//     each file is overwrite-if-changed (byte-identical → no-op).
 //
-// CORRECTION (2026-06-15, founder ruling): writeActionsSecret was REMOVED. aiarch
-// does NO secret management. The CLAUDE_CODE_OAUTH_TOKEN repo Actions secret is
-// provisioned by the Claude Code GitHub App when the USER runs /install-github-app
-// on their repo (an OAuth-flow secret, not an API-uploadable value) — a user
-// onboarding prerequisite, never touched by aiarch.
-type SourceControlLifecycle interface {
-	InstallAuthorizeApp(ctx context.Context, account AccountRef, key fwra.IdempotencyKey) (Installation, error)
-	AdoptProjectRepo(ctx context.Context, spec RepoAdoptionSpec, key fwra.IdempotencyKey) (RepoRef, error)
-	GetInstallationToken(ctx context.Context, repo RepoRef) (RepoCredential, error)
-	CommitManagedFiles(ctx context.Context, repo RepoRef, files []ManagedFile, cred RepoCredential, key fwra.IdempotencyKey) (CommitRef, error)
-}
-
-// ---------------------------------------------------------------------------
-// Contract #2 — IPullRequestRail (sourceControlAccess-pullrequestrail.md, FROZEN).
-// ---------------------------------------------------------------------------
-
-// PullRequestRail is the provider-opaque branch / PR / gate / merge port — the
-// git-forward rail. Every provider-touching verb takes a Manager-threaded
-// RepoCredential (§1.1). The merge AUTHORITY (when to merge) is interventionEngine;
-// this seam only PERFORMS the merge (MergePullRequest) and ENFORCES the rail
-// (ConfigureBranchProtection).
-type PullRequestRail interface {
-	OpenBranch(ctx context.Context, repo RepoRef, branch BranchName, cred RepoCredential, key fwra.IdempotencyKey) (BranchRef, error)
-	OpenPullRequest(ctx context.Context, repo RepoRef, spec PullRequestSpec, cred RepoCredential, key fwra.IdempotencyKey) (PullRequestRef, error)
-	GetPullRequestStatus(ctx context.Context, repo RepoRef, pr PullRequestRef, cred RepoCredential) (PullRequestStatus, error)
-	PostReview(ctx context.Context, repo RepoRef, pr PullRequestRef, review ReviewSubmission, cred RepoCredential, key fwra.IdempotencyKey) error
-	MergePullRequest(ctx context.Context, repo RepoRef, pr PullRequestRef, cred RepoCredential, key fwra.IdempotencyKey) (MergeResult, error)
-	ConfigureBranchProtection(ctx context.Context, repo RepoRef, cred RepoCredential, key fwra.IdempotencyKey) error
-}
+// Contract #2 — PR rail (sourceControlAccess-pullrequestrail.md, FROZEN), SIX
+// verbs: OpenBranch / OpenPullRequest / GetPullRequestStatus / PostReview /
+// MergePullRequest / ConfigureBranchProtection. Every provider-touching verb
+// takes a Manager-threaded RepoCredential (§1.1). The merge AUTHORITY (when to
+// merge) is interventionEngine; this seam only PERFORMS the merge and ENFORCES
+// the rail.
+//
+// Every method takes the ResourceAccess call Context (fwra.Context) as its first
+// param — the established RA seam (worker/artifact/constructionpipeline/
+// durableexecution): it embeds context.Context and carries the caller's
+// SecurityPrincipal + IdempotencyKey. The generator prepends it; the schema
+// captures only the data params. The interface is generated into contract.gen.go
+// from contract.schema.json — DO NOT hand-edit the generated copy.
 
 // ---------------------------------------------------------------------------
 // §3 Data contracts (contract #1 §3) — provider-opaque value types.
@@ -133,29 +94,25 @@ type PullRequestRail interface {
 // ProjectID is the logical project a repo serves. Provider-opaque string identity;
 // the package never parses it. It is the idempotency anchor for the deterministic
 // repo name.
-type ProjectID string
 
 // AccountRef is the provider-neutral identity of the user's source-control
 // account/org. Provider-opaque: it maps to a GitHub org login / installation
 // INSIDE this seam; the caller never names an installation id.
-type AccountRef string
 
 // RepoAdoptionSpec is the provider-NEUTRAL description of the user's EXISTING repo
 // to ADOPT (2026-06-15; REPLACES RepoSpec). RepoName is the USER-SUPPLIED identity
 // (name-as-identity: project name == repo name); Title is the human display name
 // applied as the repo description on adopt. NO owner/repo/visibility/default-branch
 // lexeme is a contract field.
-type RepoAdoptionSpec struct {
-	// RepoName is the user-supplied repo name == the project identity (the adopt
-	// idempotency anchor). The repo MUST already exist; AdoptProjectRepo never creates it.
-	RepoName string
-	// Account is the account the repo lives under (the App installation's org).
-	Account AccountRef
-	// Title is the human project title, applied as the repo description on adopt.
-	Title string
-	// Hints are optional provider-opaque hints; opaque at the boundary.
-	Hints []byte
-}
+
+// RepoName is the user-supplied repo name == the project identity (the adopt
+// idempotency anchor). The repo MUST already exist; AdoptProjectRepo never creates it.
+
+// Account is the account the repo lives under (the App installation's org).
+
+// Title is the human project title, applied as the repo description on adopt.
+
+// Hints are optional provider-opaque hints; opaque at the boundary.
 
 // ManagedFile is the provider-NEUTRAL description of one aiarch-MANAGED project file
 // to seat at birth (CommitManagedFiles). Path MUST be on the managed-file allowlist
@@ -164,13 +121,11 @@ type RepoAdoptionSpec struct {
 // files, never arbitrary content). 2026-06-16 generalization of WorkflowFile: the
 // single-file workflow seat became a fileset so the agentic workflow + the go-test
 // gate scaffold (go.mod + aiarch_method_test.go) land together at project birth.
-type ManagedFile struct {
-	// Path is the repo-relative path. Must satisfy the managed-file allowlist
-	// (e.g. ".github/workflows/aiarch-design.yml", "go.mod", "aiarch_method_test.go").
-	Path string
-	// Content is the exact file bytes to land on the default branch.
-	Content []byte
-}
+
+// Path is the repo-relative path. Must satisfy the managed-file allowlist
+// (e.g. ".github/workflows/aiarch-design.yml", "go.mod", "aiarch_method_test.go").
+
+// Content is the exact file bytes to land on the default branch.
 
 // ManagedCommitMessage is the commit message CommitManagedFiles uses when it seats
 // the managed-file bundle at project birth. (The per-file Message of the old
@@ -180,89 +135,44 @@ const ManagedCommitMessage = "chore(aiarch): seat aiarch-managed project scaffol
 // Installation is an opaque handle confirming aiarch holds a standing
 // authorization on an account. Provider-opaque (today: a GitHub installation id,
 // never surfaced as such).
-type Installation struct {
-	opaque string
-}
-
-// String returns the canonical printable form (logs, audit).
-func (i Installation) String() string { return i.opaque }
-
-// IsZero reports whether the handle addresses no installation.
-func (i Installation) IsZero() bool { return i.opaque == "" }
+//
+// It is a NAMED SCALAR (the established opaque-handle sub-pattern, same as
+// durableexecution's ExecutionHandle / constructionpipeline's PipelineHandle): the
+// codegen represents it cleanly as a $def named scalar, and its behaviour lives in
+// behavior.go as free functions (InstallationString / InstallationIsZero). The
+// opaque installation id the impl packs IS the string value.
 
 // RepoRef is an opaque, provider-neutral handle to one provisioned per-project
 // repo — the value the Manager threads to the GitTarget seams' verbs.
-// Provider-opaque (today: owner/repo plus the owning account, never parsed by
-// callers).
-type RepoRef struct {
-	opaque string
-}
-
-// String returns the canonical printable form.
-func (r RepoRef) String() string { return r.opaque }
-
-// Equal reports value equality of two repo refs.
-func (r RepoRef) Equal(other RepoRef) bool { return r.opaque == other.opaque }
-
-// IsZero reports whether the ref addresses no repo.
-func (r RepoRef) IsZero() bool { return r.opaque == "" }
-
-// RepoRefFromString reconstructs a RepoRef from the exact String() form a prior
-// ProvisionProjectRepo returned (a Manager re-materialising a persisted handle).
-// Pure value reconstruction; a malformed ref is rejected by the verb that
-// consumes it.
-func RepoRefFromString(s string) RepoRef { return RepoRef{opaque: s} }
-
-// OwnerRepo decodes the RepoRef into its provider owner + repo coordinates — the ONLY
-// public accessor of the otherwise-opaque owner/repo encoding. It exists so a caller
-// that must address the repo on a DIFFERENT infrastructure port than this RA (the
-// per-project-design-dispatch: the constructionPipelineAccess seam dispatches the
-// agentic DESIGN job to the per-project repo) can resolve the owner/repo WITHOUT
-// re-implementing this RA's private RepoRef encoding. A malformed ref is a
-// ContractMisuse the caller surfaces. This is the single seam where owner/repo leaves
-// the RA, deliberately scoped to the cross-port dispatch target.
-func (r RepoRef) OwnerRepo() (owner, repo string, err error) {
-	_, fullName, serr := splitRepoRef(r)
-	if serr != nil {
-		return "", "", serr
-	}
-	o, n, ok := strings.Cut(fullName, "/")
-	if !ok || o == "" || n == "" {
-		return "", "", fwra.New(fwra.ContractMisuse, "sourcecontrol: RepoRef full name is not owner/repo")
-	}
-	return o, n, nil
-}
+// Provider-opaque (today: "account|owner/repo", never parsed by callers).
+//
+// NAMED SCALAR (opaque-handle sub-pattern): its behaviour (RepoRefString /
+// RepoRefEqual / RepoRefIsZero / RepoRefFromString / RepoRefOwnerRepo) lives in
+// behavior.go as free functions.
 
 // RepoCredential is an opaque, SHORT-LIVED bearer credential authorizing
 // content/CI/manifest operations on a RepoRef. Provider-NEUTRAL: carries NO ghs_…
 // prefix, NO installation id, NO App JWT. The Manager threads .Bytes into the
 // consuming seams as a caller-supplied parameter (§1.1) and re-mints before
 // ExpiresAt. Returned, never recorded.
-type RepoCredential struct {
-	// Bytes is the opaque bearer secret; the consuming seam presents it, never
-	// parses it. Treated as write-only at every consumer (never logged/persisted).
-	Bytes []byte
-	// ExpiresAt is when the Manager re-mints (calls GetInstallationToken again).
-	ExpiresAt time.Time
-}
 
-// IsZero reports whether the credential is empty.
-func (c RepoCredential) IsZero() bool { return len(c.Bytes) == 0 }
+// Bytes is the opaque bearer secret; the consuming seam presents it, never
+// parses it. Treated as write-only at every consumer (never logged/persisted).
+
+// ExpiresAt is when the Manager re-mints (calls GetInstallationToken again).
+
+// RepoCredentialIsZero reports whether the credential is empty. (Replaces the
+// former RepoCredential.IsZero() method — the generated struct carries no methods.)
+func RepoCredentialIsZero(c RepoCredential) bool { return len(c.Bytes) == 0 }
 
 // CommitRef is an opaque, provider-neutral handle to the commit CommitManagedFiles
 // produced (2026-06-15; generalized 2026-06-16). Provider-opaque (today: a commit
 // sha, never parsed by callers). The Manager may carry it for traceability / to
 // assert the managed scaffold landed. When the bundle is seated by sequential
 // per-file commits, this is the LAST file's resulting commit ref.
-type CommitRef struct {
-	opaque string
-}
-
-// String returns the canonical printable form.
-func (c CommitRef) String() string { return c.opaque }
-
-// IsZero reports whether the ref addresses no commit.
-func (c CommitRef) IsZero() bool { return c.opaque == "" }
+//
+// NAMED SCALAR (opaque-handle sub-pattern): its behaviour (CommitRefString /
+// CommitRefIsZero) lives in behavior.go as free functions.
 
 // ---------------------------------------------------------------------------
 // §3 Data contracts (contract #2 §3) — PR-rail value types.
@@ -270,109 +180,52 @@ func (c CommitRef) IsZero() bool { return c.opaque == "" }
 
 // BranchName is the provider-neutral name of a working branch (Manager-derived,
 // per-activity). Provider-opaque: maps to a git ref name INSIDE the seam.
-type BranchName string
 
 // PullRequestSpec is the provider-NEUTRAL description of a proposal. Base is
 // `main` in the flat git-forward model. Labels (e.g. a cr-NN change-request
 // group) ride in Hints — not first-class fields.
-type PullRequestSpec struct {
-	Head  BranchName
-	Base  BranchName
-	Title string
-	Body  string
-	Hints []byte
-}
 
 // ReviewVerdict is the provider-neutral review verdict the App relays.
-type ReviewVerdict int
 
-const (
-	// ReviewApprove is the "architecture +1".
-	ReviewApprove ReviewVerdict = iota
-	// ReviewRequestChanges requests changes.
-	ReviewRequestChanges
-	// ReviewComment is a non-deciding comment.
-	ReviewComment
-)
+// ReviewApprove is the "architecture +1".
+
+// ReviewRequestChanges requests changes.
+
+// ReviewComment is a non-deciding comment.
 
 // ReviewSubmission is the provider-neutral review the App relays.
-type ReviewSubmission struct {
-	Verdict ReviewVerdict
-	Body    string
-}
 
 // BranchRef is an opaque, provider-neutral handle to a cut branch.
-type BranchRef struct {
-	opaque string
-}
-
-// String returns the canonical printable form.
-func (b BranchRef) String() string { return b.opaque }
-
-// IsZero reports whether the ref addresses no branch.
-func (b BranchRef) IsZero() bool { return b.opaque == "" }
+//
+// NAMED SCALAR (opaque-handle sub-pattern): its behaviour (BranchRefString /
+// BranchRefIsZero) lives in behavior.go as free functions.
 
 // PullRequestRef is an opaque, provider-neutral handle to one open proposal — the
 // value the Manager carries across GetPullRequestStatus / PostReview /
 // MergePullRequest. Provider-opaque (today: a PR number, never parsed by callers).
-type PullRequestRef struct {
-	opaque string
-}
-
-// String returns the canonical printable form.
-func (p PullRequestRef) String() string { return p.opaque }
-
-// Equal reports value equality of two PR refs.
-func (p PullRequestRef) Equal(other PullRequestRef) bool { return p.opaque == other.opaque }
-
-// IsZero reports whether the ref addresses no PR.
-func (p PullRequestRef) IsZero() bool { return p.opaque == "" }
-
-// PullRequestRefFromString reconstructs a PullRequestRef from a persisted String()
-// form (a Manager re-materialising a handle across an Activity boundary).
-func PullRequestRefFromString(s string) PullRequestRef { return PullRequestRef{opaque: s} }
+//
+// NAMED SCALAR (opaque-handle sub-pattern): its behaviour (PullRequestRefString /
+// PullRequestRefEqual / PullRequestRefIsZero / PullRequestRefFromString) lives in
+// behavior.go as free functions.
 
 // MergeResult is an opaque, provider-neutral handle to a completed merge: the
 // resulting main commit ref + a merged flag.
-type MergeResult struct {
-	// Commit is the opaque resulting main-tip ref; presented, never parsed.
-	Commit string
-	// Merged is true on success / already-merged.
-	Merged bool
-}
+
+// Commit is the opaque resulting main-tip ref; presented, never parsed.
+
+// Merged is true on success / already-merged.
 
 // CheckState is the provider-neutral CI rollup the merge gate reads.
-type CheckState int
 
-const (
-	// CheckPending — at least one check still running, none failed.
-	CheckPending CheckState = iota
-	// CheckSuccess — all checks concluded successfully (or none present).
-	CheckSuccess
-	// CheckFailure — at least one check failed.
-	CheckFailure
-)
+// CheckPending — at least one check still running, none failed.
 
-var checkStateNames = map[CheckState]string{
-	CheckPending: "Pending", CheckSuccess: "Success", CheckFailure: "Failure",
-}
+// CheckSuccess — all checks concluded successfully (or none present).
 
-// String returns the stable name (logs, audit).
-func (s CheckState) String() string {
-	if n, ok := checkStateNames[s]; ok {
-		return n
-	}
-	return "Pending"
-}
+// CheckFailure — at least one check failed.
 
 // PullRequestStatus is the typed-but-provider-opaque reflection of CI + approvals
 // the merge gate reads. It is a REFLECTION the Manager feeds interventionEngine —
 // NOT the gate.
-type PullRequestStatus struct {
-	CheckRollup   CheckState
-	ApprovalCount int
-	Mergeable     bool
-}
 
 // Error is the shared ResourceAccess error model (framework-go), re-exported as an
 // alias so this component reads in its own terms while every RA shares one fixed

@@ -138,8 +138,12 @@ type ghActionsClient interface {
 // The GitHub-Actions-backed ResourceAccess implementation
 // ---------------------------------------------------------------------------
 
-// Access is the concrete, GitHub-Actions-backed implementation of the
-// ConstructionPipelineAccess port (constructionPipelineAccess.md §6). It derives a
+// access is the concrete, GitHub-Actions-backed implementation of the
+// ConstructionPipelineAccess port (constructionPipelineAccess.md §6). It is
+// UNEXPORTED — the package's only public surface is the generated
+// ConstructionPipelineAccess interface + models + the generated
+// NewGitHubActionsConstructionPipelineAccess constructor (plus the value-type
+// behaviour free functions). It derives a
 // deterministic dedup token + run name from the caller-supplied idempotencyKey,
 // converges concurrent submits on the lowest-run-id canonical run, and maps a run's
 // status+conclusion back to an infrastructure-neutral PipelineObservation.
@@ -157,7 +161,7 @@ type ghActionsClient interface {
 // satellite AppClient). The RA never threads a credential through its surface and
 // never calls a sibling RA (NoSideways) — the auth maps cleanly without changing
 // the frozen surface. See implementation/log/C-CP-R.md §auth.
-type Access struct {
+type access struct {
 	client ghActionsClient
 	// resolveAttempts / resolveDelay bound the post-dispatch run-resolution poll
 	// (GitHub creates the run asynchronously after a 204 dispatch). Defaults applied
@@ -168,7 +172,7 @@ type Access struct {
 }
 
 // compile-time proof the concrete impl satisfies the port.
-var _ ConstructionPipelineAccess = (*Access)(nil)
+var _ ConstructionPipelineAccess = (*access)(nil)
 
 const (
 	defaultResolveAttempts = 10
@@ -189,28 +193,18 @@ func liveOrSucceeded(runs []ghRun) []ghRun {
 	return out
 }
 
-// New builds an Access over the supplied GitHub-Actions client seam. The
-// composition root (cmd/server/main.go) constructs the concrete seam via
-// NewActionsClient (which carries the App identity + the target repo + workflow
-// file) and passes it here; tests pass a fake ghActionsClient.
-//
-// CONSTRUCTOR SIGNATURE FOR main.go WIRING:
-//
-//	seam, err := constructionpipeline.NewActionsClient(constructionpipeline.ActionsConfig{
-//	    AppID:         cfg.GitHubAppID,
-//	    PrivateKeyPEM: cfg.GitHubAppPrivateKeyPEM,
-//	    APIBaseURL:    cfg.GitHubAPIBaseURL,   // "" == github.com
-//	    Owner:         cfg.ConstructionRepoOwner,
-//	    Repo:          cfg.ConstructionRepoName,
-//	    WorkflowFile:  cfg.ConstructionWorkflowFile, // e.g. "aiarch-construct.yml"
-//	    Ref:           cfg.ConstructionRef,          // e.g. "main"
-//	})
-//	cp, err := constructionpipeline.New(seam)
-func New(client ghActionsClient) (*Access, error) {
+// newAccess builds an access over the supplied GitHub-Actions client seam. It is
+// the hand-written core both the generated NewGitHubActionsConstructionPipelineAccess
+// constructor (via newGitHubActionsConstructionPipelineAccess, which wires the
+// concrete ghActionsRESTClient seam over the App identity) and the in-package tests
+// (which pass a fake ghActionsClient) build through. Returns the concrete *access so
+// the in-package tests can tune resolveAttempts/resolveDelay; the public path returns
+// the ConstructionPipelineAccess interface.
+func newAccess(client ghActionsClient) (*access, error) {
 	if client == nil {
-		return nil, fwra.New(fwra.ContractMisuse, "constructionpipeline.New: nil actions client")
+		return nil, fwra.New(fwra.ContractMisuse, "constructionpipeline.NewGitHubActionsConstructionPipelineAccess: nil actions client")
 	}
-	return &Access{
+	return &access{
 		client:          client,
 		resolveAttempts: defaultResolveAttempts,
 		resolveDelay:    defaultResolveDelay,
@@ -238,12 +232,18 @@ const runNamePrefix = "aiarch-cp-"
 // checkout. A non-empty, well-formed spec is still required (a malformed spec is a
 // caller pre-condition violation → ContractMisuse), preserving the contract's §2.1
 // pre-conditions.
-func (a *Access) SubmitConstructionPipeline(ctx context.Context, spec PipelineSpec, idempotencyKey fwra.IdempotencyKey) (PipelineHandle, error) {
+func (a *access) SubmitConstructionPipeline(rc fwra.Context, spec PipelineSpec) (PipelineHandle, error) {
+	// The cross-cutting ctx + idempotencyKey now ride the ResourceAccess call Context
+	// (fwra.Context embeds context.Context and carries the caller-supplied
+	// IdempotencyKey); the package still never reads Temporal — the key is an ordinary
+	// value carried on rc, exactly as before. This keeps the component Temporal-free.
+	ctx := rc.Context
+	idempotencyKey := rc.IdempotencyKey
 	if idempotencyKey.IsZero() {
-		return PipelineHandle{}, fwra.New(fwra.ContractMisuse, "SubmitConstructionPipeline: empty idempotencyKey")
+		return "", fwra.New(fwra.ContractMisuse, "SubmitConstructionPipeline: empty idempotencyKey")
 	}
 	if err := validateSpec(spec); err != nil {
-		return PipelineHandle{}, err
+		return "", err
 	}
 	token := dedupToken(idempotencyKey)
 	runName := runNamePrefix + token
@@ -263,7 +263,7 @@ func (a *Access) SubmitConstructionPipeline(ctx context.Context, spec PipelineSp
 	//    "already dispatched, don't duplicate"; a failed one allows a fresh dispatch.
 	existing, err := a.client.listRunsByName(ctx, tgt, runName)
 	if err != nil {
-		return PipelineHandle{}, err
+		return "", err
 	}
 	if live := liveOrSucceeded(existing); len(live) > 0 {
 		return a.converge(ctx, tgt, live)
@@ -273,20 +273,20 @@ func (a *Access) SubmitConstructionPipeline(ctx context.Context, spec PipelineSp
 	//    into the runtime's input map; the RA-controlled idempotency token is merged
 	//    in LAST by the seam, so it wins any collision (stays RA-controlled).
 	if err := a.client.dispatch(ctx, tgt, token, runName, spec.DispatchInputs); err != nil {
-		return PipelineHandle{}, err
+		return "", err
 	}
 
 	// 3. RESOLVE — GitHub creates the run asynchronously after a 204; poll (bounded)
 	//    until the run carrying our run-name appears.
 	runs, err := a.resolveAfterDispatch(ctx, tgt, runName)
 	if err != nil {
-		return PipelineHandle{}, err
+		return "", err
 	}
 	if len(runs) == 0 {
 		// Dispatched but the run never surfaced within the resolve window — transient
 		// (GitHub may still be creating it); the Manager retries the whole submit,
 		// which is idempotent (the probe will then find it).
-		return PipelineHandle{}, fwra.New(fwra.Transient, "SubmitConstructionPipeline: dispatched run did not surface within resolve window")
+		return "", fwra.New(fwra.Transient, "SubmitConstructionPipeline: dispatched run did not surface within resolve window")
 	}
 
 	// 4 + 5. SELECT canonical + RECONCILE siblings. Prefer the live/succeeded runs so a
@@ -305,7 +305,7 @@ func (a *Access) SubmitConstructionPipeline(ctx context.Context, spec PipelineSp
 // same dedup name, then returns the canonical handle. Sibling cancellation is
 // idempotent, so the reconcile is safe under the concurrent-double-dispatch race and
 // under retry.
-func (a *Access) converge(ctx context.Context, tgt ghTarget, runs []ghRun) (PipelineHandle, error) {
+func (a *access) converge(ctx context.Context, tgt ghTarget, runs []ghRun) (PipelineHandle, error) {
 	canonical := lowestID(runs)
 	for _, r := range runs {
 		if r.id == canonical.id {
@@ -317,7 +317,7 @@ func (a *Access) converge(ctx context.Context, tgt ghTarget, runs []ghRun) (Pipe
 		// holds (the Manager only ever carries the canonical handle). We still surface
 		// a hard (non-transient) error so a genuine auth/contract fault is visible.
 		if err := a.client.cancelRun(ctx, tgt, r.id); err != nil && !isTransient(err) {
-			return PipelineHandle{}, err
+			return "", err
 		}
 	}
 	return a.handleFor(tgt, canonical.id), nil
@@ -327,7 +327,7 @@ func (a *Access) converge(ctx context.Context, tgt ghTarget, runs []ghRun) (Pipe
 // bounded attempt budget is exhausted (GitHub's dispatch→run-creation is eventually
 // consistent). The fake's dispatch creates the run synchronously, so one attempt
 // resolves it in tests; production uses the default budget.
-func (a *Access) resolveAfterDispatch(ctx context.Context, tgt ghTarget, runName string) ([]ghRun, error) {
+func (a *access) resolveAfterDispatch(ctx context.Context, tgt ghTarget, runName string) ([]ghRun, error) {
 	attempts := a.resolveAttempts
 	if attempts <= 0 {
 		attempts = 1
@@ -356,7 +356,8 @@ func (a *Access) resolveAfterDispatch(ctx context.Context, tgt ghTarget, runName
 // it to an infrastructure-neutral PipelineObservation
 // (constructionPipelineAccess.md §2.2). Pure read; no side effects. An unknown /
 // GC'd handle surfaces as fwra.NotFound.
-func (a *Access) ObserveConstructionPipeline(ctx context.Context, handle PipelineHandle) (PipelineObservation, error) {
+func (a *access) ObserveConstructionPipeline(rc fwra.Context, handle PipelineHandle) (PipelineObservation, error) {
+	ctx := rc.Context
 	runID, tgt, err := a.runIDFromHandle(handle)
 	if err != nil {
 		return PipelineObservation{}, err
@@ -373,7 +374,8 @@ func (a *Access) ObserveConstructionPipeline(ctx context.Context, handle Pipelin
 // desired post-condition ("no further steps will start") already holds, which makes
 // cancel safe to retry against the operator-pause race
 // (constructionPipelineAccess.md §2.3). The seam maps GitHub's 409/404 to success.
-func (a *Access) CancelConstructionPipeline(ctx context.Context, handle PipelineHandle) error {
+func (a *access) CancelConstructionPipeline(rc fwra.Context, handle PipelineHandle) error {
+	ctx := rc.Context
 	runID, tgt, err := a.runIDFromHandle(handle)
 	if err != nil {
 		// A malformed handle is a caller pre-condition violation, not a cancel no-op.
@@ -416,23 +418,23 @@ const handleSep = "@"
 // When tgt is non-zero (a per-project DESIGN dispatch) the target is APPENDED so the
 // stateless Observe/Cancel can re-address the per-project repo from the handle alone.
 // Callers never parse the handle (they compare by value); only this RA reads it back.
-func (a *Access) handleFor(tgt ghTarget, runID int64) PipelineHandle {
+func (a *access) handleFor(tgt ghTarget, runID int64) PipelineHandle {
 	base := "run/" + strconv.FormatInt(runID, 10)
 	if tgt.isZero() {
-		return PipelineHandle{opaque: base}
+		return PipelineHandle(base)
 	}
-	return PipelineHandle{opaque: base + handleSep + tgt.owner + "/" + tgt.repo + "/" + tgt.workflowFile}
+	return PipelineHandle(base + handleSep + tgt.owner + "/" + tgt.repo + "/" + tgt.workflowFile)
 }
 
 // runIDFromHandle unpacks the run id AND the OPTIONAL per-project target from an
 // opaque handle. A zero/malformed handle is a caller pre-condition violation →
 // fwra.ContractMisuse. A handle with no "@<target>" segment returns a ZERO ghTarget
 // (the construction-repo default — the seam substitutes its configured repo).
-func (a *Access) runIDFromHandle(handle PipelineHandle) (int64, ghTarget, error) { //nolint:gocyclo // parses handle segments; each segment type adds a branch
-	if handle.IsZero() {
+func (a *access) runIDFromHandle(handle PipelineHandle) (int64, ghTarget, error) { //nolint:gocyclo // parses handle segments; each segment type adds a branch
+	if PipelineHandleIsZero(handle) {
 		return 0, ghTarget{}, fwra.New(fwra.ContractMisuse, "constructionpipeline: zero PipelineHandle")
 	}
-	runPart, targetPart, hasTarget := strings.Cut(handle.opaque, handleSep)
+	runPart, targetPart, hasTarget := strings.Cut(string(handle), handleSep)
 	kind, rest, ok := strings.Cut(runPart, "/")
 	if !ok || kind != "run" || rest == "" {
 		return 0, ghTarget{}, fwra.New(fwra.ContractMisuse, "constructionpipeline: malformed PipelineHandle")

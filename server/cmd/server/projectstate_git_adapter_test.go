@@ -21,6 +21,7 @@ import (
 
 	fwgithub "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github"
 	gh "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github/testinfra"
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	ps "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
@@ -62,7 +63,7 @@ func TestProjectStateGitAdapter_UC1ArtifactLandsInGit(t *testing.T) {
 
 	// CreateProject — births the aggregate at version 1 (no registry index — the repo's
 	// existence + project.json IS the catalog entry, founder ruling 2026-06-14).
-	v1, err := state.CreateProject(ctx, id, "alice", "Demo", "wf:create")
+	v1, err := state.CreateProject(fwra.Context{Context: ctx, IdempotencyKey: "wf:create"}, id, "alice", "Demo")
 	if err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
@@ -72,19 +73,19 @@ func TestProjectStateGitAdapter_UC1ArtifactLandsInGit(t *testing.T) {
 
 	// Stage the mission typed model (UC1 step 1 — systemDesignManager stages the draft).
 	mission := &ps.MissionStatement{Vision: "vision-text", Mission: "mission-text"}
-	v2, err := state.StageArtifactForReview(ctx, id, v1, mission, "wf:stage-mission")
+	v2, err := state.StageArtifactForReview(fwra.Context{Context: ctx, IdempotencyKey: "wf:stage-mission"}, id, v1, mission)
 	if err != nil {
 		t.Fatalf("StageArtifactForReview: %v", err)
 	}
 
 	// Commit the mission (architect approved at the review gate).
-	v3, err := state.CommitArtifact(ctx, id, v2, ps.KindMission, "wf:commit-mission")
+	v3, err := state.CommitArtifact(fwra.Context{Context: ctx, IdempotencyKey: "wf:commit-mission"}, id, v2, ps.KindMission)
 	if err != nil {
 		t.Fatalf("CommitArtifact: %v", err)
 	}
 
 	// Re-read through a FRESH clone — proves the JSON is committed to the git repo.
-	proj, err := state.ReadProject(ctx, id)
+	proj, err := state.ReadProject(fwra.Context{Context: ctx}, id)
 	if err != nil {
 		t.Fatalf("ReadProject: %v", err)
 	}
@@ -101,7 +102,7 @@ func TestProjectStateGitAdapter_UC1ArtifactLandsInGit(t *testing.T) {
 
 	// The catalog read (ListProjects) surfaces the project by ENUMERATING the on-disk
 	// project repo (discover-by-enumeration) — no registry index, the repo IS the row.
-	summaries, err := state.ListProjects(ctx, "alice")
+	summaries, err := state.ListProjects(fwra.Context{Context: ctx}, "alice")
 	if err != nil {
 		t.Fatalf("ListProjects: %v", err)
 	}
@@ -118,23 +119,23 @@ func TestProjectStateGitAdapter_UC2AdvanceAndResearchLandsInGit(t *testing.T) {
 	ctx := context.Background()
 	id := ps.ProjectID(uuid.NewString())
 
-	v1, err := state.CreateProject(ctx, id, "bob", "Proj2", "wf:create")
+	v1, err := state.CreateProject(fwra.Context{Context: ctx, IdempotencyKey: "wf:create"}, id, "bob", "Proj2")
 	if err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
 
 	research := ps.ResearchInput{Sources: []ps.ResearchSource{{Title: "src", Content: "research-corpus"}}}
-	v2, err := state.SetResearchInput(ctx, id, v1, research, "wf:research")
+	v2, err := state.SetResearchInput(fwra.Context{Context: ctx, IdempotencyKey: "wf:research"}, id, v1, research)
 	if err != nil {
 		t.Fatalf("SetResearchInput: %v", err)
 	}
 
-	v3, err := state.AdvancePhase(ctx, id, v2, "wf:advance")
+	v3, err := state.AdvancePhase(fwra.Context{Context: ctx, IdempotencyKey: "wf:advance"}, id, v2)
 	if err != nil {
 		t.Fatalf("AdvancePhase: %v", err)
 	}
 
-	proj, err := state.ReadProject(ctx, id)
+	proj, err := state.ReadProject(fwra.Context{Context: ctx}, id)
 	if err != nil {
 		t.Fatalf("ReadProject: %v", err)
 	}
@@ -209,7 +210,7 @@ func TestProjectStateGitAdapter_CreateReadList_IdentityVerbatim(t *testing.T) {
 	identity := id.String()              // the verbatim identity string that must persist unrewritten
 
 	// createProject — expectedVersion discipline: births at version 1.
-	v1, err := state.CreateProject(ctx, id, "alice", "My Cool System", "wf:create")
+	v1, err := state.CreateProject(fwra.Context{Context: ctx, IdempotencyKey: "wf:create"}, id, "alice", "My Cool System")
 	if err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
@@ -218,7 +219,7 @@ func TestProjectStateGitAdapter_CreateReadList_IdentityVerbatim(t *testing.T) {
 	}
 
 	// ReadProject — the identity round-trips whole.
-	proj, err := state.ReadProject(ctx, id)
+	proj, err := state.ReadProject(fwra.Context{Context: ctx}, id)
 	if err != nil {
 		t.Fatalf("ReadProject: %v", err)
 	}
@@ -250,7 +251,7 @@ func TestProjectStateGitAdapter_CreateReadList_IdentityVerbatim(t *testing.T) {
 
 	// ListProjects (discover-by-enumeration) surfaces the project keyed by the SAME
 	// identity — the repo IS the catalog row, name-as-identity end to end.
-	summaries, err := state.ListProjects(ctx, "alice")
+	summaries, err := state.ListProjects(fwra.Context{Context: ctx}, "alice")
 	if err != nil {
 		t.Fatalf("ListProjects: %v", err)
 	}
@@ -260,7 +261,7 @@ func TestProjectStateGitAdapter_CreateReadList_IdentityVerbatim(t *testing.T) {
 
 	// idempotencyKey discipline: a retried createProject with the SAME key is a no-op
 	// that returns the prior version (no double-create, no Conflict).
-	vDup, err := state.CreateProject(ctx, id, "alice", "My Cool System", "wf:create")
+	vDup, err := state.CreateProject(fwra.Context{Context: ctx, IdempotencyKey: "wf:create"}, id, "alice", "My Cool System")
 	if err != nil {
 		t.Fatalf("CreateProject retry (same key) should dedup, got: %v", err)
 	}

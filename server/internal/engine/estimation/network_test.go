@@ -3,32 +3,31 @@ package estimation
 import (
 	"testing"
 
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 )
 
 // diamond builds a small diamond network for the CPM tests: A(5) → B(5),C(15) → D(5).
 // Longest path A→C→D = 25 days; B carries 10 days of total float.
-func diamond() (projectstate.ActivityList, projectstate.Network) {
-	al := projectstate.ActivityList{Activities: []projectstate.ActivityItem{
-		{Name: "A", EffortDays: 5, WorkerClass: "dev"},
-		{Name: "B", EffortDays: 5, WorkerClass: "dev"},
-		{Name: "C", EffortDays: 15, WorkerClass: "dev"},
-		{Name: "D", EffortDays: 5, WorkerClass: "dev"},
+func diamond() (ActivityList, Network) {
+	al := ActivityList{Activities: []ActivityItem{
+		{Name: "A", EffortDays: 5},
+		{Name: "B", EffortDays: 5},
+		{Name: "C", EffortDays: 15},
+		{Name: "D", EffortDays: 5},
 	}}
-	net := projectstate.Network{
-		Dependencies: []projectstate.NetworkDependency{
+	net := Network{
+		Dependencies: []NetworkDependency{
 			{Activity: "B", DependsOn: []string{"A"}},
 			{Activity: "C", DependsOn: []string{"A"}},
 			{Activity: "D", DependsOn: []string{"B", "C"}},
 		},
-		CriticalPath: []string{"A", "C", "D"},
 	}
 	return al, net
 }
 
 func TestComputeNetwork_ForwardBackwardPass(t *testing.T) {
 	al, net := diamond()
-	sol, err := New().ComputeNetwork(al, net)
+	sol, err := NewEstimationEngine().ComputeNetwork(fweng.Context{}, al, net)
 	if err != nil {
 		t.Fatalf("ComputeNetwork: %v", err)
 	}
@@ -61,33 +60,33 @@ func TestComputeNetwork_ForwardBackwardPass(t *testing.T) {
 
 func TestComputeNetwork_BandClassification(t *testing.T) {
 	al, net := diamond()
-	sol, _ := New().ComputeNetwork(al, net)
+	sol, _ := NewEstimationEngine().ComputeNetwork(fweng.Context{}, al, net)
 
 	// On-CP nodes are critical.
-	if sol.Nodes["A"].Band != BandCritical || sol.Nodes["C"].Band != BandCritical {
+	if sol.Nodes["A"].Band != bandCritical || sol.Nodes["C"].Band != bandCritical {
 		t.Fatalf("on-CP nodes not critical: A=%s C=%s", sol.Nodes["A"].Band, sol.Nodes["C"].Band)
 	}
 	// B has 10 days float: > red (5) and ≤ yellow (25) ⇒ yellow.
-	if sol.Nodes["B"].Band != BandYellow {
+	if sol.Nodes["B"].Band != bandYellow {
 		t.Fatalf("B band = %s, want yellow (float 10)", sol.Nodes["B"].Band)
 	}
 }
 
 func TestComputeNetwork_BandPolicyThresholdsTunable(t *testing.T) {
 	// The band thresholds are a Strategy on the policy. Verify the boundaries directly.
-	p := BandPolicy{RedMaxDays: 5, YellowMaxDays: 25}
+	p := bandPolicy{RedMaxDays: 5, YellowMaxDays: 25}
 	cases := []struct {
 		onCP  bool
 		float float64
 		want  string
 	}{
-		{true, 0, BandCritical},
-		{true, 100, BandCritical}, // on-CP always critical regardless of float
-		{false, 0, BandRed},
-		{false, 5, BandRed},
-		{false, 6, BandYellow},
-		{false, 25, BandYellow},
-		{false, 26, BandGreen},
+		{true, 0, bandCritical},
+		{true, 100, bandCritical}, // on-CP always critical regardless of float
+		{false, 0, bandRed},
+		{false, 5, bandRed},
+		{false, 6, bandYellow},
+		{false, 25, bandYellow},
+		{false, 26, bandGreen},
 	}
 	for _, c := range cases {
 		if got := p.classify(c.onCP, c.float); got != c.want {
@@ -102,12 +101,12 @@ func TestComputeNetwork_BandPolicyThresholdsTunable(t *testing.T) {
 func TestComputeNetwork_MilestoneEventTimeAndRiskExclusion(t *testing.T) {
 	al, net := diamond()
 	// A milestone fanning in on D (max predecessor EF = 25) and one fanning in on B (10).
-	net.Milestones = []projectstate.NetworkMilestone{
-		{ID: "M-END", Name: "End", Public: true, DependsOn: []string{"D"}},
-		{ID: "M-MID", Name: "Mid", Public: false, DependsOn: []string{"B"}},
-		{ID: "M-START", Name: "Start", Public: true, DependsOn: nil},
+	net.Milestones = []NetworkMilestone{
+		{Id: "M-END", DependsOn: []string{"D"}},
+		{Id: "M-MID", DependsOn: []string{"B"}},
+		{Id: "M-START", DependsOn: nil},
 	}
-	sol, err := New().ComputeNetwork(al, net)
+	sol, err := NewEstimationEngine().ComputeNetwork(fweng.Context{}, al, net)
 	if err != nil {
 		t.Fatalf("ComputeNetwork: %v", err)
 	}
@@ -148,11 +147,11 @@ func TestComputeNetwork_MilestoneChaining(t *testing.T) {
 	al, net := diamond()
 	// N-LATE depends on M-END (a milestone). Authored BEFORE M-END to prove order-
 	// independence (the dependency-order milestone pass resolves the chain).
-	net.Milestones = []projectstate.NetworkMilestone{
-		{ID: "N-LATE", Name: "Late", Public: false, DependsOn: []string{"M-END"}},
-		{ID: "M-END", Name: "End", Public: true, DependsOn: []string{"D"}},
+	net.Milestones = []NetworkMilestone{
+		{Id: "N-LATE", DependsOn: []string{"M-END"}},
+		{Id: "M-END", DependsOn: []string{"D"}},
 	}
-	sol, err := New().ComputeNetwork(al, net)
+	sol, err := NewEstimationEngine().ComputeNetwork(fweng.Context{}, al, net)
 	if err != nil {
 		t.Fatalf("ComputeNetwork: %v", err)
 	}
@@ -182,10 +181,10 @@ func TestComputeNetwork_MilestoneChaining(t *testing.T) {
 // the determining predecessor — it finishes earlier, so it does not gate the event.)
 func TestComputeNetwork_MilestoneDeterminingPredOffCP(t *testing.T) {
 	al, net := diamond()
-	net.Milestones = []projectstate.NetworkMilestone{
-		{ID: "M-X", Name: "X", Public: false, DependsOn: []string{"A", "B"}},
+	net.Milestones = []NetworkMilestone{
+		{Id: "M-X", DependsOn: []string{"A", "B"}},
 	}
-	sol, _ := New().ComputeNetwork(al, net)
+	sol, _ := NewEstimationEngine().ComputeNetwork(fweng.Context{}, al, net)
 	m := sol.Milestones[0]
 	if m.EventTime != 10 {
 		t.Fatalf("M-X eventTime = %v, want 10 (determining pred B)", m.EventTime)
@@ -200,10 +199,10 @@ func TestComputeNetwork_MilestoneDeterminingPredOffCP(t *testing.T) {
 // project origin. No fan-out edge is required under the determining-predecessor rule.
 func TestComputeNetwork_StartGateMilestone(t *testing.T) {
 	al, net := diamond()
-	net.Milestones = []projectstate.NetworkMilestone{
-		{ID: "M0", Name: "SDP Review Approved", Public: true, DependsOn: nil},
+	net.Milestones = []NetworkMilestone{
+		{Id: "M0", DependsOn: nil},
 	}
-	sol, _ := New().ComputeNetwork(al, net)
+	sol, _ := NewEstimationEngine().ComputeNetwork(fweng.Context{}, al, net)
 	m := sol.Milestones[0]
 	if m.EventTime != 0 || !m.OnCriticalPath {
 		t.Fatalf("M0 start gate: %+v (want eventTime 0, on-CP via root convention)", m)
@@ -217,11 +216,11 @@ func TestComputeNetwork_StartGateMilestone(t *testing.T) {
 // ⇒ post-terminal ⇒ off-CP, even though its determining pred M-REL is on-CP.
 func TestComputeNetwork_PostTerminalMilestoneOffCP(t *testing.T) {
 	al, net := diamond()
-	net.Milestones = []projectstate.NetworkMilestone{
-		{ID: "M-REL", Name: "v1 Release", Public: true, DependsOn: []string{"D"}},    // det pred D (activity, on-CP, EF 25 = duration)
-		{ID: "M-POST", Name: "Post-v1", Public: false, DependsOn: []string{"M-REL"}}, // chained off the release milestone
+	net.Milestones = []NetworkMilestone{
+		{Id: "M-REL", DependsOn: []string{"D"}},    // det pred D (activity, on-CP, EF 25 = duration)
+		{Id: "M-POST", DependsOn: []string{"M-REL"}}, // chained off the release milestone
 	}
-	sol, _ := New().ComputeNetwork(al, net)
+	sol, _ := NewEstimationEngine().ComputeNetwork(fweng.Context{}, al, net)
 	byID := map[string]NetworkMilestoneSolution{}
 	for _, m := range sol.Milestones {
 		byID[m.ID] = m
@@ -235,7 +234,7 @@ func TestComputeNetwork_PostTerminalMilestoneOffCP(t *testing.T) {
 }
 
 func TestComputeNetwork_EmptyNetworkIsEmptyResultNotError(t *testing.T) {
-	sol, err := New().ComputeNetwork(projectstate.ActivityList{}, projectstate.Network{})
+	sol, err := NewEstimationEngine().ComputeNetwork(fweng.Context{}, ActivityList{}, Network{})
 	if err != nil {
 		t.Fatalf("empty network should not error: %v", err)
 	}
@@ -246,8 +245,8 @@ func TestComputeNetwork_EmptyNetworkIsEmptyResultNotError(t *testing.T) {
 
 func TestComputeNetwork_Deterministic(t *testing.T) {
 	al, net := diamond()
-	a, _ := New().ComputeNetwork(al, net)
-	b, _ := New().ComputeNetwork(al, net)
+	a, _ := NewEstimationEngine().ComputeNetwork(fweng.Context{}, al, net)
+	b, _ := NewEstimationEngine().ComputeNetwork(fweng.Context{}, al, net)
 	if a.Summary != b.Summary {
 		t.Fatal("summary not deterministic")
 	}
@@ -260,7 +259,7 @@ func TestComputeNetwork_Deterministic(t *testing.T) {
 
 func TestComputeNetwork_SummaryRollups(t *testing.T) {
 	al, net := diamond()
-	sol, _ := New().ComputeNetwork(al, net)
+	sol, _ := NewEstimationEngine().ComputeNetwork(fweng.Context{}, al, net)
 	// 3 on-CP (A,C,D), max float 10 (B), 0 near-critical (B's 10 > red threshold 5).
 	if sol.Summary.CriticalPathActivityCount != 3 {
 		t.Fatalf("CP count = %d, want 3", sol.Summary.CriticalPathActivityCount)

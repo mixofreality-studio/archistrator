@@ -13,8 +13,8 @@ import (
 
 // This file holds the Manager-owned Temporal Activity wrappers — one per
 // ResourceAccess call the workflow makes (projectDesignManager.md §6.4). They are
-// METHODS ON THE Workflows STRUCT: there is no separate Activities type. The RA
-// interface dependencies (ProjectState + Pipeline) live as fields on Workflows
+// METHODS ON THE workflows STRUCT: there is no separate Activities type. The RA
+// interface dependencies (ProjectState + Pipeline) live as fields on workflows
 // (see workflow.go) and are reached "on the struct", but the calls run inside
 // Temporal Activities because those RA operations are I/O / non-deterministic and
 // would break replay determinism if invoked on the workflow goroutine.
@@ -47,12 +47,24 @@ func activityIdempotencyKey(ctx context.Context) fwra.IdempotencyKey {
 // Temporal-serializable projectEnvelope (the typed slot Models are interfaces the
 // default JSON converter cannot decode — codec.go).
 
-func (wf *Workflows) ReadProjectActivity(ctx context.Context, projectID projectstate.ProjectID) (projectEnvelope, error) {
-	proj, err := wf.ProjectState.ReadProject(ctx, projectID)
+func (wf *workflows) ReadProjectActivity(ctx context.Context, projectID projectstate.ProjectID) (projectEnvelope, error) {
+	proj, err := wf.ProjectState.ReadProject(fwra.Context{Context: ctx}, projectID)
 	if err != nil {
 		return projectEnvelope{}, fwmanager.MapError(err)
 	}
 	return encodeProject(proj)
+}
+
+// ---- ReadProjectVersionActivity (wraps projectStateAccess.ReadProjectVersion) ----
+// Cheap version-only read; no idempotency key. Returns just the head-state Version
+// across the Temporal boundary instead of the whole encoded aggregate — the
+// applyRecovering Conflict loop needs only the token to re-seed its next attempt.
+func (wf *workflows) ReadProjectVersionActivity(ctx context.Context, projectID projectstate.ProjectID) (projectstate.Version, error) {
+	v, err := wf.ProjectState.ReadProjectVersion(fwra.Context{Context: ctx}, projectID)
+	if err != nil {
+		return 0, fwmanager.MapError(err)
+	}
+	return v, nil
 }
 
 // ReadProjectOnBranchActivity is the branch-aware read-back (I-DESIGN-DISPATCH §2a):
@@ -62,13 +74,13 @@ func (wf *Workflows) ReadProjectActivity(ctx context.Context, projectID projects
 // ReadProject (branch ignored) so a non-git/Postgres substrate is unperturbed. Pure
 // read; no idempotency key.
 
-// ReadProjectOnBranchArgs bundles the branch-aware read inputs.
-type ReadProjectOnBranchArgs struct {
+// readProjectOnBranchArgs bundles the branch-aware read inputs.
+type readProjectOnBranchArgs struct {
 	ProjectID projectstate.ProjectID
 	Branch    string
 }
 
-func (wf *Workflows) ReadProjectOnBranchActivity(ctx context.Context, a ReadProjectOnBranchArgs) (projectEnvelope, error) {
+func (wf *workflows) ReadProjectOnBranchActivity(ctx context.Context, a readProjectOnBranchArgs) (projectEnvelope, error) {
 	var (
 		proj projectstate.Project
 		err  error
@@ -76,7 +88,7 @@ func (wf *Workflows) ReadProjectOnBranchActivity(ctx context.Context, a ReadProj
 	if ba, ok := wf.ProjectState.(projectstate.BranchAwareProjectStateAccess); ok && a.Branch != "" {
 		proj, err = ba.ReadProjectOnBranch(ctx, a.ProjectID, a.Branch)
 	} else {
-		proj, err = wf.ProjectState.ReadProject(ctx, a.ProjectID)
+		proj, err = wf.ProjectState.ReadProject(fwra.Context{Context: ctx}, a.ProjectID)
 	}
 	if err != nil {
 		return projectEnvelope{}, fwmanager.MapError(err)
@@ -90,9 +102,9 @@ func (wf *Workflows) ReadProjectOnBranchActivity(ctx context.Context, a ReadProj
 // Temporal Type() and the workflow-level applyRecovering loop re-reads and
 // re-applies with the SAME key. Terminal on ContractMisuse.
 
-// StageArtifactForReviewArgs carries the TYPED model into its slot (the model is
+// stageArtifactForReviewArgs carries the TYPED model into its slot (the model is
 // carried as an envelope across the Temporal boundary — codec.go).
-type StageArtifactForReviewArgs struct {
+type stageArtifactForReviewArgs struct {
 	ProjectID       projectstate.ProjectID
 	ExpectedVersion projectstate.Version
 	Model           modelEnvelope
@@ -103,7 +115,7 @@ type StageArtifactForReviewArgs struct {
 	Branch string
 }
 
-func (wf *Workflows) StageArtifactForReviewActivity(ctx context.Context, a StageArtifactForReviewArgs) (projectstate.Version, error) {
+func (wf *workflows) StageArtifactForReviewActivity(ctx context.Context, a stageArtifactForReviewArgs) (projectstate.Version, error) {
 	model, err := a.Model.decode()
 	if err != nil {
 		return 0, fwmanager.MapError(err)
@@ -111,37 +123,37 @@ func (wf *Workflows) StageArtifactForReviewActivity(ctx context.Context, a Stage
 	if ba, ok := wf.ProjectState.(projectstate.BranchAwareProjectStateAccess); ok && a.Branch != "" {
 		return mapErr(ba.StageArtifactForReviewOnBranch(ctx, a.ProjectID, a.ExpectedVersion, a.Branch, model, activityIdempotencyKey(ctx)))
 	}
-	return mapErr(wf.ProjectState.StageArtifactForReview(ctx, a.ProjectID, a.ExpectedVersion, model, activityIdempotencyKey(ctx)))
+	return mapErr(wf.ProjectState.StageArtifactForReview(fwra.Context{Context: ctx, IdempotencyKey: activityIdempotencyKey(ctx)}, a.ProjectID, a.ExpectedVersion, model))
 }
 
-// MutateArtifactArgs bundles the inputs for the per-artifact review verbs that
+// mutateArtifactArgs bundles the inputs for the per-artifact review verbs that
 // key by Kind only (the model already lives in the slot from staging). Commit
 // ignores Notes; Reject/Withdraw carry the architect's notes.
-type MutateArtifactArgs struct {
+type mutateArtifactArgs struct {
 	ProjectID       projectstate.ProjectID
 	ExpectedVersion projectstate.Version
 	Kind            projectstate.ArtifactKind
 	Notes           string
 }
 
-func (wf *Workflows) CommitArtifactActivity(ctx context.Context, a MutateArtifactArgs) (projectstate.Version, error) {
-	return mapErr(wf.ProjectState.CommitArtifact(ctx, a.ProjectID, a.ExpectedVersion, a.Kind, activityIdempotencyKey(ctx)))
+func (wf *workflows) CommitArtifactActivity(ctx context.Context, a mutateArtifactArgs) (projectstate.Version, error) {
+	return mapErr(wf.ProjectState.CommitArtifact(fwra.Context{Context: ctx, IdempotencyKey: activityIdempotencyKey(ctx)}, a.ProjectID, a.ExpectedVersion, a.Kind))
 }
 
-func (wf *Workflows) RejectArtifactActivity(ctx context.Context, a MutateArtifactArgs) (projectstate.Version, error) {
-	return mapErr(wf.ProjectState.RejectArtifact(ctx, a.ProjectID, a.ExpectedVersion, a.Kind, a.Notes, activityIdempotencyKey(ctx)))
+func (wf *workflows) RejectArtifactActivity(ctx context.Context, a mutateArtifactArgs) (projectstate.Version, error) {
+	return mapErr(wf.ProjectState.RejectArtifact(fwra.Context{Context: ctx, IdempotencyKey: activityIdempotencyKey(ctx)}, a.ProjectID, a.ExpectedVersion, a.Kind, a.Notes))
 }
 
-func (wf *Workflows) WithdrawArtifactActivity(ctx context.Context, a MutateArtifactArgs) (projectstate.Version, error) {
-	return mapErr(wf.ProjectState.WithdrawArtifact(ctx, a.ProjectID, a.ExpectedVersion, a.Kind, a.Notes, activityIdempotencyKey(ctx)))
+func (wf *workflows) WithdrawArtifactActivity(ctx context.Context, a mutateArtifactArgs) (projectstate.Version, error) {
+	return mapErr(wf.ProjectState.WithdrawArtifact(fwra.Context{Context: ctx, IdempotencyKey: activityIdempotencyKey(ctx)}, a.ProjectID, a.ExpectedVersion, a.Kind, a.Notes))
 }
 
-// AdvancePhaseArgs bundles the seal verb's inputs for the Activity boundary.
-type AdvancePhaseArgs struct {
+// advancePhaseArgs bundles the seal verb's inputs for the Activity boundary.
+type advancePhaseArgs struct {
 	ProjectID       projectstate.ProjectID
 	ExpectedVersion projectstate.Version
 }
 
-func (wf *Workflows) AdvancePhaseActivity(ctx context.Context, a AdvancePhaseArgs) (projectstate.Version, error) {
-	return mapErr(wf.ProjectState.AdvancePhase(ctx, a.ProjectID, a.ExpectedVersion, activityIdempotencyKey(ctx)))
+func (wf *workflows) AdvancePhaseActivity(ctx context.Context, a advancePhaseArgs) (projectstate.Version, error) {
+	return mapErr(wf.ProjectState.AdvancePhase(fwra.Context{Context: ctx, IdempotencyKey: activityIdempotencyKey(ctx)}, a.ProjectID, a.ExpectedVersion))
 }

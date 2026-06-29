@@ -22,7 +22,7 @@ package settlement
 // delivered as durable Signals to the affected cycle's workflow.
 const (
 	// SignalInboundRevenueReceived backs RecordInboundRevenue (op 2.5).
-	SignalInboundRevenueReceived = "inboundRevenueReceived"
+	signalInboundRevenueReceived = "inboundRevenueReceived"
 	// SignalChargebackReceived backs RecordRevenueReversal (op 2.6).
-	SignalChargebackReceived = "chargebackReceived"
+	signalChargebackReceived = "chargebackReceived"
 )

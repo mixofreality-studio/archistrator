@@ -7,7 +7,7 @@
  * client just issues plain fetches.
  */
 import createClient from 'openapi-fetch';
-import type { paths, components } from './schema';
+import type { paths } from './schema';
 import { config } from '../config';
 
 /** Stable, app-facing error raised when the server returns a non-2xx response. */
@@ -26,13 +26,19 @@ export class ApiError extends Error {
 export const apiClient = createClient<paths>({ baseUrl: config.apiBaseUrl });
 
 /**
- * Normalizes an openapi-fetch error envelope into an ApiError. The server's
- * ErrorResponse ({ error, code }) is the documented failure shape.
+ * The per-manager error envelopes are byte-identical ({ code, error }); the SPA
+ * treats them uniformly via this structural shape.
  */
-export function toApiError(
-  status: number,
-  error: components['schemas']['ErrorResponse'] | undefined
-): ApiError {
+export interface WireError {
+  code?: string;
+  error?: string;
+}
+
+/**
+ * Normalizes an openapi-fetch error envelope into an ApiError. Every manager's
+ * *ErrorResponse ({ error, code }) is the documented failure shape.
+ */
+export function toApiError(status: number, error: WireError | undefined): ApiError {
   const code = error?.code ?? 'internal';
   const detail = error?.error ?? `request failed with status ${String(status)}`;
   return new ApiError(status, code, detail);

@@ -10,11 +10,11 @@ package estimation
 // CONTRACT (architecture.dsl:695): ComputeNetwork(activities, dependencies) →
 // {per-node ES/EF/LS/LF, total/free float, onCriticalPath, nearCritical, criticality
 // band, column, network summary}. Band classification is a Policy Strategy ON this
-// Engine (DefaultBandPolicy) — NOT a new component.
+// Engine (defaultBandPolicy) — NOT a new component.
 //
 // LAYER DISCIPLINE (unchanged from estimation.go): Engine layer — pure, deterministic,
 // in-workflow. NO I/O, NO time, NO rand, NO goroutines, NO outbound calls. Imports ONLY
-// the input value types (projectstate) and the framework-go Engine error model. The
+// its OWN generated contract types and the framework-go Engine error model. The
 // projectManager calls this directly at read time; its determinism is what makes that
 // safe (identical network → identical solution, always).
 
@@ -22,8 +22,6 @@ import (
 	"sort"
 
 	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
-
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
 // floatEpsilon absorbs float64 rounding on the total-float (LS−ES) subtraction so the
@@ -31,13 +29,13 @@ import (
 // 5-day quanta so exact-zero is the norm; the epsilon is a guard, not a tolerance band.
 const floatEpsilon = 1e-9
 
-// BandPolicy is the float-criticality band classification Strategy (Löwy ch.8 §2). The
+// bandPolicy is the float-criticality band classification Strategy (Löwy ch.8 §2). The
 // thresholds are ABSOLUTE day-counts kept on the policy so they are TUNABLE without
 // touching the solve: a node ON the critical path is `critical`; otherwise `red` at
 // float ≤ RedMaxDays, `yellow` at RedMaxDays < float ≤ YellowMaxDays, `green` above.
 // The near-critical flag (off-CP but tight) keys off the SAME RedMaxDays boundary so
 // the band colour-coding and the near-critical roll-up never drift apart.
-type BandPolicy struct {
+type bandPolicy struct {
 	// RedMaxDays is the inclusive upper bound of the red (near-critical) band, in days.
 	RedMaxDays float64
 	// YellowMaxDays is the inclusive upper bound of the yellow band, in days; above it
@@ -45,37 +43,37 @@ type BandPolicy struct {
 	YellowMaxDays float64
 }
 
-// DefaultBandPolicy is the launch band Strategy — the absolute thresholds the retired
+// defaultBandPolicy is the launch band Strategy — the absolute thresholds the retired
 // client-side toNetworkView used (red ≤ 5d, yellow 6–25d, green ≥ 26d), now the single
 // server-side source of truth.
-var DefaultBandPolicy = BandPolicy{RedMaxDays: 5, YellowMaxDays: 25}
+var defaultBandPolicy = bandPolicy{RedMaxDays: 5, YellowMaxDays: 25}
 
 // Band band names (the wire-stable strings the SPA colour-codes on).
 const (
-	BandCritical = "critical"
-	BandRed      = "red"
-	BandYellow   = "yellow"
-	BandGreen    = "green"
+	bandCritical = "critical"
+	bandRed      = "red"
+	bandYellow   = "yellow"
+	bandGreen    = "green"
 )
 
 // classify returns the float-criticality band for a node. onCriticalPath wins; else the
 // absolute float thresholds apply.
-func (p BandPolicy) classify(onCriticalPath bool, totalFloat float64) string {
+func (p bandPolicy) classify(onCriticalPath bool, totalFloat float64) string {
 	if onCriticalPath {
-		return BandCritical
+		return bandCritical
 	}
 	if totalFloat <= p.RedMaxDays {
-		return BandRed
+		return bandRed
 	}
 	if totalFloat <= p.YellowMaxDays {
-		return BandYellow
+		return bandYellow
 	}
-	return BandGreen
+	return bandGreen
 }
 
 // nearCritical reports whether an off-CP node falls inside the near-critical band
 // (float ≤ RedMaxDays). On-CP nodes are never near-critical (they ARE critical).
-func (p BandPolicy) nearCritical(onCriticalPath bool, totalFloat float64) bool {
+func (p bandPolicy) nearCritical(onCriticalPath bool, totalFloat float64) bool {
 	return !onCriticalPath && totalFloat <= p.RedMaxDays
 }
 
@@ -95,8 +93,8 @@ func (p BandPolicy) nearCritical(onCriticalPath bool, totalFloat float64) bool {
 // input the Manager should never assemble): an InternalInvariant guard catches a
 // computed negative duration. An empty network is a normal DOMAIN result (an empty
 // solution), NOT an error — a project may be read before its network is authored.
-func (engine) ComputeNetwork(activities projectstate.ActivityList, network projectstate.Network) (NetworkSolution, error) {
-	effortByName := make(map[string]projectstate.ActivityItem, len(activities.Activities))
+func (EstimationEngineImpl) ComputeNetwork(_ fweng.Context, activities ActivityList, network Network) (NetworkSolution, error) {
+	effortByName := make(map[string]ActivityItem, len(activities.Activities))
 	for _, a := range activities.Activities {
 		effortByName[a.Name] = a
 	}
@@ -112,7 +110,7 @@ func (engine) ComputeNetwork(activities projectstate.ActivityList, network proje
 	// earliestStart == earliestFinish.
 	milestoneIDs := map[string]struct{}{}
 	for _, m := range network.Milestones {
-		milestoneIDs[m.ID] = struct{}{}
+		milestoneIDs[m.Id] = struct{}{}
 	}
 
 	// The node universe = everything named in activity dependencies (activities + their
@@ -126,7 +124,7 @@ func (engine) ComputeNetwork(activities projectstate.ActivityList, network proje
 		}
 	}
 	for _, m := range network.Milestones {
-		idSet[m.ID] = struct{}{}
+		idSet[m.Id] = struct{}{}
 		for _, p := range m.DependsOn {
 			idSet[p] = struct{}{}
 		}
@@ -154,8 +152,8 @@ func (engine) ComputeNetwork(activities projectstate.ActivityList, network proje
 	// predecessor (e.g. a design root dependsOn M0).
 	for _, m := range network.Milestones {
 		for _, p := range m.DependsOn {
-			predecessors[m.ID] = append(predecessors[m.ID], p)
-			successors[p] = append(successors[p], m.ID)
+			predecessors[m.Id] = append(predecessors[m.Id], p)
+			successors[p] = append(successors[p], m.Id)
 		}
 	}
 
@@ -212,9 +210,9 @@ func (engine) ComputeNetwork(activities projectstate.ActivityList, network proje
 	}
 
 	// Column = longest-path depth from a source (topological layering for the swimlanes).
-	col := map[string]int{}
+	col := map[string]int64{}
 	for _, id := range order {
-		c := 0
+		var c int64
 		for _, p := range predecessors[id] {
 			if col[p]+1 > c {
 				c = col[p] + 1
@@ -280,8 +278,8 @@ func (engine) ComputeNetwork(activities projectstate.ActivityList, network proje
 			TotalFloat:     total,
 			FreeFloat:      free,
 			OnCriticalPath: onCP,
-			NearCritical:   DefaultBandPolicy.nearCritical(onCP, total),
-			Band:           DefaultBandPolicy.classify(onCP, total),
+			NearCritical:   defaultBandPolicy.nearCritical(onCP, total),
+			Band:           defaultBandPolicy.classify(onCP, total),
 			Column:         col[id],
 		}
 	}
@@ -296,8 +294,8 @@ func (engine) ComputeNetwork(activities projectstate.ActivityList, network proje
 	// Summary roll-up over the ACTIVITY nodes (milestones excluded — they are events,
 	// not work). criticalPathDays == projectDuration (the longest path IS the CP length;
 	// it is NOT the sum of CP-activity durations, which double-counts parallel branches).
-	cpCount := 0
-	nearCount := 0
+	var cpCount int64
+	var nearCount int64
 	maxFloat := 0.0
 	for _, n := range nodes {
 		if n.OnCriticalPath {
@@ -352,7 +350,7 @@ func (engine) ComputeNetwork(activities projectstate.ActivityList, network proje
 // Milestones are resolved in dependency order (a milestone depending on another milestone
 // is solved after it). Authored list order is preserved in the returned slice.
 func solveMilestonesOnCP(
-	authored []projectstate.NetworkMilestone,
+	authored []NetworkMilestone,
 	milestoneIDs map[string]struct{},
 	predecessors map[string][]string,
 	earlyFinish map[string]float64,
@@ -375,12 +373,12 @@ func solveMilestonesOnCP(
 		return activityOnCP[id]
 	}
 
-	solveOne := func(m projectstate.NetworkMilestone) NetworkMilestoneSolution {
-		event := earlyFinish[m.ID] // milestone-aware EF (chaining already folded in)
+	solveOne := func(m NetworkMilestone) NetworkMilestoneSolution {
+		event := earlyFinish[m.Id] // milestone-aware EF (chaining already folded in)
 
 		// ROOT convention: no predecessors ⇒ the project-start gate, on-CP.
 		if len(m.DependsOn) == 0 {
-			return NetworkMilestoneSolution{ID: m.ID, OnCriticalPath: true, EventTime: event}
+			return NetworkMilestoneSolution{ID: m.Id, OnCriticalPath: true, EventTime: event}
 		}
 
 		// Find the DETERMINING predecessor: max finish time; on a tie prefer an on-CP one.
@@ -414,17 +412,17 @@ func solveMilestonesOnCP(
 			}
 		}
 
-		return NetworkMilestoneSolution{ID: m.ID, OnCriticalPath: onCP, EventTime: event}
+		return NetworkMilestoneSolution{ID: m.Id, OnCriticalPath: onCP, EventTime: event}
 	}
 
 	// Resolve in dependency order (fixpoint): a milestone whose milestone-predecessors are
 	// all solved is resolvable; iterate until no progress, then force the remainder (breaks
 	// any authoring cycle deterministically).
-	pending := make([]projectstate.NetworkMilestone, len(authored))
+	pending := make([]NetworkMilestone, len(authored))
 	copy(pending, authored)
 	for len(pending) > 0 {
 		progressed := false
-		var still []projectstate.NetworkMilestone
+		var still []NetworkMilestone
 		for _, m := range pending {
 			ready := true
 			for _, p := range m.DependsOn {
@@ -436,7 +434,7 @@ func solveMilestonesOnCP(
 				}
 			}
 			if ready {
-				solved[m.ID] = solveOne(m)
+				solved[m.Id] = solveOne(m)
 				progressed = true
 			} else {
 				still = append(still, m)
@@ -444,8 +442,8 @@ func solveMilestonesOnCP(
 		}
 		if !progressed {
 			for _, m := range still {
-				if _, done := solved[m.ID]; !done {
-					solved[m.ID] = solveOne(m)
+				if _, done := solved[m.Id]; !done {
+					solved[m.Id] = solveOne(m)
 				}
 			}
 			break
@@ -455,7 +453,7 @@ func solveMilestonesOnCP(
 
 	out := make([]NetworkMilestoneSolution, 0, len(authored))
 	for _, m := range authored {
-		out = append(out, solved[m.ID])
+		out = append(out, solved[m.Id])
 	}
 	return out
 }
@@ -519,39 +517,15 @@ func topoOrder(idSet map[string]struct{}, predecessors map[string][]string) []st
 // computed milestone event nodes, and the project summary. The projectManager maps this
 // onto the projectstate.Network computed block at read time. Construction-side / read-
 // side ONLY — no cost, no payout (those are EstimateForOption's facets).
-type NetworkSolution struct {
-	Nodes      map[string]NetworkNode     // keyed by activity id
-	Milestones []NetworkMilestoneSolution // computed event nodes, authored order preserved
-	Summary    NetworkSummary
-}
+
+// keyed by activity id
+// computed event nodes, authored order preserved
 
 // NetworkNode is the per-activity CPM result for one dependency-graph node.
-type NetworkNode struct {
-	EarliestStart  float64
-	EarliestFinish float64
-	LatestStart    float64
-	LatestFinish   float64
-	TotalFloat     float64
-	FreeFloat      float64
-	OnCriticalPath bool
-	NearCritical   bool
-	Band           string // critical|red|yellow|green
-	Column         int
-}
+
+// critical|red|yellow|green
 
 // NetworkMilestoneSolution is the computed facet of one milestone event node (the
 // authored id + the computed on-CP/event-time). Excluded from risk.
-type NetworkMilestoneSolution struct {
-	ID             string
-	OnCriticalPath bool
-	EventTime      float64
-}
 
 // NetworkSummary is the project-level CPM roll-up.
-type NetworkSummary struct {
-	TotalDurationDays         float64
-	CriticalPathActivityCount int
-	CriticalPathDays          float64
-	MaxFloat                  float64
-	NearCriticalCount         int
-}

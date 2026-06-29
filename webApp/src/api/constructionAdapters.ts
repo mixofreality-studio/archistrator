@@ -16,8 +16,12 @@
  *   - The ACTIVE-ACTIVITY DETAIL (stage, pipeline phase, reviewer set, variance)
  *     comes from the live construction session endpoint.
  */
-import type { ConstructionSessionState, ConstructionStage } from './construction';
-import type { ConstructionRow, NetworkModel } from './types';
+import type {
+  ConstructionSessionState,
+  ConstructionStage,
+  ConstructionRow,
+  NetworkModel,
+} from './types';
 
 /** The build-status lens applied to a tracker node — mirrors the mock BuildStatus. */
 export type BuildStatus =

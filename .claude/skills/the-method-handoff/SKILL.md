@@ -13,14 +13,14 @@ Per `[[the-method-doctrine]]` Directive 5: *Design iteratively, build incrementa
 
 ## Canonical source
 
-**Primary:** Löwy, [Ch. 14 §5 "The Hand-Off"](../../../../rightingsoftware/OEBPS/xhtml/ch14.xhtml#ch14lev1sec5).
+**Primary:** Löwy, [Ch. 14 §5 "The Hand-Off"](../../../research/rightingsoftware/OEBPS/xhtml/ch14.xhtml#ch14lev1sec5).
 
 Sub-sections walked below:
-- [§5 "Junior Hand-Off"](../../../../rightingsoftware/OEBPS/xhtml/ch14.xhtml#ch14lev2sec9)
-- [§5 "Senior Hand-Off"](../../../../rightingsoftware/OEBPS/xhtml/ch14.xhtml#ch14lev2sec10)
-- [§5 "Senior Developers As Junior Architects"](../../../../rightingsoftware/OEBPS/xhtml/ch14.xhtml#ch14lev2sec11)
+- [§5 "Junior Hand-Off"](../../../research/rightingsoftware/OEBPS/xhtml/ch14.xhtml#ch14lev2sec9)
+- [§5 "Senior Hand-Off"](../../../research/rightingsoftware/OEBPS/xhtml/ch14.xhtml#ch14lev2sec10)
+- [§5 "Senior Developers As Junior Architects"](../../../research/rightingsoftware/OEBPS/xhtml/ch14.xhtml#ch14lev2sec11)
 
-**Standard reference:** [App C §6 "Service Contract Design Guidelines"](../../../../rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec6) items 5 ("Avoid junior hand-offs") and 6 ("Have only the architect or competent senior developers design the contracts").
+**Standard reference:** [App C §6 "Service Contract Design Guidelines"](../../../research/rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec6) items 5 ("Avoid junior hand-offs") and 6 ("Have only the architect or competent senior developers design the contracts").
 
 ## Input
 

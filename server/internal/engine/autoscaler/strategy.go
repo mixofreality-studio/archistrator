@@ -127,7 +127,7 @@ func lowCPUSustained(t Telemetry, cur DesiredState, p AutoscalerPolicy) bool {
 // by SLA tier; the launch strategy bumps the baseline by one replica per tier
 // step above Free, clamped into [MinReplicas, MaxReplicas]. ToBaseline is always
 // ≥ 1 (resuming from zero must bring the app back up).
-func resumeBaseline(p AutoscalerPolicy) int {
+func resumeBaseline(p AutoscalerPolicy) int64 {
 	base := p.BaselineReplicas + slaTierBump(p.SLATier)
 	if base < 1 {
 		base = 1
@@ -137,7 +137,7 @@ func resumeBaseline(p AutoscalerPolicy) int {
 
 // slaTierBump is the launch strategy's SLA modulation: Free +0, Paid +1,
 // Enterprise +2 over the policy baseline.
-func slaTierBump(tier SLATier) int {
+func slaTierBump(tier SLATier) int64 {
 	switch tier {
 	case SLATierPaid:
 		return 1
@@ -179,7 +179,7 @@ func scaleDown(cur DesiredState, p AutoscalerPolicy, code ReasonCode, detail str
 
 // boundStep returns the scale-up step bounded by MaxStepDelta and MaxBurstCap.
 // A non-positive MaxStepDelta means "no per-step bound" and defaults the step to 1.
-func boundStep(p AutoscalerPolicy) int {
+func boundStep(p AutoscalerPolicy) int64 {
 	step := p.MaxStepDelta
 	if step <= 0 {
 		step = 1
@@ -192,7 +192,7 @@ func boundStep(p AutoscalerPolicy) int {
 
 // boundStepDown returns the scale-down step bounded by MaxStepDelta (MaxBurstCap
 // caps bursts up, not down). A non-positive MaxStepDelta defaults the step to 1.
-func boundStepDown(p AutoscalerPolicy) int {
+func boundStepDown(p AutoscalerPolicy) int64 {
 	step := p.MaxStepDelta
 	if step <= 0 {
 		step = 1
@@ -201,7 +201,7 @@ func boundStepDown(p AutoscalerPolicy) int {
 }
 
 // clampReplicas clamps a replica count into [MinReplicas, MaxReplicas].
-func clampReplicas(n int, p AutoscalerPolicy) int {
+func clampReplicas(n int64, p AutoscalerPolicy) int64 {
 	if n < p.MinReplicas {
 		n = p.MinReplicas
 	}

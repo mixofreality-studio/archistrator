@@ -31,6 +31,27 @@ type modelEnvelope struct {
 	Model json.RawMessage           `json:"model,omitempty"`
 }
 
+// draftModelFor builds the OPAQUE public DraftModel envelope ({kind, model}) the
+// session read carries the staged typed draft (or assembled SdpReview) as. Kind is
+// the artifactKind's canonical camelCase wire name (always set, so the SPA gets
+// {"kind":"planningAssumptions"} even before a draft is staged); Model is the concrete
+// model's own JSON, omitted when nil. This is the public-surface twin of modelEnvelope
+// (the Temporal/Activity carrier) — the same {kind, model} wire shape the SPA decodes,
+// with Kind as a plain string so the generated contract carries no projectstate
+// ArtifactKind.
+func draftModelFor(kind ArtifactKind, model projectstate.ArtifactModel) (DraftModel, error) {
+	env := DraftModel{Kind: artifactKindWireName(kind)}
+	if model != nil {
+		raw, err := json.Marshal(model)
+		if err != nil {
+			return DraftModel{}, fmt.Errorf("encode draft model %s: %w", model.Kind(), err)
+		}
+		rm := json.RawMessage(raw)
+		env.Model = &rm
+	}
+	return env, nil
+}
+
 // encodeModel wraps a (possibly nil) typed model into its envelope.
 func encodeModel(model projectstate.ArtifactModel) (modelEnvelope, error) {
 	if model == nil {

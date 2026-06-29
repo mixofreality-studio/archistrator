@@ -100,10 +100,10 @@ func TestPickWorkerClass(t *testing.T) {
 		},
 	}
 
-	eng := New()
+	eng := NewHandOffEngine()
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := eng.PickWorkerClass(tc.activity, tc.policy)
+			got, err := eng.PickWorkerClass(fweng.Context{}, tc.activity, tc.policy)
 
 			if tc.wantErrKind != noErr {
 				if err == nil {
@@ -145,7 +145,7 @@ func TestArchitectOnlyIsANormalClass(t *testing.T) {
 	if cast != ArchitectOnly {
 		t.Fatalf("architectOnlyStrategy cast %v, want ArchitectOnly", cast)
 	}
-	if !cast.valid() {
+	if !workerClassValid(cast) {
 		t.Fatalf("ArchitectOnly must be a valid (registered, non-error) class")
 	}
 }
@@ -168,7 +168,7 @@ func pickWith(activity ConstructionActivity, cast WorkerClass) (WorkerClass, err
 	if cast == WorkerClassUnknown {
 		return WorkerClassUnknown, fweng.New(fweng.InvalidInput, "test: unsupported class")
 	}
-	if !cast.valid() {
+	if !workerClassValid(cast) {
 		return WorkerClassUnknown, fweng.New(fweng.InternalInvariant, "test: out-of-range class")
 	}
 	return cast, nil
@@ -207,7 +207,7 @@ func TestGuardBranches(t *testing.T) {
 	}
 	for i, s := range strategies {
 		cast := s.pickWorkerClass(activity("manager"))
-		if !cast.valid() {
+		if !workerClassValid(cast) {
 			t.Errorf("strategy #%d cast an invalid class %v", i, cast)
 		}
 	}
@@ -216,12 +216,12 @@ func TestGuardBranches(t *testing.T) {
 // TestDeterminism asserts the pure-function contract (FU-HE-A twice-called
 // identical-output): identical (activity, policy) twice -> identical class.
 func TestDeterminism(t *testing.T) {
-	eng := New()
+	eng := NewHandOffEngine()
 	a := activity("manager")
 	p := HandOffPolicy{PreferAI: true, SeniorOnlyLayers: []string{"manager"}}
 
-	first, err1 := eng.PickWorkerClass(a, p)
-	second, err2 := eng.PickWorkerClass(a, p)
+	first, err1 := eng.PickWorkerClass(fweng.Context{}, a, p)
+	second, err2 := eng.PickWorkerClass(fweng.Context{}, a, p)
 	if err1 != nil || err2 != nil {
 		t.Fatalf("unexpected errors: %v / %v", err1, err2)
 	}
@@ -236,11 +236,11 @@ func TestDeterminism(t *testing.T) {
 // TestReentrancy_NoSharedMutableState asserts contract §6 invariant 3: mutating
 // the caller's SeniorOnlyLayers slice after a call must not affect a later call.
 func TestReentrancy_NoSharedMutableState(t *testing.T) {
-	eng := New()
+	eng := NewHandOffEngine()
 	layers := []string{"manager"}
 	p := HandOffPolicy{PreferAI: true, SeniorOnlyLayers: layers}
 
-	got1, err := eng.PickWorkerClass(activity("manager"), p)
+	got1, err := eng.PickWorkerClass(fweng.Context{}, activity("manager"), p)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -250,7 +250,7 @@ func TestReentrancy_NoSharedMutableState(t *testing.T) {
 
 	// Caller mutates the slice header contents; the Engine snapshots per call.
 	layers[0] = "engine"
-	got2, err := eng.PickWorkerClass(activity("manager"), HandOffPolicy{PreferAI: true, SeniorOnlyLayers: layers})
+	got2, err := eng.PickWorkerClass(fweng.Context{}, activity("manager"), HandOffPolicy{PreferAI: true, SeniorOnlyLayers: layers})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -271,8 +271,8 @@ func TestWorkerClassString(t *testing.T) {
 		WorkerClassUnknown: "unknown",
 	}
 	for c, want := range cases {
-		if got := c.String(); got != want {
-			t.Errorf("WorkerClass(%d).String() = %q, want %q", c, got, want)
+		if got := workerClassString(c); got != want {
+			t.Errorf("workerClassString(WorkerClass(%d)) = %q, want %q", c, got, want)
 		}
 	}
 }

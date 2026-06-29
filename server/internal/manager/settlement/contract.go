@@ -37,8 +37,6 @@
 package settlement
 
 import (
-	"time"
-
 	"github.com/google/uuid"
 
 	fwmgr "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
@@ -60,16 +58,16 @@ import (
 // CustomerID is the canonical settlement aggregate identity (settlementManager.md
 // §3.0). One settlement aggregate per customer; shared by revenueLedgerAccess,
 // usageAccess, and (post FU-MST-1) settlementStateAccess.
-type CustomerID = uuid.UUID
+type customerID = uuid.UUID
 
 // CycleID is the billing cycle a settlement folds at close. Agreed string across
 // revenueLedgerAccess / usageAccess / settlementStateAccess (settlementManager.md §3.0).
-type CycleID = string
+type cycleID = string
 
 // DeployedAppID is the operated-app identity owned by the operations side; it is
 // NOT the settlement aggregate key. op 2.1 resolves it to a CustomerID
 // (settlementManager.md §3.0 / §2.1).
-type DeployedAppID = uuid.UUID
+type deployedAppID = uuid.UUID
 
 // ---------------------------------------------------------------------------
 // Money — exact integer minor units + currency. NEVER a float (settlementManager.md
@@ -80,22 +78,32 @@ type DeployedAppID = uuid.UUID
 
 // Money is a signed amount in minor units (cents) plus an ISO-4217 currency. The
 // shared money value type the Engine produces and this Manager routes.
-type Money struct {
-	MinorUnits int64  `json:"minorUnits"` // signed; e.g. 1299 == 12.99; reversals carry a negative value
-	Currency   string `json:"currency"`   // ISO-4217, e.g. "USD"
-}
+
+// signed; e.g. 1299 == 12.99; reversals carry a negative value
+// ISO-4217, e.g. "USD"
 
 // ---------------------------------------------------------------------------
-// RoutingDirective — settlementEngine-owned (settlementEngine.md §3); MIRRORED here
-// as the Manager-local seam (deps.go RoutingDirectiveSeam) and re-exported as the
-// façade RoutingDirective for the CloseCycleResult. The Engine STATES the directive;
-// this Manager EXECUTES it (settlementManager.md §0 decision 2).
+// RoutingDirective — the façade's OWN copy of which way the signed net routed
+// (settlementManager.md §3). The canonical decision is settlementEngine-owned
+// (settlementEngine.md §3), MIRRORED at the Manager-local seam (deps.go
+// RoutingDirectiveSeam) the Engine returns; this OWN enum is what the public
+// CloseCycleResult exposes. FULL ENCAPSULATION: the generated contract must carry
+// settlement's OWN type, not the deps.go seam, so the workflow converts at the
+// boundary (RoutingDirective(seam)). The Engine STATES the directive; this Manager
+// EXECUTES it (settlementManager.md §0 decision 2). The iota order matches the seam.
 // ---------------------------------------------------------------------------
 
-// RoutingDirective is which way the signed net routes (settlementManager.md §3 /
-// settlementEngine.md §3). A VALUE the Engine returns; the Manager executes it
-// against merchantGatewayAccess.
-type RoutingDirective = RoutingDirectiveSeam
+// RoutingDirective is which way the signed net routed, on the public façade result
+// (settlementManager.md §3). A VALUE the Manager records after executing the Engine's
+// routing decision against merchantGatewayAccess. The canonical-name lookup lives in
+// behavior.go as the free function routingDirectiveName (so the generated enum carries
+// no behavior).
+
+// RoutingDirectiveNoAction is net == 0 (or a recompute delta == 0) — skipped.
+
+// RoutingDirectivePayout is net > 0 — payoutCustomer was called.
+
+// RoutingDirectiveCharge is net < 0 — chargeCustomer was called.
 
 // ---------------------------------------------------------------------------
 // Public façade return values (settlementManager.md §3). These are this Manager's
@@ -106,29 +114,18 @@ type RoutingDirective = RoutingDirectiveSeam
 
 // SettlementRef is the continuity token returned by onboarding / registration
 // (settlementManager.md §3).
-type SettlementRef struct {
-	CustomerID CustomerID `json:"customerId"`
-}
 
 // CloseCycleResult is the result of CloseSettlementCycle (settlementManager.md §3).
 // SignedNet is NOT surfaced raw — it is recorded in settlementStateAccess; the read
 // path is settlementStateAccess.readSettlement (the CQRS split, §6.6). Routed states
 // which directive the Manager executed.
-type CloseCycleResult struct {
-	CustomerID CustomerID       `json:"customerId"`
-	CycleID    CycleID          `json:"cycleId"`
-	Routed     RoutingDirective `json:"routed"`
-	// Escalated is true when the charge failed and interventionEngine returned
-	// Escalate (the customer is flagged delinquent on head-state; OQ-4 / §6.3). The
-	// operator dashboard reads it via settlementStateAccess.readSettlement.
-	Escalated bool `json:"escalated"`
-}
+
+// Escalated is true when the charge failed and interventionEngine returned
+// Escalate (the customer is flagged delinquent on head-state; OQ-4 / §6.3). The
+// operator dashboard reads it via settlementStateAccess.readSettlement.
 
 // ShortfallSweepResult is the result of RunShortfallSweep (settlementManager.md §3).
 // SignalledCustomers may be empty — a quiet sweep is a normal outcome.
-type ShortfallSweepResult struct {
-	SignalledCustomers []CustomerID `json:"signalledCustomers"`
-}
 
 // ---------------------------------------------------------------------------
 // Webhook payload inputs (settlementManager.md §3). These façade input types carry
@@ -139,25 +136,19 @@ type ShortfallSweepResult struct {
 
 // GatewayRevenueEvent is the verified inbound-revenue webhook body (op 2.5). The
 // gateway event id is the append's dedup token (revenueLedgerAccess dedups on it).
-type GatewayRevenueEvent struct {
-	GatewayEventID string     `json:"gatewayEventId"` // globally-unique dedup token
-	CustomerID     CustomerID `json:"customerId"`
-	CycleID        CycleID    `json:"cycleId"`
-	Amount         Money      `json:"amount"`     // signed minor units + currency (inbound: positive)
-	OccurredAt     time.Time  `json:"occurredAt"` // gateway-supplied
-}
+
+// globally-unique dedup token
+
+// signed minor units + currency (inbound: positive)
+// gateway-supplied
 
 // GatewayReversalEvent is the verified chargeback/reversal webhook body (op 2.6). The
 // chargeback's own gateway event id is the dedup token; ReversesGatewayEventID is an
 // optional back-link to the inbound entry it reverses.
-type GatewayReversalEvent struct {
-	GatewayEventID         string     `json:"gatewayEventId"` // the chargeback's own dedup token
-	CustomerID             CustomerID `json:"customerId"`
-	CycleID                CycleID    `json:"cycleId"`
-	Amount                 Money      `json:"amount"` // negative minor units + currency
-	ReversesGatewayEventID string     `json:"reversesGatewayEventId,omitempty"`
-	OccurredAt             time.Time  `json:"occurredAt"`
-}
+
+// the chargeback's own dedup token
+
+// negative minor units + currency
 
 // ---------------------------------------------------------------------------
 // Façade error model (settlementManager.md §3.1).
@@ -171,7 +162,7 @@ type GatewayReversalEvent struct {
 // SettlementError is the typed façade error (settlementManager.md §3.1). It is an
 // alias for fwmgr.Error so errors.As(&SettlementError) call sites work — the SAME
 // shared Manager error model the peer Managers use.
-type SettlementError = fwmgr.Error
+type settlementError = fwmgr.Error
 
 func newError(kind fwmgr.Kind, detail string) *fwmgr.Error {
 	return fwmgr.New(kind, detail)

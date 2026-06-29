@@ -13,12 +13,12 @@ Per `[[the-method-doctrine]]` Directive 7 (*educated decisions with options*): m
 
 ## Canonical source
 
-**Primary:** Löwy, [Appendix A "Project Tracking"](../../../../rightingsoftware/OEBPS/xhtml/appa.xhtml). Specifically:
+**Primary:** Löwy, [Appendix A "Project Tracking"](../../../research/rightingsoftware/OEBPS/xhtml/appa.xhtml). Specifically:
 
-- [§5 "Projections and Corrective Actions"](../../../../rightingsoftware/OEBPS/xhtml/appa.xhtml#appalev1sec5) — the variance patterns that often trigger scope change
-- [§6 "More on Projections"](../../../../rightingsoftware/OEBPS/xhtml/appa.xhtml#appalev1sec6)
-- [§6.2 "Handling Scope Creep"](../../../../rightingsoftware/OEBPS/xhtml/appa.xhtml#appalev2sec12) — the canonical scope-change procedure
-- [§6.3 "Building Trust"](../../../../rightingsoftware/OEBPS/xhtml/appa.xhtml#appalev2sec13)
+- [§5 "Projections and Corrective Actions"](../../../research/rightingsoftware/OEBPS/xhtml/appa.xhtml#appalev1sec5) — the variance patterns that often trigger scope change
+- [§6 "More on Projections"](../../../research/rightingsoftware/OEBPS/xhtml/appa.xhtml#appalev1sec6)
+- [§6.2 "Handling Scope Creep"](../../../research/rightingsoftware/OEBPS/xhtml/appa.xhtml#appalev2sec12) — the canonical scope-change procedure
+- [§6.3 "Building Trust"](../../../research/rightingsoftware/OEBPS/xhtml/appa.xhtml#appalev2sec13)
 
 Per App A §6.2: *"When anyone tries to increase (or decrease) the scope of the project and asks for your approval or consent, you should politely ask to get back to them with your answer. You now need to redesign the project to assess the consequences of the change."*
 

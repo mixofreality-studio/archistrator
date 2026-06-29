@@ -9,11 +9,13 @@ package artifact
 // gitstore_test.go; the CLOUD profile runs against a fake AppClient to prove the
 // internal-token-mint auth path threads a non-local GitAuth.
 //
-// This file lives IN-PACKAGE (package artifact) so it can build a Store over the
-// satellite *GitBlobStore via the internal newStore + a test auth source, and so
-// the cloud-token path can be exercised with a fake appClient. It still drives the
-// public surface (StoreConstructionOutput / RetrieveConstructionOutput /
-// RetrieveOutputTree) exactly as an external caller would.
+// This file lives IN-PACKAGE (package artifact) so it can build a GitArtifactAccess
+// over the satellite *GitBlobStore via the GENERATED NewGitArtifactAccess
+// constructor + a test auth resolver. It drives the public surface
+// (StoreConstructionOutput / RetrieveConstructionOutput / RetrieveOutputTree)
+// exactly as an external caller would. The cloud-profile token-mint path now lives
+// in the composition root (cmd/server/artifact_auth.go) — it is no longer part of
+// this package's surface, so it is exercised there, not here.
 //
 // Coverage (mirrors the retired gitea_test.go so nothing regresses):
 //  1. store -> non-empty content-address string; retrieve round-trips bytes+MIME.
@@ -24,43 +26,55 @@ package artifact
 //     unknown root -> fwra.NotFound.
 //  4. error-kind mapping: unknown address -> fwra.NotFound; malformed/empty ->
 //     fwra.ContractMisuse (before any git IO); empty content/key -> ContractMisuse.
-//  5. BOTH profiles: local path against the real repo; cloud token path against a
-//     fake AppClient (asserts a non-local GitAuth is threaded).
+//  5. the auth resolver is threaded into the satellite (a resolver that errors
+//     surfaces its error before any git IO completes).
 
 import (
 	"context"
 	"errors"
 	"strings"
 	"testing"
-	"time"
 
 	fwgithub "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github"
 	gh "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github/testinfra"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
+// localTestAuth is the LOCAL-profile auth resolver for the tests: a file:// remote
+// needs no HTTP credential.
+func localTestAuth(context.Context) (fwgithub.GitAuth, error) {
+	return fwgithub.GitAuth{Local: true}, nil
+}
+
+// rcWith builds the ResourceAccess call Context the port now takes from a plain
+// ctx + idempotency key (the cross-cutting params the hand-written surface passed
+// explicitly now ride fwra.Context). Tests that don't exercise the key pass "".
+func rcWith(ctx context.Context, key fwra.IdempotencyKey) fwra.Context {
+	return fwra.Context{Context: ctx, IdempotencyKey: key}
+}
+
 // newLocalTestStore builds a Store over a REAL throwaway on-disk git repo using
 // the LOCAL profile (GitAuth.Local). This is the genuine git store the testing
 // doctrine mandates (skips if git is not on PATH).
-func newLocalTestStore(t *testing.T) (*Store, context.Context) {
+func newLocalTestStore(t *testing.T) (ArtifactAccess, context.Context) {
 	t.Helper()
 	repo := gh.StartLocalGitRepo(t, "main")
-	store, err := NewLocalStore(repo.URL)
+	blob, err := fwgithub.NewGitBlobStore(repo.URL)
 	if err != nil {
-		t.Fatalf("NewLocalStore: %v", err)
+		t.Fatalf("NewGitBlobStore: %v", err)
 	}
-	return store, context.Background()
+	return NewGitArtifactAccess(blob, localTestAuth), context.Background()
 }
 
-// newDummyStore builds a Store without any repo. Used only for the pre-condition
-// guards, which short-circuit BEFORE any git IO / auth.
-func newDummyStore(t *testing.T) (*Store, context.Context) {
+// newDummyStore builds a GitArtifactAccess without a usable repo. Used only for the
+// pre-condition guards, which short-circuit BEFORE any git IO / auth.
+func newDummyStore(t *testing.T) (ArtifactAccess, context.Context) {
 	t.Helper()
-	store, err := NewLocalStore("file:///nonexistent/repo.git")
+	blob, err := fwgithub.NewGitBlobStore("file:///nonexistent/repo.git")
 	if err != nil {
-		t.Fatalf("NewLocalStore (dummy): %v", err)
+		t.Fatalf("NewGitBlobStore (dummy): %v", err)
 	}
-	return store, context.Background()
+	return NewGitArtifactAccess(blob, localTestAuth), context.Background()
 }
 
 func assertKind(t *testing.T, err error, want fwra.Kind) {
@@ -95,7 +109,7 @@ func TestStoreContractMisuse(t *testing.T) {
 	}
 	for _, tc := range storeCases {
 		t.Run("Store/"+tc.name, func(t *testing.T) {
-			_, err := store.StoreConstructionOutput(ctx, tc.content, tc.key)
+			_, err := store.StoreConstructionOutput(rcWith(ctx, tc.key), tc.content)
 			assertKind(t, err, fwra.ContractMisuse)
 		})
 	}
@@ -110,11 +124,11 @@ func TestStoreContractMisuse(t *testing.T) {
 	}
 	for _, tc := range retrieveCases {
 		t.Run("RetrieveConstructionOutput/"+tc.name, func(t *testing.T) {
-			_, err := store.RetrieveConstructionOutput(ctx, tc.address)
+			_, err := store.RetrieveConstructionOutput(rcWith(ctx, ""), tc.address)
 			assertKind(t, err, fwra.ContractMisuse)
 		})
 		t.Run("RetrieveOutputTree/"+tc.name, func(t *testing.T) {
-			_, err := store.RetrieveOutputTree(ctx, tc.address)
+			_, err := store.RetrieveOutputTree(rcWith(ctx, ""), tc.address)
 			assertKind(t, err, fwra.ContractMisuse)
 		})
 	}
@@ -126,7 +140,7 @@ func TestStoreRetrieveRoundTrip(t *testing.T) {
 	store, ctx := newLocalTestStore(t)
 	want := ConstructionOutput{Bytes: []byte("package main\n\nfunc main() {}\n"), MIMEType: "text/x-go"}
 
-	addr, err := store.StoreConstructionOutput(ctx, want, "wf-1:act-1")
+	addr, err := store.StoreConstructionOutput(rcWith(ctx, "wf-1:act-1"), want)
 	if err != nil {
 		t.Fatalf("StoreConstructionOutput: %v", err)
 	}
@@ -134,7 +148,7 @@ func TestStoreRetrieveRoundTrip(t *testing.T) {
 		t.Fatal("expected non-empty content address")
 	}
 
-	got, err := store.RetrieveConstructionOutput(ctx, addr)
+	got, err := store.RetrieveConstructionOutput(rcWith(ctx, ""), addr)
 	if err != nil {
 		t.Fatalf("RetrieveConstructionOutput: %v", err)
 	}
@@ -153,13 +167,13 @@ func TestContentAddressable_SameContentSameAddress(t *testing.T) {
 	store, ctx := newLocalTestStore(t)
 	content := ConstructionOutput{Bytes: []byte("helm chart bytes"), MIMEType: "application/yaml"}
 
-	addr1, err := store.StoreConstructionOutput(ctx, content, "wf-1:act-1")
+	addr1, err := store.StoreConstructionOutput(rcWith(ctx, "wf-1:act-1"), content)
 	if err != nil {
 		t.Fatalf("StoreConstructionOutput #1: %v", err)
 	}
 	// Same content, DIFFERENT idempotency key — content addressing must still
 	// converge on the same address (dedup on content, no duplicate).
-	addr2, err := store.StoreConstructionOutput(ctx, content, "wf-2:act-9")
+	addr2, err := store.StoreConstructionOutput(rcWith(ctx, "wf-2:act-9"), content)
 	if err != nil {
 		t.Fatalf("StoreConstructionOutput #2: %v", err)
 	}
@@ -167,7 +181,7 @@ func TestContentAddressable_SameContentSameAddress(t *testing.T) {
 		t.Fatalf("expected identical addresses for identical content, got %q vs %q", addr1, addr2)
 	}
 	// Same key retried also dedups (the common Manager-retry path).
-	addr3, err := store.StoreConstructionOutput(ctx, content, "wf-1:act-1")
+	addr3, err := store.StoreConstructionOutput(rcWith(ctx, "wf-1:act-1"), content)
 	if err != nil {
 		t.Fatalf("StoreConstructionOutput #3: %v", err)
 	}
@@ -184,11 +198,11 @@ func TestContentAddressable_DifferentContentDifferentAddress(t *testing.T) {
 	v1 := ConstructionOutput{Bytes: []byte("build output one"), MIMEType: "text/plain"}
 	v2 := ConstructionOutput{Bytes: []byte("build output two"), MIMEType: "text/plain"}
 
-	addr1, err := store.StoreConstructionOutput(ctx, v1, "wf-1:act-1")
+	addr1, err := store.StoreConstructionOutput(rcWith(ctx, "wf-1:act-1"), v1)
 	if err != nil {
 		t.Fatalf("StoreConstructionOutput v1: %v", err)
 	}
-	addr2, err := store.StoreConstructionOutput(ctx, v2, "wf-1:act-2")
+	addr2, err := store.StoreConstructionOutput(rcWith(ctx, "wf-1:act-2"), v2)
 	if err != nil {
 		t.Fatalf("StoreConstructionOutput v2: %v", err)
 	}
@@ -197,14 +211,14 @@ func TestContentAddressable_DifferentContentDifferentAddress(t *testing.T) {
 	}
 
 	// The prior output is NOT overwritten — its address still resolves to v1.
-	got1, err := store.RetrieveConstructionOutput(ctx, addr1)
+	got1, err := store.RetrieveConstructionOutput(rcWith(ctx, ""), addr1)
 	if err != nil {
 		t.Fatalf("RetrieveConstructionOutput prior: %v", err)
 	}
 	if string(got1.Bytes) != string(v1.Bytes) {
 		t.Fatalf("prior output mutated: got %q want %q", got1.Bytes, v1.Bytes)
 	}
-	got2, err := store.RetrieveConstructionOutput(ctx, addr2)
+	got2, err := store.RetrieveConstructionOutput(rcWith(ctx, ""), addr2)
 	if err != nil {
 		t.Fatalf("RetrieveConstructionOutput new: %v", err)
 	}
@@ -218,7 +232,7 @@ func TestContentAddressable_DifferentContentDifferentAddress(t *testing.T) {
 func TestRetrieveUnknownAddress(t *testing.T) {
 	store, ctx := newLocalTestStore(t)
 	unknown := "0123456789abcdef0123456789abcdef01234567:output.bin"
-	_, err := store.RetrieveConstructionOutput(ctx, unknown)
+	_, err := store.RetrieveConstructionOutput(rcWith(ctx, ""), unknown)
 	assertKind(t, err, fwra.NotFound)
 }
 
@@ -231,12 +245,12 @@ func TestRetrieveOutputTree(t *testing.T) {
 	a := ConstructionOutput{Bytes: []byte("file a contents"), MIMEType: "text/plain"}
 	b := ConstructionOutput{Bytes: []byte("file b contents"), MIMEType: "text/plain"}
 
-	addrA, err := store.StoreConstructionOutput(ctx, a, "wf:a")
+	addrA, err := store.StoreConstructionOutput(rcWith(ctx, "wf:a"), a)
 	if err != nil {
 		t.Fatalf("StoreConstructionOutput a: %v", err)
 	}
 
-	tree, err := store.RetrieveOutputTree(ctx, addrA)
+	tree, err := store.RetrieveOutputTree(rcWith(ctx, ""), addrA)
 	if err != nil {
 		t.Fatalf("RetrieveOutputTree: %v", err)
 	}
@@ -247,7 +261,7 @@ func TestRetrieveOutputTree(t *testing.T) {
 		t.Fatal("expected at least one tree entry")
 	}
 	for path, entryAddr := range tree.Entries {
-		if _, err := store.RetrieveConstructionOutput(ctx, entryAddr); err != nil {
+		if _, err := store.RetrieveConstructionOutput(rcWith(ctx, ""), entryAddr); err != nil {
 			t.Fatalf("RetrieveConstructionOutput entry %q (%q): %v", path, entryAddr, err)
 		}
 	}
@@ -256,7 +270,7 @@ func TestRetrieveOutputTree(t *testing.T) {
 		if !strings.HasPrefix(string(path), "output") {
 			continue
 		}
-		got, err := store.RetrieveConstructionOutput(ctx, entryAddr)
+		got, err := store.RetrieveConstructionOutput(rcWith(ctx, ""), entryAddr)
 		if err != nil {
 			t.Fatalf("RetrieveConstructionOutput output entry %q: %v", path, err)
 		}
@@ -269,14 +283,14 @@ func TestRetrieveOutputTree(t *testing.T) {
 		t.Fatalf("expected an 'output' entry in the tree, got %v", tree.Entries)
 	}
 
-	addrB, err := store.StoreConstructionOutput(ctx, b, "wf:b")
+	addrB, err := store.StoreConstructionOutput(rcWith(ctx, "wf:b"), b)
 	if err != nil {
 		t.Fatalf("StoreConstructionOutput b: %v", err)
 	}
 	if addrB == addrA {
 		t.Fatalf("expected distinct roots, both %q", addrA)
 	}
-	treeB, err := store.RetrieveOutputTree(ctx, addrB)
+	treeB, err := store.RetrieveOutputTree(rcWith(ctx, ""), addrB)
 	if err != nil {
 		t.Fatalf("RetrieveOutputTree b: %v", err)
 	}
@@ -288,7 +302,7 @@ func TestRetrieveOutputTree(t *testing.T) {
 		if !strings.HasPrefix(string(path), "output") {
 			continue
 		}
-		got, err := store.RetrieveConstructionOutput(ctx, entryAddr)
+		got, err := store.RetrieveConstructionOutput(rcWith(ctx, ""), entryAddr)
 		if err != nil {
 			t.Fatalf("RetrieveConstructionOutput treeB output entry %q: %v", path, err)
 		}
@@ -305,81 +319,30 @@ func TestRetrieveOutputTree(t *testing.T) {
 // TestRetrieveOutputTreeUnknown — an unknown tree-root address -> fwra.NotFound.
 func TestRetrieveOutputTreeUnknown(t *testing.T) {
 	store, ctx := newLocalTestStore(t)
-	_, err := store.RetrieveOutputTree(ctx, "0123456789abcdef0123456789abcdef01234567:output.bin")
+	_, err := store.RetrieveOutputTree(rcWith(ctx, ""), "0123456789abcdef0123456789abcdef01234567:output.bin")
 	assertKind(t, err, fwra.NotFound)
 }
 
-// --- CLOUD profile: internal-token-mint auth path ---------------------------
+// --- auth resolver seam -----------------------------------------------------
 
-// fakeAppClient is a stub satellite AppClient that records the minted token and
-// hands back a fixed one, so the cloud auth source can be exercised without any
-// network IO.
-type fakeAppClient struct {
-	installID int64
-	token     string
-	mintCalls int
-	findCalls int
-}
-
-func (f *fakeAppClient) FindInstallation(_ context.Context, _ string) (int64, error) {
-	f.findCalls++
-	return f.installID, nil
-}
-
-func (f *fakeAppClient) MintInstallationToken(_ context.Context, _ int64) (string, time.Time, error) {
-	f.mintCalls++
-	return f.token, time.Now().Add(time.Hour), nil
-}
-
-// capturingBlob records the GitAuth threaded into each call, so the cloud test can
-// assert a non-local token credential reaches the satellite.
-type capturingBlob struct {
-	lastAuth fwgithub.GitAuth
-}
-
-func (c *capturingBlob) StoreOutput(_ context.Context, _ string, _ []fwgithub.GitObjectFile, _ string, auth fwgithub.GitAuth) (string, error) {
-	c.lastAuth = auth
-	return "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef", nil
-}
-
-func (c *capturingBlob) ReadFileAtCommit(_ context.Context, _, _ string, auth fwgithub.GitAuth) ([]byte, error) {
-	c.lastAuth = auth
-	return nil, fwra.New(fwra.NotFound, "not found")
-}
-
-func (c *capturingBlob) ProbeFileAtBranchTip(_ context.Context, _, _ string, auth fwgithub.GitAuth) ([]byte, string, bool, error) {
-	c.lastAuth = auth
-	return nil, "", false, nil
-}
-
-func (c *capturingBlob) WalkTreeFiles(_ context.Context, _ string, auth fwgithub.GitAuth) ([]string, error) {
-	c.lastAuth = auth
-	return nil, nil
-}
-
-// TestCloudProfile_InternalTokenMint — the CLOUD profile mints the installation
-// token INTERNALLY (no credential on the surface, no sibling-RA call) and threads a
-// NON-local GitAuth.Token into the satellite. Same surface, different auth source.
-func TestCloudProfile_InternalTokenMint(t *testing.T) {
-	app := &fakeAppClient{installID: 42, token: "ghs-fake-installation-token"}
-	blob := &capturingBlob{}
-	store := newStore(blob, &cloudAuth{app: app, owner: "acme"})
-
-	addr, err := store.StoreConstructionOutput(context.Background(),
-		ConstructionOutput{Bytes: []byte("cloud bytes"), MIMEType: "text/plain"}, "wf:c")
+// TestAuthResolverError — the per-call auth resolver supplied at construction is
+// threaded into every verb; a resolver that fails surfaces its error and no git IO
+// completes. This is the seam the composition root's profile resolvers
+// (local / cloud token-mint) plug into.
+func TestAuthResolverError(t *testing.T) {
+	repo := gh.StartLocalGitRepo(t, "main")
+	blob, err := fwgithub.NewGitBlobStore(repo.URL)
 	if err != nil {
-		t.Fatalf("StoreConstructionOutput (cloud): %v", err)
+		t.Fatalf("NewGitBlobStore: %v", err)
 	}
-	if addr == "" {
-		t.Fatal("expected non-empty cloud address")
+	wantErr := fwra.New(fwra.Auth, "auth resolver boom")
+	failingAuth := func(context.Context) (fwgithub.GitAuth, error) { return fwgithub.GitAuth{}, wantErr }
+	store := NewGitArtifactAccess(blob, failingAuth)
+
+	_, err = store.StoreConstructionOutput(rcWith(context.Background(), "wf:auth"),
+		ConstructionOutput{Bytes: []byte("bytes"), MIMEType: "text/plain"})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("StoreConstructionOutput: expected the auth resolver error, got %v", err)
 	}
-	if blob.lastAuth.Local {
-		t.Fatal("cloud profile threaded a LOCAL GitAuth; expected a token credential")
-	}
-	if blob.lastAuth.Token != app.token {
-		t.Fatalf("cloud GitAuth.Token = %q, want minted token %q", blob.lastAuth.Token, app.token)
-	}
-	if app.mintCalls == 0 {
-		t.Fatal("expected the installation token to be minted internally")
-	}
+	assertKind(t, err, fwra.Auth)
 }

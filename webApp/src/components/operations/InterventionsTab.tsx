@@ -14,7 +14,7 @@ import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import BoltIcon from '@mui/icons-material/Bolt';
 import { useTokens } from '../../theme/ThemeContext';
-import type { OperationsView } from '../../api/operations';
+import type { OperationsView } from '../../api/operationsTypes';
 import { UI_IDENTIFIERS } from '../../constants/UIIdentifiers';
 import { AwaitingPanel } from './AwaitingPanel';
 

@@ -27,16 +27,16 @@ func Test_ProposeReviews_PerKind(t *testing.T) {
 		wantAmend    bool
 		wantNonEmpty bool
 	}{
-		"DetailedDesign": {RoleArchitect, true, true},
-		"Construction":   {RoleSeniorReviewer, false, true},
-		"Integration":    {RoleSeniorReviewer, false, true},
-		"Noncoding":      {RoleArchitect, false, true},
-		"UIDesign":       {RoleUIDesigner, true, true},
-		"UICode":         {RoleSeniorReviewer, false, true},
+		"DetailedDesign": {roleArchitect, true, true},
+		"Construction":   {roleSeniorReviewer, false, true},
+		"Integration":    {roleSeniorReviewer, false, true},
+		"Noncoding":      {roleArchitect, false, true},
+		"UIDesign":       {roleUIDesigner, true, true},
+		"UICode":         {roleSeniorReviewer, false, true},
 	}
-	e := New()
+	e := NewReviewEngine()
 	for kind, want := range cases {
-		set, err := e.ProposeReviews(validChange(), "handOffEngine", kind, "", nil)
+		set, err := e.ProposeReviews(fweng.Context{}, validChange(), "handOffEngine", kind, "", nil)
 		if err != nil {
 			t.Fatalf("%s: unexpected error: %v", kind, err)
 		}
@@ -54,12 +54,12 @@ func Test_ProposeReviews_PerKind(t *testing.T) {
 
 // Identical inputs yield identical sets (determinism).
 func Test_ProposeReviews_Deterministic(t *testing.T) {
-	e := New()
-	a, err := e.ProposeReviews(validChange(), "c", "Construction", "graph", []string{"x"})
+	e := NewReviewEngine()
+	a, err := e.ProposeReviews(fweng.Context{}, validChange(), "c", "Construction", "graph", []string{"x"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := e.ProposeReviews(validChange(), "c", "Construction", "graph", []string{"x"})
+	b, err := e.ProposeReviews(fweng.Context{}, validChange(), "c", "Construction", "graph", []string{"x"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,24 +69,24 @@ func Test_ProposeReviews_Deterministic(t *testing.T) {
 }
 
 func Test_ProposeReviews_EmptyActivityID_ContractMisuse(t *testing.T) {
-	e := New()
-	_, err := e.ProposeReviews(ReviewChange{ComponentID: "c"}, "c", "Construction", "", nil)
+	e := NewReviewEngine()
+	_, err := e.ProposeReviews(fweng.Context{}, ReviewChange{ComponentID: "c"}, "c", "Construction", "", nil)
 	if got := asEngineError(t, err).Kind; got != fweng.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
 	}
 }
 
 func Test_ProposeReviews_EmptyComponent_ContractMisuse(t *testing.T) {
-	e := New()
-	_, err := e.ProposeReviews(ReviewChange{ActivityID: "C-1"}, "", "Construction", "", nil)
+	e := NewReviewEngine()
+	_, err := e.ProposeReviews(fweng.Context{}, ReviewChange{ActivityID: "C-1"}, "", "Construction", "", nil)
 	if got := asEngineError(t, err).Kind; got != fweng.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
 	}
 }
 
 func Test_ProposeReviews_UnknownKind_ContractMisuse(t *testing.T) {
-	e := New()
-	_, err := e.ProposeReviews(validChange(), "c", "NotAKind", "", nil)
+	e := NewReviewEngine()
+	_, err := e.ProposeReviews(fweng.Context{}, validChange(), "c", "NotAKind", "", nil)
 	if got := asEngineError(t, err).Kind; got != fweng.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
 	}

@@ -38,8 +38,8 @@ import (
 type fakeOperatedState struct {
 	mu sync.Mutex
 
-	system   OperatedSystem
-	inFlight []OperatedSystemSummary
+	system   operatedSystem
+	inFlight []operatedSystemSummary
 	notFound bool
 
 	// conflictFirst, when >0, returns fwra.Conflict on the first N publishDesiredState
@@ -48,29 +48,29 @@ type fakeOperatedState struct {
 
 	published   []DesiredStateReason
 	statusChges []RuntimeStatusSeam
-	withdrawn   []OperatedAppID
-	delinquency []DelinquencyAction
+	withdrawn   []operatedAppID
+	delinquency []delinquencyAction
 	readSystemN int
-	version     Version
+	version     version
 }
 
-func (f *fakeOperatedState) ReadOperatedSystem(_ context.Context, _ OperatedAppID) (OperatedSystem, error) {
+func (f *fakeOperatedState) ReadOperatedSystem(_ context.Context, _ operatedAppID) (operatedSystem, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.readSystemN++
 	if f.notFound {
-		return OperatedSystem{}, fwra.New(fwra.NotFound, "no row")
+		return operatedSystem{}, fwra.New(fwra.NotFound, "no row")
 	}
 	return f.system, nil
 }
 
-func (f *fakeOperatedState) ReadInFlightOperatedApps(_ context.Context, _ InFlightScope) ([]OperatedSystemSummary, error) {
+func (f *fakeOperatedState) ReadInFlightOperatedApps(_ context.Context, _ inFlightScope) ([]operatedSystemSummary, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.inFlight, nil
 }
 
-func (f *fakeOperatedState) bump() Version {
+func (f *fakeOperatedState) bump() version {
 	f.version++
 	f.system.Version = f.version
 	return f.version
@@ -86,7 +86,7 @@ func (f *fakeOperatedState) maybeConflict() error {
 	return nil
 }
 
-func (f *fakeOperatedState) PublishDesiredState(_ context.Context, _ OperatedAppID, _ Version, reason DesiredStateReason, _ *AutoscaleDecisionSeam, _ fwra.IdempotencyKey) (Version, error) {
+func (f *fakeOperatedState) PublishDesiredState(_ context.Context, _ operatedAppID, _ version, reason DesiredStateReason, _ *autoscaleDecisionSeam, _ fwra.IdempotencyKey) (version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if err := f.maybeConflict(); err != nil {
@@ -96,97 +96,97 @@ func (f *fakeOperatedState) PublishDesiredState(_ context.Context, _ OperatedApp
 	return f.bump(), nil
 }
 
-func (f *fakeOperatedState) RecordRuntimeStatusChange(_ context.Context, _ OperatedAppID, _ Version, status RuntimeStatusSeam, _ fwra.IdempotencyKey) (Version, error) {
+func (f *fakeOperatedState) RecordRuntimeStatusChange(_ context.Context, _ operatedAppID, _ version, status RuntimeStatusSeam, _ fwra.IdempotencyKey) (version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.statusChges = append(f.statusChges, status)
 	return f.bump(), nil
 }
 
-func (f *fakeOperatedState) WithdrawSystem(_ context.Context, appID OperatedAppID, _ Version, _ fwra.IdempotencyKey) (Version, error) {
+func (f *fakeOperatedState) WithdrawSystem(_ context.Context, appID operatedAppID, _ version, _ fwra.IdempotencyKey) (version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.withdrawn = append(f.withdrawn, appID)
 	return f.bump(), nil
 }
 
-func (f *fakeOperatedState) RecordDelinquencyAction(_ context.Context, _ OperatedAppID, _ Version, action DelinquencyAction, _ fwra.IdempotencyKey) (Version, error) {
+func (f *fakeOperatedState) RecordDelinquencyAction(_ context.Context, _ operatedAppID, _ version, action delinquencyAction, _ fwra.IdempotencyKey) (version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.delinquency = append(f.delinquency, action)
 	return f.bump(), nil
 }
 
-var _ OperatedSystemStateAccess = (*fakeOperatedState)(nil)
+var _ operatedSystemStateAccess = (*fakeOperatedState)(nil)
 
 // fakeRuntime records publish/withdraw + serves scripted reads.
 type fakeRuntime struct {
 	mu sync.Mutex
 
 	health      RuntimeStatusSeam
-	slo         SloStatusSeam
-	attribution ComputeAttribution
+	slo         sloStatusSeam
+	attribution computeAttribution
 
-	publishes []OperatedAppID
-	withdraws []OperatedAppID
+	publishes []operatedAppID
+	withdraws []operatedAppID
 }
 
-func (r *fakeRuntime) PublishDesiredState(_ context.Context, appID OperatedAppID, _ RuntimeDesiredState, _ fwra.IdempotencyKey) error {
+func (r *fakeRuntime) PublishDesiredState(_ context.Context, appID operatedAppID, _ runtimeDesiredState, _ fwra.IdempotencyKey) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.publishes = append(r.publishes, appID)
 	return nil
 }
 
-func (r *fakeRuntime) Withdraw(_ context.Context, appID OperatedAppID, _ fwra.IdempotencyKey) error {
+func (r *fakeRuntime) Withdraw(_ context.Context, appID operatedAppID, _ fwra.IdempotencyKey) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.withdraws = append(r.withdraws, appID)
 	return nil
 }
 
-func (r *fakeRuntime) GetApplicationHealth(_ context.Context, _ OperatedAppID) (RuntimeStatusSeam, error) {
+func (r *fakeRuntime) GetApplicationHealth(_ context.Context, _ operatedAppID) (RuntimeStatusSeam, error) {
 	return r.health, nil
 }
 
-func (r *fakeRuntime) GetSloStatus(_ context.Context, _ OperatedAppID) (SloStatusSeam, error) {
+func (r *fakeRuntime) GetSloStatus(_ context.Context, _ operatedAppID) (sloStatusSeam, error) {
 	return r.slo, nil
 }
 
-func (r *fakeRuntime) ReadComputeAttribution(_ context.Context, _ OperatedAppID, _ AttributionWindow) (ComputeAttribution, error) {
+func (r *fakeRuntime) ReadComputeAttribution(_ context.Context, _ operatedAppID, _ attributionWindow) (computeAttribution, error) {
 	return r.attribution, nil
 }
 
-var _ OperatedRuntimeAccess = (*fakeRuntime)(nil)
+var _ operatedRuntimeAccess = (*fakeRuntime)(nil)
 
 // fakeUsage records appends + serves a scripted range.
 type fakeUsage struct {
 	mu sync.Mutex
 
-	rangeEvents []UsageEventSeam
+	rangeEvents []usageEventSeam
 	computeN    int
 	finalN      int
 }
 
-func (u *fakeUsage) RecordComputeUsage(_ context.Context, events []UsageEventSeam) error {
+func (u *fakeUsage) RecordComputeUsage(_ context.Context, events []usageEventSeam) error {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	u.computeN += len(events)
 	return nil
 }
 
-func (u *fakeUsage) RecordFinalUsage(_ context.Context, events []UsageEventSeam) error {
+func (u *fakeUsage) RecordFinalUsage(_ context.Context, events []usageEventSeam) error {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	u.finalN += len(events)
 	return nil
 }
 
-func (u *fakeUsage) ReadRange(_ context.Context, _ UsageRangeQuerySeam) ([]UsageEventSeam, error) {
+func (u *fakeUsage) ReadRange(_ context.Context, _ usageRangeQuerySeam) ([]usageEventSeam, error) {
 	return u.rangeEvents, nil
 }
 
-var _ UsageAccess = (*fakeUsage)(nil)
+var _ usageAccess = (*fakeUsage)(nil)
 
 // fakeArtifacts serves a scripted deployable bundle.
 type fakeArtifacts struct {
@@ -194,39 +194,39 @@ type fakeArtifacts struct {
 	mu        sync.Mutex
 }
 
-func (a *fakeArtifacts) RetrieveDeployableBundle(_ context.Context, _ string) (DeployableBundle, error) {
+func (a *fakeArtifacts) RetrieveDeployableBundle(_ context.Context, _ string) (deployableBundle, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.retrieveN++
-	return DeployableBundle{}, nil
+	return deployableBundle{}, nil
 }
 
-var _ ArtifactAccess = (*fakeArtifacts)(nil)
+var _ artifactAccess = (*fakeArtifacts)(nil)
 
 // fakeIntervention returns a scripted health directive.
 type fakeIntervention struct {
-	directive HealthDirective
+	directive healthDirective
 }
 
-func (i *fakeIntervention) DecideOnHealth(_ HealthChange, _ InterventionPolicy) (HealthDirective, error) {
-	if i.directive == HealthDirectiveUnknown {
-		return HealthDirectiveRetry, nil
+func (i *fakeIntervention) DecideOnHealth(_ healthChange, _ interventionPolicy) (healthDirective, error) {
+	if i.directive == healthDirectiveUnknown {
+		return healthDirectiveRetry, nil
 	}
 	return i.directive, nil
 }
 
-var _ InterventionEngine = (*fakeIntervention)(nil)
+var _ interventionEngine = (*fakeIntervention)(nil)
 
 // fakeAutoscaler returns a scripted decision.
 type fakeAutoscaler struct {
-	decision AutoscaleDecisionSeam
+	decision autoscaleDecisionSeam
 }
 
-func (a *fakeAutoscaler) ProposeDesiredState(_ Telemetry, _ AutoscalerDesiredState, _ AutoscalerPolicy, _ InfrastructureKind) (AutoscaleDecisionSeam, error) {
+func (a *fakeAutoscaler) ProposeDesiredState(_ telemetry, _ autoscalerDesiredState, _ autoscalerPolicy, _ infrastructureKind) (autoscaleDecisionSeam, error) {
 	return a.decision, nil
 }
 
-var _ AutoscalerEngine = (*fakeAutoscaler)(nil)
+var _ autoscalerEngine = (*fakeAutoscaler)(nil)
 
 // fakeEstimation returns a scripted projection.
 type fakeEstimation struct {
@@ -234,44 +234,44 @@ type fakeEstimation struct {
 	calls      int
 }
 
-func (e *fakeEstimation) ProjectForOperatedApp(_ ObservedUsage, _ InfrastructureKind, _ []ScalePoint) (CostProjectionSeam, error) {
+func (e *fakeEstimation) ProjectForOperatedApp(_ observedUsage, _ infrastructureKind, _ []ScalePoint) (CostProjectionSeam, error) {
 	e.calls++
 	return e.projection, nil
 }
 
-var _ OperationEstimationEngine = (*fakeEstimation)(nil)
+var _ operationEstimationEngine = (*fakeEstimation)(nil)
 
 // ---- helpers ----------------------------------------------------------------
 
-func baseDeps() (Deps, *fakeOperatedState, *fakeRuntime, *fakeUsage, *fakeArtifacts) {
+func baseDeps() (wfDeps, *fakeOperatedState, *fakeRuntime, *fakeUsage, *fakeArtifacts) {
 	os := &fakeOperatedState{}
 	rt := &fakeRuntime{}
 	us := &fakeUsage{}
 	ar := &fakeArtifacts{}
-	return Deps{
-		Intervention:        &fakeIntervention{directive: HealthDirectiveRetry},
-		Autoscaler:          &fakeAutoscaler{decision: AutoscaleDecisionSeam{Action: AutoscaleNoChange}},
+	return wfDeps{
+		Intervention:        &fakeIntervention{directive: healthDirectiveRetry},
+		Autoscaler:          &fakeAutoscaler{decision: autoscaleDecisionSeam{Action: AutoscaleNoChange}},
 		Estimation:          &fakeEstimation{},
 		OperatedSystemState: os,
 		OperatedRuntime:     rt,
 		Usage:               us,
 		Artifacts:           ar,
-		InfrastructureKind:  InfrastructureKindGoTemporalPostgres,
+		InfrastructureKind:  infrastructureKindGoTemporalPostgres,
 		CurrentCycleID:      "cycle-1",
 		CustomerID:          uuid.New(),
 	}, os, rt, us, ar
 }
 
-func registerDeploy(env *testsuite.TestWorkflowEnvironment, wf *Workflows) {
-	env.RegisterWorkflowWithOptions(wf.DeployWorkflow, workflow.RegisterOptions{Name: ExecutionKindDeploy})
+func registerDeploy(env *testsuite.TestWorkflowEnvironment, wf *workflows) {
+	env.RegisterWorkflowWithOptions(wf.DeployWorkflow, workflow.RegisterOptions{Name: executionKindDeploy})
 	env.RegisterActivity(wf.ReadOperatedSystemActivity)
 	env.RegisterActivity(wf.RetrieveDeployableBundleActivity)
 	env.RegisterActivity(wf.PublishDesiredStateActivity)
 	env.RegisterActivity(wf.RecordPublishDesiredStateActivity)
 }
 
-func registerReconcile(env *testsuite.TestWorkflowEnvironment, wf *Workflows) {
-	env.RegisterWorkflowWithOptions(wf.ReconcileWorkflow, workflow.RegisterOptions{Name: ExecutionKindReconcile})
+func registerReconcile(env *testsuite.TestWorkflowEnvironment, wf *workflows) {
+	env.RegisterWorkflowWithOptions(wf.ReconcileWorkflow, workflow.RegisterOptions{Name: executionKindReconcile})
 	env.RegisterActivity(wf.ReadInFlightOperatedAppsActivity)
 	env.RegisterActivity(wf.GetApplicationHealthActivity)
 	env.RegisterActivity(wf.GetSloStatusActivity)
@@ -282,8 +282,8 @@ func registerReconcile(env *testsuite.TestWorkflowEnvironment, wf *Workflows) {
 	env.RegisterActivity(wf.RecordPublishDesiredStateActivity)
 }
 
-func registerWithdraw(env *testsuite.TestWorkflowEnvironment, wf *Workflows) {
-	env.RegisterWorkflowWithOptions(wf.WithdrawWorkflow, workflow.RegisterOptions{Name: ExecutionKindWithdraw})
+func registerWithdraw(env *testsuite.TestWorkflowEnvironment, wf *workflows) {
+	env.RegisterWorkflowWithOptions(wf.WithdrawWorkflow, workflow.RegisterOptions{Name: executionKindWithdraw})
 	env.RegisterActivity(wf.ReadOperatedSystemActivity)
 	env.RegisterActivity(wf.WithdrawRuntimeActivity)
 	env.RegisterActivity(wf.ReadComputeAttributionActivity)
@@ -291,22 +291,22 @@ func registerWithdraw(env *testsuite.TestWorkflowEnvironment, wf *Workflows) {
 	env.RegisterActivity(wf.WithdrawHeadStateActivity)
 }
 
-func registerCostProjection(env *testsuite.TestWorkflowEnvironment, wf *Workflows) {
-	env.RegisterWorkflowWithOptions(wf.CostProjectionWorkflow, workflow.RegisterOptions{Name: ExecutionKindCostProjection})
+func registerCostProjection(env *testsuite.TestWorkflowEnvironment, wf *workflows) {
+	env.RegisterWorkflowWithOptions(wf.CostProjectionWorkflow, workflow.RegisterOptions{Name: executionKindCostProjection})
 	env.RegisterActivity(wf.ReadOperatedSystemActivity)
 	env.RegisterActivity(wf.ReadUsageRangeActivity)
 }
 
-func registerView(env *testsuite.TestWorkflowEnvironment, wf *Workflows) {
-	env.RegisterWorkflowWithOptions(wf.ViewWorkflow, workflow.RegisterOptions{Name: ExecutionKindOperatedSystemView})
+func registerView(env *testsuite.TestWorkflowEnvironment, wf *workflows) {
+	env.RegisterWorkflowWithOptions(wf.ViewWorkflow, workflow.RegisterOptions{Name: executionKindOperatedSystemView})
 	env.RegisterActivity(wf.ReadOperatedSystemActivity)
 	env.RegisterActivity(wf.GetApplicationHealthActivity)
 	env.RegisterActivity(wf.GetSloStatusActivity)
 	env.RegisterActivity(wf.ReadUsageRangeActivity)
 }
 
-func registerDelinquency(env *testsuite.TestWorkflowEnvironment, wf *Workflows) {
-	env.RegisterWorkflowWithOptions(wf.DelinquencyEnforcementWorkflow, workflow.RegisterOptions{Name: ExecutionKindDelinquency})
+func registerDelinquency(env *testsuite.TestWorkflowEnvironment, wf *workflows) {
+	env.RegisterWorkflowWithOptions(wf.DelinquencyEnforcementWorkflow, workflow.RegisterOptions{Name: executionKindDelinquency})
 	env.RegisterActivity(wf.ReadInFlightOperatedAppsActivity)
 	env.RegisterActivity(wf.PublishDesiredStateActivity)
 	env.RegisterActivity(wf.WithdrawRuntimeActivity)
@@ -323,11 +323,11 @@ func Test_Deploy_HappyPath_RetrievesBundle_PublishesAndRecords(t *testing.T) {
 
 	deps, os, rt, _, ar := baseDeps()
 	appID := uuid.New()
-	os.system = OperatedSystem{ID: appID, Version: 4, DeployableBundleRef: "addr-1"}
+	os.system = operatedSystem{ID: appID, Version: 4, DeployableBundleRef: "addr-1"}
 	wf := newWorkflows(deps)
 	registerDeploy(env, wf)
 
-	env.ExecuteWorkflow(ExecutionKindDeploy, DeployInput{
+	env.ExecuteWorkflow(executionKindDeploy, deployInput{
 		OperatedAppID: appID,
 		Change:        DesiredStateChange{Reason: ReasonDeployAfterConstruction, PatchKind: PatchFullBundle, ChangeID: "c1"},
 	})
@@ -361,11 +361,11 @@ func Test_Deploy_NoBundleRef_FailedPrecondition(t *testing.T) {
 
 	deps, os, rt, _, _ := baseDeps()
 	appID := uuid.New()
-	os.system = OperatedSystem{ID: appID, Version: 1, DeployableBundleRef: ""}
+	os.system = operatedSystem{ID: appID, Version: 1, DeployableBundleRef: ""}
 	wf := newWorkflows(deps)
 	registerDeploy(env, wf)
 
-	env.ExecuteWorkflow(ExecutionKindDeploy, DeployInput{
+	env.ExecuteWorkflow(executionKindDeploy, deployInput{
 		OperatedAppID: appID,
 		Change:        DesiredStateChange{Reason: ReasonDeployAfterConstruction, PatchKind: PatchFullBundle, ChangeID: "c1"},
 	})
@@ -386,11 +386,11 @@ func Test_Deploy_OperatorScale_NoBundleRetrieve(t *testing.T) {
 
 	deps, os, rt, _, ar := baseDeps()
 	appID := uuid.New()
-	os.system = OperatedSystem{ID: appID, Version: 2}
+	os.system = operatedSystem{ID: appID, Version: 2}
 	wf := newWorkflows(deps)
 	registerDeploy(env, wf)
 
-	env.ExecuteWorkflow(ExecutionKindDeploy, DeployInput{
+	env.ExecuteWorkflow(executionKindDeploy, deployInput{
 		OperatedAppID: appID,
 		Change:        DesiredStateChange{Reason: ReasonOperator, PatchKind: PatchScale, ChangeID: "c2"},
 	})
@@ -416,14 +416,14 @@ func Test_Reconcile_HealthTransition_RecordsStatus_AndRepublishes(t *testing.T) 
 
 	deps, os, rt, us, _ := baseDeps()
 	appID := uuid.New()
-	os.inFlight = []OperatedSystemSummary{{ID: appID, Version: 1, Status: RuntimeStatusHealthy}}
+	os.inFlight = []operatedSystemSummary{{ID: appID, Version: 1, Status: RuntimeStatusHealthy}}
 	rt.health = RuntimeStatusDegraded // transition healthy → degraded
-	rt.attribution = ComputeAttribution{Units: ComputeUnitsSeam{Amount: 2, Unit: "cpu-second"}, RuntimeEventID: "evt-1"}
-	deps.Intervention = &fakeIntervention{directive: HealthDirectiveRetry}
+	rt.attribution = computeAttribution{Units: computeUnitsSeam{Amount: 2, Unit: "cpu-second"}, RuntimeEventID: "evt-1"}
+	deps.Intervention = &fakeIntervention{directive: healthDirectiveRetry}
 	wf := newWorkflows(deps)
 	registerReconcile(env, wf)
 
-	env.ExecuteWorkflow(ExecutionKindReconcile, ReconcileInput{})
+	env.ExecuteWorkflow(executionKindReconcile, reconcileInput{})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)
@@ -454,13 +454,13 @@ func Test_Reconcile_AutoscalePause_PublishesAndRecordsAutoscale(t *testing.T) {
 
 	deps, os, rt, _, _ := baseDeps()
 	appID := uuid.New()
-	os.inFlight = []OperatedSystemSummary{{ID: appID, Version: 1, Status: RuntimeStatusHealthy}}
+	os.inFlight = []operatedSystemSummary{{ID: appID, Version: 1, Status: RuntimeStatusHealthy}}
 	rt.health = RuntimeStatusHealthy // no health transition
-	deps.Autoscaler = &fakeAutoscaler{decision: AutoscaleDecisionSeam{Action: AutoscalePause}}
+	deps.Autoscaler = &fakeAutoscaler{decision: autoscaleDecisionSeam{Action: AutoscalePause}}
 	wf := newWorkflows(deps)
 	registerReconcile(env, wf)
 
-	env.ExecuteWorkflow(ExecutionKindReconcile, ReconcileInput{})
+	env.ExecuteWorkflow(executionKindReconcile, reconcileInput{})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)
@@ -488,13 +488,13 @@ func Test_Reconcile_QuietTick_NoTransitions_NoRepublishes(t *testing.T) {
 
 	deps, os, rt, _, _ := baseDeps()
 	appID := uuid.New()
-	os.inFlight = []OperatedSystemSummary{{ID: appID, Version: 1, Status: RuntimeStatusHealthy}}
+	os.inFlight = []operatedSystemSummary{{ID: appID, Version: 1, Status: RuntimeStatusHealthy}}
 	rt.health = RuntimeStatusHealthy
-	rt.attribution = ComputeAttribution{} // empty event id ⇒ no usage append
+	rt.attribution = computeAttribution{} // empty event id ⇒ no usage append
 	wf := newWorkflows(deps)
 	registerReconcile(env, wf)
 
-	env.ExecuteWorkflow(ExecutionKindReconcile, ReconcileInput{})
+	env.ExecuteWorkflow(executionKindReconcile, reconcileInput{})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)
@@ -515,7 +515,7 @@ func Test_Reconcile_MultipleApps_AllObserved(t *testing.T) {
 	env := ts.NewTestWorkflowEnvironment()
 
 	deps, os, rt, _, _ := baseDeps()
-	os.inFlight = []OperatedSystemSummary{
+	os.inFlight = []operatedSystemSummary{
 		{ID: uuid.New(), Version: 1, Status: RuntimeStatusHealthy},
 		{ID: uuid.New(), Version: 1, Status: RuntimeStatusHealthy},
 		{ID: uuid.New(), Version: 1, Status: RuntimeStatusHealthy},
@@ -524,7 +524,7 @@ func Test_Reconcile_MultipleApps_AllObserved(t *testing.T) {
 	wf := newWorkflows(deps)
 	registerReconcile(env, wf)
 
-	env.ExecuteWorkflow(ExecutionKindReconcile, ReconcileInput{})
+	env.ExecuteWorkflow(executionKindReconcile, reconcileInput{})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)
@@ -546,12 +546,12 @@ func Test_Withdraw_HappyPath(t *testing.T) {
 
 	deps, os, rt, us, _ := baseDeps()
 	appID := uuid.New()
-	os.system = OperatedSystem{ID: appID, Version: 2, Status: RuntimeStatusHealthy}
-	rt.attribution = ComputeAttribution{Units: ComputeUnitsSeam{Amount: 1, Unit: "cpu-second"}, RuntimeEventID: "final-1"}
+	os.system = operatedSystem{ID: appID, Version: 2, Status: RuntimeStatusHealthy}
+	rt.attribution = computeAttribution{Units: computeUnitsSeam{Amount: 1, Unit: "cpu-second"}, RuntimeEventID: "final-1"}
 	wf := newWorkflows(deps)
 	registerWithdraw(env, wf)
 
-	env.ExecuteWorkflow(ExecutionKindWithdraw, WithdrawInput{OperatedAppID: appID})
+	env.ExecuteWorkflow(executionKindWithdraw, withdrawInput{OperatedAppID: appID})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)
@@ -579,11 +579,11 @@ func Test_Withdraw_AlreadyWithdrawn_NoOpSuccess(t *testing.T) {
 
 	deps, os, rt, _, _ := baseDeps()
 	appID := uuid.New()
-	os.system = OperatedSystem{ID: appID, Version: 5, Status: RuntimeStatusWithdrawn}
+	os.system = operatedSystem{ID: appID, Version: 5, Status: RuntimeStatusWithdrawn}
 	wf := newWorkflows(deps)
 	registerWithdraw(env, wf)
 
-	env.ExecuteWorkflow(ExecutionKindWithdraw, WithdrawInput{OperatedAppID: appID})
+	env.ExecuteWorkflow(executionKindWithdraw, withdrawInput{OperatedAppID: appID})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)
@@ -608,7 +608,7 @@ func Test_Withdraw_NotFound_NoOpSuccess(t *testing.T) {
 	wf := newWorkflows(deps)
 	registerWithdraw(env, wf)
 
-	env.ExecuteWorkflow(ExecutionKindWithdraw, WithdrawInput{OperatedAppID: uuid.New()})
+	env.ExecuteWorkflow(executionKindWithdraw, withdrawInput{OperatedAppID: uuid.New()})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)
@@ -633,8 +633,8 @@ func Test_CostProjection_ReturnsProjection_NoMutation(t *testing.T) {
 
 	deps, os, rt, us, _ := baseDeps()
 	appID := uuid.New()
-	os.system = OperatedSystem{ID: appID, Version: 3}
-	us.rangeEvents = []UsageEventSeam{{OperatedAppID: appID, RuntimeEventID: "e1"}}
+	os.system = operatedSystem{ID: appID, Version: 3}
+	us.rangeEvents = []usageEventSeam{{OperatedAppID: appID, RuntimeEventID: "e1"}}
 	est := &fakeEstimation{projection: CostProjectionSeam{
 		CurrentRunRate:       Money{MinorUnits: 1200, Currency: "USD"},
 		ProjectedMonthlyCost: Money{MinorUnits: 36000, Currency: "USD"},
@@ -643,12 +643,12 @@ func Test_CostProjection_ReturnsProjection_NoMutation(t *testing.T) {
 	wf := newWorkflows(deps)
 	registerCostProjection(env, wf)
 
-	env.ExecuteWorkflow(ExecutionKindCostProjection, CostProjectionInput{OperatedAppID: appID})
+	env.ExecuteWorkflow(executionKindCostProjection, costProjectionInput{OperatedAppID: appID})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)
 	}
-	var res CostProjection
+	var res costProjection
 	if err := env.GetWorkflowResult(&res); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
@@ -681,19 +681,19 @@ func Test_View_ComposesReads_NoMutation(t *testing.T) {
 
 	deps, os, rt, us, _ := baseDeps()
 	appID := uuid.New()
-	os.system = OperatedSystem{ID: appID, Version: 7, Status: RuntimeStatusHealthy, InFlight: true}
+	os.system = operatedSystem{ID: appID, Version: 7, Status: RuntimeStatusHealthy, InFlight: true}
 	os.version = 7
 	rt.health = RuntimeStatusHealthy
-	rt.slo = SloStatusSeam{SloMet: true, Detail: "99.9% / 30d"}
-	us.rangeEvents = []UsageEventSeam{{OperatedAppID: appID, RuntimeEventID: "e1"}}
-	deps.AutoscalerPolicy = AutoscalerPolicy{Mode: AutoscalerModeAuto}
+	rt.slo = sloStatusSeam{SloMet: true, Detail: "99.9% / 30d"}
+	us.rangeEvents = []usageEventSeam{{OperatedAppID: appID, RuntimeEventID: "e1"}}
+	deps.AutoscalerPolicy = autoscalerPolicy{Mode: AutoscalerModeAuto}
 	deps.Estimation = &fakeEstimation{projection: CostProjectionSeam{
 		CurrentRunRate: Money{MinorUnits: 4120, Currency: "USD"},
 	}}
 	wf := newWorkflows(deps)
 	registerView(env, wf)
 
-	env.ExecuteWorkflow(ExecutionKindOperatedSystemView, ViewInput{OperatedAppID: appID})
+	env.ExecuteWorkflow(executionKindOperatedSystemView, viewInput{OperatedAppID: appID})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)
@@ -748,17 +748,17 @@ func Test_Delinquency_PauseTerms_PublishesAndRecordsPaused(t *testing.T) {
 
 	deps, os, rt, _, _ := baseDeps()
 	cid := uuid.New()
-	os.inFlight = []OperatedSystemSummary{{ID: uuid.New(), Version: 1}, {ID: uuid.New(), Version: 1}}
+	os.inFlight = []operatedSystemSummary{{ID: uuid.New(), Version: 1}, {ID: uuid.New(), Version: 1}}
 	wf := newWorkflows(deps)
 	registerDelinquency(env, wf)
 
 	env.RegisterDelayedCallback(func() {
-		env.SignalWorkflow(SignalApplyDelinquencyPolicy, ApplyDelinquencySignal{
+		env.SignalWorkflow(signalApplyDelinquencyPolicy, applyDelinquencySignal{
 			CustomerID: cid, Context: DelinquencyContext{PauseNotWithdraw: true},
 		})
 	}, time.Millisecond)
 
-	env.ExecuteWorkflow(ExecutionKindDelinquency, DelinquencyInput{CustomerID: cid})
+	env.ExecuteWorkflow(executionKindDelinquency, delinquencyInput{CustomerID: cid})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)
@@ -769,7 +769,7 @@ func Test_Delinquency_PauseTerms_PublishesAndRecordsPaused(t *testing.T) {
 	if len(rt.withdraws) != 0 {
 		t.Fatalf("pause terms must NOT withdraw, got %d", len(rt.withdraws))
 	}
-	if len(os.delinquency) != 2 || os.delinquency[0] != DelinquencyActionPaused {
+	if len(os.delinquency) != 2 || os.delinquency[0] != delinquencyActionPaused {
 		t.Fatalf("want two recordDelinquencyAction(Paused), got %v", os.delinquency)
 	}
 }
@@ -781,17 +781,17 @@ func Test_Delinquency_WithdrawTerms_WithdrawsAndRecordsWithdrawn(t *testing.T) {
 
 	deps, os, rt, _, _ := baseDeps()
 	cid := uuid.New()
-	os.inFlight = []OperatedSystemSummary{{ID: uuid.New(), Version: 1}}
+	os.inFlight = []operatedSystemSummary{{ID: uuid.New(), Version: 1}}
 	wf := newWorkflows(deps)
 	registerDelinquency(env, wf)
 
 	env.RegisterDelayedCallback(func() {
-		env.SignalWorkflow(SignalApplyDelinquencyPolicy, ApplyDelinquencySignal{
+		env.SignalWorkflow(signalApplyDelinquencyPolicy, applyDelinquencySignal{
 			CustomerID: cid, Context: DelinquencyContext{PauseNotWithdraw: false},
 		})
 	}, time.Millisecond)
 
-	env.ExecuteWorkflow(ExecutionKindDelinquency, DelinquencyInput{CustomerID: cid})
+	env.ExecuteWorkflow(executionKindDelinquency, delinquencyInput{CustomerID: cid})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)
@@ -799,7 +799,7 @@ func Test_Delinquency_WithdrawTerms_WithdrawsAndRecordsWithdrawn(t *testing.T) {
 	if len(rt.withdraws) != 1 {
 		t.Fatalf("want one withdraw on withdraw terms, got %d", len(rt.withdraws))
 	}
-	if len(os.delinquency) != 1 || os.delinquency[0] != DelinquencyActionWithdrawn {
+	if len(os.delinquency) != 1 || os.delinquency[0] != delinquencyActionWithdrawn {
 		t.Fatalf("want one recordDelinquencyAction(Withdrawn), got %v", os.delinquency)
 	}
 }
@@ -814,12 +814,12 @@ func Test_Deploy_ConflictOnRecord_ReReadReApply_Succeeds(t *testing.T) {
 
 	deps, os, _, _, _ := baseDeps()
 	appID := uuid.New()
-	os.system = OperatedSystem{ID: appID, Version: 1}
+	os.system = operatedSystem{ID: appID, Version: 1}
 	os.conflictFirst = 2 // first two head-state publishes Conflict, then succeed
 	wf := newWorkflows(deps)
 	registerDeploy(env, wf)
 
-	env.ExecuteWorkflow(ExecutionKindDeploy, DeployInput{
+	env.ExecuteWorkflow(executionKindDeploy, deployInput{
 		OperatedAppID: appID,
 		Change:        DesiredStateChange{Reason: ReasonOperator, PatchKind: PatchScale, ChangeID: "c-conf"},
 	})

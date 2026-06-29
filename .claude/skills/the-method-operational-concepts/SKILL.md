@@ -11,13 +11,13 @@ When the chosen execution infrastructure for Managers is a durable workflow engi
 
 ## Canonical source
 
-**Primary:** Löwy, [Ch. 5 §4.3a "Operational Concepts"](../../../../rightingsoftware/OEBPS/xhtml/ch05.xhtml#ch05lev2sec13a) — the TradeMe walkthrough.
+**Primary:** Löwy, [Ch. 5 §4.3a "Operational Concepts"](../../../research/rightingsoftware/OEBPS/xhtml/ch05.xhtml#ch05lev2sec13a) — the TradeMe walkthrough.
 
 **Supporting:**
-- [Ch. 3 §6 "Open and Closed Architectures"](../../../../rightingsoftware/OEBPS/xhtml/ch03.xhtml#ch03lev1sec6) — layering style decision
-- [Ch. 3 §6.4 "Relaxing the Rules"](../../../../rightingsoftware/OEBPS/xhtml/ch03.xhtml#ch03lev2sec17) — when to deviate from closed
-- [Ch. 3 §5 "Subsystems and Services"](../../../../rightingsoftware/OEBPS/xhtml/ch03.xhtml#ch03lev1sec5) — subsystem boundaries
-- [Ch. 3 §3.5 "Utilities Bar"](../../../../rightingsoftware/OEBPS/xhtml/ch03.xhtml#ch03lev2sec7) — Message Bus, etc.
+- [Ch. 3 §6 "Open and Closed Architectures"](../../../research/rightingsoftware/OEBPS/xhtml/ch03.xhtml#ch03lev1sec6) — layering style decision
+- [Ch. 3 §6.4 "Relaxing the Rules"](../../../research/rightingsoftware/OEBPS/xhtml/ch03.xhtml#ch03lev2sec17) — when to deviate from closed
+- [Ch. 3 §5 "Subsystems and Services"](../../../research/rightingsoftware/OEBPS/xhtml/ch03.xhtml#ch03lev1sec5) — subsystem boundaries
+- [Ch. 3 §3.5 "Utilities Bar"](../../../research/rightingsoftware/OEBPS/xhtml/ch03.xhtml#ch03lev2sec7) — Message Bus, etc.
 
 **Temporal vocabulary (when applicable):**
 - Workflow / Activity / Signal / Query / Update / Timer / Schedule / ChildWorkflow / ContinueAsNew — the canonical naming + edge-label grammar (Manager-layer only)

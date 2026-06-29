@@ -31,7 +31,7 @@ import { getRouteApi, useNavigate } from '@tanstack/react-router';
 import { ApiError } from '../api/client';
 import type { ConstructionRow, GitRow, ProjectArtifactModelEnvelope, ProjectStateWithGit } from '../api/types';
 import { gitFor } from '../api/types';
-import type { OverrideKind } from '../api/construction';
+import type { OverrideKind } from '../api/types';
 import { slotStageFromOrdinal } from '../api/adapters';
 import {
   buildStatusForStage,
@@ -125,7 +125,7 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
     const id = setInterval(() => {
       if (Date.now() - lastProgressAtRef.current > 30000) setCascading(false);
     }, 1500);
-    return () => { clearInterval(id); };
+    return (): void => { clearInterval(id); };
   }, [cascading]);
 
   const sessionQuery = useConstructionSession(projectId);

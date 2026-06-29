@@ -6,12 +6,12 @@
  * ./flowShared).
  */
 import { MarkerType, type Edge, type Node } from '@xyflow/react';
-import type { components } from '../../api/schema';
+import type { Layer } from '../../api/models';
 import type { Tokens } from '../../theme/themes';
 import type { C4Component } from '../../api/adapters';
 import { C4Node } from './C4Node';
 
-export type Layer = components['schemas']['Layer'];
+export type { Layer };
 
 /** React-Flow node-type registry shared by every C4-style flow in the family. */
 export const nodeTypes = { c4: C4Node };

@@ -6,6 +6,8 @@ import (
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/worker"
 	"go.temporal.io/sdk/workflow"
+
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/durableexecution"
 )
 
 // ---------------------------------------------------------------------------
@@ -20,14 +22,14 @@ const TaskQueue = "settlement"
 // ExecutionKinds — the registered workflow names (settlementManager.md §6.2).
 const (
 	// ExecutionKindOnboard is the UC5 payment-integration onboarding workflow.
-	ExecutionKindOnboard = "settlementOnboardPayment"
+	executionKindOnboard = "settlementOnboardPayment"
 	// ExecutionKindRegister is the ncuc1 customer-registration workflow.
-	ExecutionKindRegister = "settlementRegisterCustomer"
+	executionKindRegister = "settlementRegisterCustomer"
 	// ExecutionKindClose is the UC6 cycle-close workflow (also hosts the inbound/
 	// chargeback Signals and the forward-only recompute saga).
-	ExecutionKindClose = "settlementCloseCycle"
+	executionKindClose = "settlementCloseCycle"
 	// ExecutionKindShortfallSweep is the ncuc5 shortfall-sweep workflow.
-	ExecutionKindShortfallSweep = "settlementShortfallSweep"
+	executionKindShortfallSweep = "settlementShortfallSweep"
 )
 
 // Schedule ids + cadence (settlementManager.md §6.1; operational-concepts.md §4).
@@ -92,13 +94,31 @@ const (
 // The two Engines' verbs are called DIRECTLY from workflow code (deterministic, by
 // value) and are NOT Activities. The durableExecutionAccess in-workflow primitive
 // (awaitSignal) is the Manager's own code (category A) and is NOT an Activity either.
-func RegisterWorker(w worker.Worker, deps Deps) {
+func RegisterWorker(w worker.Worker, m SettlementManager) {
+	impl, ok := m.(*settlementManager)
+	if !ok {
+		panic("settlement: RegisterWorker requires a *settlementManager from NewSettlementManager")
+	}
+
+	// Fold the published deps the constructor stored into the unexported seams the
+	// Workflows struct holds (adapters.go) — the Option-B boundary mapping that replaces
+	// the former composition-root wfDeps wiring.
+	deps := wfDeps{
+		Settlement:      settlementEngineAdapter{inner: impl.settlement},
+		Intervention:    interventionAdapter{inner: impl.intervention},
+		SettlementState: settlementStateAdapter{inner: impl.settlementState},
+		RevenueLedger:   revenueLedgerAdapter{inner: impl.revenueLedger},
+		Usage:           usageAdapter{inner: impl.usage},
+		Gateway:         merchantGatewayAdapter{inner: impl.merchantGateway},
+		OperatedRuntime: operatedRuntimeAdapter{inner: impl.operatedRuntime},
+		Durable:         durableAdapter{inner: impl.durableExecution},
+	}
 	wf := newWorkflows(deps)
 
-	w.RegisterWorkflowWithOptions(wf.OnboardWorkflow, workflow.RegisterOptions{Name: ExecutionKindOnboard})
-	w.RegisterWorkflowWithOptions(wf.RegisterCustomerWorkflow, workflow.RegisterOptions{Name: ExecutionKindRegister})
-	w.RegisterWorkflowWithOptions(wf.CloseCycleWorkflow, workflow.RegisterOptions{Name: ExecutionKindClose})
-	w.RegisterWorkflowWithOptions(wf.ShortfallSweepWorkflow, workflow.RegisterOptions{Name: ExecutionKindShortfallSweep})
+	w.RegisterWorkflowWithOptions(wf.OnboardWorkflow, workflow.RegisterOptions{Name: executionKindOnboard})
+	w.RegisterWorkflowWithOptions(wf.RegisterCustomerWorkflow, workflow.RegisterOptions{Name: executionKindRegister})
+	w.RegisterWorkflowWithOptions(wf.CloseCycleWorkflow, workflow.RegisterOptions{Name: executionKindClose})
+	w.RegisterWorkflowWithOptions(wf.ShortfallSweepWorkflow, workflow.RegisterOptions{Name: executionKindShortfallSweep})
 
 	// The Activities (settlementManager.md §6.4), one per RA call.
 	w.RegisterActivityWithOptions(wf.ReadSettlementActivity, activity.RegisterOptions{Name: actReadSettlement})
@@ -129,10 +149,10 @@ func RegisterWorker(w worker.Worker, deps Deps) {
 // FU-MST-3). Called once at process start. The per-customer closeSettlementCycle:<customerId>
 // Schedule is NOT registered here — it is registered per-customer at onboarding (op 2.1,
 // RegisterScheduleActivity).
-func RegisterSchedules(ctx context.Context, durable DurableExecutionAccess) error {
-	return durable.RegisterSchedule(ctx, scheduleSpec{
+func RegisterSchedules(ctx context.Context, durable durableexecution.DurableExecutionAccess) error {
+	return durableAdapter{inner: durable}.RegisterSchedule(ctx, scheduleSpec{
 		ID:           scheduleIDShortfallSweep,
-		WorkflowType: ExecutionKindShortfallSweep,
+		WorkflowType: executionKindShortfallSweep,
 		TaskQueue:    TaskQueue,
 		IntervalSecs: shortfallSweepIntervalSecs,
 	})

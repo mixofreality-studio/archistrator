@@ -12,15 +12,15 @@ Per Löwy: this is the moment of *educated decisions with viable options that di
 ## Canonical source
 
 **Primary:**
-- Löwy, [Ch. 7 §3.2 "Software Development Plan Review"](../../../../rightingsoftware/OEBPS/xhtml/ch07.xhtml#ch07lev2sec5)
-- [Ch. 11 §8 "SDP Review"](../../../../rightingsoftware/OEBPS/xhtml/ch11.xhtml#ch11lev1sec8)
-- [Ch. 11 §8.1 "Presenting the Options"](../../../../rightingsoftware/OEBPS/xhtml/ch11.xhtml#ch11lev2sec21)
+- Löwy, [Ch. 7 §3.2 "Software Development Plan Review"](../../../research/rightingsoftware/OEBPS/xhtml/ch07.xhtml#ch07lev2sec5)
+- [Ch. 11 §8 "SDP Review"](../../../research/rightingsoftware/OEBPS/xhtml/ch11.xhtml#ch11lev1sec8)
+- [Ch. 11 §8.1 "Presenting the Options"](../../../research/rightingsoftware/OEBPS/xhtml/ch11.xhtml#ch11lev2sec21)
 
 **Worked examples:**
-- TradeMe SDP options: [Ch. 11 Table 11-11 "Project design options for review"](../../../../rightingsoftware/OEBPS/xhtml/ch11.xhtml)
-- Second worked example SDP: [Ch. 13 §7 "Comparing the Options"](../../../../rightingsoftware/OEBPS/xhtml/ch13.xhtml#ch13lev1sec7) + [§9 "Preparing for the SDP Review"](../../../../rightingsoftware/OEBPS/xhtml/ch13.xhtml#ch13lev1sec9)
+- TradeMe SDP options: [Ch. 11 Table 11-11 "Project design options for review"](../../../research/rightingsoftware/OEBPS/xhtml/ch11.xhtml)
+- Second worked example SDP: [Ch. 13 §7 "Comparing the Options"](../../../research/rightingsoftware/OEBPS/xhtml/ch13.xhtml#ch13lev1sec7) + [§9 "Preparing for the SDP Review"](../../../research/rightingsoftware/OEBPS/xhtml/ch13.xhtml#ch13lev1sec9)
 
-**Standard reference:** [Appendix C §4.1g "Always go through SDP review before the main work starts"](../../../../rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec4) and [§4.1f "Communicate with management in Optionality"](../../../../rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec4).
+**Standard reference:** [Appendix C §4.1g "Always go through SDP review before the main work starts"](../../../research/rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec4) and [§4.1f "Communicate with management in Optionality"](../../../research/rightingsoftware/OEBPS/xhtml/appc.xhtml#appclev1sec4).
 
 ## Input
 

@@ -18,34 +18,27 @@
 // Derived faithfully from the frozen artifactAccess.md contract (Phase-3 CAS).
 package artifact
 
-import (
-	"context"
-
-	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
-)
-
-// ArtifactAccess is the Temporal-free port over the Phase-3 construction-output
-// content-addressable store (artifactAccess.md §2). Three atomic construction
-// business verbs; the content address is a plain string compared by value (==).
+// The ArtifactAccess port interface and its I/O value types (ConstructionOutput,
+// OutputTree, and the named scalar OutputPath) are now GENERATED from
+// contract.schema.json into contract.gen.go (schema-first; edit the schema and run
+// `make gen`). Each method takes the ResourceAccess call Context `rc fwra.Context`
+// first — it embeds context.Context and carries the Principal + IdempotencyKey, so
+// the cross-cutting ctx/idempotencyKey that the hand-written surface passed
+// explicitly now ride the context. The design rationale not captured by the
+// generated signatures:
 //
 //   - StoreConstructionOutput establishes a content-addressable identity for one
 //     output. Storing identical content returns the SAME address (no duplicate);
 //     storing different content yields a NEW address (the prior is retained —
-//     immutable history). The caller-supplied idempotencyKey goes into the infra
+//     immutable history). The caller-supplied rc.IdempotencyKey goes into the infra
 //     commit message; this method never reads Temporal.
 //   - RetrieveConstructionOutput is a pure by-address read; an unknown address
 //     surfaces as fwra.NotFound. Byte-identical across retries.
 //   - RetrieveOutputTree returns the flat path->content-address snapshot at a
 //     tree-root address; an unknown address surfaces as fwra.NotFound.
-type ArtifactAccess interface {
-	StoreConstructionOutput(ctx context.Context, content ConstructionOutput, idempotencyKey fwra.IdempotencyKey) (contentAddress string, err error)
-	RetrieveConstructionOutput(ctx context.Context, contentAddress string) (ConstructionOutput, error)
-	RetrieveOutputTree(ctx context.Context, contentAddress string) (OutputTree, error)
-}
-
-// Error is the shared ResourceAccess error model (framework-go), re-exported as
-// an alias so this component's contract reads in its own terms while every RA
-// component shares one fixed enum. Construct with fwra.New / fwra.Wrap using the
-// shared kinds (fwra.NotFound, fwra.Conflict, fwra.Auth, fwra.Transient,
-// fwra.Infrastructure, fwra.ContractMisuse).
-type Error = fwra.Error
+//
+// The shared ResourceAccess error model is framework-go's fwra.Error, constructed
+// with fwra.New / fwra.Wrap using the shared kinds (fwra.NotFound, fwra.Conflict,
+// fwra.Auth, fwra.Transient, fwra.Infrastructure, fwra.ContractMisuse). It is used
+// directly (no package-local alias) so this package exports ONLY its generated
+// contract surface.

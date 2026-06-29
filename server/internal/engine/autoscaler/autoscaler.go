@@ -34,101 +34,82 @@
 // "Strategy axis"). Adding an infrastructure is a new strategy file + a new
 // InfrastructureKind constant, not a contract amendment.
 //
-// Imports ONLY projectstate (the owning ResourceAccess of InfrastructureKind, the
-// downward engine→projectstate seam — same pattern as operationEstimationEngine)
-// and framework-go/engine (the shared Engine error model, aliased fweng).
+// Imports ONLY framework-go/engine (the shared Engine error model, aliased fweng)
+// plus the foundational time/uuid types. Per Option B full encapsulation the
+// contract redefines InfrastructureKind as the autoscaler's OWN type (mirroring
+// projectstate, the canonical ResourceAccess home), so this package imports NO
+// projectstate — callers convert projectstate.InfrastructureKind ↔
+// autoscaler.InfrastructureKind at the boundary (same int values).
 package autoscaler
 
 import (
-	"time"
-
 	"github.com/google/uuid"
 
 	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
-
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
-// InfrastructureKind is the opaque CustomerAppInfrastructure discriminator. It is
-// owned by projectstate (its ResourceAccess home — same kind the sibling
-// operationEstimationEngine pivots on); the autoscaler reuses it so the launch
-// set and any future additive kinds are defined once (autoscalerEngine.md §3).
-type InfrastructureKind = projectstate.InfrastructureKind
+// InfrastructureKind is the opaque CustomerAppInfrastructure discriminator (the
+// same kind the sibling operationEstimationEngine pivots on). Per Option B full
+// encapsulation it is the autoscaler's OWN type, mirroring projectstate's values
+// and names; callers convert projectstate.InfrastructureKind ↔
+// autoscaler.InfrastructureKind at the boundary (same int values). Defining it
+// once here keeps the Engine free of any projectstate import (autoscalerEngine.md §3).
 
-// Re-exported launch-set constants, so callers and tests of this Engine can name
-// the strategy axis without importing projectstate directly.
-const (
-	// InfrastructureKindUnknown is the zero value (no strategy registered).
-	InfrastructureKindUnknown = projectstate.InfrastructureKindUnknown
-	// InfrastructureKindGoTemporalPostgres is the launch infrastructure
-	// (Go + Temporal + Postgres + Git + S3).
-	InfrastructureKindGoTemporalPostgres = projectstate.InfrastructureKindGoTemporalPostgres
-)
+// InfrastructureKindUnknown is the zero value (no strategy registered).
 
-// OperatedAppID identifies one Operated System. Carried for identity/labeling on
+// InfrastructureKindGoTemporalPostgres is the launch infrastructure
+// (Go + Temporal + Postgres + Git + S3).
+
+// operatedAppID identifies one Operated System. Carried for identity/labeling on
 // Telemetry and DesiredState; the Engine never branches on it (autoscalerEngine.md §3).
-type OperatedAppID = uuid.UUID
+type operatedAppID = uuid.UUID
 
 // --- Telemetry (autoscalerEngine.md §3) --------------------------------------
 
 // HealthStatus is the observed application health signal.
-type HealthStatus int
 
-const (
-	// HealthUnknown is the zero value (health not yet observed).
-	HealthUnknown HealthStatus = iota
-	// HealthHealthy — the app reports healthy.
-	HealthHealthy
-	// HealthDegraded — the app is serving but impaired.
-	HealthDegraded
-	// HealthUnhealthy — the app is failing health checks.
-	HealthUnhealthy
-)
+// HealthUnknown is the zero value (health not yet observed).
+
+// HealthHealthy — the app reports healthy.
+
+// HealthDegraded — the app is serving but impaired.
+
+// HealthUnhealthy — the app is failing health checks.
 
 // SLOStatus is the observed error-budget signal.
-type SLOStatus int
 
-const (
-	// SLOUnknown is the zero value (SLO status not yet observed).
-	SLOUnknown SLOStatus = iota
-	// SLOWithinBudget — comfortably inside the error budget.
-	SLOWithinBudget
-	// SLOBurningBudget — burning the error budget faster than allowed.
-	SLOBurningBudget
-	// SLOOutOfBudget — the error budget is exhausted.
-	SLOOutOfBudget
-)
+// SLOUnknown is the zero value (SLO status not yet observed).
+
+// SLOWithinBudget — comfortably inside the error budget.
+
+// SLOBurningBudget — burning the error budget faster than allowed.
+
+// SLOOutOfBudget — the error budget is exhausted.
 
 // Telemetry is a point-in-time, infrastructure-neutral snapshot of the
 // observations the autoscale decision needs. The Manager assembles it from the
 // Path B reads (operatedRuntimeAccess.getApplicationHealth / getSloStatus /
 // readComputeAttribution) and passes it in by value. The Engine reads it; it
 // never compares ObservedAt to a wall clock (determinism — autoscalerEngine.md §3).
-type Telemetry struct {
-	// Identity & timing.
-	OperatedAppID OperatedAppID
-	// ObservedAt is pinned by the Manager from the Path B observation; the Engine
-	// reads it but does NOT compare it to time.Now() (the Engine reads no clock).
-	ObservedAt time.Time
 
-	// Load signals (per CustomerAppInfrastructure strategy; not all signals are
-	// populated for every infrastructure).
-	RequestsPerSecond float64 // 0.0 when paused or no traffic since last tick
-	P95LatencyMs      float64 // 0.0 when paused
-	InflightRequests  int
+// Identity & timing.
 
-	// Capacity signals.
-	CurrentReplicas   int     // observed; may diverge from currentDesired during convergence
-	CPUUtilization    float64 // 0.0..1.0 average across replicas; 0.0 when paused
-	MemoryUtilization float64 // 0.0..1.0 average across replicas
+// ObservedAt is pinned by the Manager from the Path B observation; the Engine
+// reads it but does NOT compare it to time.Now() (the Engine reads no clock).
 
-	// Health signals.
-	Health    HealthStatus
-	SLOStatus SLOStatus
+// Load signals (per CustomerAppInfrastructure strategy; not all signals are
+// populated for every infrastructure).
+// 0.0 when paused or no traffic since last tick
+// 0.0 when paused
 
-	// Idle-pause signal: Manager-computed, infrastructure-agnostic.
-	TimeSinceLastRequest time.Duration
-}
+// Capacity signals.
+// observed; may diverge from currentDesired during convergence
+// 0.0..1.0 average across replicas; 0.0 when paused
+// 0.0..1.0 average across replicas
+
+// Health signals.
+
+// Idle-pause signal: Manager-computed, infrastructure-agnostic.
 
 // --- DesiredState (autoscalerEngine.md §3) -----------------------------------
 
@@ -136,182 +117,110 @@ type Telemetry struct {
 // Manager owns its lifecycle; the Engine reads it and proposes a Decision against
 // it. The Engine is stateless across calls — no per-call state is round-tripped
 // through DesiredState (Amendment 1: BaselineRef removed; autoscalerEngine.md §3).
-type DesiredState struct {
-	OperatedAppID OperatedAppID
-	// InfrastructureKind must equal the infrastructureKind passed to
-	// ProposeDesiredState; the Engine asserts the invariant.
-	InfrastructureKind InfrastructureKind
-	Replicas           int       // 0 == paused
-	LastDecisionAt     time.Time // when the last non-NoChange decision was applied; for debounce
-}
+
+// InfrastructureKind must equal the infrastructureKind passed to
+// ProposeDesiredState; the Engine asserts the invariant.
+
+// 0 == paused
+// when the last non-NoChange decision was applied; for debounce
 
 // --- AutoscalerPolicy (autoscalerEngine.md §3) -------------------------------
 
 // AutoscalerMode is the operator-level autoscaler switch.
-type AutoscalerMode int
 
-const (
-	// AutoscalerModeAuto enables the decision logic.
-	AutoscalerModeAuto AutoscalerMode = iota
-	// AutoscalerModeManual ⇒ the Engine always returns NoChange (autoscaler off).
-	AutoscalerModeManual
-)
+// AutoscalerModeAuto enables the decision logic.
+
+// AutoscalerModeManual ⇒ the Engine always returns NoChange (autoscaler off).
 
 // SLATier is the SLA-class tier; it modulates baseline/min/anti-flap grace inside
 // a strategy.
-type SLATier int
 
-const (
-	// SLATierFree is the zero value — the free tier.
-	SLATierFree SLATier = iota
-	// SLATierPaid — the paid tier.
-	SLATierPaid
-	// SLATierEnterprise — the enterprise tier.
-	SLATierEnterprise
-)
+// SLATierFree is the zero value — the free tier.
+
+// SLATierPaid — the paid tier.
+
+// SLATierEnterprise — the enterprise tier.
 
 // AutoscalerPolicy is the customer-tunable policy that drives the Engine. The
 // Engine does NOT validate well-formedness beyond the policy.Kind ==
 // infrastructureKind invariant (whoever stores the policy owns well-formedness;
 // autoscalerEngine.md §3 "Validation").
-type AutoscalerPolicy struct {
-	Kind InfrastructureKind // policy authored for this infrastructure
-	Mode AutoscalerMode     // Auto | Manual (manual ⇒ always NoChange)
 
-	// Capacity bounds.
-	MinReplicas      int // ≥ 0; 0 enables idle-pause
-	MaxReplicas      int // ≥ MinReplicas
-	BaselineReplicas int // Min ≤ Baseline ≤ Max; the resume-from-pause target
-	MaxStepDelta     int // upper bound on Δ replicas per decision; debounces flap
+// policy authored for this infrastructure
+// Auto | Manual (manual ⇒ always NoChange)
 
-	// Idle-pause.
-	IdleThreshold time.Duration // duration without traffic before Pause; 0 == disabled
+// Capacity bounds.
+// ≥ 0; 0 enables idle-pause
+// ≥ MinReplicas
+// Min ≤ Baseline ≤ Max; the resume-from-pause target
+// upper bound on Δ replicas per decision; debounces flap
 
-	// Load thresholds (per infrastructure strategy; some use a subset).
-	ScaleUpCPU     float64       // 0.0..1.0; above ⇒ scale up
-	ScaleDownCPU   float64       // 0.0..1.0; below for ScaleDownGrace ⇒ scale down
-	ScaleDownGrace time.Duration // must observe low CPU this long before scale down (anti-flap)
+// Idle-pause.
+// duration without traffic before Pause; 0 == disabled
 
-	// SLA-class tier.
-	SLATier SLATier // Free | Paid | Enterprise
+// Load thresholds (per infrastructure strategy; some use a subset).
+// 0.0..1.0; above ⇒ scale up
+// 0.0..1.0; below for ScaleDownGrace ⇒ scale down
+// must observe low CPU this long before scale down (anti-flap)
 
-	// Operator overrides.
-	Pinned      bool // if true, Engine returns NoChange (operator pinned replicas)
-	MaxBurstCap int  // upper cap on a single ScaleUp delta even if the strategy proposes more
-}
+// SLA-class tier.
+// Free | Paid | Enterprise
+
+// Operator overrides.
+// if true, Engine returns NoChange (operator pinned replicas)
+// upper cap on a single ScaleUp delta even if the strategy proposes more
 
 // --- Decision (autoscalerEngine.md §3) ---------------------------------------
 
 // DecisionKind is the closed decision set per architecture.dsl line 229 /
 // core-use-cases.md UC4 Path C.
-type DecisionKind int
 
-const (
-	// DecisionNoChange — the common quiet-tick outcome.
-	DecisionNoChange DecisionKind = iota
-	// DecisionScaleUp — increment replicas by Delta.
-	DecisionScaleUp
-	// DecisionScaleDown — decrement replicas by Delta.
-	DecisionScaleDown
-	// DecisionPause — idle-pause (the Manager publishes replicas=0).
-	DecisionPause
-	// DecisionResume — resume from zero to ToBaseline.
-	DecisionResume
-)
+// DecisionNoChange — the common quiet-tick outcome.
 
-// String returns the canonical name for a decision kind (matches the
-// architecture-edge enumeration labels; safe to log).
-func (k DecisionKind) String() string {
-	switch k {
-	case DecisionNoChange:
-		return "NoChange"
-	case DecisionScaleUp:
-		return "ScaleUp"
-	case DecisionScaleDown:
-		return "ScaleDown"
-	case DecisionPause:
-		return "Pause"
-	case DecisionResume:
-		return "Resume"
-	default:
-		return "Unknown"
-	}
-}
+// DecisionScaleUp — increment replicas by Delta.
+
+// DecisionScaleDown — decrement replicas by Delta.
+
+// DecisionPause — idle-pause (the Manager publishes replicas=0).
+
+// DecisionResume — resume from zero to ToBaseline.
 
 // ReasonCode is the closed, build-time-fixed set of structured causes for the
 // audit event the Manager appends (DesiredStatePublished(reason=autoscale,
 // decision=...)). No dynamic registration (autoscalerEngine.md §3).
-type ReasonCode int
 
-const (
-	// ReasonUnknown is the zero value.
-	ReasonUnknown ReasonCode = iota
-	// ReasonCPUHigh — CPU above the scale-up threshold.
-	ReasonCPUHigh
-	// ReasonCPUSustainedLow — CPU below the scale-down threshold for the grace window.
-	ReasonCPUSustainedLow
-	// ReasonIdle — no traffic for the idle threshold ⇒ pause.
-	ReasonIdle
-	// ReasonTrafficResumed — traffic resumed while paused ⇒ resume-to-baseline.
-	ReasonTrafficResumed
-	// ReasonManualMode — policy is manual; always NoChange.
-	ReasonManualMode
-	// ReasonPinned — operator pinned replicas; always NoChange.
-	ReasonPinned
-	// ReasonSLOBurnDown — error budget burning/out ⇒ scale up to protect the SLO.
-	ReasonSLOBurnDown
-	// ReasonAlreadyAtMin — would scale down but already at MinReplicas.
-	ReasonAlreadyAtMin
-	// ReasonAlreadyAtMax — would scale up but already at MaxReplicas.
-	ReasonAlreadyAtMax
-	// ReasonSteady — within thresholds; no change warranted.
-	ReasonSteady
-)
+// ReasonUnknown is the zero value.
 
-// String returns a stable name for a reason code (safe to log; no PII).
-func (c ReasonCode) String() string {
-	switch c {
-	case ReasonCPUHigh:
-		return "CPUHigh"
-	case ReasonCPUSustainedLow:
-		return "CPUSustainedLow"
-	case ReasonIdle:
-		return "Idle"
-	case ReasonTrafficResumed:
-		return "TrafficResumed"
-	case ReasonManualMode:
-		return "ManualMode"
-	case ReasonPinned:
-		return "Pinned"
-	case ReasonSLOBurnDown:
-		return "SLOBurnDown"
-	case ReasonAlreadyAtMin:
-		return "AlreadyAtMin"
-	case ReasonAlreadyAtMax:
-		return "AlreadyAtMax"
-	case ReasonSteady:
-		return "Steady"
-	default:
-		return "Unknown"
-	}
-}
+// ReasonCPUHigh — CPU above the scale-up threshold.
+
+// ReasonCPUSustainedLow — CPU below the scale-down threshold for the grace window.
+
+// ReasonIdle — no traffic for the idle threshold ⇒ pause.
+
+// ReasonTrafficResumed — traffic resumed while paused ⇒ resume-to-baseline.
+
+// ReasonManualMode — policy is manual; always NoChange.
+
+// ReasonPinned — operator pinned replicas; always NoChange.
+
+// ReasonSLOBurnDown — error budget burning/out ⇒ scale up to protect the SLO.
+
+// ReasonAlreadyAtMin — would scale down but already at MinReplicas.
+
+// ReasonAlreadyAtMax — would scale up but already at MaxReplicas.
+
+// ReasonSteady — within thresholds; no change warranted.
 
 // DecisionReason carries the structured cause the Manager writes into the audit
 // event. Detail is a short human-readable explanation; safe to log; no PII.
-type DecisionReason struct {
-	Code   ReasonCode
-	Detail string
-}
 
 // Decision is the sum-type output. Delta is populated on ScaleUp/ScaleDown;
 // ToBaseline is populated on Resume (the replica count the policy considers the
 // baseline for this app's SLA class — autoscalerEngine.md §3).
-type Decision struct {
-	Kind       DecisionKind
-	Delta      int            // populated when Kind == ScaleUp | ScaleDown (always > 0)
-	ToBaseline int            // populated when Kind == Resume
-	Reason     DecisionReason // structured cause for the audit event
-}
+
+// populated when Kind == ScaleUp | ScaleDown (always > 0)
+// populated when Kind == Resume
+// structured cause for the audit event
 
 // --- Public entry point (autoscalerEngine.md §2.1, §6) -----------------------
 
@@ -319,26 +228,14 @@ type Decision struct {
 // (autoscalerEngine.md §2). One behavioural operation, one caller
 // (operationsManager), ZERO outbound edges. Defined here as the Engine's own
 // surface; the operationsManager holds an independent consumer mirror it adapts to.
-type AutoscalerEngine interface {
-	// ProposeDesiredState selects what the platform should do to one Operated
-	// System's desired capacity. Pure and deterministic (autoscalerEngine.md §2.1).
-	ProposeDesiredState(
-		telemetry Telemetry,
-		currentDesired DesiredState,
-		policy AutoscalerPolicy,
-		infrastructureKind InfrastructureKind,
-	) (Decision, error)
-}
 
-// engine is the concrete, stateless AutoscalerEngine. No fields => no mutable
-// state => trivially deterministic and reentrant (autoscalerEngine.md §6).
-type engine struct{}
+// ProposeDesiredState selects what the platform should do to one Operated
+// System's desired capacity. Pure and deterministic (autoscalerEngine.md §2.1).
 
-// New returns the production AutoscalerEngine.
-func New() AutoscalerEngine { return engine{} }
-
-// Compile-time assertion that engine satisfies the port.
-var _ AutoscalerEngine = engine{}
+// The concrete, stateless AutoscalerEngine — AutoscalerEngineImpl — and its
+// constructor NewAutoscalerEngine() are GENERATED into contract.gen.go. No fields =>
+// no mutable state => trivially deterministic and reentrant (autoscalerEngine.md §6).
+// The behaviour below is hand-written on the generated struct.
 
 // ProposeDesiredState answers, deterministically, what the platform should do to
 // one Operated System's desired capacity given the telemetry, the current desired
@@ -357,7 +254,8 @@ var _ AutoscalerEngine = engine{}
 // The two policy-universal short-circuits (ManualMode, Pinned) live here, not in
 // each strategy: they are operator overrides, not infrastructure-specific
 // (autoscalerEngine.md §6).
-func (engine) ProposeDesiredState(
+func (AutoscalerEngineImpl) ProposeDesiredState(
+	_ fweng.Context,
 	telemetry Telemetry,
 	currentDesired DesiredState,
 	policy AutoscalerPolicy,

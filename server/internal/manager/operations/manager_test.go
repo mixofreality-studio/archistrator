@@ -63,6 +63,12 @@ import (
 // call, so they need no cluster and no client — a nil client is safe because the
 // checks short-circuit first.
 
+// bgCtx is the Manager-layer call Context the façade pre-condition tests pass (the
+// Principal is zero — these checks short-circuit before any Temporal/authz path).
+func bgCtx() fwmgr.Context {
+	return fwmgr.Context{Context: context.Background()}
+}
+
 func asOperationsError(t *testing.T, err error) *fwmgr.Error {
 	t.Helper()
 	var oe *fwmgr.Error
@@ -75,8 +81,8 @@ func asOperationsError(t *testing.T, err error) *fwmgr.Error {
 // ---- A1/A2: DeployAfterConstruction id checks -------------------------------
 
 func Test_Deploy_EmptyOperatedAppID(t *testing.T) {
-	m := NewManager(nil)
-	_, err := m.DeployAfterConstruction(context.Background(), uuid.Nil,
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	_, err := m.DeployAfterConstruction(bgCtx(), uuid.Nil,
 		DesiredStateChange{Reason: ReasonDeployAfterConstruction, ChangeID: "c1"})
 	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -84,8 +90,8 @@ func Test_Deploy_EmptyOperatedAppID(t *testing.T) {
 }
 
 func Test_Deploy_EmptyChangeID(t *testing.T) {
-	m := NewManager(nil)
-	_, err := m.DeployAfterConstruction(context.Background(), uuid.New(),
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	_, err := m.DeployAfterConstruction(bgCtx(), uuid.New(),
 		DesiredStateChange{Reason: ReasonOperator, ChangeID: ""})
 	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -95,8 +101,8 @@ func Test_Deploy_EmptyChangeID(t *testing.T) {
 // ---- A3/A4/A5: the reason discriminator rejection (OQ-5) --------------------
 
 func Test_Deploy_RejectsReservedAutoscaleReason(t *testing.T) {
-	m := NewManager(nil)
-	_, err := m.DeployAfterConstruction(context.Background(), uuid.New(),
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	_, err := m.DeployAfterConstruction(bgCtx(), uuid.New(),
 		DesiredStateChange{Reason: ReasonAutoscale, ChangeID: "c1"})
 	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("autoscale reason must be ContractMisuse on deploy, got %s", got)
@@ -104,8 +110,8 @@ func Test_Deploy_RejectsReservedAutoscaleReason(t *testing.T) {
 }
 
 func Test_Deploy_RejectsReservedDelinquencyReason(t *testing.T) {
-	m := NewManager(nil)
-	_, err := m.DeployAfterConstruction(context.Background(), uuid.New(),
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	_, err := m.DeployAfterConstruction(bgCtx(), uuid.New(),
 		DesiredStateChange{Reason: ReasonDelinquency, ChangeID: "c1"})
 	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("delinquency reason must be ContractMisuse on deploy, got %s", got)
@@ -113,8 +119,8 @@ func Test_Deploy_RejectsReservedDelinquencyReason(t *testing.T) {
 }
 
 func Test_Deploy_RejectsUnknownReason(t *testing.T) {
-	m := NewManager(nil)
-	_, err := m.DeployAfterConstruction(context.Background(), uuid.New(),
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	_, err := m.DeployAfterConstruction(bgCtx(), uuid.New(),
 		DesiredStateChange{Reason: ReasonUnknown, ChangeID: "c1"})
 	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("unknown reason must be ContractMisuse on deploy, got %s", got)
@@ -124,8 +130,8 @@ func Test_Deploy_RejectsUnknownReason(t *testing.T) {
 // ---- A6: ReconcileOperatedState ---------------------------------------------
 
 func Test_Reconcile_EmptyTickID(t *testing.T) {
-	m := NewManager(nil)
-	_, err := m.ReconcileOperatedState(context.Background(), "", nil)
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	_, err := m.ReconcileOperatedState(bgCtx(), "", nil)
 	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
 	}
@@ -134,16 +140,16 @@ func Test_Reconcile_EmptyTickID(t *testing.T) {
 // ---- A7: WithdrawSystem ------------------------------------------------------
 
 func Test_Withdraw_EmptyOperatedAppID(t *testing.T) {
-	m := NewManager(nil)
-	_, err := m.WithdrawSystem(context.Background(), uuid.Nil, "c1", WithdrawReason{})
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	_, err := m.WithdrawSystem(bgCtx(), uuid.Nil, "c1", WithdrawReason{})
 	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
 	}
 }
 
 func Test_Withdraw_EmptyChangeID(t *testing.T) {
-	m := NewManager(nil)
-	_, err := m.WithdrawSystem(context.Background(), uuid.New(), "", WithdrawReason{})
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	_, err := m.WithdrawSystem(bgCtx(), uuid.New(), "", WithdrawReason{})
 	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
 	}
@@ -152,16 +158,16 @@ func Test_Withdraw_EmptyChangeID(t *testing.T) {
 // ---- A8: QueryCostProjection ------------------------------------------------
 
 func Test_CostProjection_EmptyOperatedAppID(t *testing.T) {
-	m := NewManager(nil)
-	_, err := m.QueryCostProjection(context.Background(), uuid.Nil, "r1", nil)
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	_, err := m.QueryCostProjection(bgCtx(), uuid.Nil, "r1", nil)
 	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
 	}
 }
 
 func Test_CostProjection_EmptyRequestID(t *testing.T) {
-	m := NewManager(nil)
-	_, err := m.QueryCostProjection(context.Background(), uuid.New(), "", nil)
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	_, err := m.QueryCostProjection(bgCtx(), uuid.New(), "", nil)
 	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
 	}
@@ -170,16 +176,16 @@ func Test_CostProjection_EmptyRequestID(t *testing.T) {
 // ---- A8b: QueryOperatedSystemView (op 2.7) ----------------------------------
 
 func Test_View_EmptyOperatedAppID(t *testing.T) {
-	m := NewManager(nil)
-	_, err := m.QueryOperatedSystemView(context.Background(), uuid.Nil, "r1")
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	_, err := m.QueryOperatedSystemView(bgCtx(), uuid.Nil, "r1")
 	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
 	}
 }
 
 func Test_View_EmptyRequestID(t *testing.T) {
-	m := NewManager(nil)
-	_, err := m.QueryOperatedSystemView(context.Background(), uuid.New(), "")
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	_, err := m.QueryOperatedSystemView(bgCtx(), uuid.New(), "")
 	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
 	}
@@ -188,8 +194,8 @@ func Test_View_EmptyRequestID(t *testing.T) {
 // ---- A9: ApplyDelinquencyPolicy ---------------------------------------------
 
 func Test_Delinquency_EmptyCustomerID(t *testing.T) {
-	m := NewManager(nil)
-	err := m.ApplyDelinquencyPolicy(context.Background(), uuid.Nil, DelinquencyContext{})
+	m := newOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	err := m.ApplyDelinquencyPolicy(bgCtx(), uuid.Nil, DelinquencyContext{})
 	if got := asOperationsError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
 	}
@@ -231,8 +237,8 @@ func Test_DesiredStateReason_String(t *testing.T) {
 		ReasonUnknown:                 "unknown",
 	}
 	for r, want := range cases {
-		if got := r.String(); got != want {
-			t.Fatalf("DesiredStateReason(%d).String() = %q, want %q", int(r), got, want)
+		if got := desiredStateReasonName(r); got != want {
+			t.Fatalf("desiredStateReasonName(%d) = %q, want %q", int(r), got, want)
 		}
 	}
 }
@@ -243,8 +249,8 @@ func Test_AutoscaleAction_String(t *testing.T) {
 		AutoscaleScaleDown: "ScaleDown", AutoscalePause: "Pause", AutoscaleResume: "Resume",
 	}
 	for a, want := range cases {
-		if got := a.String(); got != want {
-			t.Fatalf("AutoscaleAction(%d).String() = %q, want %q", int(a), got, want)
+		if got := autoscaleActionName(a); got != want {
+			t.Fatalf("autoscaleActionName(%d) = %q, want %q", int(a), got, want)
 		}
 	}
 }

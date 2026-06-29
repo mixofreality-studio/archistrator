@@ -18,12 +18,11 @@ import {
   type VolatilityPoint,
 } from '../api/adapters';
 import type { ArtifactModelEnvelope } from '../api/types';
-import type { components } from '../api/schema';
+import type { Axis } from '../api/models';
 import { useComments, volatilityAnchor } from './comments/CommentContext';
 import { useTokens } from '../theme/ThemeContext';
 import type { Tokens } from '../theme/themes';
 
-type Axis = components['schemas']['Axis'];
 
 function axisColor(t: Tokens, a: Axis): string {
   return a === 'sameCustomerOverTime' ? t.accent2 : t.committedDot;

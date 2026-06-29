@@ -24,8 +24,8 @@
 // File layout (mirrors internal/manager/systemdesign):
 //   - constructionmanager.go : the Manager that translates public ops into Temporal client calls (§6.2)
 //   - contract.go            : the public façade types + the consumer-side dep interfaces (§3, §5)
-//   - workflow.go            : the Workflows deps struct + workflow bodies + signal/query handlers (§6.3, §6.6)
-//   - activities.go          : the Manager-owned Activity wrappers, as methods on Workflows (§6.4)
+//   - workflow.go            : the workflows deps struct + workflow bodies + signal/query handlers (§6.3, §6.6)
+//   - activities.go          : the Manager-owned Activity wrappers, as methods on workflows (§6.4)
 //   - errors.go              : the port-error -> Temporal-error translation (§6.4)
 //   - worker.go              : worker registration of workflows + activities + Schedules (§6.1)
 //
@@ -40,79 +40,37 @@
 package construction
 
 import (
-	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+	fwm "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 )
 
 // ---------------------------------------------------------------------------
 // Public data contracts (constructionManager.md §3) — the Client surface.
-// Infrastructure-opaque: no Temporal id is exposed here. The typed Method /
-// construction models are referenced from their owning ResourceAccess packages,
-// not redefined (memory: Method data models live in their owning RA).
+//
+// SCHEMA-FIRST: the port I/O models (PumpResult, ReplanSweepResult, FlaggedVariance,
+// ActivityOverride, ConstructionSessionView, ReviewSet, Reviewer), the enums
+// (OverrideKind, ConstructionStage, PipelinePhase), the named-string scalars
+// (ProjectID, ActivityID) AND the ConstructionManager port interface are GENERATED
+// into contract.gen.go from contract.schema.json (edit the schema + `make gen`; do
+// NOT hand-edit the generated surface).
+//
+// FULL ENCAPSULATION: the generated contract carries this component's OWN
+// named-string ProjectID / ActivityID and imports NO projectstate and NO Temporal.
+// The Manager (which OWNS Temporal) converts to/from projectStateAccess's
+// projectstate.ProjectID at the RA boundary (workflow.go / signals.go /
+// gitforward.go). The consumer-side dependency interfaces (deps.go) and the Temporal
+// workflows struct stay hand-written and are NOT part of this contract.
 // ---------------------------------------------------------------------------
 
-// ProjectID is the project aggregate identifier; a string newtype whose value IS
-// the adopted repo name (name-as-identity, C-PM-Δ 2026-06-15), canonical in
-// projectStateAccess (constructionManager.md §3.0). Re-exported as an alias so the
-// façade reads in its own terms while staying one-source-of-truth.
-type ProjectID = projectstate.ProjectID
+// Compile-time proof the concrete Manager satisfies the generated ConstructionManager
+// port. Each op leads with the Manager-layer call Context (fwm.Context); the *Manager
+// derives ctx := rc.Context inside (constructionmanager.go). The *ProjectID /
+// *ActivityID pointer params are load-bearing (nil ⇒ sweep-all / project-level query).
+var _ ConstructionManager = (*constructionManager)(nil)
 
-// ActivityID identifies one Phase-3 construction/detailed-design/integration
-// activity in the project's committed network (constructionManager.md §3.0). A
-// string id (network.yaml activity ids land in head-state).
-type ActivityID = string
-
-// PumpResult is the result of one ExecuteNextActivity tick (constructionManager.md
-// §3.1). {Dispatched: false} is the NORMAL "no eligible activity this tick" answer
-// (not an error) — the 30s pump is mostly quiet between activity completions.
-type PumpResult struct {
-	Dispatched bool        `json:"dispatched"`
-	ActivityID *ActivityID `json:"activityId,omitempty"`
-}
-
-// ReplanSweepResult is the result of one RunReplanSweep tick
-// (constructionManager.md §3.2). A possibly-empty list of flagged variances. The
-// sweep SURFACES, never auto-replans.
-type ReplanSweepResult struct {
-	FlaggedVariances []FlaggedVariance `json:"flaggedVariances,omitempty"`
-}
-
-// FlaggedVariance is one over-threshold variance surfaced to the operator
-// dashboard (constructionManager.md §3.2). No auto-replan.
-type FlaggedVariance struct {
-	ProjectID  ProjectID  `json:"projectId"`
-	ActivityID ActivityID `json:"activityId"`
-	Summary    string     `json:"summary"`
-}
-
-// ActivityOverride is the operator's manual steer on one activity
-// (constructionManager.md §3.3). Fed into the SAME decide→execute machinery as the
-// automatic interventionEngine.DecideOnVariance path — the operator overrides the
-// platform's automatic decision; the Manager is the executor either way.
-type ActivityOverride struct {
-	Kind  OverrideKind `json:"kind"`
-	Notes string       `json:"notes"`
-}
-
-// OverrideKind is the closed set of operator override steers (constructionManager.md §3.3).
-type OverrideKind int
-
-const (
-	// OverrideUnknown is the zero value (rejected as ContractMisuse).
-	OverrideUnknown OverrideKind = iota
-	// OverrideTakeover: platform takes over — re-dispatch under a changed
-	// arrangement / reset the durable execution.
-	OverrideTakeover
-	// OverrideRetry: re-enter the dispatch path for this activity.
-	OverrideRetry
-	// OverrideSkip: record the activity exited with an operator-skip outcome.
-	OverrideSkip
-	// OverrideReassign: re-cast the worker class (operator-chosen).
-	OverrideReassign
-)
-
-// String returns the canonical name for an override kind.
-func (k OverrideKind) String() string {
+// overrideKindName returns the canonical name for an override kind. Kept as a FREE
+// FUNCTION (not a method) so the generated OverrideKind scalar carries no behavior
+// (the contract surface is pure data).
+func overrideKindName(k OverrideKind) string {
 	switch k {
 	case OverrideTakeover:
 		return "Takeover"
@@ -127,41 +85,6 @@ func (k OverrideKind) String() string {
 	}
 }
 
-// ConstructionStage is the TECHNICAL construction-session progress stage
-// (constructionManager.md §3.4). The *business* "which activities are committed /
-// how far along" rollup is a head-state read off projectStateAccess (CQRS split,
-// §6.6), not this enum.
-type ConstructionStage int
-
-const (
-	// ConstructionStageUnknown is the zero value.
-	ConstructionStageUnknown ConstructionStage = iota
-	// StageDispatching: worker-class cast; work dispatched; pipeline not yet submitted.
-	StageDispatching
-	// StagePipelineRunning: construction pipeline submitted + observing.
-	StagePipelineRunning
-	// StageReviewing: output staged; review fan-out in flight.
-	StageReviewing
-	// StageAwaitingTakeover: variance escalated; awaiting operator override/takeover.
-	StageAwaitingTakeover
-	// StagePaused: operator-paused (applyPausePolicy executed); terminal-until-resume.
-	StagePaused
-	// StageExited: recordActivityExited applied; terminal for this activity.
-	StageExited
-)
-
-// ConstructionSessionView is a point-in-time, read-only view of one construction
-// session's TECHNICAL progress (constructionManager.md §3.4). It is the answer to
-// GetSessionState (a Temporal Query), NOT the business-state read.
-type ConstructionSessionView struct {
-	ProjectID     ProjectID         `json:"projectId"`
-	ActivityID    *ActivityID       `json:"activityId,omitempty"`
-	Stage         ConstructionStage `json:"stage"`
-	PipelinePhase *PipelinePhase    `json:"pipelinePhase,omitempty"` // nil when no pipeline in flight
-	ReviewSet     *ReviewSet        `json:"reviewSet,omitempty"`     // nil before review
-	Variance      *FlaggedVariance  `json:"variance,omitempty"`      // nil when none
-}
-
 // ---------------------------------------------------------------------------
 // Façade error model (constructionManager.md §3.5).
 // CALLER/PROGRAMMER errors at the façade boundary — distinct from the workflow's
@@ -170,10 +93,10 @@ type ConstructionSessionView struct {
 // FailedPrecondition, NotFound, Unauthorized, Infrastructure.
 // ---------------------------------------------------------------------------
 
-// ConstructionError is the typed façade error (constructionManager.md §3.5). It is
-// an alias for fwmanager.Error so errors.As(&ConstructionError) call sites work.
-type ConstructionError = fwmanager.Error
+// constructionError is the typed façade error (constructionManager.md §3.5). It is
+// an alias for fwm.Error so errors.As(&constructionError) call sites work.
+type constructionError = fwm.Error
 
-func newError(kind fwmanager.Kind, detail string) *fwmanager.Error {
-	return fwmanager.New(kind, detail)
+func newError(kind fwm.Kind, detail string) *fwm.Error {
+	return fwm.New(kind, detail)
 }

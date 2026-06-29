@@ -48,29 +48,29 @@ import (
 // SettlementStateAccess mirrors settlementStateAccess.md §2 (post FU-MST-1) — the
 // settlement/customer head-state RA. Reads are pure; writes carry the version guard +
 // dedup-first idempotency key.
-type SettlementStateAccess interface {
+type settlementStateAccess interface {
 	// ReadSettlement returns the whole head-state aggregate (NotFound if no row).
-	ReadSettlement(ctx context.Context, customerID CustomerID) (Settlement, error)
+	ReadSettlement(ctx context.Context, customerID customerID) (settlementHead, error)
 	// ReadPersistentlyDelinquentCustomers returns the persistently-delinquent customer
 	// set (drives the shortfall sweep). Platform/scope input; a cross-row read.
-	ReadPersistentlyDelinquentCustomers(ctx context.Context, scope DelinquencyScope) ([]CustomerSummary, error)
+	ReadPersistentlyDelinquentCustomers(ctx context.Context, scope delinquencyScope) ([]customerSummary, error)
 	// RegisterCustomer opens the settlement aggregate (additive write).
-	RegisterCustomer(ctx context.Context, customerID CustomerID, expectedVersion Version, profile CustomerProfileSeam, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	RegisterCustomer(ctx context.Context, customerID customerID, expectedVersion version, profile customerProfileSeam, idempotencyKey fwra.IdempotencyKey) (version, error)
 	// BindGatewayLive records that the merchant-gateway binding is live (additive write).
-	BindGatewayLive(ctx context.Context, customerID CustomerID, expectedVersion Version, binding GatewayBindingSeam, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	BindGatewayLive(ctx context.Context, customerID customerID, expectedVersion version, binding gatewayBindingSeam, idempotencyKey fwra.IdempotencyKey) (version, error)
 	// SettleCycle records the settlement outcome for a cycle (additive write).
-	SettleCycle(ctx context.Context, customerID CustomerID, expectedVersion Version, cycle CycleID, outcome SettlementOutcomeSeam, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	SettleCycle(ctx context.Context, customerID customerID, expectedVersion version, cycle cycleID, outcome settlementOutcomeSeam, idempotencyKey fwra.IdempotencyKey) (version, error)
 	// ResettleCycle records a correction to a previously-settled cycle (additive write).
-	ResettleCycle(ctx context.Context, customerID CustomerID, expectedVersion Version, cycle CycleID, correction SettlementOutcomeSeam, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	ResettleCycle(ctx context.Context, customerID customerID, expectedVersion version, cycle cycleID, correction settlementOutcomeSeam, idempotencyKey fwra.IdempotencyKey) (version, error)
 }
 
 // Version is the settlement head-state optimistic-concurrency version
 // (settlementStateAccess.md §3). Mirrors the owning RA's Version type.
-type Version uint64
+type version uint64
 
 // CustomerProfileSeam mirrors settlementStateAccess.md §3 CustomerProfile — the
 // infrastructure-opaque customer identity/payout snapshot opened at registration.
-type CustomerProfileSeam struct {
+type customerProfileSeam struct {
 	// PayoutAccountRef is an opaque gateway/payout-account reference (the contract is
 	// "identity, payout account, …"); kept narrow at this seam.
 	PayoutAccountRef string
@@ -78,16 +78,16 @@ type CustomerProfileSeam struct {
 
 // GatewayBindingSeam mirrors settlementStateAccess.md §3 GatewayBinding — the
 // connected-account / gateway identifiers recorded at onboarding.
-type GatewayBindingSeam struct {
+type gatewayBindingSeam struct {
 	ConnectedAccountID string
 }
 
 // SettlementOutcomeSeam mirrors settlementStateAccess.md §3 SettlementOutcome — the
 // per-cycle business record of "cycle settled with this net". The money movement is a
 // separate ledger step; this is the head-state outcome. Money is exact minor units.
-type SettlementOutcomeSeam struct {
+type settlementOutcomeSeam struct {
 	Net       Money                // the signed settled net (exact minor units; never a float)
-	Directive RoutingDirectiveSeam // the routed directive the Manager executed
+	Directive routingDirectiveSeam // the routed directive the Manager executed
 	// Escalated flags the OQ-4 charge-failure escalation surfaced to the operator
 	// dashboard via readSettlement (no new DSL edge; §6.3).
 	Escalated bool
@@ -96,12 +96,12 @@ type SettlementOutcomeSeam struct {
 // Settlement mirrors settlementStateAccess.md §3 — the head-state aggregate the
 // workflow reads to carry expectedVersion forward and resolve the customer's terms +
 // gateway binding. Keyed on CustomerID per §3.0.
-type Settlement struct {
-	ID            CustomerID
-	Version       Version
+type settlementHead struct {
+	ID            customerID
+	Version       version
 	GatewayBound  bool                // a GatewayBinding is present (registered + onboarded)
 	Registered    bool                // the aggregate is open (registerCustomer ran)
-	Terms         SettlementTermsSeam // the customer's settlement terms (fed to the Engine by value)
+	Terms         settlementTermsSeam // the customer's settlement terms (fed to the Engine by value)
 	PayoutAccount string              // opaque payout-account ref (resolved deployedAppIdentity)
 }
 
@@ -109,14 +109,14 @@ type Settlement struct {
 // id migration: ID is CustomerID, not SettlementID) — one persistently-delinquent
 // customer in the sweep's cross-row read. PauseNotWithdraw carries the BillingTerms-
 // derived enforcement shape the downstream operationsManager executes.
-type CustomerSummary struct {
-	ID               CustomerID
+type customerSummary struct {
+	ID               customerID
 	PauseNotWithdraw bool // BillingTerms: pause (replicas=0) vs hard withdraw
 }
 
 // DelinquencyScope is the consumer-side platform/project scope for the sweep's
 // cross-row read (settlementManager.md §2.4 — platform scope). Empty ⇒ all customers.
-type DelinquencyScope struct {
+type delinquencyScope struct {
 	// ProjectID optionally narrows the scope; empty ⇒ platform-wide.
 	ProjectID string
 }
@@ -131,35 +131,35 @@ type DelinquencyScope struct {
 // RevenueLedgerAccess mirrors revenueLedgerAccess.md §2 — the append-only Revenue
 // Ledger. Writes are idempotent on entry.GatewayEventID (a duplicate is success, not
 // an error); reads are pure. There is NO Conflict kind on this contract.
-type RevenueLedgerAccess interface {
+type revenueLedgerAccess interface {
 	// RecordInboundRevenue appends an inbound revenue fact (dedup on GatewayEventID).
-	RecordInboundRevenue(ctx context.Context, entry RevenueEntrySeam) (EntryRefSeam, error)
+	RecordInboundRevenue(ctx context.Context, entry revenueEntrySeam) (entryRefSeam, error)
 	// RecordReversal appends a reversal/chargeback fact (dedup on GatewayEventID).
-	RecordReversal(ctx context.Context, reversal ReversalEntrySeam) (EntryRefSeam, error)
+	RecordReversal(ctx context.Context, reversal reversalEntrySeam) (entryRefSeam, error)
 	// ReadRange replays the cycle's revenue facts (inbound + reversals, append order).
-	ReadRange(ctx context.Context, customerID CustomerID, cycleID CycleID) ([]RevenueEntrySeam, error)
+	ReadRange(ctx context.Context, customerID customerID, cycleID cycleID) ([]revenueEntrySeam, error)
 }
 
 // EntryRefSeam mirrors revenueLedgerAccess.md §3 EntryRef — an opaque ref to a
 // recorded ledger entry.
-type EntryRefSeam string
+type entryRefSeam string
 
 // RevenueKindSeam mirrors revenueLedgerAccess.md §3 RevenueKind.
-type RevenueKindSeam int
+type revenueKindSeam int
 
 const (
 	// RevenueKindInbound is an end-user payment collected via the gateway.
-	RevenueKindInbound RevenueKindSeam = iota
+	revenueKindInbound revenueKindSeam = iota
 	// RevenueKindReversal is a chargeback/dispute reversal of a prior inbound fact.
-	RevenueKindReversal
+	revenueKindReversal
 )
 
 // RevenueEntrySeam mirrors revenueLedgerAccess.md §3 RevenueEntry — one immutable
 // revenue fact (the recordInboundRevenue payload and the readRange element type).
-type RevenueEntrySeam struct {
-	CustomerID     CustomerID
-	CycleID        CycleID
-	Kind           RevenueKindSeam
+type revenueEntrySeam struct {
+	CustomerID     customerID
+	CycleID        cycleID
+	Kind           revenueKindSeam
 	Amount         Money // signed minor units + currency (exact; never a float)
 	GatewayEventID string
 	OccurredAt     time.Time
@@ -167,9 +167,9 @@ type RevenueEntrySeam struct {
 
 // ReversalEntrySeam mirrors revenueLedgerAccess.md §3 ReversalEntry — the
 // recordReversal payload (negative Amount + optional back-link).
-type ReversalEntrySeam struct {
-	CustomerID             CustomerID
-	CycleID                CycleID
+type reversalEntrySeam struct {
+	CustomerID             customerID
+	CycleID                cycleID
 	Amount                 Money // negative minor units + currency
 	GatewayEventID         string
 	ReversesGatewayEventID string // optional back-link; empty if absent
@@ -185,33 +185,33 @@ type ReversalEntrySeam struct {
 
 // UsageAccess mirrors usageAccess.md §2.3 — the cycle-scope read this Manager uses to
 // fold a whole cycle's usage at close. Pure read; no key.
-type UsageAccess interface {
+type usageAccess interface {
 	// ReadRange replays the cycle's usage facts (OperatedAppID nil ⇒ whole cycle).
-	ReadRange(ctx context.Context, query UsageRangeQuerySeam) ([]UsageEventSeam, error)
+	ReadRange(ctx context.Context, query usageRangeQuerySeam) ([]usageEventSeam, error)
 }
 
 // UsageRangeQuerySeam mirrors usageAccess.md §3 UsageRangeQuery — the cycle-scope read
 // query. settlementManager folds the WHOLE cycle, so OperatedAppID is nil (§5.2 / D-UA §2.3).
-type UsageRangeQuerySeam struct {
-	CustomerID    CustomerID
-	CycleID       CycleID
-	OperatedAppID *DeployedAppID // nil for settlement's whole-cycle fold
+type usageRangeQuerySeam struct {
+	CustomerID    customerID
+	CycleID       cycleID
+	OperatedAppID *deployedAppID // nil for settlement's whole-cycle fold
 }
 
 // ComputeUnitsSeam mirrors usageAccess.md §3 ComputeUnits — an infrastructure-neutral
 // metered quantity (never priced, never a cloud lexeme).
-type ComputeUnitsSeam struct {
+type computeUnitsSeam struct {
 	Amount float64
 	Unit   string
 }
 
 // UsageEventSeam mirrors usageAccess.md §3 UsageEvent — one metered usage fact (the
 // readRange element type the Manager folds into the Engine's CycleUsage snapshot).
-type UsageEventSeam struct {
-	CustomerID    CustomerID
-	OperatedAppID DeployedAppID
-	CycleID       CycleID
-	Units         ComputeUnitsSeam
+type usageEventSeam struct {
+	CustomerID    customerID
+	OperatedAppID deployedAppID
+	CycleID       cycleID
+	Units         computeUnitsSeam
 	OccurredAt    time.Time
 }
 
@@ -227,18 +227,18 @@ type UsageEventSeam struct {
 // calls (settlementManager.md §5.2/§6.4). The Manager moves money here by VALUE; the
 // gateway dedups on the Manager-supplied idempotency key. SEAM — D-MA is unbuilt
 // (FU-MST-2); replace with the owner import when it lands.
-type MerchantGatewayAccess interface {
+type merchantGatewayAccess interface {
 	// PayoutCustomer pays the (positive) net to the customer. idempotencyKey =
 	// settle:{customerId}:{cycleId} (Stripe-native dedup).
-	PayoutCustomer(ctx context.Context, customerID CustomerID, amount Money, idempotencyKey string) error
+	PayoutCustomer(ctx context.Context, customerID customerID, amount Money, idempotencyKey string) error
 	// ChargeCustomer charges the (positive magnitude of the negative) shortfall net.
 	// A decline/auth/contract-misuse is terminal and drives decideOnSettlementFailure.
-	ChargeCustomer(ctx context.Context, customerID CustomerID, amount Money, idempotencyKey string) error
+	ChargeCustomer(ctx context.Context, customerID customerID, amount Money, idempotencyKey string) error
 	// CreateConnectedAccount creates the merchant connected account (onboarding).
-	CreateConnectedAccount(ctx context.Context, customerID CustomerID, idempotencyKey string) (GatewayBindingSeam, error)
+	CreateConnectedAccount(ctx context.Context, customerID customerID, idempotencyKey string) (gatewayBindingSeam, error)
 	// ValidateStoredInstrument validates the stored instrument via a zero-amount auth
 	// (customer registration; ncuc1).
-	ValidateStoredInstrument(ctx context.Context, customerID CustomerID, idempotencyKey string) error
+	ValidateStoredInstrument(ctx context.Context, customerID customerID, idempotencyKey string) error
 }
 
 // ===========================================================================
@@ -250,10 +250,10 @@ type MerchantGatewayAccess interface {
 // OperatedRuntimeAccess mirrors the one operatedRuntimeAccess verb this Manager uses at
 // onboarding (settlementManager.md §5.2). Idempotent on the caller-supplied key (git
 // content-address).
-type OperatedRuntimeAccess interface {
+type operatedRuntimeAccess interface {
 	// WirePaymentConfig wires the gateway binding into the deployed app's runtime
 	// (folds into publishDesiredState; D-OR §2.5).
-	WirePaymentConfig(ctx context.Context, deployedAppID DeployedAppID, binding GatewayBindingSeam, idempotencyKey fwra.IdempotencyKey) error
+	WirePaymentConfig(ctx context.Context, deployedAppID deployedAppID, binding gatewayBindingSeam, idempotencyKey fwra.IdempotencyKey) error
 }
 
 // ===========================================================================
@@ -267,7 +267,7 @@ type OperatedRuntimeAccess interface {
 // ===========================================================================
 
 // DurableExecutionAccess is the Manager's consumer view: the two category-B verbs.
-type DurableExecutionAccess interface {
+type durableExecutionAccess interface {
 	// DeliverSignal delivers a queued signal to another Manager's workflow (the one
 	// sanctioned M→M edge: applyDelinquencyPolicy → operationsManager).
 	DeliverSignal(ctx context.Context, targetWorkflowID string, signalName string, payload deliverSignalPayload) error
@@ -279,7 +279,7 @@ type DurableExecutionAccess interface {
 // operationsManager (the receiving handler dedups; D-DA §9 OQ3). The composition root
 // adapts it onto durableexecution.ExecutionPayload.
 type deliverSignalPayload struct {
-	CustomerID       CustomerID
+	CustomerID       customerID
 	PauseNotWithdraw bool
 }
 
@@ -301,36 +301,36 @@ type scheduleSpec struct {
 
 // SettlementEngine mirrors settlementEngine.md §2.1/§2.2 — the signed-net + routing
 // compute. The Engine STATES the directive; the Manager EXECUTES it.
-type SettlementEngine interface {
+type settlementEngine interface {
 	// ComputeNet computes the cycle's signed net + routing directive (UC6 close).
-	ComputeNet(revenue CycleRevenueSeam, usage CycleUsageSeam, terms SettlementTermsSeam) (SettlementResultSeam, error)
+	ComputeNet(revenue cycleRevenueSeam, usage cycleUsageSeam, terms settlementTermsSeam) (settlementResultSeam, error)
 	// RecomputeNet recomputes the corrected net + DELTA directive after a reversal
 	// (ncuc4 chargeback; forward-only).
-	RecomputeNet(affected ReSettlementInputSeam) (SettlementResultSeam, error)
+	RecomputeNet(affected reSettlementInputSeam) (settlementResultSeam, error)
 }
 
 // RoutingDirectiveSeam mirrors settlementEngine.md §3 RoutingDirective — the closed
 // routing decision set. The iota order matches the frozen contract (NoAction, Payout,
 // Charge).
-type RoutingDirectiveSeam int
+type routingDirectiveSeam int
 
 const (
 	// RoutingNoAction is net == 0 (or a recompute delta == 0) — skip.
-	RoutingNoAction RoutingDirectiveSeam = iota
+	routingNoAction routingDirectiveSeam = iota
 	// RoutingPayout is net > 0 — the Manager calls merchantGatewayAccess.payoutCustomer.
-	RoutingPayout
+	routingPayout
 	// RoutingCharge is net < 0 — the Manager calls merchantGatewayAccess.chargeCustomer.
-	RoutingCharge
+	routingCharge
 )
 
 // String returns the canonical name for a routing directive.
-func (d RoutingDirectiveSeam) String() string {
+func (d routingDirectiveSeam) String() string {
 	switch d {
-	case RoutingNoAction:
+	case routingNoAction:
 		return "NoAction"
-	case RoutingPayout:
+	case routingPayout:
 		return "Payout"
-	case RoutingCharge:
+	case routingCharge:
 		return "Charge"
 	default:
 		return "Unknown"
@@ -341,9 +341,9 @@ func (d RoutingDirectiveSeam) String() string {
 // the cycle's inbound revenue the Manager folds from revenueLedgerAccess.readRange. For
 // recompute this is the REVERSAL-ADJUSTED total (the Manager appended the reversal and
 // re-read the range). Exact minor units.
-type CycleRevenueSeam struct {
-	CustomerID   CustomerID
-	CycleID      CycleID
+type cycleRevenueSeam struct {
+	CustomerID   customerID
+	CycleID      cycleID
 	GrossInbound Money // Σ inbound (already reversal-adjusted for recompute), exact minor units
 	Currency     string
 	EventCount   int
@@ -351,16 +351,16 @@ type CycleRevenueSeam struct {
 
 // CycleUsageSeam mirrors settlementEngine.md §3 CycleUsage — the value snapshot of the
 // cycle's compute usage the Manager folds from usageAccess.readRange.
-type CycleUsageSeam struct {
-	CustomerID         CustomerID
-	CycleID            CycleID
+type cycleUsageSeam struct {
+	CustomerID         customerID
+	CycleID            cycleID
 	ComputeUnitSeconds float64
 }
 
 // SettlementTermsSeam mirrors settlementEngine.md §3 SettlementTerms — the customer's
 // terms snapshot, read from settlement head-state and fed to the Engine by value. The
 // Strategy discriminators are package-internal to the Engine.
-type SettlementTermsSeam struct {
+type settlementTermsSeam struct {
 	RevenueShareKind int // opaque discriminator; the Engine pivots on it
 	ComputeCostKind  int
 	ScheduleKind     int
@@ -370,9 +370,9 @@ type SettlementTermsSeam struct {
 // SettlementResultSeam mirrors settlementEngine.md §3 SettlementResult — the shared
 // output of ComputeNet/RecomputeNet. SignedNet is exact minor units; the Manager routes
 // the directive. RevenueShareApplied/ComputeCostApplied are the statement decomposition.
-type SettlementResultSeam struct {
+type settlementResultSeam struct {
 	SignedNet           Money
-	RoutingDirective    RoutingDirectiveSeam
+	RoutingDirective    routingDirectiveSeam
 	RevenueShareApplied Money
 	ComputeCostApplied  Money
 }
@@ -380,11 +380,11 @@ type SettlementResultSeam struct {
 // ReSettlementInputSeam mirrors settlementEngine.md §3 ReSettlementInput — the
 // reversal-adjusted recompute input carrying the prior settled result so the DELTA can
 // be computed (forward-only).
-type ReSettlementInputSeam struct {
-	Revenue      CycleRevenueSeam
-	Usage        CycleUsageSeam
-	Terms        SettlementTermsSeam
-	PriorSettled SettlementResultSeam
+type reSettlementInputSeam struct {
+	Revenue      cycleRevenueSeam
+	Usage        cycleUsageSeam
+	Terms        settlementTermsSeam
+	PriorSettled settlementResultSeam
 }
 
 // ===========================================================================
@@ -395,28 +395,28 @@ type ReSettlementInputSeam struct {
 
 // InterventionEngine mirrors interventionEngine.md §2.3 — the settlement-failure
 // decision. The Engine DECIDES {Retry | Delay | Escalate}; the Manager EXECUTES.
-type InterventionEngine interface {
-	DecideOnSettlementFailure(failure SettlementFailureSeam) (SettlementFailureDirectiveSeam, error)
+type interventionEngine interface {
+	DecideOnSettlementFailure(failure settlementFailureSeam) (settlementFailureDirectiveSeam, error)
 }
 
 // SettlementFailureKindSeam mirrors interventionEngine.md §3 SettlementFailureKind.
-type SettlementFailureKindSeam int
+type settlementFailureKindSeam int
 
 const (
 	// SettlementFailureChargeDeclined is a declined shortfall charge.
-	SettlementFailureChargeDeclined SettlementFailureKindSeam = iota
+	settlementFailureChargeDeclined settlementFailureKindSeam = iota
 	// SettlementFailureDisputed is a disputed cycle.
-	SettlementFailureDisputed
+	settlementFailureDisputed
 	// SettlementFailureChargedBack is a charged-back cycle.
-	SettlementFailureChargedBack
+	settlementFailureChargedBack
 )
 
 // SettlementFailureSeam mirrors interventionEngine.md §3 SettlementFailure — the
 // failed-action context fed to the decision by value.
-type SettlementFailureSeam struct {
-	CustomerID   CustomerID
-	CycleID      CycleID
-	Kind         SettlementFailureKindSeam
+type settlementFailureSeam struct {
+	CustomerID   customerID
+	CycleID      cycleID
+	Kind         settlementFailureKindSeam
 	AttemptCount int
 	ShortfallAge int // sweeps elapsed; NOT a clock read
 }
@@ -424,13 +424,13 @@ type SettlementFailureSeam struct {
 // SettlementFailureDirectiveSeam mirrors interventionEngine.md §3 — the closed
 // decision set. The directive IDENTITY (not the numeric value) is load-bearing
 // (interventionEngine.md §3 senior note); the order mirrors the frozen contract.
-type SettlementFailureDirectiveSeam int
+type settlementFailureDirectiveSeam int
 
 const (
 	// SettlementRetry re-attempts the charge now (within budget).
-	SettlementRetry SettlementFailureDirectiveSeam = iota
+	settlementRetry settlementFailureDirectiveSeam = iota
 	// SettlementDelay backs off; re-attempts on the next shortfallSweep (grace).
-	SettlementDelay
+	settlementDelay
 	// SettlementEscalate flags delinquency (tolerance exhausted).
-	SettlementEscalate
+	settlementEscalate
 )

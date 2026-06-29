@@ -124,7 +124,7 @@ func renderScaffoldFile(name, tmplText string, data scaffoldTemplateData) ([]byt
 // An empty/malformed RepoRef (owner/repo unresolvable) is a ContractMisuse the caller
 // surfaces — the module path cannot be templated without the repo coordinates.
 func ManagedScaffoldFiles(repo RepoRef) ([]ManagedFile, error) {
-	owner, name, err := repo.OwnerRepo()
+	owner, name, err := RepoRefOwnerRepo(repo)
 	if err != nil {
 		return nil, err
 	}

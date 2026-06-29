@@ -5,8 +5,6 @@ import (
 	"testing"
 
 	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
-
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
 // launchPricing is the registered launch regime: a flat 25% markup over the
@@ -19,8 +17,8 @@ func launchPricing() ServicePricing {
 	}
 }
 
-func usd(minor int64) projectstate.Money {
-	return projectstate.Money{MinorUnits: minor, Currency: "USD"}
+func usd(minor int64) Money {
+	return Money{MinorUnits: minor, Currency: "USD"}
 }
 
 const gib = 1024.0 * 1024.0 * 1024.0
@@ -29,7 +27,7 @@ const gib = 1024.0 * 1024.0 * 1024.0
 // regime: happy path, zero usage, each metered hosting dimension (incl. the
 // senior-amendment egress dimension), unknown pricing, and contract misuse.
 func TestPriceUsage_FlatMarkup(t *testing.T) {
-	e := New()
+	e := NewBillingEngine()
 
 	tests := []struct {
 		name      string
@@ -169,7 +167,7 @@ func TestPriceUsage_FlatMarkup(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := e.PriceUsage(tt.usage, tt.pricing)
+			got, err := e.PriceUsage(fweng.Context{}, tt.usage, tt.pricing)
 			if tt.wantErr {
 				assertEngineErr(t, err, tt.errKind, tt.errDetail)
 				return
@@ -190,7 +188,7 @@ func TestPriceUsage_FlatMarkup(t *testing.T) {
 // TestPriceServiceForOption_FlatMarkup is the per-Strategy table for the
 // commit-time projection under the launch FlatMarkup regime.
 func TestPriceServiceForOption_FlatMarkup(t *testing.T) {
-	e := New()
+	e := NewBillingEngine()
 
 	tests := []struct {
 		name      string
@@ -257,7 +255,7 @@ func TestPriceServiceForOption_FlatMarkup(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := e.PriceServiceForOption(tt.option)
+			got, err := e.PriceServiceForOption(fweng.Context{}, tt.option)
 			if tt.wantErr {
 				assertEngineErr(t, err, tt.errKind, tt.errDetail)
 				return
@@ -276,7 +274,7 @@ func TestPriceServiceForOption_FlatMarkup(t *testing.T) {
 // repeated invocations of BOTH ops (the Engine reads no clock/RNG/state) —
 // the property that makes the Managers' direct in-workflow calls replay-safe.
 func TestDeterminism(t *testing.T) {
-	e := New()
+	e := NewBillingEngine()
 	usage := PeriodUsage{
 		CustomerID: "cust-1", PeriodID: "2026-06",
 		ConstructionTokens: 1_234_567,
@@ -286,23 +284,23 @@ func TestDeterminism(t *testing.T) {
 	pricing := launchPricing()
 	option := ProjectOption{OptionID: "opt-compressed", Pricing: pricing}
 
-	firstInvoice, err := e.PriceUsage(usage, pricing)
+	firstInvoice, err := e.PriceUsage(fweng.Context{}, usage, pricing)
 	if err != nil {
 		t.Fatalf("first PriceUsage: %v", err)
 	}
-	firstProjection, err := e.PriceServiceForOption(option)
+	firstProjection, err := e.PriceServiceForOption(fweng.Context{}, option)
 	if err != nil {
 		t.Fatalf("first PriceServiceForOption: %v", err)
 	}
 	for i := 0; i < 100; i++ {
-		inv, err := e.PriceUsage(usage, pricing)
+		inv, err := e.PriceUsage(fweng.Context{}, usage, pricing)
 		if err != nil {
 			t.Fatalf("PriceUsage call %d: %v", i, err)
 		}
 		if inv != firstInvoice {
 			t.Fatalf("PriceUsage call %d non-deterministic: %+v != %+v", i, inv, firstInvoice)
 		}
-		proj, err := e.PriceServiceForOption(option)
+		proj, err := e.PriceServiceForOption(fweng.Context{}, option)
 		if err != nil {
 			t.Fatalf("PriceServiceForOption call %d: %v", i, err)
 		}
@@ -316,8 +314,9 @@ func TestDeterminism(t *testing.T) {
 // (no float money path) and that the token/hosting decomposition reconciles
 // with the total exactly, in int64.
 func TestMoneyIsExactInt64(t *testing.T) {
-	e := New()
+	e := NewBillingEngine()
 	got, err := e.PriceUsage(
+		fweng.Context{},
 		PeriodUsage{
 			CustomerID: "cust-1", PeriodID: "2026-06",
 			ConstructionTokens: 999_999, // raw = (999,999×800 + 500,000)/1,000,000 = 800 exact int64

@@ -5,7 +5,7 @@
  * may not be deployed yet, or the read may be quiet) — it returns a safe value
  * rather than throwing. The UC4 twin of constructionAdapters.ts.
  */
-import type { Money, OperationsView } from './operations';
+import type { Money, OperationsView } from './operationsTypes';
 
 /**
  * The operated RuntimePhase palette — the closed set the read view emits
