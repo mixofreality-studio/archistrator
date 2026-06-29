@@ -123,14 +123,14 @@ func (f *branchAwareFakeProjectState) ReadProjectOnBranch(ctx context.Context, p
 	f.mu.Lock()
 	f.readBranches = append(f.readBranches, branch)
 	f.mu.Unlock()
-	return f.fakeProjectState.ReadProject(fwra.Context{Context: ctx}, projectID)
+	return f.ReadProject(fwra.Context{Context: ctx}, projectID)
 }
 
 func (f *branchAwareFakeProjectState) StageArtifactForReviewOnBranch(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, model projectstate.ArtifactModel, key fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.mu.Lock()
 	f.stageBranches = append(f.stageBranches, branch)
 	f.mu.Unlock()
-	return f.fakeProjectState.StageArtifactForReview(fwra.Context{Context: ctx, IdempotencyKey: key}, projectID, expectedVersion, model)
+	return f.StageArtifactForReview(fwra.Context{Context: ctx, IdempotencyKey: key}, projectID, expectedVersion, model)
 }
 
 func newRailWorkflows(ps projectstate.ProjectStateAccess, pipe *fakePipeline, rail sourceControlRail) *workflows {

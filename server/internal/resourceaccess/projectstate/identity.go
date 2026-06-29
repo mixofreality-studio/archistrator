@@ -28,7 +28,7 @@ func (p ProjectID) String() string { return string(p) }
 // Version is the optimistic-concurrency token: per-aggregate mutation count.
 // 0 == no row yet. Bumped by one on each successful write verb. NOT a row id or
 // timestamp. (projectStateAccess.md §3.0)
-type Version uint64
+type Version int64
 
 // OwnerScope identifies the owning principal of a project (e.g. the subject or
 // email of the authenticated user). It scopes the project catalog so ListProjects

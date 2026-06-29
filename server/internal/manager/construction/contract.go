@@ -93,10 +93,6 @@ func overrideKindName(k OverrideKind) string {
 // FailedPrecondition, NotFound, Unauthorized, Infrastructure.
 // ---------------------------------------------------------------------------
 
-// constructionError is the typed façade error (constructionManager.md §3.5). It is
-// an alias for fwm.Error so errors.As(&constructionError) call sites work.
-type constructionError = fwm.Error
-
 func newError(kind fwm.Kind, detail string) *fwm.Error {
 	return fwm.New(kind, detail)
 }

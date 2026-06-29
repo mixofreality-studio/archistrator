@@ -211,10 +211,7 @@ type deliverDelinquencyArgs struct {
 // signal-with-start continuity token).
 func (wf *workflows) DeliverDelinquencySignalActivity(ctx context.Context, a deliverDelinquencyArgs) (struct{}, error) {
 	targetWorkflowID := fmt.Sprintf("%s:delinquency", a.CustomerID)
-	return struct{}{}, fwmgr.MapError(wf.Durable.DeliverSignal(ctx, targetWorkflowID, signalApplyDelinquencyPolicy, deliverSignalPayload{
-		CustomerID:       a.CustomerID,
-		PauseNotWithdraw: a.PauseNotWithdraw,
-	}))
+	return struct{}{}, fwmgr.MapError(wf.Durable.DeliverSignal(ctx, targetWorkflowID, signalApplyDelinquencyPolicy, deliverSignalPayload(a)))
 }
 
 // RegisterScheduleActivity wraps durableExecutionAccess.registerSchedule for the

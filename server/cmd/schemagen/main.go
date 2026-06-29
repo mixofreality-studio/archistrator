@@ -36,6 +36,7 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strconv"
 	"strings"
@@ -889,7 +890,7 @@ func writeComponent(c component) error {
 		modelNames[st.name] = true
 		for _, v := range st.variants {
 			vt := reflect.TypeOf(v)
-			if vt.Kind() == reflect.Ptr {
+			if vt.Kind() == reflect.Pointer {
 				vt = vt.Elem()
 			}
 			modelNames[vt.Name()] = true
@@ -982,7 +983,7 @@ func writeComponent(c component) error {
 	raw = append(raw, '\n')
 
 	out := c.dir + "/contract.schema.json"
-	if err := os.WriteFile(out, raw, 0o644); err != nil {
+	if err := os.WriteFile(out, raw, 0o600); err != nil {
 		return fmt.Errorf("write %s: %w", out, err)
 	}
 	return nil
@@ -1005,12 +1006,12 @@ func emitSumType(st sumTypeDecl, defs map[string]*jsonschema.Schema, refForType,
 	oneOf := make([]*jsonschema.Schema, 0, len(st.variants))
 	for _, v := range st.variants {
 		vt := reflect.TypeOf(v)
-		if vt.Kind() == reflect.Ptr {
+		if vt.Kind() == reflect.Pointer {
 			vt = vt.Elem()
 		}
 		// Confirm the variant satisfies the sealed interface (catches a stale
 		// registration at generation time rather than emitting a broken contract).
-		if !reflect.PtrTo(vt).Implements(st.iface) {
+		if !reflect.PointerTo(vt).Implements(st.iface) {
 			return fmt.Errorf("variant %s does not implement %s", vt.Name(), st.name)
 		}
 		// Reflect the variant struct as a normal model $def (siblings: well-knowns,
@@ -1111,7 +1112,7 @@ func reflectInterface(c component, modelNames map[string]bool) (codegen.Interfac
 			in := ft.In(j)
 			op.Params = append(op.Params, codegen.Param{
 				Name:    nm,
-				Pointer: in.Kind() == reflect.Ptr, // nil-meaningful nullable param → emit *T
+				Pointer: in.Kind() == reflect.Pointer, // nil-meaningful nullable param → emit *T
 				Schema:  schemaForType(in, modelNames),
 			})
 		}
@@ -1133,7 +1134,7 @@ func reflectInterface(c component, modelNames map[string]bool) (codegen.Interfac
 // tag). Lets modelgen emit the exact Go identifier (e.g. `ProjectID`) while the
 // json tag keeps the wire key (e.g. `projectId`).
 func injectGoNames(s *jsonschema.Schema, t reflect.Type) {
-	if t.Kind() == reflect.Ptr {
+	if t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
 	if t.Kind() != reflect.Struct || s == nil || len(s.Properties) == 0 {
@@ -1210,7 +1211,7 @@ func ownPkgTypeName(rt reflect.Type) (string, bool) {
 	if !currentInterfaceOnly || currentOwnPkgPath == "" {
 		return "", false
 	}
-	if rt.Kind() == reflect.Ptr {
+	if rt.Kind() == reflect.Pointer {
 		rt = rt.Elem()
 	}
 	if rt.Name() != "" && rt.PkgPath() == currentOwnPkgPath {
@@ -1234,7 +1235,7 @@ func schemaForType(rt reflect.Type, modelNames map[string]bool) *jsonschema.Sche
 	if name, ok := ownPkgTypeName(rt); ok {
 		return &jsonschema.Schema{Extra: map[string]any{"x-go-type": name}}
 	}
-	if rt.Kind() == reflect.Ptr {
+	if rt.Kind() == reflect.Pointer {
 		rt = rt.Elem()
 	}
 	if ws, ok := wellKnownByType[rt]; ok {
@@ -1284,59 +1285,77 @@ func enumSchema(e enumInfo) *jsonschema.Schema {
 // dominant Go idioms: `= iota` runs and explicit int/string literals.
 func captureEnums(dir string) (map[string]enumInfo, error) {
 	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, dir, nil, 0)
+	files, err := parseGoDir(fset, dir)
 	if err != nil {
 		return nil, err
 	}
 	base := map[string]string{} // type name -> scalar base, for named scalars
-	for _, pkg := range pkgs {
-		for _, f := range pkg.Files {
-			for _, d := range f.Decls {
-				gd, ok := d.(*ast.GenDecl)
-				if !ok || gd.Tok != token.TYPE {
-					continue
-				}
-				for _, sp := range gd.Specs {
-					ts := sp.(*ast.TypeSpec)
-					if id, ok := ts.Type.(*ast.Ident); ok && isScalarBase(id.Name) {
-						base[ts.Name.Name] = id.Name
-					}
+	for _, f := range files {
+		for _, d := range f.Decls {
+			gd, ok := d.(*ast.GenDecl)
+			if !ok || gd.Tok != token.TYPE {
+				continue
+			}
+			for _, sp := range gd.Specs {
+				ts := sp.(*ast.TypeSpec)
+				if id, ok := ts.Type.(*ast.Ident); ok && isScalarBase(id.Name) {
+					base[ts.Name.Name] = id.Name
 				}
 			}
 		}
 	}
 	enums := map[string]enumInfo{}
-	for _, pkg := range pkgs {
-		for _, f := range pkg.Files {
-			for _, d := range f.Decls {
-				gd, ok := d.(*ast.GenDecl)
-				if !ok || gd.Tok != token.CONST {
+	for _, f := range files {
+		for _, d := range f.Decls {
+			gd, ok := d.(*ast.GenDecl)
+			if !ok || gd.Tok != token.CONST {
+				continue
+			}
+			curType := ""
+			for iota, sp := range gd.Specs {
+				vs := sp.(*ast.ValueSpec)
+				if vs.Type != nil {
+					if id, ok := vs.Type.(*ast.Ident); ok {
+						curType = id.Name
+					}
+				}
+				b, isEnum := base[curType]
+				if !isEnum {
 					continue
 				}
-				curType := ""
-				for iota, sp := range gd.Specs {
-					vs := sp.(*ast.ValueSpec)
-					if vs.Type != nil {
-						if id, ok := vs.Type.(*ast.Ident); ok {
-							curType = id.Name
-						}
-					}
-					b, isEnum := base[curType]
-					if !isEnum {
-						continue
-					}
-					for _, nameID := range vs.Names {
-						e := enums[curType]
-						e.base = b
-						e.names = append(e.names, nameID.Name)
-						e.values = append(e.values, evalConst(vs, iota, b))
-						enums[curType] = e
-					}
+				for _, nameID := range vs.Names {
+					e := enums[curType]
+					e.base = b
+					e.names = append(e.names, nameID.Name)
+					e.values = append(e.values, evalConst(vs, iota, b))
+					enums[curType] = e
 				}
 			}
 		}
 	}
 	return enums, nil
+}
+
+// parseGoDir parses every .go file directly in dir (non-recursively) and returns
+// the parsed files. It replaces the deprecated parser.ParseDir; build tags are
+// irrelevant for schemagen's single-package component directories.
+func parseGoDir(fset *token.FileSet, dir string) ([]*ast.File, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	var files []*ast.File
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") {
+			continue
+		}
+		f, perr := parser.ParseFile(fset, filepath.Join(dir, e.Name()), nil, 0)
+		if perr != nil {
+			return nil, perr
+		}
+		files = append(files, f)
+	}
+	return files, nil
 }
 
 // evalConst resolves a const member's value: an explicit int/string literal, or
@@ -1376,45 +1395,43 @@ func isScalarBase(name string) bool {
 // ordered parameter names (Go reflection does not expose them).
 func paramNames(dir, ifaceName string) (map[string][]string, error) {
 	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, dir, nil, 0)
+	files, err := parseGoDir(fset, dir)
 	if err != nil {
 		return nil, err
 	}
 	res := map[string][]string{}
-	for _, pkg := range pkgs {
-		for _, file := range pkg.Files {
-			ast.Inspect(file, func(n ast.Node) bool {
-				ts, ok := n.(*ast.TypeSpec)
-				if !ok || ts.Name.Name != ifaceName {
-					return true
+	for _, file := range files {
+		ast.Inspect(file, func(n ast.Node) bool {
+			ts, ok := n.(*ast.TypeSpec)
+			if !ok || ts.Name.Name != ifaceName {
+				return true
+			}
+			it, ok := ts.Type.(*ast.InterfaceType)
+			if !ok {
+				return true
+			}
+			for _, fld := range it.Methods.List {
+				if len(fld.Names) == 0 {
+					continue
 				}
-				it, ok := ts.Type.(*ast.InterfaceType)
-				if !ok {
-					return true
+				ft, ok := fld.Type.(*ast.FuncType)
+				if !ok || ft.Params == nil {
+					continue
 				}
-				for _, fld := range it.Methods.List {
-					if len(fld.Names) == 0 {
+				var pn []string
+				for i, p := range ft.Params.List {
+					if len(p.Names) == 0 {
+						pn = append(pn, fmt.Sprintf("arg%d", i))
 						continue
 					}
-					ft, ok := fld.Type.(*ast.FuncType)
-					if !ok || ft.Params == nil {
-						continue
+					for _, nm := range p.Names {
+						pn = append(pn, nm.Name)
 					}
-					var pn []string
-					for i, p := range ft.Params.List {
-						if len(p.Names) == 0 {
-							pn = append(pn, fmt.Sprintf("arg%d", i))
-							continue
-						}
-						for _, nm := range p.Names {
-							pn = append(pn, nm.Name)
-						}
-					}
-					res[fld.Names[0].Name] = pn
 				}
-				return false
-			})
-		}
+				res[fld.Names[0].Name] = pn
+			}
+			return false
+		})
 	}
 	return res, nil
 }

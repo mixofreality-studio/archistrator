@@ -469,11 +469,7 @@ func observeOpts(ctx workflow.Context) workflow.Context {
 // failure keeps the human in the loop with a clear "retry/withdraw" affordance and is
 // consistent with the anti-wedge discipline (a ran-but-incomplete job is terminal-at-
 // the-Manager, escalated to the human, not absorbed).
-func (wf *workflows) readBackCritique(ctx workflow.Context, projectID ProjectID, kind ArtifactKind) (critique, error) {
-	return wf.readBackCritiqueOn(ctx, projectID, kind, "")
-}
-
-// readBackCritiqueOn is readBackCritique with an OPTIONAL branch override (§2a): the
+// readBackCritiqueOn computes the read-back critique with an OPTIONAL branch override (§2a): the
 // PM-critique Action commits its verdict carrier on the critique session branch, so the
 // read-back reads that branch when the rail is enabled. branch=="" reads main (the
 // dormant-rail / non-git behavior).
@@ -497,18 +493,7 @@ func (wf *workflows) readBackCritiqueOn(ctx workflow.Context, projectID ProjectI
 	}
 }
 
-// readBackCommittedModel reads the typed model the Action committed for kind via
-// projectStateAccess.ReadProject (the read-back path, §0d.2 step 5). The Action
-// drafts + commits the JSON in the user's repo; aiarch reads it back as the staged
-// draft. A missing / non-populated slot after a PhaseSucceeded is a contract
-// violation between the Action and the read-back (the job claimed success but
-// committed nothing) — surfaced as a terminal error routed to the gate, never a
-// silent empty draft.
-func (wf *workflows) readBackCommittedModel(ctx workflow.Context, projectID ProjectID, kind ArtifactKind) (projectstate.ArtifactModel, error) {
-	return wf.readBackCommittedModelOn(ctx, projectID, kind, "")
-}
-
-// readBackCommittedModelOn is readBackCommittedModel with an OPTIONAL branch override
+// readBackCommittedModelOn reads the typed model with an OPTIONAL branch override
 // (§2a): the draft Action commits the typed JSON on the SESSION BRANCH, so the read-back
 // reads that branch while the human reviews the not-yet-merged draft. branch=="" reads
 // main (the dormant-rail / non-git behavior).

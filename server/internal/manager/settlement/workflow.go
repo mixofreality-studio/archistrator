@@ -272,7 +272,7 @@ func (wf *workflows) RegisterCustomerWorkflow(ctx workflow.Context, in registerI
 	}
 
 	logger.Info("customer registered", "customerId", in.CustomerID.String())
-	return SettlementRef{CustomerID: in.CustomerID}, nil
+	return SettlementRef(in), nil
 }
 
 // ===========================================================================
@@ -558,7 +558,7 @@ type shortfallSweepInput struct {
 func (wf *workflows) ShortfallSweepWorkflow(ctx workflow.Context, in shortfallSweepInput) (ShortfallSweepResult, error) {
 	logger := workflow.GetLogger(ctx)
 
-	customers, err := wf.readDelinquent(ctx, delinquencyScope{ProjectID: in.ProjectID})
+	customers, err := wf.readDelinquent(ctx, delinquencyScope(in))
 	if err != nil {
 		return ShortfallSweepResult{}, err
 	}

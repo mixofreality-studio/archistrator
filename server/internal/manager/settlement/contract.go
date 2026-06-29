@@ -159,11 +159,6 @@ type deployedAppID = uuid.UUID
 // Infrastructure.
 // ---------------------------------------------------------------------------
 
-// SettlementError is the typed façade error (settlementManager.md §3.1). It is an
-// alias for fwmgr.Error so errors.As(&SettlementError) call sites work — the SAME
-// shared Manager error model the peer Managers use.
-type settlementError = fwmgr.Error
-
 func newError(kind fwmgr.Kind, detail string) *fwmgr.Error {
 	return fwmgr.New(kind, detail)
 }

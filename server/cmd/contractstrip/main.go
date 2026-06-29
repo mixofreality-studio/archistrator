@@ -49,7 +49,7 @@ func main() {
 	if len(os.Args) > 1 {
 		path = os.Args[1]
 	}
-	raw, err := os.ReadFile(path)
+	raw, err := os.ReadFile(path) // #nosec G703 -- path is the CLI argument to a developer-run codegen tool, no trust boundary
 	if err != nil {
 		fatal("read %s: %v", path, err)
 	}
@@ -135,7 +135,7 @@ func ownedNames(entry []byte) (map[string]bool, error) {
 }
 
 func stripFile(path string, owned map[string]bool) error {
-	raw, err := os.ReadFile(path)
+	raw, err := os.ReadFile(path) // #nosec G304 -- path is a developer-run codegen tool argument, no trust boundary
 	if err != nil {
 		return err
 	}
@@ -214,7 +214,7 @@ func stripFile(path string, owned map[string]bool) error {
 	if err != nil {
 		return fmt.Errorf("imports.Process %s: %w", path, err)
 	}
-	if err := os.WriteFile(path, out, 0o644); err != nil {
+	if err := os.WriteFile(path, out, 0o600); err != nil {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "stripped %s\n", path)

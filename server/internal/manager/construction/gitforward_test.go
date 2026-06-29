@@ -500,7 +500,7 @@ func Test_GitForward_RecordsConvergeMonotonically(t *testing.T) {
 		t.Fatalf("workflow error: %v", err)
 	}
 	g, _ := git.row("C-MONO")
-	if !(g.BranchName != "" && g.CICheck == projectstate.CICheckSuccess && g.ArchApproved && g.Merged) {
+	if g.BranchName == "" || g.CICheck != projectstate.CICheckSuccess || !g.ArchApproved || !g.Merged {
 		t.Fatalf("lifecycle did not converge through all record steps: %+v", g)
 	}
 	// At least 4 distinct applies (branch, ci, approve, merge) landed.

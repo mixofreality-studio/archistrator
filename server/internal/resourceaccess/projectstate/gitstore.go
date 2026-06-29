@@ -685,7 +685,7 @@ func (s *GitStore) applyMutationOnBranch(
 // either store.
 type projectDoc struct {
 	ID       string              `json:"id"`
-	Version  uint64              `json:"version"`
+	Version  int64               `json:"version"`
 	Phase    int                 `json:"phase"`
 	Owner    string              `json:"owner"`
 	Name     string              `json:"name"`
@@ -891,7 +891,7 @@ func encodeProjectDoc(p *Project, updatedAt time.Time) ([]byte, error) {
 	}
 	doc := projectDoc{
 		ID:                   p.ID.String(),
-		Version:              uint64(p.Version),
+		Version:              int64(p.Version),
 		Phase:                int(p.Phase),
 		Owner:                string(p.Owner),
 		Name:                 p.Name,

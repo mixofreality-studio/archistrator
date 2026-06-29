@@ -121,16 +121,13 @@ const (
 	actAdvancePhase        = "AdvancePhaseActivity"
 
 	// PR-rail Activity names (I-DESIGN-DISPATCH §2b).
-	actMintRepoCredential   = "MintRepoCredentialActivity"
+	actMintRepoCredential   = "MintRepoCredentialActivity" // #nosec G101 -- Temporal activity NAME constant, not a credential
 	actOpenBranch           = "OpenBranchActivity"
 	actOpenPullRequest      = "OpenPullRequestActivity"
 	actGetPullRequestStatus = "GetPullRequestStatusActivity"
 	actPostReview           = "PostReviewActivity"
 	actMergePullRequest     = "MergePullRequestActivity"
 )
-
-// maxRedraftAttempts bounds the redraft loop before the workflow escalates.
-const maxRedraftAttempts = 5
 
 // maxSDPReassembleAttempts bounds the SDP RejectAll re-assemble loop (contract
 // §6.3 step 7 — bound the loop like systemdesign's maxRedraftAttempts).
@@ -505,18 +502,16 @@ func (wf *workflows) CoAuthorPhase2ArtifactWorkflow(ctx workflow.Context, in coA
 					return coAuthorUnknown, rerr
 				}
 			}
-			newVersion, err := wf.applyRecovering(ctx, in.ProjectID, headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+			if _, err := wf.applyRecovering(ctx, in.ProjectID, headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
 				c := mutateOpts(ctx)
 				var v projectstate.Version
 				e := workflow.ExecuteActivity(c, wf.CommitArtifactActivity, mutateArtifactArgs{
 					ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, Kind: toPSKind(in.ArtifactKind),
 				}).Get(ctx, &v)
 				return v, e
-			})
-			if err != nil {
+			}); err != nil {
 				return coAuthorUnknown, err
 			}
-			headVersion = newVersion
 			state.stage = StageCommitted
 			return coAuthorApproved, nil
 
@@ -543,18 +538,16 @@ func (wf *workflows) CoAuthorPhase2ArtifactWorkflow(ctx workflow.Context, in coA
 
 		case ReviewWithdraw:
 			notes := signalNotes(sig.Feedback)
-			newVersion, err := wf.applyRecovering(ctx, in.ProjectID, headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+			if _, err := wf.applyRecovering(ctx, in.ProjectID, headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
 				c := mutateOpts(ctx)
 				var v projectstate.Version
 				e := workflow.ExecuteActivity(c, wf.WithdrawArtifactActivity, mutateArtifactArgs{
 					ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, Kind: toPSKind(in.ArtifactKind), Notes: notes,
 				}).Get(ctx, &v)
 				return v, e
-			})
-			if err != nil {
+			}); err != nil {
 				return coAuthorUnknown, err
 			}
-			headVersion = newVersion
 			state.stage = StageWithdrawn
 			return coAuthorWithdrawn, nil
 

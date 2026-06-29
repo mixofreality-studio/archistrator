@@ -8,9 +8,19 @@ run:
   go: "1.25"
 
 linters:
+  # Baseline gate (shared across archistrator-platform, server, systemtests):
+  #   default "standard" set = errcheck, govet, ineffassign, staticcheck, unused
+  #   + gochecksumtype + gosec. Standard gofmt only (see formatters below).
+  # Generated code (// Code generated ... DO NOT EDIT.) is auto-excluded by v2.
+  # depguard below is the systemtests-specific wire-harness import ban.
+  default: standard
   enable:
+    - gochecksumtype
+    - gosec
     - depguard
   settings:
+    gochecksumtype:
+      default-signifies-exhaustive: false
     depguard:
       rules:
         harness:
@@ -25,3 +35,18 @@ linters:
               desc: "a wire harness substitutes nothing (§7 R3)"
             - pkg: github.com/golang/mock
               desc: "a wire harness substitutes nothing (§7 R3)"
+  exclusions:
+    rules:
+      # The entire module is a black-box test harness. gosec is a
+      # production-security linter; the harness legitimately spawns git, reads
+      # testdata, writes scratch files, and embeds fake tokens.
+      - path: "internal/harness/"
+        linters:
+          - gosec
+      - path: "_test\\.go"
+        linters:
+          - gosec
+
+formatters:
+  enable:
+    - gofmt

@@ -217,7 +217,7 @@ func TestComputeNetwork_StartGateMilestone(t *testing.T) {
 func TestComputeNetwork_PostTerminalMilestoneOffCP(t *testing.T) {
 	al, net := diamond()
 	net.Milestones = []NetworkMilestone{
-		{Id: "M-REL", DependsOn: []string{"D"}},    // det pred D (activity, on-CP, EF 25 = duration)
+		{Id: "M-REL", DependsOn: []string{"D"}},      // det pred D (activity, on-CP, EF 25 = duration)
 		{Id: "M-POST", DependsOn: []string{"M-REL"}}, // chained off the release milestone
 	}
 	sol, _ := NewEstimationEngine().ComputeNetwork(fweng.Context{}, al, net)

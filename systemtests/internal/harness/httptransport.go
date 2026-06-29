@@ -90,7 +90,7 @@ func (t *httpTransport) GetSessionState(ctx context.Context, projectID, kind str
 		_ = status
 		return SessionState{}, false, err
 	}
-	return SessionState{ProjectID: out.ProjectID, ArtifactKind: out.ArtifactKind, Stage: out.Stage}, true, nil
+	return SessionState(out), true, nil
 }
 
 func (t *httpTransport) SubmitReview(ctx context.Context, projectID, kind, decision, feedback string) error {
@@ -140,7 +140,7 @@ func (t *httpTransport) GetProjectSessionState(ctx context.Context, projectID, k
 		// observable yet" to a poller — never fatal here.
 		return SessionState{}, false, err
 	}
-	return SessionState{ProjectID: out.ProjectID, ArtifactKind: out.ArtifactKind, Stage: out.Stage}, true, nil
+	return SessionState(out), true, nil
 }
 
 func (t *httpTransport) SubmitProjectReview(ctx context.Context, projectID, kind, decision, feedback string) error {

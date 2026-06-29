@@ -151,11 +151,6 @@ import (
 // workflow's own failure handling. Kinds follow the framework-go standard set.
 // ---------------------------------------------------------------------------
 
-// projectDesignError is the typed façade error (contract §3.5). It is an alias
-// for fwmanager.Error so errors.As(&projectDesignError) call sites and test
-// helpers work without change.
-type projectDesignError = fwmanager.Error
-
 func newError(kind fwmanager.Kind, detail string) *fwmanager.Error {
 	return fwmanager.New(kind, detail)
 }

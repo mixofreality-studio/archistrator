@@ -56,7 +56,7 @@ func scanCorpus(root string) (map[string]CorpusPresenceRaw, error) {
 		id := normalizeID(e.Name())
 		cur := out[id]
 		if isReviewFile(e.Name()) {
-			body, err := os.ReadFile(filepath.Join(logDir, e.Name()))
+			body, err := os.ReadFile(filepath.Join(logDir, e.Name())) // #nosec G304 -- logDir is the developer-provided corpus root scanned by a local seed tool, no trust boundary
 			if err == nil && reviewPasses(string(body)) {
 				cur.HasPassingReview = true
 			}

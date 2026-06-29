@@ -37,17 +37,6 @@ func artifactKindWireName(k ArtifactKind) string { return toPSKind(k).WireName()
 // artifactKindIsPhase2 reports whether the kind belongs to The Method's Phase 2.
 func artifactKindIsPhase2(k ArtifactKind) bool { return toPSKind(k).IsPhase2() }
 
-// phase2RequiredKinds returns the ordered set of Phase-2 required artifact kinds
-// (projectdesign's OWN type), mirroring projectstate.Phase2RequiredKinds().
-func phase2RequiredKinds() []ArtifactKind {
-	ps := projectstate.Phase2RequiredKinds()
-	out := make([]ArtifactKind, 0, len(ps))
-	for _, k := range ps {
-		out = append(out, fromPSKind(k))
-	}
-	return out
-}
-
 // strPtrOrNil maps a failure-reason string to the optional contract field: nil for
 // the empty string (omitted on the wire), &s otherwise (the project notesPtr pattern).
 func strPtrOrNil(s string) *string {

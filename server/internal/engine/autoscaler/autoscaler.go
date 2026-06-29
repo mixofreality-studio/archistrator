@@ -43,8 +43,6 @@
 package autoscaler
 
 import (
-	"github.com/google/uuid"
-
 	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 )
 
@@ -59,10 +57,6 @@ import (
 
 // InfrastructureKindGoTemporalPostgres is the launch infrastructure
 // (Go + Temporal + Postgres + Git + S3).
-
-// operatedAppID identifies one Operated System. Carried for identity/labeling on
-// Telemetry and DesiredState; the Engine never branches on it (autoscalerEngine.md §3).
-type operatedAppID = uuid.UUID
 
 // --- Telemetry (autoscalerEngine.md §3) --------------------------------------
 

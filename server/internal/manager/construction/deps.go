@@ -207,8 +207,8 @@ type handOffPolicy struct {
 type interventionMode int
 
 const (
-	// interventionModeUnknown — no mode set (zero value).
-	interventionModeUnknown interventionMode = iota
+	// no mode set (zero value).
+	_ interventionMode = iota
 	// interventionModeEscalateEverything — every variance escalates to an operator.
 	interventionModeEscalateEverything
 	// interventionModeTiered — severity tiers + retry budgets decide retry vs

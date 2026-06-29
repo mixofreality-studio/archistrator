@@ -52,7 +52,7 @@ func main() {
 
 	// Write to durable output path.
 	outPath := "/Users/davidmarne/mixofrealitystudio/software/.git/sdd/archistrator-shapes.json"
-	if err := os.WriteFile(outPath, pretty, 0o644); err != nil {
+	if err := os.WriteFile(outPath, pretty, 0o600); err != nil {
 		fmt.Fprintf(os.Stderr, "write %s: %v\n", outPath, err)
 		os.Exit(1)
 	}

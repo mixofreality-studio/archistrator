@@ -239,7 +239,7 @@ type toolTurnEnvelope struct {
 // miss, and a wrapped *fwra.Error on a corrupt/unreadable file.
 func (w *replayWorker) readTurnCassette(key string) (AssistantTurn, bool, error) {
 	path := filepath.Join(w.dir, key+".json")
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- replay worker reads its own cassette files from a configured dir; key is an internal hash
 	if err != nil {
 		if os.IsNotExist(err) {
 			return AssistantTurn{}, false, nil
@@ -259,7 +259,7 @@ func (w *replayWorker) writeTurnCassette(key string, spec ToolTurnSpec, turn Ass
 	w.writeMu.Lock()
 	defer w.writeMu.Unlock()
 
-	if err := os.MkdirAll(w.dir, 0o755); err != nil {
+	if err := os.MkdirAll(w.dir, 0o750); err != nil {
 		return fwra.Wrap(fwra.Infrastructure, err, "replay worker: mkdir cassette dir")
 	}
 	env := toolTurnEnvelope{
@@ -275,7 +275,7 @@ func (w *replayWorker) writeTurnCassette(key string, spec ToolTurnSpec, turn Ass
 	}
 	path := filepath.Join(w.dir, key+".json")
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return fwra.Wrap(fwra.Infrastructure, err, "replay worker: write tool-turn cassette")
 	}
 	if err := os.Rename(tmp, path); err != nil {
@@ -301,7 +301,7 @@ type cassetteEnvelope struct {
 // miss, and a wrapped *fwra.Error on a corrupt/unreadable file.
 func (w *replayWorker) readCassette(key string) (json.RawMessage, bool, error) {
 	path := filepath.Join(w.dir, key+".json")
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- replay worker reads its own cassette files from a configured dir; key is an internal hash
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, false, nil
@@ -348,7 +348,7 @@ func (w *replayWorker) writeCassette(key string, spec GenerateSpec, raw json.Raw
 	w.writeMu.Lock()
 	defer w.writeMu.Unlock()
 
-	if err := os.MkdirAll(w.dir, 0o755); err != nil {
+	if err := os.MkdirAll(w.dir, 0o750); err != nil {
 		return fwra.Wrap(fwra.Infrastructure, err, "replay worker: mkdir cassette dir")
 	}
 	ctxHash := ""
@@ -369,7 +369,7 @@ func (w *replayWorker) writeCassette(key string, spec GenerateSpec, raw json.Raw
 	}
 	path := filepath.Join(w.dir, key+".json")
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return fwra.Wrap(fwra.Infrastructure, err, "replay worker: write cassette")
 	}
 	if err := os.Rename(tmp, path); err != nil {

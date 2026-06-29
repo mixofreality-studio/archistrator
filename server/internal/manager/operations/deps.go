@@ -94,8 +94,8 @@ type version uint64
 type delinquencyAction int
 
 const (
-	// delinquencyActionUnknown is the zero value.
-	delinquencyActionUnknown delinquencyAction = iota
+	// the zero value.
+	_ delinquencyAction = iota
 	// delinquencyActionPaused records a pause (replicas=0) enforcement.
 	delinquencyActionPaused
 	// delinquencyActionWithdrawn records a withdraw enforcement.
@@ -380,8 +380,8 @@ type autoscalerPolicy struct {
 type infrastructureKind int
 
 const (
-	// infrastructureKindUnknown is the zero value.
-	infrastructureKindUnknown infrastructureKind = iota
+	// the zero value.
+	_ infrastructureKind = iota
 	// infrastructureKindGoTemporalPostgres is the launch infrastructure.
 	infrastructureKindGoTemporalPostgres
 )

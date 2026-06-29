@@ -391,17 +391,6 @@ func observeOpts(ctx workflow.Context) workflow.Context {
 	})
 }
 
-// readBackCommittedModel reads the typed Phase-2 model the Action committed for kind
-// via projectStateAccess.ReadProject (the read-back path, §0.5.2 step 5). The Action
-// drafts + commits the JSON in the user's repo; aiarch reads it back as the staged
-// draft. A missing / non-populated slot after a PhaseSucceeded is a contract
-// violation between the Action and the read-back (the job claimed success but
-// committed nothing) — surfaced as a terminal error routed to the gate, never a
-// silent empty draft.
-func (wf *workflows) readBackCommittedModel(ctx workflow.Context, projectID ProjectID, kind ArtifactKind) (projectstate.ArtifactModel, error) {
-	return wf.readBackCommittedModelOn(ctx, projectID, kind, "")
-}
-
 // readBackCommittedModelOn is readBackCommittedModel with an OPTIONAL branch override
 // (I-DESIGN-DISPATCH §2a): the draft Action commits the typed JSON on the SESSION
 // BRANCH, so the read-back reads that branch while the human reviews the not-yet-merged

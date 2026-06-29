@@ -78,7 +78,7 @@ func main() {
 	if len(os.Args) > 1 {
 		path = os.Args[1]
 	}
-	raw, err := os.ReadFile(path)
+	raw, err := os.ReadFile(path) // #nosec G703 -- path is the CLI argument to a developer-run codegen tool, no trust boundary
 	if err != nil {
 		fatal("read %s: %v", path, err)
 	}
@@ -304,13 +304,13 @@ func lastSegment(goPackage string) string {
 }
 
 func mustMkdir(dir string) {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		fatal("mkdir %s: %v", dir, err)
 	}
 }
 
 func mustWrite(path string, data []byte) {
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	if err := os.WriteFile(path, data, 0o600); err != nil {
 		fatal("write %s: %v", path, err)
 	}
 }

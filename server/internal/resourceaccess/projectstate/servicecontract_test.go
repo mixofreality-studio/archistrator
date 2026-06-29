@@ -26,7 +26,7 @@ func TestServiceContract_RoundTrip(t *testing.T) {
 			Title:     "artifact contract",
 			Defs: map[string]json.RawMessage{
 				"ArtifactID": json.RawMessage(`{"type":"string"}`),
-				"Artifact": json.RawMessage(`{"type":"object","properties":{"id":{"$ref":"#/$defs/ArtifactID"}},"required":["id"],"additionalProperties":false}`),
+				"Artifact":   json.RawMessage(`{"type":"object","properties":{"id":{"$ref":"#/$defs/ArtifactID"}},"required":["id"],"additionalProperties":false}`),
 			},
 			Interface: ps.ContractInterface{
 				Name:  "ArtifactAccess",

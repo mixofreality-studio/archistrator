@@ -223,7 +223,7 @@ func (f *seqProjectState) StageArtifactForReviewOnBranch(ctx context.Context, pr
 	f.mu.Lock()
 	f.stageBranches = append(f.stageBranches, branch)
 	f.mu.Unlock()
-	return f.fakeProjectState.StageArtifactForReview(fwra.Context{Context: ctx, IdempotencyKey: key}, projectID, expectedVersion, model)
+	return f.StageArtifactForReview(fwra.Context{Context: ctx, IdempotencyKey: key}, projectID, expectedVersion, model)
 }
 
 func (f *seqProjectState) CommitArtifact(ctx fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, kind projectstate.ArtifactKind) (projectstate.Version, error) {

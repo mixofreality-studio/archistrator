@@ -195,7 +195,7 @@ func Test_SetResearchInput_ConflictThenSuccess_ReReads(t *testing.T) {
 	if ps.readCalls != 3 {
 		t.Fatalf("want 3 ReadProject calls (one per attempt), got %d", ps.readCalls)
 	}
-	if !(ps.gotExpected[0] < ps.gotExpected[1] && ps.gotExpected[1] < ps.gotExpected[2]) {
+	if ps.gotExpected[0] >= ps.gotExpected[1] || ps.gotExpected[1] >= ps.gotExpected[2] {
 		t.Fatalf("each re-apply must carry a fresh (higher) expectedVersion, got %v", ps.gotExpected)
 	}
 	// The SAME idempotency key is reused across re-applies (one logical mutation).

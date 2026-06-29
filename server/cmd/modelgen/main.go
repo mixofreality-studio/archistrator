@@ -57,7 +57,7 @@ func main() {
 	if len(os.Args) > 1 {
 		path = os.Args[1]
 	}
-	raw, err := os.ReadFile(path)
+	raw, err := os.ReadFile(path) // #nosec G703 -- path is the CLI argument to a developer-run codegen tool, no trust boundary
 	if err != nil {
 		fatal("read %s: %v", path, err)
 	}
@@ -265,7 +265,7 @@ func genOne(raw []byte, goPackage, component string, infra []string, stub bool, 
 		return fmt.Errorf("gofmt generated source: %w\n%s", err, out2.String())
 	}
 	out := filepath.Join(dir, "contract.gen.go")
-	if err := os.WriteFile(out, src, 0o644); err != nil {
+	if err := os.WriteFile(out, src, 0o600); err != nil {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "wrote %s (%d models)\n", out, len(names))

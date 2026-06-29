@@ -104,15 +104,6 @@ func encodeSlotsMap(p *Project) (map[string]slotJSON, error) {
 	return out, nil
 }
 
-// decodeSlots parses the JSONB object back into the aggregate's named typed slots.
-func decodeSlots(raw []byte, p *Project) error {
-	var w map[string]slotJSON
-	if err := json.Unmarshal(raw, &w); err != nil {
-		return err
-	}
-	return decodeSlotsMap(w, p)
-}
-
 // decodeSlotsMap is the substrate-neutral slot decoder (the inverse of encodeSlotsMap).
 func decodeSlotsMap(w map[string]slotJSON, p *Project) error {
 	for _, entry := range w {
@@ -142,33 +133,6 @@ func decodeSlotsMap(w map[string]slotJSON, p *Project) error {
 		}
 	}
 	return nil
-}
-
-// phaseSlotCounts reports the committed/total required-slot counts for the project's
-// current phase over the encoded slot blob (the landing-grid progress projection).
-func phaseSlotCounts(phase Phase, slotsRaw []byte) (committed, total int, err error) {
-	var required []ArtifactKind
-	switch phase {
-	case PhaseSystemDesign:
-		required = Phase1RequiredKinds()
-	case PhaseProjectDesign:
-		required = Phase2RequiredKinds()
-	default:
-		return 0, 0, nil
-	}
-
-	p := Project{}
-	if decErr := decodeSlots(slotsRaw, &p); decErr != nil {
-		return 0, 0, decErr
-	}
-	total = len(required)
-	for _, kind := range required {
-		slot, ok := slotPtr(&p, kind)
-		if ok && slot.Status == ReviewCommitted {
-			committed++
-		}
-	}
-	return committed, total, nil
 }
 
 // statusTransition builds the pure in-memory transition for commit/reject/withdraw:

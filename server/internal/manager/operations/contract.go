@@ -190,10 +190,6 @@ type costProjection = CostProjectionSeam
 // FailedPrecondition, NotFound, Unauthorized, Infrastructure.
 // ---------------------------------------------------------------------------
 
-// operationsError is the typed façade error (operationsManager.md §3.4). It is an
-// alias for fwmgr.Error so errors.As(&operationsError) call sites work.
-type operationsError = fwmgr.Error
-
 func newError(kind fwmgr.Kind, detail string) *fwmgr.Error {
 	return fwmgr.New(kind, detail)
 }

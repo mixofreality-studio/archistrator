@@ -174,11 +174,11 @@ func (c *critique) Validate() error {
 		return nil
 	case critiqueRevise:
 		if c.Notes == "" {
-			return fmt.Errorf("Critique: Revise verdict requires Notes")
+			return fmt.Errorf("critique: revise verdict requires Notes")
 		}
 		return nil
 	default:
-		return fmt.Errorf("Critique: unknown verdict ordinal %d", int(c.Verdict))
+		return fmt.Errorf("critique: unknown verdict ordinal %d", int(c.Verdict))
 	}
 }
 
@@ -186,10 +186,6 @@ func (c *critique) Validate() error {
 // Façade error model (systemDesignManager.md §3.5). CALLER/PROGRAMMER errors at the
 // façade boundary — distinct from the workflow's own failure handling.
 // ---------------------------------------------------------------------------
-
-// systemDesignError is the typed façade error — an alias for fwmanager.Error so
-// existing errors.As(&systemDesignError) call sites keep working without change.
-type systemDesignError = fwmanager.Error
 
 func newError(kind fwmanager.Kind, detail string) *fwmanager.Error {
 	return fwmanager.New(kind, detail)

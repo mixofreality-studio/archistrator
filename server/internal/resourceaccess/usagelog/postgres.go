@@ -113,7 +113,7 @@ func (s *postgresUsageAccess) appendBatch(ctx context.Context, op string, events
 	if err != nil {
 		return nil, fwpg.MapError(err, op)
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }() // no-op after a successful Commit; error intentionally ignored
 
 	// PASS 1 — batched appends. A row that came back carries the new entry_id;
 	// a conflict (duplicate runtime event id) yields no row and is resolved in
@@ -135,7 +135,7 @@ func (s *postgresUsageAccess) appendBatch(ctx context.Context, op string, events
 	}
 	duplicates, err := func() ([]int, error) {
 		br := tx.SendBatch(ctx, ins)
-		defer br.Close()
+		defer func() { _ = br.Close() }()
 		var dups []int
 		for i := range events {
 			var id int64
@@ -163,7 +163,7 @@ func (s *postgresUsageAccess) appendBatch(ctx context.Context, op string, events
 		}
 		err = func() error {
 			br := tx.SendBatch(ctx, sel)
-			defer br.Close()
+			defer func() { _ = br.Close() }()
 			for _, i := range duplicates {
 				var id int64
 				if scanErr := br.QueryRow().Scan(&id); scanErr != nil {

@@ -78,7 +78,7 @@ func main() {
 
 	enc, err := projectstate.EncodeProjectJSON(proj)
 	must(err, "encode project.json")
-	must(os.WriteFile(*file, enc, 0o644), "write project.json")
+	must(os.WriteFile(*file, enc, 0o600), "write project.json") // #nosec G703 -- output path is the operator-provided -file flag, no trust boundary
 
 	fmt.Printf("seeded %d milestones into %s network slot:\n", len(milestones), *id)
 	for _, m := range milestones {

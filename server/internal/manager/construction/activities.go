@@ -83,10 +83,7 @@ const workerRefusedErrType = "WorkerRefused"
 
 func (wf *workflows) GenerateWorkActivity(ctx context.Context, a generateWorkArgs) (artifact.ConstructionOutput, error) {
 	key := activityIdempotencyKey(ctx)
-	out, err := generateConstructionOutput(ctx, wf.Workers, workerGenerateSpec{
-		WorkerClass: a.WorkerClass,
-		Prompt:      a.Prompt,
-	}, key)
+	out, err := generateConstructionOutput(ctx, wf.Workers, workerGenerateSpec(a), key)
 	if err != nil {
 		return artifact.ConstructionOutput{}, mapWorkerError(err)
 	}

@@ -272,6 +272,7 @@ func env(key, def string) string {
 // fail-fast names the missing credential rather than panicking here.
 func envSecret(key, def string) string {
 	if path := strings.TrimSpace(os.Getenv(key + "_FILE")); path != "" {
+		// #nosec G304 G703 -- operator-controlled secret-file path (Docker/K8s secrets convention), not untrusted input
 		if b, err := os.ReadFile(path); err == nil {
 			return strings.TrimSpace(string(b))
 		}
@@ -282,6 +283,7 @@ func envSecret(key, def string) string {
 			return v
 		}
 		// Not PEM content: treat a readable path as a file reference.
+		// #nosec G304 G703 -- operator-controlled secret-file path (Docker/K8s secrets convention), not untrusted input
 		if b, err := os.ReadFile(v); err == nil {
 			return strings.TrimSpace(string(b))
 		}

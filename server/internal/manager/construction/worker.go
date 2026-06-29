@@ -1,8 +1,6 @@
 package construction
 
 import (
-	"time"
-
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/worker"
 	"go.temporal.io/sdk/workflow"
@@ -42,17 +40,6 @@ const (
 	executionKindProjectSupervision = "constructionProjectSupervision"
 )
 
-// Schedule ids + cadences (constructionManager.md §6.1; operational-concepts.md §4).
-const (
-	scheduleIDNextActivity = "construction:nextActivity"
-	scheduleIDReplanSweep  = "construction:replanSweep"
-
-	// nextActivityInterval is the pump cadence (30s).
-	nextActivityInterval = 30 * time.Second
-	// replanSweepInterval is the variance-sweep cadence (5m).
-	replanSweepInterval = 5 * time.Minute
-)
-
 // Activity name constants. The Activity methods are registered under these stable
 // names and the workflow bodies invoke them by the method value on wf, so the
 // registered name and the call stay in lockstep (constructionManager.md §6.4).
@@ -71,7 +58,7 @@ const (
 	actRecordOperatorPaused    = "RecordOperatorPausedActivity"
 
 	// git-forward slice (C-MCN-GIT): the PR-rail + git head-state Record activities.
-	actMintRepoCredential         = "MintRepoCredentialActivity"
+	actMintRepoCredential         = "MintRepoCredentialActivity" // #nosec G101 -- Temporal activity NAME constant, not a credential
 	actOpenBranch                 = "OpenBranchActivity"
 	actOpenPullRequest            = "OpenPullRequestActivity"
 	actGetPullRequestStatus       = "GetPullRequestStatusActivity"

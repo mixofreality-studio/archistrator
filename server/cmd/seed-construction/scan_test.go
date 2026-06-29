@@ -6,18 +6,32 @@ import (
 	"testing"
 )
 
+func mkdir(t *testing.T, dir string) {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func write(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestScanCorpus_FixturePresence(t *testing.T) {
 	root := t.TempDir()
 	logDir := filepath.Join(root, "log")
 	conDir := filepath.Join(root, "contracts")
-	os.MkdirAll(logDir, 0o755)
-	os.MkdirAll(conDir, 0o755)
+	mkdir(t, logDir)
+	mkdir(t, conDir)
 	// C-CW: log + passing review + contract → integrated, produced
-	os.WriteFile(filepath.Join(logDir, "C-CW.md"), []byte("# build"), 0o644)
-	os.WriteFile(filepath.Join(logDir, "C-CW-review.md"), []byte("VERDICT: PASS"), 0o644)
-	os.WriteFile(filepath.Join(conDir, "webClient.md"), []byte("# contract"), 0o644)
+	write(t, filepath.Join(logDir, "C-CW.md"), "# build")
+	write(t, filepath.Join(logDir, "C-CW-review.md"), "VERDICT: PASS")
+	write(t, filepath.Join(conDir, "webClient.md"), "# contract")
 	// C-BE: log only → in-review
-	os.WriteFile(filepath.Join(logDir, "C-BE.md"), []byte("# build"), 0o644)
+	write(t, filepath.Join(logDir, "C-BE.md"), "# build")
 
 	got, err := scanCorpus(root)
 	if err != nil {

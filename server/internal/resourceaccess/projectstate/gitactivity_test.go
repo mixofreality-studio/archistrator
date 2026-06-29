@@ -145,7 +145,7 @@ func TestRecordActivityCIObserved_Transitions(t *testing.T) {
 	if g := readActivity(t, store, ctx, id, cred, "C-MST"); g.CICheck != ps.CICheckFailure {
 		t.Fatalf("CICheck = %v, want Failure", g.CICheck)
 	}
-	v, err = store.RecordActivityCIObserved(ctx, id, v, "C-MST", ps.CICheckSuccess, cred, "wf:ci-2")
+	_, err = store.RecordActivityCIObserved(ctx, id, v, "C-MST", ps.CICheckSuccess, cred, "wf:ci-2")
 	if err != nil {
 		t.Fatalf("ci success: %v", err)
 	}
@@ -176,7 +176,7 @@ func TestRecordActivityArchApprovedAndMerged(t *testing.T) {
 	if g := readActivity(t, store, ctx, id, cred, "C-MST"); !g.ArchApproved || g.Merged {
 		t.Fatalf("after approve: %+v, want ArchApproved=true Merged=false", g)
 	}
-	v, err = store.RecordActivityMerged(ctx, id, v, "C-MST", cred, "wf:merge")
+	_, err = store.RecordActivityMerged(ctx, id, v, "C-MST", cred, "wf:merge")
 	if err != nil {
 		t.Fatalf("merge: %v", err)
 	}

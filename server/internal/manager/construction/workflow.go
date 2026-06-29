@@ -11,7 +11,6 @@ import (
 
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 )
@@ -162,24 +161,6 @@ func readProjectOpts(ctx workflow.Context) workflow.Context {
 	})
 }
 
-func generateWorkerOpts(ctx workflow.Context) workflow.Context {
-	// Long StartToClose + small retry budget for the worker round-trip
-	// (constructionManager.md §6.4 DispatchWorkerActivity). The
-	// unconstructable-response terminal (workerRefusedErrType) is non-retryable.
-	return workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 10 * time.Minute,
-		RetryPolicy: &temporal.RetryPolicy{
-			MaximumAttempts: 3,
-			NonRetryableErrorTypes: []string{
-				fwmanager.RAErrType(fwra.Auth),
-				fwmanager.RAErrType(fwra.QuotaExhausted),
-				fwmanager.RAErrType(fwra.ContractMisuse),
-				workerRefusedErrType,
-			},
-		},
-	})
-}
-
 func cancelWorkerOpts(ctx workflow.Context) workflow.Context {
 	return workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 30 * time.Second,
@@ -206,18 +187,6 @@ func observePipelineOpts(ctx workflow.Context) workflow.Context {
 			NonRetryableErrorTypes: []string{
 				fwmanager.RAErrType(fwra.NotFound),
 				fwmanager.RAErrType(fwra.Auth),
-			},
-		},
-	})
-}
-
-func storeOutputOpts(ctx workflow.Context) workflow.Context {
-	return workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 60 * time.Second,
-		RetryPolicy: &temporal.RetryPolicy{
-			NonRetryableErrorTypes: []string{
-				fwmanager.RAErrType(fwra.Auth),
-				fwmanager.RAErrType(fwra.ContractMisuse),
 			},
 		},
 	})
@@ -542,17 +511,6 @@ func (wf *workflows) ConstructActivityWorkflow(ctx workflow.Context, in construc
 	}
 }
 
-// dispatchWork runs the worker dispatch Activity for the cast class.
-func (wf *workflows) dispatchWork(ctx workflow.Context, class workerClass, activity constructionActivity) (artifact.ConstructionOutput, error) {
-	c := generateWorkerOpts(ctx)
-	var out artifact.ConstructionOutput
-	err := workflow.ExecuteActivity(c, wf.GenerateWorkActivity, generateWorkArgs{
-		WorkerClass: class.String(),
-		Prompt:      constructionPrompt(activity, class),
-	}).Get(ctx, &out)
-	return out, err
-}
-
 // servicePhases is the App-A service development life cycle (Appendix-A Figure A-1 /
 // Table A-1) in order: Requirements → Detailed Design → Test Plan → Construction →
 // Integration. The Manager dispatches one GH-Actions job per phase; the per-phase
@@ -601,55 +559,6 @@ func (wf *workflows) runPipeline(ctx workflow.Context, in constructActivityInput
 		_ = workflow.Sleep(ctx, pipelinePollInterval)
 	}
 	return pipelineObservation{Phase: PipelineFailed, Diagnostic: "pipeline did not reach a terminal phase within the poll budget"}, nil
-}
-
-// storeOutput stages the construction output via artifactAccess (the content
-// address is a plain string — artifactAccess.md §2).
-func (wf *workflows) storeOutput(ctx workflow.Context, output artifact.ConstructionOutput) (string, error) {
-	c := storeOutputOpts(ctx)
-	var addr string
-	err := workflow.ExecuteActivity(c, wf.StoreConstructionOutputActivity, output).Get(ctx, &addr)
-	return addr, err
-}
-
-// routeReview computes the reviewer set (DECIDE — direct in-workflow Engine call),
-// fans out one worker dispatch per reviewer, and gates on the verdicts. On a
-// mayAmend verdict it re-stages the amended output. Returns reviewOK.
-func (wf *workflows) routeReview(ctx workflow.Context, in constructActivityInput, state *constructState) (bool, error) {
-	set, rerr := wf.Review.ProposeReviews(
-		reviewChange{ActivityID: string(in.ActivityID), ComponentID: in.Activity.ComponentID},
-		in.Activity.ComponentID,
-		in.Activity.Kind.String(),
-		"", // architectureGraph — Manager-supplied snapshot (seam)
-		nil,
-	)
-	if rerr != nil {
-		return false, fwmanager.MapError(rerr)
-	}
-	state.reviewSet = &set
-
-	c := generateWorkerOpts(ctx)
-	for _, reviewer := range set.Reviewers {
-		var out artifact.ConstructionOutput
-		if err := workflow.ExecuteActivity(c, wf.GenerateWorkActivity, generateWorkArgs{
-			WorkerClass: reviewer.Role,
-			Prompt:      reviewPrompt(in.Activity, reviewer),
-		}).Get(ctx, &out); err != nil {
-			// A reviewer dispatch that cannot produce a verdict surfaces a failed,
-			// unresolvable review verdict (routed to intervention by the caller).
-			if isWorkerRefused(err) {
-				return false, nil
-			}
-			return false, err
-		}
-		// On a mayAmend reviewer, re-stage the amended output (§6.3 step 5).
-		if reviewer.MayAmend {
-			if _, err := wf.storeOutput(ctx, out); err != nil {
-				return false, err
-			}
-		}
-	}
-	return true, nil
 }
 
 // handleVariance is the DECIDE→EXECUTE machinery for an automatically-detected
@@ -987,16 +896,6 @@ func isReadNotFound(err error) bool {
 	var appErr *temporal.ApplicationError
 	if errors.As(err, &appErr) {
 		return appErr.Type() == raNotFoundErrType
-	}
-	return false
-}
-
-// isWorkerRefused reports whether err is the unconstructable-response terminal
-// surfaced by GenerateWorkActivity (worker ran but produced a non-ConstructionOutput).
-func isWorkerRefused(err error) bool {
-	var appErr *temporal.ApplicationError
-	if errors.As(err, &appErr) {
-		return appErr.Type() == workerRefusedErrType
 	}
 	return false
 }

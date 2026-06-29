@@ -99,7 +99,7 @@ func main() {
 
 	enc, err := projectstate.EncodeProjectJSON(proj)
 	must(err, "encode")
-	must(os.WriteFile(*file, enc, 0o644), "write project.json")
+	must(os.WriteFile(*file, enc, 0o600), "write project.json") // #nosec G703 -- output path is the operator-provided -file flag, no trust boundary
 
 	sort.Strings(matched)
 	sort.Strings(unmatched)

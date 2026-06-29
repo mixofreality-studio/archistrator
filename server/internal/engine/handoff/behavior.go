@@ -34,19 +34,3 @@ func workerClassValid(c WorkerClass) bool {
 		return false
 	}
 }
-
-// activityKindString returns the canonical name for an activity kind.
-func activityKindString(k ActivityKind) string {
-	switch k {
-	case ActivityKindDetailedDesign:
-		return "DetailedDesign"
-	case ActivityKindConstruction:
-		return "Construction"
-	case ActivityKindIntegration:
-		return "Integration"
-	case ActivityKindNoncoding:
-		return "Noncoding"
-	default:
-		return "Unknown"
-	}
-}

@@ -113,7 +113,7 @@ func (f *fakeActions) listRunsByName(_ context.Context, _ ghTarget, runName stri
 	out := []ghRun{}
 	for _, r := range f.runs {
 		if r.name == runName {
-			out = append(out, ghRun{id: r.id, name: r.name, status: r.status, conclusion: r.conclusion})
+			out = append(out, ghRun(r))
 		}
 	}
 	return out, nil
@@ -153,7 +153,7 @@ func (f *fakeActions) getRun(_ context.Context, tgt ghTarget, runID int64) (ghRu
 	}
 	for _, r := range f.runs {
 		if r.id == runID {
-			return ghRun{id: r.id, name: r.name, status: r.status, conclusion: r.conclusion}, nil
+			return ghRun(r), nil
 		}
 	}
 	return ghRun{}, fwra.New(fwra.NotFound, "fake: no run")
@@ -666,7 +666,8 @@ func TestSubmitIdempotencyConvergence(t *testing.T) {
 }
 
 func TestDedupTokenDeterminism(t *testing.T) {
-	if dedupToken("a") != dedupToken("a") {
+	first, second := dedupToken("a"), dedupToken("a")
+	if first != second {
 		t.Fatal("dedupToken not deterministic")
 	}
 	if dedupToken("a") == dedupToken("b") {
