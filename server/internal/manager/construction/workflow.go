@@ -432,17 +432,22 @@ func (wf *workflows) ConstructActivityWorkflow(ctx workflow.Context, in construc
 			gf = opened
 		}
 
-		// --- Steps 2-5: walk the App-A service life cycle, dispatching ONE GH-Actions
-		// job per phase (Requirements → Detailed Design → Test Plan → Construction →
-		// Integration; aiarch-phase.yml, a distinct prompt per phase). Each phase's
-		// pipeline observe rides the CI poll cadence (observeCIAndRecord). A phase whose
-		// pipeline fails routes to intervention (App-A: a failing review repeats the
-		// preceding task), then the activity retries from the first phase. This replaces
-		// the legacy single-shot dispatchWork→runPipeline→storeOutput→routeReview
-		// (the server-LLM path; dispatchWork/storeOutput/routeReview now dead — Plan 3
-		// worker-RA deletion is the follow-up). --------------------------------------
+		// --- Steps 2-5: walk the activity's profile phases, dispatching ONE GH-Actions
+		// job per phase (the phase sequence is determined by the activity's resolved
+		// profile — e.g. service: Requirements → Detailed Design → Test Plan →
+		// Construction → Integration; testing-plan: Requirements → Test Plan →
+		// Construction). Each phase's pipeline observe rides the CI poll cadence
+		// (observeCIAndRecord). A phase whose pipeline fails routes to intervention
+		// (App-A: a failing review repeats the preceding task), then the activity
+		// retries from the first phase. This replaces the legacy single-shot
+		// dispatchWork→runPipeline→storeOutput→routeReview (the server-LLM path;
+		// dispatchWork/storeOutput/routeReview now dead — Plan 3 worker-RA deletion
+		// is the follow-up). --------------------------------------------------------
+		if len(in.Activity.Phases) == 0 {
+			in.Activity.Phases = projectstate.ProfileFor(projectstate.ActivityTypeService, 0).PhaseIDs()
+		}
 		phaseFailed := false
-		for _, phase := range servicePhases {
+		for _, phase := range in.Activity.Phases {
 			state.stage = StagePipelineRunning
 			obs, perr := wf.runPipeline(ctx, in, phase, state, &gf, &headVersion)
 			if perr != nil {
@@ -509,18 +514,6 @@ func (wf *workflows) ConstructActivityWorkflow(ctx workflow.Context, in construc
 		logger.Info("construction activity exited", "activityId", in.ActivityID)
 		return nil
 	}
-}
-
-// servicePhases is the App-A service development life cycle (Appendix-A Figure A-1 /
-// Table A-1) in order: Requirements → Detailed Design → Test Plan → Construction →
-// Integration. The Manager dispatches one GH-Actions job per phase; the per-phase
-// weights (15/20/10/40/15) live in the store's phaseSetFor (seeded on RecordPhaseStarted).
-var servicePhases = []projectstate.ActivityMethodPhase{
-	projectstate.MethodPhaseRequirements,
-	projectstate.MethodPhaseDetailedDesign,
-	projectstate.MethodPhaseTestPlan,
-	projectstate.MethodPhaseConstruction,
-	projectstate.MethodPhaseIntegration,
 }
 
 // runPipeline submits the pipeline then polls observe between durable startTimer

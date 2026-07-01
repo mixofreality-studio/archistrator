@@ -379,7 +379,13 @@ func registerReplanSweep(env *testsuite.TestWorkflowEnvironment, wf *workflows) 
 }
 
 func sampleActivity() constructionActivity {
-	return constructionActivity{ActivityID: "C-XYZ", Kind: activityKindConstruction, ComponentID: "comp-1", Layer: "engine"}
+	return constructionActivity{
+		ActivityID:  "C-XYZ",
+		Kind:        activityKindConstruction,
+		ComponentID: "comp-1",
+		Layer:       "engine",
+		Phases:      projectstate.ProfileFor(projectstate.ActivityTypeService, 0).PhaseIDs(),
+	}
 }
 
 // ---- Tests: per-activity spine (ConstructActivityWorkflow) ------------------
@@ -418,8 +424,57 @@ func Test_Construct_HappyPath_RecordsReviewedAndExited(t *testing.T) {
 	}
 	// The App-A phase-walk dispatches one pipeline per phase (Requirements →
 	// Detailed Design → Test Plan → Construction → Integration).
-	if len(pipe.submitted) != len(servicePhases) {
-		t.Fatalf("want %d pipeline submits (one per App-A phase), got %d", len(servicePhases), len(pipe.submitted))
+	if len(pipe.submitted) != len(sampleActivity().Phases) {
+		t.Fatalf("want %d pipeline submits (one per App-A phase), got %d", len(sampleActivity().Phases), len(pipe.submitted))
+	}
+}
+
+// runPumpWith builds the fakePipeline-backed Temporal test environment, executes
+// ConstructActivityWorkflow with the supplied activity, and returns the pipeline
+// double so the caller can inspect pipe.submitted.
+func runPumpWith(t *testing.T, act constructionActivity) *fakePipeline {
+	t.Helper()
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(uuid.NewString()), Version: 3, Phase: 2}}
+	pipe := &fakePipeline{phase: PipelineSucceeded}
+	art := &fakeArtifacts{}
+	w := &fakeWorker{}
+	wf := newWorkflows(wfDeps{
+		HandOff: &fakeHandOff{class: aiWorker}, Intervention: &fakeIntervention{directive: directiveRetry},
+		Review: &fakeReview{}, ProjectState: ps, Pipeline: pipe, Artifacts: art, Workers: w,
+	})
+	registerConstruct(env, wf)
+
+	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{
+		ProjectID: ProjectID(ps.project.ID), ActivityID: ActivityID(act.ActivityID), Activity: act,
+	})
+
+	if !env.IsWorkflowCompleted() {
+		t.Fatal("workflow did not complete")
+	}
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	return pipe
+}
+
+// Test_Construct_TestingPlanWalksThreePhases proves that a testing-plan activity
+// (3 canonical phases) drives exactly 3 pipeline submissions, not the service 5.
+func Test_Construct_TestingPlanWalksThreePhases(t *testing.T) {
+	act := constructionActivity{
+		ActivityID:  "N-STP",
+		Kind:        activityKindConstruction,
+		ComponentID: "system",
+		Phases:      projectstate.ProfileFor(projectstate.ActivityTypeTesting, projectstate.TestVariantPlan).PhaseIDs(),
+	}
+	if len(act.Phases) != 3 {
+		t.Fatalf("precondition: testing-plan phases = %d, want 3", len(act.Phases))
+	}
+	pipe := runPumpWith(t, act)
+	if len(pipe.submitted) != 3 {
+		t.Fatalf("submitted %d pipelines, want 3", len(pipe.submitted))
 	}
 }
 
