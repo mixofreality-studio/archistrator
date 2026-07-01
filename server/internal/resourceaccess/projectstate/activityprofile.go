@@ -56,12 +56,18 @@ func ProfileFor(t ActivityType, v TestingVariant) Profile {
 	case ActivityTypeTesting:
 		return profileForTestingVariant(v)
 	case ActivityTypeDeployment:
+		// NOTE: not yet reachable via DeriveType (which emits only Service/Frontend/Testing).
+		// Staged for the dispatch-wiring plan, which will extend DeriveType (e.g. R-* → Deployment)
+		// to select this profile.
 		return Profile{Phases: []ProfilePhase{
 			{MethodPhaseDetailedDesign, 25, "Provisioning Spec"},
 			{MethodPhaseConstruction, 50, "Construction"},
 			{MethodPhaseIntegration, 25, "Convergence Verification"},
 		}}
 	case ActivityTypeDocumentation:
+		// NOTE: not yet reachable via DeriveType (which emits only Service/Frontend/Testing).
+		// Staged for the dispatch-wiring plan, which will disambiguate N-ADR docs from N- testing
+		// to select this profile.
 		return Profile{Phases: []ProfilePhase{
 			{MethodPhaseDetailedDesign, 20, "Outline"},
 			{MethodPhaseConstruction, 60, "Authoring"},

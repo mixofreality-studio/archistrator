@@ -40,8 +40,8 @@ var _ GitConstructionTransitionAccess = (*GitStore)(nil)
 // map key for PhaseArtifacts fields; it is unused for pointer-scalar TestingState
 // fields (SystemTestPlan, HarnessModule, PerfHarness, QualityAuditReport).
 // Convention: exactly one field per call. This is NOT enforced at runtime (multiple
-// set fields will route all of them). A typed sum type would enforce the invariant;
-// deferred to Plan 3 when cs.Type/cs.Variant population lands.
+// set fields will route all of them). A typed sum type would enforce the invariant,
+// which now may be feasible since cs.Type/cs.Variant are populated by seed-construction.
 type PhaseArtifactPayload struct {
 	// PhaseArtifacts fields (keyed by mapKey)
 	SRS              *SRSRecord

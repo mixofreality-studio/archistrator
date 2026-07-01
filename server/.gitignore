@@ -8,3 +8,4 @@ test-artifacts/
 
 # Compiled server binary (build artifact, ~50MB). Build locally; never commit.
 /server
+/seed-construction
