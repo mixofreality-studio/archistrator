@@ -7,7 +7,42 @@ import (
 
 	"github.com/google/uuid"
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
+	"go.temporal.io/sdk/client"
 )
+
+// ---------------------------------------------------------------------------
+// Test helpers (fake Temporal client + constructor shim)
+// ---------------------------------------------------------------------------
+
+// fakeTemporalClient captures the last SignalWorkflow call. It embeds
+// client.Client so the struct satisfies the interface without implementing
+// every method; any unimplemented method panics if reached (none should be
+// in these unit tests).
+type fakeTemporalClient struct {
+	client.Client
+	lastWorkflowID string
+	lastSignalName string
+	lastSignalArg  interface{}
+}
+
+func (f *fakeTemporalClient) SignalWorkflow(_ context.Context, workflowID string, _ string, signalName string, arg interface{}) error {
+	f.lastWorkflowID = workflowID
+	f.lastSignalName = signalName
+	f.lastSignalArg = arg
+	return nil
+}
+
+// newTestConstructionManager wires a fake temporal client into a bare
+// constructionManager (all other deps nil — only used for pre-Temporal checks
+// and signal dispatch tests).
+func newTestConstructionManager(c client.Client) *constructionManager {
+	return newConstructionManager(c, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "")
+}
+
+// testCtx returns a minimal fwmanager.Context backed by context.Background.
+func testCtx() fwmanager.Context {
+	return fwmanager.Context{Context: context.Background()}
+}
 
 // These tests cover the façade-boundary pre-condition checks the contract puts on
 // the five public ops (constructionManager.md §2/§3.5). They run BEFORE any
@@ -156,5 +191,50 @@ func Test_OverrideKind_String(t *testing.T) {
 		if got := overrideKindName(k); got != want {
 			t.Fatalf("overrideKindName(%d) = %q, want %q", int(k), got, want)
 		}
+	}
+}
+
+// ---- SubmitPhaseDecision (op 2.6) -------------------------------------------
+
+func TestSubmitPhaseDecision_SignalsActivityWorkflowWithPhase(t *testing.T) {
+	fc := &fakeTemporalClient{}
+	m := newTestConstructionManager(fc)
+	if err := m.SubmitPhaseDecision(testCtx(), "proj-1", "C-Orders", "detailed_design", PhaseApprove, nil); err != nil {
+		t.Fatalf("SubmitPhaseDecision: %v", err)
+	}
+	if fc.lastWorkflowID != "proj-1:C-Orders" || fc.lastSignalName != signalPhaseDecision {
+		t.Fatalf("wfID=%q signal=%q", fc.lastWorkflowID, fc.lastSignalName)
+	}
+	sig, ok := fc.lastSignalArg.(phaseDecisionSignal)
+	if !ok || sig.Phase != "detailed_design" || sig.Decision != PhaseApprove {
+		t.Fatalf("payload=%+v", fc.lastSignalArg)
+	}
+}
+
+func TestSubmitPhaseDecision_SendBackRequiresFeedbackNotes(t *testing.T) {
+	m := newTestConstructionManager(&fakeTemporalClient{})
+	err := m.SubmitPhaseDecision(testCtx(), "proj-1", "C-Orders", "detailed_design", PhaseSendBack, nil)
+	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
+		t.Fatalf("want ContractMisuse for SendBack without feedback, got %s", got)
+	}
+	err = m.SubmitPhaseDecision(testCtx(), "proj-1", "C-Orders", "detailed_design", PhaseSendBack, &ReviewFeedback{Notes: ""})
+	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
+		t.Fatalf("want ContractMisuse for SendBack with empty notes, got %s", got)
+	}
+}
+
+func TestSubmitPhaseDecision_EmptyProjectID(t *testing.T) {
+	m := newTestConstructionManager(nil)
+	err := m.SubmitPhaseDecision(testCtx(), "", "C-Orders", "detailed_design", PhaseApprove, nil)
+	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
+		t.Fatalf("want ContractMisuse, got %s", got)
+	}
+}
+
+func TestSubmitPhaseDecision_EmptyActivityID(t *testing.T) {
+	m := newTestConstructionManager(nil)
+	err := m.SubmitPhaseDecision(testCtx(), "proj-1", "", "detailed_design", PhaseApprove, nil)
+	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
+		t.Fatalf("want ContractMisuse, got %s", got)
 	}
 }

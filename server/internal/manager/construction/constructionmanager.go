@@ -258,9 +258,29 @@ func (m *constructionManager) GetSessionState(rc fwm.Context, projectID ProjectI
 	return view, nil
 }
 
-// SubmitPhaseDecision — stub; business logic in Task 3.
-func (m *constructionManager) SubmitPhaseDecision(_ fwm.Context, _ ProjectID, _ ActivityID, _ string, _ PhaseDecision, _ *ReviewFeedback) error {
-	return newError(fwm.ContractMisuse, "SubmitPhaseDecision: not yet implemented")
+// SubmitPhaseDecision — op 2.6. Temporal Signal (phaseDecision) to the
+// per-activity child workflow {projectId}:{activityId}. Delivers the operator's
+// phase-gated approve/send-back decision (and optional feedback) through the same
+// signal machinery as OverrideActivity. SYNC: returns once the signal is durably
+// enqueued. SendBack requires non-empty feedback notes.
+func (m *constructionManager) SubmitPhaseDecision(rc fwm.Context, projectID ProjectID, activityID ActivityID, phase string, decision PhaseDecision, feedback *ReviewFeedback) error {
+	ctx := rc.Context
+	if projectID == "" {
+		return newError(fwm.ContractMisuse, "empty projectId")
+	}
+	if activityID == "" {
+		return newError(fwm.ContractMisuse, "empty activityId")
+	}
+	if decision == PhaseSendBack && (feedback == nil || feedback.Notes == "") {
+		return newError(fwm.ContractMisuse, "SendBack requires non-empty feedback notes")
+	}
+
+	wfID := constructActivityWorkflowID(projectID, activityID)
+	sig := phaseDecisionSignal{Phase: phase, Decision: decision, Feedback: feedback}
+	if err := m.client.SignalWorkflow(ctx, wfID, "", signalPhaseDecision, sig); err != nil {
+		return mapSignalError(err)
+	}
+	return nil
 }
 
 // UpdateReviewPolicy — stub; business logic in Task 4.

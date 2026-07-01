@@ -23,6 +23,9 @@ const (
 	// signalOperatorOverride resumes a per-activity child workflow; backs
 	// OverrideActivity.
 	signalOperatorOverride = "operatorOverride"
+	// signalPhaseDecision delivers a phase-gated approval/send-back decision to a
+	// per-activity child workflow; backs SubmitPhaseDecision.
+	signalPhaseDecision = "phaseDecision"
 	// querySessionState returns a ConstructionSessionView; backs GetSessionState.
 	querySessionState = "sessionState"
 )

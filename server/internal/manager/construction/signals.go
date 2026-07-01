@@ -28,6 +28,15 @@ type operatorOverrideSignal struct {
 	Override ActivityOverride
 }
 
+// phaseDecisionSignal is the phaseDecision payload (constructionManager.md §2.6).
+// Delivered to the per-activity child {projectId}:{activityId}; Phase identifies
+// which review gate the decision closes (e.g. "detailed_design").
+type phaseDecisionSignal struct {
+	Phase    string
+	Decision PhaseDecision
+	Feedback *ReviewFeedback
+}
+
 // projectSupervisionInput is the start payload for the project-level supervision
 // workflow. It is started (signal-with-start) by the pause Signal.
 type projectSupervisionInput struct {
