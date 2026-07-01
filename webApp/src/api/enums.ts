@@ -18,7 +18,7 @@ import type {
   SDPDecision,
   SessionStage,
 } from './types';
-import type { ConstructionStage, PipelinePhase, OverrideKind } from './types';
+import type { ConstructionStage, PipelinePhase, OverrideKind, PhaseDecision } from './types';
 import type { RuntimePhase } from './operationsTypes';
 import type { components } from './schema';
 
@@ -180,6 +180,17 @@ const OVERRIDE_KIND_TO_ORDINAL: Record<OverrideKind, number> = {
 
 export function overrideKindToOrdinal(kind: OverrideKind): Schemas['ConstructionOverrideKind'] {
   return OVERRIDE_KIND_TO_ORDINAL[kind] as Schemas['ConstructionOverrideKind'];
+}
+
+const PHASE_DECISION_TO_ORDINAL: Record<PhaseDecision, number> = {
+  approve: 1,
+  sendBack: 2,
+};
+
+export function phaseDecisionToOrdinal(
+  decision: PhaseDecision
+): Schemas['ConstructionPhaseDecision'] {
+  return PHASE_DECISION_TO_ORDINAL[decision] as Schemas['ConstructionPhaseDecision'];
 }
 
 // --- Project head-state row enums ------------------------------------------

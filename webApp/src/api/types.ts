@@ -460,6 +460,9 @@ export type PipelinePhase = 'pending' | 'running' | 'succeeded' | 'failed' | 'un
 
 export type OverrideKind = 'takeover' | 'retry' | 'skip' | 'reassign';
 
+/** Phase-gate approval decision (maps to PhaseDecision iota: approve=1, sendBack=2). */
+export type PhaseDecision = 'approve' | 'sendBack';
+
 export interface ConstructionReviewer {
   role: string;
   perspective: string;
