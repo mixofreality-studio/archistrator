@@ -33,6 +33,42 @@ func DeriveKind(activityID, componentName string) ActivityKind {
 	}
 }
 
+// DeriveType maps an activity id prefix to its canonical ActivityType. Mirrors
+// DeriveKind's prefix logic (U-SPA → Frontend, N- → Testing, else Service) but is
+// the forward-looking name (DeriveKind is retained for the legacy Kind field).
+func DeriveType(activityID string) ActivityType {
+	id := strings.ToUpper(activityID)
+	switch {
+	case strings.HasPrefix(id, "U-SPA"):
+		return ActivityTypeFrontend
+	case strings.HasPrefix(id, "N-"):
+		return ActivityTypeTesting
+	default:
+		return ActivityTypeService
+	}
+}
+
+// DeriveVariant maps a testing activity id prefix to its TestingVariant. Meaningful
+// only when DeriveType == ActivityTypeTesting; unknown N- ids fall back to Plan.
+// Order matters: N-STH / N-STP share the "N-ST" stem, so match the longer first.
+func DeriveVariant(activityID string) TestingVariant {
+	id := strings.ToUpper(activityID)
+	switch {
+	case strings.HasPrefix(id, "N-STH"):
+		return TestVariantHarness
+	case strings.HasPrefix(id, "N-STP"):
+		return TestVariantPlan
+	case strings.HasPrefix(id, "N-PERF"):
+		return TestVariantPerf
+	case strings.HasPrefix(id, "N-IT"):
+		return TestVariantSystemTest
+	case strings.HasPrefix(id, "N-QA"):
+		return TestVariantQAProcess
+	default:
+		return TestVariantPlan
+	}
+}
+
 // DeriveBuildStatus maps corpus presence to the finer build-status lens. integrated is
 // true only when a log AND a passing review both exist.
 func DeriveBuildStatus(p CorpusPresence) (ActivityBuildStatus, bool) {

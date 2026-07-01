@@ -77,6 +77,8 @@ func main() {
 			ActivityID:  id,
 			Phase:       phase,
 			Kind:        projectstate.DeriveKind(id, comp),
+			Type:        projectstate.DeriveType(id),
+			Variant:     projectstate.DeriveVariant(id),
 			BuildStatus: status,
 			Produced:    projectstate.DeriveProduced(cp, comp),
 		}

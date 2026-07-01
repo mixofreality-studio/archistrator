@@ -45,3 +45,34 @@ func TestDeriveProduced(t *testing.T) {
 		t.Errorf("code artifact wrong: %+v", got[1])
 	}
 }
+
+func TestDeriveType_Prefixes(t *testing.T) {
+	cases := map[string]ActivityType{
+		"U-SPA-Home": ActivityTypeFrontend,
+		"N-STP":      ActivityTypeTesting,
+		"N-IT":       ActivityTypeTesting,
+		"C-Orders":   ActivityTypeService,
+		"E-Pricing":  ActivityTypeService,
+	}
+	for id, want := range cases {
+		if got := DeriveType(id); got != want {
+			t.Errorf("DeriveType(%q) = %v, want %v", id, got, want)
+		}
+	}
+}
+
+func TestDeriveVariant_TestingPrefixes(t *testing.T) {
+	cases := map[string]TestingVariant{
+		"N-STP":  TestVariantPlan,
+		"N-STH":  TestVariantHarness,
+		"N-PERF": TestVariantPerf,
+		"N-IT":   TestVariantSystemTest,
+		"N-QA":   TestVariantQAProcess,
+		"N-OTHER": TestVariantPlan, // unknown N- falls back to Plan
+	}
+	for id, want := range cases {
+		if got := DeriveVariant(id); got != want {
+			t.Errorf("DeriveVariant(%q) = %v, want %v", id, got, want)
+		}
+	}
+}
