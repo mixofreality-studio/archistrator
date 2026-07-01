@@ -94,7 +94,7 @@ Instead of Figma-mockup-then-rebuild, the design phase produces **real MUI compo
 
 - **Design output is real code that construction continues.** Construction = swap mock data for real service-contract wiring + harden edge/error/loading states + integrate into the app shell. Components are *not* rebuilt.
 - **No declarative UI-contract schema.** Services are declarative-first (schema → codegen); **UI is code-first** (code → derived handle manifest). The only declarative artifact is the **published handle manifest** — `webApp/src/constants/UIIdentifiers.ts` (already exists, already mirrored blackbox in `uitests/tests/support/testids.ts`) plus a views list.
-- **Mock data = MSW** baked into a `VITE_MOCK=1` build. Fixtures conform to the consumed service contracts so design↔backend can't drift. This keeps the design phase **high-float** (deployable with no backend).
+- **Mock data = MSW** baked into a `VITE_MOCK=1` build. Fixtures conform to the consumed service contracts so design↔backend can't drift. This keeps the design phase **high-float** (deployable with no backend). **One shared fixtures module** must back both the app-level service worker and any story-level MSW handlers — otherwise fixtures get authored twice and drift re-enters through the provider seam (§4.5). `PreviewAccess`'s implicit invariant is "same mock fixtures, any transport."
 
 ### 4.3 Flows = the activity's own `Test Plan` phase
 
@@ -107,13 +107,24 @@ There are two testing *scopes*:
 
 The component's Playwright flows (over its published handles) are its **`Test Plan` phase** — exactly like a service writes its own unit/integration test plan in its Test Plan phase. They run twice, App-A style: against the **mock-data build** during construction (component blackbox) and against the **real-data build** at integration. Because it's one activity, the handles are internal — no cross-activity contract boundary for component flows. Only the System Test activity (consuming multiple components' handles) has that boundary.
 
-### 4.4 Review surface: GitHub Pages per-branch + human approval
+**Scope gating:** full-journey flows require a `Scope=fullApp` preview (the `VITE_MOCK` dev server or the GH Pages build), not a `Scope=componentStory` provider. The flows runner reads `handle.Scope` (§4.5) and skips/marks full-journey flows when the served preview is story-scoped — so a Storybook-only preview never silently under-reports coverage.
 
-- **Preview deploy:** a CI job builds the `VITE_MOCK=1` static app and publishes it to a **`gh-pages` per-branch subdirectory** (`https://<org>.github.io/archistrator/<branch-slug>/`). The URL is captured and recorded in head-state.
-  - Decided: **GitHub Pages** (accepted that previews are public-by-obscure-URL with mock data). Plumbing: SPA 404→index fallback; cleanup job on branch merge/delete.
-- **Review = a link.** The archistrator review panel **links** to the per-branch preview; the human plays with the legit app and **approves/comments**. No iframe embed, no walkthrough video required for the design review.
+### 4.4 Review surface: a preview handle + human approval
+
+- **Preview = a handle, not a provider.** The pump publishes the `VITE_MOCK=1` build through the `PreviewAccess` abstraction (§4.5) and stores the returned typed **`PreviewHandle`** in head-state. Both review consumers dereference the handle identically — neither branches on which provider served it.
+- **Review = a link.** The archistrator review panel **links** to `handle.Origin`; the human plays with the legit app and **approves/comments**. No iframe embed, no walkthrough video required for the design review. (The panel reads `handle.AccessModel`/`handle.TLS` to warn appropriately — e.g. a public-obscure GH Pages URL vs. a localhost-only origin.)
 - **Two-stage gate:** `uiDesigner` (Claude vision) pre-screens against HIG/Material + the published handles (`kindUIDesign`, `MayAmend: true`), then the **human holds the blocking approval**. A bounce re-runs the preceding phase via the pump's existing variance loop.
-- Playwright does not disappear — it is the **runner** for the `test_plan` flows; video/trace return to being failure artifacts (already captured by `uitests/`).
+- Playwright does not disappear — it is the **runner** for the `test_plan` flows; it consumes the *same* handle (`UITESTS_BASE_URL = handle.Origin`) and gates its full-journey flows on `handle.Scope` (§4.3). Video/trace return to being failure artifacts (already captured by `uitests/`).
+
+### 4.5 `PreviewAccess` — the preview-host volatility abstraction
+
+*(System-architect review, 2026-06-30.)* "How/where the mock-data UI is served for review" is a **volatility**, not a fixed choice of GitHub Pages. The stable interface is *a reviewable preview identified by a URL/handle, backed by mock data, bound to a branch/activity*; the hosting substrate varies both over time (GH Pages → Cloudflare → …) and across concurrent consumers (a CI run wants a persistent remote origin; a developer/agent iterating locally wants a localhost origin). So it is encapsulated behind a ResourceAccess.
+
+- **`PreviewAccess` (ResourceAccess).** Ops: `PublishPreview(branchSlug, activityId, mockBuildArtifact) → PreviewHandle` · `AwaitReady(handle) → PreviewHandle` · `ResolvePreview(handle) → PreviewHandle` · `TeardownPreview(handle)`.
+- **`PreviewHandle`** (the whole payload both consumers need to self-configure): `Origin` (base URL) · `BasePath` (`/` localhost, `/archistrator/<branch>/` GH Pages) · `ProviderKind` · `Scope` (`fullApp | componentStory`) · `Liveness` (`persistentRemote | processScoped` + TTL) · `AccessModel` (`publicObscure | localhostOnly | authenticated`) · `TLS` · `Binding` (branchSlug + activityId).
+- **Providers = Resources behind the contract:** `GhPagesPerBranchProvider` (persistent/public/TLS/fullApp; owns the `github.io` URL shape, the SPA 404→index fallback, and merge/delete teardown), and `LocalDevServerProvider` (the `VITE_MOCK` dev server over localhost — ephemeral/localhost-only/no-TLS/fullApp; `AwaitReady` = socket bind; teardown = kill process; History-API routing native so no 404 shim). **Cloudflare Pages is simply a third provider**, not a redesign.
+- **Layer placement:** `PreviewAccess` is the volatility-encapsulating **ResourceAccess**; the hosting substrates (GH Pages, local dev server, Cloudflare) are its swappable **Resources**. The construction **Manager** (the pump) calls `PublishPreview` during the design/construction phase and stores the handle; the review gate and flows runner read it *down* through `PreviewAccess`. Closed layering preserved.
+- **Scope is first-class because Storybook ≠ full-app.** A component-`Story` provider cannot serve the router-dependent, multi-step journeys the `test_plan` flows need. So the **primary local provider is `LocalDevServerProvider`** (capability-equivalent to GH Pages — same built app, different transport); **Storybook is a narrower third provider** whose handle advertises `Scope=componentStory`, and the flows runner **gates on `handle.Scope`** so it never over-claims full-journey coverage.
 
 ## 5. Reuse vs net-new
 
@@ -128,16 +139,16 @@ The component's Playwright flows (over its published handles) are its **`Test Pl
 
 **Net-new:**
 1. **Lifecycle consolidation** — collapse the 9 phase-sets + `lifecycleTemplates.ts` per-kind tables → one canonical phase set + per-profile `(rolePerPhase, subset, weights, labels, artifactKind, reviewExperience)`. Pump reads the profile from the activity instead of hardwired `servicePhases`. Migrate persisted phase ids.
-2. **MSW mock layer** in webApp + a `VITE_MOCK=1` build.
-3. **GH-Pages-per-branch deploy** job + preview-URL capture into head-state.
-4. **Design-review panel** in webApp — preview link + human approve/bounce gate (review.go routing already exists).
+2. **MSW mock layer** in webApp + a `VITE_MOCK=1` build (one shared fixtures module — §4.2).
+3. **`PreviewAccess` abstraction** (§4.5) + a `GhPagesPerBranchProvider` and a `LocalDevServerProvider`; the pump publishes and captures a **typed `PreviewHandle`** into head-state (not a bare URL string).
+4. **Design-review panel** in webApp — links to `handle.Origin` + human approve/bounce gate (review.go routing already exists).
 5. **UI profile** wired end-to-end (`ux_requirements → design → test_plan → construction → integration`, per-phase agent dispatch; flows generated/authored against published handles).
 6. **Testing profiles** defined behind the UI work (presets over the one lifecycle; component flows in-activity, System Test as separate activities).
 
 ## 6. Delivery order
 
 1. **Consolidation foundation** — one canonical phase set + profile mechanism; pump reads profile; migrate the v3 phase ids; keep the existing service path green (it already walks the canonical 5).
-2. **UI profile end-to-end** — MSW build → GH Pages per-branch → design-review panel (link + approve) → flows as Test Plan phase → construction wiring.
+2. **UI profile end-to-end** — MSW build → `PreviewAccess.PublishPreview` (ship the `GhPagesPerBranchProvider` first as *one provider*, not the architecture) → design-review panel (link + approve) → flows as Test Plan phase → construction wiring.
 3. **Testing profiles** — System Test Plan / System Test as profiles + separate activities (the model already exists; this is dispatch + review wiring).
 
 ## 7. Out of scope / deferred
@@ -155,10 +166,11 @@ Follow-up profiles (each its own spec, reusing the mechanism):
 | richer testing | API-call / UI-interaction **sequence diagram** | test-engineer review |
 
 Also deferred:
-- Live interactive **iframe** preview (needs hosted ephemeral origin) — the GH Pages link covers review.
-- **Cloudflare Pages** private previews — fallback if public previews become unacceptable.
+- Live interactive **iframe** preview (needs hosted ephemeral origin) — the preview link covers review.
+- **Cloudflare Pages** and **Storybook** previews — each is simply an *additional `PreviewAccess` provider* (§4.5), not a redesign. That "new provider, not re-plumbing" property is the payoff that justifies building the abstraction now rather than hardwiring GH Pages.
 
 ## 8. Open questions
 
 - Migration of any **already-seeded `project.json`** activities carrying v3 phase ids — verify the canonical-id remap is lossless (per §2.1 the legacy integer `ActivityType` encoding already decodes; phase-id strings need a remap pass).
 - Exact **profile storage** — whether profiles live as data in `project.json` alongside the activity or as code-side presets keyed by `(classification, role)`.
+- **`PreviewHandle` head-state persistence** — head-state stores the *typed* `PreviewHandle` (§4.5), never a bare URL string; a string discards `ProviderKind/Scope/Liveness/AccessModel/TLS` and the preview-host volatility leaks back through the persistence layer. Confirm the head-state schema carries the typed record.
