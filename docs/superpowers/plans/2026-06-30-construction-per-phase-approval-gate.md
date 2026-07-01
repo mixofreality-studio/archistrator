@@ -2,350 +2,304 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Give the construction per-phase loop a **top-level "approval to continue" gate** whose sub-workflow is selected by a **proactive checkpoint policy** — default-inert (today's behavior), architect-only (the existing +1), or full reviewer-set (via `reviewEngine.ProposeReviews`) — mirroring the system-design gate, and surface it in the webApp.
+**Goal:** Give the construction per-phase loop a **conditional human-approval gate** driven by a **per-project, committed, editable review policy** — reusing the system-design gate pattern and the existing `reviewEngine.ProposeReviews` (who reviews), rather than a new parallel mechanism. Default (empty policy) = today's behavior.
 
-**Architecture:** One top-level gate per phase: a phase reaches `approved` (durable `PhaseCompletion.Completed`) before the loop advances. HOW it reaches approval is chosen by a `checkpointPolicy` snapshot: `gate none` → auto (inert); a gated phase → `RecordPhaseStarted` → `ProposeReviews` computes the reviewer set → `StageAwaitingApproval` suspend on a **phase-multiplexed** `SubmitPhaseDecision` signal → Approve stamps `RecordPhaseCompleted`; SendBack runs a **redraft-this-phase** loop (NOT the failure/variance path). The contract surface (stage enum, op, DTOs) is generated from `project.json .serviceContracts`. WebApp adds a construction GatePanel + a real checkpoint-policy editor.
+**Architecture:** A per-project `ReviewPolicy` is committed in `project.json` and read as a by-value snapshot at each `ConstructActivityWorkflow` start. In the phase loop, after a phase's pipeline succeeds: skip if already completed (resumable); else `ProposeReviews` computes the reviewer set (display), and **iff `policy.RequiresHuman(activityType, phase)`** the workflow suspends on a phase-multiplexed `SubmitPhaseDecision` signal (the same stage→suspend→decide shape system-design uses). Approve → `RecordPhaseCompleted`; SendBack → redraft *this* phase (own human-paced budget, never the variance path). Phase records are gated on `gitOn` so the no-gate path is byte-for-byte today's behavior. The contract surface (stage enum, ops, DTOs) is generated from `.aiarch/state/project.json .serviceContracts` via `make gen`. WebApp adds a construction GatePanel + a live PolicyPanel editing the policy.
 
-**Tech Stack:** Go 1.25.4 + Temporal (`testsuite` for the gate), schema-first codegen (`make gen` from `project.json .serviceContracts`), React 19 + MUI 7 + openapi-fetch (webApp).
+**Tech Stack:** Go 1.25.4 + Temporal (`testsuite`), schema-first codegen (`make gen`), React 19 + MUI 7 + openapi-fetch (webApp).
 
 ## Global Constraints
 
-- **Codegen-first:** the construction `ConstructionStage` enum, manager ops, and DTOs are GENERATED. To add `StageAwaitingApproval` / `SubmitPhaseDecision` / new DTOs: edit `/Users/davidmarne/mixofrealitystudio/archistrator/.aiarch/state/project.json` under `.serviceContracts` (the construction contract), then `cd server && make gen` (= `gen-models` + `gen-client`, regenerates every `contract.gen.go`, the web/mcp handlers, and `server/api/openapi.yaml`). NEVER hand-edit a `*.gen.go` or `openapi.yaml`. Use the system-design `SubmitReviewDecision` contract entry as the copy template.
-- **Default inert:** `checkpointPolicy`'s zero value gates NOTHING → the phase loop behaves exactly as today. "Approve every step" = gate all phases; "pure vibes" = gate none. Prove inertness with a test.
-- **SendBack ≠ variance.** SendBack is a human decision that redrafts THIS phase (mirror system-design reject→redraft), with a human-paced counter. Do NOT route it through `handleVariance`/`overrideCh` (that re-decides via the intervention engine, retries the whole activity from phase 0, and burns the failure budget).
-- **Phase-multiplexed signal:** the gate is one step inside the per-*activity* workflow (`{projectId}:{activityId}`) that loops many phases, so `SubmitPhaseDecision` MUST carry which phase it answers; the workflow rejects a signal whose phase ≠ the suspended phase.
-- **Wire `RecordPhaseStarted` + `RecordPhaseCompleted` as a pair** (both dormant today). Even the inert/vibes path records start+completion so `CoarsePhase`/`CoarseBuildStatus` derive correctly.
-- **Don't stack two human gates:** the new gate IS the architect +1 for the review-bearing phase; `recordChangeReviewed` becomes the gate's durable record (the existing `relayArchApprovalAndRecord` is the reviewer-set=`{architect}` special case, not a second gate).
-- **Glossary, not verbatim import:** the client mock's `gatePhaseIds` (`svc-contract`, `fe-approve`, `test-plan`) are NOT real phase ids. The server policy stores/reads canonical `ActivityMethodPhase` ids (`requirements`/`detailed_design`/`test_plan`/`construction`/`integration`); provide a mapping.
-- **Tests:** Go stdlib `testing`, table-driven, Temporal `testsuite` for the workflow gate (drive with `env.RegisterDelayedCallback` + `env.SignalWorkflow`). Run `GOWORK=off go test ./...` from `server/`. Lint delta only: `PATH="/opt/homebrew/bin:$PATH" GOWORK=off golangci-lint run --new-from-rev=main ./...`. Do NOT touch `.golangci.yml`.
-- **WebApp has NO unit-test runner.** Verify webApp with `npm run gen:api` (after server OAS regen) + `npm run check` (typecheck+lint+format) + `npm run build`.
-- **Gates that will fire on new public symbols:** `make method-check`, `make encapsulation-check`, `make sumtype-check` — keep any `switch` over a sealed enum exhaustive; register intended-public symbols the encapsulation test names.
+- **Codegen-first:** the construction `ConstructionStage` enum, manager ops, DTOs are GENERATED. To add `StageAwaitingApproval` / `SubmitPhaseDecision` / `UpdateReviewPolicy` / DTOs: edit `.aiarch/state/project.json .serviceContracts` (construction contract), then `cd server && make gen` (regenerates every `contract.gen.go`, web/mcp handlers, `server/api/openapi.yaml`). NEVER hand-edit a `*.gen.go` or `openapi.yaml`. Copy the system-design `SubmitReviewDecision` contract entry as the template.
+- **No parallel policy struct, no "sub-workflow."** Reuse: the Phase-1/2 gate shape (stage→suspend→decide), `reviewEngine.ProposeReviews` (who reviews — `deps.go:288`, currently uncalled in construction), and `handOffPolicy` (human-vs-AI actor). The only net-new policy is the per-project committed `ReviewPolicy` (whether a human must approve, which phases).
+- **Default inert:** an empty `ReviewPolicy` gates nothing → the phase loop behaves exactly as today. "Approve every step" = all phases listed; "pure vibes" = empty. Prove with a test.
+- **SendBack ≠ variance.** SendBack redrafts THIS phase (mirror system-design reject→redraft, `systemdesign/workflow.go:712-735`), with a human-paced counter SEPARATE from `maxVarianceAttempts`. On budget exhaustion, keep awaiting the human (or `recordActivityFailed` THIS activity) — do NOT `phaseFailed=true; continue` (that re-enters the `for attempt` variance loop at `workflow.go:375`, restarts from phase 0, re-gates approved phases, and burns the failure budget). Never route SendBack through `handleVariance`/`overrideCh`.
+- **Resumable phase loop:** at the top of each phase, if head-state already has `RecordPhaseCompleted` for it, SKIP dispatch and the gate. Without this, any variance retry re-suspends for approval on already-approved phases (`workflow.go:450-471` has no resume cursor today).
+- **`RecordPhaseStarted`/`RecordPhaseCompleted` need Activity wrappers.** They live on the `constructionTransitionAccess` seam (`deps.go:61-62`) — a workflow cannot call RA I/O directly. Add `RecordPhaseStartedActivity`/`RecordPhaseCompletedActivity` (+ args structs + name consts + `worker.go` `RegisterActivityWithOptions`). Wire the pair together.
+- **`gitOn` no-op:** gate the phase-records on the existing `gitOn` condition (as `recordActivityStarted`/`recordActivityCompleted` are, `workflow.go:364-368,507-511`) so the no-gate path is a true no-op = today.
+- **Phase-multiplexed signal:** the gate is one step inside the per-*activity* workflow (`{projectId}:{activityId}`) looping many phases, so `SubmitPhaseDecision` MUST carry which phase it answers; drain-until-matching-phase, reject stale.
+- **Don't stack two gates:** for the review-bearing phase the new gate IS the architect +1; `recordChangeReviewed`/`relayArchApprovalAndRecord` become the gate's record (reviewer set = `{architect}` case), not a second gate.
+- **Engine call in-workflow is fine:** `ProposeReviews` is pure/deterministic and called directly in-workflow by design (`deps.go:22-27`) — no Activity wrapper. Source its `architectureGraph`/`contracts` from a `readProject` (don't pass empty).
+- **Policy edits only affect newly-started activity workflows** (already-running ones captured their snapshot). State this in the UI.
+- **Tests:** Go stdlib `testing`, table-driven, Temporal `testsuite` (drive with `env.RegisterDelayedCallback`+`env.SignalWorkflow`). Run `GOWORK=off go test ./...` from `server/`. Lint delta: `PATH="/opt/homebrew/bin:$PATH" GOWORK=off golangci-lint run --new-from-rev=main ./...`. Never edit `.golangci.yml`. Gates: `make method-check`/`encapsulation-check`/`sumtype-check`. WebApp: no unit runner — verify with `npm run gen:api` + `npm run check` + `npm run build`.
 
 ---
 
-### Task 1: `checkpointPolicy` model + phase-gate glossary (pure, inert default)
+### Task 1: Per-project `ReviewPolicy` model + persistence (projectstate)
 
-The proactive policy snapshot + the predicate that decides whether a phase gates. Pure Go, no workflow yet.
+The committed policy: which (activity-type, phase) pairs require human approval. Stored on `Project`, encoded/decoded symmetrically, with a pure `RequiresHuman`. Empty = inert.
 
 **Files:**
-- Create: `server/internal/manager/construction/checkpointpolicy.go`
-- Test: `server/internal/manager/construction/checkpointpolicy_test.go`
+- Modify: `server/internal/resourceaccess/projectstate/artifactmodel.go` (add `ReviewPolicy ReviewPolicy` field to `Project`; the type)
+- Modify: `server/internal/resourceaccess/projectstate/gitstore.go` (encode/decode the field in `projectDoc`, mirror `OperatorPaused`/`PauseReason` at the lines the reconnaissance cited `:719-724`)
+- Create: `server/internal/resourceaccess/projectstate/reviewpolicy.go` (the type + `RequiresHuman` + gate-id glossary)
+- Test: `server/internal/resourceaccess/projectstate/reviewpolicy_test.go`
 
 **Interfaces:**
 - Produces:
-  - `type checkpointPolicy struct { GatedPhases map[projectstate.ActivityMethodPhase]bool }` (zero value = gate nothing)
-  - `func (p checkpointPolicy) gates(phase projectstate.ActivityMethodPhase) bool`
-  - `func checkpointPolicyFromGateIDs(activityGateIDs []string) checkpointPolicy` — maps the mock's ad-hoc gate ids → canonical phases via `gateIDToPhase`
-  - `var gateIDToPhase = map[string]projectstate.ActivityMethodPhase{...}`
+  - `type ReviewPolicy struct { GatedPhasesByType map[string][]ActivityMethodPhase }` (key = `ActivityType.String()`)
+  - `func (p ReviewPolicy) RequiresHuman(activityType string, phase ActivityMethodPhase) bool`
+  - `func ReviewPolicyFromGateIDs(byType map[string][]string) ReviewPolicy` (maps ad-hoc/canonical ids → canonical phases)
+  - `Project.ReviewPolicy ReviewPolicy` (persisted, `json:"reviewPolicy,omitempty"`)
 
 - [ ] **Step 1: Write the failing test**
 
-Create `checkpointpolicy_test.go`:
+Create `reviewpolicy_test.go`:
 
 ```go
-package construction
+package projectstate
 
-import (
-	"testing"
+import "testing"
 
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
-)
-
-func TestCheckpointPolicy_ZeroValueGatesNothing(t *testing.T) {
-	var p checkpointPolicy
-	for _, ph := range []projectstate.ActivityMethodPhase{
-		projectstate.MethodPhaseRequirements, projectstate.MethodPhaseDetailedDesign,
-		projectstate.MethodPhaseTestPlan, projectstate.MethodPhaseConstruction,
-		projectstate.MethodPhaseIntegration,
-	} {
-		if p.gates(ph) {
-			t.Errorf("zero-value policy gates %q, want inert", ph)
-		}
+func TestReviewPolicy_EmptyRequiresNoHuman(t *testing.T) {
+	var p ReviewPolicy
+	if p.RequiresHuman("service", MethodPhaseDetailedDesign) {
+		t.Error("empty policy must require no human approval (inert)")
 	}
 }
 
-func TestCheckpointPolicy_GatesConfiguredPhase(t *testing.T) {
-	p := checkpointPolicy{GatedPhases: map[projectstate.ActivityMethodPhase]bool{
-		projectstate.MethodPhaseDetailedDesign: true,
+func TestReviewPolicy_RequiresHumanForGatedPhase(t *testing.T) {
+	p := ReviewPolicy{GatedPhasesByType: map[string][]ActivityMethodPhase{
+		"frontend": {MethodPhaseDetailedDesign},
 	}}
-	if !p.gates(projectstate.MethodPhaseDetailedDesign) {
-		t.Error("expected detailed_design gated")
+	if !p.RequiresHuman("frontend", MethodPhaseDetailedDesign) {
+		t.Error("frontend/detailed_design should require human")
 	}
-	if p.gates(projectstate.MethodPhaseConstruction) {
-		t.Error("construction should not be gated")
+	if p.RequiresHuman("frontend", MethodPhaseConstruction) {
+		t.Error("frontend/construction not gated")
+	}
+	if p.RequiresHuman("service", MethodPhaseDetailedDesign) {
+		t.Error("service not gated")
 	}
 }
 
-func TestCheckpointPolicyFromGateIDs_MapsMockIDsToCanonical(t *testing.T) {
-	// The client mock uses ad-hoc ids; the server stores canonical phases.
-	p := checkpointPolicyFromGateIDs([]string{"svc-contract", "svc-review"})
-	if !p.gates(projectstate.MethodPhaseDetailedDesign) {
+func TestReviewPolicyFromGateIDs_MapsMockIDs(t *testing.T) {
+	p := ReviewPolicyFromGateIDs(map[string][]string{"service": {"svc-contract"}})
+	if !p.RequiresHuman("service", MethodPhaseDetailedDesign) {
 		t.Error("svc-contract must map to detailed_design")
-	}
-	if !p.gates(projectstate.MethodPhaseIntegration) {
-		t.Error("svc-review must map to integration")
 	}
 }
 ```
 
 - [ ] **Step 2: Run to verify it fails**
 
-Run: `cd server && GOWORK=off go test ./internal/manager/construction/ -run TestCheckpointPolicy -v`
-Expected: FAIL — `undefined: checkpointPolicy`.
+Run: `cd server && GOWORK=off go test ./internal/resourceaccess/projectstate/ -run TestReviewPolicy -v`
+Expected: FAIL — `undefined: ReviewPolicy`.
 
-- [ ] **Step 3: Implement**
+- [ ] **Step 3: Implement the type**
 
-Create `checkpointpolicy.go`:
+Create `reviewpolicy.go`:
 
 ```go
-package construction
+package projectstate
 
-import "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
-
-// checkpointPolicy is the PROACTIVE per-phase approval policy: which phases pause a
-// HEALTHY activity for a human "approve to continue" gate. It is distinct from the
-// REACTIVE interventionPolicy (which fires only on variance/failure). The zero value
-// gates nothing — the phase loop then behaves exactly as before this feature ("pure
-// vibes"). Captured by value at workflow start; never read mid-loop.
-type checkpointPolicy struct {
-	// GatedPhases: canonical ActivityMethodPhase ids that require human approval.
-	GatedPhases map[projectstate.ActivityMethodPhase]bool
+// ReviewPolicy is the per-project, committed configuration of WHICH phases require a
+// human approval gate during construction. It composes with the reviewEngine (which
+// computes WHO reviews): the engine gives the reviewer set; this policy says whether a
+// human must sign off before the phase advances. The zero value gates nothing — the
+// construction loop then behaves exactly as before this feature ("pure vibes").
+type ReviewPolicy struct {
+	// GatedPhasesByType maps an ActivityType wire name ("service"/"frontend"/"testing"/...)
+	// to the canonical phases that require human approval for that type.
+	GatedPhasesByType map[string][]ActivityMethodPhase `json:"gatedPhasesByType,omitempty"`
 }
 
-// gates reports whether the given phase requires a human approval gate.
-func (p checkpointPolicy) gates(phase projectstate.ActivityMethodPhase) bool {
-	return p.GatedPhases[phase]
-}
-
-// gateIDToPhase maps the webApp PolicyPanel's ad-hoc gate ids (svc-contract, fe-approve,
-// test-plan, ...) to canonical phases. The mock vocabulary is NOT stored server-side; it
-// is translated here so head-state and the workflow only ever see canonical phase ids.
-var gateIDToPhase = map[string]projectstate.ActivityMethodPhase{
-	"svc-contract": projectstate.MethodPhaseDetailedDesign,
-	"svc-review":   projectstate.MethodPhaseIntegration,
-	"fe-approve":   projectstate.MethodPhaseDetailedDesign,
-	"test-plan":    projectstate.MethodPhaseTestPlan,
-}
-
-// checkpointPolicyFromGateIDs builds a policy from a list of gate ids (canonical or the
-// mock's ad-hoc names). Unknown ids that are already canonical pass through; others are
-// dropped.
-func checkpointPolicyFromGateIDs(gateIDs []string) checkpointPolicy {
-	gated := make(map[projectstate.ActivityMethodPhase]bool)
-	for _, id := range gateIDs {
-		if ph, ok := gateIDToPhase[id]; ok {
-			gated[ph] = true
-			continue
-		}
-		// Already-canonical id passes through.
-		ph := projectstate.ActivityMethodPhase(id)
-		switch ph {
-		case projectstate.MethodPhaseRequirements, projectstate.MethodPhaseDetailedDesign,
-			projectstate.MethodPhaseTestPlan, projectstate.MethodPhaseConstruction,
-			projectstate.MethodPhaseIntegration:
-			gated[ph] = true
+// RequiresHuman reports whether a phase of the given activity type requires human approval.
+func (p ReviewPolicy) RequiresHuman(activityType string, phase ActivityMethodPhase) bool {
+	for _, gated := range p.GatedPhasesByType[activityType] {
+		if gated == phase {
+			return true
 		}
 	}
-	return checkpointPolicy{GatedPhases: gated}
+	return false
+}
+
+// gateIDToPhase maps the webApp PolicyPanel's ad-hoc gate ids to canonical phases, so the
+// mock vocabulary never reaches head-state. Canonical ids pass through in ReviewPolicyFromGateIDs.
+var gateIDToPhase = map[string]ActivityMethodPhase{
+	"svc-contract": MethodPhaseDetailedDesign,
+	"svc-review":   MethodPhaseIntegration,
+	"fe-approve":   MethodPhaseDetailedDesign,
+	"test-plan":    MethodPhaseTestPlan,
+}
+
+// ReviewPolicyFromGateIDs builds a policy from per-type gate-id lists (canonical or ad-hoc).
+func ReviewPolicyFromGateIDs(byType map[string][]string) ReviewPolicy {
+	out := ReviewPolicy{GatedPhasesByType: map[string][]ActivityMethodPhase{}}
+	for typ, ids := range byType {
+		for _, id := range ids {
+			ph, ok := gateIDToPhase[id]
+			if !ok {
+				ph = ActivityMethodPhase(id)
+			}
+			switch ph {
+			case MethodPhaseRequirements, MethodPhaseDetailedDesign, MethodPhaseTestPlan,
+				MethodPhaseConstruction, MethodPhaseIntegration:
+				out.GatedPhasesByType[typ] = append(out.GatedPhasesByType[typ], ph)
+			}
+		}
+	}
+	return out
 }
 ```
 
-- [ ] **Step 4: Run to verify it passes**
+- [ ] **Step 4: Persist on `Project`**
 
-Run: `cd server && GOWORK=off go test ./internal/manager/construction/ -run TestCheckpointPolicy -v`
-Expected: PASS.
+In `artifactmodel.go` add to `Project` (near `OperatorPaused`): `ReviewPolicy ReviewPolicy `json:"reviewPolicy,omitempty"``. In `gitstore.go`, add the field to `projectDoc` and its encode+decode (mirror `OperatorPaused`/`PauseReason`, cited `:719-724`). Confirm round-trip symmetry.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Run to verify it passes + round-trip**
+
+Run: `cd server && GOWORK=off go test ./internal/resourceaccess/projectstate/ -run "TestReviewPolicy\|TestProjectDoc" -v`
+Expected: PASS (and any existing projectDoc round-trip test still green with the new field).
+
+- [ ] **Step 6: Commit**
 
 ```bash
-git add server/internal/manager/construction/checkpointpolicy.go server/internal/manager/construction/checkpointpolicy_test.go
-git commit -m "feat(construction): proactive checkpointPolicy + gate-id glossary (inert default)"
+git add server/internal/resourceaccess/projectstate/reviewpolicy.go server/internal/resourceaccess/projectstate/reviewpolicy_test.go server/internal/resourceaccess/projectstate/artifactmodel.go server/internal/resourceaccess/projectstate/gitstore.go
+git commit -m "feat(projectstate): per-project committed ReviewPolicy (inert default) + persistence"
 ```
 
 ---
 
-### Task 2: Contract — add `StageAwaitingApproval`, `SubmitPhaseDecision`, `PhaseDecision` (codegen)
-
-Extend the generated construction contract surface. This is a codegen task: edit the committed contract JSON, regenerate, verify the generated Go compiles.
+### Task 2: Contract — `StageAwaitingApproval`, `SubmitPhaseDecision`, `UpdateReviewPolicy`, `PhaseDecision` (codegen)
 
 **Files:**
-- Modify: `/Users/davidmarne/mixofrealitystudio/archistrator/.aiarch/state/project.json` (`.serviceContracts` — the construction manager contract)
-- Regenerated (do not hand-edit): `server/internal/manager/construction/contract.gen.go`, `server/internal/client/web/construction/*_handlers.gen.go`, `server/api/openapi.yaml`
+- Modify: `.aiarch/state/project.json` (`.serviceContracts` — construction contract)
+- Regenerated (do not hand-edit): construction `contract.gen.go`, web handler, `server/api/openapi.yaml`
 
-**Interfaces:**
-- Produces (generated):
-  - `ConstructionStage` gains `StageAwaitingApproval` (next ordinal after `StageExited`=6 → 7)
-  - `type PhaseDecision int` with `PhaseDecisionUnknown=0 / PhaseApprove=1 / PhaseSendBack=2`
-  - `SubmitPhaseDecision(rc, projectID, activityID, phase string, decision PhaseDecision, feedback *ReviewFeedback) error` on the generated `ConstructionManager` interface
-  - REST: `POST /api/v1/construction/submit-phase-decision/{projectID}/{activityID}`
+**Interfaces (generated):**
+- `ConstructionStage` gains `StageAwaitingApproval` (ordinal 7, after `StageExited`=6)
+- `type PhaseDecision int` — `Unknown=0/Approve=1/SendBack=2`
+- `SubmitPhaseDecision(rc, projectID, activityID, phase string, decision PhaseDecision, feedback *ReviewFeedback) error` → `POST /api/v1/construction/submit-phase-decision/{projectID}/{activityID}`
+- `UpdateReviewPolicy(rc, projectID, policy ReviewPolicyInput) error` → `POST /api/v1/construction/review-policy/{projectID}` (a `ReviewPolicyInput` DTO = per-type gate-id lists)
 
-- [ ] **Step 1: Read the templates**
+- [ ] **Step 1: Read templates** — the system-design `SubmitReviewDecision` contract entry + `ReviewDecision`/`ReviewFeedback` shapes (`systemdesign/contract.gen.go:277-289`), the construction `OverrideActivity` op (for the `{projectID}/{activityID}` path shape), and the `ConstructionStage` enum (`construction/contract.gen.go:37-47`).
 
-Read the system-design `SubmitReviewDecision` contract entry and the construction contract entry in `.aiarch/state/project.json .serviceContracts`. Read `server/internal/manager/systemdesign/contract.gen.go:277-289` (the `ReviewDecision`/`ReviewFeedback` shapes) and `server/internal/manager/construction/contract.gen.go:37-47` (the `ConstructionStage` enum) to see exactly what the JSON must produce.
+- [ ] **Step 2: Edit the construction contract JSON** — add: `StageAwaitingApproval` (enum value 7); `PhaseDecision` enum (Unknown/Approve/SendBack); a `ReviewFeedback` def (mirror system-design's `{notes, comments}`); a `ReviewPolicyInput` def (`{ gatedPhasesByType: map<string, string[]> }`); the `SubmitPhaseDecision` op (params projectID, activityID, phase:string, decision:PhaseDecision, feedback:*ReviewFeedback; error:true); the `UpdateReviewPolicy` op (params projectID, policy:ReviewPolicyInput; error:true).
 
-- [ ] **Step 2: Edit the construction contract JSON**
+- [ ] **Step 3: Regenerate + compile-guard** — `cd server && make gen && GOWORK=off go build ./...`. Expect compile errors only at the two unimplemented interface methods (Tasks 3/4) and any non-exhaustive `ConstructionStage` switch. Stub the two manager methods to **return a mapped error** (`return fwm.NewContractMisuse("SubmitPhaseDecision: not yet implemented")`) — NOT `panic` (Task 2's commit ships a live route; it must not panic in an HTTP handler). Add the `StageAwaitingApproval` case where `sumtype-check`/compiler points.
 
-In `.aiarch/state/project.json .serviceContracts`, on the construction manager contract:
-- Add `StageAwaitingApproval` as the next value of the `ConstructionStage` enum def (ordinal 7).
-- Add a `PhaseDecision` enum def: `Unknown=0, Approve=1, SendBack=2` (mirror `ReviewDecision`'s shape).
-- Add a `SubmitPhaseDecision` operation to the interface: params `projectID` (ProjectID), `activityID` (ActivityID), `phase` (string), `decision` (PhaseDecision), `feedback` (*ReviewFeedback — reuse/define like system-design's); no result; `error: true`. Mirror the existing `OverrideActivity` op's param/path shape so the generated REST path becomes `/api/v1/construction/submit-phase-decision/{projectID}/{activityID}`.
-
-- [ ] **Step 3: Regenerate**
-
-Run: `cd server && make gen`
-Expected: regenerates `contract.gen.go`, the construction web handler, and `openapi.yaml`. Then `GOWORK=off go build ./...` — expect a COMPILE ERROR only where the new `SubmitPhaseDecision` interface method is unimplemented by `constructionManager` (that's Task 4) and where a `switch` over `ConstructionStage` is now non-exhaustive (add the `StageAwaitingApproval` case where the compiler/`make sumtype-check` points). Fix only those (do not implement business logic yet — a `panic("TODO Task 4")` stub for `SubmitPhaseDecision` on the manager is acceptable to make it compile).
-
-- [ ] **Step 4: Verify generated surface**
-
-Run: `cd server && GOWORK=off go vet ./internal/manager/construction/ && GOWORK=off go build ./...`
-Expected: builds (with the Task-4 stub). Confirm `grep -n "StageAwaitingApproval\|SubmitPhaseDecision\|PhaseDecision" server/internal/manager/construction/contract.gen.go` shows the generated symbols and `grep -n "submit-phase-decision" server/api/openapi.yaml` shows the route.
+- [ ] **Step 4: Verify generated surface** — `GOWORK=off go vet ./internal/manager/construction/`; `grep -n "StageAwaitingApproval\|SubmitPhaseDecision\|UpdateReviewPolicy\|PhaseDecision" server/internal/manager/construction/contract.gen.go`; `grep -n "submit-phase-decision\|review-policy" server/api/openapi.yaml`.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add .aiarch/state/project.json server/internal/manager/construction/ server/internal/client/web/construction/ server/api/openapi.yaml
-git commit -m "feat(construction): contract — StageAwaitingApproval + SubmitPhaseDecision op (codegen)"
+git commit -m "feat(construction): contract — approval-gate + review-policy ops (codegen)"
 ```
 
 ---
 
-### Task 3: Phase-multiplexed `SubmitPhaseDecision` signal + manager send
+### Task 3: `SubmitPhaseDecision` signal + manager send (phase-multiplexed)
 
-Wire the manager op to signal the per-activity workflow, carrying the phase discriminator. Mirror `OverrideActivity`.
+Mirror `OverrideActivity` (`constructionmanager.go:207-228`).
 
-**Files:**
-- Modify: `server/internal/manager/construction/signals.go` (payload struct)
-- Modify: `server/internal/manager/construction/worker.go` (signal-name const)
-- Modify: `server/internal/manager/construction/constructionmanager.go` (implement `SubmitPhaseDecision`, replacing the Task-2 stub)
-- Test: `server/internal/manager/construction/constructionmanager_test.go` (append)
+**Files:** `signals.go` (payload), `worker.go` (signal const), `constructionmanager.go` (implement, replacing the Task-2 error stub), `constructionmanager_test.go` (append).
 
-**Interfaces:**
-- Consumes: `constructActivityWorkflowID(projectID, activityID)` (`constructionmanager.go:278`), `mapSignalError`
-- Produces:
-  - const `signalPhaseDecision = "phaseDecision"`
-  - `type phaseDecisionSignal struct { Phase string; Decision PhaseDecision; Feedback *ReviewFeedback }`
-  - `func (m *constructionManager) SubmitPhaseDecision(rc fwm.Context, projectID ProjectID, activityID ActivityID, phase string, decision PhaseDecision, feedback *ReviewFeedback) error`
+**Interfaces:** `const signalPhaseDecision = "phaseDecision"`; `type phaseDecisionSignal struct { Phase string; Decision PhaseDecision; Feedback *ReviewFeedback }`; `SubmitPhaseDecision(rc, projectID, activityID, phase string, decision PhaseDecision, feedback *ReviewFeedback) error`.
 
-- [ ] **Step 1: Write the failing test**
-
-Append to `constructionmanager_test.go` (mirror the existing `OverrideActivity` manager test — read it first for the fake `client.SignalWorkflow` capture pattern):
+- [ ] **Step 1: Failing test** (mirror the existing `OverrideActivity` manager test's `fakeTemporalClient` capture — copy that exact fake/helper):
 
 ```go
 func TestSubmitPhaseDecision_SignalsActivityWorkflowWithPhase(t *testing.T) {
 	fc := &fakeTemporalClient{}
-	m := newTestConstructionManager(fc) // reuse the helper the OverrideActivity test uses
-	err := m.SubmitPhaseDecision(testCtx(), "proj-1", "C-Orders", "detailed_design", PhaseApprove, nil)
-	if err != nil {
+	m := newTestConstructionManager(fc)
+	if err := m.SubmitPhaseDecision(testCtx(), "proj-1", "C-Orders", "detailed_design", PhaseApprove, nil); err != nil {
 		t.Fatalf("SubmitPhaseDecision: %v", err)
 	}
-	if fc.lastWorkflowID != "proj-1:C-Orders" {
-		t.Errorf("wfID = %q, want proj-1:C-Orders", fc.lastWorkflowID)
-	}
-	if fc.lastSignalName != signalPhaseDecision {
-		t.Errorf("signal = %q, want %q", fc.lastSignalName, signalPhaseDecision)
+	if fc.lastWorkflowID != "proj-1:C-Orders" || fc.lastSignalName != signalPhaseDecision {
+		t.Fatalf("wfID=%q signal=%q", fc.lastWorkflowID, fc.lastSignalName)
 	}
 	sig, ok := fc.lastSignalArg.(phaseDecisionSignal)
 	if !ok || sig.Phase != "detailed_design" || sig.Decision != PhaseApprove {
-		t.Errorf("signal payload = %+v", fc.lastSignalArg)
+		t.Fatalf("payload=%+v", fc.lastSignalArg)
 	}
 }
 ```
 
-(If `fakeTemporalClient`/`newTestConstructionManager` differ, copy the exact fake + helper the existing `OverrideActivity` test uses — do NOT invent a new fake.)
+- [ ] **Step 2: Run → FAIL** (`GOWORK=off go test ./internal/manager/construction/ -run TestSubmitPhaseDecision -v`).
 
-- [ ] **Step 2: Run to verify it fails**
+- [ ] **Step 3: Implement** — add the const to `worker.go`'s signal block; add `phaseDecisionSignal` to `signals.go`; implement `SubmitPhaseDecision` (mirror `OverrideActivity`: validate SendBack needs feedback notes, `wfID := constructActivityWorkflowID(projectID, activityID)`, `m.client.SignalWorkflow(rc.Context, wfID, "", signalPhaseDecision, phaseDecisionSignal{...})`, `mapSignalError`).
 
-Run: `cd server && GOWORK=off go test ./internal/manager/construction/ -run TestSubmitPhaseDecision -v`
-Expected: FAIL (stub panics / undefined signal const).
+- [ ] **Step 4: Run → PASS.**
 
-- [ ] **Step 3: Implement**
-
-In `worker.go` add to the signal-name const block: `signalPhaseDecision = "phaseDecision"`.
-
-In `signals.go` add:
-```go
-// phaseDecisionSignal delivers a human approve/send-back for ONE gated phase. Phase
-// carries which phase it answers so the per-activity workflow (which loops many phases)
-// rejects a decision meant for a different phase.
-type phaseDecisionSignal struct {
-	Phase    string
-	Decision PhaseDecision
-	Feedback *ReviewFeedback
-}
-```
-
-In `constructionmanager.go` replace the Task-2 stub (mirror `OverrideActivity` at `:207-228`):
-```go
-func (m *constructionManager) SubmitPhaseDecision(rc fwm.Context, projectID ProjectID, activityID ActivityID, phase string, decision PhaseDecision, feedback *ReviewFeedback) error {
-	if decision == PhaseSendBack && (feedback == nil || feedback.Notes == "") {
-		return fwm.NewContractMisuse("SubmitPhaseDecision: SendBack requires feedback notes")
-	}
-	wfID := constructActivityWorkflowID(projectID, activityID)
-	sig := phaseDecisionSignal{Phase: phase, Decision: decision, Feedback: feedback}
-	if err := m.client.SignalWorkflow(rc.Context, wfID, "", signalPhaseDecision, sig); err != nil {
-		return mapSignalError(err)
-	}
-	return nil
-}
-```
-(Match the exact `fwm.Context` field/verbs the neighboring `OverrideActivity` uses — copy its error-constructor and `rc` access verbatim.)
-
-- [ ] **Step 4: Run to verify it passes**
-
-Run: `cd server && GOWORK=off go test ./internal/manager/construction/ -run TestSubmitPhaseDecision -v`
-Expected: PASS.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add server/internal/manager/construction/signals.go server/internal/manager/construction/worker.go server/internal/manager/construction/constructionmanager.go server/internal/manager/construction/constructionmanager_test.go
-git commit -m "feat(construction): phase-multiplexed SubmitPhaseDecision signal + manager send"
-```
+- [ ] **Step 5: Commit** — `feat(construction): phase-multiplexed SubmitPhaseDecision signal + manager send`.
 
 ---
 
-### Task 4: The gate in the phase loop — suspend, reviewer-set, approve/sendback
+### Task 4: `UpdateReviewPolicy` manager op + persistence
 
-Add the top-level gate to the per-phase loop: when policy gates the phase, record start → compute reviewer set → suspend on the phase-multiplexed signal → Approve records completion; SendBack redrafts THIS phase (own counter). Mirror the system-design gate shape.
+Persist the per-project policy so it's editable. Replaces the Task-2 error stub.
 
-**Files:**
-- Modify: `server/internal/manager/construction/workflow.go` (the phase loop `:450-468`; `constructState`; add `StageAwaitingApproval` handling; fold `CheckpointPolicy` into `workflows` + `wfDeps`)
-- Modify: `server/internal/manager/construction/worker.go` (fold `checkpointPolicy` into `wfDeps` at `RegisterWorker`)
-- Test: `server/internal/manager/construction/workflow_test.go` (append gate tests)
+**Files:** `constructionmanager.go` (implement `UpdateReviewPolicy`), a projectstate RA write verb if none fits (`gitconstruction.go` — a `RecordReviewPolicy(projectID, expectedVersion, policy, cred, idem) (Version, error)` mirroring `RecordOperatorPaused` at `gitconstruction.go:141-145`), the port decl in `deps.go`, and the fake. Test: `constructionmanager_test.go`.
 
-**Interfaces:**
-- Consumes: `checkpointPolicy.gates` (Task 1), `signalPhaseDecision`/`phaseDecisionSignal` (Task 3), `RecordPhaseStarted`/`RecordPhaseCompleted` (dormant, `deps.go:61-62`), `Review.ProposeReviews` (`deps.go:287`), `StageAwaitingApproval` (Task 2)
-- Produces: gated phase loop; `workflows.CheckpointPolicy checkpointPolicy`; a `runPhaseGate` helper
+**Interfaces:** `UpdateReviewPolicy(rc, projectID, policy ReviewPolicyInput) error`; RA `RecordReviewPolicy(...)`.
+
+- [ ] **Step 1: Failing test** — assert `UpdateReviewPolicy` maps the `ReviewPolicyInput` (per-type gate-id lists) through `projectstate.ReviewPolicyFromGateIDs` and calls the RA write with the resulting typed policy (use the manager's fake projectstate; assert the persisted `ReviewPolicy`).
+
+- [ ] **Step 2: Run → FAIL.**
+
+- [ ] **Step 3: Implement** — `UpdateReviewPolicy` converts `ReviewPolicyInput.GatedPhasesByType` (map<string,[]string>) via `projectstate.ReviewPolicyFromGateIDs`, reads current version, calls `RecordReviewPolicy`. Add `RecordReviewPolicy` to the port + `gitconstruction.go` impl (set `p.ReviewPolicy = policy` inside `applyMutation`, mirror `RecordOperatorPaused`) + the fake.
+
+- [ ] **Step 4: Run → PASS** + `GOWORK=off go build ./...`.
+
+- [ ] **Step 5: Commit** — `feat(construction): UpdateReviewPolicy op + RA persistence`.
+
+---
+
+### Task 5: Phase-record Activity wrappers + registration (B3)
+
+Make the dormant `RecordPhaseStarted`/`RecordPhaseCompleted` callable from the workflow.
+
+**Files:** `activities.go` (two `*Activity` methods + args structs), `worker.go` (two name consts + `RegisterActivityWithOptions`), `workflow_test.go` (extend the fakes to capture). 
+
+**Interfaces:** `RecordPhaseStartedActivity(ctx, recordPhaseStartedArgs) (Version, error)` and `RecordPhaseCompletedActivity(ctx, recordPhaseCompletedArgs) (Version, error)`; consts `actRecordPhaseStarted`/`actRecordPhaseCompleted`.
+
+- [ ] **Step 1: Failing test** — a small activity test (mirror an existing `Record*Activity` test in `activities_test.go` if present) asserting `RecordPhaseStartedActivity` forwards to the transition-access seam with the right args; or assert via the workflow test in Task 6. If activities have no direct unit test, cover them through Task 6's gate test and note that here.
+
+- [ ] **Step 2: Run → FAIL** (undefined).
+
+- [ ] **Step 3: Implement** — add the two Activity methods (mirror `RecordChangeReviewedActivity` in `activities.go`: build args, call `wf.Transition.RecordPhaseStarted(...)`/`RecordPhaseCompleted(...)`, return version). Add the two name consts and two `RegisterActivityWithOptions(wf.RecordPhaseStartedActivity, activity.RegisterOptions{Name: actRecordPhaseStarted})` lines in `worker.go:132-159`.
+
+- [ ] **Step 4: Run → PASS** + `GOWORK=off go build ./...`.
+
+- [ ] **Step 5: Commit** — `feat(construction): RecordPhaseStarted/Completed activity wrappers + registration`.
+
+---
+
+### Task 6: The gate in the phase loop (snapshot, resumable, conditional suspend, redraft)
+
+The core. Read the policy snapshot at workflow start; make the loop resumable; on each phase success, gate iff the policy requires human approval.
+
+**Files:** `workflow.go` (read snapshot at start; `constructState`; the phase loop `:450-471`; `runPhaseGate` helper; `maxPhaseRedrafts` const), `workflow_test.go` (append gate tests).
+
+**Interfaces:** Consumes `projectstate.ReviewPolicy.RequiresHuman`, `signalPhaseDecision`/`phaseDecisionSignal` (T3), `RecordPhaseStartedActivity`/`RecordPhaseCompletedActivity` (T5), `Review.ProposeReviews` (`deps.go:288`), `StageAwaitingApproval` (T2). Produces the gated, resumable loop.
 
 - [ ] **Step 1: Write the failing tests**
 
-Append to `workflow_test.go` (reuse the `runPumpWith`/`fakePipeline`/`fakeProjectState` scaffold added in the consolidation plan and the delayed-signal pattern from system-design's `Test_CoAuthor_Approve_Commits`):
+Append to `workflow_test.go` (reuse `runPumpWith`/`fakePipeline`/`fakeProjectState`; drive signals with `env.RegisterDelayedCallback`+`env.SignalWorkflow` like `systemdesign` `Test_CoAuthor_Approve_Commits`). Extend `fakeProjectState` to (a) return a `ReviewPolicy` from its project and (b) capture `phaseCompleted(activityID, phase)`.
 
 ```go
-func Test_Construct_InertPolicy_NoGate_WalksAllPhases(t *testing.T) {
-	// Zero-value checkpointPolicy: behaves exactly as today — no suspend, all phases dispatch.
-	pipe := runPumpWith(t, sampleActivity()) // sampleActivity: service, 5 phases; default policy
+func Test_Construct_EmptyPolicy_NoGate_WalksAllPhases(t *testing.T) {
+	// Empty ReviewPolicy → no suspend, all phases dispatch. Byte-for-byte today's behavior.
+	pipe := runPumpWith(t, sampleActivity()) // fakeProjectState default policy = empty
 	if len(pipe.submitted) != 5 {
-		t.Fatalf("inert policy submitted %d, want 5", len(pipe.submitted))
+		t.Fatalf("empty policy submitted %d, want 5", len(pipe.submitted))
 	}
 }
 
-func Test_Construct_GatedPhase_SuspendsThenApprove_RecordsCompleted(t *testing.T) {
+func Test_Construct_GatedPhase_ApproveRecordsCompleted(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
-	ps := newFakeProjectState()
-	pipe := newFakePipeline() // phases succeed
-	wf := newWorkflowsGated(t, ps, pipe, checkpointPolicy{GatedPhases: map[projectstate.ActivityMethodPhase]bool{
-		projectstate.MethodPhaseDetailedDesign: true,
+	ps := newFakeProjectStateWithPolicy(projectstate.ReviewPolicy{GatedPhasesByType: map[string][]projectstate.ActivityMethodPhase{
+		"service": {projectstate.MethodPhaseDetailedDesign},
 	}})
+	wf := newWorkflows(gateDeps(ps, newFakePipeline()))
 	registerConstruct(env, wf)
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(signalPhaseDecision, phaseDecisionSignal{Phase: "detailed_design", Decision: PhaseApprove})
 	}, 30*time.Second)
-
-	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{
-		ProjectID: "p", ActivityID: "C-Orders", Activity: sampleActivity(),
-	})
+	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{ProjectID: "p", ActivityID: "C-Orders", Activity: sampleActivity()})
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)
 	}
@@ -354,354 +308,160 @@ func Test_Construct_GatedPhase_SuspendsThenApprove_RecordsCompleted(t *testing.T
 	}
 }
 
-func Test_Construct_GatedPhase_StaleSignalRejected(t *testing.T) {
-	// A decision for a DIFFERENT phase than the one suspended must not release the gate.
+func Test_Construct_GatedPhase_StaleSignalIgnored(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
-	ps := newFakeProjectState()
-	wf := newWorkflowsGated(t, ps, newFakePipeline(), checkpointPolicy{GatedPhases: map[projectstate.ActivityMethodPhase]bool{
-		projectstate.MethodPhaseDetailedDesign: true,
+	ps := newFakeProjectStateWithPolicy(projectstate.ReviewPolicy{GatedPhasesByType: map[string][]projectstate.ActivityMethodPhase{
+		"service": {projectstate.MethodPhaseDetailedDesign},
 	}})
+	wf := newWorkflows(gateDeps(ps, newFakePipeline()))
 	registerConstruct(env, wf)
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(signalPhaseDecision, phaseDecisionSignal{Phase: "requirements", Decision: PhaseApprove}) // wrong phase
 	}, 10*time.Second)
 	env.RegisterDelayedCallback(func() {
-		env.SignalWorkflow(signalPhaseDecision, phaseDecisionSignal{Phase: "detailed_design", Decision: PhaseApprove}) // correct
+		env.SignalWorkflow(signalPhaseDecision, phaseDecisionSignal{Phase: "detailed_design", Decision: PhaseApprove})
 	}, 40*time.Second)
 	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{ProjectID: "p", ActivityID: "C-Orders", Activity: sampleActivity()})
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)
 	}
 	if !ps.phaseCompleted("C-Orders", "detailed_design") {
-		t.Error("gate should release only on the matching-phase decision")
+		t.Error("gate must release only on the matching-phase decision")
 	}
 }
 ```
 
-Add the `newWorkflowsGated` test helper (a `newWorkflows` wrapper that sets `CheckpointPolicy`) and the `fakeProjectState.phaseCompleted`/`RecordPhaseCompleted` capture (extend the existing fake at `workflow_test.go:147,156`).
+Add helpers `newFakeProjectStateWithPolicy`, `gateDeps` (a `wfDeps` builder), and the fake's `phaseCompleted`.
 
-- [ ] **Step 2: Run to verify it fails**
+- [ ] **Step 2: Run → FAIL** (no gate; helpers undefined).
 
-Run: `cd server && GOWORK=off go test ./internal/manager/construction/ -run Test_Construct_ -v`
-Expected: FAIL (no gate; `newWorkflowsGated` undefined).
+- [ ] **Step 3: Implement**
 
-- [ ] **Step 3: Implement the gate**
+**Snapshot at start:** near workflow entry (before the `for attempt` loop), read the project once and capture `reviewPolicy := proj.ReviewPolicy` by value (deterministic; do NOT re-read mid-loop). Thread it into the loop scope.
 
-Add `CheckpointPolicy checkpointPolicy` to the `workflows` struct (`workflow.go:78-97`) and to `wfDeps`; fold it in at `worker.go` `RegisterWorker` (default zero value — inert). In the phase loop (`workflow.go:450-468`), after a phase's pipeline SUCCEEDS, insert the gate before advancing:
-
+**Resumable + gate in the loop** (`workflow.go:450`):
 ```go
 for _, phase := range in.Activity.Phases {
+	if state.phaseAlreadyDone(phase) { // reads head-state PhaseCompletion (resumable skip-guard)
+		continue
+	}
 	state.stage = StagePipelineRunning
 	obs, perr := wf.runPipeline(ctx, in, phase, state, &gf, &headVersion)
 	if perr != nil {
 		return perr
 	}
 	if obs.Phase == PipelineFailed || obs.Phase == PipelineCancelled {
-		// ... existing variance handling (unchanged) ...
+		// ... existing variance handling UNCHANGED ...
 		phaseFailed = true
 		break
 	}
-	// --- Top-level approval gate: policy selects the sub-workflow to reach "approved" ---
-	if sentBack, gErr := wf.runPhaseGate(ctx, in, phase, state, &gf, &headVersion, startedCred); gErr != nil {
+	if done, gErr := wf.runPhaseGate(ctx, in, phase, reviewPolicy, state, &gf, &headVersion, gitOn, startedCred); gErr != nil {
 		return gErr
-	} else if sentBack {
-		phaseFailed = true // redraft budget exhausted → treat as a retry of the activity
-		break
+	} else if done {
+		return nil // gate terminally failed THIS activity (redraft exhausted) — recorded inside
 	}
 }
 ```
 
-Add `runPhaseGate` (mirror system-design `workflow.go:635-755` shape, but phase-scoped and policy-guarded):
-
+**`runPhaseGate`** (mirror `systemdesign/workflow.go:635-755`, phase-scoped):
 ```go
-// runPhaseGate applies the top-level per-phase approval gate. When the checkpoint policy
-// does NOT gate this phase it records completion and returns immediately (inert path).
-// When gated, it records the phase started, computes the reviewer set (who must approve),
-// suspends on the phase-multiplexed phaseDecision signal, and on Approve records the phase
-// completed. SendBack redrafts THIS phase up to a human-paced budget; on exhaustion it
-// returns sentBack=true so the caller retries the activity. It never routes through the
-// failure/variance path.
-func (wf *workflows) runPhaseGate(ctx workflow.Context, in constructActivityInput, phase projectstate.ActivityMethodPhase, state *constructState, gf *gitForward, headVersion *projectstate.Version, cred startedCredential) (sentBack bool, err error) {
-	// Record the phase started (paired with completed below) — dormant hook, now wired.
-	if v, e := wf.recordPhaseStarted(ctx, in, phase, *headVersion, cred); e != nil {
-		return false, e
-	} else {
-		*headVersion = v
+// runPhaseGate records phase start, and — iff the review policy requires human approval
+// for this (activityType, phase) — suspends on the phase-multiplexed decision signal.
+// Approve records completion; SendBack redrafts THIS phase up to maxPhaseRedrafts, then
+// (mirroring systemdesign) keeps awaiting the human — it NEVER re-enters the variance
+// loop. Returns done=true only if it terminally fails this activity. Phase records are
+// gated on gitOn so the no-gate path is a true no-op.
+func (wf *workflows) runPhaseGate(ctx workflow.Context, in constructActivityInput, phase projectstate.ActivityMethodPhase, policy projectstate.ReviewPolicy, state *constructState, gf *gitForward, headVersion *projectstate.Version, gitOn bool, cred startedCredential) (done bool, err error) {
+	if gitOn {
+		if v, e := wf.recordPhaseStarted(ctx, in, phase, *headVersion, cred); e != nil {
+			return false, e
+		} else {
+			*headVersion = v
+		}
 	}
-
-	if !wf.CheckpointPolicy.gates(phase) {
-		// Inert / vibes path: auto-approve, just stamp completion.
-		return false, wf.recordPhaseCompletedStep(ctx, in, phase, headVersion, cred)
+	if !policy.RequiresHuman(in.Activity.activityTypeName(), phase) {
+		return false, wf.recordPhaseCompletedIfGit(ctx, in, phase, headVersion, gitOn, cred)
 	}
-
-	// Gated: compute the reviewer set for the session view (who must approve).
 	if rs, e := wf.proposeReviewSet(ctx, in, phase); e == nil {
-		state.reviewSet = rs
+		state.reviewSet = &rs // NOTE: pointer
 	}
-
-	redraft := 0
 	ch := workflow.GetSignalChannel(ctx, signalPhaseDecision)
+	redraft := 0
 	for {
 		state.stage = StageAwaitingApproval
 		var sig phaseDecisionSignal
-		// Drain until we get a decision for THIS phase (reject stale/mismatched).
-		for {
+		for { // drain until a decision for THIS phase; ignore stale
 			ch.Receive(ctx, &sig)
 			if sig.Phase == phase.String() {
 				break
 			}
-			// stale signal for another phase — ignore.
 		}
 		switch sig.Decision {
 		case PhaseApprove:
-			return false, wf.recordPhaseCompletedStep(ctx, in, phase, headVersion, cred)
+			return false, wf.recordPhaseCompletedIfGit(ctx, in, phase, headVersion, gitOn, cred)
 		case PhaseSendBack:
 			redraft++
 			if redraft >= maxPhaseRedrafts {
-				return true, nil
+				// Mirror systemdesign exhaustion: do NOT restart the activity; keep awaiting
+				// the human. (Alternatively record a terminal failure for THIS activity.)
+				continue
 			}
-			// Redraft THIS phase with feedback: re-dispatch the same phase's pipeline.
 			state.stage = StagePipelineRunning
 			if _, e := wf.runPipeline(ctx, in, phase, state, gf, headVersion); e != nil {
 				return false, e
 			}
-			// loop back to await the next decision on the redrafted output
 		default:
-			return false, workflow.NewContinueAsNewError(ctx, executionKindConstructActivity) // unreachable; defensive
+			// unknown decision: ignore and keep awaiting
 		}
 	}
 }
 ```
 
-Add `const maxPhaseRedrafts = 5` (human-paced budget, SEPARATE from `maxVarianceAttempts`). Implement the thin helpers `recordPhaseStarted`, `recordPhaseCompletedStep` (wrapping the dormant `RecordPhaseStarted`/`RecordPhaseCompleted` deps), and `proposeReviewSet` (calls `wf.Review.ProposeReviews(...)` building `reviewChange`/artifactKind from `in.Activity` + phase; on error return nil so the gate still functions). For the review-bearing phase, the existing `relayArchApprovalAndRecord`/`recordChangeReviewed` remain the durable record — do not add a second gate.
+Add `const maxPhaseRedrafts = 5` (separate from `maxVarianceAttempts`). Implement `state.phaseAlreadyDone(phase)` (reads the activity's `PhaseCompletion` from head-state / the project the workflow already holds), `recordPhaseStarted`/`recordPhaseCompletedIfGit` (call the Task-5 Activities; the completed variant is a no-op when `!gitOn`), `proposeReviewSet` (build `reviewChange`+artifactKind from `in.Activity`+phase, pass the project's `architectureGraph`+`contracts` — source them from the project the workflow read at start; on engine error return the zero set so the gate still functions), and `constructionActivity.activityTypeName()` (returns `projectstate.DeriveType(activityID).String()`). For the review-bearing phase the existing `relayArchApprovalAndRecord`/`recordChangeReviewed` stay the durable record — do not add a second gate.
 
-- [ ] **Step 4: Run to verify it passes**
+- [ ] **Step 4: Run → PASS**
 
 Run: `cd server && GOWORK=off go test ./internal/manager/construction/ -v`
-Expected: PASS (inert, approve, stale-rejection tests + all pre-existing pump tests). Watch `gocognit` on the loop — `runPhaseGate` is a separate function so the loop stays small; if the gate function trips complexity, extract the redraft loop into a helper. Do NOT edit `.golangci.yml`.
+Expected: PASS (empty-policy walks all 5; gated approve records completed; stale ignored; all pre-existing pump tests). Watch `gocognit` — the gate is its own function; if it trips, extract the redraft loop. Don't edit `.golangci.yml`.
 
-- [ ] **Step 5: Commit**
-
-```bash
-git add server/internal/manager/construction/workflow.go server/internal/manager/construction/worker.go server/internal/manager/construction/workflow_test.go
-git commit -m "feat(construction): per-phase approval gate (policy-gated suspend + redraft-this-phase)"
-```
+- [ ] **Step 5: Commit** — `feat(construction): conditional per-phase approval gate (resumable, redraft, gitOn no-op)`.
 
 ---
 
-### Task 5: Source the checkpoint policy (config → workflow, inert default)
+### Task 7: Server suite green + gates + inertness proof
 
-Give the policy a real source so it can be turned on, keeping the default inert. Mirror how `interventionMode` flows from config.
-
-**Files:**
-- Modify: `server/internal/manager/construction/adapters.go` (a `constructionCheckpointPolicy(gateIDs []string) checkpointPolicy` builder)
-- Modify: `server/internal/manager/construction/constructionmanager.go` + `contract.gen.go` constructor path (accept the policy source) — see note
-- Modify: `server/cmd/server/config.go` + `server/cmd/server/main.go` (a `ARCHISTRATOR_CONSTRUCTION_GATED_PHASES` comma list, default empty = inert)
-- Test: `server/internal/manager/construction/adapters_test.go` (append)
-
-**Interfaces:**
-- Produces: `func constructionCheckpointPolicy(gateIDs []string) checkpointPolicy`
-
-- [ ] **Step 1: Write the failing test**
-
-```go
-func TestConstructionCheckpointPolicy_EmptyIsInert(t *testing.T) {
-	p := constructionCheckpointPolicy(nil)
-	if len(p.GatedPhases) != 0 {
-		t.Fatalf("empty gate list must be inert, got %v", p.GatedPhases)
-	}
-}
-
-func TestConstructionCheckpointPolicy_BuildsFromGateIDs(t *testing.T) {
-	p := constructionCheckpointPolicy([]string{"detailed_design"})
-	if !p.gates(projectstate.MethodPhaseDetailedDesign) {
-		t.Error("expected detailed_design gated")
-	}
-}
-```
-
-- [ ] **Step 2: Run to verify it fails**
-
-Run: `cd server && GOWORK=off go test ./internal/manager/construction/ -run TestConstructionCheckpointPolicy -v`
-Expected: FAIL — undefined.
-
-- [ ] **Step 3: Implement**
-
-In `adapters.go`:
-```go
-// constructionCheckpointPolicy builds the proactive per-phase approval policy from a list
-// of gate ids (canonical phase ids or the webApp's ad-hoc names). Empty → inert.
-func constructionCheckpointPolicy(gateIDs []string) checkpointPolicy {
-	return checkpointPolicyFromGateIDs(gateIDs)
-}
-```
-
-Thread a `[]string` gate list from config through the manager constructor to `RegisterWorker`'s `wfDeps.CheckpointPolicy` (mirror `interventionMode`'s path: `config.go` field `ConstructionGatedPhases []string` defaulted from `env("ARCHISTRATOR_CONSTRUCTION_GATED_PHASES","")` split on comma; `main.go` passes it into `NewConstructionManager`; `constructionmanager.go` stores it; `worker.go` builds `constructionCheckpointPolicy(impl.gatedPhases)` into `wfDeps`). The manager-constructor signature lives in `contract.gen.go` — if it needs a new param, add it to the contract JSON (`.serviceContracts` constructor) and `make gen`, mirroring how `interventionMode` is a constructor param.
-
-- [ ] **Step 4: Run to verify it passes**
-
-Run: `cd server && GOWORK=off go test ./internal/manager/construction/ -run TestConstructionCheckpointPolicy -v && GOWORK=off go build ./...`
-Expected: PASS + builds. Default (no env) → inert.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add server/internal/manager/construction/ server/cmd/server/config.go server/cmd/server/main.go .aiarch/state/project.json server/api/openapi.yaml
-git commit -m "feat(construction): source checkpoint policy from config (default inert)"
-```
+- [ ] **Step 1:** `cd server &&` `GOWORK=off go test ./...` · `GOWORK=off go vet ./...` · `make method-check` · `make encapsulation-check` · `make sumtype-check` · `PATH="/opt/homebrew/bin:$PATH" GOWORK=off golangci-lint run --new-from-rev=main ./...`. All green; delta-lint 0-new. Register new public symbols (`SubmitPhaseDecision`, `UpdateReviewPolicy`, `PhaseDecision`, `StageAwaitingApproval`, `ReviewPolicy`, `RequiresHuman`, `ReviewPolicyFromGateIDs`) if `encapsulation-check` names them.
+- [ ] **Step 2:** Confirm `Test_Construct_EmptyPolicy_NoGate_WalksAllPhases` passes AND add a non-git test proving the empty-policy path writes no phase records when `gitOn=false` (the "pure vibes = today" guarantee, B6).
+- [ ] **Step 3:** Commit any fixups — `test(construction): full-suite green + inertness (incl. non-git) proof`.
 
 ---
 
-### Task 6: Server suite green + gates + inertness proof
+### Task 8: WebApp — regen API + `useSubmitPhaseDecision` + `useUpdateReviewPolicy` hooks
 
-**Files:**
-- Test only (verification).
-
-- [ ] **Step 1: Full suite + vet + gates**
-
-Run (from `server/`):
-```bash
-GOWORK=off go test ./...
-GOWORK=off go vet ./...
-make method-check
-make encapsulation-check
-make sumtype-check
-PATH="/opt/homebrew/bin:$PATH" GOWORK=off golangci-lint run --new-from-rev=main ./...
-```
-Expected: all green; delta-lint 0-new. If `encapsulation-check` flags new public symbols (`SubmitPhaseDecision`, `PhaseDecision`, `StageAwaitingApproval`), register them as intended-public per the test's printed guidance (do NOT unexport). If `sumtype-check` flags a non-exhaustive `ConstructionStage`/`PhaseDecision` switch, add the missing case.
-
-- [ ] **Step 2: Prove inertness explicitly**
-
-Confirm `Test_Construct_InertPolicy_NoGate_WalksAllPhases` passes and that the default server config produces an empty gate list (grep `ARCHISTRATOR_CONSTRUCTION_GATED_PHASES` default is `""`). This is the "pure vibes = today's behavior" guarantee.
-
-- [ ] **Step 3: Commit (if any fixups)**
-
-```bash
-git add -A
-git commit -m "test(construction): full-suite green + inertness proof for the approval gate"
-```
+- [ ] **Step 1:** `cd webApp && npm run gen:api`; verify `grep -n "submit-phase-decision\|review-policy" src/api/schema.ts`.
+- [ ] **Step 2:** In `hooks/useConstructionMutations.ts` add `useSubmitPhaseDecision(projectId)` (mirror `useOverrideActivity` `:59-80`; POST `/api/v1/construction/submit-phase-decision/{projectID}/{activityID}`, body `{ phase, decision: phaseDecisionToOrdinal(...), feedback? }`, invalidate `constructionSessionKey`) and `useUpdateReviewPolicy(projectId)` (POST `/api/v1/construction/review-policy/{projectID}`, body `{ gatedPhasesByType }`, invalidate `projectKey`). Add `phaseDecisionToOrdinal` in `api/enums.ts`.
+- [ ] **Step 3:** `npm run typecheck && npm run lint` → clean.
+- [ ] **Step 4:** Commit — `feat(webapp): submitPhaseDecision + updateReviewPolicy hooks`.
 
 ---
 
-### Task 7: WebApp — regen API + `useSubmitPhaseDecision` + `useUpdateCheckpointPolicy` hooks
+### Task 9: WebApp — construction `PhaseGatePanel` + live `PolicyPanel`
 
-**Files:**
-- Regenerate: `webApp/src/api/schema.ts` (via `npm run gen:api`)
-- Modify: `webApp/src/hooks/useConstructionMutations.ts` (append the two hooks — mirror `useOverrideActivity`)
-- Modify: `webApp/src/api/enums.ts` (a `phaseDecisionToOrdinal` helper, mirror `reviewDecisionToOrdinal`)
-
-**Interfaces:**
-- Produces: `useSubmitPhaseDecision(projectId)`, `useUpdateCheckpointPolicy(projectId)`
-
-- [ ] **Step 1: Regenerate the typed API**
-
-Run: `cd webApp && npm run gen:api`
-Expected: `src/api/schema.ts` now contains `/api/v1/construction/submit-phase-decision/{projectID}/{activityID}` and the checkpoint-policy route. Verify with `grep -n "submit-phase-decision" src/api/schema.ts`.
-
-- [ ] **Step 2: Add the hooks**
-
-In `useConstructionMutations.ts` (mirror `useOverrideActivity` at `:59-80`):
-```ts
-export interface PhaseDecisionVars {
-  activityId: string;
-  phase: string;
-  decision: 'approve' | 'sendBack';
-  notes?: string;
-}
-
-export function useSubmitPhaseDecision(projectId: string): UseMutationResult<undefined, Error, PhaseDecisionVars> {
-  const client = useQueryClient();
-  return useMutation<undefined, Error, PhaseDecisionVars>({
-    mutationFn: async (vars) => {
-      const { error, response } = await apiClient.POST(
-        '/api/v1/construction/submit-phase-decision/{projectID}/{activityID}',
-        {
-          params: { path: { projectID: projectId, activityID: vars.activityId } },
-          body: {
-            phase: vars.phase,
-            decision: phaseDecisionToOrdinal(vars.decision),
-            ...(vars.notes !== undefined ? { feedback: { notes: vars.notes } } : {}),
-          },
-        }
-      );
-      if (error !== undefined) throw toApiError(response.status, error);
-      return undefined;
-    },
-    onSuccess: () => {
-      void client.invalidateQueries({ queryKey: constructionSessionKey(projectId) });
-    },
-  });
-}
-```
-Add `phaseDecisionToOrdinal` in `enums.ts` (`approve`→1, `sendBack`→2). Add `useUpdateCheckpointPolicy` the same way against the policy route.
-
-- [ ] **Step 3: Verify**
-
-Run: `cd webApp && npm run typecheck && npm run lint`
-Expected: clean (the generated `schema.ts` types the new routes).
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add webApp/src/api/schema.ts webApp/src/hooks/useConstructionMutations.ts webApp/src/api/enums.ts
-git commit -m "feat(webapp): submitPhaseDecision + updateCheckpointPolicy hooks"
-```
-
----
-
-### Task 8: WebApp — construction GatePanel + real PolicyPanel wiring
-
-**Files:**
-- Create: `webApp/src/components/construction/PhaseGatePanel.tsx` (mirror `design/GatePanel.tsx` — Approve / Send back)
-- Modify: `webApp/src/components/construction/PolicyPanel.tsx` (drive from `useUpdateCheckpointPolicy` instead of client-only `useState`)
-- Modify: the construction console screen that renders the intervention queue (wire `PhaseGatePanel` where `ConstructionSessionView.stage === StageAwaitingApproval`)
-
-**Interfaces:**
-- Consumes: `useSubmitPhaseDecision`, `useUpdateCheckpointPolicy` (Task 7); `ConstructionSessionView.stage`/`reviewSet`/`activityId`
-
-- [ ] **Step 1: Build the PhaseGatePanel**
-
-Create `PhaseGatePanel.tsx` mirroring `design/GatePanel.tsx:133-164` (Approve & continue / Send back buttons, `pending` prop, testids from `UI_IDENTIFIERS`). It takes `onApprove`/`onSendBack`/`pending` and shows the phase label + the `reviewSet` (who must approve).
-
-- [ ] **Step 2: Wire it in the console**
-
-In the construction console screen, when the session view's `stage === StageAwaitingApproval`, render `PhaseGatePanel` wired to `useSubmitPhaseDecision(projectId)` with `{ activityId, phase, decision }` (mirror `DesignExperience.tsx:188-217`'s approve/sendBack handlers).
-
-- [ ] **Step 3: Make PolicyPanel real**
-
-Replace `PolicyPanel.tsx`'s client-only `useState` with `useUpdateCheckpointPolicy` — toggling a rule POSTs the gate list; the header comment about "client-only, no backend call" is removed. Keep the `PolicyRule` shape but send canonical gate ids (or let the server glossary map them).
-
-- [ ] **Step 4: Verify**
-
-Run: `cd webApp && npm run check && npm run build`
-Expected: typecheck + lint + format clean; build succeeds.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add webApp/src/components/construction/ webApp/src/screens/
-git commit -m "feat(webapp): construction PhaseGatePanel + live checkpoint PolicyPanel"
-```
+- [ ] **Step 1:** Create `components/construction/PhaseGatePanel.tsx` (mirror `design/GatePanel.tsx:133-164` — Approve & continue / Send back, `pending` prop, shows the phase label + `reviewSet`). 
+- [ ] **Step 2:** In the construction console screen, when `ConstructionSessionView.stage === StageAwaitingApproval`, render `PhaseGatePanel` wired to `useSubmitPhaseDecision` (mirror `DesignExperience.tsx:188-217`).
+- [ ] **Step 3:** Rewrite `PolicyPanel.tsx` to drive from `useUpdateReviewPolicy` (toggling a rule POSTs the per-type gate list) instead of client-only `useState`; remove the "client-only, no backend" comment; add the "edits apply to newly-started activities" note.
+- [ ] **Step 4:** `npm run check && npm run build` → clean.
+- [ ] **Step 5:** Commit — `feat(webapp): construction PhaseGatePanel + live ReviewPolicy editor`.
 
 ---
 
 ## Self-Review (completed during authoring)
 
-**Spec/design coverage:**
-- Top-level gate per phase (approved-to-continue) → Task 4 (`runPhaseGate`, `PhaseCompletion` via `RecordPhaseCompleted`).
-- Policy selects the sub-workflow (vibes/architect-only/full reviewer-set) → Task 1 (policy), Task 4 (`gates` guard + `ProposeReviews` on gated phases; inert path = auto-approve).
-- checkpointPolicy proactive, default inert → Task 1 (zero value), Task 5 (empty config), Task 6 Step 2 (inertness proof).
-- SendBack = redraft-this-phase, own budget, NOT variance → Task 4 (`maxPhaseRedrafts`, re-dispatch this phase, never `handleVariance`).
-- Phase-multiplexed signal + reject stale → Task 3 (`phaseDecisionSignal.Phase`), Task 4 (drain-until-matching-phase + `Test_..._StaleSignalRejected`).
-- Wire `RecordPhaseStarted`+`RecordPhaseCompleted` as a pair → Task 4 (both in `runPhaseGate`, including inert path).
-- Don't stack two gates (arch +1) → Task 4 note (existing relay stays the durable record).
-- Glossary (mock ids ≠ canonical) → Task 1 (`gateIDToPhase`).
-- Codegen-first for the contract surface → Task 2, Task 5 (edit `.serviceContracts` → `make gen`).
-- WebApp gate + real policy → Tasks 7–8.
+**Design (founder + architect) coverage:** per-project committed editable ReviewPolicy → Task 1 (model+persist), Task 4 (UpdateReviewPolicy op). Reuse existing gate/engine, no parallel struct/sub-workflow → Task 6 (`ProposeReviews` + conditional suspend; no `checkpointPolicy`). Inert default → Task 1 (zero value), Task 7 Step 2 (empty + non-git proof).
 
-**Placeholder scan:** the only intentional stub is Task 2 Step 3's `panic("TODO Task 4")` on the unimplemented interface method to make the generated code compile — replaced in Task 3/4. Test helpers (`newWorkflowsGated`, `fakeProjectState.phaseCompleted`) are described with the exact fakes to extend (Task 4 Step 1). Every code step shows real code or cites the verbatim pattern file:line to mirror.
+**Architect blocking fixes:** B1 redraft exhaustion keeps awaiting human, never `phaseFailed=true;continue` → Task 6 (`maxPhaseRedrafts` → `continue` the await loop, not the outer variance loop). B2 resumable skip-guard → Task 6 (`state.phaseAlreadyDone`). B3 phase-record Activity wrappers + registration → Task 5 (own task). B4 policy route exists → Task 2 + Task 4 (`UpdateReviewPolicy`). B5 per-exec snapshot from project state → Task 6 Step 3 (read at start, by value) + the "newly-started only" note (Task 9). B6 gitOn no-op → Task 6 (`recordPhaseStarted`/`recordPhaseCompletedIfGit` gated on `gitOn`) + Task 7 non-git test. Non-blocking: `&rs` pointer (Task 6), error-stub not panic (Task 2 Step 3), `ProposeReviews` arch-graph/contracts from the read project (Task 6 Step 3).
 
-**Type consistency:** `checkpointPolicy{GatedPhases}` / `gates(phase)` / `checkpointPolicyFromGateIDs` (Task 1) ↔ `constructionCheckpointPolicy` (Task 5) ↔ `workflows.CheckpointPolicy` (Task 4). `phaseDecisionSignal{Phase, Decision, Feedback}` + `signalPhaseDecision` + `PhaseDecision{Approve,SendBack}` consistent across Tasks 2–4 and the webApp `phaseDecisionToOrdinal` (Task 7). `SubmitPhaseDecision(projectID, activityID, phase, decision, feedback)` identical in contract (Task 2), manager (Task 3), and hook (Task 7).
+**Placeholder scan:** no TBD/TODO; Task 5 Step 1 explicitly flags the fallback (cover via Task 6) if no direct activity unit test exists. Every code step shows real code or cites the exact pattern file:line to mirror.
 
-**Note for the architect gate:** per the founder, route this written plan through the system-architect before execution — focus areas: the `runPhaseGate` control flow (redraft loop vs the outer variance retry), the codegen contract edits (Task 2/5), and confirmation the inert path is a true no-op.
+**Type consistency:** `ReviewPolicy{GatedPhasesByType}` / `RequiresHuman(type,phase)` / `ReviewPolicyFromGateIDs` (Task 1) ↔ `RecordReviewPolicy`/`UpdateReviewPolicy` (Task 4) ↔ read-at-start + `RequiresHuman` (Task 6) ↔ `useUpdateReviewPolicy` (Task 8). `phaseDecisionSignal{Phase,Decision,Feedback}` + `signalPhaseDecision` + `PhaseDecision{Approve,SendBack}` consistent Tasks 2–6 + `phaseDecisionToOrdinal` (Task 8). `SubmitPhaseDecision(projectID,activityID,phase,decision,feedback)` identical across Tasks 2/3/8.
