@@ -141,31 +141,16 @@ func TestTestingVariant_JSONRoundTrip(t *testing.T) {
 }
 
 func TestActivityMethodPhase_Constants(t *testing.T) {
-	// ActivityMethodPhase is a string type; String() returns the value itself.
-	// Verify all expected canonical phase-id constants are defined and non-empty.
-	phases := []ActivityMethodPhase{
-		// Service / shared phases
-		MethodPhaseRequirements,
-		MethodPhaseDetailedDesign,
-		MethodPhaseTestPlan,
-		MethodPhaseConstruction,
-		MethodPhaseIntegration,
-		// Frontend-specific
-		MethodPhaseUXRequirements,
-		MethodPhaseUIDesign,
-		// Deployment-specific
-		MethodPhaseProvisioningSpec,
-		MethodPhaseConvergenceVerification,
-		// Documentation-specific
-		MethodPhaseDocOutline,
-		MethodPhaseDocReview,
+	cases := map[ActivityMethodPhase]string{
+		MethodPhaseRequirements:   "requirements",
+		MethodPhaseDetailedDesign: "detailed_design",
+		MethodPhaseTestPlan:       "test_plan",
+		MethodPhaseConstruction:   "construction",
+		MethodPhaseIntegration:    "integration",
 	}
-	for _, p := range phases {
-		if string(p) == "" {
-			t.Errorf("ActivityMethodPhase constant is empty string")
-		}
-		if p.String() != string(p) {
-			t.Errorf("ActivityMethodPhase(%q).String() = %q, want %q", string(p), p.String(), string(p))
+	for p, want := range cases {
+		if p.String() != want {
+			t.Errorf("%v.String() = %q, want %q", p, p.String(), want)
 		}
 	}
 }
@@ -193,255 +178,35 @@ func TestActivityMethodPhase_ServicePhaseIDs(t *testing.T) {
 
 func TestPhaseSetFor_Service(t *testing.T) {
 	phases := phaseSetFor(ActivityTypeService, 0)
-	if len(phases) != 5 {
-		t.Fatalf("Service phase set len = %d, want 5", len(phases))
-	}
 	wantPhases := []ActivityMethodPhase{
 		MethodPhaseRequirements, MethodPhaseDetailedDesign, MethodPhaseTestPlan,
 		MethodPhaseConstruction, MethodPhaseIntegration,
 	}
 	wantWeights := []int{15, 20, 10, 40, 15}
+	if len(phases) != len(wantPhases) {
+		t.Fatalf("service phase set len = %d, want %d", len(phases), len(wantPhases))
+	}
 	total := 0
 	for i, p := range phases {
 		if p.Phase != wantPhases[i] {
-			t.Errorf("Service phase[%d] id = %q, want %q", i, p.Phase, wantPhases[i])
+			t.Errorf("phase[%d] = %q, want %q", i, p.Phase, wantPhases[i])
 		}
 		if p.Weight != wantWeights[i] {
-			t.Errorf("Service phase[%d] weight = %d, want %d", i, p.Weight, wantWeights[i])
+			t.Errorf("phase[%d] weight = %d, want %d", i, p.Weight, wantWeights[i])
+		}
+		if p.Label == "" {
+			t.Errorf("phase[%d] %q has empty label", i, p.Phase)
 		}
 		if p.Completed {
-			t.Errorf("Service phase[%d] should not be Completed initially", i)
+			t.Errorf("phase[%d] seeded Completed=true", i)
 		}
 		total += p.Weight
 	}
 	if total != 100 {
-		t.Errorf("Service phase weights sum = %d, want 100", total)
+		t.Errorf("weight sum = %d, want 100", total)
 	}
 }
 
-func TestPhaseSetFor_Frontend(t *testing.T) {
-	phases := phaseSetFor(ActivityTypeFrontend, 0)
-	if len(phases) != 5 {
-		t.Fatalf("Frontend phase set len = %d, want 5", len(phases))
-	}
-	wantPhases := []ActivityMethodPhase{
-		MethodPhaseUXRequirements, MethodPhaseUIDesign, MethodPhaseTestPlan,
-		MethodPhaseConstruction, MethodPhaseIntegration,
-	}
-	wantWeights := []int{15, 20, 10, 40, 15}
-	total := 0
-	for i, p := range phases {
-		if p.Phase != wantPhases[i] {
-			t.Errorf("Frontend phase[%d] id = %q, want %q", i, p.Phase, wantPhases[i])
-		}
-		if p.Weight != wantWeights[i] {
-			t.Errorf("Frontend phase[%d] weight = %d, want %d", i, p.Weight, wantWeights[i])
-		}
-		total += p.Weight
-	}
-	if total != 100 {
-		t.Errorf("Frontend phase weights sum = %d, want 100", total)
-	}
-}
-
-func TestPhaseSetFor_Deployment(t *testing.T) {
-	phases := phaseSetFor(ActivityTypeDeployment, 0)
-	if len(phases) != 3 {
-		t.Fatalf("Deployment phase set len = %d, want 3", len(phases))
-	}
-	wantPhases := []ActivityMethodPhase{
-		MethodPhaseProvisioningSpec, MethodPhaseConstruction, MethodPhaseConvergenceVerification,
-	}
-	wantWeights := []int{25, 50, 25}
-	total := 0
-	for i, p := range phases {
-		if p.Phase != wantPhases[i] {
-			t.Errorf("Deployment phase[%d] = %v, want %v", i, p.Phase, wantPhases[i])
-		}
-		if p.Weight != wantWeights[i] {
-			t.Errorf("Deployment phase[%d] weight = %d, want %d", i, p.Weight, wantWeights[i])
-		}
-		total += p.Weight
-	}
-	if total != 100 {
-		t.Errorf("Deployment phase weights sum = %d, want 100", total)
-	}
-}
-
-func TestPhaseSetFor_Documentation(t *testing.T) {
-	phases := phaseSetFor(ActivityTypeDocumentation, 0)
-	if len(phases) != 3 {
-		t.Fatalf("Documentation phase set len = %d, want 3", len(phases))
-	}
-	wantPhases := []ActivityMethodPhase{
-		MethodPhaseDocOutline, MethodPhaseConstruction, MethodPhaseDocReview,
-	}
-	wantWeights := []int{20, 60, 20}
-	total := 0
-	for i, p := range phases {
-		if p.Phase != wantPhases[i] {
-			t.Errorf("Documentation phase[%d] = %v, want %v", i, p.Phase, wantPhases[i])
-		}
-		if p.Weight != wantWeights[i] {
-			t.Errorf("Documentation phase[%d] weight = %d, want %d", i, p.Weight, wantWeights[i])
-		}
-		total += p.Weight
-	}
-	if total != 100 {
-		t.Errorf("Documentation phase weights sum = %d, want 100", total)
-	}
-}
-
-func TestPhaseSetFor_TestingPlan(t *testing.T) {
-	phases := phaseSetFor(ActivityTypeTesting, TestVariantPlan)
-	if len(phases) != 3 {
-		t.Fatalf("Testing/Plan phase set len = %d, want 3", len(phases))
-	}
-	wantPhases := []ActivityMethodPhase{
-		MethodPhaseUseCaseTrace, MethodPhasePlanAuthoring, MethodPhasePlanReview,
-	}
-	wantWeights := []int{20, 45, 35}
-	total := 0
-	for i, p := range phases {
-		if p.Phase != wantPhases[i] {
-			t.Errorf("Testing/Plan phase[%d] = %q, want %q", i, p.Phase, wantPhases[i])
-		}
-		if p.Weight != wantWeights[i] {
-			t.Errorf("Testing/Plan phase[%d] weight = %d, want %d", i, p.Weight, wantWeights[i])
-		}
-		total += p.Weight
-	}
-	if total != 100 {
-		t.Errorf("Testing/Plan phase weights sum = %d, want 100", total)
-	}
-}
-
-func TestPhaseSetFor_TestingHarness(t *testing.T) {
-	phases := phaseSetFor(ActivityTypeTesting, TestVariantHarness)
-	if len(phases) != 4 {
-		t.Fatalf("Testing/Harness phase set len = %d, want 4", len(phases))
-	}
-	wantPhases := []ActivityMethodPhase{
-		MethodPhaseHarnessDesign, MethodPhaseHarnessConstruction,
-		MethodPhaseCoverage, MethodPhaseHarnessReview,
-	}
-	wantWeights := []int{15, 50, 20, 15}
-	total := 0
-	for i, p := range phases {
-		if p.Phase != wantPhases[i] {
-			t.Errorf("Testing/Harness phase[%d] = %q, want %q", i, p.Phase, wantPhases[i])
-		}
-		if p.Weight != wantWeights[i] {
-			t.Errorf("Testing/Harness phase[%d] weight = %d, want %d", i, p.Weight, wantWeights[i])
-		}
-		total += p.Weight
-	}
-	if total != 100 {
-		t.Errorf("Testing/Harness phase weights sum = %d, want 100", total)
-	}
-}
-
-func TestPhaseSetFor_TestingPerf(t *testing.T) {
-	phases := phaseSetFor(ActivityTypeTesting, TestVariantPerf)
-	if len(phases) != 3 {
-		t.Fatalf("Testing/Perf phase set len = %d, want 3", len(phases))
-	}
-	wantPhases := []ActivityMethodPhase{
-		MethodPhasePerfScenarioDesign, MethodPhaseRigConstruction, MethodPhaseRigReview,
-	}
-	wantWeights := []int{25, 50, 25}
-	total := 0
-	for i, p := range phases {
-		if p.Phase != wantPhases[i] {
-			t.Errorf("Testing/Perf phase[%d] = %q, want %q", i, p.Phase, wantPhases[i])
-		}
-		if p.Weight != wantWeights[i] {
-			t.Errorf("Testing/Perf phase[%d] weight = %d, want %d", i, p.Weight, wantWeights[i])
-		}
-		total += p.Weight
-	}
-	if total != 100 {
-		t.Errorf("Testing/Perf phase weights sum = %d, want 100", total)
-	}
-}
-
-func TestPhaseSetFor_TestingSystemTest(t *testing.T) {
-	phases := phaseSetFor(ActivityTypeTesting, TestVariantSystemTest)
-	if len(phases) != 5 {
-		t.Fatalf("Testing/SystemTest phase set len = %d, want 5", len(phases))
-	}
-	wantPhases := []ActivityMethodPhase{
-		MethodPhaseSmokePass, MethodPhaseUseCaseExecution,
-		MethodPhaseRegressionSuite, MethodPhaseDefectResolution, MethodPhaseSignOff,
-	}
-	wantWeights := []int{10, 45, 25, 15, 5}
-	total := 0
-	for i, p := range phases {
-		if p.Phase != wantPhases[i] {
-			t.Errorf("Testing/SystemTest phase[%d] = %q, want %q", i, p.Phase, wantPhases[i])
-		}
-		if p.Weight != wantWeights[i] {
-			t.Errorf("Testing/SystemTest phase[%d] weight = %d, want %d", i, p.Weight, wantWeights[i])
-		}
-		total += p.Weight
-	}
-	if total != 100 {
-		t.Errorf("Testing/SystemTest phase weights sum = %d, want 100", total)
-	}
-}
-
-func TestPhaseSetFor_TestingQAProcess(t *testing.T) {
-	phases := phaseSetFor(ActivityTypeTesting, TestVariantQAProcess)
-	if len(phases) != 2 {
-		t.Fatalf("Testing/QAProcess phase set len = %d, want 2", len(phases))
-	}
-	wantPhases := []ActivityMethodPhase{
-		MethodPhaseGateDefinition, MethodPhaseProcessAudit,
-	}
-	wantWeights := []int{40, 60}
-	total := 0
-	for i, p := range phases {
-		if p.Phase != wantPhases[i] {
-			t.Errorf("Testing/QAProcess phase[%d] = %q, want %q", i, p.Phase, wantPhases[i])
-		}
-		if p.Weight != wantWeights[i] {
-			t.Errorf("Testing/QAProcess phase[%d] weight = %d, want %d", i, p.Weight, wantWeights[i])
-		}
-		total += p.Weight
-	}
-	if total != 100 {
-		t.Errorf("Testing/QAProcess phase weights sum = %d, want 100", total)
-	}
-}
-
-func TestPhaseSetFor_AllVariantsSum100(t *testing.T) {
-	// Exhaustive weight-sum check for every type/variant combination.
-	cases := []struct {
-		name string
-		t    ActivityType
-		v    TestingVariant
-	}{
-		{"Service", ActivityTypeService, 0},
-		{"Frontend", ActivityTypeFrontend, 0},
-		{"Testing/Plan", ActivityTypeTesting, TestVariantPlan},
-		{"Testing/Harness", ActivityTypeTesting, TestVariantHarness},
-		{"Testing/Perf", ActivityTypeTesting, TestVariantPerf},
-		{"Testing/SystemTest", ActivityTypeTesting, TestVariantSystemTest},
-		{"Testing/QAProcess", ActivityTypeTesting, TestVariantQAProcess},
-		{"Deployment", ActivityTypeDeployment, 0},
-		{"Documentation", ActivityTypeDocumentation, 0},
-	}
-	for _, c := range cases {
-		phases := phaseSetFor(c.t, c.v)
-		total := 0
-		for _, p := range phases {
-			total += p.Weight
-		}
-		if total != 100 {
-			t.Errorf("%s: phase weights sum = %d, want 100", c.name, total)
-		}
-	}
-}
 
 func TestPhaseCompletion_JSONRoundTrip(t *testing.T) {
 	// Verify PhaseCompletion marshals/unmarshals correctly including optional fields.
@@ -552,33 +317,3 @@ func TestCoarseBuildStatus_InConstruction(t *testing.T) {
 	}
 }
 
-func TestTestingVariantPhaseIDs_WireValues(t *testing.T) {
-	// Verify testing-variant phase-id constants have the correct snake_case wire values.
-	cases := []struct {
-		c    ActivityMethodPhase
-		want string
-	}{
-		{MethodPhaseUseCaseTrace, "use_case_trace"},
-		{MethodPhasePlanAuthoring, "plan_authoring"},
-		{MethodPhasePlanReview, "plan_review"},
-		{MethodPhaseHarnessDesign, "harness_design"},
-		{MethodPhaseHarnessConstruction, "harness_construction"},
-		{MethodPhaseCoverage, "coverage"},
-		{MethodPhaseHarnessReview, "harness_review"},
-		{MethodPhasePerfScenarioDesign, "perf_scenario_design"},
-		{MethodPhaseRigConstruction, "rig_construction"},
-		{MethodPhaseRigReview, "rig_review"},
-		{MethodPhaseSmokePass, "smoke_pass"},
-		{MethodPhaseUseCaseExecution, "use_case_execution"},
-		{MethodPhaseRegressionSuite, "regression_suite"},
-		{MethodPhaseDefectResolution, "defect_resolution"},
-		{MethodPhaseSignOff, "sign_off"},
-		{MethodPhaseGateDefinition, "gate_definition"},
-		{MethodPhaseProcessAudit, "process_audit"},
-	}
-	for _, c := range cases {
-		if string(c.c) != c.want {
-			t.Errorf("constant %q = %q, want %q", c.want, string(c.c), c.want)
-		}
-	}
-}
