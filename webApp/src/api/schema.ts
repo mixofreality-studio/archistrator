@@ -827,6 +827,7 @@ export interface components {
             Slots: null | components["schemas"]["SystemDesignArtifactSlotView"][];
             Version: number;
             constructionProgress?: components["schemas"]["SystemDesignConstructionProgress"];
+            reviewPolicy?: components["schemas"]["SystemDesignReviewPolicyView"];
         };
         SystemDesignProjectSummary: {
             CommittedCount: number;
@@ -850,6 +851,11 @@ export interface components {
         SystemDesignReviewFeedback: {
             comments?: null | components["schemas"]["SystemDesignAnchoredComment"][];
             notes: string;
+        };
+        SystemDesignReviewPolicyView: {
+            gatedPhasesByType: {
+                [key: string]: string[];
+            };
         };
         SystemDesignRuleID: string;
         SystemDesignServiceContract: {

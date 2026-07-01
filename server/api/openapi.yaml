@@ -1367,6 +1367,8 @@ components:
                     $ref: '#/components/schemas/SystemDesignConstructionProgress'
                     type:
                         - "null"
+                reviewPolicy:
+                    $ref: '#/components/schemas/SystemDesignReviewPolicyView'
             required:
                 - ProjectID
                 - Name
@@ -1457,6 +1459,18 @@ components:
                     type: string
             required:
                 - notes
+            type: object
+        SystemDesignReviewPolicyView:
+            additionalProperties: false
+            properties:
+                gatedPhasesByType:
+                    additionalProperties:
+                        items:
+                            type: string
+                        type: array
+                    type: object
+            required:
+                - gatedPhasesByType
             type: object
         SystemDesignRuleID:
             type: string

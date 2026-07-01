@@ -385,19 +385,32 @@ func (wf *workflows) ConstructActivityWorkflow(ctx workflow.Context, in construc
 	// completedPhases skip-guard (B2 resumability) from the activity's PhaseCompletion
 	// slice, so a workflow that resumes after an approval does not re-gate a phase whose
 	// completion already landed in head-state.
-	snap, srErr := wf.readProject(ctx, in.ProjectID)
-	if srErr != nil && !isReadNotFound(srErr) {
-		return srErr
-	}
-	reviewPolicy := snap.ReviewPolicy
-	if acs, ok := snap.ActivityConstruction[string(in.ActivityID)]; ok {
-		for _, pc := range acs.Phases {
-			if pc.Completed {
-				state.completedPhases[pc.Phase] = true
+	//
+	// Temporal versioning guard (replay safety): this readProject call was ADDED by the
+	// construction-review-policy-snapshot feature AFTER the workflow was first shipped.
+	// Workflows already in flight at deploy time have no history event for this call;
+	// replaying them against new code would produce a non-determinism error. GetVersion
+	// guards the new block so pre-feature in-flight executions (DefaultVersion) skip it
+	// entirely — reviewPolicy stays zero (empty → inert → no gate) and completedPhases
+	// stays initialized-empty (safe for all downstream consumers). The gate takes effect
+	// only for workflows started after the feature deployed (v >= 1).
+	var reviewPolicy projectstate.ReviewPolicy
+	v := workflow.GetVersion(ctx, "construction-review-policy-snapshot", workflow.DefaultVersion, 1)
+	if v >= 1 {
+		snap, srErr := wf.readProject(ctx, in.ProjectID)
+		if srErr != nil && !isReadNotFound(srErr) {
+			return srErr
+		}
+		reviewPolicy = snap.ReviewPolicy
+		if acs, ok := snap.ActivityConstruction[string(in.ActivityID)]; ok {
+			for _, pc := range acs.Phases {
+				if pc.Completed {
+					state.completedPhases[pc.Phase] = true
+				}
 			}
 		}
+		state.reviewContracts = snapshotContractKeys(snap)
 	}
-	state.reviewContracts = snapshotContractKeys(snap)
 
 	// Carry expectedVersion forward (read-your-writes; §6.5).
 	headVersion := wf.readVersion(ctx, in.ProjectID)
@@ -630,8 +643,11 @@ func (wf *workflows) runPipeline(ctx workflow.Context, in constructActivityInput
 // loop and never fails the activity. Returns done=true only when the gate has
 // terminally recorded this activity (there is no such terminal in v1, but the
 // signature preserves that seam). The phase-start / head-state records are gated on
-// gitOn so the empty-policy / non-git path is byte-for-byte today's behavior (aside
-// from the in-memory completedPhases bookkeeping).
+// gitOn; under the NON-GIT profile an empty policy is inert and produces no
+// head-state writes (aside from the in-memory completedPhases bookkeeping). Under the
+// GIT profile, RecordPhaseStarted and RecordPhaseCompleted are emitted for EVERY
+// phase regardless of whether a human gate is active — this is intentional progress
+// tracking (gitOn-gated) and is NOT byte-for-byte the non-git path.
 func (wf *workflows) runPhaseGate(
 	ctx workflow.Context,
 	in constructActivityInput,

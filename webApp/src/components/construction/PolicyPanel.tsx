@@ -37,6 +37,7 @@ import { useUpdateReviewPolicy } from '../../hooks/useConstructionMutations';
 import { useTokens } from '../../theme/ThemeContext';
 import type { Tokens } from '../../theme/themes';
 import { UI_IDENTIFIERS } from '../../constants/UIIdentifiers';
+import type { ProjectStateWithGit } from '../../api/types';
 
 // ---------------------------------------------------------------------------
 // Seam: guarantee the ActivityKind values are the server's ActivityType wire names.
@@ -166,14 +167,66 @@ function PolicyRow({
 }
 
 // ---------------------------------------------------------------------------
+// gateIDToPhase — client-side mirror of the server's gateIDToPhase map
+// (server/internal/resourceaccess/projectstate/reviewpolicy.go). Maps the
+// webApp's ad-hoc gate IDs to the canonical ActivityMethodPhase wire strings
+// that the server stores and returns in the project's reviewPolicy field. Used
+// to invert the persisted policy back into the PolicyRule shape on hydration.
+// ---------------------------------------------------------------------------
+
+const GATE_ID_TO_PHASE: Record<string, string> = {
+  'svc-contract': 'detailed_design',
+  'svc-review': 'integration',
+  'fe-approve': 'detailed_design',
+  'test-plan': 'test_plan',
+};
+
+/**
+ * hydrateRules initializes the PolicyRule[] state from the persisted
+ * reviewPolicy. For each default rule, the rule is ENABLED when the server's
+ * gatedPhasesByType for that kind contains at least one of the canonical
+ * phases that the rule's gatePhaseIds map to. Falls back to INTERVENTION_POLICY
+ * defaults when the project has no persisted policy.
+ */
+function hydrateRules(gatedPhasesByType: Record<string, string[]> | undefined): PolicyRule[] {
+  if (gatedPhasesByType === undefined || Object.keys(gatedPhasesByType).length === 0) {
+    return INTERVENTION_POLICY;
+  }
+  return INTERVENTION_POLICY.map((rule) => {
+    const persistedPhases = new Set(gatedPhasesByType[rule.kind] ?? []);
+    const enabled = rule.gatePhaseIds.some((id) => persistedPhases.has(GATE_ID_TO_PHASE[id] ?? id));
+    return { ...rule, enabled };
+  });
+}
+
+// ---------------------------------------------------------------------------
 // PolicyPanel — the collapsible top-level component exported for use in
 // InterventionsTab. Toggles POST to the server via useUpdateReviewPolicy.
 // Edits apply to newly-started activities only.
 // ---------------------------------------------------------------------------
 
-export function PolicyPanel({ projectId }: { projectId: string }): ReactNode {
+export function PolicyPanel({
+  project,
+  projectId,
+}: {
+  /** The full project state — used to hydrate the initial rule set from the
+   *  persisted ReviewPolicy so a page reload does not silently overwrite the
+   *  saved policy with hardcoded defaults. */
+  project: ProjectStateWithGit | undefined;
+  projectId: string;
+}): ReactNode {
   const t = useTokens();
-  const [policy, setPolicy] = useState<PolicyRule[]>(INTERVENTION_POLICY);
+
+  // Hydrate initial state from the persisted policy (Fix 2): the lazy
+  // useState initializer captures `project` at first mount so a page
+  // reload (or tab switch) uses the server's committed policy rather than the
+  // hardcoded INTERVENTION_POLICY defaults. Post-save, optimistic local state
+  // is the source of truth — the initializer does NOT re-run on polling
+  // updates, so the operator's in-progress edits are never clobbered.
+  // Falls back to INTERVENTION_POLICY when the project has no saved policy.
+  const [policy, setPolicy] = useState<PolicyRule[]>(() =>
+    hydrateRules(project?.reviewPolicy?.gatedPhasesByType)
+  );
   // Collapsed by default — the approval queue is what the operator wants most
   // of the time; first-time setup can expand it.
   const [open, setOpen] = useState(false);
@@ -181,19 +234,20 @@ export function PolicyPanel({ projectId }: { projectId: string }): ReactNode {
   const updatePolicy = useUpdateReviewPolicy(projectId);
 
   const toggle = (kind: ActivityKind): void => {
-    setPolicy((prev) => {
-      const next = prev.map((r) => (r.kind === kind ? { ...r, enabled: !r.enabled } : r));
-      // Build gatedPhasesByType: include only enabled rules.
-      // Keys are ActivityType wire names (guaranteed by ACTIVITY_TYPE_KEYS satisfies check).
-      const gatedPhasesByType: Record<string, string[]> = {};
-      for (const rule of next) {
-        if (rule.enabled) {
-          gatedPhasesByType[rule.kind] = rule.gatePhaseIds;
-        }
+    // Fix 3: compute next and call mutate OUTSIDE the setPolicy updater so
+    // React StrictMode's double-invocation of the updater does not fire the
+    // network mutation twice.
+    const next = policy.map((r) => (r.kind === kind ? { ...r, enabled: !r.enabled } : r));
+    // Build gatedPhasesByType: include only enabled rules.
+    // Keys are ActivityType wire names (guaranteed by ACTIVITY_TYPE_KEYS satisfies check).
+    const gatedPhasesByType: Record<string, string[]> = {};
+    for (const rule of next) {
+      if (rule.enabled) {
+        gatedPhasesByType[rule.kind] = rule.gatePhaseIds;
       }
-      updatePolicy.mutate({ gatedPhasesByType });
-      return next;
-    });
+    }
+    setPolicy(next);
+    updatePolicy.mutate({ gatedPhasesByType });
   };
 
   const activeGates = policy.filter((r) => r.enabled).length;

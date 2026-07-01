@@ -125,7 +125,7 @@ export function InterventionsTab({
       sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}
     >
       {/* Intervention Policy — backed by useUpdateReviewPolicy; collapsed by default */}
-      <PolicyPanel projectId={projectId} />
+      <PolicyPanel project={project} projectId={projectId} />
 
       {/* project-level pause — always available while supervising construction */}
       <Paper sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 1.25 }}>

@@ -420,6 +420,17 @@ export interface ServiceContract {
 export type ServiceContracts = Record<string, ServiceContract>;
 
 /**
+ * The committed review-gate policy for a project: which (activityType, phase)
+ * pairs require a human approval signal before the construction loop advances.
+ * Keyed by ActivityType wire name ("service" | "frontend" | "testing") → list
+ * of canonical ActivityMethodPhase strings ("detailed_design", "integration",
+ * "test_plan", etc.). Absent from the read when no policy has been configured.
+ */
+export interface ReviewPolicyView {
+  gatedPhasesByType: Record<string, string[]>;
+}
+
+/**
  * The project head-state as the SPA consumes it: the typed head-state PLUS the
  * per-activity git / construction maps + service contracts + construction progress.
  * All optional — omitted (honest-empty) when the project carries no such state.
@@ -429,6 +440,8 @@ export type ProjectStateWithGit = ProjectState & {
   constructionRows?: ConstructionRows;
   constructionProgress?: ConstructionProgress;
   serviceContracts?: ServiceContracts;
+  /** Persisted review-gate policy — absent when no policy has been saved. */
+  reviewPolicy?: ReviewPolicyView;
 };
 
 /** Lookup helper — undefined for not-yet-branched activities (honest-empty). */

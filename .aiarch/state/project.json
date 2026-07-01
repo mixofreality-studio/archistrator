@@ -16853,6 +16853,9 @@
               "additionalProperties": {
                 "$ref": "#/$defs/ServiceContract"
               }
+            },
+            "reviewPolicy": {
+              "$ref": "#/$defs/ReviewPolicyView"
             }
           },
           "required": [
@@ -16976,6 +16979,24 @@
           },
           "required": [
             "notes"
+          ],
+          "additionalProperties": false
+        },
+        "ReviewPolicyView": {
+          "type": "object",
+          "properties": {
+            "gatedPhasesByType": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "required": [
+            "gatedPhasesByType"
           ],
           "additionalProperties": false
         },
