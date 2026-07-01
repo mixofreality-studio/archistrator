@@ -98,6 +98,7 @@ func (r FailureReason) String() string {
 type PhaseCompletion struct {
 	Phase       ActivityMethodPhase `json:"phase"`
 	Weight      int                 `json:"weight"`
+	Label       string              `json:"label,omitempty"`
 	Completed   bool                `json:"completed,omitempty"`
 	CompletedAt *time.Time          `json:"completedAt,omitempty"`
 	ArtifactRef string              `json:"artifactRef,omitempty"`
