@@ -63,11 +63,11 @@ func TestDeriveType_Prefixes(t *testing.T) {
 
 func TestDeriveVariant_TestingPrefixes(t *testing.T) {
 	cases := map[string]TestingVariant{
-		"N-STP":  TestVariantPlan,
-		"N-STH":  TestVariantHarness,
-		"N-PERF": TestVariantPerf,
-		"N-IT":   TestVariantSystemTest,
-		"N-QA":   TestVariantQAProcess,
+		"N-STP":   TestVariantPlan,
+		"N-STH":   TestVariantHarness,
+		"N-PERF":  TestVariantPerf,
+		"N-IT":    TestVariantSystemTest,
+		"N-QA":    TestVariantQAProcess,
 		"N-OTHER": TestVariantPlan, // unknown N- falls back to Plan
 	}
 	for id, want := range cases {
