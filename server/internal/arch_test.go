@@ -718,6 +718,14 @@ var encapsulationAllowlistData = map[string][]string{
 		"RevenueShareLaunchFlat10",
 		"RevenueShareNegotiatedRate",
 		"RevenueShareUnknown",
+		// FACTORY FREE FUNCTION: ReviewPolicyFromGateIDs converts the webApp PolicyPanel's
+		// ad-hoc gate-id vocabulary (e.g. "svc-contract") into the canonical ReviewPolicy
+		// value stored in head-state. It is the client-facing constructor for ReviewPolicy
+		// and must be exported for the client layer (cmd/server/construction_dryrun.go and
+		// generated web handlers) to call. ReviewPolicy itself is contract surface via the
+		// Project aggregate's ReviewPolicy field; only the constructor free-func needs
+		// allowlisting.
+		"ReviewPolicyFromGateIDs",
 		"RiskModel",
 		"RiskModel.Kind",
 		"RiskRow",

@@ -1198,6 +1198,60 @@ func Test_Construct_GatedPhase_SendBackRedraftsThenApprove(t *testing.T) {
 	}
 }
 
+// Test_Construct_EmptyPolicy_NonGit_NoPhaseRecords is the "pure vibes = today" guarantee
+// (brief B6): an empty ReviewPolicy AND gitOn=false must write ZERO phase head-state records.
+// This is the strict inertness proof: with no gating and no git, the construction loop must
+// behave exactly as it did before the gate feature was introduced — no RecordPhaseStarted or
+// RecordPhaseCompleted calls, phaseDone must be empty. This is distinct from the non-git
+// variance-retry tests (which carry a non-empty policy) and from the empty-policy walk test
+// (which only checks pipeline submissions, not head-state writes).
+func Test_Construct_EmptyPolicy_NonGit_NoPhaseRecords(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	ps := &fakeProjectState{project: projectstate.Project{
+		ID:      projectstate.ProjectID(uuid.NewString()),
+		Version: 3,
+		Phase:   2,
+		// ReviewPolicy is zero value — no gating at all.
+	}}
+	pipe := &fakePipeline{phase: PipelineSucceeded}
+	// GitStatus intentionally NOT wired → gitOn=false.
+	// With no gating and no git, the loop must produce no phase head-state records.
+	wf := newWorkflows(wfDeps{
+		HandOff:      &fakeHandOff{class: aiWorker},
+		Intervention: &fakeIntervention{directive: directiveRetry},
+		Review:       &fakeReview{},
+		ProjectState: ps,
+		Pipeline:     pipe,
+		Artifacts:    &fakeArtifacts{},
+		Workers:      &fakeWorker{},
+	})
+	registerConstruct(env, wf)
+
+	act := sampleActivity()
+	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{
+		ProjectID:  ProjectID(ps.project.ID),
+		ActivityID: ActivityID(act.ActivityID),
+		Activity:   act,
+	})
+
+	if !env.IsWorkflowCompleted() {
+		t.Fatal("workflow did not complete")
+	}
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	// Core assertion: empty policy + non-git → no phase records whatsoever.
+	if len(ps.phaseDone) != 0 {
+		t.Fatalf("empty-policy non-git path wrote %d phase record(s), want 0: %v", len(ps.phaseDone), ps.phaseDone)
+	}
+	// Sanity check: all phases still dispatched (behavior unchanged vs. pre-gate).
+	if len(pipe.submitted) != len(act.Phases) {
+		t.Fatalf("empty-policy non-git submitted %d pipelines, want %d", len(pipe.submitted), len(act.Phases))
+	}
+}
+
 // cancelledWorker returns nil bytes + nil error (the Cancel-then-Generate replay).
 type cancelledWorker struct{}
 
