@@ -50,12 +50,32 @@ type fakeProjectState struct {
 	// re-read→re-apply loop.
 	conflictFirst int
 
-	reviewed []string
-	exited   []exitCall
-	failed   []failCall
-	paused   []string
+	reviewed  []string
+	exited    []exitCall
+	failed    []failCall
+	paused    []string
+	phaseDone []phaseCompletedCall
 
 	version projectstate.Version
+}
+
+// phaseCompletedCall records one RecordPhaseCompleted transition (the gate's durable
+// per-phase completion record). The gate tests assert on it via phaseCompleted.
+type phaseCompletedCall struct {
+	activityID string
+	phase      string
+}
+
+// phaseCompleted reports whether RecordPhaseCompleted landed for (activityID, phase).
+func (f *fakeProjectState) phaseCompleted(activityID, phase string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, c := range f.phaseDone {
+		if c.activityID == activityID && c.phase == phase {
+			return true
+		}
+	}
+	return false
 }
 
 type exitCall struct {
@@ -162,12 +182,55 @@ func (f *fakeProjectState) RecordPhaseStarted(_ context.Context, _ projectstate.
 	return f.bump(), nil
 }
 
-func (f *fakeProjectState) RecordPhaseCompleted(_ context.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ActivityMethodPhase, _ string, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *fakeProjectState) RecordPhaseCompleted(_ context.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, phase projectstate.ActivityMethodPhase, _ string, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if err := f.maybeConflict(); err != nil {
 		return 0, err
 	}
+	f.phaseDone = append(f.phaseDone, phaseCompletedCall{activityID: activityID, phase: phase.String()})
+	return f.bump(), nil
+}
+
+// ---- gitActivityStatusAccess seam (per-activity construction head-state) ----
+// The gate tests wire GitStatus so gitOn is true (the LOCAL/dry-run profile — no PR
+// rail), which is what drives the phase-started/completed head-state records. These
+// are no-op bumps; only RecordPhaseCompleted (a construction-transition verb, above)
+// carries the assertion the gate tests read.
+
+func (f *fakeProjectState) RecordActivityBranchOpened(_ context.Context, _ projectstate.ProjectID, _ projectstate.Version, _, _, _, _, _ string, _ bool, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.bump(), nil
+}
+
+func (f *fakeProjectState) RecordActivityCIObserved(_ context.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.CICheckState, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.bump(), nil
+}
+
+func (f *fakeProjectState) RecordActivityArchApproved(_ context.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.bump(), nil
+}
+
+func (f *fakeProjectState) RecordActivityMerged(_ context.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.bump(), nil
+}
+
+func (f *fakeProjectState) RecordActivityStarted(_ context.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.bump(), nil
+}
+
+func (f *fakeProjectState) RecordActivityCompleted(_ context.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	return f.bump(), nil
 }
 
@@ -191,6 +254,7 @@ func (f *fakeProjectState) RecordPhaseArtifactProduced(_ context.Context, _ proj
 
 var _ projectStateReader = (*fakeProjectState)(nil)
 var _ constructionTransitionAccess = (*fakeProjectState)(nil)
+var _ gitActivityStatusAccess = (*fakeProjectState)(nil)
 
 // fakeWorker is the generic typed worker double. It returns a scripted raw-JSON
 // body per Generate call (the last is repeated), or genErr verbatim. badJSON, when
@@ -351,6 +415,12 @@ func registerConstruct(env *testsuite.TestWorkflowEnvironment, wf *workflows) {
 	env.RegisterActivity(wf.RecordActivityExitedActivity)
 	env.RegisterActivity(wf.RecordActivityFailedActivity)
 	env.RegisterActivity(wf.RecordOperatorPausedActivity)
+	// Phase-gate + per-activity construction-status records (fire only when gitOn;
+	// the gate tests wire GitStatus so these must be registered).
+	env.RegisterActivity(wf.RecordActivityStartedActivity)
+	env.RegisterActivity(wf.RecordActivityCompletedActivity)
+	env.RegisterActivity(wf.RecordPhaseStartedActivity)
+	env.RegisterActivity(wf.RecordPhaseCompletedActivity)
 }
 
 func registerPump(env *testsuite.TestWorkflowEnvironment, wf *workflows) {
@@ -880,6 +950,161 @@ func Test_GenerateConstructionOutput_Cases(t *testing.T) {
 	}
 	if len(out.Bytes) != 0 {
 		t.Fatalf("cancelled (nil) response must be the zero ConstructionOutput, got %q", out.Bytes)
+	}
+}
+
+// ---- Tests: conditional per-phase approval gate (Task 6) --------------------
+
+// newFakeProjectStateWithPolicy builds a fakeProjectState whose served project
+// carries the given committed ReviewPolicy (the gate's start-snapshot source).
+func newFakeProjectStateWithPolicy(policy projectstate.ReviewPolicy) *fakeProjectState {
+	return &fakeProjectState{project: projectstate.Project{
+		ID:           projectstate.ProjectID(uuid.NewString()),
+		Version:      1,
+		Phase:        2,
+		ReviewPolicy: policy,
+	}}
+}
+
+// gateDeps builds a wfDeps for the gate tests: the fake project-state serves BOTH the
+// read/transition seams AND the git-status seam (wired so gitOn is true → the phase
+// records fire; the PR rail stays dormant, so branch/PR/merge are no-ops).
+func gateDeps(ps *fakeProjectState, pipe constructionPipelineAccess) wfDeps {
+	return wfDeps{
+		HandOff:      &fakeHandOff{class: aiWorker},
+		Intervention: &fakeIntervention{directive: directiveRetry},
+		Review:       &fakeReview{},
+		ProjectState: ps,
+		GitStatus:    ps,
+		Pipeline:     pipe,
+		Artifacts:    &fakeArtifacts{},
+		Workers:      &fakeWorker{},
+	}
+}
+
+// newFakePipeline is the default all-phases-succeed pipeline double.
+func newFakePipeline() *fakePipeline { return &fakePipeline{phase: PipelineSucceeded} }
+
+// failOncePipeline fails the pipeline exactly once for the named phase, then serves
+// success for it (and every other phase). It correlates the observed phase via the
+// last-submitted spec (runPipeline submits then immediately observes, sequentially).
+type failOncePipeline struct {
+	mu        sync.Mutex
+	failPhase string
+	failed    map[string]bool
+	lastPhase string
+	submitted []pipelineSpec
+}
+
+func newFakePipelineFailingOnce(phase string) *failOncePipeline {
+	return &failOncePipeline{failPhase: phase, failed: map[string]bool{}}
+}
+
+func (p *failOncePipeline) SubmitConstructionPipeline(_ context.Context, spec pipelineSpec, _ fwra.IdempotencyKey) (pipelineHandle, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.submitted = append(p.submitted, spec)
+	p.lastPhase = spec.Phase
+	return pipelineHandle{Name: "wf-" + spec.ActivityID}, nil
+}
+
+func (p *failOncePipeline) ObserveConstructionPipeline(_ context.Context, _ pipelineHandle) (pipelineObservation, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	ph := p.lastPhase
+	if ph == p.failPhase && !p.failed[ph] {
+		p.failed[ph] = true
+		return pipelineObservation{Phase: PipelineFailed, Diagnostic: "forced one-time failure"}, nil
+	}
+	return pipelineObservation{Phase: PipelineSucceeded}, nil
+}
+
+func (p *failOncePipeline) CancelConstructionPipeline(_ context.Context, _ pipelineHandle) error {
+	return nil
+}
+
+var _ constructionPipelineAccess = (*failOncePipeline)(nil)
+
+// Empty ReviewPolicy → no suspend, all phases dispatch. Byte-for-byte today's behavior.
+func Test_Construct_EmptyPolicy_NoGate_WalksAllPhases(t *testing.T) {
+	pipe := runPumpWith(t, sampleActivity()) // fakeProjectState default policy = empty
+	if len(pipe.submitted) != 5 {
+		t.Fatalf("empty policy submitted %d, want 5", len(pipe.submitted))
+	}
+}
+
+// A gated phase suspends until the matching-phase Approve arrives, which records the
+// phase completion to head-state.
+func Test_Construct_GatedPhase_ApproveRecordsCompleted(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(projectstate.ReviewPolicy{GatedPhasesByType: map[string][]projectstate.ActivityMethodPhase{
+		"service": {projectstate.MethodPhaseDetailedDesign},
+	}})
+	wf := newWorkflows(gateDeps(ps, newFakePipeline()))
+	registerConstruct(env, wf)
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalPhaseDecision, phaseDecisionSignal{Phase: "detailed_design", Decision: PhaseApprove})
+	}, 30*time.Second)
+	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{ProjectID: "p", ActivityID: "C-Orders", Activity: sampleActivity()})
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	if !ps.phaseCompleted("C-Orders", "detailed_design") {
+		t.Error("expected RecordPhaseCompleted(detailed_design) after approval")
+	}
+}
+
+// The gate is phase-multiplexed: a decision for a DIFFERENT phase is ignored; only the
+// matching-phase decision releases the gate.
+func Test_Construct_GatedPhase_StaleSignalIgnored(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(projectstate.ReviewPolicy{GatedPhasesByType: map[string][]projectstate.ActivityMethodPhase{
+		"service": {projectstate.MethodPhaseDetailedDesign},
+	}})
+	wf := newWorkflows(gateDeps(ps, newFakePipeline()))
+	registerConstruct(env, wf)
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalPhaseDecision, phaseDecisionSignal{Phase: "requirements", Decision: PhaseApprove}) // wrong phase
+	}, 10*time.Second)
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalPhaseDecision, phaseDecisionSignal{Phase: "detailed_design", Decision: PhaseApprove})
+	}, 40*time.Second)
+	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{ProjectID: "p", ActivityID: "C-Orders", Activity: sampleActivity()})
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	if !ps.phaseCompleted("C-Orders", "detailed_design") {
+		t.Error("gate must release only on the matching-phase decision")
+	}
+}
+
+func Test_Construct_VarianceRetry_DoesNotReGateApprovedPhase(t *testing.T) {
+	// THE resumability guarantee: approve an early gated phase, then force a LATER phase's
+	// pipeline to fail once (→ variance retry re-walks from index 0). The already-approved
+	// phase must NOT re-suspend — the in-memory completedPhases set skips it.
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(projectstate.ReviewPolicy{GatedPhasesByType: map[string][]projectstate.ActivityMethodPhase{
+		"service": {projectstate.MethodPhaseRequirements}, // gate phase 0
+	}})
+	pipe := newFakePipelineFailingOnce("test_plan") // phase 2 fails once, then succeeds
+	wf := newWorkflows(gateDeps(ps, pipe))
+	registerConstruct(env, wf)
+	approvals := 0
+	env.RegisterDelayedCallback(func() {
+		approvals++
+		env.SignalWorkflow(signalPhaseDecision, phaseDecisionSignal{Phase: "requirements", Decision: PhaseApprove})
+	}, 20*time.Second)
+	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{ProjectID: "p", ActivityID: "C-Orders", Activity: sampleActivity()})
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	// If the retry re-gated phase 0, the workflow would block waiting for a 2nd approval that
+	// never comes (test times out) — reaching completion with a single approval proves it did not.
+	if approvals != 1 {
+		t.Fatalf("expected exactly 1 approval (phase 0 not re-gated on retry), got %d", approvals)
 	}
 }
 

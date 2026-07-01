@@ -143,6 +143,14 @@ type constructionActivity struct {
 	Phases       []projectstate.ActivityMethodPhase
 }
 
+// activityTypeName returns the canonical activity-type wire name
+// ("service"/"frontend"/"testing") derived from the activity id. These are the exact
+// keys the ReviewPolicy's GatedPhasesByType map is keyed by (and the keys the webApp
+// PolicyPanel must emit) — the gate consults RequiresHuman(activityTypeName(), phase).
+func (a constructionActivity) activityTypeName() string {
+	return projectstate.DeriveType(a.ActivityID).String()
+}
+
 // activityKind is the Manager-local activity-kind vocabulary.
 type activityKind int
 

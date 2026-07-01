@@ -2,6 +2,7 @@ package construction
 
 import (
 	"errors"
+	"sort"
 	"strings"
 	"time"
 
@@ -133,6 +134,11 @@ const (
 	// maxVarianceAttempts bounds the dispatch→review→variance supervision loop
 	// before the Engine's Escalate/Takeover must terminate it.
 	maxVarianceAttempts = 10
+	// maxPhaseRedrafts bounds a gated phase's human-paced SendBack redraft budget —
+	// SEPARATE from maxVarianceAttempts. SendBack is NOT a variance: it redrafts THIS
+	// phase in place; on exhaustion the gate keeps awaiting the human (it never
+	// re-enters the variance loop or fails the activity).
+	maxPhaseRedrafts = 5
 	// pipelinePollInterval is the durable wait between observeConstructionPipeline
 	// polls (the Manager's own startTimer cadence; §6.3 step 3).
 	pipelinePollInterval = 15 * time.Second
@@ -323,6 +329,25 @@ type constructState struct {
 	pipelinePhase *PipelinePhase
 	reviewSet     *ReviewSet
 	variance      *FlaggedVariance
+
+	// completedPhases is the LIVE in-memory skip-guard the phase loop consults so an
+	// already-completed phase is never re-dispatched or re-gated. It is SEEDED at
+	// workflow start from the start-snapshot activity's PhaseCompletion slice and
+	// MARKED unconditionally on EVERY phase completion (Approve / no-gate / inert) —
+	// independent of gitOn. This is what stops the outer variance-retry loop (which
+	// re-walks phases from index 0) from re-gating an already-approved phase across a
+	// non-git execution where no head-state completion record exists to re-read.
+	completedPhases map[projectstate.ActivityMethodPhase]bool
+
+	// redraftExhausted records that a gated phase burned its human-paced SendBack
+	// redraft budget. It does NOT fail the activity or re-enter the variance loop — the
+	// gate keeps awaiting the human; the flag surfaces that redrafting is spent.
+	redraftExhausted bool
+
+	// reviewContracts is the per-execution set of contract identifiers captured from
+	// the start-snapshot project (B5) and fed to reviewEngine.ProposeReviews so the
+	// gate's reviewer set is display-populated without re-reading mid-loop.
+	reviewContracts []string
 }
 
 func (s *constructState) view() (ConstructionSessionView, error) {
@@ -340,13 +365,39 @@ func (s *constructState) view() (ConstructionSessionView, error) {
 func (wf *workflows) ConstructActivityWorkflow(ctx workflow.Context, in constructActivityInput) error {
 	logger := workflow.GetLogger(ctx)
 
-	state := &constructState{projectID: in.ProjectID, activityID: in.ActivityID, stage: StageDispatching}
+	state := &constructState{
+		projectID:       in.ProjectID,
+		activityID:      in.ActivityID,
+		stage:           StageDispatching,
+		completedPhases: map[projectstate.ActivityMethodPhase]bool{},
+	}
 	if err := workflow.SetQueryHandler(ctx, querySessionState, state.view); err != nil {
 		return err
 	}
 
 	// Operator-override signal channel (constructionManager.md §6.3 override branch).
 	overrideCh := workflow.GetSignalChannel(ctx, signalOperatorOverride)
+
+	// --- Per-execution snapshot (B5): read the project ONCE at workflow start (an
+	// Activity, recorded in history → replay-safe) and capture the committed
+	// ReviewPolicy BY VALUE. This is the gate's ONLY policy source; it is NEVER re-read
+	// mid-loop (that would be non-deterministic). The same snapshot seeds the LIVE
+	// completedPhases skip-guard (B2 resumability) from the activity's PhaseCompletion
+	// slice, so a workflow that resumes after an approval does not re-gate a phase whose
+	// completion already landed in head-state.
+	snap, srErr := wf.readProject(ctx, in.ProjectID)
+	if srErr != nil && !isReadNotFound(srErr) {
+		return srErr
+	}
+	reviewPolicy := snap.ReviewPolicy
+	if acs, ok := snap.ActivityConstruction[string(in.ActivityID)]; ok {
+		for _, pc := range acs.Phases {
+			if pc.Completed {
+				state.completedPhases[pc.Phase] = true
+			}
+		}
+	}
+	state.reviewContracts = snapshotContractKeys(snap)
 
 	// Carry expectedVersion forward (read-your-writes; §6.5).
 	headVersion := wf.readVersion(ctx, in.ProjectID)
@@ -448,6 +499,13 @@ func (wf *workflows) ConstructActivityWorkflow(ctx workflow.Context, in construc
 		}
 		phaseFailed := false
 		for _, phase := range in.Activity.Phases {
+			// LIVE skip-guard (B2): an already-completed phase (seeded at start or marked
+			// on a prior loop iteration) is never re-dispatched or re-gated. This is what
+			// keeps the outer variance-retry (which re-walks from index 0) from re-gating
+			// an already-approved phase.
+			if state.completedPhases[phase] {
+				continue
+			}
 			state.stage = StagePipelineRunning
 			obs, perr := wf.runPipeline(ctx, in, phase, state, &gf, &headVersion)
 			if perr != nil {
@@ -464,6 +522,15 @@ func (wf *workflows) ConstructActivityWorkflow(ctx workflow.Context, in construc
 				}
 				phaseFailed = true
 				break
+			}
+			// Conditional per-phase approval gate (Task 6): records the phase start and —
+			// iff the policy requires a human for this (activityType, phase) — suspends on
+			// the phase-multiplexed decision signal. Approve/no-gate mark completion; a
+			// terminal gate exit (done) has already recorded the activity.
+			if done, gErr := wf.runPhaseGate(ctx, in, phase, reviewPolicy, state, &gf, &headVersion, gitOn, startedCred); gErr != nil {
+				return gErr
+			} else if done {
+				return nil
 			}
 		}
 		if phaseFailed {
@@ -552,6 +619,182 @@ func (wf *workflows) runPipeline(ctx workflow.Context, in constructActivityInput
 		_ = workflow.Sleep(ctx, pipelinePollInterval)
 	}
 	return pipelineObservation{Phase: PipelineFailed, Diagnostic: "pipeline did not reach a terminal phase within the poll budget"}, nil
+}
+
+// ---------------------------------------------------------------------------
+// Conditional per-phase approval gate (Task 6). runPhaseGate records the phase
+// start, and — iff the committed ReviewPolicy requires a human for this
+// (activityType, phase) — suspends on the phase-multiplexed decision signal. Approve
+// records completion; SendBack redrafts THIS phase up to maxPhaseRedrafts and then
+// (mirroring systemdesign) KEEPS awaiting the human — it NEVER re-enters the variance
+// loop and never fails the activity. Returns done=true only when the gate has
+// terminally recorded this activity (there is no such terminal in v1, but the
+// signature preserves that seam). The phase-start / head-state records are gated on
+// gitOn so the empty-policy / non-git path is byte-for-byte today's behavior (aside
+// from the in-memory completedPhases bookkeeping).
+func (wf *workflows) runPhaseGate(
+	ctx workflow.Context,
+	in constructActivityInput,
+	phase projectstate.ActivityMethodPhase,
+	policy projectstate.ReviewPolicy,
+	state *constructState,
+	gf *gitForward,
+	headVersion *projectstate.Version,
+	gitOn bool,
+	cred railCredEnvelope,
+) (bool, error) {
+	if gitOn {
+		v, e := wf.recordPhaseStarted(ctx, in, phase, *headVersion, cred)
+		if e != nil {
+			return false, e
+		}
+		*headVersion = v
+	}
+
+	// Inert policy (or a phase this policy does not gate) → complete immediately (no
+	// suspend). completePhase marks the in-memory set UNCONDITIONALLY.
+	if !policy.RequiresHuman(in.Activity.activityTypeName(), phase) {
+		return false, wf.completePhase(ctx, in, phase, state, headVersion, gitOn, cred)
+	}
+
+	// Surface the reviewer set on the session view (display-only in v1; on engine error
+	// leave it unset and still gate — the human Approve/SendBack is the enforced gate).
+	if rs, e := wf.proposeReviewSet(in, phase, state); e == nil {
+		state.reviewSet = &rs // NOTE: *ReviewSet (B6)
+	}
+
+	return wf.awaitPhaseDecision(ctx, in, phase, state, gf, headVersion, gitOn, cred)
+}
+
+// awaitPhaseDecision is the suspend + redraft loop of the gate (extracted so
+// runPhaseGate stays under the gocognit budget). It drains the phase-multiplexed
+// decision channel until a decision for THIS phase arrives, then acts on it: Approve
+// completes the phase; SendBack redrafts THIS phase in place (its OWN redraft budget,
+// NOT the variance budget); on redraft exhaustion it keeps awaiting the human.
+func (wf *workflows) awaitPhaseDecision(
+	ctx workflow.Context,
+	in constructActivityInput,
+	phase projectstate.ActivityMethodPhase,
+	state *constructState,
+	gf *gitForward,
+	headVersion *projectstate.Version,
+	gitOn bool,
+	cred railCredEnvelope,
+) (bool, error) {
+	ch := workflow.GetSignalChannel(ctx, signalPhaseDecision)
+	redraft := 0
+	for {
+		state.stage = StageAwaitingApproval
+		sig := receivePhaseDecision(ctx, ch, phase)
+		switch sig.Decision {
+		case PhaseApprove:
+			return false, wf.completePhase(ctx, in, phase, state, headVersion, gitOn, cred)
+		case PhaseSendBack:
+			redraft++
+			if redraft >= maxPhaseRedrafts {
+				// Exhausted the human-paced redraft budget. Do NOT fail the activity and do
+				// NOT re-enter the variance loop — keep awaiting the human, surfacing that
+				// redrafting is spent (mirrors systemdesign's anti-wedge staging).
+				state.redraftExhausted = true
+				workflow.GetLogger(ctx).Warn("phase redraft budget exhausted; keep awaiting human decision",
+					"activityId", in.ActivityID, "phase", phase.String(), "exhausted", state.redraftExhausted)
+				continue
+			}
+			state.stage = StagePipelineRunning
+			if _, e := wf.runPipeline(ctx, in, phase, state, gf, headVersion); e != nil {
+				return false, e
+			}
+		default:
+			// Unknown decision: ignore and keep awaiting the human.
+		}
+	}
+}
+
+// receivePhaseDecision blocks on the decision channel, draining and DISCARDING
+// decisions for other phases (stale/multiplexed), until one for THIS phase arrives.
+func receivePhaseDecision(ctx workflow.Context, ch workflow.ReceiveChannel, phase projectstate.ActivityMethodPhase) phaseDecisionSignal {
+	var sig phaseDecisionSignal
+	for {
+		ch.Receive(ctx, &sig)
+		if sig.Phase == phase.String() {
+			return sig
+		}
+	}
+}
+
+// completePhase is the SINGLE phase-completion path (both the no-gate branch and the
+// Approve branch call it). It MARKS the LIVE in-memory completedPhases set
+// UNCONDITIONALLY (this is what closes the variance-retry re-gate and the non-git
+// case where no head-state completion record exists to re-read), THEN records the
+// completion to head-state via the Task-5 RecordPhaseCompleted (artifactRef="") ONLY
+// when gitOn.
+func (wf *workflows) completePhase(
+	ctx workflow.Context,
+	in constructActivityInput,
+	phase projectstate.ActivityMethodPhase,
+	state *constructState,
+	headVersion *projectstate.Version,
+	gitOn bool,
+	cred railCredEnvelope,
+) error {
+	state.completedPhases[phase] = true
+	if !gitOn {
+		return nil
+	}
+	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		rc := recordOpts(ctx)
+		var out projectstate.Version
+		e := workflow.ExecuteActivity(rc, wf.RecordPhaseCompletedActivity, recordPhaseCompletedArgs{
+			ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected,
+			ActivityID: string(in.ActivityID), Phase: phase, ArtifactRef: "", Cred: cred,
+		}).Get(ctx, &out)
+		return out, e
+	})
+	if err != nil {
+		return err
+	}
+	*headVersion = v
+	return nil
+}
+
+// recordPhaseStarted records the phase-started head-state transition (Task-5
+// RecordPhaseStarted) through the §6.5 Conflict loop. Gated on gitOn by the caller.
+func (wf *workflows) recordPhaseStarted(ctx workflow.Context, in constructActivityInput, phase projectstate.ActivityMethodPhase, seed projectstate.Version, cred railCredEnvelope) (projectstate.Version, error) {
+	return wf.applyRecovering(ctx, in.ProjectID, seed, func(expected projectstate.Version) (projectstate.Version, error) {
+		rc := recordOpts(ctx)
+		var out projectstate.Version
+		e := workflow.ExecuteActivity(rc, wf.RecordPhaseStartedActivity, recordPhaseStartedArgs{
+			ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected,
+			ActivityID: string(in.ActivityID), Phase: phase, Cred: cred,
+		}).Get(ctx, &out)
+		return out, e
+	})
+}
+
+// proposeReviewSet builds the reviewChange + artifactKind for this activity/phase and
+// calls the PURE reviewEngine directly (deterministic, replay-safe). The contracts are
+// sourced from the start-snapshot project (B5); the architecture graph is not carried
+// across the pump's projectEnvelope, so it is passed empty (the reviewer set is
+// display-only in v1).
+func (wf *workflows) proposeReviewSet(in constructActivityInput, phase projectstate.ActivityMethodPhase, state *constructState) (ReviewSet, error) {
+	change := reviewChange{ActivityID: string(in.ActivityID), ComponentID: in.Activity.ComponentID}
+	return wf.Review.ProposeReviews(change, in.Activity.ComponentID, phase.String(), "", state.reviewContracts)
+}
+
+// snapshotContractKeys derives the deterministic (sorted) set of contract identifiers
+// from the start-snapshot project's committed service contracts — the display input
+// for the gate's reviewer set. Sorted so the derived slice is replay-stable (map
+// iteration order is randomized).
+func snapshotContractKeys(p projectstate.Project) []string {
+	if len(p.ServiceContracts) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(p.ServiceContracts))
+	for k := range p.ServiceContracts {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // handleVariance is the DECIDE→EXECUTE machinery for an automatically-detected
