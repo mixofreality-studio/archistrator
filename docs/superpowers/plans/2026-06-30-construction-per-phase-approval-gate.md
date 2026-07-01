@@ -14,7 +14,7 @@
 - **No parallel policy struct, no "sub-workflow."** Reuse: the Phase-1/2 gate shape (stage→suspend→decide), `reviewEngine.ProposeReviews` (who reviews — `deps.go:288`, currently uncalled in construction), and `handOffPolicy` (human-vs-AI actor). The only net-new policy is the per-project committed `ReviewPolicy` (whether a human must approve, which phases).
 - **Default inert:** an empty `ReviewPolicy` gates nothing → the phase loop behaves exactly as today. "Approve every step" = all phases listed; "pure vibes" = empty. Prove with a test.
 - **SendBack ≠ variance.** SendBack redrafts THIS phase (mirror system-design reject→redraft, `systemdesign/workflow.go:712-735`), with a human-paced counter SEPARATE from `maxVarianceAttempts`. On budget exhaustion, keep awaiting the human (or `recordActivityFailed` THIS activity) — do NOT `phaseFailed=true; continue` (that re-enters the `for attempt` variance loop at `workflow.go:375`, restarts from phase 0, re-gates approved phases, and burns the failure budget). Never route SendBack through `handleVariance`/`overrideCh`.
-- **Resumable phase loop:** at the top of each phase, if head-state already has `RecordPhaseCompleted` for it, SKIP dispatch and the gate. Without this, any variance retry re-suspends for approval on already-approved phases (`workflow.go:450-471` has no resume cursor today).
+- **Resumable phase loop via a LIVE in-memory completed-set (not a head-state re-read).** Keep a `map[ActivityMethodPhase]bool` on `constructState`, SEEDED at workflow start from the snapshot's `PhaseCompletion` slice, and MARKED on **every** phase completion — the Approve path, the no-gate path, and the inert path — **unconditionally (independent of `gitOn`)**. At the top of each phase, skip dispatch+gate if the set contains it. This is deterministic (no mid-loop I/O) and is the ONLY thing that closes the variance-retry re-walk: the outer `for attempt` loop (`workflow.go:375`) re-walks `in.Activity.Phases` from index 0 on any pipeline failure, so without an intra-execution memory of approved phases it re-suspends them. A start-snapshot read alone does NOT close this (it predates this execution's approvals) and the non-git path never writes head-state at all — hence the in-memory set.
 - **`RecordPhaseStarted`/`RecordPhaseCompleted` need Activity wrappers.** They live on the `constructionTransitionAccess` seam (`deps.go:61-62`) — a workflow cannot call RA I/O directly. Add `RecordPhaseStartedActivity`/`RecordPhaseCompletedActivity` (+ args structs + name consts + `worker.go` `RegisterActivityWithOptions`). Wire the pair together.
 - **`gitOn` no-op:** gate the phase-records on the existing `gitOn` condition (as `recordActivityStarted`/`recordActivityCompleted` are, `workflow.go:364-368,507-511`) so the no-gate path is a true no-op = today.
 - **Phase-multiplexed signal:** the gate is one step inside the per-*activity* workflow (`{projectId}:{activityId}`) looping many phases, so `SubmitPhaseDecision` MUST carry which phase it answers; drain-until-matching-phase, reject stale.
@@ -145,7 +145,7 @@ func ReviewPolicyFromGateIDs(byType map[string][]string) ReviewPolicy {
 
 - [ ] **Step 4: Persist on `Project`**
 
-In `artifactmodel.go` add to `Project` (near `OperatorPaused`): `ReviewPolicy ReviewPolicy `json:"reviewPolicy,omitempty"``. In `gitstore.go`, add the field to `projectDoc` and its encode+decode (mirror `OperatorPaused`/`PauseReason`, cited `:719-724`). Confirm round-trip symmetry.
+In `artifactmodel.go` add to `Project` (near `OperatorPaused`): `ReviewPolicy ReviewPolicy `json:"reviewPolicy,omitempty"``. In `gitstore.go`, add the field in ALL THREE `projectDoc` legs — the `projectDoc` STRUCT (~`:719-724`), the DECODE leg (~`:775-776`), and the ENCODE leg (~`:906-907`) — mirroring `OperatorPaused`/`PauseReason` in each. Missing the encode or decode leg silently drops the policy on round-trip. Confirm round-trip symmetry with a test that sets a `ReviewPolicy`, encodes, decodes, and asserts equality.
 
 - [ ] **Step 5: Run to verify it passes + round-trip**
 
@@ -259,7 +259,7 @@ Make the dormant `RecordPhaseStarted`/`RecordPhaseCompleted` callable from the w
 
 - [ ] **Step 2: Run → FAIL** (undefined).
 
-- [ ] **Step 3: Implement** — add the two Activity methods (mirror `RecordChangeReviewedActivity` in `activities.go`: build args, call `wf.Transition.RecordPhaseStarted(...)`/`RecordPhaseCompleted(...)`, return version). Add the two name consts and two `RegisterActivityWithOptions(wf.RecordPhaseStartedActivity, activity.RegisterOptions{Name: actRecordPhaseStarted})` lines in `worker.go:132-159`.
+- [ ] **Step 3: Implement** — add the two Activity methods (mirror `RecordActivityExitedActivity` in `activities.go:146-157`: build args, call `wf.Transition.RecordPhaseStarted(...)`/`RecordPhaseCompleted(...)`, return version). NOTE: `RecordPhaseCompleted` takes an `artifactRef string` param (`deps.go:62`) — `recordPhaseCompletedArgs` must carry it and the wrapper pass it through (the gate passes `""` unless a phase artifact ref is available). Add the two name consts and two `RegisterActivityWithOptions(wf.RecordPhaseStartedActivity, activity.RegisterOptions{Name: actRecordPhaseStarted})` lines in the `worker.go:132-159` registration block.
 
 - [ ] **Step 4: Run → PASS** + `GOWORK=off go build ./...`.
 
@@ -332,18 +332,48 @@ func Test_Construct_GatedPhase_StaleSignalIgnored(t *testing.T) {
 }
 ```
 
-Add helpers `newFakeProjectStateWithPolicy`, `gateDeps` (a `wfDeps` builder), and the fake's `phaseCompleted`.
+```go
+func Test_Construct_VarianceRetry_DoesNotReGateApprovedPhase(t *testing.T) {
+	// THE resumability guarantee: approve an early gated phase, then force a LATER phase's
+	// pipeline to fail once (→ variance retry re-walks from index 0). The already-approved
+	// phase must NOT re-suspend — the in-memory completedPhases set skips it.
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(projectstate.ReviewPolicy{GatedPhasesByType: map[string][]projectstate.ActivityMethodPhase{
+		"service": {projectstate.MethodPhaseRequirements}, // gate phase 0
+	}})
+	pipe := newFakePipelineFailingOnce("test_plan") // phase 2 fails once, then succeeds
+	wf := newWorkflows(gateDeps(ps, pipe))
+	registerConstruct(env, wf)
+	approvals := 0
+	env.RegisterDelayedCallback(func() {
+		approvals++
+		env.SignalWorkflow(signalPhaseDecision, phaseDecisionSignal{Phase: "requirements", Decision: PhaseApprove})
+	}, 20*time.Second)
+	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{ProjectID: "p", ActivityID: "C-Orders", Activity: sampleActivity()})
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	// If the retry re-gated phase 0, the workflow would block waiting for a 2nd approval that
+	// never comes (test times out) — reaching completion with a single approval proves it did not.
+	if approvals != 1 {
+		t.Fatalf("expected exactly 1 approval (phase 0 not re-gated on retry), got %d", approvals)
+	}
+}
+```
+
+Add helpers `newFakeProjectStateWithPolicy`, `newFakePipelineFailingOnce(phase)`, `gateDeps` (a `wfDeps` builder), and the fake's `phaseCompleted`.
 
 - [ ] **Step 2: Run → FAIL** (no gate; helpers undefined).
 
 - [ ] **Step 3: Implement**
 
-**Snapshot at start:** near workflow entry (before the `for attempt` loop), read the project once and capture `reviewPolicy := proj.ReviewPolicy` by value (deterministic; do NOT re-read mid-loop). Thread it into the loop scope.
+**Snapshot at start:** near workflow entry (before the `for attempt` loop), read the project once (via the existing `ReadProjectActivity`, recorded in history → replay-safe) and capture `reviewPolicy := proj.ReviewPolicy` by value (deterministic; do NOT re-read mid-loop). ALSO seed `state.completedPhases` from that activity's `PhaseCompletion` slice (`activityconstructionstatus.go:98,122`): `for _, pc := range acs.Phases { if pc.Completed { state.completedPhases[pc.Phase] = true } }`. Add `completedPhases map[projectstate.ActivityMethodPhase]bool` and `redraftExhausted bool` to `constructState` (`workflow.go:319-326`) and initialize the map when `state` is built.
 
 **Resumable + gate in the loop** (`workflow.go:450`):
 ```go
 for _, phase := range in.Activity.Phases {
-	if state.phaseAlreadyDone(phase) { // reads head-state PhaseCompletion (resumable skip-guard)
+	if state.completedPhases[phase] { // live in-memory skip-guard (seeded at start, marked on every completion)
 		continue
 	}
 	state.stage = StagePipelineRunning
@@ -381,7 +411,7 @@ func (wf *workflows) runPhaseGate(ctx workflow.Context, in constructActivityInpu
 		}
 	}
 	if !policy.RequiresHuman(in.Activity.activityTypeName(), phase) {
-		return false, wf.recordPhaseCompletedIfGit(ctx, in, phase, headVersion, gitOn, cred)
+		return false, wf.completePhase(ctx, in, phase, state, headVersion, gitOn, cred)
 	}
 	if rs, e := wf.proposeReviewSet(ctx, in, phase); e == nil {
 		state.reviewSet = &rs // NOTE: pointer
@@ -399,12 +429,16 @@ func (wf *workflows) runPhaseGate(ctx workflow.Context, in constructActivityInpu
 		}
 		switch sig.Decision {
 		case PhaseApprove:
-			return false, wf.recordPhaseCompletedIfGit(ctx, in, phase, headVersion, gitOn, cred)
+			return false, wf.completePhase(ctx, in, phase, state, headVersion, gitOn, cred)
 		case PhaseSendBack:
 			redraft++
 			if redraft >= maxPhaseRedrafts {
-				// Mirror systemdesign exhaustion: do NOT restart the activity; keep awaiting
-				// the human. (Alternatively record a terminal failure for THIS activity.)
+				// Exhausted the human-paced redraft budget. Mirror systemdesign
+				// (workflow.go:615-628,838-851): do NOT restart the activity and do NOT
+				// re-enter the variance loop — keep awaiting the human, but surface an
+				// exhaustion warning on the session view so the human knows redrafting is
+				// spent (set state.redraftExhausted = true; render it in ConstructionSessionView).
+				state.redraftExhausted = true
 				continue
 			}
 			state.stage = StagePipelineRunning
@@ -418,7 +452,15 @@ func (wf *workflows) runPhaseGate(ctx workflow.Context, in constructActivityInpu
 }
 ```
 
-Add `const maxPhaseRedrafts = 5` (separate from `maxVarianceAttempts`). Implement `state.phaseAlreadyDone(phase)` (reads the activity's `PhaseCompletion` from head-state / the project the workflow already holds), `recordPhaseStarted`/`recordPhaseCompletedIfGit` (call the Task-5 Activities; the completed variant is a no-op when `!gitOn`), `proposeReviewSet` (build `reviewChange`+artifactKind from `in.Activity`+phase, pass the project's `architectureGraph`+`contracts` — source them from the project the workflow read at start; on engine error return the zero set so the gate still functions), and `constructionActivity.activityTypeName()` (returns `projectstate.DeriveType(activityID).String()`). For the review-bearing phase the existing `relayArchApprovalAndRecord`/`recordChangeReviewed` stay the durable record — do not add a second gate.
+Add `const maxPhaseRedrafts = 5` (separate from `maxVarianceAttempts`). Implement:
+- `wf.completePhase(ctx, in, phase, state, headVersion, gitOn, cred)` — the SINGLE completion path: it MARKS `state.completedPhases[phase] = true` **unconditionally** (this is what closes the variance-retry re-gate and the non-git case), THEN records to head-state via the Task-5 `RecordPhaseCompletedActivity` (passing `artifactRef=""`) ONLY when `gitOn`. Both the no-gate and Approve branches call it.
+- `wf.recordPhaseStarted(...)` — calls the Task-5 `RecordPhaseStartedActivity`; gated on `gitOn` by the caller.
+- `wf.proposeReviewSet(ctx, in, phase)` — build `reviewChange`+artifactKind from `in.Activity`+phase, pass the project's `architectureGraph`+`contracts` sourced from the start-snapshot project; on engine error return the zero set so the gate still functions (display-only).
+- `constructionActivity.activityTypeName()` — returns `projectstate.DeriveType(activityID).String()` (yields `"service"/"frontend"/"testing"`, `corpusderive.go:39-47`). **Seam note:** these exact wire names are the keys the webApp `PolicyPanel` must emit in `gatedPhasesByType` — Task 9 must assert this alignment, not assume it.
+
+For the review-bearing phase the existing `relayArchApprovalAndRecord`/`recordChangeReviewed` stay the durable record — do not add a second gate.
+
+**Known limitation (v1, intentional):** the gate suspends on a single human Approve/SendBack; `ProposeReviews`' reviewer set is SURFACED on the session view but not per-reviewer ENFORCED. This matches the founder's model ("policy configures *if* a human is required"). Per-reviewer sign-off is a follow-up, not this plan.
 
 - [ ] **Step 4: Run → PASS**
 
@@ -450,7 +492,7 @@ Expected: PASS (empty-policy walks all 5; gated approve records completed; stale
 
 - [ ] **Step 1:** Create `components/construction/PhaseGatePanel.tsx` (mirror `design/GatePanel.tsx:133-164` — Approve & continue / Send back, `pending` prop, shows the phase label + `reviewSet`). 
 - [ ] **Step 2:** In the construction console screen, when `ConstructionSessionView.stage === StageAwaitingApproval`, render `PhaseGatePanel` wired to `useSubmitPhaseDecision` (mirror `DesignExperience.tsx:188-217`).
-- [ ] **Step 3:** Rewrite `PolicyPanel.tsx` to drive from `useUpdateReviewPolicy` (toggling a rule POSTs the per-type gate list) instead of client-only `useState`; remove the "client-only, no backend" comment; add the "edits apply to newly-started activities" note.
+- [ ] **Step 3:** Rewrite `PolicyPanel.tsx` to drive from `useUpdateReviewPolicy` (toggling a rule POSTs the per-type gate list) instead of client-only `useState`; remove the "client-only, no backend" comment; add the "edits apply to newly-started activities" note. **Seam:** the `gatedPhasesByType` keys must be the exact `ActivityType` wire names the server emits — `"service"/"frontend"/"testing"` (from `DeriveType(...).String()`, Task 6). Assert this alignment (e.g. a small typed constant shared with the panel), do not hardcode-and-hope.
 - [ ] **Step 4:** `npm run check && npm run build` → clean.
 - [ ] **Step 5:** Commit — `feat(webapp): construction PhaseGatePanel + live ReviewPolicy editor`.
 
@@ -460,7 +502,7 @@ Expected: PASS (empty-policy walks all 5; gated approve records completed; stale
 
 **Design (founder + architect) coverage:** per-project committed editable ReviewPolicy → Task 1 (model+persist), Task 4 (UpdateReviewPolicy op). Reuse existing gate/engine, no parallel struct/sub-workflow → Task 6 (`ProposeReviews` + conditional suspend; no `checkpointPolicy`). Inert default → Task 1 (zero value), Task 7 Step 2 (empty + non-git proof).
 
-**Architect blocking fixes:** B1 redraft exhaustion keeps awaiting human, never `phaseFailed=true;continue` → Task 6 (`maxPhaseRedrafts` → `continue` the await loop, not the outer variance loop). B2 resumable skip-guard → Task 6 (`state.phaseAlreadyDone`). B3 phase-record Activity wrappers + registration → Task 5 (own task). B4 policy route exists → Task 2 + Task 4 (`UpdateReviewPolicy`). B5 per-exec snapshot from project state → Task 6 Step 3 (read at start, by value) + the "newly-started only" note (Task 9). B6 gitOn no-op → Task 6 (`recordPhaseStarted`/`recordPhaseCompletedIfGit` gated on `gitOn`) + Task 7 non-git test. Non-blocking: `&rs` pointer (Task 6), error-stub not panic (Task 2 Step 3), `ProposeReviews` arch-graph/contracts from the read project (Task 6 Step 3).
+**Architect blocking fixes (v1 + re-review):** B1 redraft exhaustion keeps awaiting human (never `phaseFailed=true;continue`) + surfaces `state.redraftExhausted` on the session view → Task 6. **B2 (re-review): resumable via a LIVE in-memory `state.completedPhases` set** — seeded at workflow start from the snapshot's `PhaseCompletion`, marked on EVERY completion unconditionally (`completePhase`), so the outer variance-retry re-walk skips approved phases even in the non-git case → Task 6 + the `Test_Construct_VarianceRetry_DoesNotReGateApprovedPhase` test. B3 phase-record Activity wrappers + registration (with `artifactRef` param) → Task 5. B4 policy route exists → Task 2 + Task 4. B5 per-exec snapshot from project state → Task 6 Step 3 + "newly-started only" note (Task 9). B6 gitOn no-op → Task 6 (`completePhase` marks the in-memory set always but writes head-state only when `gitOn`) + Task 7 non-git test. Non-blocking: `&rs` pointer (Task 6), error-stub not panic (Task 2 Step 3), `ProposeReviews` arch-graph/contracts from the read project (Task 6), all three `projectDoc` legs (Task 1 Step 4), activityType wire-name seam (Task 6/9), boolean-gate known-limitation noted (Task 6).
 
 **Placeholder scan:** no TBD/TODO; Task 5 Step 1 explicitly flags the fallback (cover via Task 6) if no direct activity unit test exists. Every code step shows real code or cites the exact pattern file:line to mirror.
 
