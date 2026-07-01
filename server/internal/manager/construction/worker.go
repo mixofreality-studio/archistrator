@@ -74,6 +74,10 @@ const (
 	// per-activity construction head-state (Task 3): started/completed lifecycle.
 	actRecordActivityStarted   = "RecordActivityStartedActivity"
 	actRecordActivityCompleted = "RecordActivityCompletedActivity"
+
+	// phase-record head-state (Task 5): phase started/completed lifecycle.
+	actRecordPhaseStarted   = "RecordPhaseStartedActivity"
+	actRecordPhaseCompleted = "RecordPhaseCompletedActivity"
 )
 
 // RegisterWorker wires the constructionManager onto a Temporal Worker polling the
@@ -160,4 +164,6 @@ func RegisterWorker(w worker.Worker, m ConstructionManager) {
 	w.RegisterActivityWithOptions(wf.RecordActivityMergedActivity, activity.RegisterOptions{Name: actRecordActivityMerged})
 	w.RegisterActivityWithOptions(wf.RecordActivityStartedActivity, activity.RegisterOptions{Name: actRecordActivityStarted})
 	w.RegisterActivityWithOptions(wf.RecordActivityCompletedActivity, activity.RegisterOptions{Name: actRecordActivityCompleted})
+	w.RegisterActivityWithOptions(wf.RecordPhaseStartedActivity, activity.RegisterOptions{Name: actRecordPhaseStarted})
+	w.RegisterActivityWithOptions(wf.RecordPhaseCompletedActivity, activity.RegisterOptions{Name: actRecordPhaseCompleted})
 }

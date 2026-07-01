@@ -182,3 +182,31 @@ type recordOperatorPausedArgs struct {
 func (wf *workflows) RecordOperatorPausedActivity(ctx context.Context, a recordOperatorPausedArgs) (projectstate.Version, error) {
 	return mapErr(wf.ConstructionTransition.RecordOperatorPaused(ctx, a.ProjectID, a.ExpectedVersion, a.Reason, a.Cred.toProjectState(), activityIdempotencyKey(ctx)))
 }
+
+// recordPhaseStartedArgs bundles the inputs for RecordPhaseStarted.
+type recordPhaseStartedArgs struct {
+	ProjectID       projectstate.ProjectID
+	ExpectedVersion projectstate.Version
+	ActivityID      string
+	Phase           projectstate.ActivityMethodPhase
+	Cred            railCredEnvelope
+}
+
+func (wf *workflows) RecordPhaseStartedActivity(ctx context.Context, a recordPhaseStartedArgs) (projectstate.Version, error) {
+	return mapErr(wf.ConstructionTransition.RecordPhaseStarted(ctx, a.ProjectID, a.ExpectedVersion, a.ActivityID, a.Phase, a.Cred.toProjectState(), activityIdempotencyKey(ctx)))
+}
+
+// recordPhaseCompletedArgs bundles the inputs for RecordPhaseCompleted.
+// ArtifactRef is the content-address of any phase artifact (empty string if none).
+type recordPhaseCompletedArgs struct {
+	ProjectID       projectstate.ProjectID
+	ExpectedVersion projectstate.Version
+	ActivityID      string
+	Phase           projectstate.ActivityMethodPhase
+	ArtifactRef     string
+	Cred            railCredEnvelope
+}
+
+func (wf *workflows) RecordPhaseCompletedActivity(ctx context.Context, a recordPhaseCompletedArgs) (projectstate.Version, error) {
+	return mapErr(wf.ConstructionTransition.RecordPhaseCompleted(ctx, a.ProjectID, a.ExpectedVersion, a.ActivityID, a.Phase, a.ArtifactRef, a.Cred.toProjectState(), activityIdempotencyKey(ctx)))
+}
