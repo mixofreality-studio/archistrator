@@ -192,6 +192,11 @@ type Project struct {
 	// PauseReason is the operator-supplied reason for the pause. Empty when not paused.
 	PauseReason string
 
+	// ReviewPolicy is the per-project committed configuration of which (activity-type,
+	// phase) pairs require human approval during construction. The zero value gates
+	// nothing — the construction loop behaves as before this feature was introduced.
+	ReviewPolicy ReviewPolicy `json:"reviewPolicy,omitempty"`
+
 	// ---- Phase 1 slots ----
 	Mission              ArtifactSlot // Model is *MissionStatement when populated
 	Glossary             ArtifactSlot // Model is *Glossary
