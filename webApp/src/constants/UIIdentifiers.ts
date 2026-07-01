@@ -125,10 +125,14 @@ export const UI_IDENTIFIERS = {
     ACTIVITY_LIFECYCLE_PANEL: 'construction-activity-lifecycle-panel',
     POLICY_PANEL: 'construction-policy-panel',
     policyRowToggle: (kind: string) => `construction-policy-toggle-${kind}`,
+    PHASE_GATE_PANEL: 'construction-phase-gate-panel',
+    PHASE_GATE_APPROVE: 'construction-phase-gate-approve',
+    PHASE_GATE_SENDBACK: 'construction-phase-gate-sendback',
     // Intervention queue + drawer test IDs (U-SPA-INTERVENTION)
     INTERVENTION_QUEUE_COUNT: 'construction-intervention-queue-count',
     interventionQueueCard: (activityId: string) => `construction-intervention-card-${activityId}`,
-    interventionReviewButton: (activityId: string) => `construction-intervention-review-${activityId}`,
+    interventionReviewButton: (activityId: string) =>
+      `construction-intervention-review-${activityId}`,
     INTERVENTION_DRAWER: 'construction-intervention-drawer',
     INTERVENTION_DRAWER_CLOSE: 'construction-intervention-drawer-close',
     INTERVENTION_OPERATOR_BAR: 'construction-intervention-operator-bar',

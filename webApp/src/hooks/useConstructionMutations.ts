@@ -15,9 +15,7 @@ import type { components } from '../api/schema';
 import { constructionSessionKey } from './useConstructionSession';
 import { projectKey } from './useProject';
 
-export function useBeginConstruction(
-  projectId: string
-): UseMutationResult<undefined, Error, void> {
+export function useBeginConstruction(projectId: string): UseMutationResult<undefined, Error, void> {
   const client = useQueryClient();
   return useMutation<undefined>({
     mutationFn: async () => {
@@ -100,7 +98,7 @@ export function useSubmitPhaseDecision(
           body: {
             phase: vars.phase,
             decision: phaseDecisionToOrdinal(vars.decision),
-            feedback: vars.feedback,
+            ...(vars.feedback !== undefined ? { feedback: vars.feedback } : {}),
           },
         }
       );

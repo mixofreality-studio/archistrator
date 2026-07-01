@@ -46,19 +46,18 @@ const ARTIFACT_KIND_BY_ORDINAL: readonly ArtifactKindFull[] = [
   'sdpReview',
 ];
 
-const ARTIFACT_KIND_TO_ORDINAL: Record<ArtifactKindFull, number> =
-  ARTIFACT_KIND_BY_ORDINAL.reduce<Record<string, number>>((acc, kind, i) => {
-    acc[kind] = i;
-    return acc;
-  }, {});
+const ARTIFACT_KIND_TO_ORDINAL: Record<ArtifactKindFull, number> = ARTIFACT_KIND_BY_ORDINAL.reduce<
+  Record<string, number>
+>((acc, kind, i) => {
+  acc[kind] = i;
+  return acc;
+}, {});
 
 export function artifactKindFromOrdinal(ordinal: number): ArtifactKindFull {
   return ARTIFACT_KIND_BY_ORDINAL[ordinal] ?? 'mission';
 }
 
-export function artifactKindToOrdinal(
-  kind: ArtifactKindFull
-): Schemas['SystemDesignArtifactKind'] {
+export function artifactKindToOrdinal(kind: ArtifactKindFull): Schemas['SystemDesignArtifactKind'] {
   return ARTIFACT_KIND_TO_ORDINAL[kind] as Schemas['SystemDesignArtifactKind'];
 }
 
@@ -152,6 +151,7 @@ const CONSTRUCTION_STAGE_BY_ORDINAL: readonly ConstructionStage[] = [
   'awaitingTakeover',
   'paused',
   'exited',
+  'awaitingApproval', // ordinal 7 — phase gate (Task 6/9); server StageAwaitingApproval = 7
 ];
 
 export function constructionStageFromOrdinal(ordinal: number): ConstructionStage {

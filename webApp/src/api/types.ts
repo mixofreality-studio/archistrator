@@ -11,10 +11,7 @@
  * Artifact MODEL payloads stay opaque in the OAS, so their decode types live in
  * ./models and are re-exported here for the screens that import them.
  */
-import type {
-  ArtifactModelEnvelope,
-  ProjectArtifactModelEnvelope,
-} from './models';
+import type { ArtifactModelEnvelope, ProjectArtifactModelEnvelope } from './models';
 
 // Re-export the opaque-model decode types so screens keep importing from one place.
 export type {
@@ -452,6 +449,7 @@ export type ConstructionStage =
   | 'pipelineRunning'
   | 'reviewing'
   | 'awaitingTakeover'
+  | 'awaitingApproval'
   | 'paused'
   | 'exited'
   | 'unknown';
