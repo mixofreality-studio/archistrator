@@ -203,11 +203,14 @@ func hydrateConstructionActivity(activityID string, item projectstate.ActivityIt
 	if item.Coding {
 		kind = activityKindConstruction
 	}
+	typ := projectstate.DeriveType(activityID)
+	variant := projectstate.DeriveVariant(activityID)
 	return constructionActivity{
 		ActivityID:   activityID,
 		Kind:         kind,
 		ComponentID:  componentID,
 		EstimateDays: item.EffortDays,
+		Phases:       projectstate.ProfileFor(typ, variant).PhaseIDs(),
 	}
 }
 

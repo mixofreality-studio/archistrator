@@ -139,6 +139,7 @@ type constructionActivity struct {
 	EstimateDays float64
 	CRLabel      string
 	IsRevert     bool
+	Phases       []projectstate.ActivityMethodPhase
 }
 
 // activityKind is the Manager-local activity-kind vocabulary.
