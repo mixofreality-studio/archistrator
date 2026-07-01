@@ -534,7 +534,7 @@ func (wf *workflows) ConstructActivityWorkflow(ctx workflow.Context, in construc
 			}
 		}
 		if phaseFailed {
-			continue // retry the activity from the first phase
+			continue // retry the activity; the completedPhases skip-guard resumes from the first incomplete phase
 		}
 
 		// --- Step 5a: relay the architecture +1 and record it (git-forward) ------

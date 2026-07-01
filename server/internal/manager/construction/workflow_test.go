@@ -1108,6 +1108,96 @@ func Test_Construct_VarianceRetry_DoesNotReGateApprovedPhase(t *testing.T) {
 	}
 }
 
+// Test_Construct_VarianceRetry_NonGit_DoesNotReGateApprovedPhase is the non-git
+// counterpart of the variance-retry resumability test. It wires NO GitStatus (gitOn=false)
+// so the ONLY barrier preventing re-gating on variance re-walk is the in-memory
+// completedPhases mark. Because the head-state write in completePhase is gitOn-gated,
+// the test ONLY passes if the mark is unconditional (outside the gitOn branch). If the
+// mark were inside an "if gitOn" block, the mark would not be set, the re-walk would
+// re-gate phase 0, and the workflow would deadlock (no 2nd approval scheduled).
+func Test_Construct_VarianceRetry_NonGit_DoesNotReGateApprovedPhase(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(projectstate.ReviewPolicy{GatedPhasesByType: map[string][]projectstate.ActivityMethodPhase{
+		"service": {projectstate.MethodPhaseRequirements}, // gate phase 0
+	}})
+	pipe := newFakePipelineFailingOnce("test_plan") // phase 2 fails once, then succeeds
+	// GitStatus intentionally unwired ⇒ gitOn=false. The in-memory completedPhases mark
+	// is the ONLY re-gate barrier (no head-state completion record exists on re-walk).
+	wf := newWorkflows(wfDeps{
+		HandOff:      &fakeHandOff{class: aiWorker},
+		Intervention: &fakeIntervention{directive: directiveRetry},
+		Review:       &fakeReview{},
+		ProjectState: ps,
+		Pipeline:     pipe,
+		Artifacts:    &fakeArtifacts{},
+		Workers:      &fakeWorker{},
+	})
+	registerConstruct(env, wf)
+	approvals := 0
+	env.RegisterDelayedCallback(func() {
+		approvals++
+		env.SignalWorkflow(signalPhaseDecision, phaseDecisionSignal{Phase: "requirements", Decision: PhaseApprove})
+	}, 20*time.Second)
+	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{ProjectID: "p", ActivityID: "C-Orders", Activity: sampleActivity()})
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	// If the completedPhases mark were gitOn-gated the workflow would block waiting for a
+	// 2nd approval that never comes (deadlock). Reaching completion with exactly one approval
+	// proves the mark is unconditional and the variance re-walk skipped phase 0.
+	if approvals != 1 {
+		t.Fatalf("expected exactly 1 approval (phase 0 not re-gated on non-git retry), got %d", approvals)
+	}
+}
+
+// Test_Construct_GatedPhase_SendBackRedraftsThenApprove proves that SendBack redrafts
+// the gated phase in place (re-runs its pipeline) and never enters the variance path.
+// After the redraft, PhaseApprove completes the phase and the workflow exits normally.
+func Test_Construct_GatedPhase_SendBackRedraftsThenApprove(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(projectstate.ReviewPolicy{GatedPhasesByType: map[string][]projectstate.ActivityMethodPhase{
+		"service": {projectstate.MethodPhaseDetailedDesign}, // gate phase 1
+	}})
+	pipe := newFakePipeline()
+	wf := newWorkflows(gateDeps(ps, pipe))
+	registerConstruct(env, wf)
+
+	// First signal: SendBack (redraft). The gate re-runs detailed_design's pipeline then
+	// loops back to StageAwaitingApproval without entering the variance path.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalPhaseDecision, phaseDecisionSignal{
+			Phase:    "detailed_design",
+			Decision: PhaseSendBack,
+			Feedback: &ReviewFeedback{Notes: "needs revision"},
+		})
+	}, 30*time.Second)
+	// Second signal: Approve. Completes the phase; the workflow runs remaining phases
+	// and exits normally.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalPhaseDecision, phaseDecisionSignal{Phase: "detailed_design", Decision: PhaseApprove})
+	}, 60*time.Second)
+
+	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{ProjectID: "p", ActivityID: "C-Orders", Activity: sampleActivity()})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	// SendBack must NOT trigger the variance path (no recordActivityFailed call).
+	if len(ps.failed) != 0 {
+		t.Fatalf("SendBack must not enter the variance path; got failed: %v", ps.failed)
+	}
+	// Phase completed record landed (gitOn=true via gateDeps).
+	if !ps.phaseCompleted("C-Orders", "detailed_design") {
+		t.Error("expected RecordPhaseCompleted(detailed_design) after SendBack+Approve")
+	}
+	// Activity exited Completed (not Skipped or Failed).
+	if len(ps.exited) != 1 || ps.exited[0].outcome != projectstate.ActivityOutcomeCompleted {
+		t.Fatalf("want one Completed exit after SendBack+Approve, got %v", ps.exited)
+	}
+}
+
 // cancelledWorker returns nil bytes + nil error (the Cancel-then-Generate replay).
 type cancelledWorker struct{}
 
