@@ -10105,7 +10105,8 @@
             3,
             4,
             5,
-            6
+            6,
+            7
           ],
           "x-enum-varnames": [
             "ConstructionStageUnknown",
@@ -10114,7 +10115,8 @@
             "StageReviewing",
             "StageAwaitingTakeover",
             "StagePaused",
-            "StageExited"
+            "StageExited",
+            "StageAwaitingApproval"
           ],
           "x-go-base": "int"
         },
@@ -10157,6 +10159,76 @@
             "OverrideReassign"
           ],
           "x-go-base": "int"
+        },
+        "AnchoredComment": {
+          "type": "object",
+          "properties": {
+            "jsonPath": {
+              "type": "string",
+              "x-go-name": "JSONPath"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "jsonPath",
+            "text"
+          ],
+          "additionalProperties": false
+        },
+        "PhaseDecision": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2
+          ],
+          "x-enum-varnames": [
+            "PhaseDecisionUnknown",
+            "PhaseApprove",
+            "PhaseSendBack"
+          ],
+          "x-go-base": "int"
+        },
+        "ReviewFeedback": {
+          "type": "object",
+          "properties": {
+            "notes": {
+              "type": "string"
+            },
+            "comments": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/AnchoredComment"
+              }
+            }
+          },
+          "required": [
+            "notes"
+          ],
+          "additionalProperties": false
+        },
+        "ReviewPolicyInput": {
+          "type": "object",
+          "properties": {
+            "gatedPhasesByType": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "required": [
+            "gatedPhasesByType"
+          ],
+          "additionalProperties": false
         },
         "PipelinePhase": {
           "type": "integer",
@@ -10366,6 +10438,61 @@
             "result": {
               "$ref": "#/$defs/ReplanSweepResult"
             },
+            "error": true
+          },
+          {
+            "name": "SubmitPhaseDecision",
+            "params": [
+              {
+                "name": "projectID",
+                "schema": {
+                  "$ref": "#/$defs/ProjectID"
+                }
+              },
+              {
+                "name": "activityID",
+                "schema": {
+                  "$ref": "#/$defs/ActivityID"
+                }
+              },
+              {
+                "name": "phase",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "name": "decision",
+                "schema": {
+                  "$ref": "#/$defs/PhaseDecision"
+                }
+              },
+              {
+                "name": "feedback",
+                "pointer": true,
+                "schema": {
+                  "$ref": "#/$defs/ReviewFeedback"
+                }
+              }
+            ],
+            "error": true
+          },
+          {
+            "name": "UpdateReviewPolicy",
+            "params": [
+              {
+                "name": "projectID",
+                "schema": {
+                  "$ref": "#/$defs/ProjectID"
+                }
+              },
+              {
+                "name": "policy",
+                "schema": {
+                  "$ref": "#/$defs/ReviewPolicyInput"
+                }
+              }
+            ],
             "error": true
           }
         ]

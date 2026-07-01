@@ -26,6 +26,8 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/construction/override-activity/{projectID}/{activityID}", h.handleOverrideActivity)
 	mux.HandleFunc("POST /api/v1/construction/pause-project/{projectID}", h.handlePauseProject)
 	mux.HandleFunc("POST /api/v1/construction/run-replan-sweep/{projectID}", h.handleRunReplanSweep)
+	mux.HandleFunc("POST /api/v1/construction/submit-phase-decision/{projectID}/{activityID}", h.handleSubmitPhaseDecision)
+	mux.HandleFunc("POST /api/v1/construction/update-review-policy/{projectID}", h.handleUpdateReviewPolicy)
 }
 
 type executeNextActivityRequest struct {
@@ -42,6 +44,16 @@ type pauseProjectRequest struct {
 
 type runReplanSweepRequest struct {
 	TickID string `json:"tickID"`
+}
+
+type submitPhaseDecisionRequest struct {
+	Phase    string              `json:"phase"`
+	Decision mgr.PhaseDecision   `json:"decision"`
+	Feedback *mgr.ReviewFeedback `json:"feedback"`
+}
+
+type updateReviewPolicyRequest struct {
+	Policy mgr.ReviewPolicyInput `json:"policy"`
 }
 
 // handleExecuteNextActivity binds POST /api/v1/construction/execute-next-activity/{projectID} -> mgr.ExecuteNextActivity.
@@ -180,6 +192,61 @@ func (h *Handler) handleRunReplanSweep(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+// handleSubmitPhaseDecision binds POST /api/v1/construction/submit-phase-decision/{projectID}/{activityID} -> mgr.SubmitPhaseDecision.
+func (h *Handler) handleSubmitPhaseDecision(w http.ResponseWriter, r *http.Request) {
+	projectID := mgr.ProjectID(r.PathValue("projectID"))
+	activityID := mgr.ActivityID(r.PathValue("activityID"))
+	var req submitPhaseDecisionRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	principal, ok := security.PrincipalFrom(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthenticated", "authentication required")
+		return
+	}
+	decision, err := h.Security.Authorize(r.Context(), principal,
+		security.Action{Verb: "submit-phase-decision"},
+		security.ResourceRef{Kind: "project", ID: string(projectID)})
+	if err != nil || !decision.Permit {
+		writeError(w, http.StatusForbidden, "forbidden", "not permitted")
+		return
+	}
+	rc := fwmanager.Context{Context: r.Context(), Principal: principal}
+	if err := h.Manager.SubmitPhaseDecision(rc, projectID, activityID, req.Phase, req.Decision, req.Feedback); err != nil {
+		writeManagerError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleUpdateReviewPolicy binds POST /api/v1/construction/update-review-policy/{projectID} -> mgr.UpdateReviewPolicy.
+func (h *Handler) handleUpdateReviewPolicy(w http.ResponseWriter, r *http.Request) {
+	projectID := mgr.ProjectID(r.PathValue("projectID"))
+	var req updateReviewPolicyRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	principal, ok := security.PrincipalFrom(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthenticated", "authentication required")
+		return
+	}
+	decision, err := h.Security.Authorize(r.Context(), principal,
+		security.Action{Verb: "update-review-policy"},
+		security.ResourceRef{Kind: "project", ID: string(projectID)})
+	if err != nil || !decision.Permit {
+		writeError(w, http.StatusForbidden, "forbidden", "not permitted")
+		return
+	}
+	rc := fwmanager.Context{Context: r.Context(), Principal: principal}
+	if err := h.Manager.UpdateReviewPolicy(rc, projectID, req.Policy); err != nil {
+		writeManagerError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // --- response helpers ------------------------------------------------------

@@ -13,6 +13,18 @@ components:
                 - kind
                 - notes
             type: object
+        ConstructionAnchoredComment:
+            additionalProperties: false
+            properties:
+                jsonPath:
+                    type: string
+                    x-go-name: JSONPath
+                text:
+                    type: string
+            required:
+                - jsonPath
+                - text
+            type: object
         ConstructionConstructionSessionView:
             additionalProperties: false
             properties:
@@ -51,6 +63,7 @@ components:
                 - 4
                 - 5
                 - 6
+                - 7
             type: integer
             x-enum-varnames:
                 - ConstructionStageUnknown
@@ -60,6 +73,7 @@ components:
                 - StageAwaitingTakeover
                 - StagePaused
                 - StageExited
+                - StageAwaitingApproval
             x-go-base: int
         ConstructionErrorResponse:
             additionalProperties: false
@@ -103,6 +117,17 @@ components:
                 - OverrideSkip
                 - OverrideReassign
             x-go-base: int
+        ConstructionPhaseDecision:
+            enum:
+                - 0
+                - 1
+                - 2
+            type: integer
+            x-enum-varnames:
+                - PhaseDecisionUnknown
+                - PhaseApprove
+                - PhaseSendBack
+            x-go-base: int
         ConstructionPipelinePhase:
             enum:
                 - 0
@@ -144,6 +169,32 @@ components:
                     type:
                         - "null"
                         - array
+            type: object
+        ConstructionReviewFeedback:
+            additionalProperties: false
+            properties:
+                comments:
+                    items:
+                        $ref: '#/components/schemas/ConstructionAnchoredComment'
+                    type:
+                        - "null"
+                        - array
+                notes:
+                    type: string
+            required:
+                - notes
+            type: object
+        ConstructionReviewPolicyInput:
+            additionalProperties: false
+            properties:
+                gatedPhasesByType:
+                    additionalProperties:
+                        items:
+                            type: string
+                        type: array
+                    type: object
+            required:
+                - gatedPhasesByType
             type: object
         ConstructionReviewSet:
             additionalProperties: false
@@ -1856,6 +1907,150 @@ paths:
                             schema:
                                 $ref: '#/components/schemas/ConstructionReplanSweepResult'
                     description: success
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
+    /api/v1/construction/submit-phase-decision/{projectID}/{activityID}:
+        post:
+            operationId: SubmitPhaseDecision
+            parameters:
+                - in: path
+                  name: projectID
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/ConstructionProjectID'
+                - in: path
+                  name: activityID
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/ConstructionActivityID'
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            properties:
+                                decision:
+                                    $ref: '#/components/schemas/ConstructionPhaseDecision'
+                                feedback:
+                                    $ref: '#/components/schemas/ConstructionReviewFeedback'
+                                phase:
+                                    type: string
+                            required:
+                                - phase
+                                - decision
+                            type: object
+                required: true
+            responses:
+                "204":
+                    description: no content
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
+    /api/v1/construction/update-review-policy/{projectID}:
+        post:
+            operationId: UpdateReviewPolicy
+            parameters:
+                - in: path
+                  name: projectID
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/ConstructionProjectID'
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            properties:
+                                policy:
+                                    $ref: '#/components/schemas/ConstructionReviewPolicyInput'
+                            required:
+                                - policy
+                            type: object
+                required: true
+            responses:
+                "204":
+                    description: no content
                 "400":
                     content:
                         application/json:

@@ -258,6 +258,16 @@ func (m *constructionManager) GetSessionState(rc fwm.Context, projectID ProjectI
 	return view, nil
 }
 
+// SubmitPhaseDecision — stub; business logic in Task 3.
+func (m *constructionManager) SubmitPhaseDecision(_ fwm.Context, _ ProjectID, _ ActivityID, _ string, _ PhaseDecision, _ *ReviewFeedback) error {
+	return newError(fwm.ContractMisuse, "SubmitPhaseDecision: not yet implemented")
+}
+
+// UpdateReviewPolicy — stub; business logic in Task 4.
+func (m *constructionManager) UpdateReviewPolicy(_ fwm.Context, _ ProjectID, _ ReviewPolicyInput) error {
+	return newError(fwm.ContractMisuse, "UpdateReviewPolicy: not yet implemented")
+}
+
 // --- workflow id derivation (continuity tokens; constructionManager.md §6.1) ---
 
 // pumpWorkflowID derives {projectId}:nextActivity:{tickId}.
