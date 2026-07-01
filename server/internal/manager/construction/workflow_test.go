@@ -144,6 +144,15 @@ func (f *fakeProjectState) RecordOperatorPaused(_ context.Context, _ projectstat
 	return f.bump(), nil
 }
 
+func (f *fakeProjectState) RecordReviewPolicy(_ context.Context, _ projectstate.ProjectID, _ projectstate.Version, _ projectstate.ReviewPolicy, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.maybeConflict(); err != nil {
+		return 0, err
+	}
+	return f.bump(), nil
+}
+
 func (f *fakeProjectState) RecordPhaseStarted(_ context.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ActivityMethodPhase, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

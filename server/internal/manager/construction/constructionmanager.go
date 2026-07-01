@@ -6,10 +6,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/client"
 
 	fwm "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/handoff"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
@@ -283,9 +285,24 @@ func (m *constructionManager) SubmitPhaseDecision(rc fwm.Context, projectID Proj
 	return nil
 }
 
-// UpdateReviewPolicy — stub; business logic in Task 4.
-func (m *constructionManager) UpdateReviewPolicy(_ fwm.Context, _ ProjectID, _ ReviewPolicyInput) error {
-	return newError(fwm.ContractMisuse, "UpdateReviewPolicy: not yet implemented")
+// UpdateReviewPolicy — op 2.7. Persists the per-project ReviewPolicy.
+// Converts the input's GatedPhasesByType (map[string][]string of ad-hoc or canonical
+// gate ids) via projectstate.ReviewPolicyFromGateIDs to a typed ReviewPolicy, reads the
+// current project version, then calls RecordReviewPolicy on the constructionTransition RA.
+func (m *constructionManager) UpdateReviewPolicy(rc fwm.Context, projectID ProjectID, input ReviewPolicyInput) error {
+	ctx := rc.Context
+	if projectID == "" {
+		return newError(fwm.ContractMisuse, "empty projectId")
+	}
+	proj, err := m.constructionTransition.ReadProject(ctx, projectstate.ProjectID(projectID), projectstate.RepoCredential{})
+	if err != nil {
+		return newError(fwm.Infrastructure, err.Error())
+	}
+	policy := projectstate.ReviewPolicyFromGateIDs(input.GatedPhasesByType)
+	if _, err := m.constructionTransition.RecordReviewPolicy(ctx, projectstate.ProjectID(projectID), proj.Version, policy, projectstate.RepoCredential{}, fwra.IdempotencyKey(uuid.NewString())); err != nil {
+		return newError(fwm.Infrastructure, err.Error())
+	}
+	return nil
 }
 
 // --- workflow id derivation (continuity tokens; constructionManager.md §6.1) ---

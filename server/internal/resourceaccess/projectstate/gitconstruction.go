@@ -146,6 +146,15 @@ func (s *GitStore) RecordOperatorPaused(ctx context.Context, projectID ProjectID
 	})
 }
 
+// RecordReviewPolicy persists the per-project ReviewPolicy by setting
+// Project.ReviewPolicy = policy.
+func (s *GitStore) RecordReviewPolicy(ctx context.Context, projectID ProjectID, expectedVersion Version, policy ReviewPolicy, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	return s.applyMutation(ctx, "RecordReviewPolicy", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
+		p.ReviewPolicy = policy
+		return nil
+	})
+}
+
 // RecordPhaseStarted records that activityID's construction agent has entered the
 // given phase. It seeds the Phases slice from phaseSetFor if not yet populated,
 // sets CurrentPhase = phase, and advances the coarse Phase to Running (if not
