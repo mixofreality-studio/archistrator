@@ -93,7 +93,7 @@ Document, in the `.handoff` slot:
 - Lead distance — how far ahead of construction the design batch must stay
 - Buffer — extra integration activities to absorb design-construction de-synchronisation
 
-These numbers feed back into the `.network` slot as detailed-design activities. If the project-design phase did not include them, the network is now under-specified — return to Phase 2 to add them before declaring the hand-off complete.
+By default the per-phase hand-off happens **inside** each component's single activity — the senior owns the detailed-design phase, the junior the construction phase — so no separate design activities are needed. **Only** the senior-as-junior-architect *batching* model (or explicit compression, see [[the-method-compressed-solution]]) pulls detailed design out into standalone `D###` activities to run the design pipeline ahead of construction. When it does, those feed the `.network` slot; if the project-design phase did not include them, the network is under-specified — return to Phase 2 to add them before declaring the hand-off complete. In the base one-activity-per-component list they must NOT appear.
 
 ### Step 6 — Record the handoff in `project.json .handoff`
 
