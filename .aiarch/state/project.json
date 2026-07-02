@@ -5720,620 +5720,12 @@
       "model": {
         "activities": [
           {
-            "name": "X001",
-            "effortDays": 5,
-            "workerClass": "system-architect",
-            "coding": true,
-            "riskBucket": 2,
-            "title": "Amend architecture.dsl: artifactStore → git provider"
-          },
-          {
-            "name": "D-SE",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 2,
-            "title": "Detailed design — Security utility"
-          },
-          {
-            "name": "D-LG",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 2,
-            "title": "Detailed design — Logging utility"
-          },
-          {
-            "name": "D-DG",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 2,
-            "title": "Detailed design — Diagnostics utility"
-          },
-          {
-            "name": "D-PA",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 2,
-            "title": "Detailed design — Project State Access"
-          },
-          {
-            "name": "D-PA-C2",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "Detailed design — projectStateAccess 2nd contract (construction-output read/stage)"
-          },
-          {
-            "name": "D-CP",
-            "effortDays": 10,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Detailed design — Construction Pipeline Access"
-          },
-          {
-            "name": "D-OR",
-            "effortDays": 10,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Detailed design — Operated Runtime Access"
-          },
-          {
-            "name": "D-UA",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 2,
-            "title": "Detailed design — Usage Access"
-          },
-          {
-            "name": "D-DA",
-            "effortDays": 10,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "Detailed design — Durable Execution Access"
-          },
-          {
-            "name": "D-BS",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 2,
-            "title": "Detailed design — Billing State Access (billingState head-state contract; hard C-BM gate FU-BM-2)"
-          },
-          {
-            "name": "D-BG",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 2,
-            "title": "Detailed design — Billing Gateway Access (charge the user via Stripe-as-ordinary-vendor)"
-          },
-          {
-            "name": "D-SC",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 2,
-            "title": "Detailed design — Source Control Access (GitHub App seam)"
-          },
-          {
-            "name": "D-SC-PR",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Detailed design — Pull Request Rail (IPullRequestRail, 2nd contract on sourceControlAccess)"
-          },
-          {
-            "name": "D-PA-R",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "Detailed design — projectStateAccess persistence/concurrency re-cut (Postgres → git JSON + ref-CAS)"
-          },
-          {
-            "name": "D-PA-GIT",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Detailed design — per-activity git head-state aggregate (deferred D-PA follow-up) — build DEFERRED"
-          },
-          {
-            "name": "D-OR-Δ1",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 2,
-            "title": "Detailed design — operatedRuntimeAccess SLO error-budget burndown read"
-          },
-          {
-            "name": "D-EE",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 2,
-            "title": "Detailed design — Construction Estimation Engine"
-          },
-          {
-            "name": "D-OE",
-            "effortDays": 10,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Detailed design — Operation Estimation Engine"
-          },
-          {
-            "name": "D-BE",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 2,
-            "title": "Detailed design — Billing Engine (ServicePricing; charge-only; renamed/repurposed from settlementEngine)"
-          },
-          {
-            "name": "D-HE",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 2,
-            "title": "Detailed design — Hand-Off Engine"
-          },
-          {
-            "name": "D-IE",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 2,
-            "title": "Detailed design — Intervention Engine"
-          },
-          {
-            "name": "D-AE",
-            "effortDays": 10,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Detailed design — Autoscaler Engine"
-          },
-          {
-            "name": "D-PM",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 2,
-            "title": "Detailed design — Project Manager"
-          },
-          {
-            "name": "D-MSD",
-            "effortDays": 10,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "Detailed design — System Design Manager"
-          },
-          {
-            "name": "D-MPD",
-            "effortDays": 10,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "Detailed design — Project Design Manager"
-          },
-          {
-            "name": "D-MCN",
-            "effortDays": 10,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "Detailed design — Construction Manager"
-          },
-          {
-            "name": "D-MOP",
-            "effortDays": 10,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "Detailed design — Operations Manager"
-          },
-          {
-            "name": "D-BM",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 2,
-            "title": "Detailed design — Billing Manager (slim; meter→price→charge the user; replaces settlementManager)"
-          },
-          {
-            "name": "D-CW",
-            "effortDays": 10,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Detailed design — Web Client"
-          },
-          {
-            "name": "D-CM",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 2,
-            "title": "Detailed design — MCP Client"
-          },
-          {
-            "name": "D-CS",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 2,
-            "title": "Detailed design — Scheduler Client"
-          },
-          {
-            "name": "C-SE",
-            "effortDays": 10,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Build Security utility"
-          },
-          {
-            "name": "C-LG",
-            "effortDays": 5,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 2,
-            "title": "Build Logging utility"
-          },
-          {
-            "name": "C-DG",
-            "effortDays": 5,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 2,
-            "title": "Build Diagnostics utility"
-          },
-          {
-            "name": "C-PA",
-            "effortDays": 15,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "Build Project State Access"
-          },
-          {
-            "name": "C-PA-C2",
-            "effortDays": 10,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "Build projectStateAccess 2nd contract (construction-output read/stage) — folds artifactAccess in"
-          },
-          {
-            "name": "C-CP",
-            "effortDays": 15,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "Build Construction Pipeline Access"
-          },
-          {
-            "name": "C-OR",
-            "effortDays": 25,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 8,
-            "title": "Build Operated Runtime Access"
-          },
-          {
-            "name": "C-UA",
-            "effortDays": 10,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Build Usage Access"
-          },
-          {
-            "name": "C-DA",
-            "effortDays": 20,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 8,
-            "title": "Build Durable Execution Access"
-          },
-          {
-            "name": "C-BG",
-            "effortDays": 10,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Build Billing Gateway Access"
-          },
-          {
-            "name": "C-SC",
-            "effortDays": 15,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "Build Source Control Access (GitHub App)"
-          },
-          {
-            "name": "C-SC-PR",
-            "effortDays": 10,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Build Pull Request Rail (IPullRequestRail)"
-          },
-          {
-            "name": "C-PA-R",
-            "effortDays": 20,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 8,
-            "title": "Rework Project State Access — Postgres head-state → git JSON + ref-CAS"
-          },
-          {
-            "name": "C-PA-GIT",
-            "effortDays": 5,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Build per-activity git head-state aggregate + record verbs + read — build DEFERRED"
-          },
-          {
-            "name": "C-CP-R",
-            "effortDays": 10,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "Rework Construction Pipeline Access — Argo Workflows → user's GitHub Actions"
-          },
-          {
-            "name": "C-EE",
-            "effortDays": 15,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Build Construction Estimation Engine"
-          },
-          {
-            "name": "C-OE",
-            "effortDays": 20,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "Build Operation Estimation Engine"
-          },
-          {
-            "name": "C-BE",
-            "effortDays": 10,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Build Billing Engine (reuses sunk settlementEngine compute skeleton)"
-          },
-          {
-            "name": "C-HE",
-            "effortDays": 5,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 2,
-            "title": "Build Hand-Off Engine"
-          },
-          {
-            "name": "C-IE",
-            "effortDays": 10,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Build Intervention Engine"
-          },
-          {
-            "name": "C-AE",
-            "effortDays": 20,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "Build Autoscaler Engine"
-          },
-          {
-            "name": "C-PM",
-            "effortDays": 10,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Build Project Manager"
-          },
-          {
-            "name": "C-MSD",
-            "effortDays": 25,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 8,
-            "title": "Build System Design Manager"
-          },
-          {
-            "name": "C-MPD",
-            "effortDays": 25,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 8,
-            "title": "Build Project Design Manager"
-          },
-          {
-            "name": "C-MCN",
-            "effortDays": 30,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 8,
-            "title": "Build Construction Manager"
-          },
-          {
-            "name": "C-MCN-GIT",
-            "effortDays": 10,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "Wire IPullRequestRail into the construction workflow (branch→PR→status→merge) — build DEFERRED"
-          },
-          {
-            "name": "C-MOP",
-            "effortDays": 30,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 8,
-            "title": "Build Operations Manager"
-          },
-          {
-            "name": "C-BM",
-            "effortDays": 15,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "Build Billing Manager (reuses sunk settlementManager skeleton)"
-          },
-          {
-            "name": "C-LP",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 2,
-            "title": "Build Local-Profile composition root"
-          },
-          {
-            "name": "C-VCI",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Package the Method-invariant validation as a pinned CI tool shipped to the user's CI"
-          },
-          {
             "name": "C-CW",
-            "effortDays": 30,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 8,
-            "title": "Build Web Client"
-          },
-          {
-            "name": "C-CW-Δ",
-            "effortDays": 10,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "webClient ports for UC3/UC4/UC5 (construction/operations/billing HTTP)"
-          },
-          {
-            "name": "C-CW-GIT",
-            "effortDays": 5,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Surface git head-state in the webClient read model (session + change-request views) — build DEFERRED"
-          },
-          {
-            "name": "C-CM",
             "effortDays": 20,
             "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 5,
-            "title": "Build MCP Client"
-          },
-          {
-            "name": "C-CS",
-            "effortDays": 10,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Build Scheduler Client"
-          },
-          {
-            "name": "R-PG-PS",
-            "effortDays": 10,
-            "workerClass": "senior-developer",
-            "coding": false,
-            "riskBucket": 2,
-            "title": "Provision Postgres + schema for the head-state stores (operated-system / billing)"
-          },
-          {
-            "name": "R-PG-US",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": false,
-            "riskBucket": 2,
-            "title": "Provision Postgres + schema for Usage Log"
-          },
-          {
-            "name": "R-GIT",
-            "effortDays": 10,
-            "workerClass": "senior-developer",
-            "coding": false,
-            "riskBucket": 2,
-            "title": "Select + provision git provider for Artifact Store"
-          },
-          {
-            "name": "R-GH",
-            "effortDays": 10,
-            "workerClass": "senior-developer",
-            "coding": false,
-            "riskBucket": 2,
-            "title": "Provision / register the GitHub App (org install, repo perms, Actions scope) — replaces R-GIT"
-          },
-          {
-            "name": "R-CPR",
-            "effortDays": 15,
-            "workerClass": "senior-developer",
-            "coding": false,
-            "riskBucket": 3,
-            "title": "Select + provision Construction Pipeline Runtime"
-          },
-          {
-            "name": "R-ORS",
-            "effortDays": 25,
-            "workerClass": "senior-developer",
-            "coding": false,
-            "riskBucket": 8,
-            "title": "Select + provision Operated Runtime Infrastructure"
-          },
-          {
-            "name": "R-DER",
-            "effortDays": 15,
-            "workerClass": "senior-developer",
-            "coding": false,
-            "riskBucket": 5,
-            "title": "Select + provision Durable Execution Runtime"
-          },
-          {
-            "name": "R-BG",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": false,
-            "riskBucket": 2,
-            "title": "Provision Stripe vendor account (ordinary charges to the user; no Connect MoR KYC) — replaces R-STR"
-          },
-          {
-            "name": "U-GW",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 2,
-            "title": "Configure Envoy Gateway routes for aiarch"
-          },
-          {
-            "name": "U-HELM",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 2,
-            "title": "Author aiarch Helm chart"
+            "title": "Build Web Client (Go client layer — generated REST handlers + OAS; design folded in)"
           },
           {
             "name": "U-SPA-S",
@@ -6349,7 +5741,7 @@
             "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 5,
-            "title": "SPA — Phase-1 system-design screens per the frozen mock, client-rendered (architect persona) — projects landing + home base + full-screen design experience; renders the typed Method models client-side (React-Flow C4 + volatility scatter + activity diagrams + markdown) instead of server-rendered images; co-author gate with JSONPath-anchored comments"
+            "title": "SPA — Phase-1 system-design screens (architect persona; React-Flow C4 + volatility scatter + activity diagrams + co-author gate)"
           },
           {
             "name": "U-SPA-2",
@@ -6357,7 +5749,7 @@
             "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 5,
-            "title": "SPA — Phase 2 project-design screens (architect persona)"
+            "title": "SPA — Phase-2 project-design screens (architect persona)"
           },
           {
             "name": "U-SPA-3",
@@ -6365,7 +5757,7 @@
             "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 5,
-            "title": "SPA — Construction tracking screens (architect persona)"
+            "title": "SPA — Construction tracking + artifacts console (architect persona)"
           },
           {
             "name": "U-SPA-4",
@@ -6396,64 +5788,288 @@
             "effortDays": 5,
             "workerClass": "junior-developer",
             "coding": true,
-            "riskBucket": 1,
-            "title": "SPA — Team / Agents roster view (10 Method roles, charters + read-only prompts) — DONE 2026-06-12"
+            "riskBucket": 2,
+            "title": "SPA — Team / Agents roster view (Method roles, charters + read-only prompts)"
           },
           {
-            "name": "U-SPA-GIT",
-            "effortDays": 10,
+            "name": "C-CM",
+            "effortDays": 25,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 5,
+            "title": "Build MCP Client"
+          },
+          {
+            "name": "C-CS",
+            "effortDays": 15,
             "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 3,
-            "title": "SPA — git-forward PR/branch row cluster (PR #N · branch · CI · +1) across Home/Construction/Operations/Change rows — build DEFERRED"
+            "title": "Build Scheduler Client"
           },
           {
-            "name": "I-UTIL",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
+            "name": "C-MSD",
+            "effortDays": 35,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 8,
+            "title": "Build System Design Manager"
+          },
+          {
+            "name": "C-MPD",
+            "effortDays": 35,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 8,
+            "title": "Build Project Design Manager"
+          },
+          {
+            "name": "C-MCN",
+            "effortDays": 35,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 8,
+            "title": "Build Construction Manager"
+          },
+          {
+            "name": "C-MOP",
+            "effortDays": 35,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 8,
+            "title": "Build Operations Manager"
+          },
+          {
+            "name": "C-BM",
+            "effortDays": 20,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 5,
+            "title": "Build Billing Manager"
+          },
+          {
+            "name": "C-EE",
+            "effortDays": 20,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 3,
+            "title": "Build Construction Estimation Engine"
+          },
+          {
+            "name": "C-OE",
+            "effortDays": 30,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 5,
+            "title": "Build Operation Estimation Engine"
+          },
+          {
+            "name": "C-BE",
+            "effortDays": 15,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 3,
+            "title": "Build Billing Engine"
+          },
+          {
+            "name": "C-HE",
+            "effortDays": 10,
+            "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 2,
-            "title": "Integrate utilities into all callers (logging/diag/security)"
+            "title": "Build Hand-Off Engine"
           },
           {
-            "name": "I-RA",
+            "name": "C-IE",
             "effortDays": 15,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "Integrate each Manager with its ResourceAccess + Resources (DONE 2026-06-14; was ON CRITICAL PATH)"
-          },
-          {
-            "name": "I-GIT-DESIGN",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
+            "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 3,
-            "title": "Integrate git-forward design-artifact rail"
+            "title": "Build Intervention Engine"
           },
           {
-            "name": "I-DE",
-            "effortDays": 10,
-            "workerClass": "senior-developer",
+            "name": "C-AE",
+            "effortDays": 30,
+            "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 5,
-            "title": "Integrate Managers with Durable Execution Runtime"
+            "title": "Build Autoscaler Engine"
           },
           {
-            "name": "I-CL",
-            "effortDays": 10,
-            "workerClass": "senior-developer",
+            "name": "C-RE",
+            "effortDays": 15,
+            "workerClass": "junior-developer",
             "coding": true,
-            "riskBucket": 3,
-            "title": "Integrate Clients with Managers (web/mcp/scheduler)"
+            "riskBucket": 5,
+            "title": "Build Review Engine (encapsulates ReviewPolicy)"
           },
           {
-            "name": "I-SPA",
+            "name": "C-PA",
+            "effortDays": 35,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 8,
+            "title": "Build Project State Access (git-as-DB head-state + construction-output stage)"
+          },
+          {
+            "name": "C-OSA",
+            "effortDays": 15,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 5,
+            "title": "Build Operated System State Access"
+          },
+          {
+            "name": "C-BS",
             "effortDays": 10,
             "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 3,
-            "title": "Integrate React SPA with Web Client over Envoy Gateway"
+            "title": "Build Billing State Access"
+          },
+          {
+            "name": "C-WIA",
+            "effortDays": 10,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 3,
+            "title": "Build Work Item Access"
+          },
+          {
+            "name": "C-CP",
+            "effortDays": 25,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 5,
+            "title": "Build Construction Pipeline Access (GitHub Actions rail)"
+          },
+          {
+            "name": "C-OR",
+            "effortDays": 35,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 8,
+            "title": "Build Operated Runtime Access"
+          },
+          {
+            "name": "C-UA",
+            "effortDays": 15,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 3,
+            "title": "Build Usage Access"
+          },
+          {
+            "name": "C-BG",
+            "effortDays": 15,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 3,
+            "title": "Build Billing Gateway Access"
+          },
+          {
+            "name": "C-SC",
+            "effortDays": 35,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 8,
+            "title": "Build Source Control Access (GitHub App; adopt repo + Actions + PR rail)"
+          },
+          {
+            "name": "C-DA",
+            "effortDays": 30,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 8,
+            "title": "Build Durable Execution Access"
+          },
+          {
+            "name": "C-SE",
+            "effortDays": 15,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 3,
+            "title": "Build Security utility"
+          },
+          {
+            "name": "C-LG",
+            "effortDays": 10,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 2,
+            "title": "Build Logging utility"
+          },
+          {
+            "name": "C-DG",
+            "effortDays": 10,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 2,
+            "title": "Build Diagnostics utility"
+          },
+          {
+            "name": "R-GH",
+            "effortDays": 10,
+            "workerClass": "senior-developer",
+            "coding": false,
+            "riskBucket": 2,
+            "title": "Provision / register the GitHub App (org install, repo perms, Actions scope; backs WorkItemTracker via Issues)"
+          },
+          {
+            "name": "R-BG",
+            "effortDays": 5,
+            "workerClass": "senior-developer",
+            "coding": false,
+            "riskBucket": 2,
+            "title": "Provision Stripe vendor account (BillingGateway)"
+          },
+          {
+            "name": "R-DER",
+            "effortDays": 15,
+            "workerClass": "senior-developer",
+            "coding": false,
+            "riskBucket": 5,
+            "title": "Select + provision Durable Execution Runtime"
+          },
+          {
+            "name": "R-CPR",
+            "effortDays": 15,
+            "workerClass": "senior-developer",
+            "coding": false,
+            "riskBucket": 3,
+            "title": "Select + provision Construction Pipeline Runtime"
+          },
+          {
+            "name": "R-ORS",
+            "effortDays": 25,
+            "workerClass": "senior-developer",
+            "coding": false,
+            "riskBucket": 8,
+            "title": "Select + provision Operated Runtime Infrastructure"
+          },
+          {
+            "name": "R-WIT",
+            "effortDays": 5,
+            "workerClass": "senior-developer",
+            "coding": false,
+            "riskBucket": 2,
+            "title": "Provision Work Item Tracker (GitHub Issues via the GitHub App)"
+          },
+          {
+            "name": "N-SCHEMA",
+            "effortDays": 10,
+            "workerClass": "system-architect",
+            "coding": false,
+            "riskBucket": 2,
+            "title": "Schema design for owned stores (ProjectGitRepo, OperatedSystemState, BillingState, UsageLog)"
+          },
+          {
+            "name": "G-SPA",
+            "effortDays": 15,
+            "workerClass": "ui-designer",
+            "coding": false,
+            "riskBucket": 3,
+            "title": "UI design concepts for the SPA (all Method screens)"
           },
           {
             "name": "I-UC1",
@@ -6461,7 +6077,7 @@
             "workerClass": "senior-developer",
             "coding": true,
             "riskBucket": 3,
-            "title": "End-to-end: UC1 (Phase 1 system-design workflow)"
+            "title": "End-to-end integration: UC1 (Phase-1 system-design workflow)"
           },
           {
             "name": "I-UC2",
@@ -6469,7 +6085,7 @@
             "workerClass": "senior-developer",
             "coding": true,
             "riskBucket": 3,
-            "title": "End-to-end: UC2 (Phase 2 project-design + SDP commit)"
+            "title": "End-to-end integration: UC2 (Phase-2 project-design + SDP commit)"
           },
           {
             "name": "I-UC3",
@@ -6477,7 +6093,7 @@
             "workerClass": "senior-developer",
             "coding": true,
             "riskBucket": 3,
-            "title": "End-to-end: UC3 (construction activity execution)"
+            "title": "End-to-end integration: UC3 (construction activity execution)"
           },
           {
             "name": "I-UC4",
@@ -6485,7 +6101,7 @@
             "workerClass": "senior-developer",
             "coding": true,
             "riskBucket": 3,
-            "title": "End-to-end: UC4 (operate + reconcile + autoscale)"
+            "title": "End-to-end integration: UC4 (operate + reconcile + autoscale)"
           },
           {
             "name": "I-UC5",
@@ -6493,23 +6109,7 @@
             "workerClass": "senior-developer",
             "coding": true,
             "riskBucket": 3,
-            "title": "End-to-end: UC5 (bill-the-user cycle)"
-          },
-          {
-            "name": "I-GIT-LIVE",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "Integrate git-forward construction PR rail"
-          },
-          {
-            "name": "N-QA",
-            "effortDays": 5,
-            "workerClass": "qa-engineer",
-            "coding": false,
-            "riskBucket": 2,
-            "title": "Define quality gates, review process, defect taxonomy; ongoing process audit"
+            "title": "End-to-end integration: UC5 (bill-the-user cycle)"
           },
           {
             "name": "N-STP",
@@ -6517,7 +6117,7 @@
             "workerClass": "test-engineer",
             "coding": false,
             "riskBucket": 3,
-            "title": "System Test Plan — enumerate all the ways to prove the integrated system fails (all 6 UCs)"
+            "title": "System Test Plan — enumerate all the ways to prove the integrated system fails (all core UCs)"
           },
           {
             "name": "N-STH",
@@ -6541,31 +6141,15 @@
             "workerClass": "senior-developer",
             "coding": false,
             "riskBucket": 2,
-            "title": "Daily build + smoke-test automation (clean build, power up, exercise the plumbing)"
+            "title": "Daily build + smoke-test automation"
           },
           {
-            "name": "N-CI",
+            "name": "N-QA",
             "effortDays": 5,
-            "workerClass": "senior-developer",
+            "workerClass": "qa-engineer",
             "coding": false,
             "riskBucket": 2,
-            "title": "Build/CI pipeline for aiarch-server Go monolith"
-          },
-          {
-            "name": "N-SC",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": false,
-            "riskBucket": 1,
-            "title": "Source-control + branching + commit-convention setup"
-          },
-          {
-            "name": "N-SCHEMA",
-            "effortDays": 10,
-            "workerClass": "system-architect",
-            "coding": false,
-            "riskBucket": 2,
-            "title": "Schema design for 3 logs (project state, usage, revenue)"
+            "title": "Define quality gates, review process, defect taxonomy; ongoing process audit"
           },
           {
             "name": "N-IT",
@@ -6600,12 +6184,28 @@
             "title": "Hardening + bug-fix pass"
           },
           {
-            "name": "N-RUN",
+            "name": "N-ADR",
+            "effortDays": 5,
+            "workerClass": "system-architect",
+            "coding": false,
+            "riskBucket": 2,
+            "title": "ADRs for the infrastructure decisions made during construction"
+          },
+          {
+            "name": "N-CI",
             "effortDays": 5,
             "workerClass": "senior-developer",
             "coding": false,
             "riskBucket": 2,
-            "title": "Operational runbooks (deploy, rollback, on-call, recovery)"
+            "title": "Build/CI pipeline for aiarch-server Go monolith"
+          },
+          {
+            "name": "N-SC",
+            "effortDays": 5,
+            "workerClass": "senior-developer",
+            "coding": false,
+            "riskBucket": 1,
+            "title": "Source-control + branching + commit-convention setup"
           },
           {
             "name": "N-DEP",
@@ -6616,156 +6216,36 @@
             "title": "Production deployment (aiarch namespace, ArgoCD app)"
           },
           {
-            "name": "N-ADR",
+            "name": "N-RUN",
+            "effortDays": 5,
+            "workerClass": "senior-developer",
+            "coding": false,
+            "riskBucket": 2,
+            "title": "Operational runbooks (deploy, rollback, on-call, recovery)"
+          },
+          {
+            "name": "N-REQ",
+            "effortDays": 10,
+            "workerClass": "system-architect",
+            "coding": false,
+            "riskBucket": 2,
+            "title": "Requirements analysis (formal pass beyond /system-design)"
+          },
+          {
+            "name": "N-ARCH",
             "effortDays": 5,
             "workerClass": "system-architect",
             "coding": false,
             "riskBucket": 2,
-            "title": "ADRs for the infrastructure decisions made during construction"
+            "title": "Architecture review with management"
           },
           {
-            "name": "D-SC-AD",
+            "name": "N-PLAN",
             "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "sourceControlAccess Contract-1 re-cut: `provisionProjectRepo` → `adoptProjectRepo` (verify + `aiarch-project` topic-tag)"
-          },
-          {
-            "name": "C-SC-AD",
-            "effortDays": 5,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Build `adoptProjectRepo` (verify existing user repo + tag); retire the create-path"
-          },
-          {
-            "name": "C-PM-Δ",
-            "effortDays": 5,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "projectManager.CreateProject rework: user-supplied repo name as identity; adopt not provision (re-targets built I-RA call-order)"
-          },
-          {
-            "name": "C-PA-AD",
-            "effortDays": 5,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "projectStateAccess.createProject: adopted repo name as project identity (drop `aiarch-\u003cid\u003e` encoding; topic-on-adopt enumeration)"
-          },
-          {
-            "name": "I-RA-Δ",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Re-prove adopt-then-createProject order + topic-on-adopt against the user's existing repo (I-RA proved provision-then-create)"
-          },
-          {
-            "name": "D-SC-AG",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "sourceControlAccess Contract-1 extension: +`writeActionsSecret` +`commitAgenticWorkflowFile` (3→5 ops; App-B-fit flag)"
-          },
-          {
-            "name": "C-SC-AG",
-            "effortDays": 5,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Build `writeActionsSecret` (the `CLAUDE_CODE_OAUTH_TOKEN` Actions secret) + `commitAgenticWorkflowFile`"
-          },
-          {
-            "name": "C-WF-DESIGN",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Author the claude-code-action DESIGN workflow-file template (refs the C-VCI required check) + commit wiring (design counterpart of `aiarch-construct.yml`; sibling-class to C-VCI)"
-          },
-          {
-            "name": "D-MSD-Δ",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "systemDesignManager re-cut: synchronous worker draft → dispatch/observe/read-back (co-author gate shape unchanged)"
-          },
-          {
-            "name": "C-MSD-Δ",
-            "effortDays": 15,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "systemDesignManager rework: dispatch design jobs (`constructionPipelineAccess.submit`) + observe + read-back; retire sync-worker draft (re-shape the built UC1 Temporal workflow)"
-          },
-          {
-            "name": "D-MPD-Δ",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "projectDesignManager re-cut: synchronous worker draft → dispatch/observe/read-back"
-          },
-          {
-            "name": "C-MPD-Δ",
-            "effortDays": 15,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "projectDesignManager rework: dispatch design jobs + observe + read-back (re-shape the built UC2 Temporal workflow)"
-          },
-          {
-            "name": "C-PA-RB",
-            "effortDays": 5,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "projectStateAccess Δ: read-back-for-drafts (server stops writing draft JSON — the Action commits it; human-gate writes reject/withdraw/advancePhase + mayAmend stay server-side thin-writes)"
-          },
-          {
-            "name": "I-DESIGN-DISPATCH",
-            "effortDays": 10,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "Integrate design Managers → `constructionPipelineAccess.submit` + the design workflow file (the design-job rail; counterpart of I-GIT-LIVE)"
-          },
-          {
-            "name": "I-UC1-AG",
-            "effortDays": 10,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "Re-prove UC1 E2E via the agentic dispatch path (dispatch→observe→read-back→human gate→merge)"
-          },
-          {
-            "name": "I-UC2-AG",
-            "effortDays": 10,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "Re-prove UC2 E2E via the agentic dispatch path (feeds N-IT)"
-          },
-          {
-            "name": "C-PE",
-            "effortDays": 3,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 1,
-            "title": "Build projectExport Client endpoint (GET /projects/{id}/export)"
-          },
-          {
-            "name": "G-CR",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Generate cmd/server/main.go (composition root) from project.json deployment modes — per-DEPLOYMENTMODE infra impl selection + manager DI; requires deployment modes populated in project state"
+            "workerClass": "project-manager",
+            "coding": false,
+            "riskBucket": 2,
+            "title": "Project planning (this phase + downstream)"
           }
         ]
       }
