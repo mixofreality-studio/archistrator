@@ -13,6 +13,7 @@ import type { ConstructionRow } from '../../api/types';
 import { StatusChip } from './status';
 import type { BuildStatus } from '../../api/constructionAdapters';
 import { KindBadge, kindColor } from './KindBadge';
+import { UI_IDENTIFIERS } from '../../constants/UIIdentifiers';
 
 /** A view-model row joining a ConstructionRow with the activity-list display name. */
 export interface ArtifactActivityVM {
@@ -47,6 +48,7 @@ function ListRow({
 
   return (
     <Box
+      data-testid={UI_IDENTIFIERS.Construction.artifactRow(vm.activityId)}
       sx={{
         px: 1.5,
         py: 1,
