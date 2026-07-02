@@ -9,14 +9,13 @@
  */
 import { useMutation, useQueryClient, type UseMutationResult } from '@tanstack/react-query';
 import { apiClient, toApiError } from '../api/client';
-import { overrideKindToOrdinal } from '../api/enums';
-import type { OverrideKind } from '../api/types';
+import { overrideKindToOrdinal, phaseDecisionToOrdinal } from '../api/enums';
+import type { OverrideKind, PhaseDecision } from '../api/types';
+import type { components } from '../api/schema';
 import { constructionSessionKey } from './useConstructionSession';
 import { projectKey } from './useProject';
 
-export function useBeginConstruction(
-  projectId: string
-): UseMutationResult<undefined, Error, void> {
+export function useBeginConstruction(projectId: string): UseMutationResult<undefined, Error, void> {
   const client = useQueryClient();
   return useMutation<undefined>({
     mutationFn: async () => {
@@ -76,5 +75,63 @@ export function useOverrideActivity(
       client.invalidateQueries({
         queryKey: constructionSessionKey(projectId, vars.activityId),
       }),
+  });
+}
+
+export interface SubmitPhaseDecisionVars {
+  activityId: string;
+  phase: string;
+  decision: PhaseDecision;
+  feedback?: components['schemas']['ConstructionReviewFeedback'];
+}
+
+export function useSubmitPhaseDecision(
+  projectId: string
+): UseMutationResult<undefined, Error, SubmitPhaseDecisionVars> {
+  const client = useQueryClient();
+  return useMutation<undefined, Error, SubmitPhaseDecisionVars>({
+    mutationFn: async (vars) => {
+      const { error, response } = await apiClient.POST(
+        '/api/v1/construction/submit-phase-decision/{projectID}/{activityID}',
+        {
+          params: { path: { projectID: projectId, activityID: vars.activityId } },
+          body: {
+            phase: vars.phase,
+            decision: phaseDecisionToOrdinal(vars.decision),
+            ...(vars.feedback !== undefined ? { feedback: vars.feedback } : {}),
+          },
+        }
+      );
+      if (error !== undefined) throw toApiError(response.status, error);
+      return undefined;
+    },
+    onSuccess: (_data, vars) =>
+      client.invalidateQueries({
+        queryKey: constructionSessionKey(projectId, vars.activityId),
+      }),
+  });
+}
+
+export interface UpdateReviewPolicyVars {
+  gatedPhasesByType: Record<string, string[]>;
+}
+
+export function useUpdateReviewPolicy(
+  projectId: string
+): UseMutationResult<undefined, Error, UpdateReviewPolicyVars> {
+  const client = useQueryClient();
+  return useMutation<undefined, Error, UpdateReviewPolicyVars>({
+    mutationFn: async (vars) => {
+      const { error, response } = await apiClient.POST(
+        '/api/v1/construction/update-review-policy/{projectID}',
+        {
+          params: { path: { projectID: projectId } },
+          body: { policy: { gatedPhasesByType: vars.gatedPhasesByType } },
+        }
+      );
+      if (error !== undefined) throw toApiError(response.status, error);
+      return undefined;
+    },
+    onSuccess: () => client.invalidateQueries({ queryKey: projectKey(projectId) }),
   });
 }

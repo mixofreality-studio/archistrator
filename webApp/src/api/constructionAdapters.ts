@@ -49,6 +49,7 @@ export const STAGE_LABEL: Record<ConstructionStage, string> = {
   pipelineRunning: 'Pipeline running',
   reviewing: 'Reviewing',
   awaitingTakeover: 'Awaiting takeover',
+  awaitingApproval: 'Awaiting approval',
   paused: 'Paused',
   exited: 'Exited',
   unknown: 'Unknown',
@@ -70,6 +71,8 @@ export function buildStatusForStage(stage: ConstructionStage): BuildStatus {
       return 'in-review';
     case 'awaitingTakeover':
       return 'blocked';
+    case 'awaitingApproval':
+      return 'in-construction';
     case 'paused':
       return 'blocked';
     case 'exited':

@@ -300,7 +300,25 @@ func (m *systemDesignManager) projectStateToContract(p projectstate.Project) Pro
 		ActivityConstruction: constructionRowsToContract(p.ActivityConstruction),
 		ConstructionProgress: m.constructionProgressToContract(p),
 		ServiceContracts:     serviceContractsToContract(p.ServiceContracts),
+		ReviewPolicy:         reviewPolicyToContract(p.ReviewPolicy),
 	}
+}
+
+// reviewPolicyToContract converts the head-state ReviewPolicy to the contract
+// ReviewPolicyView. Returns nil when the policy is empty (no gates configured).
+func reviewPolicyToContract(p projectstate.ReviewPolicy) *ReviewPolicyView {
+	if len(p.GatedPhasesByType) == 0 {
+		return nil
+	}
+	byType := make(map[string][]string, len(p.GatedPhasesByType))
+	for typ, phases := range p.GatedPhasesByType {
+		strs := make([]string, len(phases))
+		for i, ph := range phases {
+			strs[i] = string(ph)
+		}
+		byType[typ] = strs
+	}
+	return &ReviewPolicyView{GatedPhasesByType: byType}
 }
 
 // researchToContract maps the Phase-1 research corpus.

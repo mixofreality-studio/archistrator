@@ -58,6 +58,7 @@ type constructionTransitionAccess interface {
 	RecordActivityExited(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, outcome projectstate.ActivityOutcome, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
 	RecordActivityFailed(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, reason projectstate.FailureReason, detail string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
 	RecordOperatorPaused(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, reason string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
+	RecordReviewPolicy(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, policy projectstate.ReviewPolicy, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
 	RecordPhaseStarted(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, phase projectstate.ActivityMethodPhase, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
 	RecordPhaseCompleted(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, phase projectstate.ActivityMethodPhase, artifactRef string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
 	RecordServiceContractProduced(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, component string, contract projectstate.ServiceContract, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
@@ -139,6 +140,15 @@ type constructionActivity struct {
 	EstimateDays float64
 	CRLabel      string
 	IsRevert     bool
+	Phases       []projectstate.ActivityMethodPhase
+}
+
+// activityTypeName returns the canonical activity-type wire name
+// ("service"/"frontend"/"testing") derived from the activity id. These are the exact
+// keys the ReviewPolicy's GatedPhasesByType map is keyed by (and the keys the webApp
+// PolicyPanel must emit) — the gate consults RequiresHuman(activityTypeName(), phase).
+func (a constructionActivity) activityTypeName() string {
+	return projectstate.DeriveType(a.ActivityID).String()
 }
 
 // activityKind is the Manager-local activity-kind vocabulary.

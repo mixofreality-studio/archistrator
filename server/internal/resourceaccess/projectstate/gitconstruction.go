@@ -40,8 +40,8 @@ var _ GitConstructionTransitionAccess = (*GitStore)(nil)
 // map key for PhaseArtifacts fields; it is unused for pointer-scalar TestingState
 // fields (SystemTestPlan, HarnessModule, PerfHarness, QualityAuditReport).
 // Convention: exactly one field per call. This is NOT enforced at runtime (multiple
-// set fields will route all of them). A typed sum type would enforce the invariant;
-// deferred to Plan 3 when cs.Type/cs.Variant population lands.
+// set fields will route all of them). A typed sum type would enforce the invariant,
+// which now may be feasible since cs.Type/cs.Variant are populated by seed-construction.
 type PhaseArtifactPayload struct {
 	// PhaseArtifacts fields (keyed by mapKey)
 	SRS              *SRSRecord
@@ -142,6 +142,15 @@ func (s *GitStore) RecordOperatorPaused(ctx context.Context, projectID ProjectID
 	return s.applyMutation(ctx, "RecordOperatorPaused", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
 		p.OperatorPaused = true
 		p.PauseReason = reason
+		return nil
+	})
+}
+
+// RecordReviewPolicy persists the per-project ReviewPolicy by setting
+// Project.ReviewPolicy = policy.
+func (s *GitStore) RecordReviewPolicy(ctx context.Context, projectID ProjectID, expectedVersion Version, policy ReviewPolicy, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	return s.applyMutation(ctx, "RecordReviewPolicy", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
+		p.ReviewPolicy = policy
 		return nil
 	})
 }

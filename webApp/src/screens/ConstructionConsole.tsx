@@ -29,7 +29,12 @@ import PlayArrowRoundedIcon from '@mui/icons-material/PlayArrowRounded';
 import { getRouteApi, useNavigate } from '@tanstack/react-router';
 
 import { ApiError } from '../api/client';
-import type { ConstructionRow, GitRow, ProjectArtifactModelEnvelope, ProjectStateWithGit } from '../api/types';
+import type {
+  ConstructionRow,
+  GitRow,
+  ProjectArtifactModelEnvelope,
+  ProjectStateWithGit,
+} from '../api/types';
 import { gitFor } from '../api/types';
 import type { OverrideKind } from '../api/types';
 import { slotStageFromOrdinal } from '../api/adapters';
@@ -47,6 +52,7 @@ import {
   usePauseConstruction,
   useOverrideActivity,
   useBeginConstruction,
+  useSubmitPhaseDecision,
 } from '../hooks/useConstructionMutations';
 
 import { ExperienceChrome } from '../components/design/ExperienceChrome';
@@ -54,6 +60,7 @@ import { ConstructionTracker } from '../components/construction/ConstructionTrac
 import { InterventionsTab } from '../components/construction/InterventionsTab';
 import { ArtifactsTab } from '../components/construction/ArtifactsTab';
 import { ActivityLifecyclePanel } from '../components/construction/ActivityLifecyclePanel';
+import { PhaseGatePanel } from '../components/construction/PhaseGatePanel';
 import { CommentProvider } from '../components/comments/CommentContext';
 
 import { useTokens } from '../theme/ThemeContext';
@@ -65,9 +72,24 @@ const routeApi = getRouteApi('/project/$projectId/construction');
 type TabId = 'tracker' | 'interventions' | 'artifacts';
 
 const TABS: { id: TabId; title: string; icon: ReactNode; testid: string }[] = [
-  { id: 'tracker', title: 'Tracker', icon: <AccountTreeOutlinedIcon sx={{ fontSize: 16 }} />, testid: UI_IDENTIFIERS.Construction.TAB_TRACKER },
-  { id: 'interventions', title: 'Interventions', icon: <BoltOutlinedIcon sx={{ fontSize: 16 }} />, testid: UI_IDENTIFIERS.Construction.TAB_INTERVENTIONS },
-  { id: 'artifacts', title: 'Artifacts', icon: <Inventory2OutlinedIcon sx={{ fontSize: 16 }} />, testid: UI_IDENTIFIERS.Construction.TAB_ARTIFACTS },
+  {
+    id: 'tracker',
+    title: 'Tracker',
+    icon: <AccountTreeOutlinedIcon sx={{ fontSize: 16 }} />,
+    testid: UI_IDENTIFIERS.Construction.TAB_TRACKER,
+  },
+  {
+    id: 'interventions',
+    title: 'Interventions',
+    icon: <BoltOutlinedIcon sx={{ fontSize: 16 }} />,
+    testid: UI_IDENTIFIERS.Construction.TAB_INTERVENTIONS,
+  },
+  {
+    id: 'artifacts',
+    title: 'Artifacts',
+    icon: <Inventory2OutlinedIcon sx={{ fontSize: 16 }} />,
+    testid: UI_IDENTIFIERS.Construction.TAB_ARTIFACTS,
+  },
 ];
 
 /** The committed Phase-2 slot's typed envelope, for the tracker CPM derivation. */
@@ -125,16 +147,59 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
     const id = setInterval(() => {
       if (Date.now() - lastProgressAtRef.current > 30000) setCascading(false);
     }, 1500);
-    return (): void => { clearInterval(id); };
+    return (): void => {
+      clearInterval(id);
+    };
   }, [cascading]);
 
   const sessionQuery = useConstructionSession(projectId);
   const session = sessionQuery.data;
-  const sessionMissing = sessionQuery.error instanceof ApiError && sessionQuery.error.status === 404;
+  const sessionMissing =
+    sessionQuery.error instanceof ApiError && sessionQuery.error.status === 404;
 
   const pause = usePauseConstruction(projectId);
   const override = useOverrideActivity(projectId);
   const begin = useBeginConstruction(projectId);
+  const submitPhaseDecision = useSubmitPhaseDecision(projectId);
+
+  // Phase-gate detection: find the currently in-construction activity and poll its
+  // session. When the workflow suspends at a phase gate (StageAwaitingApproval = 7),
+  // the PhaseGatePanel is shown so the human can Approve or Send back.
+  const activeInConstructionId = useMemo(() => {
+    if (project?.constructionRows === undefined) return undefined;
+    return Object.values(project.constructionRows).find(
+      (r): boolean => r.status === 'in-construction'
+    )?.activityId;
+  }, [project?.constructionRows]);
+
+  const phaseGateSessionQuery = useConstructionSession(projectId, activeInConstructionId);
+  const phaseGateSession = phaseGateSessionQuery.data;
+  const isAwaitingApproval = phaseGateSession?.stage === 'awaitingApproval';
+
+  // The construction row for the gated activity — provides phase + kind for the panel.
+  const phaseGateRow =
+    isAwaitingApproval && activeInConstructionId !== undefined
+      ? project?.constructionRows?.[activeInConstructionId]
+      : undefined;
+
+  const approvePhase = (): void => {
+    if (activeInConstructionId === undefined || phaseGateRow === undefined) return;
+    submitPhaseDecision.mutate({
+      activityId: activeInConstructionId,
+      phase: phaseGateRow.phase,
+      decision: 'approve',
+    });
+  };
+
+  const sendBackPhase = (): void => {
+    if (activeInConstructionId === undefined || phaseGateRow === undefined) return;
+    submitPhaseDecision.mutate({
+      activityId: activeInConstructionId,
+      phase: phaseGateRow.phase,
+      decision: 'sendBack',
+    });
+  };
+
   const onBegin = (): void => {
     lastProgressAtRef.current = Date.now();
     setCascading(true);
@@ -146,7 +211,11 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   const pauseError = pause.error instanceof Error ? pause.error.message : undefined;
 
   const onOverride = (activityId: string, kind: OverrideKind, notes: string): void => {
-    override.mutate({ activityId, kind, ...(notes.trim().length > 0 ? { notes: notes.trim() } : {}) });
+    override.mutate({
+      activityId,
+      kind,
+      ...(notes.trim().length > 0 ? { notes: notes.trim() } : {}),
+    });
   };
   const onPause = (reason: string): void => {
     pause.mutate(reason);
@@ -157,7 +226,8 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   // (honest-empty — the row renders no git cluster).
   const gitForActivity = (activityId: string): GitRow | undefined => gitFor(project, activityId);
 
-  const activeTitle = tab === 'tracker' ? 'Tracker' : tab === 'interventions' ? 'Interventions' : 'Artifacts';
+  const activeTitle =
+    tab === 'tracker' ? 'Tracker' : tab === 'interventions' ? 'Interventions' : 'Artifacts';
 
   // --- Activity Lifecycle Panel (additive overlay on Tracker node click) ----
   const [selectedActivityId, setSelectedActivityId] = useState<string | null>(null);
@@ -173,7 +243,10 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
 
   // titleForId: resolves activityId → human-readable title from the committed
   // activity-list slot, falling back to the id when no title is present.
-  const activityListModel = useMemo(() => narrowProject(activityEnvelope, 'activityList'), [activityEnvelope]);
+  const activityListModel = useMemo(
+    () => narrowProject(activityEnvelope, 'activityList'),
+    [activityEnvelope]
+  );
   const titleForId = useMemo((): ((id: string) => string | undefined) => {
     const items = activityListModel?.activities ?? [];
     const byId = new Map<string, string | undefined>(items.map((a) => [a.name, a.title]));
@@ -210,150 +283,191 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
 
   return (
     <CommentProvider>
-    <ExperienceChrome
-      phaseNum={3}
-      phaseTitle="Construction"
-      projectName={project?.name}
-      onClose={() => void navigate({ to: '/project/$projectId/home', params: { projectId } })}
-    >
-      <Box
-        data-testid={UI_IDENTIFIERS.Construction.ROOT}
-        sx={{ flexGrow: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}
+      <ExperienceChrome
+        phaseNum={3}
+        phaseTitle="Construction"
+        projectName={project?.name}
+        onClose={() => void navigate({ to: '/project/$projectId/home', params: { projectId } })}
       >
-        {/* tab bar — replaces the ordered spine */}
-        <Box sx={{ flexShrink: 0, display: 'flex', alignItems: 'stretch', gap: 0.5, px: 2.5, bgcolor: t.paperAlt, borderBottom: `1.5px solid ${t.line}`, overflowX: 'auto' }}>
-          {TABS.map((x) => {
-            const isActive = x.id === tab;
-            return (
-              <Box
-                aria-selected={isActive}
-                data-testid={x.testid}
-                key={x.id}
-                role="tab"
-                sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 0.75,
-                  px: 1.5,
-                  py: 1.25,
-                  cursor: 'pointer',
-                  flexShrink: 0,
-                  color: isActive ? t.accent : t.muted,
-                  borderBottom: `3px solid ${isActive ? t.accent : 'transparent'}`,
-                  '&:hover': { color: isActive ? t.accent : t.ink },
-                }}
-                onClick={() => { setTab(x.id); }}
-              >
-                {x.icon}
-                <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 12.5, letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>
-                  {x.title}
-                </Typography>
-              </Box>
-            );
-          })}
-        </Box>
-
-        <Box sx={{ flexGrow: 1, minHeight: 0, overflowY: 'auto', px: { xs: 2, md: 4 }, py: 3 }}>
-          <ConsoleHeader
-            action={
-              tab === 'tracker' ? (
-                <Button
-                  data-testid={UI_IDENTIFIERS.Construction.BEGIN_BUTTON}
-                  disabled={beginActive}
-                  size="small"
-                  startIcon={
-                    beginActive ? <CircularProgress color="inherit" size={14} /> : <PlayArrowRoundedIcon />
-                  }
+        <Box
+          data-testid={UI_IDENTIFIERS.Construction.ROOT}
+          sx={{ flexGrow: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}
+        >
+          {/* tab bar — replaces the ordered spine */}
+          <Box
+            sx={{
+              flexShrink: 0,
+              display: 'flex',
+              alignItems: 'stretch',
+              gap: 0.5,
+              px: 2.5,
+              bgcolor: t.paperAlt,
+              borderBottom: `1.5px solid ${t.line}`,
+              overflowX: 'auto',
+            }}
+          >
+            {TABS.map((x) => {
+              const isActive = x.id === tab;
+              return (
+                <Box
+                  aria-selected={isActive}
+                  data-testid={x.testid}
+                  key={x.id}
+                  role="tab"
                   sx={{
-                    fontFamily: t.mono,
-                    fontWeight: 700,
-                    fontSize: 12,
-                    textTransform: 'none',
-                    color: t.bg,
-                    bgcolor: t.accent,
-                    px: 1.75,
-                    '&:hover': { bgcolor: t.accent2 },
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 0.75,
+                    px: 1.5,
+                    py: 1.25,
+                    cursor: 'pointer',
+                    flexShrink: 0,
+                    color: isActive ? t.accent : t.muted,
+                    borderBottom: `3px solid ${isActive ? t.accent : 'transparent'}`,
+                    '&:hover': { color: isActive ? t.accent : t.ink },
                   }}
-                  variant="contained"
-                  onClick={onBegin}
+                  onClick={() => {
+                    setTab(x.id);
+                  }}
                 >
-                  {beginActive ? 'Construction running…' : 'Begin construction'}
-                </Button>
-              ) : undefined
-            }
-            subtitle={tabSubtitle(tab)}
-            t={t}
-            title={activeTitle}
-          />
+                  {x.icon}
+                  <Typography
+                    sx={{
+                      fontFamily: t.mono,
+                      fontWeight: 700,
+                      fontSize: 12.5,
+                      letterSpacing: '0.04em',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {x.title}
+                  </Typography>
+                </Box>
+              );
+            })}
+          </Box>
 
-          {projectLoading ? (
-            <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
-              <CircularProgress />
-            </Box>
-          ) : tab === 'tracker' ? (
-            <ConstructionTracker
-              activityEnvelope={activityEnvelope}
-              constructionProgress={project?.constructionProgress}
-              constructionRows={project?.constructionRows}
-              gitFor={gitForActivity}
-              networkEnvelope={networkEnvelope}
-              overrideError={overrideError}
-              overridePending={override.isPending}
-              session={session}
-              sessionMissing={sessionMissing}
-              onOverride={onOverride}
-              onSelectActivity={setSelectedActivityId}
+          <Box sx={{ flexGrow: 1, minHeight: 0, overflowY: 'auto', px: { xs: 2, md: 4 }, py: 3 }}>
+            <ConsoleHeader
+              action={
+                tab === 'tracker' ? (
+                  <Button
+                    data-testid={UI_IDENTIFIERS.Construction.BEGIN_BUTTON}
+                    disabled={beginActive}
+                    size="small"
+                    startIcon={
+                      beginActive ? (
+                        <CircularProgress color="inherit" size={14} />
+                      ) : (
+                        <PlayArrowRoundedIcon />
+                      )
+                    }
+                    sx={{
+                      fontFamily: t.mono,
+                      fontWeight: 700,
+                      fontSize: 12,
+                      textTransform: 'none',
+                      color: t.bg,
+                      bgcolor: t.accent,
+                      px: 1.75,
+                      '&:hover': { bgcolor: t.accent2 },
+                    }}
+                    variant="contained"
+                    onClick={onBegin}
+                  >
+                    {beginActive ? 'Construction running…' : 'Begin construction'}
+                  </Button>
+                ) : undefined
+              }
+              subtitle={tabSubtitle(tab)}
+              t={t}
+              title={activeTitle}
             />
-          ) : tab === 'interventions' ? (
-            <InterventionsTab
-              activityEnvelope={activityEnvelope}
-              constructionRows={project?.constructionRows}
-              gitFor={gitForActivity}
-              overrideError={overrideError}
-              overridePending={override.isPending}
-              pauseError={pauseError}
-              pausePending={pause.isPending}
-              project={project}
-              session={session}
-              sessionMissing={sessionMissing}
-              onOverride={onOverride}
-              onPause={onPause}
-            />
-          ) : (
-            <ArtifactsTab
-              activityEnvelope={activityEnvelope}
-              constructionRows={project?.constructionRows}
-              project={project}
-              session={session}
-              sessionMissing={sessionMissing}
-            />
-          )}
+
+            {projectLoading ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
+                <CircularProgress />
+              </Box>
+            ) : tab === 'tracker' ? (
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <ConstructionTracker
+                  activityEnvelope={activityEnvelope}
+                  constructionProgress={project?.constructionProgress}
+                  constructionRows={project?.constructionRows}
+                  gitFor={gitForActivity}
+                  networkEnvelope={networkEnvelope}
+                  overrideError={overrideError}
+                  overridePending={override.isPending}
+                  session={session}
+                  sessionMissing={sessionMissing}
+                  onOverride={onOverride}
+                  onSelectActivity={setSelectedActivityId}
+                />
+                {/* Phase gate — rendered when ConstructionSessionView.stage === awaitingApproval */}
+                {phaseGateRow !== undefined && (
+                  <PhaseGatePanel
+                    activityKind={phaseGateRow.kind}
+                    pending={submitPhaseDecision.isPending}
+                    phase={phaseGateRow.phase}
+                    reviewSet={phaseGateSession?.view.reviewSet}
+                    onApprove={approvePhase}
+                    onSendBack={sendBackPhase}
+                  />
+                )}
+              </Box>
+            ) : tab === 'interventions' ? (
+              <InterventionsTab
+                activityEnvelope={activityEnvelope}
+                constructionRows={project?.constructionRows}
+                gitFor={gitForActivity}
+                overrideError={overrideError}
+                overridePending={override.isPending}
+                pauseError={pauseError}
+                pausePending={pause.isPending}
+                project={project}
+                projectId={projectId}
+                session={session}
+                sessionMissing={sessionMissing}
+                onOverride={onOverride}
+                onPause={onPause}
+              />
+            ) : (
+              <ArtifactsTab
+                activityEnvelope={activityEnvelope}
+                constructionRows={project?.constructionRows}
+                project={project}
+                session={session}
+                sessionMissing={sessionMissing}
+              />
+            )}
+          </Box>
         </Box>
-      </Box>
 
-      {/* Activity Lifecycle Panel — additive overlay on Tracker node click. */}
-      <ActivityLifecyclePanel
-        activityId={selectedActivityId}
-        activityTitle={selectedActivityId !== null ? titleForId(selectedActivityId) : undefined}
-        derivedStatus={
-          selectedActivityId !== null
-            ? (statusMap.get(selectedActivityId) ?? 'not-started')
-            : 'not-started'
-        }
-        git={selectedActivityId !== null ? gitForActivity(selectedActivityId) : undefined}
-        node={
-          selectedActivityId !== null
-            ? networkView.nodes.find((n) => n.id === selectedActivityId)
-            : undefined
-        }
-        row={
-          selectedActivityId !== null
-            ? project?.constructionRows?.[selectedActivityId]
-            : undefined
-        }
-        onClose={() => { setSelectedActivityId(null); }}
-      />
-    </ExperienceChrome>
+        {/* Activity Lifecycle Panel — additive overlay on Tracker node click. */}
+        <ActivityLifecyclePanel
+          activityId={selectedActivityId}
+          activityTitle={selectedActivityId !== null ? titleForId(selectedActivityId) : undefined}
+          derivedStatus={
+            selectedActivityId !== null
+              ? (statusMap.get(selectedActivityId) ?? 'not-started')
+              : 'not-started'
+          }
+          git={selectedActivityId !== null ? gitForActivity(selectedActivityId) : undefined}
+          node={
+            selectedActivityId !== null
+              ? networkView.nodes.find((n) => n.id === selectedActivityId)
+              : undefined
+          }
+          row={
+            selectedActivityId !== null
+              ? project?.constructionRows?.[selectedActivityId]
+              : undefined
+          }
+          onClose={() => {
+            setSelectedActivityId(null);
+          }}
+        />
+      </ExperienceChrome>
     </CommentProvider>
   );
 }
@@ -385,8 +499,12 @@ function ConsoleHeader({
   return (
     <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5, mb: 2 }}>
       <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-        <Typography sx={{ color: t.ink }} variant="h4">{title}</Typography>
-        <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.muted, mt: 0.5 }}>{subtitle}</Typography>
+        <Typography sx={{ color: t.ink }} variant="h4">
+          {title}
+        </Typography>
+        <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.muted, mt: 0.5 }}>
+          {subtitle}
+        </Typography>
       </Box>
       {action !== undefined ? <Box sx={{ flexShrink: 0 }}>{action}</Box> : null}
     </Box>

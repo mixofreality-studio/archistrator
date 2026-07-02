@@ -254,6 +254,7 @@ export function mapProjectState(w: Schemas['SystemDesignProjectState']): Project
     ...(w.constructionProgress !== undefined
       ? { constructionProgress: mapConstructionProgress(w.constructionProgress) }
       : {}),
+    ...(w.reviewPolicy !== undefined ? { reviewPolicy: w.reviewPolicy } : {}),
   };
 }
 

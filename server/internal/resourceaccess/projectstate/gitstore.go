@@ -722,6 +722,10 @@ type projectDoc struct {
 	OperatorPaused bool `json:"operatorPaused,omitempty"`
 	// PauseReason is the operator-supplied reason for the pause.
 	PauseReason string `json:"pauseReason,omitempty"`
+	// ReviewPolicy is the per-project committed configuration of which phases require
+	// human approval. Omitted when empty so existing project.json documents decode as
+	// the zero value (inert — no phases gated).
+	ReviewPolicy ReviewPolicy `json:"reviewPolicy,omitempty"`
 	// UpdatedAt is the server-resolved timestamp of the last committed state
 	// mutation (set by buildStateFiles on every write). omitempty so existing
 	// project.json documents that pre-date this field decode cleanly as the zero
@@ -774,6 +778,7 @@ func decodeProjectDoc(raw []byte, projectID ProjectID) (Project, bool, error) {
 		TestingState:         doc.TestingState,
 		OperatorPaused:       doc.OperatorPaused,
 		PauseReason:          doc.PauseReason,
+		ReviewPolicy:         doc.ReviewPolicy,
 	}
 	if err := decodeSlotsMap(doc.Slots, &p); err != nil {
 		return Project{}, false, fwra.Wrap(fwra.Infrastructure, err, "projectstate: decode slots")
@@ -905,6 +910,7 @@ func encodeProjectDoc(p *Project, updatedAt time.Time) ([]byte, error) {
 		TestingState:         p.TestingState,
 		OperatorPaused:       p.OperatorPaused,
 		PauseReason:          p.PauseReason,
+		ReviewPolicy:         p.ReviewPolicy,
 		UpdatedAt:            updatedAt,
 	}
 	b, err := json.MarshalIndent(doc, "", "  ")

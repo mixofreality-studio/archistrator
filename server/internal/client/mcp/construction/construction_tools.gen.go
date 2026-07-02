@@ -28,6 +28,8 @@ func (h *Handler) Register(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{Name: "constructionOverrideActivity", Description: "OverrideActivity on the Construction manager."}, h.handleOverrideActivity)
 	mcp.AddTool(srv, &mcp.Tool{Name: "constructionPauseProject", Description: "PauseProject on the Construction manager."}, h.handlePauseProject)
 	mcp.AddTool(srv, &mcp.Tool{Name: "constructionRunReplanSweep", Description: "RunReplanSweep on the Construction manager."}, h.handleRunReplanSweep)
+	mcp.AddTool(srv, &mcp.Tool{Name: "constructionSubmitPhaseDecision", Description: "SubmitPhaseDecision on the Construction manager."}, h.handleSubmitPhaseDecision)
+	mcp.AddTool(srv, &mcp.Tool{Name: "constructionUpdateReviewPolicy", Description: "UpdateReviewPolicy on the Construction manager."}, h.handleUpdateReviewPolicy)
 }
 
 type executeNextActivityInput struct {
@@ -71,6 +73,23 @@ type runReplanSweepInput struct {
 type runReplanSweepOutput struct {
 	Result mgr.ReplanSweepResult `json:"result"`
 }
+
+type submitPhaseDecisionInput struct {
+	ProjectID  mgr.ProjectID       `json:"projectID"`
+	ActivityID mgr.ActivityID      `json:"activityID"`
+	Phase      string              `json:"phase"`
+	Decision   mgr.PhaseDecision   `json:"decision"`
+	Feedback   *mgr.ReviewFeedback `json:"feedback"`
+}
+
+type submitPhaseDecisionOutput struct{}
+
+type updateReviewPolicyInput struct {
+	ProjectID mgr.ProjectID         `json:"projectID"`
+	Policy    mgr.ReviewPolicyInput `json:"policy"`
+}
+
+type updateReviewPolicyOutput struct{}
 
 // handleExecuteNextActivity is the MCP tool handler for the ExecuteNextActivity operation.
 func (h *Handler) handleExecuteNextActivity(ctx context.Context, _ *mcp.CallToolRequest, in executeNextActivityInput) (*mcp.CallToolResult, executeNextActivityOutput, error) {
@@ -130,6 +149,28 @@ func (h *Handler) handleRunReplanSweep(ctx context.Context, _ *mcp.CallToolReque
 		return nil, out, mapManagerError(err)
 	}
 	out.Result = result
+	return nil, out, nil
+}
+
+// handleSubmitPhaseDecision is the MCP tool handler for the SubmitPhaseDecision operation.
+func (h *Handler) handleSubmitPhaseDecision(ctx context.Context, _ *mcp.CallToolRequest, in submitPhaseDecisionInput) (*mcp.CallToolResult, submitPhaseDecisionOutput, error) {
+	var out submitPhaseDecisionOutput
+	principal, _ := security.PrincipalFrom(ctx)
+	rc := fwmanager.Context{Context: ctx, Principal: principal}
+	if err := h.Manager.SubmitPhaseDecision(rc, in.ProjectID, in.ActivityID, in.Phase, in.Decision, in.Feedback); err != nil {
+		return nil, out, mapManagerError(err)
+	}
+	return nil, out, nil
+}
+
+// handleUpdateReviewPolicy is the MCP tool handler for the UpdateReviewPolicy operation.
+func (h *Handler) handleUpdateReviewPolicy(ctx context.Context, _ *mcp.CallToolRequest, in updateReviewPolicyInput) (*mcp.CallToolResult, updateReviewPolicyOutput, error) {
+	var out updateReviewPolicyOutput
+	principal, _ := security.PrincipalFrom(ctx)
+	rc := fwmanager.Context{Context: ctx, Principal: principal}
+	if err := h.Manager.UpdateReviewPolicy(rc, in.ProjectID, in.Policy); err != nil {
+		return nil, out, mapManagerError(err)
+	}
 	return nil, out, nil
 }
 

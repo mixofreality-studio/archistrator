@@ -253,6 +253,7 @@ type ProjectState struct {
 	ActivityConstruction map[string]ActivityConstructionStatus `json:"ActivityConstruction"`
 	ConstructionProgress *ConstructionProgress                 `json:"constructionProgress,omitempty"`
 	ServiceContracts     map[string]ServiceContract            `json:"ServiceContracts"`
+	ReviewPolicy         *ReviewPolicyView                     `json:"reviewPolicy,omitempty"`
 }
 
 type ProjectSummary struct {
@@ -286,6 +287,10 @@ const (
 type ReviewFeedback struct {
 	Notes    string            `json:"notes"`
 	Comments []AnchoredComment `json:"comments,omitempty"`
+}
+
+type ReviewPolicyView struct {
+	GatedPhasesByType map[string][]string `json:"gatedPhasesByType"`
 }
 
 type RuleID string

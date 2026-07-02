@@ -25,6 +25,11 @@ type ActivityOverride struct {
 	Notes string       `json:"notes"`
 }
 
+type AnchoredComment struct {
+	JSONPath string `json:"jsonPath"`
+	Text     string `json:"text"`
+}
+
 type ConstructionSessionView struct {
 	ProjectID     ProjectID         `json:"projectId"`
 	ActivityID    *ActivityID       `json:"activityId,omitempty"`
@@ -44,6 +49,7 @@ const (
 	StageAwaitingTakeover    ConstructionStage = 4
 	StagePaused              ConstructionStage = 5
 	StageExited              ConstructionStage = 6
+	StageAwaitingApproval    ConstructionStage = 7
 )
 
 type FlaggedVariance struct {
@@ -60,6 +66,14 @@ const (
 	OverrideRetry    OverrideKind = 2
 	OverrideSkip     OverrideKind = 3
 	OverrideReassign OverrideKind = 4
+)
+
+type PhaseDecision int
+
+const (
+	PhaseDecisionUnknown PhaseDecision = 0
+	PhaseApprove         PhaseDecision = 1
+	PhaseSendBack        PhaseDecision = 2
 )
 
 type PipelinePhase int
@@ -84,6 +98,15 @@ type ReplanSweepResult struct {
 	FlaggedVariances []FlaggedVariance `json:"flaggedVariances,omitempty"`
 }
 
+type ReviewFeedback struct {
+	Notes    string            `json:"notes"`
+	Comments []AnchoredComment `json:"comments,omitempty"`
+}
+
+type ReviewPolicyInput struct {
+	GatedPhasesByType map[string][]string `json:"gatedPhasesByType"`
+}
+
 type ReviewSet struct {
 	Reviewers []Reviewer `json:"reviewers,omitempty"`
 }
@@ -102,6 +125,8 @@ type ConstructionManager interface {
 	OverrideActivity(rc fwm.Context, projectID ProjectID, activityID ActivityID, override ActivityOverride) error
 	PauseProject(rc fwm.Context, projectID ProjectID, reason string) error
 	RunReplanSweep(rc fwm.Context, projectID *ProjectID, tickID string) (ReplanSweepResult, error)
+	SubmitPhaseDecision(rc fwm.Context, projectID ProjectID, activityID ActivityID, phase string, decision PhaseDecision, feedback *ReviewFeedback) error
+	UpdateReviewPolicy(rc fwm.Context, projectID ProjectID, policy ReviewPolicyInput) error
 }
 
 // NewConstructionManager constructs the ConstructionManager, delegating to the hand-written, unexported

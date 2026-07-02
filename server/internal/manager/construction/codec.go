@@ -46,6 +46,12 @@ type projectEnvelope struct {
 	// map (resolveComponentID), so it must cross the Activity boundary. Plain structs,
 	// JSON-serializable.
 	ServiceContracts map[string]projectstate.ServiceContract `json:"serviceContracts,omitempty"`
+
+	// ReviewPolicy is the committed per-project human-approval-gate configuration the
+	// per-activity spine's phase gate reads at workflow start (Task 6). Plain struct
+	// (map of string→[]string phase ids), JSON-serializable — crosses the Activity
+	// boundary cleanly. Zero value gates nothing (the pre-feature behavior).
+	ReviewPolicy projectstate.ReviewPolicy `json:"reviewPolicy,omitempty"`
 }
 
 // encodeProject projects the head-state aggregate onto the envelope, carrying the
@@ -58,6 +64,7 @@ func encodeProject(p projectstate.Project) projectEnvelope {
 		Phase:                p.Phase,
 		ActivityConstruction: p.ActivityConstruction,
 		ServiceContracts:     p.ServiceContracts,
+		ReviewPolicy:         p.ReviewPolicy,
 	}
 	if p.Network.Status == projectstate.ReviewCommitted {
 		if n, ok := p.Network.Model.(*projectstate.Network); ok {
@@ -85,6 +92,7 @@ func decodeProject(e projectEnvelope) projectstate.Project {
 		Phase:                e.Phase,
 		ActivityConstruction: e.ActivityConstruction,
 		ServiceContracts:     e.ServiceContracts,
+		ReviewPolicy:         e.ReviewPolicy,
 	}
 	if e.NetworkCommitted && e.Network != nil {
 		p.Network = projectstate.ArtifactSlot{Status: projectstate.ReviewCommitted, Model: e.Network}

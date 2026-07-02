@@ -84,6 +84,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/construction/submit-phase-decision/{projectID}/{activityID}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["SubmitPhaseDecision"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/construction/update-review-policy/{projectID}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["UpdateReviewPolicy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/operations/apply-delinquency-policy/{customerID}": {
         parameters: {
             query?: never;
@@ -429,6 +461,10 @@ export interface components {
             kind: components["schemas"]["ConstructionOverrideKind"];
             notes: string;
         };
+        ConstructionAnchoredComment: {
+            jsonPath: string;
+            text: string;
+        };
         ConstructionConstructionSessionView: {
             activityId?: components["schemas"]["ConstructionActivityID"];
             pipelinePhase?: components["schemas"]["ConstructionPipelinePhase"];
@@ -438,7 +474,7 @@ export interface components {
             variance?: components["schemas"]["ConstructionFlaggedVariance"];
         };
         /** @enum {integer} */
-        ConstructionConstructionStage: 0 | 1 | 2 | 3 | 4 | 5 | 6;
+        ConstructionConstructionStage: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
         ConstructionErrorResponse: {
             code: string;
             error: string;
@@ -451,6 +487,8 @@ export interface components {
         /** @enum {integer} */
         ConstructionOverrideKind: 0 | 1 | 2 | 3 | 4;
         /** @enum {integer} */
+        ConstructionPhaseDecision: 0 | 1 | 2;
+        /** @enum {integer} */
         ConstructionPipelinePhase: 0 | 1 | 2 | 3 | 4 | 5;
         ConstructionProjectID: string;
         ConstructionPumpResult: {
@@ -459,6 +497,15 @@ export interface components {
         };
         ConstructionReplanSweepResult: {
             flaggedVariances?: null | components["schemas"]["ConstructionFlaggedVariance"][];
+        };
+        ConstructionReviewFeedback: {
+            comments?: null | components["schemas"]["ConstructionAnchoredComment"][];
+            notes: string;
+        };
+        ConstructionReviewPolicyInput: {
+            gatedPhasesByType: {
+                [key: string]: string[];
+            };
         };
         ConstructionReviewSet: {
             reviewers?: null | components["schemas"]["ConstructionReviewer"][];
@@ -780,6 +827,7 @@ export interface components {
             Slots: null | components["schemas"]["SystemDesignArtifactSlotView"][];
             Version: number;
             constructionProgress?: components["schemas"]["SystemDesignConstructionProgress"];
+            reviewPolicy?: components["schemas"]["SystemDesignReviewPolicyView"];
         };
         SystemDesignProjectSummary: {
             CommittedCount: number;
@@ -803,6 +851,11 @@ export interface components {
         SystemDesignReviewFeedback: {
             comments?: null | components["schemas"]["SystemDesignAnchoredComment"][];
             notes: string;
+        };
+        SystemDesignReviewPolicyView: {
+            gatedPhasesByType: {
+                [key: string]: string[];
+            };
         };
         SystemDesignRuleID: string;
         SystemDesignServiceContract: {
@@ -1225,6 +1278,187 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ConstructionReplanSweepResult"];
                 };
+            };
+            /** @description contract misuse */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConstructionErrorResponse"];
+                };
+            };
+            /** @description unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConstructionErrorResponse"];
+                };
+            };
+            /** @description forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConstructionErrorResponse"];
+                };
+            };
+            /** @description not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConstructionErrorResponse"];
+                };
+            };
+            /** @description failed precondition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConstructionErrorResponse"];
+                };
+            };
+            /** @description internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConstructionErrorResponse"];
+                };
+            };
+            /** @description infrastructure unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConstructionErrorResponse"];
+                };
+            };
+        };
+    };
+    SubmitPhaseDecision: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectID: components["schemas"]["ConstructionProjectID"];
+                activityID: components["schemas"]["ConstructionActivityID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    decision: components["schemas"]["ConstructionPhaseDecision"];
+                    feedback?: components["schemas"]["ConstructionReviewFeedback"];
+                    phase: string;
+                };
+            };
+        };
+        responses: {
+            /** @description no content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description contract misuse */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConstructionErrorResponse"];
+                };
+            };
+            /** @description unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConstructionErrorResponse"];
+                };
+            };
+            /** @description forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConstructionErrorResponse"];
+                };
+            };
+            /** @description not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConstructionErrorResponse"];
+                };
+            };
+            /** @description failed precondition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConstructionErrorResponse"];
+                };
+            };
+            /** @description internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConstructionErrorResponse"];
+                };
+            };
+            /** @description infrastructure unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConstructionErrorResponse"];
+                };
+            };
+        };
+    };
+    UpdateReviewPolicy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectID: components["schemas"]["ConstructionProjectID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    policy: components["schemas"]["ConstructionReviewPolicyInput"];
+                };
+            };
+        };
+        responses: {
+            /** @description no content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description contract misuse */
             400: {

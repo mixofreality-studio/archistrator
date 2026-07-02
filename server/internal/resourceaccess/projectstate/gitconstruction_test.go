@@ -618,8 +618,8 @@ func TestRecordPhaseCompleted_NoPhaseMatch_Noop(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RecordPhaseStarted: %v", err)
 	}
-	// complete a phase that is NOT in the service phase set (e.g. ui_design)
-	v4, err := store.RecordPhaseCompleted(ctx, id, v3, "C010", ps.MethodPhaseUIDesign, "", cred, fwra.IdempotencyKey("wf:pc-c010-nophase"))
+	// complete a phase that is NOT in the service phase set (e.g. "ui_design" — a non-existent id post-refactor)
+	v4, err := store.RecordPhaseCompleted(ctx, id, v3, "C010", ps.ActivityMethodPhase("ui_design"), "", cred, fwra.IdempotencyKey("wf:pc-c010-nophase"))
 	if err != nil {
 		t.Fatalf("RecordPhaseCompleted on unknown phase should not error: %v", err)
 	}

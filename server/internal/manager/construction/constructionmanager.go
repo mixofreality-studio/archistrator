@@ -6,10 +6,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/client"
 
 	fwm "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/handoff"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
@@ -256,6 +258,51 @@ func (m *constructionManager) GetSessionState(rc fwm.Context, projectID ProjectI
 		return ConstructionSessionView{}, newError(fwm.Infrastructure, err.Error())
 	}
 	return view, nil
+}
+
+// SubmitPhaseDecision — op 2.6. Temporal Signal (phaseDecision) to the
+// per-activity child workflow {projectId}:{activityId}. Delivers the operator's
+// phase-gated approve/send-back decision (and optional feedback) through the same
+// signal machinery as OverrideActivity. SYNC: returns once the signal is durably
+// enqueued. SendBack requires non-empty feedback notes.
+func (m *constructionManager) SubmitPhaseDecision(rc fwm.Context, projectID ProjectID, activityID ActivityID, phase string, decision PhaseDecision, feedback *ReviewFeedback) error {
+	ctx := rc.Context
+	if projectID == "" {
+		return newError(fwm.ContractMisuse, "empty projectId")
+	}
+	if activityID == "" {
+		return newError(fwm.ContractMisuse, "empty activityId")
+	}
+	if decision == PhaseSendBack && (feedback == nil || feedback.Notes == "") {
+		return newError(fwm.ContractMisuse, "SendBack requires non-empty feedback notes")
+	}
+
+	wfID := constructActivityWorkflowID(projectID, activityID)
+	sig := phaseDecisionSignal{Phase: phase, Decision: decision, Feedback: feedback}
+	if err := m.client.SignalWorkflow(ctx, wfID, "", signalPhaseDecision, sig); err != nil {
+		return mapSignalError(err)
+	}
+	return nil
+}
+
+// UpdateReviewPolicy — op 2.7. Persists the per-project ReviewPolicy.
+// Converts the input's GatedPhasesByType (map[string][]string of ad-hoc or canonical
+// gate ids) via projectstate.ReviewPolicyFromGateIDs to a typed ReviewPolicy, reads the
+// current project version, then calls RecordReviewPolicy on the constructionTransition RA.
+func (m *constructionManager) UpdateReviewPolicy(rc fwm.Context, projectID ProjectID, input ReviewPolicyInput) error {
+	ctx := rc.Context
+	if projectID == "" {
+		return newError(fwm.ContractMisuse, "empty projectId")
+	}
+	proj, err := m.constructionTransition.ReadProject(ctx, projectstate.ProjectID(projectID), projectstate.RepoCredential{})
+	if err != nil {
+		return newError(fwm.Infrastructure, err.Error())
+	}
+	policy := projectstate.ReviewPolicyFromGateIDs(input.GatedPhasesByType)
+	if _, err := m.constructionTransition.RecordReviewPolicy(ctx, projectstate.ProjectID(projectID), proj.Version, policy, projectstate.RepoCredential{}, fwra.IdempotencyKey(uuid.NewString())); err != nil {
+		return newError(fwm.Infrastructure, err.Error())
+	}
+	return nil
 }
 
 // --- workflow id derivation (continuity tokens; constructionManager.md §6.1) ---
