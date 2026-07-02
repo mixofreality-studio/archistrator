@@ -892,14 +892,30 @@ export interface components {
         };
         /** @enum {string} */
         SystemDesignSeverity: "info" | "warning" | "error";
+        SystemDesignSystemTestPlanView: {
+            scenarios: null | components["schemas"]["SystemDesignTestScenarioView"][];
+        };
         SystemDesignTestRunView: {
             failed: number;
             id: string;
             note: string;
             passed: number;
         };
+        SystemDesignTestScenarioView: {
+            id: string;
+            steps: null | components["schemas"]["SystemDesignTestStepView"][];
+            title: string;
+            useCase: string;
+        };
+        SystemDesignTestStepView: {
+            component: string;
+            note: string;
+            operation: string;
+            seq: number;
+        };
         SystemDesignTestingStateView: {
             defects: null | components["schemas"]["SystemDesignDefectView"][];
+            systemTestPlan?: components["schemas"]["SystemDesignSystemTestPlanView"];
             testRuns: null | components["schemas"]["SystemDesignTestRunView"][];
         };
         /** @enum {integer} */

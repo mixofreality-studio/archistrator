@@ -126,12 +126,34 @@ type TestRun struct {
 	Note      string     `json:"note,omitempty"`
 }
 
+// TestStep is one black-box step in a system-test scenario: a single manager
+// operation call. It is TRANSPORT-AGNOSTIC — it names the {component, operation}
+// (the manager method), NOT an HTTP route, because the REST/MCP/(future) gRPC
+// clients are all generated bindings of the same manager operation. The N-STH
+// harness generator turns these steps into per-transport test code.
+type TestStep struct {
+	Seq       int    `json:"seq"`                 // 1-based order within the scenario
+	Component string `json:"component"`           // manager/component that owns the operation
+	Operation string `json:"operation"`           // manager method name (e.g. "startSystemDesign")
+	Note      string `json:"note,omitempty"`      // expected result / assertion, human-readable
+}
+
+// TestScenario is one black-box system-test scenario: an ordered sequence of
+// manager-operation calls that proves (or breaks) a core use case end-to-end.
+type TestScenario struct {
+	ID      string     `json:"id"`
+	UseCase string     `json:"useCase"` // the core use case this scenario traces to
+	Title   string     `json:"title"`
+	Steps   []TestStep `json:"steps,omitempty"`
+}
+
 // SystemTestPlan is the output of the N-STP activity (§1c TestVariantPlan).
 type SystemTestPlan struct {
-	UseCaseIndex []string   `json:"useCaseIndex,omitempty"` // traced UC ids
-	Entries      []string   `json:"entries,omitempty"`      // plan entry descriptions
-	Status       string     `json:"status,omitempty"`       // "" | "approved"
-	ApprovedAt   *time.Time `json:"approvedAt,omitempty"`
+	UseCaseIndex []string       `json:"useCaseIndex,omitempty"` // traced UC ids
+	Entries      []string       `json:"entries,omitempty"`      // plan entry descriptions
+	Scenarios    []TestScenario `json:"scenarios,omitempty"`    // black-box operation sequences
+	Status       string         `json:"status,omitempty"`       // "" | "approved"
+	ApprovedAt   *time.Time     `json:"approvedAt,omitempty"`
 }
 
 // HarnessModule is the output of the N-STH activity (§1c TestVariantHarness).

@@ -453,10 +453,32 @@ export interface DefectView {
   note: string;
 }
 
+/** One black-box step: a transport-agnostic manager-operation call. */
+export interface TestStepView {
+  seq: number;
+  component: string;
+  operation: string;
+  note: string;
+}
+
+/** One black-box system-test scenario: an ordered operation sequence for a use case. */
+export interface TestScenarioView {
+  id: string;
+  useCase: string;
+  title: string;
+  steps: TestStepView[] | null;
+}
+
+/** The system test plan — the renderable black-box operation-sequence scenarios. */
+export interface SystemTestPlanView {
+  scenarios: TestScenarioView[] | null;
+}
+
 /** Project-level testing artifacts produced by N-* activities. */
 export interface TestingStateView {
   testRuns: TestRunView[] | null;
   defects: DefectView[] | null;
+  systemTestPlan?: SystemTestPlanView;
 }
 
 /**

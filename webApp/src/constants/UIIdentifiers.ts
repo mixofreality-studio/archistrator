@@ -115,6 +115,7 @@ export const UI_IDENTIFIERS = {
     ARTIFACTS: 'construction-artifacts',
     artifactRow: (id: string) => `construction-artifact-row-${id}`,
     SYSTEM_TEST_VIEW: 'construction-system-test-view',
+    TEST_PLAN_VIEW: 'construction-test-plan-view',
     BEGIN_BUTTON: 'construction-begin',
     PAUSE_BUTTON: 'construction-pause',
     PAUSE_REASON: 'construction-pause-reason',

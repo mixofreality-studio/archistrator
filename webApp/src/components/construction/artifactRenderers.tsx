@@ -4,6 +4,7 @@ import type { Tokens } from '../../theme/themes';
 import type { ArtifactActivityVM } from './ArtifactActivityList';
 import type { Classification } from './artifactClassification';
 import { SystemTestView } from './renderers/SystemTestView';
+import { TestPlanView } from './renderers/TestPlanView';
 
 export interface ArtifactRendererProps {
   vm: ArtifactActivityVM;
@@ -20,5 +21,6 @@ export interface ArtifactRendererProps {
 export const artifactRenderers: Partial<
   Record<Classification, (p: ArtifactRendererProps) => ReactNode>
 > = {
+  'testing:plan': TestPlanView,
   'testing:systemTest': SystemTestView,
 };

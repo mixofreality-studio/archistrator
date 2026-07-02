@@ -15151,6 +15151,9 @@
               "items": {
                 "$ref": "#/$defs/DefectView"
               }
+            },
+            "systemTestPlan": {
+              "$ref": "#/$defs/SystemTestPlanView"
             }
           },
           "required": [
@@ -15367,6 +15370,78 @@
         },
         "Version": {
           "type": "integer"
+        },
+        "TestStepView": {
+          "type": "object",
+          "properties": {
+            "seq": {
+              "type": "integer"
+            },
+            "component": {
+              "type": "string"
+            },
+            "operation": {
+              "type": "string"
+            },
+            "note": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "seq",
+            "component",
+            "operation",
+            "note"
+          ],
+          "additionalProperties": false
+        },
+        "TestScenarioView": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "useCase": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "steps": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/TestStepView"
+              }
+            }
+          },
+          "required": [
+            "id",
+            "useCase",
+            "title",
+            "steps"
+          ],
+          "additionalProperties": false
+        },
+        "SystemTestPlanView": {
+          "type": "object",
+          "properties": {
+            "scenarios": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/TestScenarioView"
+              }
+            }
+          },
+          "required": [
+            "scenarios"
+          ],
+          "additionalProperties": false
         }
       },
       "interface": {

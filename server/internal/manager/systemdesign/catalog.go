@@ -319,7 +319,25 @@ func testingStateToContract(ts *projectstate.TestingState) *TestingStateView {
 	for i, d := range ts.Defects {
 		defects[i] = DefectView{Id: d.ID, Title: d.Title, Severity: d.Severity, Note: d.Note}
 	}
-	return &TestingStateView{TestRuns: runs, Defects: defects}
+	return &TestingStateView{TestRuns: runs, Defects: defects, SystemTestPlan: systemTestPlanToContract(ts.SystemTestPlan)}
+}
+
+// systemTestPlanToContract maps the black-box operation-sequence scenarios of the
+// system test plan. Returns nil when there is no plan or no scenarios (the plan's
+// prose/index fields are not part of this view — only the renderable sequences).
+func systemTestPlanToContract(p *projectstate.SystemTestPlan) *SystemTestPlanView {
+	if p == nil || len(p.Scenarios) == 0 {
+		return nil
+	}
+	scenarios := make([]TestScenarioView, len(p.Scenarios))
+	for i, s := range p.Scenarios {
+		steps := make([]TestStepView, len(s.Steps))
+		for j, st := range s.Steps {
+			steps[j] = TestStepView{Seq: int64(st.Seq), Component: st.Component, Operation: st.Operation, Note: st.Note}
+		}
+		scenarios[i] = TestScenarioView{Id: s.ID, UseCase: s.UseCase, Title: s.Title, Steps: steps}
+	}
+	return &SystemTestPlanView{Scenarios: scenarios}
 }
 
 // reviewPolicyToContract converts the head-state ReviewPolicy to the contract

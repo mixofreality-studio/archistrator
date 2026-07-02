@@ -350,6 +350,10 @@ const (
 	SeverityError   Severity = "error"
 )
 
+type SystemTestPlanView struct {
+	Scenarios []TestScenarioView `json:"scenarios"`
+}
+
 type TestRunView struct {
 	Id     string `json:"id"`
 	Passed int64  `json:"passed"`
@@ -357,9 +361,24 @@ type TestRunView struct {
 	Note   string `json:"note"`
 }
 
+type TestScenarioView struct {
+	Id      string         `json:"id"`
+	UseCase string         `json:"useCase"`
+	Title   string         `json:"title"`
+	Steps   []TestStepView `json:"steps"`
+}
+
+type TestStepView struct {
+	Seq       int64  `json:"seq"`
+	Component string `json:"component"`
+	Operation string `json:"operation"`
+	Note      string `json:"note"`
+}
+
 type TestingStateView struct {
-	TestRuns []TestRunView `json:"testRuns"`
-	Defects  []DefectView  `json:"defects"`
+	TestRuns       []TestRunView       `json:"testRuns"`
+	Defects        []DefectView        `json:"defects"`
+	SystemTestPlan *SystemTestPlanView `json:"systemTestPlan,omitempty"`
 }
 
 type TestingVariant int

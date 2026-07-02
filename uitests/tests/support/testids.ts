@@ -119,6 +119,7 @@ export const TESTID = {
   constructionArtifacts: 'construction-artifacts',
   constructionArtifactRow: (id: string): string => `construction-artifact-row-${id}`,
   constructionSystemTestView: 'construction-system-test-view',
+  constructionTestPlanView: 'construction-test-plan-view',
 } as const;
 
 /**
