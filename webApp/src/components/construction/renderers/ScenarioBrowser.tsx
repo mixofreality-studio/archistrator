@@ -2,6 +2,10 @@ import { type ReactNode, useState } from 'react';
 import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
 import Typography from '@mui/material/Typography';
+import FormControl from '@mui/material/FormControl';
+import Select from '@mui/material/Select';
+import MenuItem from '@mui/material/MenuItem';
+import { UI_IDENTIFIERS } from '../../../constants/UIIdentifiers';
 import type { TestScenarioView } from '../../../api/types';
 import type { Tokens } from '../../../theme/themes';
 import { SequenceFlow, type SequenceMode } from '../primitives/SequenceFlow';
@@ -28,25 +32,25 @@ export function ScenarioBrowser({
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, minWidth: 0 }}>
-      {/* selector chips — one per use-case scenario */}
-      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, alignItems: 'center' }}>
-        <Typography sx={{ fontFamily: t.mono, fontSize: 10, letterSpacing: '0.08em', color: t.muted, mr: 0.5 }}>
-          {`USE CASES · ${String(scenarios.length)}`}
+      {/* scenario dropdown selector — mirrors the architecture view picker */}
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        <Typography sx={{ fontFamily: t.mono, fontSize: 10, letterSpacing: '0.08em', color: t.muted }}>
+          SCENARIO
         </Typography>
-        {scenarios.map((s) => (
-          <Chip
-            key={s.id}
-            label={s.useCase}
-            size="small"
-            sx={{
-              fontFamily: t.mono, fontSize: 10, fontWeight: 700, cursor: 'pointer',
-              bgcolor: s.id === activeId ? t.accent : t.paperAlt,
-              color: s.id === activeId ? t.accentText : t.ink,
-              border: `1.5px solid ${s.id === activeId ? t.accent : t.line}`,
-            }}
-            onClick={() => { setSelectedId(s.id); }}
-          />
-        ))}
+        <FormControl size="small" sx={{ minWidth: 360 }}>
+          <Select
+            data-testid={UI_IDENTIFIERS.Construction.SCENARIO_PICKER}
+            sx={{ fontFamily: t.mono, fontSize: 13 }}
+            value={activeId}
+            onChange={(e) => { setSelectedId(e.target.value); }}
+          >
+            {scenarios.map((s) => (
+              <MenuItem key={s.id} sx={{ fontFamily: t.mono, fontSize: 13 }} value={s.id}>
+                {`${s.useCase} — ${s.title}`}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
       </Box>
 
       {active !== undefined ? (
