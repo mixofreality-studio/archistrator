@@ -77,9 +77,12 @@ export function PhaseCard({
             <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.ink }}>
               {phase.done}/{phase.total} committed
             </Typography>
-            {phase.active ? (
+            {/* Reachable phases (active OR already-done) stay openable — a completed
+                design phase can always be revisited read-only. Only locked (future)
+                phases have no entry. */}
+            {!phase.locked ? (
               <Button size="small" sx={{ minWidth: 0, px: 1 }} onClick={onResume}>
-                resume →
+                {phase.active ? 'resume →' : 'open →'}
               </Button>
             ) : null}
           </Box>
