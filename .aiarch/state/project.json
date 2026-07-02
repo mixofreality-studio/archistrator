@@ -1076,6 +1076,18 @@
           "web-engineer-agent": {
             "minorUnits": 50000,
             "currency": "USD"
+          },
+          "system-architect": {
+            "minorUnits": 80000,
+            "currency": "USD"
+          },
+          "project-manager": {
+            "minorUnits": 80000,
+            "currency": "USD"
+          },
+          "ui-designer": {
+            "minorUnits": 50000,
+            "currency": "USD"
           }
         },
         "bufferDays": 0
@@ -1118,6 +1130,18 @@
             "currency": "USD"
           },
           "web-engineer-agent": {
+            "minorUnits": 50000,
+            "currency": "USD"
+          },
+          "system-architect": {
+            "minorUnits": 80000,
+            "currency": "USD"
+          },
+          "project-manager": {
+            "minorUnits": 80000,
+            "currency": "USD"
+          },
+          "ui-designer": {
             "minorUnits": 50000,
             "currency": "USD"
           }
@@ -1164,6 +1188,18 @@
           "web-engineer-agent": {
             "minorUnits": 50000,
             "currency": "USD"
+          },
+          "system-architect": {
+            "minorUnits": 80000,
+            "currency": "USD"
+          },
+          "project-manager": {
+            "minorUnits": 80000,
+            "currency": "USD"
+          },
+          "ui-designer": {
+            "minorUnits": 50000,
+            "currency": "USD"
           }
         },
         "bufferDays": 0
@@ -1208,6 +1244,18 @@
           "web-engineer-agent": {
             "minorUnits": 50000,
             "currency": "USD"
+          },
+          "system-architect": {
+            "minorUnits": 80000,
+            "currency": "USD"
+          },
+          "project-manager": {
+            "minorUnits": 80000,
+            "currency": "USD"
+          },
+          "ui-designer": {
+            "minorUnits": 50000,
+            "currency": "USD"
           }
         },
         "bufferDays": 15
@@ -1219,28 +1267,28 @@
       "model": {
         "rows": [
           {
-            "solutionKind": "normalSolution",
-            "criticalityRisk": 0.33,
-            "activityRisk": 0.51,
-            "composite": 0.74
+            "activityRisk": 0.29,
+            "composite": 0.274,
+            "criticalityRisk": 0.258,
+            "solutionKind": "normalSolution"
           },
           {
-            "solutionKind": "subcriticalSolution",
-            "criticalityRisk": 0.35,
-            "activityRisk": 0.47,
-            "composite": 1
+            "activityRisk": 0.29,
+            "composite": 0.274,
+            "criticalityRisk": 0.258,
+            "solutionKind": "decompressedSolution"
           },
           {
-            "solutionKind": "compressedSolution",
-            "criticalityRisk": 0.38,
-            "activityRisk": 0.52,
-            "composite": 0.67
+            "activityRisk": 0.29,
+            "composite": 0.274,
+            "criticalityRisk": 0.258,
+            "solutionKind": "subcriticalSolution"
           },
           {
-            "solutionKind": "decompressedSolution",
-            "criticalityRisk": 0.02,
-            "activityRisk": 0.34,
-            "composite": 0.6
+            "activityRisk": 0.29,
+            "composite": 0.274,
+            "criticalityRisk": 0.258,
+            "solutionKind": "compressedSolution"
           }
         ]
       }
@@ -1251,33 +1299,14 @@
       "model": {
         "options": [
           {
-            "optionId": "opt-decompressed",
-            "solutionKind": "decompressedSolution",
-            "durationDays": 425,
-            "buildCost": {
-              "minorUnits": 115360000,
-              "currency": "USD"
-            },
-            "compositeRisk": 0.6,
-            "projectedMonthlyCost": {
-              "minorUnits": 800000,
-              "currency": "USD"
-            },
-            "expectedPerCycleNet": {
-              "minorUnits": 120000,
-              "currency": "USD"
-            },
-            "revenueSharePercent": 0
-          },
-          {
             "optionId": "opt-normal",
             "solutionKind": "normalSolution",
-            "durationDays": 410,
+            "durationDays": 612.5,
             "buildCost": {
-              "minorUnits": 114720000,
-              "currency": "USD"
+              "currency": "USD",
+              "minorUnits": 58350000
             },
-            "compositeRisk": 0.74,
+            "compositeRisk": 0.274,
             "projectedMonthlyCost": {
               "minorUnits": 800000,
               "currency": "USD"
@@ -1289,14 +1318,14 @@
             "revenueSharePercent": 0
           },
           {
-            "optionId": "opt-compressed",
-            "solutionKind": "compressedSolution",
-            "durationDays": 385,
+            "optionId": "opt-decompressed",
+            "solutionKind": "decompressedSolution",
+            "durationDays": 612.5,
             "buildCost": {
-              "minorUnits": 116160000,
-              "currency": "USD"
+              "currency": "USD",
+              "minorUnits": 58350000
             },
-            "compositeRisk": 0.67,
+            "compositeRisk": 0.274,
             "projectedMonthlyCost": {
               "minorUnits": 800000,
               "currency": "USD"
@@ -1310,12 +1339,31 @@
           {
             "optionId": "opt-subcritical",
             "solutionKind": "subcriticalSolution",
-            "durationDays": 740,
+            "durationDays": 612.5,
             "buildCost": {
-              "minorUnits": 125280000,
+              "currency": "USD",
+              "minorUnits": 58350000
+            },
+            "compositeRisk": 0.274,
+            "projectedMonthlyCost": {
+              "minorUnits": 800000,
               "currency": "USD"
             },
-            "compositeRisk": 1,
+            "expectedPerCycleNet": {
+              "minorUnits": 120000,
+              "currency": "USD"
+            },
+            "revenueSharePercent": 0
+          },
+          {
+            "optionId": "opt-compressed",
+            "solutionKind": "compressedSolution",
+            "durationDays": 245,
+            "buildCost": {
+              "currency": "USD",
+              "minorUnits": 58350000
+            },
+            "compositeRisk": 0.274,
             "projectedMonthlyCost": {
               "minorUnits": 800000,
               "currency": "USD"
@@ -1327,8 +1375,8 @@
             "revenueSharePercent": 0
           }
         ],
-        "recommendation": "opt-decompressed",
-        "rationale": "Hold New-decompressed-normal (option a) with re-anchored tracking. PASS-3 recompute confirms the CP is invariant, total duration is invariant, all admitted scope since acceptance is off-CP, and the near-critical set is unchanged. Options (b)/(c) buy 15–40 sim-days that the calendar projection says are not needed, at +0.07/+0.13 composite risk on a CP front (C-CW, I-RA, integration ladder) where risk protection matters most. Option (d) is the standard Directive-7 contrast — longer, costlier, and riskier than the decompressed option on every dimension. The decompressed envelope is conservative: remaining work uses ≈42% of the remaining envelope even at the slow end of the projection range."
+        "recommendation": "opt-compressed",
+        "rationale": "recommend opt-compressed: at equal composite risk (0.274 across all options — they share one network) it delivers the shortest duration (245 sim-days) via a 5-day working week. Build cost is identical across options ($58350k) because the activity set and rate card are shared."
       }
     },
     "2": {
