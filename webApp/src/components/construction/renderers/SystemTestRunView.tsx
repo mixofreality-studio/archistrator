@@ -3,15 +3,19 @@ import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
 import Typography from '@mui/material/Typography';
 import { UI_IDENTIFIERS } from '../../../constants/UIIdentifiers';
+import type { TestScenarioView } from '../../../api/types';
 import type { ArtifactRendererProps } from '../artifactRenderers';
-import { SequenceFlow } from '../primitives/SequenceFlow';
+import { ScenarioBrowser } from './ScenarioBrowser';
 import { StatTile } from '../primitives/StatTile';
+
+const scenarioGreen = (s: TestScenarioView): boolean =>
+  (s.steps ?? []).length > 0 && (s.steps ?? []).every((st) => st.status === 'green');
 
 /**
  * System Testing (N-IT): runs the N-STP plan against the REAL built software and
- * drives every scenario from red → green. Renders each scenario's sequence
- * diagram in run mode (steps coloured by last-run status) plus a green/total
- * summary. No fabricated data — a scenario is green only when every step passed.
+ * drives every scenario from red → green. A selector picks a scenario; only that
+ * one renders (sequence diagram in run mode, steps coloured by last-run status)
+ * plus a green/total summary. A scenario is green only when every step passed.
  */
 export function SystemTestRunView({ project, t }: ArtifactRendererProps): ReactNode {
   const scenarios = project?.testingState?.systemTestPlan?.scenarios ?? [];
@@ -28,14 +32,12 @@ export function SystemTestRunView({ project, t }: ArtifactRendererProps): ReactN
     );
   }
 
-  const scenarioGreen = (s: (typeof scenarios)[number]): boolean =>
-    (s.steps ?? []).length > 0 && (s.steps ?? []).every((st) => st.status === 'green');
   const greenCount = scenarios.filter(scenarioGreen).length;
 
   return (
     <Box
       data-testid={UI_IDENTIFIERS.Construction.SYSTEM_TEST_VIEW}
-      sx={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}
+      sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, minWidth: 0 }}
     >
       <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 11, letterSpacing: '0.06em', color: t.ink }}>
         SYSTEM TESTING · first run against the real build
@@ -48,34 +50,23 @@ export function SystemTestRunView({ project, t }: ArtifactRendererProps): ReactN
           t={t}
         />
       </Box>
-
-      {scenarios.map((s) => (
-        <Box key={s.id} sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-            <Chip
-              label={s.useCase}
-              size="small"
-              sx={{ height: 18, fontSize: 9, bgcolor: t.chatArchitectBg, color: t.chatArchitectFg }}
-            />
-            <Typography sx={{ fontFamily: t.body, fontWeight: 700, fontSize: 13, color: t.ink }}>
-              {s.title}
-            </Typography>
-            <Box sx={{ flexGrow: 1 }} />
-            <Chip
-              label={scenarioGreen(s) ? 'green' : 'failing'}
-              size="small"
-              sx={{
-                height: 18,
-                fontSize: 8.5,
-                bgcolor: scenarioGreen(s) ? t.committedBg : t.paperAlt,
-                color: scenarioGreen(s) ? t.committedFg : t.dangerFg,
-                border: `1px solid ${scenarioGreen(s) ? t.committedDot : t.dangerFg}`,
-              }}
-            />
-          </Box>
-          <SequenceFlow mode="run" steps={s.steps ?? []} />
-        </Box>
-      ))}
+      <ScenarioBrowser
+        mode="run"
+        scenarios={scenarios}
+        statusChip={(s) => (
+          <Chip
+            label={scenarioGreen(s) ? 'green' : 'failing'}
+            size="small"
+            sx={{
+              height: 18, fontSize: 8.5,
+              bgcolor: scenarioGreen(s) ? t.committedBg : t.paperAlt,
+              color: scenarioGreen(s) ? t.committedFg : t.dangerFg,
+              border: `1px solid ${scenarioGreen(s) ? t.committedDot : t.dangerFg}`,
+            }}
+          />
+        )}
+        t={t}
+      />
     </Box>
   );
 }

@@ -362,10 +362,11 @@ type TestRunView struct {
 }
 
 type TestScenarioView struct {
-	Id      string         `json:"id"`
-	UseCase string         `json:"useCase"`
-	Title   string         `json:"title"`
-	Steps   []TestStepView `json:"steps"`
+	Id          string         `json:"id"`
+	UseCase     string         `json:"useCase"`
+	Title       string         `json:"title"`
+	Steps       []TestStepView `json:"steps"`
+	Description string         `json:"description"`
 }
 
 type TestStepView struct {

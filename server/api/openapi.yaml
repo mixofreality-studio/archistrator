@@ -1648,6 +1648,8 @@ components:
         SystemDesignTestScenarioView:
             additionalProperties: false
             properties:
+                description:
+                    type: string
                 id:
                     type: string
                 steps:
@@ -1664,6 +1666,7 @@ components:
                 - id
                 - useCase
                 - title
+                - description
                 - steps
             type: object
         SystemDesignTestStepView:

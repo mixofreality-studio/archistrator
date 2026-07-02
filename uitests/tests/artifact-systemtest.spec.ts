@@ -21,8 +21,10 @@ test('N-STP renders the black-box system-test-plan sequences', async ({ page }) 
   const view = page.getByTestId(TESTID.constructionTestPlanView);
   await expect(view).toBeVisible();
   await expect(view).toContainText('black-box'); // plan header copy
+  await expect(view).toContainText('WHAT THIS PROVES'); // book-grounded what/why summary
+  await expect(view).toContainText('call chain'); // summary names the use-case call chain
   await expect(view).toContainText('createProject'); // a real manager operation
-  await expect(view).toContainText('UC1'); // use-case trace
+  await expect(view).toContainText('UC1'); // use-case selector / trace
 });
 
 test('N-IT runs the plan against the real build (scenarios driving green)', async ({ page }) => {

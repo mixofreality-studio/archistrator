@@ -15419,12 +15419,16 @@
               "items": {
                 "$ref": "#/$defs/TestStepView"
               }
+            },
+            "description": {
+              "type": "string"
             }
           },
           "required": [
             "id",
             "useCase",
             "title",
+            "description",
             "steps"
           ],
           "additionalProperties": false

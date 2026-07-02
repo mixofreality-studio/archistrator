@@ -145,7 +145,11 @@ type TestScenario struct {
 	ID      string     `json:"id"`
 	UseCase string     `json:"useCase"` // the core use case this scenario traces to
 	Title   string     `json:"title"`
-	Steps   []TestStep `json:"steps,omitempty"`
+	// Description is the "what this proves and why it matters" — the failure mode
+	// the scenario is designed to expose (system-level QC per Righting Software
+	// ch.14: prove the integrated system fails, don't unit-test in isolation).
+	Description string     `json:"description,omitempty"`
+	Steps      []TestStep `json:"steps,omitempty"`
 }
 
 // SystemTestPlan is the output of the N-STP activity (§1c TestVariantPlan).

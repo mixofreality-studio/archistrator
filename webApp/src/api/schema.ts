@@ -902,6 +902,7 @@ export interface components {
             passed: number;
         };
         SystemDesignTestScenarioView: {
+            description: string;
             id: string;
             steps: null | components["schemas"]["SystemDesignTestStepView"][];
             title: string;

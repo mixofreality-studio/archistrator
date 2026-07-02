@@ -468,6 +468,8 @@ export interface TestScenarioView {
   id: string;
   useCase: string;
   title: string;
+  /** what this scenario proves and why it matters (the failure mode it exposes). */
+  description?: string;
   steps: TestStepView[] | null;
 }
 
