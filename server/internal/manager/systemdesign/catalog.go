@@ -301,7 +301,25 @@ func (m *systemDesignManager) projectStateToContract(p projectstate.Project) Pro
 		ConstructionProgress: m.constructionProgressToContract(p),
 		ServiceContracts:     serviceContractsToContract(p.ServiceContracts),
 		ReviewPolicy:         reviewPolicyToContract(p.ReviewPolicy),
+		TestingState:         testingStateToContract(p.TestingState),
 	}
+}
+
+// testingStateToContract converts the head-state TestingState to the contract
+// view. Returns nil when absent so the field is omitted from the read.
+func testingStateToContract(ts *projectstate.TestingState) *TestingStateView {
+	if ts == nil {
+		return nil
+	}
+	runs := make([]TestRunView, len(ts.TestRuns))
+	for i, r := range ts.TestRuns {
+		runs[i] = TestRunView{Id: r.ID, Passed: int64(r.Passed), Failed: int64(r.Failed), Note: r.Note}
+	}
+	defects := make([]DefectView, len(ts.Defects))
+	for i, d := range ts.Defects {
+		defects[i] = DefectView{Id: d.ID, Title: d.Title, Severity: d.Severity, Note: d.Note}
+	}
+	return &TestingStateView{TestRuns: runs, Defects: defects}
 }
 
 // reviewPolicyToContract converts the head-state ReviewPolicy to the contract

@@ -16856,6 +16856,9 @@
             },
             "reviewPolicy": {
               "$ref": "#/$defs/ReviewPolicyView"
+            },
+            "testingState": {
+              "$ref": "#/$defs/TestingStateView"
             }
           },
           "required": [
@@ -16979,6 +16982,82 @@
           },
           "required": [
             "notes"
+          ],
+          "additionalProperties": false
+        },
+        "TestRunView": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "passed": {
+              "type": "integer"
+            },
+            "failed": {
+              "type": "integer"
+            },
+            "note": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "passed",
+            "failed",
+            "note"
+          ],
+          "additionalProperties": false
+        },
+        "DefectView": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "severity": {
+              "type": "string"
+            },
+            "note": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "title",
+            "severity",
+            "note"
+          ],
+          "additionalProperties": false
+        },
+        "TestingStateView": {
+          "type": "object",
+          "properties": {
+            "testRuns": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/TestRunView"
+              }
+            },
+            "defects": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/DefectView"
+              }
+            }
+          },
+          "required": [
+            "testRuns",
+            "defects"
           ],
           "additionalProperties": false
         },

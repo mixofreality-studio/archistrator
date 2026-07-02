@@ -167,6 +167,13 @@ type ContractStruct struct {
 	Fields []GoField `json:"Fields"`
 }
 
+type DefectView struct {
+	Id       string `json:"id"`
+	Title    string `json:"title"`
+	Severity string `json:"severity"`
+	Note     string `json:"note"`
+}
+
 type DraftModel struct {
 	Kind  string           `json:"kind"`
 	Model *json.RawMessage `json:"model,omitempty"`
@@ -254,6 +261,7 @@ type ProjectState struct {
 	ConstructionProgress *ConstructionProgress                 `json:"constructionProgress,omitempty"`
 	ServiceContracts     map[string]ServiceContract            `json:"ServiceContracts"`
 	ReviewPolicy         *ReviewPolicyView                     `json:"reviewPolicy,omitempty"`
+	TestingState         *TestingStateView                     `json:"testingState,omitempty"`
 }
 
 type ProjectSummary struct {
@@ -341,6 +349,18 @@ const (
 	SeverityWarning Severity = "warning"
 	SeverityError   Severity = "error"
 )
+
+type TestRunView struct {
+	Id     string `json:"id"`
+	Passed int64  `json:"passed"`
+	Failed int64  `json:"failed"`
+	Note   string `json:"note"`
+}
+
+type TestingStateView struct {
+	TestRuns []TestRunView `json:"testRuns"`
+	Defects  []DefectView  `json:"defects"`
+}
 
 type TestingVariant int
 
