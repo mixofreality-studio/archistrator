@@ -912,6 +912,7 @@ export interface components {
             note: string;
             operation: string;
             seq: number;
+            status: string;
         };
         SystemDesignTestingStateView: {
             defects: null | components["schemas"]["SystemDesignDefectView"][];

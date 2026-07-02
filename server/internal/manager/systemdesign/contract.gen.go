@@ -373,6 +373,7 @@ type TestStepView struct {
 	Component string `json:"component"`
 	Operation string `json:"operation"`
 	Note      string `json:"note"`
+	Status    string `json:"status"`
 }
 
 type TestingStateView struct {

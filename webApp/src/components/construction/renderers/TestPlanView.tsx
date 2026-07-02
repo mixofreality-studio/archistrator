@@ -36,8 +36,10 @@ export function TestPlanView({ project, t }: ArtifactRendererProps): ReactNode {
         {`SYSTEM TEST PLAN · ${String(scenarios.length)} black-box scenario${scenarios.length === 1 ? '' : 's'}`}
       </Typography>
       <Typography sx={{ fontFamily: t.body, fontSize: 12, color: t.muted, lineHeight: 1.4 }}>
-        Each scenario is an ordered sequence of manager operations (transport-agnostic — REST / MCP / gRPC are
-        generated bindings). N-STH generates the test code from these; N-IT executes it.
+        A test harness sequences each call — the managers never call each other. Every step is a
+        transport-agnostic manager operation (REST / MCP / gRPC are generated bindings). At plan time every
+        call is a red target; N-STH generates the test code, and N-IT runs it against the real build to turn
+        them green.
       </Typography>
 
       {scenarios.map((s) => (

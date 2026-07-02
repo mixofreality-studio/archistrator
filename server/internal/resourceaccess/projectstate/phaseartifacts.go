@@ -132,10 +132,11 @@ type TestRun struct {
 // clients are all generated bindings of the same manager operation. The N-STH
 // harness generator turns these steps into per-transport test code.
 type TestStep struct {
-	Seq       int    `json:"seq"`                 // 1-based order within the scenario
-	Component string `json:"component"`           // manager/component that owns the operation
-	Operation string `json:"operation"`           // manager method name (e.g. "startSystemDesign")
-	Note      string `json:"note,omitempty"`      // expected result / assertion, human-readable
+	Seq       int    `json:"seq"`              // 1-based order within the scenario
+	Component string `json:"component"`        // manager/component that owns the operation
+	Operation string `json:"operation"`        // manager method name (e.g. "startSystemDesign")
+	Note      string `json:"note,omitempty"`   // expected result / assertion, human-readable
+	Status    string `json:"status,omitempty"` // last-run result: "" | "red" (failing) | "green" (passing)
 }
 
 // TestScenario is one black-box system-test scenario: an ordered sequence of

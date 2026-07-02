@@ -459,6 +459,8 @@ export interface TestStepView {
   component: string;
   operation: string;
   note: string;
+  /** last-run result: '' (unrun) | 'red' (failing) | 'green' (passing). */
+  status?: string;
 }
 
 /** One black-box system-test scenario: an ordered operation sequence for a use case. */

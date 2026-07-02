@@ -15385,13 +15385,17 @@
             },
             "note": {
               "type": "string"
+            },
+            "status": {
+              "type": "string"
             }
           },
           "required": [
             "seq",
             "component",
             "operation",
-            "note"
+            "note",
+            "status"
           ],
           "additionalProperties": false
         },

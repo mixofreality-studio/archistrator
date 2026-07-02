@@ -3,7 +3,7 @@ import type { ArtifactModelEnvelope, ProjectStateWithGit } from '../../api/types
 import type { Tokens } from '../../theme/themes';
 import type { ArtifactActivityVM } from './ArtifactActivityList';
 import type { Classification } from './artifactClassification';
-import { SystemTestView } from './renderers/SystemTestView';
+import { SystemTestRunView } from './renderers/SystemTestRunView';
 import { TestPlanView } from './renderers/TestPlanView';
 
 export interface ArtifactRendererProps {
@@ -22,5 +22,5 @@ export const artifactRenderers: Partial<
   Record<Classification, (p: ArtifactRendererProps) => ReactNode>
 > = {
   'testing:plan': TestPlanView,
-  'testing:systemTest': SystemTestView,
+  'testing:systemTest': SystemTestRunView,
 };

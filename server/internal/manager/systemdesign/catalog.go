@@ -333,7 +333,7 @@ func systemTestPlanToContract(p *projectstate.SystemTestPlan) *SystemTestPlanVie
 	for i, s := range p.Scenarios {
 		steps := make([]TestStepView, len(s.Steps))
 		for j, st := range s.Steps {
-			steps[j] = TestStepView{Seq: int64(st.Seq), Component: st.Component, Operation: st.Operation, Note: st.Note}
+			steps[j] = TestStepView{Seq: int64(st.Seq), Component: st.Component, Operation: st.Operation, Note: st.Note, Status: st.Status}
 		}
 		scenarios[i] = TestScenarioView{Id: s.ID, UseCase: s.UseCase, Title: s.Title, Steps: steps}
 	}

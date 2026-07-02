@@ -25,11 +25,13 @@ test('N-STP renders the black-box system-test-plan sequences', async ({ page }) 
   await expect(view).toContainText('UC1'); // use-case trace
 });
 
-test('N-IT renders the SystemTestView (honest empty until real runs)', async ({ page }) => {
+test('N-IT runs the plan against the real build (scenarios driving green)', async ({ page }) => {
   await gotoApp(page, '/project/archistrator/construction');
   await page.getByTestId(TESTID.constructionTabArtifacts).click();
   await page.getByTestId(TESTID.constructionArtifactRow('N-IT')).click();
 
   const view = page.getByTestId(TESTID.constructionSystemTestView);
   await expect(view).toBeVisible();
+  await expect(view).toContainText('3/5'); // run summary tile: scenarios green / total
+  await expect(view).toContainText('createProject'); // the same operation sequences, executed
 });

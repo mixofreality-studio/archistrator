@@ -1677,11 +1677,14 @@ components:
                     type: string
                 seq:
                     type: integer
+                status:
+                    type: string
             required:
                 - seq
                 - component
                 - operation
                 - note
+                - status
             type: object
         SystemDesignTestingStateView:
             additionalProperties: false
