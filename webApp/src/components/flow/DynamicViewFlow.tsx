@@ -82,6 +82,7 @@ function build(
       const stroke = statusColor(statusBySeq?.get(r.seq), t);
       return flowEdge(`${String(r.seq)}-${r.from}-${r.to}`, r.from, r.to, r.label, t, {
         variant: isCurrent ? 'focus' : 'muted',
+        dashed: r.mode !== 'sync', // queued / pub-sub calls render dashed
         ...(stroke !== undefined ? { stroke, opacity: isCurrent ? 1 : 0.4 } : {}),
       });
     });

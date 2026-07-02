@@ -247,6 +247,8 @@ export interface EdgeOpts {
   stroke?: string;
   /** Explicit opacity, overriding the variant default. */
   opacity?: number;
+  /** Render dashed — used for queued / pub-sub (async) calls vs solid sync calls. */
+  dashed?: boolean;
 }
 
 /** A directed, arrow-headed smoothstep edge in the shared visual language. */
@@ -270,7 +272,12 @@ export function flowEdge(
     label: opts.showLabel === true ? label : undefined,
     hidden: opts.hidden === true,
     type: 'layeredStep',
-    style: { stroke, strokeWidth: variant === 'focus' ? 2 : 1.5, opacity },
+    style: {
+      stroke,
+      strokeWidth: variant === 'focus' ? 2 : 1.5,
+      opacity,
+      ...(opts.dashed === true ? { strokeDasharray: '6 4' } : {}),
+    },
     labelStyle: { fontFamily: t.mono, fontSize: 10, fontWeight: 700, fill: t.ink },
     labelBgStyle: { fill: t.paper, fillOpacity: 0.95 },
     labelBgPadding: [5, 3] as [number, number],

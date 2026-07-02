@@ -61,7 +61,7 @@ function build(view: C4View, componentId: string, t: Tokens): { nodes: Node[]; e
     if (layerOf.get(r.to) === 'utility') continue;
     const slug = r.label.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
     const id = slug ? `${r.from}-${r.to}-${slug}` : `${r.from}-${r.to}-${String(i)}`;
-    edges.push(flowEdge(id, r.from, r.to, r.label, t));
+    edges.push(flowEdge(id, r.from, r.to, r.label, t, { dashed: r.mode !== 'sync' }));
   }
 
   return { nodes, edges };

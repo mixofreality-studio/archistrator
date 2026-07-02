@@ -86,11 +86,13 @@ function derive(model: Model, hoveredId: string | null, t: Tokens): { nodes: Nod
     .filter((r) => layerOf.get(r.to) !== 'utility')
     .map((r, i) => {
       const incident = hoveredId !== null && (r.from === hoveredId || r.to === hoveredId);
-      if (hoveredId === null) return flowEdge(edgeId(r, i), r.from, r.to, r.label, t);
+      const dashed = r.mode !== 'sync'; // queued / pub-sub calls render dashed
+      if (hoveredId === null) return flowEdge(edgeId(r, i), r.from, r.to, r.label, t, { dashed });
       // Hover: only the hovered node's own edges stay; the rest fade out.
       return flowEdge(edgeId(r, i), r.from, r.to, r.label, t, {
         hidden: !incident,
         variant: incident ? 'focus' : 'muted',
+        dashed,
       });
     });
 
