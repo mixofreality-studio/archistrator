@@ -446,9 +446,9 @@ func constructionRowsToContract(rows map[string]projectstate.ActivityConstructio
 	for id, r := range rows {
 		out[id] = ActivityConstructionStatus{
 			ActivityID:    r.ActivityID,
-			Type:          ActivityType(int(r.Type)),
-			Kind:          ActivityType(int(r.Kind)),
-			Variant:       TestingVariant(int(r.Variant)),
+			Type:          ActivityType(int(projectstate.DeriveType(r.ActivityID))),
+			Kind:          ActivityType(int(projectstate.DeriveType(r.ActivityID))),
+			Variant:       TestingVariant(int(projectstate.DeriveVariant(r.ActivityID))),
 			Phase:         ActivityConstructionPhase(int(r.Phase)),
 			Phases:        phasesToContract(r.Phases),
 			CurrentPhase:  ActivityMethodPhase(string(r.CurrentPhase)),
