@@ -1,61 +1,67 @@
 /**
- * A component-focused ("perspective") view of the static C4 graph: the selected
- * component sits centred, its inbound callers form a column to the LEFT (edges
- * pointing INTO the focus), and its outbound callees form a column to the RIGHT
- * (edges pointing OUT). Layer-coloured C4 nodes; labelled edges. A component with
- * no relationships renders as the lone focus node. Reuses the shared flow chrome
- * and preserves comment anchoring through C4Node.
+ * A component-focused ("perspective") view: the selected component plus its direct
+ * callers and callees, drawn in the SAME top-down layered layout as the static and
+ * dynamic views (shared computeLayout) — a "pinned" version of the static hover
+ * state. Only the focus + its immediate neighbours are placed, each in its real
+ * Method-layer row, with the row-label gutter and Utilities side bar; all edges show
+ * their call label. The focus node is accent-highlighted. A component with no
+ * relationships renders as the lone focus node. Reuses the shared flow chrome and
+ * preserves comment anchoring through C4Node.
  */
 import { useMemo, type ReactNode } from 'react';
 import type { Edge, Node } from '@xyflow/react';
-import { toPerspective, type C4View } from '../../api/adapters';
+import { toPerspective, type C4Component, type C4View } from '../../api/adapters';
 import { useTokens } from '../../theme/ThemeContext';
 import type { Tokens } from '../../theme/themes';
-import { COL_W, ROW_H, c4Node, flowEdge, layerColors } from './flowLayout';
+import { computeLayout, decorativeNodes, c4Node, flowEdge, layerColors } from './flowLayout';
 import { FlowCanvas, FlowEmpty } from './flowShared';
 
-function build(
-  view: C4View,
-  componentId: string,
-  t: Tokens
-): { nodes: Node[]; edges: Edge[] } {
+function build(view: C4View, componentId: string, t: Tokens): { nodes: Node[]; edges: Edge[] } {
   const { focus, inbound, outbound } = toPerspective(view, componentId);
   if (focus === undefined) return { nodes: [], edges: [] };
 
   const colors = layerColors(t);
   const byId = new Map(view.components.map((c) => [c.id, c]));
+  const rels = [...inbound, ...outbound];
 
-  const sourceIds = [...new Set(inbound.map((r) => r.from))];
-  const targetIds = [...new Set(outbound.map((r) => r.to))];
-
-  const maxSide = Math.max(sourceIds.length, targetIds.length, 1);
-  const focusY = ((maxSide - 1) * ROW_H) / 2;
-
-  const nodes: Node[] = [c4Node(focus, { x: COL_W, y: focusY }, colors)];
-  for (const [i, id] of sourceIds.entries()) {
+  // The placed subset: focus + every direct caller/callee, deduped, in their rows.
+  const subset: C4Component[] = [];
+  const seen = new Set<string>();
+  const add = (id: string): void => {
+    if (seen.has(id)) return;
     const c = byId.get(id);
-    if (c !== undefined) nodes.push(c4Node(c, { x: 0, y: i * ROW_H }, colors));
-  }
-  for (const [i, id] of targetIds.entries()) {
-    const c = byId.get(id);
-    if (c !== undefined) nodes.push(c4Node(c, { x: 2 * COL_W, y: i * ROW_H }, colors));
+    if (c !== undefined) {
+      seen.add(id);
+      subset.push(c);
+    }
+  };
+  add(focus.id);
+  for (const r of rels) {
+    add(r.from);
+    add(r.to);
   }
 
-  const placed = new Set(nodes.map((n) => n.id));
+  const layout = computeLayout(subset, rels);
+  const layerOf = new Map(subset.map((c) => [c.id, c.layer]));
+
+  const nodes: Node[] = subset.map((c) => {
+    const base = c4Node(c, layout.pos.get(c.id) ?? { x: 0, y: 0 }, colors);
+    if (c.id === focus.id) {
+      return { ...base, data: { ...base.data, color: t.accent }, style: { filter: `drop-shadow(0 0 6px ${t.accent})` } };
+    }
+    return base;
+  });
+  nodes.push(...decorativeNodes(layout));
+
+  // Plain directed arrows: no labels, and no lines to the Utilities bar (it just
+  // exists) — consistent with the static view.
   const edges: Edge[] = [];
-  for (const [i, r] of inbound.entries()) {
-    if (placed.has(r.from)) {
-      const labelSlug = r.label.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-      const id = labelSlug ? `in-${r.from}-${r.to}-${labelSlug}` : `in-${r.from}-${r.to}-${String(i)}`;
-      edges.push(flowEdge(id, r.from, r.to, r.label, t));
-    }
-  }
-  for (const [i, r] of outbound.entries()) {
-    if (placed.has(r.to)) {
-      const labelSlug = r.label.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-      const id = labelSlug ? `out-${r.from}-${r.to}-${labelSlug}` : `out-${r.from}-${r.to}-${String(i)}`;
-      edges.push(flowEdge(id, r.from, r.to, r.label, t));
-    }
+  for (const [i, r] of rels.entries()) {
+    if (!seen.has(r.from) || !seen.has(r.to)) continue;
+    if (layerOf.get(r.to) === 'utility') continue;
+    const slug = r.label.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+    const id = slug ? `${r.from}-${r.to}-${slug}` : `${r.from}-${r.to}-${String(i)}`;
+    edges.push(flowEdge(id, r.from, r.to, r.label, t));
   }
 
   return { nodes, edges };

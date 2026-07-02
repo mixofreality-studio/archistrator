@@ -38,7 +38,7 @@ import type { ArtifactModelEnvelope, ServiceContract } from '../../api/types';
 import type { Tokens } from '../../theme/themes';
 import { useTokens } from '../../theme/ThemeContext';
 import { UI_IDENTIFIERS } from '../../constants/UIIdentifiers';
-import { listDynamicViewsForComponent, toC4View } from '../../api/adapters';
+import { listDynamicViewsForComponent, toC4View, toDynamicView } from '../../api/adapters';
 import { resolveContractComponentId } from '../../api/contractComponentId';
 import { DynamicViewFlow } from '../flow/DynamicViewFlow';
 import { ContractCodeFlow } from './ContractCodeFlow';
@@ -190,6 +190,10 @@ function DynamicPane({
   const activeKey = matchingViews.some((v) => v.key === selectedKey)
     ? selectedKey
     : (matchingViews[0]?.key ?? '');
+  const dynamicModel = useMemo(
+    () => toDynamicView(systemEnvelope, activeKey),
+    [systemEnvelope, activeKey]
+  );
 
   // Honest-empty path: no system envelope or component does not participate anywhere.
   if (systemEnvelope === undefined || focalId === undefined || matchingViews.length === 0) {
@@ -232,10 +236,10 @@ function DynamicPane({
       </Box>
       {/* The selected dynamic-view diagram with focal highlight */}
       <DynamicViewFlow
-        envelope={systemEnvelope}
+        dv={dynamicModel}
         focalComponentId={focalId}
         height={500}
-        viewKey={activeKey}
+        resetKey={activeKey}
       />
     </Box>
   );
