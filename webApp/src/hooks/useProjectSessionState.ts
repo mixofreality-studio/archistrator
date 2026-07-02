@@ -38,9 +38,15 @@ export function useProjectSessionState(
     enabled: enabled && projectId.length > 0,
     // A 404 means "no session started yet" — surface it without retry storms.
     retry: (count, error) => !(error instanceof ApiError && error.status === 404) && count < 1,
+    // Poll only while a live session exists. No data (404 → stage undefined) or a
+    // terminal stage stops the poll: otherwise a committed / not-yet-started Phase-2
+    // artifact 404s every 2s, and each refetch briefly flips the experience into its
+    // loading spinner — remounting the view and resetting it (the flicker/reload).
+    // A mutation (start/redraft) invalidates this query, so polling resumes once a
+    // live non-terminal stage returns.
     refetchInterval: (query) => {
       const stage = query.state.data?.stage;
-      if (stage !== undefined && PROJECT_TERMINAL_STAGES.includes(stage)) return false;
+      if (stage === undefined || PROJECT_TERMINAL_STAGES.includes(stage)) return false;
       return POLL_INTERVAL_MS;
     },
   });
