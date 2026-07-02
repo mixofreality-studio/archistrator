@@ -208,14 +208,40 @@ export function ciStatusFromOrdinal(ordinal: number): CiStatus {
 }
 
 /** ProjectActivityType (0 service,1 frontend,2 testing,3 deployment,4 documentation). */
-export function activityRowKindFromOrdinal(ordinal: number): 'service' | 'frontend' | 'testing' {
+export function activityRowKindFromOrdinal(
+  ordinal: number
+): 'service' | 'frontend' | 'testing' | 'deployment' | 'documentation' {
   switch (ordinal) {
     case 1:
       return 'frontend';
     case 2:
       return 'testing';
+    case 3:
+      return 'deployment';
+    case 4:
+      return 'documentation';
     default:
       return 'service';
+  }
+}
+
+/** TestingVariant (0 plan,1 harness,2 perf,3 systemTest,4 qaProcess); undefined for non-testing. */
+export function testingVariantFromOrdinal(
+  ordinal: number
+): 'plan' | 'harness' | 'perf' | 'systemTest' | 'qaProcess' | undefined {
+  switch (ordinal) {
+    case 0:
+      return 'plan';
+    case 1:
+      return 'harness';
+    case 2:
+      return 'perf';
+    case 3:
+      return 'systemTest';
+    case 4:
+      return 'qaProcess';
+    default:
+      return undefined;
   }
 }
 

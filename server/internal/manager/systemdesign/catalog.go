@@ -297,7 +297,7 @@ func (m *systemDesignManager) projectStateToContract(p projectstate.Project) Pro
 		Research:             researchToContract(p.ResearchInput),
 		Slots:                slotsToContract(p),
 		GitRows:              m.gitRowsToContract(p.ActivityGit),
-		ActivityConstruction: constructionRowsToContract(p.ActivityConstruction),
+		ActivityConstruction: constructionRowsToContract(p.ActivityConstruction, activityMetaByID(p)),
 		ConstructionProgress: m.constructionProgressToContract(p),
 		ServiceContracts:     serviceContractsToContract(p.ServiceContracts),
 		ReviewPolicy:         reviewPolicyToContract(p.ReviewPolicy),
@@ -455,18 +455,30 @@ func projectPRRef(ref, repoBase string) (prNumber int, prURL string) {
 }
 
 // constructionRowsToContract maps the per-activity construction head-state map
-// (honest-empty: nil in ⇒ nil out).
-func constructionRowsToContract(rows map[string]projectstate.ActivityConstructionStatus) map[string]ActivityConstructionStatus {
+// (honest-empty: nil in ⇒ nil out). activityMeta carries the Phase-2 activity-list
+// metadata (worker class + coding) keyed by activity id, used to classify each
+// activity's ActivityType (see projectstate.ClassifyType) — the N-* id namespace
+// alone is too coarse.
+func constructionRowsToContract(
+	rows map[string]projectstate.ActivityConstructionStatus,
+	activityMeta map[string]projectstate.ActivityItem,
+) map[string]ActivityConstructionStatus {
 	if len(rows) == 0 {
 		return nil
 	}
 	out := make(map[string]ActivityConstructionStatus, len(rows))
 	for id, r := range rows {
+		meta := activityMeta[id]
+		typ := projectstate.ClassifyType(r.ActivityID, meta.WorkerClass, meta.Coding, rowHasServiceContract(r))
+		var variant TestingVariant
+		if typ == projectstate.ActivityTypeTesting {
+			variant = TestingVariant(int(projectstate.DeriveVariant(r.ActivityID)))
+		}
 		out[id] = ActivityConstructionStatus{
 			ActivityID:    r.ActivityID,
-			Type:          ActivityType(int(projectstate.DeriveType(r.ActivityID))),
-			Kind:          ActivityType(int(projectstate.DeriveType(r.ActivityID))),
-			Variant:       TestingVariant(int(projectstate.DeriveVariant(r.ActivityID))),
+			Type:          ActivityType(int(typ)),
+			Kind:          ActivityType(int(typ)),
+			Variant:       variant,
 			Phase:         ActivityConstructionPhase(int(r.Phase)),
 			Phases:        phasesToContract(r.Phases),
 			CurrentPhase:  ActivityMethodPhase(string(r.CurrentPhase)),
@@ -476,6 +488,29 @@ func constructionRowsToContract(rows map[string]projectstate.ActivityConstructio
 			Produced:      producedToContract(r.Produced),
 			FailureReason: FailureReason(int(r.FailureReason)),
 			FailureDetail: r.FailureDetail,
+		}
+	}
+	return out
+}
+
+// rowHasServiceContract reports whether the activity produced a frozen service
+// contract (the signal that it built a component, regardless of its id family).
+func rowHasServiceContract(r projectstate.ActivityConstructionStatus) bool {
+	for _, a := range r.Produced {
+		if a.Kind == "service-contract" {
+			return true
+		}
+	}
+	return false
+}
+
+// activityMetaByID builds the id → ActivityItem lookup from the committed
+// Phase-2 activity list (empty map when no list is committed).
+func activityMetaByID(p projectstate.Project) map[string]projectstate.ActivityItem {
+	out := map[string]projectstate.ActivityItem{}
+	if al, ok := p.ActivityList.Model.(*projectstate.ActivityList); ok && al != nil {
+		for _, a := range al.Activities {
+			out[a.Name] = a
 		}
 	}
 	return out

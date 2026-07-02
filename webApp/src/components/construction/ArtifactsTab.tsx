@@ -148,7 +148,13 @@ export function ArtifactsTab({
 
   // Kind counts for the filter chips.
   const kindCounts = useMemo((): Record<ActivityKind, number> => {
-    const counts: Record<ActivityKind, number> = { service: 0, frontend: 0, testing: 0 };
+    const counts: Record<ActivityKind, number> = {
+      service: 0,
+      frontend: 0,
+      testing: 0,
+      deployment: 0,
+      documentation: 0,
+    };
     for (const vm of activities) {
       counts[vm.row.kind] += 1;
     }
@@ -202,7 +208,7 @@ export function ArtifactsTab({
           t={t}
           onClick={() => { setKindFilter('all'); }}
         />
-        {(['service', 'frontend', 'testing'] as ActivityKind[]).map((k) => (
+        {(['service', 'frontend', 'testing', 'deployment', 'documentation'] as ActivityKind[]).map((k) => (
           <FilterChip
             active={kindFilter === k}
             color={kindColor(t, k).fg}

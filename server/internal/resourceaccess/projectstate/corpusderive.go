@@ -69,6 +69,41 @@ func DeriveVariant(activityID string) TestingVariant {
 	}
 }
 
+// ClassifyType determines an activity's canonical ActivityType for the view-model
+// classification. It supersedes the id-prefix-only DeriveType because the N-*
+// id namespace conflates genuine testing (N-IT/N-STP/N-PERF/N-QA/N-STH) with
+// infra (N-SC/N-CI), deployment (N-DEP), and documentation (N-ADR). The
+// authoritative signals are: whether the activity produced a service contract,
+// the U-SPA* frontend prefix, and — for noncoding activities — the owning
+// workerClass from the Phase-2 activity list.
+//
+//   - produced a service contract → Service (it built a component), regardless of id
+//   - U-SPA* id                    → Frontend
+//   - coding == true               → Service
+//   - noncoding, by workerClass:
+//       software-tester / test-engineer / qa-engineer → Testing
+//       system-architect                              → Documentation
+//       everything else (dev/devops noncoding)        → Deployment
+func ClassifyType(id, workerClass string, coding, hasServiceContract bool) ActivityType {
+	if hasServiceContract {
+		return ActivityTypeService
+	}
+	if strings.HasPrefix(strings.ToUpper(id), "U-SPA") {
+		return ActivityTypeFrontend
+	}
+	if coding {
+		return ActivityTypeService
+	}
+	switch workerClass {
+	case "software-tester", "test-engineer", "qa-engineer":
+		return ActivityTypeTesting
+	case "system-architect":
+		return ActivityTypeDocumentation
+	default:
+		return ActivityTypeDeployment
+	}
+}
+
 // DeriveBuildStatus maps corpus presence to the finer build-status lens. integrated is
 // true only when a log AND a passing review both exist.
 func DeriveBuildStatus(p CorpusPresence) (ActivityBuildStatus, bool) {
