@@ -5921,128 +5921,6 @@
     }
   },
   "activityConstruction": {
-    "C-AE": {
-      "activityID": "C-AE",
-      "phase": 2,
-      "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "autoscalerEngine — service contract",
-          "Source": "implementation/contracts/autoscalerEngine.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "autoscalerEngine — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "C-BE": {
-      "activityID": "C-BE",
-      "phase": 2,
-      "buildStatus": 1,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "billingEngine — service contract",
-          "Source": "implementation/contracts/billingEngine.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "billingEngine — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "C-BG": {
-      "activityID": "C-BG",
-      "phase": 0,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "billingStateAccess — service contract",
-          "Source": "implementation/contracts/billingStateAccess.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        }
-      ]
-    },
-    "C-BM": {
-      "activityID": "C-BM",
-      "phase": 0,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "billingManager — service contract",
-          "Source": "implementation/contracts/billingManager.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        }
-      ]
-    },
-    "C-CM": {
-      "activityID": "C-CM",
-      "phase": 2,
-      "startedAt": "2026-06-23T20:34:41.761707Z",
-      "completedAt": "2026-06-23T22:19:32.482958Z",
-      "buildStatus": 2
-    },
-    "C-CP": {
-      "activityID": "C-CP",
-      "phase": 2,
-      "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "constructionPipelineAccess — service contract",
-          "Source": "implementation/contracts/constructionPipelineAccess.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "constructionPipelineAccess — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "C-CP-R": {
-      "activityID": "C-CP-R",
-      "phase": 2,
-      "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "constructionPipelineAccess — service contract",
-          "Source": "implementation/contracts/constructionPipelineAccess.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "constructionPipelineAccess — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "C-CS": {
-      "activityID": "C-CS",
-      "phase": 2,
-      "buildStatus": 2
-    },
     "C-CW": {
       "activityID": "C-CW",
       "phase": 2,
@@ -6064,77 +5942,160 @@
         }
       ]
     },
-    "C-CW-GIT": {
-      "activityID": "C-CW-GIT",
+    "U-SPA-S": {
+      "activityID": "U-SPA-S",
       "phase": 2,
+      "buildStatus": 2
+    },
+    "U-SPA-1": {
+      "activityID": "U-SPA-1",
+      "phase": 2,
+      "buildStatus": 2
+    },
+    "U-SPA-2": {
+      "activityID": "U-SPA-2",
+      "phase": 2,
+      "kind": "frontend",
       "buildStatus": 2,
       "produced": [
         {
-          "Kind": "service-contract",
-          "Title": "webClient — service contract",
-          "Source": "implementation/contracts/webClient.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
           "Kind": "code",
-          "Title": "webClient — built component",
+          "Title": " — built component",
           "Source": "implementation/log",
           "Produced": true,
           "Note": "Construction output recorded in the implementation log."
         }
       ]
     },
-    "C-CW-Δ": {
-      "activityID": "C-CW-Δ",
+    "U-SPA-3": {
+      "activityID": "U-SPA-3",
+      "phase": 2,
+      "buildStatus": 2
+    },
+    "U-SPA-4": {
+      "activityID": "U-SPA-4",
+      "phase": 2,
+      "buildStatus": 2
+    },
+    "U-SPA-5": {
+      "activityID": "U-SPA-5",
+      "phase": 2,
+      "buildStatus": 2
+    },
+    "U-SPA-6": {
+      "activityID": "U-SPA-6",
+      "phase": 2,
+      "buildStatus": 2
+    },
+    "U-SPA-TEAM": {
+      "activityID": "U-SPA-TEAM",
+      "phase": 2,
+      "buildStatus": 2
+    },
+    "C-CM": {
+      "activityID": "C-CM",
+      "phase": 2,
+      "startedAt": "2026-06-23T20:34:41.761707Z",
+      "completedAt": "2026-06-23T22:19:32.482958Z",
+      "buildStatus": 2
+    },
+    "C-CS": {
+      "activityID": "C-CS",
+      "phase": 2,
+      "buildStatus": 2
+    },
+    "C-MSD": {
+      "activityID": "C-MSD",
       "phase": 2,
       "buildStatus": 2,
       "produced": [
         {
           "Kind": "service-contract",
-          "Title": "webClient — service contract",
-          "Source": "implementation/contracts/webClient.md",
+          "Title": "systemDesignManager — service contract",
+          "Source": "implementation/contracts/systemDesignManager.md",
           "Produced": true,
           "Note": "Frozen App-B service contract."
         },
         {
           "Kind": "code",
-          "Title": "webClient — built component",
+          "Title": "systemDesignManager — built component",
           "Source": "implementation/log",
           "Produced": true,
           "Note": "Construction output recorded in the implementation log."
         }
       ]
     },
-    "C-DA": {
-      "activityID": "C-DA",
+    "C-MPD": {
+      "activityID": "C-MPD",
       "phase": 2,
-      "buildStatus": 2,
+      "buildStatus": 1,
       "produced": [
         {
           "Kind": "service-contract",
-          "Title": "durableExecutionAccess — service contract",
-          "Source": "implementation/contracts/durableExecutionAccess.md",
+          "Title": "projectDesignManager — service contract",
+          "Source": "implementation/contracts/projectDesignManager.md",
           "Produced": true,
           "Note": "Frozen App-B service contract."
         },
         {
           "Kind": "code",
-          "Title": "durableExecutionAccess — built component",
+          "Title": "projectDesignManager — built component",
           "Source": "implementation/log",
           "Produced": true,
           "Note": "Construction output recorded in the implementation log."
         }
       ]
     },
-    "C-DG": {
-      "activityID": "C-DG",
+    "C-MCN": {
+      "activityID": "C-MCN",
       "phase": 2,
+      "buildStatus": 2,
       "produced": [
         {
           "Kind": "service-contract",
-          "Title": "billingGatewayAccess — service contract",
-          "Source": "implementation/contracts/billingGatewayAccess.md",
+          "Title": "constructionManager — service contract",
+          "Source": "implementation/contracts/constructionManager.md",
+          "Produced": true,
+          "Note": "Frozen App-B service contract."
+        },
+        {
+          "Kind": "code",
+          "Title": "constructionManager — built component",
+          "Source": "implementation/log",
+          "Produced": true,
+          "Note": "Construction output recorded in the implementation log."
+        }
+      ]
+    },
+    "C-MOP": {
+      "activityID": "C-MOP",
+      "phase": 2,
+      "buildStatus": 2,
+      "produced": [
+        {
+          "Kind": "service-contract",
+          "Title": "operationsManager — service contract",
+          "Source": "implementation/contracts/operationsManager.md",
+          "Produced": true,
+          "Note": "Frozen App-B service contract."
+        },
+        {
+          "Kind": "code",
+          "Title": "operationsManager — built component",
+          "Source": "implementation/log",
+          "Produced": true,
+          "Note": "Construction output recorded in the implementation log."
+        }
+      ]
+    },
+    "C-BM": {
+      "activityID": "C-BM",
+      "phase": 0,
+      "produced": [
+        {
+          "Kind": "service-contract",
+          "Title": "billingManager — service contract",
+          "Source": "implementation/contracts/billingManager.md",
           "Produced": true,
           "Note": "Frozen App-B service contract."
         }
@@ -6150,6 +6111,40 @@
           "Source": "implementation/contracts/constructionEstimationEngine.md",
           "Produced": true,
           "Note": "Frozen App-B service contract."
+        }
+      ]
+    },
+    "C-OE": {
+      "activityID": "C-OE",
+      "phase": 2,
+      "produced": [
+        {
+          "Kind": "service-contract",
+          "Title": "operationEstimationEngine — service contract",
+          "Source": "implementation/contracts/operationEstimationEngine.md",
+          "Produced": true,
+          "Note": "Frozen App-B service contract."
+        }
+      ]
+    },
+    "C-BE": {
+      "activityID": "C-BE",
+      "phase": 2,
+      "buildStatus": 1,
+      "produced": [
+        {
+          "Kind": "service-contract",
+          "Title": "billingEngine — service contract",
+          "Source": "implementation/contracts/billingEngine.md",
+          "Produced": true,
+          "Note": "Frozen App-B service contract."
+        },
+        {
+          "Kind": "code",
+          "Title": "billingEngine — built component",
+          "Source": "implementation/log",
+          "Produced": true,
+          "Note": "Construction output recorded in the implementation log."
         }
       ]
     },
@@ -6195,194 +6190,45 @@
         }
       ]
     },
-    "C-LG": {
-      "activityID": "C-LG",
-      "phase": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "revenueLedgerAccess — service contract",
-          "Source": "implementation/contracts/revenueLedgerAccess.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        }
-      ]
-    },
-    "C-LP": {
-      "activityID": "C-LP",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "C-MCN": {
-      "activityID": "C-MCN",
+    "C-AE": {
+      "activityID": "C-AE",
       "phase": 2,
       "buildStatus": 2,
       "produced": [
         {
           "Kind": "service-contract",
-          "Title": "constructionManager — service contract",
-          "Source": "implementation/contracts/constructionManager.md",
+          "Title": "autoscalerEngine — service contract",
+          "Source": "implementation/contracts/autoscalerEngine.md",
           "Produced": true,
           "Note": "Frozen App-B service contract."
         },
         {
           "Kind": "code",
-          "Title": "constructionManager — built component",
+          "Title": "autoscalerEngine — built component",
           "Source": "implementation/log",
           "Produced": true,
           "Note": "Construction output recorded in the implementation log."
         }
       ]
     },
-    "C-MCN-GIT": {
-      "activityID": "C-MCN-GIT",
+    "C-RE": {
+      "activityID": "C-RE",
       "phase": 2,
       "buildStatus": 2,
       "produced": [
         {
           "Kind": "service-contract",
-          "Title": "constructionManager — service contract",
-          "Source": "implementation/contracts/constructionManager.md",
+          "Title": "reviewEngine — service contract",
+          "Source": "implementation/contracts/reviewEngine.md",
           "Produced": true,
           "Note": "Frozen App-B service contract."
         },
         {
           "Kind": "code",
-          "Title": "constructionManager — built component",
+          "Title": "reviewEngine — built component",
           "Source": "implementation/log",
           "Produced": true,
           "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "C-MOP": {
-      "activityID": "C-MOP",
-      "phase": 2,
-      "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "operationsManager — service contract",
-          "Source": "implementation/contracts/operationsManager.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "operationsManager — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "C-MPD": {
-      "activityID": "C-MPD",
-      "phase": 2,
-      "buildStatus": 1,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "projectDesignManager — service contract",
-          "Source": "implementation/contracts/projectDesignManager.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "projectDesignManager — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "C-MPD-Δ": {
-      "activityID": "C-MPD-Δ",
-      "phase": 2,
-      "buildStatus": 1,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "projectDesignManager — service contract",
-          "Source": "implementation/contracts/projectDesignManager.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "projectDesignManager — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "C-MSD": {
-      "activityID": "C-MSD",
-      "phase": 2,
-      "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "systemDesignManager — service contract",
-          "Source": "implementation/contracts/systemDesignManager.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "systemDesignManager — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "C-MSD-Δ": {
-      "activityID": "C-MSD-Δ",
-      "phase": 2,
-      "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "systemDesignManager — service contract",
-          "Source": "implementation/contracts/systemDesignManager.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "systemDesignManager — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "C-OE": {
-      "activityID": "C-OE",
-      "phase": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "operationEstimationEngine — service contract",
-          "Source": "implementation/contracts/operationEstimationEngine.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        }
-      ]
-    },
-    "C-OR": {
-      "activityID": "C-OR",
-      "phase": 0,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "operatedRuntimeAccess — service contract",
-          "Source": "implementation/contracts/operatedRuntimeAccess.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
         }
       ]
     },
@@ -6407,149 +6253,118 @@
         }
       ]
     },
-    "C-PA-AD": {
-      "activityID": "C-PA-AD",
+    "C-OSA": {
+      "activityID": "C-OSA",
       "phase": 2,
       "buildStatus": 2,
       "produced": [
         {
           "Kind": "service-contract",
-          "Title": "projectStateAccess — service contract",
-          "Source": "implementation/contracts/projectStateAccess.md",
+          "Title": "operatedSystemStateAccess — service contract",
+          "Source": "implementation/contracts/operatedSystemStateAccess.md",
           "Produced": true,
           "Note": "Frozen App-B service contract."
         },
         {
           "Kind": "code",
-          "Title": "projectStateAccess — built component",
+          "Title": "operatedSystemStateAccess — built component",
           "Source": "implementation/log",
           "Produced": true,
           "Note": "Construction output recorded in the implementation log."
         }
       ]
     },
-    "C-PA-C2": {
-      "activityID": "C-PA-C2",
+    "C-BS": {
+      "activityID": "C-BS",
       "phase": 2,
       "buildStatus": 2,
       "produced": [
         {
           "Kind": "service-contract",
-          "Title": "projectStateAccess — service contract",
-          "Source": "implementation/contracts/projectStateAccess.md",
+          "Title": "billingStateAccess — service contract",
+          "Source": "implementation/contracts/billingStateAccess.md",
           "Produced": true,
           "Note": "Frozen App-B service contract."
         },
         {
           "Kind": "code",
-          "Title": "projectStateAccess — built component",
+          "Title": "billingStateAccess — built component",
           "Source": "implementation/log",
           "Produced": true,
           "Note": "Construction output recorded in the implementation log."
         }
       ]
     },
-    "C-PA-GIT": {
-      "activityID": "C-PA-GIT",
+    "C-WIA": {
+      "activityID": "C-WIA",
+      "phase": 0,
+      "produced": []
+    },
+    "C-CP": {
+      "activityID": "C-CP",
       "phase": 2,
       "buildStatus": 2,
       "produced": [
         {
           "Kind": "service-contract",
-          "Title": "projectStateAccess — service contract",
-          "Source": "implementation/contracts/projectStateAccess.md",
+          "Title": "constructionPipelineAccess — service contract",
+          "Source": "implementation/contracts/constructionPipelineAccess.md",
           "Produced": true,
           "Note": "Frozen App-B service contract."
         },
         {
           "Kind": "code",
-          "Title": "projectStateAccess — built component",
+          "Title": "constructionPipelineAccess — built component",
           "Source": "implementation/log",
           "Produced": true,
           "Note": "Construction output recorded in the implementation log."
         }
       ]
     },
-    "C-PA-R": {
-      "activityID": "C-PA-R",
-      "phase": 2,
-      "buildStatus": 2,
+    "C-OR": {
+      "activityID": "C-OR",
+      "phase": 0,
       "produced": [
         {
           "Kind": "service-contract",
-          "Title": "projectStateAccess — service contract",
-          "Source": "implementation/contracts/projectStateAccess.md",
+          "Title": "operatedRuntimeAccess — service contract",
+          "Source": "implementation/contracts/operatedRuntimeAccess.md",
           "Produced": true,
           "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "projectStateAccess — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
         }
       ]
     },
-    "C-PA-RB": {
-      "activityID": "C-PA-RB",
-      "phase": 2,
-      "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "projectStateAccess — service contract",
-          "Source": "implementation/contracts/projectStateAccess.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "projectStateAccess — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "C-PE": {
-      "activityID": "C-PE",
-      "phase": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "C-PE — service contract (projectExport)",
-          "Source": "server/cmd/seed-contracts/data/C-PE.json",
-          "Produced": true,
-          "Note": "Dogfood contract for Spec 2 live construction run. ComponentID=C-PE (activity-name-as-identity)."
-        }
-      ]
-    },
-    "C-PM": {
-      "activityID": "C-PM",
+    "C-UA": {
+      "activityID": "C-UA",
       "phase": 2,
       "buildStatus": 1,
       "produced": [
         {
+          "Kind": "service-contract",
+          "Title": "usageAccess — service contract",
+          "Source": "implementation/contracts/usageAccess.md",
+          "Produced": true,
+          "Note": "Frozen App-B service contract."
+        },
+        {
           "Kind": "code",
-          "Title": " — built component",
+          "Title": "usageAccess — built component",
           "Source": "implementation/log",
           "Produced": true,
           "Note": "Construction output recorded in the implementation log."
         }
       ]
     },
-    "C-PM-Δ": {
-      "activityID": "C-PM-Δ",
-      "phase": 2,
-      "buildStatus": 1,
+    "C-BG": {
+      "activityID": "C-BG",
+      "phase": 0,
       "produced": [
         {
-          "Kind": "code",
-          "Title": " — built component",
-          "Source": "implementation/log",
+          "Kind": "service-contract",
+          "Title": "billingStateAccess — service contract",
+          "Source": "implementation/contracts/billingStateAccess.md",
           "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
+          "Note": "Frozen App-B service contract."
         }
       ]
     },
@@ -6574,63 +6389,21 @@
         }
       ]
     },
-    "C-SC-AD": {
-      "activityID": "C-SC-AD",
+    "C-DA": {
+      "activityID": "C-DA",
       "phase": 2,
       "buildStatus": 2,
       "produced": [
         {
           "Kind": "service-contract",
-          "Title": "sourceControlAccess — service contract",
-          "Source": "implementation/contracts/sourceControlAccess.md",
+          "Title": "durableExecutionAccess — service contract",
+          "Source": "implementation/contracts/durableExecutionAccess.md",
           "Produced": true,
           "Note": "Frozen App-B service contract."
         },
         {
           "Kind": "code",
-          "Title": "sourceControlAccess — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "C-SC-AG": {
-      "activityID": "C-SC-AG",
-      "phase": 2,
-      "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "sourceControlAccess — service contract",
-          "Source": "implementation/contracts/sourceControlAccess.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "sourceControlAccess — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "C-SC-PR": {
-      "activityID": "C-SC-PR",
-      "phase": 2,
-      "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "sourceControlAccess — service contract",
-          "Source": "implementation/contracts/sourceControlAccess.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "sourceControlAccess — built component",
+          "Title": "durableExecutionAccess — built component",
           "Source": "implementation/log",
           "Produced": true,
           "Note": "Construction output recorded in the implementation log."
@@ -6658,311 +6431,8 @@
         }
       ]
     },
-    "C-UA": {
-      "activityID": "C-UA",
-      "phase": 2,
-      "buildStatus": 1,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "usageAccess — service contract",
-          "Source": "implementation/contracts/usageAccess.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "usageAccess — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "C-VCI": {
-      "activityID": "C-VCI",
-      "phase": 2,
-      "buildStatus": 1,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "mcpClient — service contract",
-          "Source": "implementation/contracts/mcpClient.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "mcpClient — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "C-WF-DESIGN": {
-      "activityID": "C-WF-DESIGN",
-      "phase": 2,
-      "buildStatus": 1,
-      "produced": [
-        {
-          "Kind": "code",
-          "Title": " — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "D-AE": {
-      "activityID": "D-AE",
-      "phase": 2,
-      "buildStatus": 1,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "autoscalerEngine — service contract",
-          "Source": "implementation/contracts/autoscalerEngine.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "autoscalerEngine — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "D-BE": {
-      "activityID": "D-BE",
-      "phase": 2,
-      "buildStatus": 1,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "billingEngine — service contract",
-          "Source": "implementation/contracts/billingEngine.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "billingEngine — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "D-BG": {
-      "activityID": "D-BG",
-      "phase": 2,
-      "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "billingStateAccess — service contract",
-          "Source": "implementation/contracts/billingStateAccess.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "billingStateAccess — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "D-BM": {
-      "activityID": "D-BM",
-      "phase": 2,
-      "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "billingManager — service contract",
-          "Source": "implementation/contracts/billingManager.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "billingManager — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "D-BS": {
-      "activityID": "D-BS",
-      "phase": 2,
-      "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "billingStateAccess — service contract",
-          "Source": "implementation/contracts/billingStateAccess.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "billingStateAccess — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "D-CM": {
-      "activityID": "D-CM",
-      "phase": 2,
-      "buildStatus": 1,
-      "produced": [
-        {
-          "Kind": "code",
-          "Title": " — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "D-CP": {
-      "activityID": "D-CP",
-      "phase": 2,
-      "buildStatus": 1,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "constructionPipelineAccess — service contract",
-          "Source": "implementation/contracts/constructionPipelineAccess.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "constructionPipelineAccess — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "D-CS": {
-      "activityID": "D-CS",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "D-CW": {
-      "activityID": "D-CW",
-      "phase": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "webClient — service contract",
-          "Source": "implementation/contracts/webClient.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        }
-      ]
-    },
-    "D-DA": {
-      "activityID": "D-DA",
-      "phase": 2,
-      "buildStatus": 1,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "durableExecutionAccess — service contract",
-          "Source": "implementation/contracts/durableExecutionAccess.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "durableExecutionAccess — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "D-DG": {
-      "activityID": "D-DG",
-      "phase": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "billingGatewayAccess — service contract",
-          "Source": "implementation/contracts/billingGatewayAccess.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        }
-      ]
-    },
-    "D-EE": {
-      "activityID": "D-EE",
-      "phase": 2,
-      "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "constructionEstimationEngine — service contract",
-          "Source": "implementation/contracts/constructionEstimationEngine.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "constructionEstimationEngine — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "D-HE": {
-      "activityID": "D-HE",
-      "phase": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "handOffEngine — service contract",
-          "Source": "implementation/contracts/handOffEngine.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        }
-      ]
-    },
-    "D-IE": {
-      "activityID": "D-IE",
-      "phase": 2,
-      "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "interventionEngine — service contract",
-          "Source": "implementation/contracts/interventionEngine.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "interventionEngine — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "D-LG": {
-      "activityID": "D-LG",
+    "C-LG": {
+      "activityID": "C-LG",
       "phase": 2,
       "produced": [
         {
@@ -6974,382 +6444,21 @@
         }
       ]
     },
-    "D-MCN": {
-      "activityID": "D-MCN",
-      "phase": 2,
-      "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "constructionManager — service contract",
-          "Source": "implementation/contracts/constructionManager.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "constructionManager — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "D-MOP": {
-      "activityID": "D-MOP",
+    "C-DG": {
+      "activityID": "C-DG",
       "phase": 2,
       "produced": [
         {
           "Kind": "service-contract",
-          "Title": "operationsManager — service contract",
-          "Source": "implementation/contracts/operationsManager.md",
+          "Title": "billingGatewayAccess — service contract",
+          "Source": "implementation/contracts/billingGatewayAccess.md",
           "Produced": true,
           "Note": "Frozen App-B service contract."
         }
       ]
     },
-    "D-MPD": {
-      "activityID": "D-MPD",
-      "phase": 2,
-      "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "projectDesignManager — service contract",
-          "Source": "implementation/contracts/projectDesignManager.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "projectDesignManager — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "D-MPD-Δ": {
-      "activityID": "D-MPD-Δ",
-      "phase": 2,
-      "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "projectDesignManager — service contract",
-          "Source": "implementation/contracts/projectDesignManager.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "projectDesignManager — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "D-MSD": {
-      "activityID": "D-MSD",
-      "phase": 2,
-      "buildStatus": 1,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "systemDesignManager — service contract",
-          "Source": "implementation/contracts/systemDesignManager.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "systemDesignManager — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "D-MSD-Δ": {
-      "activityID": "D-MSD-Δ",
-      "phase": 2,
-      "buildStatus": 1,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "systemDesignManager — service contract",
-          "Source": "implementation/contracts/systemDesignManager.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "systemDesignManager — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "D-OE": {
-      "activityID": "D-OE",
-      "phase": 2,
-      "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "operationEstimationEngine — service contract",
-          "Source": "implementation/contracts/operationEstimationEngine.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "operationEstimationEngine — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "D-OR": {
-      "activityID": "D-OR",
-      "phase": 2,
-      "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "operatedRuntimeAccess — service contract",
-          "Source": "implementation/contracts/operatedRuntimeAccess.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "operatedRuntimeAccess — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "D-OR-Δ1": {
-      "activityID": "D-OR-Δ1",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "D-PA": {
-      "activityID": "D-PA",
-      "phase": 2,
-      "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "projectStateAccess — service contract",
-          "Source": "implementation/contracts/projectStateAccess.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "projectStateAccess — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "D-PA-C2": {
-      "activityID": "D-PA-C2",
-      "phase": 2,
-      "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "projectStateAccess — service contract",
-          "Source": "implementation/contracts/projectStateAccess.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "projectStateAccess — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "D-PA-GIT": {
-      "activityID": "D-PA-GIT",
-      "phase": 2,
-      "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "projectStateAccess — service contract",
-          "Source": "implementation/contracts/projectStateAccess.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "projectStateAccess — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "D-PA-R": {
-      "activityID": "D-PA-R",
-      "phase": 2,
-      "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "projectStateAccess — service contract",
-          "Source": "implementation/contracts/projectStateAccess.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "projectStateAccess — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "D-PM": {
-      "activityID": "D-PM",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "D-SC": {
-      "activityID": "D-SC",
-      "phase": 2,
-      "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "sourceControlAccess — service contract",
-          "Source": "implementation/contracts/sourceControlAccess.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "sourceControlAccess — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "D-SC-AD": {
-      "activityID": "D-SC-AD",
-      "phase": 2,
-      "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "sourceControlAccess — service contract",
-          "Source": "implementation/contracts/sourceControlAccess.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "sourceControlAccess — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "D-SC-AG": {
-      "activityID": "D-SC-AG",
-      "phase": 2,
-      "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "sourceControlAccess — service contract",
-          "Source": "implementation/contracts/sourceControlAccess.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "sourceControlAccess — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "D-SC-PR": {
-      "activityID": "D-SC-PR",
-      "phase": 2,
-      "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "sourceControlAccess — service contract",
-          "Source": "implementation/contracts/sourceControlAccess.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "sourceControlAccess — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "D-SE": {
-      "activityID": "D-SE",
-      "phase": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "settlementEngine — service contract",
-          "Source": "implementation/contracts/settlementEngine.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        }
-      ]
-    },
-    "D-UA": {
-      "activityID": "D-UA",
-      "phase": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "usageAccess — service contract",
-          "Source": "implementation/contracts/usageAccess.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        }
-      ]
-    },
-    "I-CL": {
-      "activityID": "I-CL",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "I-DE": {
-      "activityID": "I-DE",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "I-DESIGN-DISPATCH": {
-      "activityID": "I-DESIGN-DISPATCH",
+    "R-GH": {
+      "activityID": "R-GH",
       "phase": 2,
       "buildStatus": 1,
       "produced": [
@@ -7361,219 +6470,9 @@
           "Note": "Construction output recorded in the implementation log."
         }
       ]
-    },
-    "I-GIT-DESIGN": {
-      "activityID": "I-GIT-DESIGN",
-      "phase": 2,
-      "buildStatus": 1,
-      "produced": [
-        {
-          "Kind": "code",
-          "Title": " — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "I-GIT-LIVE": {
-      "activityID": "I-GIT-LIVE",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "I-RA": {
-      "activityID": "I-RA",
-      "phase": 2,
-      "buildStatus": 1,
-      "produced": [
-        {
-          "Kind": "code",
-          "Title": " — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "I-RA-Δ": {
-      "activityID": "I-RA-Δ",
-      "phase": 2,
-      "buildStatus": 1,
-      "produced": [
-        {
-          "Kind": "code",
-          "Title": " — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "I-SPA": {
-      "activityID": "I-SPA",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "I-UC1": {
-      "activityID": "I-UC1",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "I-UC1-AG": {
-      "activityID": "I-UC1-AG",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "I-UC2": {
-      "activityID": "I-UC2",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "I-UC2-AG": {
-      "activityID": "I-UC2-AG",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "I-UC3": {
-      "activityID": "I-UC3",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "I-UC4": {
-      "activityID": "I-UC4",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "I-UC5": {
-      "activityID": "I-UC5",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "I-UTIL": {
-      "activityID": "I-UTIL",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "N-ADR": {
-      "activityID": "N-ADR",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "N-CI": {
-      "activityID": "N-CI",
-      "phase": 2,
-      "kind": "testing",
-      "buildStatus": 1,
-      "produced": [
-        {
-          "Kind": "code",
-          "Title": " — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "N-DEP": {
-      "activityID": "N-DEP",
-      "phase": 2,
-      "kind": "testing",
-      "buildStatus": 1,
-      "produced": [
-        {
-          "Kind": "code",
-          "Title": " — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "N-HARD": {
-      "activityID": "N-HARD",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "N-IT": {
-      "activityID": "N-IT",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "N-PERF": {
-      "activityID": "N-PERF",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "N-QA": {
-      "activityID": "N-QA",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "N-RTH": {
-      "activityID": "N-RTH",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "N-RUN": {
-      "activityID": "N-RUN",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "N-SC": {
-      "activityID": "N-SC",
-      "phase": 2,
-      "kind": "testing",
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "sourceControlAccess — service contract",
-          "Source": "implementation/contracts/sourceControlAccess.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        }
-      ]
-    },
-    "N-SCHEMA": {
-      "activityID": "N-SCHEMA",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "N-SEC": {
-      "activityID": "N-SEC",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "N-SMOKE": {
-      "activityID": "N-SMOKE",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "N-STH": {
-      "activityID": "N-STH",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "N-STP": {
-      "activityID": "N-STP",
-      "phase": 2,
-      "buildStatus": 2
     },
     "R-BG": {
       "activityID": "R-BG",
-      "phase": 2,
-      "buildStatus": 1,
-      "produced": [
-        {
-          "Kind": "code",
-          "Title": " — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "R-CPR": {
-      "activityID": "R-CPR",
       "phase": 2,
       "buildStatus": 1,
       "produced": [
@@ -7600,22 +6499,8 @@
         }
       ]
     },
-    "R-GH": {
-      "activityID": "R-GH",
-      "phase": 2,
-      "buildStatus": 1,
-      "produced": [
-        {
-          "Kind": "code",
-          "Title": " — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "R-GIT": {
-      "activityID": "R-GIT",
+    "R-CPR": {
+      "activityID": "R-CPR",
       "phase": 2,
       "buildStatus": 1,
       "produced": [
@@ -7633,130 +6518,102 @@
       "phase": 2,
       "buildStatus": 2
     },
-    "R-PG-PS": {
-      "activityID": "R-PG-PS",
+    "R-WIT": {
+      "activityID": "R-WIT",
       "phase": 2,
-      "buildStatus": 1,
-      "produced": [
-        {
-          "Kind": "code",
-          "Title": " — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "R-PG-US": {
-      "activityID": "R-PG-US",
-      "phase": 2,
-      "buildStatus": 1,
-      "produced": [
-        {
-          "Kind": "code",
-          "Title": " — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "U-GW": {
-      "activityID": "U-GW",
-      "phase": 2,
-      "buildStatus": 1,
-      "produced": [
-        {
-          "Kind": "code",
-          "Title": " — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "U-HELM": {
-      "activityID": "U-HELM",
-      "phase": 2,
-      "buildStatus": 1,
-      "produced": [
-        {
-          "Kind": "code",
-          "Title": " — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "U-SPA-1": {
-      "activityID": "U-SPA-1",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "U-SPA-2": {
-      "activityID": "U-SPA-2",
-      "phase": 2,
-      "kind": "frontend",
       "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "code",
-          "Title": " — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
+      "produced": []
     },
-    "U-SPA-3": {
-      "activityID": "U-SPA-3",
+    "N-SCHEMA": {
+      "activityID": "N-SCHEMA",
       "phase": 2,
       "buildStatus": 2
     },
-    "U-SPA-4": {
-      "activityID": "U-SPA-4",
+    "G-SPA": {
+      "activityID": "G-SPA",
       "phase": 2,
-      "buildStatus": 2
-    },
-    "U-SPA-5": {
-      "activityID": "U-SPA-5",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "U-SPA-6": {
-      "activityID": "U-SPA-6",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "U-SPA-GIT": {
-      "activityID": "U-SPA-GIT",
-      "phase": 2,
-      "kind": "frontend",
       "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "code",
-          "Title": " — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
+      "produced": []
     },
-    "U-SPA-S": {
-      "activityID": "U-SPA-S",
+    "I-UC1": {
+      "activityID": "I-UC1",
       "phase": 2,
       "buildStatus": 2
     },
-    "U-SPA-TEAM": {
-      "activityID": "U-SPA-TEAM",
+    "I-UC2": {
+      "activityID": "I-UC2",
       "phase": 2,
       "buildStatus": 2
     },
-    "X001": {
-      "activityID": "X001",
+    "I-UC3": {
+      "activityID": "I-UC3",
       "phase": 2,
+      "buildStatus": 2
+    },
+    "I-UC4": {
+      "activityID": "I-UC4",
+      "phase": 2,
+      "buildStatus": 2
+    },
+    "I-UC5": {
+      "activityID": "I-UC5",
+      "phase": 2,
+      "buildStatus": 2
+    },
+    "N-STP": {
+      "activityID": "N-STP",
+      "phase": 2,
+      "buildStatus": 2
+    },
+    "N-STH": {
+      "activityID": "N-STH",
+      "phase": 2,
+      "buildStatus": 2
+    },
+    "N-RTH": {
+      "activityID": "N-RTH",
+      "phase": 2,
+      "buildStatus": 2
+    },
+    "N-SMOKE": {
+      "activityID": "N-SMOKE",
+      "phase": 2,
+      "buildStatus": 2
+    },
+    "N-QA": {
+      "activityID": "N-QA",
+      "phase": 2,
+      "buildStatus": 2
+    },
+    "N-IT": {
+      "activityID": "N-IT",
+      "phase": 2,
+      "buildStatus": 2
+    },
+    "N-PERF": {
+      "activityID": "N-PERF",
+      "phase": 2,
+      "buildStatus": 2
+    },
+    "N-SEC": {
+      "activityID": "N-SEC",
+      "phase": 2,
+      "buildStatus": 2
+    },
+    "N-HARD": {
+      "activityID": "N-HARD",
+      "phase": 2,
+      "buildStatus": 2
+    },
+    "N-ADR": {
+      "activityID": "N-ADR",
+      "phase": 2,
+      "buildStatus": 2
+    },
+    "N-CI": {
+      "activityID": "N-CI",
+      "phase": 2,
+      "kind": "testing",
       "buildStatus": 1,
       "produced": [
         {
@@ -7767,6 +6624,50 @@
           "Note": "Construction output recorded in the implementation log."
         }
       ]
+    },
+    "N-SC": {
+      "activityID": "N-SC",
+      "phase": 2,
+      "kind": "testing",
+      "produced": []
+    },
+    "N-DEP": {
+      "activityID": "N-DEP",
+      "phase": 2,
+      "kind": "testing",
+      "buildStatus": 1,
+      "produced": [
+        {
+          "Kind": "code",
+          "Title": " — built component",
+          "Source": "implementation/log",
+          "Produced": true,
+          "Note": "Construction output recorded in the implementation log."
+        }
+      ]
+    },
+    "N-RUN": {
+      "activityID": "N-RUN",
+      "phase": 2,
+      "buildStatus": 2
+    },
+    "N-REQ": {
+      "activityID": "N-REQ",
+      "phase": 2,
+      "buildStatus": 2,
+      "produced": []
+    },
+    "N-ARCH": {
+      "activityID": "N-ARCH",
+      "phase": 2,
+      "buildStatus": 2,
+      "produced": []
+    },
+    "N-PLAN": {
+      "activityID": "N-PLAN",
+      "phase": 2,
+      "buildStatus": 2,
+      "produced": []
     }
   },
   "constructionProgress": {
