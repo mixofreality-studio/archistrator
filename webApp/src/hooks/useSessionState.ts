@@ -47,7 +47,16 @@ export function useSessionState(
     retry: (count, error) => !(error instanceof ApiError && error.status === 404) && count < 1,
     refetchInterval: (query) => {
       const stage = query.state.data?.stage;
-      if (stage !== undefined && TERMINAL_STAGES.includes(stage)) return false;
+      // Poll only while a LIVE session sits in a non-terminal stage. If there is no
+      // session data at all — a committed / not-yet-started artifact 404s, leaving
+      // stage undefined — do NOT poll: otherwise we hammer a 404 every 2s forever,
+      // and each refetch briefly flips the design experience to its loading spinner,
+      // which unmounts and remounts the artifact view (the reload/flicker that reset
+      // the diagram's local state). A user action that starts a session invalidates
+      // this query, so live polling resumes on its own. On a transient error during
+      // a live session React Query keeps the last good data, so `stage` stays defined
+      // and polling continues.
+      if (stage === undefined || TERMINAL_STAGES.includes(stage)) return false;
       return POLL_INTERVAL_MS;
     },
   });

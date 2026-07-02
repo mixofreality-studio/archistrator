@@ -112,6 +112,14 @@ export const TESTID = {
   gitCrLabel: 'git-cr-label',
   gitArchApproved: 'git-arch-approved',
   gitCiStatus: (status: string): string => `git-ci-${status}`,
+
+  // Construction console (route `/project/$projectId/construction`). Mirrors
+  // UIIdentifiers.Construction in webApp/src/constants/UIIdentifiers.ts.
+  constructionTabArtifacts: 'construction-tab-artifacts',
+  constructionArtifacts: 'construction-artifacts',
+  constructionArtifactRow: (id: string): string => `construction-artifact-row-${id}`,
+  constructionSystemTestView: 'construction-system-test-view',
+  constructionTestPlanView: 'construction-test-plan-view',
 } as const;
 
 /**

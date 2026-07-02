@@ -1,6 +1,6 @@
 ---
 name: the-method-activity-list
-description: Project Design — produce the activity list (coding + noncoding) with 5-day quantum estimates. One detailed-design + one construction activity per component, plus integration and noncoding. Reads the committed systemDesign and planningAssumptions artifacts in project.json. Produces the typed ActivityList committed to project.json → .activityList. Invoke after [[the-method-planning-assumptions]], before [[the-method-network-draft]].
+description: Project Design — produce the activity list (coding + noncoding) with 5-day quantum estimates. ONE coding activity per component (detailed-design and construction are internal lifecycle phases, not separate activities), plus integration and noncoding. Reads the committed systemDesign and planningAssumptions artifacts in project.json. Produces the typed ActivityList committed to project.json → .activityList. Invoke after [[the-method-planning-assumptions]], before [[the-method-network-draft]].
 ---
 
 # Activity List
@@ -39,28 +39,24 @@ Two usage patterns produce this slot:
 
 ### Step 1 — Coding activities per component
 
-For each component declared in the committed `systemDesign` artifact (every component is a `container` in the rendered DSL), emit two activities:
+**One activity per component.** For each component declared in the committed `systemDesign` artifact (every component is a `container` in the rendered DSL), emit **exactly one** coding activity. Detailed design and construction are **internal phases of that activity's lifecycle** (App A — every activity "is its own little life cycle" with Requirements → Detailed Design → Test Plan → Construction → Integration phases), dispatched to different roles per phase (senior-developer designs the contract in the detailed-design phase; junior-developer builds in the construction phase per [[the-method-handoff]]). They are **not** two separate activities.
 
-| Activity type | Role | Typical duration |
-|---|---|---|
-| `detailed-design` | senior-developer | 5–10 days |
-| `construction` | junior-developer | 5–35 days |
+> This is the deliberate correction of the "clock": do NOT emit a `D###` design activity *and* a `C###` construction activity per component. The base activity list is one activity per component; the per-phase role hand-off lives inside the lifecycle. Pulling contract design out into a *separate* activity is a **compression technique** — see [[the-method-compressed-solution]] — applied selectively (to components others build against, to break dependencies and parallelize), never universally in the base list.
 
-> ID-prefix convention (recommended): `D###` detailed-design, `C###` construction, `R###` resource provisioning, `U###` UI/SPA/gateway/helm, `G###` UI-design concepts, `I###` integration, `N###` noncoding. A product may use generic `A###` instead, but the richer prefixes aid traceability.
-
-Construction depends on detailed-design (behavioral dependency).
+> ID-prefix convention (recommended): `C###` the single per-component coding activity, `R###` resource provisioning, `U###` UI/SPA/gateway/helm, `G###` UI-design concepts, `I###` integration, `N###` noncoding. (`D###` design-first activities appear ONLY in the compressed solution, never the base.) A product may use generic `A###` instead, but the richer prefixes aid traceability.
 
 Format each entry:
 
 ```markdown
 | ID | Name | Type | Component | Role | Duration (days) | Depends on |
 |---|---|---|---|---|---|---|
-| A001 | Detailed design — OrderManager | detailed-design | OrderManager | senior-developer | 5 | — |
-| A002 | Build OrderManager | construction | OrderManager | junior-developer | 15 | A001 |
+| C001 | OrderManager | coding | OrderManager | senior→junior (per-phase) | 20 | (its dependencies' contracts) |
 ```
 
+The single duration covers the whole lifecycle (design + build + test-plan + integration phases); the profile weights (App A Table A-1) apportion it across phases. Dependencies are on other components' *activities* (their frozen contracts become available as their detailed-design phase completes).
+
 **Sizing rules:**
-- Detailed-design durations cluster at 5 days (one work-week). Bump to 10 for unusually complex components (e.g., a Manager with many call chains).
+- A component's single activity spans its full lifecycle; size it to the whole thing (design phase ≈ 20% + construction ≈ 40% + the rest per the App A weights).
 - Construction durations vary by component size and layer. Typical:
   - Manager: 15–30 days
   - Engine: 10–20 days
@@ -220,7 +216,7 @@ This is "a crude staffing distribution" (ch. 11) — it confirms which roles spa
 ## Exit criteria (for router)
 
 `.aiarch/state/project.json` → `.activityList` holds a committed typed model with:
-- One detailed-design + one construction per component
+- One coding activity per component (detailed-design + construction are internal lifecycle phases, NOT separate activities; no `D###`/`C###` pair per component in the base)
 - Integration activities for each major relationship cluster
 - Noncoding activities from the checklist
 - All durations in 5-day quanta, ≤35 days, with role assignments
@@ -234,7 +230,7 @@ Move to `the-method-network-draft`.
 ## Anti-patterns to reject
 
 - **Single "implement everything" activity** — god activity; split per component.
-- **No detailed-design activities** — implicit junior hand-off; the architect bottleneck. Add senior-design activities explicitly.
+- **A `D###` + `C###` pair per component in the base list** — this is the "clock." Detailed design is a *phase* of the one per-component activity, dispatched to the senior via the per-phase hand-off ([[the-method-handoff]]), not a separate activity. Separate design-first activities belong ONLY in the compressed solution ([[the-method-compressed-solution]]), applied selectively.
 - **No noncoding activities** — projects don't ship without UX, infra, deployment, training. Force the inventory.
 - **No integration activities** — integration-at-end is App C anti-pattern. Schedule incremental.
 - **Durations like 7, 11, 22 days** — break the quantum rule. Round to 5/10/15/20/25/30/35.

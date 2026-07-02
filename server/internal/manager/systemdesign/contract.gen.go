@@ -167,6 +167,13 @@ type ContractStruct struct {
 	Fields []GoField `json:"Fields"`
 }
 
+type DefectView struct {
+	Id       string `json:"id"`
+	Title    string `json:"title"`
+	Severity string `json:"severity"`
+	Note     string `json:"note"`
+}
+
 type DraftModel struct {
 	Kind  string           `json:"kind"`
 	Model *json.RawMessage `json:"model,omitempty"`
@@ -254,6 +261,7 @@ type ProjectState struct {
 	ConstructionProgress *ConstructionProgress                 `json:"constructionProgress,omitempty"`
 	ServiceContracts     map[string]ServiceContract            `json:"ServiceContracts"`
 	ReviewPolicy         *ReviewPolicyView                     `json:"reviewPolicy,omitempty"`
+	TestingState         *TestingStateView                     `json:"testingState,omitempty"`
 }
 
 type ProjectSummary struct {
@@ -341,6 +349,39 @@ const (
 	SeverityWarning Severity = "warning"
 	SeverityError   Severity = "error"
 )
+
+type SystemTestPlanView struct {
+	Scenarios []TestScenarioView `json:"scenarios"`
+}
+
+type TestRunView struct {
+	Id     string `json:"id"`
+	Passed int64  `json:"passed"`
+	Failed int64  `json:"failed"`
+	Note   string `json:"note"`
+}
+
+type TestScenarioView struct {
+	Id          string         `json:"id"`
+	UseCase     string         `json:"useCase"`
+	Title       string         `json:"title"`
+	Steps       []TestStepView `json:"steps"`
+	Description string         `json:"description"`
+}
+
+type TestStepView struct {
+	Seq       int64  `json:"seq"`
+	Component string `json:"component"`
+	Operation string `json:"operation"`
+	Note      string `json:"note"`
+	Status    string `json:"status"`
+}
+
+type TestingStateView struct {
+	TestRuns       []TestRunView       `json:"testRuns"`
+	Defects        []DefectView        `json:"defects"`
+	SystemTestPlan *SystemTestPlanView `json:"systemTestPlan,omitempty"`
+}
 
 type TestingVariant int
 

@@ -24,6 +24,8 @@ import { StatusChip } from './status';
 import { KindBadge, KIND_META } from './KindBadge';
 import { ServiceContractView } from './ServiceContractView';
 import type { ArtifactActivityVM } from './ArtifactActivityList';
+import { classify } from './artifactClassification';
+import { artifactRenderers } from './artifactRenderers';
 
 // ---------------------------------------------------------------------------
 // ActivityHeader
@@ -224,11 +226,20 @@ export function ArtifactActivityDetail({
   const codeArtifacts = nonContractArtifacts.filter((a) => a.kind === 'code');
   const otherArtifacts = nonContractArtifacts.filter((a) => a.kind !== 'code');
 
+  // Per-type renderer dispatch: a registered renderer for this activity's
+  // classification takes over the body; otherwise the generic contract view +
+  // honest-pointer cards below. (Contract-bearing types keep the service path.)
+  const Renderer = artifactRenderers[classify(vm.row)];
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
       <ActivityHeader t={t} vm={vm} />
       <LifecycleStrip t={t} vm={vm} />
 
+      {Renderer !== undefined ? (
+        <Renderer project={project} systemEnvelope={systemEnvelope} t={t} vm={vm} />
+      ) : (
+        <>
       {/* Primary artifact: the rich ServiceContractView for any contract-bearing activity */}
       {contract !== undefined ? (
         <>
@@ -279,6 +290,8 @@ export function ArtifactActivityDetail({
           No artifacts recorded yet for this activity.
         </Typography>
       ) : null}
+        </>
+      )}
     </Box>
   );
 }

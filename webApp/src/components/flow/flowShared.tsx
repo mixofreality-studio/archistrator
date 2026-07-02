@@ -6,12 +6,22 @@
  * this module exports only components.
  */
 import type { ReactNode } from 'react';
-import { ReactFlow, Background, Controls, Panel, type Edge, type Node, type NodeTypes } from '@xyflow/react';
+import {
+  ReactFlow,
+  Background,
+  Controls,
+  Panel,
+  type Edge,
+  type Node,
+  type NodeTypes,
+  type NodeMouseHandler,
+} from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import type { Tokens } from '../../theme/themes';
-import { type Layer, LAYER_LABEL, nodeTypes } from './flowLayout';
+import { type Layer, LAYER_LABEL } from './flowLayout';
+import { edgeTypes, nodeTypes } from './flowNodeTypes';
 
 /** The shared layer-colour legend Panel (only the layers actually present). */
 export function LayerLegend({
@@ -49,6 +59,8 @@ export function FlowCanvas({
   height,
   t,
   nodeTypes: nodeTypesOverride,
+  onNodeMouseEnter,
+  onNodeMouseLeave,
   children,
 }: {
   nodes: Node[];
@@ -56,6 +68,8 @@ export function FlowCanvas({
   height: number;
   t: Tokens;
   nodeTypes?: NodeTypes;
+  onNodeMouseEnter?: NodeMouseHandler;
+  onNodeMouseLeave?: NodeMouseHandler;
   children?: ReactNode;
 }): ReactNode {
   return (
@@ -63,6 +77,7 @@ export function FlowCanvas({
       <ReactFlow
         elementsSelectable
         fitView
+        edgeTypes={edgeTypes}
         edges={edges}
         fitViewOptions={{ padding: 0.15 }}
         maxZoom={1.4}
@@ -72,6 +87,8 @@ export function FlowCanvas({
         nodesConnectable={false}
         nodesDraggable={false}
         proOptions={{ hideAttribution: true }}
+        onNodeMouseEnter={onNodeMouseEnter}
+        onNodeMouseLeave={onNodeMouseLeave}
       >
         <Background color={t.line} gap={22} size={1} />
         <Controls showInteractive={false} />

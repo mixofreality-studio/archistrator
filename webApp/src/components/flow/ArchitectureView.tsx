@@ -20,7 +20,7 @@ import MenuItem from '@mui/material/MenuItem';
 import ListSubheader from '@mui/material/ListSubheader';
 import FormControl from '@mui/material/FormControl';
 import Typography from '@mui/material/Typography';
-import { listDynamicViews, toC4View } from '../../api/adapters';
+import { listDynamicViews, toC4View, toDynamicView } from '../../api/adapters';
 import type { ArtifactModelEnvelope, ServiceContract, ServiceContracts } from '../../api/types';
 import { resolveContractComponentId } from '../../api/contractComponentId';
 import { useTokens } from '../../theme/ThemeContext';
@@ -32,6 +32,20 @@ import { ServiceContractView } from '../construction/ServiceContractView';
 import { type Layer, LAYER_ORDER, LAYER_LABEL } from './flowLayout';
 
 type ViewMode = 'static' | 'dynamic' | 'perspective';
+
+/**
+ * Module-level memory of the last-picked lens + selections. The design experience
+ * can remount this view (a background refetch / HMR flips a render branch), which
+ * would otherwise snap it back to Static and lose the picker. Persisting the choice
+ * here — outside the component instance — keeps the view put across remounts. Only
+ * one ArchitectureView is on screen at a time; stale ids self-heal via the guards
+ * below (they fall back to defaults when the id isn't in the current model).
+ */
+const viewMemory: { mode: ViewMode; dynamicKey: string; componentId: string } = {
+  mode: 'static',
+  dynamicKey: '',
+  componentId: '',
+};
 
 export function ArchitectureView({
   envelope,
@@ -63,9 +77,26 @@ export function ArchitectureView({
   const defaultComponentId = firstManager?.id ?? c4.components[0]?.id ?? '';
   const defaultDynamicKey = dynamicViews[0]?.key ?? '';
 
-  const [mode, setMode] = useState<ViewMode>('static');
-  const [dynamicKey, setDynamicKey] = useState(defaultDynamicKey);
-  const [componentId, setComponentId] = useState(defaultComponentId);
+  // Initialise from module memory (survives remounts) and mirror every change back
+  // into it, so a remount restores the last lens + selection instead of Static.
+  const [storedMode, setStoredMode] = useState<ViewMode>(viewMemory.mode);
+  const [storedDynamicKey, setStoredDynamicKey] = useState(viewMemory.dynamicKey || defaultDynamicKey);
+  const [storedComponentId, setStoredComponentId] = useState(viewMemory.componentId || defaultComponentId);
+  const mode = storedMode;
+  const dynamicKey = storedDynamicKey;
+  const componentId = storedComponentId;
+  const setMode = (m: ViewMode): void => {
+    viewMemory.mode = m;
+    setStoredMode(m);
+  };
+  const setDynamicKey = (k: string): void => {
+    viewMemory.dynamicKey = k;
+    setStoredDynamicKey(k);
+  };
+  const setComponentId = (id: string): void => {
+    viewMemory.componentId = id;
+    setStoredComponentId(id);
+  };
 
   const activeDynamicKey = dynamicViews.some((v) => v.key === dynamicKey)
     ? dynamicKey
@@ -74,6 +105,10 @@ export function ArchitectureView({
     ? componentId
     : defaultComponentId;
   const focusedContract = contractByComponentId.get(activeComponentId);
+  const dynamicModel = useMemo(
+    () => toDynamicView(envelope, activeDynamicKey),
+    [envelope, activeDynamicKey]
+  );
 
   // Components grouped by layer for the perspective picker.
   const grouped = useMemo(() => {
@@ -164,7 +199,7 @@ export function ArchitectureView({
 
       {mode === 'static' && <ArchitectureFlow envelope={envelope} height={height} />}
       {mode === 'dynamic' && (
-        <DynamicViewFlow envelope={envelope} height={height} viewKey={activeDynamicKey} />
+        <DynamicViewFlow dv={dynamicModel} height={height} resetKey={activeDynamicKey} />
       )}
       {mode === 'perspective' && (
         <>

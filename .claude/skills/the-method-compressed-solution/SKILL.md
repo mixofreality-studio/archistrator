@@ -64,7 +64,8 @@ Parallel work mechanics:
 1. **Split serial chains.** A → B → C might become {A1, A2} in parallel → {B1, B2} in parallel → C. Requires extra resources but breaks the chain.
 2. **Pipeline.** Start B as soon as enough of A is done to unblock B (intra-activity dependency). Requires either splitting A into sub-activities or accepting "soft" dependency.
 3. **Enabling activities.** Add activities like "build simulator for component X" so downstream work isn't blocked waiting for X's completion. Per ch. 9, simulators are a classic acceleration technique.
-4. **Pre-work for noncoding.** UX design can start before architecture is complete (with risk); infra provisioning can run in parallel with early construction.
+4. **Design-first contract extraction (the primary source of `D###` activities).** Pull a component's **detailed-design phase out into its own `D###` activity** so that other components can begin construction against its *frozen contract* before it is fully built. This is exactly the book's "Client designs first" / per-Manager contract-design enabling activities (ch. 11 Table 11-5; ch. 13 "Adding Enabling Activities"). Apply it **selectively** — only to components that others build against (Managers, Engines, Clients on the critical path), never universally. In the base activity list each component is ONE activity (design is an internal phase, per [[the-method-activity-list]]); design-first extraction is a *compression* move that lives here, in this option's network state, not in the base.
+5. **Pre-work for noncoding.** UX design can start before architecture is complete (with risk); infra provisioning can run in parallel with early construction.
 
 For each parallel-work change:
 - Add the new activities to this option's network state inside `.compressedSolution` (likely under a `compressed_extras:` list)

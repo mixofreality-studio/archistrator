@@ -95,7 +95,10 @@ export function formatMoney(m: Money | undefined): string {
 // ---------------------------------------------------------------------------
 
 export interface ActivityRowView {
+  /** Network id (e.g. "C-CW"). */
   name: string;
+  /** Human-readable activity name (e.g. "Build Web Client"); falls back to the id. */
+  title: string;
   effortDays: number;
   workerClass: string;
   coding: boolean;
@@ -140,6 +143,7 @@ export function toActivityListView(
     const rows = byGroup.get(key) ?? [];
     rows.push({
       name: a.name,
+      title: a.title !== undefined && a.title.length > 0 ? a.title : a.name,
       effortDays: a.effortDays,
       workerClass: a.workerClass,
       coding: a.coding,

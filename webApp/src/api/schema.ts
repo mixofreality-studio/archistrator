@@ -755,6 +755,12 @@ export interface components {
             Fields: null | components["schemas"]["SystemDesignGoField"][];
             Name: string;
         };
+        SystemDesignDefectView: {
+            id: string;
+            note: string;
+            severity: string;
+            title: string;
+        };
         SystemDesignDraftModel: {
             kind: string;
             model?: null;
@@ -828,6 +834,7 @@ export interface components {
             Version: number;
             constructionProgress?: components["schemas"]["SystemDesignConstructionProgress"];
             reviewPolicy?: components["schemas"]["SystemDesignReviewPolicyView"];
+            testingState?: components["schemas"]["SystemDesignTestingStateView"];
         };
         SystemDesignProjectSummary: {
             CommittedCount: number;
@@ -885,6 +892,34 @@ export interface components {
         };
         /** @enum {string} */
         SystemDesignSeverity: "info" | "warning" | "error";
+        SystemDesignSystemTestPlanView: {
+            scenarios: null | components["schemas"]["SystemDesignTestScenarioView"][];
+        };
+        SystemDesignTestRunView: {
+            failed: number;
+            id: string;
+            note: string;
+            passed: number;
+        };
+        SystemDesignTestScenarioView: {
+            description: string;
+            id: string;
+            steps: null | components["schemas"]["SystemDesignTestStepView"][];
+            title: string;
+            useCase: string;
+        };
+        SystemDesignTestStepView: {
+            component: string;
+            note: string;
+            operation: string;
+            seq: number;
+            status: string;
+        };
+        SystemDesignTestingStateView: {
+            defects: null | components["schemas"]["SystemDesignDefectView"][];
+            systemTestPlan?: components["schemas"]["SystemDesignSystemTestPlanView"];
+            testRuns: null | components["schemas"]["SystemDesignTestRunView"][];
+        };
         /** @enum {integer} */
         SystemDesignTestingVariant: 0 | 1 | 2 | 3 | 4;
         SystemDesignVersion: number;

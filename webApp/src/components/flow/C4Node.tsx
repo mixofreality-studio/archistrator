@@ -26,7 +26,8 @@ export function C4Node({ data, selected }: NodeProps): ReactNode {
   const d = data as C4NodeData;
   return (
     <>
-      <Handle position={Position.Top} style={{ opacity: 0 }} type="target" />
+      <Handle id="t" position={Position.Top} style={{ opacity: 0 }} type="target" />
+      <Handle id="tl" position={Position.Left} style={{ opacity: 0 }} type="target" />
       <NodeToolbar isVisible={selected} offset={6} position={Position.Top}>
         <Button
           size="small"
@@ -69,7 +70,8 @@ export function C4Node({ data, selected }: NodeProps): ReactNode {
           </Typography>
         )}
       </Box>
-      <Handle position={Position.Bottom} style={{ opacity: 0 }} type="source" />
+      <Handle id="b" position={Position.Bottom} style={{ opacity: 0 }} type="source" />
+      <Handle id="sr" position={Position.Right} style={{ opacity: 0 }} type="source" />
     </>
   );
 }

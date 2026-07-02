@@ -18,6 +18,7 @@ import {
   pipelinePhaseFromOrdinal,
   ciStatusFromOrdinal,
   activityRowKindFromOrdinal,
+  testingVariantFromOrdinal,
   buildStatusRowFromOrdinal,
   runtimePhaseFromOrdinal,
   autoscalerModeFromOrdinal,
@@ -130,9 +131,14 @@ function mapProducedArtifact(w: Schemas['SystemDesignProducedArtifact']): Produc
 }
 
 function mapConstructionRow(w: Schemas['SystemDesignActivityConstructionStatus']): ConstructionRow {
+  // kind is sourced from the derived Type (the view model computes it from the
+  // activity id); variant is only meaningful for testing activities.
+  const kind = activityRowKindFromOrdinal(w.Type);
+  const variant = kind === 'testing' ? testingVariantFromOrdinal(w.Variant) : undefined;
   return {
     activityId: w.ActivityID,
-    kind: activityRowKindFromOrdinal(w.Kind),
+    kind,
+    ...(variant !== undefined ? { variant } : {}),
     status: buildStatusRowFromOrdinal(w.BuildStatus),
     phase: w.CurrentPhase,
     ...(w.Produced !== null ? { produced: w.Produced.map(mapProducedArtifact) } : {}),
@@ -255,6 +261,7 @@ export function mapProjectState(w: Schemas['SystemDesignProjectState']): Project
       ? { constructionProgress: mapConstructionProgress(w.constructionProgress) }
       : {}),
     ...(w.reviewPolicy !== undefined ? { reviewPolicy: w.reviewPolicy } : {}),
+    ...(w.testingState !== undefined ? { testingState: w.testingState } : {}),
   };
 }
 

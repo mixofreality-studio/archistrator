@@ -67,6 +67,19 @@ import {
   useComments,
 } from '../components/comments/CommentContext';
 
+// Prose (markdown) artifact kinds get a paper surface in the full-screen design
+// experience; diagram kinds (volatilities/system/coreUseCases/operationalConcepts)
+// render on their own bordered canvases, so they stay unwrapped.
+const PROSE_ARTIFACT_KINDS = new Set<string>(['mission', 'glossary', 'scrubbedRequirements', 'standardCheck']);
+
+function proseSurface(kind: string | undefined, node: ReactNode): ReactNode {
+  return kind !== undefined && PROSE_ARTIFACT_KINDS.has(kind) ? (
+    <Paper sx={{ p: { xs: 2.5, md: 4 } }}>{node}</Paper>
+  ) : (
+    node
+  );
+}
+
 import { useTokens } from '../theme/ThemeContext';
 import type { Tokens } from '../theme/themes';
 import { UI_IDENTIFIERS } from '../constants/UIIdentifiers';
@@ -388,7 +401,10 @@ function StepBody({
   // When the session is missing (404) but the slot is committed in the project
   // head-state, render the committed model read-only — no co-author chrome.
   if (sessionMissing && committed && committedEnvelope !== undefined) {
-    return <ArtifactRenderer envelope={committedEnvelope} height={620} title={title} />;
+    return proseSurface(
+      committedEnvelope.kind,
+      <ArtifactRenderer envelope={committedEnvelope} height={620} title={title} />
+    );
   }
 
   if (!hasDraft || sessionMissing) {
@@ -418,7 +434,10 @@ function StepBody({
     <>
       <ArtifactIntro committed={committed} kind={activeKind} />
       <Box sx={{ mb: gateOpen ? 3 : 0 }}>
-        <ArtifactRenderer envelope={view?.draft} height={620} title={title} />
+        {proseSurface(
+          view?.draft?.kind ?? activeKind,
+          <ArtifactRenderer envelope={view?.draft} height={620} title={title} />
+        )}
       </Box>
       {gateOpen ? <GatePanel
           commentCount={commentCount}

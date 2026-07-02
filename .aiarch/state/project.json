@@ -430,687 +430,326 @@
           {
             "activity": "C-AE",
             "dependsOn": [
-              "D-AE"
+              "N-CI"
             ]
           },
           {
             "activity": "C-BE",
             "dependsOn": [
-              "D-BE"
+              "N-CI"
             ]
           },
           {
             "activity": "C-BG",
             "dependsOn": [
-              "D-BG",
               "R-BG"
             ]
           },
           {
             "activity": "C-BM",
             "dependsOn": [
-              "D-BM",
-              "D-BS",
-              "D-PA",
-              "D-UA",
-              "D-BG",
-              "D-BE",
-              "D-IE",
-              "D-DA",
               "C-BE",
               "C-BG",
+              "C-BS",
+              "C-DA",
+              "C-DG",
+              "C-IE",
+              "C-LG",
+              "C-MOP",
+              "C-SC",
               "C-UA"
+            ]
+          },
+          {
+            "activity": "C-BS",
+            "dependsOn": [
+              "N-SCHEMA"
             ]
           },
           {
             "activity": "C-CM",
             "dependsOn": [
-              "D-CM",
-              "D-MSD",
-              "D-MPD",
-              "D-MCN",
-              "D-MOP",
-              "D-SE",
-              "D-PM"
+              "C-BM",
+              "C-MCN",
+              "C-MOP",
+              "C-MPD",
+              "C-MSD",
+              "C-SE"
             ]
           },
           {
             "activity": "C-CP",
             "dependsOn": [
-              "D-CP",
               "R-CPR"
-            ]
-          },
-          {
-            "activity": "C-CP-R",
-            "dependsOn": [
-              "C-CP",
-              "C-SC",
-              "C-SC-PR",
-              "R-GH"
             ]
           },
           {
             "activity": "C-CS",
             "dependsOn": [
-              "D-CS",
-              "D-MCN",
-              "D-MOP",
-              "D-BM",
-              "D-SE"
+              "C-BM",
+              "C-MCN",
+              "C-MOP",
+              "C-SE"
             ]
           },
           {
             "activity": "C-CW",
             "dependsOn": [
-              "D-CW",
-              "D-MSD",
-              "D-MPD",
-              "D-MCN",
-              "D-MOP",
-              "D-BM",
-              "D-SE"
-            ]
-          },
-          {
-            "activity": "C-CW-GIT",
-            "dependsOn": [
-              "C-PA-GIT",
-              "C-CW"
-            ]
-          },
-          {
-            "activity": "C-CW-Δ",
-            "dependsOn": [
-              "C-CW",
-              "D-MCN",
-              "D-MOP",
-              "D-BM"
+              "C-BM",
+              "C-MCN",
+              "C-MOP",
+              "C-MPD",
+              "C-MSD",
+              "C-SE"
             ]
           },
           {
             "activity": "C-DA",
             "dependsOn": [
-              "D-DA",
               "R-DER"
             ]
           },
           {
             "activity": "C-DG",
             "dependsOn": [
-              "D-DG"
+              "N-CI"
             ]
           },
           {
             "activity": "C-EE",
             "dependsOn": [
-              "D-EE"
+              "N-CI"
             ]
           },
           {
             "activity": "C-HE",
             "dependsOn": [
-              "D-HE"
+              "N-CI"
             ]
           },
           {
             "activity": "C-IE",
             "dependsOn": [
-              "D-IE"
+              "N-CI"
             ]
           },
           {
             "activity": "C-LG",
             "dependsOn": [
-              "D-LG"
-            ]
-          },
-          {
-            "activity": "C-LP",
-            "dependsOn": [
-              "C-PA",
-              "C-PA-C2",
-              "R-DER"
+              "N-CI"
             ]
           },
           {
             "activity": "C-MCN",
             "dependsOn": [
-              "D-MCN",
-              "D-HE",
-              "D-IE",
-              "D-PA",
-              "D-CP",
-              "D-DA"
-            ]
-          },
-          {
-            "activity": "C-MCN-GIT",
-            "dependsOn": [
-              "D-PA-GIT",
-              "C-SC-PR",
-              "C-MCN"
+              "C-CP",
+              "C-DA",
+              "C-DG",
+              "C-HE",
+              "C-IE",
+              "C-LG",
+              "C-PA",
+              "C-RE",
+              "C-SC",
+              "C-WIA"
             ]
           },
           {
             "activity": "C-MOP",
             "dependsOn": [
-              "D-MOP",
-              "D-IE",
-              "D-AE",
-              "D-OE",
-              "D-PA",
-              "D-OR",
-              "D-UA",
-              "D-DA"
+              "C-AE",
+              "C-DA",
+              "C-DG",
+              "C-IE",
+              "C-LG",
+              "C-OE",
+              "C-OR",
+              "C-OSA",
+              "C-PA",
+              "C-SC",
+              "C-UA"
             ]
           },
           {
             "activity": "C-MPD",
             "dependsOn": [
-              "D-MPD",
-              "D-EE",
-              "D-OE",
-              "D-BE",
-              "D-PA",
-              "D-DA"
-            ]
-          },
-          {
-            "activity": "C-MPD-Δ",
-            "dependsOn": [
-              "D-MPD-Δ",
-              "C-MPD",
-              "C-SC-AG",
-              "C-WF-DESIGN",
-              "C-CP-R"
+              "C-BE",
+              "C-CP",
+              "C-DA",
+              "C-DG",
+              "C-EE",
+              "C-LG",
+              "C-OE",
+              "C-PA",
+              "C-SC",
+              "C-WIA"
             ]
           },
           {
             "activity": "C-MSD",
             "dependsOn": [
-              "D-MSD",
-              "D-PA",
-              "D-DA"
-            ]
-          },
-          {
-            "activity": "C-MSD-Δ",
-            "dependsOn": [
-              "D-MSD-Δ",
-              "C-MSD",
-              "C-SC-AG",
-              "C-WF-DESIGN",
-              "C-CP-R"
+              "C-CP",
+              "C-DA",
+              "C-DG",
+              "C-EE",
+              "C-LG",
+              "C-PA",
+              "C-SC"
             ]
           },
           {
             "activity": "C-OE",
             "dependsOn": [
-              "D-OE"
+              "N-CI"
             ]
           },
           {
             "activity": "C-OR",
             "dependsOn": [
-              "D-OR",
-              "R-ORS",
-              "R-GH"
+              "R-ORS"
+            ]
+          },
+          {
+            "activity": "C-OSA",
+            "dependsOn": [
+              "N-SCHEMA"
             ]
           },
           {
             "activity": "C-PA",
             "dependsOn": [
-              "D-PA",
-              "R-PG-PS"
+              "N-SCHEMA"
             ]
           },
           {
-            "activity": "C-PA-AD",
+            "activity": "C-RE",
             "dependsOn": [
-              "C-PA-R",
-              "C-PA-C2"
-            ]
-          },
-          {
-            "activity": "C-PA-C2",
-            "dependsOn": [
-              "D-PA-C2",
-              "C-PA-R"
-            ]
-          },
-          {
-            "activity": "C-PA-GIT",
-            "dependsOn": [
-              "D-PA-GIT",
-              "C-PA-R"
-            ]
-          },
-          {
-            "activity": "C-PA-R",
-            "dependsOn": [
-              "D-PA-R",
-              "C-PA",
-              "R-GH",
-              "C-SC-PR"
-            ]
-          },
-          {
-            "activity": "C-PA-RB",
-            "dependsOn": [
-              "C-PA-R",
-              "C-MSD-Δ",
-              "C-MPD-Δ"
-            ]
-          },
-          {
-            "activity": "C-PM",
-            "dependsOn": [
-              "D-PM",
-              "D-PA",
-              "C-PA"
-            ]
-          },
-          {
-            "activity": "C-PM-Δ",
-            "dependsOn": [
-              "C-SC-AD",
-              "C-PM"
+              "N-CI"
             ]
           },
           {
             "activity": "C-SC",
             "dependsOn": [
-              "D-SC",
               "R-GH"
-            ]
-          },
-          {
-            "activity": "C-SC-AD",
-            "dependsOn": [
-              "D-SC-AD",
-              "C-SC"
-            ]
-          },
-          {
-            "activity": "C-SC-AG",
-            "dependsOn": [
-              "D-SC-AG",
-              "C-SC"
-            ]
-          },
-          {
-            "activity": "C-SC-PR",
-            "dependsOn": [
-              "D-SC-PR",
-              "C-SC"
             ]
           },
           {
             "activity": "C-SE",
             "dependsOn": [
-              "D-SE"
+              "N-CI"
             ]
           },
           {
             "activity": "C-UA",
             "dependsOn": [
-              "D-UA",
-              "R-PG-US"
+              "N-SCHEMA"
             ]
           },
           {
-            "activity": "C-VCI",
+            "activity": "C-WIA",
             "dependsOn": [
-              "C-SC",
-              "C-CP-R"
+              "R-WIT"
             ]
           },
           {
-            "activity": "C-WF-DESIGN",
+            "activity": "G-SPA",
             "dependsOn": [
-              "C-SC-AG",
-              "C-VCI"
-            ]
-          },
-          {
-            "activity": "D-BM",
-            "dependsOn": [
-              "D-PA",
-              "D-UA",
-              "D-BG",
-              "D-BE",
-              "D-IE",
-              "D-DA"
-            ]
-          },
-          {
-            "activity": "D-BS",
-            "dependsOn": [
-              "D-BM"
-            ]
-          },
-          {
-            "activity": "D-CM",
-            "dependsOn": [
-              "D-MSD",
-              "D-MPD",
-              "D-MCN",
-              "D-MOP",
-              "D-SE"
-            ]
-          },
-          {
-            "activity": "D-CS",
-            "dependsOn": [
-              "D-MCN",
-              "D-MOP",
-              "D-BM",
-              "D-SE"
-            ]
-          },
-          {
-            "activity": "D-CW",
-            "dependsOn": [
-              "D-MSD",
-              "D-MPD",
-              "D-MCN",
-              "D-MOP",
-              "D-BM",
-              "D-SE"
-            ]
-          },
-          {
-            "activity": "D-MCN",
-            "dependsOn": [
-              "D-PA",
-              "D-CP",
-              "D-HE",
-              "D-IE",
-              "D-DA"
-            ]
-          },
-          {
-            "activity": "D-MOP",
-            "dependsOn": [
-              "D-PA",
-              "D-OR",
-              "D-UA",
-              "D-IE",
-              "D-AE",
-              "D-OE",
-              "D-DA"
-            ]
-          },
-          {
-            "activity": "D-MPD",
-            "dependsOn": [
-              "D-PA",
-              "D-EE",
-              "D-OE",
-              "D-BE",
-              "D-DA"
-            ]
-          },
-          {
-            "activity": "D-MPD-Δ",
-            "dependsOn": [
-              "D-MPD",
-              "D-CP",
-              "D-PA"
-            ]
-          },
-          {
-            "activity": "D-MSD",
-            "dependsOn": [
-              "D-PA",
-              "D-DA"
-            ]
-          },
-          {
-            "activity": "D-MSD-Δ",
-            "dependsOn": [
-              "D-MSD",
-              "D-CP",
-              "D-PA"
-            ]
-          },
-          {
-            "activity": "D-OR-Δ1",
-            "dependsOn": [
-              "D-OR"
-            ]
-          },
-          {
-            "activity": "D-PA-C2",
-            "dependsOn": [
-              "D-PA-R"
-            ]
-          },
-          {
-            "activity": "D-PA-GIT",
-            "dependsOn": [
-              "D-PA-R",
-              "D-SC-PR"
-            ]
-          },
-          {
-            "activity": "D-PA-R",
-            "dependsOn": [
-              "D-PA"
-            ]
-          },
-          {
-            "activity": "D-PM",
-            "dependsOn": [
-              "D-PA"
-            ]
-          },
-          {
-            "activity": "D-SC-AD",
-            "dependsOn": [
-              "D-SC"
-            ]
-          },
-          {
-            "activity": "D-SC-AG",
-            "dependsOn": [
-              "D-SC"
-            ]
-          },
-          {
-            "activity": "D-SC-PR",
-            "dependsOn": [
-              "D-SC"
-            ]
-          },
-          {
-            "activity": "I-CL",
-            "dependsOn": [
-              "C-CW",
-              "C-CM",
-              "C-CS",
-              "C-MSD",
-              "C-MPD",
-              "C-MCN",
-              "C-MOP",
-              "C-BM"
-            ]
-          },
-          {
-            "activity": "I-DE",
-            "dependsOn": [
-              "C-DA",
-              "C-MSD",
-              "C-MPD",
-              "C-MCN",
-              "C-MOP",
-              "C-BM"
-            ]
-          },
-          {
-            "activity": "I-DESIGN-DISPATCH",
-            "dependsOn": [
-              "C-MSD-Δ",
-              "C-MPD-Δ",
-              "C-SC-AG",
-              "C-WF-DESIGN",
-              "C-CP-R"
-            ]
-          },
-          {
-            "activity": "I-GIT-DESIGN",
-            "dependsOn": [
-              "C-SC",
-              "C-PA-R",
-              "I-RA"
-            ]
-          },
-          {
-            "activity": "I-GIT-LIVE",
-            "dependsOn": [
-              "C-MCN-GIT",
-              "C-PA-GIT",
-              "C-CW-GIT"
-            ]
-          },
-          {
-            "activity": "I-RA",
-            "dependsOn": [
-              "C-MSD",
-              "C-MPD",
-              "C-MCN",
-              "C-MOP",
-              "C-BM",
-              "C-PA",
-              "C-PA-R",
-              "C-PA-C2",
-              "C-CP",
-              "C-CP-R",
-              "C-OR",
-              "C-UA",
-              "C-BG",
-              "C-SC",
-              "C-DA"
-            ]
-          },
-          {
-            "activity": "I-RA-Δ",
-            "dependsOn": [
-              "C-SC-AD",
-              "C-PM-Δ",
-              "C-PA-AD"
-            ]
-          },
-          {
-            "activity": "I-SPA",
-            "dependsOn": [
-              "U-SPA-1",
-              "U-SPA-2",
-              "U-SPA-3",
-              "U-SPA-4",
-              "U-SPA-5",
-              "U-GW",
-              "C-CW"
+              "N-REQ"
             ]
           },
           {
             "activity": "I-UC1",
             "dependsOn": [
-              "I-CL",
-              "I-DE",
-              "I-RA",
-              "U-SPA-1",
-              "I-GIT-DESIGN"
-            ]
-          },
-          {
-            "activity": "I-UC1-AG",
-            "dependsOn": [
-              "I-DESIGN-DISPATCH",
-              "C-PA-RB",
-              "I-UC1"
+              "C-CP",
+              "C-DA",
+              "C-MSD",
+              "C-PA",
+              "C-SC",
+              "U-SPA-1"
             ]
           },
           {
             "activity": "I-UC2",
             "dependsOn": [
-              "I-CL",
-              "I-DE",
-              "I-RA",
-              "U-SPA-2",
-              "I-UC1"
-            ]
-          },
-          {
-            "activity": "I-UC2-AG",
-            "dependsOn": [
-              "I-DESIGN-DISPATCH",
-              "C-PA-RB",
-              "I-UC2",
-              "I-UC1-AG"
+              "C-BE",
+              "C-CP",
+              "C-DA",
+              "C-EE",
+              "C-MPD",
+              "C-OE",
+              "C-PA",
+              "C-SC",
+              "C-WIA",
+              "U-SPA-2"
             ]
           },
           {
             "activity": "I-UC3",
             "dependsOn": [
-              "I-CL",
-              "I-DE",
-              "I-RA",
-              "U-SPA-3",
-              "I-UC2"
+              "C-CP",
+              "C-DA",
+              "C-HE",
+              "C-IE",
+              "C-MCN",
+              "C-PA",
+              "C-RE",
+              "C-SC",
+              "C-WIA",
+              "U-SPA-3"
             ]
           },
           {
             "activity": "I-UC4",
             "dependsOn": [
-              "I-CL",
-              "I-DE",
-              "I-RA",
+              "C-AE",
+              "C-DA",
+              "C-IE",
+              "C-MOP",
+              "C-OE",
+              "C-OR",
+              "C-OSA",
+              "C-PA",
+              "C-UA",
               "U-SPA-4"
             ]
           },
           {
             "activity": "I-UC5",
             "dependsOn": [
-              "I-CL",
-              "I-DE",
-              "I-RA",
-              "U-SPA-5",
-              "C-BM",
               "C-BE",
               "C-BG",
-              "C-UA"
-            ]
-          },
-          {
-            "activity": "I-UTIL",
-            "dependsOn": [
-              "C-SE",
-              "C-LG",
-              "C-DG",
-              "C-MSD",
-              "C-MPD",
-              "C-MCN",
-              "C-MOP",
               "C-BM",
-              "C-CW",
-              "C-CM",
-              "C-CS"
+              "C-BS",
+              "C-DA",
+              "C-IE",
+              "C-SC",
+              "C-UA",
+              "U-SPA-5"
             ]
           },
           {
             "activity": "N-ADR",
             "dependsOn": [
-              "R-ORS",
-              "R-DER"
+              "N-HARD"
+            ]
+          },
+          {
+            "activity": "N-ARCH",
+            "dependsOn": [
+              "N-REQ"
+            ]
+          },
+          {
+            "activity": "N-CI",
+            "dependsOn": [
+              "N-SC"
             ]
           },
           {
             "activity": "N-DEP",
             "dependsOn": [
-              "N-HARD",
-              "U-HELM"
+              "N-ADR",
+              "N-HARD"
             ]
           },
           {
@@ -1118,25 +757,43 @@
             "dependsOn": [
               "N-IT",
               "N-PERF",
+              "N-QA",
               "N-SEC"
             ]
           },
           {
             "activity": "N-IT",
             "dependsOn": [
-              "N-STH",
-              "N-RTH",
+              "C-CM",
+              "C-CS",
               "I-UC1",
               "I-UC2",
               "I-UC3",
               "I-UC4",
-              "I-UC5"
+              "I-UC5",
+              "N-RTH",
+              "N-SMOKE",
+              "N-STH",
+              "U-SPA-6",
+              "U-SPA-TEAM"
             ]
           },
           {
             "activity": "N-PERF",
             "dependsOn": [
               "N-IT"
+            ]
+          },
+          {
+            "activity": "N-PLAN",
+            "dependsOn": [
+              "N-ARCH"
+            ]
+          },
+          {
+            "activity": "N-QA",
+            "dependsOn": [
+              "N-PLAN"
             ]
           },
           {
@@ -1148,7 +805,19 @@
           {
             "activity": "N-RUN",
             "dependsOn": [
-              "N-HARD"
+              "N-DEP"
+            ]
+          },
+          {
+            "activity": "N-SC",
+            "dependsOn": [
+              "N-PLAN"
+            ]
+          },
+          {
+            "activity": "N-SCHEMA",
+            "dependsOn": [
+              "N-REQ"
             ]
           },
           {
@@ -1170,130 +839,128 @@
             ]
           },
           {
+            "activity": "N-STP",
+            "dependsOn": [
+              "N-REQ"
+            ]
+          },
+          {
+            "activity": "R-BG",
+            "dependsOn": [
+              "N-PLAN"
+            ]
+          },
+          {
             "activity": "R-CPR",
             "dependsOn": [
+              "N-PLAN"
+            ]
+          },
+          {
+            "activity": "R-DER",
+            "dependsOn": [
+              "N-PLAN"
+            ]
+          },
+          {
+            "activity": "R-GH",
+            "dependsOn": [
+              "N-PLAN"
+            ]
+          },
+          {
+            "activity": "R-ORS",
+            "dependsOn": [
+              "N-PLAN"
+            ]
+          },
+          {
+            "activity": "R-WIT",
+            "dependsOn": [
+              "N-PLAN",
               "R-GH"
-            ]
-          },
-          {
-            "activity": "R-GIT",
-            "dependsOn": [
-              "X001"
-            ]
-          },
-          {
-            "activity": "R-PG-US",
-            "dependsOn": [
-              "R-PG-PS"
-            ]
-          },
-          {
-            "activity": "U-GW",
-            "dependsOn": [
-              "D-CW",
-              "D-CM"
             ]
           },
           {
             "activity": "U-SPA-1",
             "dependsOn": [
-              "U-SPA-S",
-              "D-MSD",
-              "D-PM"
+              "C-MSD",
+              "G-SPA",
+              "U-SPA-S"
             ]
           },
           {
             "activity": "U-SPA-2",
             "dependsOn": [
-              "U-SPA-S",
-              "D-MPD"
+              "C-MPD",
+              "G-SPA",
+              "U-SPA-S"
             ]
           },
           {
             "activity": "U-SPA-3",
             "dependsOn": [
-              "U-SPA-S",
-              "D-MCN"
+              "C-MCN",
+              "G-SPA",
+              "U-SPA-S"
             ]
           },
           {
             "activity": "U-SPA-4",
             "dependsOn": [
-              "U-SPA-S",
-              "D-MOP"
+              "C-MOP",
+              "G-SPA",
+              "U-SPA-S"
             ]
           },
           {
             "activity": "U-SPA-5",
             "dependsOn": [
-              "U-SPA-S",
-              "D-BM"
+              "C-BM",
+              "G-SPA",
+              "U-SPA-S"
             ]
           },
           {
             "activity": "U-SPA-6",
             "dependsOn": [
-              "U-SPA-S",
-              "U-SPA-4",
-              "D-MOP",
-              "D-MSD"
-            ]
-          },
-          {
-            "activity": "U-SPA-GIT",
-            "dependsOn": [
-              "U-SPA-S",
-              "U-SPA-3",
-              "U-SPA-4",
-              "C-CW-GIT"
+              "C-MPD",
+              "G-SPA",
+              "U-SPA-S"
             ]
           },
           {
             "activity": "U-SPA-S",
             "dependsOn": [
-              "D-CW"
+              "C-CW",
+              "G-SPA",
+              "N-CI"
             ]
           },
           {
             "activity": "U-SPA-TEAM",
             "dependsOn": [
+              "G-SPA",
               "U-SPA-S"
-            ]
-          },
-          {
-            "activity": "C-PE",
-            "dependsOn": [
-              "C-CW",
-              "D-MPD"
             ]
           }
         ],
         "criticalPath": [
-          "D-AE",
-          "D-CP",
-          "D-DA",
-          "D-OE",
-          "D-OR",
-          "R-GH",
-          "X001",
-          "D-MCN",
-          "D-MOP",
-          "D-MPD",
-          "D-MSD",
-          "C-SC",
-          "D-CW",
-          "C-SC-PR",
+          "N-REQ",
+          "N-ARCH",
+          "N-PLAN",
+          "R-ORS",
+          "C-OR",
+          "C-MOP",
+          "C-BM",
           "C-CW",
-          "C-PA-R",
-          "I-RA",
-          "I-CL",
-          "I-UC1",
-          "I-UC2",
+          "U-SPA-S",
+          "U-SPA-3",
           "I-UC3",
           "N-IT",
-          "N-PERF",
           "N-SEC",
           "N-HARD",
+          "N-ADR",
           "N-DEP",
           "N-RUN"
         ],
@@ -1309,12 +976,31 @@
             "public": false,
             "dependsOn": [
               "R-GH",
+              "R-BG",
               "R-DER",
-              "R-CPR"
+              "R-CPR",
+              "R-ORS",
+              "R-WIT",
+              "N-SCHEMA",
+              "N-CI"
             ]
           },
           {
             "id": "M2",
+            "name": "Engines Complete",
+            "public": false,
+            "dependsOn": [
+              "C-EE",
+              "C-OE",
+              "C-BE",
+              "C-HE",
+              "C-IE",
+              "C-AE",
+              "C-RE"
+            ]
+          },
+          {
+            "id": "M3",
             "name": "Managers Complete",
             "public": false,
             "dependsOn": [
@@ -1323,16 +1009,6 @@
               "C-MCN",
               "C-MOP",
               "C-BM"
-            ]
-          },
-          {
-            "id": "M3",
-            "name": "Backend Wired (RA + Durable Execution)",
-            "public": false,
-            "dependsOn": [
-              "I-RA",
-              "I-GIT-DESIGN",
-              "I-DE"
             ]
           },
           {
@@ -1352,17 +1028,10 @@
             "name": "v1 Production Live",
             "public": true,
             "dependsOn": [
+              "N-IT",
               "N-HARD",
-              "N-RUN",
-              "N-DEP"
-            ]
-          },
-          {
-            "id": "N-DOGFOOD",
-            "name": "Dog-food transition: use aiarch to drive aiarch's own next iteration",
-            "public": false,
-            "dependsOn": [
-              "M5"
+              "N-DEP",
+              "N-RUN"
             ]
           }
         ]
@@ -1405,6 +1074,18 @@
             "currency": "USD"
           },
           "web-engineer-agent": {
+            "minorUnits": 50000,
+            "currency": "USD"
+          },
+          "system-architect": {
+            "minorUnits": 80000,
+            "currency": "USD"
+          },
+          "project-manager": {
+            "minorUnits": 80000,
+            "currency": "USD"
+          },
+          "ui-designer": {
             "minorUnits": 50000,
             "currency": "USD"
           }
@@ -1451,6 +1132,18 @@
           "web-engineer-agent": {
             "minorUnits": 50000,
             "currency": "USD"
+          },
+          "system-architect": {
+            "minorUnits": 80000,
+            "currency": "USD"
+          },
+          "project-manager": {
+            "minorUnits": 80000,
+            "currency": "USD"
+          },
+          "ui-designer": {
+            "minorUnits": 50000,
+            "currency": "USD"
           }
         },
         "bufferDays": 0
@@ -1493,6 +1186,18 @@
             "currency": "USD"
           },
           "web-engineer-agent": {
+            "minorUnits": 50000,
+            "currency": "USD"
+          },
+          "system-architect": {
+            "minorUnits": 80000,
+            "currency": "USD"
+          },
+          "project-manager": {
+            "minorUnits": 80000,
+            "currency": "USD"
+          },
+          "ui-designer": {
             "minorUnits": 50000,
             "currency": "USD"
           }
@@ -1539,6 +1244,18 @@
           "web-engineer-agent": {
             "minorUnits": 50000,
             "currency": "USD"
+          },
+          "system-architect": {
+            "minorUnits": 80000,
+            "currency": "USD"
+          },
+          "project-manager": {
+            "minorUnits": 80000,
+            "currency": "USD"
+          },
+          "ui-designer": {
+            "minorUnits": 50000,
+            "currency": "USD"
           }
         },
         "bufferDays": 15
@@ -1550,28 +1267,28 @@
       "model": {
         "rows": [
           {
-            "solutionKind": "normalSolution",
-            "criticalityRisk": 0.33,
-            "activityRisk": 0.51,
-            "composite": 0.74
+            "activityRisk": 0.29,
+            "composite": 0.274,
+            "criticalityRisk": 0.258,
+            "solutionKind": "normalSolution"
           },
           {
-            "solutionKind": "subcriticalSolution",
-            "criticalityRisk": 0.35,
-            "activityRisk": 0.47,
-            "composite": 1
+            "activityRisk": 0.29,
+            "composite": 0.274,
+            "criticalityRisk": 0.258,
+            "solutionKind": "decompressedSolution"
           },
           {
-            "solutionKind": "compressedSolution",
-            "criticalityRisk": 0.38,
-            "activityRisk": 0.52,
-            "composite": 0.67
+            "activityRisk": 0.29,
+            "composite": 0.274,
+            "criticalityRisk": 0.258,
+            "solutionKind": "subcriticalSolution"
           },
           {
-            "solutionKind": "decompressedSolution",
-            "criticalityRisk": 0.02,
-            "activityRisk": 0.34,
-            "composite": 0.6
+            "activityRisk": 0.29,
+            "composite": 0.274,
+            "criticalityRisk": 0.258,
+            "solutionKind": "compressedSolution"
           }
         ]
       }
@@ -1582,33 +1299,14 @@
       "model": {
         "options": [
           {
-            "optionId": "opt-decompressed",
-            "solutionKind": "decompressedSolution",
-            "durationDays": 425,
-            "buildCost": {
-              "minorUnits": 115360000,
-              "currency": "USD"
-            },
-            "compositeRisk": 0.6,
-            "projectedMonthlyCost": {
-              "minorUnits": 800000,
-              "currency": "USD"
-            },
-            "expectedPerCycleNet": {
-              "minorUnits": 120000,
-              "currency": "USD"
-            },
-            "revenueSharePercent": 0
-          },
-          {
             "optionId": "opt-normal",
             "solutionKind": "normalSolution",
-            "durationDays": 410,
+            "durationDays": 612.5,
             "buildCost": {
-              "minorUnits": 114720000,
-              "currency": "USD"
+              "currency": "USD",
+              "minorUnits": 58350000
             },
-            "compositeRisk": 0.74,
+            "compositeRisk": 0.274,
             "projectedMonthlyCost": {
               "minorUnits": 800000,
               "currency": "USD"
@@ -1620,14 +1318,14 @@
             "revenueSharePercent": 0
           },
           {
-            "optionId": "opt-compressed",
-            "solutionKind": "compressedSolution",
-            "durationDays": 385,
+            "optionId": "opt-decompressed",
+            "solutionKind": "decompressedSolution",
+            "durationDays": 612.5,
             "buildCost": {
-              "minorUnits": 116160000,
-              "currency": "USD"
+              "currency": "USD",
+              "minorUnits": 58350000
             },
-            "compositeRisk": 0.67,
+            "compositeRisk": 0.274,
             "projectedMonthlyCost": {
               "minorUnits": 800000,
               "currency": "USD"
@@ -1641,12 +1339,31 @@
           {
             "optionId": "opt-subcritical",
             "solutionKind": "subcriticalSolution",
-            "durationDays": 740,
+            "durationDays": 612.5,
             "buildCost": {
-              "minorUnits": 125280000,
+              "currency": "USD",
+              "minorUnits": 58350000
+            },
+            "compositeRisk": 0.274,
+            "projectedMonthlyCost": {
+              "minorUnits": 800000,
               "currency": "USD"
             },
-            "compositeRisk": 1,
+            "expectedPerCycleNet": {
+              "minorUnits": 120000,
+              "currency": "USD"
+            },
+            "revenueSharePercent": 0
+          },
+          {
+            "optionId": "opt-compressed",
+            "solutionKind": "compressedSolution",
+            "durationDays": 245,
+            "buildCost": {
+              "currency": "USD",
+              "minorUnits": 58350000
+            },
+            "compositeRisk": 0.274,
             "projectedMonthlyCost": {
               "minorUnits": 800000,
               "currency": "USD"
@@ -1658,8 +1375,8 @@
             "revenueSharePercent": 0
           }
         ],
-        "recommendation": "opt-decompressed",
-        "rationale": "Hold New-decompressed-normal (option a) with re-anchored tracking. PASS-3 recompute confirms the CP is invariant, total duration is invariant, all admitted scope since acceptance is off-CP, and the near-critical set is unchanged. Options (b)/(c) buy 15–40 sim-days that the calendar projection says are not needed, at +0.07/+0.13 composite risk on a CP front (C-CW, I-RA, integration ladder) where risk protection matters most. Option (d) is the standard Directive-7 contrast — longer, costlier, and riskier than the decompressed option on every dimension. The decompressed envelope is conservative: remaining work uses ≈42% of the remaining envelope even at the slow end of the projection range."
+        "recommendation": "opt-compressed",
+        "rationale": "recommend opt-compressed: at equal composite risk (0.274 across all options — they share one network) it delivers the shortest duration (245 sim-days) via a 5-day working week. Build cost is identical across options ($58350k) because the activity set and rate card are shared."
       }
     },
     "2": {
@@ -5720,620 +5437,12 @@
       "model": {
         "activities": [
           {
-            "name": "X001",
-            "effortDays": 5,
-            "workerClass": "system-architect",
-            "coding": true,
-            "riskBucket": 2,
-            "title": "Amend architecture.dsl: artifactStore → git provider"
-          },
-          {
-            "name": "D-SE",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 2,
-            "title": "Detailed design — Security utility"
-          },
-          {
-            "name": "D-LG",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 2,
-            "title": "Detailed design — Logging utility"
-          },
-          {
-            "name": "D-DG",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 2,
-            "title": "Detailed design — Diagnostics utility"
-          },
-          {
-            "name": "D-PA",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 2,
-            "title": "Detailed design — Project State Access"
-          },
-          {
-            "name": "D-PA-C2",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "Detailed design — projectStateAccess 2nd contract (construction-output read/stage)"
-          },
-          {
-            "name": "D-CP",
-            "effortDays": 10,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Detailed design — Construction Pipeline Access"
-          },
-          {
-            "name": "D-OR",
-            "effortDays": 10,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Detailed design — Operated Runtime Access"
-          },
-          {
-            "name": "D-UA",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 2,
-            "title": "Detailed design — Usage Access"
-          },
-          {
-            "name": "D-DA",
-            "effortDays": 10,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "Detailed design — Durable Execution Access"
-          },
-          {
-            "name": "D-BS",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 2,
-            "title": "Detailed design — Billing State Access (billingState head-state contract; hard C-BM gate FU-BM-2)"
-          },
-          {
-            "name": "D-BG",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 2,
-            "title": "Detailed design — Billing Gateway Access (charge the user via Stripe-as-ordinary-vendor)"
-          },
-          {
-            "name": "D-SC",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 2,
-            "title": "Detailed design — Source Control Access (GitHub App seam)"
-          },
-          {
-            "name": "D-SC-PR",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Detailed design — Pull Request Rail (IPullRequestRail, 2nd contract on sourceControlAccess)"
-          },
-          {
-            "name": "D-PA-R",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "Detailed design — projectStateAccess persistence/concurrency re-cut (Postgres → git JSON + ref-CAS)"
-          },
-          {
-            "name": "D-PA-GIT",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Detailed design — per-activity git head-state aggregate (deferred D-PA follow-up) — build DEFERRED"
-          },
-          {
-            "name": "D-OR-Δ1",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 2,
-            "title": "Detailed design — operatedRuntimeAccess SLO error-budget burndown read"
-          },
-          {
-            "name": "D-EE",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 2,
-            "title": "Detailed design — Construction Estimation Engine"
-          },
-          {
-            "name": "D-OE",
-            "effortDays": 10,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Detailed design — Operation Estimation Engine"
-          },
-          {
-            "name": "D-BE",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 2,
-            "title": "Detailed design — Billing Engine (ServicePricing; charge-only; renamed/repurposed from settlementEngine)"
-          },
-          {
-            "name": "D-HE",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 2,
-            "title": "Detailed design — Hand-Off Engine"
-          },
-          {
-            "name": "D-IE",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 2,
-            "title": "Detailed design — Intervention Engine"
-          },
-          {
-            "name": "D-AE",
-            "effortDays": 10,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Detailed design — Autoscaler Engine"
-          },
-          {
-            "name": "D-PM",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 2,
-            "title": "Detailed design — Project Manager"
-          },
-          {
-            "name": "D-MSD",
-            "effortDays": 10,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "Detailed design — System Design Manager"
-          },
-          {
-            "name": "D-MPD",
-            "effortDays": 10,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "Detailed design — Project Design Manager"
-          },
-          {
-            "name": "D-MCN",
-            "effortDays": 10,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "Detailed design — Construction Manager"
-          },
-          {
-            "name": "D-MOP",
-            "effortDays": 10,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "Detailed design — Operations Manager"
-          },
-          {
-            "name": "D-BM",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 2,
-            "title": "Detailed design — Billing Manager (slim; meter→price→charge the user; replaces settlementManager)"
-          },
-          {
-            "name": "D-CW",
-            "effortDays": 10,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Detailed design — Web Client"
-          },
-          {
-            "name": "D-CM",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 2,
-            "title": "Detailed design — MCP Client"
-          },
-          {
-            "name": "D-CS",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 2,
-            "title": "Detailed design — Scheduler Client"
-          },
-          {
-            "name": "C-SE",
-            "effortDays": 10,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Build Security utility"
-          },
-          {
-            "name": "C-LG",
-            "effortDays": 5,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 2,
-            "title": "Build Logging utility"
-          },
-          {
-            "name": "C-DG",
-            "effortDays": 5,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 2,
-            "title": "Build Diagnostics utility"
-          },
-          {
-            "name": "C-PA",
-            "effortDays": 15,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "Build Project State Access"
-          },
-          {
-            "name": "C-PA-C2",
-            "effortDays": 10,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "Build projectStateAccess 2nd contract (construction-output read/stage) — folds artifactAccess in"
-          },
-          {
-            "name": "C-CP",
-            "effortDays": 15,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "Build Construction Pipeline Access"
-          },
-          {
-            "name": "C-OR",
-            "effortDays": 25,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 8,
-            "title": "Build Operated Runtime Access"
-          },
-          {
-            "name": "C-UA",
-            "effortDays": 10,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Build Usage Access"
-          },
-          {
-            "name": "C-DA",
-            "effortDays": 20,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 8,
-            "title": "Build Durable Execution Access"
-          },
-          {
-            "name": "C-BG",
-            "effortDays": 10,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Build Billing Gateway Access"
-          },
-          {
-            "name": "C-SC",
-            "effortDays": 15,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "Build Source Control Access (GitHub App)"
-          },
-          {
-            "name": "C-SC-PR",
-            "effortDays": 10,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Build Pull Request Rail (IPullRequestRail)"
-          },
-          {
-            "name": "C-PA-R",
-            "effortDays": 20,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 8,
-            "title": "Rework Project State Access — Postgres head-state → git JSON + ref-CAS"
-          },
-          {
-            "name": "C-PA-GIT",
-            "effortDays": 5,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Build per-activity git head-state aggregate + record verbs + read — build DEFERRED"
-          },
-          {
-            "name": "C-CP-R",
-            "effortDays": 10,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "Rework Construction Pipeline Access — Argo Workflows → user's GitHub Actions"
-          },
-          {
-            "name": "C-EE",
-            "effortDays": 15,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Build Construction Estimation Engine"
-          },
-          {
-            "name": "C-OE",
-            "effortDays": 20,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "Build Operation Estimation Engine"
-          },
-          {
-            "name": "C-BE",
-            "effortDays": 10,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Build Billing Engine (reuses sunk settlementEngine compute skeleton)"
-          },
-          {
-            "name": "C-HE",
-            "effortDays": 5,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 2,
-            "title": "Build Hand-Off Engine"
-          },
-          {
-            "name": "C-IE",
-            "effortDays": 10,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Build Intervention Engine"
-          },
-          {
-            "name": "C-AE",
-            "effortDays": 20,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "Build Autoscaler Engine"
-          },
-          {
-            "name": "C-PM",
-            "effortDays": 10,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Build Project Manager"
-          },
-          {
-            "name": "C-MSD",
-            "effortDays": 25,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 8,
-            "title": "Build System Design Manager"
-          },
-          {
-            "name": "C-MPD",
-            "effortDays": 25,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 8,
-            "title": "Build Project Design Manager"
-          },
-          {
-            "name": "C-MCN",
-            "effortDays": 30,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 8,
-            "title": "Build Construction Manager"
-          },
-          {
-            "name": "C-MCN-GIT",
-            "effortDays": 10,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "Wire IPullRequestRail into the construction workflow (branch→PR→status→merge) — build DEFERRED"
-          },
-          {
-            "name": "C-MOP",
-            "effortDays": 30,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 8,
-            "title": "Build Operations Manager"
-          },
-          {
-            "name": "C-BM",
-            "effortDays": 15,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "Build Billing Manager (reuses sunk settlementManager skeleton)"
-          },
-          {
-            "name": "C-LP",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 2,
-            "title": "Build Local-Profile composition root"
-          },
-          {
-            "name": "C-VCI",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Package the Method-invariant validation as a pinned CI tool shipped to the user's CI"
-          },
-          {
             "name": "C-CW",
-            "effortDays": 30,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 8,
-            "title": "Build Web Client"
-          },
-          {
-            "name": "C-CW-Δ",
-            "effortDays": 10,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "webClient ports for UC3/UC4/UC5 (construction/operations/billing HTTP)"
-          },
-          {
-            "name": "C-CW-GIT",
-            "effortDays": 5,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Surface git head-state in the webClient read model (session + change-request views) — build DEFERRED"
-          },
-          {
-            "name": "C-CM",
             "effortDays": 20,
             "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 5,
-            "title": "Build MCP Client"
-          },
-          {
-            "name": "C-CS",
-            "effortDays": 10,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Build Scheduler Client"
-          },
-          {
-            "name": "R-PG-PS",
-            "effortDays": 10,
-            "workerClass": "senior-developer",
-            "coding": false,
-            "riskBucket": 2,
-            "title": "Provision Postgres + schema for the head-state stores (operated-system / billing)"
-          },
-          {
-            "name": "R-PG-US",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": false,
-            "riskBucket": 2,
-            "title": "Provision Postgres + schema for Usage Log"
-          },
-          {
-            "name": "R-GIT",
-            "effortDays": 10,
-            "workerClass": "senior-developer",
-            "coding": false,
-            "riskBucket": 2,
-            "title": "Select + provision git provider for Artifact Store"
-          },
-          {
-            "name": "R-GH",
-            "effortDays": 10,
-            "workerClass": "senior-developer",
-            "coding": false,
-            "riskBucket": 2,
-            "title": "Provision / register the GitHub App (org install, repo perms, Actions scope) — replaces R-GIT"
-          },
-          {
-            "name": "R-CPR",
-            "effortDays": 15,
-            "workerClass": "senior-developer",
-            "coding": false,
-            "riskBucket": 3,
-            "title": "Select + provision Construction Pipeline Runtime"
-          },
-          {
-            "name": "R-ORS",
-            "effortDays": 25,
-            "workerClass": "senior-developer",
-            "coding": false,
-            "riskBucket": 8,
-            "title": "Select + provision Operated Runtime Infrastructure"
-          },
-          {
-            "name": "R-DER",
-            "effortDays": 15,
-            "workerClass": "senior-developer",
-            "coding": false,
-            "riskBucket": 5,
-            "title": "Select + provision Durable Execution Runtime"
-          },
-          {
-            "name": "R-BG",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": false,
-            "riskBucket": 2,
-            "title": "Provision Stripe vendor account (ordinary charges to the user; no Connect MoR KYC) — replaces R-STR"
-          },
-          {
-            "name": "U-GW",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 2,
-            "title": "Configure Envoy Gateway routes for aiarch"
-          },
-          {
-            "name": "U-HELM",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 2,
-            "title": "Author aiarch Helm chart"
+            "title": "Build Web Client (Go client layer — generated REST handlers + OAS; design folded in)"
           },
           {
             "name": "U-SPA-S",
@@ -6349,7 +5458,7 @@
             "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 5,
-            "title": "SPA — Phase-1 system-design screens per the frozen mock, client-rendered (architect persona) — projects landing + home base + full-screen design experience; renders the typed Method models client-side (React-Flow C4 + volatility scatter + activity diagrams + markdown) instead of server-rendered images; co-author gate with JSONPath-anchored comments"
+            "title": "SPA — Phase-1 system-design screens (architect persona; React-Flow C4 + volatility scatter + activity diagrams + co-author gate)"
           },
           {
             "name": "U-SPA-2",
@@ -6357,7 +5466,7 @@
             "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 5,
-            "title": "SPA — Phase 2 project-design screens (architect persona)"
+            "title": "SPA — Phase-2 project-design screens (architect persona)"
           },
           {
             "name": "U-SPA-3",
@@ -6365,7 +5474,7 @@
             "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 5,
-            "title": "SPA — Construction tracking screens (architect persona)"
+            "title": "SPA — Construction tracking + artifacts console (architect persona)"
           },
           {
             "name": "U-SPA-4",
@@ -6396,64 +5505,288 @@
             "effortDays": 5,
             "workerClass": "junior-developer",
             "coding": true,
-            "riskBucket": 1,
-            "title": "SPA — Team / Agents roster view (10 Method roles, charters + read-only prompts) — DONE 2026-06-12"
+            "riskBucket": 2,
+            "title": "SPA — Team / Agents roster view (Method roles, charters + read-only prompts)"
           },
           {
-            "name": "U-SPA-GIT",
-            "effortDays": 10,
+            "name": "C-CM",
+            "effortDays": 25,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 5,
+            "title": "Build MCP Client"
+          },
+          {
+            "name": "C-CS",
+            "effortDays": 15,
             "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 3,
-            "title": "SPA — git-forward PR/branch row cluster (PR #N · branch · CI · +1) across Home/Construction/Operations/Change rows — build DEFERRED"
+            "title": "Build Scheduler Client"
           },
           {
-            "name": "I-UTIL",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
+            "name": "C-MSD",
+            "effortDays": 35,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 8,
+            "title": "Build System Design Manager"
+          },
+          {
+            "name": "C-MPD",
+            "effortDays": 35,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 8,
+            "title": "Build Project Design Manager"
+          },
+          {
+            "name": "C-MCN",
+            "effortDays": 35,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 8,
+            "title": "Build Construction Manager"
+          },
+          {
+            "name": "C-MOP",
+            "effortDays": 35,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 8,
+            "title": "Build Operations Manager"
+          },
+          {
+            "name": "C-BM",
+            "effortDays": 20,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 5,
+            "title": "Build Billing Manager"
+          },
+          {
+            "name": "C-EE",
+            "effortDays": 20,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 3,
+            "title": "Build Construction Estimation Engine"
+          },
+          {
+            "name": "C-OE",
+            "effortDays": 30,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 5,
+            "title": "Build Operation Estimation Engine"
+          },
+          {
+            "name": "C-BE",
+            "effortDays": 15,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 3,
+            "title": "Build Billing Engine"
+          },
+          {
+            "name": "C-HE",
+            "effortDays": 10,
+            "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 2,
-            "title": "Integrate utilities into all callers (logging/diag/security)"
+            "title": "Build Hand-Off Engine"
           },
           {
-            "name": "I-RA",
+            "name": "C-IE",
             "effortDays": 15,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "Integrate each Manager with its ResourceAccess + Resources (DONE 2026-06-14; was ON CRITICAL PATH)"
-          },
-          {
-            "name": "I-GIT-DESIGN",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
+            "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 3,
-            "title": "Integrate git-forward design-artifact rail"
+            "title": "Build Intervention Engine"
           },
           {
-            "name": "I-DE",
-            "effortDays": 10,
-            "workerClass": "senior-developer",
+            "name": "C-AE",
+            "effortDays": 30,
+            "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 5,
-            "title": "Integrate Managers with Durable Execution Runtime"
+            "title": "Build Autoscaler Engine"
           },
           {
-            "name": "I-CL",
-            "effortDays": 10,
-            "workerClass": "senior-developer",
+            "name": "C-RE",
+            "effortDays": 15,
+            "workerClass": "junior-developer",
             "coding": true,
-            "riskBucket": 3,
-            "title": "Integrate Clients with Managers (web/mcp/scheduler)"
+            "riskBucket": 5,
+            "title": "Build Review Engine (encapsulates ReviewPolicy)"
           },
           {
-            "name": "I-SPA",
+            "name": "C-PA",
+            "effortDays": 35,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 8,
+            "title": "Build Project State Access (git-as-DB head-state + construction-output stage)"
+          },
+          {
+            "name": "C-OSA",
+            "effortDays": 15,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 5,
+            "title": "Build Operated System State Access"
+          },
+          {
+            "name": "C-BS",
             "effortDays": 10,
             "workerClass": "junior-developer",
             "coding": true,
             "riskBucket": 3,
-            "title": "Integrate React SPA with Web Client over Envoy Gateway"
+            "title": "Build Billing State Access"
+          },
+          {
+            "name": "C-WIA",
+            "effortDays": 10,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 3,
+            "title": "Build Work Item Access"
+          },
+          {
+            "name": "C-CP",
+            "effortDays": 25,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 5,
+            "title": "Build Construction Pipeline Access (GitHub Actions rail)"
+          },
+          {
+            "name": "C-OR",
+            "effortDays": 35,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 8,
+            "title": "Build Operated Runtime Access"
+          },
+          {
+            "name": "C-UA",
+            "effortDays": 15,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 3,
+            "title": "Build Usage Access"
+          },
+          {
+            "name": "C-BG",
+            "effortDays": 15,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 3,
+            "title": "Build Billing Gateway Access"
+          },
+          {
+            "name": "C-SC",
+            "effortDays": 35,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 8,
+            "title": "Build Source Control Access (GitHub App; adopt repo + Actions + PR rail)"
+          },
+          {
+            "name": "C-DA",
+            "effortDays": 30,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 8,
+            "title": "Build Durable Execution Access"
+          },
+          {
+            "name": "C-SE",
+            "effortDays": 15,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 3,
+            "title": "Build Security utility"
+          },
+          {
+            "name": "C-LG",
+            "effortDays": 10,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 2,
+            "title": "Build Logging utility"
+          },
+          {
+            "name": "C-DG",
+            "effortDays": 10,
+            "workerClass": "junior-developer",
+            "coding": true,
+            "riskBucket": 2,
+            "title": "Build Diagnostics utility"
+          },
+          {
+            "name": "R-GH",
+            "effortDays": 10,
+            "workerClass": "senior-developer",
+            "coding": false,
+            "riskBucket": 2,
+            "title": "Provision / register the GitHub App (org install, repo perms, Actions scope; backs WorkItemTracker via Issues)"
+          },
+          {
+            "name": "R-BG",
+            "effortDays": 5,
+            "workerClass": "senior-developer",
+            "coding": false,
+            "riskBucket": 2,
+            "title": "Provision Stripe vendor account (BillingGateway)"
+          },
+          {
+            "name": "R-DER",
+            "effortDays": 15,
+            "workerClass": "senior-developer",
+            "coding": false,
+            "riskBucket": 5,
+            "title": "Select + provision Durable Execution Runtime"
+          },
+          {
+            "name": "R-CPR",
+            "effortDays": 15,
+            "workerClass": "senior-developer",
+            "coding": false,
+            "riskBucket": 3,
+            "title": "Select + provision Construction Pipeline Runtime"
+          },
+          {
+            "name": "R-ORS",
+            "effortDays": 25,
+            "workerClass": "senior-developer",
+            "coding": false,
+            "riskBucket": 8,
+            "title": "Select + provision Operated Runtime Infrastructure"
+          },
+          {
+            "name": "R-WIT",
+            "effortDays": 5,
+            "workerClass": "senior-developer",
+            "coding": false,
+            "riskBucket": 2,
+            "title": "Provision Work Item Tracker (GitHub Issues via the GitHub App)"
+          },
+          {
+            "name": "N-SCHEMA",
+            "effortDays": 10,
+            "workerClass": "system-architect",
+            "coding": false,
+            "riskBucket": 2,
+            "title": "Schema design for owned stores (ProjectGitRepo, OperatedSystemState, BillingState, UsageLog)"
+          },
+          {
+            "name": "G-SPA",
+            "effortDays": 15,
+            "workerClass": "ui-designer",
+            "coding": false,
+            "riskBucket": 3,
+            "title": "UI design concepts for the SPA (all Method screens)"
           },
           {
             "name": "I-UC1",
@@ -6461,7 +5794,7 @@
             "workerClass": "senior-developer",
             "coding": true,
             "riskBucket": 3,
-            "title": "End-to-end: UC1 (Phase 1 system-design workflow)"
+            "title": "End-to-end integration: UC1 (Phase-1 system-design workflow)"
           },
           {
             "name": "I-UC2",
@@ -6469,7 +5802,7 @@
             "workerClass": "senior-developer",
             "coding": true,
             "riskBucket": 3,
-            "title": "End-to-end: UC2 (Phase 2 project-design + SDP commit)"
+            "title": "End-to-end integration: UC2 (Phase-2 project-design + SDP commit)"
           },
           {
             "name": "I-UC3",
@@ -6477,7 +5810,7 @@
             "workerClass": "senior-developer",
             "coding": true,
             "riskBucket": 3,
-            "title": "End-to-end: UC3 (construction activity execution)"
+            "title": "End-to-end integration: UC3 (construction activity execution)"
           },
           {
             "name": "I-UC4",
@@ -6485,7 +5818,7 @@
             "workerClass": "senior-developer",
             "coding": true,
             "riskBucket": 3,
-            "title": "End-to-end: UC4 (operate + reconcile + autoscale)"
+            "title": "End-to-end integration: UC4 (operate + reconcile + autoscale)"
           },
           {
             "name": "I-UC5",
@@ -6493,23 +5826,7 @@
             "workerClass": "senior-developer",
             "coding": true,
             "riskBucket": 3,
-            "title": "End-to-end: UC5 (bill-the-user cycle)"
-          },
-          {
-            "name": "I-GIT-LIVE",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "Integrate git-forward construction PR rail"
-          },
-          {
-            "name": "N-QA",
-            "effortDays": 5,
-            "workerClass": "qa-engineer",
-            "coding": false,
-            "riskBucket": 2,
-            "title": "Define quality gates, review process, defect taxonomy; ongoing process audit"
+            "title": "End-to-end integration: UC5 (bill-the-user cycle)"
           },
           {
             "name": "N-STP",
@@ -6517,7 +5834,7 @@
             "workerClass": "test-engineer",
             "coding": false,
             "riskBucket": 3,
-            "title": "System Test Plan — enumerate all the ways to prove the integrated system fails (all 6 UCs)"
+            "title": "System Test Plan — enumerate all the ways to prove the integrated system fails (all core UCs)"
           },
           {
             "name": "N-STH",
@@ -6541,31 +5858,15 @@
             "workerClass": "senior-developer",
             "coding": false,
             "riskBucket": 2,
-            "title": "Daily build + smoke-test automation (clean build, power up, exercise the plumbing)"
+            "title": "Daily build + smoke-test automation"
           },
           {
-            "name": "N-CI",
+            "name": "N-QA",
             "effortDays": 5,
-            "workerClass": "senior-developer",
+            "workerClass": "qa-engineer",
             "coding": false,
             "riskBucket": 2,
-            "title": "Build/CI pipeline for aiarch-server Go monolith"
-          },
-          {
-            "name": "N-SC",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": false,
-            "riskBucket": 1,
-            "title": "Source-control + branching + commit-convention setup"
-          },
-          {
-            "name": "N-SCHEMA",
-            "effortDays": 10,
-            "workerClass": "system-architect",
-            "coding": false,
-            "riskBucket": 2,
-            "title": "Schema design for 3 logs (project state, usage, revenue)"
+            "title": "Define quality gates, review process, defect taxonomy; ongoing process audit"
           },
           {
             "name": "N-IT",
@@ -6600,12 +5901,28 @@
             "title": "Hardening + bug-fix pass"
           },
           {
-            "name": "N-RUN",
+            "name": "N-ADR",
+            "effortDays": 5,
+            "workerClass": "system-architect",
+            "coding": false,
+            "riskBucket": 2,
+            "title": "ADRs for the infrastructure decisions made during construction"
+          },
+          {
+            "name": "N-CI",
             "effortDays": 5,
             "workerClass": "senior-developer",
             "coding": false,
             "riskBucket": 2,
-            "title": "Operational runbooks (deploy, rollback, on-call, recovery)"
+            "title": "Build/CI pipeline for aiarch-server Go monolith"
+          },
+          {
+            "name": "N-SC",
+            "effortDays": 5,
+            "workerClass": "senior-developer",
+            "coding": false,
+            "riskBucket": 1,
+            "title": "Source-control + branching + commit-convention setup"
           },
           {
             "name": "N-DEP",
@@ -6616,284 +5933,42 @@
             "title": "Production deployment (aiarch namespace, ArgoCD app)"
           },
           {
-            "name": "N-ADR",
+            "name": "N-RUN",
+            "effortDays": 5,
+            "workerClass": "senior-developer",
+            "coding": false,
+            "riskBucket": 2,
+            "title": "Operational runbooks (deploy, rollback, on-call, recovery)"
+          },
+          {
+            "name": "N-REQ",
+            "effortDays": 10,
+            "workerClass": "system-architect",
+            "coding": false,
+            "riskBucket": 2,
+            "title": "Requirements analysis (formal pass beyond /system-design)"
+          },
+          {
+            "name": "N-ARCH",
             "effortDays": 5,
             "workerClass": "system-architect",
             "coding": false,
             "riskBucket": 2,
-            "title": "ADRs for the infrastructure decisions made during construction"
+            "title": "Architecture review with management"
           },
           {
-            "name": "D-SC-AD",
+            "name": "N-PLAN",
             "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "sourceControlAccess Contract-1 re-cut: `provisionProjectRepo` → `adoptProjectRepo` (verify + `aiarch-project` topic-tag)"
-          },
-          {
-            "name": "C-SC-AD",
-            "effortDays": 5,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Build `adoptProjectRepo` (verify existing user repo + tag); retire the create-path"
-          },
-          {
-            "name": "C-PM-Δ",
-            "effortDays": 5,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "projectManager.CreateProject rework: user-supplied repo name as identity; adopt not provision (re-targets built I-RA call-order)"
-          },
-          {
-            "name": "C-PA-AD",
-            "effortDays": 5,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "projectStateAccess.createProject: adopted repo name as project identity (drop `aiarch-\u003cid\u003e` encoding; topic-on-adopt enumeration)"
-          },
-          {
-            "name": "I-RA-Δ",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Re-prove adopt-then-createProject order + topic-on-adopt against the user's existing repo (I-RA proved provision-then-create)"
-          },
-          {
-            "name": "D-SC-AG",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "sourceControlAccess Contract-1 extension: +`writeActionsSecret` +`commitAgenticWorkflowFile` (3→5 ops; App-B-fit flag)"
-          },
-          {
-            "name": "C-SC-AG",
-            "effortDays": 5,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Build `writeActionsSecret` (the `CLAUDE_CODE_OAUTH_TOKEN` Actions secret) + `commitAgenticWorkflowFile`"
-          },
-          {
-            "name": "C-WF-DESIGN",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Author the claude-code-action DESIGN workflow-file template (refs the C-VCI required check) + commit wiring (design counterpart of `aiarch-construct.yml`; sibling-class to C-VCI)"
-          },
-          {
-            "name": "D-MSD-Δ",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "systemDesignManager re-cut: synchronous worker draft → dispatch/observe/read-back (co-author gate shape unchanged)"
-          },
-          {
-            "name": "C-MSD-Δ",
-            "effortDays": 15,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "systemDesignManager rework: dispatch design jobs (`constructionPipelineAccess.submit`) + observe + read-back; retire sync-worker draft (re-shape the built UC1 Temporal workflow)"
-          },
-          {
-            "name": "D-MPD-Δ",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "projectDesignManager re-cut: synchronous worker draft → dispatch/observe/read-back"
-          },
-          {
-            "name": "C-MPD-Δ",
-            "effortDays": 15,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "projectDesignManager rework: dispatch design jobs + observe + read-back (re-shape the built UC2 Temporal workflow)"
-          },
-          {
-            "name": "C-PA-RB",
-            "effortDays": 5,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "projectStateAccess Δ: read-back-for-drafts (server stops writing draft JSON — the Action commits it; human-gate writes reject/withdraw/advancePhase + mayAmend stay server-side thin-writes)"
-          },
-          {
-            "name": "I-DESIGN-DISPATCH",
-            "effortDays": 10,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "Integrate design Managers → `constructionPipelineAccess.submit` + the design workflow file (the design-job rail; counterpart of I-GIT-LIVE)"
-          },
-          {
-            "name": "I-UC1-AG",
-            "effortDays": 10,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "Re-prove UC1 E2E via the agentic dispatch path (dispatch→observe→read-back→human gate→merge)"
-          },
-          {
-            "name": "I-UC2-AG",
-            "effortDays": 10,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 5,
-            "title": "Re-prove UC2 E2E via the agentic dispatch path (feeds N-IT)"
-          },
-          {
-            "name": "C-PE",
-            "effortDays": 3,
-            "workerClass": "junior-developer",
-            "coding": true,
-            "riskBucket": 1,
-            "title": "Build projectExport Client endpoint (GET /projects/{id}/export)"
-          },
-          {
-            "name": "G-CR",
-            "effortDays": 5,
-            "workerClass": "senior-developer",
-            "coding": true,
-            "riskBucket": 3,
-            "title": "Generate cmd/server/main.go (composition root) from project.json deployment modes — per-DEPLOYMENTMODE infra impl selection + manager DI; requires deployment modes populated in project state"
+            "workerClass": "project-manager",
+            "coding": false,
+            "riskBucket": 2,
+            "title": "Project planning (this phase + downstream)"
           }
         ]
       }
     }
   },
   "activityConstruction": {
-    "C-AE": {
-      "activityID": "C-AE",
-      "phase": 2,
-      "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "autoscalerEngine — service contract",
-          "Source": "implementation/contracts/autoscalerEngine.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "autoscalerEngine — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "C-BE": {
-      "activityID": "C-BE",
-      "phase": 2,
-      "buildStatus": 1,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "billingEngine — service contract",
-          "Source": "implementation/contracts/billingEngine.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "billingEngine — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "C-BG": {
-      "activityID": "C-BG",
-      "phase": 0,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "billingStateAccess — service contract",
-          "Source": "implementation/contracts/billingStateAccess.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        }
-      ]
-    },
-    "C-BM": {
-      "activityID": "C-BM",
-      "phase": 0,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "billingManager — service contract",
-          "Source": "implementation/contracts/billingManager.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        }
-      ]
-    },
-    "C-CM": {
-      "activityID": "C-CM",
-      "phase": 2,
-      "startedAt": "2026-06-23T20:34:41.761707Z",
-      "completedAt": "2026-06-23T22:19:32.482958Z",
-      "buildStatus": 2
-    },
-    "C-CP": {
-      "activityID": "C-CP",
-      "phase": 2,
-      "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "constructionPipelineAccess — service contract",
-          "Source": "implementation/contracts/constructionPipelineAccess.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "constructionPipelineAccess — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "C-CP-R": {
-      "activityID": "C-CP-R",
-      "phase": 2,
-      "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "constructionPipelineAccess — service contract",
-          "Source": "implementation/contracts/constructionPipelineAccess.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "constructionPipelineAccess — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "C-CS": {
-      "activityID": "C-CS",
-      "phase": 2,
-      "buildStatus": 2
-    },
     "C-CW": {
       "activityID": "C-CW",
       "phase": 2,
@@ -6915,77 +5990,160 @@
         }
       ]
     },
-    "C-CW-GIT": {
-      "activityID": "C-CW-GIT",
+    "U-SPA-S": {
+      "activityID": "U-SPA-S",
       "phase": 2,
+      "buildStatus": 2
+    },
+    "U-SPA-1": {
+      "activityID": "U-SPA-1",
+      "phase": 2,
+      "buildStatus": 2
+    },
+    "U-SPA-2": {
+      "activityID": "U-SPA-2",
+      "phase": 2,
+      "kind": "frontend",
       "buildStatus": 2,
       "produced": [
         {
-          "Kind": "service-contract",
-          "Title": "webClient — service contract",
-          "Source": "implementation/contracts/webClient.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
           "Kind": "code",
-          "Title": "webClient — built component",
+          "Title": " — built component",
           "Source": "implementation/log",
           "Produced": true,
           "Note": "Construction output recorded in the implementation log."
         }
       ]
     },
-    "C-CW-Δ": {
-      "activityID": "C-CW-Δ",
+    "U-SPA-3": {
+      "activityID": "U-SPA-3",
+      "phase": 2,
+      "buildStatus": 2
+    },
+    "U-SPA-4": {
+      "activityID": "U-SPA-4",
+      "phase": 2,
+      "buildStatus": 2
+    },
+    "U-SPA-5": {
+      "activityID": "U-SPA-5",
+      "phase": 2,
+      "buildStatus": 2
+    },
+    "U-SPA-6": {
+      "activityID": "U-SPA-6",
+      "phase": 2,
+      "buildStatus": 2
+    },
+    "U-SPA-TEAM": {
+      "activityID": "U-SPA-TEAM",
+      "phase": 2,
+      "buildStatus": 2
+    },
+    "C-CM": {
+      "activityID": "C-CM",
+      "phase": 2,
+      "startedAt": "2026-06-23T20:34:41.761707Z",
+      "completedAt": "2026-06-23T22:19:32.482958Z",
+      "buildStatus": 2
+    },
+    "C-CS": {
+      "activityID": "C-CS",
+      "phase": 2,
+      "buildStatus": 2
+    },
+    "C-MSD": {
+      "activityID": "C-MSD",
       "phase": 2,
       "buildStatus": 2,
       "produced": [
         {
           "Kind": "service-contract",
-          "Title": "webClient — service contract",
-          "Source": "implementation/contracts/webClient.md",
+          "Title": "systemDesignManager — service contract",
+          "Source": "implementation/contracts/systemDesignManager.md",
           "Produced": true,
           "Note": "Frozen App-B service contract."
         },
         {
           "Kind": "code",
-          "Title": "webClient — built component",
+          "Title": "systemDesignManager — built component",
           "Source": "implementation/log",
           "Produced": true,
           "Note": "Construction output recorded in the implementation log."
         }
       ]
     },
-    "C-DA": {
-      "activityID": "C-DA",
+    "C-MPD": {
+      "activityID": "C-MPD",
       "phase": 2,
-      "buildStatus": 2,
+      "buildStatus": 1,
       "produced": [
         {
           "Kind": "service-contract",
-          "Title": "durableExecutionAccess — service contract",
-          "Source": "implementation/contracts/durableExecutionAccess.md",
+          "Title": "projectDesignManager — service contract",
+          "Source": "implementation/contracts/projectDesignManager.md",
           "Produced": true,
           "Note": "Frozen App-B service contract."
         },
         {
           "Kind": "code",
-          "Title": "durableExecutionAccess — built component",
+          "Title": "projectDesignManager — built component",
           "Source": "implementation/log",
           "Produced": true,
           "Note": "Construction output recorded in the implementation log."
         }
       ]
     },
-    "C-DG": {
-      "activityID": "C-DG",
+    "C-MCN": {
+      "activityID": "C-MCN",
       "phase": 2,
+      "buildStatus": 2,
       "produced": [
         {
           "Kind": "service-contract",
-          "Title": "billingGatewayAccess — service contract",
-          "Source": "implementation/contracts/billingGatewayAccess.md",
+          "Title": "constructionManager — service contract",
+          "Source": "implementation/contracts/constructionManager.md",
+          "Produced": true,
+          "Note": "Frozen App-B service contract."
+        },
+        {
+          "Kind": "code",
+          "Title": "constructionManager — built component",
+          "Source": "implementation/log",
+          "Produced": true,
+          "Note": "Construction output recorded in the implementation log."
+        }
+      ]
+    },
+    "C-MOP": {
+      "activityID": "C-MOP",
+      "phase": 2,
+      "buildStatus": 2,
+      "produced": [
+        {
+          "Kind": "service-contract",
+          "Title": "operationsManager — service contract",
+          "Source": "implementation/contracts/operationsManager.md",
+          "Produced": true,
+          "Note": "Frozen App-B service contract."
+        },
+        {
+          "Kind": "code",
+          "Title": "operationsManager — built component",
+          "Source": "implementation/log",
+          "Produced": true,
+          "Note": "Construction output recorded in the implementation log."
+        }
+      ]
+    },
+    "C-BM": {
+      "activityID": "C-BM",
+      "phase": 0,
+      "produced": [
+        {
+          "Kind": "service-contract",
+          "Title": "billingManager — service contract",
+          "Source": "implementation/contracts/billingManager.md",
           "Produced": true,
           "Note": "Frozen App-B service contract."
         }
@@ -7001,6 +6159,40 @@
           "Source": "implementation/contracts/constructionEstimationEngine.md",
           "Produced": true,
           "Note": "Frozen App-B service contract."
+        }
+      ]
+    },
+    "C-OE": {
+      "activityID": "C-OE",
+      "phase": 2,
+      "produced": [
+        {
+          "Kind": "service-contract",
+          "Title": "operationEstimationEngine — service contract",
+          "Source": "implementation/contracts/operationEstimationEngine.md",
+          "Produced": true,
+          "Note": "Frozen App-B service contract."
+        }
+      ]
+    },
+    "C-BE": {
+      "activityID": "C-BE",
+      "phase": 2,
+      "buildStatus": 1,
+      "produced": [
+        {
+          "Kind": "service-contract",
+          "Title": "billingEngine — service contract",
+          "Source": "implementation/contracts/billingEngine.md",
+          "Produced": true,
+          "Note": "Frozen App-B service contract."
+        },
+        {
+          "Kind": "code",
+          "Title": "billingEngine — built component",
+          "Source": "implementation/log",
+          "Produced": true,
+          "Note": "Construction output recorded in the implementation log."
         }
       ]
     },
@@ -7046,194 +6238,45 @@
         }
       ]
     },
-    "C-LG": {
-      "activityID": "C-LG",
-      "phase": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "revenueLedgerAccess — service contract",
-          "Source": "implementation/contracts/revenueLedgerAccess.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        }
-      ]
-    },
-    "C-LP": {
-      "activityID": "C-LP",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "C-MCN": {
-      "activityID": "C-MCN",
+    "C-AE": {
+      "activityID": "C-AE",
       "phase": 2,
       "buildStatus": 2,
       "produced": [
         {
           "Kind": "service-contract",
-          "Title": "constructionManager — service contract",
-          "Source": "implementation/contracts/constructionManager.md",
+          "Title": "autoscalerEngine — service contract",
+          "Source": "implementation/contracts/autoscalerEngine.md",
           "Produced": true,
           "Note": "Frozen App-B service contract."
         },
         {
           "Kind": "code",
-          "Title": "constructionManager — built component",
+          "Title": "autoscalerEngine — built component",
           "Source": "implementation/log",
           "Produced": true,
           "Note": "Construction output recorded in the implementation log."
         }
       ]
     },
-    "C-MCN-GIT": {
-      "activityID": "C-MCN-GIT",
+    "C-RE": {
+      "activityID": "C-RE",
       "phase": 2,
       "buildStatus": 2,
       "produced": [
         {
           "Kind": "service-contract",
-          "Title": "constructionManager — service contract",
-          "Source": "implementation/contracts/constructionManager.md",
+          "Title": "reviewEngine — service contract",
+          "Source": "implementation/contracts/reviewEngine.md",
           "Produced": true,
           "Note": "Frozen App-B service contract."
         },
         {
           "Kind": "code",
-          "Title": "constructionManager — built component",
+          "Title": "reviewEngine — built component",
           "Source": "implementation/log",
           "Produced": true,
           "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "C-MOP": {
-      "activityID": "C-MOP",
-      "phase": 2,
-      "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "operationsManager — service contract",
-          "Source": "implementation/contracts/operationsManager.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "operationsManager — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "C-MPD": {
-      "activityID": "C-MPD",
-      "phase": 2,
-      "buildStatus": 1,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "projectDesignManager — service contract",
-          "Source": "implementation/contracts/projectDesignManager.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "projectDesignManager — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "C-MPD-Δ": {
-      "activityID": "C-MPD-Δ",
-      "phase": 2,
-      "buildStatus": 1,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "projectDesignManager — service contract",
-          "Source": "implementation/contracts/projectDesignManager.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "projectDesignManager — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "C-MSD": {
-      "activityID": "C-MSD",
-      "phase": 2,
-      "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "systemDesignManager — service contract",
-          "Source": "implementation/contracts/systemDesignManager.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "systemDesignManager — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "C-MSD-Δ": {
-      "activityID": "C-MSD-Δ",
-      "phase": 2,
-      "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "systemDesignManager — service contract",
-          "Source": "implementation/contracts/systemDesignManager.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "systemDesignManager — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "C-OE": {
-      "activityID": "C-OE",
-      "phase": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "operationEstimationEngine — service contract",
-          "Source": "implementation/contracts/operationEstimationEngine.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        }
-      ]
-    },
-    "C-OR": {
-      "activityID": "C-OR",
-      "phase": 0,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "operatedRuntimeAccess — service contract",
-          "Source": "implementation/contracts/operatedRuntimeAccess.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
         }
       ]
     },
@@ -7258,149 +6301,118 @@
         }
       ]
     },
-    "C-PA-AD": {
-      "activityID": "C-PA-AD",
+    "C-OSA": {
+      "activityID": "C-OSA",
       "phase": 2,
       "buildStatus": 2,
       "produced": [
         {
           "Kind": "service-contract",
-          "Title": "projectStateAccess — service contract",
-          "Source": "implementation/contracts/projectStateAccess.md",
+          "Title": "operatedSystemStateAccess — service contract",
+          "Source": "implementation/contracts/operatedSystemStateAccess.md",
           "Produced": true,
           "Note": "Frozen App-B service contract."
         },
         {
           "Kind": "code",
-          "Title": "projectStateAccess — built component",
+          "Title": "operatedSystemStateAccess — built component",
           "Source": "implementation/log",
           "Produced": true,
           "Note": "Construction output recorded in the implementation log."
         }
       ]
     },
-    "C-PA-C2": {
-      "activityID": "C-PA-C2",
+    "C-BS": {
+      "activityID": "C-BS",
       "phase": 2,
       "buildStatus": 2,
       "produced": [
         {
           "Kind": "service-contract",
-          "Title": "projectStateAccess — service contract",
-          "Source": "implementation/contracts/projectStateAccess.md",
+          "Title": "billingStateAccess — service contract",
+          "Source": "implementation/contracts/billingStateAccess.md",
           "Produced": true,
           "Note": "Frozen App-B service contract."
         },
         {
           "Kind": "code",
-          "Title": "projectStateAccess — built component",
+          "Title": "billingStateAccess — built component",
           "Source": "implementation/log",
           "Produced": true,
           "Note": "Construction output recorded in the implementation log."
         }
       ]
     },
-    "C-PA-GIT": {
-      "activityID": "C-PA-GIT",
+    "C-WIA": {
+      "activityID": "C-WIA",
+      "phase": 0,
+      "produced": []
+    },
+    "C-CP": {
+      "activityID": "C-CP",
       "phase": 2,
       "buildStatus": 2,
       "produced": [
         {
           "Kind": "service-contract",
-          "Title": "projectStateAccess — service contract",
-          "Source": "implementation/contracts/projectStateAccess.md",
+          "Title": "constructionPipelineAccess — service contract",
+          "Source": "implementation/contracts/constructionPipelineAccess.md",
           "Produced": true,
           "Note": "Frozen App-B service contract."
         },
         {
           "Kind": "code",
-          "Title": "projectStateAccess — built component",
+          "Title": "constructionPipelineAccess — built component",
           "Source": "implementation/log",
           "Produced": true,
           "Note": "Construction output recorded in the implementation log."
         }
       ]
     },
-    "C-PA-R": {
-      "activityID": "C-PA-R",
-      "phase": 2,
-      "buildStatus": 2,
+    "C-OR": {
+      "activityID": "C-OR",
+      "phase": 0,
       "produced": [
         {
           "Kind": "service-contract",
-          "Title": "projectStateAccess — service contract",
-          "Source": "implementation/contracts/projectStateAccess.md",
+          "Title": "operatedRuntimeAccess — service contract",
+          "Source": "implementation/contracts/operatedRuntimeAccess.md",
           "Produced": true,
           "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "projectStateAccess — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
         }
       ]
     },
-    "C-PA-RB": {
-      "activityID": "C-PA-RB",
-      "phase": 2,
-      "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "projectStateAccess — service contract",
-          "Source": "implementation/contracts/projectStateAccess.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "projectStateAccess — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "C-PE": {
-      "activityID": "C-PE",
-      "phase": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "C-PE — service contract (projectExport)",
-          "Source": "server/cmd/seed-contracts/data/C-PE.json",
-          "Produced": true,
-          "Note": "Dogfood contract for Spec 2 live construction run. ComponentID=C-PE (activity-name-as-identity)."
-        }
-      ]
-    },
-    "C-PM": {
-      "activityID": "C-PM",
+    "C-UA": {
+      "activityID": "C-UA",
       "phase": 2,
       "buildStatus": 1,
       "produced": [
         {
+          "Kind": "service-contract",
+          "Title": "usageAccess — service contract",
+          "Source": "implementation/contracts/usageAccess.md",
+          "Produced": true,
+          "Note": "Frozen App-B service contract."
+        },
+        {
           "Kind": "code",
-          "Title": " — built component",
+          "Title": "usageAccess — built component",
           "Source": "implementation/log",
           "Produced": true,
           "Note": "Construction output recorded in the implementation log."
         }
       ]
     },
-    "C-PM-Δ": {
-      "activityID": "C-PM-Δ",
-      "phase": 2,
-      "buildStatus": 1,
+    "C-BG": {
+      "activityID": "C-BG",
+      "phase": 0,
       "produced": [
         {
-          "Kind": "code",
-          "Title": " — built component",
-          "Source": "implementation/log",
+          "Kind": "service-contract",
+          "Title": "billingStateAccess — service contract",
+          "Source": "implementation/contracts/billingStateAccess.md",
           "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
+          "Note": "Frozen App-B service contract."
         }
       ]
     },
@@ -7425,63 +6437,21 @@
         }
       ]
     },
-    "C-SC-AD": {
-      "activityID": "C-SC-AD",
+    "C-DA": {
+      "activityID": "C-DA",
       "phase": 2,
       "buildStatus": 2,
       "produced": [
         {
           "Kind": "service-contract",
-          "Title": "sourceControlAccess — service contract",
-          "Source": "implementation/contracts/sourceControlAccess.md",
+          "Title": "durableExecutionAccess — service contract",
+          "Source": "implementation/contracts/durableExecutionAccess.md",
           "Produced": true,
           "Note": "Frozen App-B service contract."
         },
         {
           "Kind": "code",
-          "Title": "sourceControlAccess — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "C-SC-AG": {
-      "activityID": "C-SC-AG",
-      "phase": 2,
-      "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "sourceControlAccess — service contract",
-          "Source": "implementation/contracts/sourceControlAccess.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "sourceControlAccess — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "C-SC-PR": {
-      "activityID": "C-SC-PR",
-      "phase": 2,
-      "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "sourceControlAccess — service contract",
-          "Source": "implementation/contracts/sourceControlAccess.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "sourceControlAccess — built component",
+          "Title": "durableExecutionAccess — built component",
           "Source": "implementation/log",
           "Produced": true,
           "Note": "Construction output recorded in the implementation log."
@@ -7509,311 +6479,8 @@
         }
       ]
     },
-    "C-UA": {
-      "activityID": "C-UA",
-      "phase": 2,
-      "buildStatus": 1,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "usageAccess — service contract",
-          "Source": "implementation/contracts/usageAccess.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "usageAccess — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "C-VCI": {
-      "activityID": "C-VCI",
-      "phase": 2,
-      "buildStatus": 1,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "mcpClient — service contract",
-          "Source": "implementation/contracts/mcpClient.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "mcpClient — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "C-WF-DESIGN": {
-      "activityID": "C-WF-DESIGN",
-      "phase": 2,
-      "buildStatus": 1,
-      "produced": [
-        {
-          "Kind": "code",
-          "Title": " — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "D-AE": {
-      "activityID": "D-AE",
-      "phase": 2,
-      "buildStatus": 1,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "autoscalerEngine — service contract",
-          "Source": "implementation/contracts/autoscalerEngine.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "autoscalerEngine — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "D-BE": {
-      "activityID": "D-BE",
-      "phase": 2,
-      "buildStatus": 1,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "billingEngine — service contract",
-          "Source": "implementation/contracts/billingEngine.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "billingEngine — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "D-BG": {
-      "activityID": "D-BG",
-      "phase": 2,
-      "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "billingStateAccess — service contract",
-          "Source": "implementation/contracts/billingStateAccess.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "billingStateAccess — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "D-BM": {
-      "activityID": "D-BM",
-      "phase": 2,
-      "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "billingManager — service contract",
-          "Source": "implementation/contracts/billingManager.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "billingManager — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "D-BS": {
-      "activityID": "D-BS",
-      "phase": 2,
-      "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "billingStateAccess — service contract",
-          "Source": "implementation/contracts/billingStateAccess.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "billingStateAccess — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "D-CM": {
-      "activityID": "D-CM",
-      "phase": 2,
-      "buildStatus": 1,
-      "produced": [
-        {
-          "Kind": "code",
-          "Title": " — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "D-CP": {
-      "activityID": "D-CP",
-      "phase": 2,
-      "buildStatus": 1,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "constructionPipelineAccess — service contract",
-          "Source": "implementation/contracts/constructionPipelineAccess.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "constructionPipelineAccess — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "D-CS": {
-      "activityID": "D-CS",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "D-CW": {
-      "activityID": "D-CW",
-      "phase": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "webClient — service contract",
-          "Source": "implementation/contracts/webClient.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        }
-      ]
-    },
-    "D-DA": {
-      "activityID": "D-DA",
-      "phase": 2,
-      "buildStatus": 1,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "durableExecutionAccess — service contract",
-          "Source": "implementation/contracts/durableExecutionAccess.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "durableExecutionAccess — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "D-DG": {
-      "activityID": "D-DG",
-      "phase": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "billingGatewayAccess — service contract",
-          "Source": "implementation/contracts/billingGatewayAccess.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        }
-      ]
-    },
-    "D-EE": {
-      "activityID": "D-EE",
-      "phase": 2,
-      "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "constructionEstimationEngine — service contract",
-          "Source": "implementation/contracts/constructionEstimationEngine.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "constructionEstimationEngine — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "D-HE": {
-      "activityID": "D-HE",
-      "phase": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "handOffEngine — service contract",
-          "Source": "implementation/contracts/handOffEngine.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        }
-      ]
-    },
-    "D-IE": {
-      "activityID": "D-IE",
-      "phase": 2,
-      "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "interventionEngine — service contract",
-          "Source": "implementation/contracts/interventionEngine.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "interventionEngine — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "D-LG": {
-      "activityID": "D-LG",
+    "C-LG": {
+      "activityID": "C-LG",
       "phase": 2,
       "produced": [
         {
@@ -7825,382 +6492,21 @@
         }
       ]
     },
-    "D-MCN": {
-      "activityID": "D-MCN",
-      "phase": 2,
-      "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "constructionManager — service contract",
-          "Source": "implementation/contracts/constructionManager.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "constructionManager — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "D-MOP": {
-      "activityID": "D-MOP",
+    "C-DG": {
+      "activityID": "C-DG",
       "phase": 2,
       "produced": [
         {
           "Kind": "service-contract",
-          "Title": "operationsManager — service contract",
-          "Source": "implementation/contracts/operationsManager.md",
+          "Title": "billingGatewayAccess — service contract",
+          "Source": "implementation/contracts/billingGatewayAccess.md",
           "Produced": true,
           "Note": "Frozen App-B service contract."
         }
       ]
     },
-    "D-MPD": {
-      "activityID": "D-MPD",
-      "phase": 2,
-      "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "projectDesignManager — service contract",
-          "Source": "implementation/contracts/projectDesignManager.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "projectDesignManager — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "D-MPD-Δ": {
-      "activityID": "D-MPD-Δ",
-      "phase": 2,
-      "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "projectDesignManager — service contract",
-          "Source": "implementation/contracts/projectDesignManager.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "projectDesignManager — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "D-MSD": {
-      "activityID": "D-MSD",
-      "phase": 2,
-      "buildStatus": 1,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "systemDesignManager — service contract",
-          "Source": "implementation/contracts/systemDesignManager.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "systemDesignManager — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "D-MSD-Δ": {
-      "activityID": "D-MSD-Δ",
-      "phase": 2,
-      "buildStatus": 1,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "systemDesignManager — service contract",
-          "Source": "implementation/contracts/systemDesignManager.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "systemDesignManager — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "D-OE": {
-      "activityID": "D-OE",
-      "phase": 2,
-      "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "operationEstimationEngine — service contract",
-          "Source": "implementation/contracts/operationEstimationEngine.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "operationEstimationEngine — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "D-OR": {
-      "activityID": "D-OR",
-      "phase": 2,
-      "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "operatedRuntimeAccess — service contract",
-          "Source": "implementation/contracts/operatedRuntimeAccess.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "operatedRuntimeAccess — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "D-OR-Δ1": {
-      "activityID": "D-OR-Δ1",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "D-PA": {
-      "activityID": "D-PA",
-      "phase": 2,
-      "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "projectStateAccess — service contract",
-          "Source": "implementation/contracts/projectStateAccess.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "projectStateAccess — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "D-PA-C2": {
-      "activityID": "D-PA-C2",
-      "phase": 2,
-      "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "projectStateAccess — service contract",
-          "Source": "implementation/contracts/projectStateAccess.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "projectStateAccess — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "D-PA-GIT": {
-      "activityID": "D-PA-GIT",
-      "phase": 2,
-      "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "projectStateAccess — service contract",
-          "Source": "implementation/contracts/projectStateAccess.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "projectStateAccess — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "D-PA-R": {
-      "activityID": "D-PA-R",
-      "phase": 2,
-      "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "projectStateAccess — service contract",
-          "Source": "implementation/contracts/projectStateAccess.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "projectStateAccess — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "D-PM": {
-      "activityID": "D-PM",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "D-SC": {
-      "activityID": "D-SC",
-      "phase": 2,
-      "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "sourceControlAccess — service contract",
-          "Source": "implementation/contracts/sourceControlAccess.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "sourceControlAccess — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "D-SC-AD": {
-      "activityID": "D-SC-AD",
-      "phase": 2,
-      "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "sourceControlAccess — service contract",
-          "Source": "implementation/contracts/sourceControlAccess.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "sourceControlAccess — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "D-SC-AG": {
-      "activityID": "D-SC-AG",
-      "phase": 2,
-      "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "sourceControlAccess — service contract",
-          "Source": "implementation/contracts/sourceControlAccess.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "sourceControlAccess — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "D-SC-PR": {
-      "activityID": "D-SC-PR",
-      "phase": 2,
-      "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "sourceControlAccess — service contract",
-          "Source": "implementation/contracts/sourceControlAccess.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        },
-        {
-          "Kind": "code",
-          "Title": "sourceControlAccess — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "D-SE": {
-      "activityID": "D-SE",
-      "phase": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "settlementEngine — service contract",
-          "Source": "implementation/contracts/settlementEngine.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        }
-      ]
-    },
-    "D-UA": {
-      "activityID": "D-UA",
-      "phase": 2,
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "usageAccess — service contract",
-          "Source": "implementation/contracts/usageAccess.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        }
-      ]
-    },
-    "I-CL": {
-      "activityID": "I-CL",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "I-DE": {
-      "activityID": "I-DE",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "I-DESIGN-DISPATCH": {
-      "activityID": "I-DESIGN-DISPATCH",
+    "R-GH": {
+      "activityID": "R-GH",
       "phase": 2,
       "buildStatus": 1,
       "produced": [
@@ -8212,219 +6518,9 @@
           "Note": "Construction output recorded in the implementation log."
         }
       ]
-    },
-    "I-GIT-DESIGN": {
-      "activityID": "I-GIT-DESIGN",
-      "phase": 2,
-      "buildStatus": 1,
-      "produced": [
-        {
-          "Kind": "code",
-          "Title": " — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "I-GIT-LIVE": {
-      "activityID": "I-GIT-LIVE",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "I-RA": {
-      "activityID": "I-RA",
-      "phase": 2,
-      "buildStatus": 1,
-      "produced": [
-        {
-          "Kind": "code",
-          "Title": " — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "I-RA-Δ": {
-      "activityID": "I-RA-Δ",
-      "phase": 2,
-      "buildStatus": 1,
-      "produced": [
-        {
-          "Kind": "code",
-          "Title": " — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "I-SPA": {
-      "activityID": "I-SPA",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "I-UC1": {
-      "activityID": "I-UC1",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "I-UC1-AG": {
-      "activityID": "I-UC1-AG",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "I-UC2": {
-      "activityID": "I-UC2",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "I-UC2-AG": {
-      "activityID": "I-UC2-AG",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "I-UC3": {
-      "activityID": "I-UC3",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "I-UC4": {
-      "activityID": "I-UC4",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "I-UC5": {
-      "activityID": "I-UC5",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "I-UTIL": {
-      "activityID": "I-UTIL",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "N-ADR": {
-      "activityID": "N-ADR",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "N-CI": {
-      "activityID": "N-CI",
-      "phase": 2,
-      "kind": "testing",
-      "buildStatus": 1,
-      "produced": [
-        {
-          "Kind": "code",
-          "Title": " — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "N-DEP": {
-      "activityID": "N-DEP",
-      "phase": 2,
-      "kind": "testing",
-      "buildStatus": 1,
-      "produced": [
-        {
-          "Kind": "code",
-          "Title": " — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "N-HARD": {
-      "activityID": "N-HARD",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "N-IT": {
-      "activityID": "N-IT",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "N-PERF": {
-      "activityID": "N-PERF",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "N-QA": {
-      "activityID": "N-QA",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "N-RTH": {
-      "activityID": "N-RTH",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "N-RUN": {
-      "activityID": "N-RUN",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "N-SC": {
-      "activityID": "N-SC",
-      "phase": 2,
-      "kind": "testing",
-      "produced": [
-        {
-          "Kind": "service-contract",
-          "Title": "sourceControlAccess — service contract",
-          "Source": "implementation/contracts/sourceControlAccess.md",
-          "Produced": true,
-          "Note": "Frozen App-B service contract."
-        }
-      ]
-    },
-    "N-SCHEMA": {
-      "activityID": "N-SCHEMA",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "N-SEC": {
-      "activityID": "N-SEC",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "N-SMOKE": {
-      "activityID": "N-SMOKE",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "N-STH": {
-      "activityID": "N-STH",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "N-STP": {
-      "activityID": "N-STP",
-      "phase": 2,
-      "buildStatus": 2
     },
     "R-BG": {
       "activityID": "R-BG",
-      "phase": 2,
-      "buildStatus": 1,
-      "produced": [
-        {
-          "Kind": "code",
-          "Title": " — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "R-CPR": {
-      "activityID": "R-CPR",
       "phase": 2,
       "buildStatus": 1,
       "produced": [
@@ -8451,22 +6547,8 @@
         }
       ]
     },
-    "R-GH": {
-      "activityID": "R-GH",
-      "phase": 2,
-      "buildStatus": 1,
-      "produced": [
-        {
-          "Kind": "code",
-          "Title": " — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "R-GIT": {
-      "activityID": "R-GIT",
+    "R-CPR": {
+      "activityID": "R-CPR",
       "phase": 2,
       "buildStatus": 1,
       "produced": [
@@ -8484,130 +6566,102 @@
       "phase": 2,
       "buildStatus": 2
     },
-    "R-PG-PS": {
-      "activityID": "R-PG-PS",
+    "R-WIT": {
+      "activityID": "R-WIT",
       "phase": 2,
-      "buildStatus": 1,
-      "produced": [
-        {
-          "Kind": "code",
-          "Title": " — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "R-PG-US": {
-      "activityID": "R-PG-US",
-      "phase": 2,
-      "buildStatus": 1,
-      "produced": [
-        {
-          "Kind": "code",
-          "Title": " — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "U-GW": {
-      "activityID": "U-GW",
-      "phase": 2,
-      "buildStatus": 1,
-      "produced": [
-        {
-          "Kind": "code",
-          "Title": " — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "U-HELM": {
-      "activityID": "U-HELM",
-      "phase": 2,
-      "buildStatus": 1,
-      "produced": [
-        {
-          "Kind": "code",
-          "Title": " — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
-    },
-    "U-SPA-1": {
-      "activityID": "U-SPA-1",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "U-SPA-2": {
-      "activityID": "U-SPA-2",
-      "phase": 2,
-      "kind": "frontend",
       "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "code",
-          "Title": " — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
+      "produced": []
     },
-    "U-SPA-3": {
-      "activityID": "U-SPA-3",
+    "N-SCHEMA": {
+      "activityID": "N-SCHEMA",
       "phase": 2,
       "buildStatus": 2
     },
-    "U-SPA-4": {
-      "activityID": "U-SPA-4",
+    "G-SPA": {
+      "activityID": "G-SPA",
       "phase": 2,
-      "buildStatus": 2
-    },
-    "U-SPA-5": {
-      "activityID": "U-SPA-5",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "U-SPA-6": {
-      "activityID": "U-SPA-6",
-      "phase": 2,
-      "buildStatus": 2
-    },
-    "U-SPA-GIT": {
-      "activityID": "U-SPA-GIT",
-      "phase": 2,
-      "kind": "frontend",
       "buildStatus": 2,
-      "produced": [
-        {
-          "Kind": "code",
-          "Title": " — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
-        }
-      ]
+      "produced": []
     },
-    "U-SPA-S": {
-      "activityID": "U-SPA-S",
+    "I-UC1": {
+      "activityID": "I-UC1",
       "phase": 2,
       "buildStatus": 2
     },
-    "U-SPA-TEAM": {
-      "activityID": "U-SPA-TEAM",
+    "I-UC2": {
+      "activityID": "I-UC2",
       "phase": 2,
       "buildStatus": 2
     },
-    "X001": {
-      "activityID": "X001",
+    "I-UC3": {
+      "activityID": "I-UC3",
       "phase": 2,
+      "buildStatus": 2
+    },
+    "I-UC4": {
+      "activityID": "I-UC4",
+      "phase": 2,
+      "buildStatus": 2
+    },
+    "I-UC5": {
+      "activityID": "I-UC5",
+      "phase": 2,
+      "buildStatus": 2
+    },
+    "N-STP": {
+      "activityID": "N-STP",
+      "phase": 2,
+      "buildStatus": 2
+    },
+    "N-STH": {
+      "activityID": "N-STH",
+      "phase": 2,
+      "buildStatus": 2
+    },
+    "N-RTH": {
+      "activityID": "N-RTH",
+      "phase": 2,
+      "buildStatus": 2
+    },
+    "N-SMOKE": {
+      "activityID": "N-SMOKE",
+      "phase": 2,
+      "buildStatus": 2
+    },
+    "N-QA": {
+      "activityID": "N-QA",
+      "phase": 2,
+      "buildStatus": 2
+    },
+    "N-IT": {
+      "activityID": "N-IT",
+      "phase": 2,
+      "buildStatus": 2
+    },
+    "N-PERF": {
+      "activityID": "N-PERF",
+      "phase": 2,
+      "buildStatus": 2
+    },
+    "N-SEC": {
+      "activityID": "N-SEC",
+      "phase": 2,
+      "buildStatus": 2
+    },
+    "N-HARD": {
+      "activityID": "N-HARD",
+      "phase": 2,
+      "buildStatus": 2
+    },
+    "N-ADR": {
+      "activityID": "N-ADR",
+      "phase": 2,
+      "buildStatus": 2
+    },
+    "N-CI": {
+      "activityID": "N-CI",
+      "phase": 2,
+      "kind": "testing",
       "buildStatus": 1,
       "produced": [
         {
@@ -8618,6 +6672,50 @@
           "Note": "Construction output recorded in the implementation log."
         }
       ]
+    },
+    "N-SC": {
+      "activityID": "N-SC",
+      "phase": 2,
+      "kind": "testing",
+      "produced": []
+    },
+    "N-DEP": {
+      "activityID": "N-DEP",
+      "phase": 2,
+      "kind": "testing",
+      "buildStatus": 1,
+      "produced": [
+        {
+          "Kind": "code",
+          "Title": " — built component",
+          "Source": "implementation/log",
+          "Produced": true,
+          "Note": "Construction output recorded in the implementation log."
+        }
+      ]
+    },
+    "N-RUN": {
+      "activityID": "N-RUN",
+      "phase": 2,
+      "buildStatus": 2
+    },
+    "N-REQ": {
+      "activityID": "N-REQ",
+      "phase": 2,
+      "buildStatus": 2,
+      "produced": []
+    },
+    "N-ARCH": {
+      "activityID": "N-ARCH",
+      "phase": 2,
+      "buildStatus": 2,
+      "produced": []
+    },
+    "N-PLAN": {
+      "activityID": "N-PLAN",
+      "phase": 2,
+      "buildStatus": 2,
+      "produced": []
     }
   },
   "constructionProgress": {
@@ -16856,6 +14954,9 @@
             },
             "reviewPolicy": {
               "$ref": "#/$defs/ReviewPolicyView"
+            },
+            "testingState": {
+              "$ref": "#/$defs/TestingStateView"
             }
           },
           "required": [
@@ -16979,6 +15080,85 @@
           },
           "required": [
             "notes"
+          ],
+          "additionalProperties": false
+        },
+        "TestRunView": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "passed": {
+              "type": "integer"
+            },
+            "failed": {
+              "type": "integer"
+            },
+            "note": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "passed",
+            "failed",
+            "note"
+          ],
+          "additionalProperties": false
+        },
+        "DefectView": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "severity": {
+              "type": "string"
+            },
+            "note": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "title",
+            "severity",
+            "note"
+          ],
+          "additionalProperties": false
+        },
+        "TestingStateView": {
+          "type": "object",
+          "properties": {
+            "testRuns": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/TestRunView"
+              }
+            },
+            "defects": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/DefectView"
+              }
+            },
+            "systemTestPlan": {
+              "$ref": "#/$defs/SystemTestPlanView"
+            }
+          },
+          "required": [
+            "testRuns",
+            "defects"
           ],
           "additionalProperties": false
         },
@@ -17190,6 +15370,86 @@
         },
         "Version": {
           "type": "integer"
+        },
+        "TestStepView": {
+          "type": "object",
+          "properties": {
+            "seq": {
+              "type": "integer"
+            },
+            "component": {
+              "type": "string"
+            },
+            "operation": {
+              "type": "string"
+            },
+            "note": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "seq",
+            "component",
+            "operation",
+            "note",
+            "status"
+          ],
+          "additionalProperties": false
+        },
+        "TestScenarioView": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "useCase": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "steps": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/TestStepView"
+              }
+            },
+            "description": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "useCase",
+            "title",
+            "description",
+            "steps"
+          ],
+          "additionalProperties": false
+        },
+        "SystemTestPlanView": {
+          "type": "object",
+          "properties": {
+            "scenarios": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/TestScenarioView"
+              }
+            }
+          },
+          "required": [
+            "scenarios"
+          ],
+          "additionalProperties": false
         }
       },
       "interface": {

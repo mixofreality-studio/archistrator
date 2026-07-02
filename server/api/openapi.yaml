@@ -1141,6 +1141,23 @@ components:
                 - Name
                 - Fields
             type: object
+        SystemDesignDefectView:
+            additionalProperties: false
+            properties:
+                id:
+                    type: string
+                note:
+                    type: string
+                severity:
+                    type: string
+                title:
+                    type: string
+            required:
+                - id
+                - title
+                - severity
+                - note
+            type: object
         SystemDesignDraftModel:
             additionalProperties: false
             properties:
@@ -1369,6 +1386,8 @@ components:
                         - "null"
                 reviewPolicy:
                     $ref: '#/components/schemas/SystemDesignReviewPolicyView'
+                testingState:
+                    $ref: '#/components/schemas/SystemDesignTestingStateView'
             required:
                 - ProjectID
                 - Name
@@ -1597,6 +1616,100 @@ components:
                 - SeverityWarning
                 - SeverityError
             x-go-base: string
+        SystemDesignSystemTestPlanView:
+            additionalProperties: false
+            properties:
+                scenarios:
+                    items:
+                        $ref: '#/components/schemas/SystemDesignTestScenarioView'
+                    type:
+                        - "null"
+                        - array
+            required:
+                - scenarios
+            type: object
+        SystemDesignTestRunView:
+            additionalProperties: false
+            properties:
+                failed:
+                    type: integer
+                id:
+                    type: string
+                note:
+                    type: string
+                passed:
+                    type: integer
+            required:
+                - id
+                - passed
+                - failed
+                - note
+            type: object
+        SystemDesignTestScenarioView:
+            additionalProperties: false
+            properties:
+                description:
+                    type: string
+                id:
+                    type: string
+                steps:
+                    items:
+                        $ref: '#/components/schemas/SystemDesignTestStepView'
+                    type:
+                        - "null"
+                        - array
+                title:
+                    type: string
+                useCase:
+                    type: string
+            required:
+                - id
+                - useCase
+                - title
+                - description
+                - steps
+            type: object
+        SystemDesignTestStepView:
+            additionalProperties: false
+            properties:
+                component:
+                    type: string
+                note:
+                    type: string
+                operation:
+                    type: string
+                seq:
+                    type: integer
+                status:
+                    type: string
+            required:
+                - seq
+                - component
+                - operation
+                - note
+                - status
+            type: object
+        SystemDesignTestingStateView:
+            additionalProperties: false
+            properties:
+                defects:
+                    items:
+                        $ref: '#/components/schemas/SystemDesignDefectView'
+                    type:
+                        - "null"
+                        - array
+                systemTestPlan:
+                    $ref: '#/components/schemas/SystemDesignSystemTestPlanView'
+                testRuns:
+                    items:
+                        $ref: '#/components/schemas/SystemDesignTestRunView'
+                    type:
+                        - "null"
+                        - array
+            required:
+                - testRuns
+                - defects
+            type: object
         SystemDesignTestingVariant:
             enum:
                 - 0

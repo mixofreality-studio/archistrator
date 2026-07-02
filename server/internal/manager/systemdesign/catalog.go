@@ -297,11 +297,47 @@ func (m *systemDesignManager) projectStateToContract(p projectstate.Project) Pro
 		Research:             researchToContract(p.ResearchInput),
 		Slots:                slotsToContract(p),
 		GitRows:              m.gitRowsToContract(p.ActivityGit),
-		ActivityConstruction: constructionRowsToContract(p.ActivityConstruction),
+		ActivityConstruction: constructionRowsToContract(p.ActivityConstruction, activityMetaByID(p)),
 		ConstructionProgress: m.constructionProgressToContract(p),
 		ServiceContracts:     serviceContractsToContract(p.ServiceContracts),
 		ReviewPolicy:         reviewPolicyToContract(p.ReviewPolicy),
+		TestingState:         testingStateToContract(p.TestingState),
 	}
+}
+
+// testingStateToContract converts the head-state TestingState to the contract
+// view. Returns nil when absent so the field is omitted from the read.
+func testingStateToContract(ts *projectstate.TestingState) *TestingStateView {
+	if ts == nil {
+		return nil
+	}
+	runs := make([]TestRunView, len(ts.TestRuns))
+	for i, r := range ts.TestRuns {
+		runs[i] = TestRunView{Id: r.ID, Passed: int64(r.Passed), Failed: int64(r.Failed), Note: r.Note}
+	}
+	defects := make([]DefectView, len(ts.Defects))
+	for i, d := range ts.Defects {
+		defects[i] = DefectView{Id: d.ID, Title: d.Title, Severity: d.Severity, Note: d.Note}
+	}
+	return &TestingStateView{TestRuns: runs, Defects: defects, SystemTestPlan: systemTestPlanToContract(ts.SystemTestPlan)}
+}
+
+// systemTestPlanToContract maps the black-box operation-sequence scenarios of the
+// system test plan. Returns nil when there is no plan or no scenarios (the plan's
+// prose/index fields are not part of this view — only the renderable sequences).
+func systemTestPlanToContract(p *projectstate.SystemTestPlan) *SystemTestPlanView {
+	if p == nil || len(p.Scenarios) == 0 {
+		return nil
+	}
+	scenarios := make([]TestScenarioView, len(p.Scenarios))
+	for i, s := range p.Scenarios {
+		steps := make([]TestStepView, len(s.Steps))
+		for j, st := range s.Steps {
+			steps[j] = TestStepView{Seq: int64(st.Seq), Component: st.Component, Operation: st.Operation, Note: st.Note, Status: st.Status}
+		}
+		scenarios[i] = TestScenarioView{Id: s.ID, UseCase: s.UseCase, Title: s.Title, Description: s.Description, Steps: steps}
+	}
+	return &SystemTestPlanView{Scenarios: scenarios}
 }
 
 // reviewPolicyToContract converts the head-state ReviewPolicy to the contract
@@ -437,18 +473,30 @@ func projectPRRef(ref, repoBase string) (prNumber int, prURL string) {
 }
 
 // constructionRowsToContract maps the per-activity construction head-state map
-// (honest-empty: nil in ⇒ nil out).
-func constructionRowsToContract(rows map[string]projectstate.ActivityConstructionStatus) map[string]ActivityConstructionStatus {
+// (honest-empty: nil in ⇒ nil out). activityMeta carries the Phase-2 activity-list
+// metadata (worker class + coding) keyed by activity id, used to classify each
+// activity's ActivityType (see projectstate.ClassifyType) — the N-* id namespace
+// alone is too coarse.
+func constructionRowsToContract(
+	rows map[string]projectstate.ActivityConstructionStatus,
+	activityMeta map[string]projectstate.ActivityItem,
+) map[string]ActivityConstructionStatus {
 	if len(rows) == 0 {
 		return nil
 	}
 	out := make(map[string]ActivityConstructionStatus, len(rows))
 	for id, r := range rows {
+		meta := activityMeta[id]
+		typ := projectstate.ClassifyType(r.ActivityID, meta.WorkerClass, meta.Coding, rowHasServiceContract(r))
+		var variant TestingVariant
+		if typ == projectstate.ActivityTypeTesting {
+			variant = TestingVariant(int(projectstate.DeriveVariant(r.ActivityID)))
+		}
 		out[id] = ActivityConstructionStatus{
 			ActivityID:    r.ActivityID,
-			Type:          ActivityType(int(r.Type)),
-			Kind:          ActivityType(int(r.Kind)),
-			Variant:       TestingVariant(int(r.Variant)),
+			Type:          ActivityType(int(typ)),
+			Kind:          ActivityType(int(typ)),
+			Variant:       variant,
 			Phase:         ActivityConstructionPhase(int(r.Phase)),
 			Phases:        phasesToContract(r.Phases),
 			CurrentPhase:  ActivityMethodPhase(string(r.CurrentPhase)),
@@ -458,6 +506,29 @@ func constructionRowsToContract(rows map[string]projectstate.ActivityConstructio
 			Produced:      producedToContract(r.Produced),
 			FailureReason: FailureReason(int(r.FailureReason)),
 			FailureDetail: r.FailureDetail,
+		}
+	}
+	return out
+}
+
+// rowHasServiceContract reports whether the activity produced a frozen service
+// contract (the signal that it built a component, regardless of its id family).
+func rowHasServiceContract(r projectstate.ActivityConstructionStatus) bool {
+	for _, a := range r.Produced {
+		if a.Kind == "service-contract" {
+			return true
+		}
+	}
+	return false
+}
+
+// activityMetaByID builds the id → ActivityItem lookup from the committed
+// Phase-2 activity list (empty map when no list is committed).
+func activityMetaByID(p projectstate.Project) map[string]projectstate.ActivityItem {
+	out := map[string]projectstate.ActivityItem{}
+	if al, ok := p.ActivityList.Model.(*projectstate.ActivityList); ok && al != nil {
+		for _, a := range al.Activities {
+			out[a.Name] = a
 		}
 	}
 	return out

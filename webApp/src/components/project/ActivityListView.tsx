@@ -128,7 +128,10 @@ export function ActivityListView({
                     key={`${r.name}-${String(i)}`}
                     sx={{ display: 'grid', gridTemplateColumns: '1fr 110px 140px 96px', gap: 1, px: 2, py: 0.9, alignItems: 'center', borderBottom: `1px solid ${t.line}`, '&:last-of-type': { borderBottom: 'none' } }}
                   >
-                    <Typography sx={{ fontFamily: t.body, fontSize: 13, color: t.ink, borderLeft: `4px solid ${r.coding ? t.accent2 : t.muted}`, pl: 0.75 }}>{r.name}</Typography>
+                    <Box sx={{ borderLeft: `4px solid ${r.coding ? t.accent2 : t.muted}`, pl: 0.75, minWidth: 0 }}>
+                      <Typography sx={{ fontFamily: t.body, fontSize: 13, color: t.ink, lineHeight: 1.25 }}>{r.title}</Typography>
+                      <Typography sx={{ fontFamily: t.mono, fontSize: 10, color: t.muted }}>{r.name}</Typography>
+                    </Box>
                     <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.muted }}>{r.effortDays} days</Typography>
                     <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted }}>{r.coding ? 'coding' : 'noncoding'}</Typography>
                     <RiskChip row={r} t={t} />

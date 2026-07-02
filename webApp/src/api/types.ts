@@ -340,9 +340,18 @@ export interface ProducedArtifactRow {
   note: string;
 }
 
+export type TestingVariantName =
+  | 'plan'
+  | 'harness'
+  | 'perf'
+  | 'systemTest'
+  | 'qaProcess';
+
 export interface ConstructionRow {
   activityId: string;
-  kind: 'service' | 'frontend' | 'testing';
+  kind: 'service' | 'frontend' | 'testing' | 'deployment' | 'documentation';
+  /** Testing sub-type; present only when kind === 'testing'. */
+  variant?: TestingVariantName;
   status: 'integrated' | 'in-review' | 'in-construction';
   phase: string;
   produced?: ProducedArtifactRow[];
@@ -430,6 +439,52 @@ export interface ReviewPolicyView {
   gatedPhasesByType: Record<string, string[]>;
 }
 
+export interface TestRunView {
+  id: string;
+  passed: number;
+  failed: number;
+  note: string;
+}
+
+export interface DefectView {
+  id: string;
+  title: string;
+  severity: string;
+  note: string;
+}
+
+/** One black-box step: a transport-agnostic manager-operation call. */
+export interface TestStepView {
+  seq: number;
+  component: string;
+  operation: string;
+  note: string;
+  /** last-run result: '' (unrun) | 'red' (failing) | 'green' (passing). */
+  status?: string;
+}
+
+/** One black-box system-test scenario: an ordered operation sequence for a use case. */
+export interface TestScenarioView {
+  id: string;
+  useCase: string;
+  title: string;
+  /** what this scenario proves and why it matters (the failure mode it exposes). */
+  description?: string;
+  steps: TestStepView[] | null;
+}
+
+/** The system test plan — the renderable black-box operation-sequence scenarios. */
+export interface SystemTestPlanView {
+  scenarios: TestScenarioView[] | null;
+}
+
+/** Project-level testing artifacts produced by N-* activities. */
+export interface TestingStateView {
+  testRuns: TestRunView[] | null;
+  defects: DefectView[] | null;
+  systemTestPlan?: SystemTestPlanView;
+}
+
 /**
  * The project head-state as the SPA consumes it: the typed head-state PLUS the
  * per-activity git / construction maps + service contracts + construction progress.
@@ -442,6 +497,8 @@ export type ProjectStateWithGit = ProjectState & {
   serviceContracts?: ServiceContracts;
   /** Persisted review-gate policy — absent when no policy has been saved. */
   reviewPolicy?: ReviewPolicyView;
+  /** Project-level testing artifacts — absent until an N-* activity produces output. */
+  testingState?: TestingStateView;
 };
 
 /** Lookup helper — undefined for not-yet-branched activities (honest-empty). */

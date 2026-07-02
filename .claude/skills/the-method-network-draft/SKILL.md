@@ -115,36 +115,21 @@ project:
   planning_assumptions_ref: ".planningAssumptions"   # the committed slot, not a file
 
 activities:
-  - id: A001
-    name: "Detailed design — OrderManager"
-    type: detailed-design
+  # ONE activity per component. Detailed design and construction are internal
+  # lifecycle phases of this activity (senior designs the contract, junior builds
+  # — per-phase hand-off), NOT separate network activities. See
+  # [[the-method-activity-list]]. Design-first D### activities appear only in the
+  # compressed solution's network state.
+  - id: C001
+    name: "OrderManager"
+    type: coding
     component: OrderManager
-    duration_days: 5
-    role: senior-developer
-    dependencies: []
+    duration_days: 20            # whole lifecycle; phases apportion via App A weights
+    role: senior→junior (per-phase)
+    dependencies: []             # on other components' activities (their frozen contracts)
     earliest_start: 0
-    earliest_finish: 5
-    latest_start: 0
-    latest_finish: 5
-    total_float: 0
-    free_float: 0
-    on_critical_path: true
-    near_critical: true
-    status: not-started
-    started_date: null
-    completed_date: null
-    notes: ""
-
-  - id: A002
-    name: "Build OrderManager"
-    type: construction
-    component: OrderManager
-    duration_days: 15
-    role: junior-developer
-    dependencies: [A001]
-    earliest_start: 5
     earliest_finish: 20
-    latest_start: 5
+    latest_start: 0
     latest_finish: 20
     total_float: 0
     free_float: 0
@@ -211,7 +196,7 @@ Move to `the-method-normal-solution`.
 
 Per ch. 13 §2: distinguish:
 
-- **Behavioral**: A must finish before B because B uses A's output (e.g., construction depends on detailed-design).
+- **Behavioral**: A must finish before B because B uses A's output (e.g., a component's construction depends on the *frozen contract* of the components it consumes — i.e. on their activities' detailed-design phase completing; within a single activity the design→construction phase order is intra-activity, not a network edge).
 - **Nonbehavioral**: A must finish before B because of resource sharing (e.g., the only senior dev does A then B).
 
 Both encoded as `dependencies[]` in the typed `.network` slot. Both block the network. Override carefully — if you remove a nonbehavioral dependency, you must ensure resource is actually available (different person, same role).

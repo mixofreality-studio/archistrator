@@ -9,17 +9,21 @@ import Box from '@mui/material/Box';
 import MemoryOutlinedIcon from '@mui/icons-material/MemoryOutlined';
 import DesignServicesOutlinedIcon from '@mui/icons-material/DesignServicesOutlined';
 import FactCheckOutlinedIcon from '@mui/icons-material/FactCheckOutlined';
+import RocketLaunchOutlinedIcon from '@mui/icons-material/RocketLaunchOutlined';
+import MenuBookOutlinedIcon from '@mui/icons-material/MenuBookOutlined';
 import type { Tokens } from '../../theme/themes';
 
-export type ActivityKind = 'service' | 'frontend' | 'testing';
+export type ActivityKind = 'service' | 'frontend' | 'testing' | 'deployment' | 'documentation';
 
 export const KIND_META: Record<ActivityKind, { label: string }> = {
   service: { label: 'Service' },
   frontend: { label: 'Frontend' },
   testing: { label: 'Testing' },
+  deployment: { label: 'Deployment' },
+  documentation: { label: 'Docs' },
 };
 
-/** The three activity-kind palette — token-driven; no hardcoded colour. */
+/** The activity-kind palette — token-driven; no hardcoded colour. */
 export function kindColor(t: Tokens, k: ActivityKind): { fg: string; bg: string } {
   switch (k) {
     case 'service':
@@ -28,6 +32,10 @@ export function kindColor(t: Tokens, k: ActivityKind): { fg: string; bg: string 
       return { fg: t.chatPmFg, bg: t.chatPmBg };
     case 'testing':
       return { fg: t.committedFg, bg: t.committedBg };
+    case 'deployment':
+      return { fg: t.awaitingFg, bg: t.awaitingBg };
+    case 'documentation':
+      return { fg: t.muted, bg: t.paperAlt };
   }
 }
 
@@ -40,6 +48,10 @@ function kindIcon(k: ActivityKind, size = 13): ReactNode {
       return <DesignServicesOutlinedIcon sx={sx} />;
     case 'testing':
       return <FactCheckOutlinedIcon sx={sx} />;
+    case 'deployment':
+      return <RocketLaunchOutlinedIcon sx={sx} />;
+    case 'documentation':
+      return <MenuBookOutlinedIcon sx={sx} />;
   }
 }
 
