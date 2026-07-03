@@ -1,9 +1,10 @@
 /**
- * Two React-Flow node types for the deployment topology:
- *   • `deployGroup`    — a labelled cluster/namespace container (parent node).
- *   • `deployInstance` — a System component instance, coloured by its Method layer.
- * Both are presentational (the layout in DeploymentFlow sizes/positions them via
- * parentId + extent:'parent'); instances are non-interactive leaves.
+ * Three React-Flow node types for the deployment topology:
+ *   • `deployGroup`      — a labelled cluster/namespace container (parent node).
+ *   • `deployLayerLabel` — a Method-layer row label in the container's left gutter.
+ *   • `deployInstance`   — a System component instance, coloured by its Method layer.
+ * All are presentational (the layout in DeploymentFlow sizes/positions them via
+ * parentId + extent:'parent'); instances and labels are non-interactive leaves.
  */
 import type { ReactNode } from 'react';
 import type { NodeProps } from '@xyflow/react';
@@ -25,6 +26,20 @@ export interface DeployInstanceData {
   [key: string]: unknown;
 }
 
+export interface DeployLayerLabelData {
+  label: string;
+  color: string;
+  [key: string]: unknown;
+}
+
+/** Two-line clamp used to keep instance rows a uniform height. */
+const clamp2 = {
+  display: '-webkit-box',
+  WebkitLineClamp: 2,
+  WebkitBoxOrient: 'vertical' as const,
+  overflow: 'hidden',
+};
+
 export function DeployGroupNode({ data, width, height }: NodeProps): ReactNode {
   const t = useTokens();
   const d = data as DeployGroupData;
@@ -39,11 +54,21 @@ export function DeployGroupNode({ data, width, height }: NodeProps): ReactNode {
       }}
     >
       <Box sx={{ px: 1, py: 0.5, borderBottom: `1px solid ${t.line}`, bgcolor: t.paperAlt }}>
-        <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 12, color: t.ink, lineHeight: 1.1 }}>
+        <Typography
+          sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 12, color: t.ink, lineHeight: 1.1 }}
+        >
           {d.label}
         </Typography>
         {d.technology.length > 0 && (
-          <Typography sx={{ fontFamily: t.mono, fontSize: 9, color: t.muted, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+          <Typography
+            sx={{
+              fontFamily: t.mono,
+              fontSize: 9,
+              color: t.muted,
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase',
+            }}
+          >
             {d.technology}
           </Typography>
         )}
@@ -52,13 +77,14 @@ export function DeployGroupNode({ data, width, height }: NodeProps): ReactNode {
   );
 }
 
-export function DeployInstanceNode({ data }: NodeProps): ReactNode {
+export function DeployInstanceNode({ data, width, height }: NodeProps): ReactNode {
   const t = useTokens();
   const d = data as DeployInstanceData;
   return (
     <Box
       sx={{
-        width: 168,
+        width,
+        height,
         px: 1.25,
         py: 0.75,
         bgcolor: t.paperAlt,
@@ -66,19 +92,69 @@ export function DeployInstanceNode({ data }: NodeProps): ReactNode {
         border: `1.5px solid ${t.line}`,
         borderLeft: `4px solid ${d.color}`,
         borderRadius: 2,
+        overflow: 'hidden',
       }}
     >
-      <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 12, lineHeight: 1.2, wordBreak: 'break-word' }}>
+      <Typography
+        sx={{
+          fontFamily: t.mono,
+          fontWeight: 700,
+          fontSize: 12,
+          lineHeight: 1.15,
+          wordBreak: 'break-word',
+          ...clamp2,
+        }}
+      >
         {d.name}
       </Typography>
-      <Typography sx={{ fontFamily: t.mono, fontSize: 9, color: d.color, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+      <Typography
+        sx={{
+          fontFamily: t.mono,
+          fontSize: 9,
+          color: d.color,
+          letterSpacing: '0.08em',
+          textTransform: 'uppercase',
+        }}
+      >
         {d.layerLabel}
       </Typography>
       {d.note.length > 0 && (
-        <Typography sx={{ fontFamily: t.body, fontSize: 10.5, color: t.muted, mt: 0.25 }}>
+        <Typography
+          sx={{
+            fontFamily: t.body,
+            fontSize: 10,
+            color: t.muted,
+            mt: 0.25,
+            lineHeight: 1.25,
+            ...clamp2,
+          }}
+        >
           {d.note}
         </Typography>
       )}
+    </Box>
+  );
+}
+
+/** Method-layer row label rendered in a container's left gutter. */
+export function DeployLayerLabelNode({ data, width, height }: NodeProps): ReactNode {
+  const t = useTokens();
+  const d = data as DeployLayerLabelData;
+  return (
+    <Box sx={{ width, height, display: 'flex', alignItems: 'center' }}>
+      <Typography
+        sx={{
+          fontFamily: t.mono,
+          fontWeight: 700,
+          fontSize: 10,
+          color: d.color,
+          letterSpacing: '0.1em',
+          textTransform: 'uppercase',
+          lineHeight: 1.15,
+        }}
+      >
+        {d.label}
+      </Typography>
     </Box>
   );
 }

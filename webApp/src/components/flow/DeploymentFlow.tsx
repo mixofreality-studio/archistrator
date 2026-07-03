@@ -3,61 +3,88 @@
  * child (group) nesting: each nested DeploymentNode (cluster → namespace) becomes
  * a `deployGroup` parent node, and each ContainerInstance becomes a `deployInstance`
  * child node (parentId + extent:'parent') coloured by its System component's Method
- * layer. A bottom-up pass sizes every group to fit its instances + nested children,
- * then a top-down pass places them; the result is fit-to-view in the shared canvas.
+ * layer. Inside a container, instances are bucketed into Method-layer rows and
+ * stacked in the same layered order as the static architecture diagram (Clients →
+ * Managers → Engines → ResourceAccess → Resources → Utility), each row tagged with
+ * a layer label in the left gutter. A bottom-up pass sizes every group to fit its
+ * rows + nested children, then a top-down pass places them; fit-to-view in canvas.
  */
 import { useMemo, type ReactNode } from 'react';
 import type { Node } from '@xyflow/react';
-import { toDeploymentView, type DeploymentNodeView } from '../../api/adapters';
+import {
+  toDeploymentView,
+  type DeploymentNodeView,
+  type DeploymentInstance,
+} from '../../api/adapters';
 import type { ArtifactModelEnvelope } from '../../api/types';
 import type { Layer, DeploymentProfile } from '../../api/models';
 import { useTokens } from '../../theme/ThemeContext';
 import type { Tokens } from '../../theme/themes';
-import { layerColors, LAYER_LABEL } from './flowLayout';
+import { layerColors, LAYER_LABEL, LAYER_ORDER } from './flowLayout';
 import { FlowCanvas, FlowEmpty } from './flowShared';
-import { DeployGroupNode, DeployInstanceNode } from './DeploymentNodes';
+import { DeployGroupNode, DeployInstanceNode, DeployLayerLabelNode } from './DeploymentNodes';
 
-const nodeTypes = { deployGroup: DeployGroupNode, deployInstance: DeployInstanceNode };
+const nodeTypes = {
+  deployGroup: DeployGroupNode,
+  deployLayerLabel: DeployLayerLabelNode,
+  deployInstance: DeployInstanceNode,
+};
 
 const HEADER_H = 38; // group header band
 const PAD = 14; // inner padding
 const GAP = 14; // gap between siblings
+const ROW_GAP = 10; // gap between layer rows within a container
+const GUTTER = 104; // left gutter holding the layer label
 const INST_W = 168;
-const INST_H = 64;
+const INST_H = 92;
+
+interface LayerRow {
+  layer: Layer;
+  insts: DeploymentInstance[];
+}
 
 interface Sized {
   node: DeploymentNodeView;
   w: number;
   h: number;
+  rows: LayerRow[];
   children: Sized[];
 }
 
-/** Bottom-up: measure each group big enough to hold its instances + child groups. */
+/** Bottom-up: measure each group big enough to hold its layer rows + child groups. */
 function measure(node: DeploymentNodeView): Sized {
   const children = node.children.map(measure);
 
-  // Instances laid out in a single horizontal row.
-  const instCount = node.instances.length;
-  const instRowW = instCount > 0 ? instCount * INST_W + (instCount - 1) * GAP : 0;
-  const instRowH = instCount > 0 ? INST_H : 0;
+  // Instances bucketed into Method-layer rows, ordered like the static diagram.
+  const rows: LayerRow[] = LAYER_ORDER.map((layer) => ({
+    layer,
+    insts: node.instances.filter((inst) => inst.layer === layer),
+  })).filter((r) => r.insts.length > 0);
+
+  const rowsW = rows.reduce(
+    (m, r) => Math.max(m, GUTTER + r.insts.length * INST_W + (r.insts.length - 1) * GAP),
+    0
+  );
+  const rowsH = rows.length > 0 ? rows.length * INST_H + (rows.length - 1) * ROW_GAP : 0;
 
   // Child groups stacked vertically.
   const childMaxW = children.reduce((m, c) => Math.max(m, c.w), 0);
-  const childStackH = children.reduce((sum, c) => sum + c.h, 0) + Math.max(children.length - 1, 0) * GAP;
+  const childStackH =
+    children.reduce((sum, c) => sum + c.h, 0) + Math.max(children.length - 1, 0) * GAP;
 
-  const innerW = Math.max(instRowW, childMaxW, INST_W);
-  const innerH =
-    instRowH + (instCount > 0 && children.length > 0 ? GAP : 0) + childStackH;
+  const innerW = Math.max(rowsW, childMaxW, GUTTER + INST_W);
+  const innerH = rowsH + (rows.length > 0 && children.length > 0 ? GAP : 0) + childStackH;
 
   return {
     node,
     w: innerW + PAD * 2,
     h: HEADER_H + innerH + PAD,
+    rows,
     children,
   };
 }
 
-/** Top-down: emit a parent group node then its instances + nested child groups. */
+/** Top-down: emit a parent group node then its layer rows + nested child groups. */
 function emit(
   sized: Sized,
   parentId: string | undefined,
@@ -82,24 +109,42 @@ function emit(
 
   let cursorY = HEADER_H + PAD;
 
-  sized.node.instances.forEach((inst, i) => {
+  sized.rows.forEach((row, ri) => {
     out.push({
-      id: `${idPath}/inst-${String(i)}`,
-      type: 'deployInstance',
-      position: { x: PAD + i * (INST_W + GAP), y: cursorY },
-      data: {
-        name: inst.name,
-        layerLabel: LAYER_LABEL[inst.layer],
-        color: colors[inst.layer],
-        note: inst.note,
-      },
+      id: `${idPath}/label-${row.layer}`,
+      type: 'deployLayerLabel',
+      position: { x: PAD, y: cursorY },
+      width: GUTTER,
+      height: INST_H,
+      data: { label: LAYER_LABEL[row.layer], color: colors[row.layer] },
       parentId: idPath,
       extent: 'parent' as const,
       draggable: false,
       selectable: false,
     });
+    row.insts.forEach((inst, i) => {
+      out.push({
+        id: `${idPath}/inst-${row.layer}-${String(i)}`,
+        type: 'deployInstance',
+        position: { x: PAD + GUTTER + i * (INST_W + GAP), y: cursorY },
+        width: INST_W,
+        height: INST_H,
+        data: {
+          name: inst.name,
+          layerLabel: LAYER_LABEL[inst.layer],
+          color: colors[inst.layer],
+          note: inst.note,
+        },
+        parentId: idPath,
+        extent: 'parent' as const,
+        draggable: false,
+        selectable: false,
+      });
+    });
+    cursorY += INST_H + (ri < sized.rows.length - 1 ? ROW_GAP : 0);
   });
-  if (sized.node.instances.length > 0) cursorY += INST_H + GAP;
+
+  if (sized.rows.length > 0 && sized.children.length > 0) cursorY += GAP;
 
   sized.children.forEach((child, i) => {
     emit(child, idPath, `${idPath}/g-${String(i)}`, PAD, cursorY, t, colors, out);
