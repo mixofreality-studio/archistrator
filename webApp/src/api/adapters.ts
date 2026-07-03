@@ -28,7 +28,9 @@ import type {
   CallMode,
   Classification,
   ComponentKind,
+  ContainerInstance,
   CoreUseCases,
+  DeployContainer,
   DeploymentNode,
   DeploymentProfile,
   EdgeKind,
@@ -407,20 +409,44 @@ export function toPerspective(view: C4View, componentId: string): PerspectiveMod
 // OperationalConcepts → deployment view (one profile's nested topology).
 // ---------------------------------------------------------------------------
 
-/** A System component instance placed in a deployment node, joined to its layer. */
-export interface DeploymentInstance {
-  componentId: string;
+/** A packaged System component reference (name + layer), for the hover/expand list. */
+export interface ComponentRef {
   name: string;
   layer: Layer;
-  note: string;
 }
 
-/** A nested deployment node: child nodes + the component instances it hosts. */
+/** A container instance placed in a deployment node, resolved to its packaged components. */
+export interface ContainerInstanceView {
+  key: string;
+  name: string;
+  technology: string;
+  description: string;
+  note: string;
+  components: ComponentRef[]; // packaged System components (resolved), for the hover/expand list
+}
+
+export interface InfraView {
+  name: string;
+  technology: string;
+  description: string;
+}
+
+export interface ExternalView {
+  name: string;
+  technology: string;
+  description: string;
+}
+
+/** A nested deployment node: child nodes + the container instances / infra / externals it hosts. */
 export interface DeploymentNodeView {
   name: string;
   technology: string;
+  description: string;
+  instances: number;
   children: DeploymentNodeView[];
-  instances: DeploymentInstance[];
+  containers: ContainerInstanceView[];
+  infrastructure: InfraView[];
+  externals: ExternalView[];
 }
 
 /** A pickable deployment-environment reference: its profile + display title. */
@@ -441,9 +467,10 @@ export function listDeploymentProfiles(
 }
 
 /**
- * Builds the nested deployment topology for one profile, joining each
- * ContainerInstance to its System Component's name + layer (so the renderer can
- * colour instances by layer). Absent deployment / missing profile environment →
+ * Builds the nested deployment topology for one profile, resolving each
+ * ContainerInstance to its DeployContainer definition and packaged System
+ * components (name + layer, for colouring), plus infrastructure and external
+ * software-system nodes. Absent deployment / missing profile environment →
  * undefined, so the caller renders nothing.
  */
 export function toDeploymentView(
@@ -452,28 +479,49 @@ export function toDeploymentView(
   profile: DeploymentProfile
 ): DeploymentNodeView[] | undefined {
   const op = narrow(opEnvelope, 'operationalConcepts');
-  const env = (op?.deployment?.environments ?? []).find((e) => e.profile === profile);
+  const topo = op?.deployment;
+  const env = (topo?.environments ?? []).find((e) => e.profile === profile);
   if (env === undefined) return undefined;
 
   const system = narrow(systemEnvelope, 'system');
-  const byId = new Map<string, { name: string; layer: Layer }>();
-  for (const c of system?.components ?? []) {
-    byId.set(c.id, { name: c.name, layer: c.layer });
-  }
+  const byName = new Map<string, Layer>();
+  for (const c of system?.components ?? []) byName.set(c.name, c.layer);
+
+  const containersByKey = new Map<string, DeployContainer>();
+  for (const c of topo?.containers ?? []) containersByKey.set(c.key, c);
+
+  const resolveContainer = (ci: ContainerInstance): ContainerInstanceView => {
+    const c = containersByKey.get(ci.containerKey);
+    return {
+      key: ci.containerKey,
+      name: c?.name ?? ci.containerKey,
+      technology: c?.technology ?? '',
+      description: c?.description ?? '',
+      note: ci.note,
+      components: (c?.components ?? []).map((n) => ({
+        name: n,
+        layer: byName.get(n) ?? 'utility',
+      })),
+    };
+  };
 
   const mapNode = (node: DeploymentNode): DeploymentNodeView => ({
     name: node.name,
     technology: node.technology,
+    description: node.description,
+    instances: node.instances > 0 ? node.instances : 1,
     children: (node.children ?? []).map(mapNode),
-    instances: (node.instances ?? []).map((inst): DeploymentInstance => {
-      const comp = byId.get(inst.componentId);
-      return {
-        componentId: inst.componentId,
-        name: comp?.name ?? inst.componentId,
-        layer: comp?.layer ?? 'utility',
-        note: inst.note,
-      };
-    }),
+    containers: (node.containerInstances ?? []).map(resolveContainer),
+    infrastructure: (node.infrastructureNodes ?? []).map((n) => ({
+      name: n.name,
+      technology: n.technology,
+      description: n.description,
+    })),
+    externals: (node.softwareSystemInstances ?? []).map((n) => ({
+      name: n.name,
+      technology: n.technology,
+      description: n.description,
+    })),
   });
 
   return (env.nodes ?? []).map(mapNode);
@@ -585,15 +633,15 @@ export function toMarkdown(envelope: ArtifactModelEnvelope | undefined): string 
   // (ArtifactKindFull includes both phases); the model is the hand-mirrored type.
   if (kind === 'planningAssumptions')
     return planningAssumptionsToMarkdown(model as unknown as PlanningAssumptionsModel);
-  if (kind === 'activityList')
-    return activityListToMarkdown(model as unknown as ActivityListModel);
+  if (kind === 'activityList') return activityListToMarkdown(model as unknown as ActivityListModel);
   if (kind === 'network') return networkToMarkdown(model as unknown as NetworkModel);
   if (
     kind === 'normalSolution' ||
     kind === 'decompressedSolution' ||
     kind === 'subcriticalSolution' ||
     kind === 'compressedSolution'
-  ) return solutionToMarkdown(model as unknown as SolutionModel);
+  )
+    return solutionToMarkdown(model as unknown as SolutionModel);
   if (kind === 'riskModel') return riskModelToMarkdown(model as unknown as RiskModelModel);
   if (kind === 'sdpReview') return sdpReviewToMarkdown(model as unknown as SdpReviewModel);
   return '';
@@ -762,9 +810,7 @@ function networkToMarkdown(m: NetworkModel): string {
   if (deps.length > 0) {
     const header = '| Activity | Depends On |';
     const sep = '|---|---|';
-    const rows = deps
-      .map((d) => `| ${d.activity} | ${d.dependsOn.join(', ')} |`)
-      .join('\n');
+    const rows = deps.map((d) => `| ${d.activity} | ${d.dependsOn.join(', ')} |`).join('\n');
     parts.push(`## Dependencies\n\n${header}\n${sep}\n${rows}`);
   }
 
