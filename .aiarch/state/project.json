@@ -1,5 +1,5 @@
 {
-  "id": "",
+  "id": "archistrator",
   "testingState": {
     "systemTestPlan": {
       "useCaseIndex": [
@@ -1214,20 +1214,20 @@
         {
           "id": "STP-UC5",
           "useCase": "bill-the-user-for-usage",
-          "title": "Bill the User for Usage (client op: managePaymentLifecycle)",
-          "description": "Black-box exercise of the billingManager close-period surface. Proves a period closes into exactly one priced service invoice; breaks it with a duplicate close (idempotency / no double charge) and a gateway decline (retry path, no phantom revenue). NOTE: the billingManager contract ops carry no typed params; step inputs are grounded in the uc5 dynamic-view signatures (closeBillingPeriod(customerId, periodId), etc.).",
+          "title": "Bill the User for Usage (client op: closeSettlementCycle)",
+          "description": "Black-box exercise of the settlementManager close-cycle surface (the constructed contract: CloseSettlementCycle / RunShortfallSweep). Proves a cycle closes into exactly one computed signed net routed exactly once through the merchant gateway; breaks it with a duplicate close (idempotency / no double money move) and a gateway decline (shortfall sweep path, no phantom settlement). Step inputs are grounded in the uc5 dynamic-view signatures (closeSettlementCycle(customerId, cycleId), etc.). NOTE: settlement is deferred build scope — the backing RAs (settlementState, revenueLedger, merchantGateway) are generated not-implemented stubs on main; this scenario activates with that scope.",
           "cases": [
             {
               "id": "STP-UC5-H1",
               "kind": "happy",
-              "title": "Close a billing period -\u003e price usage -\u003e charge once",
-              "proves": "Closing a period reads the range, prices usage, and charges the user exactly once (mirrors uc5: closeBillingPeriod -\u003e readRange -\u003e PriceUsage -\u003e chargeUser -\u003e recordServiceInvoice).",
-              "expectedOutcome": "Exactly one service invoice is recorded for (customer, period); chargeUser is called once with the priced amount under a manager-derived Stripe Idempotency-Key.",
+              "title": "Close a settlement cycle -\u003e compute net -\u003e route money once",
+              "proves": "Closing a cycle reads revenue + usage, computes the signed net, routes it exactly once, and settles the cycle (mirrors uc5: closeSettlementCycle -\u003e readSettlement -\u003e readRange x2 -\u003e ComputeNet -\u003e charge|payout -\u003e settleCycle).",
+              "expectedOutcome": "Exactly one settled cycle is recorded for (customer, cycle); the gateway moves money once under Idempotency-Key settle:cust-88:2026-06.",
               "steps": [
                 {
                   "seq": 1,
-                  "component": "billingManager",
-                  "operation": "closeBillingPeriod",
+                  "component": "settlementManager",
+                  "operation": "closeSettlementCycle",
                   "status": "",
                   "inputs": [
                     {
@@ -1236,7 +1236,7 @@
                       "schemaRef": ""
                     },
                     {
-                      "name": "periodId",
+                      "name": "cycleId",
                       "value": "2026-06",
                       "schemaRef": ""
                     }
@@ -1246,21 +1246,21 @@
                     "errorExpected": false,
                     "errorCode": ""
                   },
-                  "assertion": "One serviceInvoice is recorded for cust-88/2026-06; usageAccess.ReadRange, billingEngine.PriceUsage, and one billingGatewayAccess.chargeUser occur; no error."
+                  "assertion": "One settled cycle is recorded for cust-88/2026-06; usageAccess.ReadRange, revenueLedgerAccess.ReadRange, settlementEngine.ComputeNet, and exactly one merchantGatewayAccess.ChargeCustomer OR PayoutCustomer occur; no error."
                 }
               ]
             },
             {
               "id": "STP-UC5-N1",
               "kind": "negative",
-              "title": "Duplicate closeBillingPeriod for the same period does not double-charge",
-              "proves": "The load-bearing money-safety invariant: replaying closeBillingPeriod for the same (customer, period) must not create a second invoice or a second Stripe charge (same Idempotency-Key).",
-              "expectedOutcome": "The second close is a no-op with respect to money: invoice count stays 1 and chargeUser is not called a second time.",
+              "title": "Duplicate closeSettlementCycle for the same cycle does not move money twice",
+              "proves": "The load-bearing money-safety invariant: replaying closeSettlementCycle for the same (customer, cycle) must not produce a second settlement or a second gateway money move (same Stripe Idempotency-Key; settleCycle applied_mutation dedup).",
+              "expectedOutcome": "The second close is a no-op with respect to money: settled-cycle count stays 1 and the gateway is not invoked a second time.",
               "steps": [
                 {
                   "seq": 1,
-                  "component": "billingManager",
-                  "operation": "closeBillingPeriod",
+                  "component": "settlementManager",
+                  "operation": "closeSettlementCycle",
                   "status": "",
                   "inputs": [
                     {
@@ -1269,7 +1269,7 @@
                       "schemaRef": ""
                     },
                     {
-                      "name": "periodId",
+                      "name": "cycleId",
                       "value": "2026-06",
                       "schemaRef": ""
                     }
@@ -1279,12 +1279,12 @@
                     "errorExpected": false,
                     "errorCode": ""
                   },
-                  "assertion": "First close records invoice #1 and charges once."
+                  "assertion": "First close settles the cycle and moves money once."
                 },
                 {
                   "seq": 2,
-                  "component": "billingManager",
-                  "operation": "closeBillingPeriod",
+                  "component": "settlementManager",
+                  "operation": "closeSettlementCycle",
                   "status": "",
                   "inputs": [
                     {
@@ -1293,7 +1293,7 @@
                       "schemaRef": ""
                     },
                     {
-                      "name": "periodId",
+                      "name": "cycleId",
                       "value": "2026-06",
                       "schemaRef": ""
                     }
@@ -1303,21 +1303,21 @@
                     "errorExpected": false,
                     "errorCode": ""
                   },
-                  "assertion": "Replay for the same period: still exactly one invoice; chargeUser NOT re-invoked (Stripe Idempotency-Key dedupes). No double charge."
+                  "assertion": "Replay for the same cycle: still exactly one settlement; the gateway is NOT re-invoked (Idempotency-Key settle:cust-88:2026-06 dedupes). No double move."
                 }
               ]
             },
             {
               "id": "STP-UC5-N2",
               "kind": "negative",
-              "title": "Gateway decline leaves the invoice open and drives the retry sweep - no phantom revenue",
-              "proves": "A declined charge must surface as a failure and leave the invoice open (feeding the delinquency path), never record revenue that was not collected.",
-              "expectedOutcome": "chargeUser declines; no serviceInvoice is marked paid; runBillingRetrySweep re-attempts the open invoice without duplicating it.",
+              "title": "Gateway decline leaves the cycle unsettled and drives the shortfall sweep - no phantom settlement",
+              "proves": "A declined shortfall charge must surface as a failure and leave the cycle open (feeding DecideOnSettlementFailure / the delinquency path), never record a settlement that did not collect.",
+              "expectedOutcome": "chargeCustomer declines; the cycle is not marked settled; runShortfallSweep re-attempts the open shortfall without duplicating it.",
               "steps": [
                 {
                   "seq": 1,
-                  "component": "billingManager",
-                  "operation": "closeBillingPeriod",
+                  "component": "settlementManager",
+                  "operation": "closeSettlementCycle",
                   "status": "",
                   "inputs": [
                     {
@@ -1326,7 +1326,7 @@
                       "schemaRef": ""
                     },
                     {
-                      "name": "periodId",
+                      "name": "cycleId",
                       "value": "2026-06",
                       "schemaRef": ""
                     }
@@ -1336,12 +1336,12 @@
                     "errorExpected": true,
                     "errorCode": "GatewayDeclined"
                   },
-                  "assertion": "billingGatewayAccess.chargeUser returns card_declined; the invoice is recorded as open/unpaid, revenue is NOT recorded."
+                  "assertion": "merchantGatewayAccess.ChargeCustomer returns card_declined; the cycle stays unsettled, no settlement is recorded; interventionEngine.DecideOnSettlementFailure chooses Retry | Escalate | Delay."
                 },
                 {
                   "seq": 2,
-                  "component": "billingManager",
-                  "operation": "runBillingRetrySweep",
+                  "component": "settlementManager",
+                  "operation": "runShortfallSweep",
                   "status": "",
                   "inputs": [],
                   "expect": {
@@ -1349,7 +1349,7 @@
                     "errorExpected": false,
                     "errorCode": ""
                   },
-                  "assertion": "The retry sweep re-attempts the single open invoice for cust-declined-99; it does not create a second invoice and it feeds ApplyDelinquencyPolicy if it keeps failing."
+                  "assertion": "The sweep re-attempts the single open shortfall for cust-declined-99; it does not create a second settlement and it feeds ApplyDelinquencyPolicy if it keeps failing."
                 }
               ]
             }
@@ -1669,8 +1669,8 @@
             "category": "Where"
           },
           {
-            "term": "Billing Gateway",
-            "definition": "The external system that charges the user for aiarch's own service invoices (hosting/compute usage, DEPLOYED — OPERATED only). Today: Stripe used as an ordinary vendor-to-customer charge (NOT Connect-as-MoR-for-end-users). aiarch is merchant of record only for its own invoices. No token metering; no flat subscription.",
+            "term": "Merchant Gateway",
+            "definition": "The external merchant-services system (Stripe) fronted by merchantGatewayAccess. Constructed surface: chargeCustomer (shortfall), payoutCustomer (net revenue), createConnectedAccount (onboarding), validateStoredInstrument. NOTE: the payout / connected-account half implements the pre-2026-06-09 merchant-of-record model and is dormant under the ratified charge-only ruling; retained as constructed reality pending the deferred billing/settlement re-plan.",
             "category": "Where"
           },
           {
@@ -1857,6 +1857,21 @@
             "term": "WorkTracking",
             "definition": "The mirroring of Method activities into a customer's work-item system via stable verbs (openWorkItem / updateWorkItem / closeWorkItem): each activity is opened as a Work Item when the network seals, status-mirrored during construction, and closed on merge. The tracker behind the verbs (GitHub Issues today; Jira / Linear / Azure Boards later) varies per customer.",
             "category": "How-activity"
+          },
+          {
+            "term": "Settlement Cycle",
+            "definition": "A bounded time window over which a customer's inbound revenue and metered compute usage are netted into one signed settlement (closeSettlementCycle). The settlement-side generalization of a Billing Period.",
+            "category": "What"
+          },
+          {
+            "term": "Revenue Ledger",
+            "definition": "The append-only durable record of inbound revenue events and reversals per customer, deduplicated on the gateway event id; read by cycle range at settlement close.",
+            "category": "Where"
+          },
+          {
+            "term": "Worker Substrate",
+            "definition": "The LLM provider / agent runtime that executes Worker turns (the Anthropic Messages API today). The volatility workerAccess encapsulates: which model vendor, wire protocol, and streaming shape produce typed work products.",
+            "category": "How"
           }
         ]
       }
@@ -4245,8 +4260,8 @@
               "name": "Bill the User for Usage",
               "actors": [
                 {
-                  "id": "billing-manager",
-                  "role": "Billing Manager"
+                  "id": "settlement-manager",
+                  "role": "Settlement Manager"
                 },
                 {
                   "id": "customer",
@@ -4269,7 +4284,7 @@
                   {
                     "id": "period-elapses",
                     "kind": "action",
-                    "label": "Billing period elapses OR immediate-billing event",
+                    "label": "Settlement cycle elapses OR immediate-settlement event",
                     "roleName": "",
                     "linkedActorId": null,
                     "linkedCompId": null
@@ -4285,7 +4300,7 @@
                   {
                     "id": "price-invoice",
                     "kind": "action",
-                    "label": "BillingEngine: serviceInvoice = price(hosting usage, ServicePricing)",
+                    "label": "SettlementEngine: net = ComputeNet(cycle revenue, compute usage, terms)",
                     "roleName": "",
                     "linkedActorId": null,
                     "linkedCompId": null
@@ -4293,8 +4308,8 @@
                   {
                     "id": "charge-user",
                     "kind": "action",
-                    "label": "BillingGatewayAccess.chargeUser (service invoice)",
-                    "roleName": "Billing Gateway",
+                    "label": "MerchantGatewayAccess.chargeCustomer (shortfall) / payoutCustomer (net)",
+                    "roleName": "Merchant Gateway",
                     "linkedActorId": null,
                     "linkedCompId": null
                   },
@@ -4333,7 +4348,7 @@
                   {
                     "id": "persistent-decline",
                     "kind": "action",
-                    "label": "Append ServiceInvoicePersistentlyDeclined (billingRetrySweep / InterventionPolicy)",
+                    "label": "Append ServiceInvoicePersistentlyDeclined (shortfallSweep / InterventionPolicy)",
                     "roleName": "",
                     "linkedActorId": null,
                     "linkedCompId": null
@@ -4503,8 +4518,8 @@
               "name": "Retry a Declined Service Invoice",
               "actors": [
                 {
-                  "id": "billing-manager",
-                  "role": "Billing Manager"
+                  "id": "settlement-manager",
+                  "role": "Settlement Manager"
                 }
               ],
               "trigger": "timer",
@@ -4539,7 +4554,7 @@
                 ]
               }
             },
-            "rejectionReason": "Permutation of UC5 (Bill the User for Usage): the decline-retry loop in the activity diagram, plus the scheduled runBillingRetrySweep. Not a separate core."
+            "rejectionReason": "Permutation of UC5 (Bill the User for Usage): the decline-retry loop in the activity diagram, plus the scheduled runShortfallSweep. Not a separate core."
           },
           {
             "useCase": {
@@ -4958,16 +4973,16 @@
             "atomicBusinessVerbs": []
           },
           {
-            "id": "billing-manager",
-            "name": "BillingManager",
+            "id": "settlement-manager",
+            "name": "SettlementManager",
             "kind": "manager",
             "layer": "manager",
-            "encapsulates": "BillingWorkflow",
+            "encapsulates": "SettlementWorkflow",
             "atomicBusinessVerbs": []
           },
           {
-            "id": "construction-estimation-engine",
-            "name": "ConstructionEstimationEngine",
+            "id": "estimation-engine",
+            "name": "EstimationEngine",
             "kind": "engine",
             "layer": "engine",
             "encapsulates": "ConstructionEstimationModel",
@@ -4982,8 +4997,8 @@
             "atomicBusinessVerbs": []
           },
           {
-            "id": "billing-engine",
-            "name": "BillingEngine",
+            "id": "settlement-engine",
+            "name": "SettlementEngine",
             "kind": "engine",
             "layer": "engine",
             "encapsulates": "ServicePricing",
@@ -5032,8 +5047,6 @@
               "listProjects",
               "readProject",
               "stageArtifact",
-              "retrieveArtifact",
-              "retrieveDeployableBundle",
               "commitArtifact",
               "rejectArtifact",
               "withdrawArtifact",
@@ -5062,17 +5075,18 @@
             ]
           },
           {
-            "id": "billing-state-access",
-            "name": "BillingStateAccess",
+            "id": "settlement-state-access",
+            "name": "SettlementStateAccess",
             "kind": "resourceAccess",
             "layer": "resourceAccess",
-            "encapsulates": "BillingState",
+            "encapsulates": "SettlementState",
             "atomicBusinessVerbs": [
-              "readBilling",
-              "readPersistentlyDelinquentCustomers",
+              "readSettlement",
               "registerCustomer",
-              "bindStoredInstrument",
-              "recordServiceInvoice"
+              "bindGatewayLive",
+              "settleCycle",
+              "resettleCycle",
+              "readPersistentlyDelinquentCustomers"
             ]
           },
           {
@@ -5110,7 +5124,8 @@
               "withdraw",
               "getApplicationHealth",
               "getSloStatus",
-              "readComputeAttribution"
+              "readComputeAttribution",
+              "wirePaymentConfig"
             ]
           },
           {
@@ -5120,20 +5135,21 @@
             "layer": "resourceAccess",
             "encapsulates": "UsageMetering",
             "atomicBusinessVerbs": [
-              "recordHostingUsage",
               "recordComputeUsage",
               "recordFinalUsage",
               "readRange"
             ]
           },
           {
-            "id": "billing-gateway-access",
-            "name": "BillingGatewayAccess",
+            "id": "merchant-gateway-access",
+            "name": "MerchantGatewayAccess",
             "kind": "resourceAccess",
             "layer": "resourceAccess",
-            "encapsulates": "BillingGateway",
+            "encapsulates": "MerchantGateway",
             "atomicBusinessVerbs": [
-              "chargeUser",
+              "chargeCustomer",
+              "payoutCustomer",
+              "createConnectedAccount",
               "validateStoredInstrument"
             ]
           },
@@ -5173,6 +5189,42 @@
             ]
           },
           {
+            "atomicBusinessVerbs": [
+              "storeConstructionOutput",
+              "retrieveConstructionOutput",
+              "retrieveOutputTree"
+            ],
+            "encapsulates": "GitTarget",
+            "id": "artifact-access",
+            "kind": "resourceAccess",
+            "layer": "resourceAccess",
+            "name": "ArtifactAccess"
+          },
+          {
+            "atomicBusinessVerbs": [
+              "generate",
+              "generateToolTurn",
+              "cancel"
+            ],
+            "encapsulates": "WorkerSubstrate",
+            "id": "worker-access",
+            "kind": "resourceAccess",
+            "layer": "resourceAccess",
+            "name": "WorkerAccess"
+          },
+          {
+            "atomicBusinessVerbs": [
+              "recordInboundRevenue",
+              "recordReversal",
+              "readRange"
+            ],
+            "encapsulates": "RevenueLedger",
+            "id": "revenue-ledger-access",
+            "kind": "resourceAccess",
+            "layer": "resourceAccess",
+            "name": "RevenueLedgerAccess"
+          },
+          {
             "id": "project-git-repo",
             "name": "ProjectGitRepo",
             "kind": "resource",
@@ -5189,8 +5241,8 @@
             "atomicBusinessVerbs": []
           },
           {
-            "id": "billing-state",
-            "name": "BillingState",
+            "id": "settlement-state",
+            "name": "SettlementState",
             "kind": "resource",
             "layer": "resource",
             "encapsulates": "",
@@ -5229,8 +5281,8 @@
             "atomicBusinessVerbs": []
           },
           {
-            "id": "billing-gateway",
-            "name": "BillingGateway",
+            "id": "merchant-gateway",
+            "name": "MerchantGateway",
             "kind": "resource",
             "layer": "resource",
             "encapsulates": "",
@@ -5251,6 +5303,22 @@
             "layer": "resource",
             "encapsulates": "",
             "atomicBusinessVerbs": []
+          },
+          {
+            "atomicBusinessVerbs": [],
+            "encapsulates": "",
+            "id": "revenue-ledger",
+            "kind": "resource",
+            "layer": "resource",
+            "name": "RevenueLedger"
+          },
+          {
+            "atomicBusinessVerbs": [],
+            "encapsulates": "",
+            "id": "anthropic-messages-api",
+            "kind": "resource",
+            "layer": "resource",
+            "name": "AnthropicMessagesApi"
           },
           {
             "id": "security",
@@ -5310,9 +5378,9 @@
           },
           {
             "from": "web-client",
-            "to": "billing-manager",
+            "to": "settlement-manager",
             "mode": "sync",
-            "label": "registerCustomer | viewServiceBill"
+            "label": "registerCustomer | onboardPaymentIntegration"
           },
           {
             "from": "mcp-client",
@@ -5340,9 +5408,9 @@
           },
           {
             "from": "mcp-client",
-            "to": "billing-manager",
+            "to": "settlement-manager",
             "mode": "sync",
-            "label": "registerCustomer | viewServiceBill"
+            "label": "registerCustomer | onboardPaymentIntegration"
           },
           {
             "from": "scheduler-client",
@@ -5358,13 +5426,13 @@
           },
           {
             "from": "scheduler-client",
-            "to": "billing-manager",
+            "to": "settlement-manager",
             "mode": "sync",
-            "label": "closeBillingPeriod(customerId) | runBillingRetrySweep"
+            "label": "closeSettlementCycle(customerId, cycleId) | runShortfallSweep"
           },
           {
             "from": "project-design-manager",
-            "to": "construction-estimation-engine",
+            "to": "estimation-engine",
             "mode": "sync",
             "label": "EstimateForOption(option) → {duration, buildCost, risk}"
           },
@@ -5376,9 +5444,9 @@
           },
           {
             "from": "project-design-manager",
-            "to": "billing-engine",
+            "to": "settlement-engine",
             "mode": "sync",
-            "label": "PriceServiceForOption(option) → {tokenCostEstimate, hostingRate}"
+            "label": "ProjectCommitTimeRevenueShareAndComputeCost(option, terms) → {commit-time revenue-share / compute-cost projection}"
           },
           {
             "from": "construction-manager",
@@ -5417,16 +5485,16 @@
             "label": "ProjectForOperatedApp(observedUsage, infrastructureKind, scaleWhatIfPoints) → {currentRunRate, projectedMonthlyCost, scaleWhatIfCurve}"
           },
           {
-            "from": "billing-manager",
-            "to": "billing-engine",
+            "from": "settlement-manager",
+            "to": "settlement-engine",
             "mode": "sync",
-            "label": "PriceUsage(subscription + hosting, servicePricing) → {serviceInvoiceAmount}"
+            "label": "ComputeNet(cycleRevenue, cycleUsage, terms) → {signedNet, routingDirective} / RecomputeNet"
           },
           {
-            "from": "billing-manager",
+            "from": "settlement-manager",
             "to": "intervention-engine",
             "mode": "sync",
-            "label": "DecideOnBillingFailure(declinedCharge) → {Retry | Escalate | Delay}"
+            "label": "DecideOnSettlementFailure(declinedCharge) → {Retry | Escalate | Delay}"
           },
           {
             "from": "system-design-manager",
@@ -5462,7 +5530,19 @@
             "from": "construction-manager",
             "to": "project-state-access",
             "mode": "sync",
-            "label": "readProject / record activity transitions / stageArtifact / retrieveArtifact (Phase-3 output contract)"
+            "label": "readProject / record activity transitions (started, branch opened, CI observed, reviewed, merged, exited)"
+          },
+          {
+            "from": "construction-manager",
+            "to": "artifact-access",
+            "mode": "sync",
+            "label": "storeConstructionOutput / retrieveConstructionOutput / retrieveOutputTree (Phase-3 outputs)"
+          },
+          {
+            "from": "construction-manager",
+            "to": "worker-access",
+            "mode": "sync",
+            "label": "generateToolTurn(prompt, tools) → typed output (dry-run construction turn) / cancel"
           },
           {
             "from": "construction-manager",
@@ -5484,12 +5564,6 @@
           },
           {
             "from": "operations-manager",
-            "to": "project-state-access",
-            "mode": "sync",
-            "label": "retrieveDeployableBundle (Phase-3 construction-output contract)"
-          },
-          {
-            "from": "operations-manager",
             "to": "operated-runtime-access",
             "mode": "sync",
             "label": "publishDesiredState / withdraw | getApplicationHealth / getSloStatus / readComputeAttribution"
@@ -5498,31 +5572,43 @@
             "from": "operations-manager",
             "to": "usage-access",
             "mode": "sync",
-            "label": "recordHostingUsage"
+            "label": "recordComputeUsage / recordFinalUsage"
           },
           {
-            "from": "billing-manager",
-            "to": "billing-state-access",
+            "from": "operations-manager",
+            "to": "artifact-access",
             "mode": "sync",
-            "label": "readBilling / readPersistentlyDelinquentCustomers / registerCustomer / bindStoredInstrument / recordServiceInvoice"
+            "label": "retrieveConstructionOutput(deployableBundleRef) → deployable bundle"
           },
           {
-            "from": "billing-manager",
+            "from": "settlement-manager",
+            "to": "settlement-state-access",
+            "mode": "sync",
+            "label": "readSettlement / registerCustomer / bindGatewayLive / settleCycle / resettleCycle / readPersistentlyDelinquentCustomers"
+          },
+          {
+            "from": "settlement-manager",
             "to": "usage-access",
             "mode": "sync",
-            "label": "readRange (token + hosting usage for the billing period)"
+            "label": "readRange (compute usage for the settlement cycle)"
           },
           {
-            "from": "billing-manager",
-            "to": "billing-gateway-access",
+            "from": "settlement-manager",
+            "to": "revenue-ledger-access",
             "mode": "sync",
-            "label": "chargeUser(serviceInvoice) / validateStoredInstrument"
+            "label": "recordInboundRevenue / recordReversal / readRange (cycle revenue)"
           },
           {
-            "from": "billing-manager",
-            "to": "source-control-access",
+            "from": "settlement-manager",
+            "to": "merchant-gateway-access",
             "mode": "sync",
-            "label": "installAuthorizeApp(account, key) → Installation"
+            "label": "chargeCustomer(shortfall) / payoutCustomer(net) / createConnectedAccount / validateStoredInstrument"
+          },
+          {
+            "from": "settlement-manager",
+            "to": "operated-runtime-access",
+            "mode": "sync",
+            "label": "wirePaymentConfig(deployedAppId, binding)"
           },
           {
             "from": "system-design-manager",
@@ -5603,10 +5689,10 @@
             "label": "startTimer / awaitSignal(applyDelinquencyPolicy); registerSchedule(operatedStateReconcile)"
           },
           {
-            "from": "billing-manager",
+            "from": "settlement-manager",
             "to": "durable-execution-access",
             "mode": "sync",
-            "label": "deliverSignalToManager(operationsManager, applyDelinquencyPolicy); registerSchedule(closeBillingPeriod) / registerSchedule(billingRetrySweep)"
+            "label": "startWorkflow(register | onboard | closeCycle) / signalWithStart(inboundRevenue, chargeback); registerSchedule(shortfallSweep)"
           },
           {
             "from": "project-state-access",
@@ -5615,10 +5701,10 @@
             "label": "read state JSON / commit guarded by git ref compare-and-swap [contract 1: typed state]"
           },
           {
-            "from": "project-state-access",
+            "from": "artifact-access",
             "to": "project-git-repo",
             "mode": "sync",
-            "label": "store / fetch Phase-3 construction output (content-addressable commit) [contract 2: Phase-3 output]"
+            "label": "store / fetch Phase-3 construction output (content-addressed commit)"
           },
           {
             "from": "operated-system-state-access",
@@ -5627,10 +5713,16 @@
             "label": "read row / guarded in-place update (version + applied_mutation dedup)"
           },
           {
-            "from": "billing-state-access",
-            "to": "billing-state",
+            "from": "settlement-state-access",
+            "to": "settlement-state",
             "mode": "sync",
             "label": "read row / guarded in-place update (version + applied_mutation dedup)"
+          },
+          {
+            "from": "revenue-ledger-access",
+            "to": "revenue-ledger",
+            "mode": "sync",
+            "label": "append inbound revenue / reversal (dedup on gateway event id) / read range"
           },
           {
             "from": "construction-pipeline-access",
@@ -5648,13 +5740,19 @@
             "from": "usage-access",
             "to": "usage-log",
             "mode": "sync",
-            "label": "append entry (token / hosting usage) / read range"
+            "label": "append entry (compute / final usage) / read range"
           },
           {
-            "from": "billing-gateway-access",
-            "to": "billing-gateway",
+            "from": "worker-access",
+            "to": "anthropic-messages-api",
             "mode": "sync",
-            "label": "charge the user (service invoice) / validate stored instrument"
+            "label": "stream typed model turns (tool use)"
+          },
+          {
+            "from": "merchant-gateway-access",
+            "to": "merchant-gateway",
+            "mode": "sync",
+            "label": "charge shortfall / pay out net / onboard connected account / validate stored instrument (idempotency: Stripe Idempotency-Key settle:{customerId}:{cycleId})"
           },
           {
             "from": "source-control-access",
@@ -5741,26 +5839,26 @@
             "label": "Reports health"
           },
           {
-            "from": "billing-manager",
+            "from": "settlement-manager",
             "to": "logging",
             "mode": "sync",
             "label": "Logs"
           },
           {
-            "from": "billing-manager",
+            "from": "settlement-manager",
             "to": "diagnostics",
             "mode": "sync",
             "label": "Reports health"
           },
           {
-            "from": "billing-manager",
+            "from": "settlement-manager",
             "to": "operations-manager",
             "mode": "queued",
             "label": "delivers applyDelinquencyPolicy (queued)"
           },
           {
             "from": "system-design-manager",
-            "to": "construction-estimation-engine",
+            "to": "estimation-engine",
             "mode": "sync",
             "label": "computeNetwork / computeEarnedValue (compute-at-read)"
           }
@@ -5845,9 +5943,9 @@
               "web-client",
               "project-design-manager",
               "project-state-access",
-              "construction-estimation-engine",
+              "estimation-engine",
               "operation-estimation-engine",
-              "billing-engine",
+              "settlement-engine",
               "work-item-access",
               "mcp-client"
             ],
@@ -5872,7 +5970,7 @@
               },
               {
                 "from": "project-design-manager",
-                "to": "construction-estimation-engine",
+                "to": "estimation-engine",
                 "mode": "sync",
                 "label": "EstimateForOption(chosenOption) → {duration, buildCost, risk}"
               },
@@ -5884,9 +5982,9 @@
               },
               {
                 "from": "project-design-manager",
-                "to": "billing-engine",
+                "to": "settlement-engine",
                 "mode": "sync",
-                "label": "PriceServiceForOption(chosenOption) → {tokenCostEstimate, hostingRate}"
+                "label": "ProjectCommitTimeRevenueShareAndComputeCost(chosenOption, terms) → {commit-time projection}"
               },
               {
                 "from": "project-design-manager",
@@ -5925,7 +6023,10 @@
               "intervention-engine",
               "work-item-tracker",
               "github",
-              "project-git-repo"
+              "project-git-repo",
+              "artifact-access",
+              "worker-access",
+              "anthropic-messages-api"
             ],
             "edges": [
               {
@@ -5990,21 +6091,33 @@
               },
               {
                 "from": "construction-manager",
+                "to": "worker-access",
+                "mode": "sync",
+                "label": "generateToolTurn(prompt, tools) → typed output (local dry-run profile: direct worker turn instead of pipeline dispatch)"
+              },
+              {
+                "from": "worker-access",
+                "to": "anthropic-messages-api",
+                "mode": "sync",
+                "label": "stream typed model turns (tool use)"
+              },
+              {
+                "from": "construction-manager",
                 "to": "construction-pipeline-access",
                 "mode": "sync",
                 "label": "observeConstructionPipeline(pipelineId)"
               },
               {
                 "from": "construction-manager",
-                "to": "project-state-access",
+                "to": "artifact-access",
                 "mode": "sync",
-                "label": "stageArtifact(activityOutput) (Phase-3 construction-output contract)"
+                "label": "storeConstructionOutput(activityOutput) → OutputRef"
               },
               {
-                "from": "project-state-access",
+                "from": "artifact-access",
                 "to": "project-git-repo",
                 "mode": "sync",
-                "label": "store Phase-3 construction output (content-addressable commit) [contract 2: Phase-3 output]"
+                "label": "store Phase-3 construction output (content-addressed commit)"
               },
               {
                 "from": "construction-manager",
@@ -6077,14 +6190,14 @@
               "scheduler-client",
               "operations-manager",
               "operated-system-state-access",
-              "project-state-access",
               "operated-runtime-access",
               "operated-runtime",
               "intervention-engine",
               "usage-access",
               "autoscaler-engine",
               "mcp-client",
-              "operated-system-state"
+              "operated-system-state",
+              "artifact-access"
             ],
             "edges": [
               {
@@ -6113,9 +6226,9 @@
               },
               {
                 "from": "operations-manager",
-                "to": "project-state-access",
+                "to": "artifact-access",
                 "mode": "sync",
-                "label": "retrieveDeployableBundle (Phase-3 construction-output contract)"
+                "label": "retrieveConstructionOutput(deployableBundleRef) → deployable bundle"
               },
               {
                 "from": "operations-manager",
@@ -6203,61 +6316,87 @@
             "title": "Bill the User for Usage",
             "participants": [
               "scheduler-client",
-              "billing-manager",
+              "settlement-manager",
+              "settlement-state-access",
+              "settlement-state",
               "usage-access",
-              "billing-engine",
-              "billing-gateway-access",
-              "billing-gateway",
-              "billing-state-access",
               "usage-log",
-              "billing-state"
+              "revenue-ledger-access",
+              "revenue-ledger",
+              "settlement-engine",
+              "merchant-gateway-access",
+              "merchant-gateway"
             ],
             "edges": [
               {
                 "from": "scheduler-client",
-                "to": "billing-manager",
+                "to": "settlement-manager",
                 "mode": "sync",
-                "label": "closeBillingPeriod(customerId, periodId)"
+                "label": "closeSettlementCycle(customerId, cycleId)"
               },
               {
-                "from": "billing-manager",
+                "from": "settlement-manager",
+                "to": "settlement-state-access",
+                "mode": "sync",
+                "label": "readSettlement(customerId) → terms + gateway binding"
+              },
+              {
+                "from": "settlement-state-access",
+                "to": "settlement-state",
+                "mode": "sync",
+                "label": "read row"
+              },
+              {
+                "from": "settlement-manager",
                 "to": "usage-access",
                 "mode": "sync",
-                "label": "readRange(periodId) → token + hosting usage"
+                "label": "readRange(customerId, cycleId) → compute usage"
               },
               {
                 "from": "usage-access",
                 "to": "usage-log",
                 "mode": "sync",
-                "label": "read range (token + hosting usage entries)"
+                "label": "read range (compute usage entries)"
               },
               {
-                "from": "billing-manager",
-                "to": "billing-engine",
+                "from": "settlement-manager",
+                "to": "revenue-ledger-access",
                 "mode": "sync",
-                "label": "PriceUsage(usage, servicePricing) → serviceInvoiceAmount"
+                "label": "readRange(customerId, cycleId) → inbound revenue"
               },
               {
-                "from": "billing-manager",
-                "to": "billing-gateway-access",
+                "from": "revenue-ledger-access",
+                "to": "revenue-ledger",
                 "mode": "sync",
-                "label": "chargeUser(serviceInvoiceAmount)"
+                "label": "read range (revenue / reversal entries)"
               },
               {
-                "from": "billing-gateway-access",
-                "to": "billing-gateway",
+                "from": "settlement-manager",
+                "to": "settlement-engine",
                 "mode": "sync",
-                "label": "charge the user (idempotency: Manager-derived key → Stripe Idempotency-Key)"
+                "label": "ComputeNet(cycleRevenue, cycleUsage, terms) → {signedNet, routingDirective}"
               },
               {
-                "from": "billing-manager",
-                "to": "billing-state-access",
+                "from": "settlement-manager",
+                "to": "merchant-gateway-access",
                 "mode": "sync",
-                "label": "recordServiceInvoice"
+                "label": "chargeCustomer(shortfall) | payoutCustomer(net) — per routingDirective"
               },
               {
-                "from": "billing-state-access",
-                "to": "billing-state",
+                "from": "merchant-gateway-access",
+                "to": "merchant-gateway",
+                "mode": "sync",
+                "label": "charge / pay out (idempotency: Stripe Idempotency-Key settle:{customerId}:{cycleId})"
+              },
+              {
+                "from": "settlement-manager",
+                "to": "settlement-state-access",
+                "mode": "sync",
+                "label": "settleCycle(customerId, cycleId, signedNet, directive)"
+              },
+              {
+                "from": "settlement-state-access",
+                "to": "settlement-state",
                 "mode": "sync",
                 "label": "guarded in-place update (version + applied_mutation dedup)"
               }
@@ -6278,7 +6417,7 @@
           },
           {
             "topic": "layering style",
-            "decision": "Closed layering per App C §3.4. No Client-to-Engine, Client-to-ResourceAccess, or skip-layer edges. One permitted exception: the queued BillingManager-to-OperationsManager applyDelinquencyPolicy Temporal Signal (queued M→M per §3.4c.ii).",
+            "decision": "Closed layering per App C §3.4. No Client-to-Engine, Client-to-ResourceAccess, or skip-layer edges. One permitted exception: the queued SettlementManager-to-OperationsManager applyDelinquencyPolicy Temporal Signal (queued M→M per §3.4c.ii).",
             "justifyingObjective": 2
           },
           {
@@ -6313,7 +6452,7 @@
           },
           {
             "topic": "billing model — usage-based cloud hosting only",
-            "decision": "aiarch bills the user a usage-based hosting fee for operated systems (DEPLOYED — OPERATED only); there is no flat subscription and construction is not charged (construction runs on the user's own Claude Code account and GitHub Actions). billingEngine pivots on ServicePricing as a Strategy (tier floors, free-tier subsidies; no token unit price). aiarch is merchant of record only for its own service invoices; it never touches end-user revenue.",
+            "decision": "aiarch bills the user a usage-based hosting fee for operated systems (DEPLOYED — OPERATED only); there is no flat subscription and construction is not charged (construction runs on the user's own Claude Code account and GitHub Actions). settlementEngine pivots on ServicePricing as a Strategy (tier floors, free-tier subsidies; no token unit price). aiarch is merchant of record only for its own service invoices; it never touches end-user revenue.",
             "justifyingObjective": 3
           },
           {
@@ -6333,20 +6472,23 @@
               "components": [
                 "MCPClient",
                 "SchedulerClient",
-                "BillingManager",
+                "SettlementManager",
                 "ConstructionManager",
                 "OperationsManager",
                 "ProjectDesignManager",
                 "SystemDesignManager",
                 "AutoscalerEngine",
-                "BillingEngine",
-                "ConstructionEstimationEngine",
+                "SettlementEngine",
+                "EstimationEngine",
                 "HandOffEngine",
                 "InterventionEngine",
                 "OperationEstimationEngine",
                 "ReviewEngine",
-                "BillingGatewayAccess",
-                "BillingStateAccess",
+                "MerchantGatewayAccess",
+                "SettlementStateAccess",
+                "ArtifactAccess",
+                "WorkerAccess",
+                "RevenueLedgerAccess",
                 "ConstructionPipelineAccess",
                 "DurableExecutionAccess",
                 "OperatedRuntimeAccess",
@@ -6450,9 +6592,15 @@
                           "tags": []
                         },
                         {
-                          "name": "BillingState",
+                          "name": "SettlementState",
                           "technology": "CloudNativePG · Postgres 16",
-                          "description": "billing rows on the shared archistrator-postgres cluster",
+                          "description": "settlement head-state rows on the shared archistrator-postgres cluster",
+                          "tags": []
+                        },
+                        {
+                          "name": "RevenueLedger",
+                          "technology": "CloudNativePG · Postgres 16",
+                          "description": "append-only inbound revenue / reversal entries (dedup on gateway event id)",
                           "tags": []
                         },
                         {
@@ -6507,7 +6655,7 @@
                     {
                       "name": "ProjectGitRepo",
                       "technology": "GitHub",
-                      "description": "Per-project state repo aiarch-<id> on the user's GitHub (git-as-DB)",
+                      "description": "Per-project state repo aiarch-\u003cid\u003e on the user's GitHub (git-as-DB)",
                       "tags": []
                     },
                     {
@@ -6529,9 +6677,9 @@
                       "tags": []
                     },
                     {
-                      "name": "BillingGateway",
+                      "name": "MerchantGateway",
                       "technology": "Stripe",
-                      "description": "Stripe — billing gateway",
+                      "description": "Stripe — merchant gateway (charge / payout / connected accounts)",
                       "tags": []
                     },
                     {
@@ -6569,9 +6717,15 @@
                       "tags": []
                     },
                     {
-                      "name": "BillingState",
+                      "name": "SettlementState",
                       "technology": "ephemeral",
-                      "description": "sqlite/postgres (docker) stub — billing rows",
+                      "description": "sqlite/postgres (docker) stub — settlement head-state rows",
+                      "tags": []
+                    },
+                    {
+                      "name": "RevenueLedger",
+                      "technology": "ephemeral",
+                      "description": "append-only inbound revenue / reversal entries (dedup on gateway event id)",
                       "tags": []
                     },
                     {
@@ -6631,7 +6785,7 @@
                       "tags": []
                     },
                     {
-                      "name": "BillingGateway",
+                      "name": "MerchantGateway",
                       "technology": "stub",
                       "description": "stubbed Stripe",
                       "tags": []
@@ -8849,7 +9003,7 @@
       "component": "billingEngine",
       "layer": "Engine",
       "goPackage": "internal/engine/billing",
-      "title": "billing contract",
+      "title": "billing contract [PARKED 2026-07-03: built on main but no consuming Manager; the 2026-06-09 charge-only re-cut is deferred — settlementEngine is the live engine. Remove or revive with the billing/settlement re-plan.]",
       "$defs": {
         "CustomerID": {
           "type": "string"
@@ -9067,7 +9221,7 @@
     "billingGatewayAccess": {
       "component": "billingGatewayAccess",
       "layer": "ResourceAccess",
-      "title": "billingGatewayAccess contract",
+      "title": "billingGatewayAccess contract [SUPERSEDED 2026-07-03 by merchantGatewayAccess (constructed stub); the approved C-BG implementation is parked on branch aiarch/construct/C-BG.]",
       "interface": {
         "name": "BillingGatewayAccess",
         "layer": "resourceaccess",
@@ -9085,36 +9239,10 @@
         ]
       }
     },
-    "billingManager": {
-      "component": "billingManager",
-      "layer": "Manager",
-      "title": "billingManager contract",
-      "interface": {
-        "name": "BillingManager",
-        "layer": "manager",
-        "operations": [
-          {
-            "name": "registerCustomer",
-            "params": null,
-            "error": true
-          },
-          {
-            "name": "closeBillingPeriod",
-            "params": null,
-            "error": true
-          },
-          {
-            "name": "runBillingRetrySweep",
-            "params": null,
-            "error": true
-          }
-        ]
-      }
-    },
     "billingStateAccess": {
       "component": "billingStateAccess",
       "layer": "ResourceAccess",
-      "title": "billingStateAccess contract",
+      "title": "billingStateAccess contract [SUPERSEDED 2026-07-03 by settlementStateAccess (constructed); deferred billing scope.]",
       "interface": {
         "name": "BillingStateAccess",
         "layer": "resourceaccess",
