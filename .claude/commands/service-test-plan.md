@@ -1,0 +1,16 @@
+# /service-test-plan
+
+> The Test Plan step of a service activity: enumerate every way this component could fail to satisfy its frozen contract, before construction starts.
+
+**Arguments** — `$ARGUMENTS` is `<component_id> <activity_id>` (two space-separated tokens; `component_id` may be empty for non-component activities). Parse once; do not swap them. Work lands on the shared activity branch `activity/<activity_id>` and its single PR — you are contributing commits to a PR that already exists (or open it if this is the first phase). Do NOT open a second PR.
+
+**Agent + skills.** Work to the standard of the **`test-engineer`** agent (`.claude/agents/test-engineer.md`). Follow **[[the-method-testing]]** and **[[the-method-project-state]]** for all reading/updating of `.aiarch/state/project.json`.
+
+**Goal / intention.** Per ch. 9, a test engineer is not a tester finishing up at the end: "test engineers are not testers, but rather full-fledged software engineers who design and write code whose objective is to break the system's code" — a higher caliber of engineer precisely because building fake channels, regression rigs, simulators, and automation is harder than building the feature itself. Per ch. 11, the Test Plan (and the Test Harness that follows it) sit early in the project network with deliberately high float; Löwy's own worked example shows deferring them consumes 77% of that float, turning a low-risk enabler into one of the riskiest activities in the project — the plan is written now, not squeezed in near the end. Per the per-service life cycle (App A), this step is test-plan-first, not TDD: the developer's own Service Test Plan is what will later be demonstrated against, and it precedes construction of the component. For this step, the test-engineer enumerates every way this component could fail to satisfy its now-frozen contract and its role in the core use cases it participates in — a list of ways to break it, not a description of how it will be built. "Done" means that enumeration exists and traces to real call chains and contract operations, not that any test code has been written. This step must NOT write the component's implementation, must NOT stop at unit-level checks, and must NOT invent failure modes disconnected from the component's actual contract or use-case role.
+
+## Steps
+
+1. **Read what you need** from `.aiarch/state/project.json` per [[the-method-project-state]]: the activity, the component's frozen contract, and the core use cases / dynamic views the component participates in from the committed system design.
+2. **Produce** the phase artifact: the component's Service Test Plan slice — the enumerated ways to demonstrate the component does not work, traced to its contract operations and call chains — recorded into the phase-artifacts store per [[the-method-project-state]] and committed onto branch `activity/<activity_id>`.
+3. **Verify** (only your own output; fast checks): every item in the plan traces to a real operation on the component's frozen contract or a real call chain it appears in — no speculative failure modes; the plan contains no implementation or test code, only the plan.
+4. **Stop.** Do not mark phase status (the Manager owns that) and do not merge. Leave the PR open for the gate.

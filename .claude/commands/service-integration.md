@@ -1,0 +1,16 @@
+# /service-integration
+
+> The Integration step of a service activity: wire this component into the call chains its neighbors already implement, without touching any frozen contract.
+
+**Arguments** — `$ARGUMENTS` is `<component_id> <activity_id>` (two space-separated tokens; `component_id` may be empty for non-component activities). Parse once; do not swap them. Work lands on the shared activity branch `activity/<activity_id>` and its single PR — you are contributing commits to a PR that already exists (or open it if this is the first phase). Do NOT open a second PR.
+
+**Agent + skills.** Work to the standard of the **`system-architect`** agent (`.claude/agents/system-architect.md`). Follow **[[the-method-layers]]** and **[[the-method-project-state]]** for all reading/updating of `.aiarch/state/project.json`.
+
+**Goal / intention.** Per ch. 12: "features are always and everywhere aspects of integration, not implementation" — only after the components in a use case's call chain are each independently complete can that call chain be wired into a working feature. Integration is where that composition happens: it does not add business logic, it proves that already-built, independently-verified components talk to each other exactly as the committed system design's dynamic views specify. Per ch. 11, this step deserves care because integration pressure concentrates unevenly on Manager components — a Manager can find itself expected to integrate with four or five other services at once — and concurrent integration produces a nonlinear increase in complexity as issues from each service superimpose on the others, compounded by the fact that integration typically lands late in the project when there is little runway left to fix what breaks. The safer path Löwy recommends is to integrate only one or two services at a time. "Done" for this step means the call-chain edges this component participates in are wired and demonstrated end-to-end against its own frozen contract and its neighbors' frozen contracts. This step must NOT modify a frozen contract (a needed contract change is a scope-change event, not an integration fix), must NOT add components outside the committed system design, and must NOT take on more concurrent neighbor integrations than the call chain actually requires.
+
+## Steps
+
+1. **Read what you need** from `.aiarch/state/project.json` per [[the-method-project-state]]: the activity, the component's frozen contract, its inbound/outbound relationships in the committed system design, and the frozen contracts of the specific neighbor components its call chains cross.
+2. **Produce** the phase artifact: the wiring between this component and its integration-scope neighbors, verified against the relevant dynamic view(s), plus an integration note recorded into the phase-artifacts store per [[the-method-project-state]] and committed onto branch `activity/<activity_id>`.
+3. **Verify** (only your own output; fast checks, working-directory `server`): `gofmt -w .`; `GOWORK=off go build ./...`; `GOWORK=off go vet ./...`; `GOWORK=off go test ./internal/<layer>/<pkg>/...` for this component and, only if the wiring directly touched them, the specific neighbor packages — not `make test-short`.
+4. **Stop.** Do not mark phase status (the Manager owns that) and do not merge. Leave the PR open for the gate.
