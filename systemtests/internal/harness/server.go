@@ -72,6 +72,12 @@ func StartServer(ctx context.Context, bin string, cfg ServerConfig) (*Server, er
 		"ARCHISTRATOR_TEMPORAL_HOSTPORT="+cfg.Infra.TemporalHostPort,
 		"ARCHISTRATOR_TEMPORAL_NAMESPACE="+cfg.Infra.TemporalNamespace,
 		fmt.Sprintf("ARCHISTRATOR_AUTH_DEV_MODE=%t", cfg.DevAuth),
+		// Default the harness base env to the dry-run construction profile so a
+		// server boots without the real construction creds (GitHub App id/key,
+		// ARCHISTRATOR_ARTIFACT_REPO_URL, etc.) validateConstructionCreds hard-requires
+		// when DRYRUN=false. Tests that exercise the real construction path override
+		// this via their ExtraEnv (e.g. AgenticGitHub.Env sets it back to false).
+		"ARCHISTRATOR_CONSTRUCTION_DRYRUN=true",
 	)
 	cmd.Env = append(cmd.Env, workerEnv(cfg.Infra.Drafting, cfg.Infra, cassetteDir())...)
 	// Per-test profile overrides (e.g. the LOCAL project-state-git substrate) go

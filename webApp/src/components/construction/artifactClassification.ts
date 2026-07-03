@@ -18,7 +18,7 @@ export type Classification =
 /** Map a construction row to its artifact classification (the renderer key). */
 export function classify(row: ConstructionRow): Classification {
   if (row.kind === 'testing') {
-    return `testing:${row.variant ?? 'plan'}` as Classification;
+    return `testing:${row.variant ?? 'plan'}`;
   }
   return row.kind;
 }

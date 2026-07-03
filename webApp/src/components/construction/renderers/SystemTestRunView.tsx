@@ -9,7 +9,10 @@ import { ScenarioBrowser } from './ScenarioBrowser';
 import { StatTile } from '../primitives/StatTile';
 
 const scenarioGreen = (s: TestScenarioView): boolean =>
-  (s.steps ?? []).length > 0 && (s.steps ?? []).every((st) => st.status === 'green');
+  (s.cases ?? []).length > 0 &&
+  (s.cases ?? []).every(
+    (c) => (c.steps ?? []).length > 0 && (c.steps ?? []).every((st) => st.status === 'green'),
+  );
 
 /**
  * System Testing (N-IT): runs the N-STP plan against the REAL built software and
@@ -45,9 +48,9 @@ export function SystemTestRunView({ project, t }: ArtifactRendererProps): ReactN
       <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
         <StatTile
           label="scenarios green"
-          value={`${String(greenCount)}/${String(scenarios.length)}`}
-          tone={greenCount === scenarios.length ? 'good' : 'bad'}
           t={t}
+          tone={greenCount === scenarios.length ? 'good' : 'bad'}
+          value={`${String(greenCount)}/${String(scenarios.length)}`}
         />
       </Box>
       <ScenarioBrowser

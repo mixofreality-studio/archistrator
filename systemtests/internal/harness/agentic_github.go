@@ -333,7 +333,21 @@ func (f *AgenticGitHub) SetDraft(wireKind string, modelJSON json.RawMessage) {
 // for the project-state writes while sourceControlAccess + constructionPipeline
 // (the rail + dispatch/observe) hit the fake. appKeyPEM is a throwaway RSA key the
 // satellite signs its App-JWT with (the fake does not verify the signature).
-func (f *AgenticGitHub) Env(repo LocalGitRepo, appKeyPEM string) []string {
+//
+// artifactsRepo is a SEPARATE on-disk file:// repo (StartLocalGitRepo) wired as
+// ARCHISTRATOR_ARTIFACT_REPO_URL with ARCHISTRATOR_ARTIFACT_REPO_LOCAL=true —
+// the LOCAL artifactAccess profile (file://, no credential; server/cmd/server/
+// config.go ~line 69-77) selected EXPLICITLY. Without the LOCAL flag,
+// ArtifactRepoLocal defaults false and main.go's artifact-store wiring takes the
+// CLOUD branch (newCloudArtifactStore), which fails fast on empty
+// ARCHISTRATOR_ARTIFACT_REPO_OWNER (server/cmd/server/main.go:286-309,
+// artifact_auth.go:88-90) — this fake sets no owner for the artifact repo, only
+// for the construction-pipeline repo. DRYRUN is explicitly set to false here
+// (overriding the harness base env's default of true, per StartServer) to
+// select the real construction path this fake exercises; validateConstructionCreds
+// then hard-requires this repo URL among the other construction creds this Env
+// already sets.
+func (f *AgenticGitHub) Env(repo, artifactsRepo LocalGitRepo, appKeyPEM string) []string {
 	env := GitLocalEnv(repo.URL())
 	return append(env,
 		"ARCHISTRATOR_GITHUB_API_BASE_URL="+f.BaseURL(),
@@ -346,6 +360,15 @@ func (f *AgenticGitHub) Env(repo LocalGitRepo, appKeyPEM string) []string {
 		"ARCHISTRATOR_CONSTRUCTION_REPO_OWNER="+f.account,
 		"ARCHISTRATOR_CONSTRUCTION_REPO_NAME=construction",
 		"ARCHISTRATOR_CONSTRUCTION_WORKFLOW_FILE=aiarch-design.yml",
+		// Explicitly select the real construction path (the harness base env
+		// defaults DRYRUN=true) and satisfy validateConstructionCreds' new
+		// ARCHISTRATOR_ARTIFACT_REPO_URL requirement.
+		"ARCHISTRATOR_CONSTRUCTION_DRYRUN=false",
+		"ARCHISTRATOR_ARTIFACT_REPO_URL="+artifactsRepo.URL(),
+		// LOCAL (file://, no-credential) artifact profile, selected explicitly —
+		// otherwise ArtifactRepoLocal defaults false and main.go takes the CLOUD
+		// branch, which fails fast on the empty ARCHISTRATOR_ARTIFACT_REPO_OWNER.
+		"ARCHISTRATOR_ARTIFACT_REPO_LOCAL=true",
 	)
 }
 

@@ -207,7 +207,6 @@ func TestPhaseSetFor_Service(t *testing.T) {
 	}
 }
 
-
 func TestPhaseCompletion_JSONRoundTrip(t *testing.T) {
 	// Verify PhaseCompletion marshals/unmarshals correctly including optional fields.
 	pc := PhaseCompletion{
@@ -316,4 +315,3 @@ func TestCoarseBuildStatus_InConstruction(t *testing.T) {
 		t.Errorf("CoarseBuildStatus(nothing done) = %v, want InConstruction", got)
 	}
 }
-

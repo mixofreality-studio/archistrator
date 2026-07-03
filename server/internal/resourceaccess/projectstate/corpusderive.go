@@ -81,9 +81,9 @@ func DeriveVariant(activityID string) TestingVariant {
 //   - U-SPA* id                    → Frontend
 //   - coding == true               → Service
 //   - noncoding, by workerClass:
-//       software-tester / test-engineer / qa-engineer → Testing
-//       system-architect                              → Documentation
-//       everything else (dev/devops noncoding)        → Deployment
+//     software-tester / test-engineer / qa-engineer → Testing
+//     system-architect                              → Documentation
+//     everything else (dev/devops noncoding)        → Deployment
 func ClassifyType(id, workerClass string, coding, hasServiceContract bool) ActivityType {
 	if hasServiceContract {
 		return ActivityTypeService

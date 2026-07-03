@@ -34,10 +34,11 @@ func Test_UC2_Agentic_E2E_DispatchObserveGateMergeCommit(t *testing.T) {
 	const kind = "planningAssumptions"
 
 	projRepo := harness.StartLocalGitRepo(t, "main")
+	artRepo := harness.StartLocalGitRepo(t, "main")
 	fake := harness.StartAgenticGitHub(t, projRepo, account)
 	appKey := harness.GenerateAppKeyPEM(t)
 
-	srv := startServerWithEnv(t, true /* devAuth */, fake.Env(projRepo, appKey))
+	srv := startServerWithEnv(t, true /* devAuth */, fake.Env(projRepo, artRepo, appKey))
 	tr := harness.NewHTTPTransport(srv.BaseURL())
 	t.Cleanup(func() { _ = tr.Close() })
 

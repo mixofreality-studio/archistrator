@@ -19,8 +19,8 @@ func TestProfileSlug(t *testing.T) {
 		{ActivityTypeTesting, TestVariantQAProcess, "testing-qa"},
 	}
 	for _, c := range cases {
-		if got := ProfileSlug(c.t, c.v); got != c.want {
-			t.Errorf("ProfileSlug(%v,%v) = %q, want %q", c.t, c.v, got, c.want)
+		if got := profileSlug(c.t, c.v); got != c.want {
+			t.Errorf("profileSlug(%v,%v) = %q, want %q", c.t, c.v, got, c.want)
 		}
 	}
 }
@@ -44,7 +44,7 @@ func TestCommandForTotalOverProfiles(t *testing.T) {
 			if got == "" {
 				t.Errorf("CommandFor(%v,%v,%q) empty", combo.t, combo.v, p)
 			}
-			if want := ProfileSlug(combo.t, combo.v) + "-" + kebabPhase(p); got != want {
+			if want := profileSlug(combo.t, combo.v) + "-" + kebabPhase(p); got != want {
 				t.Errorf("CommandFor = %q, want %q", got, want)
 			}
 		}

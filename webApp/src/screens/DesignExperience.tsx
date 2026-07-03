@@ -435,7 +435,7 @@ function StepBody({
       <ArtifactIntro committed={committed} kind={activeKind} />
       <Box sx={{ mb: gateOpen ? 3 : 0 }}>
         {proseSurface(
-          view?.draft?.kind ?? activeKind,
+          view?.draft.kind ?? activeKind,
           <ArtifactRenderer envelope={view?.draft} height={620} title={title} />
         )}
       </Box>

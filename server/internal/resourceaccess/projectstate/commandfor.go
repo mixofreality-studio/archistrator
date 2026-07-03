@@ -2,10 +2,10 @@ package projectstate
 
 import "strings"
 
-// ProfileSlug is the .claude/commands filename stem for an activity profile.
+// profileSlug is the .claude/commands filename stem for an activity profile.
 // For testing it encodes the variant (testing-plan/harness/perf/systemtest/qa);
 // all other types map 1:1 to their wire name.
-func ProfileSlug(t ActivityType, v TestingVariant) string {
+func profileSlug(t ActivityType, v TestingVariant) string {
 	switch t {
 	case ActivityTypeFrontend:
 		return "frontend"
@@ -41,5 +41,5 @@ func kebabPhase(p ActivityMethodPhase) string {
 // cell: "<profileSlug>-<phaseSlug>". It is total over exactly the phases
 // ProfileFor(t, v) emits, and matches a .claude/commands/<name>.md file.
 func CommandFor(t ActivityType, v TestingVariant, p ActivityMethodPhase) string {
-	return ProfileSlug(t, v) + "-" + kebabPhase(p)
+	return profileSlug(t, v) + "-" + kebabPhase(p)
 }

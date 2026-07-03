@@ -332,7 +332,6 @@ const (
 	MethodPhaseIntegration    ActivityMethodPhase = "integration"     // integration + convergence verification
 )
 
-
 // ActivityBuildStatus is the finer build-status lens (ux-mock parity) for activities
 // that have a corpus presence. Coarser eligible/blocked/not-started are DERIVED in the
 // webApp from the network + done-set and are not seeded here.

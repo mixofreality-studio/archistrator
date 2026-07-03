@@ -11,12 +11,12 @@ import (
 // conflates testing, infra, deployment, and documentation).
 func TestConstructionRowsToContract_ClassifiesFromWorkerClass(t *testing.T) {
 	rows := map[string]projectstate.ActivityConstructionStatus{
-		"N-IT":  {ActivityID: "N-IT"},                                                                                  // software-tester, noncoding → testing:systemTest
-		"N-SC":  {ActivityID: "N-SC", Produced: []projectstate.ProducedArtifact{{Kind: "service-contract"}}},          // built a contract → service
-		"N-CI":  {ActivityID: "N-CI"},                                                                                  // senior-developer, noncoding → deployment
-		"N-ADR": {ActivityID: "N-ADR"},                                                                                 // system-architect, noncoding → documentation
-		"C-BE":  {ActivityID: "C-BE"},                                                                                  // junior-developer, coding → service
-		"U-SPA-1": {ActivityID: "U-SPA-1"},                                                                             // U-SPA prefix → frontend
+		"N-IT":    {ActivityID: "N-IT"},                                                                        // software-tester, noncoding → testing:systemTest
+		"N-SC":    {ActivityID: "N-SC", Produced: []projectstate.ProducedArtifact{{Kind: "service-contract"}}}, // built a contract → service
+		"N-CI":    {ActivityID: "N-CI"},                                                                        // senior-developer, noncoding → deployment
+		"N-ADR":   {ActivityID: "N-ADR"},                                                                       // system-architect, noncoding → documentation
+		"C-BE":    {ActivityID: "C-BE"},                                                                        // junior-developer, coding → service
+		"U-SPA-1": {ActivityID: "U-SPA-1"},                                                                     // U-SPA prefix → frontend
 	}
 	meta := map[string]projectstate.ActivityItem{
 		"N-IT":    {Name: "N-IT", WorkerClass: "software-tester", Coding: false},

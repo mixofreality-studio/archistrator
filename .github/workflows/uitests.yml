@@ -162,6 +162,9 @@ jobs:
           # Local git project state: fresh empty bare repo (NOT the checked-out workspace)
           ARCHISTRATOR_PROJECT_STATE_GIT_LOCAL: 'true'
           ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL: 'file:///tmp/uitests-projectstate.git'
+          # Pure-UI specs don't exercise real construction dispatch — skip the
+          # hard-required construction creds (GitHub App id/key, artifact repo URL).
+          ARCHISTRATOR_CONSTRUCTION_DRYRUN: 'true'
 
       - name: Install webApp dependencies
         working-directory: webApp

@@ -43,7 +43,13 @@ export function LayeredStepEdge({
     borderRadius: 8,
     centerY,
   });
-  return <BaseEdge markerEnd={markerEnd} path={path} style={style} />;
+  return (
+    <BaseEdge
+      path={path}
+      {...(markerEnd !== undefined ? { markerEnd } : {})}
+      {...(style !== undefined ? { style } : {})}
+    />
+  );
 }
 
 interface RowLabelData {

@@ -87,8 +87,8 @@ export function FlowCanvas({
         nodesConnectable={false}
         nodesDraggable={false}
         proOptions={{ hideAttribution: true }}
-        onNodeMouseEnter={onNodeMouseEnter}
-        onNodeMouseLeave={onNodeMouseLeave}
+        {...(onNodeMouseEnter ? { onNodeMouseEnter } : {})}
+        {...(onNodeMouseLeave ? { onNodeMouseLeave } : {})}
       >
         <Background color={t.line} gap={22} size={1} />
         <Controls showInteractive={false} />

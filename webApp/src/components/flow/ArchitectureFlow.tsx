@@ -123,7 +123,7 @@ export function ArchitectureFlow({
       leaveTimer.current = null;
     }
   };
-  const enterNode = useCallback((n: { id: string; type?: string }): void => {
+  const enterNode = useCallback((n: { id: string; type?: string | undefined }): void => {
     cancelPendingLeave();
     if (n.type === 'c4') setHoveredId(n.id);
   }, []);
