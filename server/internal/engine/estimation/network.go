@@ -113,49 +113,13 @@ func (EstimationEngineImpl) ComputeNetwork(_ fweng.Context, activities ActivityL
 		milestoneIDs[m.Id] = struct{}{}
 	}
 
-	// The node universe = everything named in activity dependencies (activities + their
-	// predecessors) PLUS every milestone id and its fan-in, so a node with no declared
-	// row — or a milestone with no fan-out — still appears.
-	idSet := map[string]struct{}{}
-	for _, d := range deps {
-		idSet[d.Activity] = struct{}{}
-		for _, p := range d.DependsOn {
-			idSet[p] = struct{}{}
-		}
-	}
-	for _, m := range network.Milestones {
-		idSet[m.Id] = struct{}{}
-		for _, p := range m.DependsOn {
-			idSet[p] = struct{}{}
-		}
-	}
+	idSet := buildNodeUniverse(deps, network.Milestones)
 	if len(idSet) == 0 {
 		// No network authored yet — a normal empty result, not an error.
 		return NetworkSolution{Nodes: map[string]NetworkNode{}, Milestones: nil, Summary: NetworkSummary{}}, nil
 	}
 
-	predecessors := map[string][]string{}
-	successors := map[string][]string{}
-	for id := range idSet {
-		predecessors[id] = nil
-		successors[id] = nil
-	}
-	// Activity dependency edges.
-	for _, d := range deps {
-		for _, p := range d.DependsOn {
-			predecessors[d.Activity] = append(predecessors[d.Activity], p)
-			successors[p] = append(successors[p], d.Activity)
-		}
-	}
-	// Milestone fan-IN edges (a milestone's dependsOn). Milestone fan-OUT edges are
-	// already captured above as ordinary activity deps that name the milestone as a
-	// predecessor (e.g. a design root dependsOn M0).
-	for _, m := range network.Milestones {
-		for _, p := range m.DependsOn {
-			predecessors[m.Id] = append(predecessors[m.Id], p)
-			successors[p] = append(successors[p], m.Id)
-		}
-	}
+	predecessors, successors := buildAdjacency(idSet, deps, network.Milestones)
 
 	dur := func(id string) float64 {
 		if _, isMilestone := milestoneIDs[id]; isMilestone {
@@ -166,9 +130,83 @@ func (EstimationEngineImpl) ComputeNetwork(_ fweng.Context, activities ActivityL
 
 	order := topoOrder(idSet, predecessors)
 
-	// Forward pass: earliest start / finish.
-	earlyStart := map[string]float64{}
-	earlyFinish := map[string]float64{}
+	earlyStart, earlyFinish, projectDuration := forwardPass(order, predecessors, dur)
+	lateFinish, lateStart := backwardPass(order, successors, dur, projectDuration)
+	col := computeColumns(order, predecessors)
+
+	// Build the per-activity CPM facets (float test + free float + band), which also yields
+	// the activityOnCP map the milestone solver needs. Milestones are excluded here; their
+	// facets come from solveMilestonesOnCP (determining-predecessor rule) below.
+	nodes, activityOnCP := buildActivityNodes(order, milestoneIDs, earlyStart, earlyFinish, lateStart, lateFinish, col, successors, projectDuration)
+
+	// Milestone solutions: eventTime == the milestone node's earliestFinish (duration 0,
+	// already milestone-aware via the unified pass — chaining works). onCriticalPath uses
+	// the DETERMINING-PREDECESSOR rule (architect + team-lead, 2026-06-19), NOT the float
+	// test — a milestone MARKS reaching a point, so its criticality is the criticality of
+	// the achievement that gates it, not the slack of a dead-end sink.
+	milestones := solveMilestonesOnCP(network.Milestones, milestoneIDs, predecessors, earlyFinish, activityOnCP, projectDuration)
+
+	summary := summarizeActivityNodes(nodes, projectDuration)
+
+	if projectDuration < 0 {
+		return NetworkSolution{}, fweng.New(fweng.InternalInvariant,
+			"ComputeNetwork: computed negative project duration")
+	}
+
+	return NetworkSolution{Nodes: nodes, Milestones: milestones, Summary: summary}, nil
+}
+
+// buildNodeUniverse collects the node universe = everything named in activity dependencies
+// (activities + their predecessors) PLUS every milestone id and its fan-in, so a node with
+// no declared row — or a milestone with no fan-out — still appears.
+func buildNodeUniverse(deps []NetworkDependency, milestones []NetworkMilestone) map[string]struct{} {
+	idSet := map[string]struct{}{}
+	for _, d := range deps {
+		idSet[d.Activity] = struct{}{}
+		for _, p := range d.DependsOn {
+			idSet[p] = struct{}{}
+		}
+	}
+	for _, m := range milestones {
+		idSet[m.Id] = struct{}{}
+		for _, p := range m.DependsOn {
+			idSet[p] = struct{}{}
+		}
+	}
+	return idSet
+}
+
+// buildAdjacency builds the predecessor + successor edge maps over the node universe:
+// activity dependency edges plus milestone fan-IN edges (a milestone's dependsOn).
+// Milestone fan-OUT edges are already captured as ordinary activity deps that name the
+// milestone as a predecessor (e.g. a design root dependsOn M0).
+func buildAdjacency(idSet map[string]struct{}, deps []NetworkDependency, milestones []NetworkMilestone) (predecessors, successors map[string][]string) {
+	predecessors = map[string][]string{}
+	successors = map[string][]string{}
+	for id := range idSet {
+		predecessors[id] = nil
+		successors[id] = nil
+	}
+	for _, d := range deps {
+		for _, p := range d.DependsOn {
+			predecessors[d.Activity] = append(predecessors[d.Activity], p)
+			successors[p] = append(successors[p], d.Activity)
+		}
+	}
+	for _, m := range milestones {
+		for _, p := range m.DependsOn {
+			predecessors[m.Id] = append(predecessors[m.Id], p)
+			successors[p] = append(successors[p], m.Id)
+		}
+	}
+	return predecessors, successors
+}
+
+// forwardPass computes earliest start / finish per node and the project duration (the
+// longest earliestFinish over all nodes).
+func forwardPass(order []string, predecessors map[string][]string, dur func(string) float64) (earlyStart, earlyFinish map[string]float64, projectDuration float64) {
+	earlyStart = map[string]float64{}
+	earlyFinish = map[string]float64{}
 	for _, id := range order {
 		es := 0.0
 		for _, p := range predecessors[id] {
@@ -179,16 +217,18 @@ func (EstimationEngineImpl) ComputeNetwork(_ fweng.Context, activities ActivityL
 		earlyStart[id] = es
 		earlyFinish[id] = es + dur(id)
 	}
-	projectDuration := 0.0
 	for _, ef := range earlyFinish {
 		if ef > projectDuration {
 			projectDuration = ef
 		}
 	}
+	return earlyStart, earlyFinish, projectDuration
+}
 
-	// Backward pass: latest finish / start.
-	lateFinish := map[string]float64{}
-	lateStart := map[string]float64{}
+// backwardPass computes latest finish / start per node given the project duration.
+func backwardPass(order []string, successors map[string][]string, dur func(string) float64, projectDuration float64) (lateFinish, lateStart map[string]float64) {
+	lateFinish = map[string]float64{}
+	lateStart = map[string]float64{}
 	for i := len(order) - 1; i >= 0; i-- {
 		id := order[i]
 		succ := successors[id]
@@ -208,8 +248,12 @@ func (EstimationEngineImpl) ComputeNetwork(_ fweng.Context, activities ActivityL
 		lateFinish[id] = lf
 		lateStart[id] = lf - dur(id)
 	}
+	return lateFinish, lateStart
+}
 
-	// Column = longest-path depth from a source (topological layering for the swimlanes).
+// computeColumns assigns each node its longest-path depth from a source (topological
+// layering for the swimlanes).
+func computeColumns(order []string, predecessors map[string][]string) map[string]int64 {
 	col := map[string]int64{}
 	for _, id := range order {
 		var c int64
@@ -220,55 +264,57 @@ func (EstimationEngineImpl) ComputeNetwork(_ fweng.Context, activities ActivityL
 		}
 		col[id] = c
 	}
+	return col
+}
 
-	// onCriticalPath for ACTIVITIES — standard float test: total float ≈ 0 (textbook CPM).
-	// (floatEpsilon absorbs float64 rounding on the LS−ES subtraction.) Milestones do NOT
-	// use this — see solveMilestonesOnCP for the determining-predecessor rule.
-	onCriticalPath := func(totalFloat float64) bool { return totalFloat <= floatEpsilon }
+// freeFloatOf computes a node's free float: min over successors of
+// (succ.earliestStart - this.earliestFinish); a sink's free float = projectDuration -
+// this.earliestFinish. Clamped to [0, total] so it never exceeds total float (a guard the
+// SPA relies on for the band colouring).
+func freeFloatOf(ef, total float64, successors []string, earlyStart map[string]float64, projectDuration float64) float64 {
+	free := projectDuration - ef
+	if len(successors) > 0 {
+		free = projectDuration
+		first := true
+		for _, s := range successors {
+			slack := earlyStart[s] - ef
+			if first || slack < free {
+				free = slack
+				first = false
+			}
+		}
+	}
+	if free < 0 {
+		free = 0
+	}
+	if free > total {
+		free = total
+	}
+	return free
+}
 
-	// Free float = min over successors of (succ.earliestStart - this.earliestFinish);
-	// a sink's free float = projectDuration - this.earliestFinish. Free float never
-	// exceeds total float (a guard the SPA relies on for the band colouring).
-	//
-	// Build per-node CPM facets for EVERY node (activities + milestones), then split:
-	// activity nodes → the Nodes map; milestone nodes → the milestone solutions. Both flow
-	// through the SAME forward/backward pass (so milestone eventTime + milestone→milestone
-	// chaining are correct), but a milestone is EXCLUDED from the Nodes map, the summary CP
-	// count, and risk (it carries no effort/bucket — EstimateForOption never sees it).
-	// Activity on-CP comes from the float test here; MILESTONE on-CP is computed separately
-	// by solveMilestonesOnCP (determining-predecessor rule), not from this float value.
+// buildActivityNodes builds the per-activity CPM node facets and the activityOnCP map. Both
+// activities and milestones flow through the same forward/backward pass, but milestones are
+// EXCLUDED from the Nodes map (they carry no effort/bucket and risk never sees them);
+// milestone on-CP is computed separately by solveMilestonesOnCP. Activity on-CP is the
+// standard float test — total float ≈ 0 (textbook CPM); floatEpsilon absorbs float64
+// rounding on the LS−ES subtraction.
+func buildActivityNodes(order []string, milestoneIDs map[string]struct{}, earlyStart, earlyFinish, lateStart, lateFinish map[string]float64, col map[string]int64, successors map[string][]string, projectDuration float64) (map[string]NetworkNode, map[string]bool) {
 	nodes := make(map[string]NetworkNode, len(order))
 	activityOnCP := map[string]bool{}
 	for _, id := range order {
 		es := earlyStart[id]
 		ls := lateStart[id]
 		total := ls - es
-		onCP := onCriticalPath(total)
+		onCP := total <= floatEpsilon
 
 		if _, isMilestone := milestoneIDs[id]; isMilestone {
-			continue // milestones are not activity nodes; their facets come below
+			continue // milestones are not activity nodes; their facets come from solveMilestonesOnCP
 		}
 		activityOnCP[id] = onCP
 
 		ef := earlyFinish[id]
-		free := projectDuration - ef
-		if succ := successors[id]; len(succ) > 0 {
-			free = projectDuration
-			first := true
-			for _, s := range succ {
-				slack := earlyStart[s] - ef
-				if first || slack < free {
-					free = slack
-					first = false
-				}
-			}
-		}
-		if free < 0 {
-			free = 0
-		}
-		if free > total {
-			free = total
-		}
+		free := freeFloatOf(ef, total, successors[id], earlyStart, projectDuration)
 
 		nodes[id] = NetworkNode{
 			EarliestStart:  es,
@@ -283,17 +329,14 @@ func (EstimationEngineImpl) ComputeNetwork(_ fweng.Context, activities ActivityL
 			Column:         col[id],
 		}
 	}
+	return nodes, activityOnCP
+}
 
-	// Milestone solutions: eventTime == the milestone node's earliestFinish (duration 0,
-	// already milestone-aware via the unified pass — chaining works). onCriticalPath uses
-	// the DETERMINING-PREDECESSOR rule (architect + team-lead, 2026-06-19), NOT the float
-	// test — a milestone MARKS reaching a point, so its criticality is the criticality of
-	// the achievement that gates it, not the slack of a dead-end sink.
-	milestones := solveMilestonesOnCP(network.Milestones, milestoneIDs, predecessors, earlyFinish, activityOnCP, projectDuration)
-
-	// Summary roll-up over the ACTIVITY nodes (milestones excluded — they are events,
-	// not work). criticalPathDays == projectDuration (the longest path IS the CP length;
-	// it is NOT the sum of CP-activity durations, which double-counts parallel branches).
+// summarizeActivityNodes rolls up the project-level CPM summary over the ACTIVITY nodes
+// (milestones excluded — they are events, not work). criticalPathDays == projectDuration
+// (the longest path IS the CP length; it is NOT the sum of CP-activity durations, which
+// double-counts parallel branches).
+func summarizeActivityNodes(nodes map[string]NetworkNode, projectDuration float64) NetworkSummary {
 	var cpCount int64
 	var nearCount int64
 	maxFloat := 0.0
@@ -308,21 +351,13 @@ func (EstimationEngineImpl) ComputeNetwork(_ fweng.Context, activities ActivityL
 			maxFloat = n.TotalFloat
 		}
 	}
-
-	summary := NetworkSummary{
+	return NetworkSummary{
 		TotalDurationDays:         projectDuration,
 		CriticalPathActivityCount: cpCount,
 		CriticalPathDays:          projectDuration,
 		MaxFloat:                  maxFloat,
 		NearCriticalCount:         nearCount,
 	}
-
-	if projectDuration < 0 {
-		return NetworkSolution{}, fweng.New(fweng.InternalInvariant,
-			"ComputeNetwork: computed negative project duration")
-	}
-
-	return NetworkSolution{Nodes: nodes, Milestones: milestones, Summary: summary}, nil
 }
 
 // solveMilestonesOnCP computes each milestone's eventTime + onCriticalPath via the
@@ -363,58 +398,6 @@ func solveMilestonesOnCP(
 
 	solved := map[string]NetworkMilestoneSolution{}
 
-	// onCPOf returns a predecessor's on-CP: an activity's float-based on-CP, or a
-	// milestone-predecessor's already-solved on-CP (false if not yet solved — the
-	// dependency-order pass below ensures it is, except across an authoring cycle).
-	onCPOf := func(id string) bool {
-		if _, isMilestone := milestoneIDs[id]; isMilestone {
-			return solved[id].OnCriticalPath
-		}
-		return activityOnCP[id]
-	}
-
-	solveOne := func(m NetworkMilestone) NetworkMilestoneSolution {
-		event := earlyFinish[m.Id] // milestone-aware EF (chaining already folded in)
-
-		// ROOT convention: no predecessors ⇒ the project-start gate, on-CP.
-		if len(m.DependsOn) == 0 {
-			return NetworkMilestoneSolution{ID: m.Id, OnCriticalPath: true, EventTime: event}
-		}
-
-		// Find the DETERMINING predecessor: max finish time; on a tie prefer an on-CP one.
-		var detID string
-		detFinish := -1.0
-		detOnCP := false
-		for _, p := range m.DependsOn {
-			var finish float64
-			if _, isMilestone := milestoneIDs[p]; isMilestone {
-				finish = solved[p].EventTime
-			} else {
-				finish = earlyFinish[p]
-			}
-			pOnCP := onCPOf(p)
-			if finish > detFinish || (finish == detFinish && pOnCP && !detOnCP) {
-				detID = p
-				detFinish = finish
-				detOnCP = pOnCP
-			}
-		}
-
-		onCP := detOnCP
-
-		// POST-TERMINAL convention: a frontier milestone whose determining predecessor is
-		// itself a MILESTONE is a post-v1 marker (e.g. N-DOGFOOD → M5) ⇒ force off-CP. The
-		// terminal release milestone is gated by an ACTIVITY at the frontier, so it is
-		// unaffected and stays on-CP.
-		if event >= projectDuration-floatEpsilon {
-			if _, detIsMilestone := milestoneIDs[detID]; detIsMilestone {
-				onCP = false
-			}
-		}
-
-		return NetworkMilestoneSolution{ID: m.Id, OnCriticalPath: onCP, EventTime: event}
-	}
-
 	// Resolve in dependency order (fixpoint): a milestone whose milestone-predecessors are
 	// all solved is resolvable; iterate until no progress, then force the remainder (breaks
 	// any authoring cycle deterministically).
@@ -424,17 +407,8 @@ func solveMilestonesOnCP(
 		progressed := false
 		var still []NetworkMilestone
 		for _, m := range pending {
-			ready := true
-			for _, p := range m.DependsOn {
-				if _, isMilestone := milestoneIDs[p]; isMilestone {
-					if _, done := solved[p]; !done {
-						ready = false
-						break
-					}
-				}
-			}
-			if ready {
-				solved[m.Id] = solveOne(m)
+			if milestoneReady(m, milestoneIDs, solved) {
+				solved[m.Id] = solveMilestone(m, milestoneIDs, earlyFinish, activityOnCP, solved, projectDuration)
 				progressed = true
 			} else {
 				still = append(still, m)
@@ -443,7 +417,7 @@ func solveMilestonesOnCP(
 		if !progressed {
 			for _, m := range still {
 				if _, done := solved[m.Id]; !done {
-					solved[m.Id] = solveOne(m)
+					solved[m.Id] = solveMilestone(m, milestoneIDs, earlyFinish, activityOnCP, solved, projectDuration)
 				}
 			}
 			break
@@ -456,6 +430,75 @@ func solveMilestonesOnCP(
 		out = append(out, solved[m.Id])
 	}
 	return out
+}
+
+// milestoneReady reports whether all of a milestone's MILESTONE-predecessors are already
+// solved (activity predecessors are always available from the forward pass), so it can be
+// resolved in the dependency-order fixpoint.
+func milestoneReady(m NetworkMilestone, milestoneIDs map[string]struct{}, solved map[string]NetworkMilestoneSolution) bool {
+	for _, p := range m.DependsOn {
+		if _, isMilestone := milestoneIDs[p]; isMilestone {
+			if _, done := solved[p]; !done {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// milestonePredecessorOnCP returns a predecessor's on-CP: an activity's float-based on-CP,
+// or a milestone-predecessor's already-solved on-CP (false if not yet solved — the
+// dependency-order pass ensures it is, except across an authoring cycle).
+func milestonePredecessorOnCP(id string, milestoneIDs map[string]struct{}, solved map[string]NetworkMilestoneSolution, activityOnCP map[string]bool) bool {
+	if _, isMilestone := milestoneIDs[id]; isMilestone {
+		return solved[id].OnCriticalPath
+	}
+	return activityOnCP[id]
+}
+
+// solveMilestone computes one milestone's event time + on-CP via the determining-predecessor
+// rule. eventTime == the milestone node's earliestFinish (milestone-aware EF, chaining
+// already folded in). ROOT (no predecessors) ⇒ on-CP.
+func solveMilestone(m NetworkMilestone, milestoneIDs map[string]struct{}, earlyFinish map[string]float64, activityOnCP map[string]bool, solved map[string]NetworkMilestoneSolution, projectDuration float64) NetworkMilestoneSolution {
+	event := earlyFinish[m.Id] // milestone-aware EF (chaining already folded in)
+
+	// ROOT convention: no predecessors ⇒ the project-start gate, on-CP.
+	if len(m.DependsOn) == 0 {
+		return NetworkMilestoneSolution{ID: m.Id, OnCriticalPath: true, EventTime: event}
+	}
+
+	// Find the DETERMINING predecessor: max finish time; on a tie prefer an on-CP one.
+	var detID string
+	detFinish := -1.0
+	detOnCP := false
+	for _, p := range m.DependsOn {
+		var finish float64
+		if _, isMilestone := milestoneIDs[p]; isMilestone {
+			finish = solved[p].EventTime
+		} else {
+			finish = earlyFinish[p]
+		}
+		pOnCP := milestonePredecessorOnCP(p, milestoneIDs, solved, activityOnCP)
+		if finish > detFinish || (finish == detFinish && pOnCP && !detOnCP) {
+			detID = p
+			detFinish = finish
+			detOnCP = pOnCP
+		}
+	}
+
+	onCP := detOnCP
+
+	// POST-TERMINAL convention: a frontier milestone whose determining predecessor is
+	// itself a MILESTONE is a post-v1 marker (e.g. N-DOGFOOD → M5) ⇒ force off-CP. The
+	// terminal release milestone is gated by an ACTIVITY at the frontier, so it is
+	// unaffected and stays on-CP.
+	if event >= projectDuration-floatEpsilon {
+		if _, detIsMilestone := milestoneIDs[detID]; detIsMilestone {
+			onCP = false
+		}
+	}
+
+	return NetworkMilestoneSolution{ID: m.Id, OnCriticalPath: onCP, EventTime: event}
 }
 
 // topoOrder is Kahn's topological order over the predecessor map, deterministic via a

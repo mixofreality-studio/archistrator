@@ -300,6 +300,20 @@ const (
 	coAuthorWithdrawn
 )
 
+// coAuthorStep is the control-flow verdict a co-author loop helper returns to the
+// CoAuthorPhase2ArtifactWorkflow driver, so the workflow-command sequence stays
+// byte-for-byte identical to the pre-extraction inline body:
+//   - coAuthorProceed  → fall through to the next block this iteration
+//   - coAuthorContinue → restart the loop (redraft)
+//   - coAuthorReturn   → terminate the workflow with the returned outcome
+type coAuthorStep int
+
+const (
+	coAuthorProceed coAuthorStep = iota
+	coAuthorContinue
+	coAuthorReturn
+)
+
 // reviewDecisionSignal is the reviewDecision signal payload (contract §6.5).
 type reviewDecisionSignal struct {
 	Decision ReviewDecision
@@ -315,8 +329,6 @@ type redraftSignal struct {
 }
 
 func (wf *workflows) CoAuthorPhase2ArtifactWorkflow(ctx workflow.Context, in coAuthorInput) (coAuthorOutcome, error) {
-	logger := workflow.GetLogger(ctx)
-
 	// The SDP review is NOT co-authored here — it is assembled by
 	// AssembleSDPReviewWorkflow (contract §2.1 rejects KindSdpReview at the façade,
 	// belt-and-suspenders here).
@@ -369,197 +381,276 @@ func (wf *workflows) CoAuthorPhase2ArtifactWorkflow(ctx workflow.Context, in coA
 
 	for {
 		// --- DRAFT round-trip: dispatch -> observe -> read-back (agentic pivot) ---
-		// The Manager composes the Phase-2 architect-role prompt IN-MEMORY (never
-		// persisted), dispatches a claude-code-action DESIGN job, observes it to a typed
-		// terminal phase, and reads back the typed model the Action committed. On a
-		// terminal FAILURE phase the session lands in StageDraftFailed and suspends at the
-		// human gate (the anti-wedge rule, §0.5.4) — never a perpetual Drafting.
-		var draft projectstate.ArtifactModel
-		state.stage = stageForAttempt(redraftCount)
-
-		// The per-attempt SESSION BRANCH the Action drafts + commits + opens its PR on
-		// (I-DESIGN-DISPATCH §2b). Inert (just a string) when the rail is dormant.
-		sessionBranch := designBranch(in.ProjectID, in.ArtifactKind, branchAttempt)
-
-		// Rail (dispatch-time half): mint the credential + ensure the session branch
-		// exists BEFORE the Action drafts on it. A dormant rail returns a disabled session
-		// and the spine runs unchanged (read-back/stage on main, no branch/PR ops).
-		gf, gerr := wf.beginSession(ctx, in.ProjectID, sessionBranch)
-		if gerr != nil {
-			return coAuthorUnknown, gerr
-		}
-
-		draftPrompt := architectDraftPrompt(toPSKind(in.ArtifactKind), proj, feedback)
-		draftObs, derr := wf.dispatchAndObserve(ctx, dispatchDesignJobArgs{
-			ProjectID:     in.ProjectID,
-			ArtifactKind:  in.ArtifactKind,
-			Prompt:        draftPrompt,
-			TargetBranch:  sessionBranch,
-			PriorStateRef: "",
-			// Per-project-design-dispatch: dispatch to the per-project repo + aiarch-design.yml
-			// (the rail's repoRef). "" when the rail is dormant ⇒ RA falls back to construction.
-			TargetRepo: gf.dispatchRepo(),
-		})
-		if derr != nil {
-			// A TRANSIENT dispatch/observe fault that exhausted its retry budget is an
-			// infrastructure escalation (not a ran-but-failed job): close the workflow.
-			return coAuthorUnknown, derr
-		}
-		if draftObs.Phase != pipelineSucceeded {
-			// The job RAN and FAILED (drafting failed or the required CI validation check
-			// went red) — a terminal-at-the-Manager fault. Do NOT crash the workflow and do
-			// NOT loop: land the session in the human-visible StageDraftFailed and suspend
-			// on the gate awaiting Retry (redraft/Reject) or Withdraw (§0.5.4 — the
-			// anti-wedge rule).
-			logger.Warn("Phase-2 design draft job reached a terminal failure phase; entering StageDraftFailed", "diagnostic", draftObs.Diagnostic)
-			outcome, retry, recErr := wf.awaitDraftFailedRecovery(ctx, in.ProjectID, in.ArtifactKind, headVersion, draftObs.Diagnostic, state, &feedback)
-			if recErr != nil {
-				return coAuthorUnknown, recErr
-			}
-			if !retry {
-				return outcome, nil
-			}
-			redraftCount++
-			continue
-		}
-		// Rail: open the PR (head=sessionBranch, base=main) now the draft is green.
-		// Idempotent on head — if the Action already opened it the rail returns the
-		// existing handle (authoritative for the merge step).
-		if err := wf.openPR(ctx, &gf, in.ArtifactKind); err != nil {
+		// coAuthorDraftRound composes the Phase-2 architect prompt IN-MEMORY, dispatches +
+		// observes the DESIGN job, opens the PR, reads back the typed model, and stages it
+		// for review. On a terminal FAILURE phase it lands the session in StageDraftFailed
+		// and suspends at the human gate (the anti-wedge rule, §0.5.4) — never a perpetual
+		// Drafting. The begun git session is written through &gf for the approve/merge step.
+		var gf gitSession
+		step, outcome, err := wf.coAuthorDraftRound(ctx, in, proj, &feedback, &headVersion, &redraftCount, branchAttempt, state, &gf)
+		if err != nil {
 			return coAuthorUnknown, err
 		}
-		// READ-BACK on the SESSION BRANCH (§2a): the Action committed the typed Phase-2
-		// JSON on the session branch; read it back as the not-yet-merged draft. A dormant
-		// rail reads main (readBackBranch() == "").
-		model, rbErr := wf.readBackCommittedModelOn(ctx, in.ProjectID, in.ArtifactKind, gf.readBackBranch())
-		if rbErr != nil {
-			return coAuthorUnknown, rbErr
+		if step == coAuthorReturn {
+			return outcome, nil
 		}
-		draft = model
-		state.findings = nil
-
-		// Track the staged typed draft for the query.
-		state.draft = draft
-
-		// Step 4: stageArtifactForReview, with the workflow-level Conflict loop.
-		draftEnvelope, encErr := encodeModel(draft)
-		if encErr != nil {
-			return coAuthorUnknown, fwmanager.MapError(encErr)
+		if step == coAuthorContinue {
+			continue
 		}
-		{
-			newVersion, err := wf.applyRecovering(ctx, in.ProjectID, headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-				c := mutateOpts(ctx)
-				var v projectstate.Version
-				e := workflow.ExecuteActivity(c, wf.StageArtifactForReviewActivity, stageArtifactForReviewArgs{
-					ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, Model: draftEnvelope, Branch: gf.readBackBranch(),
-				}).Get(ctx, &v)
-				return v, e
-			})
-			if err != nil {
-				return coAuthorUnknown, err
-			}
-			headVersion = newVersion
-		}
-		state.stage = StageAwaitingReview
 
 		// Step 6: awaitSignal("reviewDecision") — in-workflow primitive; suspend.
 		var sig reviewDecisionSignal
 		workflow.GetSignalChannel(ctx, signalReviewDecision).Receive(ctx, &sig)
 
 		// Step 7: branch on the architect's decision (the commit authority).
-		switch sig.Decision {
-		case ReviewApprove:
-			// Rail (approve-time half, §2b): merge GUARD (CI must be green) + the
-			// architecture +1 relay + the App-mediated merge of sessionBranch → main. A
-			// dormant rail returns merged=true with no rail ops (the non-git spine).
-			merged, mErr := wf.mergeOnApprove(ctx, &gf, in.ArtifactKind)
-			if mErr != nil {
-				return coAuthorUnknown, mErr
-			}
-			if !merged {
-				// The merge guard was NOT green (the required CI check is red on the PR): do
-				// NOT merge/commit. Route to the SAME StageDraftFailed recovery gate as a draft
-				// failure (the anti-wedge rule) awaiting Retry-via-Reject / Withdraw.
-				logger.Warn("Phase-2 design PR not mergeable at approve (CI not green); entering StageDraftFailed")
-				outcome, retry, recErr := wf.awaitDraftFailedRecovery(ctx, in.ProjectID, in.ArtifactKind, headVersion, "the design PR is not green — its required CI check has not passed", state, &feedback)
-				if recErr != nil {
-					return coAuthorUnknown, recErr
-				}
-				if !retry {
-					return outcome, nil
-				}
-				branchAttempt++
-				redraftCount++
-				continue
-			}
-			// After merge the draft lives on main; commitArtifact lands on main. Re-seed
-			// headVersion from main so the commit's CAS starts at main's tip. A dormant rail
-			// leaves headVersion as-is (it already tracked main).
-			if gf.enabled {
-				if mp, rerr := wf.readProject(ctx, in.ProjectID); rerr == nil {
-					headVersion = mp.Version
-				} else if !isReadNotFound(rerr) {
-					return coAuthorUnknown, rerr
-				}
-			}
-			if _, err := wf.applyRecovering(ctx, in.ProjectID, headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-				c := mutateOpts(ctx)
-				var v projectstate.Version
-				e := workflow.ExecuteActivity(c, wf.CommitArtifactActivity, mutateArtifactArgs{
-					ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, Kind: toPSKind(in.ArtifactKind),
-				}).Get(ctx, &v)
-				return v, e
-			}); err != nil {
-				return coAuthorUnknown, err
-			}
-			state.stage = StageCommitted
-			return coAuthorApproved, nil
+		step, outcome, err = wf.coAuthorApplyDecision(ctx, in, sig, &gf, &headVersion, &redraftCount, &branchAttempt, &feedback, state)
+		if err != nil {
+			return coAuthorUnknown, err
+		}
+		if step == coAuthorReturn {
+			return outcome, nil
+		}
+		// coAuthorApplyDecision only ever returns coAuthorReturn or coAuthorContinue;
+		// either way the loop restarts here.
+	}
+}
 
-		case ReviewReject:
-			notes := signalNotes(sig.Feedback)
-			newVersion, err := wf.applyRecovering(ctx, in.ProjectID, headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-				c := mutateOpts(ctx)
-				var v projectstate.Version
-				e := workflow.ExecuteActivity(c, wf.RejectArtifactActivity, mutateArtifactArgs{
-					ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, Kind: toPSKind(in.ArtifactKind), Notes: notes,
-				}).Get(ctx, &v)
-				return v, e
-			})
-			if err != nil {
-				return coAuthorUnknown, err
-			}
-			headVersion = newVersion
-			// A fresh REJECT needs a NEW session branch + PR next attempt (the rejected PR
-			// cannot be reused). Bump the branch attempt; inert when the rail is dormant.
-			branchAttempt++
-			feedback = notes
-			state.stage = StageRedrafting
-			continue
+// coAuthorDraftRound runs one DRAFT round-trip of the co-author loop: it composes the
+// architect prompt in-memory, dispatches + observes the design job, opens the PR, reads
+// the committed model back off the session branch, and stages it for review. On a
+// terminal job failure it lands the session in StageDraftFailed and suspends at the human
+// gate (§0.5.4). The begun git session is written through *gf for the approve/merge step.
+// The returned coAuthorStep tells the driver how to proceed (Proceed → await review;
+// Continue → redraft; Return → terminate with the outcome). The sequence of workflow
+// commands is identical to the pre-extraction inline body.
+func (wf *workflows) coAuthorDraftRound(
+	ctx workflow.Context,
+	in coAuthorInput,
+	proj projectstate.Project,
+	feedback *string,
+	headVersion *projectstate.Version,
+	redraftCount *int,
+	branchAttempt int,
+	state *coAuthorState,
+	gf *gitSession,
+) (coAuthorStep, coAuthorOutcome, error) {
+	logger := workflow.GetLogger(ctx)
 
-		case ReviewWithdraw:
-			notes := signalNotes(sig.Feedback)
-			if _, err := wf.applyRecovering(ctx, in.ProjectID, headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-				c := mutateOpts(ctx)
-				var v projectstate.Version
-				e := workflow.ExecuteActivity(c, wf.WithdrawArtifactActivity, mutateArtifactArgs{
-					ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, Kind: toPSKind(in.ArtifactKind), Notes: notes,
-				}).Get(ctx, &v)
-				return v, e
-			}); err != nil {
-				return coAuthorUnknown, err
-			}
-			state.stage = StageWithdrawn
-			return coAuthorWithdrawn, nil
+	var draft projectstate.ArtifactModel
+	state.stage = stageForAttempt(*redraftCount)
 
-		case ReviewDecisionUnknown:
-			// The zero value: no legitimate signal carries it. Same terminal
-			// rejection as the default case below.
-			return coAuthorUnknown, temporal.NewNonRetryableApplicationError("unknown review decision", "UnknownReviewDecision", nil)
+	// The per-attempt SESSION BRANCH the Action drafts + commits + opens its PR on
+	// (I-DESIGN-DISPATCH §2b). Inert (just a string) when the rail is dormant.
+	sessionBranch := designBranch(in.ProjectID, in.ArtifactKind, branchAttempt)
 
-		default:
-			return coAuthorUnknown, temporal.NewNonRetryableApplicationError("unknown review decision", "UnknownReviewDecision", nil)
+	// Rail (dispatch-time half): mint the credential + ensure the session branch
+	// exists BEFORE the Action drafts on it. A dormant rail returns a disabled session
+	// and the spine runs unchanged (read-back/stage on main, no branch/PR ops).
+	begun, gerr := wf.beginSession(ctx, in.ProjectID, sessionBranch)
+	if gerr != nil {
+		return coAuthorProceed, coAuthorUnknown, gerr
+	}
+	*gf = begun
+
+	draftPrompt := architectDraftPrompt(toPSKind(in.ArtifactKind), proj, *feedback)
+	draftObs, derr := wf.dispatchAndObserve(ctx, dispatchDesignJobArgs{
+		ProjectID:     in.ProjectID,
+		ArtifactKind:  in.ArtifactKind,
+		Prompt:        draftPrompt,
+		TargetBranch:  sessionBranch,
+		PriorStateRef: "",
+		// Per-project-design-dispatch: dispatch to the per-project repo + aiarch-design.yml
+		// (the rail's repoRef). "" when the rail is dormant ⇒ RA falls back to construction.
+		TargetRepo: gf.dispatchRepo(),
+	})
+	if derr != nil {
+		// A TRANSIENT dispatch/observe fault that exhausted its retry budget is an
+		// infrastructure escalation (not a ran-but-failed job): close the workflow.
+		return coAuthorProceed, coAuthorUnknown, derr
+	}
+	if draftObs.Phase != pipelineSucceeded {
+		// The job RAN and FAILED (drafting failed or the required CI validation check
+		// went red) — a terminal-at-the-Manager fault. Do NOT crash the workflow and do
+		// NOT loop: land the session in the human-visible StageDraftFailed and suspend
+		// on the gate awaiting Retry (redraft/Reject) or Withdraw (§0.5.4 — the
+		// anti-wedge rule).
+		logger.Warn("Phase-2 design draft job reached a terminal failure phase; entering StageDraftFailed", "diagnostic", draftObs.Diagnostic)
+		outcome, retry, recErr := wf.awaitDraftFailedRecovery(ctx, in.ProjectID, in.ArtifactKind, *headVersion, draftObs.Diagnostic, state, feedback)
+		if recErr != nil {
+			return coAuthorProceed, coAuthorUnknown, recErr
+		}
+		if !retry {
+			return coAuthorReturn, outcome, nil
+		}
+		*redraftCount++
+		return coAuthorContinue, coAuthorUnknown, nil
+	}
+	// Rail: open the PR (head=sessionBranch, base=main) now the draft is green.
+	// Idempotent on head — if the Action already opened it the rail returns the
+	// existing handle (authoritative for the merge step).
+	if err := wf.openPR(ctx, gf, in.ArtifactKind); err != nil {
+		return coAuthorProceed, coAuthorUnknown, err
+	}
+	// READ-BACK on the SESSION BRANCH (§2a): the Action committed the typed Phase-2
+	// JSON on the session branch; read it back as the not-yet-merged draft. A dormant
+	// rail reads main (readBackBranch() == "").
+	model, rbErr := wf.readBackCommittedModelOn(ctx, in.ProjectID, in.ArtifactKind, gf.readBackBranch())
+	if rbErr != nil {
+		return coAuthorProceed, coAuthorUnknown, rbErr
+	}
+	draft = model
+	state.findings = nil
+
+	// Track the staged typed draft for the query.
+	state.draft = draft
+
+	// Step 4: stageArtifactForReview, with the workflow-level Conflict loop.
+	draftEnvelope, encErr := encodeModel(draft)
+	if encErr != nil {
+		return coAuthorProceed, coAuthorUnknown, fwmanager.MapError(encErr)
+	}
+	newVersion, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		c := mutateOpts(ctx)
+		var v projectstate.Version
+		e := workflow.ExecuteActivity(c, wf.StageArtifactForReviewActivity, stageArtifactForReviewArgs{
+			ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, Model: draftEnvelope, Branch: gf.readBackBranch(),
+		}).Get(ctx, &v)
+		return v, e
+	})
+	if err != nil {
+		return coAuthorProceed, coAuthorUnknown, err
+	}
+	*headVersion = newVersion
+	state.stage = StageAwaitingReview
+	return coAuthorProceed, coAuthorUnknown, nil
+}
+
+// coAuthorApplyDecision executes Step 7 — branching on the architect's reviewDecision.
+// It is the pre-extraction switch verbatim (the approve arm delegated to coAuthorApprove);
+// the workflow-command order is unchanged. It returns coAuthorReturn or coAuthorContinue.
+func (wf *workflows) coAuthorApplyDecision(
+	ctx workflow.Context,
+	in coAuthorInput,
+	sig reviewDecisionSignal,
+	gf *gitSession,
+	headVersion *projectstate.Version,
+	redraftCount *int,
+	branchAttempt *int,
+	feedback *string,
+	state *coAuthorState,
+) (coAuthorStep, coAuthorOutcome, error) {
+	switch sig.Decision {
+	case ReviewApprove:
+		return wf.coAuthorApprove(ctx, in, gf, headVersion, redraftCount, branchAttempt, feedback, state)
+
+	case ReviewReject:
+		notes := signalNotes(sig.Feedback)
+		newVersion, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+			c := mutateOpts(ctx)
+			var v projectstate.Version
+			e := workflow.ExecuteActivity(c, wf.RejectArtifactActivity, mutateArtifactArgs{
+				ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, Kind: toPSKind(in.ArtifactKind), Notes: notes,
+			}).Get(ctx, &v)
+			return v, e
+		})
+		if err != nil {
+			return coAuthorProceed, coAuthorUnknown, err
+		}
+		*headVersion = newVersion
+		// A fresh REJECT needs a NEW session branch + PR next attempt (the rejected PR
+		// cannot be reused). Bump the branch attempt; inert when the rail is dormant.
+		*branchAttempt++
+		*feedback = notes
+		state.stage = StageRedrafting
+		return coAuthorContinue, coAuthorUnknown, nil
+
+	case ReviewWithdraw:
+		notes := signalNotes(sig.Feedback)
+		if _, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+			c := mutateOpts(ctx)
+			var v projectstate.Version
+			e := workflow.ExecuteActivity(c, wf.WithdrawArtifactActivity, mutateArtifactArgs{
+				ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, Kind: toPSKind(in.ArtifactKind), Notes: notes,
+			}).Get(ctx, &v)
+			return v, e
+		}); err != nil {
+			return coAuthorProceed, coAuthorUnknown, err
+		}
+		state.stage = StageWithdrawn
+		return coAuthorReturn, coAuthorWithdrawn, nil
+
+	case ReviewDecisionUnknown:
+		// The zero value: no legitimate signal carries it. Same terminal
+		// rejection as the default case below.
+		return coAuthorProceed, coAuthorUnknown, temporal.NewNonRetryableApplicationError("unknown review decision", "UnknownReviewDecision", nil)
+
+	default:
+		return coAuthorProceed, coAuthorUnknown, temporal.NewNonRetryableApplicationError("unknown review decision", "UnknownReviewDecision", nil)
+	}
+}
+
+// coAuthorApprove handles the ReviewApprove arm: the merge GUARD (CI must be green) + the
+// architecture +1 relay + the App-mediated merge of the session branch → main, then
+// commitArtifact on main. On a not-green merge guard it routes to the SAME StageDraftFailed
+// recovery gate as a draft failure (the anti-wedge rule). Command order is identical to
+// the pre-extraction inline arm.
+func (wf *workflows) coAuthorApprove(
+	ctx workflow.Context,
+	in coAuthorInput,
+	gf *gitSession,
+	headVersion *projectstate.Version,
+	redraftCount *int,
+	branchAttempt *int,
+	feedback *string,
+	state *coAuthorState,
+) (coAuthorStep, coAuthorOutcome, error) {
+	logger := workflow.GetLogger(ctx)
+
+	// Rail (approve-time half, §2b): merge GUARD (CI must be green) + the architecture
+	// +1 relay + the App-mediated merge of sessionBranch → main. A dormant rail returns
+	// merged=true with no rail ops (the non-git spine).
+	merged, mErr := wf.mergeOnApprove(ctx, gf, in.ArtifactKind)
+	if mErr != nil {
+		return coAuthorProceed, coAuthorUnknown, mErr
+	}
+	if !merged {
+		// The merge guard was NOT green (the required CI check is red on the PR): do
+		// NOT merge/commit. Route to the SAME StageDraftFailed recovery gate as a draft
+		// failure (the anti-wedge rule) awaiting Retry-via-Reject / Withdraw.
+		logger.Warn("Phase-2 design PR not mergeable at approve (CI not green); entering StageDraftFailed")
+		outcome, retry, recErr := wf.awaitDraftFailedRecovery(ctx, in.ProjectID, in.ArtifactKind, *headVersion, "the design PR is not green — its required CI check has not passed", state, feedback)
+		if recErr != nil {
+			return coAuthorProceed, coAuthorUnknown, recErr
+		}
+		if !retry {
+			return coAuthorReturn, outcome, nil
+		}
+		*branchAttempt++
+		*redraftCount++
+		return coAuthorContinue, coAuthorUnknown, nil
+	}
+	// After merge the draft lives on main; commitArtifact lands on main. Re-seed
+	// headVersion from main so the commit's CAS starts at main's tip. A dormant rail
+	// leaves headVersion as-is (it already tracked main).
+	if gf.enabled {
+		if mp, rerr := wf.readProject(ctx, in.ProjectID); rerr == nil {
+			*headVersion = mp.Version
+		} else if !isReadNotFound(rerr) {
+			return coAuthorProceed, coAuthorUnknown, rerr
 		}
 	}
+	if _, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		c := mutateOpts(ctx)
+		var v projectstate.Version
+		e := workflow.ExecuteActivity(c, wf.CommitArtifactActivity, mutateArtifactArgs{
+			ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, Kind: toPSKind(in.ArtifactKind),
+		}).Get(ctx, &v)
+		return v, e
+	}); err != nil {
+		return coAuthorProceed, coAuthorUnknown, err
+	}
+	state.stage = StageCommitted
+	return coAuthorReturn, coAuthorApproved, nil
 }
 
 // ===========================================================================
@@ -596,8 +687,6 @@ type sdpDecisionSignal struct {
 }
 
 func (wf *workflows) AssembleSDPReviewWorkflow(ctx workflow.Context, in sdpReviewInput) error {
-	logger := workflow.GetLogger(ctx)
-
 	state := &coAuthorState{
 		projectID:    in.ProjectID,
 		artifactKind: KindSdpReview,
@@ -648,34 +737,11 @@ func (wf *workflows) AssembleSDPReviewWorkflow(ctx workflow.Context, in sdpRevie
 		// Step 7: branch on the architect's decision.
 		switch sig.Decision {
 		case SDPCommit:
-			if sig.OptionID == nil || !optionInReview(review, projectstate.OptionID(*sig.OptionID)) {
-				return temporal.NewNonRetryableApplicationError(
-					"SDP commit named an option not in the assembled review", "UnknownOption", nil)
-			}
-			chosen := projectstate.OptionID(*sig.OptionID)
-
-			// Commit-time confirmation: RE-RUN the three engines on the chosen option,
-			// re-stage the review with Recommendation=chosen (records the architect's
-			// choice), then commit. `confirmed` is byte-identical to the staged `review`
-			// the architect saw (assembleSdpReview is deterministic over the same `proj`,
-			// no clock/RNG — §6.8), so the option set the architect chose from cannot
-			// skew between the gate and the commit; we re-derive only to bind the choice.
-			confirmed, cErr := wf.assembleSdpReview(proj, feedback)
-			if cErr != nil {
-				return cErr
-			}
-			confirmed.Recommendation = chosen
-			confirmed.Rationale = fmt.Sprintf("architect committed option %s", chosen)
-			state.draft = confirmed
-
-			if err := wf.stageReview(ctx, in.ProjectID, confirmed, &state.headVersion); err != nil {
+			// Commit-time confirmation: bind the architect's chosen option, RE-RUN the
+			// three engines on it, re-stage with Recommendation=chosen, then commit.
+			if err := wf.sdpCommit(ctx, in, sig, proj, feedback, review, state); err != nil {
 				return err
 			}
-			if err := wf.commitReview(ctx, in.ProjectID, &state.headVersion); err != nil {
-				return err
-			}
-			state.stage = StageCommitted
-			logger.Info("SDP review committed", "option", string(chosen))
 			return nil
 
 		case SDPRejectAll:
@@ -700,6 +766,49 @@ func (wf *workflows) AssembleSDPReviewWorkflow(ctx workflow.Context, in sdpRevie
 			return temporal.NewNonRetryableApplicationError("unknown SDP decision", "UnknownSDPDecision", nil)
 		}
 	}
+}
+
+// sdpCommit handles the SDPCommit arm of AssembleSDPReviewWorkflow: it binds the
+// architect's chosen option, RE-RUNS the three engines on the chosen option (so the
+// committed review records Recommendation=chosen), re-stages, and commits KindSdpReview.
+// `confirmed` is byte-identical to the staged `review` the architect saw (assembleSdpReview
+// is deterministic over the same `proj`, no clock/RNG — §6.8), so the option set cannot skew
+// between the gate and the commit; we re-derive only to bind the choice. The workflow-command
+// order is identical to the pre-extraction inline arm.
+func (wf *workflows) sdpCommit(
+	ctx workflow.Context,
+	in sdpReviewInput,
+	sig sdpDecisionSignal,
+	proj projectstate.Project,
+	feedback string,
+	review *projectstate.SdpReview,
+	state *coAuthorState,
+) error {
+	logger := workflow.GetLogger(ctx)
+
+	if sig.OptionID == nil || !optionInReview(review, projectstate.OptionID(*sig.OptionID)) {
+		return temporal.NewNonRetryableApplicationError(
+			"SDP commit named an option not in the assembled review", "UnknownOption", nil)
+	}
+	chosen := projectstate.OptionID(*sig.OptionID)
+
+	confirmed, cErr := wf.assembleSdpReview(proj, feedback)
+	if cErr != nil {
+		return cErr
+	}
+	confirmed.Recommendation = chosen
+	confirmed.Rationale = fmt.Sprintf("architect committed option %s", chosen)
+	state.draft = confirmed
+
+	if err := wf.stageReview(ctx, in.ProjectID, confirmed, &state.headVersion); err != nil {
+		return err
+	}
+	if err := wf.commitReview(ctx, in.ProjectID, &state.headVersion); err != nil {
+		return err
+	}
+	state.stage = StageCommitted
+	logger.Info("SDP review committed", "option", string(chosen))
+	return nil
 }
 
 // stageReview stages the SdpReview into its slot (status AwaitingReview), updating

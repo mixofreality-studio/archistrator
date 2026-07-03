@@ -1003,114 +1003,26 @@ func writeComponent(c component) error {
 	// exposed to schemaForType via currentBindByName (nil/empty for every component
 	// that leaves bindByName unset — a strict no-op). A pointer entry is deref'd so
 	// the map is keyed by the element (interface/struct) type.
-	bindByType := map[reflect.Type]*jsonschema.Schema{}
-	for _, x := range c.bindByName {
-		t := reflect.TypeOf(x)
-		if t.Kind() == reflect.Pointer {
-			t = t.Elem()
-		}
-		bindByType[t] = &jsonschema.Schema{Extra: map[string]any{"x-go-type": t.Name()}}
-	}
+	bindByType := buildBindByType(c)
 	currentBindByName = bindByType
 
-	modelNames := map[string]bool{}
-	for _, m := range c.models {
-		modelNames[reflect.TypeOf(m).Name()] = true
-	}
-
-	// refForType maps each model type to a local `$ref` stub, so a model nested in
-	// another model renders as a reference rather than being inlined.
-	refForType := map[reflect.Type]*jsonschema.Schema{}
-	for _, m := range c.models {
-		t := reflect.TypeOf(m)
-		refForType[t] = &jsonschema.Schema{Ref: "#/$defs/" + t.Name()}
-	}
-
-	// Sum types contribute (a) the sealed interface type → a `$ref` to the sum
-	// `$def` (so a struct/param field of the interface type renders as a reference,
-	// not the `true`/any jsonschema-go would otherwise produce), and (b) each
-	// variant struct as a normal model `$def`. Register both before reflecting any
-	// model so nested refs resolve.
-	sumRefByIface := map[reflect.Type]*jsonschema.Schema{}
+	// Register the model + sum-type reference stubs (model names, per-type local
+	// `$ref`s, and sealed-interface → sum-`$def` refs) before reflecting any model so
+	// nested refs resolve.
+	modelNames, refForType, sumRefByIface := buildModelRefs(c)
 	currentSumRefs = sumRefByIface // visible to schemaForType for sealed-interface params
-	for _, st := range c.sumTypes {
-		sumRefByIface[st.iface] = &jsonschema.Schema{Ref: "#/$defs/" + st.name}
-		modelNames[st.name] = true
-		for _, v := range st.variants {
-			vt := reflect.TypeOf(v)
-			if vt.Kind() == reflect.Pointer {
-				vt = vt.Elem()
-			}
-			modelNames[vt.Name()] = true
-			refForType[vt] = &jsonschema.Schema{Ref: "#/$defs/" + vt.Name()}
-		}
-	}
 
 	// Capture enum const sets from the component's own dir AND from the defining
 	// package of any referenced type (Option B: a component inlines external domain
 	// types — incl. their enums — as its OWN defs, so generated code imports nothing).
-	enums := map[string]enumInfo{}
-	for _, dir := range append([]string{c.dir}, externalDirs(c.models)...) {
-		captured, err := captureEnums(dir)
-		if err != nil {
-			return fmt.Errorf("capture enums in %s: %w", dir, err)
-		}
-		for k, v := range captured {
-			enums[k] = v
-		}
+	enums, err := captureComponentEnums(c)
+	if err != nil {
+		return err
 	}
 
-	defs := map[string]*jsonschema.Schema{}
-	for _, m := range c.models {
-		t := reflect.TypeOf(m)
-		// A named scalar with a captured const set is an enum, not a struct.
-		if t.Kind() != reflect.Struct {
-			if e, ok := enums[t.Name()]; ok {
-				defs[t.Name()] = enumSchema(e)
-				continue
-			}
-		}
-		siblings := map[reflect.Type]*jsonschema.Schema{}
-		for rt, ws := range wellKnownByType {
-			siblings[rt] = ws
-		}
-		for rt, ref := range refForType {
-			if rt != t {
-				siblings[rt] = ref
-			}
-		}
-		// A field whose Go type is a registered sealed interface resolves to a
-		// `$ref` to its sum `$def` (not the open `true` jsonschema-go emits for an
-		// interface).
-		for rt, ref := range sumRefByIface {
-			siblings[rt] = ref
-		}
-		// A field whose Go type is a bind-by-name type binds to its bare Go name
-		// (x-go-type) rather than being reflected inline / regenerated as a $def.
-		for rt, ref := range bindByType {
-			siblings[rt] = ref
-		}
-		s, err := jsonschema.ForType(t, &jsonschema.ForOptions{
-			IgnoreInvalidTypes: true,
-			TypeSchemas:        siblings,
-		})
-		if err != nil {
-			return fmt.Errorf("reflect model %s: %w", t.Name(), err)
-		}
-		// Preserve the original Go field name per property (json tag determines the
-		// schema property key / wire name; the Go field name can differ, e.g.
-		// `ProjectID` with `json:"projectId"`). Recorded as x-go-name so modelgen
-		// regenerates the exact Go field identifier without changing the wire shape.
-		injectGoNames(s, t)
-		// Preserve the EXACT Go integer width. jsonschema-go collapses every integer
-		// kind to `type:"integer"`, and modelgen defaults that to int64 — but a field
-		// declared `int` (or int32/uint/…) must regenerate as THAT type, not int64, or
-		// the generated struct diverges from its hand-written consumers. Record the Go
-		// type as x-go-type (which modelgen already honors) for any integer field whose
-		// width is not the int64 default. A no-op for int64 fields and for named
-		// enum-typed fields (those resolve via $ref, not a bare integer).
-		injectGoIntWidths(s, t)
-		defs[t.Name()] = s
+	defs, err := reflectModelDefs(c, enums, refForType, sumRefByIface, bindByType)
+	if err != nil {
+		return err
 	}
 
 	// Emit each sum type: reflect every variant struct as its own `$def`, then emit
@@ -1148,6 +1060,128 @@ func writeComponent(c component) error {
 		return fmt.Errorf("write %s: %w", out, err)
 	}
 	return nil
+}
+
+// buildBindByType converts the component's bind-by-name list into a type-keyed map of
+// bare {"x-go-type": Name} bindings (a pointer entry is deref'd to its element type), so
+// own-package types the contract references but does NOT regenerate resolve to a bare
+// binding in both struct-field and interface param/result position.
+func buildBindByType(c component) map[reflect.Type]*jsonschema.Schema {
+	bindByType := map[reflect.Type]*jsonschema.Schema{}
+	for _, x := range c.bindByName {
+		t := reflect.TypeOf(x)
+		if t.Kind() == reflect.Pointer {
+			t = t.Elem()
+		}
+		bindByType[t] = &jsonschema.Schema{Extra: map[string]any{"x-go-type": t.Name()}}
+	}
+	return bindByType
+}
+
+// buildModelRefs registers the component's reference stubs before any model is reflected:
+// the set of model NAMES (for interface reflection), the per-type local `$ref` stubs (so a
+// model nested in another renders as a reference rather than being inlined), and the
+// sealed-interface → sum-`$def` refs plus each variant struct as a normal model ref.
+// Mirrors the pre-extraction inline registration exactly.
+func buildModelRefs(c component) (modelNames map[string]bool, refForType, sumRefByIface map[reflect.Type]*jsonschema.Schema) {
+	modelNames = map[string]bool{}
+	for _, m := range c.models {
+		modelNames[reflect.TypeOf(m).Name()] = true
+	}
+	refForType = map[reflect.Type]*jsonschema.Schema{}
+	for _, m := range c.models {
+		t := reflect.TypeOf(m)
+		refForType[t] = &jsonschema.Schema{Ref: "#/$defs/" + t.Name()}
+	}
+	sumRefByIface = map[reflect.Type]*jsonschema.Schema{}
+	for _, st := range c.sumTypes {
+		sumRefByIface[st.iface] = &jsonschema.Schema{Ref: "#/$defs/" + st.name}
+		modelNames[st.name] = true
+		for _, v := range st.variants {
+			vt := reflect.TypeOf(v)
+			if vt.Kind() == reflect.Pointer {
+				vt = vt.Elem()
+			}
+			modelNames[vt.Name()] = true
+			refForType[vt] = &jsonschema.Schema{Ref: "#/$defs/" + vt.Name()}
+		}
+	}
+	return modelNames, refForType, sumRefByIface
+}
+
+// captureComponentEnums captures enum const sets from the component's own dir AND from the
+// defining package of any referenced type (Option B inlines external domain enums as the
+// component's own defs), merged into a single map.
+func captureComponentEnums(c component) (map[string]enumInfo, error) {
+	enums := map[string]enumInfo{}
+	for _, dir := range append([]string{c.dir}, externalDirs(c.models)...) {
+		captured, err := captureEnums(dir)
+		if err != nil {
+			return nil, fmt.Errorf("capture enums in %s: %w", dir, err)
+		}
+		for k, v := range captured {
+			enums[k] = v
+		}
+	}
+	return enums, nil
+}
+
+// reflectModelDefs reflects each component model into its JSON-Schema `$def`. A named scalar
+// with a captured const set becomes an enum schema; every other model is reflected against
+// its sibling ref set (well-knowns + other model refs + sealed-interface refs + bind-by-name
+// bindings), then annotated with x-go-name (preserve the Go field identifier) and x-go-type
+// integer widths (preserve non-int64 widths). Mirrors the pre-extraction inline loop.
+func reflectModelDefs(c component, enums map[string]enumInfo, refForType, sumRefByIface, bindByType map[reflect.Type]*jsonschema.Schema) (map[string]*jsonschema.Schema, error) {
+	defs := map[string]*jsonschema.Schema{}
+	for _, m := range c.models {
+		t := reflect.TypeOf(m)
+		// A named scalar with a captured const set is an enum, not a struct.
+		if t.Kind() != reflect.Struct {
+			if e, ok := enums[t.Name()]; ok {
+				defs[t.Name()] = enumSchema(e)
+				continue
+			}
+		}
+		siblings := map[reflect.Type]*jsonschema.Schema{}
+		for rt, ws := range wellKnownByType {
+			siblings[rt] = ws
+		}
+		for rt, ref := range refForType {
+			if rt != t {
+				siblings[rt] = ref
+			}
+		}
+		// A field whose Go type is a registered sealed interface resolves to a
+		// `$ref` to its sum `$def` (not the open `true` jsonschema-go emits for an
+		// interface).
+		for rt, ref := range sumRefByIface {
+			siblings[rt] = ref
+		}
+		// A field whose Go type is a bind-by-name type binds to its bare Go name
+		// (x-go-type) rather than being reflected inline / regenerated as a $def.
+		for rt, ref := range bindByType {
+			siblings[rt] = ref
+		}
+		s, err := jsonschema.ForType(t, &jsonschema.ForOptions{
+			IgnoreInvalidTypes: true,
+			TypeSchemas:        siblings,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("reflect model %s: %w", t.Name(), err)
+		}
+		// Preserve the original Go field name per property (json tag determines the
+		// schema property key / wire name; the Go field name can differ, e.g.
+		// `ProjectID` with `json:"projectId"`). Recorded as x-go-name so modelgen
+		// regenerates the exact Go field identifier without changing the wire shape.
+		injectGoNames(s, t)
+		// Preserve the EXACT Go integer width. jsonschema-go collapses every integer
+		// kind to `type:"integer"`, and modelgen defaults that to int64 — but a field
+		// declared `int` (or int32/uint/…) must regenerate as THAT type, not int64, or
+		// the generated struct diverges from its hand-written consumers.
+		injectGoIntWidths(s, t)
+		defs[t.Name()] = s
+	}
+	return defs, nil
 }
 
 // emitSumType reflects a sealed-interface declaration into the contract document:
@@ -1353,60 +1387,82 @@ func injectGoIntWidths(s *jsonschema.Schema, t reflect.Type) {
 		return
 	}
 	for i := 0; i < t.NumField(); i++ {
-		f := t.Field(i)
-		if !f.IsExported() {
-			continue
+		injectFieldIntWidth(s, t.Field(i))
+	}
+}
+
+// injectFieldIntWidth annotates the schema leaf for a single struct field with its exact
+// Go integer width (x-go-type) when the field is an exported, non-int64 bare integer whose
+// schema node is not a `$ref`. It is the per-field body of injectGoIntWidths, unchanged.
+func injectFieldIntWidth(s *jsonschema.Schema, f reflect.StructField) {
+	if !f.IsExported() {
+		return
+	}
+	wire, skip := jsonWireName(f)
+	if skip {
+		return
+	}
+	prop, ok := s.Properties[wire]
+	if !ok || prop == nil {
+		return
+	}
+	ft, node := unwrapIntLeaf(f.Type, prop)
+	name, ok := nonDefaultIntGoType(ft)
+	if !ok || node.Ref != "" {
+		return
+	}
+	cp := *node
+	cp.Extra = map[string]any{}
+	for k, v := range node.Extra {
+		cp.Extra[k] = v
+	}
+	if _, has := cp.Extra["x-go-type"]; !has {
+		cp.Extra["x-go-type"] = name
+	}
+	*node = cp
+}
+
+// jsonWireName resolves the wire (schema property) name for a struct field from its json
+// tag, mirroring encoding/json: the tag's first segment overrides the Go field name, and a
+// "-" tag skips the field (skip=true).
+func jsonWireName(f reflect.StructField) (wire string, skip bool) {
+	wire = f.Name
+	if tag := f.Tag.Get("json"); tag != "" {
+		name := strings.Split(tag, ",")[0]
+		if name == "-" {
+			return "", true
 		}
-		wire := f.Name
-		if tag := f.Tag.Get("json"); tag != "" {
-			name := strings.Split(tag, ",")[0]
-			if name == "-" {
-				continue
-			}
-			if name != "" {
-				wire = name
-			}
-		}
-		prop, ok := s.Properties[wire]
-		if !ok || prop == nil {
-			continue
-		}
-		// Unwrap slice/pointer on BOTH the Go type and the schema node so a
-		// []int / *int field annotates the integer leaf.
-		ft := f.Type
-		node := prop
-		for {
-			switch ft.Kind() {
-			case reflect.Pointer:
-				ft = ft.Elem()
-				continue
-			case reflect.Slice, reflect.Array:
-				ft = ft.Elem()
-				if node.Items != nil {
-					node = node.Items
-				}
-				continue
-			case reflect.Invalid, reflect.Bool, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
-				reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr,
-				reflect.Float32, reflect.Float64, reflect.Complex64, reflect.Complex128, reflect.Chan, reflect.Func,
-				reflect.Interface, reflect.Map, reflect.String, reflect.Struct, reflect.UnsafePointer:
-				// Not a pointer/slice/array — nothing left to unwrap; same as falling
-				// through to the break below.
-			}
-			break
-		}
-		if name, ok := nonDefaultIntGoType(ft); ok && node.Ref == "" {
-			cp := *node
-			cp.Extra = map[string]any{}
-			for k, v := range node.Extra {
-				cp.Extra[k] = v
-			}
-			if _, has := cp.Extra["x-go-type"]; !has {
-				cp.Extra["x-go-type"] = name
-			}
-			*node = cp
+		if name != "" {
+			wire = name
 		}
 	}
+	return wire, false
+}
+
+// unwrapIntLeaf unwraps slice/pointer/array on BOTH the Go type and the schema node in
+// lockstep so a []int / *int field annotates its integer leaf, returning the unwrapped Go
+// type and schema node.
+func unwrapIntLeaf(ft reflect.Type, node *jsonschema.Schema) (reflect.Type, *jsonschema.Schema) {
+	for {
+		switch ft.Kind() {
+		case reflect.Pointer:
+			ft = ft.Elem()
+			continue
+		case reflect.Slice, reflect.Array:
+			ft = ft.Elem()
+			if node.Items != nil {
+				node = node.Items
+			}
+			continue
+		case reflect.Invalid, reflect.Bool, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+			reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr,
+			reflect.Float32, reflect.Float64, reflect.Complex64, reflect.Complex128, reflect.Chan, reflect.Func,
+			reflect.Interface, reflect.Map, reflect.String, reflect.Struct, reflect.UnsafePointer:
+			// Not a pointer/slice/array — nothing left to unwrap.
+		}
+		break
+	}
+	return ft, node
 }
 
 // nonDefaultIntGoType returns (goTypeName, true) if ft is a BARE basic integer type
@@ -1545,6 +1601,13 @@ func captureEnums(dir string) (map[string]enumInfo, error) {
 	if err != nil {
 		return nil, err
 	}
+	base := collectScalarBases(files)
+	return collectEnumConsts(files, base), nil
+}
+
+// collectScalarBases returns the named-scalar type → base-kind map (e.g. Foo -> "string")
+// for every `type Foo <scalar>` decl in the parsed files.
+func collectScalarBases(files []*ast.File) map[string]string {
 	base := map[string]string{} // type name -> scalar base, for named scalars
 	for _, f := range files {
 		for _, d := range f.Decls {
@@ -1560,6 +1623,12 @@ func captureEnums(dir string) (map[string]enumInfo, error) {
 			}
 		}
 	}
+	return base
+}
+
+// collectEnumConsts walks every const block and records, keyed by type name, the enum's Go
+// member names + values for members whose type resolves to a named scalar in base.
+func collectEnumConsts(files []*ast.File, base map[string]string) map[string]enumInfo {
 	enums := map[string]enumInfo{}
 	for _, f := range files {
 		for _, d := range f.Decls {
@@ -1567,29 +1636,35 @@ func captureEnums(dir string) (map[string]enumInfo, error) {
 			if !ok || gd.Tok != token.CONST {
 				continue
 			}
-			curType := ""
-			for iota, sp := range gd.Specs {
-				vs := sp.(*ast.ValueSpec)
-				if vs.Type != nil {
-					if id, ok := vs.Type.(*ast.Ident); ok {
-						curType = id.Name
-					}
-				}
-				b, isEnum := base[curType]
-				if !isEnum {
-					continue
-				}
-				for _, nameID := range vs.Names {
-					e := enums[curType]
-					e.base = b
-					e.names = append(e.names, nameID.Name)
-					e.values = append(e.values, evalConst(vs, iota, b))
-					enums[curType] = e
-				}
-			}
+			collectConstBlock(enums, gd, base)
 		}
 	}
-	return enums, nil
+	return enums
+}
+
+// collectConstBlock records the enum members of a single const GenDecl into enums,
+// threading the current typed-run (`curType`) and iota index like the Go spec.
+func collectConstBlock(enums map[string]enumInfo, gd *ast.GenDecl, base map[string]string) {
+	curType := ""
+	for iota, sp := range gd.Specs {
+		vs := sp.(*ast.ValueSpec)
+		if vs.Type != nil {
+			if id, ok := vs.Type.(*ast.Ident); ok {
+				curType = id.Name
+			}
+		}
+		b, isEnum := base[curType]
+		if !isEnum {
+			continue
+		}
+		for _, nameID := range vs.Names {
+			e := enums[curType]
+			e.base = b
+			e.names = append(e.names, nameID.Name)
+			e.values = append(e.values, evalConst(vs, iota, b))
+			enums[curType] = e
+		}
+	}
 }
 
 // parseGoDir parses every .go file directly in dir (non-recursively) and returns
@@ -1666,28 +1741,45 @@ func paramNames(dir, ifaceName string) (map[string][]string, error) {
 			if !ok {
 				return true
 			}
-			for _, fld := range it.Methods.List {
-				if len(fld.Names) == 0 {
-					continue
-				}
-				ft, ok := fld.Type.(*ast.FuncType)
-				if !ok || ft.Params == nil {
-					continue
-				}
-				var pn []string
-				for i, p := range ft.Params.List {
-					if len(p.Names) == 0 {
-						pn = append(pn, fmt.Sprintf("arg%d", i))
-						continue
-					}
-					for _, nm := range p.Names {
-						pn = append(pn, nm.Name)
-					}
-				}
-				res[fld.Names[0].Name] = pn
+			for name, pn := range interfaceParamNames(it) {
+				res[name] = pn
 			}
 			return false
 		})
 	}
 	return res, nil
+}
+
+// interfaceParamNames returns the ordered parameter-name list per method of an interface
+// type node (skipping embedded interfaces and paramless entries), mirroring the inline
+// method walk in paramNames.
+func interfaceParamNames(it *ast.InterfaceType) map[string][]string {
+	res := map[string][]string{}
+	for _, fld := range it.Methods.List {
+		if len(fld.Names) == 0 {
+			continue
+		}
+		ft, ok := fld.Type.(*ast.FuncType)
+		if !ok || ft.Params == nil {
+			continue
+		}
+		res[fld.Names[0].Name] = funcParamNames(ft)
+	}
+	return res
+}
+
+// funcParamNames flattens a func type's parameter list into ordered names, synthesizing
+// arg0, arg1, … for unnamed parameters (Go reflection does not expose param names).
+func funcParamNames(ft *ast.FuncType) []string {
+	var pn []string
+	for i, p := range ft.Params.List {
+		if len(p.Names) == 0 {
+			pn = append(pn, fmt.Sprintf("arg%d", i))
+			continue
+		}
+		for _, nm := range p.Names {
+			pn = append(pn, nm.Name)
+		}
+	}
+	return pn
 }

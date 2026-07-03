@@ -33,23 +33,68 @@ func mixedActivityOption() ProjectOption {
 	}
 }
 
-func TestEstimateForOption(t *testing.T) {
-	type want struct {
-		duration  float64
-		buildCost Money
-		risk      RiskScore
+// estimateWant is the expected happy-path result for a TestEstimateForOption case.
+type estimateWant struct {
+	duration  float64
+	buildCost Money
+	risk      RiskScore
+}
+
+// assertEstimateError checks the error-path expectations for a TestEstimateForOption case:
+// a non-nil *fweng.Error of the expected kind that is never retryable.
+func assertEstimateError(t *testing.T, got ConstructionEstimate, err error, wantErrKind fweng.Kind) {
+	t.Helper()
+	if err == nil {
+		t.Fatalf("expected error of kind %v, got nil (result %+v)", wantErrKind, got)
 	}
+	var fe *fweng.Error
+	if !errors.As(err, &fe) {
+		t.Fatalf("expected *fweng.Error, got %T: %v", err, err)
+	}
+	if fe.Kind != wantErrKind {
+		t.Fatalf("expected kind %v, got %v (detail: %s)", wantErrKind, fe.Kind, fe.Detail)
+	}
+	if fe.Retryable {
+		t.Errorf("engine errors must never be retryable")
+	}
+}
+
+// assertEstimateResult checks the happy-path result for a TestEstimateForOption case:
+// the duration/cost/risk match and every risk component stays within [0,1].
+func assertEstimateResult(t *testing.T, got ConstructionEstimate, w estimateWant) {
+	t.Helper()
+	if got.DurationDays != w.duration {
+		t.Errorf("DurationDays = %v, want %v", got.DurationDays, w.duration)
+	}
+	if got.BuildCost != w.buildCost {
+		t.Errorf("BuildCost = %+v, want %+v", got.BuildCost, w.buildCost)
+	}
+	if got.Risk != w.risk {
+		t.Errorf("Risk = %+v, want %+v", got.Risk, w.risk)
+	}
+	// Risk components must stay within [0,1].
+	for name, v := range map[string]float64{
+		"Composite": got.Risk.Composite, "CriticalityRisk": got.Risk.CriticalityRisk,
+		"ActivityRisk": got.Risk.ActivityRisk,
+	} {
+		if v < 0 || v > 1 {
+			t.Errorf("%s = %v out of [0,1]", name, v)
+		}
+	}
+}
+
+func TestEstimateForOption(t *testing.T) {
 	tests := []struct {
 		name        string
 		option      ProjectOption
 		wantErrKind fweng.Kind // -1 sentinel below means "no error expected"
-		want        want
+		want        estimateWant
 	}{
 		{
 			name:        "happy path mixed activities",
 			option:      mixedActivityOption(),
 			wantErrKind: -1,
-			want: want{
+			want: estimateWant{
 				// critical-path effort = 5 + 10 = 15; stretch (5 d/wk) = 1.0.
 				duration: 15,
 				// 5*100000 + 10*40000 + 5*100000 = 500000+400000+500000 = 1400000.
@@ -79,7 +124,7 @@ func TestEstimateForOption(t *testing.T) {
 				CalendarDaysPerWeek: 5,
 			},
 			wantErrKind: -1,
-			want: want{
+			want: estimateWant{
 				duration:  10,          // 4 + 6, stretch 1.0
 				buildCost: usd(100000), // (4+6)*10000
 				risk: RiskScore{
@@ -106,7 +151,7 @@ func TestEstimateForOption(t *testing.T) {
 				CalendarDaysPerWeek: 2, // stretch = 5/2 = 2.5
 			},
 			wantErrKind: -1,
-			want: want{
+			want: estimateWant{
 				duration:  25,         // (20 total / cap 2) = 10, * 2.5 stretch
 				buildCost: usd(20000), // 20 * 1000
 				risk: RiskScore{
@@ -176,43 +221,14 @@ func TestEstimateForOption(t *testing.T) {
 			got, err := eng.EstimateForOption(fweng.Context{}, tc.option)
 
 			if tc.wantErrKind != -1 {
-				if err == nil {
-					t.Fatalf("expected error of kind %v, got nil (result %+v)", tc.wantErrKind, got)
-				}
-				var fe *fweng.Error
-				if !errors.As(err, &fe) {
-					t.Fatalf("expected *fweng.Error, got %T: %v", err, err)
-				}
-				if fe.Kind != tc.wantErrKind {
-					t.Fatalf("expected kind %v, got %v (detail: %s)", tc.wantErrKind, fe.Kind, fe.Detail)
-				}
-				if fe.Retryable {
-					t.Errorf("engine errors must never be retryable")
-				}
+				assertEstimateError(t, got, err, tc.wantErrKind)
 				return
 			}
 
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
-			if got.DurationDays != tc.want.duration {
-				t.Errorf("DurationDays = %v, want %v", got.DurationDays, tc.want.duration)
-			}
-			if got.BuildCost != tc.want.buildCost {
-				t.Errorf("BuildCost = %+v, want %+v", got.BuildCost, tc.want.buildCost)
-			}
-			if got.Risk != tc.want.risk {
-				t.Errorf("Risk = %+v, want %+v", got.Risk, tc.want.risk)
-			}
-			// Risk components must stay within [0,1].
-			for name, v := range map[string]float64{
-				"Composite": got.Risk.Composite, "CriticalityRisk": got.Risk.CriticalityRisk,
-				"ActivityRisk": got.Risk.ActivityRisk,
-			} {
-				if v < 0 || v > 1 {
-					t.Errorf("%s = %v out of [0,1]", name, v)
-				}
-			}
+			assertEstimateResult(t, got, tc.want)
 		})
 	}
 }

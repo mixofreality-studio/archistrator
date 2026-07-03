@@ -36,6 +36,47 @@ func asEngineError(t *testing.T, err error) *fweng.Error {
 	return e
 }
 
+// assertForecastGoTemporalPostgres validates the happy-path OperationForecast for
+// the GoTemporalPostgres infrastructure: non-empty monotonic usage-cost curve that
+// includes the 1.0 load point, and a correctly-ordered signed net forecast in USD.
+func assertForecastGoTemporalPostgres(t *testing.T, f OperationForecast) {
+	t.Helper()
+	pts := f.UsageCostCurve.Points
+	if len(pts) == 0 {
+		t.Fatal("expected a non-empty usage cost curve")
+	}
+	// monotonic non-decreasing in cost
+	for i := 1; i < len(pts); i++ {
+		if pts[i].ProjectedMonthlyCost.MinorUnits < pts[i-1].ProjectedMonthlyCost.MinorUnits {
+			t.Fatalf("curve not monotonic at %d: %d < %d",
+				i, pts[i].ProjectedMonthlyCost.MinorUnits, pts[i-1].ProjectedMonthlyCost.MinorUnits)
+		}
+	}
+	// includes the 1.0 point
+	found := false
+	for _, p := range pts {
+		if p.LoadMultiplier == 1.0 {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("usage cost curve missing the 1.0 load point")
+	}
+	// signed net: SensitivityLow (cheaper) >= ExpectedNet >= SensitivityHigh (costlier)
+	net := f.PayoutVsShortfallForecast
+	if net.SensitivityLow.MinorUnits < net.ExpectedPerCycleNet.MinorUnits {
+		t.Fatalf("SensitivityLow (%d) should be >= ExpectedNet (%d)",
+			net.SensitivityLow.MinorUnits, net.ExpectedPerCycleNet.MinorUnits)
+	}
+	if net.ExpectedPerCycleNet.MinorUnits < net.SensitivityHigh.MinorUnits {
+		t.Fatalf("ExpectedNet (%d) should be >= SensitivityHigh (%d)",
+			net.ExpectedPerCycleNet.MinorUnits, net.SensitivityHigh.MinorUnits)
+	}
+	if net.ExpectedPerCycleNet.Currency != "USD" {
+		t.Fatalf("expected USD currency, got %q", net.ExpectedPerCycleNet.Currency)
+	}
+}
+
 func TestEstimateForOption(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -47,46 +88,11 @@ func TestEstimateForOption(t *testing.T) {
 		assertGood func(t *testing.T, f OperationForecast)
 	}{
 		{
-			name:   "happy path GoTemporalPostgres",
-			option: sampleOption(),
-			usage:  sampleUsage(),
-			infra:  InfrastructureKindGoTemporalPostgres,
-			assertGood: func(t *testing.T, f OperationForecast) {
-				pts := f.UsageCostCurve.Points
-				if len(pts) == 0 {
-					t.Fatal("expected a non-empty usage cost curve")
-				}
-				// monotonic non-decreasing in cost
-				for i := 1; i < len(pts); i++ {
-					if pts[i].ProjectedMonthlyCost.MinorUnits < pts[i-1].ProjectedMonthlyCost.MinorUnits {
-						t.Fatalf("curve not monotonic at %d: %d < %d",
-							i, pts[i].ProjectedMonthlyCost.MinorUnits, pts[i-1].ProjectedMonthlyCost.MinorUnits)
-					}
-				}
-				// includes the 1.0 point
-				found := false
-				for _, p := range pts {
-					if p.LoadMultiplier == 1.0 {
-						found = true
-					}
-				}
-				if !found {
-					t.Fatal("usage cost curve missing the 1.0 load point")
-				}
-				// signed net: SensitivityLow (cheaper) >= ExpectedNet >= SensitivityHigh (costlier)
-				net := f.PayoutVsShortfallForecast
-				if net.SensitivityLow.MinorUnits < net.ExpectedPerCycleNet.MinorUnits {
-					t.Fatalf("SensitivityLow (%d) should be >= ExpectedNet (%d)",
-						net.SensitivityLow.MinorUnits, net.ExpectedPerCycleNet.MinorUnits)
-				}
-				if net.ExpectedPerCycleNet.MinorUnits < net.SensitivityHigh.MinorUnits {
-					t.Fatalf("ExpectedNet (%d) should be >= SensitivityHigh (%d)",
-						net.ExpectedPerCycleNet.MinorUnits, net.SensitivityHigh.MinorUnits)
-				}
-				if net.ExpectedPerCycleNet.Currency != "USD" {
-					t.Fatalf("expected USD currency, got %q", net.ExpectedPerCycleNet.Currency)
-				}
-			},
+			name:       "happy path GoTemporalPostgres",
+			option:     sampleOption(),
+			usage:      sampleUsage(),
+			infra:      InfrastructureKindGoTemporalPostgres,
+			assertGood: assertForecastGoTemporalPostgres,
 		},
 		{
 			name:     "unknown infrastructure",
@@ -131,6 +137,49 @@ func TestEstimateForOption(t *testing.T) {
 	}
 }
 
+// assertProjectionWhatIfHappyPath validates the happy-path CostProjection with
+// what-if scale points: positive run rate equal to projected monthly cost, and a
+// what-if curve that includes the 1.0 current-load point and is monotonic.
+func assertProjectionWhatIfHappyPath(t *testing.T, p CostProjection) {
+	t.Helper()
+	if p.CurrentRunRate.MinorUnits <= 0 {
+		t.Fatalf("expected positive run rate, got %d", p.CurrentRunRate.MinorUnits)
+	}
+	if p.ProjectedMonthlyCost != p.CurrentRunRate {
+		t.Fatalf("projected monthly (%v) should equal run rate (%v)",
+			p.ProjectedMonthlyCost, p.CurrentRunRate)
+	}
+	pts := p.ScaleWhatIfCurve.Points
+	// current-load 1.0 point must be present
+	found1 := false
+	for _, wp := range pts {
+		if wp.LoadMultiplier == 1.0 {
+			found1 = true
+		}
+	}
+	if !found1 {
+		t.Fatal("what-if curve missing the 1.0 current-load point")
+	}
+	// monotonic non-decreasing
+	for i := 1; i < len(pts); i++ {
+		if pts[i].ProjectedMonthlyCost.MinorUnits < pts[i-1].ProjectedMonthlyCost.MinorUnits {
+			t.Fatalf("what-if curve not monotonic at %d", i)
+		}
+	}
+}
+
+// assertProjectionEmptyWhatIf validates that empty what-if points yield exactly the
+// single 1.0 current-load point.
+func assertProjectionEmptyWhatIf(t *testing.T, p CostProjection) {
+	t.Helper()
+	if len(p.ScaleWhatIfCurve.Points) != 1 {
+		t.Fatalf("expected exactly the current-load point, got %d", len(p.ScaleWhatIfCurve.Points))
+	}
+	if p.ScaleWhatIfCurve.Points[0].LoadMultiplier != 1.0 {
+		t.Fatalf("expected 1.0 load point, got %v", p.ScaleWhatIfCurve.Points[0].LoadMultiplier)
+	}
+}
+
 func TestProjectForOperatedApp(t *testing.T) {
 	observed := ObservedUsage{
 		ComputeUnitSeconds: 100_000,
@@ -150,50 +199,18 @@ func TestProjectForOperatedApp(t *testing.T) {
 		assertGood func(t *testing.T, p CostProjection)
 	}{
 		{
-			name:     "happy path with what-if points",
-			observed: observed,
-			infra:    InfrastructureKindGoTemporalPostgres,
-			points:   []ScalePoint{{LoadMultiplier: 2.0}, {LoadMultiplier: 5.0}},
-			assertGood: func(t *testing.T, p CostProjection) {
-				if p.CurrentRunRate.MinorUnits <= 0 {
-					t.Fatalf("expected positive run rate, got %d", p.CurrentRunRate.MinorUnits)
-				}
-				if p.ProjectedMonthlyCost != p.CurrentRunRate {
-					t.Fatalf("projected monthly (%v) should equal run rate (%v)",
-						p.ProjectedMonthlyCost, p.CurrentRunRate)
-				}
-				pts := p.ScaleWhatIfCurve.Points
-				// current-load 1.0 point must be present
-				found1 := false
-				for _, wp := range pts {
-					if wp.LoadMultiplier == 1.0 {
-						found1 = true
-					}
-				}
-				if !found1 {
-					t.Fatal("what-if curve missing the 1.0 current-load point")
-				}
-				// monotonic non-decreasing
-				for i := 1; i < len(pts); i++ {
-					if pts[i].ProjectedMonthlyCost.MinorUnits < pts[i-1].ProjectedMonthlyCost.MinorUnits {
-						t.Fatalf("what-if curve not monotonic at %d", i)
-					}
-				}
-			},
+			name:       "happy path with what-if points",
+			observed:   observed,
+			infra:      InfrastructureKindGoTemporalPostgres,
+			points:     []ScalePoint{{LoadMultiplier: 2.0}, {LoadMultiplier: 5.0}},
+			assertGood: assertProjectionWhatIfHappyPath,
 		},
 		{
-			name:     "empty what-if points yields only current-load point",
-			observed: observed,
-			infra:    InfrastructureKindGoTemporalPostgres,
-			points:   nil,
-			assertGood: func(t *testing.T, p CostProjection) {
-				if len(p.ScaleWhatIfCurve.Points) != 1 {
-					t.Fatalf("expected exactly the current-load point, got %d", len(p.ScaleWhatIfCurve.Points))
-				}
-				if p.ScaleWhatIfCurve.Points[0].LoadMultiplier != 1.0 {
-					t.Fatalf("expected 1.0 load point, got %v", p.ScaleWhatIfCurve.Points[0].LoadMultiplier)
-				}
-			},
+			name:       "empty what-if points yields only current-load point",
+			observed:   observed,
+			infra:      InfrastructureKindGoTemporalPostgres,
+			points:     nil,
+			assertGood: assertProjectionEmptyWhatIf,
 		},
 		{
 			name:     "non-positive load multiplier is invalid input",

@@ -159,6 +159,31 @@ func genOne(raw []byte, goPackage, component string, infra []string, stub bool, 
 	pendingImports = map[string]string{}
 	var buf bytes.Buffer
 
+	names, err := emitDefs(&buf, &doc, order)
+	if err != nil {
+		return err
+	}
+
+	// Interface (the RPC surface) lives under the document's `interface` key,
+	// carried via jsonschema-go's Extra map. Re-decode it into the typed
+	// descriptor and emit the Go interface.
+	iface, haveIface, err := decodeAndEmitInterface(&buf, &doc)
+	if err != nil {
+		return err
+	}
+
+	if haveIface {
+		if err := emitImplSurface(&buf, iface, stub, component, infra, deps, resolver); err != nil {
+			return err
+		}
+	}
+
+	return writeGeneratedFile(dir, pkg, &buf, len(names))
+}
+
+// emitDefs writes every model `$def` (sum types + ordinary structs) in sorted
+// order and returns the sorted def names (its count is the "models" tally).
+func emitDefs(buf *bytes.Buffer, doc *jsonschema.Schema, order map[string][]string) ([]string, error) {
 	names := make([]string, 0, len(doc.Defs))
 	for n := range doc.Defs {
 		names = append(names, n)
@@ -169,97 +194,90 @@ func genOne(raw []byte, goPackage, component string, infra []string, stub bool, 
 			// A sum `$def` is not a data struct: emit the sealed interface, the
 			// per-variant marker + discriminator methods, and the envelope codec.
 			// Its variant structs are emitted as ordinary `$def`s in this same loop.
-			emitSumType(&buf, st)
+			emitSumType(buf, st)
 			buf.WriteByte('\n')
 			continue
 		}
-		if err := emitType(&buf, n, doc.Defs[n], order[n]); err != nil {
-			return fmt.Errorf("emit %s: %w", n, err)
+		if err := emitType(buf, n, doc.Defs[n], order[n]); err != nil {
+			return nil, fmt.Errorf("emit %s: %w", n, err)
 		}
 		buf.WriteByte('\n')
 	}
+	return names, nil
+}
 
-	// Interface (the RPC surface) lives under the document's `interface` key,
-	// carried via jsonschema-go's Extra map. Re-decode it into the typed
-	// descriptor and emit the Go interface.
+// decodeAndEmitInterface re-decodes the document's `interface` key into the typed
+// descriptor and emits the Go interface. Reports whether an interface was present.
+func decodeAndEmitInterface(buf *bytes.Buffer, doc *jsonschema.Schema) (codegen.Interface, bool, error) {
 	var iface codegen.Interface
-	var haveIface bool
-	if ix, ok := doc.Extra["interface"]; ok {
-		ib, err := json.Marshal(ix)
-		if err != nil {
-			return fmt.Errorf("re-marshal interface: %w", err)
-		}
-		if err := json.Unmarshal(ib, &iface); err != nil {
-			return fmt.Errorf("decode interface: %w", err)
-		}
-		emitInterface(&buf, iface)
-		haveIface = true
+	ix, ok := doc.Extra["interface"]
+	if !ok {
+		return iface, false, nil
 	}
+	ib, err := json.Marshal(ix)
+	if err != nil {
+		return iface, false, fmt.Errorf("re-marshal interface: %w", err)
+	}
+	if err := json.Unmarshal(ib, &iface); err != nil {
+		return iface, false, fmt.Errorf("decode interface: %w", err)
+	}
+	emitInterface(buf, iface)
+	return iface, true, nil
+}
 
-	// GENERATED IMPL SURFACE — the concrete impl struct + public DI constructor
-	// that make the generated contract the ONLY public surface of the component's
-	// package. Emitted for the contracts that have been re-homed onto the generated
-	// struct: an RA with a non-empty `infra` list (one <Infra><Component> struct +
-	// New<Infra><Component>(client) constructor per infra), and an engine on the
-	// engineImplAllowlist (a pure <Component>Impl + New<Component>()). The hand-
-	// written interface methods hang off the generated struct; modelgen emits only
-	// the struct + constructor + a compile-time interface assertion.
-	if haveIface {
-		switch {
-		case stub:
-			// STUB: the component is contracted (goPackage + $defs + interface) but
-			// not yet built. Emit the fully-generated not-implemented impl (unexported
-			// impl struct + no-arg public constructor + every method returning the
-			// layer's not-implemented error) so the package compiles; as it is built
-			// later these bodies are replaced and the stub flag cleared.
-			emitStubImpl(&buf, iface)
-		case iface.Layer == "resourceaccess":
-			if len(infra) > 0 {
-				if err := emitRAImpl(&buf, iface, infra); err != nil {
-					return fmt.Errorf("emit RA impl: %w", err)
-				}
+// emitImplSurface emits the concrete impl struct + public DI constructor that make
+// the generated contract the ONLY public surface of the component's package.
+// Emitted for the contracts that have been re-homed onto the generated struct: an
+// RA with a non-empty `infra` list (one <Infra><Component> struct +
+// New<Infra><Component>(client) constructor per infra), and an engine on the
+// engineImplAllowlist (a pure <Component>Impl + New<Component>()). The hand-written
+// interface methods hang off the generated struct; modelgen emits only the struct +
+// constructor + a compile-time interface assertion.
+func emitImplSurface(buf *bytes.Buffer, iface codegen.Interface, stub bool, component string, infra []string, deps []contractDep, resolver map[string]contractRef) error {
+	switch {
+	case stub:
+		// STUB: the component is contracted (goPackage + $defs + interface) but
+		// not yet built. Emit the fully-generated not-implemented impl (unexported
+		// impl struct + no-arg public constructor + every method returning the
+		// layer's not-implemented error) so the package compiles; as it is built
+		// later these bodies are replaced and the stub flag cleared.
+		emitStubImpl(buf, iface)
+	case iface.Layer == "resourceaccess":
+		if len(infra) > 0 {
+			if err := emitRAImpl(buf, iface, infra); err != nil {
+				return fmt.Errorf("emit RA impl: %w", err)
 			}
-		case iface.Layer == "engine":
-			if engineImplAllowlist[component] {
-				emitEngineImpl(&buf, iface)
-			}
-		case iface.Layer == "manager":
-			// A MANAGER with declared `deps` gains a generated public DI constructor
-			// New<Iface>(deps…) <Iface> delegating to the hand-written, unexported
-			// builder new<Iface>(deps…). The impl struct, the builder, and the
-			// interface methods are hand-written + unexported (managers carry real
-			// state — Temporal client, deps, config), so only the generated interface +
-			// models + constructor are public. Managers without deps (un-migrated)
-			// emit no constructor.
-			if len(deps) > 0 {
-				if err := emitManagerConstructor(&buf, iface, deps, resolver); err != nil {
-					return fmt.Errorf("emit manager constructor: %w", err)
-				}
+		}
+	case iface.Layer == "engine":
+		if engineImplAllowlist[component] {
+			emitEngineImpl(buf, iface)
+		}
+	case iface.Layer == "manager":
+		// A MANAGER with declared `deps` gains a generated public DI constructor
+		// New<Iface>(deps…) <Iface> delegating to the hand-written, unexported
+		// builder new<Iface>(deps…). The impl struct, the builder, and the
+		// interface methods are hand-written + unexported (managers carry real
+		// state — Temporal client, deps, config), so only the generated interface +
+		// models + constructor are public. Managers without deps (un-migrated)
+		// emit no constructor.
+		if len(deps) > 0 {
+			if err := emitManagerConstructor(buf, iface, deps, resolver); err != nil {
+				return fmt.Errorf("emit manager constructor: %w", err)
 			}
 		}
 	}
+	return nil
+}
 
+// writeGeneratedFile assembles header + package + collected imports + body, gofmt's
+// the result, and writes it to contract.gen.go under dir.
+func writeGeneratedFile(dir, pkg string, buf *bytes.Buffer, modelCount int) error {
 	// Assemble: header + package + (imports collected during body emission) + body.
 	var out2 bytes.Buffer
 	fmt.Fprintf(&out2, "// Code generated by cmd/modelgen from %s; DO NOT EDIT.\n", schemaFile)
 	fmt.Fprintf(&out2, "// Edit the schema and re-run `make gen-models` instead.\n\n")
 	fmt.Fprintf(&out2, "package %s\n\n", pkg)
-	if len(pendingImports) > 0 {
-		imps := make([]string, 0, len(pendingImports))
-		for p := range pendingImports {
-			imps = append(imps, p)
-		}
-		sort.Strings(imps)
-		out2.WriteString("import (\n")
-		for _, p := range imps {
-			if a := pendingImports[p]; a != "" {
-				fmt.Fprintf(&out2, "\t%s %q\n", a, p)
-			} else {
-				fmt.Fprintf(&out2, "\t%q\n", p)
-			}
-		}
-		out2.WriteString(")\n\n")
-	}
+	writePendingImports(&out2)
 	out2.Write(buf.Bytes())
 
 	src, err := format.Source(out2.Bytes())
@@ -270,8 +288,30 @@ func genOne(raw []byte, goPackage, component string, infra []string, stub bool, 
 	if err := os.WriteFile(out, src, 0o600); err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "wrote %s (%d models)\n", out, len(names))
+	fmt.Fprintf(os.Stderr, "wrote %s (%d models)\n", out, modelCount)
 	return nil
+}
+
+// writePendingImports renders the sorted import block collected during body
+// emission (nothing when no imports were registered).
+func writePendingImports(out2 *bytes.Buffer) {
+	if len(pendingImports) == 0 {
+		return
+	}
+	imps := make([]string, 0, len(pendingImports))
+	for p := range pendingImports {
+		imps = append(imps, p)
+	}
+	sort.Strings(imps)
+	out2.WriteString("import (\n")
+	for _, p := range imps {
+		if a := pendingImports[p]; a != "" {
+			fmt.Fprintf(out2, "\t%s %q\n", a, p)
+		} else {
+			fmt.Fprintf(out2, "\t%q\n", p)
+		}
+	}
+	out2.WriteString(")\n\n")
 }
 
 // layerContext maps a Method layer to the per-layer call Context the generator

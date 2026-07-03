@@ -282,30 +282,9 @@ func run(logger *slog.Logger) error {
 	// (from the contract's infra:["Git"] binding). The composition root supplies the
 	// satellite *GitBlobStore + the profile-specific auth resolver (artifact_auth.go):
 	// LOCAL needs no credential; CLOUD mints the installation token internally.
-	var artifacts artifact.ArtifactAccess
-	if cfg.ArtifactRepoURL != "" {
-		if cfg.ArtifactRepoLocal {
-			blob, blobErr := githubinfra.NewGitBlobStore(cfg.ArtifactRepoURL)
-			if blobErr != nil {
-				return blobErr
-			}
-			artifacts = artifact.NewGitArtifactAccess(blob, localGitAuth())
-			logger.Info("artifactAccess (local git) ready", "repoURL", cfg.ArtifactRepoURL)
-		} else {
-			blob, authResolver, csErr := newCloudArtifactStore(
-				cfg.ArtifactRepoURL,
-				cfg.ArtifactRepoOwner,
-				cfg.GitHubAppID,
-				cfg.GitHubAppPrivateKeyPEM,
-				cfg.GitHubAPIBaseURL,
-				cfg.GitHubInstallationID,
-			)
-			if csErr != nil {
-				return csErr
-			}
-			artifacts = artifact.NewGitArtifactAccess(blob, authResolver)
-			logger.Info("artifactAccess (github) ready", "repoURL", cfg.ArtifactRepoURL)
-		}
+	artifacts, err := buildArtifactAccess(cfg, logger)
+	if err != nil {
+		return err
 	}
 
 	// constructionPipelineAccess (UC3) — fronts the USER'S GitHub Actions (C-CP-R
@@ -314,28 +293,9 @@ func run(logger *slog.Logger) error {
 	// observes/cancels the runs. Constructed only when the construction repo is
 	// configured; nil otherwise (the pump then never submits a pipeline — acceptable
 	// empty-session state, and the pump is unwired anyway pending the schedulerClient).
-	var pipeline constructionpipeline.ConstructionPipelineAccess
-	if cfg.ConstructionRepoOwner != "" && cfg.ConstructionRepoName != "" {
-		// option-1 generated-DI: the composition root builds the framework GitHub App
-		// client, then the generated NewGitHubActionsConstructionPipelineAccess wires the
-		// token-caching seam + the (unexported) impl behind the interface.
-		appClient, acErr := githubinfra.NewAppClient(cfg.GitHubAppID, cfg.GitHubAppPrivateKeyPEM, cfg.GitHubAPIBaseURL)
-		if acErr != nil {
-			return acErr
-		}
-		pipeline, err = constructionpipeline.NewGitHubActionsConstructionPipelineAccess(
-			appClient,
-			cfg.ConstructionRepoOwner,
-			cfg.ConstructionRepoName,
-			cfg.ConstructionWorkflowFile,
-			cfg.ConstructionRef,
-			cfg.GitHubInstallationID,
-		)
-		if err != nil {
-			return err
-		}
-		logger.Info("constructionPipelineAccess (github-actions) ready",
-			"owner", cfg.ConstructionRepoOwner, "repo", cfg.ConstructionRepoName, "workflow", cfg.ConstructionWorkflowFile)
+	pipeline, err := buildConstructionPipeline(cfg, logger)
+	if err != nil {
+		return err
 	}
 
 	// sourceControlAccess (project-birth repo ADOPT + managed-scaffold seating + the PR-merge
@@ -364,21 +324,9 @@ func run(logger *slog.Logger) error {
 	// for the projectStateAccess git cred minter + catalog (CLOUD profile). scAccess is the
 	// generated SourceControlAccess interface the adapters/PR-rail consume; the unexported
 	// impl satisfies both, so scConcrete is a type-assertion of scAccess.
-	var scConcrete sourcecontrol.SourceControlCatalogAccess
-	var scAccess sourcecontrol.SourceControlAccess
-	if cfg.GitHubAppID != "" && cfg.GitHubAppPrivateKeyPEM != "" && cfg.GitHubAccount != "" {
-		ghClient, scErr := githubinfra.NewAppClient(cfg.GitHubAppID, cfg.GitHubAppPrivateKeyPEM, cfg.GitHubAPIBaseURL)
-		if scErr != nil {
-			return scErr
-		}
-		scAccess, scErr = sourcecontrol.NewGitHubSourceControlAccess(ghClient, cfg.GitHubAccount, cfg.GitHubAppSlug, true /* repoPrivate */)
-		if scErr != nil {
-			return scErr
-		}
-		scConcrete = scAccess.(sourcecontrol.SourceControlCatalogAccess)
-		logger.Info("sourceControlAccess (github) ready", "account", cfg.GitHubAccount, "apiBaseURL", cfg.GitHubAPIBaseURL)
-	} else {
-		logger.Warn("sourceControlAccess NOT configured — projects are created repo-less (set ARCHISTRATOR_GITHUB_APP_ID + ARCHISTRATOR_GITHUB_APP_PRIVATE_KEY_PEM + ARCHISTRATOR_GITHUB_ACCOUNT for live GitHub repo provisioning)")
+	scConcrete, scAccess, err := buildSourceControl(cfg, logger)
+	if err != nil {
+		return err
 	}
 
 	// projectStateAccess SUBSTRATE SELECTION (I-GIT-DESIGN). The UC1/UC2 design
@@ -424,17 +372,9 @@ func run(logger *slog.Logger) error {
 	// Access-token validator (authN). Constructed only when a JWKS URL is
 	// configured; in dev mode or with no IdP (systemtests) it is nil and the auth
 	// middleware injects a dev principal or denies, respectively.
-	var tokenValidator security.Validator
-	if !cfg.Dev.Enabled && cfg.KeycloakJWKSURL != "" {
-		tokenValidator, err = keycloak.NewValidator(ctx, keycloak.Config{
-			JWKSURL: cfg.KeycloakJWKSURL,
-			Issuer:  cfg.KeycloakIssuer,
-			Leeway:  3 * time.Second,
-		})
-		if err != nil {
-			return err
-		}
-		logger.Info("keycloak access-token validator ready", "issuer", cfg.KeycloakIssuer, "jwksURL", cfg.KeycloakJWKSURL)
+	tokenValidator, err := buildTokenValidator(ctx, cfg, logger)
+	if err != nil {
+		return err
 	}
 
 	// --- Manager + embedded Temporal Worker ------------------------------------
@@ -458,32 +398,7 @@ func run(logger *slog.Logger) error {
 	// (scConcrete == nil) BOTH resolvers are nil and the design rail is DORMANT — the
 	// CoAuthor spine runs unchanged (read-back/stage on main, no branch/PR ops), exactly
 	// as before.
-	var (
-		designRepoSD func(systemdesign.ProjectID) (sourcecontrol.RepoRef, bool)
-		designRepoPD func(projectdesign.ProjectID) (sourcecontrol.RepoRef, bool)
-	)
-	if scConcrete != nil {
-		railAccount := sourcecontrol.AccountRef(cfg.GitHubAccount)
-		repoFor := func(projectID projectstate.ProjectID) (sourcecontrol.RepoRef, bool) {
-			ref, rerr := scConcrete.RepoRefForProject(railAccount, sourcecontrol.ProjectID(projectID.String()))
-			if rerr != nil {
-				logger.Warn("design PR rail: could not resolve RepoRef for project; rail dormant for this project", "projectID", projectID, "err", rerr)
-				return sourcecontrol.RepoRef(""), false
-			}
-			return ref, true
-		}
-		// systemdesign and projectdesign each own their ProjectID type, so bridge the
-		// resolver at the boundary.
-		designRepoSD = func(pid systemdesign.ProjectID) (sourcecontrol.RepoRef, bool) {
-			return repoFor(projectstate.ProjectID(pid))
-		}
-		designRepoPD = func(pid projectdesign.ProjectID) (sourcecontrol.RepoRef, bool) {
-			return repoFor(projectstate.ProjectID(pid))
-		}
-		logger.Info("design PR rail (github) ready — agentic design drafts use branch→PR→read-back→+1→merge", "account", cfg.GitHubAccount)
-	} else {
-		logger.Warn("design PR rail NOT configured — agentic design read-back/commit run on main with no PR (set the GitHub App config to enable the branch→PR→merge design model)")
-	}
+	designRepoSD, designRepoPD := buildDesignRepoResolvers(cfg, scConcrete, logger)
 
 	// The design Managers (systemDesignManager / projectDesignManager) are Temporal
 	// workflow façades, each constructed via its GENERATED DI constructor (founder model
@@ -534,28 +449,7 @@ func run(logger *slog.Logger) error {
 	// worker) default to nil (worker not registered) unless the dry-run profile is set
 	// (instant in-memory stubs — construction_dryrun.go) or the real GitHub-Actions
 	// pipeline + artifact store are configured.
-	registerConstruction := false
-	var (
-		constructionPipeline  constructionpipeline.ConstructionPipelineAccess
-		constructionArtifacts artifact.ArtifactAccess
-		constructionWorkers   workeraccess.WorkerAccess
-	)
-	switch {
-	case cfg.ConstructionDryRun:
-		constructionPipeline = dryRunPipeline{}
-		constructionArtifacts = dryRunArtifacts{}
-		constructionWorkers = dryRunWorker{}
-		registerConstruction = true
-		logger.Warn("construction Worker DRY-RUN mode — pipeline/artifact/worker effects are STUBBED (no GitHub Actions run, no LLM call); the real pump + per-activity lifecycle + head-state cascade run end-to-end")
-	case pipeline != nil && artifacts != nil:
-		constructionPipeline = pipeline
-		constructionArtifacts = artifacts
-		// Construction does NOT use a server-side LLM. dryRunWorker is a no-LLM stub
-		// that satisfies the worker seam with a valid ConstructionOutput so the workflow
-		// advances to the real GH-Actions dispatch.
-		constructionWorkers = dryRunWorker{}
-		registerConstruction = true
-	}
+	constructionPipeline, constructionArtifacts, constructionWorkers, registerConstruction := selectConstructionDeps(cfg, pipeline, artifacts, logger)
 
 	// The construction-transition + git head-state writes share the design head-state
 	// GIT substrate. designProjectState is always the git adapter now (the Postgres
@@ -760,4 +654,161 @@ func constructionRepoBase(apiBaseURL, owner, repo string) string {
 		host = strings.TrimSuffix(base, "/api/v3")
 	}
 	return host + "/" + owner + "/" + repo
+}
+
+// buildArtifactAccess constructs the git-backed artifactAccess (content-addressable
+// store for Phase-3 construction outputs; C-AA-R). Two profiles behind the unchanged
+// contract surface: LOCAL (file:// on-disk repo, no credential) and CLOUD (the user's
+// GitHub repo; the installation token is minted INTERNALLY from the GitHubApp* identity).
+// Returns nil when no repo URL is configured (the construction slice then stages no
+// outputs — acceptable for the empty-session runtime state).
+func buildArtifactAccess(cfg config, logger *slog.Logger) (artifact.ArtifactAccess, error) {
+	if cfg.ArtifactRepoURL == "" {
+		return nil, nil //nolint:nilnil // optional dependency absent (no repo configured) → (nil, nil) is intentional; the caller nil-checks and stages no outputs.
+	}
+	if cfg.ArtifactRepoLocal {
+		blob, blobErr := githubinfra.NewGitBlobStore(cfg.ArtifactRepoURL)
+		if blobErr != nil {
+			return nil, blobErr
+		}
+		logger.Info("artifactAccess (local git) ready", "repoURL", cfg.ArtifactRepoURL)
+		return artifact.NewGitArtifactAccess(blob, localGitAuth()), nil
+	}
+	blob, authResolver, csErr := newCloudArtifactStore(
+		cfg.ArtifactRepoURL,
+		cfg.ArtifactRepoOwner,
+		cfg.GitHubAppID,
+		cfg.GitHubAppPrivateKeyPEM,
+		cfg.GitHubAPIBaseURL,
+		cfg.GitHubInstallationID,
+	)
+	if csErr != nil {
+		return nil, csErr
+	}
+	logger.Info("artifactAccess (github) ready", "repoURL", cfg.ArtifactRepoURL)
+	return artifact.NewGitArtifactAccess(blob, authResolver), nil
+}
+
+// buildConstructionPipeline constructs the constructionPipelineAccess (UC3) — it fronts
+// the USER'S GitHub Actions: dispatches the aiarch construction workflow in the user's
+// repo via the GitHub App identity and observes/cancels the runs. Returns nil when the
+// construction repo is unconfigured (the pump then never submits a pipeline).
+func buildConstructionPipeline(cfg config, logger *slog.Logger) (constructionpipeline.ConstructionPipelineAccess, error) {
+	if cfg.ConstructionRepoOwner == "" || cfg.ConstructionRepoName == "" {
+		return nil, nil //nolint:nilnil // optional dependency absent (construction repo unconfigured) → (nil, nil) is intentional; the caller nil-checks and never submits a pipeline.
+	}
+	// option-1 generated-DI: the composition root builds the framework GitHub App
+	// client, then the generated NewGitHubActionsConstructionPipelineAccess wires the
+	// token-caching seam + the (unexported) impl behind the interface.
+	appClient, acErr := githubinfra.NewAppClient(cfg.GitHubAppID, cfg.GitHubAppPrivateKeyPEM, cfg.GitHubAPIBaseURL)
+	if acErr != nil {
+		return nil, acErr
+	}
+	pipeline, err := constructionpipeline.NewGitHubActionsConstructionPipelineAccess(
+		appClient,
+		cfg.ConstructionRepoOwner,
+		cfg.ConstructionRepoName,
+		cfg.ConstructionWorkflowFile,
+		cfg.ConstructionRef,
+		cfg.GitHubInstallationID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	logger.Info("constructionPipelineAccess (github-actions) ready",
+		"owner", cfg.ConstructionRepoOwner, "repo", cfg.ConstructionRepoName, "workflow", cfg.ConstructionWorkflowFile)
+	return pipeline, nil
+}
+
+// buildSourceControl constructs the sourceControlAccess (project-birth repo ADOPT +
+// managed-scaffold seating + the PR-merge rail; C-SC). scConcrete is the catalog/locator/
+// token surface retained for the projectStateAccess git cred minter + catalog (CLOUD
+// profile); scAccess is the generated SourceControlAccess interface the adapters/PR-rail
+// consume. Both are nil when the GitHub App identity + account are unconfigured — a dev
+// server then runs repo-less.
+func buildSourceControl(cfg config, logger *slog.Logger) (sourcecontrol.SourceControlCatalogAccess, sourcecontrol.SourceControlAccess, error) {
+	if cfg.GitHubAppID == "" || cfg.GitHubAppPrivateKeyPEM == "" || cfg.GitHubAccount == "" {
+		logger.Warn("sourceControlAccess NOT configured — projects are created repo-less (set ARCHISTRATOR_GITHUB_APP_ID + ARCHISTRATOR_GITHUB_APP_PRIVATE_KEY_PEM + ARCHISTRATOR_GITHUB_ACCOUNT for live GitHub repo provisioning)")
+		return nil, nil, nil
+	}
+	ghClient, scErr := githubinfra.NewAppClient(cfg.GitHubAppID, cfg.GitHubAppPrivateKeyPEM, cfg.GitHubAPIBaseURL)
+	if scErr != nil {
+		return nil, nil, scErr
+	}
+	scAccess, scErr := sourcecontrol.NewGitHubSourceControlAccess(ghClient, cfg.GitHubAccount, cfg.GitHubAppSlug, true /* repoPrivate */)
+	if scErr != nil {
+		return nil, nil, scErr
+	}
+	scConcrete := scAccess.(sourcecontrol.SourceControlCatalogAccess)
+	logger.Info("sourceControlAccess (github) ready", "account", cfg.GitHubAccount, "apiBaseURL", cfg.GitHubAPIBaseURL)
+	return scConcrete, scAccess, nil
+}
+
+// buildTokenValidator constructs the access-token validator (authN). Returns nil in dev
+// mode or with no IdP (systemtests) — the auth middleware then injects a dev principal or
+// denies, respectively.
+func buildTokenValidator(ctx context.Context, cfg config, logger *slog.Logger) (security.Validator, error) {
+	if cfg.Dev.Enabled || cfg.KeycloakJWKSURL == "" {
+		return nil, nil //nolint:nilnil // optional dependency absent (dev mode / no IdP) → (nil, nil) is intentional; the auth middleware injects a dev principal or denies.
+	}
+	tokenValidator, err := keycloak.NewValidator(ctx, keycloak.Config{
+		JWKSURL: cfg.KeycloakJWKSURL,
+		Issuer:  cfg.KeycloakIssuer,
+		Leeway:  3 * time.Second,
+	})
+	if err != nil {
+		return nil, err
+	}
+	logger.Info("keycloak access-token validator ready", "issuer", cfg.KeycloakIssuer, "jwksURL", cfg.KeycloakJWKSURL)
+	return tokenValidator, nil
+}
+
+// buildDesignRepoResolvers builds the PR-rail repo resolvers for the design Managers. The
+// composition root owns the projectID → per-project RepoRef resolution policy
+// (name-as-identity via RepoRefForProject). When sourceControlAccess is unconfigured
+// (scConcrete == nil) BOTH resolvers are nil and the design rail is DORMANT — the CoAuthor
+// spine runs unchanged (read-back/stage on main, no branch/PR ops).
+func buildDesignRepoResolvers(cfg config, scConcrete sourcecontrol.SourceControlCatalogAccess, logger *slog.Logger) (func(systemdesign.ProjectID) (sourcecontrol.RepoRef, bool), func(projectdesign.ProjectID) (sourcecontrol.RepoRef, bool)) {
+	if scConcrete == nil {
+		logger.Warn("design PR rail NOT configured — agentic design read-back/commit run on main with no PR (set the GitHub App config to enable the branch→PR→merge design model)")
+		return nil, nil
+	}
+	railAccount := sourcecontrol.AccountRef(cfg.GitHubAccount)
+	repoFor := func(projectID projectstate.ProjectID) (sourcecontrol.RepoRef, bool) {
+		ref, rerr := scConcrete.RepoRefForProject(railAccount, sourcecontrol.ProjectID(projectID.String()))
+		if rerr != nil {
+			logger.Warn("design PR rail: could not resolve RepoRef for project; rail dormant for this project", "projectID", projectID, "err", rerr)
+			return sourcecontrol.RepoRef(""), false
+		}
+		return ref, true
+	}
+	// systemdesign and projectdesign each own their ProjectID type, so bridge the
+	// resolver at the boundary.
+	designRepoSD := func(pid systemdesign.ProjectID) (sourcecontrol.RepoRef, bool) {
+		return repoFor(projectstate.ProjectID(pid))
+	}
+	designRepoPD := func(pid projectdesign.ProjectID) (sourcecontrol.RepoRef, bool) {
+		return repoFor(projectstate.ProjectID(pid))
+	}
+	logger.Info("design PR rail (github) ready — agentic design drafts use branch→PR→read-back→+1→merge", "account", cfg.GitHubAccount)
+	return designRepoSD, designRepoPD
+}
+
+// selectConstructionDeps chooses the three EXTERNAL-effect construction deps (pipeline +
+// artifact store + LLM worker) and whether to register the construction Worker. They
+// default to nil (worker not registered) unless the dry-run profile is set (instant
+// in-memory stubs) or the real GitHub-Actions pipeline + artifact store are configured.
+func selectConstructionDeps(cfg config, pipeline constructionpipeline.ConstructionPipelineAccess, artifacts artifact.ArtifactAccess, logger *slog.Logger) (constructionpipeline.ConstructionPipelineAccess, artifact.ArtifactAccess, workeraccess.WorkerAccess, bool) {
+	switch {
+	case cfg.ConstructionDryRun:
+		logger.Warn("construction Worker DRY-RUN mode — pipeline/artifact/worker effects are STUBBED (no GitHub Actions run, no LLM call); the real pump + per-activity lifecycle + head-state cascade run end-to-end")
+		return dryRunPipeline{}, dryRunArtifacts{}, dryRunWorker{}, true
+	case pipeline != nil && artifacts != nil:
+		// Construction does NOT use a server-side LLM. dryRunWorker is a no-LLM stub
+		// that satisfies the worker seam with a valid ConstructionOutput so the workflow
+		// advances to the real GH-Actions dispatch.
+		return pipeline, artifacts, dryRunWorker{}, true
+	default:
+		return nil, nil, nil, false
+	}
 }

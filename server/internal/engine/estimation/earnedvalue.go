@@ -50,9 +50,29 @@ func (EstimationEngineImpl) ComputeEarnedValue(_ fweng.Context, activities Activ
 		integratedSet[id] = true
 	}
 
-	effort := map[string]float64{}
+	effort, finish, total := scheduleActivityFinishes(activities, network)
+
+	tw := int(totalWeeks)
+	if tw <= 0 {
+		tw = deriveTotalWeeks(activities, finish, calDaysPerWeek)
+	}
+
+	weeks, planned, earned := accumulateEVCurves(activities, effort, finish, integratedSet, total, calDaysPerWeek, tw)
+
+	spi := 0.0
+	if planned[tw] > 0 {
+		spi = earned[tw] / planned[tw]
+	}
+
+	return EVCurve{Weeks: weeks, Earned: earned, Planned: planned, SPI: spi}, nil
+}
+
+// scheduleActivityFinishes runs the memoized longest-path forward pass over the network
+// dependencies, returning each activity's per-name effort, its earliest-finish (in days),
+// and the total effort. Pure: identical inputs → identical maps.
+func scheduleActivityFinishes(activities ActivityList, network Network) (effort, finish map[string]float64, total float64) {
+	effort = map[string]float64{}
 	depsOf := map[string][]string{}
-	var total float64
 	for _, a := range activities.Activities {
 		effort[a.Name] = a.EffortDays
 		total += a.EffortDays
@@ -62,7 +82,7 @@ func (EstimationEngineImpl) ComputeEarnedValue(_ fweng.Context, activities Activ
 	}
 
 	// memoized earliest-finish (in days) via longest path.
-	finish := map[string]float64{}
+	finish = map[string]float64{}
 	var ef func(string) float64
 	ef = func(n string) float64 {
 		if v, ok := finish[n]; ok {
@@ -82,20 +102,27 @@ func (EstimationEngineImpl) ComputeEarnedValue(_ fweng.Context, activities Activ
 	for _, a := range activities.Activities {
 		ef(a.Name)
 	}
+	return effort, finish, total
+}
 
-	tw := int(totalWeeks)
-	if tw <= 0 {
-		tw = 1
-		for _, a := range activities.Activities {
-			if w := int(finish[a.Name])/calDaysPerWeek + 1; w > tw {
-				tw = w
-			}
+// deriveTotalWeeks bounds the curve length from the latest scheduled finish when the
+// caller passes a non-positive totalWeeks.
+func deriveTotalWeeks(activities ActivityList, finish map[string]float64, calDaysPerWeek int) int {
+	tw := 1
+	for _, a := range activities.Activities {
+		if w := int(finish[a.Name])/calDaysPerWeek + 1; w > tw {
+			tw = w
 		}
 	}
+	return tw
+}
 
-	weeks := make([]int64, tw+1)
-	planned := make([]float64, tw+1)
-	earned := make([]float64, tw+1)
+// accumulateEVCurves builds the cumulative planned (all activities) and earned (integrated
+// only) curves as a percentage of total effort, keyed by week index.
+func accumulateEVCurves(activities ActivityList, effort, finish map[string]float64, integratedSet map[string]bool, total float64, calDaysPerWeek, tw int) (weeks []int64, planned, earned []float64) {
+	weeks = make([]int64, tw+1)
+	planned = make([]float64, tw+1)
+	earned = make([]float64, tw+1)
 	for w := 0; w <= tw; w++ {
 		weeks[w] = int64(w)
 		var p, e float64
@@ -113,11 +140,5 @@ func (EstimationEngineImpl) ComputeEarnedValue(_ fweng.Context, activities Activ
 			earned[w] = e / total * 100
 		}
 	}
-
-	spi := 0.0
-	if planned[tw] > 0 {
-		spi = earned[tw] / planned[tw]
-	}
-
-	return EVCurve{Weeks: weeks, Earned: earned, Planned: planned, SPI: spi}, nil
+	return weeks, planned, earned
 }

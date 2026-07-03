@@ -557,25 +557,7 @@ func TestSubmitIdempotencyConvergence(t *testing.T) {
 	// G1 — replay after the run exists: same key, second submit short-circuits the
 	// probe (no second dispatch) and returns the SAME handle.
 	t.Run("replay_short_circuits_dispatch", func(t *testing.T) {
-		f := newFakeActions()
-		a := newAccessForTest(t, f)
-		h1, err := a.SubmitConstructionPipeline(subRC(ctx, "same-key"), goodSpec())
-		if err != nil {
-			t.Fatalf("submit1: %v", err)
-		}
-		h2, err := a.SubmitConstructionPipeline(subRC(ctx, "same-key"), goodSpec())
-		if err != nil {
-			t.Fatalf("submit2: %v", err)
-		}
-		if !PipelineHandleEqual(h1, h2) {
-			t.Fatalf("handles diverged: %s vs %s", h1, h2)
-		}
-		if f.dispatchCount != 1 {
-			t.Fatalf("dispatchCount = %d, want 1 (replay must NOT re-dispatch)", f.dispatchCount)
-		}
-		if len(f.runs) != 1 {
-			t.Fatalf("run count = %d, want 1", len(f.runs))
-		}
+		assertReplayShortCircuitsDispatch(t, ctx)
 	})
 
 	// G2 — two CONCURRENT submits with the SAME key. Even if both race past the
@@ -584,85 +566,125 @@ func TestSubmitIdempotencyConvergence(t *testing.T) {
 	t.Run("concurrent_submits_converge", func(t *testing.T) {
 		// Run many times to exercise the race interleavings.
 		for iter := 0; iter < 200; iter++ {
-			f := newFakeActions()
-			a := newAccessForTest(t, f)
-
-			var wg sync.WaitGroup
-			handles := make([]PipelineHandle, 2)
-			errs := make([]error, 2)
-			for i := 0; i < 2; i++ {
-				wg.Add(1)
-				go func(idx int) {
-					defer wg.Done()
-					handles[idx], errs[idx] = a.SubmitConstructionPipeline(subRC(ctx, "race-key"), goodSpec())
-				}(i)
-			}
-			wg.Wait()
-
-			for i, e := range errs {
-				if e != nil {
-					t.Fatalf("iter %d submit %d: %v", iter, i, e)
-				}
-			}
-			if !PipelineHandleEqual(handles[0], handles[1]) {
-				t.Fatalf("iter %d: handles diverged: %s vs %s", iter, handles[0], handles[1])
-			}
-			// The canonical handle is the lowest-id run.
-			canonical := handles[0]
-			// Exactly one run carrying the dedup name is NOT cancelled (the canonical),
-			// and it is the lowest id. Any sibling (if a double-dispatch happened) is
-			// cancelled.
-			f.mu.Lock()
-			var liveCanonical, liveCount int
-			lowest := int64(1 << 62)
-			for _, r := range f.runs {
-				if r.id < lowest {
-					lowest = r.id
-				}
-			}
-			for _, r := range f.runs {
-				if r.conclusion != "cancelled" {
-					liveCount++
-					if "run/"+itoaTest(r.id) == PipelineHandleString(canonical) {
-						liveCanonical++
-					}
-				}
-			}
-			f.mu.Unlock()
-			if liveCount != 1 {
-				t.Fatalf("iter %d: live (non-cancelled) run count = %d, want exactly 1", iter, liveCount)
-			}
-			if liveCanonical != 1 {
-				t.Fatalf("iter %d: the surviving run is not the canonical handle", iter)
-			}
-			if PipelineHandleString(canonical) != "run/"+itoaTest(lowest) {
-				t.Fatalf("iter %d: canonical %s is not the lowest-id run run/%d", iter, canonical, lowest)
-			}
+			assertConcurrentSubmitsConverge(t, ctx, iter)
 		}
 	})
 
 	// G3 — replay AFTER completion: the run is terminal; a re-submit still finds it
 	// and returns the same handle (no new dispatch).
 	t.Run("replay_after_completion", func(t *testing.T) {
-		f := newFakeActions()
-		a := newAccessForTest(t, f)
-		h1, err := a.SubmitConstructionPipeline(subRC(ctx, "done-key"), goodSpec())
-		if err != nil {
-			t.Fatalf("submit1: %v", err)
-		}
-		f.runs[0].status = "completed"
-		f.runs[0].conclusion = "success"
-		h2, err := a.SubmitConstructionPipeline(subRC(ctx, "done-key"), goodSpec())
-		if err != nil {
-			t.Fatalf("submit2: %v", err)
-		}
-		if !PipelineHandleEqual(h1, h2) {
-			t.Fatalf("post-completion handles diverged: %s vs %s", h1, h2)
-		}
-		if f.dispatchCount != 1 {
-			t.Fatalf("dispatchCount = %d, want 1", f.dispatchCount)
-		}
+		assertReplayAfterCompletion(t, ctx)
 	})
+}
+
+// assertReplayShortCircuitsDispatch verifies G1: a second submit with the same key
+// short-circuits the probe (no second dispatch) and returns the SAME handle.
+func assertReplayShortCircuitsDispatch(t *testing.T, ctx context.Context) {
+	t.Helper()
+	f := newFakeActions()
+	a := newAccessForTest(t, f)
+	h1, err := a.SubmitConstructionPipeline(subRC(ctx, "same-key"), goodSpec())
+	if err != nil {
+		t.Fatalf("submit1: %v", err)
+	}
+	h2, err := a.SubmitConstructionPipeline(subRC(ctx, "same-key"), goodSpec())
+	if err != nil {
+		t.Fatalf("submit2: %v", err)
+	}
+	if !PipelineHandleEqual(h1, h2) {
+		t.Fatalf("handles diverged: %s vs %s", h1, h2)
+	}
+	if f.dispatchCount != 1 {
+		t.Fatalf("dispatchCount = %d, want 1 (replay must NOT re-dispatch)", f.dispatchCount)
+	}
+	if len(f.runs) != 1 {
+		t.Fatalf("run count = %d, want 1", len(f.runs))
+	}
+}
+
+// assertConcurrentSubmitsConverge verifies G2 for a single race iteration: two
+// concurrent submits with the same key converge on the lowest-id canonical handle
+// and exactly ONE run survives (any sibling is cancelled).
+func assertConcurrentSubmitsConverge(t *testing.T, ctx context.Context, iter int) {
+	t.Helper()
+	f := newFakeActions()
+	a := newAccessForTest(t, f)
+
+	var wg sync.WaitGroup
+	handles := make([]PipelineHandle, 2)
+	errs := make([]error, 2)
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			handles[idx], errs[idx] = a.SubmitConstructionPipeline(subRC(ctx, "race-key"), goodSpec())
+		}(i)
+	}
+	wg.Wait()
+
+	for i, e := range errs {
+		if e != nil {
+			t.Fatalf("iter %d submit %d: %v", iter, i, e)
+		}
+	}
+	if !PipelineHandleEqual(handles[0], handles[1]) {
+		t.Fatalf("iter %d: handles diverged: %s vs %s", iter, handles[0], handles[1])
+	}
+	// The canonical handle is the lowest-id run.
+	canonical := handles[0]
+	// Exactly one run carrying the dedup name is NOT cancelled (the canonical),
+	// and it is the lowest id. Any sibling (if a double-dispatch happened) is
+	// cancelled.
+	f.mu.Lock()
+	var liveCanonical, liveCount int
+	lowest := int64(1 << 62)
+	for _, r := range f.runs {
+		if r.id < lowest {
+			lowest = r.id
+		}
+	}
+	for _, r := range f.runs {
+		if r.conclusion != "cancelled" {
+			liveCount++
+			if "run/"+itoaTest(r.id) == PipelineHandleString(canonical) {
+				liveCanonical++
+			}
+		}
+	}
+	f.mu.Unlock()
+	if liveCount != 1 {
+		t.Fatalf("iter %d: live (non-cancelled) run count = %d, want exactly 1", iter, liveCount)
+	}
+	if liveCanonical != 1 {
+		t.Fatalf("iter %d: the surviving run is not the canonical handle", iter)
+	}
+	if PipelineHandleString(canonical) != "run/"+itoaTest(lowest) {
+		t.Fatalf("iter %d: canonical %s is not the lowest-id run run/%d", iter, canonical, lowest)
+	}
+}
+
+// assertReplayAfterCompletion verifies G3: a re-submit after the run is terminal
+// still finds it and returns the same handle (no new dispatch).
+func assertReplayAfterCompletion(t *testing.T, ctx context.Context) {
+	t.Helper()
+	f := newFakeActions()
+	a := newAccessForTest(t, f)
+	h1, err := a.SubmitConstructionPipeline(subRC(ctx, "done-key"), goodSpec())
+	if err != nil {
+		t.Fatalf("submit1: %v", err)
+	}
+	f.runs[0].status = "completed"
+	f.runs[0].conclusion = "success"
+	h2, err := a.SubmitConstructionPipeline(subRC(ctx, "done-key"), goodSpec())
+	if err != nil {
+		t.Fatalf("submit2: %v", err)
+	}
+	if !PipelineHandleEqual(h1, h2) {
+		t.Fatalf("post-completion handles diverged: %s vs %s", h1, h2)
+	}
+	if f.dispatchCount != 1 {
+		t.Fatalf("dispatchCount = %d, want 1", f.dispatchCount)
+	}
 }
 
 func TestDedupTokenDeterminism(t *testing.T) {
