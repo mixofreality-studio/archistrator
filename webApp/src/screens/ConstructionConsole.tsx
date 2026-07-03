@@ -17,9 +17,11 @@
  * provisioned here, so the session is usually quiet — every surface degrades to an
  * honest awaiting state rather than an error.
  */
-import { useState, useMemo, useEffect, useRef, type ReactNode } from 'react';
+import { useState, useMemo, useEffect, useRef, type ReactElement, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
+import Tabs from '@mui/material/Tabs';
+import Tab from '@mui/material/Tab';
 import Typography from '@mui/material/Typography';
 import CircularProgress from '@mui/material/CircularProgress';
 import AccountTreeOutlinedIcon from '@mui/icons-material/AccountTreeOutlined';
@@ -71,7 +73,7 @@ const routeApi = getRouteApi('/project/$projectId/construction');
 
 type TabId = 'tracker' | 'interventions' | 'artifacts';
 
-const TABS: { id: TabId; title: string; icon: ReactNode; testid: string }[] = [
+const TABS: { id: TabId; title: string; icon: ReactElement; testid: string }[] = [
   {
     id: 'tracker',
     title: 'Tracker',
@@ -294,58 +296,50 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
           sx={{ flexGrow: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}
         >
           {/* tab bar — replaces the ordered spine */}
-          <Box
+          <Tabs
+            aria-label="Construction console sections"
+            scrollButtons={false}
             sx={{
               flexShrink: 0,
-              display: 'flex',
-              alignItems: 'stretch',
-              gap: 0.5,
+              minHeight: 0,
               px: 2.5,
               bgcolor: t.paperAlt,
               borderBottom: `1.5px solid ${t.line}`,
-              overflowX: 'auto',
+              '& .MuiTabs-flexContainer': { gap: 0.5 },
+              '& .MuiTabs-indicator': { backgroundColor: t.accent, height: 3 },
+            }}
+            value={tab}
+            variant="scrollable"
+            onChange={(_e, value: TabId) => {
+              setTab(value);
             }}
           >
-            {TABS.map((x) => {
-              const isActive = x.id === tab;
-              return (
-                <Box
-                  aria-selected={isActive}
-                  data-testid={x.testid}
-                  key={x.id}
-                  role="tab"
-                  sx={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 0.75,
-                    px: 1.5,
-                    py: 1.25,
-                    cursor: 'pointer',
-                    flexShrink: 0,
-                    color: isActive ? t.accent : t.muted,
-                    borderBottom: `3px solid ${isActive ? t.accent : 'transparent'}`,
-                    '&:hover': { color: isActive ? t.accent : t.ink },
-                  }}
-                  onClick={() => {
-                    setTab(x.id);
-                  }}
-                >
-                  {x.icon}
-                  <Typography
-                    sx={{
-                      fontFamily: t.mono,
-                      fontWeight: 700,
-                      fontSize: 12.5,
-                      letterSpacing: '0.04em',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {x.title}
-                  </Typography>
-                </Box>
-              );
-            })}
-          </Box>
+            {TABS.map((x) => (
+              <Tab
+                data-testid={x.testid}
+                icon={x.icon}
+                iconPosition="start"
+                key={x.id}
+                label={x.title}
+                sx={{
+                  minHeight: 0,
+                  flexShrink: 0,
+                  gap: 0.75,
+                  px: 1.5,
+                  py: 1.25,
+                  fontFamily: t.mono,
+                  fontWeight: 700,
+                  fontSize: 12.5,
+                  letterSpacing: '0.04em',
+                  textTransform: 'none',
+                  color: t.muted,
+                  '&:hover': { color: t.ink },
+                  '&.Mui-selected': { color: t.accent },
+                }}
+                value={x.id}
+              />
+            ))}
+          </Tabs>
 
           <Box sx={{ flexGrow: 1, minHeight: 0, overflowY: 'auto', px: { xs: 2, md: 4 }, py: 3 }}>
             <ConsoleHeader
@@ -499,7 +493,7 @@ function ConsoleHeader({
   return (
     <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5, mb: 2 }}>
       <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-        <Typography sx={{ color: t.ink }} variant="h4">
+        <Typography component="h1" sx={{ color: t.ink }} variant="h4">
           {title}
         </Typography>
         <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.muted, mt: 0.5 }}>

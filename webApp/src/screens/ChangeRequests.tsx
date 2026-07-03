@@ -82,7 +82,7 @@ export function ChangeRequestsScreen(): ReactNode {
         <SwapCallsOutlinedIcon sx={{ fontSize: 26, color: t.accent, flexShrink: 0 }} />
         <Box sx={{ minWidth: 0 }}>
           <Typography sx={{ fontFamily: t.mono, fontSize: 10.5, letterSpacing: '0.22em', color: t.accent, lineHeight: 1 }}>DOOR BACK INTO THE METHOD</Typography>
-          <Typography sx={{ fontFamily: t.display, fontWeight: 700, fontSize: 20, color: t.ink, lineHeight: 1.15 }}>Change Requests</Typography>
+          <Typography component="h1" sx={{ fontFamily: t.display, fontWeight: 700, fontSize: 20, color: t.ink, lineHeight: 1.15 }}>Change Requests</Typography>
         </Box>
 
         {project?.name !== undefined && (

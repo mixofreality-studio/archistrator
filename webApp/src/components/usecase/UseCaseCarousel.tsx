@@ -10,6 +10,8 @@ import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 import IconButton from '@mui/material/IconButton';
 import Chip from '@mui/material/Chip';
+import Tabs from '@mui/material/Tabs';
+import Tab from '@mui/material/Tab';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import { toCoreUseCasesView } from '../../api/adapters';
@@ -43,42 +45,56 @@ export function UseCaseCarousel({ envelope }: { envelope: ArtifactModelEnvelope 
   return (
     <Box>
       {/* slide tabs */}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5, flexWrap: 'wrap' }}>
-        {useCases.map((u, idx) => (
-          <Box
-            key={u.id}
-            sx={{
-              cursor: 'pointer',
-              px: 1.25,
-              py: 0.5,
-              fontFamily: t.mono,
-              fontWeight: 700,
-              fontSize: 12,
-              border: `1.5px solid ${t.line}`,
-              borderRadius: t.radius / 8 + 0.5,
-              bgcolor: idx === active ? t.accent : 'transparent',
-              color: idx === active ? t.accentText : t.muted,
-              boxShadow: idx === active && t.hardShadow ? `2px 2px 0 ${t.shadowColor}` : 'none',
-              maxWidth: 220,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-            onClick={() => {
-              setI(idx);
-            }}
-          >
-            {u.name}
-          </Box>
-        ))}
-        <Box sx={{ flexGrow: 1 }} />
-        <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.muted }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
+        <Tabs
+          aria-label="Core use cases"
+          scrollButtons="auto"
+          sx={{
+            minHeight: 0,
+            flexGrow: 1,
+            minWidth: 0,
+            '& .MuiTabs-flexContainer': { gap: 1 },
+            '& .MuiTabs-indicator': { display: 'none' },
+          }}
+          value={active}
+          variant="scrollable"
+          onChange={(_e, idx: number) => {
+            setI(idx);
+          }}
+        >
+          {useCases.map((u, idx) => (
+            <Tab
+              key={u.id}
+              label={u.name}
+              sx={{
+                minHeight: 0,
+                cursor: 'pointer',
+                px: 1.25,
+                py: 0.5,
+                fontFamily: t.mono,
+                fontWeight: 700,
+                fontSize: 12,
+                textTransform: 'none',
+                border: `1.5px solid ${t.line}`,
+                borderRadius: t.radius / 8 + 0.5,
+                bgcolor: idx === active ? t.accent : 'transparent',
+                color: idx === active ? t.accentText : t.muted,
+                boxShadow: idx === active && t.hardShadow ? `2px 2px 0 ${t.shadowColor}` : 'none',
+                maxWidth: 220,
+                '&.Mui-selected': { color: t.accentText },
+              }}
+              title={u.name}
+              value={idx}
+            />
+          ))}
+        </Tabs>
+        <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.muted, flexShrink: 0 }}>
           {active + 1} / {useCases.length}
         </Typography>
-        <IconButton size="small" sx={{ border: `1.5px solid ${t.line}`, borderRadius: 1, color: t.ink }} onClick={() => { go(-1); }}>
+        <IconButton aria-label="Previous use case" size="small" sx={{ border: `1.5px solid ${t.line}`, borderRadius: 1, color: t.ink }} onClick={() => { go(-1); }}>
           <ChevronLeftIcon fontSize="small" />
         </IconButton>
-        <IconButton size="small" sx={{ border: `1.5px solid ${t.line}`, borderRadius: 1, color: t.ink }} onClick={() => { go(1); }}>
+        <IconButton aria-label="Next use case" size="small" sx={{ border: `1.5px solid ${t.line}`, borderRadius: 1, color: t.ink }} onClick={() => { go(1); }}>
           <ChevronRightIcon fontSize="small" />
         </IconButton>
       </Box>

@@ -145,7 +145,7 @@ export function ExperienceChrome({
       )}
 
       {/* content row */}
-      <Box sx={{ flexGrow: 1, minHeight: 0, display: 'flex', alignItems: 'stretch' }}>
+      <Box component="main" sx={{ flexGrow: 1, minHeight: 0, display: 'flex', alignItems: 'stretch' }}>
         {children}
         {chat !== undefined && (
           <Box sx={{ width: 380, flexShrink: 0, height: '100%', borderLeft: `1.5px solid ${t.line}` }}>

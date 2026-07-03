@@ -153,6 +153,7 @@ export function ArchitectureView({
         {mode === 'dynamic' && dynamicViews.length > 0 && (
           <FormControl size="small" sx={{ minWidth: 240 }}>
             <Select
+              aria-label="Dynamic view"
               data-testid={UI_IDENTIFIERS.Architecture.DYNAMIC_PICKER}
               sx={{ fontFamily: t.mono, fontSize: 13 }}
               value={activeDynamicKey}

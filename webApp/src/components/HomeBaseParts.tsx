@@ -61,6 +61,7 @@ export function PhaseCard({
       {phase.total > 0 && (
         <>
           <LinearProgress
+            aria-label={`${phase.title} progress, ${String(phase.done)} of ${String(phase.total)} committed`}
             sx={{
               height: 8,
               borderRadius: 0,

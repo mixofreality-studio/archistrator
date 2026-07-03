@@ -61,8 +61,16 @@ export function SlimSpine({
                   border: active ? `1.5px solid ${t.accent}` : '1.5px solid transparent',
                   bgcolor: active ? t.awaitingBg : 'transparent',
                 }}
+                tabIndex={locked ? -1 : 0}
                 onClick={() => {
                   if (!locked) onSelect(i);
+                }}
+                onKeyDown={(e) => {
+                  if (locked) return;
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    onSelect(i);
+                  }
                 }}
               >
                 <Box

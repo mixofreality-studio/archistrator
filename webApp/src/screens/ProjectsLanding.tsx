@@ -62,7 +62,7 @@ export function ProjectsLanding(): ReactNode {
                 <Typography sx={{ color: t.muted }} variant="overline">
                   Welcome back, {userLabel(user)}
                 </Typography>
-                <Typography sx={{ color: t.ink }} variant="h3">
+                <Typography component="h1" sx={{ color: t.ink }} variant="h3">
                   Your projects
                 </Typography>
               </Box>
@@ -217,7 +217,7 @@ function EmptyState({ t, user, onNew }: { t: Tokens; user: string; onNew: () => 
       <Typography sx={{ color: t.muted }} variant="overline">
         Welcome to archistrator, {user}
       </Typography>
-      <Typography sx={{ color: t.ink, maxWidth: 620 }} variant="h3">
+      <Typography component="h1" sx={{ color: t.ink, maxWidth: 620 }} variant="h3">
         Let&rsquo;s design your first system.
       </Typography>
       <Typography sx={{ color: t.muted, fontSize: 15, lineHeight: 1.6, maxWidth: 560 }}>

@@ -19,12 +19,14 @@
  * surface. Every tab degrades to an honest awaiting state rather than an error
  * when the read is quiet (no operated app deployed yet).
  */
-import { useState, type ReactNode } from 'react';
+import { useState, type ReactElement, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import Chip from '@mui/material/Chip';
 import CircularProgress from '@mui/material/CircularProgress';
 import Tooltip from '@mui/material/Tooltip';
+import Tabs from '@mui/material/Tabs';
+import Tab from '@mui/material/Tab';
 import MonitorHeartOutlinedIcon from '@mui/icons-material/MonitorHeartOutlined';
 import RocketLaunchOutlinedIcon from '@mui/icons-material/RocketLaunchOutlined';
 import TrendingUpOutlinedIcon from '@mui/icons-material/TrendingUpOutlined';
@@ -54,7 +56,7 @@ interface TabMeta {
   id: TabId;
   title: string;
   subtitle: string;
-  icon: ReactNode;
+  icon: ReactElement;
   testid: string;
 }
 
@@ -97,36 +99,45 @@ function OperationsConsoleBody({ operatedAppId }: { operatedAppId: string }): Re
         sx={{ flexGrow: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}
       >
         {/* tab bar */}
-        <Box sx={{ flexShrink: 0, display: 'flex', alignItems: 'stretch', gap: 0.5, px: 2.5, bgcolor: t.paperAlt, borderBottom: `1.5px solid ${t.line}`, overflowX: 'auto' }}>
-          {TABS.map((x) => {
-            const isActive = x.id === tab;
-            return (
-              <Box
-                aria-selected={isActive}
+        <Box sx={{ flexShrink: 0, display: 'flex', alignItems: 'stretch', px: 2.5, bgcolor: t.paperAlt, borderBottom: `1.5px solid ${t.line}` }}>
+          <Tabs
+            aria-label="Operations console sections"
+            scrollButtons={false}
+            sx={{
+              minHeight: 0,
+              '& .MuiTabs-flexContainer': { gap: 0.5 },
+              '& .MuiTabs-indicator': { backgroundColor: t.accent, height: 3 },
+            }}
+            value={tab}
+            variant="scrollable"
+            onChange={(_e, value: TabId) => { setTab(value); }}
+          >
+            {TABS.map((x) => (
+              <Tab
                 data-testid={x.testid}
+                icon={x.icon}
+                iconPosition="start"
                 key={x.id}
-                role="tab"
+                label={x.title}
                 sx={{
-                  display: 'flex',
-                  alignItems: 'center',
+                  minHeight: 0,
+                  flexShrink: 0,
                   gap: 0.75,
                   px: 1.5,
                   py: 1.25,
-                  cursor: 'pointer',
-                  flexShrink: 0,
-                  color: isActive ? t.accent : t.muted,
-                  borderBottom: `3px solid ${isActive ? t.accent : 'transparent'}`,
-                  '&:hover': { color: isActive ? t.accent : t.ink },
+                  fontFamily: t.mono,
+                  fontWeight: 700,
+                  fontSize: 12.5,
+                  letterSpacing: '0.04em',
+                  textTransform: 'none',
+                  color: t.muted,
+                  '&:hover': { color: t.ink },
+                  '&.Mui-selected': { color: t.accent },
                 }}
-                onClick={() => { setTab(x.id); }}
-              >
-                {x.icon}
-                <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 12.5, letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>
-                  {x.title}
-                </Typography>
-              </Box>
-            );
-          })}
+                value={x.id}
+              />
+            ))}
+          </Tabs>
           <Box sx={{ flexGrow: 1 }} />
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, pr: 1 }}>
             {view !== undefined && sum.total > 0 && (
@@ -194,7 +205,7 @@ function ConsoleHeader({ t, title, subtitle }: { t: Tokens; title: string; subti
   return (
     <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5, mb: 2 }}>
       <Box>
-        <Typography sx={{ color: t.ink }} variant="h4">{title}</Typography>
+        <Typography component="h1" sx={{ color: t.ink }} variant="h4">{title}</Typography>
         <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.muted, mt: 0.5 }}>{subtitle}</Typography>
       </Box>
     </Box>

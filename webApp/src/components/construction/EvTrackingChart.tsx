@@ -33,6 +33,18 @@ export function EvTrackingChart({ ev }: { ev: EvCurves }): ReactNode {
   const sx = (w: number): number => PAD_L + (w / maxWeek) * PLOT_W;
   const sy = (v: number): number => PAD_T + (1 - v / 100) * PLOT_H;
 
+  // Decimate x-axis week labels so they never overlap: estimate a label's rendered
+  // width from its digit count (mono 8.5px font ≈ 5.2px/glyph + a gutter), work out
+  // how many labels fit across the plot width, then render only every Nth week
+  // (always keeping the last week so the range end stays legible).
+  const maxWeekLabelChars = Math.max(1, ...weeks.map((w) => String(w).length));
+  const approxLabelWidth = maxWeekLabelChars * 5.2 + 6;
+  const maxVisibleLabels = Math.max(1, Math.floor(PLOT_W / approxLabelWidth));
+  const labelInterval = Math.max(1, Math.ceil(weeks.length / maxVisibleLabels));
+  const visibleWeekIndices = new Set(
+    weeks.map((_, i) => i).filter((i) => i % labelInterval === 0 || i === weeks.length - 1)
+  );
+
   const plannedPts: Pt[] = weeks.map((w, i) => [sx(w), sy(ev.planned[i] ?? 0)]);
 
   const earnedPts: Pt[] = [];
@@ -111,20 +123,23 @@ export function EvTrackingChart({ ev }: { ev: EvCurves }): ReactNode {
         y2={H - PAD_B}
       />
 
-      {/* X-axis labels */}
-      {weeks.map((w) => (
-        <text
-          fill={t.muted}
-          fontFamily={t.mono}
-          fontSize={8.5}
-          key={w}
-          textAnchor="middle"
-          x={sx(w)}
-          y={H - PAD_B + 14}
-        >
-          {w}
-        </text>
-      ))}
+      {/* X-axis labels — decimated to the interval computed above */}
+      {weeks
+        .map((w, i) => ({ w, i }))
+        .filter(({ i }) => visibleWeekIndices.has(i))
+        .map(({ w, i }) => (
+          <text
+            fill={t.muted}
+            fontFamily={t.mono}
+            fontSize={8.5}
+            key={i}
+            textAnchor="middle"
+            x={sx(w)}
+            y={H - PAD_B + 14}
+          >
+            {w}
+          </text>
+        ))}
       <text
         fill={t.muted}
         fontFamily={t.mono}

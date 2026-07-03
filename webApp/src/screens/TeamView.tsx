@@ -57,7 +57,7 @@ function TeamBody(): ReactNode {
           <Typography sx={{ color: t.muted }} variant="overline">
             The Method · your team
           </Typography>
-          <Typography sx={{ color: t.ink }} variant="h3">
+          <Typography component="h1" sx={{ color: t.ink }} variant="h3">
             Roles on the project
           </Typography>
         </Box>

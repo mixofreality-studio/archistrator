@@ -248,7 +248,7 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
         <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5, mb: 2 }}>
           <Box>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-              <Typography sx={{ color: t.ink }} variant="h4">
+              <Typography component="h1" sx={{ color: t.ink }} variant="h4">
                 {meta.title}
               </Typography>
               <StageChip

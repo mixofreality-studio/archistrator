@@ -277,6 +277,29 @@ export function buildMuiTheme(t: Tokens): Theme {
       caption: { fontFamily: t.mono, letterSpacing: '0.02em' },
     },
     components: {
+      // Global :focus-visible ring — a clearly visible outline in every theme,
+      // built from the theme's own accent token (never a hardcoded color). Covers
+      // native focusable elements (links, custom role="button"/"tab" elements with
+      // a real tabIndex) that fall outside MuiButtonBase.
+      MuiCssBaseline: {
+        styleOverrides: {
+          ':focus-visible': {
+            outline: 'none',
+            boxShadow: `0 0 0 2px ${t.accent}`,
+            borderRadius: t.radius,
+          },
+        },
+      },
+      MuiButtonBase: {
+        styleOverrides: {
+          root: {
+            '&.Mui-focusVisible': {
+              outline: 'none',
+              boxShadow: `0 0 0 2px ${t.accent}`,
+            },
+          },
+        },
+      },
       MuiPaper: {
         defaultProps: { elevation: 0 },
         styleOverrides: { root: { backgroundImage: 'none', border: border(t) } },
