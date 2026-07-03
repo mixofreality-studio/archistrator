@@ -11,9 +11,21 @@
 #   gen-models  — generate contract.gen.go from project.json .serviceContracts
 #                 (cmd/modelgen). project.json is the source of truth.
 #   gen         — steady-state regen (idempotent); just gen-models.
-#   gen-schemas — DEPRECATED / bootstrap-only. Re-seeds the legacy per-component
-#                 contract.schema.json by reflecting current Go (cmd/schemagen).
-#                 NOT part of the source of truth — do not use in steady state.
+#   gen-schemas — BOOTSTRAP-ONLY re-seed, fully mechanical (no hand-edit):
+#                   1. cmd/schemagen  reflects current Go into each registered
+#                      component's <dir>/contract.schema.json.
+#                   2. cmd/contractfold folds that document straight into
+#                      project.json's .serviceContracts[<key>] (a surgical byte
+#                      splice — see cmd/internal/contractfold's package doc),
+#                      for every component that already has BOTH a
+#                      .serviceContracts entry and a freshly-written
+#                      contract.schema.json.
+#                 NOT part of the source of truth (project.json is) — do not use
+#                 in steady state; gen-models already reads project.json
+#                 directly. To bootstrap a BRAND NEW component's first contract
+#                 (no .serviceContracts entry yet), run schemagen for it, then
+#                 `go run ./cmd/contractfold <dir> <key>` directly (creates the
+#                 entry) instead of the bulk `gen-schemas` target.
 gen-models:
 	GOWORK=off go run ./cmd/modelgen
 
@@ -28,6 +40,7 @@ gen: gen-models gen-client
 
 gen-schemas:
 	GOWORK=off go run ./cmd/schemagen
+	GOWORK=off go run ./cmd/contractfold
 
 # bootstrap — re-bootstrap a component: generate its contract.gen.go from
 # project.json, then strip the now-duplicate hand-written surface (refuses to drop

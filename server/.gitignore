@@ -9,3 +9,8 @@ test-artifacts/
 # Compiled server binary (build artifact, ~50MB). Build locally; never commit.
 /server
 /seed-construction
+
+# cmd/schemagen's bootstrap-only re-seed output. Transient: cmd/contractfold
+# folds it straight into .aiarch/state/project.json (the source of truth), so
+# it is never itself committed. See cmd/schemagen's package doc.
+contract.schema.json
