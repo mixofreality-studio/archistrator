@@ -293,7 +293,8 @@ func TestU11_InstallAuthorizeAppAuth(t *testing.T) {
 	a := newAccess(t, fake)
 	_, err := a.InstallAuthorizeApp(rc(context.Background()), testAccount)
 	requireKind(t, err, fwra.Auth)
-	if err.(*fwra.Error).Retryable {
+	var raErr *fwra.Error
+	if errors.As(err, &raErr) && raErr.Retryable {
 		t.Fatalf("Auth must be terminal (non-retryable)")
 	}
 }

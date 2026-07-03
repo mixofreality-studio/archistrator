@@ -430,7 +430,7 @@ func (a *access) handleFor(tgt ghTarget, runID int64) PipelineHandle {
 // opaque handle. A zero/malformed handle is a caller pre-condition violation →
 // fwra.ContractMisuse. A handle with no "@<target>" segment returns a ZERO ghTarget
 // (the construction-repo default — the seam substitutes its configured repo).
-func (a *access) runIDFromHandle(handle PipelineHandle) (int64, ghTarget, error) { //nolint:gocyclo // parses handle segments; each segment type adds a branch
+func (a *access) runIDFromHandle(handle PipelineHandle) (int64, ghTarget, error) {
 	if PipelineHandleIsZero(handle) {
 		return 0, ghTarget{}, fwra.New(fwra.ContractMisuse, "constructionpipeline: zero PipelineHandle")
 	}

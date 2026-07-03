@@ -143,7 +143,7 @@ type config struct {
 	Dev web.DevConfig
 }
 
-func loadConfig() (config, error) { //nolint:gocognit // reads and validates all env config fields; each field adds a branch
+func loadConfig() (config, error) {
 	cfg := config{
 		ListenAddr:        env("ARCHISTRATOR_LISTEN_ADDR", ":8080"),
 		ShutdownTimeout:   envDuration("ARCHISTRATOR_SHUTDOWN_TIMEOUT", 20*time.Second),

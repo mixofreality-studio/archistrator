@@ -311,6 +311,9 @@ type pullRequestStatusView struct {
 // is safe). A DUMB reflection — it never gates any Approve control.
 func mapCheckState(s sourcecontrol.CheckState) projectstate.CICheckState {
 	switch s {
+	case sourcecontrol.CheckPending:
+		// explicit: pending check state maps directly, same as any unmapped value.
+		return projectstate.CICheckPending
 	case sourcecontrol.CheckSuccess:
 		return projectstate.CICheckSuccess
 	case sourcecontrol.CheckFailure:

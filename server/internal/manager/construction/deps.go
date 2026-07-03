@@ -165,6 +165,9 @@ const (
 // String returns the canonical name for an activity kind.
 func (k activityKind) String() string {
 	switch k {
+	case activityKindUnknown:
+		// zero-value sentinel, not a real activity kind — same as any unmapped value.
+		return "Unknown"
 	case activityKindDetailedDesign:
 		return "DetailedDesign"
 	case activityKindConstruction:
@@ -193,6 +196,9 @@ const (
 // String returns the canonical worker-class name (used as the worker's logical class).
 func (c workerClass) String() string {
 	switch c {
+	case workerClassUnknown:
+		// zero-value sentinel, not a real worker class — same as any unmapped value.
+		return "unknown"
 	case aiWorker:
 		return "ai"
 	case humanSeniorWorker:

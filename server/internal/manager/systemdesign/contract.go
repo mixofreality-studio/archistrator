@@ -177,6 +177,10 @@ func (c *critique) Validate() error {
 			return fmt.Errorf("critique: revise verdict requires Notes")
 		}
 		return nil
+	case critiqueUnknown:
+		// The zero value: an unset/unconstructed Verdict, not a real critique
+		// outcome — falls through to the same "unknown ordinal" rejection.
+		return fmt.Errorf("critique: unknown verdict ordinal %d", int(c.Verdict))
 	default:
 		return fmt.Errorf("critique: unknown verdict ordinal %d", int(c.Verdict))
 	}

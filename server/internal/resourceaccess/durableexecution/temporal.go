@@ -341,6 +341,8 @@ func mapStatus(s enumspb.WorkflowExecutionStatus) ExecutionStatus {
 		return StatusCancelled
 	case enumspb.WORKFLOW_EXECUTION_STATUS_TIMED_OUT:
 		return StatusTimedOut
+	case enumspb.WORKFLOW_EXECUTION_STATUS_UNSPECIFIED: // the zero-value sentinel
+		return StatusUnknown
 	default:
 		return StatusUnknown
 	}

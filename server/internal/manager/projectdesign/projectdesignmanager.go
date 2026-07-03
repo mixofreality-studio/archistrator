@@ -172,6 +172,10 @@ func (m *projectDesignManager) SubmitSDPDecision(rc fwmanager.Context, projectID
 		if feedback == nil || feedback.Notes == "" {
 			return newError(fwmanager.ContractMisuse, "RejectAll requires feedback")
 		}
+	case SDPDecisionUnknown:
+		// The zero value: a caller that forgot to set Decision, not a legitimate
+		// SDP outcome. Reject explicitly rather than falling through silently.
+		return newError(fwmanager.ContractMisuse, "unknown SDP decision")
 	default:
 		return newError(fwmanager.ContractMisuse, "unknown SDP decision")
 	}
@@ -203,6 +207,10 @@ func (m *projectDesignManager) SubmitReviewDecision(rc fwmanager.Context, projec
 		if feedback == nil || feedback.Notes == "" {
 			return newError(fwmanager.ContractMisuse, "Reject requires feedback")
 		}
+	case ReviewDecisionUnknown:
+		// The zero value: a caller that forgot to set Decision, not a legitimate
+		// review outcome. Reject explicitly rather than falling through silently.
+		return newError(fwmanager.ContractMisuse, "unknown review decision")
 	default:
 		return newError(fwmanager.ContractMisuse, "unknown review decision")
 	}

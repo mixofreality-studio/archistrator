@@ -139,6 +139,9 @@ func resumeBaseline(p AutoscalerPolicy) int64 {
 // Enterprise +2 over the policy baseline.
 func slaTierBump(tier SLATier) int64 {
 	switch tier {
+	case SLATierFree:
+		// The zero value — the free tier (autoscaler.go). No bump over baseline.
+		return 0
 	case SLATierPaid:
 		return 1
 	case SLATierEnterprise:

@@ -277,7 +277,7 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
             constructionRowFor
           )
         : new Map<string, BuildStatus>(),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- gitForActivity is a fresh closure every render (not memoized), reading `project`; project's own changes already invalidate this memo via constructionRowFor (which IS keyed on project), so listing gitForActivity too would defeat the memoization every render for no benefit
     [networkModel, live, activeId, activeStatus, constructionRowFor]
   );
 

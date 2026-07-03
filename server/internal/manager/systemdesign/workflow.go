@@ -749,6 +749,11 @@ func (wf *workflows) CoAuthorArtifactWorkflow(ctx workflow.Context, in coAuthorI
 			state.stage = StageWithdrawn
 			return coAuthorWithdrawn, nil
 
+		case ReviewDecisionUnknown:
+			// The zero value: no legitimate signal carries it. Same terminal
+			// rejection as the default case below.
+			return coAuthorUnknown, temporal.NewNonRetryableApplicationError("unknown review decision", "UnknownReviewDecision", nil)
+
 		default:
 			return coAuthorUnknown, temporal.NewNonRetryableApplicationError("unknown review decision", "UnknownReviewDecision", nil)
 		}
@@ -907,6 +912,12 @@ func slotFor(proj projectstate.Project, kind ArtifactKind) projectstate.Artifact
 		return proj.OperationalConcepts
 	case KindStandardCheck:
 		return proj.StandardCheck
+	case KindPlanningAssumptions, KindActivityList, KindNetwork, KindNormalSolution,
+		KindSubcriticalSolution, KindCompressedSolution, KindDecompressedSolution,
+		KindRiskModel, KindSdpReview:
+		// Phase-2 kinds have no Phase-1 slot here — same zero-value fallback as
+		// the default below (this func is only ever called with Phase-1 kinds).
+		return projectstate.ArtifactSlot{}
 	default:
 		return projectstate.ArtifactSlot{}
 	}
@@ -970,6 +981,9 @@ func (wf *workflows) awaitDraftFailedRecovery(
 				// Retry-via-Reject: re-dispatch with the architect's feedback woven in.
 				*feedback = reviewFeedbackOrZero(sig.Feedback)
 				retry = true
+			case ReviewDecisionUnknown, ReviewApprove:
+				// Approve at a failed gate is meaningless (no staged draft); the zero
+				// value carries no signal either — both ignored, same as default.
 			default:
 				// Approve at a failed gate is meaningless (no staged draft) — ignored.
 			}

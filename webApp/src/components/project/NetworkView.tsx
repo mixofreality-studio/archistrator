@@ -363,7 +363,7 @@ export function NetworkView({
 
   const { nodes, edges } = useMemo(
     () => build(view, t, onFocus, statusFor),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on signature (the stable proxy for view content) instead of view itself, so identical polls don't rebuild and clobber xyflow's live selection (see the comment block above)
     [signature, statusSig, t, onFocus, statusFor]
   );
 

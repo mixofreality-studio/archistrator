@@ -35,6 +35,10 @@ type interventionStrategy interface {
 // "unknown policy mode" — NEVER a silent default. See C-IE.md (flag for architect).
 func strategyFor(policy InterventionPolicy) (interventionStrategy, error) {
 	switch policy.Mode {
+	case InterventionModeUnknown:
+		// No mode set. Settling/intervening under an unregistered regime is
+		// forbidden — never a silent default (intervention.go).
+		return nil, fweng.New(fweng.InvalidInput, "unknown policy mode")
 	case EscalateEverything:
 		return escalateEverythingStrategy{}, nil
 	case Tiered:
@@ -91,6 +95,8 @@ func (s tieredStrategy) effectiveRetryBudget() int64 {
 		budget += 2
 	case SLATierPaid:
 		budget++
+	case SLATierFree:
+		// The zero-value tier: base budget, no bump.
 	}
 	if budget < 0 {
 		budget = 0

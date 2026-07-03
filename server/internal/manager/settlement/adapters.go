@@ -141,6 +141,9 @@ func routingDirectiveToState(d routingDirectiveSeam) settlementstate.RoutingDire
 		return settlementstate.RoutingPayout
 	case routingCharge:
 		return settlementstate.RoutingCharge
+	case routingNoAction:
+		// net == 0 (or a recompute delta == 0) — skip; same as default.
+		return settlementstate.RoutingNoAction
 	default:
 		return settlementstate.RoutingNoAction
 	}
@@ -434,6 +437,9 @@ func routingDirectiveToEngine(d routingDirectiveSeam) settlementengine.RoutingDi
 		return settlementengine.RoutingPayout
 	case routingCharge:
 		return settlementengine.RoutingCharge
+	case routingNoAction:
+		// net == 0 (or a recompute delta == 0) — skip; same as default.
+		return settlementengine.RoutingNoAction
 	default:
 		return settlementengine.RoutingNoAction
 	}
@@ -445,6 +451,9 @@ func routingDirectiveFromEngine(d settlementengine.RoutingDirective) routingDire
 		return routingPayout
 	case settlementengine.RoutingCharge:
 		return routingCharge
+	case settlementengine.RoutingNoAction:
+		// net == 0 (or a recompute delta == 0) — skip; same as default.
+		return routingNoAction
 	default:
 		return routingNoAction
 	}
@@ -477,6 +486,9 @@ func (a interventionAdapter) DecideOnSettlementFailure(failure settlementFailure
 		return settlementDelay, nil
 	case intervention.SettlementEscalate:
 		return settlementEscalate, nil
+	case intervention.SettlementRetry:
+		// re-attempt the charge now (within budget) — same as default.
+		return settlementRetry, nil
 	default:
 		return settlementRetry, nil
 	}

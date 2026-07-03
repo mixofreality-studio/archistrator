@@ -205,6 +205,10 @@ func (m *systemDesignManager) SubmitReviewDecision(rc fwmanager.Context, project
 		if feedback == nil || feedback.Notes == "" {
 			return newError(fwmanager.ContractMisuse, "Reject requires feedback")
 		}
+	case ReviewDecisionUnknown:
+		// The zero value: a caller that forgot to set Decision, not a legitimate
+		// review outcome. Reject explicitly rather than falling through silently.
+		return newError(fwmanager.ContractMisuse, "unknown review decision")
 	default:
 		return newError(fwmanager.ContractMisuse, "unknown review decision")
 	}
@@ -352,6 +356,18 @@ func mapSetResearchInputError(err error) error {
 			return newError(fwmanager.NotFound, err.Error())
 		case fwra.ContractMisuse:
 			return newError(fwmanager.ContractMisuse, err.Error())
+		case fwra.Unknown, fwra.Transient, fwra.RateLimited, fwra.Infrastructure,
+			fwra.Auth, fwra.Conflict, fwra.QuotaExhausted, fwra.ContentPolicy:
+			// "Everything else (incl. unrecovered Conflict) → Infrastructure with
+			// retryability preserved" per the doc comment above. These 8 kinds
+			// carry no distinct handling on this sync write path: Auth/QuotaExhausted/
+			// ContentPolicy are terminal-but-not-actionable-by-the-caller here, and
+			// Conflict that reaches this far means the RA's own retry-on-conflict
+			// loop gave up — surface it as Infrastructure so the caller's generic
+			// retry policy applies, same as Transient/RateLimited/Unknown.
+			mapped := fwmanager.Wrap(fwmanager.Infrastructure, err, "projectStateAccess.SetResearchInput")
+			mapped.Retryable = raErr.Retryable
+			return mapped
 		default:
 			mapped := fwmanager.Wrap(fwmanager.Infrastructure, err, "projectStateAccess.SetResearchInput")
 			mapped.Retryable = raErr.Retryable
@@ -384,6 +400,12 @@ func mapReadProjectError(err error) error {
 			return newError(fwmanager.NotFound, err.Error())
 		case fwra.ContractMisuse:
 			return newError(fwmanager.ContractMisuse, err.Error())
+		case fwra.Unknown, fwra.Transient, fwra.RateLimited, fwra.Infrastructure,
+			fwra.Auth, fwra.Conflict, fwra.QuotaExhausted, fwra.ContentPolicy:
+			// Same "everything else → Infrastructure" rationale as
+			// mapSetResearchInputError above: no distinct handling for these
+			// kinds on this sync read path.
+			return fwmanager.Wrap(fwmanager.Infrastructure, err, "projectStateAccess.ReadProject")
 		default:
 			return fwmanager.Wrap(fwmanager.Infrastructure, err, "projectStateAccess.ReadProject")
 		}

@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/estimation"
@@ -46,7 +47,16 @@ type sdpOption struct {
 }
 
 func main() {
-	raw, err := os.ReadFile(os.Args[1])
+	if len(os.Args) < 2 {
+		fmt.Fprintln(os.Stderr, "usage: replan-sdp <project.json path>")
+		os.Exit(1)
+	}
+	// os.Args[1] is an operator-supplied CLI path (this is a manual, one-off
+	// developer tool — see the package doc). filepath.Clean normalizes it
+	// (collapses ".." segments, no symlink resolution needed since this reads
+	// a plain file the operator names on their own machine).
+	inPath := filepath.Clean(os.Args[1])
+	raw, err := os.ReadFile(inPath)
 	if err != nil {
 		panic(err)
 	}

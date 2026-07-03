@@ -727,6 +727,8 @@ func mapRollup(r fwgithub.CheckRollup) CheckState {
 		return CheckSuccess
 	case fwgithub.RollupFailure:
 		return CheckFailure
+	case fwgithub.RollupPending: // the zero value
+		return CheckPending
 	default:
 		return CheckPending
 	}
@@ -738,6 +740,8 @@ func reviewEvent(v ReviewVerdict) string {
 		return "APPROVE"
 	case ReviewRequestChanges:
 		return "REQUEST_CHANGES"
+	case ReviewComment: // non-deciding comment
+		return "COMMENT"
 	default:
 		return "COMMENT"
 	}

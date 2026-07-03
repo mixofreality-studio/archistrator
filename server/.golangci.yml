@@ -15,10 +15,15 @@ linters:
   enable:
     - gochecksumtype
     - gosec
+    - errorlint
+    - exhaustive
+    - nilnil
   settings:
     gochecksumtype:
       # Treat a missing case as an error (the whole point of a sealed sum).
       default-signifies-exhaustive: false
+    exhaustive:
+      check-generated: false
   exclusions:
     rules:
       # gosec is a production-security linter. Test files legitimately use fake
@@ -26,6 +31,12 @@ linters:
       - path: "_test\\.go"
         linters:
           - gosec
+      # exhaustive is scoped to production code: test files legitimately assert
+      # against a handful of enum values (e.g. one expected error Kind) rather
+      # than exhaustively branching over every member.
+      - path: "_test\\.go"
+        linters:
+          - exhaustive
 
 formatters:
   enable:

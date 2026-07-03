@@ -68,7 +68,13 @@ func encodeModel(model projectstate.ArtifactModel) (modelEnvelope, error) {
 // payload decodes to a nil model.
 func (e modelEnvelope) decode() (projectstate.ArtifactModel, error) {
 	if len(e.Model) == 0 {
-		return nil, nil
+		// Not an error: an empty payload IS the documented "no model yet" state
+		// (e.g. a slot that has never been drafted). Every call site checks err
+		// first, then uses a nil model as a legitimate value (see activities.go
+		// and codec.go's projectEnvelope.decode) — a typed sentinel error would
+		// force every caller to unwrap-and-ignore it, which is exactly what
+		// returning a plain nil model already achieves.
+		return nil, nil //nolint:nilnil
 	}
 	model, ok := projectstate.NewModelForKind(e.Kind)
 	if !ok {

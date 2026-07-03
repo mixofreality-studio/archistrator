@@ -345,6 +345,10 @@ type pricingStrategy interface {
 // rule guards against (a deploy/config bug, not a domain outcome).
 func strategyFor(pricing ServicePricing) (pricingStrategy, *fweng.Error) {
 	switch pricing.Kind {
+	case ServicePricingUnknown:
+		// The zero value — no regime declared. Pricing under it is forbidden
+		// (billing.go: never a silent default).
+		return nil, fweng.New(fweng.InvalidInput, "unknown pricing")
 	case ServicePricingFlatMarkup:
 		return flatMarkupStrategy{}, nil
 	default:

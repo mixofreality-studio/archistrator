@@ -58,6 +58,8 @@ func PipelinePhaseIsTerminal(p PipelinePhase) bool {
 	switch p {
 	case PhaseSucceeded, PhaseFailed, PhaseCancelled:
 		return true
+	case PhasePending, PhaseRunning: // not yet terminal — pipeline still in flight
+		return false
 	default:
 		return false
 	}

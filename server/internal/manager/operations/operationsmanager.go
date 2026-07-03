@@ -133,6 +133,11 @@ func (m *operationsManager) DeployAfterConstruction(rc fwmgr.Context, operatedAp
 	case ReasonAutoscale, ReasonDelinquency:
 		return DeployResult{}, newError(fwmgr.ContractMisuse,
 			fmt.Sprintf("reason %q is reserved for internal republish (reconcile/delinquency) and is rejected on deployAfterConstruction", desiredStateReasonName(change.Reason)))
+	case ReasonUnknown:
+		// zero-value sentinel — same "unknown reason" rejection as any true
+		// unrecognized value.
+		return DeployResult{}, newError(fwmgr.ContractMisuse,
+			fmt.Sprintf("unknown desired-state reason %d", int(change.Reason)))
 	default:
 		return DeployResult{}, newError(fwmgr.ContractMisuse,
 			fmt.Sprintf("unknown desired-state reason %d", int(change.Reason)))

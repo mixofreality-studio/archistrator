@@ -66,6 +66,12 @@ func architectDraftPrompt(kind projectstate.ArtifactKind, proj projectstate.Proj
 		writePriorsPointer(&b, "Mission", "System")
 	case projectstate.KindStandardCheck:
 		writePriorsPointer(&b, "System", "OperationalConcepts")
+	case projectstate.KindPlanningAssumptions, projectstate.KindActivityList, projectstate.KindNetwork,
+		projectstate.KindNormalSolution, projectstate.KindSubcriticalSolution, projectstate.KindCompressedSolution,
+		projectstate.KindDecompressedSolution, projectstate.KindRiskModel, projectstate.KindSdpReview:
+		// Phase-2 kinds never reach this Phase-1-only prompt assembler (see the
+		// doc comment above); no priors pointer to add — same no-op as before
+		// this switch was made exhaustive.
 	}
 
 	writeFeedback(&b, feedback)
@@ -174,6 +180,13 @@ func draftTask(kind projectstate.ArtifactKind) string {
 	case projectstate.KindStandardCheck:
 		return "Walk the App C design-standard checklist. For each guideline emit pass (the design satisfies it), waived (with a concrete justification why it does not apply to THIS system's context), or fail (the design violates it). Key items: no functional or domain decomposition, every component traces to a volatility, Managers do no I/O, cardinality limits respected, closed-layer rules respected. A waiver without a real justification is itself a fail."
 
+	case projectstate.KindPlanningAssumptions, projectstate.KindActivityList, projectstate.KindNetwork,
+		projectstate.KindNormalSolution, projectstate.KindSubcriticalSolution, projectstate.KindCompressedSolution,
+		projectstate.KindDecompressedSolution, projectstate.KindRiskModel, projectstate.KindSdpReview:
+		// Phase-2 kinds are never drafted through this Phase-1-only task table;
+		// same generic fallback as the default below.
+		return "draft the artifact."
+
 	default:
 		return "draft the artifact."
 	}
@@ -190,6 +203,14 @@ func kindHasPMCritique(kind projectstate.ArtifactKind) bool {
 		projectstate.KindScrubbedRequirements,
 		projectstate.KindCoreUseCases:
 		return true
+	case projectstate.KindVolatilities, projectstate.KindSystem, projectstate.KindOperationalConcepts,
+		projectstate.KindStandardCheck, projectstate.KindPlanningAssumptions, projectstate.KindActivityList,
+		projectstate.KindNetwork, projectstate.KindNormalSolution, projectstate.KindSubcriticalSolution,
+		projectstate.KindCompressedSolution, projectstate.KindDecompressedSolution, projectstate.KindRiskModel,
+		projectstate.KindSdpReview:
+		// Architect-owned Phase-1 steps (no PM critique) and all Phase-2 kinds
+		// (Phase 2 has no PM-critique step at all) — same as the default below.
+		return false
 	default:
 		return false
 	}

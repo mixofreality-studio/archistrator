@@ -11,6 +11,9 @@ package handoff
 // Manager hands to workerAccess). Mirrors the constructionManager consumer mirror.
 func workerClassString(c WorkerClass) string {
 	switch c {
+	case WorkerClassUnknown:
+		// The zero value — never a valid casting result (handoff.go).
+		return "unknown"
 	case AIWorker:
 		return "ai"
 	case HumanSeniorWorker:
@@ -30,6 +33,9 @@ func workerClassValid(c WorkerClass) bool {
 	switch c {
 	case AIWorker, HumanSeniorWorker, HumanJuniorWorker, ArchitectOnly:
 		return true
+	case WorkerClassUnknown:
+		// The zero value — never a valid casting result (handoff.go).
+		return false
 	default:
 		return false
 	}

@@ -61,6 +61,12 @@ func architectDraftPrompt(kind projectstate.ArtifactKind, _ projectstate.Project
 		writePriorsPointer(&b, "PlanningAssumptions", "ActivityList", "Network")
 	case projectstate.KindRiskModel:
 		writePriorsPointer(&b, "Network", "NormalSolution", "DecompressedSolution", "SubcriticalSolution", "CompressedSolution")
+	case projectstate.KindMission, projectstate.KindGlossary, projectstate.KindScrubbedRequirements,
+		projectstate.KindVolatilities, projectstate.KindCoreUseCases, projectstate.KindSystem,
+		projectstate.KindOperationalConcepts, projectstate.KindStandardCheck, projectstate.KindSdpReview:
+		// Phase-1 kinds (and the deterministically-assembled SdpReview, see the
+		// package doc above) never reach this Phase-2-only prompt assembler; no
+		// priors to add — same no-op as before this switch was made exhaustive.
 	}
 
 	writeFeedback(&b, feedback)
@@ -87,6 +93,12 @@ func draftTask(kind projectstate.ArtifactKind) string {
 		return "design the COMPRESSED solution: shorter duration via parallel work first and top resources second; raise the staffing cap and/or calendar days/week. Target a modest compression, stopping short of the death zone."
 	case projectstate.KindRiskModel:
 		return "quantify and compare risk across the four options: for each, decompose criticality risk and activity risk into a composite score for the SDP-review time-risk curve."
+	case projectstate.KindMission, projectstate.KindGlossary, projectstate.KindScrubbedRequirements,
+		projectstate.KindVolatilities, projectstate.KindCoreUseCases, projectstate.KindSystem,
+		projectstate.KindOperationalConcepts, projectstate.KindStandardCheck, projectstate.KindSdpReview:
+		// Phase-1 kinds (and the deterministically-assembled SdpReview) are never
+		// drafted through this Phase-2-only task table; same generic fallback.
+		return "draft the artifact."
 	default:
 		return "draft the artifact."
 	}

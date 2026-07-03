@@ -333,6 +333,12 @@ func (wf *workflows) reconcileOne(ctx workflow.Context, app operatedSystemSummar
 			return false, false, fwmgr.MapError(derr)
 		}
 		switch directive {
+		case healthDirectiveUnknown:
+			// zero-value sentinel, also returned by the intervention adapter on any
+			// engine error or unrecognized engine decision — same "unknown directive"
+			// non-retryable rejection as any other unrecognized value.
+			return false, false, temporal.NewNonRetryableApplicationError(
+				"intervention returned an unknown health directive", "UnknownHealthDirective", nil)
 		case healthDirectiveRetry:
 			// EXECUTE Retry: re-publish prior desired state so the runtime self-heals /
 			// re-converges (content-idempotent — a no-op if unchanged).

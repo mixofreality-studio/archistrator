@@ -180,7 +180,7 @@ func gitWebHost(apiBaseURL string) string {
 	return host
 }
 
-func run(logger *slog.Logger) error { //nolint:gocognit,gocyclo,maintidx,nestif // server bootstrap wiring
+func run(logger *slog.Logger) error {
 	cfg, err := loadConfig()
 	if err != nil {
 		return err
@@ -283,7 +283,7 @@ func run(logger *slog.Logger) error { //nolint:gocognit,gocyclo,maintidx,nestif 
 	// satellite *GitBlobStore + the profile-specific auth resolver (artifact_auth.go):
 	// LOCAL needs no credential; CLOUD mints the installation token internally.
 	var artifacts artifact.ArtifactAccess
-	if cfg.ArtifactRepoURL != "" { //nolint:nestif
+	if cfg.ArtifactRepoURL != "" {
 		if cfg.ArtifactRepoLocal {
 			blob, blobErr := githubinfra.NewGitBlobStore(cfg.ArtifactRepoURL)
 			if blobErr != nil {

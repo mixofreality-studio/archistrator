@@ -12,6 +12,9 @@ package operations
 // pure data.
 func desiredStateReasonName(r DesiredStateReason) string {
 	switch r {
+	case ReasonUnknown:
+		// zero-value sentinel — same canonical name as any unrecognized value.
+		return "unknown"
 	case ReasonDeployAfterConstruction:
 		return "deployAfterConstruction"
 	case ReasonOperator:

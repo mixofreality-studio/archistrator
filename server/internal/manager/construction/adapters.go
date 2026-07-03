@@ -39,7 +39,7 @@ import (
 // nextEligibleActivity resolves the next eligible construction activity for a project
 // from its head-state. An activity is eligible iff it is NotStarted and every dep is
 // Done. Iteration is ActivityList declaration order with a name tie-break.
-func nextEligibleActivity(proj projectstate.Project) (constructionActivity, bool) { //nolint:gocognit,gocyclo // sequential eligibility guards + dependency walk; inherently branchy
+func nextEligibleActivity(proj projectstate.Project) (constructionActivity, bool) {
 	if proj.Network.Status != projectstate.ReviewCommitted {
 		return constructionActivity{}, false
 	}
@@ -245,6 +245,9 @@ func (a handoffAdapter) PickWorkerClass(activity constructionActivity, policy ha
 
 func handoffActivityKind(k activityKind) handoff.ActivityKind {
 	switch k {
+	case activityKindUnknown:
+		// zero-value sentinel, not a real activity kind — same as any unmapped value.
+		return handoff.ActivityKindUnknown
 	case activityKindDetailedDesign:
 		return handoff.ActivityKindDetailedDesign
 	case activityKindConstruction:
@@ -260,6 +263,9 @@ func handoffActivityKind(k activityKind) handoff.ActivityKind {
 
 func managerWorkerClass(c handoff.WorkerClass) workerClass {
 	switch c {
+	case handoff.WorkerClassUnknown:
+		// zero-value sentinel, not a real worker class — same as any unmapped value.
+		return workerClassUnknown
 	case handoff.AIWorker:
 		return aiWorker
 	case handoff.HumanSeniorWorker:
@@ -337,6 +343,9 @@ func constructionInterventionPolicy(mode string) (intervention.InterventionPolic
 
 func interventionVarianceKind(k varianceKind) intervention.VarianceKind {
 	switch k {
+	case varianceKindUnknown:
+		// zero-value sentinel, not a real variance kind — same as any unmapped value.
+		return intervention.VarianceKindUnknown
 	case varianceReviewFailed:
 		return intervention.ReviewFailedUnresolvable
 	case varianceWorkerRefused:

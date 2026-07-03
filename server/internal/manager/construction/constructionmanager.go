@@ -217,6 +217,9 @@ func (m *constructionManager) OverrideActivity(rc fwm.Context, projectID Project
 	switch override.Kind {
 	case OverrideTakeover, OverrideRetry, OverrideSkip, OverrideReassign:
 		// ok
+	case OverrideUnknown:
+		// zero-value sentinel, not a real override kind — same as any unmapped value.
+		return newError(fwm.ContractMisuse, fmt.Sprintf("unknown override kind %d", int(override.Kind)))
 	default:
 		return newError(fwm.ContractMisuse, fmt.Sprintf("unknown override kind %d", int(override.Kind)))
 	}

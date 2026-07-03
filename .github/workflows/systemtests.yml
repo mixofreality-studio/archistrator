@@ -40,6 +40,13 @@ name: System Tests
 #     HTTP 503. The schema re-type (uuid→text) is owned by the pg-retirement activity
 #     (code comment in projectstate/postgres.go line 64). Gate: -skip regex.
 #
+#   Test_UC1_CrossSurfaceEquivalence:
+#     The R4 headline test: drive UC1 through webClient (HTTP) AND mcpClient (MCP)
+#     and assert identical committed state. Gated with an UNCONDITIONAL t.Skip in
+#     the test body itself (NOT the -skip regex below) pending mcpClient
+#     construction (C-MC activity — no MCP SDK wired into the server module yet;
+#     see architecture.dsl mcpClient). Runs the moment mcpClient lands.
+#
 # The gated tests are NOT deleted — they will pass once the underlying server issues
 # are resolved (pipeline nil-guard + Postgres column re-type).
 
@@ -91,6 +98,21 @@ jobs:
           go-version: '1.25'
           # Use the server go.sum for caching (systemtests is stdlib-only, no sum)
           cache-dependency-path: server/go.sum
+
+      - name: Check formatting (systemtests)
+        working-directory: systemtests
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; echo "Run 'gofmt -w .'"; exit 1; }
+
+      # Fast, container-free check — runs before the Temporal/Postgres services
+      # are provisioned so a lint failure fails fast. systemtests is its own Go
+      # module (GOWORK=off, sibling to ../server, never under it — see the
+      # module doc comment in systemtests/go.mod) with its own
+      # systemtests/.golangci.yml (the depguard black-box-harness import ban).
+      - name: Lint (systemtests)
+        uses: golangci/golangci-lint-action@v9
+        with:
+          working-directory: systemtests
+          version: v2.12
 
       - name: Install Temporal CLI
         run: |

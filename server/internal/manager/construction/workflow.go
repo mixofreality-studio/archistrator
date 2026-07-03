@@ -703,6 +703,8 @@ func (wf *workflows) awaitPhaseDecision(
 		state.stage = StageAwaitingApproval
 		sig := receivePhaseDecision(ctx, ch, phase)
 		switch sig.Decision {
+		case PhaseDecisionUnknown:
+			// zero-value sentinel, not a real decision — ignore and keep awaiting, same as default.
 		case PhaseApprove:
 			return false, wf.completePhase(ctx, in, phase, state, headVersion, gitOn, cred)
 		case PhaseSendBack:
@@ -844,6 +846,10 @@ func (wf *workflows) handleVariance(
 	}
 
 	switch directive {
+	case directiveUnknown:
+		// zero-value sentinel, not a real directive — same as any unmapped value.
+		return false, temporal.NewNonRetryableApplicationError(
+			"intervention returned an unknown directive", "UnknownDirective", nil)
 	case directiveRetry:
 		state.stage = StageDispatching
 		return false, nil // loop to re-dispatch
@@ -894,6 +900,10 @@ func (wf *workflows) executeOverride(
 	startedCred railCredEnvelope,
 ) (bool, error) {
 	switch override.Kind {
+	case OverrideUnknown:
+		// zero-value sentinel, not a real override kind — same as any unmapped value.
+		return false, temporal.NewNonRetryableApplicationError(
+			"unknown operator override kind", "UnknownOverride", nil)
 	case OverrideRetry, OverrideReassign:
 		// Re-enter the dispatch path (Reassign re-casts via handOffEngine on the
 		// next loop iteration — the committed constructionManager → handOffEngine

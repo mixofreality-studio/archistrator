@@ -78,10 +78,8 @@ export function UserProvider({ children }: { children: ReactNode }): ReactNode {
   };
 
   useEffect(() => {
-    // load() only setStates in an async continuation (after `await fetch`), so
-    // there is no synchronous cascading render — the rule's heuristic can't see
-    // past the await. Probe once on mount.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    // Probe once on mount.
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- load() only setStates in an async continuation (after `await fetch`), so there is no synchronous cascading render; the rule's heuristic can't see past the await
     void load();
   }, []);
 

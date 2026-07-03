@@ -151,6 +151,12 @@ func mapRAError(err error) error {
 			return newError(fwm.NotFound, err.Error())
 		case fwra.ContractMisuse:
 			return newError(fwm.ContractMisuse, err.Error())
+		case fwra.Unknown, fwra.Transient, fwra.RateLimited, fwra.Infrastructure,
+			fwra.Auth, fwra.Conflict, fwra.QuotaExhausted, fwra.ContentPolicy:
+			// "Everything else... → Infrastructure" per the doc comment above.
+			mapped := fwm.Wrap(fwm.Infrastructure, err, "projectStateAccess")
+			mapped.Retryable = raErr.Retryable
+			return mapped
 		default:
 			mapped := fwm.Wrap(fwm.Infrastructure, err, "projectStateAccess")
 			mapped.Retryable = raErr.Retryable
@@ -425,6 +431,10 @@ func notesPtr(notes string) *string {
 // stageForStatus maps the stored per-slot ArtifactReviewStatus to the contract stage.
 func stageForStatus(s projectstate.ArtifactReviewStatus) ArtifactStage {
 	switch s {
+	case projectstate.ReviewNone:
+		// No review has happened yet (slot not yet drafted) — same as the
+		// fallback for any other not-yet-meaningful status.
+		return ArtifactStageEmpty
 	case projectstate.ReviewAwaitingReview:
 		return ArtifactStageAwaitingReview
 	case projectstate.ReviewCommitted:

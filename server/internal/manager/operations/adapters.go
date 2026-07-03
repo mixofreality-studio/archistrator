@@ -121,6 +121,9 @@ func (a operatedSystemStateAdapter) RecordDelinquencyAction(ctx context.Context,
 
 func runtimeStatusFromState(s operatedsystemstate.RuntimeStatus) RuntimeStatusSeam {
 	switch s {
+	case operatedsystemstate.RuntimeStatusUnknown:
+		// zero-value sentinel — no equivalent Unknown case to translate to yet.
+		return RuntimeStatusUnknown
 	case operatedsystemstate.RuntimeStatusPending:
 		return RuntimeStatusPending
 	case operatedsystemstate.RuntimeStatusHealthy:
@@ -136,6 +139,9 @@ func runtimeStatusFromState(s operatedsystemstate.RuntimeStatus) RuntimeStatusSe
 
 func runtimeStatusToState(s RuntimeStatusSeam) operatedsystemstate.RuntimeStatus {
 	switch s {
+	case RuntimeStatusUnknown:
+		// zero-value sentinel — no equivalent Unknown case to translate to yet.
+		return operatedsystemstate.RuntimeStatusUnknown
 	case RuntimeStatusPending:
 		return operatedsystemstate.RuntimeStatusPending
 	case RuntimeStatusHealthy:
@@ -151,6 +157,9 @@ func runtimeStatusToState(s RuntimeStatusSeam) operatedsystemstate.RuntimeStatus
 
 func desiredStateReasonToState(r DesiredStateReason) operatedsystemstate.DesiredStateReason {
 	switch r {
+	case ReasonUnknown:
+		// zero-value sentinel — no equivalent Unknown case to translate to yet.
+		return operatedsystemstate.ReasonUnknown
 	case ReasonDeployAfterConstruction:
 		return operatedsystemstate.ReasonDeployAfterConstruction
 	case ReasonOperator:
@@ -177,6 +186,10 @@ func delinquencyActionToState(a delinquencyAction) operatedsystemstate.Delinquen
 
 func autoscaleActionToState(a AutoscaleAction) operatedsystemstate.AutoscaleAction {
 	switch a {
+	case AutoscaleNoChange:
+		// no-op action, nothing to do — explicit mapping to the state package's own
+		// no-op constant.
+		return operatedsystemstate.AutoscaleNoChange
 	case AutoscaleScaleUp:
 		return operatedsystemstate.AutoscaleScaleUp
 	case AutoscaleScaleDown:
@@ -256,6 +269,9 @@ func (a operatedRuntimeAdapter) ReadComputeAttribution(ctx context.Context, appI
 
 func runtimeStatusFromRuntime(s operatedruntime.RuntimeStatus) RuntimeStatusSeam {
 	switch s {
+	case operatedruntime.RuntimeStatusUnknown:
+		// zero-value sentinel — no equivalent Unknown case to translate to yet.
+		return RuntimeStatusUnknown
 	case operatedruntime.RuntimeStatusPending:
 		return RuntimeStatusPending
 	case operatedruntime.RuntimeStatusHealthy:
@@ -405,6 +421,14 @@ func (a interventionAdapter) DecideOnHealth(change healthChange, policy interven
 
 func healthStatusFromSeam(s RuntimeStatusSeam) intervention.HealthStatus {
 	switch s {
+	case RuntimeStatusUnknown:
+		// zero-value sentinel — health not yet known, same bucket as intervention's own
+		// HealthUnknown.
+		return intervention.HealthUnknown
+	case RuntimeStatusPending:
+		// not yet observed as healthy/degraded/withdrawn — health not yet known, same
+		// bucket as intervention's own HealthUnknown.
+		return intervention.HealthUnknown
 	case RuntimeStatusHealthy:
 		return intervention.HealthHealthy
 	case RuntimeStatusDegraded:
@@ -493,6 +517,14 @@ func infraKindToAutoscaler(k infrastructureKind) autoscaler.InfrastructureKind {
 
 func autoscalerModeToEngine(m AutoscalerMode) autoscaler.AutoscalerMode {
 	switch m {
+	case AutoscalerModeAuto:
+		// literal auto mapping.
+		return autoscaler.AutoscalerModeAuto
+	case AutoscalerModeUnknown:
+		// zero-value sentinel — the autoscaler engine's own AutoscalerMode has no
+		// Unknown value (its zero value IS Auto), so an unset mode defaults to auto,
+		// same as AutoscalerModeAuto above.
+		return autoscaler.AutoscalerModeAuto
 	case AutoscalerModeManual:
 		return autoscaler.AutoscalerModeManual
 	default:
@@ -502,6 +534,10 @@ func autoscalerModeToEngine(m AutoscalerMode) autoscaler.AutoscalerMode {
 
 func autoscaleActionFromDecision(k autoscaler.DecisionKind) AutoscaleAction {
 	switch k {
+	case autoscaler.DecisionNoChange:
+		// no-op decision, nothing to do — explicit mapping to the local seam's own
+		// no-op constant.
+		return AutoscaleNoChange
 	case autoscaler.DecisionScaleUp:
 		return AutoscaleScaleUp
 	case autoscaler.DecisionScaleDown:

@@ -92,9 +92,7 @@ export function CreateProjectDialog({
         <PrereqPanel t={t} />
 
         <TextField
-          // Focusing the sole field of a freshly-opened modal is the expected
-          // dialog UX (focus lands inside the trap), not a page-load focus steal.
-          // eslint-disable-next-line jsx-a11y/no-autofocus
+          // eslint-disable-next-line jsx-a11y/no-autofocus -- focusing the sole field of a freshly-opened modal dialog is expected UX (focus lands inside the trap), not a page-load focus steal
           autoFocus
           fullWidth
           helperText="Must exactly match the GitHub repository you created above."

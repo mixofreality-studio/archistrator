@@ -181,6 +181,10 @@ func (ReviewEngineImpl) ProposeReviews(
 // policy without touching the ProposeReviews surface.
 func reviewersFor(kind reviewKind) []Reviewer {
 	switch kind {
+	case kindUnknown:
+		// Unset. Callers (ProposeReviews) already reject kindUnknown before
+		// reaching here; mirrors the unrecognised-kind default of no reviewers.
+		return nil
 	case kindDetailedDesign:
 		// The architect reviews the service-contract against the architecture; the
 		// architect+constructor may re-stage an amended contract by agreement.

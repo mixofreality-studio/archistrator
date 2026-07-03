@@ -551,6 +551,11 @@ func (wf *workflows) CoAuthorPhase2ArtifactWorkflow(ctx workflow.Context, in coA
 			state.stage = StageWithdrawn
 			return coAuthorWithdrawn, nil
 
+		case ReviewDecisionUnknown:
+			// The zero value: no legitimate signal carries it. Same terminal
+			// rejection as the default case below.
+			return coAuthorUnknown, temporal.NewNonRetryableApplicationError("unknown review decision", "UnknownReviewDecision", nil)
+
 		default:
 			return coAuthorUnknown, temporal.NewNonRetryableApplicationError("unknown review decision", "UnknownReviewDecision", nil)
 		}
@@ -685,6 +690,11 @@ func (wf *workflows) AssembleSDPReviewWorkflow(ctx workflow.Context, in sdpRevie
 			feedback = notes
 			state.stage = StageRedrafting
 			continue
+
+		case SDPDecisionUnknown:
+			// The zero value: no legitimate signal carries it. Same terminal
+			// rejection as the default case below.
+			return temporal.NewNonRetryableApplicationError("unknown SDP decision", "UnknownSDPDecision", nil)
 
 		default:
 			return temporal.NewNonRetryableApplicationError("unknown SDP decision", "UnknownSDPDecision", nil)
@@ -1186,6 +1196,9 @@ func (wf *workflows) awaitDraftFailedRecovery(
 				// Retry-via-Reject: re-dispatch with the architect's feedback woven in.
 				*feedback = signalNotes(sig.Feedback)
 				retry = true
+			case ReviewDecisionUnknown, ReviewApprove:
+				// Approve at a failed gate is meaningless (no staged draft); the zero
+				// value carries no signal either — both ignored, same as default.
 			default:
 				// Approve at a failed gate is meaningless (no staged draft) — ignored.
 			}

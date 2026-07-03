@@ -72,6 +72,9 @@ var _ ConstructionManager = (*constructionManager)(nil)
 // (the contract surface is pure data).
 func overrideKindName(k OverrideKind) string {
 	switch k {
+	case OverrideUnknown:
+		// zero-value sentinel, not a real override kind — same as any unmapped value.
+		return "Unknown"
 	case OverrideTakeover:
 		return "Takeover"
 	case OverrideRetry:

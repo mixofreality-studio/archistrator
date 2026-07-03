@@ -217,6 +217,8 @@ func (p pipelinePhase) IsTerminal() bool {
 	switch p {
 	case pipelineSucceeded, pipelineFailed, pipelineCancelled:
 		return true
+	case lPipelinePhaseUnknown, pipelinePending, pipelineRunning:
+		return false
 	default:
 		return false
 	}
