@@ -10,10 +10,20 @@ import (
 )
 
 // httpTransport drives the webClient HTTP surface. It is the reference black-box
-// transport: it knows ONLY the published routes + JSON DTOs (api/openapi.yaml),
+// transport: it knows ONLY the published routes + JSON DTOs the generated Client
+// layer serves (server/internal/client/web/{systemdesign,projectdesign}/*_handlers.gen.go),
 // never a server internal type. When mcpClient is built, an mcpTransport
 // implements the same Transport interface and the R4 equivalence test runs the
 // same use-case steps through both.
+//
+// The generated Client surface is verb-scoped REST, NOT the old resource-scoped
+// "/api/v1/projects/..." shape: every op is its own route
+// "/api/v1/<component>/<op-kebab-name>[/{projectID}[/{optionID}]]", the request
+// body carries exactly the op's remaining args (never projectID, which is always
+// a path segment when the op takes one), and the response body is the op's bare
+// return value — NOT a named wrapper struct. A single-value return (e.g.
+// ProjectID, SessionRef, Version) is therefore a bare JSON scalar on the wire
+// (e.g. `"proj-123"`), not `{"projectId":"proj-123"}`.
 type httpTransport struct {
 	baseURL string
 	hc      *http.Client
@@ -28,61 +38,161 @@ func (t *httpTransport) Name() string { return "http" }
 
 func (t *httpTransport) Close() error { return nil }
 
-type createProjectResp struct {
-	ProjectID string `json:"projectId"`
+// --- wire enum ordinal tables ------------------------------------------------
+//
+// Every generated enum is a bare Go int on the wire — "generated enums carry no
+// behavior" (server/cmd/modelgen/main.go), so there is no MarshalJSON producing a
+// friendly string. The ordinal↔name tables below mirror the iota order committed
+// in server/internal/manager/systemdesign/contract.gen.go and
+// server/internal/manager/projectdesign/contract.gen.go (the same mapping the SPA
+// keeps client-side in webApp/src/api/enums.ts). This is reading the PUBLISHED
+// wire contract, not importing server code — the harness stays black-box.
+
+// artifactKindByOrdinal is shared by BOTH system-design and project-design
+// ArtifactKind (one 0..16 ordering covers every Method artifact kind).
+var artifactKindByOrdinal = []string{
+	"mission", "glossary", "scrubbedRequirements", "volatilities",
+	"coreUseCases", "system", "operationalConcepts", "standardCheck",
+	"planningAssumptions", "activityList", "network", "normalSolution",
+	"subcriticalSolution", "compressedSolution", "decompressedSolution",
+	"riskModel", "sdpReview",
 }
 
-type sessionRefResp struct {
-	SessionRef string `json:"sessionRef"`
+var artifactKindToOrdinal = func() map[string]int {
+	m := make(map[string]int, len(artifactKindByOrdinal))
+	for i, k := range artifactKindByOrdinal {
+		m[k] = i
+	}
+	return m
+}()
+
+// artifactKindOrdinal maps a wire kind name to its ordinal. An unknown name maps
+// to 0 (mission) — callers only ever pass names drawn from artifactKindByOrdinal.
+func artifactKindOrdinal(kind string) int { return artifactKindToOrdinal[kind] }
+
+// artifactKindName is the inverse of artifactKindOrdinal, used to decode
+// PhaseAdvanceResult.missingArtifacts and SessionStateView.artifactKind.
+func artifactKindName(ordinal int) string {
+	if ordinal < 0 || ordinal >= len(artifactKindByOrdinal) {
+		return "mission"
+	}
+	return artifactKindByOrdinal[ordinal]
 }
 
-type sessionStateResp struct {
+// systemSessionStageByOrdinal is systemdesign.SessionStage's 0..7 ordering.
+var systemSessionStageByOrdinal = []string{
+	"unknown", "drafting", "awaitingReview", "redrafting",
+	"committed", "withdrawn", "refused", "draftFailed",
+}
+
+// projectSessionStageByOrdinal is projectdesign.SessionStage's 0..8 ordering —
+// ONE MORE stage than the system-design enum (assemblingSdp is inserted at
+// ordinal 2), so it is a DISTINCT table, not a shared one.
+var projectSessionStageByOrdinal = []string{
+	"unknown", "drafting", "assemblingSdp", "awaitingReview", "redrafting",
+	"committed", "withdrawn", "refused", "draftFailed",
+}
+
+func stageName(table []string, ordinal int) string {
+	if ordinal < 0 || ordinal >= len(table) {
+		return "unknown"
+	}
+	return table[ordinal]
+}
+
+// reviewDecisionToOrdinal mirrors ReviewDecision (0 unknown,1 approve,2 reject,3 withdraw).
+var reviewDecisionToOrdinal = map[string]int{
+	"approve":  1,
+	"reject":   2,
+	"withdraw": 3,
+}
+
+// sdpDecisionToOrdinal mirrors SDPDecision (0 unknown,1 commit,2 rejectAll).
+var sdpDecisionToOrdinal = map[string]int{
+	"commit":    1,
+	"rejectAll": 2,
+}
+
+// testOwner is the fixed OwnerScope the harness mints every project under. Owner
+// is a required, non-empty CreateProject arg but is NOT consulted by
+// authenticatedOnlyPDP (any authenticated principal may act on any resource — see
+// server/cmd/server/authz.go) and the Transport interface's CreateProject has no
+// owner parameter, so a single constant value is sufficient for a black-box test.
+const testOwner = "systemtest"
+
+// reviewFeedbackBody is the wire shape of ReviewFeedback for a request body
+// (systemdesign.ReviewFeedback additionally carries anchored Comments, which the
+// harness never populates — Notes alone round-trips through both the
+// systemdesign and projectdesign Feedback structs, which both accept an object
+// with an extra unused field absent).
+type reviewFeedbackBody struct {
+	Notes string `json:"notes"`
+}
+
+// sessionStateWire is the wire shape common to systemdesign.SessionStateView and
+// projectdesign.SessionStateView: the header fields the wiring tests assert on,
+// decoded generically (the nested "draft"/"findings" are intentionally left
+// undecoded — the wiring test does not assert on them).
+type sessionStateWire struct {
 	ProjectID    string `json:"projectId"`
-	ArtifactKind string `json:"artifactKind"`
-	Stage        string `json:"stage"`
+	ArtifactKind int    `json:"artifactKind"`
+	Stage        int    `json:"stage"`
 }
 
-type advanceResp struct {
-	Advanced         bool     `json:"advanced"`
-	MissingArtifacts []string `json:"missingArtifacts"`
+// phaseAdvanceWire is the wire shape of PhaseAdvanceResult (shared shape between
+// systemdesign and projectdesign): missingArtifacts is a bare []int on the wire.
+type phaseAdvanceWire struct {
+	Advanced         bool  `json:"advanced"`
+	MissingArtifacts []int `json:"missingArtifacts"`
+}
+
+func decodeMissingArtifacts(ords []int) []string {
+	out := make([]string, 0, len(ords))
+	for _, o := range ords {
+		out = append(out, artifactKindName(o))
+	}
+	return out
 }
 
 func (t *httpTransport) CreateProject(ctx context.Context, name string) (string, error) {
-	var out createProjectResp
-	_, err := t.do(ctx, http.MethodPost, "/api/v1/projects",
-		map[string]any{"name": name}, http.StatusCreated, &out)
-	return out.ProjectID, err
+	var out string
+	_, err := t.do(ctx, http.MethodPost, "/api/v1/system-design/create-project",
+		map[string]any{"owner": testOwner, "name": name}, http.StatusOK, &out)
+	return out, err
 }
 
 // All phase routes are PROJECT-SCOPED: projectId is a path segment, never a body
-// field (api/openapi.yaml — project-scoped URLs). The body carries only the
-// remaining intent payload (research corpus, artifactKind, decision).
+// field. The body carries only the remaining intent payload (research corpus,
+// artifactKind ordinal, decision ordinal).
 
 func (t *httpTransport) SetResearchInput(ctx context.Context, projectID string, sources []ResearchSource) error {
 	body := map[string]any{"research": map[string]any{"sources": sources}}
-	path := fmt.Sprintf("/api/v1/projects/%s/system-design/research-input", projectID)
-	_, err := t.do(ctx, http.MethodPost, path, body, http.StatusNoContent, nil)
+	path := fmt.Sprintf("/api/v1/system-design/set-research-input/%s", projectID)
+	// SetResearchInput returns the resulting head Version (a bare int64) on 200;
+	// the harness callers only care about success/failure, so the body is
+	// discarded (out == nil skips decode in do()).
+	_, err := t.do(ctx, http.MethodPost, path, body, http.StatusOK, nil)
 	return err
 }
 
 func (t *httpTransport) StartDesign(ctx context.Context, projectID string) (string, error) {
-	var out sessionRefResp
-	path := fmt.Sprintf("/api/v1/projects/%s/system-design/start", projectID)
-	_, err := t.do(ctx, http.MethodPost, path, nil, http.StatusAccepted, &out)
-	return out.SessionRef, err
+	var out string
+	path := fmt.Sprintf("/api/v1/system-design/start-system-design/%s", projectID)
+	_, err := t.do(ctx, http.MethodPost, path, nil, http.StatusOK, &out)
+	return out, err
 }
 
 func (t *httpTransport) RequestArtifactDraft(ctx context.Context, projectID, kind string) (string, error) {
-	var out sessionRefResp
-	path := fmt.Sprintf("/api/v1/projects/%s/system-design/artifacts/draft", projectID)
+	var out string
+	path := fmt.Sprintf("/api/v1/system-design/request-artifact-draft/%s", projectID)
 	_, err := t.do(ctx, http.MethodPost, path,
-		map[string]any{"artifactKind": kind}, http.StatusAccepted, &out)
-	return out.SessionRef, err
+		map[string]any{"kind": artifactKindOrdinal(kind)}, http.StatusOK, &out)
+	return out, err
 }
 
 func (t *httpTransport) GetSessionState(ctx context.Context, projectID, kind string) (SessionState, bool, error) {
-	path := fmt.Sprintf("/api/v1/projects/%s/system-design/sessions/%s", projectID, kind)
-	var out sessionStateResp
+	path := fmt.Sprintf("/api/v1/system-design/get-session-state/%s?kind=%d", projectID, artifactKindOrdinal(kind))
+	var out sessionStateWire
 	status, err := t.do(ctx, http.MethodGet, path, nil, http.StatusOK, &out)
 	if err != nil {
 		// Any non-200 (404 not-yet-started, transient 503, ...) means "not
@@ -90,94 +200,105 @@ func (t *httpTransport) GetSessionState(ctx context.Context, projectID, kind str
 		_ = status
 		return SessionState{}, false, err
 	}
-	return SessionState(out), true, nil
+	return SessionState{
+		ProjectID:    out.ProjectID,
+		ArtifactKind: artifactKindName(out.ArtifactKind),
+		Stage:        stageName(systemSessionStageByOrdinal, out.Stage),
+	}, true, nil
 }
 
 func (t *httpTransport) SubmitReview(ctx context.Context, projectID, kind, decision, feedback string) error {
-	body := map[string]any{"artifactKind": kind, "decision": decision}
-	if feedback != "" {
-		body["feedback"] = feedback
+	body := map[string]any{
+		"kind":     artifactKindOrdinal(kind),
+		"decision": reviewDecisionToOrdinal[decision],
 	}
-	path := fmt.Sprintf("/api/v1/projects/%s/system-design/artifacts/review", projectID)
+	if feedback != "" {
+		body["feedback"] = reviewFeedbackBody{Notes: feedback}
+	}
+	path := fmt.Sprintf("/api/v1/system-design/submit-review-decision/%s", projectID)
 	_, err := t.do(ctx, http.MethodPost, path, body, http.StatusNoContent, nil)
 	return err
 }
 
 func (t *httpTransport) AdvancePhase(ctx context.Context, projectID string) (bool, []string, error) {
-	var out advanceResp
-	path := fmt.Sprintf("/api/v1/projects/%s/system-design/advance", projectID)
+	var out phaseAdvanceWire
+	path := fmt.Sprintf("/api/v1/system-design/advance-phase/%s", projectID)
 	_, err := t.do(ctx, http.MethodPost, path, nil, http.StatusOK, &out)
-	return out.Advanced, out.MissingArtifacts, err
+	return out.Advanced, decodeMissingArtifacts(out.MissingArtifacts), err
 }
 
 // --- UC2 (project-design / Phase-2) -----------------------------------------
 // Each method speaks ONLY the published project-design routes + DTOs
-// (internal/client/web/projectdesign.go). projectId is a path segment; the body
-// carries the remaining intent payload — the same project-scoped shape as Phase 1.
+// (server/internal/client/web/projectdesign/project-design_handlers.gen.go).
+// projectId is a path segment; the body carries the remaining intent payload —
+// the same project-scoped shape as Phase 1.
 
 func (t *httpTransport) RequestProjectArtifactDraft(ctx context.Context, projectID, kind string) (string, error) {
-	var out sessionRefResp
-	path := fmt.Sprintf("/api/v1/projects/%s/project-design/artifacts/draft", projectID)
+	var out string
+	path := fmt.Sprintf("/api/v1/project-design/request-artifact-draft/%s", projectID)
 	_, err := t.do(ctx, http.MethodPost, path,
-		map[string]any{"artifactKind": kind}, http.StatusAccepted, &out)
-	return out.SessionRef, err
-}
-
-// projectSessionStateResp mirrors projectSessionStateResponse: the technical
-// header fields (projectId/artifactKind/stage) plus a nested typed "view" the
-// wiring test does not assert on (so it is intentionally left undecoded here).
-type projectSessionStateResp struct {
-	ProjectID    string `json:"projectId"`
-	ArtifactKind string `json:"artifactKind"`
-	Stage        string `json:"stage"`
+		map[string]any{"kind": artifactKindOrdinal(kind)}, http.StatusOK, &out)
+	return out, err
 }
 
 func (t *httpTransport) GetProjectSessionState(ctx context.Context, projectID, kind string) (SessionState, bool, error) {
-	path := fmt.Sprintf("/api/v1/projects/%s/project-design/sessions/%s", projectID, kind)
-	var out projectSessionStateResp
+	path := fmt.Sprintf("/api/v1/project-design/get-session-state/%s?kind=%d", projectID, artifactKindOrdinal(kind))
+	var out sessionStateWire
 	if _, err := t.do(ctx, http.MethodGet, path, nil, http.StatusOK, &out); err != nil {
 		// Any non-200 (404 not-yet-started, transient 503, ...) means "not
 		// observable yet" to a poller — never fatal here.
 		return SessionState{}, false, err
 	}
-	return SessionState(out), true, nil
+	return SessionState{
+		ProjectID:    out.ProjectID,
+		ArtifactKind: artifactKindName(out.ArtifactKind),
+		Stage:        stageName(projectSessionStageByOrdinal, out.Stage),
+	}, true, nil
 }
 
 func (t *httpTransport) SubmitProjectReview(ctx context.Context, projectID, kind, decision, feedback string) error {
-	body := map[string]any{"artifactKind": kind, "decision": decision}
-	if feedback != "" {
-		body["feedback"] = feedback
+	body := map[string]any{
+		"kind":     artifactKindOrdinal(kind),
+		"decision": reviewDecisionToOrdinal[decision],
 	}
-	path := fmt.Sprintf("/api/v1/projects/%s/project-design/artifacts/review", projectID)
+	if feedback != "" {
+		body["feedback"] = reviewFeedbackBody{Notes: feedback}
+	}
+	path := fmt.Sprintf("/api/v1/project-design/submit-review-decision/%s", projectID)
 	_, err := t.do(ctx, http.MethodPost, path, body, http.StatusNoContent, nil)
 	return err
 }
 
 func (t *httpTransport) RequestSDPCommit(ctx context.Context, projectID string) (string, error) {
-	var out sessionRefResp
-	path := fmt.Sprintf("/api/v1/projects/%s/project-design/sdp/assemble", projectID)
-	_, err := t.do(ctx, http.MethodPost, path, nil, http.StatusAccepted, &out)
-	return out.SessionRef, err
+	var out string
+	path := fmt.Sprintf("/api/v1/project-design/request-sdp-commit/%s", projectID)
+	_, err := t.do(ctx, http.MethodPost, path, nil, http.StatusOK, &out)
+	return out, err
 }
 
 func (t *httpTransport) SubmitSDPDecision(ctx context.Context, projectID, decision, optionID, feedback string) error {
-	body := map[string]any{"decision": decision}
-	if optionID != "" {
-		body["optionId"] = optionID
-	}
+	body := map[string]any{"decision": sdpDecisionToOrdinal[decision]}
 	if feedback != "" {
-		body["feedback"] = feedback
+		body["feedback"] = reviewFeedbackBody{Notes: feedback}
 	}
-	path := fmt.Sprintf("/api/v1/projects/%s/project-design/sdp/decision", projectID)
+	// optionID is a PATH segment on this route (POST .../submit-sdp-decision/
+	// {projectID}/{optionID}), not a body field — required by the net/http
+	// ServeMux pattern even when the SDP decision is rejectAll (which carries no
+	// option); "-" is the harness's placeholder for "no option".
+	seg := optionID
+	if seg == "" {
+		seg = "-"
+	}
+	path := fmt.Sprintf("/api/v1/project-design/submit-sdp-decision/%s/%s", projectID, seg)
 	_, err := t.do(ctx, http.MethodPost, path, body, http.StatusNoContent, nil)
 	return err
 }
 
 func (t *httpTransport) AdvanceToConstruction(ctx context.Context, projectID string) (bool, []string, error) {
-	var out advanceResp
-	path := fmt.Sprintf("/api/v1/projects/%s/project-design/advance", projectID)
+	var out phaseAdvanceWire
+	path := fmt.Sprintf("/api/v1/project-design/advance-to-construction/%s", projectID)
 	_, err := t.do(ctx, http.MethodPost, path, nil, http.StatusOK, &out)
-	return out.Advanced, out.MissingArtifacts, err
+	return out.Advanced, decodeMissingArtifacts(out.MissingArtifacts), err
 }
 
 // do issues one request, maps a non-expected status onto a sentinel error, and
