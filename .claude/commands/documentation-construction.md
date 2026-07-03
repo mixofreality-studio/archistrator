@@ -1,0 +1,16 @@
+# /documentation-construction
+
+> The Authoring step of a documentation activity: write the actual document files the outline called for, reusing the committed design's diagrams and naming rather than re-deriving them.
+
+**Arguments** — `$ARGUMENTS` is `<component_id> <activity_id>` (two space-separated tokens; `component_id` may be empty for non-component activities). Parse once; do not swap them. Commits land on the existing activity branch `activity/<activity_id>` and its single PR.
+
+**Agent + skills.** Work to the standard of the **`system-architect`** agent (`.claude/agents/system-architect.md`). Follow **[[the-method-project-state]]** for reading the outline and the committed design artifacts it references.
+
+**Goal / intention.** Löwy has no chapter on the mechanics of technical writing, so this step's grounding comes from two adjacent places he is explicit about. Ch. 3 states that names and diagrams "are important in communicating your design to others" and gives the concrete authoring rule this step must honor: draw an activity diagram wherever a use case contains a nested "if," because "no reader can parse a sentence containing a nested 'if.'" Ch. 5's TradeMe case study is the book's only worked example of actually producing this kind of documentation end to end — it shows the architect authoring the static architecture diagram, subdividing use cases into swim-lane activity diagrams, drawing the call chain and sequence diagrams for each core use case, and refactoring those diagrams as understanding of the volatilities sharpens. That case study is the pattern this step follows: author real, reviewable documents (prose plus diagrams) that reuse the outline's cited committed artifacts verbatim rather than re-deriving or contradicting them. "Done" means the document files exist in the repository, are internally consistent with the committed system design's names and relationships, and require no further clarification to review. This step must NOT invent architectural facts the committed design does not already state, must NOT silently widen or reinterpret a frozen decision while writing about it, and must NOT skip an activity diagram for a nested-condition use case the outline scheduled one for.
+
+## Steps
+
+1. **Read what you need** from `.aiarch/state/project.json` per [[the-method-project-state]]: this activity's documentation outline (from the Outline phase), and the committed system design entries and dynamic views/call chains it cites.
+2. **Produce** the phase artifact: write the document files (prose plus diagrams, matching the outline's list and locations) as files under this repo's `docs/` conventions. Reuse the committed dynamic views/call chains and naming exactly where the outline says to; author new content only where the outline flagged a gap. Commit onto branch `activity/<activity_id>`. These are repository files, not a `project.json` slot.
+3. **Verify** (only your own output; fast checks): every name, component, and relationship the docs mention exists in the committed system design; every document in the outline has a corresponding file; any nested-condition use case documented here includes an activity diagram, not prose alone.
+4. **Stop.** Do not mark phase status (the Manager owns it) and do not merge. Leave the PR for the gate.
