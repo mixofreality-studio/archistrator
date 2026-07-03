@@ -116,6 +116,20 @@ Named `<profileSlug>-<phaseSlug>.md` under `.claude/commands/`. Each is small an
 
 (The full per-command intent text is authored during implementation; the matrix above fixes the agent/skill/slot assignments.)
 
+#### Command-authoring methodology (grounded in the source material)
+
+The intent/goal prose in each command must not be paraphrased from memory. When authoring a command, first dispatch a research agent to read the relevant *Righting Software* (Löwy) material for that activity type's role and responsibilities, and write the command's "what this step is for" section from that. The corpus is the EPUB at `research/rightingsoftware/OEBPS/xhtml/` (chapters `ch01`–`ch14`, appendices `appa`/`appb`/`appc`).
+
+Starting map of activity type/role → most relevant chapters (the research agent confirms and expands):
+
+- **service / detailed-design & construction** — `ch14` (the team; senior/junior developer roles, hand-off), `appb` (contract design).
+- **all phases / standards & directives** — `appc` (design/project-design standard checks, the directives).
+- **frontend (ui-design)** — UI-design role material; confirm chapter via the research agent.
+- **testing (all variants) & quality** — `ch09`, `ch11`, `ch12`, `ch13` (testing types, test engineer vs tester vs QA), `ch14` (roles).
+- **project tracking / integration cadence** — `appa` (tracking), `ch07` (project design roles).
+
+One research agent per command (or per profile, reused across its phases) reads its slice and returns the role's responsibility and intent; the command author writes the prompt from that return, not from prior knowledge.
+
 ### 4. Shared skill: the project-state driver
 
 A single new skill — proposed name `the-method-project-state` — that every construction command loads. It consolidates the state-access knowledge currently smeared across commands/agents into one authoritative place, and is the reason no `jq` scripting lives in the pipeline. It teaches the agent to:
