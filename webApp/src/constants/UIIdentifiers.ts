@@ -117,6 +117,7 @@ export const UI_IDENTIFIERS = {
     SYSTEM_TEST_VIEW: 'construction-system-test-view',
     TEST_PLAN_VIEW: 'construction-test-plan-view',
     SCENARIO_PICKER: 'construction-scenario-picker',
+    caseChip: (caseId: string) => `construction-case-chip-${caseId}`,
     BEGIN_BUTTON: 'construction-begin',
     PAUSE_BUTTON: 'construction-pause',
     PAUSE_REASON: 'construction-pause-reason',

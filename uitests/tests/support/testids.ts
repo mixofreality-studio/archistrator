@@ -120,6 +120,8 @@ export const TESTID = {
   constructionArtifactRow: (id: string): string => `construction-artifact-row-${id}`,
   constructionSystemTestView: 'construction-system-test-view',
   constructionTestPlanView: 'construction-test-plan-view',
+  constructionScenarioPicker: 'construction-scenario-picker',
+  constructionCaseChip: (caseId: string): string => `construction-case-chip-${caseId}`,
 } as const;
 
 /**

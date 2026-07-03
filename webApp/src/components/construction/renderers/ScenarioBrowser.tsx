@@ -109,7 +109,7 @@ export function ScenarioBrowser({
           >
             {scenarios.map((s) => (
               <MenuItem key={s.id} sx={{ fontFamily: t.mono, fontSize: 13 }} value={s.id}>
-                {`${s.useCase} — ${s.title}`}
+                {`${s.id} · ${s.useCase} — ${s.title}`}
               </MenuItem>
             ))}
           </Select>
@@ -152,6 +152,7 @@ export function ScenarioBrowser({
                 const col = kindColor(c.kind, t);
                 return (
                   <Chip
+                    data-testid={UI_IDENTIFIERS.Construction.caseChip(c.id)}
                     key={c.id}
                     label={`${c.kind} · ${c.title}`}
                     size="small"

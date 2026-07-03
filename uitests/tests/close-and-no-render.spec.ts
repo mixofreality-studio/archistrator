@@ -37,7 +37,12 @@ test('the SPA issues no /render request across the create → design → close f
   const renderRequests: string[] = [];
   page.on('request', (req: Request) => {
     const path = new URL(req.url()).pathname;
-    if (/\/render/i.test(path)) {
+    // Match a `render` PATH SEGMENT (an API render endpoint, e.g. `/api/.../render`)
+    // — not any substring. Vite dev-server module fetches for
+    // `src/components/construction/renderers/*.tsx` also contain "render" as a
+    // substring of "renderers", which is not the invariant under test.
+    const segments = path.split('/').filter((s) => s.length > 0);
+    if (segments.includes('render')) {
       renderRequests.push(`${req.method()} ${path}`);
     }
   });

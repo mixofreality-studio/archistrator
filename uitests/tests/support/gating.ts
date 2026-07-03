@@ -100,6 +100,60 @@ export function skipUnlessLiveDrafting(): void {
 }
 
 /**
+ * constructionArtifactsAvailable probes GetProject for the well-known "archistrator"
+ * dogfood project (the SAME id `system-design` defaults an id-less committed
+ * project.json to — see server DecodeProjectJSON) and reports whether it carries a
+ * REAL, non-empty testingState.systemTestPlan. This is only true when the server's
+ * project-state git substrate is pointed at a repo whose committed
+ * `.aiarch/state/project.json` already holds the dogfood construction-phase state
+ * (e.g. this repo's own checkout, or a seed built from it) — NOT the throwaway
+ * empty repo CI provisions for the project-CREATION specs (see
+ * .github/workflows/uitests.yml's "Project state" note: that empty repo is
+ * intentional, so CreateProject's permissive-resume path hands fresh-phase-0 state
+ * to the tests that create projects; it has no "archistrator" project at all).
+ */
+export async function constructionArtifactsAvailable(
+  request: APIRequestContext,
+  baseURL: string,
+): Promise<boolean> {
+  try {
+    const res = await request.get(`${baseURL}/api/v1/system-design/get-project/archistrator`, {
+      headers: { Accept: 'application/json' },
+      timeout: 5_000,
+    });
+    if (res.status() !== 200) return false;
+    const data = (await res.json()) as {
+      testingState?: { systemTestPlan?: { scenarios?: unknown[] } };
+    };
+    return (data.testingState?.systemTestPlan?.scenarios?.length ?? 0) > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * skipUnlessConstructionArtifacts skips specs that assert against the REAL
+ * committed N-STP/N-IT system-test-plan content (artifact-systemtest.spec.ts) when
+ * the server behind the SPA proxy has no such data — e.g. CI's fresh/empty
+ * project-state repo. Mirrors skipUnlessServer / skipUnlessLiveDrafting: an honest
+ * self-skip with a clear reason rather than a false failure against infra that was
+ * never provisioned with this content.
+ */
+export async function skipUnlessConstructionArtifacts(
+  request: APIRequestContext,
+  baseURL: string,
+): Promise<void> {
+  const ok = await constructionArtifactsAvailable(request, baseURL);
+  test.skip(
+    !ok,
+    'uitests: no committed construction-phase "archistrator" project with a system-test plan behind the ' +
+      'SPA proxy — this spec asserts REAL N-STP/N-IT content and cannot run against a fresh/empty ' +
+      'project-state repo. Point ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL at a repo seeded from this ' +
+      "checkout's .aiarch/state/project.json to run it locally.",
+  );
+}
+
+/**
  * gotoApp navigates to a SPA route and waits past the session gate: the app
  * shows `loading-indicator` while probing /api/userinfo, then mounts the route.
  * We wait for the loader to detach (best-effort) so callers can assert on the
