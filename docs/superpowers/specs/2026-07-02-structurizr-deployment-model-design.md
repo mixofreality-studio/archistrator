@@ -181,12 +181,22 @@ rules_deployment.go`, structs in `methodcheck/project.go`):
   containers across cloud/local; test includes all).
   Infra / external software-system nodes reference nothing and are exempt.
 
-**b. Close the gap so archistrator validates itself.** Add a `TestMethod` at the
-archistrator repo root that runs `methodcheck.Check` over `.aiarch/state/
-project.json` (mirroring `aiarch_method_test.go.tmpl`), and point the server
-`make method-check` target + a CI job (`server-checks.yml`) at it. This makes the
-whole `methodcheck` suite — not just deployment — enforce on archistrator's own
-project, and it immediately flags regressions like `project-manager`.
+**b. Close the gap so archistrator validates itself.** Confirmed: archistrator
+does **not** run `methodcheck.Check` on its own `.aiarch/state/project.json`
+today. Two distinct gates are easily conflated:
+- `arch.Check` (`TestMethodLayering`; what `make method-check` actually runs via
+  `go test -run TestMethod`) validates the **Go source** layering/encapsulation —
+  runs on archistrator.
+- `methodcheck.Check` validates the **project.json design artifact** (incl.
+  `DEP-*`) — only the seated `go test` **scaffolded into downstream user repos**;
+  never run over archistrator's own project. CI (`server-checks.yml`) runs
+  `make test-short`, neither gate over project.json.
+
+So archistrator dogfoods the Method for its *code* but not for its own *design
+artifact* — hence `project-manager` slipped through. Fix: add a repo-root
+`TestMethod` (or a dedicated target) that runs `methodcheck.Check` over
+`.aiarch/state/project.json` (`framework-go` is already in `go.work`), and add a
+CI job. This enforces the whole `methodcheck` suite on archistrator itself.
 
 ### 4. Renderer — container-level C4 deployment
 
@@ -251,12 +261,12 @@ produces valid, container-based topologies.
 - Validation lives in **platform `methodcheck`** (already there); the fix is to
   retune it for containers and **run it against archistrator itself**.
 
-## Open questions
+## Resolved (round 2)
 
-1. **Show packaged components in the container box?** Proposed: compact,
-   hover/expand list (not separate boxes). Confirm the container box is the
-   primary unit (Section 4).
-2. **`archistrator-postgres` as container vs. infrastructure.** Proposed:
-   container packaging the Resource components (they exist in the System design,
-   so `DEP-COVERAGE` stays satisfiable). Alternative: `infrastructureNode` (then
-   Resources need another home to satisfy coverage).
+- **Container box contents:** container is the primary unit; packaged component
+  names shown as a **compact hover/expand list** inside the box.
+- **`archistrator-postgres` = a container** packaging the Resource components
+  (operated-system-state, billing-state, usage-log), keeping `DEP-COVERAGE`
+  satisfiable.
+- **Validation gap confirmed:** archistrator does not run `methodcheck.Check` on
+  its own project.json (Section 3b); wiring it is in scope.
