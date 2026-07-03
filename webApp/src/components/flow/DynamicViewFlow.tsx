@@ -93,17 +93,28 @@ function build(
 }
 
 /** The controls + caption for the current call in the sequence. */
+/** Per-step concrete detail for the caption (test views): inputs → expected. */
+export interface StepDetail {
+  inputs: { name: string; value: string }[];
+  result?: string;
+  errorExpected: boolean;
+  errorCode?: string;
+  assertion?: string;
+}
+
 function StepBar({
   dv,
   stepIndex,
   setStepIndex,
   statusBySeq,
+  detailBySeq,
   t,
 }: {
   dv: DynamicViewModel;
   stepIndex: number;
   setStepIndex: (i: number) => void;
   statusBySeq: Map<number, StepStatus> | undefined;
+  detailBySeq: Map<number, StepDetail> | undefined;
   t: Tokens;
 }): ReactNode {
   const total = dv.edges.length;
@@ -120,6 +131,7 @@ function StepBar({
   };
   const status = statusBySeq?.get(current.seq);
   const captionAccent = statusColor(status, t) ?? t.accent;
+  const detail = detailBySeq?.get(current.seq);
 
   return (
     <Box sx={{ mb: 1.5 }}>
@@ -166,7 +178,44 @@ function StepBar({
         <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted, mt: 0.25 }}>
           {nameOf.get(current.from) ?? current.from} → {nameOf.get(current.to) ?? current.to}
         </Typography>
+        {detail !== undefined ? (
+          <Box sx={{ mt: 0.75, display: 'flex', flexDirection: 'column', gap: 0.35 }}>
+            {detail.inputs.length > 0 ? (
+              <CaptionRow k="in" t={t}>
+                {detail.inputs.map((a) => `${a.name} = ${a.value}`).join(',  ')}
+              </CaptionRow>
+            ) : null}
+            {detail.errorExpected ? (
+              <CaptionRow c={t.dangerFg} k="err" t={t}>
+                {detail.errorCode !== undefined && detail.errorCode.length > 0 ? detail.errorCode : 'expected failure'}
+              </CaptionRow>
+            ) : detail.result !== undefined && detail.result.length > 0 ? (
+              <CaptionRow c={t.committedDot} k="out" t={t}>
+                {detail.result}
+              </CaptionRow>
+            ) : null}
+            {detail.assertion !== undefined && detail.assertion.length > 0 ? (
+              <Typography sx={{ fontFamily: t.body, fontSize: 11.5, color: t.ink, mt: 0.15 }}>
+                {detail.assertion}
+              </Typography>
+            ) : null}
+          </Box>
+        ) : null}
       </Box>
+    </Box>
+  );
+}
+
+/** One labelled monospace row in the step caption (in / out / err). */
+function CaptionRow({ k, c, t, children }: { k: string; c?: string; t: Tokens; children: ReactNode }): ReactNode {
+  return (
+    <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'baseline' }}>
+      <Typography sx={{ fontFamily: t.mono, fontSize: 8.5, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: c ?? t.muted, minWidth: 22 }}>
+        {k}
+      </Typography>
+      <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: c ?? t.ink, wordBreak: 'break-word' }}>
+        {children}
+      </Typography>
     </Box>
   );
 }
@@ -177,6 +226,7 @@ export function DynamicViewFlow({
   height = 600,
   focalComponentId,
   statusBySeq,
+  detailBySeq,
 }: {
   /** The ordered call chain to render (system use case or test scenario). */
   dv: DynamicViewModel;
@@ -187,6 +237,8 @@ export function DynamicViewFlow({
   focalComponentId?: string;
   /** Optional per-call status colouring (test views): seq → 'red' | 'green'. */
   statusBySeq?: Map<number, StepStatus>;
+  /** Optional per-call concrete detail (test views): seq → inputs / expected. */
+  detailBySeq?: Map<number, StepDetail>;
 }): ReactNode {
   const t = useTokens();
   const [stepIndex, setStepIndex] = useState(0);
@@ -210,7 +262,7 @@ export function DynamicViewFlow({
 
   return (
     <Box>
-      <StepBar dv={dv} setStepIndex={setStepIndex} statusBySeq={statusBySeq} stepIndex={safeStep} t={t} />
+      <StepBar detailBySeq={detailBySeq} dv={dv} setStepIndex={setStepIndex} statusBySeq={statusBySeq} stepIndex={safeStep} t={t} />
       <FlowCanvas edges={edges} height={height} nodes={nodes} t={t}>
         <LayerLegend colors={colors} t={t} usedLayers={usedLayers} />
       </FlowCanvas>

@@ -126,30 +126,68 @@ type TestRun struct {
 	Note      string     `json:"note,omitempty"`
 }
 
-// TestStep is one black-box step in a system-test scenario: a single manager
-// operation call. It is TRANSPORT-AGNOSTIC — it names the {component, operation}
-// (the manager method), NOT an HTTP route, because the REST/MCP/(future) gRPC
-// clients are all generated bindings of the same manager operation. The N-STH
-// harness generator turns these steps into per-transport test code.
-type TestStep struct {
-	Seq       int    `json:"seq"`              // 1-based order within the scenario
-	Component string `json:"component"`        // manager/component that owns the operation
-	Operation string `json:"operation"`        // manager method name (e.g. "startSystemDesign")
-	Note      string `json:"note,omitempty"`   // expected result / assertion, human-readable
-	Status    string `json:"status,omitempty"` // last-run result: "" | "red" (failing) | "green" (passing)
+// TestArg is one concrete input argument to a step's operation call: the param
+// name, a concrete VALUE (JSON-encoded text, so the N-STH harness generator can emit
+// runnable code), and an optional schemaRef naming the contract param's type.
+type TestArg struct {
+	Name      string `json:"name"`
+	Value     string `json:"value"`               // concrete value as JSON/text, e.g. "\"approve\""
+	SchemaRef string `json:"schemaRef,omitempty"` // contract param type name ($def), optional
 }
 
-// TestScenario is one black-box system-test scenario: an ordered sequence of
-// manager-operation calls that proves (or breaks) a core use case end-to-end.
+// TestExpect is the expected outcome of a step: either an expected result value
+// (Result, JSON/text) OR an expected error (ErrorExpected + ErrorCode). A negative
+// case asserts the system produces the specific failure; a happy step asserts the
+// result. Per Righting Software App A: cover "every parameter, condition, and
+// error-handling path".
+type TestExpect struct {
+	Result        string `json:"result,omitempty"`    // expected result value/shape (empty when error-expected)
+	ErrorExpected bool   `json:"errorExpected"`       // true → the call is expected to fail
+	ErrorCode     string `json:"errorCode,omitempty"` // expected error code / type
+}
+
+// TestStep is one black-box step in a system-test case: a single manager operation
+// call with its concrete inputs and expected outcome. It is TRANSPORT-AGNOSTIC — it
+// names the {component, operation} (the manager method), NOT an HTTP route, because
+// the REST/MCP/(future) gRPC clients are all generated bindings of the same manager
+// operation. The N-STH harness generator turns these steps into per-transport code.
+type TestStep struct {
+	Seq       int        `json:"seq"`                 // 1-based order within the case
+	Component string     `json:"component"`           // manager/component that owns the operation
+	Operation string     `json:"operation"`           // manager method name (e.g. "startSystemDesign")
+	Status    string     `json:"status,omitempty"`    // last-run result: "" | "red" (failing) | "green" (passing)
+	Inputs    []TestArg  `json:"inputs,omitempty"`    // concrete input arguments
+	Expect    TestExpect `json:"expect"`              // expected result or expected error
+	Assertion string     `json:"assertion,omitempty"` // human-readable assertion
+}
+
+// TestCase is one falsification attempt within a scenario: an ordered sequence of
+// manager-operation calls asserting a specific expected outcome — a happy path, a
+// negative (error-path) case, or a boundary case. Per Righting Software ch.14 the
+// value of the plan is the adversarial coverage ("all the ways to break the system
+// and prove it does not work"), so negative/boundary cases are first-class.
+type TestCase struct {
+	ID    string `json:"id"`
+	Kind  string `json:"kind"` // "happy" | "negative" | "boundary"
+	Title string `json:"title"`
+	// Proves is "what this proves" — the failure mode this case is designed to expose.
+	Proves          string     `json:"proves,omitempty"`
+	ExpectedOutcome string     `json:"expectedOutcome,omitempty"` // overall success OR the specific expected failure
+	Steps           []TestStep `json:"steps,omitempty"`
+}
+
+// TestScenario is one black-box system-test scenario: a core use case and the set of
+// test cases (happy + adversarial) that prove it holds — or catch where it breaks —
+// end-to-end, black-box at the client surface.
 type TestScenario struct {
-	ID      string     `json:"id"`
-	UseCase string     `json:"useCase"` // the core use case this scenario traces to
-	Title   string     `json:"title"`
-	// Description is the "what this proves and why it matters" — the failure mode
+	ID      string `json:"id"`
+	UseCase string `json:"useCase"` // the core use case this scenario traces to
+	Title   string `json:"title"`
+	// Description is the "what this proves and why it matters" — the failure modes
 	// the scenario is designed to expose (system-level QC per Righting Software
 	// ch.14: prove the integrated system fails, don't unit-test in isolation).
 	Description string     `json:"description,omitempty"`
-	Steps      []TestStep `json:"steps,omitempty"`
+	Cases       []TestCase `json:"cases,omitempty"`
 }
 
 // SystemTestPlan is the output of the N-STP activity (§1c TestVariantPlan).

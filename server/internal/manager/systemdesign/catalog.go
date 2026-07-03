@@ -331,11 +331,27 @@ func systemTestPlanToContract(p *projectstate.SystemTestPlan) *SystemTestPlanVie
 	}
 	scenarios := make([]TestScenarioView, len(p.Scenarios))
 	for i, s := range p.Scenarios {
-		steps := make([]TestStepView, len(s.Steps))
-		for j, st := range s.Steps {
-			steps[j] = TestStepView{Seq: int64(st.Seq), Component: st.Component, Operation: st.Operation, Note: st.Note, Status: st.Status}
+		cases := make([]TestCaseView, len(s.Cases))
+		for j, c := range s.Cases {
+			steps := make([]TestStepView, len(c.Steps))
+			for k, st := range c.Steps {
+				inputs := make([]TestArgView, len(st.Inputs))
+				for m, a := range st.Inputs {
+					inputs[m] = TestArgView{Name: a.Name, Value: a.Value, SchemaRef: a.SchemaRef}
+				}
+				steps[k] = TestStepView{
+					Seq:       int64(st.Seq),
+					Component: st.Component,
+					Operation: st.Operation,
+					Status:    st.Status,
+					Inputs:    inputs,
+					Expect:    TestExpectView{Result: st.Expect.Result, ErrorExpected: st.Expect.ErrorExpected, ErrorCode: st.Expect.ErrorCode},
+					Assertion: st.Assertion,
+				}
+			}
+			cases[j] = TestCaseView{Id: c.ID, Kind: c.Kind, Title: c.Title, Proves: c.Proves, ExpectedOutcome: c.ExpectedOutcome, Steps: steps}
 		}
-		scenarios[i] = TestScenarioView{Id: s.ID, UseCase: s.UseCase, Title: s.Title, Description: s.Description, Steps: steps}
+		scenarios[i] = TestScenarioView{Id: s.ID, UseCase: s.UseCase, Title: s.Title, Description: s.Description, Cases: cases}
 	}
 	return &SystemTestPlanView{Scenarios: scenarios}
 }

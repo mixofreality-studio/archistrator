@@ -895,6 +895,24 @@ export interface components {
         SystemDesignSystemTestPlanView: {
             scenarios: null | components["schemas"]["SystemDesignTestScenarioView"][];
         };
+        SystemDesignTestArgView: {
+            name: string;
+            schemaRef: string;
+            value: string;
+        };
+        SystemDesignTestCaseView: {
+            expectedOutcome: string;
+            id: string;
+            kind: string;
+            proves: string;
+            steps: null | components["schemas"]["SystemDesignTestStepView"][];
+            title: string;
+        };
+        SystemDesignTestExpectView: {
+            errorCode: string;
+            errorExpected: boolean;
+            result: string;
+        };
         SystemDesignTestRunView: {
             failed: number;
             id: string;
@@ -902,15 +920,17 @@ export interface components {
             passed: number;
         };
         SystemDesignTestScenarioView: {
+            cases: null | components["schemas"]["SystemDesignTestCaseView"][];
             description: string;
             id: string;
-            steps: null | components["schemas"]["SystemDesignTestStepView"][];
             title: string;
             useCase: string;
         };
         SystemDesignTestStepView: {
+            assertion: string;
             component: string;
-            note: string;
+            expect: components["schemas"]["SystemDesignTestExpectView"];
+            inputs: null | components["schemas"]["SystemDesignTestArgView"][];
             operation: string;
             seq: number;
             status: string;

@@ -453,24 +453,57 @@ export interface DefectView {
   note: string;
 }
 
-/** One black-box step: a transport-agnostic manager-operation call. */
+/** One concrete input argument to a step's operation call. */
+export interface TestArgView {
+  name: string;
+  /** concrete value as JSON/text (so a harness can emit runnable code). */
+  value: string;
+  /** contract param type name ($def), optional. */
+  schemaRef?: string;
+}
+
+/** The expected outcome of a step: a result value, or an expected error. */
+export interface TestExpectView {
+  /** expected result value/shape (empty when an error is expected). */
+  result?: string;
+  errorExpected: boolean;
+  /** expected error code / type. */
+  errorCode?: string;
+}
+
+/** One black-box step: a transport-agnostic manager-operation call with concrete I/O. */
 export interface TestStepView {
   seq: number;
   component: string;
   operation: string;
-  note: string;
   /** last-run result: '' (unrun) | 'red' (failing) | 'green' (passing). */
   status?: string;
+  inputs: TestArgView[] | null;
+  expect: TestExpectView;
+  assertion?: string;
 }
 
-/** One black-box system-test scenario: an ordered operation sequence for a use case. */
+/** One falsification attempt within a scenario: happy / negative / boundary. */
+export interface TestCaseView {
+  id: string;
+  /** 'happy' | 'negative' | 'boundary'. */
+  kind: string;
+  title: string;
+  /** what this case proves — the failure mode it exposes. */
+  proves?: string;
+  /** overall success, or the specific expected failure. */
+  expectedOutcome?: string;
+  steps: TestStepView[] | null;
+}
+
+/** One black-box system-test scenario: a core use case and its test cases. */
 export interface TestScenarioView {
   id: string;
   useCase: string;
   title: string;
   /** what this scenario proves and why it matters (the failure mode it exposes). */
   description?: string;
-  steps: TestStepView[] | null;
+  cases: TestCaseView[] | null;
 }
 
 /** The system test plan — the renderable black-box operation-sequence scenarios. */

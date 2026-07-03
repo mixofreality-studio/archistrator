@@ -354,6 +354,27 @@ type SystemTestPlanView struct {
 	Scenarios []TestScenarioView `json:"scenarios"`
 }
 
+type TestArgView struct {
+	Name      string `json:"name"`
+	Value     string `json:"value"`
+	SchemaRef string `json:"schemaRef"`
+}
+
+type TestCaseView struct {
+	Id              string         `json:"id"`
+	Kind            string         `json:"kind"`
+	Title           string         `json:"title"`
+	Proves          string         `json:"proves"`
+	ExpectedOutcome string         `json:"expectedOutcome"`
+	Steps           []TestStepView `json:"steps"`
+}
+
+type TestExpectView struct {
+	Result        string `json:"result"`
+	ErrorExpected bool   `json:"errorExpected"`
+	ErrorCode     string `json:"errorCode"`
+}
+
 type TestRunView struct {
 	Id     string `json:"id"`
 	Passed int64  `json:"passed"`
@@ -365,16 +386,18 @@ type TestScenarioView struct {
 	Id          string         `json:"id"`
 	UseCase     string         `json:"useCase"`
 	Title       string         `json:"title"`
-	Steps       []TestStepView `json:"steps"`
+	Cases       []TestCaseView `json:"cases"`
 	Description string         `json:"description"`
 }
 
 type TestStepView struct {
-	Seq       int64  `json:"seq"`
-	Component string `json:"component"`
-	Operation string `json:"operation"`
-	Note      string `json:"note"`
-	Status    string `json:"status"`
+	Seq       int64          `json:"seq"`
+	Component string         `json:"component"`
+	Operation string         `json:"operation"`
+	Status    string         `json:"status"`
+	Inputs    []TestArgView  `json:"inputs"`
+	Expect    TestExpectView `json:"expect"`
+	Assertion string         `json:"assertion"`
 }
 
 type TestingStateView struct {
