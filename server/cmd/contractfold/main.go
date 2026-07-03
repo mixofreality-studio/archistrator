@@ -10,7 +10,10 @@
 // It is a SURGICAL TEXT SPLICE (see cmd/internal/contractfold's package doc for
 // why): it replaces exactly the target entry's `title` + `$defs` + `interface`,
 // preserving every other byte of project.json — including every other entry's
-// `component`/`layer`/`goPackage`/`infra`/`deps`/`stub` fields — untouched.
+// `component`/`layer`/`goPackage`/`infra`/`deps`/`stub`/`notes` fields —
+// untouched. By default it also refuses to fold a schema document whose
+// `$defs` would DROP defs the committed entry already has (see FOLD SAFETY in
+// cmd/internal/contractfold's package doc); pass --allow-shrink to override.
 //
 // Usage:
 //
@@ -22,10 +25,15 @@
 //	                                                                 # .serviceContracts[key] entry if it does not
 //	                                                                 # exist yet (first-time bootstrap of a new
 //	                                                                 # component — see schemagen's package doc)
+//	cd server && go run ./cmd/contractfold --allow-shrink <dir> <key> # same, but permit the incoming schema to
+//	                                                                 # DROP $defs the committed entry already has
+//	                                                                 # (refused by default — see contractfold's
+//	                                                                 # package doc, FOLD SAFETY)
 package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"os"
 	"sort"
@@ -38,24 +46,28 @@ import (
 const projectFile = "../.aiarch/state/project.json"
 
 func main() {
-	switch len(os.Args) {
-	case 1:
-		if err := foldAll(projectFile); err != nil {
+	allowShrink := flag.Bool("allow-shrink", false, "permit folding a schema whose $defs are not a superset of the committed entry's (default: refuse)")
+	flag.Parse()
+	args := flag.Args()
+
+	switch len(args) {
+	case 0:
+		if err := foldAll(projectFile, *allowShrink); err != nil {
 			fatal("%v", err)
 		}
-	case 3:
-		if err := foldOne(projectFile, os.Args[1], os.Args[2]); err != nil {
+	case 2:
+		if err := foldOne(projectFile, args[0], args[1], *allowShrink); err != nil {
 			fatal("%v", err)
 		}
 	default:
-		fatal("usage: contractfold                    (fold every existing component's schema.json)\n" +
-			"   or: contractfold <dir> <key>       (fold/create exactly one component)")
+		fatal("usage: contractfold [--allow-shrink]                    (fold every existing component's schema.json)\n" +
+			"   or: contractfold [--allow-shrink] <dir> <key>       (fold/create exactly one component)")
 	}
 }
 
 // foldOne folds a single component's `<dir>/contract.schema.json` into
 // project.json's `.serviceContracts[key]`, writing project.json back in place.
-func foldOne(path, dir, key string) error {
+func foldOne(path, dir, key string, allowShrink bool) error {
 	projectRaw, err := os.ReadFile(path) // #nosec G304 G703 -- path is a fixed constant or a developer-supplied CLI arg to a local codegen tool, no trust boundary
 	if err != nil {
 		return fmt.Errorf("read %s: %w", path, err)
@@ -65,7 +77,7 @@ func foldOne(path, dir, key string) error {
 	if err != nil {
 		return fmt.Errorf("read %s (run `go run ./cmd/schemagen` first): %w", schemaPath, err)
 	}
-	out, err := contractfold.Fold(projectRaw, schemaRaw, key, dir)
+	out, err := contractfold.Fold(projectRaw, schemaRaw, key, dir, allowShrink)
 	if err != nil {
 		return fmt.Errorf("fold %s: %w", key, err)
 	}
@@ -82,7 +94,7 @@ func foldOne(path, dir, key string) error {
 // — schemagen output is a transient bootstrap artifact, not committed) are
 // skipped, not errored: this is the "re-fold whatever was re-seeded" bulk mode,
 // never a surprise-creating one (creation requires the explicit two-arg form).
-func foldAll(path string) error {
+func foldAll(path string, allowShrink bool) error {
 	projectRaw, err := os.ReadFile(path) // #nosec G304 -- fixed constant path
 	if err != nil {
 		return fmt.Errorf("read %s: %w", path, err)
@@ -123,7 +135,7 @@ func foldAll(path string) error {
 			}
 			return fmt.Errorf("read %s: %w", schemaPath, err)
 		}
-		out, err := contractfold.Fold(cur, schemaRaw, t.key, t.dir)
+		out, err := contractfold.Fold(cur, schemaRaw, t.key, t.dir, allowShrink)
 		if err != nil {
 			return fmt.Errorf("fold %s: %w", t.key, err)
 		}

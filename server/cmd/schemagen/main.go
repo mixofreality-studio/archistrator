@@ -12,6 +12,16 @@
 // retired (not committed — see .gitignore). Do NOT run it in the steady-state
 // regen path (`make gen`); it is not part of the source of truth.
 //
+// registry (below) IS NOT NECESSARILY COMPLETE for every component — it is a
+// hand-maintained, leaf-first strangler work-list, filled in incrementally as
+// components migrate. Re-running schemagen against a component whose registry
+// entry has not caught up with its full model surface produces a document with
+// FEWER `$defs` than project.json's committed entry already has. cmd/contractfold
+// guards against exactly this: by default it refuses to fold a schema document
+// that would drop existing `$defs` (see its package doc, FOLD SAFETY), so an
+// incomplete registry entry is caught as a fold error rather than silently
+// regressing the committed contract.
+//
 // It captures TWO things per component:
 //   - the I/O MODEL types → JSON Schema `$defs` (data shapes).
 //   - the component INTERFACE → an `interface` descriptor (the RPC surface that

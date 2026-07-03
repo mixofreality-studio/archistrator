@@ -59,6 +59,12 @@ type ServiceContract struct {
 	Defs map[string]json.RawMessage `json:"$defs,omitempty"`
 	// Interface is the component's interface (the RPC surface): name, layer, ops.
 	Interface ContractInterface `json:"interface"`
+	// Notes is freeform human-authored commentary attached to the contract entry
+	// (e.g. drift/annotation notes from a review pass). It is NEVER produced by
+	// schemagen and is not part of the contract document proper (title/$defs/
+	// interface) — contractfold preserves it byte-for-byte across a fold rather
+	// than replacing it. Empty/absent for entries with no notes.
+	Notes string `json:"notes,omitempty"`
 }
 
 // ContractDep is one manager constructor dependency stored in a MANAGER

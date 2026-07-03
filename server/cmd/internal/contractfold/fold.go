@@ -25,17 +25,29 @@
 //
 // FIELD ORDER: every `.serviceContracts` entry observed in the committed
 // project.json follows one fixed field order — component, layer, goPackage,
-// infra, deps, stub, title, $defs, interface — which is exactly the
+// infra, deps, stub, title, $defs, interface, notes — which is exactly the
 // `projectstate.ServiceContract` struct's field declaration order. Fold assumes
 // (and Idempotent proves, against the live file) that this order holds; it always
 // re-emits an entry in this canonical order rather than trying to preserve an
 // arbitrary existing order.
+//
+// FOLD SAFETY: Fold refuses to silently REGRESS a contract. schemagen's
+// component registry (see cmd/schemagen's package doc) is a hand-maintained,
+// possibly-incomplete work-list — a schema document reflected from an
+// incomplete registry entry can carry FEWER `$defs` than the committed entry
+// already has. Folding that in would silently drop real, previously-captured
+// contract shapes. So by default Fold errors out (naming the missing defs)
+// whenever the incoming schema document's `$defs` are not a superset of the
+// existing entry's `$defs`; callers that genuinely intend to shrink a contract
+// (a real, deliberate removal) must opt in explicitly (see Fold's allowShrink
+// parameter / the CLI's --allow-shrink flag).
 package contractfold
 
 import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -44,7 +56,7 @@ import (
 // entry's fields in exactly this order; fields absent from both the existing
 // entry and the replacement set are simply omitted (matching the struct's
 // `omitempty` tags for infra/deps/stub).
-var canonicalEntryOrder = []string{"component", "layer", "goPackage", "infra", "deps", "stub", "title", "$defs", "interface"}
+var canonicalEntryOrder = []string{"component", "layer", "goPackage", "infra", "deps", "stub", "title", "$defs", "interface", "notes"}
 
 // replacedFields are the keys Fold ALWAYS overwrites from the schemagen document,
 // regardless of whether the existing entry already carries a (possibly stale)
@@ -194,9 +206,9 @@ const (
 // (the full `.aiarch/state/project.json` bytes), replacing
 // `.serviceContracts[key]`'s `title` + `$defs` + `interface` with the schemagen
 // document's versions. Every other entry field (component, layer, goPackage,
-// infra, deps, stub) is preserved BYTE-FOR-BYTE from the existing entry — Fold
-// never regenerates them, so it is a strict no-op on those fields even if this
-// package's understanding of their shape is incomplete.
+// infra, deps, stub, notes) is preserved BYTE-FOR-BYTE from the existing entry —
+// Fold never regenerates them, so it is a strict no-op on those fields even if
+// this package's understanding of their shape is incomplete.
 //
 // dir is the schemagen component dir schemaRaw was reflected from (schemagen's
 // `component.dir`, e.g. "internal/resourceaccess/projectstate"). If key already
@@ -209,7 +221,14 @@ const (
 //
 // Fold is idempotent: folding its own output a second time (same schemaRaw)
 // produces byte-identical bytes.
-func Fold(projectRaw, schemaRaw []byte, key, dir string) ([]byte, error) {
+//
+// allowShrink opts in to folding a schema document whose `$defs` are NOT a
+// superset of the existing entry's `$defs` (see FOLD SAFETY in the package
+// doc). false is the safe default: Fold refuses (with an error naming the
+// missing defs) rather than silently regress the committed contract.
+// allowShrink has no effect when creating a brand-new entry (there is nothing
+// to shrink from).
+func Fold(projectRaw, schemaRaw []byte, key, dir string, allowShrink bool) ([]byte, error) {
 	if key == "" {
 		return nil, fmt.Errorf("contractfold: key is required")
 	}
@@ -252,7 +271,7 @@ func Fold(projectRaw, schemaRaw []byte, key, dir string) ([]byte, error) {
 
 	entryIdx := indexOfField(entries, key)
 	if entryIdx >= 0 {
-		return foldExisting(projectRaw, entries[entryIdx].raw, doc, key, dir)
+		return foldExisting(projectRaw, entries[entryIdx].raw, doc, key, dir, allowShrink)
 	}
 	return foldNew(projectRaw, scRaw, entries, doc, key, dir)
 }
@@ -272,7 +291,7 @@ func indexOfField(fields []field, key string) int {
 // decode/re-encode happened), verifies that span is UNIQUE (refuses to guess if
 // it isn't), and replaces only that span — every byte of projectRaw outside it is
 // untouched.
-func foldExisting(projectRaw, oldEntryRaw []byte, doc schemaDoc, key, dir string) ([]byte, error) {
+func foldExisting(projectRaw, oldEntryRaw []byte, doc schemaDoc, key, dir string, allowShrink bool) ([]byte, error) {
 	entryFields, err := parseOrderedObject(oldEntryRaw)
 	if err != nil {
 		return nil, fmt.Errorf("contractfold: parse entry %q: %w", key, err)
@@ -289,6 +308,16 @@ func foldExisting(projectRaw, oldEntryRaw []byte, doc schemaDoc, key, dir string
 		}
 		if goPackage != dir {
 			return nil, fmt.Errorf("contractfold: entry %q has goPackage %q, but schema was reflected from %q — refusing to fold (wrong key/dir pair?)", key, goPackage, dir)
+		}
+	}
+
+	if !allowShrink {
+		missing, err := missingDefs(existing["$defs"], doc.Defs)
+		if err != nil {
+			return nil, fmt.Errorf("contractfold: entry %q: %w", key, err)
+		}
+		if len(missing) > 0 {
+			return nil, fmt.Errorf("contractfold: entry %q: incoming schema is missing $defs %v that the committed entry already has — refusing to silently shrink the contract (pass allowShrink/--allow-shrink to override if this is an intentional removal)", key, missing)
 		}
 	}
 
@@ -309,6 +338,33 @@ func foldExisting(projectRaw, oldEntryRaw []byte, doc schemaDoc, key, dir string
 		return nil, fmt.Errorf("contractfold: entry %q's bytes are not unique in project.json (%d occurrences) — refusing to guess which to replace", key, n)
 	}
 	return bytes.Replace(projectRaw, oldEntryRaw, newEntryRaw, 1), nil
+}
+
+// missingDefs returns the keys present in existingRaw's `$defs` object but
+// ABSENT from incomingRaw's `$defs` object — i.e. the defs a fold would DROP —
+// sorted for a deterministic error message. Either raw may be empty/nil (no
+// `$defs` at all), which is treated as an empty def set.
+func missingDefs(existingRaw, incomingRaw json.RawMessage) ([]string, error) {
+	var existing map[string]json.RawMessage
+	if len(existingRaw) > 0 {
+		if err := json.Unmarshal(existingRaw, &existing); err != nil {
+			return nil, fmt.Errorf("parse existing $defs: %w", err)
+		}
+	}
+	var incoming map[string]json.RawMessage
+	if len(incomingRaw) > 0 {
+		if err := json.Unmarshal(incomingRaw, &incoming); err != nil {
+			return nil, fmt.Errorf("parse incoming $defs: %w", err)
+		}
+	}
+	var missing []string
+	for k := range existing {
+		if _, ok := incoming[k]; !ok {
+			missing = append(missing, k)
+		}
+	}
+	sort.Strings(missing)
+	return missing, nil
 }
 
 // foldNew creates a brand-new entry for key (no existing `.serviceContracts[key]`)
@@ -356,9 +412,10 @@ func foldNew(projectRaw, scRaw []byte, entries []field, doc schemaDoc, key, dir 
 
 // buildEntryFields assembles an entry's ordered field list in canonicalEntryOrder:
 // existing (preserved, byte-for-byte) values for component/layer/goPackage/
-// infra/deps/stub, and the schema document's title/$defs/interface. existing is
-// nil when creating a brand-new entry, in which case component/layer/goPackage
-// are synthesized (see Fold's doc comment) and infra/deps/stub are omitted.
+// infra/deps/stub/notes, and the schema document's title/$defs/interface.
+// existing is nil when creating a brand-new entry, in which case
+// component/layer/goPackage are synthesized (see Fold's doc comment) and
+// infra/deps/stub/notes are omitted.
 func buildEntryFields(existing map[string]json.RawMessage, doc schemaDoc, key, dir string) ([]field, error) {
 	replacement := map[string]json.RawMessage{
 		"title":     doc.Title,
