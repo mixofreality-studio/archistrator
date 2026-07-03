@@ -1654,7 +1654,7 @@
             "category": "Where"
           },
           {
-            "term": "Operated Runtime",
+            "term": "OperatedRuntime",
             "definition": "The infrastructure that runs operated systems (DEPLOYED — OPERATED only): Kubernetes via Argo CD + Argo Rollouts, watching the manifests in the user's own GitHub repo and reconciling the aiarch hosting cluster. Receives deployments, reports health, surfaces per-customer compute/hosting attribution.",
             "category": "Where"
           },
@@ -1684,7 +1684,7 @@
             "category": ""
           },
           {
-            "term": "Service Pricing",
+            "term": "ServicePricing",
             "definition": "How aiarch prices its own service to the user. 2026-06-14 instance: a hosting rate for operated systems (tier floors, free-tier subsidies — all Strategy parameters; no token unit price, no flat subscription). The ServicePricing volatility (axis 1); billingEngine pivots on it as a Strategy. Applies only in the DEPLOYED — OPERATED scenario.",
             "category": ""
           },
@@ -1776,6 +1776,86 @@
           {
             "term": "Portability Boundary",
             "definition": "The rule that durableExecutionAccess's verb set is frozen and exposes no runtime-specific primitive (GetVersion, reset, search attributes), so the same Manager code runs unchanged on Temporal (cloud) or the Embedded Durable Executor (LOCAL). What keeps deployment scenarios configuration rather than a volatility.",
+            "category": "How-activity"
+          },
+          {
+            "term": "SystemDesignPhaseWorkflow",
+            "definition": "The ordered sequence of Phase 1 (system design) Method steps a project is driven through — business alignment, requirements analysis, volatility identification, core use cases, architecture, operational concepts, standard check — including each step's gating rules and artifact schemas. Owned as workflow by SystemDesignManager.",
+            "category": "How-activity"
+          },
+          {
+            "term": "ProjectDesignPhaseWorkflow",
+            "definition": "The ordered sequence of Phase 2 (project design) Method steps — planning assumptions, activity list, network, staffing options (normal / decompressed / subcritical / compressed), risk modeling, SDP review — including each step's gating rules and artifact schemas. Owned as workflow by ProjectDesignManager.",
+            "category": "How-activity"
+          },
+          {
+            "term": "ConstructionPhaseWorkflow",
+            "definition": "The ordered sequence of Phase 3 (construction) Method steps — hand-off, per-component contract design, construction dispatch, tracking, scope-change handling — including gating rules and review choreography. Owned as workflow by ConstructionManager.",
+            "category": "How-activity"
+          },
+          {
+            "term": "ProjectCatalog",
+            "definition": "The platform's registry of project entities: how a project comes into being, who owns it, how an owner lists and discovers their projects, and the lifecycle states a project moves through across the Method phases. The registry and ownership of the project entity itself, as distinct from the step sequence inside any phase.",
+            "category": "Where"
+          },
+          {
+            "term": "ConstructionEstimationModel",
+            "definition": "The model by which the platform computes duration, build cost, and risk for a project option from its activity network and worker throughput telemetry. The computational core behind Project Estimation.",
+            "category": "How-activity"
+          },
+          {
+            "term": "OperationEstimationModel",
+            "definition": "The model by which the platform forecasts operating cost as a function of usage: at design time the Usage-to-Operating-Cost Curve and payout-vs-shortfall forecast shown at SDP review; at op time the current run-rate, projected monthly cost, and what-if curve over observed usage. The computational core behind Operation Estimation and Cost Projection (op-time).",
+            "category": "How-activity"
+          },
+          {
+            "term": "CustomerAppInfrastructure",
+            "definition": "The permitted technology set for a customer's deployed application (launch set: Go, Temporal, Postgres, Git, S3). Every customer app is constrained to this set at any given moment; the contents of the set broaden as the platform matures.",
+            "category": "What"
+          },
+          {
+            "term": "InterventionPolicy",
+            "definition": "The policy governing Intervention Decisions: what counts as stuck or unhealthy, who is notified, when a human operator is paged, and what authority the operator has to pause, replay, override, or take over. Trigger surface spans construction variance, unhealthy operated state, and billing failures.",
+            "category": "How-activity"
+          },
+          {
+            "term": "AutoscalerPolicy",
+            "definition": "The policy governing Autoscaling decisions: when and how the platform changes an Operated System's desired capacity (scale up, scale down, idle-pause, resume-to-baseline) from observed telemetry, including thresholds, SLA-class tiers, and operator overrides.",
+            "category": "How-activity"
+          },
+          {
+            "term": "ReviewPolicy",
+            "definition": "The policy determining who must review a produced change during Phase-3 construction, from what perspective, and against which reference artifact. Current rule: a change is reviewed by the owners of each inbound/outbound neighbour component plus the change's own component owner.",
+            "category": "How-activity"
+          },
+          {
+            "term": "ArtifactRendering",
+            "definition": "The production of human-facing views — C4 diagrams, activity diagrams, scatter plots, markdown prose, DSL — from a project's canonical typed Method Artifact models. Performed render-on-read by the SPA; the typed model is the source of truth and never changes when a rendering does.",
+            "category": "How-activity"
+          },
+          {
+            "term": "CustomerInteractionChannel",
+            "definition": "The kind of entry path through which a customer reaches the platform: a browser against the JSON HTTP API, or a remote MCP client over HTTP. Each channel is a distinct Client component projecting the same Manager surface.",
+            "category": "Who"
+          },
+          {
+            "term": "Transport",
+            "definition": "The wire-level protocol carrying a Customer Interaction Channel's traffic — JSON over HTTP/1.1 and MCP over HTTP today; streaming variants (SSE, WebSockets, streamable HTTP) tomorrow. Owned solely by the Client component serving the channel; never visible to Managers.",
+            "category": "How-activity"
+          },
+          {
+            "term": "WorkflowRuntime",
+            "definition": "The execution infrastructure behind the platform's long-running work, in two faces: the agentic-coding-job runtime that runs dispatched construction jobs (the user's GitHub Actions running claude-code-action today, fronted by constructionPipelineAccess), and the durable executor that sequences Manager workflow code (Temporal in production, the Embedded Durable Executor in the test profile, fronted by durableExecutionAccess).",
+            "category": "Where"
+          },
+          {
+            "term": "HandOffPolicy",
+            "definition": "A customer's chosen split of human versus automated work along the Method's architect / senior / junior hand-off chain — from every line reviewed by a senior human, to fully automated construction with the customer acting only as the architect.",
+            "category": "How-activity"
+          },
+          {
+            "term": "WorkTracking",
+            "definition": "The mirroring of Method activities into a customer's work-item system via stable verbs (openWorkItem / updateWorkItem / closeWorkItem): each activity is opened as a Work Item when the network seals, status-mirrored during construction, and closed on merge. The tracker behind the verbs (GitHub Issues today; Jira / Linear / Azure Boards later) varies per customer.",
             "category": "How-activity"
           }
         ]
@@ -2842,7 +2922,7 @@
         "items": [
           {
             "name": "SystemDesignPhaseWorkflow",
-            "rationale": "The sequence of Phase 1 activities (business alignment → requirements analysis → volatility identification → core use cases → architecture → operational concepts → standard check) will evolve as architectural taste matures: new sub-skills added (security review, accessibility review), existing ones reordered, gating rules changed, artifact schemas refined. A customer completing a project today and starting another in 18 months must encounter a possibly different Phase 1 step set without the platform being rebuilt. Evolves independently of Phase 2.",
+            "rationale": "The sequence of Phase 1 activities (business alignment → requirements analysis → volatility identification → core use cases → architecture → operational concepts → standard check) will evolve as architectural taste matures: new sub-skills added (security review, accessibility review), existing ones reordered, gating rules changed, artifact schemas refined. A customer completing a project today and starting another in 18 months will encounter an evolved Phase 1 step set, and the platform must absorb that evolution without being rebuilt. Evolves independently of Phase 2.",
             "axis": "sameCustomerOverTime"
           },
           {
