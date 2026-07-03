@@ -22,8 +22,6 @@ linters:
     gochecksumtype:
       # Treat a missing case as an error (the whole point of a sealed sum).
       default-signifies-exhaustive: false
-    exhaustive:
-      check-generated: false
   exclusions:
     rules:
       # gosec is a production-security linter. Test files legitimately use fake

@@ -49,6 +49,8 @@ jobs:
         with:
           working-directory: server
           version: v2.12
+        env:
+          GOWORK: "off"
 
       - name: Test (container-free)
         run: GOWORK=off make test-short

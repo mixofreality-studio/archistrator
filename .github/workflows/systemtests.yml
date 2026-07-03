@@ -113,6 +113,8 @@ jobs:
         with:
           working-directory: systemtests
           version: v2.12
+        env:
+          GOWORK: "off"
 
       - name: Install Temporal CLI
         run: |
