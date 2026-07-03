@@ -503,6 +503,8 @@ Each of these tasks authors the commands for one profile. Every command file fol
 4. **Stop.** Do not mark phase status (the Manager owns that) and do not merge. Leave the PR open for the gate.
 ````
 
+**State paths live in the skill, not in commands.** `project.json` uses a dual storage model: flat top-level runtime keys (`.serviceContracts`, `.activityConstruction`, `.testingState`, `.phaseArtifacts`) and a `.slots["<ArtifactKind ordinal>"].model` map for Phase-1/2 artifacts (systemDesign = slot 5, activityList = slot 9, coreUseCases = slot 4, etc.). Commands MUST NOT hardcode jq slot paths — they describe reads in artifact terms ("the activity", "its contract", "the system design") and defer the actual paths to `[[the-method-project-state]]`. The `READS`/`PRODUCES` cells below are artifact-term descriptions, not raw paths. There is no `.handoff` slot; never reference one.
+
 **Authoring procedure for every command (do this per file):**
 1. Dispatch a research agent (`Explore` or `general-purpose`) with: *"Read <CHAPTERS> in `research/rightingsoftware/OEBPS/xhtml/`. Summarize the responsibilities and intent of the `<role/phase>` in Löwy's Method — what this person produces, what 'done' means, what they must NOT do. Return 5-8 sentences I can adapt into a command's goal statement."*
 2. Write the command file from the template, filling `Goal / intention` from the research return (not from memory).
@@ -519,7 +521,7 @@ Per-profile field tables follow. `READS`/`PRODUCES`/`VERIFY` are starting points
 | command | agent | method-skill | research chapters | produces |
 |---|---|---|---|---|
 | service-requirements | senior-developer | the-method-service-contract | ch07, ch09 | SRS note → `.phaseArtifacts` |
-| service-detailed-design | senior-developer (or system-architect per `.handoff`) | the-method-service-contract | appb, ch14 | contract → `.serviceContracts[component]` |
+| service-detailed-design | senior-developer or system-architect (per the Manager-assigned worker class) | the-method-service-contract | appb, ch14 | contract → `.serviceContracts[component]` |
 | service-test-plan | test-engineer | the-method-testing | ch09, ch11 | test-plan slice → `.phaseArtifacts` |
 | service-construction | junior-developer | the-method-layers | ch14 | code → `server/internal/<layer>/<pkg>/` |
 | service-integration | system-architect | the-method-layers | ch11, ch12 | wiring + `.phaseArtifacts.integrationNote` |
@@ -683,7 +685,7 @@ git commit -m "feat(commands): add service-* per-phase construction commands"
 
 | command | agent | method-skill | research chapters | produces |
 |---|---|---|---|---|
-| testing-qa-detailed-design | qa-engineer | the-method-testing | ch09, ch14 | gate definition → `.reviewPolicy` context / `.phaseArtifacts` |
+| testing-qa-detailed-design | qa-engineer | the-method-testing | ch09, ch14 | gate definition → `.phaseArtifacts` (the Manager records the actual `.reviewPolicy` separately; the agent does NOT write it) |
 | testing-qa-construction | qa-engineer | the-method-testing | ch09, ch14 | process audit note |
 
 - [ ] **Step 1: Author both** via template + research agent each (QA = process reviewer, "sign of organizational maturity"; QA ≠ testing/quality-control).

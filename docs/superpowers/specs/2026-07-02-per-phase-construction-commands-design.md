@@ -106,7 +106,7 @@ Named `<profileSlug>-<phaseSlug>.md` under `.claude/commands/`. Each is small an
 
 | command | agent | Method skill | reads from project.json | produces (artifact → location) |
 |---|---|---|---|---|
-| `service-detailed-design` | senior/architect per `.handoff` | `the-method-service-contract` | `.systemDesign`, neighbor contracts | service contract → `.serviceContracts[component]` |
+| `service-detailed-design` | senior/architect (Manager-assigned) | `the-method-service-contract` | system design, neighbor contracts | service contract → `.serviceContracts[component]` |
 | `service-construction` | `junior-developer` | `the-method-layers` | `.serviceContracts[component]` | code → `server/internal/<layer>/<pkg>/` |
 | `service-integration` | `system-architect` | — | neighbor contracts, `main.go` seams | wiring + `.phaseArtifacts.integrationNote` |
 | `frontend-detailed-design` | `ui-designer` | (ui-design routing) | `.coreUseCases`, `.systemDesign` | UI design → `.phaseArtifacts.uiDesign[surface]` |
@@ -135,7 +135,7 @@ One research agent per command (or per profile, reused across its phases) reads 
 
 A single new skill — proposed name `the-method-project-state` — that every construction command loads. It consolidates the state-access knowledge currently smeared across commands/agents into one authoritative place, and is the reason no `jq` scripting lives in the pipeline. It teaches the agent to:
 
-- **Map the store** — what each slot holds (`.systemDesign`, `.serviceContracts`, `.network`, `.activityConstruction`, `.phaseArtifacts`, `.testingState`, `.handoff`, …), pointing at the Go structs in `server/internal/resourceaccess/projectstate/` as the schema of record.
+- **Map the store** — the dual layout: flat top-level runtime keys (`.serviceContracts`, `.activityConstruction`, `.testingState`, `.phaseArtifacts`, `.reviewPolicy`, `.constructionProgress`) and the `.slots["<ArtifactKind ordinal>"].model` map holding Phase-1/2 artifacts (system design = slot 5, activity list = slot 9, core use cases = slot 4, …). Points at the Go structs in `server/internal/resourceaccess/projectstate/` (ArtifactKind in `identity.go`) as the schema of record. There is no `.handoff` slot — worker-class is Manager-decided.
 - **Traverse** — common read paths done by the agent (find the activity, its component, its neighbors' contracts, the current phase) using `jq` / direct reads it runs itself.
 - **Update** — write a valid typed slot and `git commit` it; which artifact each phase produces and where it belongs; schema/validation invariants so it cannot emit malformed JSON.
 - **Discipline** — `project.json` is the single source of truth; commit after every write; never write a parallel markdown copy.
