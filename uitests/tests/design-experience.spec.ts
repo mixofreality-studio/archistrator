@@ -18,6 +18,7 @@ import { test, expect, type Page } from '@playwright/test';
 import { TESTID, PHASE1_ARTIFACTS } from './support/testids.js';
 import { skipUnlessServer, skipUnlessLiveDrafting } from './support/gating.js';
 import { createProjectFromLanding, enterDesignExperience } from './support/flows.js';
+import { tagUseCase } from './support/useCases.js';
 
 const BASE = process.env.UITESTS_BASE_URL ?? process.env.UITESTS_SPA_URL ?? 'http://localhost:5173';
 
@@ -82,6 +83,10 @@ test.describe('co-author drafting (live backend — UITESTS_LIVE_DRAFTING=1)', (
   test.beforeEach(async ({ request }) => {
     skipUnlessLiveDrafting();
     await skipUnlessServer(request, BASE);
+    // This whole block drives the real dispatch → observe → gate → approve/
+    // redraft loop — the Method core use case "Drive System Design" (see
+    // .coreUseCases in project.json).
+    tagUseCase('drive-system-design');
   });
 
   test('Request draft shows the generating scene then a rendered artifact', async ({ page }) => {

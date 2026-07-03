@@ -115,13 +115,27 @@ export const TESTID = {
 
   // Construction console (route `/project/$projectId/construction`). Mirrors
   // UIIdentifiers.Construction in webApp/src/constants/UIIdentifiers.ts.
+  constructionTabTracker: 'construction-tab-tracker',
   constructionTabArtifacts: 'construction-tab-artifacts',
+  constructionTracker: 'construction-tracker',
   constructionArtifacts: 'construction-artifacts',
   constructionArtifactRow: (id: string): string => `construction-artifact-row-${id}`,
   constructionSystemTestView: 'construction-system-test-view',
   constructionTestPlanView: 'construction-test-plan-view',
   constructionScenarioPicker: 'construction-scenario-picker',
   constructionCaseChip: (caseId: string): string => `construction-case-chip-${caseId}`,
+  activityLifecyclePanel: 'construction-activity-lifecycle-panel',
+
+  // Operations console (route `/operations/$operatedAppId`). Mirrors
+  // UIIdentifiers.Operations in webApp/src/constants/UIIdentifiers.ts.
+  operationsRoot: 'operations-console',
+  operationsTabStatus: 'operations-tab-status',
+  operationsAwaiting: 'operations-awaiting',
+
+  // Billing (route `/project/$projectId/billing`). Mirrors UIIdentifiers.Billing.
+  billingRoot: 'billing-screen',
+  billingPendingState: 'billing-pending',
+  billingHomeLink: 'billing-home-link',
 } as const;
 
 /**

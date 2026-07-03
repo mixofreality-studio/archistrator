@@ -19,6 +19,7 @@
  *      exactly as systemtests' wire tests skip without the ARCHISTRATOR_* infra env.
  */
 import { test, type Page, type APIRequestContext } from '@playwright/test';
+import { TESTID } from './testids.js';
 
 /**
  * Drafting modes (design 2026-06-05). The uitests do not start the Go server, so
@@ -153,6 +154,62 @@ export async function skipUnlessConstructionArtifacts(
   );
 }
 
+/** A CORE-classified use case from the committed `coreUseCases` slot. */
+export interface CoreUseCase {
+  id: string;
+  name: string;
+}
+
+/** The shape of the bits of GetProject's response this file reads off the wire. */
+interface GetProjectResponseShape {
+  Slots?: {
+    kind?: string;
+    model?: {
+      model?: {
+        decisions?: {
+          useCase?: { id?: string; name?: string; classification?: string };
+        }[];
+      };
+    };
+  }[];
+}
+
+/**
+ * fetchCoreUseCases reads the committed `coreUseCases` slot off the SAME
+ * well-known "archistrator" dogfood project GetProject reads above
+ * (constructionArtifactsAvailable) and returns the Method Phase-1 "2-6 core
+ * use cases" (classification === 'core'; see the-method-core-use-cases) —
+ * the source of truth tests/meta/use-case-coverage.spec.ts checks UI spec
+ * coverage against. Returns `undefined` when the server has no coreUseCases
+ * slot committed (fresh/empty project-state repo), so callers can self-skip
+ * rather than fail on infra that was never given this content.
+ */
+export async function fetchCoreUseCases(
+  request: APIRequestContext,
+  baseURL: string,
+): Promise<CoreUseCase[] | undefined> {
+  try {
+    const res = await request.get(`${baseURL}/api/v1/system-design/get-project/archistrator`, {
+      headers: { Accept: 'application/json' },
+      timeout: 5_000,
+    });
+    if (res.status() !== 200) return undefined;
+    const data = (await res.json()) as GetProjectResponseShape;
+    const slot = data.Slots?.find((s) => s.kind === 'coreUseCases');
+    const decisions = slot?.model?.model?.decisions ?? [];
+    const core = decisions
+      .map((d) => d.useCase)
+      .filter(
+        (uc): uc is { id: string; name: string; classification: string } =>
+          uc?.id !== undefined && uc.name !== undefined && uc.classification === 'core',
+      )
+      .map((uc) => ({ id: uc.id, name: uc.name }));
+    return core.length > 0 ? core : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * gotoApp navigates to a SPA route and waits past the session gate: the app
  * shows `loading-indicator` while probing /api/userinfo, then mounts the route.
@@ -163,7 +220,7 @@ export async function gotoApp(page: Page, path: string): Promise<void> {
   await page.goto(path);
   await page.waitForLoadState('domcontentloaded');
   // The gate loader is transient; if present, let it resolve before asserting.
-  const loader = page.getByTestId('loading-indicator');
+  const loader = page.getByTestId(TESTID.loading);
   if ((await loader.count()) > 0) {
     await loader.first().waitFor({ state: 'detached' }).catch(() => undefined);
   }

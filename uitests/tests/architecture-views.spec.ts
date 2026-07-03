@@ -27,7 +27,7 @@
  * tolerating a model that produced a thinner artifact (mirroring systemtests, which
  * also refuse to hard-gate on local-model output shape).
  */
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 import { TESTID } from './support/testids.js';
 import { skipUnlessServer, skipUnlessLiveDrafting } from './support/gating.js';
 import {
@@ -35,6 +35,7 @@ import {
   enterDesignExperience,
   commitArtifactsThrough,
 } from './support/flows.js';
+import { tagUseCase } from './support/useCases.js';
 
 const BASE = process.env.UITESTS_BASE_URL ?? process.env.UITESTS_SPA_URL ?? 'http://localhost:5173';
 
@@ -65,6 +66,10 @@ test.describe('architecture & deployment views (live backend — UITESTS_LIVE_DR
   test.beforeEach(async ({ request }) => {
     skipUnlessLiveDrafting();
     await skipUnlessServer(request, BASE);
+    // commitArtifactsThrough below drives the same dispatch → observe → gate →
+    // approve loop as design-experience.spec's drafting block, across the whole
+    // Phase-1 spine — the Method core use case "Drive System Design".
+    tagUseCase('drive-system-design');
   });
 
   test('dynamic, component-focus, and deployment views render on a committed project', async ({
@@ -92,6 +97,11 @@ test.describe('architecture & deployment views (live backend — UITESTS_LIVE_DR
     const renderings: string[] = [];
     for (let i = 0; i < profileCount; i++) {
       await profiles.nth(i).click();
+      // Structural assertion: xyflow renders deployment nodes with no data-testid/
+      // role of their own; counting/reading them by their generated
+      // `.react-flow__node` DOM class is the only way to prove the profile switch
+      // actually re-rendered the topology.
+      // eslint-disable-next-line no-restricted-syntax -- see comment above
       const nodes = page.locator(NODE);
       await expect(nodes.first()).toBeVisible({ timeout: 15_000 });
       renderings.push((await nodes.allInnerTexts()).join('|'));
@@ -113,9 +123,17 @@ test.describe('architecture & deployment views (live backend — UITESTS_LIVE_DR
     await expect(dynamicPicker).toBeVisible();
     await dynamicPicker.click();
     await page.getByRole('option').first().click();
+    // Structural assertion: xyflow participant nodes carry no data-testid/role of
+    // their own; selecting by the generated `.react-flow__node` DOM class is the
+    // only way to confirm the dynamic lens actually rendered participants.
+    // eslint-disable-next-line no-restricted-syntax -- see comment above
     await expect(page.locator(NODE).first()).toBeVisible();
     // At least one ordered call edge carries a numeric "1." sequence prefix.
+    // Structural assertion: xyflow renders edge labels as plain DOM text with no
+    // testid/role; selecting by the generated `.react-flow__edge-text` class is
+    // the only way to read the rendered call-sequence prefix.
     await expect(
+      // eslint-disable-next-line no-restricted-syntax -- see comment above
       page.locator(EDGE_TEXT).filter({ hasText: /(^|\b)1\.\s/ }).first()
     ).toBeVisible();
 
@@ -129,6 +147,9 @@ test.describe('architecture & deployment views (live backend — UITESTS_LIVE_DR
     await expect(perspectivePicker).toBeVisible();
     await perspectivePicker.click();
     await page.getByRole('option').first().click();
+    // Structural assertion: xyflow perspective nodes carry no data-testid/role of
+    // their own; see the note above.
+    // eslint-disable-next-line no-restricted-syntax -- see comment above
     const nodes = page.locator(NODE);
     await expect(nodes.first()).toBeVisible();
     await expect.poll(() => nodes.count(), { timeout: 15_000 }).toBeGreaterThanOrEqual(2);
