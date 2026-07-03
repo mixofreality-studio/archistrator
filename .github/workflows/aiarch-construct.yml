@@ -39,13 +39,13 @@ on:
         description: "component id — must match a file in server/cmd/seed-contracts/data/<component_id>.json"
         required: true
         type: string
-      # Accepted-and-ignored. The Manager's dispatch adapter always sends `phase`
-      # and `role` (they are load-bearing for the per-phase aiarch-phase.yml). This
-      # single-shot construction workflow does not use them, but GitHub rejects the
-      # WHOLE workflow_dispatch with 422 "Unexpected inputs" if they are undeclared,
-      # so we declare them here as optional no-ops.
+      # Thin routing: the Manager computes which slash command this phase runs.
+      command:
+        description: "slash command to run (e.g. service-construction) — computed by the Manager from type/variant/phase"
+        required: true
+        type: string
       phase:
-        description: "App-A method phase (ignored by this single-shot workflow)"
+        description: "App-A method phase for this dispatch (also encoded in `command`)"
         required: false
         type: string
       role:
@@ -90,23 +90,7 @@ jobs:
         with:
           go-version-file: server/go.mod
 
-      # Single source of truth: the service contract lives in the project's head
-      # state (.aiarch/state/project.json → .serviceContracts), NOT a parallel
-      # per-file copy. Extract the one contract for this component to the repo root.
-      - name: Extract service contract from project.json
-        working-directory: ${{ github.workspace }}
-        run: |
-          set -euo pipefail
-          jq --arg c "${{ inputs.component_id }}" '.serviceContracts[$c] // empty' \
-            .aiarch/state/project.json > service-contract.json
-          if [ ! -s service-contract.json ]; then
-            echo "::error::no service contract for component '${{ inputs.component_id }}' in .aiarch/state/project.json"
-            exit 1
-          fi
-          echo "Extracted contract for ${{ inputs.component_id }}:"
-          cat service-contract.json
-
-      - name: Implement component (claude-code-action)
+      - name: Run construction step (claude-code-action)
         uses: anthropics/claude-code-action@v1
         with:
           # Org secret — provisioned ONCE by the founder on mixofreality-studio.
@@ -122,10 +106,9 @@ jobs:
           # task, so skip the interactive permission gates (founder-authorized) — claude
           # writes files, runs git/go/gh, and opens the PR without an approver.
           claude_args: "--dangerously-skip-permissions"
-          # Thin prompt: NO construction logic lives here. It all lives in the `/construct`
-          # Claude command (.claude/commands/construct.md), which references the
-          # junior-developer agent + the-method-layers / the-method-service-contract skills and
-          # targets .aiarch/state/project.json. The workflow just invokes the command with the
-          # component + activity ids. Keep prompt logic in commands → agents → skills, not YAML.
+          # Thin prompt: NO construction logic here. The intent lives entirely in the
+          # per-(type,variant,phase) command under .claude/commands/, which pulls its
+          # role agent + Method skill + the-method-project-state. The Manager computed
+          # `command`; the workflow just runs it against the component + activity ids.
           prompt: |
-            /construct ${{ inputs.component_id }} ${{ inputs.activity_id }}
+            /${{ inputs.command }} ${{ inputs.component_id }} ${{ inputs.activity_id }}
