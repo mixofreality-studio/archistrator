@@ -1,4 +1,4 @@
-// Package usagelog is the usageAccess component of the archistrator server's
+// Package usage is the usageAccess component of the archistrator server's
 // ResourceAccess layer — the Temporal-free port over the Usage Log, the
 // APPEND-ONLY ledger of metered usage facts (contracts/usageAccess.md, FROZEN
 // 2026-05-30; schema provisioned by R-PG-US 2026-06-10).
@@ -26,7 +26,7 @@
 // Per The Method's layer model ([[the-method-layers]]): imports NO Temporal;
 // no RA→RA, no RA→Engine; atomic business verbs, not CRUD; the total is
 // DERIVED by the pricing Engine at read time, never aggregated or stored here.
-package usagelog
+package usage
 
 import (
 	"github.com/google/uuid"

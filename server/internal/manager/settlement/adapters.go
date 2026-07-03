@@ -30,7 +30,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedruntime"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/revenueledger"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/settlementstate"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usagelog"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
 )
 
 // ===========================================================================
@@ -217,19 +217,19 @@ func revenueKindFromLedger(k revenueledger.RevenueKind) revenueKindSeam {
 }
 
 // ===========================================================================
-// usageAccess adapter — over usagelog.UsageAccess (settlement reads the whole cycle).
+// usageAccess adapter — over usage.UsageAccess (settlement reads the whole cycle).
 // ===========================================================================
 
 type usageAdapter struct {
-	inner usagelog.UsageAccess
+	inner usage.UsageAccess
 }
 
 var _ usageAccess = usageAdapter{}
 
 func (a usageAdapter) ReadRange(ctx context.Context, query usageRangeQuerySeam) ([]usageEventSeam, error) {
-	events, err := a.inner.ReadRange(fwra.Context{Context: ctx}, usagelog.UsageRangeQuery{
+	events, err := a.inner.ReadRange(fwra.Context{Context: ctx}, usage.UsageRangeQuery{
 		CustomerID:    query.CustomerID,
-		CycleID:       usagelog.CycleID(query.CycleID),
+		CycleID:       usage.CycleID(query.CycleID),
 		OperatedAppID: query.OperatedAppID,
 	})
 	if err != nil {

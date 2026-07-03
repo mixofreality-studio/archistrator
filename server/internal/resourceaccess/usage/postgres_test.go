@@ -1,4 +1,4 @@
-package usagelog_test
+package usage_test
 
 import (
 	"context"
@@ -13,7 +13,7 @@ import (
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 
 	postgresinfra "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-postgres/testinfra"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usagelog"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
 )
 
 // These integration tests exercise the concrete Postgres Store against a real
@@ -43,11 +43,11 @@ func rc(ctx context.Context) fwra.Context { return fwra.Context{Context: ctx} }
 
 // newStore spins a fresh Postgres, applies the schema via NewStore, and hands
 // back the Store plus the raw pool (for row-count probes and the trigger test).
-func newStore(t *testing.T) (usagelog.UsageAccess, *pgxpool.Pool, context.Context) {
+func newStore(t *testing.T) (usage.UsageAccess, *pgxpool.Pool, context.Context) {
 	t.Helper()
 	pool := postgresinfra.StartPostgres(t)
 	ctx := context.Background()
-	store, err := usagelog.NewPostgresUsageAccess(ctx, pool)
+	store, err := usage.NewPostgresUsageAccess(ctx, pool)
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
@@ -70,7 +70,7 @@ func assertKind(t *testing.T, err error, want fwra.Kind) {
 }
 
 // rowCount counts the rows recorded for one runtime event id.
-func rowCount(t *testing.T, pool *pgxpool.Pool, ctx context.Context, id usagelog.RuntimeEventID) int {
+func rowCount(t *testing.T, pool *pgxpool.Pool, ctx context.Context, id usage.RuntimeEventID) int {
 	t.Helper()
 	var n int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM usage_log WHERE runtime_event_id = $1`, string(id)).Scan(&n); err != nil {
@@ -80,14 +80,14 @@ func rowCount(t *testing.T, pool *pgxpool.Pool, ctx context.Context, id usagelog
 }
 
 // event builds a well-formed hosting/compute fact.
-func event(customer usagelog.CustomerID, app usagelog.OperatedAppID, cycle usagelog.CycleID, runtimeEventID, unit string, amount float64) usagelog.UsageEvent {
+func event(customer usage.CustomerID, app usage.OperatedAppID, cycle usage.CycleID, runtimeEventID, unit string, amount float64) usage.UsageEvent {
 	start := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
-	return usagelog.UsageEvent{
+	return usage.UsageEvent{
 		CustomerID:     customer,
 		OperatedAppID:  app,
 		CycleID:        cycle,
-		Units:          usagelog.ComputeUnits{Amount: amount, Unit: unit},
-		RuntimeEventID: usagelog.RuntimeEventID(runtimeEventID),
+		Units:          usage.ComputeUnits{Amount: amount, Unit: unit},
+		RuntimeEventID: usage.RuntimeEventID(runtimeEventID),
 		WindowStart:    start,
 		WindowEnd:      start.Add(time.Minute),
 		OccurredAt:     start.Add(time.Minute),
@@ -96,7 +96,7 @@ func event(customer usagelog.CustomerID, app usagelog.OperatedAppID, cycle usage
 
 // tokenEvent builds a construction-token fact — the 2026-06-09 repurpose
 // shape: build-phase consumption with NO operated app (zero OperatedAppID).
-func tokenEvent(customer usagelog.CustomerID, cycle usagelog.CycleID, runtimeEventID string, amount float64) usagelog.UsageEvent {
+func tokenEvent(customer usage.CustomerID, cycle usage.CycleID, runtimeEventID string, amount float64) usage.UsageEvent {
 	return event(customer, uuid.Nil, cycle, runtimeEventID, "construction-token", amount)
 }
 
@@ -108,9 +108,9 @@ func TestRecordThenReadRange_AppendOrder(t *testing.T) {
 	store, _, ctx := newStore(t)
 	customer := uuid.New()
 	app := uuid.New()
-	cycle := usagelog.CycleID("2026-06")
+	cycle := usage.CycleID("2026-06")
 
-	first := []usagelog.UsageEvent{
+	first := []usage.UsageEvent{
 		tokenEvent(customer, cycle, "ev-token-1", 1200),
 		event(customer, app, cycle, "ev-compute-1", "compute-unit-second", 37.5),
 	}
@@ -122,7 +122,7 @@ func TestRecordThenReadRange_AppendOrder(t *testing.T) {
 		t.Fatalf("expected 2 non-empty refs, got %v", refs1)
 	}
 
-	refs2, err := store.RecordFinalUsage(rc(ctx), []usagelog.UsageEvent{
+	refs2, err := store.RecordFinalUsage(rc(ctx), []usage.UsageEvent{
 		event(customer, app, cycle, "ev-final-1", "egress-byte", 4096),
 	})
 	if err != nil {
@@ -132,14 +132,14 @@ func TestRecordThenReadRange_AppendOrder(t *testing.T) {
 		t.Fatalf("expected 1 non-empty ref, got %v", refs2)
 	}
 
-	got, err := store.ReadRange(rc(ctx), usagelog.UsageRangeQuery{CustomerID: customer, CycleID: cycle})
+	got, err := store.ReadRange(rc(ctx), usage.UsageRangeQuery{CustomerID: customer, CycleID: cycle})
 	if err != nil {
 		t.Fatalf("ReadRange: %v", err)
 	}
 	if len(got) != 3 {
 		t.Fatalf("expected 3 facts, got %d", len(got))
 	}
-	wantOrder := []usagelog.RuntimeEventID{"ev-token-1", "ev-compute-1", "ev-final-1"}
+	wantOrder := []usage.RuntimeEventID{"ev-token-1", "ev-compute-1", "ev-final-1"}
 	for i, want := range wantOrder {
 		if got[i].RuntimeEventID != want {
 			t.Fatalf("append order broken at %d: want %s, got %s", i, want, got[i].RuntimeEventID)
@@ -150,13 +150,13 @@ func TestRecordThenReadRange_AppendOrder(t *testing.T) {
 	}
 	// Write refs correlate with replayed refs.
 	if got[0].Ref != refs1[0] || got[1].Ref != refs1[1] || got[2].Ref != refs2[0] {
-		t.Fatalf("refs do not correlate: write %v/%v vs read %v", refs1, refs2, []usagelog.EntryRef{got[0].Ref, got[1].Ref, got[2].Ref})
+		t.Fatalf("refs do not correlate: write %v/%v vs read %v", refs1, refs2, []usage.EntryRef{got[0].Ref, got[1].Ref, got[2].Ref})
 	}
 	// The token fact round-trips with an ABSENT operated app (zero uuid).
 	if got[0].OperatedAppID != uuid.Nil {
 		t.Fatalf("token fact should have zero OperatedAppID, got %s", got[0].OperatedAppID)
 	}
-	if got[0].Units != (usagelog.ComputeUnits{Amount: 1200, Unit: "construction-token"}) {
+	if got[0].Units != (usage.ComputeUnits{Amount: 1200, Unit: "construction-token"}) {
 		t.Fatalf("token units did not round-trip: %+v", got[0].Units)
 	}
 	if got[1].OperatedAppID != app {
@@ -172,16 +172,16 @@ func TestDuplicateReplay_SameRefNoSecondRow(t *testing.T) {
 	store, pool, ctx := newStore(t)
 	customer := uuid.New()
 	app := uuid.New()
-	cycle := usagelog.CycleID("2026-06")
+	cycle := usage.CycleID("2026-06")
 	ev := event(customer, app, cycle, "ev-dup", "compute-unit-second", 10)
 
-	refs1, err := store.RecordComputeUsage(rc(ctx), []usagelog.UsageEvent{ev})
+	refs1, err := store.RecordComputeUsage(rc(ctx), []usage.UsageEvent{ev})
 	if err != nil {
 		t.Fatalf("first record: %v", err)
 	}
 
 	// Replay via the same verb.
-	refs2, err := store.RecordComputeUsage(rc(ctx), []usagelog.UsageEvent{ev})
+	refs2, err := store.RecordComputeUsage(rc(ctx), []usage.UsageEvent{ev})
 	if err != nil {
 		t.Fatalf("replay must be idempotent success, got: %v", err)
 	}
@@ -190,7 +190,7 @@ func TestDuplicateReplay_SameRefNoSecondRow(t *testing.T) {
 	}
 
 	// Replay via the other verb (one unified log, same UNIQUE constraint).
-	refs3, err := store.RecordFinalUsage(rc(ctx), []usagelog.UsageEvent{ev})
+	refs3, err := store.RecordFinalUsage(rc(ctx), []usage.UsageEvent{ev})
 	if err != nil {
 		t.Fatalf("cross-verb replay must be idempotent success, got: %v", err)
 	}
@@ -210,16 +210,16 @@ func TestMixedBatch_PerEventDedup(t *testing.T) {
 	store, pool, ctx := newStore(t)
 	customer := uuid.New()
 	app := uuid.New()
-	cycle := usagelog.CycleID("2026-06")
+	cycle := usage.CycleID("2026-06")
 
 	dup := event(customer, app, cycle, "ev-mixed-dup", "compute-unit-second", 1)
-	refs1, err := store.RecordComputeUsage(rc(ctx), []usagelog.UsageEvent{dup})
+	refs1, err := store.RecordComputeUsage(rc(ctx), []usage.UsageEvent{dup})
 	if err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 
 	fresh := event(customer, app, cycle, "ev-mixed-new", "storage-byte-month", 2)
-	refs2, err := store.RecordComputeUsage(rc(ctx), []usagelog.UsageEvent{dup, fresh})
+	refs2, err := store.RecordComputeUsage(rc(ctx), []usage.UsageEvent{dup, fresh})
 	if err != nil {
 		t.Fatalf("mixed batch must succeed, got: %v", err)
 	}
@@ -242,10 +242,10 @@ func TestMixedBatch_PerEventDedup(t *testing.T) {
 func TestInBatchDuplicate(t *testing.T) {
 	store, pool, ctx := newStore(t)
 	customer := uuid.New()
-	cycle := usagelog.CycleID("2026-06")
+	cycle := usage.CycleID("2026-06")
 	ev := tokenEvent(customer, cycle, "ev-inbatch", 5)
 
-	refs, err := store.RecordComputeUsage(rc(ctx), []usagelog.UsageEvent{ev, ev})
+	refs, err := store.RecordComputeUsage(rc(ctx), []usage.UsageEvent{ev, ev})
 	if err != nil {
 		t.Fatalf("in-batch duplicate must succeed, got: %v", err)
 	}
@@ -262,8 +262,8 @@ func TestInBatchDuplicate(t *testing.T) {
 func TestAppendOnly_TriggerRejectsMutation(t *testing.T) {
 	store, pool, ctx := newStore(t)
 	customer := uuid.New()
-	cycle := usagelog.CycleID("2026-06")
-	if _, err := store.RecordComputeUsage(rc(ctx), []usagelog.UsageEvent{tokenEvent(customer, cycle, "ev-immutable", 9)}); err != nil {
+	cycle := usage.CycleID("2026-06")
+	if _, err := store.RecordComputeUsage(rc(ctx), []usage.UsageEvent{tokenEvent(customer, cycle, "ev-immutable", 9)}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 
@@ -287,9 +287,9 @@ func TestReadRange_OperatedAppScope(t *testing.T) {
 	customer := uuid.New()
 	appA := uuid.New()
 	appB := uuid.New()
-	cycle := usagelog.CycleID("2026-06")
+	cycle := usage.CycleID("2026-06")
 
-	if _, err := store.RecordComputeUsage(rc(ctx), []usagelog.UsageEvent{
+	if _, err := store.RecordComputeUsage(rc(ctx), []usage.UsageEvent{
 		event(customer, appA, cycle, "ev-a-1", "compute-unit-second", 1),
 		event(customer, appB, cycle, "ev-b-1", "compute-unit-second", 2),
 		tokenEvent(customer, cycle, "ev-tok-1", 3),
@@ -297,7 +297,7 @@ func TestReadRange_OperatedAppScope(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 
-	whole, err := store.ReadRange(rc(ctx), usagelog.UsageRangeQuery{CustomerID: customer, CycleID: cycle})
+	whole, err := store.ReadRange(rc(ctx), usage.UsageRangeQuery{CustomerID: customer, CycleID: cycle})
 	if err != nil {
 		t.Fatalf("whole-period read: %v", err)
 	}
@@ -305,7 +305,7 @@ func TestReadRange_OperatedAppScope(t *testing.T) {
 		t.Fatalf("whole period must return 3 facts, got %d", len(whole))
 	}
 
-	scopedA, err := store.ReadRange(rc(ctx), usagelog.UsageRangeQuery{CustomerID: customer, CycleID: cycle, OperatedAppID: &appA})
+	scopedA, err := store.ReadRange(rc(ctx), usage.UsageRangeQuery{CustomerID: customer, CycleID: cycle, OperatedAppID: &appA})
 	if err != nil {
 		t.Fatalf("app-scoped read: %v", err)
 	}
@@ -315,7 +315,7 @@ func TestReadRange_OperatedAppScope(t *testing.T) {
 
 	// Token rows have no operated app and never match an app predicate.
 	other := uuid.New()
-	scopedNone, err := store.ReadRange(rc(ctx), usagelog.UsageRangeQuery{CustomerID: customer, CycleID: cycle, OperatedAppID: &other})
+	scopedNone, err := store.ReadRange(rc(ctx), usage.UsageRangeQuery{CustomerID: customer, CycleID: cycle, OperatedAppID: &other})
 	if err != nil {
 		t.Fatalf("unmatched app scope: %v", err)
 	}
@@ -328,7 +328,7 @@ func TestReadRange_OperatedAppScope(t *testing.T) {
 // slice — NOT fwra.NotFound (contract §2.3).
 func TestReadRange_EmptyPeriod(t *testing.T) {
 	store, _, ctx := newStore(t)
-	got, err := store.ReadRange(rc(ctx), usagelog.UsageRangeQuery{CustomerID: uuid.New(), CycleID: "2026-06"})
+	got, err := store.ReadRange(rc(ctx), usage.UsageRangeQuery{CustomerID: uuid.New(), CycleID: "2026-06"})
 	if err != nil {
 		t.Fatalf("empty period must not error, got: %v", err)
 	}
@@ -363,11 +363,11 @@ func TestContractMisuse(t *testing.T) {
 	store, pool, ctx := newStore(t)
 	customer := uuid.New()
 	app := uuid.New()
-	cycle := usagelog.CycleID("2026-06")
+	cycle := usage.CycleID("2026-06")
 
 	bad := []struct {
 		name string
-		ev   usagelog.UsageEvent
+		ev   usage.UsageEvent
 	}{
 		{"empty RuntimeEventID", event(customer, app, cycle, "", "compute-unit-second", 1)},
 		{"zero CustomerID", event(uuid.Nil, app, cycle, "ev-x1", "compute-unit-second", 1)},
@@ -377,37 +377,37 @@ func TestContractMisuse(t *testing.T) {
 		{"empty unit", event(customer, app, cycle, "ev-x5", "", 1)},
 	}
 	for _, tc := range bad {
-		_, err := store.RecordComputeUsage(rc(ctx), []usagelog.UsageEvent{tc.ev})
+		_, err := store.RecordComputeUsage(rc(ctx), []usage.UsageEvent{tc.ev})
 		assertKind(t, err, fwra.ContractMisuse)
-		_, err = store.RecordFinalUsage(rc(ctx), []usagelog.UsageEvent{tc.ev})
+		_, err = store.RecordFinalUsage(rc(ctx), []usage.UsageEvent{tc.ev})
 		assertKind(t, err, fwra.ContractMisuse)
 	}
 
 	// Inverted window.
 	inv := event(customer, app, cycle, "ev-x6", "compute-unit-second", 1)
 	inv.WindowEnd = inv.WindowStart.Add(-time.Second)
-	_, err := store.RecordComputeUsage(rc(ctx), []usagelog.UsageEvent{inv})
+	_, err := store.RecordComputeUsage(rc(ctx), []usage.UsageEvent{inv})
 	assertKind(t, err, fwra.ContractMisuse)
 
 	// A bad event ANYWHERE in the batch rejects the whole batch before any append.
 	good := event(customer, app, cycle, "ev-good", "compute-unit-second", 1)
-	_, err = store.RecordComputeUsage(rc(ctx), []usagelog.UsageEvent{good, bad[0].ev})
+	_, err = store.RecordComputeUsage(rc(ctx), []usage.UsageEvent{good, bad[0].ev})
 	assertKind(t, err, fwra.ContractMisuse)
 	if n := rowCount(t, pool, ctx, "ev-good"); n != 0 {
 		t.Fatalf("rejected batch must append nothing, got %d rows for ev-good", n)
 	}
 
 	// Read pre-conditions.
-	_, err = store.ReadRange(rc(ctx), usagelog.UsageRangeQuery{CustomerID: uuid.Nil, CycleID: cycle})
+	_, err = store.ReadRange(rc(ctx), usage.UsageRangeQuery{CustomerID: uuid.Nil, CycleID: cycle})
 	assertKind(t, err, fwra.ContractMisuse)
-	_, err = store.ReadRange(rc(ctx), usagelog.UsageRangeQuery{CustomerID: customer, CycleID: ""})
+	_, err = store.ReadRange(rc(ctx), usage.UsageRangeQuery{CustomerID: customer, CycleID: ""})
 	assertKind(t, err, fwra.ContractMisuse)
 	zero := uuid.Nil
-	_, err = store.ReadRange(rc(ctx), usagelog.UsageRangeQuery{CustomerID: customer, CycleID: cycle, OperatedAppID: &zero})
+	_, err = store.ReadRange(rc(ctx), usage.UsageRangeQuery{CustomerID: customer, CycleID: cycle, OperatedAppID: &zero})
 	assertKind(t, err, fwra.ContractMisuse)
 
 	// Constructor misuse.
-	_, err = usagelog.NewPostgresUsageAccess(ctx, nil)
+	_, err = usage.NewPostgresUsageAccess(ctx, nil)
 	assertKind(t, err, fwra.ContractMisuse)
 }
 
@@ -416,10 +416,10 @@ func TestContractMisuse(t *testing.T) {
 func TestSchemaIdempotent(t *testing.T) {
 	store, pool, ctx := newStore(t)
 	customer := uuid.New()
-	if _, err := store.RecordComputeUsage(rc(ctx), []usagelog.UsageEvent{tokenEvent(customer, "2026-06", "ev-boot", 1)}); err != nil {
+	if _, err := store.RecordComputeUsage(rc(ctx), []usage.UsageEvent{tokenEvent(customer, "2026-06", "ev-boot", 1)}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	if _, err := usagelog.NewPostgresUsageAccess(ctx, pool); err != nil {
+	if _, err := usage.NewPostgresUsageAccess(ctx, pool); err != nil {
 		t.Fatalf("second NewStore (redeploy) must succeed: %v", err)
 	}
 	if n := rowCount(t, pool, ctx, "ev-boot"); n != 1 {

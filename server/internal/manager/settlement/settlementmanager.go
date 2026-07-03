@@ -17,7 +17,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedruntime"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/revenueledger"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/settlementstate"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usagelog"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
 )
 
 // SettlementManager is the settlementManager port — the public use-case surface of the
@@ -57,7 +57,7 @@ type settlementManager struct {
 
 	settlementState  settlementstate.SettlementStateAccess
 	revenueLedger    revenueledger.RevenueLedgerAccess
-	usage            usagelog.UsageAccess
+	usage            usage.UsageAccess
 	merchantGateway  merchantgateway.MerchantGatewayAccess
 	operatedRuntime  operatedruntime.OperatedRuntimeAccess
 	durableExecution durableexecution.DurableExecutionAccess
@@ -73,7 +73,7 @@ func newSettlementManager(
 	c client.Client,
 	settlementState settlementstate.SettlementStateAccess,
 	revenueLedger revenueledger.RevenueLedgerAccess,
-	usage usagelog.UsageAccess,
+	usage usage.UsageAccess,
 	merchantGateway merchantgateway.MerchantGatewayAccess,
 	operatedRuntime operatedruntime.OperatedRuntimeAccess,
 	durableExecution durableexecution.DurableExecutionAccess,

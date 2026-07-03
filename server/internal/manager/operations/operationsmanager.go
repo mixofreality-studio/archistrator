@@ -17,7 +17,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/durableexecution"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedruntime"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedsystemstate"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usagelog"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
 )
 
 // OperationsManager is the operationsManager port — the public use-case surface of
@@ -58,7 +58,7 @@ type operationsManager struct {
 
 	operatedSystemState operatedsystemstate.OperatedSystemStateAccess
 	operatedRuntime     operatedruntime.OperatedRuntimeAccess
-	usage               usagelog.UsageAccess
+	usage               usage.UsageAccess
 	artifact            artifact.ArtifactAccess
 	durableExecution    durableexecution.DurableExecutionAccess
 	intervention        intervention.InterventionEngine
@@ -85,7 +85,7 @@ func newOperationsManager(
 	c client.Client,
 	operatedSystemState operatedsystemstate.OperatedSystemStateAccess,
 	operatedRuntime operatedruntime.OperatedRuntimeAccess,
-	usage usagelog.UsageAccess,
+	usage usage.UsageAccess,
 	art artifact.ArtifactAccess,
 	durableExecution durableexecution.DurableExecutionAccess,
 	interventionEng intervention.InterventionEngine,

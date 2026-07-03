@@ -499,7 +499,7 @@ var encapsulationAllowlistData = map[string][]string{
 	},
 	// Cross-package identity value types (CustomerID, OperatedAppID) consumed by downstream
 	// Managers, + Error alias.
-	"internal/resourceaccess/usagelog": {
+	"internal/resourceaccess/usage": {
 		"CustomerID",
 		"Error",
 		"OperatedAppID",

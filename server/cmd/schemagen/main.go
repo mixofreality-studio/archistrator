@@ -69,7 +69,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/durableexecution"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usagelog"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/worker"
 )
 
@@ -523,7 +523,7 @@ var registry = []component{
 	},
 	{
 		name: "usagelog",
-		dir:  "internal/resourceaccess/usagelog",
+		dir:  "internal/resourceaccess/usage",
 		models: []any{
 			// The full transitive closure of UsageAccess's OWN contract value types
 			// (usageAccess.md §2/§3). All defined in this package — full
@@ -534,18 +534,18 @@ var registry = []component{
 			// UsageRangeQuery) bind directly to uuid.UUID — they are NOT registered
 			// separately. RawMeter is []byte (opaque source-meter payload), bound to
 			// its exact Go type.
-			usagelog.ComputeUnits{},
-			usagelog.UsageRangeQuery{},
-			usagelog.UsageEvent{},
+			usage.ComputeUnits{},
+			usage.UsageRangeQuery{},
+			usage.UsageEvent{},
 			// Named scalars (bare identifier newtypes — no const block). CycleID is the
 			// billing period; RuntimeEventID is the caller-supplied dedup token;
 			// EntryRef is the opaque append-position ref returned by the write verbs.
-			usagelog.CycleID(""),
-			usagelog.RuntimeEventID(""),
-			usagelog.EntryRef(""),
+			usage.CycleID(""),
+			usage.RuntimeEventID(""),
+			usage.EntryRef(""),
 		},
 		ifaceName: "UsageAccess",
-		iface:     reflect.TypeOf((*usagelog.UsageAccess)(nil)).Elem(),
+		iface:     reflect.TypeOf((*usage.UsageAccess)(nil)).Elem(),
 	},
 	{
 		name: "durableexecution",

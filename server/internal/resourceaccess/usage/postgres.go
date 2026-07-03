@@ -1,4 +1,4 @@
-package usagelog
+package usage
 
 import (
 	"context"
@@ -52,10 +52,10 @@ var schemaDDL string
 // boot/redeploy.
 func newPostgresUsageAccess(ctx context.Context, pool *pgxpool.Pool) (UsageAccess, error) {
 	if pool == nil {
-		return nil, fwra.New(fwra.ContractMisuse, "usagelog.NewPostgresUsageAccess: nil pool")
+		return nil, fwra.New(fwra.ContractMisuse, "usage.NewPostgresUsageAccess: nil pool")
 	}
 	if _, err := pool.Exec(ctx, schemaDDL); err != nil {
-		return nil, fwra.Wrap(fwra.Infrastructure, err, "usagelog.NewPostgresUsageAccess: apply schema")
+		return nil, fwra.Wrap(fwra.Infrastructure, err, "usage.NewPostgresUsageAccess: apply schema")
 	}
 	return &postgresUsageAccess{pool: pool}, nil
 }
@@ -66,7 +66,7 @@ func newPostgresUsageAccess(ctx context.Context, pool *pgxpool.Pool) (UsageAcces
 // the domain RuntimeEventID field on each event (DB UNIQUE constraint), so the
 // component stays Temporal-free and the behaviour is byte-identical.
 func (s *postgresUsageAccess) RecordComputeUsage(rc fwra.Context, events []UsageEvent) ([]EntryRef, error) {
-	return s.appendBatch(rc.Context, "usagelog.RecordComputeUsage", events)
+	return s.appendBatch(rc.Context, "usage.RecordComputeUsage", events)
 }
 
 // RecordFinalUsage appends the final usage batch captured at withdraw
@@ -74,7 +74,7 @@ func (s *postgresUsageAccess) RecordComputeUsage(rc fwra.Context, events []Usage
 // RecordComputeUsage — the "final" distinction is the business moment, not a
 // column this seam exposes (contract §6).
 func (s *postgresUsageAccess) RecordFinalUsage(rc fwra.Context, events []UsageEvent) ([]EntryRef, error) {
-	return s.appendBatch(rc.Context, "usagelog.RecordFinalUsage", events)
+	return s.appendBatch(rc.Context, "usage.RecordFinalUsage", events)
 }
 
 // insertSQL appends one immutable fact. ON CONFLICT (runtime_event_id)
@@ -194,7 +194,7 @@ func (s *postgresUsageAccess) appendBatch(ctx context.Context, op string, events
 // (non-nil) slice, never NotFound.
 func (s *postgresUsageAccess) ReadRange(rc fwra.Context, query UsageRangeQuery) ([]UsageEvent, error) {
 	ctx := rc.Context
-	const op = "usagelog.ReadRange"
+	const op = "usage.ReadRange"
 	if query.CustomerID == uuid.Nil {
 		return nil, fwra.New(fwra.ContractMisuse, op+": zero CustomerID")
 	}

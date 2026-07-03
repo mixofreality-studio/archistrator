@@ -38,7 +38,7 @@ import (
 //  2. NAME DIVERGENCE (~a dozen): design vs code disagree beyond the suffix —
 //     BillingManager↔manager/settlement, ConstructionEstimationEngine↔engine/
 //     estimation, BillingGatewayAccess↔resourceaccess/merchantgateway,
-//     UsageAccess↔resourceaccess/usagelog, plus extra code packages the design
+//     UsageAccess↔resourceaccess/usage, plus extra code packages the design
 //     does not declare (engine/settlement, resourceaccess/{artifact,revenueledger,
 //     settlementstate,worker}).
 //  3. NOT-YET-BUILT (5): MCPClient, SchedulerClient, and the three Utilities

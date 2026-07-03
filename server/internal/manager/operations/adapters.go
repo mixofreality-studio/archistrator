@@ -29,7 +29,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/durableexecution"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedruntime"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedsystemstate"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usagelog"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
 )
 
 // ===========================================================================
@@ -286,11 +286,11 @@ func runtimeStatusFromRuntime(s operatedruntime.RuntimeStatus) RuntimeStatusSeam
 }
 
 // ===========================================================================
-// usageAccess adapter — over usagelog.UsageAccess (dropping the published []EntryRef).
+// usageAccess adapter — over usage.UsageAccess (dropping the published []EntryRef).
 // ===========================================================================
 
 type usageAdapter struct {
-	inner usagelog.UsageAccess
+	inner usage.UsageAccess
 }
 
 var _ usageAccess = usageAdapter{}
@@ -306,9 +306,9 @@ func (a usageAdapter) RecordFinalUsage(ctx context.Context, events []usageEventS
 }
 
 func (a usageAdapter) ReadRange(ctx context.Context, query usageRangeQuerySeam) ([]usageEventSeam, error) {
-	events, err := a.inner.ReadRange(fwra.Context{Context: ctx}, usagelog.UsageRangeQuery{
+	events, err := a.inner.ReadRange(fwra.Context{Context: ctx}, usage.UsageRangeQuery{
 		CustomerID:    query.CustomerID,
-		CycleID:       usagelog.CycleID(query.CycleID),
+		CycleID:       usage.CycleID(query.CycleID),
 		OperatedAppID: query.OperatedAppID,
 	})
 	if err != nil {
@@ -328,15 +328,15 @@ func (a usageAdapter) ReadRange(ctx context.Context, query usageRangeQuerySeam) 
 	return out, nil
 }
 
-func usageEventsToLog(events []usageEventSeam) []usagelog.UsageEvent {
-	out := make([]usagelog.UsageEvent, 0, len(events))
+func usageEventsToLog(events []usageEventSeam) []usage.UsageEvent {
+	out := make([]usage.UsageEvent, 0, len(events))
 	for _, e := range events {
-		out = append(out, usagelog.UsageEvent{
+		out = append(out, usage.UsageEvent{
 			CustomerID:     e.CustomerID,
 			OperatedAppID:  e.OperatedAppID,
-			CycleID:        usagelog.CycleID(e.CycleID),
-			Units:          usagelog.ComputeUnits{Amount: e.Units.Amount, Unit: e.Units.Unit},
-			RuntimeEventID: usagelog.RuntimeEventID(e.RuntimeEventID),
+			CycleID:        usage.CycleID(e.CycleID),
+			Units:          usage.ComputeUnits{Amount: e.Units.Amount, Unit: e.Units.Unit},
+			RuntimeEventID: usage.RuntimeEventID(e.RuntimeEventID),
 			OccurredAt:     e.ObservedAt,
 		})
 	}

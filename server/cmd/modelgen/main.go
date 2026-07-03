@@ -431,7 +431,7 @@ var infraBindings = map[string]infraBinding{
 		},
 	},
 
-	// usagelog → Postgres. The hand-written builder applies the embedded schema.sql
+	// usage → Postgres. The hand-written builder applies the embedded schema.sql
 	// DDL, so construction can fail (returnsError). Param types are the current
 	// NewPostgresUsageAccess(ctx, pool) shape.
 	"Postgres": {

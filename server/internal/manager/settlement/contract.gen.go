@@ -13,7 +13,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedruntime"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/revenueledger"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/settlementstate"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usagelog"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
 	"go.temporal.io/sdk/client"
 	"time"
 )
@@ -77,6 +77,6 @@ type SettlementManager interface {
 // builder newSettlementManager in the manager package (which owns the stateful facade setup:
 // the Temporal client, the deps, and config). The constructor returns the
 // interface, so the concrete manager impl stays unexported.
-func NewSettlementManager(client client.Client, settlementState settlementstate.SettlementStateAccess, revenueLedger revenueledger.RevenueLedgerAccess, usage usagelog.UsageAccess, merchantGateway merchantgateway.MerchantGatewayAccess, operatedRuntime operatedruntime.OperatedRuntimeAccess, durableExecution durableexecution.DurableExecutionAccess, settlement settlement.SettlementEngine, intervention intervention.InterventionEngine) SettlementManager {
+func NewSettlementManager(client client.Client, settlementState settlementstate.SettlementStateAccess, revenueLedger revenueledger.RevenueLedgerAccess, usage usage.UsageAccess, merchantGateway merchantgateway.MerchantGatewayAccess, operatedRuntime operatedruntime.OperatedRuntimeAccess, durableExecution durableexecution.DurableExecutionAccess, settlement settlement.SettlementEngine, intervention intervention.InterventionEngine) SettlementManager {
 	return newSettlementManager(client, settlementState, revenueLedger, usage, merchantGateway, operatedRuntime, durableExecution, settlement, intervention)
 }

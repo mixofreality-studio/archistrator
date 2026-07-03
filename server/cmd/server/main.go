@@ -67,7 +67,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/revenueledger"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/settlementstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usagelog"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
 	workeraccess "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/worker"
 
 	githubinfra "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github"
@@ -248,7 +248,7 @@ func run(logger *slog.Logger) error {
 	defer tc.Close()
 	logger.Info("temporal client dialed", "hostPort", cfg.TemporalHostPort, "namespace", cfg.TemporalNamespace)
 
-	// Postgres pool — retained for the usageAccess ledger (usagelog). The Postgres
+	// Postgres pool — retained for the usageAccess ledger (usage). The Postgres
 	// projectStateAccess store was RETIRED: projectStateAccess is now git-only (the
 	// design managers + the construction Manager all share the git substrate).
 	pool, err := postgresinfra.NewPool(ctx, cfg.PostgresURL)
@@ -262,7 +262,7 @@ func run(logger *slog.Logger) error {
 	// on every deploy (R-PG-US convention). The operationsManager consumes it
 	// (reconcile-tick compute usage + final usage at withdraw); billingManager
 	// (UC5 period close) is the reader-to-come.
-	usageAccess, err := usagelog.NewPostgresUsageAccess(ctx, pool)
+	usageAccess, err := usage.NewPostgresUsageAccess(ctx, pool)
 	if err != nil {
 		return err
 	}

@@ -203,7 +203,7 @@ type computeUnitsSeam struct {
 // usageAccess mirrors usageAccess.md §2 — the append-only compute-usage ledger.
 // Writes are idempotent on event.RuntimeEventID (a duplicate is success, not an
 // error); reads are pure. UNEXPORTED seam; the folded adapter bridges the published
-// usagelog.UsageAccess to it (dropping the published []EntryRef return).
+// usage.UsageAccess to it (dropping the published []EntryRef return).
 type usageAccess interface {
 	// RecordComputeUsage appends observed compute-usage facts (per reconcile tick).
 	RecordComputeUsage(ctx context.Context, events []usageEventSeam) error

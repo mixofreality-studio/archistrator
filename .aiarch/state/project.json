@@ -19724,7 +19724,7 @@
     "usageAccess": {
       "component": "usageAccess",
       "layer": "ResourceAccess",
-      "goPackage": "internal/resourceaccess/usagelog",
+      "goPackage": "internal/resourceaccess/usage",
       "infra": [
         "Postgres"
       ],
