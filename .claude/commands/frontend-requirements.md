@@ -1,0 +1,16 @@
+# /frontend-requirements
+
+> The UX Requirements step of a frontend activity: capture which core use cases and persona journeys one UI surface must support — before any layout or component is proposed.
+
+**Arguments** — `$ARGUMENTS` is `<component_id> <activity_id>` (two space-separated tokens; `component_id` may be empty for non-component activities). Parse once; do not swap them. Work lands on the shared activity branch `activity/<activity_id>` and its single PR — you are contributing commits to a PR that already exists (or open it if this is the first phase). Do NOT open a second PR.
+
+**Agent + skills.** Work to the standard of the **`ui-designer`** agent (`.claude/agents/ui-designer.md`). Follow **[[the-method-core-use-cases]]** and **[[the-method-project-state]]** for all reading/updating of `.aiarch/state/project.json`.
+
+**Goal / intention.** Per ch. 4, a system's countless use cases reduce to a small set — rarely more than a handful — of core use cases that represent the essence of the business and change far more slowly than everything built around them; per ch. 7, identifying that core-use-case set is squarely the architect's up-front work, done before any component or interface is designed. Löwy's Method has no chapter devoted to UX requirements gathering as such — the book is architecture/backend-focused, and the one place it touches UI scoping at all is ch. 7's reminder that "activities such as UI development" need the same explicit, examined scope as any service, not a guess based on coding effort alone. This step grounds a UI surface's scope the same disciplined way core use cases ground the rest of the system: read the committed core use cases and the personas they name, and work out — before any screen, layout, or component choice is proposed — which of those core use cases and persona journeys this surface is obligated to support. "Done" means every captured requirement traces to a real core use case or persona, giving Detailed Design a target instead of an invitation to invent scope. This step must NOT propose screens, layouts, flows, or component choices — that is Detailed Design's job — and must NOT write UI code.
+
+## Steps
+
+1. **Read what you need** from `.aiarch/state/project.json` per [[the-method-project-state]]: the activity, the committed core use cases and the personas they name, and this surface's entry (its Client/SPA container, relationships in/out) in the committed system design.
+2. **Produce** the phase artifact: the UX requirements note for this surface — the core use cases and persona journeys it must support, and any non-functional constraints called out in the core use cases — recorded into the phase-artifacts store per [[the-method-project-state]] and committed onto branch `activity/<activity_id>`.
+3. **Verify** (only your own output; fast checks): every use case or persona journey named traces to a real entry in the committed core use cases — no invented scope; no screens, flows, layouts, or component choices are proposed; the note reads as scope capture, not as a design document.
+4. **Stop.** Do not mark phase status (the Manager owns that) and do not merge. Leave the PR open for the gate.

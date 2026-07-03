@@ -1,0 +1,16 @@
+# /frontend-construction
+
+> The Construction step of a frontend activity: build one UI surface exactly to its approved design and the contracts it calls, verify, and add your commits to the activity PR.
+
+**Arguments** — `$ARGUMENTS` is `<component_id> <activity_id>`. Parse once; do not swap. Commits land on the existing activity branch `activity/<activity_id>` and its single PR.
+
+**Agent + skills.** Work to the standard of the **`junior-developer`** agent (`.claude/agents/junior-developer.md`). Follow **[[the-method-layers]]** (layer + call-direction rules for the Clients this surface belongs to) and **[[the-method-project-state]]** for reading the approved design and called contracts from state.
+
+**Goal / intention.** Per ch. 14's hand-off doctrine: once a designer has produced — and review has approved — the detailed design for a piece of work, a junior developer builds against that design and nothing more; junior developers are "not yet capable of doing detailed design correctly," so their job is disciplined construction, done well, one piece at a time. The same chapter's scope-versus-effort model states plainly that "developers should never code more than one service at a time," and it explicitly places "the services detailed design or Clients user interface" together in the design tier that precedes this narrower, more effort-intensive coding tier — meaning UI construction inherits the identical one-thing-at-a-time discipline as service construction: build this one surface against its approved UI design, not several surfaces, and never the design itself. Any design refinement, however trivial, goes back to the designer who produced the UI design concept (the `ui-designer`, whose work is reviewed via [[the-method-review-routing]]) — a junior developer never widens or reinterprets an approved design silently. Once construction is finished, the junior proceeds to code review through that same reviewer chain, not a peer. "Done" means the approved UI design concept is satisfied and this surface's own fast checks pass — Löwy's tracking is binary phase exit, not "almost done."
+
+## Steps
+
+1. **Read** from `.aiarch/state/project.json` per [[the-method-project-state]]: this surface's approved UI design concept (`.phaseArtifacts.uiDesign[surface]`) and the frozen contracts of the Manager/Engine components its flows call. Implement exactly what the design and those contracts specify. If either has a gap, do NOT widen it — flag it back to the `ui-designer` or the contract's owner.
+2. **Implement** under `webApp/src/`, matching existing conventions for that surface (components, routing, API client usage). Stay inside this surface. Do NOT edit `*/generated/`. Commit onto `activity/<activity_id>`.
+3. **Verify YOUR code** (working directory `webApp`): `npm run typecheck`; `npm run lint` scoped to the files you touched. Only your surface's code — not `npm run build`, not `npm run check`, and not the `uitests` end-to-end suite (that belongs to system testing, not this phase).
+4. **Stop.** Do not mark phase status (the Manager owns it) and do not merge. Leave the PR for the gate.
