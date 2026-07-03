@@ -363,8 +363,6 @@ func (s *constructState) view() (ConstructionSessionView, error) {
 }
 
 func (wf *workflows) ConstructActivityWorkflow(ctx workflow.Context, in constructActivityInput) error {
-	logger := workflow.GetLogger(ctx)
-
 	state := &constructState{
 		projectID:       in.ProjectID,
 		activityID:      in.ActivityID,
@@ -378,38 +376,11 @@ func (wf *workflows) ConstructActivityWorkflow(ctx workflow.Context, in construc
 	// Operator-override signal channel (constructionManager.md §6.3 override branch).
 	overrideCh := workflow.GetSignalChannel(ctx, signalOperatorOverride)
 
-	// --- Per-execution snapshot (B5): read the project ONCE at workflow start (an
-	// Activity, recorded in history → replay-safe) and capture the committed
-	// ReviewPolicy BY VALUE. This is the gate's ONLY policy source; it is NEVER re-read
-	// mid-loop (that would be non-deterministic). The same snapshot seeds the LIVE
-	// completedPhases skip-guard (B2 resumability) from the activity's PhaseCompletion
-	// slice, so a workflow that resumes after an approval does not re-gate a phase whose
-	// completion already landed in head-state.
-	//
-	// Temporal versioning guard (replay safety): this readProject call was ADDED by the
-	// construction-review-policy-snapshot feature AFTER the workflow was first shipped.
-	// Workflows already in flight at deploy time have no history event for this call;
-	// replaying them against new code would produce a non-determinism error. GetVersion
-	// guards the new block so pre-feature in-flight executions (DefaultVersion) skip it
-	// entirely — reviewPolicy stays zero (empty → inert → no gate) and completedPhases
-	// stays initialized-empty (safe for all downstream consumers). The gate takes effect
-	// only for workflows started after the feature deployed (v >= 1).
-	var reviewPolicy projectstate.ReviewPolicy
-	v := workflow.GetVersion(ctx, "construction-review-policy-snapshot", workflow.DefaultVersion, 1)
-	if v >= 1 {
-		snap, srErr := wf.readProject(ctx, in.ProjectID)
-		if srErr != nil && !isReadNotFound(srErr) {
-			return srErr
-		}
-		reviewPolicy = snap.ReviewPolicy
-		if acs, ok := snap.ActivityConstruction[string(in.ActivityID)]; ok {
-			for _, pc := range acs.Phases {
-				if pc.Completed {
-					state.completedPhases[pc.Phase] = true
-				}
-			}
-		}
-		state.reviewContracts = snapshotContractKeys(snap)
+	// Per-execution start snapshot (B5): capture the committed ReviewPolicy, seed the
+	// completedPhases skip-guard, and capture the contract keys — replay-guarded.
+	reviewPolicy, err := wf.loadReviewSnapshot(ctx, in, state)
+	if err != nil {
+		return err
 	}
 
 	// Carry expectedVersion forward (read-your-writes; §6.5).
@@ -436,164 +407,310 @@ func (wf *workflows) ConstructActivityWorkflow(ctx workflow.Context, in construc
 	// + PR is born once per activity, not per retry). Dormant when the slice is unwired.
 	var gf gitForward
 
+	// Supervision loop: each attempt runs the UC3 spine once (constructionManager.md
+	// §6.3). runAttempt reports back whether the activity terminally exited (attemptDone,
+	// the workflow returns) or the loop should try again (attemptRetry).
 	for attempt := 0; ; attempt++ {
-		if attempt >= maxVarianceAttempts {
-			// Terminal: the supervision loop exhausted its variance/retry budget. Record
-			// the FAILURE in head-state (so the activity is no longer stuck Running) before
-			// returning the terminal error.
-			if v, e := wf.recordActivityFailed(ctx, in, headVersion, projectstate.VarianceExhausted,
-				"construction supervision exceeded max attempts", startedCred); e != nil {
-				return e
-			} else {
-				headVersion = v
-			}
-			state.stage = StageExited
-			logger.Info("construction activity failed — variance budget exhausted", "activityId", in.ActivityID)
+		ctrl, err := wf.runAttempt(ctx, in, attempt, reviewPolicy, state, &gf, &headVersion, overrideCh, gitOn, startedCred)
+		if err != nil {
+			return err
+		}
+		if ctrl == attemptDone {
 			return nil
 		}
+	}
+}
 
-		// --- Step 1: cast worker class (DECIDE — direct in-workflow Engine call) --
-		class, herr := wf.HandOff.PickWorkerClass(in.Activity, wf.HandOffPolicy)
-		if herr != nil {
-			return fwmanager.MapError(herr)
+// ---------------------------------------------------------------------------
+// ConstructActivityWorkflow attempt helpers (mechanical decomposition of the UC3
+// spine; NO change to the ORDER of workflow commands). Each helper runs its
+// activities/timers/signals in the same sequence the inline loop did.
+// ---------------------------------------------------------------------------
+
+// attemptControl is the loop-control verb runAttempt hands back to the supervision loop.
+type attemptControl int
+
+const (
+	// attemptRetry: re-enter the supervision loop for another attempt.
+	attemptRetry attemptControl = iota
+	// attemptDone: the activity reached a terminal exit; return from the workflow.
+	attemptDone
+)
+
+// runAttempt executes ONE supervision attempt of the per-activity UC3 spine: guard the
+// variance budget, cast the worker class, handle the architectOnly / dispatch paths, walk
+// the phase profile, and (on a clean pass) finalize the activity. It returns attemptDone
+// when the activity has terminally exited or attemptRetry when the supervision loop should
+// try again. The ORDER of workflow commands is identical to the former inline loop body.
+func (wf *workflows) runAttempt(
+	ctx workflow.Context,
+	in constructActivityInput,
+	attempt int,
+	reviewPolicy projectstate.ReviewPolicy,
+	state *constructState,
+	gf *gitForward,
+	headVersion *projectstate.Version,
+	overrideCh workflow.ReceiveChannel,
+	gitOn bool,
+	startedCred railCredEnvelope,
+) (attemptControl, error) {
+	if attempt >= maxVarianceAttempts {
+		// Terminal: the supervision loop exhausted its variance/retry budget. Record the
+		// FAILURE in head-state (so the activity is no longer stuck Running) before exit.
+		return attemptDone, wf.failVarianceExhausted(ctx, in, headVersion, state, startedCred)
+	}
+
+	// --- Step 1: cast worker class (DECIDE — direct in-workflow Engine call) --
+	class, herr := wf.HandOff.PickWorkerClass(in.Activity, wf.HandOffPolicy)
+	if herr != nil {
+		return attemptDone, fwmanager.MapError(herr)
+	}
+
+	// architectOnly ⇒ skip dispatch + pipeline; await the architect via override
+	// (handOffEngine OQ-2). The architect's steer arrives on operatorOverride, BOUNDED
+	// by EscalationWaitTimeout: if no architect override arrives within the window the
+	// activity terminally FAILS (EscalationTimedOut) instead of hanging forever.
+	if class == architectOnly {
+		done, err := wf.runArchitectOnly(ctx, in, overrideCh, headVersion, state, gitOn, startedCred)
+		if err != nil {
+			return attemptDone, err
 		}
+		if done {
+			return attemptDone, nil
+		}
+		return attemptRetry, nil
+	}
 
-		// architectOnly ⇒ skip dispatch + pipeline; await the architect via override
-		// (handOffEngine OQ-2). The architect's steer arrives on operatorOverride, BOUNDED
-		// by EscalationWaitTimeout: if no architect override arrives within the window the
-		// activity terminally FAILS (EscalationTimedOut) instead of hanging forever.
-		if class == architectOnly {
-			state.stage = StageAwaitingTakeover
-			sig, got := wf.awaitOverrideBounded(ctx, overrideCh)
-			if !got {
-				v, e := wf.recordActivityFailed(ctx, in, headVersion, projectstate.EscalationTimedOut,
-					"architect override timed out: no operator steer within the escalation-wait window", startedCred)
-				if e != nil {
-					return e
-				}
-				headVersion = v
-				state.stage = StageExited
-				return nil
+	// --- Step 2a: open the per-activity branch + PR and mirror it (git-forward,
+	// C-MCN-GIT). Lazy + once: the row is born on the first dispatch and reused on
+	// retries. Dormant (no-op) when the git slice is unwired. ----------------------
+	if !gf.enabled {
+		opened, oerr := wf.openActivityBranchAndPR(ctx, in, startedCred, headVersion)
+		if oerr != nil {
+			return attemptDone, oerr
+		}
+		*gf = opened
+	}
+
+	// --- Steps 2-5: walk the activity's profile phases, dispatching ONE GH-Actions
+	// job per phase (the phase sequence is determined by the activity's resolved
+	// profile — e.g. service: Requirements → Detailed Design → Test Plan →
+	// Construction → Integration; testing-plan: Requirements → Test Plan →
+	// Construction). A phase whose pipeline fails routes to intervention (App-A: a
+	// failing review repeats the preceding task), then the activity retries from the
+	// first phase. --------------------------------------------------------------
+	if len(in.Activity.Phases) == 0 {
+		in.Activity.Phases = projectstate.ProfileFor(projectstate.ActivityTypeService, 0).PhaseIDs()
+	}
+	phaseFailed, done, err := wf.walkPhases(ctx, in, attempt, reviewPolicy, state, gf, headVersion, overrideCh, gitOn, startedCred)
+	if err != nil {
+		return attemptDone, err
+	}
+	if done {
+		return attemptDone, nil
+	}
+	if phaseFailed {
+		// retry the activity; the completedPhases skip-guard resumes from the first
+		// incomplete phase.
+		return attemptRetry, nil
+	}
+
+	// --- Steps 5a-8a: finalize (arch +1 relay, change reviewed, gated merge, binary
+	// exit, per-activity COMPLETED). ---------------------------------------------
+	if err := wf.finalizeActivity(ctx, in, gf, headVersion, state, gitOn, startedCred); err != nil {
+		return attemptDone, err
+	}
+	return attemptDone, nil
+}
+
+// loadReviewSnapshot performs the per-execution start snapshot (B5): it reads the project
+// ONCE (an Activity, recorded in history → replay-safe) and captures the committed
+// ReviewPolicy BY VALUE (the gate's ONLY policy source; NEVER re-read mid-loop), seeds the
+// LIVE completedPhases skip-guard (B2 resumability) from the activity's PhaseCompletion
+// slice, and captures the contract keys for the gate's reviewer set.
+//
+// Temporal versioning guard (replay safety): this readProject call was ADDED by the
+// construction-review-policy-snapshot feature AFTER the workflow was first shipped.
+// Workflows already in flight at deploy time have no history event for this call; replaying
+// them against new code would produce a non-determinism error. GetVersion guards the new
+// block so pre-feature in-flight executions (DefaultVersion) skip it entirely — reviewPolicy
+// stays zero (empty → inert → no gate) and completedPhases stays initialized-empty. The gate
+// takes effect only for workflows started after the feature deployed (v >= 1).
+func (wf *workflows) loadReviewSnapshot(
+	ctx workflow.Context,
+	in constructActivityInput,
+	state *constructState,
+) (projectstate.ReviewPolicy, error) {
+	var reviewPolicy projectstate.ReviewPolicy
+	v := workflow.GetVersion(ctx, "construction-review-policy-snapshot", workflow.DefaultVersion, 1)
+	if v < 1 {
+		return reviewPolicy, nil
+	}
+	snap, srErr := wf.readProject(ctx, in.ProjectID)
+	if srErr != nil && !isReadNotFound(srErr) {
+		return reviewPolicy, srErr
+	}
+	reviewPolicy = snap.ReviewPolicy
+	if acs, ok := snap.ActivityConstruction[string(in.ActivityID)]; ok {
+		for _, pc := range acs.Phases {
+			if pc.Completed {
+				state.completedPhases[pc.Phase] = true
 			}
-			done, exErr := wf.executeOverride(ctx, in, sig.Override, &headVersion, state, gitOn, startedCred)
-			if exErr != nil {
-				return exErr
-			}
-			if done {
-				return nil
-			}
+		}
+	}
+	state.reviewContracts = snapshotContractKeys(snap)
+	return reviewPolicy, nil
+}
+
+// failVarianceExhausted records the terminal FAILURE in head-state when the supervision
+// loop exhausts its variance/retry budget (so the activity is no longer stuck Running).
+func (wf *workflows) failVarianceExhausted(
+	ctx workflow.Context,
+	in constructActivityInput,
+	headVersion *projectstate.Version,
+	state *constructState,
+	startedCred railCredEnvelope,
+) error {
+	v, e := wf.recordActivityFailed(ctx, in, *headVersion, projectstate.VarianceExhausted,
+		"construction supervision exceeded max attempts", startedCred)
+	if e != nil {
+		return e
+	}
+	*headVersion = v
+	state.stage = StageExited
+	workflow.GetLogger(ctx).Info("construction activity failed — variance budget exhausted", "activityId", in.ActivityID)
+	return nil
+}
+
+// runArchitectOnly handles the architectOnly hand-off: skip dispatch + pipeline and await
+// the architect's steer on operatorOverride, BOUNDED by EscalationWaitTimeout. Returns
+// done=true when the activity terminally exits (an escalation timeout, or an override that
+// exits — e.g. Skip), false when the override loops back into supervision.
+func (wf *workflows) runArchitectOnly(
+	ctx workflow.Context,
+	in constructActivityInput,
+	overrideCh workflow.ReceiveChannel,
+	headVersion *projectstate.Version,
+	state *constructState,
+	gitOn bool,
+	startedCred railCredEnvelope,
+) (bool, error) {
+	state.stage = StageAwaitingTakeover
+	sig, got := wf.awaitOverrideBounded(ctx, overrideCh)
+	if !got {
+		v, e := wf.recordActivityFailed(ctx, in, *headVersion, projectstate.EscalationTimedOut,
+			"architect override timed out: no operator steer within the escalation-wait window", startedCred)
+		if e != nil {
+			return false, e
+		}
+		*headVersion = v
+		state.stage = StageExited
+		return true, nil
+	}
+	return wf.executeOverride(ctx, in, sig.Override, headVersion, state, gitOn, startedCred)
+}
+
+// walkPhases dispatches ONE GH-Actions job per profile phase, riding the CI poll cadence
+// (observeCIAndRecord). The LIVE completedPhases skip-guard (B2) keeps the outer variance-
+// retry (which re-walks from index 0) from re-dispatching or re-gating an already-completed
+// phase. It returns (phaseFailed, done, err): done=true means a phase gate terminally
+// recorded the activity (the workflow returns); phaseFailed=true means the caller should
+// retry the activity.
+func (wf *workflows) walkPhases(
+	ctx workflow.Context,
+	in constructActivityInput,
+	attempt int,
+	reviewPolicy projectstate.ReviewPolicy,
+	state *constructState,
+	gf *gitForward,
+	headVersion *projectstate.Version,
+	overrideCh workflow.ReceiveChannel,
+	gitOn bool,
+	startedCred railCredEnvelope,
+) (bool, bool, error) {
+	for _, phase := range in.Activity.Phases {
+		if state.completedPhases[phase] {
 			continue
 		}
-
-		// --- Step 2a: open the per-activity branch + PR and mirror it (git-forward,
-		// C-MCN-GIT). Lazy + once: the row is born on the first dispatch and reused on
-		// retries. Dormant (no-op) when the git slice is unwired. ----------------------
-		if gf.enabled {
-			// already opened on a prior loop iteration — reuse the handles.
-		} else if opened, oerr := wf.openActivityBranchAndPR(ctx, in, startedCred, &headVersion); oerr != nil {
-			return oerr
-		} else {
-			gf = opened
+		state.stage = StagePipelineRunning
+		obs, perr := wf.runPipeline(ctx, in, phase, state, gf, headVersion)
+		if perr != nil {
+			return false, false, perr
 		}
-
-		// --- Steps 2-5: walk the activity's profile phases, dispatching ONE GH-Actions
-		// job per phase (the phase sequence is determined by the activity's resolved
-		// profile — e.g. service: Requirements → Detailed Design → Test Plan →
-		// Construction → Integration; testing-plan: Requirements → Test Plan →
-		// Construction). Each phase's pipeline observe rides the CI poll cadence
-		// (observeCIAndRecord). A phase whose pipeline fails routes to intervention
-		// (App-A: a failing review repeats the preceding task), then the activity
-		// retries from the first phase. This replaces the legacy single-shot
-		// dispatchWork→runPipeline→storeOutput→routeReview (the server-LLM path;
-		// dispatchWork/storeOutput/routeReview now dead — Plan 3 worker-RA deletion
-		// is the follow-up). --------------------------------------------------------
-		if len(in.Activity.Phases) == 0 {
-			in.Activity.Phases = projectstate.ProfileFor(projectstate.ActivityTypeService, 0).PhaseIDs()
-		}
-		phaseFailed := false
-		for _, phase := range in.Activity.Phases {
-			// LIVE skip-guard (B2): an already-completed phase (seeded at start or marked
-			// on a prior loop iteration) is never re-dispatched or re-gated. This is what
-			// keeps the outer variance-retry (which re-walks from index 0) from re-gating
-			// an already-approved phase.
-			if state.completedPhases[phase] {
-				continue
+		if obs.Phase == PipelineFailed || obs.Phase == PipelineCancelled {
+			failReason := deriveFailureReason(obs.Phase, obs.Diagnostic)
+			done, vErr := wf.handleVariance(ctx, in, variancePipelineFailed, obs.Diagnostic, failReason, attempt, headVersion, state, overrideCh, gitOn, startedCred)
+			if vErr != nil {
+				return false, false, vErr
 			}
-			state.stage = StagePipelineRunning
-			obs, perr := wf.runPipeline(ctx, in, phase, state, &gf, &headVersion)
-			if perr != nil {
-				return perr
+			if done {
+				return false, true, nil
 			}
-			if obs.Phase == PipelineFailed || obs.Phase == PipelineCancelled {
-				failReason := deriveFailureReason(obs.Phase, obs.Diagnostic)
-				done, vErr := wf.handleVariance(ctx, in, variancePipelineFailed, obs.Diagnostic, failReason, attempt, &headVersion, state, overrideCh, gitOn, startedCred)
-				if vErr != nil {
-					return vErr
-				}
-				if done {
-					return nil
-				}
-				phaseFailed = true
-				break
-			}
-			// Conditional per-phase approval gate (Task 6): records the phase start and —
-			// iff the policy requires a human for this (activityType, phase) — suspends on
-			// the phase-multiplexed decision signal. Approve/no-gate mark completion; a
-			// terminal gate exit (done) has already recorded the activity.
-			if done, gErr := wf.runPhaseGate(ctx, in, phase, reviewPolicy, state, &gf, &headVersion, gitOn, startedCred); gErr != nil {
-				return gErr
-			} else if done {
-				return nil
-			}
+			return true, false, nil
 		}
-		if phaseFailed {
-			continue // retry the activity; the completedPhases skip-guard resumes from the first incomplete phase
+		// Conditional per-phase approval gate (Task 6): records the phase start and — iff
+		// the policy requires a human for this (activityType, phase) — suspends on the
+		// phase-multiplexed decision signal. Approve/no-gate mark completion; a terminal
+		// gate exit (done) has already recorded the activity.
+		if done, gErr := wf.runPhaseGate(ctx, in, phase, reviewPolicy, state, gf, headVersion, gitOn, startedCred); gErr != nil {
+			return false, false, gErr
+		} else if done {
+			return false, true, nil
 		}
-
-		// --- Step 5a: relay the architecture +1 and record it (git-forward) ------
-		// The activity's technical review passed; relay the architect's in-app
-		// architecture sign-off onto the PR and record the audit-worthy ArchApproved
-		// fact. Dormant when the git slice is unwired.
-		if err := wf.relayArchApprovalAndRecord(ctx, in, &gf, &headVersion); err != nil {
-			return err
-		}
-
-		// --- Step 6: record the change reviewed (head-state) --------------------
-		if v, e := wf.recordChangeReviewed(ctx, in, headVersion, startedCred); e != nil {
-			return e
-		} else {
-			headVersion = v
-		}
-
-		// --- Step 6a: perform the gated merge and record it (git-forward) --------
-		// interventionEngine is the merge AUTHORITY (App-only-merge): the change is
-		// reviewed + arch-approved + CI-clean, so the gate is cleared and the Manager
-		// PERFORMS the merge to main, then records the terminal git fact. Dormant when
-		// the git slice is unwired.
-		if err := wf.mergeAndRecord(ctx, in, &gf, &headVersion); err != nil {
-			return err
-		}
-
-		// --- Step 8: record the binary activity exit (head-state) ---------------
-		if v, e := wf.recordActivityExited(ctx, in, headVersion, projectstate.ActivityOutcomeCompleted, startedCred); e != nil {
-			return e
-		} else {
-			headVersion = v
-		}
-
-		// --- Step 8a: record the per-activity construction COMPLETED (Task 3) ---
-		// Flip the activity to Done so the pump's eligibility selection unblocks its
-		// dependents on the next tick. Dormant (no-op) when the git slice is unwired.
-		if gitOn {
-			if err := wf.recordActivityCompleted(ctx, in, startedCred, &headVersion); err != nil {
-				return err
-			}
-		}
-
-		state.stage = StageExited
-		logger.Info("construction activity exited", "activityId", in.ActivityID)
-		return nil
 	}
+	return false, false, nil
+}
+
+// finalizeActivity runs the clean-pass tail of an attempt (constructionManager.md §6.3
+// steps 5a-8a): relay the architecture +1, record the change reviewed, perform the gated
+// merge (interventionEngine is the App-only-merge authority), record the binary activity
+// exit, and record the per-activity construction COMPLETED. The git-forward steps are
+// no-ops when the slice is unwired.
+func (wf *workflows) finalizeActivity(
+	ctx workflow.Context,
+	in constructActivityInput,
+	gf *gitForward,
+	headVersion *projectstate.Version,
+	state *constructState,
+	gitOn bool,
+	startedCred railCredEnvelope,
+) error {
+	// --- Step 5a: relay the architecture +1 and record it (git-forward). ---
+	if err := wf.relayArchApprovalAndRecord(ctx, in, gf, headVersion); err != nil {
+		return err
+	}
+
+	// --- Step 6: record the change reviewed (head-state). ---
+	v, e := wf.recordChangeReviewed(ctx, in, *headVersion, startedCred)
+	if e != nil {
+		return e
+	}
+	*headVersion = v
+
+	// --- Step 6a: perform the gated merge and record it (git-forward). ---
+	if err := wf.mergeAndRecord(ctx, in, gf, headVersion); err != nil {
+		return err
+	}
+
+	// --- Step 8: record the binary activity exit (head-state). ---
+	v2, e2 := wf.recordActivityExited(ctx, in, *headVersion, projectstate.ActivityOutcomeCompleted, startedCred)
+	if e2 != nil {
+		return e2
+	}
+	*headVersion = v2
+
+	// --- Step 8a: record the per-activity construction COMPLETED (Task 3). Flip the
+	// activity to Done so the pump's eligibility selection unblocks its dependents on the
+	// next tick. Dormant (no-op) when the git slice is unwired. ---
+	if gitOn {
+		if err := wf.recordActivityCompleted(ctx, in, startedCred, headVersion); err != nil {
+			return err
+		}
+	}
+
+	state.stage = StageExited
+	workflow.GetLogger(ctx).Info("construction activity exited", "activityId", in.ActivityID)
+	return nil
 }
 
 // runPipeline submits the pipeline then polls observe between durable startTimer
