@@ -72,3 +72,20 @@ func TestLoadConfig_RealConstruction_RequiresArtifactRepoURL(t *testing.T) {
 		t.Fatalf("expected error to name ARCHISTRATOR_ARTIFACT_REPO_URL, got: %v", err)
 	}
 }
+
+// TestConstructionWorkflowFileDefault verifies the default construction workflow
+// file is aiarch-construct.yml when the env var is unset.
+func TestConstructionWorkflowFileDefault(t *testing.T) {
+	setEnv(t, map[string]string{
+		"ARCHISTRATOR_POSTGRES_URL":               "postgres://x",
+		"ARCHISTRATOR_CONSTRUCTION_DRYRUN":        "true",
+		"ARCHISTRATOR_CONSTRUCTION_WORKFLOW_FILE": "",
+	})
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig failed: %v", err)
+	}
+	if cfg.ConstructionWorkflowFile != "aiarch-construct.yml" {
+		t.Errorf("default ConstructionWorkflowFile = %q, want aiarch-construct.yml", cfg.ConstructionWorkflowFile)
+	}
+}
