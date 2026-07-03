@@ -77,10 +77,10 @@ const GoVersion = "1.25.0"
 // FrameworkGoVersion is the PINNED framework-go module version the seated go.mod
 // requires. The user repo's `go test` must RESOLVE github.com/mixofreality-studio/archistrator-platform/framework-go
 // at this version (published/tagged, or served via GOPROXY) — see the founder
-// checklist. framework-go is currently consumed inside the monorepo via a local
-// `replace` (v0.0.0); a published tag must back this pin before the seated gate works
-// in the user's CI. Updated here when framework-go is tagged.
-const FrameworkGoVersion = "v0.1.0"
+// checklist. framework-go/v0.4.0 is published (C4-aware deployment model +
+// methodcheck conformance), so the seated gate resolves it from GOPROXY without a
+// local replace. Updated here when framework-go is tagged.
+const FrameworkGoVersion = "v0.4.0"
 
 // NOTE (2026-06-15 correction): the embedded DESIGN workflow reads
 // ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }} to authenticate claude-code-action, but that

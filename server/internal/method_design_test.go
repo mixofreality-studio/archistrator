@@ -10,49 +10,60 @@ import (
 	"github.com/mixofreality-studio/archistrator-platform/framework-go/methodcheck"
 )
 
-// TestMethodDesignArtifacts runs the platform methodcheck DESIGN-rule gate over
-// archistrator's OWN committed `.aiarch/state/project.json` — i.e. archistrator
-// eats its own dog food, checking its Method state against every applicable
-// design verb (including the deployment DEP-* rules) exactly as a downstream
-// consumer repo would via the generated aiarch_method_test.go.tmpl harness.
+// TestMethodDesignArtifacts runs the platform methodcheck gate over archistrator's
+// OWN committed `.aiarch/state/project.json` — archistrator eats its own dog food
+// exactly as a downstream consumer repo would via the generated
+// aiarch_method_test.go.tmpl harness. methodcheck.Check is the all-in-one Method
+// validator: in this configuration it runs the Method-invariant DESIGN rules over
+// the committed JSON (including the C4 deployment DEP-* rules), which are GREEN
+// against the published framework-go v0.4.0 that decodes the C4 container model.
 //
-// Build-tagged OUT of the default `go test ./...` / `make test` / `make
-// test-short` run: CI builds this module GOWORK=off against the PUBLISHED
-// framework-go release. Tasks 1-2 reshaped the LOCAL (workspace) framework-go
-// deployment structs/rules to a C4 container model, but the current
-// project.json still carries the OLD deployment shape, so decoding it against
-// the NEW rules is expected to fail (either a decode-shape error or DEP-*
-// findings). Running this only in workspace mode (no GOWORK=off) lets us see
-// that failure now, ahead of Task 8 rewriting project.json's deployment data to
-// match the new shape and turning this gate green. A later release flips
-// `-tags methoddesign` into CI once the framework-go release ships.
+// The layer rules (TestMethodLayering) and the encapsulation gate
+// (TestGeneratedOnlyPublic) already run in the DEFAULT `go test ./...` suite via
+// arch_test.go, so CI already covers them.
+//
+// SCOPE — the design↔code ALIGNMENT pass (ALIGN-*) is DELIBERATELY NOT wired here
+// yet (Arch is left zero, so methodcheck.Check skips the layer/alignment/encapsulation
+// phases). Turning it on against the current committed System (slot 5, 38 components)
+// surfaces 53 alignment Errors that are NOT per-component bugs but a systemic
+// mismatch requiring an architecture/framework decision, in three buckets:
+//
+//  1. STEREOTYPE-SUFFIX NAMING (~19): the design names components with the Method
+//     stereotype suffix (WebClient, ReviewEngine, ProjectStateAccess) while the
+//     code names package leaves bare (client/web, engine/review,
+//     resourceaccess/projectstate). methodcheck's default normalizer (lowercase +
+//     strip non-alnum) does NOT strip the suffix, so "projectstateaccess" !=
+//     "projectstate". The framework's own convention (testdata/alignapp) names
+//     leaves WITH the suffix (stateaccess, validatingengine).
+//  2. NAME DIVERGENCE (~a dozen): design vs code disagree beyond the suffix —
+//     BillingManager↔manager/settlement, ConstructionEstimationEngine↔engine/
+//     estimation, BillingGatewayAccess↔resourceaccess/merchantgateway,
+//     UsageAccess↔resourceaccess/usagelog, plus extra code packages the design
+//     does not declare (engine/settlement, resourceaccess/{artifact,revenueledger,
+//     settlementstate,worker}).
+//  3. NOT-YET-BUILT (5): MCPClient, SchedulerClient, and the three Utilities
+//     (Security/Logging/Diagnostics — provided by framework-go/utilities, not the
+//     app's internal/) have no internal package. The align rule has NO documented
+//     "planned/not-yet-built" mechanism (it excludes only Kind==Resource), so each
+//     is reported ALIGN-MISSING-PKG.
+//
+// Flipping the full gate on is a ONE-LINE change here (add Arch: appArchSpec() and
+// EncapsulationAllowlist: encapAllowlist(), both already defined in arch_test.go)
+// once the naming reconciliation + a not-yet-built mechanism are decided. Until
+// then this gate guards the design rules and stays green.
+//
+// Build-tagged OUT of the default run: CI can invoke it explicitly via
+// `go test -tags methoddesign ./internal/ -run TestMethodDesignArtifacts` against
+// the PUBLISHED framework-go v0.4.0.
 func TestMethodDesignArtifacts(t *testing.T) {
 	root := findRepoRoot(t)
-	path := filepath.Join(root, ".aiarch", "state", "project.json")
-
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("reading %s: %v", path, err)
-	}
-
-	findings, err := methodcheck.ValidateProjectJSON(raw)
-	if err != nil {
-		t.Fatalf("ValidateProjectJSON(%s): coherence fault: %v", path, err)
-	}
-
-	for _, f := range findings {
-		loc := ""
-		if f.Location != nil {
-			loc = " [" + f.Location.Section + "]"
-		}
-		msg := string(f.RuleID) + ": " + f.Message + loc
-		switch f.Severity {
-		case methodcheck.SeverityError:
-			t.Errorf("%s", msg)
-		default: // SeverityWarning, SeverityInfo
-			t.Logf("%s", msg)
-		}
-	}
+	methodcheck.Check(t, methodcheck.ProjectSpec{
+		RepoRoot: root,
+		// Arch intentionally omitted — see SCOPE above. Adding
+		//   Arch:                   appArchSpec(),
+		//   EncapsulationAllowlist: encapAllowlist(),
+		// turns on the full layer + encapsulation + alignment gate.
+	})
 }
 
 // findRepoRoot ascends from the current working directory until it finds a

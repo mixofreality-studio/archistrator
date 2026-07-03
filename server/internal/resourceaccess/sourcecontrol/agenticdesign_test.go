@@ -108,15 +108,15 @@ func TestIdempotencyAnchorMatchesDispatchConstants(t *testing.T) {
 	}
 	// The load-bearing input name MUST equal the satellite constant the
 	// constructionPipelineAccess RA fills, or dispatch/observe/cancel break.
-	if _, ok := doc.On.WorkflowDispatch.Inputs[fwgithub.DispatchInputKeyIdempotencyToken]; !ok {
-		t.Errorf("workflow must declare the %q input (DispatchInputKeyIdempotencyToken)",
-			fwgithub.DispatchInputKeyIdempotencyToken)
+	if _, ok := doc.On.WorkflowDispatch.Inputs[fwgithub.DispatchInputKeyIdempotency]; !ok {
+		t.Errorf("workflow must declare the %q input (DispatchInputKeyIdempotency)",
+			fwgithub.DispatchInputKeyIdempotency)
 	}
 	// run-name MUST carry the RunNamePrefix so ListRunsByName can resolve runs.
 	if !strings.HasPrefix(doc.RunName, fwgithub.RunNamePrefix) {
 		t.Errorf("run-name %q must start with RunNamePrefix %q", doc.RunName, fwgithub.RunNamePrefix)
 	}
-	if !strings.Contains(doc.RunName, "${{ inputs."+fwgithub.DispatchInputKeyIdempotencyToken+" }}") {
+	if !strings.Contains(doc.RunName, "${{ inputs."+fwgithub.DispatchInputKeyIdempotency+" }}") {
 		t.Errorf("run-name %q must stamp the idempotency_token input", doc.RunName)
 	}
 }

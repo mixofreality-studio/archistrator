@@ -1,15 +1,10 @@
 package internal_test
 
 import (
-	"go/ast"
-	"go/types"
-	"os"
-	"sort"
 	"strings"
 	"testing"
 
 	"github.com/mixofreality-studio/archistrator-platform/framework-go/arch"
-	"golang.org/x/tools/go/packages"
 )
 
 // modulePrefix is the import-path prefix for this module's internal packages.
@@ -48,6 +43,15 @@ const modulePrefix = "github.com/mixofreality-studio/archistrator/server/interna
 // the RA that fronts them (projectstate); downstream Engines and the Manager
 // import the owning RA's package as a normal downward edge.
 func TestMethodLayering(t *testing.T) {
+	arch.Check(t, appArchSpec())
+}
+
+// appArchSpec is the app's Method layer model — the SINGLE source of truth shared by
+// the standalone layer/encapsulation tests here AND the full methodcheck.Check gate
+// in method_design_test.go (so the app validates its architecture ONE way, not two
+// divergent ways). It is arch.MethodSpec plus the two app-specific relaxations: the
+// durable-execution Temporal exemption and the operator-curated dependency allowlist.
+func appArchSpec() arch.Spec {
 	spec := arch.MethodSpec(
 		"..", // module root relative to internal/
 		modulePrefix,
@@ -98,355 +102,32 @@ func TestMethodLayering(t *testing.T) {
 		"go.temporal.io/",                        // sanctioned durable-execution substrate
 		"github.com/modelcontextprotocol/go-sdk", // sanctioned MCP substrate for the generated mcpClient tool surface (internal/client/mcp/*, framework-go-mcp-generator output)
 	}
-	arch.Check(t, spec)
+	return spec
 }
 
-// ---------------------------------------------------------------------------
-// TestGeneratedOnlyPublic — the ENCAPSULATION GATE.
-// ---------------------------------------------------------------------------
-//
-// Founder invariant: the ONLY exported (public) symbols a component may carry
-// are its GENERATED CONTRACT SURFACE plus a small, DOCUMENTED allowlist of
-// legitimate exceptions. No other public code may exist in the engine,
-// resourceaccess, and manager layers. This is the executable form of "tests/rules
-// that no other public code can exist beyond the generated contract."
-//
-// For each package under internal/{engine,resourceaccess,manager}/* the test
-// computes two sets and fails on the difference:
-//
-//	GENERATED SURFACE =
-//	  (a) every exported top-level identifier declared in the package's *.gen.go
-//	      files (contract.gen.go: the Manager/Engine/Access interface, the
-//	      generated impl struct, the constructor, and the contract value types),
-//	      PLUS
-//	  (b) the TRANSITIVE CLOSURE of in-package exported TYPES structurally
-//	      reachable from (a) — i.e. a hand-written type that a generated
-//	      operation traffics in (a field of a generated struct, a param/result
-//	      of a generated interface method or constructor) IS part of the
-//	      contract surface even though it is hand-declared. This is what makes
-//	      the rule honest for components whose schema generates only the port
-//	      (e.g. projectstate, whose ProjectStateAccess returns the hand-owned
-//	      Project aggregate), without a blanket skip.
-//	  A const/var whose declared TYPE is in the surface is itself surface (enum
-//	  members of a contract enum). A method is surface when it implements a
-//	  generated interface method OR its receiver type is in the surface (a
-//	  contract type's own behaviour, e.g. MarshalJSON).
-//
-//	ACTUAL SURFACE = every exported top-level identifier (and exported method on
-//	  an exported type) across the package's non-test, non-gen .go files.
-//
-// FAIL when an actual-exported symbol is neither generated surface NOR on the
-// allowlist below. The allowlist is data (per-package symbol sets) grouped by
-// the only categories that genuinely cannot be generated; see allowlist comments.
-// Prefer UNEXPORTING over allowlisting: the manager Temporal worker plumbing was
-// unexported wholesale (only RegisterWorker/RegisterSchedules/TaskQueue cross the
-// package boundary), the Deps structs were unexported, and the engines carry zero
-// non-generated public surface.
+// TestGeneratedOnlyPublic — the ENCAPSULATION GATE — delegates to the framework
+// checker arch.CheckGeneratedSurface, which was PORTED VERBATIM from the app's own
+// former hand-rolled implementation. Delegating means the app and every downstream
+// consumer run ONE encapsulation gate, not two divergent copies (fix-right per the
+// v0.4.0 platform release). The founder invariant is unchanged: the only exported
+// symbols a generated-contract package (one carrying a *.gen.go file) may carry are
+// its generated contract surface, the transitive closure of types it traffics in,
+// and the documented per-package allowlist below.
 func TestGeneratedOnlyPublic(t *testing.T) {
-	const modPrefix = "github.com/mixofreality-studio/archistrator/server/"
-	cfg := &packages.Config{
-		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
-			packages.NeedSyntax | packages.NeedTypes | packages.NeedTypesInfo |
-			packages.NeedDeps | packages.NeedImports,
-		Dir:   "..", // module root relative to internal/
-		Tests: false,
-		Env:   append(envOff(), "GOWORK=off"),
-	}
-	pkgs, err := packages.Load(cfg, "./internal/...")
-	if err != nil {
-		t.Fatalf("packages.Load: %v", err)
-	}
-	loadErr := false
-	packages.Visit(pkgs, nil, func(p *packages.Package) {
-		for _, e := range p.Errors {
-			t.Errorf("load error in %s: %v", p.PkgPath, e)
-			loadErr = true
-		}
-	})
-	if loadErr {
-		t.FailNow()
-	}
-
-	// ENCAP_DUMP=1 prints the flagged symbols per package as a Go map literal
-	// (the maintenance hook used to (re)generate encapsulationAllowlistData after a
-	// contract change) instead of failing. Steady-state runs leave it unset.
-	dump := os.Getenv("ENCAP_DUMP") != ""
-	dumped := map[string][]string{}
-
-	for _, p := range pkgs {
-		rel := strings.TrimPrefix(p.PkgPath, modPrefix)
-		if !isEncapsulationTarget(rel) {
-			continue
-		}
-		allow := encapsulationAllowlist[rel]
-		genNames, genIface, seeds := genSurface(p)
-		closure := typeClosure(p, seeds)
-		surface := func(name string) bool {
-			return genNames[name] || closure[name] || allow[name]
-		}
-		flag := func(kind, sym string) {
-			if dump {
-				dumped[rel] = append(dumped[rel], sym)
-				return
-			}
-			t.Errorf("%s: exported %s %s is neither generated contract surface nor allowlisted "+
-				"(unexport it, or add it to encapsulationAllowlistData with a category justification)", rel, kind, sym)
-		}
-
-		for i, f := range p.Syntax {
-			if strings.HasSuffix(p.CompiledGoFiles[i], ".gen.go") {
-				continue
-			}
-			for _, decl := range f.Decls {
-				switch d := decl.(type) {
-				case *ast.GenDecl:
-					for _, spec := range d.Specs {
-						switch s := spec.(type) {
-						case *ast.TypeSpec:
-							if !s.Name.IsExported() {
-								continue
-							}
-							if !surface(s.Name.Name) {
-								flag("type", s.Name.Name)
-							}
-						case *ast.ValueSpec:
-							for _, n := range s.Names {
-								if !n.IsExported() {
-									continue
-								}
-								if surface(n.Name) {
-									continue
-								}
-								// A const/var whose declared type is contract surface
-								// is itself contract surface (enum members).
-								if tn := valueTypeName(p, n.Name); tn != "" && surface(tn) {
-									continue
-								}
-								flag(valueKeyword(d), n.Name)
-							}
-						}
-					}
-				case *ast.FuncDecl:
-					if !d.Name.IsExported() {
-						continue
-					}
-					if d.Recv == nil {
-						if !surface(d.Name.Name) {
-							flag("func", d.Name.Name)
-						}
-						continue
-					}
-					recv := recvTypeName(d.Recv)
-					if recv == "" || !ast.IsExported(recv) {
-						continue // method on an unexported type is invisible externally
-					}
-					// A method is surface when it implements a generated interface
-					// method, its receiver is contract surface, or it is explicitly
-					// allowlisted as "Recv.Method".
-					if genIface[d.Name.Name] || surface(recv) || allow[recv+"."+d.Name.Name] {
-						continue
-					}
-					flag("method", recv+"."+d.Name.Name)
-				}
-			}
-		}
-	}
-
-	if dump {
-		paths := make([]string, 0, len(dumped))
-		for k := range dumped {
-			paths = append(paths, k)
-		}
-		sort.Strings(paths)
-		for _, k := range paths {
-			syms := dumped[k]
-			sort.Strings(syms)
-			t.Logf("\t%q: {", k)
-			for _, s := range syms {
-				t.Logf("\t\t%q,", s)
-			}
-			t.Logf("\t},")
-		}
-	}
+	arch.CheckGeneratedSurface(t, appArchSpec(), encapAllowlist())
 }
 
-func isEncapsulationTarget(rel string) bool {
-	for _, pre := range []string{"internal/engine/", "internal/resourceaccess/", "internal/manager/"} {
-		if strings.HasPrefix(rel, pre) {
-			return true
-		}
-	}
-	return false
-}
-
-// genSurface returns the exported names declared in *.gen.go files, the set of
-// interface method names declared there, and the seed types to expand into the
-// transitive closure.
-func genSurface(p *packages.Package) (names map[string]bool, ifaceMethods map[string]bool, seeds []types.Type) {
-	names = map[string]bool{}
-	ifaceMethods = map[string]bool{}
-	for i, f := range p.Syntax {
-		if !strings.HasSuffix(p.CompiledGoFiles[i], ".gen.go") {
-			continue
-		}
-		for _, decl := range f.Decls {
-			switch d := decl.(type) {
-			case *ast.GenDecl:
-				for _, spec := range d.Specs {
-					switch s := spec.(type) {
-					case *ast.TypeSpec:
-						if !s.Name.IsExported() {
-							continue
-						}
-						names[s.Name.Name] = true
-						if obj := p.Types.Scope().Lookup(s.Name.Name); obj != nil {
-							seeds = append(seeds, obj.Type())
-						}
-						if it, ok := s.Type.(*ast.InterfaceType); ok && it.Methods != nil {
-							for _, m := range it.Methods.List {
-								for _, nm := range m.Names {
-									ifaceMethods[nm.Name] = true
-								}
-							}
-						}
-					case *ast.ValueSpec:
-						for _, n := range s.Names {
-							if !n.IsExported() {
-								continue
-							}
-							names[n.Name] = true
-							if obj := p.Types.Scope().Lookup(n.Name); obj != nil {
-								seeds = append(seeds, obj.Type())
-							}
-						}
-					}
-				}
-			case *ast.FuncDecl:
-				if d.Recv != nil || !d.Name.IsExported() {
-					continue
-				}
-				names[d.Name.Name] = true
-				if obj := p.Types.Scope().Lookup(d.Name.Name); obj != nil {
-					seeds = append(seeds, obj.Type())
-				}
-			}
-		}
-	}
-	return names, ifaceMethods, seeds
-}
-
-// typeClosure returns the set of in-package exported type names structurally
-// reachable from the seed types (the data the generated contract traffics in).
-func typeClosure(p *packages.Package, seeds []types.Type) map[string]bool {
-	out := map[string]bool{}
-	visited := map[types.Type]bool{}
-	var walk func(t types.Type)
-	walk = func(t types.Type) {
-		if t == nil || visited[t] {
-			return
-		}
-		visited[t] = true
-		switch x := t.(type) {
-		case *types.Named:
-			if obj := x.Obj(); obj != nil && obj.Pkg() == p.Types && obj.Exported() {
-				out[obj.Name()] = true
-			}
-			walk(x.Underlying())
-			for i := 0; i < x.NumMethods(); i++ {
-				walk(x.Method(i).Type())
-			}
-		case *types.Pointer:
-			walk(x.Elem())
-		case *types.Slice:
-			walk(x.Elem())
-		case *types.Array:
-			walk(x.Elem())
-		case *types.Map:
-			walk(x.Key())
-			walk(x.Elem())
-		case *types.Chan:
-			walk(x.Elem())
-		case *types.Struct:
-			for i := 0; i < x.NumFields(); i++ {
-				walk(x.Field(i).Type())
-			}
-		case *types.Signature:
-			if x.Params() != nil {
-				for i := 0; i < x.Params().Len(); i++ {
-					walk(x.Params().At(i).Type())
-				}
-			}
-			if x.Results() != nil {
-				for i := 0; i < x.Results().Len(); i++ {
-					walk(x.Results().At(i).Type())
-				}
-			}
-		case *types.Interface:
-			for i := 0; i < x.NumMethods(); i++ {
-				walk(x.Method(i).Type())
-			}
-		}
-	}
-	for _, t := range seeds {
-		walk(t)
+// encapAllowlist adapts encapsulationAllowlistData's self-documenting module-relative
+// keys ("internal/engine/review") to the ModulePrefix-relative keys the framework
+// checker expects ("engine/review") — appArchSpec's ModulePrefix already ends in
+// "internal/". The SAME adapted map feeds both this test and method_design_test.go's
+// full methodcheck.Check gate via ProjectSpec.EncapsulationAllowlist.
+func encapAllowlist() map[string][]string {
+	out := make(map[string][]string, len(encapsulationAllowlistData))
+	for k, v := range encapsulationAllowlistData {
+		out[strings.TrimPrefix(k, "internal/")] = v
 	}
 	return out
-}
-
-// valueTypeName returns the simple name of the in-package named type of a
-// top-level const/var, or "" if it has none in this package.
-func valueTypeName(p *packages.Package, name string) string {
-	obj := p.Types.Scope().Lookup(name)
-	if obj == nil {
-		return ""
-	}
-	if named, ok := obj.Type().(*types.Named); ok {
-		if named.Obj() != nil && named.Obj().Pkg() == p.Types {
-			return named.Obj().Name()
-		}
-	}
-	return ""
-}
-
-func valueKeyword(d *ast.GenDecl) string {
-	if d.Tok.String() == "const" {
-		return "const"
-	}
-	return "var"
-}
-
-func recvTypeName(fl *ast.FieldList) string {
-	if fl == nil || len(fl.List) == 0 {
-		return ""
-	}
-	t := fl.List[0].Type
-	if star, ok := t.(*ast.StarExpr); ok {
-		t = star.X
-	}
-	if id, ok := t.(*ast.Ident); ok {
-		return id.Name
-	}
-	return ""
-}
-
-func envOff() []string { return os.Environ() }
-
-// encapsulationAllowlist is the DOCUMENTED, per-package set of exported symbols
-// that are legitimately public despite not being part of the generated contract
-// surface. Keys are module-relative package paths; values are the allowed
-// identifier names (or "Recv.Method" for a specific method). Allowlisting a TYPE
-// name implicitly allows its methods. Every entry falls into one of the
-// categories documented inline. Prefer UNEXPORTING over adding entries here.
-var encapsulationAllowlist = map[string]map[string]bool{}
-
-func init() {
-	for pkg, names := range encapsulationAllowlistData {
-		set := make(map[string]bool, len(names))
-		for _, n := range names {
-			set[n] = true
-		}
-		encapsulationAllowlist[pkg] = set
-	}
 }
 
 var encapsulationAllowlistData = map[string][]string{

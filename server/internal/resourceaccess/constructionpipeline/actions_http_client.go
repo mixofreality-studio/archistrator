@@ -179,7 +179,7 @@ func (c *ghActionsRESTClient) dispatch(ctx context.Context, tgt ghTarget, idempo
 	for k, v := range dispatchInputs {
 		inputs[k] = v
 	}
-	inputs[fwgithub.DispatchInputKeyIdempotencyToken] = idempotencyToken
+	inputs[fwgithub.DispatchInputKeyIdempotency] = idempotencyToken
 	owner, repo, workflowFile := c.resolveTarget(tgt)
 	return c.app.DispatchWorkflow(ctx, owner, repo, workflowFile, c.ref, inputs, tok)
 }

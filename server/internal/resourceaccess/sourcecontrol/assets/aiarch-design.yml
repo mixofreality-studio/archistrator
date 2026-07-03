@@ -26,7 +26,7 @@
 #
 #   1. workflow_dispatch input named EXACTLY `idempotency_token` (string,
 #      required). Constant: framework-go-infrastructure-github
-#      DispatchInputKeyIdempotencyToken = "idempotency_token". The
+#      DispatchInputKeyIdempotency = "idempotency_token". The
 #      constructionPipelineAccess RA fills it and finds/dedups/observes/cancels
 #      runs BY RUN NAME.
 #

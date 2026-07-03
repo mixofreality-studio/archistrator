@@ -5,7 +5,7 @@
 #
 # LOAD-BEARING CONTRACT — DO NOT CHANGE THESE ANCHORS:
 #   1. workflow_dispatch input named EXACTLY `idempotency_token` (string,
-#      required). framework-go-infrastructure-github DispatchInputKeyIdempotencyToken
+#      required). framework-go-infrastructure-github DispatchInputKeyIdempotency
 #      = "idempotency_token". The RA stamps this input LAST and finds/dedups/
 #      observes/cancels runs BY RUN NAME (aiarch-cp-<token>).
 #   2. Top-level `run-name: aiarch-cp-${{ inputs.idempotency_token }}`.
