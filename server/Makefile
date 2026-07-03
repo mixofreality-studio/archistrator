@@ -70,8 +70,15 @@ sumtype-check:
 
 # Run the Method conformance gate (design rules + layer rules + alignment).
 # Reads .aiarch/state/project.json from the repo root (one level up).
+# -count=1 defeats the test cache: TestMethodDesignArtifacts (methoddesign
+# build tag) reads an out-of-tree file (../.aiarch/state/project.json), so a
+# green run would otherwise cache and a later project.json edit would never
+# re-run. The design gate itself (-tags methoddesign) is NOT enabled here yet —
+# it runs GOWORK=off against the PUBLISHED framework-go, whose old deployment
+# structs can't decode the reshaped local data; it is wired into CI only after
+# the framework-go release ships (see method_design_test.go).
 method-check:
-	GOWORK=off go test ./internal/... -run TestMethod -v
+	GOWORK=off go test ./internal/... -run TestMethod -count=1 -v
 
 # ENCAPSULATION GATE. Enforces that the ONLY exported symbols in the
 # engine/resourceaccess/manager packages are the generated contract surface
