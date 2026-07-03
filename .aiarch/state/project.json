@@ -1227,16 +1227,16 @@
                 {
                   "seq": 1,
                   "component": "settlementManager",
-                  "operation": "closeSettlementCycle",
+                  "operation": "CloseSettlementCycle",
                   "status": "",
                   "inputs": [
                     {
-                      "name": "customerId",
+                      "name": "customerID",
                       "value": "cust-88",
                       "schemaRef": ""
                     },
                     {
-                      "name": "cycleId",
+                      "name": "cycleID",
                       "value": "2026-06",
                       "schemaRef": ""
                     }
@@ -1260,16 +1260,16 @@
                 {
                   "seq": 1,
                   "component": "settlementManager",
-                  "operation": "closeSettlementCycle",
+                  "operation": "CloseSettlementCycle",
                   "status": "",
                   "inputs": [
                     {
-                      "name": "customerId",
+                      "name": "customerID",
                       "value": "cust-88",
                       "schemaRef": ""
                     },
                     {
-                      "name": "cycleId",
+                      "name": "cycleID",
                       "value": "2026-06",
                       "schemaRef": ""
                     }
@@ -1284,16 +1284,16 @@
                 {
                   "seq": 2,
                   "component": "settlementManager",
-                  "operation": "closeSettlementCycle",
+                  "operation": "CloseSettlementCycle",
                   "status": "",
                   "inputs": [
                     {
-                      "name": "customerId",
+                      "name": "customerID",
                       "value": "cust-88",
                       "schemaRef": ""
                     },
                     {
-                      "name": "cycleId",
+                      "name": "cycleID",
                       "value": "2026-06",
                       "schemaRef": ""
                     }
@@ -1317,16 +1317,16 @@
                 {
                   "seq": 1,
                   "component": "settlementManager",
-                  "operation": "closeSettlementCycle",
+                  "operation": "CloseSettlementCycle",
                   "status": "",
                   "inputs": [
                     {
-                      "name": "customerId",
+                      "name": "customerID",
                       "value": "cust-declined-99",
                       "schemaRef": ""
                     },
                     {
-                      "name": "cycleId",
+                      "name": "cycleID",
                       "value": "2026-06",
                       "schemaRef": ""
                     }
@@ -1341,9 +1341,15 @@
                 {
                   "seq": 2,
                   "component": "settlementManager",
-                  "operation": "runShortfallSweep",
+                  "operation": "RunShortfallSweep",
                   "status": "",
-                  "inputs": [],
+                  "inputs": [
+                    {
+                      "name": "tickID",
+                      "value": "tick-01",
+                      "schemaRef": ""
+                    }
+                  ],
                   "expect": {
                     "result": "",
                     "errorExpected": false,
