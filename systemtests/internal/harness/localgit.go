@@ -2,6 +2,7 @@ package harness
 
 import (
 	"context"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -49,6 +50,46 @@ func StartLocalGitRepo(t *testing.T, branch string) LocalGitRepo {
 	gitRun(t, work, "git", "config", "user.email", "seed@aiarch.local")
 	gitRun(t, work, "git", "config", "user.name", "seed")
 	gitRun(t, work, "git", "commit", "--allow-empty", "-m", "seed")
+	gitRun(t, work, "git", "push", "origin", branch)
+
+	return LocalGitRepo{t: t, bare: bare, branch: branch}
+}
+
+// StartLocalGitRepoWithFiles is StartLocalGitRepo, except the seed commit carries
+// the given files (path -> content) instead of being empty. Used to pre-stage a
+// project directly into a later Method phase (e.g. Phase-3 construction) without
+// driving the whole Phase-1/2 wire sequence first — the harness writes only the
+// PUBLISHED on-disk JSON shape (mirroring agentic_github.go's
+// applyDraftToProjectJSON), never an imported server type, so this stays black-box.
+func StartLocalGitRepoWithFiles(t *testing.T, branch string, files map[string][]byte) LocalGitRepo {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH; skipping local-git project-state proof")
+	}
+	if branch == "" {
+		branch = "main"
+	}
+	root := t.TempDir()
+	bare := filepath.Join(root, "remote.git")
+
+	gitRun(t, root, "git", "init", "--bare", "--initial-branch="+branch, bare)
+
+	work := filepath.Join(root, "seed")
+	gitRun(t, root, "git", "clone", bare, work)
+	gitRun(t, work, "git", "-c", "init.defaultBranch="+branch, "checkout", "-B", branch)
+	gitRun(t, work, "git", "config", "user.email", "seed@aiarch.local")
+	gitRun(t, work, "git", "config", "user.name", "seed")
+	for path, content := range files {
+		full := filepath.Join(work, path)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", filepath.Dir(full), err)
+		}
+		if err := os.WriteFile(full, content, 0o644); err != nil {
+			t.Fatalf("write %s: %v", full, err)
+		}
+	}
+	gitRun(t, work, "git", "add", "-A")
+	gitRun(t, work, "git", "commit", "-m", "seed")
 	gitRun(t, work, "git", "push", "origin", branch)
 
 	return LocalGitRepo{t: t, bare: bare, branch: branch}

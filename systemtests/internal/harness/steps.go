@@ -82,3 +82,33 @@ func TryReachProjectStage(ctx context.Context, tr Transport, projectID, kind, wa
 	}
 	return false
 }
+
+// --- UC3 (construction / Phase-3) step helper -------------------------------
+// The construction DRYRUN pump has NO model-quality dependency (every external
+// effect is an instant, deterministic stub — server/cmd/server/construction_dryrun.go)
+// so, unlike TryReachStage/TryReachProjectStage, reaching a target construction
+// stage is a HARD (t.Fatalf on timeout) proof, not best-effort.
+
+// TryReachConstructionStage polls GetConstructionSessionState until the named
+// activity reaches wantStage or the timeout elapses. Fails the test on timeout —
+// under CONSTRUCTION_DRYRUN every phase/pipeline transition is instant, so a
+// bounded poll window that never reaches the target stage is a real defect, not a
+// model-quality flake.
+func TryReachConstructionStage(ctx context.Context, t *testing.T, tr Transport, projectID, activityID, wantStage string, timeout time.Duration) ConstructionSessionState {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	var last ConstructionSessionState
+	for time.Now().Before(deadline) {
+		st, err := tr.GetConstructionSessionState(ctx, projectID, activityID)
+		if err == nil {
+			last = st
+			if st.Stage == wantStage {
+				return st
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatalf("[%s] construction activity %s/%s never reached stage %q (last observed stage %q)",
+		tr.Name(), projectID, activityID, wantStage, last.Stage)
+	return ConstructionSessionState{}
+}

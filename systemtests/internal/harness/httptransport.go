@@ -113,6 +113,75 @@ var sdpDecisionToOrdinal = map[string]int{
 	"rejectAll": 2,
 }
 
+// --- UC3 (construction) wire enum ordinal tables ----------------------------
+// Mirror the iota order committed in server/internal/manager/construction/contract.gen.go.
+
+// constructionStageByOrdinal is ConstructionStage's 0..7 ordering.
+var constructionStageByOrdinal = []string{
+	"unknown", "dispatching", "pipelineRunning", "reviewing",
+	"awaitingTakeover", "paused", "exited", "awaitingApproval",
+}
+
+// pipelinePhaseByOrdinal is PipelinePhase's 0..5 ordering.
+var pipelinePhaseByOrdinal = []string{
+	"unknown", "pending", "running", "succeeded", "failed", "cancelled",
+}
+
+// phaseDecisionToOrdinal mirrors PhaseDecision (0 unknown,1 approve,2 sendBack).
+var phaseDecisionToOrdinal = map[string]int{
+	"approve":  1,
+	"sendBack": 2,
+}
+
+// constructionSessionViewWire is the wire shape of ConstructionSessionView
+// (construction/contract.gen.go) — only the fields the UC3 wire tests assert on.
+type constructionSessionViewWire struct {
+	ProjectID     string `json:"projectId"`
+	ActivityID    string `json:"activityId,omitempty"`
+	Stage         int    `json:"stage"`
+	PipelinePhase *int   `json:"pipelinePhase,omitempty"`
+}
+
+// pumpResultWire is the wire shape of PumpResult (ExecuteNextActivity's response).
+type pumpResultWire struct {
+	Dispatched bool    `json:"dispatched"`
+	ActivityID *string `json:"activityId,omitempty"`
+}
+
+// --- UC4 (operations) wire enum ordinal tables -------------------------------
+// Mirror the iota order committed in server/internal/manager/operations/contract.gen.go.
+
+// desiredStateReasonToOrdinal mirrors DesiredStateReason (0 unknown,1
+// deployAfterConstruction,2 operator,3 autoscale,4 delinquency).
+var desiredStateReasonToOrdinal = map[string]int{
+	"deployAfterConstruction": 1,
+	"operator":                2,
+	"autoscale":               3,
+	"delinquency":             4,
+}
+
+// patchKindToOrdinal mirrors PatchKind (0 unknown,1 fullBundle,2 scale,3 policy).
+var patchKindToOrdinal = map[string]int{
+	"fullBundle": 1,
+	"scale":      2,
+	"policy":     3,
+}
+
+// runtimeStatusByOrdinal is RuntimeStatusSeam's 0..4 ordering.
+var runtimeStatusByOrdinal = []string{
+	"unknown", "pending", "healthy", "degraded", "withdrawn",
+}
+
+// operatedSystemViewWire is the wire shape of OperatedSystemView (operations/
+// contract.gen.go) — PascalCase JSON tags per the published contract (NOT
+// camelCase like the design/construction DTOs); only the fields the UC4 wire
+// tests assert on.
+type operatedSystemViewWire struct {
+	OperatedAppID string `json:"OperatedAppID"`
+	Phase         int    `json:"Phase"`
+	InFlight      bool   `json:"InFlight"`
+}
+
 // testOwner is the fixed OwnerScope the harness mints every project under. Owner
 // is a required, non-empty CreateProject arg but is NOT consulted by
 // authenticatedOnlyPDP (any authenticated principal may act on any resource — see
@@ -301,6 +370,126 @@ func (t *httpTransport) AdvanceToConstruction(ctx context.Context, projectID str
 	return out.Advanced, decodeMissingArtifacts(out.MissingArtifacts), err
 }
 
+// --- UC3 (construction / Phase-3) -------------------------------------------
+// Each method speaks ONLY the published construction routes + DTOs
+// (server/internal/client/web/construction/construction_handlers.gen.go).
+
+func (t *httpTransport) ExecuteNextActivity(ctx context.Context, projectID, tickID string) (bool, string, error) {
+	var out pumpResultWire
+	path := fmt.Sprintf("/api/v1/construction/execute-next-activity/%s", projectID)
+	_, err := t.do(ctx, http.MethodPost, path, map[string]any{"tickID": tickID}, http.StatusOK, &out)
+	activityID := ""
+	if out.ActivityID != nil {
+		activityID = *out.ActivityID
+	}
+	return out.Dispatched, activityID, err
+}
+
+func (t *httpTransport) GetConstructionSessionState(ctx context.Context, projectID, activityID string) (ConstructionSessionState, error) {
+	var out constructionSessionViewWire
+	path := fmt.Sprintf("/api/v1/construction/get-session-state/%s/%s", projectID, activityID)
+	if _, err := t.do(ctx, http.MethodGet, path, nil, http.StatusOK, &out); err != nil {
+		return ConstructionSessionState{}, err
+	}
+	state := ConstructionSessionState{
+		ProjectID:  out.ProjectID,
+		ActivityID: out.ActivityID,
+		Stage:      stageName(constructionStageByOrdinal, out.Stage),
+	}
+	if out.PipelinePhase != nil {
+		state.PipelinePhase = stageName(pipelinePhaseByOrdinal, *out.PipelinePhase)
+	}
+	return state, nil
+}
+
+func (t *httpTransport) SubmitPhaseDecision(ctx context.Context, projectID, activityID, phase, decision, feedback string) error {
+	body := map[string]any{
+		"phase":    phase,
+		"decision": phaseDecisionToOrdinal[decision],
+	}
+	if feedback != "" {
+		body["feedback"] = reviewFeedbackBody{Notes: feedback}
+	}
+	path := fmt.Sprintf("/api/v1/construction/submit-phase-decision/%s/%s", projectID, activityID)
+	_, err := t.do(ctx, http.MethodPost, path, body, http.StatusNoContent, nil)
+	return err
+}
+
+func (t *httpTransport) UpdateReviewPolicy(ctx context.Context, projectID string, gatedPhasesByType map[string][]string) error {
+	body := map[string]any{"policy": map[string]any{"gatedPhasesByType": gatedPhasesByType}}
+	path := fmt.Sprintf("/api/v1/construction/update-review-policy/%s", projectID)
+	_, err := t.do(ctx, http.MethodPost, path, body, http.StatusNoContent, nil)
+	return err
+}
+
+// --- UC4 (operations / Phase-4) ---------------------------------------------
+// Each method speaks ONLY the published operations routes + DTOs
+// (server/internal/client/web/operations/operations_handlers.gen.go).
+
+func (t *httpTransport) DeployAfterConstruction(ctx context.Context, operatedAppID string, change DesiredStateChange) (bool, string, error) {
+	body := map[string]any{"change": map[string]any{
+		"reason":               desiredStateReasonToOrdinal[change.Reason],
+		"patchKind":            patchKindToOrdinal[change.PatchKind],
+		"changeId":             change.ChangeID,
+		"renderedDesiredState": change.RenderedDesiredState,
+	}}
+	var out struct {
+		Published bool    `json:"published"`
+		Revision  *string `json:"revision,omitempty"`
+	}
+	path := fmt.Sprintf("/api/v1/operations/deploy-after-construction/%s", operatedAppID)
+	_, err := t.do(ctx, http.MethodPost, path, body, http.StatusOK, &out)
+	revision := ""
+	if out.Revision != nil {
+		revision = *out.Revision
+	}
+	return out.Published, revision, err
+}
+
+func (t *httpTransport) ReconcileOperatedState(ctx context.Context, tickID string, appIDs []string) (int64, int64, int64, error) {
+	body := map[string]any{"tickID": tickID}
+	if appIDs != nil {
+		body["scope"] = map[string]any{"appIds": appIDs}
+	}
+	var out struct {
+		Observed    int64 `json:"observed"`
+		Transitions int64 `json:"transitions"`
+		Republished int64 `json:"republished"`
+	}
+	_, err := t.do(ctx, http.MethodPost, "/api/v1/operations/reconcile-operated-state", body, http.StatusOK, &out)
+	return out.Observed, out.Transitions, out.Republished, err
+}
+
+func (t *httpTransport) QueryOperatedSystemView(ctx context.Context, operatedAppID, requestID string) (OperatedSystemView, error) {
+	var out operatedSystemViewWire
+	path := fmt.Sprintf("/api/v1/operations/query-operated-system-view/%s?requestID=%s", operatedAppID, requestID)
+	if _, err := t.do(ctx, http.MethodGet, path, nil, http.StatusOK, &out); err != nil {
+		return OperatedSystemView{}, err
+	}
+	return OperatedSystemView{
+		OperatedAppID: out.OperatedAppID,
+		Phase:         stageName(runtimeStatusByOrdinal, out.Phase),
+		InFlight:      out.InFlight,
+	}, nil
+}
+
+func (t *httpTransport) ApplyDelinquencyPolicy(ctx context.Context, customerID string, pauseNotWithdraw bool) error {
+	body := map[string]any{"delinquencyContext": map[string]any{"pauseNotWithdraw": pauseNotWithdraw}}
+	path := fmt.Sprintf("/api/v1/operations/apply-delinquency-policy/%s", customerID)
+	_, err := t.do(ctx, http.MethodPost, path, body, http.StatusNoContent, nil)
+	return err
+}
+
+func (t *httpTransport) WithdrawSystem(ctx context.Context, operatedAppID, changeID, notes string) (bool, error) {
+	body := map[string]any{"changeID": changeID, "reason": map[string]any{"notes": notes}}
+	var out struct {
+		Withdrawn bool `json:"withdrawn"`
+	}
+	path := fmt.Sprintf("/api/v1/operations/withdraw-system/%s", operatedAppID)
+	_, err := t.do(ctx, http.MethodPost, path, body, http.StatusOK, &out)
+	return out.Withdrawn, err
+}
+
 // do issues one request, maps a non-expected status onto a sentinel error, and
 // decodes the body into out on success. It returns the status code so callers
 // can distinguish transient/absent (404/503) from a hard failure.
@@ -351,6 +540,8 @@ func statusError(code int) error {
 		return ErrNotFound
 	case http.StatusConflict:
 		return ErrConflict
+	case http.StatusServiceUnavailable:
+		return ErrUnavailable
 	default:
 		return fmt.Errorf("unexpected status %d", code)
 	}

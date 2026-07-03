@@ -12,12 +12,40 @@ name: System Tests
 #     - Test_UC1_Agentic_PhaseFailed_EntersStageDraftFailed  (agentic fake)
 #     - Test_UC2_Agentic_E2E_DispatchObserveGateMergeCommit  (agentic fake)
 #     - Test_UC1_AuthRejectsWithoutClaims               (auth boundary, no draft)
+#     - Test_UC3_ExecuteNextActivity_DispatchesAndDrivesPhaseGate  (STP-UC3-H1, DRYRUN pump)
+#     - Test_UC3_ExecuteNextActivity_NoEligibleActivity_Quiescent  (STP-UC3-N1)
+#     - Test_UC3_PhaseSendBack_BlocksMergeReopensPhase             (STP-UC3-N2)
+#     - Test_UC3_ExecuteNextActivity_DuplicateTickID_Idempotent    (STP-UC3-B1)
+#     - Test_UC4_DeployReconcileObserve_UnimplementedRA_FailsFastDeterministically (STP-UC4-H1)
+#     - Test_UC4_ApplyDelinquencyPolicy_QueuedSignalSucceeds                       (STP-UC4-N1)
+#     - Test_UC4_DeployAfterConstruction_DuplicateChangeID_SameDeterministicOutcome (STP-UC4-B1)
+#     - Test_UC4_WithdrawSystem_UnimplementedRA_ReconcileAlsoFailsFast              (STP-UC4-N2)
 #
 # NOTE ON AGENTIC TESTS: uc1_agentic_test.go / uc2_agentic_test.go use an in-process
 # AgenticGitHub HTTP fake — they do NOT need real GitHub credentials or a live
 # claude-code-action. All GitHub REST calls hit the fake; the project-state git writes
 # go to a throwaway file:// repo. The fake env sets ARCHISTRATOR_CONSTRUCTION_REPO_OWNER
 # + private key, so the pipeline RA is fully wired in these tests.
+#
+# NOTE ON UC3 (construction) TESTS: uc3_construction_test.go needs NO GitHub fake at
+# all — every server boots with ARCHISTRATOR_CONSTRUCTION_DRYRUN=true (the harness base
+# env's own default), which registers the real constructionManager pump + per-activity
+# supervision against in-memory, instant-success stubs (server/cmd/server/
+# construction_dryrun.go). Each project is pre-staged directly into Phase 3 in the seed
+# commit of a fresh file:// repo (harness.ConstructionProjectJSON), so no Phase-1/2 wire
+# sequence runs first. See the file-level comment for the self-cascading-pump finding
+# (ExecuteNextActivity blocks until the dispatched activity's cascade drains — its
+# PumpResult never reports dispatched=true to a synchronous caller; "dispatch happened"
+# is proven via GetConstructionSessionState instead).
+#
+# NOTE ON UC4 (operations) TESTS: uc4_operations_test.go documents a REAL
+# implementation-state finding (see the file-level comment): operationsManager's two
+# head-state/runtime RAs are wired UNCONDITIONALLY to generated no-arg stubs that always
+# return "not implemented" (no dry-run profile exists for operations, unlike
+# construction). Every Temporal-workflow op therefore fails fast and deterministically
+# with HTTP 503 (harness.ErrUnavailable) rather than reaching the STP-UC4 plan's literal
+# happy-path outcomes — these tests prove the wire surface (routes/auth/validation) and
+# the deterministic failure mode, not the unimplemented business behavior.
 #
 # GATED TESTS (skipped in CI, documented here):
 #

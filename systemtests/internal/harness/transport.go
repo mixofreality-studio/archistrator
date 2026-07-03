@@ -14,6 +14,12 @@ var (
 	ErrForbidden       = errors.New("forbidden")
 	ErrNotFound        = errors.New("not found")
 	ErrConflict        = errors.New("conflict")
+	// ErrUnavailable is the sentinel for HTTP 503 (framework-go manager.Infrastructure).
+	// The UC4 operations façade maps EVERY workflow-execution failure to this kind at
+	// the façade boundary (operationsManager.go we.Get() error branches) regardless of
+	// the underlying cause, so a wire test asserts on this ONE sentinel rather than a
+	// generic "unexpected status" error.
+	ErrUnavailable = errors.New("service unavailable")
 )
 
 // ResearchSource is the wire form of one named Phase-1 research document. It
@@ -29,6 +35,33 @@ type SessionState struct {
 	ProjectID    string
 	ArtifactKind string
 	Stage        string
+}
+
+// ConstructionSessionState is the transport-agnostic projection of constructionManager's
+// GetSessionState (ConstructionSessionView) — the per-activity UC3 supervision view.
+type ConstructionSessionState struct {
+	ProjectID     string
+	ActivityID    string
+	Stage         string // decoded ConstructionStage ordinal (e.g. "dispatching", "exited")
+	PipelinePhase string // decoded PipelinePhase ordinal, "" when absent
+}
+
+// DesiredStateChange is the wire form of operationsManager's DesiredStateChange —
+// the deploy/republish payload DeployAfterConstruction accepts. Reason and PatchKind
+// are the published ordinal enums (operations_handlers.gen.go / operations contract).
+type DesiredStateChange struct {
+	Reason               string // "deployAfterConstruction" | "operator" | "autoscale" | "delinquency"
+	PatchKind            string // "fullBundle" | "scale" | "policy"
+	ChangeID             string
+	RenderedDesiredState []byte
+}
+
+// OperatedSystemView is the transport-agnostic projection of QueryOperatedSystemView —
+// only the fields the UC4 wire tests assert on (RuntimeStatusSeam decoded to name).
+type OperatedSystemView struct {
+	OperatedAppID string
+	Phase         string // decoded RuntimeStatusSeam ordinal ("pending"|"healthy"|"degraded"|"withdrawn")
+	InFlight      bool
 }
 
 // Transport is the transport-agnostic seam over ONE Client surface. The HTTP
@@ -82,6 +115,58 @@ type Transport interface {
 	// AdvanceToConstruction is the Phase-2 → Phase-3 gate. A non-advanced result
 	// (with the missing artifact list) is the NORMAL gating answer, not an error.
 	AdvanceToConstruction(ctx context.Context, projectID string) (advanced bool, missing []string, err error)
+
+	// --- UC3 (construction / Phase-3) superviseConstruction intents -----------
+	// These drive the constructionManager facet (POST .../construction/...). Only
+	// the ops STP-UC3's cases drive (plus UpdateReviewPolicy, the minimal staging
+	// op that makes the detailed_design phase gate actually suspend for a human
+	// decision) are exposed — constructionManager.OverrideActivity/PauseProject/
+	// RunReplanSweep are read (construction_handlers.gen.go) but not wire-driven by
+	// any STP-UC3 case, so they are NOT added here.
+
+	// ExecuteNextActivity pumps ONE construction tick: dispatches the next eligible
+	// activity (the dependency-network frontier, no unmet predecessors) or reports a
+	// quiet tick (dispatched=false) when nothing is eligible. tickID is the caller's
+	// firing id — a duplicate tickID must not double-dispatch (RA-idempotency
+	// promoted to the client surface, STP-UC3-B1).
+	ExecuteNextActivity(ctx context.Context, projectID, tickID string) (dispatched bool, activityID string, err error)
+	// GetConstructionSessionState reads the per-activity UC3 supervision view
+	// (constructionManager.md ConstructionSessionView). activityID is REQUIRED — the
+	// published route has no project-level (nil-activityID) query form.
+	GetConstructionSessionState(ctx context.Context, projectID, activityID string) (state ConstructionSessionState, err error)
+	// SubmitPhaseDecision delivers the operator's phase-gated approve/send-back
+	// decision to the named activity's current phase. feedback is the send-back
+	// NOTES — required (non-empty) on "sendBack", ignored on "approve" (pass "").
+	SubmitPhaseDecision(ctx context.Context, projectID, activityID, phase, decision, feedback string) error
+	// UpdateReviewPolicy stages the per-project ReviewPolicy (which (activityType,
+	// phase) pairs require human approval during construction). gatedPhasesByType
+	// maps an ActivityType wire name ("service"/"frontend"/"testing"/...) to the
+	// canonical phase ids ("detailed_design", "construction", ...) that gate.
+	UpdateReviewPolicy(ctx context.Context, projectID string, gatedPhasesByType map[string][]string) error
+
+	// --- UC4 (operations / Phase-4) operateDeliveredSystem + readOperatedSystemView --
+	// Only the ops STP-UC4's cases drive; QueryCostProjection (read handlers.gen.go
+	// for its shape) is not exercised by any STP-UC4 case, so it is NOT added here.
+
+	// DeployAfterConstruction publishes a desired-state change for an operated app
+	// (a full-bundle deploy or a policy/scale republish). operatedAppID is a UUID
+	// string; a duplicate changeID must return the SAME revision (STP-UC4-B1).
+	DeployAfterConstruction(ctx context.Context, operatedAppID string, change DesiredStateChange) (published bool, revision string, err error)
+	// ReconcileOperatedState runs one observe(+autoscale) tick, scoped to appIDs
+	// (empty/nil = all in-flight apps). Returns the tick's observed/transitions/
+	// republished counts.
+	ReconcileOperatedState(ctx context.Context, tickID string, appIDs []string) (observed, transitions, republished int64, err error)
+	// QueryOperatedSystemView reads the operator display view for one operated app
+	// (phase, in-flight, health, SLOs, autoscaler, run-rate). Side-effect-free.
+	QueryOperatedSystemView(ctx context.Context, operatedAppID, requestID string) (view OperatedSystemView, err error)
+	// ApplyDelinquencyPolicy delivers the queued cross-Manager delinquency signal
+	// (normally settlementManager → operationsManager). pauseNotWithdraw=true pauses
+	// (reversible); false withdraws. QUEUED: returns once durably enqueued, not once
+	// the enforcement workflow has run.
+	ApplyDelinquencyPolicy(ctx context.Context, customerID string, pauseNotWithdraw bool) error
+	// WithdrawSystem terminally withdraws an operated app's desired state. Idempotent
+	// on the id; a withdrawn app is never resurrected by reconcile (STP-UC4-N2).
+	WithdrawSystem(ctx context.Context, operatedAppID, changeID, notes string) (withdrawn bool, err error)
 
 	Close() error
 }
