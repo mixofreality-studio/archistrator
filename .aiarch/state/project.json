@@ -8099,8 +8099,8 @@
     },
     "C-OSA": {
       "activityID": "C-OSA",
-      "phase": 2,
-      "buildStatus": 2,
+      "phase": 1,
+      "buildStatus": 1,
       "produced": [
         {
           "Kind": "service-contract",
@@ -8110,11 +8110,18 @@
           "Note": "Frozen App-B service contract."
         },
         {
+          "Kind": "note",
+          "Title": "C-OSA — integration correction",
+          "Source": "",
+          "Produced": false,
+          "Note": "The prior 'built component' integration record (buildStatus Integrated) was FALSE — on pre-construction main operatedsystemstate was the generated not-implemented STUB (contract.gen.go: every method returned fwra.Unknown 'not implemented'), never a built component. Black-box UC4 testing surfaced it (503 on every op). Downgraded integrated→in-review and re-recorded against the real build below. Mirrors the C-BS correction pattern (record truth, never a false integration point)."
+        },
+        {
           "Kind": "code",
-          "Title": "operatedSystemStateAccess — built component",
-          "Source": "implementation/log",
+          "Title": "operatedSystemStateAccess — built component (Postgres head-state store)",
+          "Source": "internal/resourceaccess/operatedsystemstate",
           "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
+          "Note": "Real Postgres-backed head-state store: infra ['Postgres'] on the serviceContract drives the generated NewPostgresOperatedSystemStateAccess(ctx, pool); postgres.go + go:embed schema.sql (operated_system head-state row with optimistic-concurrency version + the operated_system_mutation dedup-first idempotency ledger) implement the 6 frozen verbs; contract + integration tests (postgres_test.go, StartPostgres-gated) green. Wired in cmd/server (both operationsManager + settlementManager). buildStatus in-review — awaiting the-method-review-routing; NOT self-marked integrated. Documented follow-up: the frozen §2 has no write verb for DeployableBundleRef or customer_id, so the deploy-after-construction seeding handoff (a cross-Manager write or an added verb) remains open."
         }
       ]
     },
@@ -8180,7 +8187,8 @@
     },
     "C-OR": {
       "activityID": "C-OR",
-      "phase": 0,
+      "phase": 1,
+      "buildStatus": 1,
       "produced": [
         {
           "Kind": "service-contract",
@@ -8188,6 +8196,20 @@
           "Source": "implementation/contracts/operatedRuntimeAccess.md",
           "Produced": true,
           "Note": "Frozen App-B service contract."
+        },
+        {
+          "Kind": "code",
+          "Title": "operatedRuntimeAccess — built component (profiled: LOCAL dry-run + REAL skeleton)",
+          "Source": "internal/resourceaccess/operatedruntime",
+          "Produced": true,
+          "Note": "Profiled RA: infra ['Profiled'] drives the generated NewProfiledOperatedRuntimeAccess(profile, config). operatedruntime.go implements the 6 frozen verbs in two profiles selected in cmd/server by ARCHISTRATOR_OPERATIONS_DRYRUN (mirrors the construction DRYRUN convention): LOCAL/dry-run is deterministic + side-effect-free (fully functional for dev/test — accepts writes, reports Healthy/SLO-met, invents no usage facts); REAL constructs (server still boots) but every verb returns an EXPLICIT non-retryable fwra.Unknown naming the follow-up (NOT a silent generated stub), preserving the 503 fail-fast wire behaviour. Unit tests green. buildStatus in-review — awaiting the-method-review-routing; NOT self-marked integrated."
+        },
+        {
+          "Kind": "note",
+          "Title": "C-OR — REAL profile kubernetes/GitOps backend is a follow-up (N-DEP)",
+          "Source": "",
+          "Produced": false,
+          "Note": "The REAL operatedRuntime profile's GitOps/kubernetes + observability backend is NOT built — it pairs with the N-DEP Argo deployment work. The profile seam + dry-run land now; the real bodies swap into realOperatedRuntime in one file (config already threaded via RuntimeConfig.GitOpsRepoURL / ARCHISTRATOR_OPERATED_RUNTIME_GITOPS_REPO_URL) when that backend lands. Until then a non-dry-run server's UC4 runtime verbs fail fast with the explicit diagnostic."
         }
       ]
     },
@@ -11720,7 +11742,9 @@
       "component": "operatedRuntimeAccess",
       "layer": "ResourceAccess",
       "goPackage": "internal/resourceaccess/operatedruntime",
-      "stub": true,
+      "infra": [
+        "Profiled"
+      ],
       "title": "operatedRuntimeAccess contract",
       "$defs": {
         "AttributionWindow": {
@@ -11991,7 +12015,9 @@
       "component": "operatedSystemStateAccess",
       "layer": "ResourceAccess",
       "goPackage": "internal/resourceaccess/operatedsystemstate",
-      "stub": true,
+      "infra": [
+        "Postgres"
+      ],
       "title": "operatedSystemStateAccess contract",
       "$defs": {
         "AutoscaleAction": {

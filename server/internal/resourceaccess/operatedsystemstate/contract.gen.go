@@ -4,7 +4,9 @@
 package operatedsystemstate
 
 import (
+	"context"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
@@ -83,45 +85,9 @@ type OperatedSystemStateAccess interface {
 	WithdrawSystem(rc fwra.Context, operatedAppID uuid.UUID, expectedVersion Version, idempotencyKey fwra.IdempotencyKey) (Version, error)
 }
 
-// stubOperatedSystemStateAccess is the generated not-implemented OperatedSystemStateAccess. The component is contracted
-// but not yet built, so every method returns a not-implemented error; the bodies
-// are replaced when the component is constructed.
-type stubOperatedSystemStateAccess struct{}
-
-// NewOperatedSystemStateAccess returns the not-implemented OperatedSystemStateAccess. It takes no arguments
-// (the component has no infrastructure binding yet).
-func NewOperatedSystemStateAccess() OperatedSystemStateAccess {
-	return &stubOperatedSystemStateAccess{}
-}
-
-var _ OperatedSystemStateAccess = (*stubOperatedSystemStateAccess)(nil)
-
-func (*stubOperatedSystemStateAccess) PublishDesiredState(_ fwra.Context, _ uuid.UUID, _ Version, _ DesiredStateReason, _ *AutoscaleDecision, _ fwra.IdempotencyKey) (Version, error) {
-	var zero Version
-	return zero, fwra.New(fwra.Unknown, "not implemented")
-}
-
-func (*stubOperatedSystemStateAccess) ReadInFlightOperatedApps(_ fwra.Context, _ InFlightScope) ([]OperatedSystemSummary, error) {
-	var zero []OperatedSystemSummary
-	return zero, fwra.New(fwra.Unknown, "not implemented")
-}
-
-func (*stubOperatedSystemStateAccess) ReadOperatedSystem(_ fwra.Context, _ uuid.UUID) (OperatedSystem, error) {
-	var zero OperatedSystem
-	return zero, fwra.New(fwra.Unknown, "not implemented")
-}
-
-func (*stubOperatedSystemStateAccess) RecordDelinquencyAction(_ fwra.Context, _ uuid.UUID, _ Version, _ DelinquencyAction, _ fwra.IdempotencyKey) (Version, error) {
-	var zero Version
-	return zero, fwra.New(fwra.Unknown, "not implemented")
-}
-
-func (*stubOperatedSystemStateAccess) RecordRuntimeStatusChange(_ fwra.Context, _ uuid.UUID, _ Version, _ RuntimeStatus, _ fwra.IdempotencyKey) (Version, error) {
-	var zero Version
-	return zero, fwra.New(fwra.Unknown, "not implemented")
-}
-
-func (*stubOperatedSystemStateAccess) WithdrawSystem(_ fwra.Context, _ uuid.UUID, _ Version, _ fwra.IdempotencyKey) (Version, error) {
-	var zero Version
-	return zero, fwra.New(fwra.Unknown, "not implemented")
+// NewPostgresOperatedSystemStateAccess constructs the Postgres-backed OperatedSystemStateAccess, delegating to the hand-written,
+// unexported builder newPostgresOperatedSystemStateAccess in the RA package (which owns the stateful setup).
+// The constructor returns the interface, so the concrete impl stays unexported.
+func NewPostgresOperatedSystemStateAccess(ctx context.Context, pool *pgxpool.Pool) (OperatedSystemStateAccess, error) {
+	return newPostgresOperatedSystemStateAccess(ctx, pool)
 }

@@ -268,6 +268,30 @@ func run(logger *slog.Logger) error {
 	}
 	logger.Info("usageAccess (postgres) ready")
 
+	// Postgres-backed operatedSystemStateAccess (operated-app head-state store, C-OSA).
+	// Constructed at boot so its constructor-applied DDL reconciles the operated_system
+	// head-state + idempotency-ledger schema on every deploy (usageAccess convention).
+	// Both the operationsManager (deploy / reconcile / withdraw / delinquency) and the
+	// settlementManager consume operated-app head-state through it.
+	operatedSystemState, err := operatedsystemstate.NewPostgresOperatedSystemStateAccess(ctx, pool)
+	if err != nil {
+		return err
+	}
+	logger.Info("operatedSystemStateAccess (postgres) ready")
+
+	// operatedRuntimeAccess (tenant runtime — GitOps/kubernetes + observability, C-OR).
+	// Two profiles behind the one generated constructor (operatedruntime.RuntimeProfile):
+	// LOCAL/dry-run (deterministic, side-effect-free — selected by
+	// ARCHISTRATOR_OPERATIONS_DRYRUN=true, mirroring the construction DRYRUN profile) and
+	// REAL (the production GitOps/kubernetes backend, a fail-fast skeleton until that
+	// backend lands — follow-up N-DEP). Consumed by BOTH the operationsManager and the
+	// settlementManager.
+	operatedRuntime, err := operatedruntime.NewProfiledOperatedRuntimeAccess(operationsRuntimeProfile(cfg))
+	if err != nil {
+		return err
+	}
+	logger.Info("operatedRuntimeAccess ready", "dryRun", cfg.OperationsDryRun)
+
 	// git-backed artifactAccess (content-addressable store for Phase-3 construction
 	// outputs; C-AA-R rework — Gitea removed per the 2026-06-09 git-only pivot). The
 	// backing store is the per-project construction git repo. Two profiles behind the
@@ -502,17 +526,16 @@ func run(logger *slog.Logger) error {
 	// GENERATED DI constructor (founder model 2026-06-28). The constructor takes the
 	// published deps directly; the Manager folds the dep→activity mapping (the former
 	// composition-root operations adapters) internally and registers its own Worker from
-	// its stored deps via RegisterWorker(wo, m). The not-yet-built head-state +
-	// runtime RAs (operatedSystemState / operatedRuntime) are the generated no-arg STUBS
-	// (their methods return not-implemented at runtime — the deploy/reconcile workflows
-	// fail fast against them, which is fine until those RAs are built); usage is the real
-	// Postgres ledger, artifact the real git store, and the three engines the real pure
-	// impls. durableExecution is nil (schedule registration belongs to the unbuilt
-	// schedulerClient; the Worker + façade do not dereference it).
+	// its stored deps via RegisterWorker(wo, m). operatedSystemState is now the REAL
+	// Postgres head-state store (C-OSA) and operatedRuntime the profiled RA (C-OR) — LOCAL
+	// dry-run or the REAL GitOps/kubernetes skeleton per ARCHISTRATOR_OPERATIONS_DRYRUN.
+	// usage is the real Postgres ledger, artifact the real git store, and the three engines
+	// the real pure impls. durableExecution is nil (schedule registration belongs to the
+	// unbuilt schedulerClient; the Worker + façade do not dereference it).
 	operationsManager := operations.NewOperationsManager(
 		tc,
-		operatedsystemstate.NewOperatedSystemStateAccess(),
-		operatedruntime.NewOperatedRuntimeAccess(),
+		operatedSystemState,
+		operatedRuntime,
 		usageAccess,
 		artifacts,
 		nil, // durableExecution — schedules unwired (schedulerClient concern)
@@ -539,16 +562,16 @@ func run(logger *slog.Logger) error {
 	// revenue-ledger / merchant-gateway RAs are the generated no-arg STUBS (their methods
 	// return not-implemented at runtime — the onboard/close/sweep workflows fail fast
 	// against them until those RAs are built); usage is the real Postgres ledger,
-	// operatedRuntime the generated stub, settlement + intervention the real pure engines.
-	// durableExecution is nil (schedule registration belongs to the unbuilt schedulerClient;
-	// the Worker + façade do not dereference it).
+	// operatedRuntime the profiled RA (LOCAL dry-run / REAL skeleton, C-OR), settlement +
+	// intervention the real pure engines. durableExecution is nil (schedule registration
+	// belongs to the unbuilt schedulerClient; the Worker + façade do not dereference it).
 	settlementManager := settlement.NewSettlementManager(
 		tc,
 		settlementstate.NewSettlementStateAccess(),
 		revenueledger.NewRevenueLedgerAccess(),
 		usageAccess,
 		merchantgateway.NewMerchantGatewayAccess(),
-		operatedruntime.NewOperatedRuntimeAccess(),
+		operatedRuntime,
 		nil, // durableExecution — schedules unwired (schedulerClient concern)
 		settlementEstimator,
 		interventionEngine,
@@ -810,5 +833,18 @@ func selectConstructionDeps(cfg config, pipeline constructionpipeline.Constructi
 		return pipeline, artifacts, dryRunWorker{}, true
 	default:
 		return nil, nil, nil, false
+	}
+}
+
+// operationsRuntimeProfile selects the operatedRuntimeAccess profile + config from the
+// composition-root config (mirroring the construction DRYRUN convention):
+// ARCHISTRATOR_OPERATIONS_DRYRUN=true ⇒ the deterministic LOCAL profile; otherwise the
+// REAL GitOps/kubernetes profile (a fail-fast skeleton until that backend lands — N-DEP).
+func operationsRuntimeProfile(cfg config) (operatedruntime.RuntimeProfile, operatedruntime.RuntimeConfig) {
+	if cfg.OperationsDryRun {
+		return operatedruntime.RuntimeProfileLocal, operatedruntime.RuntimeConfig{}
+	}
+	return operatedruntime.RuntimeProfileReal, operatedruntime.RuntimeConfig{
+		GitOpsRepoURL: cfg.OperatedRuntimeGitOpsRepoURL,
 	}
 }

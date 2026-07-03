@@ -8,47 +8,52 @@ import (
 	"github.com/mixofreality-studio/archistrator/systemtests/internal/harness"
 )
 
-// I-UC4 — UC4 (operations / Phase-4) black-box wire coverage per the System Test
-// Plan (.aiarch/state/project.json .testingState.systemTestPlan STP-UC4): a black-
-// box exercise of the operationsManager surface.
+// I-UC4 — UC4 (operations / Phase-4) black-box wire coverage per the System Test Plan
+// (.aiarch/state/project.json .testingState.systemTestPlan STP-UC4): a black-box exercise
+// of the operationsManager surface.
 //
-// IMPLEMENTATION-STATE FINDING (read directly from the server module, not inferred):
-// server/cmd/server/main.go wires operationsManager's two head-state/runtime RAs
-// UNCONDITIONALLY to the GENERATED no-arg STUBS —
-// operatedsystemstate.NewOperatedSystemStateAccess() and
-// operatedruntime.NewOperatedRuntimeAccess() — whose every method returns
-// fwra.New(fwra.Unknown, "not implemented") (operatedsystemstate/contract.gen.go:99-126,
-// operatedruntime/contract.gen.go:72-96). Unlike constructionManager (UC3), operations
-// has NO dry-run profile (no ARCHISTRATOR_OPERATIONS_DRYRUN, no operations_dryrun.go)
-// and NO external HTTP seam a systemtests fake could intercept (operatedSystemState /
-// operatedRuntime are plain in-process Go stubs, not an outbound REST call to a
-// configurable base URL like the GitHub rail construction/design use) — so there is
-// currently NO way, black-box OR fake-augmented, to drive the STP-UC4 happy-path
-// business outcomes (Healthy phase, a real published revision, a real paused/withdrawn
-// transition). fwra.Unknown is non-retryable by default (framework-go/resourceaccess/
-// errors.go DefaultRetryable), so the workflow fails on its FIRST activity attempt —
-// every Temporal-workflow op (DeployAfterConstruction / ReconcileOperatedState /
-// WithdrawSystem / QueryOperatedSystemView) therefore fails FAST and DETERMINISTICALLY
-// (no hang, no flake) with the façade's uniform we.Get()-error mapping to
-// fwmgr.Infrastructure (operationsmanager.go) -> HTTP 503 (statusForKind).
+// IMPLEMENTATION-STATE FINDING (read directly from the server module, not inferred), as of
+// the C-OSA / C-OR construction:
+//   - operatedSystemStateAccess is now the REAL Postgres head-state store
+//     (internal/resourceaccess/operatedsystemstate: NewPostgresOperatedSystemStateAccess,
+//     operated_system head-state row + optimistic-concurrency version + the
+//     operated_system_mutation dedup-first idempotency ledger). It is no longer a stub.
+//   - operatedRuntimeAccess is now the PROFILED RA (internal/resourceaccess/operatedruntime).
+//     The systemtests harness boots the server WITHOUT ARCHISTRATOR_OPERATIONS_DRYRUN, so the
+//     REAL profile is selected: its verbs return an EXPLICIT, non-retryable error (the
+//     GitOps/kubernetes backend is the N-DEP follow-up), which the façade maps to 503 exactly
+//     as the old stub did — but it is now a diagnosable deferral, not a silent stub.
 //
-// What THIS file proves instead, faithfully mapped to the STP-UC4 case ids: the
-// operationsManager wire surface is fully REGISTERED, AUTHENTICATED, and REQUEST-
-// VALIDATED, and the unimplemented-RA gap surfaces as a clean, deterministic 503 —
-// never a panic, a hang, or a silently wrong success — at every op the plan drives.
-// ApplyDelinquencyPolicy is the one exception: it is a QUEUED Signal
-// (SignalWithStartWorkflow, fire-and-forget — operationsmanager.go) that returns
-// success once durably enqueued, independent of whether the enforcement workflow it
-// starts later succeeds; STP-UC4-N1's step 1 (errorExpected=false) is therefore
-// provable as-is even though step 2's Phase assertion is not.
+// What this means for the STP-UC4 wire outcomes, against an operated app that was NEVER
+// seeded (the deploy-after-construction SEEDING handoff — a cross-Manager write / an added
+// verb that populates the operated_system row + its DeployableBundleRef — is a documented
+// open gap on the frozen contract, so no wire path creates a row today):
+//   - deploy (full bundle) and queryOperatedSystemView read head-state FIRST; a missing row
+//     is a real fwra.NotFound, the workflow fails, and the operationsManager façade maps
+//     EVERY workflow-execution failure to fwmgr.Infrastructure → HTTP 503 (operationsmanager.go
+//     we.Get() branches) → harness.ErrUnavailable. Still a deterministic fail-fast, now on a
+//     REAL NotFound rather than a stub's "not implemented".
+//   - reconcileOperatedState scans the in-flight set FIRST (ReadInFlightOperatedApps). With no
+//     seeded apps that scan is a clean, empty SUCCESS (observed=0) — it never reaches the
+//     operatedRuntime reads. This is a genuine improvement the real head-state store enables
+//     and the stub could not: the reconcile tick now runs to completion.
+//   - withdrawSystem reads head-state FIRST; a missing row is the already-withdrawn terminal
+//     post-condition, so WithdrawWorkflow returns SUCCESS (withdrawn=true) — an idempotent
+//     no-op. Also a real improvement over the stub's uniform failure.
+//   - applyDelinquencyPolicy is a QUEUED Signal (SignalWithStartWorkflow, fire-and-forget):
+//     it returns success once durably enqueued, independent of the enforcement workflow.
 //
-// See the traceability table in the commit/PR description for the STP case ↔ test
-// mapping and this exact caveat.
+// A full deploy→reconcile→observe→Healthy happy path remains honestly PENDING on two
+// follow-ups: (1) the operated_system SEEDING handoff (no frozen verb populates the row /
+// DeployableBundleRef), and (2) the operatedRuntime REAL profile's kubernetes/GitOps backend
+// (N-DEP). Under ARCHISTRATOR_OPERATIONS_DRYRUN the operatedRuntime verbs become deterministic
+// successes, but deploy/view still need a seeded row, so the seeding gap is the gating item.
 
 // operationsSurfaceServer boots a plain server (no construction/agentic profile —
 // operationsManager needs no git substrate of its own) with the harness's own
-// auto-provisioned throwaway project-state repo (main_test.go's startServer
-// default), and returns a bound Transport.
+// auto-provisioned throwaway project-state repo (main_test.go's startServer default), and
+// returns a bound Transport. The REAL operatedRuntime profile is in force (no
+// ARCHISTRATOR_OPERATIONS_DRYRUN).
 func operationsSurfaceServer(t *testing.T) harness.Transport {
 	t.Helper()
 	srv := startServer(t, true)
@@ -57,13 +62,13 @@ func operationsSurfaceServer(t *testing.T) harness.Transport {
 	return tr
 }
 
-// Test_UC4_DeployReconcileObserve_UnimplementedRA_FailsFastDeterministically is
-// STP-UC4-H1 (Deploy after construction, reconcile, and observe Healthy), adapted to
-// the CURRENT implementation state (see the file-level finding above): the deploy ->
-// reconcile -> observe chain is wired end to end, and each op fails deterministically
-// on the unimplemented operatedSystemState/operatedRuntime RA rather than the plan's
-// literal Published/Healthy outcome.
-func Test_UC4_DeployReconcileObserve_UnimplementedRA_FailsFastDeterministically(t *testing.T) {
+// Test_UC4_DeployReconcileObserve is STP-UC4-H1 (Deploy after construction, reconcile, and
+// observe Healthy), adapted to the CURRENT implementation state (see the file-level finding):
+// deploy and observe against an unseeded operated app fail fast on a REAL head-state NotFound
+// (→ 503), while the reconcile tick — over the real, empty in-flight scan — now SUCCEEDS
+// (observed=0) rather than failing on a stub. The literal Published/Healthy outcome is gated
+// on the operated_system seeding handoff (documented follow-up).
+func Test_UC4_DeployReconcileObserve(t *testing.T) {
 	requireStack(t)
 	ctx := context.Background()
 	tr := operationsSurfaceServer(t)
@@ -76,28 +81,33 @@ func Test_UC4_DeployReconcileObserve_UnimplementedRA_FailsFastDeterministically(
 		ChangeID:             "chg-deploy-001",
 		RenderedDesiredState: []byte("apiVersion: v1"),
 	})
+	// Unseeded app ⇒ head-state read NotFound ⇒ workflow fails ⇒ façade 503.
 	if !errors.Is(err, harness.ErrUnavailable) {
-		t.Fatalf("deployAfterConstruction: expected ErrUnavailable (unimplemented operatedSystemState RA), got err=%v published=%t revision=%q", err, published, revision)
+		t.Fatalf("deployAfterConstruction (unseeded app): expected ErrUnavailable (head-state NotFound at the façade), got err=%v published=%t revision=%q", err, published, revision)
 	}
 
-	observed, transitions, republished, err := tr.ReconcileOperatedState(ctx, "tick-recon-1", []string{operatedAppID})
-	if !errors.Is(err, harness.ErrUnavailable) {
-		t.Fatalf("reconcileOperatedState: expected ErrUnavailable, got err=%v observed=%d transitions=%d republished=%d", err, observed, transitions, republished)
+	// The reconcile tick over the REAL, empty in-flight scan is a clean success (observed=0):
+	// the head-state store enables what the stub could not.
+	observed, transitions, republished, err := tr.ReconcileOperatedState(ctx, "tick-recon-1", nil)
+	if err != nil {
+		t.Fatalf("reconcileOperatedState (no in-flight apps): expected success, got err=%v", err)
+	}
+	if observed != 0 || transitions != 0 || republished != 0 {
+		t.Fatalf("reconcileOperatedState (no in-flight apps): expected observed=0/transitions=0/republished=0, got observed=%d transitions=%d republished=%d", observed, transitions, republished)
 	}
 
 	view, err := tr.QueryOperatedSystemView(ctx, operatedAppID, "req-view-1")
 	if !errors.Is(err, harness.ErrUnavailable) {
-		t.Fatalf("queryOperatedSystemView: expected ErrUnavailable, got err=%v view=%+v", err, view)
+		t.Fatalf("queryOperatedSystemView (unseeded app): expected ErrUnavailable (head-state NotFound at the façade), got err=%v view=%+v", err, view)
 	}
 }
 
-// Test_UC4_ApplyDelinquencyPolicy_QueuedSignalSucceeds is STP-UC4-N1 (Delinquency
-// policy pauses the operated system), adapted: the queued Manager->Manager signal
-// itself is durably enqueued and returns success (provable — it never touches the
-// unimplemented RA, only SignalWithStartWorkflow), which is exactly what STP-UC4-N1's
-// step 1 asserts (errorExpected=false). The subsequent read-back
-// (QueryOperatedSystemView, step 2's Phase=paused-not-withdrawn assertion) hits the
-// same unimplemented-RA gap as every other Temporal-workflow op in this file.
+// Test_UC4_ApplyDelinquencyPolicy_QueuedSignalSucceeds is STP-UC4-N1 (Delinquency policy
+// pauses the operated system), adapted: the queued Manager→Manager signal is durably enqueued
+// and returns success (it never touches head-state on the request path, only
+// SignalWithStartWorkflow), which is exactly what STP-UC4-N1's step 1 asserts. The subsequent
+// read-back against an unseeded app hits the real head-state NotFound (→ 503), as step 2's
+// Phase=paused assertion needs a seeded, enforced row (seeding-handoff follow-up).
 func Test_UC4_ApplyDelinquencyPolicy_QueuedSignalSucceeds(t *testing.T) {
 	requireStack(t)
 	ctx := context.Background()
@@ -111,17 +121,16 @@ func Test_UC4_ApplyDelinquencyPolicy_QueuedSignalSucceeds(t *testing.T) {
 	operatedAppID := harness.NewProjectID()
 	view, err := tr.QueryOperatedSystemView(ctx, operatedAppID, "req-view-2")
 	if !errors.Is(err, harness.ErrUnavailable) {
-		t.Fatalf("queryOperatedSystemView after delinquency signal: expected ErrUnavailable, got err=%v view=%+v", err, view)
+		t.Fatalf("queryOperatedSystemView after delinquency signal (unseeded app): expected ErrUnavailable, got err=%v view=%+v", err, view)
 	}
 }
 
-// Test_UC4_DeployAfterConstruction_DuplicateChangeID_SameDeterministicOutcome is
-// STP-UC4-B1 (Duplicate DeployAfterConstruction with the same changeId is
-// idempotent), adapted: a replayed changeId must never produce a DIVERGENT outcome.
-// Since neither call can succeed against the unimplemented RA, "no divergence" means
-// both calls fail IDENTICALLY (same ErrUnavailable, published=false both times, no
-// revision minted) — a real, if weaker, replay-safety proof: the second call is not a
-// crash, a hang, nor a different error from the first.
+// Test_UC4_DeployAfterConstruction_DuplicateChangeID_SameDeterministicOutcome is STP-UC4-B1
+// (Duplicate DeployAfterConstruction with the same changeId is idempotent), adapted: a
+// replayed changeId must never produce a DIVERGENT outcome. Against an unseeded app neither
+// call can succeed (head-state NotFound → 503), so "no divergence" means both calls fail
+// IDENTICALLY (same ErrUnavailable, published=false, no revision) — a real, if weaker,
+// replay-safety proof.
 func Test_UC4_DeployAfterConstruction_DuplicateChangeID_SameDeterministicOutcome(t *testing.T) {
 	requireStack(t)
 	ctx := context.Background()
@@ -150,12 +159,12 @@ func Test_UC4_DeployAfterConstruction_DuplicateChangeID_SameDeterministicOutcome
 	}
 }
 
-// Test_UC4_WithdrawSystem_UnimplementedRA_ReconcileAlsoFailsFast is STP-UC4-N2
-// (Withdrawal is terminal; reconcile does not resurrect a withdrawn app), adapted:
-// both the withdrawal and the post-withdrawal reconcile fail on the same
-// unimplemented-RA gap, deterministically and without a resurrection-shaped silent
-// success — the strongest claim provable without operatedSystemState/operatedRuntime.
-func Test_UC4_WithdrawSystem_UnimplementedRA_ReconcileAlsoFailsFast(t *testing.T) {
+// Test_UC4_WithdrawSystem_UnseededIsIdempotentNoOp is STP-UC4-N2 (Withdrawal is terminal;
+// reconcile does not resurrect a withdrawn app), adapted to the real head-state store: an
+// unseeded app has no row, which IS the already-withdrawn terminal post-condition, so
+// withdrawSystem returns an idempotent no-op SUCCESS (withdrawn=true). The follow-up reconcile
+// then runs its empty in-flight scan to a clean success — no resurrection, no stub failure.
+func Test_UC4_WithdrawSystem_UnseededIsIdempotentNoOp(t *testing.T) {
 	requireStack(t)
 	ctx := context.Background()
 	tr := operationsSurfaceServer(t)
@@ -163,12 +172,18 @@ func Test_UC4_WithdrawSystem_UnimplementedRA_ReconcileAlsoFailsFast(t *testing.T
 	operatedAppID := harness.NewProjectID()
 
 	withdrawn, err := tr.WithdrawSystem(ctx, operatedAppID, "chg-withdraw-1", "Customer offboarded.")
-	if !errors.Is(err, harness.ErrUnavailable) {
-		t.Fatalf("withdrawSystem: expected ErrUnavailable, got err=%v withdrawn=%t", err, withdrawn)
+	if err != nil {
+		t.Fatalf("withdrawSystem (unseeded app): expected idempotent no-op success, got err=%v withdrawn=%t", err, withdrawn)
+	}
+	if !withdrawn {
+		t.Fatalf("withdrawSystem (unseeded app): expected withdrawn=true (already-withdrawn terminal), got false")
 	}
 
-	observed, transitions, republished, err := tr.ReconcileOperatedState(ctx, "tick-recon-post-wd", []string{operatedAppID})
-	if !errors.Is(err, harness.ErrUnavailable) {
-		t.Fatalf("reconcileOperatedState after withdraw: expected ErrUnavailable, got err=%v observed=%d transitions=%d republished=%d", err, observed, transitions, republished)
+	observed, transitions, republished, err := tr.ReconcileOperatedState(ctx, "tick-recon-post-wd", nil)
+	if err != nil {
+		t.Fatalf("reconcileOperatedState after withdraw: expected success, got err=%v", err)
+	}
+	if observed != 0 || transitions != 0 || republished != 0 {
+		t.Fatalf("reconcileOperatedState after withdraw: expected all-zero counts (no resurrection), got observed=%d transitions=%d republished=%d", observed, transitions, republished)
 	}
 }

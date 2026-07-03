@@ -108,6 +108,23 @@ type config struct {
 	// Worker as before). NEVER the production default — a config-gated demo/dogfood mode.
 	ConstructionDryRun bool
 
+	// OperationsDryRun (ARCHISTRATOR_OPERATIONS_DRYRUN) selects the operatedRuntimeAccess
+	// LOCAL/dry-run profile for the UC4 operations Manager (deterministic, side-effect-free
+	// deploy/observe/withdraw — no GitOps commit, no kubernetes call, no observability
+	// query). Default false selects the REAL GitOps/kubernetes profile, which is a
+	// fail-fast skeleton until that backend lands (follow-up N-DEP): its verbs return an
+	// explicit not-implemented error rather than acting. Mirrors ConstructionDryRun. NEVER
+	// the production default once the real backend exists — a config-gated demo/dogfood mode.
+	// operatedSystemStateAccess is always the real Postgres head-state store (Postgres is a
+	// hard dependency already), independent of this flag.
+	OperationsDryRun bool
+
+	// OperatedRuntimeGitOpsRepoURL (ARCHISTRATOR_OPERATED_RUNTIME_GITOPS_REPO_URL) is the
+	// REAL operatedRuntime profile's GitOps target — the repo rendered desired state is
+	// committed to (ArgoCD watches it). Empty until the N-DEP backend lands; surfaced in the
+	// real profile's not-implemented diagnostic. Unused by the LOCAL/dry-run profile.
+	OperatedRuntimeGitOpsRepoURL string
+
 	// ConstructionEscalationTimeout (ARCHISTRATOR_CONSTRUCTION_ESCALATION_TIMEOUT)
 	// bounds how long an escalated / ArchitectOnly construction activity waits for an
 	// operator override before it terminally FAILS (head-state EscalationTimedOut)
@@ -169,6 +186,9 @@ func loadConfig() (config, error) {
 		ConstructionRef:          env("ARCHISTRATOR_CONSTRUCTION_REF", "main"),
 		ConstructionTaskQueue:    env("ARCHISTRATOR_CONSTRUCTION_TASK_QUEUE", "construction"),
 		ConstructionDryRun:       envBool("ARCHISTRATOR_CONSTRUCTION_DRYRUN", false),
+
+		OperationsDryRun:             envBool("ARCHISTRATOR_OPERATIONS_DRYRUN", false),
+		OperatedRuntimeGitOpsRepoURL: env("ARCHISTRATOR_OPERATED_RUNTIME_GITOPS_REPO_URL", ""),
 
 		ConstructionEscalationTimeout: envDuration("ARCHISTRATOR_CONSTRUCTION_ESCALATION_TIMEOUT", 30*time.Minute),
 		ConstructionInterventionMode:  env("ARCHISTRATOR_CONSTRUCTION_INTERVENTION_MODE", "tiered"),

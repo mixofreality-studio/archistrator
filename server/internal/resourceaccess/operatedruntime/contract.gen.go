@@ -58,40 +58,9 @@ type OperatedRuntimeAccess interface {
 	Withdraw(rc fwra.Context, appID uuid.UUID, idempotencyKey fwra.IdempotencyKey) error
 }
 
-// stubOperatedRuntimeAccess is the generated not-implemented OperatedRuntimeAccess. The component is contracted
-// but not yet built, so every method returns a not-implemented error; the bodies
-// are replaced when the component is constructed.
-type stubOperatedRuntimeAccess struct{}
-
-// NewOperatedRuntimeAccess returns the not-implemented OperatedRuntimeAccess. It takes no arguments
-// (the component has no infrastructure binding yet).
-func NewOperatedRuntimeAccess() OperatedRuntimeAccess { return &stubOperatedRuntimeAccess{} }
-
-var _ OperatedRuntimeAccess = (*stubOperatedRuntimeAccess)(nil)
-
-func (*stubOperatedRuntimeAccess) GetApplicationHealth(_ fwra.Context, _ uuid.UUID) (RuntimeStatus, error) {
-	var zero RuntimeStatus
-	return zero, fwra.New(fwra.Unknown, "not implemented")
-}
-
-func (*stubOperatedRuntimeAccess) GetSloStatus(_ fwra.Context, _ uuid.UUID) (SloStatus, error) {
-	var zero SloStatus
-	return zero, fwra.New(fwra.Unknown, "not implemented")
-}
-
-func (*stubOperatedRuntimeAccess) PublishDesiredState(_ fwra.Context, _ uuid.UUID, _ RuntimeDesiredState, _ fwra.IdempotencyKey) error {
-	return fwra.New(fwra.Unknown, "not implemented")
-}
-
-func (*stubOperatedRuntimeAccess) ReadComputeAttribution(_ fwra.Context, _ uuid.UUID, _ AttributionWindow) (ComputeAttribution, error) {
-	var zero ComputeAttribution
-	return zero, fwra.New(fwra.Unknown, "not implemented")
-}
-
-func (*stubOperatedRuntimeAccess) WirePaymentConfig(_ fwra.Context, _ uuid.UUID, _ GatewayBinding, _ fwra.IdempotencyKey) error {
-	return fwra.New(fwra.Unknown, "not implemented")
-}
-
-func (*stubOperatedRuntimeAccess) Withdraw(_ fwra.Context, _ uuid.UUID, _ fwra.IdempotencyKey) error {
-	return fwra.New(fwra.Unknown, "not implemented")
+// NewProfiledOperatedRuntimeAccess constructs the Profiled-backed OperatedRuntimeAccess, delegating to the hand-written,
+// unexported builder newProfiledOperatedRuntimeAccess in the RA package (which owns the stateful setup).
+// The constructor returns the interface, so the concrete impl stays unexported.
+func NewProfiledOperatedRuntimeAccess(profile RuntimeProfile, config RuntimeConfig) (OperatedRuntimeAccess, error) {
+	return newProfiledOperatedRuntimeAccess(profile, config)
 }

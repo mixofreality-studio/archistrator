@@ -544,6 +544,22 @@ var infraBindings = map[string]infraBinding{
 			{name: "delegate", typ: "WorkerAccess"},
 		},
 	},
+
+	// operatedRuntime → Profiled. The tenant runtime (GitOps/kubernetes + observability)
+	// has no framework infrastructure client yet, so — like Replay — the binding takes
+	// package-local param types (RuntimeProfile selector + RuntimeConfig) rather than a
+	// framework client. The hand-written builder selects the deterministic LOCAL/dry-run
+	// impl (no backing infra) or the REAL impl skeleton (fails fast / surfaces an explicit
+	// Unavailable naming the kubernetes follow-up until that backend lands). Construction
+	// can fail (real-profile config validation), so returnsError.
+	"Profiled": {
+		delegated:    true,
+		returnsError: true,
+		params: []infraField{
+			{name: "profile", typ: "RuntimeProfile"},
+			{name: "config", typ: "RuntimeConfig"},
+		},
+	},
 }
 
 // emitRAImpl writes, for each infra the ResourceAccess uses, a concrete
