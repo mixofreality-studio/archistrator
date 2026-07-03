@@ -133,11 +133,12 @@ const (
 )
 
 type ConstructionProgress struct {
-	Week           int64   `json:"Week"`
-	TotalWeeks     int64   `json:"TotalWeeks"`
-	HandOffModel   string  `json:"HandOffModel"`
-	SupervisionCap int64   `json:"SupervisionCap"`
-	EV             EVCurve `json:"EV"`
+	Week           int64     `json:"Week"`
+	TotalWeeks     int64     `json:"TotalWeeks"`
+	HandOffModel   string    `json:"HandOffModel"`
+	SupervisionCap int64     `json:"SupervisionCap"`
+	EV             EVCurve   `json:"EV"`
+	Points         []EvPoint `json:"points,omitempty"`
 }
 
 type ContractOp struct {
@@ -184,6 +185,14 @@ type EVCurve struct {
 	Earned  []float64 `json:"earned"`
 	Planned []float64 `json:"planned"`
 	SPI     float64   `json:"spi"`
+}
+
+type EvPoint struct {
+	Week       int64    `json:"week"`
+	EarnedPct  float64  `json:"earnedPct"`
+	PlannedPct float64  `json:"plannedPct"`
+	Note       string   `json:"note"`
+	AcPct      *float64 `json:"acPct,omitempty"`
 }
 
 type FailureReason int

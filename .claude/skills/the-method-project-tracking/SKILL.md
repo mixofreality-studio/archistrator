@@ -48,6 +48,38 @@ A weekly tracking record appended to the project state — the binary phase exit
 
 `<NN>` is the construction week number, zero-padded. Week 01 is the first week after the hand-off completes; week 02 is the next, etc.
 
+### The weekly earned-value point store — `.constructionProgress.points`
+
+The recorded weekly observation series lives in the typed slot
+`.constructionProgress.points` (an `[]EvPoint`, generated from the
+`projectStateAccess` contract `$defs` → `contract.gen.go`; surfaced read-only to
+the SPA through the `systemDesignManager` view and plotted by
+`EvTrackingChart`). This is where the week's earned value **lives** — not a
+commit message. Each week appends exactly one point:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `week` | int | Construction week number (`<NN>`, matches `.constructionProgress.Week`) |
+| `earnedPct` | float64 | **Actual EV to date** (Step 3, App A §2) — what the team has actually earned, 0–100 |
+| `plannedPct` | float64 | Planned EV at this date (Step 5 blue curve) from the SDP-chosen option's plan basis, 0–100 |
+| `note` | string | Honesty disclosure (see below) — the plan basis, what the EV reflects, and any trend caveat |
+| `acPct` | float64 (optional) | Actual cost as % of BAC (Step 4 red curve) — the AI-token cost basis; omit until a spend number exists |
+
+**Honesty rules for the point (non-negotiable):**
+
+- `earnedPct` is the **actual cumulative EV** (App A §2/§3), never a feature count
+  or a wish. If tracking started late, `earnedPct` still reflects the cumulative
+  integration to date — and the `note` **must** say so, so the reader does not
+  mistake a late-start jump for velocity.
+- `plannedPct` is the plan-of-record basis at this date (the chosen option's
+  planned EV curve). State the basis in the `note` (e.g. *"compressed-option
+  linear plan basis at nominal week 1 (1/49)"*). Do not silently reconcile a
+  late-start `earnedPct` against a week-1 `plannedPct` — disclose the mismatch.
+- **No trend until ≥ 4 points** (App A §4). The `note` on any point recorded
+  before the 4th must say so; do not draw an EAC projection from < 4 points.
+- Never absorb variance silently: if `earnedPct < plannedPct`, the `note` names
+  the App A §5 pattern and the corrective action; it does not paper over it.
+
 ## Procedure
 
 ### Step 1 — Walk every activity in `.network` and update its `.activityConstruction` status
@@ -187,7 +219,7 @@ Items 4 and 5 are non-waivable.
 
 ### Step 10 — Record the week's tracking point
 
-The canonical form is the typed tracking record in `project.json` (the appended earned-value point + projection, with the binary phase exits already landed in `.activityConstruction`). The markdown below is the equivalent **human rendering** of that record — not a `designs/.../log/week-<NN>.md` file:
+The canonical form is the typed tracking record in `project.json`: the earned-value point appended to `.constructionProgress.points` (shape + honesty rules under **Output** above), with the binary phase exits already landed in `.activityConstruction`. The markdown below is the equivalent **human rendering** of that record — not a `designs/.../log/week-<NN>.md` file:
 
 ```markdown
 # Tracking — Week <NN> — <Product>

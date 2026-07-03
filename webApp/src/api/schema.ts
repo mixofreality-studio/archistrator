@@ -731,6 +731,7 @@ export interface components {
             SupervisionCap: number;
             TotalWeeks: number;
             Week: number;
+            points?: null | components["schemas"]["SystemDesignEvPoint"][];
         };
         SystemDesignContractOp: {
             Inputs: null | components["schemas"]["SystemDesignContractStruct"][];
@@ -774,6 +775,13 @@ export interface components {
         SystemDesignErrorResponse: {
             code: string;
             error: string;
+        };
+        SystemDesignEvPoint: {
+            acPct?: number;
+            earnedPct: number;
+            note: string;
+            plannedPct: number;
+            week: number;
         };
         /** @enum {integer} */
         SystemDesignFailureReason: 0 | 1 | 2 | 3 | 4 | 5;

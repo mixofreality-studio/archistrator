@@ -1057,6 +1057,12 @@ components:
                     type: integer
                 Week:
                     type: integer
+                points:
+                    items:
+                        $ref: '#/components/schemas/SystemDesignEvPoint'
+                    type:
+                        - "null"
+                        - array
             required:
                 - Week
                 - TotalWeeks
@@ -1211,6 +1217,25 @@ components:
             required:
                 - error
                 - code
+            type: object
+        SystemDesignEvPoint:
+            additionalProperties: false
+            properties:
+                acPct:
+                    type: number
+                earnedPct:
+                    type: number
+                note:
+                    type: string
+                plannedPct:
+                    type: number
+                week:
+                    type: integer
+            required:
+                - week
+                - earnedPct
+                - plannedPct
+                - note
             type: object
         SystemDesignFailureReason:
             enum:

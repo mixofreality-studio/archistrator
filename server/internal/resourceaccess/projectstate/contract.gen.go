@@ -226,10 +226,11 @@ const (
 )
 
 type ConstructionProgress struct {
-	Week           int    `json:"Week"`
-	TotalWeeks     int    `json:"TotalWeeks"`
-	HandOffModel   string `json:"HandOffModel"`
-	SupervisionCap int    `json:"SupervisionCap"`
+	Week           int       `json:"Week"`
+	TotalWeeks     int       `json:"TotalWeeks"`
+	HandOffModel   string    `json:"HandOffModel"`
+	SupervisionCap int       `json:"SupervisionCap"`
+	Points         []EvPoint `json:"points,omitempty"`
 }
 
 type ContainerInstance struct {
@@ -323,6 +324,14 @@ const (
 	EdgeControlFlow EdgeKind = 0
 	EdgeGuardedFlow EdgeKind = 1
 )
+
+type EvPoint struct {
+	Week       int      `json:"week"`
+	EarnedPct  float64  `json:"earnedPct"`
+	PlannedPct float64  `json:"plannedPct"`
+	Note       string   `json:"note"`
+	AcPct      *float64 `json:"acPct,omitempty"`
+}
 
 type FailureReason int
 

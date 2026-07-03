@@ -366,12 +366,24 @@ export interface EvCurves {
   spi: number;
 }
 
+// EvPoint is one recorded weekly earned-value observation (ground truth), as
+// captured by the-method-project-tracking into .constructionProgress.points.
+// Distinct from EvCurves, which is the estimator-derived projection.
+export interface EvPoint {
+  week: number;
+  earnedPct: number;
+  plannedPct: number;
+  note: string;
+  acPct?: number;
+}
+
 export interface ConstructionProgress {
   week: number;
   totalWeeks: number;
   handOffModel: string;
   supervisionCap: number;
   ev: EvCurves;
+  points?: EvPoint[];
 }
 
 // ---------------------------------------------------------------------------

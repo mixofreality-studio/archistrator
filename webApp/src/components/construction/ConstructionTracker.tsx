@@ -266,6 +266,7 @@ export function ConstructionTracker({
 
   const ev = constructionProgress?.ev;
   const spi = ev?.spi;
+  const evPoints = constructionProgress?.points;
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -312,7 +313,7 @@ export function ConstructionTracker({
       </Paper>
 
       {/* ---- EV tracking chart ---------------------------------------------- */}
-      {ev !== undefined && ev.weeks.length > 0 && (
+      {ev !== undefined && (ev.weeks.length > 0 || (evPoints?.length ?? 0) > 0) && (
         <Paper sx={{ p: 2.5 }}>
           <Box
             sx={{
@@ -338,7 +339,7 @@ export function ConstructionTracker({
             <Legend dashed color={t.accent2} label="planned EV (PV)" t={t} />
             <Legend color={t.committedDot} label="progress / EV" t={t} />
           </Box>
-          <EvTrackingChart ev={ev} />
+          <EvTrackingChart ev={ev} points={evPoints} />
         </Paper>
       )}
 

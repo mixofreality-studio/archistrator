@@ -7,7 +7,7 @@
  */
 import type { ReactNode } from 'react';
 import Box from '@mui/material/Box';
-import type { EvCurves } from '../../api/types';
+import type { EvCurves, EvPoint } from '../../api/types';
 import { useTokens } from '../../theme/ThemeContext';
 
 const W = 760;
@@ -25,11 +25,30 @@ function toPath(pts: readonly Pt[]): string {
   return pts.map(([x, y], i) => `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
 }
 
-export function EvTrackingChart({ ev }: { ev: EvCurves }): ReactNode {
+export function EvTrackingChart({
+  ev,
+  points,
+}: {
+  ev: EvCurves;
+  points?: readonly EvPoint[] | undefined;
+}): ReactNode {
   const t = useTokens();
 
-  const weeks = ev.weeks;
-  const maxWeek = Math.max(weeks.length > 0 ? Math.max(...weeks) : 0, 1);
+  // When the-method-project-tracking has recorded real weekly observations
+  // (.constructionProgress.points), the green/earned series plots those ground
+  // truth points; otherwise it falls back to the estimator-derived EV curve.
+  const pts = points ?? [];
+  const hasPts = pts.length > 0;
+  const evWeeks = ev.weeks;
+
+  // X-axis grid: the estimator's week grid drives labels; if it is empty, fall
+  // back to the recorded points' weeks so a points-only series still gets an axis.
+  const weeks = evWeeks.length > 0 ? evWeeks : pts.map((p) => p.week);
+  const maxWeek = Math.max(
+    weeks.length > 0 ? Math.max(...weeks) : 0,
+    hasPts ? Math.max(...pts.map((p) => p.week)) : 0,
+    1
+  );
   const sx = (w: number): number => PAD_L + (w / maxWeek) * PLOT_W;
   const sy = (v: number): number => PAD_T + (1 - v / 100) * PLOT_H;
 
@@ -45,13 +64,22 @@ export function EvTrackingChart({ ev }: { ev: EvCurves }): ReactNode {
     weeks.map((_, i) => i).filter((i) => i % labelInterval === 0 || i === weeks.length - 1)
   );
 
-  const plannedPts: Pt[] = weeks.map((w, i) => [sx(w), sy(ev.planned[i] ?? 0)]);
+  const plannedPts: Pt[] =
+    evWeeks.length > 0
+      ? evWeeks.map((w, i) => [sx(w), sy(ev.planned[i] ?? 0)])
+      : pts.map((p) => [sx(p.week), sy(p.plannedPct)]);
 
   const earnedPts: Pt[] = [];
-  for (let i = 0; i < weeks.length; i++) {
-    const e = ev.earned[i];
-    if (e !== undefined) {
-      earnedPts.push([sx(weeks[i] ?? 0), sy(e)]);
+  if (hasPts) {
+    for (const p of pts) {
+      earnedPts.push([sx(p.week), sy(p.earnedPct)]);
+    }
+  } else {
+    for (let i = 0; i < evWeeks.length; i++) {
+      const e = ev.earned[i];
+      if (e !== undefined) {
+        earnedPts.push([sx(evWeeks[i] ?? 0), sy(e)]);
+      }
     }
   }
 

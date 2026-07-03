@@ -8559,7 +8559,15 @@
     "Week": 1,
     "TotalWeeks": 49,
     "HandOffModel": "Senior hand-off",
-    "SupervisionCap": 3
+    "SupervisionCap": 3,
+    "points": [
+      {
+        "week": 1,
+        "earnedPct": 90.3,
+        "plannedPct": 2.0,
+        "note": "first tracking point cut at week 1 of 49 (tracking started late; EV reflects cumulative integration to date, 935/1035 effort-days; plannedPct is the compressed-option linear plan basis at nominal week 1 (1/49); no trend until >=4 points)"
+      }
+    ]
   },
   "serviceContracts": {
     "artifactAccess": {
@@ -14417,6 +14425,15 @@
             "SupervisionCap": {
               "type": "integer",
               "x-go-type": "int"
+            },
+            "points": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/EvPoint"
+              }
             }
           },
           "required": [
@@ -14424,6 +14441,34 @@
             "TotalWeeks",
             "HandOffModel",
             "SupervisionCap"
+          ],
+          "additionalProperties": false
+        },
+        "EvPoint": {
+          "type": "object",
+          "properties": {
+            "week": {
+              "type": "integer",
+              "x-go-type": "int"
+            },
+            "earnedPct": {
+              "type": "number"
+            },
+            "plannedPct": {
+              "type": "number"
+            },
+            "note": {
+              "type": "string"
+            },
+            "acPct": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "week",
+            "earnedPct",
+            "plannedPct",
+            "note"
           ],
           "additionalProperties": false
         },
@@ -18603,6 +18648,15 @@
             },
             "EV": {
               "$ref": "#/$defs/EVCurve"
+            },
+            "points": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/EvPoint"
+              }
             }
           },
           "required": [
@@ -18611,6 +18665,33 @@
             "HandOffModel",
             "SupervisionCap",
             "EV"
+          ],
+          "additionalProperties": false
+        },
+        "EvPoint": {
+          "type": "object",
+          "properties": {
+            "week": {
+              "type": "integer"
+            },
+            "earnedPct": {
+              "type": "number"
+            },
+            "plannedPct": {
+              "type": "number"
+            },
+            "note": {
+              "type": "string"
+            },
+            "acPct": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "week",
+            "earnedPct",
+            "plannedPct",
+            "note"
           ],
           "additionalProperties": false
         },

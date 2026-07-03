@@ -604,7 +604,29 @@ func (m *systemDesignManager) constructionProgressToContract(p projectstate.Proj
 		HandOffModel:   cp.HandOffModel,
 		SupervisionCap: int64(cp.SupervisionCap),
 		EV:             m.computeEVAtRead(p, int64(cp.TotalWeeks)),
+		Points:         evPointsToContract(cp.Points),
 	}
+}
+
+// evPointsToContract surfaces the recorded weekly earned-value observation series
+// (the ground-truth points captured by the-method-project-tracking, stored on
+// .constructionProgress.points) onto the read view. Distinct from computeEVAtRead's
+// estimator-derived curve: these are what the team ACTUALLY earned each week.
+func evPointsToContract(pts []projectstate.EvPoint) []EvPoint {
+	if len(pts) == 0 {
+		return nil
+	}
+	out := make([]EvPoint, 0, len(pts))
+	for _, p := range pts {
+		out = append(out, EvPoint{
+			Week:       int64(p.Week),
+			EarnedPct:  p.EarnedPct,
+			PlannedPct: p.PlannedPct,
+			Note:       p.Note,
+			AcPct:      p.AcPct,
+		})
+	}
+	return out
 }
 
 // computeEVAtRead computes the EV/SPI earned-value curve via the

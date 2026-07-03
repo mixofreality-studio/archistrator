@@ -30,6 +30,7 @@ import type {
   ConstructionProgress,
   ConstructionRow,
   ConstructionSessionState,
+  EvPoint,
   Finding,
   GitRow,
   GitRows,
@@ -200,9 +201,21 @@ function mapServiceContract(w: Schemas['SystemDesignServiceContract']): ServiceC
   };
 }
 
+function mapEvPoint(w: Schemas['SystemDesignEvPoint']): EvPoint {
+  return {
+    week: w.week,
+    earnedPct: w.earnedPct,
+    plannedPct: w.plannedPct,
+    note: w.note,
+    ...(w.acPct !== undefined ? { acPct: w.acPct } : {}),
+  };
+}
+
 function mapConstructionProgress(
   w: Schemas['SystemDesignConstructionProgress']
 ): ConstructionProgress {
+  // Go nil slices serialize as JSON `null` (not omitted), so guard null too.
+  const points = w.points ?? undefined;
   return {
     week: w.Week,
     totalWeeks: w.TotalWeeks,
@@ -214,6 +227,9 @@ function mapConstructionProgress(
       planned: w.EV.planned ?? [],
       spi: w.EV.spi,
     },
+    ...(points !== undefined && points.length > 0
+      ? { points: points.map(mapEvPoint) }
+      : {}),
   };
 }
 
