@@ -6167,6 +6167,52 @@
         ],
         "deployment": {
           "deliveryStyle": "cloud",
+          "containers": [
+            {
+              "key": "archistrator-server",
+              "name": "archistrator-server",
+              "technology": "Go · distroless",
+              "description": "Archistrator Go server: HTTP API + embedded Temporal worker + all Managers/Engines/ResourceAccess seams",
+              "components": [
+                "MCPClient",
+                "SchedulerClient",
+                "BillingManager",
+                "ConstructionManager",
+                "OperationsManager",
+                "ProjectDesignManager",
+                "SystemDesignManager",
+                "AutoscalerEngine",
+                "BillingEngine",
+                "ConstructionEstimationEngine",
+                "HandOffEngine",
+                "InterventionEngine",
+                "OperationEstimationEngine",
+                "ReviewEngine",
+                "BillingGatewayAccess",
+                "BillingStateAccess",
+                "ConstructionPipelineAccess",
+                "DurableExecutionAccess",
+                "OperatedRuntimeAccess",
+                "OperatedSystemStateAccess",
+                "ProjectStateAccess",
+                "SourceControlAccess",
+                "UsageAccess",
+                "WorkItemAccess",
+                "Diagnostics",
+                "Logging",
+                "Security"
+              ]
+            },
+            {
+              "key": "archistrator-webapp",
+              "name": "archistrator-webapp",
+              "technology": "nginx · React SPA",
+              "description": "Static React SPA bundle served by nginx",
+              "components": [
+                "WebClient"
+              ]
+            }
+          ],
           "environments": [
             {
               "profile": "cloud",
@@ -6175,178 +6221,143 @@
                 {
                   "name": "Mixofreality Kubernetes Cluster",
                   "technology": "k8s",
+                  "description": "",
+                  "instances": 0,
+                  "tags": [],
                   "children": [
+                    {
+                      "name": "gtd namespace",
+                      "technology": "k8s-namespace",
+                      "description": "",
+                      "instances": 0,
+                      "tags": [],
+                      "children": [],
+                      "infrastructureNodes": [
+                        {
+                          "name": "Envoy Gateway",
+                          "technology": "Envoy Gateway / Gateway API",
+                          "description": "Edge: TLS via cert-manager + Keycloak OIDC at the edge",
+                          "tags": []
+                        }
+                      ],
+                      "containerInstances": [],
+                      "softwareSystemInstances": []
+                    },
                     {
                       "name": "archistrator namespace",
                       "technology": "k8s-namespace",
-                      "children": [],
-                      "instances": [
+                      "description": "",
+                      "instances": 0,
+                      "tags": [],
+                      "children": [
                         {
-                          "componentId": "web-client",
-                          "note": "HTTP REST handler — browser SPA entry channel"
+                          "name": "server Deployment",
+                          "technology": "",
+                          "description": "",
+                          "instances": 2,
+                          "tags": [],
+                          "children": [],
+                          "infrastructureNodes": [],
+                          "containerInstances": [
+                            {
+                              "containerKey": "archistrator-server",
+                              "note": "",
+                              "tags": []
+                            }
+                          ],
+                          "softwareSystemInstances": []
                         },
                         {
-                          "componentId": "mcp-client",
-                          "note": "MCP-over-HTTP handler — agentic entry channel"
-                        },
-                        {
-                          "componentId": "scheduler-client",
-                          "note": "Registers Temporal Schedules at startup (nextActivity, replanSweep, operatedStateReconcile, closeBillingPeriod, billingRetrySweep)"
-                        },
-                        {
-                          "componentId": "project-manager",
-                          "note": "Thin catalog Manager: createProject / listProjects / getProject (no durable workflow)"
-                        },
-                        {
-                          "componentId": "system-design-manager",
-                          "note": "SystemDesignPhaseWorkflow — Temporal Worker on systemDesign task queue"
-                        },
-                        {
-                          "componentId": "project-design-manager",
-                          "note": "ProjectDesignPhaseWorkflow — Temporal Worker on projectDesign task queue"
-                        },
-                        {
-                          "componentId": "construction-manager",
-                          "note": "ConstructionPhaseWorkflow — Temporal Worker on construction task queue"
-                        },
-                        {
-                          "componentId": "operations-manager",
-                          "note": "OperationsWorkflow — Temporal Worker on operations task queue"
-                        },
-                        {
-                          "componentId": "billing-manager",
-                          "note": "BillingWorkflow — Temporal Worker on billing task queue"
-                        },
-                        {
-                          "componentId": "construction-estimation-engine",
-                          "note": "Stateless Engine — in-process, called from workflow code"
-                        },
-                        {
-                          "componentId": "operation-estimation-engine",
-                          "note": "Stateless Engine — in-process, called from workflow code"
-                        },
-                        {
-                          "componentId": "billing-engine",
-                          "note": "Stateless Engine — ServicePricing Strategy pivot"
-                        },
-                        {
-                          "componentId": "hand-off-engine",
-                          "note": "Stateless Engine — HandOffPolicy Strategy pivot"
-                        },
-                        {
-                          "componentId": "intervention-engine",
-                          "note": "Stateless Engine — InterventionPolicy Strategy pivot"
-                        },
-                        {
-                          "componentId": "autoscaler-engine",
-                          "note": "Stateless Engine — AutoscalerPolicy Strategy pivot"
-                        },
-                        {
-                          "componentId": "review-engine",
-                          "note": "Stateless Engine — ReviewPolicy Strategy pivot"
-                        },
-                        {
-                          "componentId": "project-state-access",
-                          "note": "Two contracts over projectGitRepo: typed Phase-1/2 head-state (C1) + Phase-3 staging/retrieval (C2). git ref CAS + in-repo applied_mutation dedup."
-                        },
-                        {
-                          "componentId": "operated-system-state-access",
-                          "note": "Postgres head-state aggregate: version-guarded UPDATE + applied_mutation dedup"
-                        },
-                        {
-                          "componentId": "billing-state-access",
-                          "note": "Postgres head-state aggregate: version-guarded UPDATE + applied_mutation dedup"
-                        },
-                        {
-                          "componentId": "work-item-access",
-                          "note": "Write-mostly v1 — mirrors Method activities to GitHub Issues (WorkTracking volatility)"
-                        },
-                        {
-                          "componentId": "construction-pipeline-access",
-                          "note": "workflow_dispatch to user's GitHub Actions running claude-code-action; observe + cancel verbs"
-                        },
-                        {
-                          "componentId": "operated-runtime-access",
-                          "note": "GitOps write path (publishDesiredState to manifests repo); read path (getApplicationHealth, getSloStatus, readComputeAttribution)"
-                        },
-                        {
-                          "componentId": "usage-access",
-                          "note": "Append-only Postgres ledger: hosting/compute usage events per customer"
-                        },
-                        {
-                          "componentId": "billing-gateway-access",
-                          "note": "Stripe ordinary vendor charge — chargeUser with Manager-derived idempotency key"
-                        },
-                        {
-                          "componentId": "source-control-access",
-                          "note": "GitHub App: installAuthorizeApp, provisionProjectRepo, writeActionsSecret, commitAgenticWorkflowFile, branch/PR/merge verbs"
-                        },
-                        {
-                          "componentId": "durable-execution-access",
-                          "note": "Temporal Go SDK: executeWorkflow / signal / query / timer / schedule / spawn — frozen portability boundary"
+                          "name": "webapp Deployment",
+                          "technology": "",
+                          "description": "",
+                          "instances": 2,
+                          "tags": [],
+                          "children": [],
+                          "infrastructureNodes": [],
+                          "containerInstances": [
+                            {
+                              "containerKey": "archistrator-webapp",
+                              "note": "",
+                              "tags": []
+                            }
+                          ],
+                          "softwareSystemInstances": []
                         }
-                      ]
+                      ],
+                      "infrastructureNodes": [
+                        {
+                          "name": "archistrator-postgres",
+                          "technology": "CloudNativePG · Postgres 16",
+                          "description": "Fallback project head-state; realizes the OperatedSystemState / BillingState / UsageLog resources",
+                          "tags": []
+                        }
+                      ],
+                      "containerInstances": [],
+                      "softwareSystemInstances": []
                     },
                     {
-                      "name": "data namespace",
+                      "name": "temporal namespace",
                       "technology": "k8s-namespace",
+                      "description": "shared",
+                      "instances": 0,
+                      "tags": [],
                       "children": [],
-                      "instances": [
+                      "infrastructureNodes": [
                         {
-                          "componentId": "operated-system-state",
-                          "note": "Postgres via CNPG — operated-system head-state store"
-                        },
-                        {
-                          "componentId": "billing-state",
-                          "note": "Postgres via CNPG — billing head-state store"
-                        },
-                        {
-                          "componentId": "usage-log",
-                          "note": "Postgres via CNPG — append-only hosting/compute usage ledger"
+                          "name": "Temporal Cluster",
+                          "technology": "Temporal (Postgres-backed)",
+                          "description": "Durable execution; realizes the DurableExecutionRuntime resource",
+                          "tags": []
                         }
-                      ]
-                    },
-                    {
-                      "name": "orchestration namespace",
-                      "technology": "k8s-namespace",
-                      "children": [],
-                      "instances": [
-                        {
-                          "componentId": "durable-execution-runtime",
-                          "note": "Temporal cluster: frontend + matching + history services; persistence on Postgres via CNPG"
-                        }
-                      ]
-                    },
-                    {
-                      "name": "operated-tenant namespaces",
-                      "technology": "k8s-namespace",
-                      "children": [],
-                      "instances": [
-                        {
-                          "componentId": "operated-runtime",
-                          "note": "ArgoCD + Argo Rollouts watching user's GitHub manifests repo; one namespace per deployed customer app (DEPLOYED — OPERATED only)"
-                        }
-                      ]
+                      ],
+                      "containerInstances": [],
+                      "softwareSystemInstances": []
                     }
                   ],
-                  "instances": null
+                  "infrastructureNodes": [],
+                  "containerInstances": [],
+                  "softwareSystemInstances": []
                 },
                 {
-                  "name": "User's GitHub Account (external)",
-                  "technology": "github-account",
+                  "name": "External services",
+                  "technology": "",
+                  "description": "",
+                  "instances": 0,
+                  "tags": [],
                   "children": [],
-                  "instances": [
+                  "infrastructureNodes": [],
+                  "containerInstances": [],
+                  "softwareSystemInstances": [
                     {
-                      "componentId": "project-git-repo",
-                      "note": "Per-project git repo provisioned by GitHub App: project state JSON + Phase-3 code/charts/manifests; git ref CAS concurrency"
+                      "name": "User's GitHub",
+                      "technology": "GitHub",
+                      "description": "Per-project state repos aiarch-<id> + Actions construction runners + Issues (realizes GitHub / ProjectGitRepo / WorkItemTracker / ConstructionPipelineRuntime)",
+                      "tags": []
                     },
                     {
-                      "componentId": "construction-pipeline-runtime",
-                      "note": "User's GitHub Actions running claude-code-action on user's CLAUDE_CODE_OAUTH_TOKEN and CI minutes; aiarch dispatches via workflow_dispatch"
+                      "name": "Anthropic Messages API",
+                      "technology": "Anthropic",
+                      "description": "LLM workers (claude-opus/sonnet)",
+                      "tags": []
                     },
                     {
-                      "componentId": "work-item-tracker",
-                      "note": "GitHub Issues (v1): one issue per sealed Method activity; updated on start, closed on merge"
+                      "name": "Stripe",
+                      "technology": "Stripe",
+                      "description": "Billing gateway (realizes BillingGateway)",
+                      "tags": []
+                    },
+                    {
+                      "name": "Keycloak",
+                      "technology": "OIDC",
+                      "description": "Realm archistrator (edge auth)",
+                      "tags": []
+                    },
+                    {
+                      "name": "Operated tenant runtime",
+                      "technology": "per-tenant",
+                      "description": "The deployed customer app (realizes OperatedRuntime)",
+                      "tags": []
                     }
                   ]
                 }
@@ -6359,51 +6370,48 @@
                 {
                   "name": "test process",
                   "technology": "in-process",
+                  "description": "",
+                  "instances": 0,
+                  "tags": [],
                   "children": [],
-                  "instances": [
+                  "infrastructureNodes": [
                     {
-                      "componentId": "web-client",
-                      "note": "HTTP test handler — driven via black-box wire-level test harness"
+                      "name": "sqlite/postgres (docker)",
+                      "technology": "ephemeral",
+                      "description": "in-process/ephemeral DB stub",
+                      "tags": []
                     },
                     {
-                      "componentId": "system-design-manager",
-                      "note": "Same Manager workflow code; embedded durable executor replaces Temporal cluster"
+                      "name": "in-memory Temporal",
+                      "technology": "test",
+                      "description": "ephemeral durable-execution stub",
+                      "tags": []
+                    }
+                  ],
+                  "containerInstances": [
+                    {
+                      "containerKey": "archistrator-server",
+                      "note": "embedded test server + worker",
+                      "tags": []
                     },
                     {
-                      "componentId": "project-design-manager",
-                      "note": "Same Manager workflow code; embedded durable executor replaces Temporal cluster"
+                      "containerKey": "archistrator-webapp",
+                      "note": "built SPA bundle",
+                      "tags": []
+                    }
+                  ],
+                  "softwareSystemInstances": [
+                    {
+                      "name": "GitHub (stub)",
+                      "technology": "stub",
+                      "description": "stubbed",
+                      "tags": []
                     },
                     {
-                      "componentId": "construction-manager",
-                      "note": "Same Manager workflow code; embedded durable executor replaces Temporal cluster"
-                    },
-                    {
-                      "componentId": "operations-manager",
-                      "note": "Same Manager workflow code; embedded durable executor replaces Temporal cluster"
-                    },
-                    {
-                      "componentId": "billing-manager",
-                      "note": "Same Manager workflow code; embedded durable executor replaces Temporal cluster"
-                    },
-                    {
-                      "componentId": "project-state-access",
-                      "note": "Targets ephemeral throwaway git repo (GitTarget test instance)"
-                    },
-                    {
-                      "componentId": "construction-pipeline-access",
-                      "note": "Local exec runner / stub — agentic job stubbed at this seam boundary"
-                    },
-                    {
-                      "componentId": "source-control-access",
-                      "note": "Stubbed GitHub App; ephemeral repo target"
-                    },
-                    {
-                      "componentId": "durable-execution-access",
-                      "note": "Embedded single-process executor — same frozen verb set as Temporal; same replay/determinism model"
-                    },
-                    {
-                      "componentId": "project-git-repo",
-                      "note": "Ephemeral throwaway git repo (in-process or local daemon); torn down after each test run"
+                      "name": "Anthropic (stub)",
+                      "technology": "stub",
+                      "description": "stubbed",
+                      "tags": []
                     }
                   ]
                 }
