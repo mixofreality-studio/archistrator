@@ -15,23 +15,19 @@ import (
 // here — no Temporal). The map is lazily allocated: nil until the first Record* verb.
 
 // ActivityConstructionPhase is the coarse per-activity construction lifecycle.
-type ActivityConstructionPhase int
 
-const (
-	// ActivityConstructionNotStarted is the zero value — the activity has not yet
-	// been dispatched by the construction pump.
-	ActivityConstructionNotStarted ActivityConstructionPhase = iota
-	// ActivityConstructionRunning — the activity's construction agent is in progress.
-	ActivityConstructionRunning
-	// ActivityConstructionDone — the activity's construction completed (agent finished).
-	ActivityConstructionDone
-	// ActivityConstructionFailed — the activity's construction reached a terminal
-	// FAILURE (a cancelled/failed/timed-out pipeline, an exhausted variance budget, or
-	// an escalation that timed out). Distinct from Done: the work did NOT integrate.
-	// This is a STORED terminal — the CoarsePhase deriver short-circuits on it so it is
-	// never recomputed back to Running/Done (see CoarsePhase's guard).
-	ActivityConstructionFailed
-)
+// ActivityConstructionNotStarted is the zero value — the activity has not yet
+// been dispatched by the construction pump.
+
+// ActivityConstructionRunning — the activity's construction agent is in progress.
+
+// ActivityConstructionDone — the activity's construction completed (agent finished).
+
+// ActivityConstructionFailed — the activity's construction reached a terminal
+// FAILURE (a cancelled/failed/timed-out pipeline, an exhausted variance budget, or
+// an escalation that timed out). Distinct from Done: the work did NOT integrate.
+// This is a STORED terminal — the CoarsePhase deriver short-circuits on it so it is
+// never recomputed back to Running/Done (see CoarsePhase's guard).
 
 // String returns the canonical wire name for the construction phase (used in JSON
 // and log output). Mirrors CICheckState.String() and ActivityOutcome.String().
@@ -43,6 +39,9 @@ func (p ActivityConstructionPhase) String() string {
 		return "done"
 	case ActivityConstructionFailed:
 		return "failed"
+	case ActivityConstructionNotStarted:
+		// The zero value — same as the default below.
+		return "notStarted"
 	default:
 		return "notStarted"
 	}
@@ -53,24 +52,20 @@ func (p ActivityConstructionPhase) String() string {
 // It lets the console explain WHY the activity is no longer pending (a cancelled
 // run, an exhausted retry budget, an escalation nobody answered, …) rather than
 // leaving it stuck Running forever.
-type FailureReason int
 
-const (
-	// FailureReasonUnknown is the zero value (no failure recorded).
-	FailureReasonUnknown FailureReason = iota
-	// PipelineFailed — the construction pipeline reached a terminal FAILURE conclusion.
-	PipelineFailed
-	// PipelineCancelled — the construction pipeline run was cancelled.
-	PipelineCancelled
-	// PipelineTimedOut — the construction pipeline timed out (or the observe poll
-	// budget was exhausted without a terminal phase).
-	PipelineTimedOut
-	// VarianceExhausted — the supervision loop exhausted its variance/retry budget.
-	VarianceExhausted
-	// EscalationTimedOut — an escalation waited for an operator override that never
-	// came within the bounded escalation-wait window.
-	EscalationTimedOut
-)
+// FailureReasonUnknown is the zero value (no failure recorded).
+
+// PipelineFailed — the construction pipeline reached a terminal FAILURE conclusion.
+
+// PipelineCancelled — the construction pipeline run was cancelled.
+
+// PipelineTimedOut — the construction pipeline timed out (or the observe poll
+// budget was exhausted without a terminal phase).
+
+// VarianceExhausted — the supervision loop exhausted its variance/retry budget.
+
+// EscalationTimedOut — an escalation waited for an operator override that never
+// came within the bounded escalation-wait window.
 
 // String returns the canonical wire name for the failure reason.
 func (r FailureReason) String() string {
@@ -85,6 +80,9 @@ func (r FailureReason) String() string {
 		return "varianceExhausted"
 	case EscalationTimedOut:
 		return "escalationTimedOut"
+	case FailureReasonUnknown:
+		// The zero value (no failure recorded) — same as the default below.
+		return "unknown"
 	default:
 		return "unknown"
 	}
@@ -231,20 +229,16 @@ func CoarseBuildStatus(phases []PhaseCompletion, current ActivityMethodPhase) Ac
 // C-* activity walks (v3 design §1 tables). SEEDED by the bootstrap generator.
 // Existing project.json Kind values 0/1/2 decode verbatim (Service/Frontend/Testing);
 // 3/4 (Deployment/Documentation) are additive with no data migration needed.
-type ActivityType int
 
-const (
-	// ActivityTypeService — a Manager/Engine/ResourceAccess/Client component build.
-	ActivityTypeService ActivityType = iota
-	// ActivityTypeFrontend — a SPA / web UI surface build.
-	ActivityTypeFrontend
-	// ActivityTypeTesting — a system-test / CI activity (variant selected by TestingVariant).
-	ActivityTypeTesting
-	// ActivityTypeDeployment — a devops / provisioning activity (R-* prefix, coding=false).
-	ActivityTypeDeployment
-	// ActivityTypeDocumentation — a tech-writing / ADR / runbook activity (N-ADR etc.).
-	ActivityTypeDocumentation
-)
+// ActivityTypeService — a Manager/Engine/ResourceAccess/Client component build.
+
+// ActivityTypeFrontend — a SPA / web UI surface build.
+
+// ActivityTypeTesting — a system-test / CI activity (variant selected by TestingVariant).
+
+// ActivityTypeDeployment — a devops / provisioning activity (R-* prefix, coding=false).
+
+// ActivityTypeDocumentation — a tech-writing / ADR / runbook activity (N-ADR etc.).
 
 // String returns the canonical wire name.
 func (t ActivityType) String() string {
@@ -257,6 +251,10 @@ func (t ActivityType) String() string {
 		return "deployment"
 	case ActivityTypeDocumentation:
 		return "documentation"
+	case ActivityTypeService:
+		// The zero value (== ActivityKindService, the legacy alias) — same as the
+		// default below.
+		return "service"
 	default:
 		return "service"
 	}
@@ -282,15 +280,12 @@ const (
 // meaningful when ActivityType == ActivityTypeTesting. Variant is chosen from the
 // activity name prefix (N-STP → Plan, N-STH → Harness, N-PERF → Perf,
 // N-IT → SystemTest, N-QA → QAProcess).
-type TestingVariant int
 
-const (
-	TestVariantPlan       TestingVariant = iota // N-STP: system test plan
-	TestVariantHarness                          // N-STH: test harness construction
-	TestVariantPerf                             // N-PERF: performance rig
-	TestVariantSystemTest                       // N-IT: system test execution (terminal/critical)
-	TestVariantQAProcess                        // N-QA: QA process definition
-)
+// N-STP: system test plan
+// N-STH: test harness construction
+// N-PERF: performance rig
+// N-IT: system test execution (terminal/critical)
+// N-QA: QA process definition
 
 // String returns the canonical wire name.
 func (v TestingVariant) String() string {
@@ -303,6 +298,9 @@ func (v TestingVariant) String() string {
 		return "systemTest"
 	case TestVariantQAProcess:
 		return "qaProcess"
+	case TestVariantPlan:
+		// The zero value — same as the default below.
+		return "plan"
 	default:
 		return "plan"
 	}
@@ -315,7 +313,6 @@ func (v TestingVariant) String() string {
 //
 // Using a string type (rather than int) means the JSON wire encoding is the
 // constant value itself — no MarshalJSON/UnmarshalJSON boilerplate needed.
-type ActivityMethodPhase string
 
 // String returns the phase id (the underlying string value).
 func (p ActivityMethodPhase) String() string { return string(p) }
@@ -324,31 +321,26 @@ func (p ActivityMethodPhase) String() string { return string(p) }
 // NOTE: the "Phase" prefix is shared with the project-lifecycle Phase type
 // (artifactmodel.go). To avoid name collision, these constants use the
 // "MethodPhase" prefix.
-const (
-	MethodPhaseRequirements   ActivityMethodPhase = "requirements"    // SRS / UX requirements / provisioning spec / doc outline
-	MethodPhaseDetailedDesign ActivityMethodPhase = "detailed_design" // service contract (Service only); maps to DD cast
-	MethodPhaseTestPlan       ActivityMethodPhase = "test_plan"       // test plan slice (Service/Frontend only)
-	MethodPhaseConstruction   ActivityMethodPhase = "construction"    // code / manifest / harness / doc authoring
-	MethodPhaseIntegration    ActivityMethodPhase = "integration"     // integration + convergence verification
-)
+
+// SRS / UX requirements / provisioning spec / doc outline
+// service contract (Service only); maps to DD cast
+// test plan slice (Service/Frontend only)
+// code / manifest / harness / doc authoring
+// integration + convergence verification
 
 // ActivityBuildStatus is the finer build-status lens (ux-mock parity) for activities
 // that have a corpus presence. Coarser eligible/blocked/not-started are DERIVED in the
 // webApp from the network + done-set and are not seeded here.
-type ActivityBuildStatus int
 
-const (
-	// BuildInConstruction — a construction log exists, work in progress (zero value).
-	BuildInConstruction ActivityBuildStatus = iota
-	// BuildInReview — a construction log exists without a passing review.
-	BuildInReview
-	// BuildIntegrated — construction log + a passing review exist.
-	BuildIntegrated
-	// BuildFailed — the build reached a terminal FAILURE (paired with
-	// ActivityConstructionFailed). The work did not integrate; the node is failed,
-	// not in-construction/in-review/integrated.
-	BuildFailed
-)
+// BuildInConstruction — a construction log exists, work in progress (zero value).
+
+// BuildInReview — a construction log exists without a passing review.
+
+// BuildIntegrated — construction log + a passing review exist.
+
+// BuildFailed — the build reached a terminal FAILURE (paired with
+// ActivityConstructionFailed). The work did not integrate; the node is failed,
+// not in-construction/in-review/integrated.
 
 // String returns the canonical wire name (matches the ux-mock BuildStatus union).
 func (s ActivityBuildStatus) String() string {
@@ -359,6 +351,9 @@ func (s ActivityBuildStatus) String() string {
 		return "integrated"
 	case BuildFailed:
 		return "failed"
+	case BuildInConstruction:
+		// The zero value — same as the default below.
+		return "in-construction"
 	default:
 		return "in-construction"
 	}
@@ -367,19 +362,10 @@ func (s ActivityBuildStatus) String() string {
 // ProducedArtifact is one artifact a construction activity produced (a frozen service
 // contract, the built code). SEEDED from the corpus (a contract file / a construction
 // log). Mirrors the ux-mock ActivityArtifact card fields.
-type ProducedArtifact struct {
-	Kind     string // "service-contract" | "code"
-	Title    string
-	Source   string // corpus-relative path, e.g. "implementation/contracts/webClient.md"
-	Produced bool
-	Note     string
-}
+
+// "service-contract" | "code"
+
+// corpus-relative path, e.g. "implementation/contracts/webClient.md"
 
 // ConstructionProgress holds the project-level construction tracking framing scalars
 // (ux-mock CONSTRUCTION_SUMMARY subset). Seeded; EV is derived, not stored.
-type ConstructionProgress struct {
-	Week           int
-	TotalWeeks     int
-	HandOffModel   string
-	SupervisionCap int
-}

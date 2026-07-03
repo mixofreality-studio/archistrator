@@ -5,11 +5,9 @@ package projectstate
 // computes WHO reviews): the engine gives the reviewer set; this policy says whether a
 // human must sign off before the phase advances. The zero value gates nothing — the
 // construction loop then behaves exactly as before this feature ("pure vibes").
-type ReviewPolicy struct {
-	// GatedPhasesByType maps an ActivityType wire name ("service"/"frontend"/"testing"/...)
-	// to the canonical phases that require human approval for that type.
-	GatedPhasesByType map[string][]ActivityMethodPhase `json:"gatedPhasesByType,omitempty"`
-}
+
+// GatedPhasesByType maps an ActivityType wire name ("service"/"frontend"/"testing"/...)
+// to the canonical phases that require human approval for that type.
 
 // RequiresHuman reports whether a phase of the given activity type requires human approval.
 func (p ReviewPolicy) RequiresHuman(activityType string, phase ActivityMethodPhase) bool {

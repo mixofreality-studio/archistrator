@@ -8,18 +8,14 @@ package projectstate
 
 // ActivityOutcome is the closed terminal outcome recorded for a construction
 // activity's binary exit (constructionManager.md §2.1 / §6.3 step 8).
-type ActivityOutcome int
 
-const (
-	// ActivityOutcomeUnknown is the zero value.
-	ActivityOutcomeUnknown ActivityOutcome = iota
-	// ActivityOutcomeCompleted is a normal, reviewed binary exit.
-	ActivityOutcomeCompleted
-	// ActivityOutcomeSkipped is an operator-skip exit (overrideActivity Skip).
-	ActivityOutcomeSkipped
-	// ActivityOutcomeTakenOver is an exit after an operator/automatic takeover.
-	ActivityOutcomeTakenOver
-)
+// ActivityOutcomeUnknown is the zero value.
+
+// ActivityOutcomeCompleted is a normal, reviewed binary exit.
+
+// ActivityOutcomeSkipped is an operator-skip exit (overrideActivity Skip).
+
+// ActivityOutcomeTakenOver is an exit after an operator/automatic takeover.
 
 // String returns the canonical name for the outcome.
 func (o ActivityOutcome) String() string {
@@ -30,6 +26,9 @@ func (o ActivityOutcome) String() string {
 		return "Skipped"
 	case ActivityOutcomeTakenOver:
 		return "TakenOver"
+	case ActivityOutcomeUnknown:
+		// The zero value — same as the default below.
+		return "Unknown"
 	default:
 		return "Unknown"
 	}

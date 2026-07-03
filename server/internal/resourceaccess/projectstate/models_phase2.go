@@ -17,14 +17,9 @@ package projectstate
 // PlanningAssumptions holds the Phase-2 planning assumptions artifact: the resources,
 // calendar, infrastructure, declared usage, and settlement terms the project network
 // and the SDP-review estimates are built on. (projectStateAccess.md §3.6)
-type PlanningAssumptions struct {
-	Resources           []string           `json:"resources"`           // named staff/resources available
-	CalendarDaysPerWeek float64            `json:"calendarDaysPerWeek"` // working days/week (5 normal, 2 moonlight, …)
-	InfrastructureKind  InfrastructureKind `json:"infrastructureKind"`
-	DeclaredUsage       UsageAssumption    `json:"declaredUsage"`
-	Terms               SettlementTerms    `json:"terms"`
-	Notes               string             `json:"notes"`
-}
+
+// named staff/resources available
+// working days/week (5 normal, 2 moonlight, …)
 
 // Kind implements ArtifactModel.
 func (p *PlanningAssumptions) Kind() ArtifactKind { return KindPlanningAssumptions }
@@ -49,9 +44,6 @@ type ActivityItem struct {
 
 // ActivityList holds the Phase-2 activity list artifact — the coding + noncoding
 // activities in 5-day quanta. (projectStateAccess.md §3.6)
-type ActivityList struct {
-	Activities []ActivityItem `json:"activities"`
-}
 
 // Kind implements ArtifactModel.
 func (a *ActivityList) Kind() ArtifactKind { return KindActivityList }
@@ -60,10 +52,6 @@ func (a *ActivityList) Kind() ArtifactKind { return KindActivityList }
 func (a *ActivityList) isArtifactModel() {}
 
 // NetworkDependency declares that one activity depends on a set of predecessors.
-type NetworkDependency struct {
-	Activity  string   `json:"activity"`
-	DependsOn []string `json:"dependsOn"`
-}
 
 // Network holds the Phase-2 project network artifact — the activity dependencies and
 // the computed critical path (the activity names on it). (projectStateAccess.md §3.6)
@@ -118,27 +106,18 @@ type NetworkMilestone struct {
 // NetworkNodeCompute is the per-activity CPM result the compute-at-read pass derives
 // for one dependency-graph node. It mirrors the figures the retired client-side
 // toNetworkView produced, now authoritative and server-computed.
-type NetworkNodeCompute struct {
-	EarliestStart  float64 `json:"earliestStart"`
-	EarliestFinish float64 `json:"earliestFinish"`
-	LatestStart    float64 `json:"latestStart"`
-	LatestFinish   float64 `json:"latestFinish"`
-	TotalFloat     float64 `json:"totalFloat"`
-	FreeFloat      float64 `json:"freeFloat"`
-	OnCriticalPath bool    `json:"onCriticalPath"`
-	NearCritical   bool    `json:"nearCritical"` // off-CP but within the near-critical float band
-	Band           string  `json:"band"`         // float-criticality band: critical|red|yellow|green
-	Column         int     `json:"column"`       // topological depth (longest-path layer) for the swimlane layout
-}
+
+// off-CP but within the near-critical float band
+// float-criticality band: critical|red|yellow|green
+// topological depth (longest-path layer) for the swimlane layout
 
 // NetworkSummary is the project-level CPM roll-up the SPA renders above the graph.
-type NetworkSummary struct {
-	TotalDurationDays         float64 `json:"totalDurationDays"`         // project duration = longest path
-	CriticalPathActivityCount int     `json:"criticalPathActivityCount"` // count of on-CP activities (not the CP day-sum)
-	CriticalPathDays          float64 `json:"criticalPathDays"`          // = TotalDurationDays (the longest path is the CP length)
-	MaxFloat                  float64 `json:"maxFloat"`                  // the loosest slack across all nodes
-	NearCriticalCount         int     `json:"nearCriticalCount"`         // off-CP nodes inside the near-critical band
-}
+
+// project duration = longest path
+// count of on-CP activities (not the CP day-sum)
+// = TotalDurationDays (the longest path is the CP length)
+// the loosest slack across all nodes
+// off-CP nodes inside the near-critical band
 
 // Kind implements ArtifactModel.
 func (n *Network) Kind() ArtifactKind { return KindNetwork }
@@ -155,13 +134,11 @@ func (n *Network) isArtifactModel() {}
 // CompressedSolution) are the SAME struct distinguished by SlotKind, so the generic
 // stageArtifactForReview routing works for all four without a type switch.
 // (projectStateAccess.md §3.2 §3.6)
-type Solution struct {
-	SlotKind            ArtifactKind     `json:"slotKind"` // one of the four KindXxxSolution
-	StaffingCap         int              `json:"staffingCap"`
-	CalendarDaysPerWeek float64          `json:"calendarDaysPerWeek"`
-	ClassRates          map[string]Money `json:"classRates"` // build cost per person-day, by worker class
-	BufferDays          float64          `json:"bufferDays"` // schedule buffer (decompressed-normal); 0 otherwise
-}
+
+// one of the four KindXxxSolution
+
+// build cost per person-day, by worker class
+// schedule buffer (decompressed-normal); 0 otherwise
 
 // NewSolution constructs a Solution for the given slot kind. slotKind must be one of
 // the four KindXxxSolution constants.
@@ -179,18 +156,9 @@ func (s *Solution) isArtifactModel() {}
 
 // RiskRow is the per-option risk decomposition (criticality + activity risk →
 // composite) used in the SDP-review time-risk curve.
-type RiskRow struct {
-	SolutionKind    ArtifactKind `json:"solutionKind"`
-	CriticalityRisk float64      `json:"criticalityRisk"`
-	ActivityRisk    float64      `json:"activityRisk"`
-	Composite       float64      `json:"composite"`
-}
 
 // RiskModel holds the Phase-2 risk model artifact — the per-option criticality +
 // activity risk decomposition. (projectStateAccess.md §3.6)
-type RiskModel struct {
-	Rows []RiskRow `json:"rows"`
-}
 
 // Kind implements ArtifactModel.
 func (r *RiskModel) Kind() ArtifactKind { return KindRiskModel }
@@ -202,25 +170,19 @@ func (r *RiskModel) isArtifactModel() {}
 // Engine outputs for one option, flattened to plain values (the Manager joins the
 // Engine value objects; this slot model never imports the Engine output types, which
 // would be an upward dependency).
-type SdpOptionRow struct {
-	OptionID             OptionID     `json:"optionId"`
-	SolutionKind         ArtifactKind `json:"solutionKind"`
-	DurationDays         float64      `json:"durationDays"`         // estimationEngine: construction-side duration
-	BuildCost            Money        `json:"buildCost"`            // estimationEngine: construction-side build cost
-	CompositeRisk        float64      `json:"compositeRisk"`        // estimationEngine: composite construction risk
-	ProjectedMonthlyCost Money        `json:"projectedMonthlyCost"` // operationEstimationEngine: operation cost at declared load
-	ExpectedPerCycleNet  Money        `json:"expectedPerCycleNet"`  // operationEstimationEngine: payout(+)/shortfall(-) forecast
-	RevenueSharePercent  float64      `json:"revenueSharePercent"`  // settlementEngine: projected revenue-share regime rate
-}
+
+// estimationEngine: construction-side duration
+// estimationEngine: construction-side build cost
+// estimationEngine: composite construction risk
+// operationEstimationEngine: operation cost at declared load
+// operationEstimationEngine: payout(+)/shortfall(-) forecast
+// settlementEngine: projected revenue-share regime rate
 
 // SdpReview holds the Phase-2 SDP review artifact — the options table (the four joined
 // rows) plus the architect's recommendation. This is the model surfaced at the
 // option-commitment gate. (projectStateAccess.md §3.6, projectDesignManager.md §6.3)
-type SdpReview struct {
-	Options        []SdpOptionRow `json:"options"`
-	Recommendation OptionID       `json:"recommendation"` // the option the assembly recommends
-	Rationale      string         `json:"rationale"`
-}
+
+// the option the assembly recommends
 
 // Kind implements ArtifactModel.
 func (s *SdpReview) Kind() ArtifactKind { return KindSdpReview }

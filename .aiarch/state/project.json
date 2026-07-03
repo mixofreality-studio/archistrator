@@ -13657,6 +13657,2266 @@
       "goPackage": "internal/resourceaccess/projectstate",
       "infra": [],
       "title": "projectstate contract",
+      "$defs": {
+        "ActivityBuildStatus": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "x-enum-varnames": [
+            "BuildInConstruction",
+            "BuildInReview",
+            "BuildIntegrated",
+            "BuildFailed"
+          ],
+          "x-go-base": "int"
+        },
+        "ActivityConstructionPhase": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "x-enum-varnames": [
+            "ActivityConstructionNotStarted",
+            "ActivityConstructionRunning",
+            "ActivityConstructionDone",
+            "ActivityConstructionFailed"
+          ],
+          "x-go-base": "int"
+        },
+        "ActivityDiagram": {
+          "type": "object",
+          "properties": {
+            "nodes": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "x-go-type": "ActivityNode"
+              }
+            },
+            "edges": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/ActivityEdge"
+              }
+            }
+          },
+          "required": [
+            "nodes",
+            "edges"
+          ],
+          "additionalProperties": false
+        },
+        "ActivityEdge": {
+          "type": "object",
+          "properties": {
+            "from": {
+              "type": "string"
+            },
+            "to": {
+              "type": "string"
+            },
+            "kind": {
+              "$ref": "#/$defs/EdgeKind"
+            },
+            "guard": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "from",
+            "to",
+            "kind",
+            "guard"
+          ],
+          "additionalProperties": false
+        },
+        "ActivityGitStatus": {
+          "type": "object",
+          "properties": {
+            "ActivityID": {
+              "type": "string"
+            },
+            "BranchName": {
+              "type": "string"
+            },
+            "BranchRef": {
+              "type": "string"
+            },
+            "PullRequestRef": {
+              "type": "string"
+            },
+            "CICheck": {
+              "$ref": "#/$defs/CICheckState"
+            },
+            "ArchApproved": {
+              "type": "boolean"
+            },
+            "Merged": {
+              "type": "boolean"
+            },
+            "CRLabel": {
+              "type": "string"
+            },
+            "IsRevert": {
+              "type": "boolean"
+            },
+            "UpdatedAt": {
+              "type": "string",
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            }
+          },
+          "required": [
+            "ActivityID",
+            "BranchName",
+            "BranchRef",
+            "PullRequestRef",
+            "CICheck",
+            "ArchApproved",
+            "Merged",
+            "CRLabel",
+            "IsRevert",
+            "UpdatedAt"
+          ],
+          "additionalProperties": false
+        },
+        "ActivityList": {
+          "type": "object",
+          "properties": {
+            "activities": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "x-go-type": "ActivityItem"
+              }
+            }
+          },
+          "required": [
+            "activities"
+          ],
+          "additionalProperties": false
+        },
+        "ActivityMethodPhase": {
+          "type": "string",
+          "enum": [
+            "requirements",
+            "detailed_design",
+            "test_plan",
+            "construction",
+            "integration"
+          ],
+          "x-enum-varnames": [
+            "MethodPhaseRequirements",
+            "MethodPhaseDetailedDesign",
+            "MethodPhaseTestPlan",
+            "MethodPhaseConstruction",
+            "MethodPhaseIntegration"
+          ],
+          "x-go-base": "string"
+        },
+        "ActivityNetwork": {
+          "type": "object",
+          "properties": {
+            "activities": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/OptionActivity"
+              }
+            }
+          },
+          "required": [
+            "activities"
+          ],
+          "additionalProperties": false
+        },
+        "ActivityNodeKind": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12
+          ],
+          "x-enum-varnames": [
+            "NodeStart",
+            "NodeAction",
+            "NodeDecision",
+            "NodeMerge",
+            "NodeFork",
+            "NodeJoin",
+            "NodeEnd",
+            "NodeSwimLane",
+            "NodeNote",
+            "NodeLoop",
+            "NodeSwitch",
+            "NodeGoto",
+            "NodeInterruptEdge"
+          ],
+          "x-go-base": "int"
+        },
+        "ActivityOutcome": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "x-enum-varnames": [
+            "ActivityOutcomeUnknown",
+            "ActivityOutcomeCompleted",
+            "ActivityOutcomeSkipped",
+            "ActivityOutcomeTakenOver"
+          ],
+          "x-go-base": "int"
+        },
+        "ActivityType": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2,
+            3,
+            4
+          ],
+          "x-enum-varnames": [
+            "ActivityTypeService",
+            "ActivityTypeFrontend",
+            "ActivityTypeTesting",
+            "ActivityTypeDeployment",
+            "ActivityTypeDocumentation"
+          ],
+          "x-go-base": "int"
+        },
+        "Actor": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "x-go-name": "ID"
+            },
+            "role": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "role"
+          ],
+          "additionalProperties": false
+        },
+        "ArtifactKind": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16
+          ],
+          "x-enum-varnames": [
+            "KindMission",
+            "KindGlossary",
+            "KindScrubbedRequirements",
+            "KindVolatilities",
+            "KindCoreUseCases",
+            "KindSystem",
+            "KindOperationalConcepts",
+            "KindStandardCheck",
+            "KindPlanningAssumptions",
+            "KindActivityList",
+            "KindNetwork",
+            "KindNormalSolution",
+            "KindSubcriticalSolution",
+            "KindCompressedSolution",
+            "KindDecompressedSolution",
+            "KindRiskModel",
+            "KindSdpReview"
+          ],
+          "x-go-base": "int"
+        },
+        "ArtifactReviewStatus": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2,
+            3,
+            4
+          ],
+          "x-enum-varnames": [
+            "ReviewNone",
+            "ReviewAwaitingReview",
+            "ReviewCommitted",
+            "ReviewRejected",
+            "ReviewWithdrawn"
+          ],
+          "x-go-base": "int"
+        },
+        "ArtifactSlot": {
+          "type": "object",
+          "properties": {
+            "Status": {
+              "$ref": "#/$defs/ArtifactReviewStatus"
+            },
+            "Model": {
+              "x-go-type": "ArtifactModel"
+            },
+            "Notes": {
+              "type": "string"
+            },
+            "CritiqueVerdict": {
+              "type": "string"
+            },
+            "CritiqueNotes": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "Status",
+            "Model",
+            "Notes",
+            "CritiqueVerdict",
+            "CritiqueNotes"
+          ],
+          "additionalProperties": false
+        },
+        "Axis": {
+          "type": "integer",
+          "enum": [
+            0,
+            1
+          ],
+          "x-enum-varnames": [
+            "AxisSameCustomerOverTime",
+            "AxisAllCustomersAtOneTime"
+          ],
+          "x-go-base": "int"
+        },
+        "CICheckState": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2
+          ],
+          "x-enum-varnames": [
+            "CICheckPending",
+            "CICheckSuccess",
+            "CICheckFailure"
+          ],
+          "x-go-base": "int"
+        },
+        "CallMode": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2
+          ],
+          "x-enum-varnames": [
+            "CallSync",
+            "CallQueued",
+            "CallEventPubSub"
+          ],
+          "x-go-base": "int"
+        },
+        "CheckItem": {
+          "type": "object",
+          "properties": {
+            "section": {
+              "type": "string"
+            },
+            "guideline": {
+              "type": "string"
+            },
+            "status": {
+              "$ref": "#/$defs/CheckStatus"
+            },
+            "justification": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "section",
+            "guideline",
+            "status",
+            "justification"
+          ],
+          "additionalProperties": false
+        },
+        "CheckStatus": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2
+          ],
+          "x-enum-varnames": [
+            "CheckPass",
+            "CheckWaived",
+            "CheckFail"
+          ],
+          "x-go-base": "int"
+        },
+        "Classification": {
+          "type": "integer",
+          "enum": [
+            0,
+            1
+          ],
+          "x-enum-varnames": [
+            "ClassCore",
+            "ClassNonCore"
+          ],
+          "x-go-base": "int"
+        },
+        "Component": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "x-go-name": "ID"
+            },
+            "name": {
+              "type": "string"
+            },
+            "kind": {
+              "$ref": "#/$defs/ComponentKind"
+            },
+            "layer": {
+              "$ref": "#/$defs/Layer"
+            },
+            "encapsulates": {
+              "type": "string"
+            },
+            "atomicBusinessVerbs": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "kind",
+            "layer",
+            "encapsulates",
+            "atomicBusinessVerbs"
+          ],
+          "additionalProperties": false
+        },
+        "ComponentKind": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "x-enum-varnames": [
+            "CompClient",
+            "CompManager",
+            "CompEngine",
+            "CompResourceAccess",
+            "CompResource",
+            "CompUtility"
+          ],
+          "x-go-base": "int"
+        },
+        "ComputeCostKind": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2
+          ],
+          "x-enum-varnames": [
+            "ComputeCostUnknown",
+            "ComputeCostFlatMarkup",
+            "ComputeCostTieredFloors"
+          ],
+          "x-go-base": "int"
+        },
+        "ConstructionProgress": {
+          "type": "object",
+          "properties": {
+            "Week": {
+              "type": "integer",
+              "x-go-type": "int"
+            },
+            "TotalWeeks": {
+              "type": "integer",
+              "x-go-type": "int"
+            },
+            "HandOffModel": {
+              "type": "string"
+            },
+            "SupervisionCap": {
+              "type": "integer",
+              "x-go-type": "int"
+            }
+          },
+          "required": [
+            "Week",
+            "TotalWeeks",
+            "HandOffModel",
+            "SupervisionCap"
+          ],
+          "additionalProperties": false
+        },
+        "ContainerInstance": {
+          "type": "object",
+          "properties": {
+            "containerKey": {
+              "type": "string"
+            },
+            "note": {
+              "type": "string"
+            },
+            "tags": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "containerKey",
+            "note",
+            "tags"
+          ],
+          "additionalProperties": false
+        },
+        "ContractInterface": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "layer": {
+              "type": "string"
+            },
+            "operations": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "x-go-type": "ContractOperation"
+              }
+            }
+          },
+          "required": [
+            "name",
+            "layer",
+            "operations"
+          ],
+          "additionalProperties": false
+        },
+        "CoreUseCases": {
+          "type": "object",
+          "properties": {
+            "decisions": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/UseCaseDecision"
+              }
+            }
+          },
+          "required": [
+            "decisions"
+          ],
+          "additionalProperties": false
+        },
+        "CorpusPresence": {
+          "type": "object",
+          "properties": {
+            "HasLog": {
+              "type": "boolean"
+            },
+            "HasPassingReview": {
+              "type": "boolean"
+            },
+            "HasContract": {
+              "type": "boolean"
+            },
+            "ContractFile": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "HasLog",
+            "HasPassingReview",
+            "HasContract",
+            "ContractFile"
+          ],
+          "additionalProperties": false
+        },
+        "DeliveryStyle": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2
+          ],
+          "x-enum-varnames": [
+            "StyleCloud",
+            "StyleLocal",
+            "StyleBoth"
+          ],
+          "x-go-base": "int"
+        },
+        "DeployContainer": {
+          "type": "object",
+          "properties": {
+            "key": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "technology": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            },
+            "components": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "key",
+            "name",
+            "technology",
+            "description",
+            "components"
+          ],
+          "additionalProperties": false
+        },
+        "DeployNoteRecord": {
+          "type": "object",
+          "properties": {
+            "resource": {
+              "type": "string"
+            },
+            "content": {
+              "type": "string"
+            },
+            "authoredAt": {
+              "type": [
+                "null",
+                "string"
+              ],
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            }
+          },
+          "required": [
+            "resource",
+            "content"
+          ],
+          "additionalProperties": false
+        },
+        "DeploymentEnvironment": {
+          "type": "object",
+          "properties": {
+            "profile": {
+              "$ref": "#/$defs/DeploymentProfile"
+            },
+            "title": {
+              "type": "string"
+            },
+            "nodes": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "x-go-type": "DeploymentNode"
+              }
+            }
+          },
+          "required": [
+            "profile",
+            "title",
+            "nodes"
+          ],
+          "additionalProperties": false
+        },
+        "DeploymentProfile": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2
+          ],
+          "x-enum-varnames": [
+            "ProfileCloud",
+            "ProfileLocal",
+            "ProfileTest"
+          ],
+          "x-go-base": "int"
+        },
+        "DeploymentTopology": {
+          "type": "object",
+          "properties": {
+            "deliveryStyle": {
+              "$ref": "#/$defs/DeliveryStyle"
+            },
+            "containers": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/DeployContainer"
+              }
+            },
+            "environments": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/DeploymentEnvironment"
+              }
+            }
+          },
+          "required": [
+            "deliveryStyle",
+            "containers",
+            "environments"
+          ],
+          "additionalProperties": false
+        },
+        "DocNoteRecord": {
+          "type": "object",
+          "properties": {
+            "doc": {
+              "type": "string"
+            },
+            "content": {
+              "type": "string"
+            },
+            "authoredAt": {
+              "type": [
+                "null",
+                "string"
+              ],
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            }
+          },
+          "required": [
+            "doc",
+            "content"
+          ],
+          "additionalProperties": false
+        },
+        "DocOutlineRecord": {
+          "type": "object",
+          "properties": {
+            "doc": {
+              "type": "string"
+            },
+            "content": {
+              "type": "string"
+            },
+            "authoredAt": {
+              "type": [
+                "null",
+                "string"
+              ],
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            }
+          },
+          "required": [
+            "doc",
+            "content"
+          ],
+          "additionalProperties": false
+        },
+        "DynamicView": {
+          "type": "object",
+          "properties": {
+            "useCaseId": {
+              "type": "string",
+              "x-go-name": "UseCaseID"
+            },
+            "key": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "participants": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              }
+            },
+            "edges": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/Relationship"
+              }
+            }
+          },
+          "required": [
+            "useCaseId",
+            "key",
+            "title",
+            "participants",
+            "edges"
+          ],
+          "additionalProperties": false
+        },
+        "EdgeKind": {
+          "type": "integer",
+          "enum": [
+            0,
+            1
+          ],
+          "x-enum-varnames": [
+            "EdgeControlFlow",
+            "EdgeGuardedFlow"
+          ],
+          "x-go-base": "int"
+        },
+        "FailureReason": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "x-enum-varnames": [
+            "FailureReasonUnknown",
+            "PipelineFailed",
+            "PipelineCancelled",
+            "PipelineTimedOut",
+            "VarianceExhausted",
+            "EscalationTimedOut"
+          ],
+          "x-go-base": "int"
+        },
+        "Glossary": {
+          "type": "object",
+          "properties": {
+            "items": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/GlossaryItem"
+              }
+            }
+          },
+          "required": [
+            "items"
+          ],
+          "additionalProperties": false
+        },
+        "GlossaryItem": {
+          "type": "object",
+          "properties": {
+            "term": {
+              "type": "string"
+            },
+            "definition": {
+              "type": "string"
+            },
+            "category": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "term",
+            "definition",
+            "category"
+          ],
+          "additionalProperties": false
+        },
+        "InfrastructureKind": {
+          "type": "integer",
+          "enum": [
+            0,
+            1
+          ],
+          "x-enum-varnames": [
+            "InfrastructureKindUnknown",
+            "InfrastructureKindGoTemporalPostgres"
+          ],
+          "x-go-base": "int"
+        },
+        "InfrastructureNode": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "technology": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            },
+            "tags": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "name",
+            "technology",
+            "description",
+            "tags"
+          ],
+          "additionalProperties": false
+        },
+        "IntegrationNoteRecord": {
+          "type": "object",
+          "properties": {
+            "component": {
+              "type": "string"
+            },
+            "content": {
+              "type": "string"
+            },
+            "authoredAt": {
+              "type": [
+                "null",
+                "string"
+              ],
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            }
+          },
+          "required": [
+            "component",
+            "content"
+          ],
+          "additionalProperties": false
+        },
+        "Layer": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "x-enum-varnames": [
+            "LayerClient",
+            "LayerManager",
+            "LayerEngine",
+            "LayerResourceAccess",
+            "LayerResource",
+            "LayerUtility"
+          ],
+          "x-go-base": "int"
+        },
+        "MissionStatement": {
+          "type": "object",
+          "properties": {
+            "vision": {
+              "type": "string"
+            },
+            "objectives": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/Objective"
+              }
+            },
+            "mission": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "vision",
+            "objectives",
+            "mission"
+          ],
+          "additionalProperties": false
+        },
+        "Money": {
+          "type": "object",
+          "properties": {
+            "minorUnits": {
+              "type": "integer"
+            },
+            "currency": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "minorUnits",
+            "currency"
+          ],
+          "additionalProperties": false
+        },
+        "NetworkDependency": {
+          "type": "object",
+          "properties": {
+            "activity": {
+              "type": "string"
+            },
+            "dependsOn": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "activity",
+            "dependsOn"
+          ],
+          "additionalProperties": false
+        },
+        "NetworkNodeCompute": {
+          "type": "object",
+          "properties": {
+            "earliestStart": {
+              "type": "number"
+            },
+            "earliestFinish": {
+              "type": "number"
+            },
+            "latestStart": {
+              "type": "number"
+            },
+            "latestFinish": {
+              "type": "number"
+            },
+            "totalFloat": {
+              "type": "number"
+            },
+            "freeFloat": {
+              "type": "number"
+            },
+            "onCriticalPath": {
+              "type": "boolean"
+            },
+            "nearCritical": {
+              "type": "boolean"
+            },
+            "band": {
+              "type": "string"
+            },
+            "column": {
+              "type": "integer",
+              "x-go-type": "int"
+            }
+          },
+          "required": [
+            "earliestStart",
+            "earliestFinish",
+            "latestStart",
+            "latestFinish",
+            "totalFloat",
+            "freeFloat",
+            "onCriticalPath",
+            "nearCritical",
+            "band",
+            "column"
+          ],
+          "additionalProperties": false
+        },
+        "NetworkSummary": {
+          "type": "object",
+          "properties": {
+            "totalDurationDays": {
+              "type": "number"
+            },
+            "criticalPathActivityCount": {
+              "type": "integer",
+              "x-go-type": "int"
+            },
+            "criticalPathDays": {
+              "type": "number"
+            },
+            "maxFloat": {
+              "type": "number"
+            },
+            "nearCriticalCount": {
+              "type": "integer",
+              "x-go-type": "int"
+            }
+          },
+          "required": [
+            "totalDurationDays",
+            "criticalPathActivityCount",
+            "criticalPathDays",
+            "maxFloat",
+            "nearCriticalCount"
+          ],
+          "additionalProperties": false
+        },
+        "Objective": {
+          "type": "object",
+          "properties": {
+            "number": {
+              "type": "integer",
+              "x-go-type": "int"
+            },
+            "statement": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "number",
+            "statement"
+          ],
+          "additionalProperties": false
+        },
+        "OperationalConcepts": {
+          "type": "object",
+          "properties": {
+            "decisions": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/OperationalDecision"
+              }
+            },
+            "deployment": {
+              "$ref": "#/$defs/DeploymentTopology"
+            }
+          },
+          "required": [
+            "decisions",
+            "deployment"
+          ],
+          "additionalProperties": false
+        },
+        "OperationalDecision": {
+          "type": "object",
+          "properties": {
+            "topic": {
+              "type": "string"
+            },
+            "decision": {
+              "type": "string"
+            },
+            "justifyingObjective": {
+              "type": "integer",
+              "x-go-type": "int"
+            }
+          },
+          "required": [
+            "topic",
+            "decision",
+            "justifyingObjective"
+          ],
+          "additionalProperties": false
+        },
+        "OptionActivity": {
+          "type": "object",
+          "properties": {
+            "activityId": {
+              "type": "string",
+              "x-go-name": "ActivityID"
+            },
+            "effortDays": {
+              "type": "number"
+            },
+            "workerClass": {
+              "type": "string"
+            },
+            "onCriticalPath": {
+              "type": "boolean"
+            },
+            "riskBucket": {
+              "type": "integer",
+              "x-go-type": "int"
+            }
+          },
+          "required": [
+            "activityId",
+            "effortDays",
+            "workerClass",
+            "onCriticalPath",
+            "riskBucket"
+          ],
+          "additionalProperties": false
+        },
+        "OptionID": {
+          "type": "string"
+        },
+        "OwnerScope": {
+          "type": "string"
+        },
+        "Phase": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2
+          ],
+          "x-enum-varnames": [
+            "PhaseSystemDesign",
+            "PhaseProjectDesign",
+            "PhaseConstruction"
+          ],
+          "x-go-base": "int"
+        },
+        "PhaseArtifacts": {
+          "type": "object",
+          "properties": {
+            "srs": {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/$defs/SRSRecord"
+              },
+              "x-go-name": "SRS"
+            },
+            "testPlan": {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/$defs/TestPlanRecord"
+              }
+            },
+            "integrationNote": {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/$defs/IntegrationNoteRecord"
+              }
+            },
+            "uxRequirements": {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/$defs/UXRequirementsRecord"
+              },
+              "x-go-name": "UXRequirements"
+            },
+            "uiDesign": {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/$defs/UIDesignRecord"
+              },
+              "x-go-name": "UIDesign"
+            },
+            "provisioningSpec": {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/$defs/ProvisioningSpecRecord"
+              }
+            },
+            "deployNote": {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/$defs/DeployNoteRecord"
+              }
+            },
+            "docOutline": {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/$defs/DocOutlineRecord"
+              }
+            },
+            "docNote": {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/$defs/DocNoteRecord"
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "PlanningAssumptions": {
+          "type": "object",
+          "properties": {
+            "resources": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              }
+            },
+            "calendarDaysPerWeek": {
+              "type": "number"
+            },
+            "infrastructureKind": {
+              "$ref": "#/$defs/InfrastructureKind"
+            },
+            "declaredUsage": {
+              "$ref": "#/$defs/UsageAssumption"
+            },
+            "terms": {
+              "$ref": "#/$defs/SettlementTerms"
+            },
+            "notes": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "resources",
+            "calendarDaysPerWeek",
+            "infrastructureKind",
+            "declaredUsage",
+            "terms",
+            "notes"
+          ],
+          "additionalProperties": false
+        },
+        "ProducedArtifact": {
+          "type": "object",
+          "properties": {
+            "Kind": {
+              "type": "string"
+            },
+            "Title": {
+              "type": "string"
+            },
+            "Source": {
+              "type": "string"
+            },
+            "Produced": {
+              "type": "boolean"
+            },
+            "Note": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "Kind",
+            "Title",
+            "Source",
+            "Produced",
+            "Note"
+          ],
+          "additionalProperties": false
+        },
+        "Profile": {
+          "type": "object",
+          "properties": {
+            "Phases": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/ProfilePhase"
+              }
+            }
+          },
+          "required": [
+            "Phases"
+          ],
+          "additionalProperties": false
+        },
+        "ProfilePhase": {
+          "type": "object",
+          "properties": {
+            "Phase": {
+              "$ref": "#/$defs/ActivityMethodPhase"
+            },
+            "Weight": {
+              "type": "integer",
+              "x-go-type": "int"
+            },
+            "Label": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "Phase",
+            "Weight",
+            "Label"
+          ],
+          "additionalProperties": false
+        },
+        "ProjectCatalogRef": {
+          "type": "object",
+          "properties": {
+            "ProjectID": {
+              "$ref": "#/$defs/ProjectID"
+            },
+            "Title": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "ProjectID",
+            "Title"
+          ],
+          "additionalProperties": false
+        },
+        "ProjectID": {
+          "type": "string"
+        },
+        "ProjectOption": {
+          "type": "object",
+          "properties": {
+            "optionId": {
+              "$ref": "#/$defs/OptionID",
+              "x-go-name": "OptionID"
+            },
+            "solutionKind": {
+              "$ref": "#/$defs/ArtifactKind"
+            },
+            "network": {
+              "$ref": "#/$defs/ActivityNetwork"
+            },
+            "workerMix": {
+              "$ref": "#/$defs/WorkerMix"
+            },
+            "calendarDaysPerWeek": {
+              "type": "number"
+            },
+            "terms": {
+              "$ref": "#/$defs/SettlementTerms"
+            },
+            "declaredUsage": {
+              "$ref": "#/$defs/UsageAssumption"
+            },
+            "infrastructureKind": {
+              "$ref": "#/$defs/InfrastructureKind"
+            }
+          },
+          "required": [
+            "optionId",
+            "solutionKind",
+            "network",
+            "workerMix",
+            "calendarDaysPerWeek",
+            "terms",
+            "declaredUsage",
+            "infrastructureKind"
+          ],
+          "additionalProperties": false
+        },
+        "ProjectSummary": {
+          "type": "object",
+          "properties": {
+            "ProjectID": {
+              "$ref": "#/$defs/ProjectID"
+            },
+            "Name": {
+              "type": "string"
+            },
+            "Owner": {
+              "$ref": "#/$defs/OwnerScope"
+            },
+            "Phase": {
+              "$ref": "#/$defs/Phase"
+            },
+            "CommittedCount": {
+              "type": "integer",
+              "x-go-type": "int"
+            },
+            "TotalCount": {
+              "type": "integer",
+              "x-go-type": "int"
+            },
+            "UpdatedAt": {
+              "type": "string",
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            }
+          },
+          "required": [
+            "ProjectID",
+            "Name",
+            "Owner",
+            "Phase",
+            "CommittedCount",
+            "TotalCount",
+            "UpdatedAt"
+          ],
+          "additionalProperties": false
+        },
+        "ProvisioningSpecRecord": {
+          "type": "object",
+          "properties": {
+            "resource": {
+              "type": "string"
+            },
+            "content": {
+              "type": "string"
+            },
+            "authoredAt": {
+              "type": [
+                "null",
+                "string"
+              ],
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            }
+          },
+          "required": [
+            "resource",
+            "content"
+          ],
+          "additionalProperties": false
+        },
+        "QualityGate": {
+          "type": "object",
+          "properties": {
+            "activityType": {
+              "type": "string"
+            },
+            "phase": {
+              "type": "string"
+            },
+            "when": {
+              "type": "string"
+            },
+            "mode": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "activityType",
+            "phase",
+            "when",
+            "mode"
+          ],
+          "additionalProperties": false
+        },
+        "Relationship": {
+          "type": "object",
+          "properties": {
+            "from": {
+              "type": "string"
+            },
+            "to": {
+              "type": "string"
+            },
+            "mode": {
+              "$ref": "#/$defs/CallMode"
+            },
+            "label": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "from",
+            "to",
+            "mode",
+            "label"
+          ],
+          "additionalProperties": false
+        },
+        "RepoCredential": {
+          "type": "object",
+          "properties": {
+            "Bytes": {
+              "type": "string",
+              "contentEncoding": "base64",
+              "x-go-type": "[]byte"
+            },
+            "ExpiresAt": {
+              "type": "string",
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            }
+          },
+          "required": [
+            "Bytes",
+            "ExpiresAt"
+          ],
+          "additionalProperties": false
+        },
+        "Requirement": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "x-go-name": "ID"
+            },
+            "statement": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "statement"
+          ],
+          "additionalProperties": false
+        },
+        "ResearchInput": {
+          "type": "object",
+          "properties": {
+            "Sources": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/ResearchSource"
+              }
+            }
+          },
+          "required": [
+            "Sources"
+          ],
+          "additionalProperties": false
+        },
+        "ResearchSource": {
+          "type": "object",
+          "properties": {
+            "Title": {
+              "type": "string"
+            },
+            "Content": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "Title",
+            "Content"
+          ],
+          "additionalProperties": false
+        },
+        "RevenueShareKind": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2
+          ],
+          "x-enum-varnames": [
+            "RevenueShareUnknown",
+            "RevenueShareLaunchFlat10",
+            "RevenueShareNegotiatedRate"
+          ],
+          "x-go-base": "int"
+        },
+        "ReviewPolicy": {
+          "type": "object",
+          "properties": {
+            "gatedPhasesByType": {
+              "type": "object",
+              "additionalProperties": {
+                "type": [
+                  "null",
+                  "array"
+                ],
+                "items": {
+                  "$ref": "#/$defs/ActivityMethodPhase"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "RiskModel": {
+          "type": "object",
+          "properties": {
+            "rows": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/RiskRow"
+              }
+            }
+          },
+          "required": [
+            "rows"
+          ],
+          "additionalProperties": false
+        },
+        "RiskRow": {
+          "type": "object",
+          "properties": {
+            "solutionKind": {
+              "$ref": "#/$defs/ArtifactKind"
+            },
+            "criticalityRisk": {
+              "type": "number"
+            },
+            "activityRisk": {
+              "type": "number"
+            },
+            "composite": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "solutionKind",
+            "criticalityRisk",
+            "activityRisk",
+            "composite"
+          ],
+          "additionalProperties": false
+        },
+        "SRSRecord": {
+          "type": "object",
+          "properties": {
+            "component": {
+              "type": "string"
+            },
+            "content": {
+              "type": "string"
+            },
+            "authoredAt": {
+              "type": [
+                "null",
+                "string"
+              ],
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            }
+          },
+          "required": [
+            "component",
+            "content"
+          ],
+          "additionalProperties": false
+        },
+        "ScheduleKind": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "x-enum-varnames": [
+            "ScheduleUnknown",
+            "ScheduleMonthly",
+            "ScheduleWeekly",
+            "ScheduleDaily"
+          ],
+          "x-go-base": "int"
+        },
+        "ScrubbedRequirements": {
+          "type": "object",
+          "properties": {
+            "items": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/Requirement"
+              }
+            }
+          },
+          "required": [
+            "items"
+          ],
+          "additionalProperties": false
+        },
+        "SdpOptionRow": {
+          "type": "object",
+          "properties": {
+            "optionId": {
+              "$ref": "#/$defs/OptionID",
+              "x-go-name": "OptionID"
+            },
+            "solutionKind": {
+              "$ref": "#/$defs/ArtifactKind"
+            },
+            "durationDays": {
+              "type": "number"
+            },
+            "buildCost": {
+              "$ref": "#/$defs/Money"
+            },
+            "compositeRisk": {
+              "type": "number"
+            },
+            "projectedMonthlyCost": {
+              "$ref": "#/$defs/Money"
+            },
+            "expectedPerCycleNet": {
+              "$ref": "#/$defs/Money"
+            },
+            "revenueSharePercent": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "optionId",
+            "solutionKind",
+            "durationDays",
+            "buildCost",
+            "compositeRisk",
+            "projectedMonthlyCost",
+            "expectedPerCycleNet",
+            "revenueSharePercent"
+          ],
+          "additionalProperties": false
+        },
+        "SdpReview": {
+          "type": "object",
+          "properties": {
+            "options": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/SdpOptionRow"
+              }
+            },
+            "recommendation": {
+              "$ref": "#/$defs/OptionID"
+            },
+            "rationale": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "options",
+            "recommendation",
+            "rationale"
+          ],
+          "additionalProperties": false
+        },
+        "SettlementTerms": {
+          "type": "object",
+          "properties": {
+            "revenueShare": {
+              "$ref": "#/$defs/RevenueShareKind"
+            },
+            "revenueSharePercent": {
+              "type": "number"
+            },
+            "computeCost": {
+              "$ref": "#/$defs/ComputeCostKind"
+            },
+            "computeMarkupPercent": {
+              "type": "number"
+            },
+            "schedule": {
+              "$ref": "#/$defs/ScheduleKind"
+            }
+          },
+          "required": [
+            "revenueShare",
+            "revenueSharePercent",
+            "computeCost",
+            "computeMarkupPercent",
+            "schedule"
+          ],
+          "additionalProperties": false
+        },
+        "SoftwareSystemInstance": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "technology": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            },
+            "tags": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "name",
+            "technology",
+            "description",
+            "tags"
+          ],
+          "additionalProperties": false
+        },
+        "Solution": {
+          "type": "object",
+          "properties": {
+            "slotKind": {
+              "$ref": "#/$defs/ArtifactKind"
+            },
+            "staffingCap": {
+              "type": "integer",
+              "x-go-type": "int"
+            },
+            "calendarDaysPerWeek": {
+              "type": "number"
+            },
+            "classRates": {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/$defs/Money"
+              }
+            },
+            "bufferDays": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "slotKind",
+            "staffingCap",
+            "calendarDaysPerWeek",
+            "classRates",
+            "bufferDays"
+          ],
+          "additionalProperties": false
+        },
+        "StandardCheck": {
+          "type": "object",
+          "properties": {
+            "items": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/CheckItem"
+              }
+            }
+          },
+          "required": [
+            "items"
+          ],
+          "additionalProperties": false
+        },
+        "System": {
+          "type": "object",
+          "properties": {
+            "components": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/Component"
+              }
+            },
+            "relationships": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/Relationship"
+              }
+            },
+            "dynamicViews": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/DynamicView"
+              }
+            }
+          },
+          "required": [
+            "components",
+            "relationships",
+            "dynamicViews"
+          ],
+          "additionalProperties": false
+        },
+        "TestPlanRecord": {
+          "type": "object",
+          "properties": {
+            "component": {
+              "type": "string"
+            },
+            "content": {
+              "type": "string"
+            },
+            "authoredAt": {
+              "type": [
+                "null",
+                "string"
+              ],
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            }
+          },
+          "required": [
+            "component",
+            "content"
+          ],
+          "additionalProperties": false
+        },
+        "TestingVariant": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2,
+            3,
+            4
+          ],
+          "x-enum-varnames": [
+            "TestVariantPlan",
+            "TestVariantHarness",
+            "TestVariantPerf",
+            "TestVariantSystemTest",
+            "TestVariantQAProcess"
+          ],
+          "x-go-base": "int"
+        },
+        "Trigger": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2
+          ],
+          "x-enum-varnames": [
+            "TriggerClientAction",
+            "TriggerTimer",
+            "TriggerBusMessage"
+          ],
+          "x-go-base": "int"
+        },
+        "UIDesignRecord": {
+          "type": "object",
+          "properties": {
+            "surface": {
+              "type": "string"
+            },
+            "content": {
+              "type": "string"
+            },
+            "authoredAt": {
+              "type": [
+                "null",
+                "string"
+              ],
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            }
+          },
+          "required": [
+            "surface",
+            "content"
+          ],
+          "additionalProperties": false
+        },
+        "UXRequirementsRecord": {
+          "type": "object",
+          "properties": {
+            "surface": {
+              "type": "string"
+            },
+            "content": {
+              "type": "string"
+            },
+            "authoredAt": {
+              "type": [
+                "null",
+                "string"
+              ],
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            }
+          },
+          "required": [
+            "surface",
+            "content"
+          ],
+          "additionalProperties": false
+        },
+        "UsageAssumption": {
+          "type": "object",
+          "properties": {
+            "expectedDailyActiveUsers": {
+              "type": "integer",
+              "x-go-type": "int"
+            },
+            "requestsPerMinute": {
+              "type": "number"
+            },
+            "avgPayloadBytes": {
+              "type": "integer",
+              "x-go-type": "int"
+            }
+          },
+          "required": [
+            "expectedDailyActiveUsers",
+            "requestsPerMinute",
+            "avgPayloadBytes"
+          ],
+          "additionalProperties": false
+        },
+        "UseCaseDecision": {
+          "type": "object",
+          "properties": {
+            "useCase": {
+              "x-go-type": "UseCase"
+            },
+            "rejectionReason": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "useCase",
+            "rejectionReason"
+          ],
+          "additionalProperties": false
+        },
+        "Version": {
+          "type": "integer"
+        },
+        "Volatilities": {
+          "type": "object",
+          "properties": {
+            "items": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/Volatility"
+              }
+            }
+          },
+          "required": [
+            "items"
+          ],
+          "additionalProperties": false
+        },
+        "Volatility": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "rationale": {
+              "type": "string"
+            },
+            "axis": {
+              "$ref": "#/$defs/Axis"
+            }
+          },
+          "required": [
+            "name",
+            "rationale",
+            "axis"
+          ],
+          "additionalProperties": false
+        },
+        "WorkerMix": {
+          "type": "object",
+          "properties": {
+            "classRates": {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/$defs/Money"
+              }
+            },
+            "staffingCap": {
+              "type": "integer",
+              "x-go-type": "int"
+            }
+          },
+          "required": [
+            "classRates",
+            "staffingCap"
+          ],
+          "additionalProperties": false
+        }
+      },
       "interface": {
         "name": "ProjectStateAccess",
         "layer": "resourceaccess",
@@ -13667,18 +15927,18 @@
               {
                 "name": "projectID",
                 "schema": {
-                  "x-go-type": "ProjectID"
+                  "$ref": "#/$defs/ProjectID"
                 }
               },
               {
                 "name": "expectedVersion",
                 "schema": {
-                  "x-go-type": "Version"
+                  "$ref": "#/$defs/Version"
                 }
               }
             ],
             "result": {
-              "x-go-type": "Version"
+              "$ref": "#/$defs/Version"
             },
             "error": true
           },
@@ -13688,24 +15948,24 @@
               {
                 "name": "projectID",
                 "schema": {
-                  "x-go-type": "ProjectID"
+                  "$ref": "#/$defs/ProjectID"
                 }
               },
               {
                 "name": "expectedVersion",
                 "schema": {
-                  "x-go-type": "Version"
+                  "$ref": "#/$defs/Version"
                 }
               },
               {
                 "name": "kind",
                 "schema": {
-                  "x-go-type": "ArtifactKind"
+                  "$ref": "#/$defs/ArtifactKind"
                 }
               }
             ],
             "result": {
-              "x-go-type": "Version"
+              "$ref": "#/$defs/Version"
             },
             "error": true
           },
@@ -13715,13 +15975,13 @@
               {
                 "name": "projectID",
                 "schema": {
-                  "x-go-type": "ProjectID"
+                  "$ref": "#/$defs/ProjectID"
                 }
               },
               {
                 "name": "owner",
                 "schema": {
-                  "x-go-type": "OwnerScope"
+                  "$ref": "#/$defs/OwnerScope"
                 }
               },
               {
@@ -13732,7 +15992,7 @@
               }
             ],
             "result": {
-              "x-go-type": "Version"
+              "$ref": "#/$defs/Version"
             },
             "error": true
           },
@@ -13742,14 +16002,14 @@
               {
                 "name": "owner",
                 "schema": {
-                  "x-go-type": "OwnerScope"
+                  "$ref": "#/$defs/OwnerScope"
                 }
               }
             ],
             "result": {
               "type": "array",
               "items": {
-                "x-go-type": "ProjectSummary"
+                "$ref": "#/$defs/ProjectSummary"
               }
             },
             "error": true
@@ -13760,7 +16020,7 @@
               {
                 "name": "projectID",
                 "schema": {
-                  "x-go-type": "ProjectID"
+                  "$ref": "#/$defs/ProjectID"
                 }
               }
             ],
@@ -13775,12 +16035,12 @@
               {
                 "name": "projectID",
                 "schema": {
-                  "x-go-type": "ProjectID"
+                  "$ref": "#/$defs/ProjectID"
                 }
               }
             ],
             "result": {
-              "x-go-type": "Version"
+              "$ref": "#/$defs/Version"
             },
             "error": true
           },
@@ -13790,19 +16050,19 @@
               {
                 "name": "projectID",
                 "schema": {
-                  "x-go-type": "ProjectID"
+                  "$ref": "#/$defs/ProjectID"
                 }
               },
               {
                 "name": "expectedVersion",
                 "schema": {
-                  "x-go-type": "Version"
+                  "$ref": "#/$defs/Version"
                 }
               },
               {
                 "name": "kind",
                 "schema": {
-                  "x-go-type": "ArtifactKind"
+                  "$ref": "#/$defs/ArtifactKind"
                 }
               },
               {
@@ -13813,7 +16073,7 @@
               }
             ],
             "result": {
-              "x-go-type": "Version"
+              "$ref": "#/$defs/Version"
             },
             "error": true
           },
@@ -13823,24 +16083,24 @@
               {
                 "name": "projectID",
                 "schema": {
-                  "x-go-type": "ProjectID"
+                  "$ref": "#/$defs/ProjectID"
                 }
               },
               {
                 "name": "expectedVersion",
                 "schema": {
-                  "x-go-type": "Version"
+                  "$ref": "#/$defs/Version"
                 }
               },
               {
                 "name": "research",
                 "schema": {
-                  "x-go-type": "ResearchInput"
+                  "$ref": "#/$defs/ResearchInput"
                 }
               }
             ],
             "result": {
-              "x-go-type": "Version"
+              "$ref": "#/$defs/Version"
             },
             "error": true
           },
@@ -13850,13 +16110,13 @@
               {
                 "name": "projectID",
                 "schema": {
-                  "x-go-type": "ProjectID"
+                  "$ref": "#/$defs/ProjectID"
                 }
               },
               {
                 "name": "expectedVersion",
                 "schema": {
-                  "x-go-type": "Version"
+                  "$ref": "#/$defs/Version"
                 }
               },
               {
@@ -13867,7 +16127,7 @@
               }
             ],
             "result": {
-              "x-go-type": "Version"
+              "$ref": "#/$defs/Version"
             },
             "error": true
           },
@@ -13877,19 +16137,19 @@
               {
                 "name": "projectID",
                 "schema": {
-                  "x-go-type": "ProjectID"
+                  "$ref": "#/$defs/ProjectID"
                 }
               },
               {
                 "name": "expectedVersion",
                 "schema": {
-                  "x-go-type": "Version"
+                  "$ref": "#/$defs/Version"
                 }
               },
               {
                 "name": "kind",
                 "schema": {
-                  "x-go-type": "ArtifactKind"
+                  "$ref": "#/$defs/ArtifactKind"
                 }
               },
               {
@@ -13900,7 +16160,7 @@
               }
             ],
             "result": {
-              "x-go-type": "Version"
+              "$ref": "#/$defs/Version"
             },
             "error": true
           }

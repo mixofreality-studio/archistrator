@@ -19,19 +19,13 @@ package projectstate
 // The shape is intentionally minimal and design-level — its exact internal layout
 // is construction-refinable. The frozen surface is the field + the verb +
 // read-whole; not the precise field set.
-type ResearchInput struct {
-	// Sources is the set of named research documents/sources feeding Phase-1.
-	// Zero value (no Sources) == not yet provided.
-	Sources []ResearchSource
-}
+
+// Sources is the set of named research documents/sources feeding Phase-1.
+// Zero value (no Sources) == not yet provided.
 
 // ResearchSource is one named research document/source feeding Phase-1 system
 // design. Title is human-meaningful; Content is the corpus text the mission-draft
 // prompt consumes (or a reference resolvable at construction time — refinable).
-type ResearchSource struct {
-	Title   string
-	Content string
-}
 
 // IsZero reports whether the ResearchInput is unprovided (no Sources). The
 // setResearchInput pre-condition rejects a zero value (projectStateAccess.md §2).

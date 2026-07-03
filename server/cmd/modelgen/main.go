@@ -140,12 +140,14 @@ func genOne(raw []byte, goPackage, component string, infra []string, stub bool, 
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		return fmt.Errorf("parse schema: %w", err)
 	}
-	// A schema must carry SOMETHING to generate: either model `$defs` OR (in the
-	// interface-only mode used by projectstate) just the `interface` descriptor. A
-	// truly empty document is an error.
-	_, hasIface := doc.Extra["interface"]
-	if len(doc.Defs) == 0 && !hasIface {
-		return fmt.Errorf("schema has no $defs and no interface")
+	// Every built contract MUST carry model `$defs` — the generated file's whole
+	// purpose is to be the component's public type surface. The former interface-only
+	// escape hatch (a contract with an `interface` but no `$defs`, used while
+	// projectstate was un-migrated) is gone: projectstate now reflects its ~100 domain
+	// models into $defs like every other component, so a missing/empty $defs is a hard
+	// error again, not a legitimate mode.
+	if len(doc.Defs) == 0 {
+		return fmt.Errorf("schema has no $defs (every built contract must declare its model types)")
 	}
 
 	// Property order is lost when $defs is unmarshaled into a Go map, so recover it

@@ -1,57 +1,42 @@
 package projectstate
 
-import "time"
-
 // ProjectSummary is the catalog row for the landing grid (Task 2.3). It is a
 // derived projection of the head-state — NOT a stored shape — returned by
 // ListProjects: identity + display fields plus the current-phase progress
 // (committed vs total artifact slots) so the grid can render a progress badge
 // without loading every project's full slot set.
-type ProjectSummary struct {
-	ProjectID      ProjectID
-	Name           string
-	Owner          OwnerScope
-	Phase          Phase
-	CommittedCount int // committed artifact slots in the current phase
-	TotalCount     int // total required artifact slots in the current phase
-	UpdatedAt      time.Time
-}
+
+// committed artifact slots in the current phase
+// total required artifact slots in the current phase
 
 // Phase identifies the lifecycle phase the project currently sits in.
 // Additive as later Managers come online. (projectStateAccess.md §3.1)
-type Phase int
 
-const (
-	// PhaseSystemDesign is Phase 1 — driven by systemDesignManager.
-	PhaseSystemDesign Phase = iota
-	// PhaseProjectDesign is Phase 2 — reachable once Phase 1 is sealed (advancePhase).
-	PhaseProjectDesign
-	// PhaseConstruction is Phase 3 — reachable once Phase 2 is sealed by
-	// projectDesignManager.advanceToConstruction (which seals the SDP-review option
-	// gate). The Phase-3 work itself is owned by the constructionManager; this
-	// constant only gives AdvancePhase a clean target beyond PhaseProjectDesign so
-	// the Phase-2 seal increments into a named phase rather than an unnamed ordinal.
-	// (projectDesignManager.md §2.4 / PHASE NOTE — additive.)
-	PhaseConstruction
-	// additive as later phases come online (Operations)
-)
+// PhaseSystemDesign is Phase 1 — driven by systemDesignManager.
+
+// PhaseProjectDesign is Phase 2 — reachable once Phase 1 is sealed (advancePhase).
+
+// PhaseConstruction is Phase 3 — reachable once Phase 2 is sealed by
+// projectDesignManager.advanceToConstruction (which seals the SDP-review option
+// gate). The Phase-3 work itself is owned by the constructionManager; this
+// constant only gives AdvancePhase a clean target beyond PhaseProjectDesign so
+// the Phase-2 seal increments into a named phase rather than an unnamed ordinal.
+// (projectDesignManager.md §2.4 / PHASE NOTE — additive.)
+
+// additive as later phases come online (Operations)
 
 // ArtifactReviewStatus is the per-slot review state in the Project head-state
 // aggregate. (projectStateAccess.md §3.1)
-type ArtifactReviewStatus int
 
-const (
-	// ReviewNone — the slot has never been staged (zero value).
-	ReviewNone ArtifactReviewStatus = iota
-	// ReviewAwaitingReview — staged, suspended at the review gate.
-	ReviewAwaitingReview
-	// ReviewCommitted — architect approved.
-	ReviewCommitted
-	// ReviewRejected — architect rejected (will redraft); model retained for the redraft baseline.
-	ReviewRejected
-	// ReviewWithdrawn — architect abandoned at the gate.
-	ReviewWithdrawn
-)
+// ReviewNone — the slot has never been staged (zero value).
+
+// ReviewAwaitingReview — staged, suspended at the review gate.
+
+// ReviewCommitted — architect approved.
+
+// ReviewRejected — architect rejected (will redraft); model retained for the redraft baseline.
+
+// ReviewWithdrawn — architect abandoned at the gate.
 
 // ArtifactModel is the closed interface every typed Method model implements.
 // Kind() lets stageArtifactForReview route a model to its named slot by concrete
@@ -94,20 +79,17 @@ type ArtifactModel interface {
 //
 // Defaulted-empty (omitempty in the slot codec) so every existing reader/writer —
 // and the out-of-process aiarch-validate CLI decode — is unaffected.
-type ArtifactSlot struct {
-	Status ArtifactReviewStatus
-	Model  ArtifactModel // the canonical typed model; nil only while ReviewNone
-	Notes  string        // architect rationale; populated by the ResourceAccess layer on Reject/Withdraw
 
-	// CritiqueVerdict is the PM-critique read-back verdict for this slot
-	// ("" | CritiqueVerdictApprove | CritiqueVerdictRevise). Empty == no critique
-	// committed for the current draft. Written ONLY by the PM-critique Action;
-	// cleared by StageArtifactForReview / the status-transition verbs.
-	CritiqueVerdict string
-	// CritiqueNotes is the PM-critique read-back revision guidance, carried on a
-	// Revise verdict. Distinct from Notes (the architect's reject/withdraw rationale).
-	CritiqueNotes string
-}
+// the canonical typed model; nil only while ReviewNone
+// architect rationale; populated by the ResourceAccess layer on Reject/Withdraw
+
+// CritiqueVerdict is the PM-critique read-back verdict for this slot
+// ("" | CritiqueVerdictApprove | CritiqueVerdictRevise). Empty == no critique
+// committed for the current draft. Written ONLY by the PM-critique Action;
+// cleared by StageArtifactForReview / the status-transition verbs.
+
+// CritiqueNotes is the PM-critique read-back revision guidance, carried on a
+// Revise verdict. Distinct from Notes (the architect's reject/withdraw rationale).
 
 // Canonical CritiqueVerdict carrier values written into ArtifactSlot.CritiqueVerdict
 // by the PM-critique Action and read back by the systemDesignManager. They are the

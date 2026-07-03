@@ -17,7 +17,6 @@ import (
 // catalog enumerates by the `aiarch-project` topic and returns repo name == this
 // identity (the prior `uuid.Parse` skip is gone). (sourceControlAccess.md §10.1 Q7
 // — re-derivation degenerates to identity, so no head-state repo-ref column.)
-type ProjectID string
 
 // String returns the project identity as a plain string. Defined so the many
 // existing `projectID.String()` call sites (logging, idempotency-key derivation,
@@ -28,13 +27,11 @@ func (p ProjectID) String() string { return string(p) }
 // Version is the optimistic-concurrency token: per-aggregate mutation count.
 // 0 == no row yet. Bumped by one on each successful write verb. NOT a row id or
 // timestamp. (projectStateAccess.md §3.0)
-type Version int64
 
 // OwnerScope identifies the owning principal of a project (e.g. the subject or
 // email of the authenticated user). It scopes the project catalog so ListProjects
 // returns only the rows a principal owns. A plain string newtype — the RA stores
 // it verbatim and never interprets it. (Task 2.3)
-type OwnerScope string
 
 // ComponentID is the stable identifier for a System component.
 //
@@ -83,29 +80,26 @@ func Slug(name string) string {
 // are being migrated out across tasks T4–T10 and will be deleted when done —
 // until then the two coexist intentionally and consumers are migrated
 // package-by-package.
-type ArtifactKind int
 
-const (
-	// ---- Phase 1 ----
-	KindMission              ArtifactKind = iota // Mission slot; Model is *MissionStatement
-	KindGlossary                                 // Glossary slot; Model is *Glossary
-	KindScrubbedRequirements                     // ScrubbedRequirements slot; Model is *ScrubbedRequirements (OQ-2)
-	KindVolatilities                             // Volatilities slot; Model is *Volatilities
-	KindCoreUseCases                             // CoreUseCases slot; Model is *CoreUseCases
-	KindSystem                                   // System slot; Model is *System (Grammar A)
-	KindOperationalConcepts                      // OperationalConcepts slot; Model is *OperationalConcepts
-	KindStandardCheck                            // StandardCheck slot; Model is *StandardCheck
-	// ---- Phase 2 (additive; design-only until projectDesignManager is built) ----
-	KindPlanningAssumptions  // PlanningAssumptions slot; Model is *PlanningAssumptions
-	KindActivityList         // ActivityList slot; Model is *ActivityList
-	KindNetwork              // Network slot; Model is *Network
-	KindNormalSolution       // NormalSolution slot; Model is *Solution
-	KindSubcriticalSolution  // SubcriticalSolution slot; Model is *Solution
-	KindCompressedSolution   // CompressedSolution slot; Model is *Solution
-	KindDecompressedSolution // DecompressedSolution slot; Model is *Solution
-	KindRiskModel            // RiskModel slot; Model is *RiskModel
-	KindSdpReview            // SdpReview slot; Model is *SdpReview
-)
+// ---- Phase 1 ----
+// Mission slot; Model is *MissionStatement
+// Glossary slot; Model is *Glossary
+// ScrubbedRequirements slot; Model is *ScrubbedRequirements (OQ-2)
+// Volatilities slot; Model is *Volatilities
+// CoreUseCases slot; Model is *CoreUseCases
+// System slot; Model is *System (Grammar A)
+// OperationalConcepts slot; Model is *OperationalConcepts
+// StandardCheck slot; Model is *StandardCheck
+// ---- Phase 2 (additive; design-only until projectDesignManager is built) ----
+// PlanningAssumptions slot; Model is *PlanningAssumptions
+// ActivityList slot; Model is *ActivityList
+// Network slot; Model is *Network
+// NormalSolution slot; Model is *Solution
+// SubcriticalSolution slot; Model is *Solution
+// CompressedSolution slot; Model is *Solution
+// DecompressedSolution slot; Model is *Solution
+// RiskModel slot; Model is *RiskModel
+// SdpReview slot; Model is *SdpReview
 
 // String returns a stable human-readable name for the ArtifactKind.
 // Used in error messages and arch-test output.
@@ -261,6 +255,11 @@ func (k ArtifactKind) IsPhase1() bool {
 		KindOperationalConcepts,
 		KindStandardCheck:
 		return true
+	case KindPlanningAssumptions, KindActivityList, KindNetwork, KindNormalSolution,
+		KindSubcriticalSolution, KindCompressedSolution, KindDecompressedSolution,
+		KindRiskModel, KindSdpReview:
+		// Phase-2 kinds — same as the default below.
+		return false
 	default:
 		return false
 	}
@@ -297,6 +296,10 @@ func (k ArtifactKind) IsPhase2() bool {
 		KindRiskModel,
 		KindSdpReview:
 		return true
+	case KindMission, KindGlossary, KindScrubbedRequirements, KindVolatilities,
+		KindCoreUseCases, KindSystem, KindOperationalConcepts, KindStandardCheck:
+		// Phase-1 kinds — same as the default below.
+		return false
 	default:
 		return false
 	}
@@ -311,6 +314,12 @@ func (k ArtifactKind) IsSolutionKind() bool {
 		KindCompressedSolution,
 		KindDecompressedSolution:
 		return true
+	case KindMission, KindGlossary, KindScrubbedRequirements, KindVolatilities,
+		KindCoreUseCases, KindSystem, KindOperationalConcepts, KindStandardCheck,
+		KindPlanningAssumptions, KindActivityList, KindNetwork, KindRiskModel, KindSdpReview:
+		// Every non-solution kind (Phase-1 and the non-solution Phase-2 kinds) —
+		// same as the default below.
+		return false
 	default:
 		return false
 	}

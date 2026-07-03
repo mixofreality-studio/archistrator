@@ -10,88 +10,32 @@ import "time"
 // --- Phase artifact records ---
 
 // SRSRecord is the Requirements phase artifact for a service or deployment activity.
-type SRSRecord struct {
-	Component  string     `json:"component"`
-	Content    string     `json:"content"`
-	AuthoredAt *time.Time `json:"authoredAt,omitempty"`
-}
 
 // TestPlanRecord is the TestPlan phase artifact (per-service/frontend slice).
 // Author per Correction 1: the constructing developer (junior under senior hand-off),
 // NOT the test-engineer. System-level test activities use TestingState.SystemTestPlan.
-type TestPlanRecord struct {
-	Component  string     `json:"component"`
-	Content    string     `json:"content"`
-	AuthoredAt *time.Time `json:"authoredAt,omitempty"`
-}
 
 // IntegrationNoteRecord is the Integration phase artifact produced when the
 // senior-developer integrates the component and merges the integration PR.
-type IntegrationNoteRecord struct {
-	Component  string     `json:"component"`
-	Content    string     `json:"content"`
-	AuthoredAt *time.Time `json:"authoredAt,omitempty"`
-}
 
 // UXRequirementsRecord is the Requirements phase artifact for frontend activities.
-type UXRequirementsRecord struct {
-	Surface    string     `json:"surface"`
-	Content    string     `json:"content"`
-	AuthoredAt *time.Time `json:"authoredAt,omitempty"`
-}
 
 // UIDesignRecord is the DetailedDesign phase artifact for frontend activities
 // (UI designs, wireframes, component specs). Review: founder + ux-reviewer + PM + architect.
-type UIDesignRecord struct {
-	Surface    string     `json:"surface"`
-	Content    string     `json:"content"`
-	AuthoredAt *time.Time `json:"authoredAt,omitempty"`
-}
 
 // ProvisioningSpecRecord is the Requirements phase artifact for deployment activities.
-type ProvisioningSpecRecord struct {
-	Resource   string     `json:"resource"`
-	Content    string     `json:"content"`
-	AuthoredAt *time.Time `json:"authoredAt,omitempty"`
-}
 
 // DeployNoteRecord is the Integration phase artifact for deployment activities
 // (convergence verification output).
-type DeployNoteRecord struct {
-	Resource   string     `json:"resource"`
-	Content    string     `json:"content"`
-	AuthoredAt *time.Time `json:"authoredAt,omitempty"`
-}
 
 // DocOutlineRecord is the Requirements phase artifact for documentation activities.
-type DocOutlineRecord struct {
-	Doc        string     `json:"doc"`
-	Content    string     `json:"content"`
-	AuthoredAt *time.Time `json:"authoredAt,omitempty"`
-}
 
 // DocNoteRecord is the Integration phase artifact for documentation activities
 // (review completion note).
-type DocNoteRecord struct {
-	Doc        string     `json:"doc"`
-	Content    string     `json:"content"`
-	AuthoredAt *time.Time `json:"authoredAt,omitempty"`
-}
 
 // PhaseArtifacts holds all phase-scoped artifacts produced during Phase-3 construction.
 // Keyed by component/surface/resource/doc name (the same key used in ServiceContracts).
 // Additive: nil until the first RecordPhaseArtifactProduced call.
-type PhaseArtifacts struct {
-	SRS              map[string]SRSRecord              `json:"srs,omitempty"`
-	TestPlan         map[string]TestPlanRecord         `json:"testPlan,omitempty"`
-	IntegrationNote  map[string]IntegrationNoteRecord  `json:"integrationNote,omitempty"`
-	UXRequirements   map[string]UXRequirementsRecord   `json:"uxRequirements,omitempty"`
-	UIDesign         map[string]UIDesignRecord         `json:"uiDesign,omitempty"`
-	ProvisioningSpec map[string]ProvisioningSpecRecord `json:"provisioningSpec,omitempty"`
-	DeployNote       map[string]DeployNoteRecord       `json:"deployNote,omitempty"`
-	DocOutline       map[string]DocOutlineRecord       `json:"docOutline,omitempty"`
-	DocNote          map[string]DocNoteRecord          `json:"docNote,omitempty"`
-}
 
 // --- Testing state records (§1c / design §2.3) ---
 
@@ -99,12 +43,11 @@ type PhaseArtifacts struct {
 // When the construction Manager encounters a gate matching the current activity+phase,
 // it consults interventionEngine: Before mode pauses before dispatch; After mode
 // pauses after merge; OnReviewFail forces escalate on any review failure.
-type QualityGate struct {
-	ActivityType string `json:"activityType"` // e.g. "C-PE" or ActivityType.String()
-	Phase        string `json:"phase"`        // ActivityMethodPhase.String()
-	When         string `json:"when"`         // "before" | "after" | "onReviewFail"
-	Mode         string `json:"mode"`         // "escalate" | "takeover"
-}
+
+// e.g. "C-PE" or ActivityType.String()
+// ActivityMethodPhase.String()
+// "before" | "after" | "onReviewFail"
+// "escalate" | "takeover"
 
 // DefectRecord is one defect filed during system testing (N-IT / §1c).
 type DefectRecord struct {

@@ -99,6 +99,11 @@ func (s *GitStore) RecordActivityExited(ctx context.Context, projectID ProjectID
 			switch outcome {
 			case ActivityOutcomeCompleted:
 				cs.BuildStatus = BuildIntegrated
+			case ActivityOutcomeUnknown, ActivityOutcomeSkipped, ActivityOutcomeTakenOver:
+				// Skipped / TakenOver (and the zero-value Unknown, which should never
+				// reach here but is handled the same defensively): activity is done
+				// but was not reviewed+integrated. Same as the default below.
+				cs.BuildStatus = BuildInReview
 			default:
 				// Skipped / TakenOver: activity is done but was not reviewed+integrated.
 				cs.BuildStatus = BuildInReview

@@ -5,19 +5,11 @@ package projectstate
 // ids (Requirements/DetailedDesign/TestPlan/Construction/Integration) so the shared
 // earned-value/progress formula (Appendix A) stays uniform across all activity
 // types; only the label and weight vary per profile.
-type ProfilePhase struct {
-	Phase  ActivityMethodPhase
-	Weight int
-	Label  string
-}
 
 // Profile is the per-activity-type preset over the ONE canonical lifecycle: an
 // ordered subset of the five canonical phases with weights and display labels.
 // It is NOT a distinct lifecycle — it is weights + labels + a phase subset over
 // the single shared phase vocabulary (Righting Software, Appendix A / Table A-1).
-type Profile struct {
-	Phases []ProfilePhase
-}
 
 // PhaseIDs returns the ordered canonical phase ids for this profile — the sequence
 // the construction pump dispatches.
@@ -73,6 +65,14 @@ func ProfileFor(t ActivityType, v TestingVariant) Profile {
 			{MethodPhaseConstruction, 60, "Authoring"},
 			{MethodPhaseIntegration, 20, "Doc Review"},
 		}}
+	case ActivityTypeService: // the zero value — the canonical five, same as default.
+		return Profile{Phases: []ProfilePhase{
+			{MethodPhaseRequirements, 15, "Requirements"},
+			{MethodPhaseDetailedDesign, 20, "Detailed Design"},
+			{MethodPhaseTestPlan, 10, "Test Plan"},
+			{MethodPhaseConstruction, 40, "Construction"},
+			{MethodPhaseIntegration, 15, "Integration"},
+		}}
 	default: // ActivityTypeService — the canonical five.
 		return Profile{Phases: []ProfilePhase{
 			{MethodPhaseRequirements, 15, "Requirements"},
@@ -108,6 +108,12 @@ func profileForTestingVariant(v TestingVariant) Profile {
 		return Profile{Phases: []ProfilePhase{
 			{MethodPhaseDetailedDesign, 40, "Gate Definition"},
 			{MethodPhaseConstruction, 60, "Process Audit"},
+		}}
+	case TestVariantPlan: // the zero value (N-STP) — same as default.
+		return Profile{Phases: []ProfilePhase{
+			{MethodPhaseRequirements, 20, "Use-Case Trace"},
+			{MethodPhaseConstruction, 45, "Plan Authoring"},
+			{MethodPhaseIntegration, 35, "Plan Review"},
 		}}
 	default: // TestVariantPlan (N-STP)
 		return Profile{Phases: []ProfilePhase{

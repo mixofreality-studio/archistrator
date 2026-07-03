@@ -5,7 +5,710 @@ package projectstate
 
 import (
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	"time"
 )
+
+type ActivityBuildStatus int
+
+const (
+	BuildInConstruction ActivityBuildStatus = 0
+	BuildInReview       ActivityBuildStatus = 1
+	BuildIntegrated     ActivityBuildStatus = 2
+	BuildFailed         ActivityBuildStatus = 3
+)
+
+type ActivityConstructionPhase int
+
+const (
+	ActivityConstructionNotStarted ActivityConstructionPhase = 0
+	ActivityConstructionRunning    ActivityConstructionPhase = 1
+	ActivityConstructionDone       ActivityConstructionPhase = 2
+	ActivityConstructionFailed     ActivityConstructionPhase = 3
+)
+
+type ActivityDiagram struct {
+	Nodes []ActivityNode `json:"nodes"`
+	Edges []ActivityEdge `json:"edges"`
+}
+
+type ActivityEdge struct {
+	From  string   `json:"from"`
+	To    string   `json:"to"`
+	Kind  EdgeKind `json:"kind"`
+	Guard string   `json:"guard"`
+}
+
+type ActivityGitStatus struct {
+	ActivityID     string       `json:"ActivityID"`
+	BranchName     string       `json:"BranchName"`
+	BranchRef      string       `json:"BranchRef"`
+	PullRequestRef string       `json:"PullRequestRef"`
+	CICheck        CICheckState `json:"CICheck"`
+	ArchApproved   bool         `json:"ArchApproved"`
+	Merged         bool         `json:"Merged"`
+	CRLabel        string       `json:"CRLabel"`
+	IsRevert       bool         `json:"IsRevert"`
+	UpdatedAt      time.Time    `json:"UpdatedAt"`
+}
+
+type ActivityList struct {
+	Activities []ActivityItem `json:"activities"`
+}
+
+type ActivityMethodPhase string
+
+const (
+	MethodPhaseRequirements   ActivityMethodPhase = "requirements"
+	MethodPhaseDetailedDesign ActivityMethodPhase = "detailed_design"
+	MethodPhaseTestPlan       ActivityMethodPhase = "test_plan"
+	MethodPhaseConstruction   ActivityMethodPhase = "construction"
+	MethodPhaseIntegration    ActivityMethodPhase = "integration"
+)
+
+type ActivityNetwork struct {
+	Activities []OptionActivity `json:"activities"`
+}
+
+type ActivityNodeKind int
+
+const (
+	NodeStart         ActivityNodeKind = 0
+	NodeAction        ActivityNodeKind = 1
+	NodeDecision      ActivityNodeKind = 2
+	NodeMerge         ActivityNodeKind = 3
+	NodeFork          ActivityNodeKind = 4
+	NodeJoin          ActivityNodeKind = 5
+	NodeEnd           ActivityNodeKind = 6
+	NodeSwimLane      ActivityNodeKind = 7
+	NodeNote          ActivityNodeKind = 8
+	NodeLoop          ActivityNodeKind = 9
+	NodeSwitch        ActivityNodeKind = 10
+	NodeGoto          ActivityNodeKind = 11
+	NodeInterruptEdge ActivityNodeKind = 12
+)
+
+type ActivityOutcome int
+
+const (
+	ActivityOutcomeUnknown   ActivityOutcome = 0
+	ActivityOutcomeCompleted ActivityOutcome = 1
+	ActivityOutcomeSkipped   ActivityOutcome = 2
+	ActivityOutcomeTakenOver ActivityOutcome = 3
+)
+
+type ActivityType int
+
+const (
+	ActivityTypeService       ActivityType = 0
+	ActivityTypeFrontend      ActivityType = 1
+	ActivityTypeTesting       ActivityType = 2
+	ActivityTypeDeployment    ActivityType = 3
+	ActivityTypeDocumentation ActivityType = 4
+)
+
+type Actor struct {
+	ID   string `json:"id"`
+	Role string `json:"role"`
+}
+
+type ArtifactKind int
+
+const (
+	KindMission              ArtifactKind = 0
+	KindGlossary             ArtifactKind = 1
+	KindScrubbedRequirements ArtifactKind = 2
+	KindVolatilities         ArtifactKind = 3
+	KindCoreUseCases         ArtifactKind = 4
+	KindSystem               ArtifactKind = 5
+	KindOperationalConcepts  ArtifactKind = 6
+	KindStandardCheck        ArtifactKind = 7
+	KindPlanningAssumptions  ArtifactKind = 8
+	KindActivityList         ArtifactKind = 9
+	KindNetwork              ArtifactKind = 10
+	KindNormalSolution       ArtifactKind = 11
+	KindSubcriticalSolution  ArtifactKind = 12
+	KindCompressedSolution   ArtifactKind = 13
+	KindDecompressedSolution ArtifactKind = 14
+	KindRiskModel            ArtifactKind = 15
+	KindSdpReview            ArtifactKind = 16
+)
+
+type ArtifactReviewStatus int
+
+const (
+	ReviewNone           ArtifactReviewStatus = 0
+	ReviewAwaitingReview ArtifactReviewStatus = 1
+	ReviewCommitted      ArtifactReviewStatus = 2
+	ReviewRejected       ArtifactReviewStatus = 3
+	ReviewWithdrawn      ArtifactReviewStatus = 4
+)
+
+type ArtifactSlot struct {
+	Status          ArtifactReviewStatus `json:"Status"`
+	Model           ArtifactModel        `json:"Model"`
+	Notes           string               `json:"Notes"`
+	CritiqueVerdict string               `json:"CritiqueVerdict"`
+	CritiqueNotes   string               `json:"CritiqueNotes"`
+}
+
+type Axis int
+
+const (
+	AxisSameCustomerOverTime  Axis = 0
+	AxisAllCustomersAtOneTime Axis = 1
+)
+
+type CICheckState int
+
+const (
+	CICheckPending CICheckState = 0
+	CICheckSuccess CICheckState = 1
+	CICheckFailure CICheckState = 2
+)
+
+type CallMode int
+
+const (
+	CallSync        CallMode = 0
+	CallQueued      CallMode = 1
+	CallEventPubSub CallMode = 2
+)
+
+type CheckItem struct {
+	Section       string      `json:"section"`
+	Guideline     string      `json:"guideline"`
+	Status        CheckStatus `json:"status"`
+	Justification string      `json:"justification"`
+}
+
+type CheckStatus int
+
+const (
+	CheckPass   CheckStatus = 0
+	CheckWaived CheckStatus = 1
+	CheckFail   CheckStatus = 2
+)
+
+type Classification int
+
+const (
+	ClassCore    Classification = 0
+	ClassNonCore Classification = 1
+)
+
+type Component struct {
+	ID                  string        `json:"id"`
+	Name                string        `json:"name"`
+	Kind                ComponentKind `json:"kind"`
+	Layer               Layer         `json:"layer"`
+	Encapsulates        string        `json:"encapsulates"`
+	AtomicBusinessVerbs []string      `json:"atomicBusinessVerbs"`
+}
+
+type ComponentKind int
+
+const (
+	CompClient         ComponentKind = 0
+	CompManager        ComponentKind = 1
+	CompEngine         ComponentKind = 2
+	CompResourceAccess ComponentKind = 3
+	CompResource       ComponentKind = 4
+	CompUtility        ComponentKind = 5
+)
+
+type ComputeCostKind int
+
+const (
+	ComputeCostUnknown      ComputeCostKind = 0
+	ComputeCostFlatMarkup   ComputeCostKind = 1
+	ComputeCostTieredFloors ComputeCostKind = 2
+)
+
+type ConstructionProgress struct {
+	Week           int    `json:"Week"`
+	TotalWeeks     int    `json:"TotalWeeks"`
+	HandOffModel   string `json:"HandOffModel"`
+	SupervisionCap int    `json:"SupervisionCap"`
+}
+
+type ContainerInstance struct {
+	ContainerKey string   `json:"containerKey"`
+	Note         string   `json:"note"`
+	Tags         []string `json:"tags"`
+}
+
+type ContractInterface struct {
+	Name       string              `json:"name"`
+	Layer      string              `json:"layer"`
+	Operations []ContractOperation `json:"operations"`
+}
+
+type CoreUseCases struct {
+	Decisions []UseCaseDecision `json:"decisions"`
+}
+
+type CorpusPresence struct {
+	HasLog           bool   `json:"HasLog"`
+	HasPassingReview bool   `json:"HasPassingReview"`
+	HasContract      bool   `json:"HasContract"`
+	ContractFile     string `json:"ContractFile"`
+}
+
+type DeliveryStyle int
+
+const (
+	StyleCloud DeliveryStyle = 0
+	StyleLocal DeliveryStyle = 1
+	StyleBoth  DeliveryStyle = 2
+)
+
+type DeployContainer struct {
+	Key         string   `json:"key"`
+	Name        string   `json:"name"`
+	Technology  string   `json:"technology"`
+	Description string   `json:"description"`
+	Components  []string `json:"components"`
+}
+
+type DeployNoteRecord struct {
+	Resource   string     `json:"resource"`
+	Content    string     `json:"content"`
+	AuthoredAt *time.Time `json:"authoredAt,omitempty"`
+}
+
+type DeploymentEnvironment struct {
+	Profile DeploymentProfile `json:"profile"`
+	Title   string            `json:"title"`
+	Nodes   []DeploymentNode  `json:"nodes"`
+}
+
+type DeploymentProfile int
+
+const (
+	ProfileCloud DeploymentProfile = 0
+	ProfileLocal DeploymentProfile = 1
+	ProfileTest  DeploymentProfile = 2
+)
+
+type DeploymentTopology struct {
+	DeliveryStyle DeliveryStyle           `json:"deliveryStyle"`
+	Containers    []DeployContainer       `json:"containers"`
+	Environments  []DeploymentEnvironment `json:"environments"`
+}
+
+type DocNoteRecord struct {
+	Doc        string     `json:"doc"`
+	Content    string     `json:"content"`
+	AuthoredAt *time.Time `json:"authoredAt,omitempty"`
+}
+
+type DocOutlineRecord struct {
+	Doc        string     `json:"doc"`
+	Content    string     `json:"content"`
+	AuthoredAt *time.Time `json:"authoredAt,omitempty"`
+}
+
+type DynamicView struct {
+	UseCaseID    string         `json:"useCaseId"`
+	Key          string         `json:"key"`
+	Title        string         `json:"title"`
+	Participants []string       `json:"participants"`
+	Edges        []Relationship `json:"edges"`
+}
+
+type EdgeKind int
+
+const (
+	EdgeControlFlow EdgeKind = 0
+	EdgeGuardedFlow EdgeKind = 1
+)
+
+type FailureReason int
+
+const (
+	FailureReasonUnknown FailureReason = 0
+	PipelineFailed       FailureReason = 1
+	PipelineCancelled    FailureReason = 2
+	PipelineTimedOut     FailureReason = 3
+	VarianceExhausted    FailureReason = 4
+	EscalationTimedOut   FailureReason = 5
+)
+
+type Glossary struct {
+	Items []GlossaryItem `json:"items"`
+}
+
+type GlossaryItem struct {
+	Term       string `json:"term"`
+	Definition string `json:"definition"`
+	Category   string `json:"category"`
+}
+
+type InfrastructureKind int
+
+const (
+	InfrastructureKindUnknown            InfrastructureKind = 0
+	InfrastructureKindGoTemporalPostgres InfrastructureKind = 1
+)
+
+type InfrastructureNode struct {
+	Name        string   `json:"name"`
+	Technology  string   `json:"technology"`
+	Description string   `json:"description"`
+	Tags        []string `json:"tags"`
+}
+
+type IntegrationNoteRecord struct {
+	Component  string     `json:"component"`
+	Content    string     `json:"content"`
+	AuthoredAt *time.Time `json:"authoredAt,omitempty"`
+}
+
+type Layer int
+
+const (
+	LayerClient         Layer = 0
+	LayerManager        Layer = 1
+	LayerEngine         Layer = 2
+	LayerResourceAccess Layer = 3
+	LayerResource       Layer = 4
+	LayerUtility        Layer = 5
+)
+
+type MissionStatement struct {
+	Vision     string      `json:"vision"`
+	Objectives []Objective `json:"objectives"`
+	Mission    string      `json:"mission"`
+}
+
+type Money struct {
+	MinorUnits int64  `json:"minorUnits"`
+	Currency   string `json:"currency"`
+}
+
+type NetworkDependency struct {
+	Activity  string   `json:"activity"`
+	DependsOn []string `json:"dependsOn"`
+}
+
+type NetworkNodeCompute struct {
+	EarliestStart  float64 `json:"earliestStart"`
+	EarliestFinish float64 `json:"earliestFinish"`
+	LatestStart    float64 `json:"latestStart"`
+	LatestFinish   float64 `json:"latestFinish"`
+	TotalFloat     float64 `json:"totalFloat"`
+	FreeFloat      float64 `json:"freeFloat"`
+	OnCriticalPath bool    `json:"onCriticalPath"`
+	NearCritical   bool    `json:"nearCritical"`
+	Band           string  `json:"band"`
+	Column         int     `json:"column"`
+}
+
+type NetworkSummary struct {
+	TotalDurationDays         float64 `json:"totalDurationDays"`
+	CriticalPathActivityCount int     `json:"criticalPathActivityCount"`
+	CriticalPathDays          float64 `json:"criticalPathDays"`
+	MaxFloat                  float64 `json:"maxFloat"`
+	NearCriticalCount         int     `json:"nearCriticalCount"`
+}
+
+type Objective struct {
+	Number    int    `json:"number"`
+	Statement string `json:"statement"`
+}
+
+type OperationalConcepts struct {
+	Decisions  []OperationalDecision `json:"decisions"`
+	Deployment DeploymentTopology    `json:"deployment"`
+}
+
+type OperationalDecision struct {
+	Topic               string `json:"topic"`
+	Decision            string `json:"decision"`
+	JustifyingObjective int    `json:"justifyingObjective"`
+}
+
+type OptionActivity struct {
+	ActivityID     string  `json:"activityId"`
+	EffortDays     float64 `json:"effortDays"`
+	WorkerClass    string  `json:"workerClass"`
+	OnCriticalPath bool    `json:"onCriticalPath"`
+	RiskBucket     int     `json:"riskBucket"`
+}
+
+type OptionID string
+
+type OwnerScope string
+
+type Phase int
+
+const (
+	PhaseSystemDesign  Phase = 0
+	PhaseProjectDesign Phase = 1
+	PhaseConstruction  Phase = 2
+)
+
+type PhaseArtifacts struct {
+	SRS              map[string]SRSRecord              `json:"srs,omitempty"`
+	TestPlan         map[string]TestPlanRecord         `json:"testPlan,omitempty"`
+	IntegrationNote  map[string]IntegrationNoteRecord  `json:"integrationNote,omitempty"`
+	UXRequirements   map[string]UXRequirementsRecord   `json:"uxRequirements,omitempty"`
+	UIDesign         map[string]UIDesignRecord         `json:"uiDesign,omitempty"`
+	ProvisioningSpec map[string]ProvisioningSpecRecord `json:"provisioningSpec,omitempty"`
+	DeployNote       map[string]DeployNoteRecord       `json:"deployNote,omitempty"`
+	DocOutline       map[string]DocOutlineRecord       `json:"docOutline,omitempty"`
+	DocNote          map[string]DocNoteRecord          `json:"docNote,omitempty"`
+}
+
+type PlanningAssumptions struct {
+	Resources           []string           `json:"resources"`
+	CalendarDaysPerWeek float64            `json:"calendarDaysPerWeek"`
+	InfrastructureKind  InfrastructureKind `json:"infrastructureKind"`
+	DeclaredUsage       UsageAssumption    `json:"declaredUsage"`
+	Terms               SettlementTerms    `json:"terms"`
+	Notes               string             `json:"notes"`
+}
+
+type ProducedArtifact struct {
+	Kind     string `json:"Kind"`
+	Title    string `json:"Title"`
+	Source   string `json:"Source"`
+	Produced bool   `json:"Produced"`
+	Note     string `json:"Note"`
+}
+
+type Profile struct {
+	Phases []ProfilePhase `json:"Phases"`
+}
+
+type ProfilePhase struct {
+	Phase  ActivityMethodPhase `json:"Phase"`
+	Weight int                 `json:"Weight"`
+	Label  string              `json:"Label"`
+}
+
+type ProjectCatalogRef struct {
+	ProjectID ProjectID `json:"ProjectID"`
+	Title     string    `json:"Title"`
+}
+
+type ProjectID string
+
+type ProjectOption struct {
+	OptionID            OptionID           `json:"optionId"`
+	SolutionKind        ArtifactKind       `json:"solutionKind"`
+	Network             ActivityNetwork    `json:"network"`
+	WorkerMix           WorkerMix          `json:"workerMix"`
+	CalendarDaysPerWeek float64            `json:"calendarDaysPerWeek"`
+	Terms               SettlementTerms    `json:"terms"`
+	DeclaredUsage       UsageAssumption    `json:"declaredUsage"`
+	InfrastructureKind  InfrastructureKind `json:"infrastructureKind"`
+}
+
+type ProjectSummary struct {
+	ProjectID      ProjectID  `json:"ProjectID"`
+	Name           string     `json:"Name"`
+	Owner          OwnerScope `json:"Owner"`
+	Phase          Phase      `json:"Phase"`
+	CommittedCount int        `json:"CommittedCount"`
+	TotalCount     int        `json:"TotalCount"`
+	UpdatedAt      time.Time  `json:"UpdatedAt"`
+}
+
+type ProvisioningSpecRecord struct {
+	Resource   string     `json:"resource"`
+	Content    string     `json:"content"`
+	AuthoredAt *time.Time `json:"authoredAt,omitempty"`
+}
+
+type QualityGate struct {
+	ActivityType string `json:"activityType"`
+	Phase        string `json:"phase"`
+	When         string `json:"when"`
+	Mode         string `json:"mode"`
+}
+
+type Relationship struct {
+	From  string   `json:"from"`
+	To    string   `json:"to"`
+	Mode  CallMode `json:"mode"`
+	Label string   `json:"label"`
+}
+
+type RepoCredential struct {
+	Bytes     []byte    `json:"Bytes"`
+	ExpiresAt time.Time `json:"ExpiresAt"`
+}
+
+type Requirement struct {
+	ID        string `json:"id"`
+	Statement string `json:"statement"`
+}
+
+type ResearchInput struct {
+	Sources []ResearchSource `json:"Sources"`
+}
+
+type ResearchSource struct {
+	Title   string `json:"Title"`
+	Content string `json:"Content"`
+}
+
+type RevenueShareKind int
+
+const (
+	RevenueShareUnknown        RevenueShareKind = 0
+	RevenueShareLaunchFlat10   RevenueShareKind = 1
+	RevenueShareNegotiatedRate RevenueShareKind = 2
+)
+
+type ReviewPolicy struct {
+	GatedPhasesByType map[string][]ActivityMethodPhase `json:"gatedPhasesByType,omitempty"`
+}
+
+type RiskModel struct {
+	Rows []RiskRow `json:"rows"`
+}
+
+type RiskRow struct {
+	SolutionKind    ArtifactKind `json:"solutionKind"`
+	CriticalityRisk float64      `json:"criticalityRisk"`
+	ActivityRisk    float64      `json:"activityRisk"`
+	Composite       float64      `json:"composite"`
+}
+
+type SRSRecord struct {
+	Component  string     `json:"component"`
+	Content    string     `json:"content"`
+	AuthoredAt *time.Time `json:"authoredAt,omitempty"`
+}
+
+type ScheduleKind int
+
+const (
+	ScheduleUnknown ScheduleKind = 0
+	ScheduleMonthly ScheduleKind = 1
+	ScheduleWeekly  ScheduleKind = 2
+	ScheduleDaily   ScheduleKind = 3
+)
+
+type ScrubbedRequirements struct {
+	Items []Requirement `json:"items"`
+}
+
+type SdpOptionRow struct {
+	OptionID             OptionID     `json:"optionId"`
+	SolutionKind         ArtifactKind `json:"solutionKind"`
+	DurationDays         float64      `json:"durationDays"`
+	BuildCost            Money        `json:"buildCost"`
+	CompositeRisk        float64      `json:"compositeRisk"`
+	ProjectedMonthlyCost Money        `json:"projectedMonthlyCost"`
+	ExpectedPerCycleNet  Money        `json:"expectedPerCycleNet"`
+	RevenueSharePercent  float64      `json:"revenueSharePercent"`
+}
+
+type SdpReview struct {
+	Options        []SdpOptionRow `json:"options"`
+	Recommendation OptionID       `json:"recommendation"`
+	Rationale      string         `json:"rationale"`
+}
+
+type SettlementTerms struct {
+	RevenueShare         RevenueShareKind `json:"revenueShare"`
+	RevenueSharePercent  float64          `json:"revenueSharePercent"`
+	ComputeCost          ComputeCostKind  `json:"computeCost"`
+	ComputeMarkupPercent float64          `json:"computeMarkupPercent"`
+	Schedule             ScheduleKind     `json:"schedule"`
+}
+
+type SoftwareSystemInstance struct {
+	Name        string   `json:"name"`
+	Technology  string   `json:"technology"`
+	Description string   `json:"description"`
+	Tags        []string `json:"tags"`
+}
+
+type Solution struct {
+	SlotKind            ArtifactKind     `json:"slotKind"`
+	StaffingCap         int              `json:"staffingCap"`
+	CalendarDaysPerWeek float64          `json:"calendarDaysPerWeek"`
+	ClassRates          map[string]Money `json:"classRates"`
+	BufferDays          float64          `json:"bufferDays"`
+}
+
+type StandardCheck struct {
+	Items []CheckItem `json:"items"`
+}
+
+type System struct {
+	Components    []Component    `json:"components"`
+	Relationships []Relationship `json:"relationships"`
+	DynamicViews  []DynamicView  `json:"dynamicViews"`
+}
+
+type TestPlanRecord struct {
+	Component  string     `json:"component"`
+	Content    string     `json:"content"`
+	AuthoredAt *time.Time `json:"authoredAt,omitempty"`
+}
+
+type TestingVariant int
+
+const (
+	TestVariantPlan       TestingVariant = 0
+	TestVariantHarness    TestingVariant = 1
+	TestVariantPerf       TestingVariant = 2
+	TestVariantSystemTest TestingVariant = 3
+	TestVariantQAProcess  TestingVariant = 4
+)
+
+type Trigger int
+
+const (
+	TriggerClientAction Trigger = 0
+	TriggerTimer        Trigger = 1
+	TriggerBusMessage   Trigger = 2
+)
+
+type UIDesignRecord struct {
+	Surface    string     `json:"surface"`
+	Content    string     `json:"content"`
+	AuthoredAt *time.Time `json:"authoredAt,omitempty"`
+}
+
+type UXRequirementsRecord struct {
+	Surface    string     `json:"surface"`
+	Content    string     `json:"content"`
+	AuthoredAt *time.Time `json:"authoredAt,omitempty"`
+}
+
+type UsageAssumption struct {
+	ExpectedDailyActiveUsers int     `json:"expectedDailyActiveUsers"`
+	RequestsPerMinute        float64 `json:"requestsPerMinute"`
+	AvgPayloadBytes          int     `json:"avgPayloadBytes"`
+}
+
+type UseCaseDecision struct {
+	UseCase         UseCase `json:"useCase"`
+	RejectionReason string  `json:"rejectionReason"`
+}
+
+type Version int64
+
+type Volatilities struct {
+	Items []Volatility `json:"items"`
+}
+
+type Volatility struct {
+	Name      string `json:"name"`
+	Rationale string `json:"rationale"`
+	Axis      Axis   `json:"axis"`
+}
+
+type WorkerMix struct {
+	ClassRates  map[string]Money `json:"classRates"`
+	StaffingCap int              `json:"staffingCap"`
+}
 
 // ProjectStateAccess is the generated service-contract interface for this component.
 type ProjectStateAccess interface {

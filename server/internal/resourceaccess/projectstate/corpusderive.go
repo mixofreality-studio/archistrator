@@ -7,12 +7,11 @@ import "strings"
 // observed CorpusPresence. Reproducible, deterministic, unit-testable.
 
 // CorpusPresence is what the corpus scanner observed for one activity id.
-type CorpusPresence struct {
-	HasLog           bool   // a log/<id>.md exists
-	HasPassingReview bool   // a matching *-review.md / -R log exists (passing)
-	HasContract      bool   // a contracts/<component>.md exists
-	ContractFile     string // corpus-relative path to the contract, when HasContract
-}
+
+// a log/<id>.md exists
+// a matching *-review.md / -R log exists (passing)
+// a contracts/<component>.md exists
+// corpus-relative path to the contract, when HasContract
 
 // DeriveKind maps an activity to its kind from the activity-id family.
 // Only U-SPA* activities are "frontend" — SPA UI-design activities are the sole

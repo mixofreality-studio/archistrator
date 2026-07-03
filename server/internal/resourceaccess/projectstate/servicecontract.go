@@ -80,11 +80,6 @@ type ContractDep struct {
 
 // ContractInterface mirrors codegen.Interface: the generated Go interface's name,
 // its Method layer, and its operations.
-type ContractInterface struct {
-	Name       string              `json:"name"`
-	Layer      string              `json:"layer"`
-	Operations []ContractOperation `json:"operations"`
-}
 
 // ContractOperation is one method on the interface: its name, ordered parameters,
 // an optional result schema, and whether it returns an error.

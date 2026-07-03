@@ -118,13 +118,11 @@ func (s *GitStore) projectRepo(projectID ProjectID, branch string) (*fwgithub.Gi
 // the repo description set at adopt), so ListProjects can build a ProjectSummary WITHOUT
 // a per-repo read for the title. The phase/progress still come from project.json (the
 // N+1 read below).
-type ProjectCatalogRef struct {
-	// ProjectID is the logical project id parsed from the deterministic repo name.
-	ProjectID ProjectID
-	// Title is the human display name (the repo description set at provision). May be
-	// empty if the repo carried no description; the per-repo read then supplies it.
-	Title string
-}
+
+// ProjectID is the logical project id parsed from the deterministic repo name.
+
+// Title is the human display name (the repo description set at provision). May be
+// empty if the repo carried no description; the per-repo read then supplies it.
 
 // ProjectCatalog is the discover-by-enumeration seam ListProjects consumes in place
 // of the deleted registry index. The composition root supplies the concrete

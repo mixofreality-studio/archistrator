@@ -145,7 +145,17 @@ func stripFile(path string, owned map[string]bool) error {
 		return fmt.Errorf("parse %s: %w", path, err)
 	}
 
-	// Safety: refuse to strip a type that has methods (behavior).
+	// Behavior retention (NOT a refusal). contractstrip only ever removes the
+	// duplicate top-level type/const DECLARATIONS an owned contract now generates; it
+	// NEVER removes a method (FuncDecl). Go binds a generated type's methods from any
+	// file in the package, so a method whose receiver is an owned type re-binds to the
+	// GENERATED type after its hand-written type decl is stripped — behavior is
+	// preserved, not dropped. This is exactly how the projectstate RA keeps its
+	// hand-written codecs (the enum MarshalJSON/UnmarshalJSON, ArtifactKind.String(),
+	// the ArtifactModel variants' Kind()/isArtifactModel() markers) while their pure
+	// DATA type/const decls are regenerated. Any real incompatibility (a generated
+	// shape a retained method can't bind to) surfaces as a hard BUILD failure, never a
+	// silent divergence — so we log the retained methods for visibility and proceed.
 	var behavioral []string
 	for _, d := range f.Decls {
 		fn, ok := d.(*ast.FuncDecl)
@@ -158,9 +168,8 @@ func stripFile(path string, owned map[string]bool) error {
 	}
 	if len(behavioral) > 0 {
 		sort.Strings(behavioral)
-		return fmt.Errorf("refusing to strip types with behavior in %s: %s\n"+
-			"  these carry logic, not pure data — generate the behavior or exclude them from the contract surface",
-			path, strings.Join(behavioral, ", "))
+		fmt.Fprintf(os.Stderr, "  retained %d hand-written method(s) on owned types in %s (re-bind to the generated types): %s\n",
+			len(behavioral), path, strings.Join(behavioral, ", "))
 	}
 
 	var kept []ast.Decl

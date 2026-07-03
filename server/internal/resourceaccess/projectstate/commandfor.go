@@ -23,9 +23,13 @@ func profileSlug(t ActivityType, v TestingVariant) string {
 			return "testing-systemtest"
 		case TestVariantQAProcess:
 			return "testing-qa"
+		case TestVariantPlan: // the zero value — same as default.
+			return "testing-plan"
 		default: // TestVariantPlan
 			return "testing-plan"
 		}
+	case ActivityTypeService: // the zero value — same as default.
+		return "service"
 	default: // ActivityTypeService
 		return "service"
 	}

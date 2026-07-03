@@ -81,14 +81,24 @@ type component struct {
 	ifaceName string        // the interface's Go type name (for AST param-name lookup)
 	iface     reflect.Type  // the interface type, reflected for operations
 	sumTypes  []sumTypeDecl // sealed-interface (discriminated-union) declarations
-	// interfaceOnly captures ONLY the interface (the port), emitting NO `$defs` for
-	// the component's OWN-package types. A param/result whose type lives in the
-	// component's own package is emitted as {"x-go-type": "<TypeName>"} (no
-	// x-go-import — same package), so modelgen references the hand-written type by
-	// bare name. Used by the projectstate RA: the domain types + persistence codec
-	// are the canonical hand-written source of truth, NOT contract I/O to regenerate.
-	// A strict no-op when false (every other registered component leaves it unset).
-	interfaceOnly bool
+	// bindByName lists OWN-PACKAGE types that this component's contract references
+	// but does NOT regenerate: they bind to their bare Go name via {"x-go-type":
+	// "<TypeName>"} (no x-go-import — same package) in BOTH struct-field and
+	// interface param/result position, and emit NO `$defs`. The hand-written type
+	// stays the source of truth. Entries are zero VALUES for concrete types
+	// (projectstate.System{}) or a typed-nil POINTER for an interface type
+	// ((*projectstate.ArtifactModel)(nil)) — the builder derefs a pointer to key the
+	// map by the element (interface/struct) type.
+	//
+	// This is how the projectstate RA (the byte-identical persistence layer) keeps
+	// the handful of types the generator cannot reproduce faithfully hand-written —
+	// the value+omitempty domain structs (modelgen would pointerize the optional
+	// value fields, changing the Go API and breaking consumers) and the ArtifactModel
+	// sealed sum (its Solution variant's Kind() is a DYNAMIC field read, which
+	// emitSumType's static per-variant Kind() cannot express) — while STILL emitting
+	// $defs for the ~100 pure-data models the contract does regenerate. A strict
+	// no-op when empty (every other registered component leaves it unset).
+	bindByName []any
 }
 
 // sumTypeDecl registers a sealed-interface / discriminated-union (sum) type to
@@ -817,23 +827,174 @@ var registry = []component{
 	{
 		// projectstate is the LAST + highest-stakes RA: the project.json PERSISTENCE
 		// layer (byte-identical round-trip invariant) AND the canonical owner of the
-		// domain types. interfaceOnly mode generates ONLY the ProjectStateAccess port
-		// (the 8 atomic verbs at projectstate.go:51), refactored onto rc fwra.Context
-		// like every other RA. NO models: the domain types (Project, ArtifactModel +
-		// its 17 variants, ProjectSummary, OwnerScope, Version, ArtifactKind,
-		// ResearchInput) AND the entire persistence codec (postgres/git JSONB,
-		// identity, Encode/DecodeProjectJSON) stay HAND-WRITTEN and byte-identical —
-		// they are the Resource detail / source of truth, NOT contract I/O to
-		// regenerate. The generated contract.gen.go references those types by their
-		// bare Go names (same package → no import). Scope is ONLY this port; the other
-		// projectstate interfaces (BranchAwareProjectStateAccess, GitProjectStateAccess,
-		// ConstructionTransitionAccess, GitActivityStatusAccess, …) stay hand-written /
-		// ctx-based pending a follow-up decision.
-		name:          "projectstate",
-		dir:           "internal/resourceaccess/projectstate",
-		interfaceOnly: true,
-		ifaceName:     "ProjectStateAccess",
-		iface:         reflect.TypeOf((*projectstate.ProjectStateAccess)(nil)).Elem(),
+		// domain types. It is NO LONGER interface-only: the ~100 pure-data domain
+		// models below are reflected into $defs and regenerated into contract.gen.go
+		// like every other component, with their BEHAVIOR (String()/Kind()/the
+		// enum MarshalJSON codecs/isArtifactModel markers) kept in sibling hand-written
+		// files — Go binds a generated type's methods from any file in the package, and
+		// contractstrip strips only the now-duplicate type/const declarations, never
+		// the methods. modelgen preserves Go field DECLARATION order, so every
+		// persisted model round-trips byte-identically.
+		//
+		// bindByName (below) keeps hand-written the handful the generator cannot
+		// reproduce faithfully — see the field doc. Everything else regenerates.
+		name: "projectstate",
+		dir:  "internal/resourceaccess/projectstate",
+		models: []any{
+			projectstate.ActivityBuildStatus(0),
+			projectstate.ActivityConstructionPhase(0),
+			projectstate.ActivityDiagram{},
+			projectstate.ActivityEdge{},
+			projectstate.ActivityGitStatus{},
+			projectstate.ActivityList{},
+			projectstate.ActivityMethodPhase(""),
+			projectstate.ActivityNetwork{},
+			projectstate.ActivityNodeKind(0),
+			projectstate.ActivityOutcome(0),
+			projectstate.ActivityType(0),
+			projectstate.Actor{},
+			projectstate.ArtifactKind(0),
+			projectstate.ArtifactReviewStatus(0),
+			projectstate.ArtifactSlot{},
+			projectstate.Axis(0),
+			projectstate.CICheckState(0),
+			projectstate.CallMode(0),
+			projectstate.CheckItem{},
+			projectstate.CheckStatus(0),
+			projectstate.Classification(0),
+			projectstate.Component{},
+			projectstate.ComponentKind(0),
+			projectstate.ComputeCostKind(0),
+			projectstate.ConstructionProgress{},
+			projectstate.ContainerInstance{},
+			projectstate.ContractInterface{},
+			projectstate.CoreUseCases{},
+			projectstate.CorpusPresence{},
+			projectstate.DeliveryStyle(0),
+			projectstate.DeployContainer{},
+			projectstate.DeployNoteRecord{},
+			projectstate.DeploymentEnvironment{},
+			projectstate.DeploymentProfile(0),
+			projectstate.DeploymentTopology{},
+			projectstate.DocNoteRecord{},
+			projectstate.DocOutlineRecord{},
+			projectstate.DynamicView{},
+			projectstate.EdgeKind(0),
+			projectstate.FailureReason(0),
+			projectstate.Glossary{},
+			projectstate.GlossaryItem{},
+			projectstate.InfrastructureKind(0),
+			projectstate.InfrastructureNode{},
+			projectstate.IntegrationNoteRecord{},
+			projectstate.Layer(0),
+			projectstate.MissionStatement{},
+			projectstate.Money{},
+			projectstate.NetworkDependency{},
+			projectstate.NetworkNodeCompute{},
+			projectstate.NetworkSummary{},
+			projectstate.Objective{},
+			projectstate.OperationalConcepts{},
+			projectstate.OperationalDecision{},
+			projectstate.OptionActivity{},
+			projectstate.OptionID(""),
+			projectstate.OwnerScope(""),
+			projectstate.Phase(0),
+			projectstate.PhaseArtifacts{},
+			projectstate.PlanningAssumptions{},
+			projectstate.ProducedArtifact{},
+			projectstate.Profile{},
+			projectstate.ProfilePhase{},
+			projectstate.ProjectCatalogRef{},
+			projectstate.ProjectID(""),
+			projectstate.ProjectOption{},
+			projectstate.ProjectSummary{},
+			projectstate.ProvisioningSpecRecord{},
+			projectstate.QualityGate{},
+			projectstate.Relationship{},
+			projectstate.RepoCredential{},
+			projectstate.Requirement{},
+			projectstate.ResearchInput{},
+			projectstate.ResearchSource{},
+			projectstate.RevenueShareKind(0),
+			projectstate.ReviewPolicy{},
+			projectstate.RiskModel{},
+			projectstate.RiskRow{},
+			projectstate.SRSRecord{},
+			projectstate.ScheduleKind(0),
+			projectstate.ScrubbedRequirements{},
+			projectstate.SdpOptionRow{},
+			projectstate.SdpReview{},
+			projectstate.SettlementTerms{},
+			projectstate.SoftwareSystemInstance{},
+			projectstate.Solution{},
+			projectstate.StandardCheck{},
+			projectstate.System{},
+			projectstate.TestPlanRecord{},
+			projectstate.TestingVariant(0),
+			projectstate.Trigger(0),
+			projectstate.UIDesignRecord{},
+			projectstate.UXRequirementsRecord{},
+			projectstate.UsageAssumption{},
+			projectstate.UseCaseDecision{},
+			projectstate.Version(0),
+			projectstate.Volatilities{},
+			projectstate.Volatility{},
+			projectstate.WorkerMix{},
+		},
+		// bindByName — kept hand-written, referenced by bare Go name. TWO reasons:
+		//   1. VALUE+OMITEMPTY structs: they carry `json:"x,omitempty"` on VALUE-typed
+		//      fields; modelgen pointerizes optional value fields (*T), which changes
+		//      the Go API and breaks the hand-written consumers (including out-of-package
+		//      Managers) that assign those fields as values. Kept hand-written so the
+		//      value+omitempty shape — and the consumers — are untouched.
+		//   2. ArtifactModel (the sealed sum interface): its Solution variant's Kind()
+		//      returns a DYNAMIC field (s.SlotKind, shared by the 4 solution slots),
+		//      which emitSumType's static per-variant Kind() cannot express. The whole
+		//      sum — the interface, every variant's Kind()/isArtifactModel(), and the
+		//      bespoke integer-kind slot codec (slotcodec.go) — stays hand-written. The
+		//      variant STRUCTS themselves (System, Glossary, …) are still regenerated as
+		//      plain data models above; only the interface + its methods are hand-written.
+		bindByName: []any{
+			(*projectstate.ArtifactModel)(nil),
+			// DeploymentNode is SELF-RECURSIVE (Children []DeploymentNode — a tree).
+			// jsonschema-go's flat-$defs reflection cannot express self-recursion
+			// without turning the root schema into a bare self-$ref, so the type stays
+			// hand-written and DeploymentTopology references it by bare name.
+			projectstate.DeploymentNode{},
+			// ActivityNode, PhaseArtifactPayload, UseCase carry POINTER-to-named fields
+			// WITHOUT omitempty (e.g. PhaseArtifactPayload.SRS *SRSRecord — a nil-means-null
+			// optional sub-artifact). jsonschema-go can't record pointer-ness on a $ref, and
+			// modelgen only pointerizes OPTIONAL (omitempty) value fields — so a required
+			// *T field would regenerate as a value T, changing the Go API (nil checks) and
+			// the null-vs-{} wire form. Kept hand-written; their referenced record structs
+			// are still regenerated and bound by bare name.
+			projectstate.ActivityNode{},
+			projectstate.PhaseArtifactPayload{},
+			projectstate.UseCase{},
+			projectstate.ActivityConstructionStatus{},
+			projectstate.ActivityItem{},
+			projectstate.ContractDep{},
+			projectstate.ContractOperation{},
+			projectstate.ContractParam{},
+			projectstate.DefectRecord{},
+			projectstate.HarnessModule{},
+			projectstate.Network{},
+			projectstate.NetworkMilestone{},
+			projectstate.PerfHarness{},
+			projectstate.PhaseCompletion{},
+			projectstate.Project{},
+			projectstate.ServiceContract{},
+			projectstate.SystemTestPlan{},
+			projectstate.TestArg{},
+			projectstate.TestCase{},
+			projectstate.TestExpect{},
+			projectstate.TestRun{},
+			projectstate.TestScenario{},
+			projectstate.TestStep{},
+			projectstate.TestingState{},
+		},
+		ifaceName: "ProjectStateAccess",
+		iface:     reflect.TypeOf((*projectstate.ProjectStateAccess)(nil)).Elem(),
 	},
 }
 
@@ -855,15 +1016,21 @@ func main() {
 }
 
 func writeComponent(c component) error {
-	// interface-only mode: own-package param/result types resolve to a bare
-	// {"x-go-type": "<TypeName>"} binding (set per-component; cleared for every
-	// other component so the mode is a strict no-op). currentOwnPkgPath is the
-	// PkgPath schemaForType compares a type's PkgPath against.
-	currentInterfaceOnly = c.interfaceOnly
-	currentOwnPkgPath = ""
-	if c.interfaceOnly && c.iface != nil {
-		currentOwnPkgPath = c.iface.PkgPath()
+	// bind-by-name: own-package types the contract references but does NOT
+	// regenerate resolve to a bare {"x-go-type": "<TypeName>"} binding, in both
+	// struct-field and interface param/result position. Built per-component and
+	// exposed to schemaForType via currentBindByName (nil/empty for every component
+	// that leaves bindByName unset — a strict no-op). A pointer entry is deref'd so
+	// the map is keyed by the element (interface/struct) type.
+	bindByType := map[reflect.Type]*jsonschema.Schema{}
+	for _, x := range c.bindByName {
+		t := reflect.TypeOf(x)
+		if t.Kind() == reflect.Pointer {
+			t = t.Elem()
+		}
+		bindByType[t] = &jsonschema.Schema{Extra: map[string]any{"x-go-type": t.Name()}}
 	}
+	currentBindByName = bindByType
 
 	modelNames := map[string]bool{}
 	for _, m := range c.models {
@@ -937,6 +1104,11 @@ func writeComponent(c component) error {
 		for rt, ref := range sumRefByIface {
 			siblings[rt] = ref
 		}
+		// A field whose Go type is a bind-by-name type binds to its bare Go name
+		// (x-go-type) rather than being reflected inline / regenerated as a $def.
+		for rt, ref := range bindByType {
+			siblings[rt] = ref
+		}
 		s, err := jsonschema.ForType(t, &jsonschema.ForOptions{
 			IgnoreInvalidTypes: true,
 			TypeSchemas:        siblings,
@@ -949,6 +1121,14 @@ func writeComponent(c component) error {
 		// `ProjectID` with `json:"projectId"`). Recorded as x-go-name so modelgen
 		// regenerates the exact Go field identifier without changing the wire shape.
 		injectGoNames(s, t)
+		// Preserve the EXACT Go integer width. jsonschema-go collapses every integer
+		// kind to `type:"integer"`, and modelgen defaults that to int64 — but a field
+		// declared `int` (or int32/uint/…) must regenerate as THAT type, not int64, or
+		// the generated struct diverges from its hand-written consumers. Record the Go
+		// type as x-go-type (which modelgen already honors) for any integer field whose
+		// width is not the int64 default. A no-op for int64 fields and for named
+		// enum-typed fields (those resolve via $ref, not a bare integer).
+		injectGoIntWidths(s, t)
 		defs[t.Name()] = s
 	}
 
@@ -1177,6 +1357,115 @@ func injectGoNames(s *jsonschema.Schema, t reflect.Type) {
 	}
 }
 
+// injectGoIntWidths records x-go-type on each struct-field property whose Go type
+// is a bare integer of a width OTHER than the int64 default modelgen assumes for a
+// JSON `integer`. Without this, a field declared `int` (Instances, CommittedCount,
+// Week, …) would regenerate as int64 and break every hand-written consumer that
+// assigns/reads it as int. Only bare basic integer types are annotated (PkgPath ==
+// "" — a named enum type like Layer is skipped, it resolves via $ref); arrays and
+// pointers are unwrapped to reach the element/pointee field type + its schema node.
+func injectGoIntWidths(s *jsonschema.Schema, t reflect.Type) {
+	if t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	if t.Kind() != reflect.Struct || s == nil || len(s.Properties) == 0 {
+		return
+	}
+	for i := 0; i < t.NumField(); i++ {
+		f := t.Field(i)
+		if !f.IsExported() {
+			continue
+		}
+		wire := f.Name
+		if tag := f.Tag.Get("json"); tag != "" {
+			name := strings.Split(tag, ",")[0]
+			if name == "-" {
+				continue
+			}
+			if name != "" {
+				wire = name
+			}
+		}
+		prop, ok := s.Properties[wire]
+		if !ok || prop == nil {
+			continue
+		}
+		// Unwrap slice/pointer on BOTH the Go type and the schema node so a
+		// []int / *int field annotates the integer leaf.
+		ft := f.Type
+		node := prop
+		for {
+			switch ft.Kind() {
+			case reflect.Pointer:
+				ft = ft.Elem()
+				continue
+			case reflect.Slice, reflect.Array:
+				ft = ft.Elem()
+				if node.Items != nil {
+					node = node.Items
+				}
+				continue
+			case reflect.Invalid, reflect.Bool, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+				reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr,
+				reflect.Float32, reflect.Float64, reflect.Complex64, reflect.Complex128, reflect.Chan, reflect.Func,
+				reflect.Interface, reflect.Map, reflect.String, reflect.Struct, reflect.UnsafePointer:
+				// Not a pointer/slice/array — nothing left to unwrap; same as falling
+				// through to the break below.
+			}
+			break
+		}
+		if name, ok := nonDefaultIntGoType(ft); ok && node.Ref == "" {
+			cp := *node
+			cp.Extra = map[string]any{}
+			for k, v := range node.Extra {
+				cp.Extra[k] = v
+			}
+			if _, has := cp.Extra["x-go-type"]; !has {
+				cp.Extra["x-go-type"] = name
+			}
+			*node = cp
+		}
+	}
+}
+
+// nonDefaultIntGoType returns (goTypeName, true) if ft is a BARE basic integer type
+// (PkgPath == "") of a width other than int64 — the widths modelgen would otherwise
+// mis-generate as int64. Returns ("", false) for int64, non-integers, and named
+// (enum) integer types.
+func nonDefaultIntGoType(ft reflect.Type) (string, bool) {
+	if ft.PkgPath() != "" { // a named/defined type (enum) — resolved via $ref, not here
+		return "", false
+	}
+	switch ft.Kind() {
+	case reflect.Int:
+		return "int", true
+	case reflect.Int8:
+		return "int8", true
+	case reflect.Int16:
+		return "int16", true
+	case reflect.Int32:
+		return "int32", true
+	case reflect.Uint:
+		return "uint", true
+	case reflect.Uint8:
+		return "uint8", true
+	case reflect.Uint16:
+		return "uint16", true
+	case reflect.Uint32:
+		return "uint32", true
+	case reflect.Uint64:
+		return "uint64", true
+	case reflect.Invalid, reflect.Bool, reflect.Int64, reflect.Uintptr, reflect.Float32, reflect.Float64,
+		reflect.Complex64, reflect.Complex128, reflect.Array, reflect.Chan, reflect.Func, reflect.Interface,
+		reflect.Map, reflect.Pointer, reflect.Slice, reflect.String, reflect.Struct, reflect.UnsafePointer:
+		// int64, non-integers, and (unreachable here — named types return early
+		// above) enum-like integer types — same as the default below.
+		return "", false
+	default:
+		return "", false
+	}
+}
+
 // exportTitle upper-cases the first byte (mirrors modelgen's exportName) — the
 // default Go field name modelgen derives from a wire key.
 func exportTitle(s string) string {
@@ -1193,32 +1482,12 @@ func exportTitle(s string) string {
 // strict no-op for every existing component).
 var currentSumRefs map[reflect.Type]*jsonschema.Schema
 
-// currentInterfaceOnly / currentOwnPkgPath drive interface-only mode (set
-// per-component in writeComponent; false/"" for every other component, so the
-// mode is a strict no-op). When on, a param/result type whose PkgPath is the
-// component's own package binds to its hand-written Go type by BARE NAME
-// ({"x-go-type": "<TypeName>"}, no x-go-import — same package) instead of being
-// emitted as a regenerated `$def`.
-var (
-	currentInterfaceOnly bool
-	currentOwnPkgPath    string
-)
-
-// ownPkgTypeName returns ("Name", true) if rt (or its slice element, deref'd) is a
-// NAMED type defined in the component's own package, in interface-only mode. For a
-// slice the caller still wraps it as an array; only the element binds by name.
-func ownPkgTypeName(rt reflect.Type) (string, bool) {
-	if !currentInterfaceOnly || currentOwnPkgPath == "" {
-		return "", false
-	}
-	if rt.Kind() == reflect.Pointer {
-		rt = rt.Elem()
-	}
-	if rt.Name() != "" && rt.PkgPath() == currentOwnPkgPath {
-		return rt.Name(), true
-	}
-	return "", false
-}
+// currentBindByName holds the bind-by-name reflect.Type → x-go-type schema map for
+// the component being written, so schemaForType can resolve a bound param/result to
+// its bare Go name (rather than reflecting it inline or as a $def). Set per-component
+// in writeComponent; nil/empty for components with no bindByName entries (a strict
+// no-op for every existing component).
+var currentBindByName map[reflect.Type]*jsonschema.Schema
 
 // schemaForType maps a Go type to a JSON Schema node: a `$ref` for model types,
 // an array schema for slices, otherwise jsonschema-go's reflected schema.
@@ -1228,12 +1497,18 @@ func schemaForType(rt reflect.Type, modelNames map[string]bool) *jsonschema.Sche
 	if ref, ok := currentSumRefs[rt]; ok {
 		return ref
 	}
-	// interface-only mode: an own-package param/result binds to its hand-written Go
-	// type by bare name (no $def, no import — same package). Checked before the
-	// pointer-deref so a *OwnType binds the same way (pointer-ness is carried by the
-	// Param.Pointer flag, exactly like a $ref param).
-	if name, ok := ownPkgTypeName(rt); ok {
-		return &jsonschema.Schema{Extra: map[string]any{"x-go-type": name}}
+	// A bind-by-name param/result binds to its hand-written Go type by bare name
+	// (no $def, no import — same package). Checked before the pointer-deref so a
+	// *BoundType binds the same way (pointer-ness is carried by the Param.Pointer
+	// flag, exactly like a $ref param); the interface type itself is also matched
+	// here (an ArtifactModel result).
+	if ref, ok := currentBindByName[rt]; ok {
+		return ref
+	}
+	if rt.Kind() == reflect.Pointer {
+		if ref, ok := currentBindByName[rt.Elem()]; ok {
+			return ref
+		}
 	}
 	if rt.Kind() == reflect.Pointer {
 		rt = rt.Elem()

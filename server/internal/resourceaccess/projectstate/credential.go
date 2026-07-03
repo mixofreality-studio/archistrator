@@ -1,7 +1,5 @@
 package projectstate
 
-import "time"
-
 // RepoCredential is the provider-neutral, SHORT-LIVED bearer credential the
 // Manager threads into every provider-touching projectStateAccess verb
 // (projectStateAccess.md §REWORK.4). It is the credential the merged
@@ -26,15 +24,13 @@ import "time"
 // PROVIDER-NEUTRAL: carries NO ghs_ prefix, NO installation id, NO App JWT. Bytes
 // is write-only at this consumer — presented to the git transport, never logged,
 // persisted, parsed, or compared.
-type RepoCredential struct {
-	// Bytes is the opaque bearer secret (the installation token's bytes). Presented
-	// to the git remote; never inspected here.
-	Bytes []byte
-	// ExpiresAt is when the Manager re-mints (calls getInstallationToken again).
-	// Carried for parity with the source type; this RA does not act on it (the
-	// Manager owns re-mint timing).
-	ExpiresAt time.Time
-}
+
+// Bytes is the opaque bearer secret (the installation token's bytes). Presented
+// to the git remote; never inspected here.
+
+// ExpiresAt is when the Manager re-mints (calls getInstallationToken again).
+// Carried for parity with the source type; this RA does not act on it (the
+// Manager owns re-mint timing).
 
 // IsZero reports whether the credential is empty. A zero credential is only valid
 // for the LOCAL on-disk-git profile (a trivially-valid local credential,
