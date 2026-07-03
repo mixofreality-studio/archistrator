@@ -7938,8 +7938,8 @@
       "produced": [
         {
           "Kind": "service-contract",
-          "Title": "billingEngine — service contract",
-          "Source": "implementation/contracts/billingEngine.md",
+          "Title": "settlementEngine — service contract",
+          "Source": "implementation/contracts/settlementEngine.md",
           "Produced": true,
           "Note": "Frozen App-B service contract."
         },
@@ -8080,8 +8080,7 @@
     },
     "C-BS": {
       "activityID": "C-BS",
-      "phase": 2,
-      "buildStatus": 2,
+      "phase": 1,
       "produced": [
         {
           "Kind": "service-contract",
@@ -8096,6 +8095,20 @@
           "Source": "implementation/log",
           "Produced": true,
           "Note": "Construction output recorded in the implementation log."
+        },
+        {
+          "Kind": "note",
+          "Title": "C-BS — integration correction",
+          "Source": "",
+          "Produced": false,
+          "Note": "integration record predates the billing→settlement re-cut; settlementstate is contract-only on main; real state access work returns with the deferred settlement re-plan"
+        },
+        {
+          "Kind": "service-contract",
+          "Title": "revenueLedgerAccess — service contract",
+          "Source": "implementation/contracts/revenueLedgerAccess.md",
+          "Produced": true,
+          "Note": "Re-homed from C-LG (pre-reconciliation mis-attribution). revenueLedgerAccess is settlement-scope state access, contract-only stub on main; no deferred access activity fits it, so it is tracked here under the settlement re-cut. Returns with the deferred settlement re-plan."
         }
       ]
     },
@@ -8169,6 +8182,13 @@
           "Source": "implementation/contracts/billingStateAccess.md",
           "Produced": true,
           "Note": "Frozen App-B service contract."
+        },
+        {
+          "Kind": "service-contract",
+          "Title": "merchantGatewayAccess — service contract",
+          "Source": "implementation/contracts/merchantGatewayAccess.md",
+          "Produced": true,
+          "Note": "Re-homed from C-DG (pre-reconciliation mis-attributed billingGatewayAccess); merchantGatewayAccess is the billing→settlement gateway re-cut successor. Contract-only stub on main; construction returns with the deferred settlement re-plan."
         }
       ]
     },
@@ -8238,40 +8258,42 @@
     "C-LG": {
       "activityID": "C-LG",
       "phase": 2,
+      "buildStatus": 2,
       "produced": [
         {
-          "Kind": "service-contract",
-          "Title": "revenueLedgerAccess — service contract",
-          "Source": "implementation/contracts/revenueLedgerAccess.md",
+          "Kind": "note",
+          "Title": "logging — fulfillment",
+          "Source": "go.mod",
           "Produced": true,
-          "Note": "Frozen App-B service contract."
+          "Note": "satisfied by framework-go-infrastructure-otel adoption (go.mod) wired app-wide; no bespoke utility component per Method utility rules"
         }
       ]
     },
     "C-DG": {
       "activityID": "C-DG",
       "phase": 2,
+      "buildStatus": 2,
       "produced": [
         {
-          "Kind": "service-contract",
-          "Title": "billingGatewayAccess — service contract",
-          "Source": "implementation/contracts/billingGatewayAccess.md",
+          "Kind": "note",
+          "Title": "diagnostics — fulfillment",
+          "Source": "go.mod",
           "Produced": true,
-          "Note": "Frozen App-B service contract."
+          "Note": "satisfied by framework-go-infrastructure-otel adoption (go.mod) wired app-wide; no bespoke utility component per Method utility rules"
         }
       ]
     },
     "R-GH": {
       "activityID": "R-GH",
       "phase": 2,
-      "buildStatus": 1,
+      "buildStatus": 2,
       "produced": [
         {
-          "Kind": "code",
-          "Title": " — built component",
-          "Source": "implementation/log",
+          "Kind": "note",
+          "Title": "R-GH — verified integrated",
+          "Source": "server/cmd/server/config.go",
           "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
+          "Note": "GitHub App provisioned; required by config.go, load-bearing for construction dispatch + work-item tracking. Verified-and-recorded integrated."
         }
       ]
     },
@@ -8279,13 +8301,14 @@
       "activityID": "R-BG",
       "phase": 2,
       "buildStatus": 1,
+      "completedAt": "2026-07-03T00:00:00Z",
       "produced": [
         {
-          "Kind": "code",
-          "Title": " — built component",
-          "Source": "implementation/log",
-          "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
+          "Kind": "note",
+          "Title": "R-BG — skipped (deferred billing scope)",
+          "Source": "",
+          "Produced": false,
+          "Note": "Recorded as OverrideActivity(Skip) / RecordActivityExited(Skipped): phase Done, buildStatus in-review (done, not integrated). Provision Stripe vendor account (BillingGateway) is deferred under the founder's billing→settlement deferral; no vendor account was provisioned. Returns with the deferred settlement re-plan."
         }
       ]
     },
@@ -8306,14 +8329,14 @@
     "R-CPR": {
       "activityID": "R-CPR",
       "phase": 2,
-      "buildStatus": 1,
+      "buildStatus": 2,
       "produced": [
         {
-          "Kind": "code",
-          "Title": " — built component",
-          "Source": "implementation/log",
+          "Kind": "note",
+          "Title": "R-CPR — verified integrated",
+          "Source": ".github/workflows/aiarch-construct.yml",
           "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
+          "Note": "GitHub Actions pipeline runtime operational; aiarch-construct.yml rail aligned and operating. Verified-and-recorded integrated."
         }
       ]
     },
@@ -8418,14 +8441,14 @@
       "activityID": "N-CI",
       "phase": 2,
       "kind": "testing",
-      "buildStatus": 1,
+      "buildStatus": 2,
       "produced": [
         {
-          "Kind": "code",
-          "Title": " — built component",
-          "Source": "implementation/log",
+          "Kind": "note",
+          "Title": "N-CI — verified integrated",
+          "Source": ".github/workflows",
           "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
+          "Note": "6 GitHub Actions workflows operational; main green at c635be2. Verified-and-recorded integrated."
         }
       ]
     },
@@ -8433,7 +8456,16 @@
       "activityID": "N-SC",
       "phase": 2,
       "kind": "testing",
-      "produced": []
+      "buildStatus": 2,
+      "produced": [
+        {
+          "Kind": "note",
+          "Title": "N-SC — verified integrated",
+          "Source": "",
+          "Produced": true,
+          "Note": "Repo + rail + release automation operational; server v0.8.14 / webapp v0.6.12 tags cut. Verified-and-recorded integrated."
+        }
+      ]
     },
     "N-DEP": {
       "activityID": "N-DEP",
