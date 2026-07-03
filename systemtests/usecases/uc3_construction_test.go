@@ -32,27 +32,17 @@ import (
 // UC2's job), driven ENTIRELY through the published on-disk JSON shape, never an
 // imported server type (R1/R3).
 //
-// SELF-CASCADE FINDING (read directly from server/internal/manager/construction/
-// workflow.go's PumpNextActivityWorkflow, confirmed empirically via `temporal
-// workflow show` against a live run): ExecuteNextActivity's Temporal workflow does
-// NOT return after dispatching one activity. It calls `child.Get(ctx, nil)` —a
-// BLOCKING wait for the dispatched per-activity child workflow to run to full
-// TERMINAL completion — then `workflow.NewContinueAsNewError(...)` to pick the
-// NEXT eligible activity, repeating until the frontier drains. The Temporal Go
-// client's WorkflowRun.Get transparently follows a ContinueAsNew chain, so a
-// SINGLE synchronous ExecuteNextActivity call blocks until the ENTIRE reachable
-// cascade drains to quiescence — there is NO code path that returns
-// PumpResult{Dispatched:true, ActivityID:...} to a synchronous caller; the method
-// doc comment ("the child runs asynchronously") does not match this behavior. Two
-// direct consequences for these tests, both noted inline:
-//   - A call that dispatches a phase-gated activity blocks until that phase's
-//     approval is delivered by a CONCURRENT caller — proven here by racing the
-//     blocking call against a poll+approve goroutine, not sequential steps.
-//   - Every synchronous ExecuteNextActivity call that DOES eventually return
-//     (rather than hang on a still-suspended gate) reports dispatched=false — the
-//     drained-quiescent result — even on the very tick that did the dispatching.
-//     "Was something dispatched" is therefore proven via GetConstructionSessionState
-//     observability, not the call's own return value, in every case below.
+// SYNCHRONOUS DISPATCH OUTCOME (per contract .serviceContracts.constructionManager
+// ExecuteNextActivity → PumpResult{dispatched, activityId}): ExecuteNextActivity returns
+// THIS tick's dispatch outcome as soon as the pump has decided — {dispatched:true,
+// activityId} for the activity dispatched this tick, or {dispatched:false} when
+// quiescent — WITHOUT blocking on the per-activity child or the pump's background
+// self-cascade over the dependency frontier. The pump still self-cascades durably in
+// the background (it drains the reachable frontier via child.Get + ContinueAsNew); the
+// façade just reads the first dispatch decision off the pump's queryPumpDispatch Query
+// rather than awaiting the whole cascade drain. So each test below asserts the sync
+// return value directly, and STILL cross-checks the observable head-state via
+// GetConstructionSessionState (a robustness pattern — the two must agree).
 //
 // DETERMINISM: under DRYRUN every external effect (pipeline submit/observe, worker
 // generate, artifact store) is an INSTANT, deterministic stub — there is no LLM/model
@@ -62,9 +52,9 @@ import (
 // Test_UC3_ExecuteNextActivity_DispatchesAndDrivesPhaseGate is STP-UC3-H1: the pump
 // dispatches the next eligible activity and drives it through the review gate.
 // Proves ExecuteNextActivity picks the next eligible activity (no unmet
-// predecessors), and a PhaseApprove advances it to exit — observed via
-// GetConstructionSessionState while the dispatching ExecuteNextActivity call is
-// still in flight (see the self-cascade finding above).
+// predecessors) and returns its SYNCHRONOUS dispatch outcome ({dispatched:true,
+// activityId}) WITHOUT blocking on the phase gate, and that a PhaseApprove advances
+// the (background-cascading) activity to exit.
 func Test_UC3_ExecuteNextActivity_DispatchesAndDrivesPhaseGate(t *testing.T) {
 	requireStack(t)
 	ctx := context.Background()
@@ -83,27 +73,27 @@ func Test_UC3_ExecuteNextActivity_DispatchesAndDrivesPhaseGate(t *testing.T) {
 	t.Cleanup(func() { _ = tr.Close() })
 
 	// Staging op: gate the "service" activity type's detailed_design phase, so the
-	// dispatched activity SUSPENDS at the review gate instead of the DRYRUN pipeline
-	// racing straight through to exit within the one blocking tick call.
+	// dispatched activity SUSPENDS at the review gate. The sync tick return no longer
+	// depends on this (it returns the dispatch decision, not the drained cascade), but
+	// the gate is what lets the rest of the test observe/approve the suspended phase.
 	if err := tr.UpdateReviewPolicy(ctx, projectID, map[string][]string{
 		"service": {"detailed_design"},
 	}); err != nil {
 		t.Fatalf("updateReviewPolicy: %v", err)
 	}
 
-	type tickResult struct {
-		dispatched bool
-		activityID string
-		err        error
+	// Step 1: the tick returns SYNCHRONOUSLY with this tick's dispatch outcome — the
+	// only eligible activity — without blocking on the phase gate (per contract).
+	dispatched, dispatchedID, err := tr.ExecuteNextActivity(ctx, projectID, "tick-h1-1")
+	if err != nil {
+		t.Fatalf("executeNextActivity: %v", err)
 	}
-	tickDone := make(chan tickResult, 1)
-	go func() {
-		d, id, err := tr.ExecuteNextActivity(ctx, projectID, "tick-h1-1")
-		tickDone <- tickResult{d, id, err}
-	}()
+	if !dispatched || dispatchedID != activityID {
+		t.Fatalf("expected sync dispatch of %q, got dispatched=%t activityId=%q", activityID, dispatched, dispatchedID)
+	}
 
-	// Step 1/2: the tick dispatched the only eligible activity — observed via the
-	// session reaching the gate (the call itself is still blocked in-flight).
+	// Step 2: cross-check via head-state — the dispatched activity reaches the gate
+	// (the pump drives it in the background after the sync return).
 	st := harness.TryReachConstructionStage(ctx, t, tr, projectID, activityID, "awaitingApproval", 30*time.Second)
 	if st.ActivityID != activityID {
 		t.Fatalf("session activityId = %q, want %q", st.ActivityID, activityID)
@@ -117,21 +107,6 @@ func Test_UC3_ExecuteNextActivity_DispatchesAndDrivesPhaseGate(t *testing.T) {
 	// The approve unblocks the per-activity workflow (no further gate on the
 	// remaining ungated phases under DRYRUN) — it runs to exit on its own.
 	harness.TryReachConstructionStage(ctx, t, tr, projectID, activityID, "exited", 30*time.Second)
-
-	// The now-unblocked tick call returns once the cascade drains (nothing else is
-	// eligible in this single-activity network) — a quiet, error-free tick, per the
-	// self-cascade finding above.
-	select {
-	case res := <-tickDone:
-		if res.err != nil {
-			t.Fatalf("executeNextActivity: %v", res.err)
-		}
-		if res.dispatched {
-			t.Fatalf("expected the drained tick to report dispatched=false, got dispatched=true activityId=%q", res.activityID)
-		}
-	case <-time.After(15 * time.Second):
-		t.Fatal("executeNextActivity never returned after the dispatched activity exited")
-	}
 }
 
 // Test_UC3_ExecuteNextActivity_NoEligibleActivity_Quiescent is STP-UC3-N1: the pump
@@ -171,11 +146,10 @@ func Test_UC3_ExecuteNextActivity_NoEligibleActivity_Quiescent(t *testing.T) {
 // Test_UC3_PhaseSendBack_BlocksMergeReopensPhase is STP-UC3-N2: a PhaseSendBack
 // review verdict blocks the merge and re-opens the phase. Proves a send-back
 // verdict must not merge/exit the activity — exposing any path that merges despite
-// a rejecting reviewer. The dispatching ExecuteNextActivity call for THIS case never
-// legitimately returns within the test (the activity is never approved, so the
-// child workflow never reaches a terminal state and the pump's child.Get() never
-// unblocks) — it is fired with a bounded context and its result deliberately
-// discarded; only the observable session state is asserted.
+// a rejecting reviewer. ExecuteNextActivity returns THIS tick's dispatch outcome
+// synchronously (the pump then drives the activity in the background and suspends it at
+// the never-approved gate); the merge-guard behavior is asserted on the observable
+// head-state.
 func Test_UC3_PhaseSendBack_BlocksMergeReopensPhase(t *testing.T) {
 	requireStack(t)
 	ctx := context.Background()
@@ -199,9 +173,13 @@ func Test_UC3_PhaseSendBack_BlocksMergeReopensPhase(t *testing.T) {
 		t.Fatalf("updateReviewPolicy: %v", err)
 	}
 
-	tickCtx, cancelTick := context.WithTimeout(ctx, 20*time.Second)
-	t.Cleanup(cancelTick)
-	go func() { _, _, _ = tr.ExecuteNextActivity(tickCtx, projectID, "tick-n2-1") }()
+	dispatched, dispatchedID, err := tr.ExecuteNextActivity(ctx, projectID, "tick-n2-1")
+	if err != nil {
+		t.Fatalf("executeNextActivity: %v", err)
+	}
+	if !dispatched || dispatchedID != activityID {
+		t.Fatalf("expected sync dispatch of %q, got dispatched=%t activityId=%q", activityID, dispatched, dispatchedID)
+	}
 
 	harness.TryReachConstructionStage(ctx, t, tr, projectID, activityID, "awaitingApproval", 30*time.Second)
 
@@ -232,13 +210,12 @@ func Test_UC3_PhaseSendBack_BlocksMergeReopensPhase(t *testing.T) {
 
 // Test_UC3_ExecuteNextActivity_DuplicateTickID_Idempotent is STP-UC3-B1: a
 // duplicate ExecuteNextActivity with the same tickID is idempotent. Proves
-// scheduler retries must not double-dispatch. Neither call gates anything, so both
-// return promptly: the first cascades the single activity to completion in-line
-// (dispatched=false — the drained result, per the self-cascade finding above); the
-// SAME tickID replayed after the workflow has reached a terminal state starts a
-// fresh execution (Temporal's default WorkflowIDReusePolicy) that immediately finds
-// nothing eligible — also dispatched=false. The load-bearing assertion is that the
-// activity reaches "exited" exactly once and the retry produces no error, no hang,
+// scheduler retries must not double-dispatch. The FIRST call returns THIS tick's
+// synchronous dispatch outcome ({dispatched:true, C-BILLENG}); the activity then runs
+// to exit in the background cascade. A retry with the SAME tickID must never
+// re-dispatch nor dispatch a DIFFERENT activity, and once the (single-activity) frontier
+// is drained the retry reports {dispatched:false}. The load-bearing assertion is that
+// the activity reaches "exited" exactly once and the retry produces no error, no hang,
 // and no re-dispatch.
 func Test_UC3_ExecuteNextActivity_DuplicateTickID_Idempotent(t *testing.T) {
 	requireStack(t)
@@ -259,21 +236,38 @@ func Test_UC3_ExecuteNextActivity_DuplicateTickID_Idempotent(t *testing.T) {
 
 	const tickID = "tick-dup-42"
 
+	// First call returns the sync dispatch outcome for the only eligible activity.
 	dispatched1, activityID1, err := tr.ExecuteNextActivity(ctx, projectID, tickID)
 	if err != nil {
 		t.Fatalf("executeNextActivity (first): %v", err)
 	}
-	if dispatched1 || activityID1 != "" {
-		t.Fatalf("first call: expected the drained result dispatched=false (see self-cascade finding), got dispatched=%t activityId=%q", dispatched1, activityID1)
+	if !dispatched1 || activityID1 != activityID {
+		t.Fatalf("first call: expected sync dispatch of %q, got dispatched=%t activityId=%q", activityID, dispatched1, activityID1)
 	}
 	harness.TryReachConstructionStage(ctx, t, tr, projectID, activityID, "exited", 15*time.Second)
 
-	dispatched2, activityID2, err := tr.ExecuteNextActivity(ctx, projectID, tickID)
-	if err != nil {
-		t.Fatalf("executeNextActivity (duplicate tickID, retried after completion): %v", err)
-	}
-	if dispatched2 || activityID2 != "" {
-		t.Fatalf("duplicate tickID: expected dispatched=false (nothing eligible — %s already Done), got dispatched=%t activityId=%q", activityID, dispatched2, activityID2)
+	// Retry the SAME tickID until the (now single-activity, drained) frontier reports
+	// quiescent. A retry may only ever observe the already-dispatched C-BILLENG (while
+	// the background cascade winds down) or nothing — never a re-dispatch of a NEW
+	// activity. It converges to dispatched=false once the cascade has drained.
+	deadline := time.Now().Add(15 * time.Second)
+	var dispatched2 bool
+	var activityID2 string
+	for {
+		dispatched2, activityID2, err = tr.ExecuteNextActivity(ctx, projectID, tickID)
+		if err != nil {
+			t.Fatalf("executeNextActivity (duplicate tickID): %v", err)
+		}
+		if activityID2 != "" && activityID2 != activityID {
+			t.Fatalf("duplicate tickID re-dispatched a DIFFERENT activity %q (want none / %q)", activityID2, activityID)
+		}
+		if !dispatched2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("duplicate tickID never drained to quiescent (last: dispatched=%t activityId=%q)", dispatched2, activityID2)
+		}
+		time.Sleep(200 * time.Millisecond)
 	}
 
 	// The activity is still (only) exited — the retry did not re-dispatch or

@@ -778,6 +778,81 @@ func Test_Pump_EligibleActivity_RunsChild_ThenContinueAsNew(t *testing.T) {
 	}
 }
 
+// An eligible dispatch surfaces THIS tick's synchronous dispatch decision via the
+// queryPumpDispatch Query — the value ExecuteNextActivity returns to a scheduler-style
+// caller WITHOUT awaiting the background self-cascade drain. Even though the pump
+// self-cascades (ends this run in ContinueAsNew), its final per-run state carries the
+// decided dispatch of the eligible activity.
+func Test_Pump_EligibleActivity_SurfacesSyncDispatchDecision(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	pid := ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
+	wf := newWorkflows(wfDeps{
+		HandOff: &fakeHandOff{class: aiWorker}, Intervention: &fakeIntervention{directive: directiveRetry},
+		Review: &fakeReview{}, ProjectState: ps, Pipeline: &fakePipeline{phase: PipelineSucceeded},
+		Artifacts: &fakeArtifacts{}, Workers: &fakeWorker{},
+		NextEligibleActivity: func(_ projectstate.Project) (constructionActivity, bool) {
+			return sampleActivity(), true
+		},
+	})
+	registerPump(env, wf)
+
+	env.ExecuteWorkflow(executionKindPump, pumpInput{ProjectID: pid})
+
+	enc, err := env.QueryWorkflow(queryPumpDispatch)
+	if err != nil {
+		t.Fatalf("query pump dispatch decision: %v", err)
+	}
+	var d pumpDispatch
+	if err := enc.Get(&d); err != nil {
+		t.Fatalf("decode pump dispatch decision: %v", err)
+	}
+	if !d.Decided {
+		t.Fatalf("want a decided dispatch decision, got %+v", d)
+	}
+	if !d.Dispatched || d.ActivityID == nil || *d.ActivityID != "C-XYZ" {
+		t.Fatalf("want Dispatched:true for C-XYZ, got %+v", d)
+	}
+}
+
+// A drained (quiescent) tick surfaces a DECIDED, non-dispatching decision via the
+// queryPumpDispatch Query — the {Dispatched:false} answer ExecuteNextActivity returns
+// on a quiet tick.
+func Test_Pump_DrainedNetwork_SurfacesQuiescentDecision(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	pid := ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
+	wf := newWorkflows(wfDeps{
+		HandOff: &fakeHandOff{class: aiWorker}, Intervention: &fakeIntervention{}, Review: &fakeReview{},
+		ProjectState: ps, Pipeline: &fakePipeline{}, Artifacts: &fakeArtifacts{}, Workers: &fakeWorker{},
+		NextEligibleActivity: func(_ projectstate.Project) (constructionActivity, bool) {
+			return constructionActivity{}, false
+		},
+	})
+	registerPump(env, wf)
+
+	env.ExecuteWorkflow(executionKindPump, pumpInput{ProjectID: pid})
+
+	enc, err := env.QueryWorkflow(queryPumpDispatch)
+	if err != nil {
+		t.Fatalf("query pump dispatch decision: %v", err)
+	}
+	var d pumpDispatch
+	if err := enc.Get(&d); err != nil {
+		t.Fatalf("decode pump dispatch decision: %v", err)
+	}
+	if !d.Decided {
+		t.Fatalf("want a decided decision on a drained tick, got %+v", d)
+	}
+	if d.Dispatched || d.ActivityID != nil {
+		t.Fatalf("want a quiescent decision (Dispatched:false, nil activity), got %+v", d)
+	}
+}
+
 // A drained network (nextEligible returns false) ⇒ the pump goes QUIET WITHOUT
 // ContinueAsNew (the cascade ends) — Dispatched:false, no error.
 func Test_Pump_DrainedNetwork_QuietNoContinueAsNew(t *testing.T) {

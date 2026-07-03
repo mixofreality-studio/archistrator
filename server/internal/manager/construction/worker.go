@@ -28,6 +28,10 @@ const (
 	signalPhaseDecision = "phaseDecision"
 	// querySessionState returns a ConstructionSessionView; backs GetSessionState.
 	querySessionState = "sessionState"
+	// queryPumpDispatch returns THIS pump run's pumpDispatch decision; backs the
+	// synchronous dispatch outcome ExecuteNextActivity returns WITHOUT awaiting the
+	// background self-cascade drain (constructionManager.md §2.1).
+	queryPumpDispatch = "pumpDispatchDecision"
 )
 
 // ExecutionKinds — the registered workflow names (constructionManager.md §6.2).

@@ -227,8 +227,32 @@ type pumpInput struct {
 	ProjectID ProjectID
 }
 
+// pumpDispatch is THIS pump run's synchronous dispatch decision, surfaced to the
+// façade via the queryPumpDispatch Query so ExecuteNextActivity can return this tick's
+// outcome (dispatched X, or quiescent) WITHOUT blocking on the background self-cascade
+// drain. Decided flips true the moment this run reaches its decision point — quiescent
+// (pause / no-project / nothing eligible) or an eligible dispatch — which is BEFORE the
+// blocking child.Get self-cascade below; until then the façade keeps polling.
+type pumpDispatch struct {
+	Decided    bool        `json:"decided"`
+	Dispatched bool        `json:"dispatched"`
+	ActivityID *ActivityID `json:"activityId,omitempty"`
+}
+
 func (wf *workflows) PumpNextActivityWorkflow(ctx workflow.Context, in pumpInput) (PumpResult, error) {
 	logger := workflow.GetLogger(ctx)
+
+	// The per-run dispatch decision the façade reads synchronously. Registering the
+	// Query handler and reading a captured local var emit NO workflow commands, so this
+	// is a PURE ADDITION to the pump body — in-flight pump executions replay
+	// deterministically against the unchanged command sequence (ExecuteChildWorkflow →
+	// child.Get → Sleep → ContinueAsNew), so no GetVersion guard is required.
+	var dispatch pumpDispatch
+	if err := workflow.SetQueryHandler(ctx, queryPumpDispatch, func() (pumpDispatch, error) {
+		return dispatch, nil
+	}); err != nil {
+		return PumpResult{}, err
+	}
 
 	// PAUSE GATE (Task 3): the cascade halts the moment a pause Signal is observed on
 	// THIS pump execution. The pump listens on the SAME operatorPauseRequested signal
@@ -244,6 +268,7 @@ func (wf *workflows) PumpNextActivityWorkflow(ctx workflow.Context, in pumpInput
 	if pauseCh.ReceiveAsync(&pauseSig) {
 		logger.Info("pump cascade paused by operator signal — going quiet without continue-as-new",
 			"projectId", string(in.ProjectID), "reason", pauseSig.Reason)
+		dispatch = pumpDispatch{Decided: true, Dispatched: false}
 		return PumpResult{Dispatched: false}, nil
 	}
 
@@ -251,6 +276,7 @@ func (wf *workflows) PumpNextActivityWorkflow(ctx workflow.Context, in pumpInput
 	if err != nil {
 		if isReadNotFound(err) {
 			// No project state yet — a normal quiet tick, not an error.
+			dispatch = pumpDispatch{Decided: true, Dispatched: false}
 			return PumpResult{Dispatched: false}, nil
 		}
 		return PumpResult{}, err
@@ -262,6 +288,7 @@ func (wf *workflows) PumpNextActivityWorkflow(ctx workflow.Context, in pumpInput
 		// return quiet WITHOUT ContinueAsNew so the pump goes dormant (the next
 		// begin/schedule firing re-triggers it).
 		logger.Info("no eligible activity — cascade quiescent", "projectId", string(in.ProjectID))
+		dispatch = pumpDispatch{Decided: true, Dispatched: false}
 		return PumpResult{Dispatched: false}, nil
 	}
 
@@ -279,6 +306,14 @@ func (wf *workflows) PumpNextActivityWorkflow(ctx workflow.Context, in pumpInput
 		ActivityID: ActivityID(activity.ActivityID),
 		Activity:   activity,
 	})
+	// Record the dispatch decision NOW — after the child-start command is queued but
+	// BEFORE the blocking child.Get — so the façade's synchronous ExecuteNextActivity
+	// returns {Dispatched:true, ActivityID} for THIS tick while the cascade drains on in
+	// the background. The child-start command commits with this same workflow task, so a
+	// caller reading queryPumpDispatch after this point observes both the decision and a
+	// started (GetSessionState-observable) child.
+	dispatchedActivity := ActivityID(activity.ActivityID)
+	dispatch = pumpDispatch{Decided: true, Dispatched: true, ActivityID: &dispatchedActivity}
 	// SELF-CASCADE (Task 3): wait for the child to COMPLETE (not just start) so the
 	// activity's RecordActivityCompleted has landed in head-state before we pick the
 	// next eligible activity — otherwise nextEligible would re-select the same
