@@ -12,6 +12,8 @@ package projectdesign
 // twin of systemdesign/behavior.go.
 
 import (
+	"fmt"
+
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
@@ -36,6 +38,41 @@ func artifactKindWireName(k ArtifactKind) string { return toPSKind(k).WireName()
 
 // artifactKindIsPhase2 reports whether the kind belongs to The Method's Phase 2.
 func artifactKindIsPhase2(k ArtifactKind) bool { return toPSKind(k).IsPhase2() }
+
+// phase2RequiredKinds returns the ordered set of Phase-2 artifact kinds (projectdesign's
+// OWN type), mirroring projectstate.Phase2RequiredKinds() — the same order the SPA's
+// PHASE2_ORDER locks steps by.
+func phase2RequiredKinds() []ArtifactKind {
+	ps := projectstate.Phase2RequiredKinds()
+	out := make([]ArtifactKind, 0, len(ps))
+	for _, k := range ps {
+		out = append(out, fromPSKind(k))
+	}
+	return out
+}
+
+// phase2PredecessorKind returns the Phase-2 kind that must be Committed immediately
+// before `kind` may be drafted — the wire-side mirror of the SPA's Phase-2 buildSpine
+// step lock. The first required kind (planningAssumptions) has no predecessor and
+// returns (_, false); a kind not in the Phase-2 set likewise returns (_, false).
+func phase2PredecessorKind(kind ArtifactKind) (ArtifactKind, bool) {
+	req := phase2RequiredKinds()
+	for i, k := range req {
+		if k == kind {
+			if i == 0 {
+				return 0, false
+			}
+			return req[i-1], true
+		}
+	}
+	return 0, false
+}
+
+// predecessorNotCommittedMsg is the FailedPrecondition detail naming the uncommitted
+// predecessor that blocks the requested draft (by its canonical camelCase wire name).
+func predecessorNotCommittedMsg(pred ArtifactKind) string {
+	return fmt.Sprintf("predecessor artifact %q must be committed before this kind can be drafted", artifactKindWireName(pred))
+}
 
 // strPtrOrNil maps a failure-reason string to the optional contract field: nil for
 // the empty string (omitted on the wire), &s otherwise (the project notesPtr pattern).

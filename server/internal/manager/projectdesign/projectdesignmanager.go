@@ -1,10 +1,12 @@
 package projectdesign
 
 import (
+	"context"
 	"errors"
 	"strings"
 
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/estimation"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/operationestimation"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/settlement"
@@ -97,9 +99,12 @@ func newProjectDesignManager(
 // signal-with-start), workflow id {projectId}:{artifactKind}. Idempotent on the id.
 //
 // Pre: projectID non-nil; kind is a Phase-2 kind AND != KindSdpReview (the SDP
-// review is assembled via RequestSDPCommit, not co-authored). The phase-prerequisite
-// check (Phase 1 sealed, predecessors committed) is performed by the workflow on
-// head-state; the façade only checks kind validity.
+// review is assembled via RequestSDPCommit, not co-authored). The spine-ordering gate
+// (the requested kind's immediate Phase-2 predecessor must be Committed) is enforced
+// here on head-state — the wire-side mirror of the SPA's Phase-2 buildSpine step lock —
+// so a raw API/MCP caller cannot draft out of order (the CoAuthorPhase2ArtifactWorkflow
+// itself never gated ordering; it drafts immediately). The first Phase-2 kind
+// (planningAssumptions) has no Phase-2 predecessor.
 func (m *projectDesignManager) RequestArtifactDraft(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind, feedback *ReviewFeedback) (SessionRef, error) {
 	ctx := rc.Context
 	if projectID == "" {
@@ -110,6 +115,13 @@ func (m *projectDesignManager) RequestArtifactDraft(rc fwmanager.Context, projec
 	}
 	if kind == KindSdpReview {
 		return "", newError(fwmanager.FailedPrecondition, "use requestSDPCommit for the SDP review")
+	}
+
+	// Spine-ordering gate (Phase-2 twin of the systemdesign Manager). A Phase-2 kind
+	// may only be drafted once its immediate predecessor in the Phase-2 sequence is
+	// Committed (the same order the SPA's PHASE2_ORDER locks by).
+	if err := m.checkPhase2Predecessor(ctx, projectID, kind); err != nil {
+		return "", err
 	}
 
 	wfID := coAuthorWorkflowID(projectID, kind)
@@ -125,6 +137,36 @@ func (m *projectDesignManager) RequestArtifactDraft(rc fwmanager.Context, projec
 		return "", mapStartError(err)
 	}
 	return newSessionRef(we.GetID()), nil
+}
+
+// checkPhase2Predecessor enforces the Phase-2 spine-ordering gate for a draft request:
+// the requested kind's immediate predecessor (per phase2PredecessorKind) must be
+// Committed on head-state. Returns nil when the gate is satisfied — the first Phase-2
+// kind (planningAssumptions) has no predecessor, so it always passes without a read,
+// mirroring the SPA which unlocks planningAssumptions without a sealed Phase 1; a
+// redraft of an already in-review / Committed kind also passes (its predecessor is
+// committed by construction). Returns FailedPrecondition naming the uncommitted
+// predecessor otherwise. Extracted so the gate is unit-testable without a Temporal
+// client. Only checks the Phase-2 order (slots 8..16); Phase-1 sealing is the
+// Phase2AdvanceWorkflow's concern.
+func (m *projectDesignManager) checkPhase2Predecessor(ctx context.Context, projectID ProjectID, kind ArtifactKind) error {
+	pred, ok := phase2PredecessorKind(kind)
+	if !ok {
+		return nil
+	}
+	proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID))
+	if err != nil {
+		if isRAReadNotFound(err) {
+			// A brand-new project with no head-state row: no slot is committed, so
+			// the predecessor is by definition uncommitted.
+			return newError(fwmanager.FailedPrecondition, predecessorNotCommittedMsg(pred))
+		}
+		return mapReadProjectError(err)
+	}
+	if slotFor(proj, toPSKind(pred)).Status != projectstate.ReviewCommitted {
+		return newError(fwmanager.FailedPrecondition, predecessorNotCommittedMsg(pred))
+	}
+	return nil
 }
 
 // RequestSDPCommit — op 2.2. Temporal Workflow (entry; StartWorkflow /
@@ -277,6 +319,27 @@ func (m *projectDesignManager) GetSessionState(rc fwmanager.Context, projectID P
 }
 
 // --- error mapping at the façade boundary -----------------------------------
+
+// isRAReadNotFound reports whether err is a RAW projectStateAccess fwra.NotFound
+// (a brand-new / unknown project) returned DIRECTLY on the sync façade read path —
+// distinct from workflow.go's isReadNotFound, which inspects the Temporal-wrapped
+// ApplicationError on the replayed Activity path.
+func isRAReadNotFound(err error) bool {
+	var raErr *fwra.Error
+	return errors.As(err, &raErr) && raErr.Kind == fwra.NotFound
+}
+
+// mapReadProjectError converts a projectStateAccess.ReadProject error on the sync
+// spine-ordering-gate read path into a fwmanager.Error: fwra.NotFound → NotFound
+// (unknown project), everything else → Infrastructure. (fwra.NotFound is handled
+// specially by the RequestArtifactDraft caller as an uncommitted predecessor; this
+// mapper covers the non-NotFound faults.)
+func mapReadProjectError(err error) error {
+	if isRAReadNotFound(err) {
+		return newError(fwmanager.NotFound, err.Error())
+	}
+	return newError(fwmanager.Infrastructure, err.Error())
+}
 
 func mapStartError(err error) error {
 	// A "workflow already started" race under UseExisting policy is benign; the

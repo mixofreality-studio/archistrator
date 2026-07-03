@@ -82,24 +82,18 @@ name: System Tests
 #     construction (C-MC activity — no MCP SDK wired into the server module yet;
 #     see architecture.dsl mcpClient). Runs the moment mcpClient lands.
 #
-#   Test_GeneratedSystemTestTables/STP-UC1/STP-UC1-B1:
-#     A REAL, deterministic implementation-state finding (confirmed by reading
-#     systemDesignManager.RequestArtifactDraft, systemdesignmanager.go:161):
-#     the plan's STP-UC1-B1 case expects RequestArtifactDraft to REFUSE
-#     kind=4 (KindCoreUseCases) with PreconditionFailed while its predecessor
-#     kind=3 (KindVolatilities) is uncommitted. RequestArtifactDraft only
-#     validates `artifactKindIsPhase1(kind)` — there is NO predecessor-
-#     committed ordering check anywhere in the call path. This is not a
-#     runner defect (the other 7 generated STP-UC1/STP-UC2 case-steps this
-#     runner drives all pass): the plan documents a precondition the
-#     implementation does not enforce. Flagged for the senior-developer/
-#     architect to resolve (either add the missing gate, or the plan is
-#     aspirational and should be revised) — not silently weakened here.
-#     Gate: -skip regex.
+# RESOLVED (2026-07-03) — Test_GeneratedSystemTestTables/STP-UC1/STP-UC1-B1:
+#     Formerly gated as a REAL implementation-state finding: RequestArtifactDraft only
+#     validated `artifactKindIsPhase1(kind)` with NO predecessor-committed ordering
+#     check, so a raw wire caller could draft out of order while the plan's STP-UC1-B1
+#     case expected a PreconditionFailed refusal. The systemDesignManager façade now
+#     enforces the Phase-1 spine ordering (the predecessor slot must be Committed
+#     before a kind may be drafted — the wire mirror of the SPA's buildSpine step lock;
+#     projectDesignManager enforces the Phase-2 order symmetrically). STP-UC1-B1 is
+#     UN-GATED and runs green in the always-run set.
 #
-# The gated tests are NOT deleted — they will pass once the underlying server issues
-# are resolved (pipeline nil-guard + Postgres column re-type + the STP-UC1-B1
-# precondition gate above).
+# The remaining gated tests are NOT deleted — they will pass once the underlying server
+# issues are resolved (pipeline nil-guard + Postgres column re-type).
 
 on:
   push:
@@ -227,8 +221,5 @@ jobs:
           #   Test_UC2_ProjectDesign_WiringHappyPath      — same Postgres uuid gap
           #   Test_UC2_SDPGate_Wiring                     — same Postgres uuid gap
           #   Test_UC2_AdvanceToConstruction_Gating       — same Postgres uuid gap
-          #   Test_GeneratedSystemTestTables/STP-UC1/STP-UC1-B1 — REAL finding: RequestArtifactDraft
-          #     has no predecessor-committed precondition check (systemdesignmanager.go:161); the
-          #     plan's STP-UC1-B1 case expects one. Flagged for the senior-developer/architect.
           GOWORK=off go test ./usecases/... -count=1 -timeout 10m -v \
-            -skip 'Test_GitE2E_UC1_DesignArtifactCommitsToGit|Test_UC1_CoauthorGlossary_WiringHappyPath|Test_UC1_ResearchInputContract|Test_UC1_SendBackRegenerate_Wiring|Test_UC2_ProjectDesign_WiringHappyPath|Test_UC2_SDPGate_Wiring|Test_UC2_AdvanceToConstruction_Gating|Test_GeneratedSystemTestTables/STP-UC1/STP-UC1-B1'
+            -skip 'Test_GitE2E_UC1_DesignArtifactCommitsToGit|Test_UC1_CoauthorGlossary_WiringHappyPath|Test_UC1_ResearchInputContract|Test_UC1_SendBackRegenerate_Wiring|Test_UC2_ProjectDesign_WiringHappyPath|Test_UC2_SDPGate_Wiring|Test_UC2_AdvanceToConstruction_Gating'

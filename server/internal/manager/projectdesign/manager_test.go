@@ -3,10 +3,12 @@ package projectdesign
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
 // These tests cover the façade-boundary pre-condition checks the contract puts on
@@ -48,6 +50,107 @@ func Test_RequestArtifactDraft_SdpReviewKind_FailedPrecondition(t *testing.T) {
 	_, err := m.RequestArtifactDraft(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), KindSdpReview, nil)
 	if got := asProjectDesignError(t, err).Kind; got != fwmanager.FailedPrecondition {
 		t.Fatalf("want FailedPrecondition for KindSdpReview, got %d", got)
+	}
+}
+
+// ---- RequestArtifactDraft spine-ordering gate (Phase-2 twin of STP-UC1-B1) --
+
+// committedPhase2Project builds a head-state Project whose named slot for each given
+// Phase-2 kind is Committed (Status only — the gate reads Status, not the model).
+func committedPhase2Project(pid ProjectID, committed ...ArtifactKind) projectstate.Project {
+	p := projectstate.Project{ID: projectstate.ProjectID(pid)}
+	for _, k := range committed {
+		switch k {
+		case KindPlanningAssumptions:
+			p.PlanningAssumptions.Status = projectstate.ReviewCommitted
+		case KindActivityList:
+			p.ActivityList.Status = projectstate.ReviewCommitted
+		case KindNetwork:
+			p.Network.Status = projectstate.ReviewCommitted
+		case KindNormalSolution:
+			p.NormalSolution.Status = projectstate.ReviewCommitted
+		case KindDecompressedSolution:
+			p.DecompressedSolution.Status = projectstate.ReviewCommitted
+		case KindSubcriticalSolution:
+			p.SubcriticalSolution.Status = projectstate.ReviewCommitted
+		case KindCompressedSolution:
+			p.CompressedSolution.Status = projectstate.ReviewCommitted
+		case KindRiskModel:
+			p.RiskModel.Status = projectstate.ReviewCommitted
+		}
+	}
+	return p
+}
+
+// A Phase-2 draft whose immediate predecessor slot is uncommitted is refused with
+// FailedPrecondition naming that predecessor — the wire enforces the Method's ordered
+// Phase-2 spine, not only the SPA. Short-circuits before any Temporal client call.
+func Test_RequestArtifactDraft_Phase2PredecessorUncommitted_FailedPrecondition(t *testing.T) {
+	pid := ProjectID(uuid.NewString())
+	// activityList requested while its predecessor planningAssumptions is uncommitted.
+	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid)}}
+	m := NewProjectDesignManager(nil, ps, nil, nil, nil, nil, nil, nil)
+	_, err := m.RequestArtifactDraft(fwmanager.Context{Context: context.Background()}, pid, KindActivityList, nil)
+	pde := asProjectDesignError(t, err)
+	if pde.Kind != fwmanager.FailedPrecondition {
+		t.Fatalf("want FailedPrecondition for uncommitted predecessor, got %d", pde.Kind)
+	}
+	if !strings.Contains(err.Error(), "planningAssumptions") {
+		t.Fatalf("error should name the uncommitted predecessor planningAssumptions, got %q", err.Error())
+	}
+}
+
+// A brand-new project (no head-state row → NotFound) refuses a non-first Phase-2 draft.
+func Test_RequestArtifactDraft_NoProjectRow_FailedPrecondition(t *testing.T) {
+	pid := ProjectID(uuid.NewString())
+	ps := &fakeProjectState{notFound: true}
+	m := NewProjectDesignManager(nil, ps, nil, nil, nil, nil, nil, nil)
+	_, err := m.RequestArtifactDraft(fwmanager.Context{Context: context.Background()}, pid, KindActivityList, nil)
+	if got := asProjectDesignError(t, err).Kind; got != fwmanager.FailedPrecondition {
+		t.Fatalf("want FailedPrecondition for missing project row, got %d", got)
+	}
+}
+
+// The first Phase-2 kind (planningAssumptions) has NO predecessor — the gate passes
+// without any head-state read (mirrors the SPA unlocking it without a sealed Phase 1),
+// so a nil projectState is safe.
+func Test_CheckPhase2Predecessor_FirstKind_NoRead(t *testing.T) {
+	m := newProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil)
+	if err := m.checkPhase2Predecessor(context.Background(), ProjectID(uuid.NewString()), KindPlanningAssumptions); err != nil {
+		t.Fatalf("planningAssumptions has no predecessor; gate must pass, got %v", err)
+	}
+}
+
+// With the immediate predecessor Committed the gate passes (proceeds to dispatch).
+func Test_CheckPhase2Predecessor_Committed_Proceeds(t *testing.T) {
+	pid := ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: committedPhase2Project(pid, KindPlanningAssumptions)}
+	m := newProjectDesignManager(nil, ps, nil, nil, nil, nil, nil, nil)
+	if err := m.checkPhase2Predecessor(context.Background(), pid, KindActivityList); err != nil {
+		t.Fatalf("committed predecessor; gate must pass, got %v", err)
+	}
+}
+
+// phase2PredecessorKind returns the immediate predecessor for each Phase-2 kind, and
+// no predecessor for the first (planningAssumptions).
+func Test_Phase2PredecessorKind(t *testing.T) {
+	if _, ok := phase2PredecessorKind(KindPlanningAssumptions); ok {
+		t.Fatal("planningAssumptions (first) must have no predecessor")
+	}
+	cases := map[ArtifactKind]ArtifactKind{
+		KindActivityList:         KindPlanningAssumptions,
+		KindNetwork:              KindActivityList,
+		KindNormalSolution:       KindNetwork,
+		KindDecompressedSolution: KindNormalSolution,
+		KindSubcriticalSolution:  KindDecompressedSolution,
+		KindCompressedSolution:   KindSubcriticalSolution,
+		KindRiskModel:            KindCompressedSolution,
+	}
+	for kind, want := range cases {
+		got, ok := phase2PredecessorKind(kind)
+		if !ok || got != want {
+			t.Fatalf("predecessor(%s) = (%s,%v), want (%s,true)", artifactKindString(kind), artifactKindString(got), ok, artifactKindString(want))
+		}
 	}
 }
 

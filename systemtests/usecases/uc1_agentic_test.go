@@ -63,6 +63,13 @@ func Test_UC1_Agentic_E2E_DispatchObserveGateMergeCommit(t *testing.T) {
 		t.Fatalf("project birth did not commit to the project repo: count=%d", got)
 	}
 
+	// The wire surface enforces the Phase-1 spine ordering: volatilities (kind 3) may
+	// only be drafted once its predecessors are Committed. Seed them directly in the
+	// project's head-state (black-box, on-disk JSON) rather than driving each through
+	// the full agentic co-author round-trip — this test proves the agentic DISPATCH
+	// path for one architect-owned kind, not the whole Phase-1 sequence.
+	projRepo.SeedCommittedDesignSlots("mission", "glossary", "scrubbedRequirements")
+
 	dispatchesBefore := fake.DispatchCount()
 
 	// Request a system-design artifact draft. In the agentic path this DISPATCHES a
@@ -151,6 +158,10 @@ func Test_UC1_Agentic_PhaseFailed_EntersStageDraftFailed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("createProject: %v", err)
 	}
+
+	// Seed the Phase-1 predecessors of volatilities as Committed so the wire-surface
+	// spine-ordering gate admits the draft request (see the E2E test above).
+	projRepo.SeedCommittedDesignSlots("mission", "glossary", "scrubbedRequirements")
 
 	// Script EVERY dispatched job to terminate as a FAILED run (no draft committed).
 	// (requestArtifactDraft's SignalWithStart buffers a redraft signal that auto-redrafts

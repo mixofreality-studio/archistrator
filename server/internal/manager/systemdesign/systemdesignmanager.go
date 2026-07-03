@@ -1,6 +1,7 @@
 package systemdesign
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"hash/fnv"
@@ -167,6 +168,16 @@ func (m *systemDesignManager) RequestArtifactDraft(rc fwmanager.Context, project
 		return "", newError(fwmanager.FailedPrecondition, "artifactKind is not a Phase-1 kind")
 	}
 
+	// Spine-ordering gate. The Phase-1 spine is strictly ordered
+	// (mission → glossary → scrubbedRequirements → volatilities → coreUseCases →
+	// system → operationalConcepts → standardCheck): a kind may only be drafted once
+	// its immediate predecessor is Committed. The SPA locks steps this way client-side
+	// (DesignExperience.buildSpine); the wire surface MUST enforce it too so a raw
+	// API/MCP caller cannot draft out of order (systemDesignManager.md §2.1; STP-UC1-B1).
+	if err := m.checkPhase1Predecessor(ctx, projectID, kind); err != nil {
+		return "", err
+	}
+
 	wfID := coAuthorWorkflowID(projectID, kind)
 	opts := client.StartWorkflowOptions{
 		ID:        wfID,
@@ -183,6 +194,35 @@ func (m *systemDesignManager) RequestArtifactDraft(rc fwmanager.Context, project
 		return "", mapStartError(err)
 	}
 	return newSessionRef(we.GetID()), nil
+}
+
+// checkPhase1Predecessor enforces the Phase-1 spine-ordering gate for a draft request:
+// the requested kind's immediate predecessor (per phase1PredecessorKind, the same order
+// the SPA's buildSpine locks by) must be Committed on head-state. Returns nil when the
+// gate is satisfied — the first kind (mission) has no predecessor, so it always passes
+// without a read; a redraft of an already in-review / Committed kind also passes because
+// a kind only reaches review after its predecessor was Committed (the send-back /
+// regenerate path is unaffected). Returns FailedPrecondition naming the uncommitted
+// predecessor otherwise. Extracted so the gate is unit-testable without a Temporal
+// client (RequestArtifactDraft calls it before the SignalWithStart).
+func (m *systemDesignManager) checkPhase1Predecessor(ctx context.Context, projectID ProjectID, kind ArtifactKind) error {
+	pred, ok := phase1PredecessorKind(kind)
+	if !ok {
+		return nil
+	}
+	proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID))
+	if err != nil {
+		if isResearchReadNotFound(err) {
+			// A brand-new project with no head-state row: no slot is committed, so
+			// the predecessor is by definition uncommitted.
+			return newError(fwmanager.FailedPrecondition, predecessorNotCommittedMsg(pred))
+		}
+		return mapReadProjectError(err)
+	}
+	if slotFor(proj, pred).Status != projectstate.ReviewCommitted {
+		return newError(fwmanager.FailedPrecondition, predecessorNotCommittedMsg(pred))
+	}
+	return nil
 }
 
 // submitReviewDecision — op 2.2. Temporal Signal (SignalWorkflow to workflow id

@@ -2,6 +2,7 @@ package harness
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -93,6 +94,72 @@ func StartLocalGitRepoWithFiles(t *testing.T, branch string, files map[string][]
 	gitRun(t, work, "git", "push", "origin", branch)
 
 	return LocalGitRepo{t: t, bare: bare, branch: branch}
+}
+
+// SeedCommittedDesignSlots marks the named artifact kinds as Committed in the
+// project's on-disk `.aiarch/state/project.json` (Status only — no model body),
+// committing + pushing the change to the repo's branch. It exists so an agentic
+// system test can draft a kind whose Method predecessors must ALREADY be committed
+// (the wire surface enforces the Phase-1 / Phase-2 spine ordering — a raw draft of an
+// out-of-order kind is refused with PreconditionFailed) WITHOUT paying to drive each
+// predecessor through the full agentic co-author round-trip first.
+//
+// It works over the PUBLISHED on-disk JSON shape directly (the kind-ordinal-keyed
+// slot envelope, mirroring agentic_github.go's applyDraftToProjectJSON), never an
+// imported server type, so it stays fully black-box. Like the agentic fake it does
+// NOT bump the aggregate `version`: it edits main once, before any workflow reads, so
+// the server's later optimistic-concurrency CAS stays coherent with the version it
+// reads from main. Call it AFTER CreateProject (which writes project birth) and before
+// the out-of-order RequestArtifactDraft.
+func (r LocalGitRepo) SeedCommittedDesignSlots(wireKinds ...string) {
+	r.t.Helper()
+	root := r.t.TempDir()
+	work := filepath.Join(root, "seed-slots")
+	gitRun(r.t, root, "git", "clone", r.bare, work)
+	gitRun(r.t, work, "git", "checkout", r.branch)
+	gitRun(r.t, work, "git", "config", "user.email", "seed@aiarch.local")
+	gitRun(r.t, work, "git", "config", "user.name", "seed")
+
+	statePath := filepath.Join(work, ".aiarch", "state", "project.json")
+	raw, err := os.ReadFile(statePath)
+	if err != nil {
+		r.t.Fatalf("SeedCommittedDesignSlots: read project.json (call after CreateProject): %v", err)
+	}
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		r.t.Fatalf("SeedCommittedDesignSlots: decode project.json: %v", err)
+	}
+	slots := map[string]json.RawMessage{}
+	if s, ok := doc["slots"]; ok {
+		_ = json.Unmarshal(s, &slots)
+	}
+	for _, wk := range wireKinds {
+		ord, ok := kindOrdinal[wk]
+		if !ok {
+			r.t.Fatalf("SeedCommittedDesignSlots: unknown artifact kind %q", wk)
+		}
+		slot := map[string]any{"status": reviewCommittedOrdinal, "kind": ord}
+		enc, merr := json.Marshal(slot)
+		if merr != nil {
+			r.t.Fatalf("SeedCommittedDesignSlots: marshal slot %q: %v", wk, merr)
+		}
+		slots[strconv.Itoa(ord)] = enc
+	}
+	slotsEnc, err := json.Marshal(slots)
+	if err != nil {
+		r.t.Fatalf("SeedCommittedDesignSlots: marshal slots: %v", err)
+	}
+	doc["slots"] = slotsEnc
+	out, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		r.t.Fatalf("SeedCommittedDesignSlots: marshal project.json: %v", err)
+	}
+	if err := os.WriteFile(statePath, out, 0o644); err != nil {
+		r.t.Fatalf("SeedCommittedDesignSlots: write project.json: %v", err)
+	}
+	gitRun(r.t, work, "git", "add", "-A")
+	gitRun(r.t, work, "git", "commit", "-m", "seed: mark predecessor design slots committed")
+	gitRun(r.t, work, "git", "push", "origin", r.branch)
 }
 
 // CommitCount returns the number of commits on the repo's branch. The seed commit

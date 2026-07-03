@@ -11,6 +11,8 @@ package systemdesign
 // canonical projectstate type rather than re-implemented here.
 
 import (
+	"fmt"
+
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
@@ -41,6 +43,30 @@ func phase1RequiredKinds() []ArtifactKind {
 		out = append(out, ArtifactKind(k))
 	}
 	return out
+}
+
+// phase1PredecessorKind returns the Phase-1 kind that must be Committed immediately
+// before `kind` may be drafted — the wire-side mirror of the SPA's buildSpine step
+// lock (a step is locked until its immediate predecessor is committed). The first
+// required kind (mission) has no predecessor and returns (_, false); a kind not in the
+// Phase-1 set likewise returns (_, false) (the caller has already gated on IsPhase1).
+func phase1PredecessorKind(kind ArtifactKind) (ArtifactKind, bool) {
+	req := phase1RequiredKinds()
+	for i, k := range req {
+		if k == kind {
+			if i == 0 {
+				return 0, false
+			}
+			return req[i-1], true
+		}
+	}
+	return 0, false
+}
+
+// predecessorNotCommittedMsg is the FailedPrecondition detail naming the uncommitted
+// predecessor that blocks the requested draft (by its canonical camelCase wire name).
+func predecessorNotCommittedMsg(pred ArtifactKind) string {
+	return fmt.Sprintf("predecessor artifact %q must be committed before this kind can be drafted", artifactKindWireName(pred))
 }
 
 // strPtrOrNil maps a failure-reason string to the optional contract field: nil for
