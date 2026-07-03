@@ -30,6 +30,9 @@ import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
+import FormControl from '@mui/material/FormControl';
+import Select from '@mui/material/Select';
+import MenuItem from '@mui/material/MenuItem';
 import CodeIcon from '@mui/icons-material/Code';
 import AccountTreeIcon from '@mui/icons-material/AccountTree';
 import TimelineIcon from '@mui/icons-material/Timeline';
@@ -211,28 +214,26 @@ function DynamicPane({
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-      {/* Use-case selector chips */}
-      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, alignItems: 'center' }}>
-        <Typography sx={{ fontFamily: t.mono, fontSize: 10, letterSpacing: '0.08em', color: t.muted, mr: 0.5 }}>
+      {/* Use-case selector — dynamic, one entry per use case this component
+          participates in, so a dropdown replaces a chip strip here too. */}
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        <Typography sx={{ fontFamily: t.mono, fontSize: 10, letterSpacing: '0.08em', color: t.muted }}>
           USE CASES · {matchingViews.length.toString()}
         </Typography>
-        {matchingViews.map((v) => (
-          <Chip
-            key={v.key}
-            label={v.title}
-            size="small"
-            sx={{
-              fontFamily: t.mono,
-              fontSize: 10,
-              fontWeight: 700,
-              cursor: 'pointer',
-              bgcolor: v.key === activeKey ? t.accent : t.paperAlt,
-              color: v.key === activeKey ? t.accentText : t.ink,
-              border: `1.5px solid ${v.key === activeKey ? t.accent : t.line}`,
-            }}
-            onClick={() => { setSelectedKey(v.key); }}
-          />
-        ))}
+        <FormControl size="small" sx={{ minWidth: 240 }}>
+          <Select
+            aria-label="Use case"
+            sx={{ fontFamily: t.mono, fontSize: 13 }}
+            value={activeKey}
+            onChange={(e) => { setSelectedKey(e.target.value); }}
+          >
+            {matchingViews.map((v) => (
+              <MenuItem key={v.key} sx={{ fontFamily: t.mono, fontSize: 13 }} value={v.key}>
+                {v.title}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
       </Box>
       {/* The selected dynamic-view diagram with focal highlight */}
       <DynamicViewFlow

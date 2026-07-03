@@ -1,8 +1,10 @@
 /**
  * Core Use Cases as a carousel — the activity diagram is the hero. Bound to
  * adapters.toCoreUseCasesView (UseCaseView[]). A compact meta sidebar (name,
- * classification, swim-lanes) flanks a large React-Flow activity diagram. Tabs +
- * prev/next page through the use cases. Recolored from tokens.
+ * classification, swim-lanes) flanks a large React-Flow activity diagram. A
+ * labeled Select + prev/next page through the use cases (dynamic, project-state-
+ * driven count — can exceed a dozen — so a dropdown replaces the old tab strip).
+ * Recolored from tokens.
  */
 import { useState, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
@@ -10,8 +12,10 @@ import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 import IconButton from '@mui/material/IconButton';
 import Chip from '@mui/material/Chip';
-import Tabs from '@mui/material/Tabs';
-import Tab from '@mui/material/Tab';
+import FormControl from '@mui/material/FormControl';
+import InputLabel from '@mui/material/InputLabel';
+import Select from '@mui/material/Select';
+import MenuItem from '@mui/material/MenuItem';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import { toCoreUseCasesView } from '../../api/adapters';
@@ -44,50 +48,28 @@ export function UseCaseCarousel({ envelope }: { envelope: ArtifactModelEnvelope 
 
   return (
     <Box>
-      {/* slide tabs */}
+      {/* use-case picker */}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
-        <Tabs
-          aria-label="Core use cases"
-          scrollButtons="auto"
-          sx={{
-            minHeight: 0,
-            flexGrow: 1,
-            minWidth: 0,
-            '& .MuiTabs-flexContainer': { gap: 1 },
-            '& .MuiTabs-indicator': { display: 'none' },
-          }}
-          value={active}
-          variant="scrollable"
-          onChange={(_e, idx: number) => {
-            setI(idx);
-          }}
-        >
-          {useCases.map((u, idx) => (
-            <Tab
-              key={u.id}
-              label={u.name}
-              sx={{
-                minHeight: 0,
-                cursor: 'pointer',
-                px: 1.25,
-                py: 0.5,
-                fontFamily: t.mono,
-                fontWeight: 700,
-                fontSize: 12,
-                textTransform: 'none',
-                border: `1.5px solid ${t.line}`,
-                borderRadius: t.radius / 8 + 0.5,
-                bgcolor: idx === active ? t.accent : 'transparent',
-                color: idx === active ? t.accentText : t.muted,
-                boxShadow: idx === active && t.hardShadow ? `2px 2px 0 ${t.shadowColor}` : 'none',
-                maxWidth: 220,
-                '&.Mui-selected': { color: t.accentText },
-              }}
-              title={u.name}
-              value={idx}
-            />
-          ))}
-        </Tabs>
+        <FormControl size="small" sx={{ flexGrow: 1, minWidth: 0 }}>
+          <InputLabel id="use-case-picker-label" sx={{ fontFamily: t.mono }}>
+            Use case
+          </InputLabel>
+          <Select
+            label="Use case"
+            labelId="use-case-picker-label"
+            sx={{ fontFamily: t.mono, fontSize: 13 }}
+            value={active}
+            onChange={(e) => {
+              setI(e.target.value);
+            }}
+          >
+            {useCases.map((u, idx) => (
+              <MenuItem key={u.id} sx={{ fontFamily: t.mono, fontSize: 13 }} value={idx}>
+                {u.name}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
         <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.muted, flexShrink: 0 }}>
           {active + 1} / {useCases.length}
         </Typography>

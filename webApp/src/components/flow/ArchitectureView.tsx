@@ -173,6 +173,7 @@ export function ArchitectureView({
         {mode === 'perspective' && c4.components.length > 0 && (
           <FormControl size="small" sx={{ minWidth: 240 }}>
             <Select
+              aria-label="Component focus"
               data-testid={UI_IDENTIFIERS.Architecture.PERSPECTIVE_PICKER}
               sx={{ fontFamily: t.mono, fontSize: 13 }}
               value={activeComponentId}
