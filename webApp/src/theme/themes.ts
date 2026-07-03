@@ -65,7 +65,7 @@ export const TOKENS: Record<ThemeKey, Tokens> = {
     ink: '#22201B',
     muted: '#6E6452',
     line: '#22201B',
-    accent: '#C2691C',
+    accent: '#A85817',
     accentText: '#FFF8EC',
     accent2: '#2F6E6A',
     mono: '"Space Mono", ui-monospace, monospace',
