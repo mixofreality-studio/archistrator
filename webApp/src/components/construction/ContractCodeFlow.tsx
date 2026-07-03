@@ -12,7 +12,13 @@
  * a muted note "(fields not detailed in this contract)". Type names are always
  * present in the signature — so clicking always expands something real.
  */
-import { useMemo, useState, type ReactNode } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+} from 'react';
 import {
   ReactFlow,
   Background,
@@ -21,6 +27,7 @@ import {
   MarkerType,
   Handle,
   Position,
+  useReactFlow,
   type Edge,
   type Node,
   type NodeProps,
@@ -132,6 +139,17 @@ function stackY(count: number, i: number): number {
 }
 
 // ---------------------------------------------------------------------------
+// Layout geometry — three fixed columns: input | interface | output.
+// The interface node has a fixed width so the output column can be positioned
+// clear of its right edge (a variable-width node made outputs overlap it).
+// ---------------------------------------------------------------------------
+
+const IFACE_W = 560; // fixed interface node width
+const STRUCT_W = 224; // struct node width (matches StructNode sx)
+const INPUT_GAP = 300; // input column → interface (leaves room for the edge label)
+const OUTPUT_GAP = 150; // interface → output column
+
+// ---------------------------------------------------------------------------
 // InterfaceNode — clickable op rows
 // ---------------------------------------------------------------------------
 
@@ -139,7 +157,6 @@ interface InterfaceNodeData {
   component: string;
   ops: ContractOp[];
   activeOp: string | null;
-  onPick: (sig: string) => void;
   [key: string]: unknown;
 }
 
@@ -152,8 +169,7 @@ function InterfaceNode({ data }: NodeProps): ReactNode {
       <Handle position={Position.Right} style={{ opacity: 0 }} type="source" />
       <Box
         sx={{
-          minWidth: 340,
-          maxWidth: 520,
+          width: IFACE_W,
           bgcolor: t.paperAlt,
           border: `1.5px solid ${t.line}`,
           borderLeft: `5px solid ${t.accent}`,
@@ -163,18 +179,31 @@ function InterfaceNode({ data }: NodeProps): ReactNode {
       >
         {/* header */}
         <Box sx={{ px: 1.4, py: 0.9, bgcolor: t.paper, borderBottom: `1.5px solid ${t.line}` }}>
-          <Typography sx={{ fontFamily: t.mono, fontSize: 8.5, color: t.muted, letterSpacing: '0.06em' }}>
+          <Typography
+            sx={{ fontFamily: t.mono, fontSize: 8.5, color: t.muted, letterSpacing: '0.06em' }}
+          >
             «interface» [Component]
           </Typography>
-          <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 14, color: t.ink, lineHeight: 1.15 }}>
+          <Typography
+            sx={{
+              fontFamily: t.mono,
+              fontWeight: 700,
+              fontSize: 14,
+              color: t.ink,
+              lineHeight: 1.15,
+            }}
+          >
             {d.component}
           </Typography>
         </Box>
         {/* ops */}
         {d.ops.map((op, i) => {
           const active = op.signature === d.activeOp;
+          // data-op is read by the ReactFlow onNodeClick handler to know which
+          // op row was clicked (all rows live inside the single interface node).
           return (
             <Box
+              data-op={op.signature}
               key={`${op.signature}-${String(i)}`}
               sx={{
                 px: 1.4,
@@ -185,7 +214,6 @@ function InterfaceNode({ data }: NodeProps): ReactNode {
                 bgcolor: active ? t.awaitingBg : 'transparent',
                 '&:hover': { bgcolor: active ? t.awaitingBg : t.paper },
               }}
-              onClick={() => { d.onPick(op.signature); }}
             >
               <Typography
                 sx={{
@@ -203,7 +231,15 @@ function InterfaceNode({ data }: NodeProps): ReactNode {
                 {op.stereotype}
               </Typography>
               {op.note !== undefined && op.note.length > 0 ? (
-                <Typography sx={{ fontFamily: t.body, fontSize: 10.5, color: t.ink, lineHeight: 1.4, mt: 0.25 }}>
+                <Typography
+                  sx={{
+                    fontFamily: t.body,
+                    fontSize: 10.5,
+                    color: t.ink,
+                    lineHeight: 1.4,
+                    mt: 0.25,
+                  }}
+                >
                   {op.note}
                 </Typography>
               ) : null}
@@ -229,7 +265,10 @@ function StructNode({ data }: NodeProps): ReactNode {
   const t = useTokens();
   const d = data as StructNodeData;
   // Detect error structs by name convention ("error", "Error", ending in "Error", "Err")
-  const isErr = /^error$/i.test(d.struct.name) || d.struct.name.endsWith('Error') || d.struct.name.endsWith('Err');
+  const isErr =
+    /^error$/i.test(d.struct.name) ||
+    d.struct.name.endsWith('Error') ||
+    d.struct.name.endsWith('Err');
   const color = isErr ? t.dangerFg : d.role === 'input' ? t.accent2 : t.committedDot;
   return (
     <>
@@ -245,31 +284,80 @@ function StructNode({ data }: NodeProps): ReactNode {
           overflow: 'hidden',
         }}
       >
-        <Box sx={{ px: 1.3, py: 0.75, bgcolor: t.paper, borderBottom: `1.5px solid ${isErr ? t.dangerFg : t.line}` }}>
-          <Typography sx={{ fontFamily: t.mono, fontSize: 8, color: isErr ? t.dangerFg : t.muted, letterSpacing: '0.06em' }}>
-            {d.role === 'input' ? '«struct» request →' : isErr ? '«error» ← fail path' : '«struct» ← response'}
+        <Box
+          sx={{
+            px: 1.3,
+            py: 0.75,
+            bgcolor: t.paper,
+            borderBottom: `1.5px solid ${isErr ? t.dangerFg : t.line}`,
+          }}
+        >
+          <Typography
+            sx={{
+              fontFamily: t.mono,
+              fontSize: 8,
+              color: isErr ? t.dangerFg : t.muted,
+              letterSpacing: '0.06em',
+            }}
+          >
+            {d.role === 'input'
+              ? '«struct» request →'
+              : isErr
+                ? '«error» ← fail path'
+                : '«struct» ← response'}
           </Typography>
-          <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 12, color: isErr ? t.dangerFg : t.ink, lineHeight: 1.15 }}>
+          <Typography
+            sx={{
+              fontFamily: t.mono,
+              fontWeight: 700,
+              fontSize: 12,
+              color: isErr ? t.dangerFg : t.ink,
+              lineHeight: 1.15,
+            }}
+          >
             {d.struct.name}
           </Typography>
         </Box>
         <Box sx={{ px: 1.3, py: 0.6 }}>
-          {d.struct.fields.length > 0 ? d.struct.fields.map((f) => (
-            <Box key={f.name} sx={{ py: 0.25 }}>
-              <Box sx={{ display: 'flex', gap: 0.6, alignItems: 'baseline', flexWrap: 'wrap' }}>
-                <Typography sx={{ fontFamily: t.mono, fontSize: 10, fontWeight: 700, color: isErr ? t.dangerFg : t.ink }}>
-                  {f.name}
-                </Typography>
-                {f.type.length > 0 ? (
-                  <Typography sx={{ fontFamily: t.mono, fontSize: 10, color }}>{f.type}</Typography>
+          {d.struct.fields.length > 0 ? (
+            d.struct.fields.map((f) => (
+              <Box key={f.name} sx={{ py: 0.25 }}>
+                <Box sx={{ display: 'flex', gap: 0.6, alignItems: 'baseline', flexWrap: 'wrap' }}>
+                  <Typography
+                    sx={{
+                      fontFamily: t.mono,
+                      fontSize: 10,
+                      fontWeight: 700,
+                      color: isErr ? t.dangerFg : t.ink,
+                    }}
+                  >
+                    {f.name}
+                  </Typography>
+                  {f.type.length > 0 ? (
+                    <Typography sx={{ fontFamily: t.mono, fontSize: 10, color }}>
+                      {f.type}
+                    </Typography>
+                  ) : null}
+                </Box>
+                {f.note !== undefined && f.note.length > 0 ? (
+                  <Typography
+                    sx={{ fontFamily: t.body, fontSize: 9, color: t.muted, lineHeight: 1.25 }}
+                  >
+                    {f.note}
+                  </Typography>
                 ) : null}
               </Box>
-              {f.note !== undefined && f.note.length > 0 ? (
-                <Typography sx={{ fontFamily: t.body, fontSize: 9, color: t.muted, lineHeight: 1.25 }}>{f.note}</Typography>
-              ) : null}
-            </Box>
-          )) : (
-            <Typography sx={{ fontFamily: t.body, fontSize: 9.5, color: t.muted, lineHeight: 1.35, fontStyle: 'italic' }}>
+            ))
+          ) : (
+            <Typography
+              sx={{
+                fontFamily: t.body,
+                fontSize: 9.5,
+                color: t.muted,
+                lineHeight: 1.35,
+                fontStyle: 'italic',
+              }}
+            >
               (fields not detailed in this contract)
             </Typography>
           )}
@@ -280,6 +368,28 @@ function StructNode({ data }: NodeProps): ReactNode {
 }
 
 const nodeTypes = { iface: InterfaceNode, struct: StructNode };
+
+// Re-frames the canvas whenever `dep` changes so the input | interface | output
+// columns fit in view (fitView only runs once on mount otherwise). Lives as a
+// child of <ReactFlow> so it can use the flow hooks. On expand the struct nodes
+// are added unmeasured; a double rAF waits for React Flow to lay out and measure
+// them before fitting, otherwise fitView frames stale bounds.
+function FitViewOnChange({ dep }: { dep: string | null }): null {
+  const { fitView } = useReactFlow();
+  useEffect(() => {
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        void fitView({ padding: 0.2, duration: 300 });
+      });
+    });
+    return (): void => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
+  }, [dep, fitView]);
+  return null;
+}
 
 // ---------------------------------------------------------------------------
 // ContractCodeFlow
@@ -298,22 +408,33 @@ export function ContractCodeFlow({
 }): ReactNode {
   const [activeOp, setActiveOp] = useState<string | null>(null);
 
-  const pick = (sig: string): void => {
+  // React Flow's onNodeClick. Defining it also tells React Flow these nodes are
+  // interactive, so it keeps pointer-events enabled on them (otherwise a
+  // non-selectable, non-draggable node gets pointer-events:none and the pane
+  // behind it swallows the click). Rows carry a data-op attribute we read off
+  // the event target to know which op was clicked; clicking the active op again
+  // collapses it.
+  const onNodeClick = (event: ReactMouseEvent, node: Node): void => {
+    if (node.id !== 'iface') return;
+    const sig = (event.target as HTMLElement).closest('[data-op]')?.getAttribute('data-op');
+    if (sig === null || sig === undefined) return;
     setActiveOp((cur) => (cur === sig ? null : sig));
   };
 
-  // Stable callback ref — wrapped so it can be passed via node data without
-  // triggering infinite re-renders. The nodeTypes are module-level constants.
   const { nodes, edges } = useMemo((): { nodes: Node[]; edges: Edge[] } => {
     const expanded = activeOp !== null;
-    const IFACE_X = expanded ? 320 : 0;
+    // Column x-origins. Input at 0, interface cleared to its right, output
+    // cleared past the fixed-width interface so it never overlaps the component.
+    const INPUT_X = 0;
+    const IFACE_X = expanded ? STRUCT_W + INPUT_GAP : 0;
+    const OUTPUT_X = IFACE_X + IFACE_W + OUTPUT_GAP;
 
     const ns: Node[] = [
       {
         id: 'iface',
         type: 'iface',
         position: { x: IFACE_X, y: 0 },
-        data: { component, ops, activeOp, onPick: pick },
+        data: { component, ops, activeOp },
         draggable: false,
         selectable: false,
       },
@@ -333,7 +454,7 @@ export function ContractCodeFlow({
           ns.push({
             id,
             type: 'struct',
-            position: { x: -300, y: stackY(inputStructs.length, i) },
+            position: { x: INPUT_X, y: stackY(inputStructs.length, i) },
             data: { struct: s, role: 'input' },
             draggable: false,
             selectable: false,
@@ -344,11 +465,12 @@ export function ContractCodeFlow({
         // RIGHT — response struct(s)
         outputStructs.forEach((s, i) => {
           const id = `out-${s.name}-${String(i)}`;
-          const isErr = /^error$/i.test(s.name) || s.name.endsWith('Error') || s.name.endsWith('Err');
+          const isErr =
+            /^error$/i.test(s.name) || s.name.endsWith('Error') || s.name.endsWith('Err');
           ns.push({
             id,
             type: 'struct',
-            position: { x: IFACE_X + 380, y: stackY(outputStructs.length, i) },
+            position: { x: OUTPUT_X, y: stackY(outputStructs.length, i) },
             data: { struct: s, role: 'output' },
             draggable: false,
             selectable: false,
@@ -384,7 +506,9 @@ export function ContractCodeFlow({
         nodesConnectable={false}
         nodesDraggable={false}
         proOptions={{ hideAttribution: true }}
+        onNodeClick={onNodeClick}
       >
+        <FitViewOnChange dep={activeOp} />
         <Background color={t.line} gap={22} size={1} />
         <Controls showInteractive={false} />
         <Panel position="top-left">
@@ -413,7 +537,8 @@ export function ContractCodeFlow({
             <Typography sx={{ fontFamily: t.body, fontSize: 10, color: t.ink, lineHeight: 1.35 }}>
               {activeMethod !== undefined ? (
                 <>
-                  <b>{activeMethod.signature.split('(')[0]}</b> · request (left) → interface (middle) → response (right). Click again to collapse.
+                  <b>{activeMethod.signature.split('(')[0]}</b> · request (left) → interface
+                  (middle) → response (right). Click again to collapse.
                 </>
               ) : (
                 <>Click an op to expand its request / response structs.</>
