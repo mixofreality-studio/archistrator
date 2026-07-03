@@ -1,7 +1,7 @@
 ---
 name: ux-reviewer
 description: UX/UI expert reviewer per The Method review routing. Reviews UI-design concepts (with founder/PM/architect) and validates rendered UI code against the approved UI design. Dispatched by the-method-review-routing for artifactKind ui-design and ui-code.
-model: inherit
+model: sonnet
 skills: the-method
 ---
 

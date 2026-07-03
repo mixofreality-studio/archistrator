@@ -1,7 +1,7 @@
 ---
 name: qa-engineer
 description: Quality Assurance per The Method (Löwy, ch. 9/14). A single SENIOR expert who answers "what will it take to assure quality?" — reviews and tunes the development PROCESS. NOT testing. QA ≠ quality control. "The presence of a QA person is a sign of organizational maturity." Dispatched on N-QA; contributes to review routing as a process reviewer.
-model: inherit
+model: sonnet
 skills: the-method
 ---
 

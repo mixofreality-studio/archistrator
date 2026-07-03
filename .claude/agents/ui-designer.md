@@ -1,7 +1,7 @@
 ---
 name: ui-designer
 description: UI Designer per The Method UI-Design step. Produces UI design concepts (layouts, component choices, flows) for a product's UI surface, before UI construction. Dispatched on a G### ui-design activity. Reviewed via the-method-review-routing (founder/architect-user + ux-reviewer + product-manager + system-architect).
-model: inherit
+model: opus
 skills: the-method
 ---
 

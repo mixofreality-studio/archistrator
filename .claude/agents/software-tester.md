@@ -1,7 +1,7 @@
 ---
 name: software-tester
 description: Software Tester per The Method (Löwy, ch. 9/11/13). Runs system testing against the integrated system using the test-engineer's harness and the regression harness; files defects. NOT the test-engineer (who builds harnesses) and NOT QA (process). Löwy wants a high tester:developer ratio (1:1–2:1). Dispatched on N-IT (System Testing) and integration (I-*) verification.
-model: inherit
+model: sonnet
 skills: the-method
 ---
 

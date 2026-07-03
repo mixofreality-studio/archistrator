@@ -1,7 +1,7 @@
 ---
 name: project-manager
 description: Project Manager per The Method (Löwy, ch. 7 + App A). Owns the project network (the .network slot in project.json), assigns developers by float, tracks weekly earned value, handles scope creep via re-design. Does NOT design the project itself — that's the architect — but contributes constraints, costs, and availability. Use during /project-design, /implement-project, and /sdp-review.
-model: inherit
+model: opus
 skills: the-method
 ---
 

@@ -1,7 +1,7 @@
 ---
 name: junior-developer
 description: Junior Developer per The Method (Löwy, ch. 14 §5). Implements one component at a time against contracts already designed by senior-developer. Never designs contracts. Code-reviewed by the senior who designed the contract. Use when an activity has type=construction.
-model: inherit
+model: sonnet
 skills: the-method
 ---
 
