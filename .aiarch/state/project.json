@@ -1,5 +1,1364 @@
 {
   "id": "",
+  "testingState": {
+    "systemTestPlan": {
+      "useCaseIndex": [
+        "drive-system-design",
+        "commit-to-a-project-option",
+        "execute-a-construction-activity",
+        "operate-a-delivered-system",
+        "bill-the-user-for-usage"
+      ],
+      "scenarios": [
+        {
+          "id": "STP-UC1",
+          "useCase": "drive-system-design",
+          "title": "Drive System Design (client op: driveDesignPhase)",
+          "description": "Black-box exercise of the Phase-1 design loop at the systemDesignManager surface. Proves the artifact draft-\u003ereview-\u003ecommit state machine and the phase-advance gate; breaks it with premature advance, a reject-redraft loop, and an out-of-order draft request.",
+          "cases": [
+            {
+              "id": "STP-UC1-H1",
+              "kind": "happy",
+              "title": "Full artifact loop: create -\u003e research -\u003e draft mission -\u003e approve -\u003e commit; advance once Phase-1 complete",
+              "proves": "The design loop drives an artifact from draft to committed and the phase gate opens only when every Phase-1 slot is committed (Method-conformance objective #2).",
+              "expectedOutcome": "Mission reaches StageCommitted; with all Phase-1 kinds 0-7 committed, AdvancePhase returns advanced=true, missingArtifacts=[].",
+              "steps": [
+                {
+                  "seq": 1,
+                  "component": "systemDesignManager",
+                  "operation": "CreateProject",
+                  "status": "",
+                  "inputs": [
+                    {
+                      "name": "owner",
+                      "value": "usr-founder-01",
+                      "schemaRef": "#/$defs/OwnerScope"
+                    },
+                    {
+                      "name": "name",
+                      "value": "aiarch-demo",
+                      "schemaRef": ""
+                    }
+                  ],
+                  "expect": {
+                    "result": "proj-aiarch-01",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  },
+                  "assertion": "Returns a non-empty ProjectID for the new project."
+                },
+                {
+                  "seq": 2,
+                  "component": "systemDesignManager",
+                  "operation": "SetResearchInput",
+                  "status": "",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": "proj-aiarch-01",
+                      "schemaRef": "#/$defs/ProjectID"
+                    },
+                    {
+                      "name": "research",
+                      "value": "{\"sources\":[{\"title\":\"Founder brief\",\"content\":\"A platform that engineers software predictably and hosts it for a usage fee.\"}]}",
+                      "schemaRef": "#/$defs/ResearchInput"
+                    }
+                  ],
+                  "expect": {
+                    "result": "1",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  },
+                  "assertion": "Returns an incremented Version (\u003e=1); research is persisted before drafting begins."
+                },
+                {
+                  "seq": 3,
+                  "component": "systemDesignManager",
+                  "operation": "StartSystemDesign",
+                  "status": "",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": "proj-aiarch-01",
+                      "schemaRef": "#/$defs/ProjectID"
+                    }
+                  ],
+                  "expect": {
+                    "result": "sess-mission-01",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  },
+                  "assertion": "Returns a non-empty SessionRef; the Phase-1 workflow is live."
+                },
+                {
+                  "seq": 4,
+                  "component": "systemDesignManager",
+                  "operation": "RequestArtifactDraft",
+                  "status": "",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": "proj-aiarch-01",
+                      "schemaRef": "#/$defs/ProjectID"
+                    },
+                    {
+                      "name": "kind",
+                      "value": "0",
+                      "schemaRef": "#/$defs/ArtifactKind"
+                    },
+                    {
+                      "name": "feedback",
+                      "value": "{\"notes\":\"\",\"comments\":null}",
+                      "schemaRef": "#/$defs/ReviewFeedback"
+                    }
+                  ],
+                  "expect": {
+                    "result": "sess-mission-01",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  },
+                  "assertion": "kind=0 (KindMission); returns a SessionRef and enqueues the architect-draft job."
+                },
+                {
+                  "seq": 5,
+                  "component": "systemDesignManager",
+                  "operation": "GetSessionState",
+                  "status": "",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": "proj-aiarch-01",
+                      "schemaRef": "#/$defs/ProjectID"
+                    },
+                    {
+                      "name": "kind",
+                      "value": "0",
+                      "schemaRef": "#/$defs/ArtifactKind"
+                    }
+                  ],
+                  "expect": {
+                    "result": "{\"stage\":3,\"draft\":{\"kind\":\"mission\"}}",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  },
+                  "assertion": "Once the draft lands, stage=3 (StageAwaitingReview) and draft.kind=\"mission\"."
+                },
+                {
+                  "seq": 6,
+                  "component": "systemDesignManager",
+                  "operation": "SubmitReviewDecision",
+                  "status": "",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": "proj-aiarch-01",
+                      "schemaRef": "#/$defs/ProjectID"
+                    },
+                    {
+                      "name": "kind",
+                      "value": "0",
+                      "schemaRef": "#/$defs/ArtifactKind"
+                    },
+                    {
+                      "name": "decision",
+                      "value": "1",
+                      "schemaRef": "#/$defs/ReviewDecision"
+                    },
+                    {
+                      "name": "feedback",
+                      "value": "{\"notes\":\"Approved.\",\"comments\":null}",
+                      "schemaRef": "#/$defs/ReviewFeedback"
+                    }
+                  ],
+                  "expect": {
+                    "result": "",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  },
+                  "assertion": "decision=1 (ReviewApprove); no error. A follow-up GetSessionState shows stage=5 (StageCommitted)."
+                },
+                {
+                  "seq": 7,
+                  "component": "systemDesignManager",
+                  "operation": "AdvancePhase",
+                  "status": "",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": "proj-aiarch-01",
+                      "schemaRef": "#/$defs/ProjectID"
+                    }
+                  ],
+                  "expect": {
+                    "result": "{\"advanced\":true,\"missingArtifacts\":[]}",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  },
+                  "assertion": "PRECONDITION: kinds 0-7 all committed. advanced=true and missingArtifacts is empty - the phase seals."
+                }
+              ]
+            },
+            {
+              "id": "STP-UC1-N1",
+              "kind": "negative",
+              "title": "AdvancePhase refused before all Phase-1 artifacts are committed",
+              "proves": "The phase gate refuses to advance a half-designed system - the core precondition failure of Method conformance.",
+              "expectedOutcome": "AdvancePhase returns advanced=false with missingArtifacts enumerating every uncommitted Phase-1 kind; no phase transition occurs.",
+              "steps": [
+                {
+                  "seq": 1,
+                  "component": "systemDesignManager",
+                  "operation": "SubmitReviewDecision",
+                  "status": "",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": "proj-aiarch-01",
+                      "schemaRef": "#/$defs/ProjectID"
+                    },
+                    {
+                      "name": "kind",
+                      "value": "0",
+                      "schemaRef": "#/$defs/ArtifactKind"
+                    },
+                    {
+                      "name": "decision",
+                      "value": "1",
+                      "schemaRef": "#/$defs/ReviewDecision"
+                    },
+                    {
+                      "name": "feedback",
+                      "value": "{\"notes\":\"Approved.\",\"comments\":null}",
+                      "schemaRef": "#/$defs/ReviewFeedback"
+                    }
+                  ],
+                  "expect": {
+                    "result": "",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  },
+                  "assertion": "Only the mission (kind=0) is committed; glossary...standardCheck remain uncommitted."
+                },
+                {
+                  "seq": 2,
+                  "component": "systemDesignManager",
+                  "operation": "AdvancePhase",
+                  "status": "",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": "proj-aiarch-01",
+                      "schemaRef": "#/$defs/ProjectID"
+                    }
+                  ],
+                  "expect": {
+                    "result": "{\"advanced\":false,\"missingArtifacts\":[1,2,3,4,5,6,7]}",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  },
+                  "assertion": "advanced=false; missingArtifacts=[Glossary,ScrubbedRequirements,Volatilities,CoreUseCases,System,OperationalConcepts,StandardCheck]. The system must NOT advance."
+                }
+              ]
+            },
+            {
+              "id": "STP-UC1-N2",
+              "kind": "negative",
+              "title": "Reject decision drives a redraft, never a silent commit",
+              "proves": "A ReviewReject must not commit the artifact and must re-open drafting - exposing any code path that treats reject as a no-op or (worse) commits anyway.",
+              "expectedOutcome": "After reject, stage=4 (StageRedrafting), NOT StageCommitted; a fresh draft session is spawned carrying the feedback.",
+              "steps": [
+                {
+                  "seq": 1,
+                  "component": "systemDesignManager",
+                  "operation": "GetSessionState",
+                  "status": "",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": "proj-aiarch-01",
+                      "schemaRef": "#/$defs/ProjectID"
+                    },
+                    {
+                      "name": "kind",
+                      "value": "0",
+                      "schemaRef": "#/$defs/ArtifactKind"
+                    }
+                  ],
+                  "expect": {
+                    "result": "{\"stage\":3}",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  },
+                  "assertion": "stage=3 (StageAwaitingReview) - a draft is pending review."
+                },
+                {
+                  "seq": 2,
+                  "component": "systemDesignManager",
+                  "operation": "SubmitReviewDecision",
+                  "status": "",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": "proj-aiarch-01",
+                      "schemaRef": "#/$defs/ProjectID"
+                    },
+                    {
+                      "name": "kind",
+                      "value": "0",
+                      "schemaRef": "#/$defs/ArtifactKind"
+                    },
+                    {
+                      "name": "decision",
+                      "value": "2",
+                      "schemaRef": "#/$defs/ReviewDecision"
+                    },
+                    {
+                      "name": "feedback",
+                      "value": "{\"notes\":\"Mission conflates vision with objectives; separate them.\",\"comments\":null}",
+                      "schemaRef": "#/$defs/ReviewFeedback"
+                    }
+                  ],
+                  "expect": {
+                    "result": "",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  },
+                  "assertion": "decision=2 (ReviewReject) with substantive feedback; call returns without error."
+                },
+                {
+                  "seq": 3,
+                  "component": "systemDesignManager",
+                  "operation": "GetSessionState",
+                  "status": "",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": "proj-aiarch-01",
+                      "schemaRef": "#/$defs/ProjectID"
+                    },
+                    {
+                      "name": "kind",
+                      "value": "0",
+                      "schemaRef": "#/$defs/ArtifactKind"
+                    }
+                  ],
+                  "expect": {
+                    "result": "{\"stage\":4}",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  },
+                  "assertion": "stage=4 (StageRedrafting), NOT 5 (StageCommitted). The mission slot remains uncommitted."
+                }
+              ]
+            },
+            {
+              "id": "STP-UC1-B1",
+              "kind": "boundary",
+              "title": "Draft requested for an artifact whose predecessor slots are uncommitted",
+              "proves": "The data-dependency ordering is enforced: you cannot draft core use cases (kind=4) before volatilities (kind=3) are committed. Exposes any path that lets the design skip its own dependency graph.",
+              "expectedOutcome": "RequestArtifactDraft is refused with a precondition/illegal-state error; no session is created.",
+              "steps": [
+                {
+                  "seq": 1,
+                  "component": "systemDesignManager",
+                  "operation": "RequestArtifactDraft",
+                  "status": "",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": "proj-aiarch-01",
+                      "schemaRef": "#/$defs/ProjectID"
+                    },
+                    {
+                      "name": "kind",
+                      "value": "4",
+                      "schemaRef": "#/$defs/ArtifactKind"
+                    },
+                    {
+                      "name": "feedback",
+                      "value": "{\"notes\":\"\",\"comments\":null}",
+                      "schemaRef": "#/$defs/ReviewFeedback"
+                    }
+                  ],
+                  "expect": {
+                    "result": "",
+                    "errorExpected": true,
+                    "errorCode": "PreconditionFailed"
+                  },
+                  "assertion": "kind=4 (KindCoreUseCases) requested while kind=3 (KindVolatilities) is uncommitted -\u003e refused. No SessionRef returned."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "STP-UC2",
+          "useCase": "commit-to-a-project-option",
+          "title": "Commit to a Project Option (client op: driveDesignPhase / SDP)",
+          "description": "Black-box exercise of the projectDesignManager SDP-commit surface. Proves that committing an option opens work items and advances to construction; breaks it with premature AdvanceToConstruction, a reject-all decision, and an unknown option id.",
+          "cases": [
+            {
+              "id": "STP-UC2-H1",
+              "kind": "happy",
+              "title": "Commit the normal option, then advance to construction",
+              "proves": "A valid SDPCommit records the chosen option and lets construction open (mirrors uc2 chain: SubmitSDPDecision -\u003e commitOption -\u003e openWorkItem).",
+              "expectedOutcome": "SubmitSDPDecision(commit, \"normal\") succeeds; AdvanceToConstruction returns advanced=true, missingArtifacts=[].",
+              "steps": [
+                {
+                  "seq": 1,
+                  "component": "projectDesignManager",
+                  "operation": "RequestSDPCommit",
+                  "status": "",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": "proj-aiarch-01",
+                      "schemaRef": "#/$defs/ProjectID"
+                    }
+                  ],
+                  "expect": {
+                    "result": "sess-sdp-01",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  },
+                  "assertion": "Returns a SessionRef; the SDP review is assembled from all four options."
+                },
+                {
+                  "seq": 2,
+                  "component": "projectDesignManager",
+                  "operation": "GetSessionState",
+                  "status": "",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": "proj-aiarch-01",
+                      "schemaRef": "#/$defs/ProjectID"
+                    },
+                    {
+                      "name": "kind",
+                      "value": "16",
+                      "schemaRef": "#/$defs/ArtifactKind"
+                    }
+                  ],
+                  "expect": {
+                    "result": "{\"artifactKind\":16,\"stage\":3,\"draft\":{\"kind\":\"sdpReview\"}}",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  },
+                  "assertion": "kind=16 (KindSdpReview); stage=3 (StageAwaitingReview), draft.kind=\"sdpReview\"."
+                },
+                {
+                  "seq": 3,
+                  "component": "projectDesignManager",
+                  "operation": "SubmitSDPDecision",
+                  "status": "",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": "proj-aiarch-01",
+                      "schemaRef": "#/$defs/ProjectID"
+                    },
+                    {
+                      "name": "decision",
+                      "value": "1",
+                      "schemaRef": "#/$defs/SDPDecision"
+                    },
+                    {
+                      "name": "optionID",
+                      "value": "normal",
+                      "schemaRef": "#/$defs/OptionID"
+                    },
+                    {
+                      "name": "feedback",
+                      "value": "{\"notes\":\"Normal solution accepted.\",\"comments\":null}",
+                      "schemaRef": "#/$defs/ReviewFeedback"
+                    }
+                  ],
+                  "expect": {
+                    "result": "",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  },
+                  "assertion": "decision=1 (SDPCommit) with a real option id; no error. chosenOption is recorded and work items open."
+                },
+                {
+                  "seq": 4,
+                  "component": "projectDesignManager",
+                  "operation": "AdvanceToConstruction",
+                  "status": "",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": "proj-aiarch-01",
+                      "schemaRef": "#/$defs/ProjectID"
+                    }
+                  ],
+                  "expect": {
+                    "result": "{\"advanced\":true,\"missingArtifacts\":[]}",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  },
+                  "assertion": "advanced=true; the project enters Phase 3."
+                }
+              ]
+            },
+            {
+              "id": "STP-UC2-N1",
+              "kind": "negative",
+              "title": "AdvanceToConstruction before any option is committed",
+              "proves": "The construction gate refuses to open until an option is committed - the canonical 'advance before all slots committed' precondition violation.",
+              "expectedOutcome": "AdvanceToConstruction returns advanced=false with missingArtifacts including SdpReview (16); the project stays in Phase 2.",
+              "steps": [
+                {
+                  "seq": 1,
+                  "component": "projectDesignManager",
+                  "operation": "RequestSDPCommit",
+                  "status": "",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": "proj-aiarch-01",
+                      "schemaRef": "#/$defs/ProjectID"
+                    }
+                  ],
+                  "expect": {
+                    "result": "sess-sdp-01",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  },
+                  "assertion": "SDP is assembled but NOT yet decided."
+                },
+                {
+                  "seq": 2,
+                  "component": "projectDesignManager",
+                  "operation": "AdvanceToConstruction",
+                  "status": "",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": "proj-aiarch-01",
+                      "schemaRef": "#/$defs/ProjectID"
+                    }
+                  ],
+                  "expect": {
+                    "result": "{\"advanced\":false,\"missingArtifacts\":[16]}",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  },
+                  "assertion": "advanced=false; missingArtifacts contains 16 (KindSdpReview). No work items opened."
+                }
+              ]
+            },
+            {
+              "id": "STP-UC2-N2",
+              "kind": "negative",
+              "title": "SDPRejectAll keeps the project in design and blocks construction",
+              "proves": "Rejecting all options must not silently pick one; the project must remain re-plannable and construction must stay closed.",
+              "expectedOutcome": "After SDPRejectAll, no chosenOption is recorded; a follow-up AdvanceToConstruction still returns advanced=false.",
+              "steps": [
+                {
+                  "seq": 1,
+                  "component": "projectDesignManager",
+                  "operation": "SubmitSDPDecision",
+                  "status": "",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": "proj-aiarch-01",
+                      "schemaRef": "#/$defs/ProjectID"
+                    },
+                    {
+                      "name": "decision",
+                      "value": "2",
+                      "schemaRef": "#/$defs/SDPDecision"
+                    },
+                    {
+                      "name": "optionID",
+                      "value": "",
+                      "schemaRef": "#/$defs/OptionID"
+                    },
+                    {
+                      "name": "feedback",
+                      "value": "{\"notes\":\"All four options exceed budget; re-plan at lower staffing.\",\"comments\":null}",
+                      "schemaRef": "#/$defs/ReviewFeedback"
+                    }
+                  ],
+                  "expect": {
+                    "result": "",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  },
+                  "assertion": "decision=2 (SDPRejectAll); accepted with feedback, no option committed."
+                },
+                {
+                  "seq": 2,
+                  "component": "projectDesignManager",
+                  "operation": "AdvanceToConstruction",
+                  "status": "",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": "proj-aiarch-01",
+                      "schemaRef": "#/$defs/ProjectID"
+                    }
+                  ],
+                  "expect": {
+                    "result": "{\"advanced\":false,\"missingArtifacts\":[16]}",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  },
+                  "assertion": "advanced=false - reject-all does not open construction."
+                }
+              ]
+            },
+            {
+              "id": "STP-UC2-B1",
+              "kind": "boundary",
+              "title": "SDPCommit references an option id that is not in the SDP review",
+              "proves": "The commit validates optionID against the assembled option set - exposes any path that commits a garbage/typo option.",
+              "expectedOutcome": "SubmitSDPDecision is refused with an invalid-argument/not-found error; no option committed.",
+              "steps": [
+                {
+                  "seq": 1,
+                  "component": "projectDesignManager",
+                  "operation": "SubmitSDPDecision",
+                  "status": "",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": "proj-aiarch-01",
+                      "schemaRef": "#/$defs/ProjectID"
+                    },
+                    {
+                      "name": "decision",
+                      "value": "1",
+                      "schemaRef": "#/$defs/SDPDecision"
+                    },
+                    {
+                      "name": "optionID",
+                      "value": "option-does-not-exist",
+                      "schemaRef": "#/$defs/OptionID"
+                    },
+                    {
+                      "name": "feedback",
+                      "value": "{\"notes\":\"\",\"comments\":null}",
+                      "schemaRef": "#/$defs/ReviewFeedback"
+                    }
+                  ],
+                  "expect": {
+                    "result": "",
+                    "errorExpected": true,
+                    "errorCode": "InvalidArgument"
+                  },
+                  "assertion": "decision=1 (SDPCommit) with an unknown optionID -\u003e refused. chosenOption stays unset."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "STP-UC3",
+          "useCase": "execute-a-construction-activity",
+          "title": "Execute a Construction Activity (client op: superviseConstruction)",
+          "description": "Black-box exercise of the constructionManager pump + review-gate surface. Proves that ExecuteNextActivity respects the dependency network, that send-back blocks a merge, and that the pump is tick-idempotent (retries do not double-dispatch).",
+          "cases": [
+            {
+              "id": "STP-UC3-H1",
+              "kind": "happy",
+              "title": "Pump dispatches the next eligible activity and drives it through the review gate",
+              "proves": "ExecuteNextActivity picks the next eligible activity, and a PhaseApprove advances it toward merge/exit (mirrors uc3 chain: executeNextActivity -\u003e PickWorkerClass -\u003e ... -\u003e ProposeReviews -\u003e mergePullRequest -\u003e recordActivityExited).",
+              "expectedOutcome": "First tick dispatches an activity (dispatched=true); PhaseApprove is accepted; a later tick progresses the activity to exit.",
+              "steps": [
+                {
+                  "seq": 1,
+                  "component": "constructionManager",
+                  "operation": "ExecuteNextActivity",
+                  "status": "",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": "proj-aiarch-01",
+                      "schemaRef": "#/$defs/ProjectID"
+                    },
+                    {
+                      "name": "tickID",
+                      "value": "tick-2026-07-02T09:00:00Z",
+                      "schemaRef": ""
+                    }
+                  ],
+                  "expect": {
+                    "result": "{\"dispatched\":true,\"activityId\":\"C-BILLENG\"}",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  },
+                  "assertion": "dispatched=true and activityId is non-null - the first eligible activity (no unmet predecessors) is dispatched."
+                },
+                {
+                  "seq": 2,
+                  "component": "constructionManager",
+                  "operation": "GetSessionState",
+                  "status": "",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": "proj-aiarch-01",
+                      "schemaRef": "#/$defs/ProjectID"
+                    },
+                    {
+                      "name": "activityID",
+                      "value": "C-BILLENG",
+                      "schemaRef": "#/$defs/ActivityID"
+                    }
+                  ],
+                  "expect": {
+                    "result": "{}",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  },
+                  "assertion": "Session view shows the activity in-progress with a branch/PR opened."
+                },
+                {
+                  "seq": 3,
+                  "component": "constructionManager",
+                  "operation": "SubmitPhaseDecision",
+                  "status": "",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": "proj-aiarch-01",
+                      "schemaRef": "#/$defs/ProjectID"
+                    },
+                    {
+                      "name": "activityID",
+                      "value": "C-BILLENG",
+                      "schemaRef": "#/$defs/ActivityID"
+                    },
+                    {
+                      "name": "phase",
+                      "value": "detailed-design",
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "decision",
+                      "value": "1",
+                      "schemaRef": "#/$defs/PhaseDecision"
+                    },
+                    {
+                      "name": "feedback",
+                      "value": "{\"notes\":\"Contract approved.\",\"comments\":null}",
+                      "schemaRef": "#/$defs/ReviewFeedback"
+                    }
+                  ],
+                  "expect": {
+                    "result": "",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  },
+                  "assertion": "decision=1 (PhaseApprove); no error. The activity advances to the construction phase."
+                },
+                {
+                  "seq": 4,
+                  "component": "constructionManager",
+                  "operation": "ExecuteNextActivity",
+                  "status": "",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": "proj-aiarch-01",
+                      "schemaRef": "#/$defs/ProjectID"
+                    },
+                    {
+                      "name": "tickID",
+                      "value": "tick-2026-07-02T10:00:00Z",
+                      "schemaRef": ""
+                    }
+                  ],
+                  "expect": {
+                    "result": "{\"dispatched\":true}",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  },
+                  "assertion": "A later tick progresses construction; on approved review the PR merges and the activity records an exit."
+                }
+              ]
+            },
+            {
+              "id": "STP-UC3-N1",
+              "kind": "negative",
+              "title": "Pump does not dispatch when no activity is eligible",
+              "proves": "The pump honors the dependency network: with all remaining activities blocked by unmet predecessors, it must NOT dispatch out of order.",
+              "expectedOutcome": "ExecuteNextActivity returns dispatched=false, activityId=null; no branch/PR is opened.",
+              "steps": [
+                {
+                  "seq": 1,
+                  "component": "constructionManager",
+                  "operation": "ExecuteNextActivity",
+                  "status": "",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": "proj-aiarch-01",
+                      "schemaRef": "#/$defs/ProjectID"
+                    },
+                    {
+                      "name": "tickID",
+                      "value": "tick-blocked-01",
+                      "schemaRef": ""
+                    }
+                  ],
+                  "expect": {
+                    "result": "{\"dispatched\":false,\"activityId\":null}",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  },
+                  "assertion": "dispatched=false - quiescent when the frontier is empty; no out-of-order construction, no wasted pipeline."
+                }
+              ]
+            },
+            {
+              "id": "STP-UC3-N2",
+              "kind": "negative",
+              "title": "PhaseSendBack blocks the merge and re-opens the phase",
+              "proves": "A send-back review verdict must not merge the PR or exit the activity - exposing any path that merges despite a rejecting reviewer.",
+              "expectedOutcome": "After PhaseSendBack, the activity reverts to redraft; the PR is not merged and the activity is not recorded as exited.",
+              "steps": [
+                {
+                  "seq": 1,
+                  "component": "constructionManager",
+                  "operation": "SubmitPhaseDecision",
+                  "status": "",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": "proj-aiarch-01",
+                      "schemaRef": "#/$defs/ProjectID"
+                    },
+                    {
+                      "name": "activityID",
+                      "value": "C-BILLENG",
+                      "schemaRef": "#/$defs/ActivityID"
+                    },
+                    {
+                      "name": "phase",
+                      "value": "detailed-design",
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "decision",
+                      "value": "2",
+                      "schemaRef": "#/$defs/PhaseDecision"
+                    },
+                    {
+                      "name": "feedback",
+                      "value": "{\"notes\":\"Contract has 22 operations; split the component (reject \u003e=20).\",\"comments\":null}",
+                      "schemaRef": "#/$defs/ReviewFeedback"
+                    }
+                  ],
+                  "expect": {
+                    "result": "",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  },
+                  "assertion": "decision=2 (PhaseSendBack) accepted with feedback."
+                },
+                {
+                  "seq": 2,
+                  "component": "constructionManager",
+                  "operation": "GetSessionState",
+                  "status": "",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": "proj-aiarch-01",
+                      "schemaRef": "#/$defs/ProjectID"
+                    },
+                    {
+                      "name": "activityID",
+                      "value": "C-BILLENG",
+                      "schemaRef": "#/$defs/ActivityID"
+                    }
+                  ],
+                  "expect": {
+                    "result": "{}",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  },
+                  "assertion": "Session shows the phase re-opened for redraft; PR NOT merged, activity NOT exited."
+                }
+              ]
+            },
+            {
+              "id": "STP-UC3-B1",
+              "kind": "boundary",
+              "title": "Duplicate ExecuteNextActivity with the same tickID is idempotent",
+              "proves": "Scheduler retries must not double-dispatch: the same tickID must not open a second branch/PR or spend LLM tokens twice (RA-idempotency promoted to the client surface).",
+              "expectedOutcome": "The second call with the identical tickID does not produce a second dispatch of the same activity (dispatched=false, or the same activityId with no new branch/PR).",
+              "steps": [
+                {
+                  "seq": 1,
+                  "component": "constructionManager",
+                  "operation": "ExecuteNextActivity",
+                  "status": "",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": "proj-aiarch-01",
+                      "schemaRef": "#/$defs/ProjectID"
+                    },
+                    {
+                      "name": "tickID",
+                      "value": "tick-dup-42",
+                      "schemaRef": ""
+                    }
+                  ],
+                  "expect": {
+                    "result": "{\"dispatched\":true,\"activityId\":\"C-BILLENG\"}",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  },
+                  "assertion": "First call dispatches C-BILLENG and opens exactly one branch/PR."
+                },
+                {
+                  "seq": 2,
+                  "component": "constructionManager",
+                  "operation": "ExecuteNextActivity",
+                  "status": "",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": "proj-aiarch-01",
+                      "schemaRef": "#/$defs/ProjectID"
+                    },
+                    {
+                      "name": "tickID",
+                      "value": "tick-dup-42",
+                      "schemaRef": ""
+                    }
+                  ],
+                  "expect": {
+                    "result": "{\"dispatched\":false}",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  },
+                  "assertion": "Same tickID replayed -\u003e no second dispatch of C-BILLENG; the branch/PR count for the activity is unchanged."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "STP-UC4",
+          "useCase": "operate-a-delivered-system",
+          "title": "Operate a Delivered System (client ops: operateDeliveredSystem / readOperatedSystemView)",
+          "description": "Black-box exercise of the operationsManager surface. Proves deploy-\u003ereconcile-\u003eobserve reaches Healthy; breaks it with the delinquency pause path, deploy idempotency on a duplicate changeId, and terminal withdrawal.",
+          "cases": [
+            {
+              "id": "STP-UC4-H1",
+              "kind": "happy",
+              "title": "Deploy after construction, reconcile, and observe Healthy",
+              "proves": "A full-bundle deploy publishes desired state and the reconcile loop drives the app to Healthy (mirrors uc4: deployAfterConstruction -\u003e publishDesiredState -\u003e reconcileOperatedState -\u003e getApplicationHealth).",
+              "expectedOutcome": "DeployResult.published=true; ReconcileResult shows a Pending-\u003eHealthy transition; QueryOperatedSystemView reports Phase=RuntimeStatusHealthy.",
+              "steps": [
+                {
+                  "seq": 1,
+                  "component": "operationsManager",
+                  "operation": "DeployAfterConstruction",
+                  "status": "",
+                  "inputs": [
+                    {
+                      "name": "operatedAppID",
+                      "value": "3f2504e0-4f89-11d3-9a0c-0305e82c3301",
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "change",
+                      "value": "{\"reason\":1,\"patchKind\":1,\"changeId\":\"chg-deploy-001\",\"renderedDesiredState\":\"YXBpVmVyc2lvbjogdjE=\"}",
+                      "schemaRef": "#/$defs/DesiredStateChange"
+                    }
+                  ],
+                  "expect": {
+                    "result": "{\"published\":true,\"revision\":\"rev-1\"}",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  },
+                  "assertion": "reason=1 (ReasonDeployAfterConstruction), patchKind=1 (PatchFullBundle); published=true with a non-null revision."
+                },
+                {
+                  "seq": 2,
+                  "component": "operationsManager",
+                  "operation": "ReconcileOperatedState",
+                  "status": "",
+                  "inputs": [
+                    {
+                      "name": "tickID",
+                      "value": "tick-recon-1",
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "scope",
+                      "value": "{\"appIds\":[\"3f2504e0-4f89-11d3-9a0c-0305e82c3301\"]}",
+                      "schemaRef": "#/$defs/ReconcileScope"
+                    }
+                  ],
+                  "expect": {
+                    "result": "{\"observed\":1,\"transitions\":1,\"republished\":0}",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  },
+                  "assertion": "observed\u003e=1 and transitions\u003e=1 - a status transition (Pending-\u003eHealthy) is recorded on change only."
+                },
+                {
+                  "seq": 3,
+                  "component": "operationsManager",
+                  "operation": "QueryOperatedSystemView",
+                  "status": "",
+                  "inputs": [
+                    {
+                      "name": "operatedAppID",
+                      "value": "3f2504e0-4f89-11d3-9a0c-0305e82c3301",
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "requestID",
+                      "value": "req-view-1",
+                      "schemaRef": ""
+                    }
+                  ],
+                  "expect": {
+                    "result": "{\"Phase\":2,\"InFlight\":false}",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  },
+                  "assertion": "readOperatedSystemView surface: Phase=2 (RuntimeStatusHealthy), InFlight=false, CurrentRunRate present."
+                }
+              ]
+            },
+            {
+              "id": "STP-UC4-N1",
+              "kind": "negative",
+              "title": "Delinquency policy pauses (not withdraws) the operated system",
+              "proves": "The queued Manager-\u003eManager delinquency signal must PAUSE the system when pauseNotWithdraw=true and must be observable - never silently withdraw or ignore it.",
+              "expectedOutcome": "After ApplyDelinquencyPolicy, publishDesiredState fires with reason=ReasonDelinquency and the view is NOT RuntimeStatusWithdrawn.",
+              "steps": [
+                {
+                  "seq": 1,
+                  "component": "operationsManager",
+                  "operation": "ApplyDelinquencyPolicy",
+                  "status": "",
+                  "inputs": [
+                    {
+                      "name": "customerID",
+                      "value": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "delinquencyContext",
+                      "value": "{\"pauseNotWithdraw\":true}",
+                      "schemaRef": "#/$defs/DelinquencyContext"
+                    }
+                  ],
+                  "expect": {
+                    "result": "",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  },
+                  "assertion": "pauseNotWithdraw=true; the manager re-publishes desired state with reason=4 (ReasonDelinquency)."
+                },
+                {
+                  "seq": 2,
+                  "component": "operationsManager",
+                  "operation": "QueryOperatedSystemView",
+                  "status": "",
+                  "inputs": [
+                    {
+                      "name": "operatedAppID",
+                      "value": "3f2504e0-4f89-11d3-9a0c-0305e82c3301",
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "requestID",
+                      "value": "req-view-2",
+                      "schemaRef": ""
+                    }
+                  ],
+                  "expect": {
+                    "result": "{\"Phase\":1}",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  },
+                  "assertion": "Phase is paused (e.g. 1 RuntimeStatusPending / degraded), and specifically NOT 4 (RuntimeStatusWithdrawn) - pause is reversible when payment clears."
+                }
+              ]
+            },
+            {
+              "id": "STP-UC4-B1",
+              "kind": "boundary",
+              "title": "Duplicate DeployAfterConstruction with the same changeId is idempotent",
+              "proves": "Deterministic manifest paths mean a replayed changeId must not create a divergent desired-state revision (RA idempotency asserted black-box at the client surface).",
+              "expectedOutcome": "Both calls return published=true with the SAME revision; the runtime is not published to twice.",
+              "steps": [
+                {
+                  "seq": 1,
+                  "component": "operationsManager",
+                  "operation": "DeployAfterConstruction",
+                  "status": "",
+                  "inputs": [
+                    {
+                      "name": "operatedAppID",
+                      "value": "3f2504e0-4f89-11d3-9a0c-0305e82c3301",
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "change",
+                      "value": "{\"reason\":1,\"patchKind\":1,\"changeId\":\"chg-deploy-001\",\"renderedDesiredState\":\"YXBpVmVyc2lvbjogdjE=\"}",
+                      "schemaRef": "#/$defs/DesiredStateChange"
+                    }
+                  ],
+                  "expect": {
+                    "result": "{\"published\":true,\"revision\":\"rev-1\"}",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  },
+                  "assertion": "First deploy with changeId=chg-deploy-001 yields revision rev-1."
+                },
+                {
+                  "seq": 2,
+                  "component": "operationsManager",
+                  "operation": "DeployAfterConstruction",
+                  "status": "",
+                  "inputs": [
+                    {
+                      "name": "operatedAppID",
+                      "value": "3f2504e0-4f89-11d3-9a0c-0305e82c3301",
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "change",
+                      "value": "{\"reason\":1,\"patchKind\":1,\"changeId\":\"chg-deploy-001\",\"renderedDesiredState\":\"YXBpVmVyc2lvbjogdjE=\"}",
+                      "schemaRef": "#/$defs/DesiredStateChange"
+                    }
+                  ],
+                  "expect": {
+                    "result": "{\"published\":true,\"revision\":\"rev-1\"}",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  },
+                  "assertion": "Replayed changeId returns the SAME revision (rev-1) - no second revision, no divergent desired state."
+                }
+              ]
+            },
+            {
+              "id": "STP-UC4-N2",
+              "kind": "negative",
+              "title": "Withdrawal is terminal; reconcile does not resurrect a withdrawn app",
+              "proves": "After WithdrawSystem the app must reach RuntimeStatusWithdrawn and the reconcile loop must not republish it - exposing any resurrection bug.",
+              "expectedOutcome": "WithdrawResult.withdrawn=true; the view Phase=RuntimeStatusWithdrawn; a scoped reconcile republishes 0.",
+              "steps": [
+                {
+                  "seq": 1,
+                  "component": "operationsManager",
+                  "operation": "WithdrawSystem",
+                  "status": "",
+                  "inputs": [
+                    {
+                      "name": "operatedAppID",
+                      "value": "3f2504e0-4f89-11d3-9a0c-0305e82c3301",
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "changeID",
+                      "value": "chg-withdraw-1",
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "reason",
+                      "value": "{\"notes\":\"Customer offboarded.\"}",
+                      "schemaRef": "#/$defs/WithdrawReason"
+                    }
+                  ],
+                  "expect": {
+                    "result": "{\"withdrawn\":true}",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  },
+                  "assertion": "withdrawn=true; desired state is torn down."
+                },
+                {
+                  "seq": 2,
+                  "component": "operationsManager",
+                  "operation": "ReconcileOperatedState",
+                  "status": "",
+                  "inputs": [
+                    {
+                      "name": "tickID",
+                      "value": "tick-recon-post-wd",
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "scope",
+                      "value": "{\"appIds\":[\"3f2504e0-4f89-11d3-9a0c-0305e82c3301\"]}",
+                      "schemaRef": "#/$defs/ReconcileScope"
+                    }
+                  ],
+                  "expect": {
+                    "result": "{\"republished\":0}",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  },
+                  "assertion": "republished=0 - a withdrawn app is not resurrected by reconcile; QueryOperatedSystemView shows Phase=4 (RuntimeStatusWithdrawn)."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "STP-UC5",
+          "useCase": "bill-the-user-for-usage",
+          "title": "Bill the User for Usage (client op: managePaymentLifecycle)",
+          "description": "Black-box exercise of the billingManager close-period surface. Proves a period closes into exactly one priced service invoice; breaks it with a duplicate close (idempotency / no double charge) and a gateway decline (retry path, no phantom revenue). NOTE: the billingManager contract ops carry no typed params; step inputs are grounded in the uc5 dynamic-view signatures (closeBillingPeriod(customerId, periodId), etc.).",
+          "cases": [
+            {
+              "id": "STP-UC5-H1",
+              "kind": "happy",
+              "title": "Close a billing period -\u003e price usage -\u003e charge once",
+              "proves": "Closing a period reads the range, prices usage, and charges the user exactly once (mirrors uc5: closeBillingPeriod -\u003e readRange -\u003e PriceUsage -\u003e chargeUser -\u003e recordServiceInvoice).",
+              "expectedOutcome": "Exactly one service invoice is recorded for (customer, period); chargeUser is called once with the priced amount under a manager-derived Stripe Idempotency-Key.",
+              "steps": [
+                {
+                  "seq": 1,
+                  "component": "billingManager",
+                  "operation": "closeBillingPeriod",
+                  "status": "",
+                  "inputs": [
+                    {
+                      "name": "customerId",
+                      "value": "cust-88",
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "periodId",
+                      "value": "2026-06",
+                      "schemaRef": ""
+                    }
+                  ],
+                  "expect": {
+                    "result": "",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  },
+                  "assertion": "One serviceInvoice is recorded for cust-88/2026-06; usageAccess.ReadRange, billingEngine.PriceUsage, and one billingGatewayAccess.chargeUser occur; no error."
+                }
+              ]
+            },
+            {
+              "id": "STP-UC5-N1",
+              "kind": "negative",
+              "title": "Duplicate closeBillingPeriod for the same period does not double-charge",
+              "proves": "The load-bearing money-safety invariant: replaying closeBillingPeriod for the same (customer, period) must not create a second invoice or a second Stripe charge (same Idempotency-Key).",
+              "expectedOutcome": "The second close is a no-op with respect to money: invoice count stays 1 and chargeUser is not called a second time.",
+              "steps": [
+                {
+                  "seq": 1,
+                  "component": "billingManager",
+                  "operation": "closeBillingPeriod",
+                  "status": "",
+                  "inputs": [
+                    {
+                      "name": "customerId",
+                      "value": "cust-88",
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "periodId",
+                      "value": "2026-06",
+                      "schemaRef": ""
+                    }
+                  ],
+                  "expect": {
+                    "result": "",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  },
+                  "assertion": "First close records invoice #1 and charges once."
+                },
+                {
+                  "seq": 2,
+                  "component": "billingManager",
+                  "operation": "closeBillingPeriod",
+                  "status": "",
+                  "inputs": [
+                    {
+                      "name": "customerId",
+                      "value": "cust-88",
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "periodId",
+                      "value": "2026-06",
+                      "schemaRef": ""
+                    }
+                  ],
+                  "expect": {
+                    "result": "",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  },
+                  "assertion": "Replay for the same period: still exactly one invoice; chargeUser NOT re-invoked (Stripe Idempotency-Key dedupes). No double charge."
+                }
+              ]
+            },
+            {
+              "id": "STP-UC5-N2",
+              "kind": "negative",
+              "title": "Gateway decline leaves the invoice open and drives the retry sweep - no phantom revenue",
+              "proves": "A declined charge must surface as a failure and leave the invoice open (feeding the delinquency path), never record revenue that was not collected.",
+              "expectedOutcome": "chargeUser declines; no serviceInvoice is marked paid; runBillingRetrySweep re-attempts the open invoice without duplicating it.",
+              "steps": [
+                {
+                  "seq": 1,
+                  "component": "billingManager",
+                  "operation": "closeBillingPeriod",
+                  "status": "",
+                  "inputs": [
+                    {
+                      "name": "customerId",
+                      "value": "cust-declined-99",
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "periodId",
+                      "value": "2026-06",
+                      "schemaRef": ""
+                    }
+                  ],
+                  "expect": {
+                    "result": "",
+                    "errorExpected": true,
+                    "errorCode": "GatewayDeclined"
+                  },
+                  "assertion": "billingGatewayAccess.chargeUser returns card_declined; the invoice is recorded as open/unpaid, revenue is NOT recorded."
+                },
+                {
+                  "seq": 2,
+                  "component": "billingManager",
+                  "operation": "runBillingRetrySweep",
+                  "status": "",
+                  "inputs": [],
+                  "expect": {
+                    "result": "",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  },
+                  "assertion": "The retry sweep re-attempts the single open invoice for cust-declined-99; it does not create a second invoice and it feeds ApplyDelinquencyPolicy if it keeps failing."
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "status": ""
+    }
+  },
   "version": 565,
   "phase": 2,
   "owner": "dev-architect",
@@ -841,7 +2200,8 @@
           {
             "activity": "N-STP",
             "dependsOn": [
-              "N-REQ"
+              "N-REQ",
+              "C-CW"
             ]
           },
           {
@@ -15371,6 +16731,46 @@
         "Version": {
           "type": "integer"
         },
+        "TestArgView": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "value": {
+              "type": "string"
+            },
+            "schemaRef": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "value",
+            "schemaRef"
+          ],
+          "additionalProperties": false
+        },
+        "TestExpectView": {
+          "type": "object",
+          "properties": {
+            "result": {
+              "type": "string"
+            },
+            "errorExpected": {
+              "type": "boolean"
+            },
+            "errorCode": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "result",
+            "errorExpected",
+            "errorCode"
+          ],
+          "additionalProperties": false
+        },
         "TestStepView": {
           "type": "object",
           "properties": {
@@ -15383,10 +16783,22 @@
             "operation": {
               "type": "string"
             },
-            "note": {
+            "status": {
               "type": "string"
             },
-            "status": {
+            "inputs": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/TestArgView"
+              }
+            },
+            "expect": {
+              "$ref": "#/$defs/TestExpectView"
+            },
+            "assertion": {
               "type": "string"
             }
           },
@@ -15394,8 +16806,48 @@
             "seq",
             "component",
             "operation",
-            "note",
-            "status"
+            "status",
+            "inputs",
+            "expect",
+            "assertion"
+          ],
+          "additionalProperties": false
+        },
+        "TestCaseView": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "proves": {
+              "type": "string"
+            },
+            "expectedOutcome": {
+              "type": "string"
+            },
+            "steps": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/TestStepView"
+              }
+            }
+          },
+          "required": [
+            "id",
+            "kind",
+            "title",
+            "proves",
+            "expectedOutcome",
+            "steps"
           ],
           "additionalProperties": false
         },
@@ -15411,13 +16863,13 @@
             "title": {
               "type": "string"
             },
-            "steps": {
+            "cases": {
               "type": [
                 "null",
                 "array"
               ],
               "items": {
-                "$ref": "#/$defs/TestStepView"
+                "$ref": "#/$defs/TestCaseView"
               }
             },
             "description": {
@@ -15429,7 +16881,7 @@
             "useCase",
             "title",
             "description",
-            "steps"
+            "cases"
           ],
           "additionalProperties": false
         },

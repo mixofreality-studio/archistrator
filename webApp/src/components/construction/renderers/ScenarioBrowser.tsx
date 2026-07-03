@@ -1,4 +1,4 @@
-import { type ReactNode, useMemo, useState } from 'react';
+import { type ReactNode, useState } from 'react';
 import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
 import Typography from '@mui/material/Typography';
@@ -6,25 +6,33 @@ import FormControl from '@mui/material/FormControl';
 import Select from '@mui/material/Select';
 import MenuItem from '@mui/material/MenuItem';
 import { UI_IDENTIFIERS } from '../../../constants/UIIdentifiers';
-import type { TestScenarioView } from '../../../api/types';
+import type { TestCaseView, TestScenarioView } from '../../../api/types';
 import type { C4Component, DynamicViewModel, SequencedRelationship } from '../../../api/adapters';
 import type { Tokens } from '../../../theme/themes';
-import { DynamicViewFlow, type StepStatus } from '../../flow/DynamicViewFlow';
+import { DynamicViewFlow, type StepDetail, type StepStatus } from '../../flow/DynamicViewFlow';
 
 /** 'plan' (N-STP) → every call is a red target; 'run' (N-IT) → coloured by last-run status. */
 export type ScenarioMode = 'plan' | 'run';
 
+/** Case-kind accent: happy=green, negative=red, boundary=amber. */
+function kindColor(kind: string, t: Tokens): string {
+  if (kind === 'happy') return t.committedDot;
+  if (kind === 'negative') return t.dangerFg;
+  return t.awaitingFg; // boundary
+}
+
 /**
- * Maps a black-box test scenario onto the shared layered step-through model: a Test
- * harness (client) drives every call down to the target manager components (the
- * managers never call each other). At plan time every call is a red target; at run
- * time each is tinted green (passing) or red (still failing) by its last-run status.
+ * Maps one test CASE onto the shared layered step-through model: a Test harness
+ * (client) drives every call down to the target manager components (managers never
+ * call each other). Carries each call's concrete inputs/expected as step detail, and
+ * a per-call status colour (plan = red target; run = green/red by last-run status).
  */
-function scenarioToDynamic(s: TestScenarioView, mode: ScenarioMode): {
+function caseToDynamic(c: TestCaseView, mode: ScenarioMode): {
   dv: DynamicViewModel;
   statusBySeq: Map<number, StepStatus>;
+  detailBySeq: Map<number, StepDetail>;
 } {
-  const steps = s.steps ?? [];
+  const steps = c.steps ?? [];
   const participants: C4Component[] = [
     { id: 'test-harness', name: 'Test harness', kind: 'client', layer: 'client', encapsulates: '' },
   ];
@@ -45,14 +53,26 @@ function scenarioToDynamic(s: TestScenarioView, mode: ScenarioMode): {
   const statusBySeq = new Map<number, StepStatus>(
     steps.map((st) => [st.seq, mode === 'run' && st.status === 'green' ? 'green' : 'red'])
   );
-  return { dv: { title: s.title, participants, edges }, statusBySeq };
+  const detailBySeq = new Map<number, StepDetail>(
+    steps.map((st) => [
+      st.seq,
+      {
+        inputs: (st.inputs ?? []).map((a) => ({ name: a.name, value: a.value })),
+        ...(st.expect.result !== undefined ? { result: st.expect.result } : {}),
+        errorExpected: st.expect.errorExpected,
+        ...(st.expect.errorCode !== undefined ? { errorCode: st.expect.errorCode } : {}),
+        ...(st.assertion !== undefined ? { assertion: st.assertion } : {}),
+      },
+    ])
+  );
+  return { dv: { title: c.title, participants, edges }, statusBySeq, detailBySeq };
 }
 
 /**
- * Scenario selector + single-scenario view — mirrors the service-contract
- * dynamic-view selector (chips pick one; only that one renders, no long scroll).
- * Shows the selected scenario's "what/why" summary and its call sequence as the
- * shared layered step-through (Test harness → target managers, one call at a time).
+ * Scenario + case browser for the System Test Plan: pick a scenario (a core use
+ * case), then a case (happy / negative / boundary). The selected case renders as the
+ * shared layered step-through, with each call's concrete inputs → expected surfaced
+ * in the step caption. Mirrors the architecture dynamic-view selector.
  */
 export function ScenarioBrowser({
   scenarios,
@@ -66,9 +86,12 @@ export function ScenarioBrowser({
   statusChip?: (s: TestScenarioView) => ReactNode;
 }): ReactNode {
   const [selectedId, setSelectedId] = useState<string>('');
+  const [selectedCaseId, setSelectedCaseId] = useState<string>('');
   const activeId = scenarios.some((s) => s.id === selectedId) ? selectedId : (scenarios[0]?.id ?? '');
   const active = scenarios.find((s) => s.id === activeId);
-  const seq = useMemo(() => (active !== undefined ? scenarioToDynamic(active, mode) : null), [active, mode]);
+  const cases = active?.cases ?? [];
+  const activeCase = cases.find((c) => c.id === selectedCaseId) ?? cases[0];
+  const seq = activeCase !== undefined ? caseToDynamic(activeCase, mode) : null;
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, minWidth: 0 }}>
@@ -82,7 +105,7 @@ export function ScenarioBrowser({
             data-testid={UI_IDENTIFIERS.Construction.SCENARIO_PICKER}
             sx={{ fontFamily: t.mono, fontSize: 13 }}
             value={activeId}
-            onChange={(e) => { setSelectedId(e.target.value); }}
+            onChange={(e) => { setSelectedId(e.target.value); setSelectedCaseId(''); }}
           >
             {scenarios.map((s) => (
               <MenuItem key={s.id} sx={{ fontFamily: t.mono, fontSize: 13 }} value={s.id}>
@@ -93,7 +116,7 @@ export function ScenarioBrowser({
         </FormControl>
       </Box>
 
-      {active !== undefined && seq !== null ? (
+      {active !== undefined ? (
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
             <Chip
@@ -117,7 +140,66 @@ export function ScenarioBrowser({
               </Typography>
             </Box>
           ) : null}
-          <DynamicViewFlow dv={seq.dv} height={440} resetKey={active.id} statusBySeq={seq.statusBySeq} />
+
+          {/* case selector — pick happy / negative / boundary */}
+          {cases.length > 0 ? (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap', mt: 0.25 }}>
+              <Typography sx={{ fontFamily: t.mono, fontSize: 10, letterSpacing: '0.08em', color: t.muted, mr: 0.25 }}>
+                CASE
+              </Typography>
+              {cases.map((c) => {
+                const on = c.id === activeCase?.id;
+                const col = kindColor(c.kind, t);
+                return (
+                  <Chip
+                    key={c.id}
+                    label={`${c.kind} · ${c.title}`}
+                    size="small"
+                    sx={{
+                      maxWidth: 340,
+                      fontFamily: t.mono,
+                      fontSize: 10,
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      bgcolor: on ? col : t.paperAlt,
+                      color: on ? t.paper : t.ink,
+                      border: `1.5px solid ${col}`,
+                    }}
+                    onClick={() => { setSelectedCaseId(c.id); }}
+                  />
+                );
+              })}
+            </Box>
+          ) : null}
+
+          {/* case-level "what this proves / expected outcome" */}
+          {activeCase !== undefined ? (
+            <Box sx={{ borderLeft: `3px solid ${kindColor(activeCase.kind, t)}`, pl: 1.25, py: 0.25 }}>
+              {activeCase.proves !== undefined && activeCase.proves.length > 0 ? (
+                <Typography sx={{ fontFamily: t.body, fontSize: 12, color: t.ink, lineHeight: 1.5 }}>
+                  {activeCase.proves}
+                </Typography>
+              ) : null}
+              {activeCase.expectedOutcome !== undefined && activeCase.expectedOutcome.length > 0 ? (
+                <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted, mt: 0.35 }}>
+                  <Box component="span" sx={{ color: kindColor(activeCase.kind, t), fontWeight: 700 }}>
+                    EXPECT{' '}
+                  </Box>
+                  {activeCase.expectedOutcome}
+                </Typography>
+              ) : null}
+            </Box>
+          ) : null}
+
+          {seq !== null && activeCase !== undefined ? (
+            <DynamicViewFlow
+              detailBySeq={seq.detailBySeq}
+              dv={seq.dv}
+              height={440}
+              resetKey={`${activeId}::${activeCase.id}`}
+              statusBySeq={seq.statusBySeq}
+            />
+          ) : null}
         </Box>
       ) : null}
     </Box>

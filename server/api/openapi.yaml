@@ -1628,6 +1628,61 @@ components:
             required:
                 - scenarios
             type: object
+        SystemDesignTestArgView:
+            additionalProperties: false
+            properties:
+                name:
+                    type: string
+                schemaRef:
+                    type: string
+                value:
+                    type: string
+            required:
+                - name
+                - value
+                - schemaRef
+            type: object
+        SystemDesignTestCaseView:
+            additionalProperties: false
+            properties:
+                expectedOutcome:
+                    type: string
+                id:
+                    type: string
+                kind:
+                    type: string
+                proves:
+                    type: string
+                steps:
+                    items:
+                        $ref: '#/components/schemas/SystemDesignTestStepView'
+                    type:
+                        - "null"
+                        - array
+                title:
+                    type: string
+            required:
+                - id
+                - kind
+                - title
+                - proves
+                - expectedOutcome
+                - steps
+            type: object
+        SystemDesignTestExpectView:
+            additionalProperties: false
+            properties:
+                errorCode:
+                    type: string
+                errorExpected:
+                    type: boolean
+                result:
+                    type: string
+            required:
+                - result
+                - errorExpected
+                - errorCode
+            type: object
         SystemDesignTestRunView:
             additionalProperties: false
             properties:
@@ -1648,16 +1703,16 @@ components:
         SystemDesignTestScenarioView:
             additionalProperties: false
             properties:
+                cases:
+                    items:
+                        $ref: '#/components/schemas/SystemDesignTestCaseView'
+                    type:
+                        - "null"
+                        - array
                 description:
                     type: string
                 id:
                     type: string
-                steps:
-                    items:
-                        $ref: '#/components/schemas/SystemDesignTestStepView'
-                    type:
-                        - "null"
-                        - array
                 title:
                     type: string
                 useCase:
@@ -1667,15 +1722,23 @@ components:
                 - useCase
                 - title
                 - description
-                - steps
+                - cases
             type: object
         SystemDesignTestStepView:
             additionalProperties: false
             properties:
+                assertion:
+                    type: string
                 component:
                     type: string
-                note:
-                    type: string
+                expect:
+                    $ref: '#/components/schemas/SystemDesignTestExpectView'
+                inputs:
+                    items:
+                        $ref: '#/components/schemas/SystemDesignTestArgView'
+                    type:
+                        - "null"
+                        - array
                 operation:
                     type: string
                 seq:
@@ -1686,8 +1749,10 @@ components:
                 - seq
                 - component
                 - operation
-                - note
                 - status
+                - inputs
+                - expect
+                - assertion
             type: object
         SystemDesignTestingStateView:
             additionalProperties: false
