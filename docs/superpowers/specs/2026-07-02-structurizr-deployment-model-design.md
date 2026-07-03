@@ -9,6 +9,31 @@
 > the referential validation must live in the **platform** tooling that already
 > exists (`methodcheck`), wired so archistrator's own project is checked.
 
+> **Amendment (round 3 — Resources are deployment infrastructure).** Resources
+> are deployed *separately* from the server code and are discovered at
+> deployment/operational time (the same logical DB is a CNPG cluster in cloud, a
+> sqlite/postgres docker container locally — the difference lives in the
+> deployment diagram, per profile). Consequences: (1) container **coverage
+> requires only the code components** — Client / Manager / Engine / ResourceAccess
+> (ResourceAccess is the server-side code that encapsulates resource interaction);
+> **Resource is exempt**. (2) Resources render as **self-describing
+> `infrastructureNode`s** per environment (no component references), and may
+> differ across cloud/local. (3) `archistrator-postgres` is an **infrastructure
+> node, not a container** — this SUPERSEDES the round-2 "postgres as a container
+> packaging the Resource components" note. (4) Resource components **stay in the
+> static System model for now**; removing them from the static architecture is a
+> deferred, separate change (founder decision: deployment-only fix now).
+>
+> Refinement: Resources **do belong in the static model**, but as **abstract**
+> elements (e.g. "Billing Database", not "Postgres CNPG" vs "Postgres docker").
+> The concrete realization is a **deployment, per-profile** detail carried by the
+> `infrastructureNode`'s technology (cloud → CloudNativePG; local → sqlite/postgres
+> docker). So the static Resource is the stable abstraction; the deployment diagram
+> supplies the profile-specific technology. Renaming the current concrete-ish
+> Resource names to abstractions is part of the deferred static cleanup, not this
+> task. This task keeps the existing Resource names and models each profile's
+> realization as an `infrastructureNode`.
+
 Reshape the stored deployment topology (`OperationalConcepts.deployment` in
 `project.json`) to mirror Structurizr's deployment metamodel, wire the existing
 platform **`methodcheck`** validation to run against archistrator's own project,
