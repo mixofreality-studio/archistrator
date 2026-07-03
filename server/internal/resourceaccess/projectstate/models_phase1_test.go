@@ -12,7 +12,7 @@ import (
 // the Layer/ComponentKind/CallMode convention via enumjson.go) and round-trips
 // losslessly through json.Marshal/json.Unmarshal.
 func TestDeploymentTopology_JSONRoundTrip(t *testing.T) {
-	compID := Slug("ProjectStateAccess")
+	containerKey := "project-state-access"
 
 	original := &OperationalConcepts{
 		Decisions: []OperationalDecision{
@@ -20,6 +20,9 @@ func TestDeploymentTopology_JSONRoundTrip(t *testing.T) {
 		},
 		Deployment: DeploymentTopology{
 			DeliveryStyle: StyleBoth,
+			Containers: []DeployContainer{
+				{Key: containerKey, Name: "server", Technology: "Go", Description: "the application server", Components: []string{"ProjectStateAccess"}},
+			},
 			Environments: []DeploymentEnvironment{
 				{
 					Profile: ProfileCloud,
@@ -32,8 +35,8 @@ func TestDeploymentTopology_JSONRoundTrip(t *testing.T) {
 								{
 									Name:       "archistrator-ns",
 									Technology: "Namespace",
-									Instances: []ContainerInstance{
-										{ComponentID: compID, Note: "server pod"},
+									ContainerInstances: []ContainerInstance{
+										{ContainerKey: containerKey, Note: "server pod"},
 									},
 								},
 							},
@@ -62,7 +65,7 @@ func TestDeploymentTopology_JSONRoundTrip(t *testing.T) {
 		`"deliveryStyle":"both"`,
 		`"profile":"cloud"`,
 		`"profile":"test"`,
-		`"componentId":"` + compID + `"`,
+		`"containerKey":"` + containerKey + `"`,
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("marshalled JSON missing %s\nfull: %s", want, js)

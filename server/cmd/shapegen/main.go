@@ -237,39 +237,20 @@ func buildExampleProject() projectstate.Project {
 		},
 		Deployment: projectstate.DeploymentTopology{
 			DeliveryStyle: projectstate.StyleCloud,
+			Containers: []projectstate.DeployContainer{
+				{Key: "server", Name: "server", Technology: "Go", Description: "the application server", Components: []string{"System Design Manager"}},
+			},
 			Environments: []projectstate.DeploymentEnvironment{
-				{
-					Profile: projectstate.ProfileCloud,
-					Title:   "Cloud",
-					Nodes: []projectstate.DeploymentNode{
-						{
-							Name:       "Kubernetes cluster",
-							Technology: "k8s",
-							Children: []projectstate.DeploymentNode{
-								{
-									Name:       "archistrator namespace",
-									Technology: "k8s-namespace",
-									Instances: []projectstate.ContainerInstance{
-										{ComponentID: "system-design-manager", Note: "Ktor server pod"},
-									},
-								},
-							},
-						},
-					},
-				},
-				{
-					Profile: projectstate.ProfileTest,
-					Title:   "Test",
-					Nodes: []projectstate.DeploymentNode{
-						{
-							Name:       "test process",
-							Technology: "in-process",
-							Instances: []projectstate.ContainerInstance{
-								{ComponentID: "system-design-manager", Note: "embedded test server"},
-							},
-						},
-					},
-				},
+				{Profile: projectstate.ProfileCloud, Title: "Cloud", Nodes: []projectstate.DeploymentNode{
+					{Name: "Kubernetes cluster", Technology: "k8s", Children: []projectstate.DeploymentNode{
+						{Name: "app namespace", Technology: "k8s-namespace", Instances: 2,
+							ContainerInstances: []projectstate.ContainerInstance{{ContainerKey: "server", Note: "app pod"}}},
+					}},
+				}},
+				{Profile: projectstate.ProfileTest, Title: "Test", Nodes: []projectstate.DeploymentNode{
+					{Name: "test process", Technology: "in-process",
+						ContainerInstances: []projectstate.ContainerInstance{{ContainerKey: "server", Note: "embedded test server"}}},
+				}},
 			},
 		},
 	}

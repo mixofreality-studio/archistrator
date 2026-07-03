@@ -43,7 +43,7 @@ type OwnerScope string
 // server assigns ComponentID = Slug(Component.Name) in the LLM-draft finalize
 // pass (systemdesign.finalize*); the LLM never emits an id. Cross-references
 // (Relationship.From/To, DynamicView.Participants/UseCaseID,
-// ContainerInstance.ComponentID) carry this same slug. It is a plain string
+// DeployContainer.Components) carry this same slug. It is a plain string
 // alias — validators use it as an opaque map key and format it directly; the
 // persisted/served `id` field and the webApp JSONPath anchors ($.components[id=…])
 // are unchanged in SHAPE (still a string `id`), only the VALUE moved from a uuid

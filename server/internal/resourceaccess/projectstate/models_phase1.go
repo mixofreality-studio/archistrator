@@ -175,20 +175,51 @@ const (
 	ProfileTest
 )
 
-// ContainerInstance places a System Component into a deployment node.
-// ComponentID must reference a real System Component (cross-referenced by the
-// artifactValidationEngine's DEP-INSTANCE-EXIST predicate, not here).
+// DeployContainer is a deployable unit (C4 Container) packaging System Components by name.
+type DeployContainer struct {
+	Key         string   `json:"key"`
+	Name        string   `json:"name"`
+	Technology  string   `json:"technology"`
+	Description string   `json:"description"`
+	Components  []string `json:"components"` // System Component NAMES
+}
+
+// ContainerInstance instances a declared DeployContainer inside a node.
 type ContainerInstance struct {
-	ComponentID ComponentID `json:"componentId"` // must reference a System Component
-	Note        string      `json:"note"`        // per-profile instance note (optional)
+	ContainerKey string   `json:"containerKey"`
+	Note         string   `json:"note"`
+	Tags         []string `json:"tags"`
+}
+
+// InfrastructureNode is a C4 deployment infrastructure node (e.g. a load balancer,
+// firewall, or managed service) that does not itself host a DeployContainer.
+type InfrastructureNode struct {
+	Name        string   `json:"name"`
+	Technology  string   `json:"technology"`
+	Description string   `json:"description"`
+	Tags        []string `json:"tags"`
+}
+
+// SoftwareSystemInstance is a C4 external software system instance placed inside a
+// deployment node (e.g. a third-party SaaS dependency).
+type SoftwareSystemInstance struct {
+	Name        string   `json:"name"`
+	Technology  string   `json:"technology"`
+	Description string   `json:"description"`
+	Tags        []string `json:"tags"`
 }
 
 // DeploymentNode is nestable: cluster → namespace → instance.
 type DeploymentNode struct {
-	Name       string              `json:"name"`
-	Technology string              `json:"technology"`
-	Children   []DeploymentNode    `json:"children"`
-	Instances  []ContainerInstance `json:"instances"`
+	Name                    string                   `json:"name"`
+	Technology              string                   `json:"technology"`
+	Description             string                   `json:"description"`
+	Instances               int                      `json:"instances"`
+	Tags                    []string                 `json:"tags"`
+	Children                []DeploymentNode         `json:"children"`
+	InfrastructureNodes     []InfrastructureNode     `json:"infrastructureNodes"`
+	ContainerInstances      []ContainerInstance      `json:"containerInstances"`
+	SoftwareSystemInstances []SoftwareSystemInstance `json:"softwareSystemInstances"`
 }
 
 // DeploymentEnvironment is the set of nodes for one DeploymentProfile.
@@ -204,6 +235,7 @@ type DeploymentEnvironment struct {
 // artifactValidationEngine's DEP-* predicates, not here.
 type DeploymentTopology struct {
 	DeliveryStyle DeliveryStyle           `json:"deliveryStyle"`
+	Containers    []DeployContainer       `json:"containers"`
 	Environments  []DeploymentEnvironment `json:"environments"`
 }
 
