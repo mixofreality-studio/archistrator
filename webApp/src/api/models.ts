@@ -196,16 +196,44 @@ export type DeliveryStyle = 'cloud' | 'local' | 'both';
 /** projectstate.DeploymentProfile. */
 export type DeploymentProfile = 'cloud' | 'local' | 'test';
 
+export interface DeployContainer {
+  key: string;
+  name: string;
+  technology: string;
+  description: string;
+  components: string[] | null;
+}
+
 export interface ContainerInstance {
-  componentId: string;
+  containerKey: string;
   note: string;
+  tags?: string[] | null;
+}
+
+export interface InfrastructureNode {
+  name: string;
+  technology: string;
+  description: string;
+  tags?: string[] | null;
+}
+
+export interface SoftwareSystemInstance {
+  name: string;
+  technology: string;
+  description: string;
+  tags?: string[] | null;
 }
 
 export interface DeploymentNode {
   name: string;
   technology: string;
+  description: string;
+  instances: number;
+  tags?: string[] | null;
   children: DeploymentNode[] | null;
-  instances: ContainerInstance[] | null;
+  infrastructureNodes: InfrastructureNode[] | null;
+  containerInstances: ContainerInstance[] | null;
+  softwareSystemInstances: SoftwareSystemInstance[] | null;
 }
 
 export interface DeploymentEnvironment {
@@ -216,6 +244,7 @@ export interface DeploymentEnvironment {
 
 export interface DeploymentTopology {
   deliveryStyle: DeliveryStyle;
+  containers: DeployContainer[] | null;
   environments: DeploymentEnvironment[] | null;
 }
 
