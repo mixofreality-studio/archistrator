@@ -115,8 +115,7 @@ The designer is dispatched first; the reviewer is dispatched on completion. Outp
 Dispatch the implementer (`junior-developer` by default; `senior-developer` if the activity carries a `role: senior-developer` override):
 
 > Implement `<next.component>` against its service contract in
-> `.aiarch/state/project.json` → `.serviceContracts["<next.component>"]`
-> (in a CI run, pre-extracted to `service-contract.json` at the repo root).
+> `.aiarch/state/project.json` → `.serviceContracts["<next.component>"]`.
 > Activity: `<next.id> — <next.name>`. Duration estimate:
 > `<next.duration_days>` days. Component package:
 > `server/internal/<layer>/<pkg>/`.

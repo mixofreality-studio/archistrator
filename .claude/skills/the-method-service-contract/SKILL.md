@@ -43,7 +43,7 @@ The contract is a **typed entry in `.aiarch/state/project.json` under `.serviceC
 
 The JSON shape mirrors the Go `ServiceContract` type (`server/internal/resourceaccess/projectstate/servicecontract.go`): `Component`, `Layer`, `Stereotype`, `Volatility`, `Status` (`IN-DESIGN` | `FROZEN`), `Inbound` / `Outbound` parties, `Ops` (operation signatures + their I/O structs), `DataContracts`, `ErrorModel`, `Idempotency`, `Revisions`.
 
-The `.serviceContracts` map accumulates the per-component contract corpus that drives Phase 3 construction. A construction CI run extracts one entry to `service-contract.json` at the repo root for the implementer. Repeat the skill for each component.
+The `.serviceContracts` map accumulates the per-component contract corpus that drives Phase 3 construction. A construction agent reads its component's entry directly from `.serviceContracts["<component>"]` in project state. Repeat the skill for each component.
 
 ## Procedure
 

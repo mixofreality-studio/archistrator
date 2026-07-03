@@ -25,8 +25,7 @@ Components live under `server/internal/<layer>/<pkg>/`.
 
 1. **Read context:**
    - The component's **service contract** — a typed entry in `.aiarch/state/project.json`
-     under `.serviceContracts["<component>"]`. (In a construction CI run it is pre-extracted
-     to `service-contract.json` at the repo root.) It carries the component's `Layer`, `Ops`
+     under `.serviceContracts["<component>"]`. It carries the component's `Layer`, `Ops`
      (operation signatures + I/O structs), `Inbound`/`Outbound` parties, `DataContracts`,
      `ErrorModel`, and `Idempotency`. There is no `designs/*.md` contract file — the contract
      *is* the JSON; any markdown is a render-on-read.
@@ -82,7 +81,6 @@ Components live under `server/internal/<layer>/<pkg>/`.
 
 ```pseudocode
 contract = read .aiarch/state/project.json .serviceContracts["<component>"]
-           (CI: read service-contract.json at the repo root)
 layer    = contract.Layer        # Manager | Engine | ResourceAccess | Resource | Utility
 pkg      = server/internal/<layer>/<pkg>/
 
