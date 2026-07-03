@@ -74,11 +74,12 @@ There is **no** `jq` / `service-contract.json` pre-extraction step. The agent lo
 Dispatch inputs reduce to:
 
 - `command` (string, required) — the slash-command name, computed by the Manager.
-- `activity_id` (string, required) — the only business identifier the agent needs; it looks up the component and everything else from `project.json`.
+- `activity_id` (string, required) — the activity the agent works; it looks up everything else it needs from `project.json`.
+- `component_id` (string, required) — a **Manager-resolved passthrough**. The Manager already computes it via `resolveComponentID(item.Title, produced, proj.ServiceContracts)` (`adapters.go:99`, a heuristic title/artifact→contract-key match). Re-deriving it agent-side would duplicate fragile Go logic, so the resolved id is handed over. It may be empty for non-component activities (some testing/deployment/docs).
 - `phase` (string, required) — retained for the Manager's gate/status bookkeeping.
 - `idempotency_token` (string, required) — unchanged RA dedup anchor.
 
-`component_id` is **removed** as an input (the agent derives it from the activity).
+Only the `jq` *contract-extraction* step is removed; `component_id` stays. The agent reads the contract itself from `.serviceContracts[component_id]` and traverses all other slots directly.
 
 ### 2. Command name computed in Go, passed as a dispatch input
 
@@ -148,7 +149,7 @@ Clean split, resolving the prior ambiguity about "how writes happen":
 
 ### 6. Review gate
 
-Unchanged mechanism — reuse `runPhaseGate` (`workflow.go:539`), wired to consult `ReviewPolicy` per `(type, phase)`. Some phases auto-pass; some block for a human. Because each lifecycle step is its own dispatch committing to the shared PR, a required human review lands **between two commits on one PR**, exactly matching the requirement that a human may be required between any two lifecycle steps. If `runPhaseGate` is currently a stub, wiring it to `ReviewPolicy` is in scope; the gate's position in the loop is not changed.
+**Already implemented — no work in this plan.** `runPhaseGate` (`workflow.go:539-547`) is live: it records the phase start and, *iff* the `ReviewPolicy` requires a human for this `(activityType, phase)`, suspends on a phase-multiplexed decision signal before the next phase dispatches. The policy plumbing exists end-to-end — `ReviewPolicy`, `GatedPhasesByType`, `ReviewPolicyFromGateIDs`, and `UpdateReviewPolicy` (op 2.7). Because each lifecycle step is its own dispatch committing to the shared PR, a required human review already lands **between two commits on one PR**, exactly matching the requirement. This plan changes only what each phase's job *runs*, not the gate around it.
 
 ## Invariants & tests
 
@@ -171,10 +172,10 @@ Unchanged mechanism — reuse `runPhaseGate` (`workflow.go:539`), wired to consu
 ## Summary of changes
 
 1. New `CommandFor(type, variant, phase)` in `projectstate` (+ tests for totality and command-file existence).
-2. `adapters.go dispatchInputsFor`: add `command`, drop `component_id`.
+2. `adapters.go dispatchInputsFor`: add `command` (keep `component_id` as passthrough).
 3. `config.go:168`: default → `aiarch-construct.yml`; update `config_test.go`.
-4. `aiarch-construct.yml`: single generic step running `/${{ inputs.command }} ${{ inputs.activity_id }}`; new input set; no `jq`.
+4. `aiarch-construct.yml`: single generic step running `/${{ inputs.command }} ${{ inputs.component_id }} ${{ inputs.activity_id }}`; remove the `jq` extraction step; delete `.claude/commands/construct.md` (superseded).
 5. Delete `aiarch-phase.yml`.
-6. ~30 command files under `.claude/commands/`.
+6. 30 command files under `.claude/commands/`, authored with the research-grounded methodology.
 7. New `the-method-project-state` skill; commands reference it; ad-hoc state instructions removed from other command/agent files.
-8. Verify/​wire `runPhaseGate` → `ReviewPolicy`.
+8. Review gate: already implemented (`runPhaseGate` + `ReviewPolicy`) — **no code**, verification only.
