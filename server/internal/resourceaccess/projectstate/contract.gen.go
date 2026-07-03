@@ -203,6 +203,7 @@ type Component struct {
 	Layer               Layer         `json:"layer"`
 	Encapsulates        string        `json:"encapsulates"`
 	AtomicBusinessVerbs []string      `json:"atomicBusinessVerbs"`
+	BuildStatus         *string       `json:"buildStatus,omitempty"`
 }
 
 type ComponentKind int

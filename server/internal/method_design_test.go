@@ -22,47 +22,43 @@ import (
 // (TestGeneratedOnlyPublic) already run in the DEFAULT `go test ./...` suite via
 // arch_test.go, so CI already covers them.
 //
-// SCOPE — the design↔code ALIGNMENT pass (ALIGN-*) is DELIBERATELY NOT wired here
-// yet (Arch is left zero, so methodcheck.Check skips the layer/alignment/encapsulation
-// phases). Turning it on against the current committed System (slot 5, 38 components)
-// surfaces 53 alignment Errors that are NOT per-component bugs but a systemic
-// mismatch requiring an architecture/framework decision, in three buckets:
+// SCOPE — the design↔code ALIGNMENT + conformance passes are NOW WIRED (framework-go
+// v0.4.1). Three mechanisms shipped that closed the previously-open buckets:
 //
-//  1. STEREOTYPE-SUFFIX NAMING (~19): the design names components with the Method
-//     stereotype suffix (WebClient, ReviewEngine, ProjectStateAccess) while the
-//     code names package leaves bare (client/web, engine/review,
-//     resourceaccess/projectstate). methodcheck's default normalizer (lowercase +
-//     strip non-alnum) does NOT strip the suffix, so "projectstateaccess" !=
-//     "projectstate". The framework's own convention (testdata/alignapp) names
-//     leaves WITH the suffix (stateaccess, validatingengine).
-//  2. NAME DIVERGENCE (~a dozen): design vs code disagree beyond the suffix —
-//     BillingManager↔manager/settlement, ConstructionEstimationEngine↔engine/
-//     estimation, BillingGatewayAccess↔resourceaccess/merchantgateway,
-//     UsageAccess↔resourceaccess/usage, plus extra code packages the design
-//     does not declare (engine/settlement, resourceaccess/{artifact,revenueledger,
-//     settlementstate,worker}).
-//  3. NOT-YET-BUILT (5): MCPClient, SchedulerClient, and the three Utilities
-//     (Security/Logging/Diagnostics — provided by framework-go/utilities, not the
-//     app's internal/) have no internal package. The align rule has NO documented
-//     "planned/not-yet-built" mechanism (it excludes only Kind==Resource), so each
-//     is reported ALIGN-MISSING-PKG.
+//  1. StereotypeSuffixNormalizer (NameNormalizer) strips ONE trailing Method
+//     stereotype suffix so the design's stereotyped names (WebClient, ReviewEngine,
+//     ProjectStateAccess) match the bare code leaves (client/web, engine/review,
+//     resourceaccess/projectstate).
+//  2. Layer-scoped matching (compKey = name+layer) keeps same-named leaves in
+//     different layers distinct — manager/settlement vs engine/settlement no longer
+//     collide once both normalize to "settlement".
+//  3. Component.buildStatus (planned/external) gives the align rule its
+//     not-yet-built mechanism: MCPClient/SchedulerClient/WorkItemAccess are
+//     buildStatus=planned (skip missing-pkg; ALIGN-STALE-PLANNED only once code
+//     lands) and the three Utilities (Security/Logging/Diagnostics) are
+//     buildStatus=external (framework-provided; ALIGN-EXTERNAL-* provenance).
 //
-// Flipping the full gate on is a ONE-LINE change here (add Arch: appArchSpec() and
-// EncapsulationAllowlist: encapAllowlist(), both already defined in arch_test.go)
-// once the naming reconciliation + a not-yet-built mechanism are decided. Until
-// then this gate guards the design rules and stays green.
+// The architect's naming reconciliation (usagelog rename, billing removed from the
+// System) plus the buildStatus markers make this gate GREEN: zero alignment Errors.
 //
 // Build-tagged OUT of the default run: CI can invoke it explicitly via
 // `go test -tags methoddesign ./internal/ -run TestMethodDesignArtifacts` against
-// the PUBLISHED framework-go v0.4.0.
+// the PUBLISHED framework-go v0.4.1.
 func TestMethodDesignArtifacts(t *testing.T) {
 	root := findRepoRoot(t)
 	methodcheck.Check(t, methodcheck.ProjectSpec{
 		RepoRoot: root,
-		// Arch intentionally omitted — see SCOPE above. Adding
-		//   Arch:                   appArchSpec(),
-		//   EncapsulationAllowlist: encapAllowlist(),
-		// turns on the full layer + encapsulation + alignment gate.
+		// FULL gate: design rules + layer rules + the design↔code ALIGNMENT +
+		// conformance passes. Arch + EncapsulationAllowlist are the same helpers
+		// arch_test.go passes to arch.Check / arch.CheckGeneratedSurface.
+		Arch:                   appArchSpec(),
+		EncapsulationAllowlist: encapAllowlist(),
+		// StereotypeSuffixNormalizer strips one trailing Method stereotype suffix
+		// (access|engine|manager|client) so the design's stereotyped component
+		// names (ProjectStateAccess, ReviewEngine) match the bare package leaves
+		// (projectstate, review); layer-scoped compKey keeps same-named leaves in
+		// different layers distinct. framework-go v0.4.1.
+		NameNormalizer: methodcheck.StereotypeSuffixNormalizer,
 	})
 }
 

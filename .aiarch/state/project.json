@@ -4938,7 +4938,8 @@
             "kind": "client",
             "layer": "client",
             "encapsulates": "",
-            "atomicBusinessVerbs": []
+            "atomicBusinessVerbs": [],
+            "buildStatus": "planned"
           },
           {
             "id": "system-design-manager",
@@ -5099,7 +5100,8 @@
               "openWorkItem",
               "updateWorkItem",
               "closeWorkItem"
-            ]
+            ],
+            "buildStatus": "planned"
           },
           {
             "id": "construction-pipeline-access",
@@ -5326,7 +5328,8 @@
             "kind": "utility",
             "layer": "utility",
             "encapsulates": "",
-            "atomicBusinessVerbs": []
+            "atomicBusinessVerbs": [],
+            "buildStatus": "external"
           },
           {
             "id": "logging",
@@ -5334,7 +5337,8 @@
             "kind": "utility",
             "layer": "utility",
             "encapsulates": "",
-            "atomicBusinessVerbs": []
+            "atomicBusinessVerbs": [],
+            "buildStatus": "external"
           },
           {
             "id": "diagnostics",
@@ -5342,7 +5346,8 @@
             "kind": "utility",
             "layer": "utility",
             "encapsulates": "",
-            "atomicBusinessVerbs": []
+            "atomicBusinessVerbs": [],
+            "buildStatus": "external"
           }
         ],
         "relationships": [
@@ -9002,7 +9007,7 @@
     "billingEngine": {
       "component": "billingEngine",
       "layer": "Engine",
-      "goPackage": "internal/engine/billing",
+      "goPackage": "",
       "title": "billing contract [PARKED 2026-07-03: built on main but no consuming Manager; the 2026-06-09 charge-only re-cut is deferred — settlementEngine is the live engine. Remove or revive with the billing/settlement re-plan.]",
       "$defs": {
         "CustomerID": {
@@ -14265,6 +14270,9 @@
               "items": {
                 "type": "string"
               }
+            },
+            "buildStatus": {
+              "type": "string"
             }
           },
           "required": [

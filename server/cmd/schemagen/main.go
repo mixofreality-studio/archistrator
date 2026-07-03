@@ -54,7 +54,6 @@ import (
 
 	"github.com/mixofreality-studio/archistrator/server/cmd/internal/codegen"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/autoscaler"
-	"github.com/mixofreality-studio/archistrator/server/internal/engine/billing"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/estimation"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/handoff"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
@@ -313,36 +312,6 @@ var registry = []component{
 		},
 		ifaceName: "SettlementEngine",
 		iface:     reflect.TypeOf((*settlement.SettlementEngine)(nil)).Elem(),
-	},
-	{
-		name: "billing",
-		dir:  "internal/engine/billing",
-		models: []any{
-			// Own I/O structs (the full transitive closure of BillingEngine).
-			billing.PeriodUsage{},
-			billing.ServicePricing{},
-			billing.ProjectOption{},
-			billing.ServiceInvoice{},
-			billing.HostingRate{},
-			billing.ServiceCostProjection{},
-			// Own enum + named scalars.
-			billing.ServicePricingKind(0),
-			billing.CustomerID(""),
-			billing.PeriodID(""),
-			// Domain types redefined as this component's OWN defs (Option B full
-			// encapsulation): Money struct + OptionID scalar. They MIRROR
-			// projectstate (the canonical home owned by projectStateAccess); the
-			// calling Managers convert at the call boundary. Registered as the
-			// component's own billing.* types (post-seed steady state) so nested
-			// field refs resolve and the contract regenerates identically —
-			// idempotent (a projectstate.* registration would inline Money to
-			// map[string]interface{} on re-run, because the component's own structs
-			// reference the generated-local billing.Money, a different reflect.Type).
-			billing.Money{},
-			billing.OptionID(""),
-		},
-		ifaceName: "BillingEngine",
-		iface:     reflect.TypeOf((*billing.BillingEngine)(nil)).Elem(),
 	},
 	{
 		name: "operationestimation",
