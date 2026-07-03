@@ -1,62 +1,84 @@
-# Structurizr-shaped deployment model + validation — design
+# Structurizr/C4 deployment model + validation — design
+
+> **Revised after review.** Two decisions changed the shape from the first draft:
+> (1) **Granularity = true C4**: the deployment view instances **containers**
+> (`archistrator-server`, `archistrator-webapp`, `archistrator-postgres`), **not**
+> individual Method components. (2) **Containers are declared in the deployment
+> artifact** (not a new architecture-model level), each listing the System
+> components it packages. Also: `project-manager` is a mistake → delete it; and
+> the referential validation must live in the **platform** tooling that already
+> exists (`methodcheck`), wired so archistrator's own project is checked.
 
 Reshape the stored deployment topology (`OperationalConcepts.deployment` in
-`project.json`) to mirror Structurizr's deployment-view metamodel, make it
-**validate** against the committed System components, and enrich it so the
-diagram reflects the **real** archistrator deployment — a single
-`archistrator-server` container that holds most of the Method components, with
-webapp, Postgres, and external infrastructure around it.
+`project.json`) to mirror Structurizr's deployment metamodel, wire the existing
+platform **`methodcheck`** validation to run against archistrator's own project,
+and rewrite archistrator's deployment data to the **real** k8s topology.
 
 Source refs: Structurizr deployment view (`docs.structurizr.com/dsl/cookbook/
-deployment-view`, `github.com/structurizr/structurizr`); real topology from the
-Helm charts under `…/software/products/archistrator/helm/` and
-`…/software/k8s/`.
+deployment-view`, `github.com/structurizr/structurizr`); real topology from
+`…/software/products/archistrator/helm/` + `…/software/k8s/`.
 
 ## Problem (grounded in real data)
 
-The current model (`server/internal/resourceaccess/projectstate/models_phase1.go`,
-hand-mirrored in `webApp/src/api/models.ts`) is:
+Current model (`server/internal/resourceaccess/projectstate/models_phase1.go`,
+hand-mirrored in `webApp/src/api/models.ts`; independently decoded by the
+platform validator in `archistrator-platform/framework-go/methodcheck/project.go`):
 
 ```
 DeploymentNode { name; technology; children[]; instances[] ContainerInstance }
-ContainerInstance { componentId; note }
+ContainerInstance { componentId; note }   // a *component*, deployed flat
 ```
 
-Gaps vs. reality and vs. what we want:
+Gaps vs. C4 and vs. reality:
 
-1. **No container level.** In reality nearly all Method managers/engines/
-   resource-access seams run inside **one Go binary** (`archistrator-server`,
-   ×2 replicas, distroless). The model puts component instances *flat* in the
-   namespace, so the diagram can't show "these components co-locate in the
-   server; those don't." (Confirmed from `helm/archistrator-server/templates/
-   deployment.yaml` — API + Temporal client + **embedded** worker + every seam
-   in one container; there is **no** separate worker Deployment.)
-2. **No infrastructure-node concept.** Non-component infra (Envoy Gateway,
-   shared Temporal cluster, CloudNativePG Postgres, per-project GitHub repos,
-   GitHub Actions runners, Anthropic API, Keycloak) currently has to be faked as
-   component instances or omitted.
-3. **No `instances` multiplier**, `description`, or `tags` — Structurizr staples
-   (e.g. the server is ×2; Postgres ×1).
-4. **No referential validation.** The `DEP-INSTANCE-EXIST` predicate is
-   documented in comments but unimplemented. The live data already contains a
-   **dangling ref**: deployment references `project-manager`, which is **not**
-   one of the 38 committed System components.
-5. **Generation is aspirational.** The System-design author prompt
-   (`server/internal/manager/systemdesign/prompts.go`) tells the LLM to reference
-   components **by name** and "the server resolves the name" — but no name→id
-   resolution exists in Go. Decode (`codec.go`) unmarshals straight into structs
-   whose only ref field is `json:"componentId"`.
+1. **Not C4.** C4 deployment instances **containers** and **software systems**,
+   never components. Today the leaf is a Method *component* placed flat in the
+   namespace, and there is **no container concept** at all.
+2. **No container level in reality.** Nearly all Method managers/engines/
+   resource-access seams run inside **one Go binary** (`archistrator-server`, ×2,
+   distroless — API + Temporal client + embedded worker + every seam in one
+   container; **no** separate worker Deployment). The webapp SPA (`archistrator-
+   webapp`, nginx, ×2) and Postgres (`archistrator-postgres`, CloudNativePG) are
+   the other two containers.
+3. **No infrastructure / external-system nodes.** Envoy Gateway, shared Temporal,
+   per-project GitHub repos, GitHub Actions runners, Anthropic API, Keycloak all
+   have to be faked as component instances or omitted.
+4. **No `instances` multiplier / `description` / `tags`** (server is ×2, etc.).
+5. **Validation exists but doesn't run for archistrator.** The platform
+   `methodcheck` package **already has** `DEP-INSTANCE-EXIST` +
+   `DEP-{COVERAGE,PROFILE-SET,GRAPH-IDENTITY,NODE-WELLFORMED}`
+   (`methodcheck/rules_deployment.go`, driven by `deploymentConsistency` →
+   `validateOperationalConcepts` → `ValidateProject`). But archistrator's own
+   repo has **no `TestMethod` running `methodcheck.Check` over its own
+   `.aiarch/state/project.json`** — that gate is only scaffolded into *downstream*
+   app repos (`sourcecontrol/assets/aiarch_method_test.go.tmpl`).
+   `make method-check` only runs `TestMethodLayering` (`arch.Check`). **That is
+   why the dangling `project-manager` ref went uncaught.**
 
 ## Design
 
-### 1. Model — mirror Structurizr's deployment metamodel
+### 1. Model — C4 container instances (Structurizr shape)
 
-Go structs (source of truth) + hand-mirror in `models.ts`. A `DeploymentNode`
-becomes a recursive container holding four child kinds, three of them
-Structurizr-native; the fourth (`componentInstances`) is archistrator's
-adaptation (see granularity note).
+Containers are declared once in the deployment topology; deployment nodes
+**instance** them by key. Go source of truth in the server package, mirrored in
+the platform `methodcheck` decode structs and the webApp `models.ts`.
 
 ```go
+type DeploymentTopology struct {
+    DeliveryStyle DeliveryStyle           `json:"deliveryStyle"`
+    Containers    []DeployContainer       `json:"containers"`      // NEW: declared once
+    Environments  []DeploymentEnvironment `json:"environments"`
+}
+
+// DeployContainer — a deployable unit (C4 Container), packaging System components.
+type DeployContainer struct {
+    Key        string   `json:"key"`         // "archistrator-server"
+    Name       string   `json:"name"`
+    Technology string   `json:"technology"`  // "Go · distroless", "nginx · React SPA"
+    Description string   `json:"description"`
+    Components []string  `json:"components"`  // System component NAMES packaged here (validated)
+}
+
 type DeploymentEnvironment struct {
     Profile DeploymentProfile `json:"profile"`
     Title   string            `json:"title"`
@@ -64,163 +86,177 @@ type DeploymentEnvironment struct {
 }
 
 type DeploymentNode struct {
-    Name                string               `json:"name"`
-    Technology          string               `json:"technology"`   // optional
-    Description         string               `json:"description"`   // optional
-    Instances           int                  `json:"instances"`     // multiplier; 0/absent ⇒ 1
-    Tags                []string             `json:"tags"`          // optional
-    Children            []DeploymentNode     `json:"children"`
-    InfrastructureNodes []InfrastructureNode `json:"infrastructureNodes"`
-    ComponentInstances  []ComponentInstance  `json:"componentInstances"`
+    Name                    string                   `json:"name"`
+    Technology              string                   `json:"technology"`
+    Description             string                   `json:"description"`
+    Instances               int                      `json:"instances"`   // multiplier; 0 ⇒ 1
+    Tags                    []string                 `json:"tags"`
+    Children                []DeploymentNode         `json:"children"`
+    InfrastructureNodes     []InfrastructureNode     `json:"infrastructureNodes"`
+    ContainerInstances      []ContainerInstance      `json:"containerInstances"`
+    SoftwareSystemInstances []SoftwareSystemInstance `json:"softwareSystemInstances"`
 }
 
-// InfrastructureNode — non-component infra OR an external software system
-// (gateway, DB engine, queue, GitHub, Anthropic, Keycloak). Self-describing;
-// references nothing; NOT validated against System components.
+type ContainerInstance struct {
+    ContainerKey string   `json:"containerKey"`  // → DeployContainer.Key
+    Note         string   `json:"note"`
+    Tags         []string `json:"tags"`
+}
+
+// InfrastructureNode — non-deployable infra (gateway, DB engine, message broker).
 type InfrastructureNode struct {
     Name        string   `json:"name"`
     Technology  string   `json:"technology"`
     Description string   `json:"description"`
-    External    bool     `json:"external"`   // draws as an external/dashed node
     Tags        []string `json:"tags"`
 }
 
-// ComponentInstance — an instance of a System component deployed in this node.
-// `Component` is the exact System component NAME (human-authored, matches the
-// architecture view); resolved to a component id + layer downstream and
-// validated. Structurizr's containerInstance analog at component granularity.
-type ComponentInstance struct {
-    Component  string   `json:"component"`   // System component NAME (was: componentId)
-    Note       string   `json:"note"`
-    Tags       []string `json:"tags"`
+// SoftwareSystemInstance — an EXTERNAL software system (GitHub, Anthropic, Keycloak).
+// External-only: archistrator's model has exactly one (internal) software system,
+// so there is no internal software-system registry to reference.
+type SoftwareSystemInstance struct {
+    Name        string   `json:"name"`
+    Technology  string   `json:"technology"`
+    Description string   `json:"description"`
+    Tags        []string `json:"tags"`
 }
 ```
 
-**Granularity note (the key adaptation).** Structurizr's `containerInstance`
-references a *container*; archistrator's deployable detail is *components* (all
-in one server binary). Per the review decision, the deployment leaf stays a
-**component** instance so every Method component remains visible — but nested
-inside real container `DeploymentNode`s (`archistrator-server`,
-`archistrator-webapp`, `archistrator-postgres`). We deliberately **fold
-Structurizr's `softwareSystemInstance` into `infrastructureNode`** (`external:
-true`), because archistrator's model has exactly one software system; there is no
-external-software-system registry to instance.
-
-**Reference by name, not id.** Wire field becomes `component` (the System
-component name), matching the existing prompt and the architecture view. This
-implements the currently-missing name→id resolution: the webApp adapter and the
-Go validator both resolve `component` → `{id, layer}` against the committed
-System slot (id = `Slug(name)`; adapter already builds this map in
-`adapters.ts:459-461`). Decode stays dumb (stores the name); resolution +
-validation happen where the System slot is in hand.
+Container membership references System components **by name** (matches the
+architecture view + the existing author prompt; id = `Slug(name)`, resolved by
+the validator and the webApp adapter). This finally honors the "reference by
+name, server resolves" rule the prompt already states but the code never
+implemented.
 
 ### 2. Reality mapping — archistrator's deployment data
 
-Rewrite `project.json .slots['6'].model.deployment` to the new shape and the real
-topology. **cloud** environment:
+**Containers** (declared once): `archistrator-server` (Go · distroless) packaging
+nearly every Method component (mcp-client, scheduler-client, all Managers,
+Engines, ResourceAccess, Utilities); `archistrator-webapp` (nginx · React SPA)
+packaging `web-client`; `archistrator-postgres` (CloudNativePG · Postgres 16)
+packaging the Postgres-backed Resource components (operated-system-state,
+billing-state, usage-log).
+
+**cloud** environment nodes:
 
 ```
 DeploymentNode "Mixofreality Kubernetes Cluster" (k8s)
 ├─ DeploymentNode "gtd namespace" (k8s-namespace)
 │   └─ InfrastructureNode "Envoy Gateway" (Gateway API; edge TLS + Keycloak OIDC)
 ├─ DeploymentNode "archistrator namespace" (k8s-namespace)
-│   ├─ DeploymentNode "archistrator-server" (Go · distroless) instances:2
-│   │     componentInstances: mcp-client, scheduler-client, ALL managers,
-│   │       ALL engines, ALL resourceAccess, ALL utilities
-│   ├─ DeploymentNode "archistrator-webapp" (nginx · React SPA) instances:2
-│   │     componentInstances: web-client
-│   └─ DeploymentNode "archistrator-postgres" (CloudNativePG · Postgres 16) instances:1
-│         componentInstances: the Postgres-backed Resource components
-│         (operated-system-state, billing-state, usage-log)
-├─ DeploymentNode "temporal namespace" (k8s-namespace · shared)
-│   └─ InfrastructureNode "Temporal Cluster" (frontend/history/matching/worker; Postgres-backed)
-└─ InfrastructureNode "Keycloak" (OIDC realm archistrator) [external:true]
+│   ├─ DeploymentNode "server Deployment" instances:2
+│   │     containerInstances: [archistrator-server]
+│   ├─ DeploymentNode "webapp Deployment" instances:2
+│   │     containerInstances: [archistrator-webapp]
+│   └─ DeploymentNode "postgres (CNPG)" instances:1
+│         containerInstances: [archistrator-postgres]
+├─ DeploymentNode "temporal namespace" (shared)
+│   └─ InfrastructureNode "Temporal Cluster" (frontend/history/matching/worker)
+└─ softwareSystemInstances: [Keycloak (OIDC)]
 
-Sibling top-level nodes:
-DeploymentNode "User's GitHub Account" [external]
-├─ InfrastructureNode "Per-project state repos (aiarch-<id>)" (git JSON + ref CAS)
-└─ InfrastructureNode "GitHub Actions runners" (construction pipeline)
-InfrastructureNode "Anthropic Messages API" [external] (LLM workers)
+Sibling top-level:
+DeploymentNode "User's GitHub Account"
+├─ softwareSystemInstance "GitHub" (per-project state repos aiarch-<id> + Actions runners)
+softwareSystemInstance "Anthropic Messages API" (LLM workers)
 ```
 
-The **test** environment ("in-process, ephemeral") keeps a single
-`test process` node holding every component (externals become in-process
-stubs) — same components as cloud, per the cross-profile invariant.
+**test** ("in-process, ephemeral"): a single `test process` node instancing the
+same containers (externals become in-process stubs) — same container set as
+cloud, per the cross-profile invariant. **Delete the `project-manager` entry.**
 
-Placement rule (layer → node): `web-client` → webapp; other Clients + Managers +
-Engines + ResourceAccess + Utilities → server; Resources → postgres; everything
-non-component → infrastructureNode. Exact per-component assignment is finalized
-against the committed System slot during implementation and is a review point.
+### 3. Validation — wire the platform gate to archistrator (+ retune for containers)
 
-### 3. Validation — implement DEP-INSTANCE-EXIST
+The referential check already lives in the platform (`archistrator-platform/
+framework-go/methodcheck`). Two pieces of work:
 
-A pure function over `(System, DeploymentTopology)`:
+**a. Retune the deployment rules to the container shape** (`methodcheck/
+rules_deployment.go`, structs in `methodcheck/project.go`):
+- `DEP-CONTAINER-REF` — every `ContainerInstance.containerKey` resolves to a
+  declared `DeployContainer`.
+- `DEP-MEMBER-EXIST` (reworked `DEP-INSTANCE-EXIST`) — every
+  `DeployContainer.Components[]` name resolves to a committed System component.
+- `DEP-COVERAGE` — every System component is packaged in exactly one container
+  (both directions ⇒ "same components as the system design").
+- `DEP-PROFILE-SET` / `DEP-GRAPH-IDENTITY` retuned to the container set (identical
+  containers across cloud/local; test includes all).
+  Infra / external software-system nodes reference nothing and are exempt.
 
-- **Referential integrity:** every `ComponentInstance.component` resolves to a
-  committed System component (by name → `Slug`). Unresolved ⇒ error. (Catches
-  today's `project-manager`.)
-- **Coverage (warn):** every System component appears in ≥1 environment; every
-  environment's component set is identical across cloud/local (the existing
-  cross-profile invariant), and the test env includes them all.
+**b. Close the gap so archistrator validates itself.** Add a `TestMethod` at the
+archistrator repo root that runs `methodcheck.Check` over `.aiarch/state/
+project.json` (mirroring `aiarch_method_test.go.tmpl`), and point the server
+`make method-check` target + a CI job (`server-checks.yml`) at it. This makes the
+whole `methodcheck` suite — not just deployment — enforce on archistrator's own
+project, and it immediately flags regressions like `project-manager`.
 
-Home: the Method-conformance gate `TestMethod` (`server/internal/arch_test.go`)
-and `cmd/validate` (so CI `server-checks.yml` enforces it). Infra/external nodes
-are exempt (they reference nothing).
+### 4. Renderer — container-level C4 deployment
 
-### 4. Renderer
+The deployment view now shows a **handful of container-instance boxes** inside
+deployment nodes (like the Structurizr banking example), not ~30 component boxes:
 
-Builds on the just-shipped layered layout (`DeploymentFlow.tsx` /
-`DeploymentNodes.tsx`). Changes:
+- **`containerInstance` node** — a C4 container box: name, `[Container: technology]`,
+  description, and a compact "packages N components" affordance (hover/expand to
+  list the packaged System component names — keeps "same components as the system
+  design" visible without turning the deployment view back into a component dump).
+- **`infrastructureNode`** — distinct infra style (no layer color).
+- **`softwareSystemInstance`** — external/dashed style.
+- **Instance badge** `×N` on a node header when `instances > 1`.
+- Adapter (`adapters.ts`): resolve container membership names → System components;
+  carry infra / external / instances. (The just-shipped per-layer row code is no
+  longer used for the deployment view — it stays for the architecture views.)
 
-- **Deeper nesting:** cluster → namespace → container → component-layer-rows. The
-  layer-row bucketing already implemented runs at the container level (the
-  `archistrator-server` node), so its ~30 components render as the labeled layer
-  rows we just built.
-- **`infrastructureNode` node type:** a distinct style (no layer color; a subtle
-  "infrastructure" / external-dashed treatment) with name + technology +
-  description.
-- **Instance badge:** `×N` in a node header when `instances > 1`.
-- **Adapter** (`adapters.ts` `toDeploymentView`): resolve `component` name →
-  `{id, layer}`; carry `infrastructureNodes`, `instances`, `external`.
+### 5. Generation — author prompt
 
-### 5. Generation — author prompt + resolution
-
-Update `server/internal/manager/systemdesign/prompts.go` (operational-concepts
-step) to teach the new nested node kinds (`children`, `infrastructureNodes`,
-`componentInstances`, `instances`), the container level (put co-located
-components inside their runtime container), infra/external nodes, and the
-**reference-by-name** rule (already stated; now actually honored by the
-resolver + validator). Re-running System Design then emits the new shape.
+Update the operational-concepts prompt (`server/internal/manager/systemdesign/
+prompts.go`) to emit the new shape: declare `containers` (with packaged component
+names), instance them in `deploymentNodes`, and use `infrastructureNodes` /
+`softwareSystemInstances` for infra + externals. Re-running System Design then
+produces valid, container-based topologies.
 
 ## Migration
 
-- Rewrite the committed archistrator `deployment` slot (Section 2). Resolve the
-  `project-manager` dangling ref — **open question** (see below).
-- Update `cmd/shapegen` example (`server/cmd/shapegen/main.go:244-267`) to the
-  new shape so the canonical `project.json` example matches.
-- `cmd/validate` round-trip must stay byte-stable after the rewrite.
+- Rewrite `project.json .slots['6'].model.deployment` to the container shape
+  (Section 2); delete `project-manager`.
+- Update the platform `methodcheck` fixtures/tests (`rules_deployment_test.go`)
+  and the server `cmd/shapegen` example (`server/cmd/shapegen/main.go:244-267`)
+  to the new shape.
+- `cmd/validate` round-trip stays byte-stable after the rewrite.
+
+## Scope — two repos
+
+- **`archistrator-platform/framework-go`** (`v0.3.0`, local via `go.work`):
+  `methodcheck` deployment structs (`project.go`) + rules (`rules_deployment.go`)
+  + fixtures. Publish/bump per the platform release flow.
+- **`archistrator`**: server project-state structs (`models_phase1.go`), webApp
+  `models.ts` mirror, adapter + renderer, author prompt, `shapegen` example, the
+  new root `TestMethod` + `make method-check`/CI wiring, and the data rewrite.
 
 ## Implementation phases
 
-1. **Model:** Go structs + `models.ts` mirror + `shapegen` example. Regen OAS
-   (`make gen-client`; `webApp` `npm run gen:api`) — payloads stay opaque, so no
-   TS type break. (`GOWORK=off` for all Go `make` targets.)
-2. **Validation:** DEP-INSTANCE-EXIST in `arch_test.go` + `cmd/validate`.
-3. **Data rewrite:** archistrator `deployment` slot to the real topology; make
-   validation pass (resolve `project-manager`).
-4. **Renderer:** adapter + `infrastructureNode` type + instance badges + nested
-   container rows.
-5. **Generation:** author prompt update.
+1. **Model** (both Go representations + TS mirror + `shapegen`). `GOWORK` on for
+   the workspace build; server `make` targets use `GOWORK=off`.
+2. **Validation retune** in platform `methodcheck` + fixtures.
+3. **Self-gate**: archistrator root `TestMethod` + `make method-check` + CI.
+4. **Data rewrite** (container shape; delete `project-manager`); gate goes green.
+5. **Renderer** (container / infra / external nodes + instance badges).
+6. **Generation** (author prompt).
+
+## Resolved decisions
+
+- Deployment leaf = **container instances** (true C4), not component instances.
+- Containers **declared in the deployment artifact**, packaging System components
+  by name; no new architecture-model level.
+- External systems (GitHub, Anthropic, Keycloak, Temporal) = `infrastructureNode`
+  / `softwareSystemInstance`, exempt from component validation.
+- `project-manager` = **delete**.
+- Validation lives in **platform `methodcheck`** (already there); the fix is to
+  retune it for containers and **run it against archistrator itself**.
 
 ## Open questions
 
-1. **`project-manager` dangling ref.** Is it a real component missing from the
-   System design (then: add it to System), or a deployment-only mistake (then:
-   remove/rename it to the correct manager)? Blocks Phase 3 validation.
-2. **Resources placement.** Model the Postgres-backed state (`operated-system-
-   state`, `billing-state`, `usage-log`) as `componentInstances` inside the
-   `archistrator-postgres` node (proposed), or as `infrastructureNode`s? Proposed
-   keeps them as System components (they exist in the architecture), which the
-   "same components as system design" requirement favors.
-3. **`instanceId`.** Structurizr numbers instances; we omit a per-instance index
-   (the `instances` multiplier suffices for our diagram). Add later if needed.
+1. **Show packaged components in the container box?** Proposed: compact,
+   hover/expand list (not separate boxes). Confirm the container box is the
+   primary unit (Section 4).
+2. **`archistrator-postgres` as container vs. infrastructure.** Proposed:
+   container packaging the Resource components (they exist in the System design,
+   so `DEP-COVERAGE` stays satisfiable). Alternative: `infrastructureNode` (then
+   Resources need another home to satisfy coverage).
