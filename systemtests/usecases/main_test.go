@@ -10,6 +10,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/mixofreality-studio/archistrator/systemtests/internal/harness"
@@ -76,14 +77,38 @@ func startServer(t *testing.T, devAuth bool) *harness.Server {
 // substrate (harness.gitLocalEnv) so design artifacts commit to an on-disk repo.
 func startServerWithEnv(t *testing.T, devAuth bool, extraEnv []string) *harness.Server {
 	t.Helper()
+	// Every booted server needs a project-state GIT substrate (the Postgres
+	// projectstate store was dropped): a server started with none exits at boot with
+	// "projectStateAccess requires a git substrate". When the caller supplies its own
+	// git profile (AgenticGitHub.Env / GitLocalEnv) we leave it untouched; otherwise
+	// we provision a throwaway on-disk file:// repo so the server boots. The default
+	// env is prepended so the caller's own profile still wins (exec env last-wins).
+	env := extraEnv
+	if !hasProjectStateGitEnv(extraEnv) {
+		repo := harness.StartLocalGitRepo(t, "main")
+		env = append(harness.GitLocalEnv(repo.URL()), extraEnv...)
+	}
 	srv, err := harness.StartServer(context.Background(), serverBin, harness.ServerConfig{
 		Infra:    infra,
 		DevAuth:  devAuth,
-		ExtraEnv: extraEnv,
+		ExtraEnv: env,
 	})
 	if err != nil {
 		t.Fatalf("start server (devAuth=%t): %v", devAuth, err)
 	}
 	t.Cleanup(func() { _ = srv.Stop() })
 	return srv
+}
+
+// hasProjectStateGitEnv reports whether the caller-supplied env already selects a
+// project-state git substrate (LOCAL flag or repo URL). When it does, the harness
+// leaves it authoritative rather than provisioning a second throwaway repo.
+func hasProjectStateGitEnv(env []string) bool {
+	for _, e := range env {
+		if strings.HasPrefix(e, "ARCHISTRATOR_PROJECT_STATE_GIT_LOCAL=") ||
+			strings.HasPrefix(e, "ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL=") {
+			return true
+		}
+	}
+	return false
 }
