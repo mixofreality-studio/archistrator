@@ -8073,8 +8073,9 @@
     },
     "C-OSA": {
       "activityID": "C-OSA",
-      "phase": 1,
-      "buildStatus": 1,
+      "phase": 2,
+      "buildStatus": 2,
+      "completedAt": "2026-07-03T00:00:00Z",
       "produced": [
         {
           "Kind": "service-contract",
@@ -8096,6 +8097,13 @@
           "Source": "internal/resourceaccess/operatedsystemstate",
           "Produced": true,
           "Note": "Real Postgres-backed head-state store: infra ['Postgres'] on the serviceContract drives the generated NewPostgresOperatedSystemStateAccess(ctx, pool); postgres.go + go:embed schema.sql (operated_system head-state row with optimistic-concurrency version + the operated_system_mutation dedup-first idempotency ledger) implement the 6 frozen verbs; contract + integration tests (postgres_test.go, StartPostgres-gated) green. Wired in cmd/server (both operationsManager + settlementManager). buildStatus in-review — awaiting the-method-review-routing; NOT self-marked integrated. Documented follow-up: the frozen §2 has no write verb for DeployableBundleRef or customer_id, so the deploy-after-construction seeding handoff (a cross-Manager write or an added verb) remains open."
+        },
+        {
+          "Kind": "note",
+          "Title": "C-OSA — Wave-C semantic review verdict (INTEGRATED)",
+          "Source": "the-method-review-routing",
+          "Produced": true,
+          "Note": "senior-developer semantic review; all perspectives PASS. Own-contract checks green (version-0 optimistic-concurrency seam / Conflict / dedup-ledger validated vs the embedded schema), neighbours consistent, RA-layer purity held. RecordChangeReviewed → RecordActivityExited(Completed): phase Done, buildStatus Integrated. Follow-up parked, not blocking: the DeployableBundleRef / customer_id seeding verb gap (frozen §2 carries no write verb for the deploy-after-construction seeding handoff) stays parked under N-DEP (founder hold)."
         }
       ]
     },
@@ -8161,8 +8169,9 @@
     },
     "C-OR": {
       "activityID": "C-OR",
-      "phase": 1,
-      "buildStatus": 1,
+      "phase": 2,
+      "buildStatus": 2,
+      "completedAt": "2026-07-03T00:00:00Z",
       "produced": [
         {
           "Kind": "service-contract",
@@ -8184,6 +8193,13 @@
           "Source": "",
           "Produced": false,
           "Note": "The REAL operatedRuntime profile's GitOps/kubernetes + observability backend is NOT built — it pairs with the N-DEP Argo deployment work. The profile seam + dry-run land now; the real bodies swap into realOperatedRuntime in one file (config already threaded via RuntimeConfig.GitOpsRepoURL / ARCHISTRATOR_OPERATED_RUNTIME_GITOPS_REPO_URL) when that backend lands. Until then a non-dry-run server's UC4 runtime verbs fail fast with the explicit diagnostic."
+        },
+        {
+          "Kind": "note",
+          "Title": "C-OR — Wave-C semantic review verdict (INTEGRATED)",
+          "Source": "the-method-review-routing",
+          "Produced": true,
+          "Note": "senior-developer semantic review; PASS-WITH-NOTES. RecordChangeReviewed → RecordActivityExited(Completed): phase Done, buildStatus Integrated. Follow-ups, non-blocking: (a) add boot-time GitOpsRepoURL validation to match construction's fail-fast convention when N-DEP resumes; (b) modelgen Profiled-binding comment says 'Unavailable' but the code uses fwra.Unknown (doc nit, fix on next modelgen touch). The REAL profile's k8s/GitOps + observability backend transfers to N-DEP."
         }
       ]
     },
@@ -8562,6 +8578,12 @@
         "earnedPct": 90.3,
         "plannedPct": 2.0,
         "note": "first tracking point cut at week 1 of 49 (tracking started late; EV reflects cumulative integration to date, 935/1035 effort-days; plannedPct is the compressed-option linear plan basis at nominal week 1 (1/49); no trend until >=4 points)"
+      },
+      {
+        "week": 1,
+        "earnedPct": 93.7,
+        "plannedPct": 2.0,
+        "note": "week-01 addendum: operations RAs (C-OSA rebuilt real, C-OR constructed) reviewed and integrated same week"
       }
     ]
   },
