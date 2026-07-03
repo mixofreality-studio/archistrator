@@ -38,3 +38,30 @@ func TestHydrateConstructionActivity_TestingPlanIsThreePhases(t *testing.T) {
 		}
 	}
 }
+
+func TestDispatchInputsForIncludesCommand(t *testing.T) {
+	// A service construction phase -> service-construction command.
+	in := dispatchInputsFor(pipelineSpec{
+		ActivityID:  "C-BM",
+		ComponentID: "billingManager",
+		Phase:       "construction",
+	})
+	if in["command"] != "service-construction" {
+		t.Errorf("command = %q, want service-construction", in["command"])
+	}
+	if in["activity_id"] != "C-BM" || in["component_id"] != "billingManager" {
+		t.Errorf("activity/component passthrough wrong: %+v", in)
+	}
+	if in["phase"] != "construction" {
+		t.Errorf("phase = %q, want construction", in["phase"])
+	}
+
+	// A testing harness detailed-design phase -> testing-harness-detailed-design.
+	in2 := dispatchInputsFor(pipelineSpec{
+		ActivityID: "N-STH",
+		Phase:      "detailed_design",
+	})
+	if in2["command"] != "testing-harness-detailed-design" {
+		t.Errorf("command = %q, want testing-harness-detailed-design", in2["command"])
+	}
+}

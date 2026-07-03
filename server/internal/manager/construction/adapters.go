@@ -421,6 +421,9 @@ var _ constructionPipelineAccess = pipelineAdapter{}
 const pipelineDefaultToolchain = "go-1.23"
 
 // dispatchInputsFor builds the DispatchInputs bag for a construction pipeline dispatch.
+// The `command` input is the thin slash-command the workflow runs; it is computed here
+// from the activity's derived type/variant and the current phase so the workflow itself
+// holds no routing logic. component_id is a Manager-resolved passthrough.
 func dispatchInputsFor(spec pipelineSpec) map[string]string {
 	m := map[string]string{
 		"activity_id":  spec.ActivityID,
@@ -428,6 +431,9 @@ func dispatchInputsFor(spec pipelineSpec) map[string]string {
 	}
 	if spec.Phase != "" {
 		m["phase"] = spec.Phase
+		typ := projectstate.DeriveType(spec.ActivityID)
+		variant := projectstate.DeriveVariant(spec.ActivityID)
+		m["command"] = projectstate.CommandFor(typ, variant, projectstate.ActivityMethodPhase(spec.Phase))
 	}
 	if spec.Role != "" {
 		m["role"] = spec.Role
