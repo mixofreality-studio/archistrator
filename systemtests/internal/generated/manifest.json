@@ -1,0 +1,53 @@
+{
+  "scenarios": {
+    "STP-UC1": {
+      "file": "stp_uc1_table.gen.go",
+      "caseIds": [
+        "STP-UC1-H1",
+        "STP-UC1-N1",
+        "STP-UC1-N2",
+        "STP-UC1-B1"
+      ],
+      "sourceHash": "e1af0772b4fa137320b99c12cda129a3d811e27d4c04d5ea7433bba4c40e263f"
+    },
+    "STP-UC2": {
+      "file": "stp_uc2_table.gen.go",
+      "caseIds": [
+        "STP-UC2-H1",
+        "STP-UC2-N1",
+        "STP-UC2-N2",
+        "STP-UC2-B1"
+      ],
+      "sourceHash": "efb9bf536cabdcd62c0515330bb490d824767f91fa06022f9df8673931031312"
+    },
+    "STP-UC3": {
+      "file": "stp_uc3_table.gen.go",
+      "caseIds": [
+        "STP-UC3-H1",
+        "STP-UC3-N1",
+        "STP-UC3-N2",
+        "STP-UC3-B1"
+      ],
+      "sourceHash": "94655d7a582244c71c98bbc06a2cd97950d1c355bc0421872b04adc8e9a83085"
+    },
+    "STP-UC4": {
+      "file": "stp_uc4_table.gen.go",
+      "caseIds": [
+        "STP-UC4-H1",
+        "STP-UC4-N1",
+        "STP-UC4-B1",
+        "STP-UC4-N2"
+      ],
+      "sourceHash": "92b5aed79f33c65665b20e1f26ea9745146e53e28a51d5dde5b2451aed2d0fcb"
+    },
+    "STP-UC5": {
+      "file": "stp_uc5_table.gen.go",
+      "caseIds": [
+        "STP-UC5-H1",
+        "STP-UC5-N1",
+        "STP-UC5-N2"
+      ],
+      "sourceHash": "66a10c19c2dfa8c13b6775c235fddce827f1dfb042cf1c74644550ac50ee86a0"
+    }
+  }
+}
