@@ -5775,7 +5775,10 @@
               "system-design-manager",
               "project-state-access",
               "construction-pipeline-access",
-              "durable-execution-access"
+              "durable-execution-access",
+              "mcp-client",
+              "durable-execution-runtime",
+              "project-git-repo"
             ],
             "edges": [
               {
@@ -5783,6 +5786,12 @@
                 "to": "system-design-manager",
                 "mode": "sync",
                 "label": "startSystemDesign(projectId)"
+              },
+              {
+                "from": "mcp-client",
+                "to": "system-design-manager",
+                "mode": "sync",
+                "label": "startSystemDesign(projectId) — MCP surface, same Manager entry (R4 cross-surface equivalence)"
               },
               {
                 "from": "system-design-manager",
@@ -5803,6 +5812,12 @@
                 "label": "executeChild(per artifactKind) / awaitSignal(reviewDecision)"
               },
               {
+                "from": "durable-execution-access",
+                "to": "durable-execution-runtime",
+                "mode": "sync",
+                "label": "execute workflow / await reviewDecision signal"
+              },
+              {
                 "from": "web-client",
                 "to": "system-design-manager",
                 "mode": "sync",
@@ -5813,6 +5828,12 @@
                 "to": "project-state-access",
                 "mode": "sync",
                 "label": "commitArtifact(kind) per step; advancePhase on Phase-1 seal"
+              },
+              {
+                "from": "project-state-access",
+                "to": "project-git-repo",
+                "mode": "sync",
+                "label": "commit guarded by git ref compare-and-swap [contract 1: typed state]"
               }
             ]
           },
@@ -5827,7 +5848,8 @@
               "construction-estimation-engine",
               "operation-estimation-engine",
               "billing-engine",
-              "work-item-access"
+              "work-item-access",
+              "mcp-client"
             ],
             "edges": [
               {
@@ -5835,6 +5857,12 @@
                 "to": "project-design-manager",
                 "mode": "sync",
                 "label": "submitSDPDecision(projectId, decision, optionId?, feedback?)"
+              },
+              {
+                "from": "mcp-client",
+                "to": "project-design-manager",
+                "mode": "sync",
+                "label": "submitSDPDecision(projectId, decision, optionId?, feedback?) — MCP surface, same Manager entry (R4 cross-surface equivalence)"
               },
               {
                 "from": "project-design-manager",
@@ -5894,7 +5922,10 @@
               "construction-pipeline-access",
               "construction-pipeline-runtime",
               "review-engine",
-              "intervention-engine"
+              "intervention-engine",
+              "work-item-tracker",
+              "github",
+              "project-git-repo"
             ],
             "edges": [
               {
@@ -5922,6 +5953,12 @@
                 "label": "updateWorkItem(ref, {status: in-progress})"
               },
               {
+                "from": "work-item-access",
+                "to": "work-item-tracker",
+                "mode": "sync",
+                "label": "update the GitHub Issue for the activity"
+              },
+              {
                 "from": "construction-manager",
                 "to": "source-control-access",
                 "mode": "sync",
@@ -5932,6 +5969,12 @@
                 "to": "source-control-access",
                 "mode": "sync",
                 "label": "openBranch(repo, branch, cred, key) → BranchRef"
+              },
+              {
+                "from": "source-control-access",
+                "to": "github",
+                "mode": "sync",
+                "label": "branch / PR operations against the per-project repo via the GitHub App installation token"
               },
               {
                 "from": "construction-manager",
@@ -5956,6 +5999,12 @@
                 "to": "project-state-access",
                 "mode": "sync",
                 "label": "stageArtifact(activityOutput) (Phase-3 construction-output contract)"
+              },
+              {
+                "from": "project-state-access",
+                "to": "project-git-repo",
+                "mode": "sync",
+                "label": "store Phase-3 construction output (content-addressable commit) [contract 2: Phase-3 output]"
               },
               {
                 "from": "construction-manager",
@@ -6033,7 +6082,9 @@
               "operated-runtime",
               "intervention-engine",
               "usage-access",
-              "autoscaler-engine"
+              "autoscaler-engine",
+              "mcp-client",
+              "operated-system-state"
             ],
             "edges": [
               {
@@ -6043,10 +6094,22 @@
                 "label": "deployAfterConstruction(deployedAppId)"
               },
               {
+                "from": "mcp-client",
+                "to": "operations-manager",
+                "mode": "sync",
+                "label": "deployAfterConstruction(deployedAppId) — MCP surface, same Manager entry (R4 cross-surface equivalence)"
+              },
+              {
                 "from": "operations-manager",
                 "to": "operated-system-state-access",
                 "mode": "sync",
                 "label": "readOperatedSystem (desiredState, deployableBundleRef)"
+              },
+              {
+                "from": "operated-system-state-access",
+                "to": "operated-system-state",
+                "mode": "sync",
+                "label": "read row / guarded in-place update (version + applied_mutation dedup)"
               },
               {
                 "from": "operations-manager",
@@ -6145,7 +6208,9 @@
               "billing-engine",
               "billing-gateway-access",
               "billing-gateway",
-              "billing-state-access"
+              "billing-state-access",
+              "usage-log",
+              "billing-state"
             ],
             "edges": [
               {
@@ -6159,6 +6224,12 @@
                 "to": "usage-access",
                 "mode": "sync",
                 "label": "readRange(periodId) → token + hosting usage"
+              },
+              {
+                "from": "usage-access",
+                "to": "usage-log",
+                "mode": "sync",
+                "label": "read range (token + hosting usage entries)"
               },
               {
                 "from": "billing-manager",
@@ -6183,6 +6254,12 @@
                 "to": "billing-state-access",
                 "mode": "sync",
                 "label": "recordServiceInvoice"
+              },
+              {
+                "from": "billing-state-access",
+                "to": "billing-state",
+                "mode": "sync",
+                "label": "guarded in-place update (version + applied_mutation dedup)"
               }
             ]
           }
@@ -6367,9 +6444,21 @@
                       ],
                       "infrastructureNodes": [
                         {
-                          "name": "archistrator-postgres",
+                          "name": "OperatedSystemState",
                           "technology": "CloudNativePG · Postgres 16",
-                          "description": "Fallback project head-state; realizes the OperatedSystemState / BillingState / UsageLog resources",
+                          "description": "operated-system rows on the shared archistrator-postgres cluster; the cluster also holds the fallback project head-state",
+                          "tags": []
+                        },
+                        {
+                          "name": "BillingState",
+                          "technology": "CloudNativePG · Postgres 16",
+                          "description": "billing rows on the shared archistrator-postgres cluster",
+                          "tags": []
+                        },
+                        {
+                          "name": "UsageLog",
+                          "technology": "CloudNativePG · Postgres 16",
+                          "description": "append-only token/hosting usage entries on the shared archistrator-postgres cluster",
                           "tags": []
                         }
                       ],
@@ -6385,9 +6474,9 @@
                       "children": [],
                       "infrastructureNodes": [
                         {
-                          "name": "Temporal Cluster",
+                          "name": "DurableExecutionRuntime",
                           "technology": "Temporal (Postgres-backed)",
-                          "description": "Durable execution; realizes the DurableExecutionRuntime resource",
+                          "description": "Temporal Cluster in the shared temporal namespace; durable execution",
                           "tags": []
                         }
                       ],
@@ -6410,9 +6499,27 @@
                   "containerInstances": [],
                   "softwareSystemInstances": [
                     {
-                      "name": "User's GitHub",
+                      "name": "GitHub",
                       "technology": "GitHub",
-                      "description": "Per-project state repos aiarch-<id> + Actions construction runners + Issues (realizes GitHub / ProjectGitRepo / WorkItemTracker / ConstructionPipelineRuntime)",
+                      "description": "User's GitHub — GitHub App installation, account-level APIs",
+                      "tags": []
+                    },
+                    {
+                      "name": "ProjectGitRepo",
+                      "technology": "GitHub",
+                      "description": "Per-project state repo aiarch-<id> on the user's GitHub (git-as-DB)",
+                      "tags": []
+                    },
+                    {
+                      "name": "ConstructionPipelineRuntime",
+                      "technology": "GitHub Actions",
+                      "description": "Actions construction runners on the user's GitHub",
+                      "tags": []
+                    },
+                    {
+                      "name": "WorkItemTracker",
+                      "technology": "GitHub Issues",
+                      "description": "GitHub Issues on the per-project repo",
                       "tags": []
                     },
                     {
@@ -6422,9 +6529,9 @@
                       "tags": []
                     },
                     {
-                      "name": "Stripe",
+                      "name": "BillingGateway",
                       "technology": "Stripe",
-                      "description": "Billing gateway (realizes BillingGateway)",
+                      "description": "Stripe — billing gateway",
                       "tags": []
                     },
                     {
@@ -6434,9 +6541,9 @@
                       "tags": []
                     },
                     {
-                      "name": "Operated tenant runtime",
+                      "name": "OperatedRuntime",
                       "technology": "per-tenant",
-                      "description": "The deployed customer app (realizes OperatedRuntime)",
+                      "description": "Operated tenant runtime — the deployed customer app",
                       "tags": []
                     }
                   ]
@@ -6456,15 +6563,45 @@
                   "children": [],
                   "infrastructureNodes": [
                     {
-                      "name": "sqlite/postgres (docker)",
+                      "name": "OperatedSystemState",
                       "technology": "ephemeral",
-                      "description": "in-process/ephemeral DB stub",
+                      "description": "sqlite/postgres (docker) stub — operated-system rows",
                       "tags": []
                     },
                     {
-                      "name": "in-memory Temporal",
+                      "name": "BillingState",
+                      "technology": "ephemeral",
+                      "description": "sqlite/postgres (docker) stub — billing rows",
+                      "tags": []
+                    },
+                    {
+                      "name": "UsageLog",
+                      "technology": "ephemeral",
+                      "description": "sqlite/postgres (docker) stub — usage entries",
+                      "tags": []
+                    },
+                    {
+                      "name": "DurableExecutionRuntime",
                       "technology": "test",
-                      "description": "ephemeral durable-execution stub",
+                      "description": "in-memory Temporal test server",
+                      "tags": []
+                    },
+                    {
+                      "name": "ProjectGitRepo",
+                      "technology": "ephemeral",
+                      "description": "local temporary git repository (git-as-DB under test)",
+                      "tags": []
+                    },
+                    {
+                      "name": "ConstructionPipelineRuntime",
+                      "technology": "stub",
+                      "description": "dry-run construction pipeline stub (CONSTRUCTION_DRYRUN)",
+                      "tags": []
+                    },
+                    {
+                      "name": "OperatedRuntime",
+                      "technology": "stub",
+                      "description": "fake tenant runtime",
                       "tags": []
                     }
                   ],
@@ -6482,9 +6619,21 @@
                   ],
                   "softwareSystemInstances": [
                     {
-                      "name": "GitHub (stub)",
+                      "name": "GitHub",
                       "technology": "stub",
-                      "description": "stubbed",
+                      "description": "stubbed GitHub API",
+                      "tags": []
+                    },
+                    {
+                      "name": "WorkItemTracker",
+                      "technology": "stub",
+                      "description": "stubbed GitHub Issues",
+                      "tags": []
+                    },
+                    {
+                      "name": "BillingGateway",
+                      "technology": "stub",
+                      "description": "stubbed Stripe",
                       "tags": []
                     },
                     {
