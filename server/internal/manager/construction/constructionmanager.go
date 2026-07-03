@@ -1,6 +1,7 @@
 package construction
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -102,8 +103,13 @@ func newConstructionManager(
 // eligible activity ⇒ PumpResult{Dispatched:false} (a normal quiet tick).
 //
 // tickID is the scheduler firing id (Temporal-native firing idempotency: schedule
-// firing id = workflow id). SYNC from the scheduler's POV: returns once the pump
-// tick is durably accepted + run (the child runs asynchronously).
+// firing id = workflow id). SYNC from the scheduler's POV: returns THIS tick's
+// dispatch outcome (PumpResult{Dispatched:true, ActivityID} for the activity dispatched
+// this tick, or {Dispatched:false} when quiescent) as soon as the pump has decided —
+// it does NOT block until the per-activity child (or the pump's background self-cascade
+// over the dependency frontier) drains. The dispatch decision is read off the pump via
+// the queryPumpDispatch Query so a scheduler-style caller gets a prompt, per-tick answer
+// while the cascade continues durably in the background.
 func (m *constructionManager) ExecuteNextActivity(rc fwm.Context, projectID ProjectID, tickID string) (PumpResult, error) {
 	ctx := rc.Context
 	if projectID == "" {
@@ -123,6 +129,58 @@ func (m *constructionManager) ExecuteNextActivity(rc fwm.Context, projectID Proj
 	if err != nil {
 		return PumpResult{}, mapStartError(err)
 	}
+	return m.awaitDispatchDecision(ctx, we, wfID)
+}
+
+// pumpDispatchPollInterval paces the façade's poll of the pump's synchronous
+// dispatch-decision Query. The pump sets its decision after reading head-state and
+// picking (or finding no) eligible activity — a couple of activity round-trips — so
+// the poll converges within a few iterations.
+const pumpDispatchPollInterval = 25 * time.Millisecond
+
+// pumpDispatchWaitBudget bounds the poll so a run that fails BEFORE reaching its
+// decision point (an infra fault in the head-state read) cannot spin forever; on
+// expiry the terminal workflow result/error is surfaced instead (a failed run returns
+// promptly — there is no cascade to await on that path).
+const pumpDispatchWaitBudget = 30 * time.Second
+
+// awaitDispatchDecision returns THIS tick's dispatch outcome as soon as the pump run
+// has decided, WITHOUT waiting for the background self-cascade to drain the dependency
+// frontier. It polls queryPumpDispatch against the exact run ExecuteWorkflow started
+// (pinned RunID) so the answer stays this tick's FIRST decision even after the pump
+// ContinueAsNews into the next cascade iteration.
+func (m *constructionManager) awaitDispatchDecision(ctx context.Context, we client.WorkflowRun, wfID string) (PumpResult, error) {
+	runID := we.GetRunID()
+	deadline := time.Now().Add(pumpDispatchWaitBudget)
+	for {
+		enc, qerr := m.client.QueryWorkflow(ctx, wfID, runID, queryPumpDispatch)
+		if qerr != nil {
+			// The run cannot serve the Query (gone / not-found). Surface the terminal
+			// result/error — prompt for a failed or already-quiescent run.
+			return m.terminalPumpResult(ctx, we)
+		}
+		var d pumpDispatch
+		if derr := enc.Get(&d); derr != nil {
+			return PumpResult{}, newError(fwm.Infrastructure, derr.Error())
+		}
+		if d.Decided {
+			return PumpResult{Dispatched: d.Dispatched, ActivityID: d.ActivityID}, nil
+		}
+		if time.Now().After(deadline) {
+			return m.terminalPumpResult(ctx, we)
+		}
+		select {
+		case <-ctx.Done():
+			return PumpResult{}, newError(fwm.Infrastructure, ctx.Err().Error())
+		case <-time.After(pumpDispatchPollInterval):
+		}
+	}
+}
+
+// terminalPumpResult is the safety-net fallback: it awaits the pump's terminal result
+// (used only when the dispatch decision never surfaced — a failed run or a run that
+// finished before it could be polled).
+func (m *constructionManager) terminalPumpResult(ctx context.Context, we client.WorkflowRun) (PumpResult, error) {
 	var result PumpResult
 	if err := we.Get(ctx, &result); err != nil {
 		return PumpResult{}, newError(fwm.Infrastructure, err.Error())
