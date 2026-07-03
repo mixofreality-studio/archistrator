@@ -7832,7 +7832,8 @@
     "C-MPD": {
       "activityID": "C-MPD",
       "phase": 2,
-      "buildStatus": 1,
+      "buildStatus": 2,
+      "completedAt": "2026-07-03T00:00:00Z",
       "produced": [
         {
           "Kind": "service-contract",
@@ -7847,6 +7848,13 @@
           "Source": "implementation/log",
           "Produced": true,
           "Note": "Construction output recorded in the implementation log."
+        },
+        {
+          "Kind": "note",
+          "Title": "C-MPD — Wave-B semantic review verdict (INTEGRATED)",
+          "Source": "the-method-review-routing",
+          "Produced": true,
+          "Note": "senior-developer semantic review; all perspectives PASS/PASS-WITH-NOTES. RecordChangeReviewed → RecordActivityExited(Completed): phase Done, buildStatus Integrated. 3 architect follow-ups: (a) BranchAwareProjectStateAccess ops (ReadProjectOnBranch/StageArtifactForReviewOnBranch) are used but sit outside the frozen projectStateAccess contract — fold in as additive ops or record the seam; (b) systemDesign edge project-design-manager→durable-execution-access implies an RA seam the frozen contract deliberately bypasses (Manager owns Temporal) — reconcile the representation; (c) recommendOption/monthlyCostAtDeclaredLoad are Manager-side placeholders earmarked for a risk/estimation engine (deferred estimation follow-up)."
         }
       ]
     },
@@ -7908,6 +7916,8 @@
     "C-EE": {
       "activityID": "C-EE",
       "phase": 2,
+      "buildStatus": 2,
+      "completedAt": "2026-07-03T00:00:00Z",
       "produced": [
         {
           "Kind": "service-contract",
@@ -7915,12 +7925,21 @@
           "Source": "implementation/contracts/constructionEstimationEngine.md",
           "Produced": true,
           "Note": "Frozen App-B service contract."
+        },
+        {
+          "Kind": "note",
+          "Title": "C-EE — Wave-B semantic review verdict (INTEGRATED)",
+          "Source": "the-method-review-routing",
+          "Produced": true,
+          "Note": "senior-developer semantic review; all perspectives PASS/PASS-WITH-NOTES. RecordChangeReviewed → RecordActivityExited(Completed): phase Done, buildStatus Integrated. Follow-ups: G1 longest-path upgrade parked to deferred backlog (criticalPathDays is a flagged-critical-activity sum, not a true longest-path traversal); contract-key naming skew constructionEstimationEngine (serviceContracts key) vs EstimationEngine (systemDesign component) — architect housekeeping."
         }
       ]
     },
     "C-OE": {
       "activityID": "C-OE",
       "phase": 2,
+      "buildStatus": 2,
+      "completedAt": "2026-07-03T00:00:00Z",
       "produced": [
         {
           "Kind": "service-contract",
@@ -7928,13 +7947,21 @@
           "Source": "implementation/contracts/operationEstimationEngine.md",
           "Produced": true,
           "Note": "Frozen App-B service contract."
+        },
+        {
+          "Kind": "note",
+          "Title": "C-OE — Wave-B semantic review verdict (INTEGRATED)",
+          "Source": "the-method-review-routing",
+          "Produced": true,
+          "Note": "senior-developer semantic review; all perspectives PASS/PASS-WITH-NOTES. RecordChangeReviewed → RecordActivityExited(Completed): phase Done, buildStatus Integrated. Follow-ups: SensitivityLow/High naming inverts the net ordering (documented — watch downstream consumers that read the pair); operationsManager adapter populates only compute+requests on ObservedUsage (a Manager-side modeling limitation, flagged to the owner)."
         }
       ]
     },
     "C-BE": {
       "activityID": "C-BE",
       "phase": 2,
-      "buildStatus": 1,
+      "buildStatus": 2,
+      "completedAt": "2026-07-03T00:00:00Z",
       "produced": [
         {
           "Kind": "service-contract",
@@ -7949,6 +7976,13 @@
           "Source": "implementation/log",
           "Produced": true,
           "Note": "Construction output recorded in the implementation log."
+        },
+        {
+          "Kind": "note",
+          "Title": "C-BE — Wave-B semantic review verdict (INTEGRATED)",
+          "Source": "the-method-review-routing",
+          "Produced": true,
+          "Note": "senior-developer semantic review; all perspectives PASS/PASS-WITH-NOTES. RecordChangeReviewed → RecordActivityExited(Completed): phase Done, buildStatus Integrated. Follow-ups: stereotype/volatility metadata reads \"None\" on the settlementEngine contract entry (metadata gap — fill on next contract touch); the parked charge-only vs merchant-of-record contradiction is acknowledged and carried under the founder's billing→settlement deferral."
         }
       ]
     },
@@ -8154,7 +8188,8 @@
     "C-UA": {
       "activityID": "C-UA",
       "phase": 2,
-      "buildStatus": 1,
+      "buildStatus": 2,
+      "completedAt": "2026-07-03T00:00:00Z",
       "produced": [
         {
           "Kind": "service-contract",
@@ -8169,6 +8204,13 @@
           "Source": "implementation/log",
           "Produced": true,
           "Note": "Construction output recorded in the implementation log."
+        },
+        {
+          "Kind": "note",
+          "Title": "C-UA — Wave-B semantic review verdict (INTEGRATED)",
+          "Source": "the-method-review-routing",
+          "Produced": true,
+          "Note": "senior-developer semantic review; all perspectives PASS/PASS-WITH-NOTES. RecordChangeReviewed → RecordActivityExited(Completed): phase Done, buildStatus Integrated. Follow-up (non-blocking): cosmetic rename debris — contract title still reads \"usagelog contract\" and the file is usagelog.go; tidy to usageAccess naming on a later pass."
         }
       ]
     },
@@ -8315,14 +8357,15 @@
     "R-DER": {
       "activityID": "R-DER",
       "phase": 2,
-      "buildStatus": 1,
+      "buildStatus": 2,
+      "completedAt": "2026-07-03T00:00:00Z",
       "produced": [
         {
-          "Kind": "code",
-          "Title": " — built component",
-          "Source": "implementation/log",
+          "Kind": "note",
+          "Title": "R-DER — verified integrated (Durable Execution Runtime)",
+          "Source": "server/internal/resourceaccess/durableexecution/temporal_integration_test.go",
           "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
+          "Note": "RecordChangeReviewed → RecordActivityExited(Completed): phase Done, buildStatus Integrated. Temporal selected as the Durable Execution Runtime; dev provisioning integration-tested (temporal_integration_test.go). PRODUCTION provisioning transfers to N-DEP — in-cluster Temporal is already the deployed precedent in the GitOps repo, so production stand-up rides the existing deployment path rather than a bespoke R-DER production step."
         }
       ]
     },
@@ -8507,8 +8550,8 @@
     }
   },
   "constructionProgress": {
-    "Week": 0,
-    "TotalWeeks": 0,
+    "Week": 1,
+    "TotalWeeks": 49,
     "HandOffModel": "Senior hand-off",
     "SupervisionCap": 3
   },
