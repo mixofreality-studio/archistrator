@@ -77,6 +77,11 @@ agnostic — never put workflow-engine primitives (`Activity:`,
 the labels. Those belong in the committed operational-concepts artifact
 (the `.operationalConcepts` slot).
 
+View and edge labels are lowercase-first call-syntax prose (`submitOrder(orderId)`)
+while contract operation names are PascalCase code surface (`SubmitOrder`); the
+checkers case-fold between the two, so a lowercase-first label and its PascalCase
+contract op are the same name and never need to match byte-for-byte.
+
 | Edge | Label shape | Why |
 |---|---|---|
 | Client → Manager | `<managerMethodName>(<args>) → <result>` (or just `<managerMethodName>`) | The Client invokes a method on the Manager. The label IS the method name. List alternative methods on the same edge with `\|`. |

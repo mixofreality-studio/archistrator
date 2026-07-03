@@ -503,7 +503,7 @@ var registry = []component{
 		iface:     reflect.TypeOf((*constructionpipeline.ConstructionPipelineAccess)(nil)).Elem(),
 	},
 	{
-		name: "usagelog",
+		name: "usage",
 		dir:  "internal/resourceaccess/usage",
 		models: []any{
 			// The full transitive closure of UsageAccess's OWN contract value types

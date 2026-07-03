@@ -1,6 +1,6 @@
 // cmd/replan-sdp is a ONE-OFF developer tool: recompute the Phase-2 risk model
 // and SDP review from the (regenerated) activity list + network + solution
-// params using the REAL constructionEstimationEngine, so their numbers reflect
+// params using the REAL estimationEngine, so their numbers reflect
 // the current one-activity-per-component network. It reads project.json, computes
 // per-option ConstructionEstimate via estimation.EstimateForOption (the same call
 // the projectDesign workflow makes — assembleOption/toEstimationOption inlined),

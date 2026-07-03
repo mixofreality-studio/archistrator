@@ -10,7 +10,6 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/constructionpipeline"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/durableexecution"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/worker"
@@ -133,6 +132,6 @@ type ConstructionManager interface {
 // builder newConstructionManager in the manager package (which owns the stateful facade setup:
 // the Temporal client, the deps, and config). The constructor returns the
 // interface, so the concrete manager impl stays unexported.
-func NewConstructionManager(client client.Client, projectState projectstate.ProjectStateAccess, artifact artifact.ArtifactAccess, worker worker.WorkerAccess, durableExecution durableexecution.DurableExecutionAccess, handOff handoff.HandOffEngine, intervention intervention.InterventionEngine, review review.ReviewEngine, pipeline constructionpipeline.ConstructionPipelineAccess, rail sourcecontrol.SourceControlAccess, constructionTransition projectstate.ConstructionTransitionAccess, gitActivityStatus projectstate.GitActivityStatusAccess, escalationWaitTimeout time.Duration, interventionMode string) ConstructionManager {
-	return newConstructionManager(client, projectState, artifact, worker, durableExecution, handOff, intervention, review, pipeline, rail, constructionTransition, gitActivityStatus, escalationWaitTimeout, interventionMode)
+func NewConstructionManager(client client.Client, projectState projectstate.ProjectStateAccess, artifact artifact.ArtifactAccess, worker worker.WorkerAccess, handOff handoff.HandOffEngine, intervention intervention.InterventionEngine, review review.ReviewEngine, pipeline constructionpipeline.ConstructionPipelineAccess, rail sourcecontrol.SourceControlAccess, constructionTransition projectstate.ConstructionTransitionAccess, gitActivityStatus projectstate.GitActivityStatusAccess, escalationWaitTimeout time.Duration, interventionMode string) ConstructionManager {
+	return newConstructionManager(client, projectState, artifact, worker, handOff, intervention, review, pipeline, rail, constructionTransition, gitActivityStatus, escalationWaitTimeout, interventionMode)
 }

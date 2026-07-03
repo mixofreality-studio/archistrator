@@ -1125,7 +1125,7 @@ func toProjectStateMoney(m operationestimation.Money) projectstate.Money {
 }
 
 // toEstimationOption converts the canonical projectstate option to the
-// constructionEstimationEngine's OWN SLIM ProjectOption snapshot at the call boundary
+// estimationEngine's OWN SLIM ProjectOption snapshot at the call boundary
 // (Option B full encapsulation: the Engine redefines every domain type it uses as its
 // own generated def and imports no projectstate, so the Manager maps field-by-field
 // here). The Engine reads only the construction-side network + worker mix + calendar,
@@ -1155,7 +1155,7 @@ func toEstimationOption(opt projectstate.ProjectOption) estimation.ProjectOption
 	}
 }
 
-// toProjectStateMoneyFromEstimation converts the constructionEstimationEngine's OWN
+// toProjectStateMoneyFromEstimation converts the estimationEngine's OWN
 // Money back to the canonical projectstate.Money at the call boundary (Option B full
 // encapsulation).
 func toProjectStateMoneyFromEstimation(m estimation.Money) projectstate.Money {
@@ -1164,6 +1164,9 @@ func toProjectStateMoneyFromEstimation(m estimation.Money) projectstate.Money {
 
 // recommendOption picks the row with the best (lowest CompositeRisk, tie-break
 // lowest DurationDays) and returns its OptionID + a short deterministic rationale.
+// NOTE: this is a Manager-side placeholder earmarked for the deferred risk/estimation
+// engine re-plan (the estimationEngine follow-up: G1 longest-path, G2 float-based
+// activity risk) — the ranking heuristic migrates into that Engine when it lands.
 func recommendOption(rows []projectstate.SdpOptionRow) (projectstate.OptionID, string) {
 	if len(rows) == 0 {
 		return "", "no options assembled"

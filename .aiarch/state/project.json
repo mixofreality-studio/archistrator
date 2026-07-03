@@ -5640,12 +5640,6 @@
             "label": "getInstallationToken(repo) → RepoCredential"
           },
           {
-            "from": "operations-manager",
-            "to": "source-control-access",
-            "mode": "sync",
-            "label": "getInstallationToken(repo) → RepoCredential"
-          },
-          {
             "from": "construction-manager",
             "to": "source-control-access",
             "mode": "sync",
@@ -5676,34 +5670,16 @@
             "label": "mergePullRequest(repo, pr, cred, key) → MergeResult"
           },
           {
-            "from": "system-design-manager",
-            "to": "durable-execution-access",
-            "mode": "sync",
-            "label": "startTimer / awaitSignal(reviewDecision) / executeChild during Phase 1 progression"
-          },
-          {
-            "from": "project-design-manager",
-            "to": "durable-execution-access",
-            "mode": "sync",
-            "label": "startTimer / awaitSignal(sdpDecision) / executeChild during Phase 2 progression"
-          },
-          {
-            "from": "construction-manager",
-            "to": "durable-execution-access",
-            "mode": "sync",
-            "label": "startTimer / awaitSignal(operatorPauseRequested) / executeChild(perActivity); registerSchedule(nextActivity)"
-          },
-          {
             "from": "operations-manager",
             "to": "durable-execution-access",
             "mode": "sync",
-            "label": "startTimer / awaitSignal(applyDelinquencyPolicy); registerSchedule(operatedStateReconcile)"
+            "label": "registerSchedule(operatedStateReconcile)"
           },
           {
             "from": "settlement-manager",
             "to": "durable-execution-access",
             "mode": "sync",
-            "label": "startWorkflow(register | onboard | closeCycle) / signalWithStart(inboundRevenue, chargeback); registerSchedule(shortfallSweep)"
+            "label": "deliverSignal(applyDelinquencyPolicy) / registerSchedule(shortfallSweep)"
           },
           {
             "from": "project-state-access",
@@ -5884,9 +5860,7 @@
               "system-design-manager",
               "project-state-access",
               "construction-pipeline-access",
-              "durable-execution-access",
               "mcp-client",
-              "durable-execution-runtime",
               "project-git-repo"
             ],
             "edges": [
@@ -5913,18 +5887,6 @@
                 "to": "construction-pipeline-access",
                 "mode": "sync",
                 "label": "dispatch architect-draft / PM-critique agentic job (per step); observe; read back from git"
-              },
-              {
-                "from": "system-design-manager",
-                "to": "durable-execution-access",
-                "mode": "sync",
-                "label": "executeChild(per artifactKind) / awaitSignal(reviewDecision)"
-              },
-              {
-                "from": "durable-execution-access",
-                "to": "durable-execution-runtime",
-                "mode": "sync",
-                "label": "execute workflow / await reviewDecision signal"
               },
               {
                 "from": "web-client",
@@ -6208,7 +6170,8 @@
               "autoscaler-engine",
               "mcp-client",
               "operated-system-state",
-              "artifact-access"
+              "artifact-access",
+              "durable-execution-access"
             ],
             "edges": [
               {
@@ -6258,6 +6221,12 @@
                 "to": "operated-system-state-access",
                 "mode": "sync",
                 "label": "publishDesiredState(reason=operator|deployAfterConstruction|delinquency)"
+              },
+              {
+                "from": "operations-manager",
+                "to": "durable-execution-access",
+                "mode": "sync",
+                "label": "registerSchedule(operatedStateReconcile)"
               },
               {
                 "from": "scheduler-client",
@@ -6470,6 +6439,11 @@
             "topic": "deployment scenarios are configuration, not architecture",
             "decision": "Two production scenarios (DEPLOYED — NOT OPERATED; DEPLOYED — OPERATED) differ only by an operation on/off flag — OperationsManager and OperatedRuntime and hosting billing are not instantiated in the not-operated scenario. A test profile swaps the durable-execution runtime to the embedded executor, the git target to an ephemeral throwaway repo, and the agentic-coding CI to a local exec runner or stub. The component graph, call chains, and component count are identical across all scenarios.",
             "justifyingObjective": 8
+          },
+          {
+            "topic": "durable primitives are execution substrate, not architecture edges",
+            "decision": "A Manager's workflow-internal durable primitives (startTimer, awaitSignal, executeChild) and each Manager's own client.Client are EXECUTION SUBSTRATE, not architecture edges — they are how a Manager's own workflow runs on the durable runtime, not a call from one component to another. The systemDesign durable-execution-access edges therefore depict CLIENT-SIDE verb use only (deliverSignal / registerSchedule against another Manager's workflow), never a Manager's timers/awaits/child-workflows over its own encapsulated workflow.",
+            "justifyingObjective": 1
           }
         ],
         "deployment": {
@@ -9119,7 +9093,7 @@
       "component": "billingEngine",
       "layer": "Engine",
       "goPackage": "",
-      "title": "billing contract [PARKED 2026-07-03: built on main but no consuming Manager; the 2026-06-09 charge-only re-cut is deferred — settlementEngine is the live engine. Remove or revive with the billing/settlement re-plan.]",
+      "title": "billing contract",
       "$defs": {
         "CustomerID": {
           "type": "string"
@@ -9332,12 +9306,13 @@
             "error": true
           }
         ]
-      }
+      },
+      "notes": "[PARKED 2026-07-03: built on main but no consuming Manager; the 2026-06-09 charge-only re-cut is deferred — settlementEngine is the live engine. Remove or revive with the billing/settlement re-plan.]"
     },
     "billingGatewayAccess": {
       "component": "billingGatewayAccess",
       "layer": "ResourceAccess",
-      "title": "billingGatewayAccess contract [SUPERSEDED 2026-07-03 by merchantGatewayAccess (constructed stub); the approved C-BG implementation is parked on branch aiarch/construct/C-BG.]",
+      "title": "billingGatewayAccess contract",
       "interface": {
         "name": "BillingGatewayAccess",
         "layer": "resourceaccess",
@@ -9353,12 +9328,13 @@
             "error": true
           }
         ]
-      }
+      },
+      "notes": "[SUPERSEDED 2026-07-03 by merchantGatewayAccess (constructed stub); the approved C-BG implementation is parked on branch aiarch/construct/C-BG.]"
     },
     "billingStateAccess": {
       "component": "billingStateAccess",
       "layer": "ResourceAccess",
-      "title": "billingStateAccess contract [SUPERSEDED 2026-07-03 by settlementStateAccess (constructed); deferred billing scope.]",
+      "title": "billingStateAccess contract",
       "interface": {
         "name": "BillingStateAccess",
         "layer": "resourceaccess",
@@ -9389,10 +9365,11 @@
             "error": true
           }
         ]
-      }
+      },
+      "notes": "[SUPERSEDED 2026-07-03 by settlementStateAccess (constructed); deferred billing scope.]"
     },
-    "constructionEstimationEngine": {
-      "component": "constructionEstimationEngine",
+    "estimationEngine": {
+      "component": "estimationEngine",
       "layer": "Engine",
       "goPackage": "internal/engine/estimation",
       "title": "estimation contract",
@@ -9927,10 +9904,6 @@
         {
           "name": "worker",
           "component": "workerAccess"
-        },
-        {
-          "name": "durableExecution",
-          "component": "durableExecutionAccess"
         },
         {
           "name": "handOff",
@@ -13437,16 +13410,6 @@
         ]
       }
     },
-    "operationsRead-ruling": {
-      "component": "operationsRead-ruling",
-      "layer": "Manager",
-      "title": "operationsRead-ruling contract",
-      "interface": {
-        "name": "OperationsRead-ruling",
-        "layer": "manager",
-        "operations": []
-      }
-    },
     "projectDesignManager": {
       "component": "projectDesignManager",
       "layer": "Manager",
@@ -13471,7 +13434,7 @@
         },
         {
           "name": "estimator",
-          "component": "constructionEstimationEngine"
+          "component": "estimationEngine"
         },
         {
           "name": "operationEstimator",
@@ -16453,7 +16416,8 @@
             "error": true
           }
         ]
-      }
+      },
+      "notes": "Factored into four facets over the frozen core port: BranchAwareProjectStateAccess (2 ops — projectstate.go:58), ConstructionTransitionAccess (10 ops — construction_transition_port.go), GitActivityStatusAccess (4 ops — gitactivity.go), and the ProjectCatalog seam (1 op — gitstore.go:134); catalog split (CreateProject/ListProjects → projectCatalogAccess) fires on the next core-port op addition."
     },
     "revenueLedgerAccess": {
       "component": "revenueLedgerAccess",
@@ -18318,7 +18282,7 @@
         },
         {
           "name": "estimator",
-          "component": "constructionEstimationEngine"
+          "component": "estimationEngine"
         },
         {
           "name": "repoBase",
@@ -19924,7 +19888,7 @@
       "infra": [
         "Postgres"
       ],
-      "title": "usagelog contract",
+      "title": "usage contract",
       "$defs": {
         "ComputeUnits": {
           "type": "object",

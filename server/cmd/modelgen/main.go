@@ -370,14 +370,14 @@ func returnClause(op codegen.Operation) string {
 // so the full set is enrolled; replace this with a per-contract opt-in if a future
 // engine ever needs a non-pure shape.
 var engineImplAllowlist = map[string]bool{
-	"reviewEngine":                 true,
-	"handOffEngine":                true,
-	"interventionEngine":           true,
-	"settlementEngine":             true,
-	"billingEngine":                true,
-	"operationEstimationEngine":    true,
-	"autoscalerEngine":             true,
-	"constructionEstimationEngine": true,
+	"reviewEngine":              true,
+	"handOffEngine":             true,
+	"interventionEngine":        true,
+	"settlementEngine":          true,
+	"billingEngine":             true,
+	"operationEstimationEngine": true,
+	"autoscalerEngine":          true,
+	"estimationEngine":          true,
 }
 
 // infraField is one constructor parameter / struct field an infra binding

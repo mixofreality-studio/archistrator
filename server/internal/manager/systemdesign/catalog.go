@@ -24,7 +24,7 @@ import (
 // + the cross-phase typed head-state read belong on this Manager. These ops own NO
 // Temporal workflow; they are thin synchronous reads/writes over the published
 // projectStateAccess (head state), sourceControlAccess (project-birth adopt + seat),
-// and the constructionEstimationEngine (compute-at-read CPM + EV/SPI).
+// and the estimationEngine (compute-at-read CPM + EV/SPI).
 //
 // SCHEMA-FIRST: the public surface (the 3 ops + the ProjectState projection types)
 // is GENERATED into contract.gen.go from project.json .serviceContracts; this file
@@ -173,7 +173,7 @@ func mapRAError(err error) error {
 
 // computeNetworkAtRead populates the Network slot's COMPUTE-AT-READ block (per-node CPM
 // figures, criticality bands, milestone event times, summary) by running the
-// constructionEstimationEngine.ComputeNetwork over the AUTHORED network × activity list.
+// estimationEngine.ComputeNetwork over the AUTHORED network × activity list.
 // NO-OP when the estimator is nil or the Network slot has no authored model.
 func (m *systemDesignManager) computeNetworkAtRead(p *projectstate.Project) {
 	if m.estimator == nil {
@@ -246,7 +246,7 @@ func (m *systemDesignManager) computeNetworkAtRead(p *projectstate.Project) {
 }
 
 // toEstimationActivityList converts the canonical projectstate.ActivityList to the
-// constructionEstimationEngine's OWN SLIM ActivityList at the call boundary.
+// estimationEngine's OWN SLIM ActivityList at the call boundary.
 func toEstimationActivityList(al projectstate.ActivityList) estimation.ActivityList {
 	out := estimation.ActivityList{Activities: make([]estimation.ActivityItem, 0, len(al.Activities))}
 	for _, a := range al.Activities {
@@ -256,7 +256,7 @@ func toEstimationActivityList(al projectstate.ActivityList) estimation.ActivityL
 }
 
 // toEstimationNetwork converts the canonical projectstate.Network to the
-// constructionEstimationEngine's OWN SLIM Network at the call boundary.
+// estimationEngine's OWN SLIM Network at the call boundary.
 func toEstimationNetwork(net projectstate.Network) estimation.Network {
 	deps := make([]estimation.NetworkDependency, 0, len(net.Dependencies))
 	for _, d := range net.Dependencies {
@@ -592,7 +592,7 @@ func producedToContract(produced []projectstate.ProducedArtifact) []ProducedArti
 
 // constructionProgressToContract maps the project-level Phase-3 framing scalars
 // (nil in ⇒ nil out) AND computes the EV/SPI earned-value curve server-side via the
-// constructionEstimationEngine (compute-at-read).
+// estimationEngine (compute-at-read).
 func (m *systemDesignManager) constructionProgressToContract(p projectstate.Project) *ConstructionProgress {
 	cp := p.ConstructionProgress
 	if cp == nil {
@@ -630,7 +630,7 @@ func evPointsToContract(pts []projectstate.EvPoint) []EvPoint {
 }
 
 // computeEVAtRead computes the EV/SPI earned-value curve via the
-// constructionEstimationEngine.ComputeEarnedValue over the AUTHORED activity list ×
+// estimationEngine.ComputeEarnedValue over the AUTHORED activity list ×
 // network, the integrated activity set, the calendar days/week, and the total-week
 // framing. Zero EVCurve when the estimator is nil or inputs are degenerate.
 func (m *systemDesignManager) computeEVAtRead(p projectstate.Project, totalWeeks int64) EVCurve {

@@ -488,15 +488,16 @@ func run(logger *slog.Logger) error {
 		logger.Info("constructionManager → git substrate (shares the design head-state store; status cascade live)")
 	}
 
-	// scAccess (nil ⇒ PR rail dormant) is the construction rail; durableExecution is
-	// nil (schedule registration belongs to the unbuilt schedulerClient — the console's
-	// manual "Begin construction" supersedes the schedule for the dry-run).
+	// scAccess (nil ⇒ PR rail dormant) is the construction rail. The Manager owns its
+	// own Temporal client for workflow-internal durable primitives; it takes no
+	// durableExecutionAccess dep (schedule registration belongs to the unbuilt
+	// schedulerClient — the console's manual "Begin construction" supersedes the
+	// schedule for the dry-run).
 	constructionManager := construction.NewConstructionManager(
 		tc,
 		designProjectState,
 		constructionArtifacts,
 		constructionWorkers,
-		nil, // durableExecution — schedules unwired (schedulerClient concern)
 		handOffEngine,
 		interventionEngine,
 		reviewEngine,

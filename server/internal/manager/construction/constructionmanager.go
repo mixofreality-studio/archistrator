@@ -18,7 +18,6 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/constructionpipeline"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/durableexecution"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 	workeraccess "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/worker"
@@ -47,7 +46,6 @@ type constructionManager struct {
 	projectState           projectstate.ProjectStateAccess
 	artifact               artifact.ArtifactAccess
 	worker                 workeraccess.WorkerAccess
-	durable                durableexecution.DurableExecutionAccess
 	handOff                handoff.HandOffEngine
 	intervention           intervention.InterventionEngine
 	review                 review.ReviewEngine
@@ -71,7 +69,6 @@ func newConstructionManager(
 	projectState projectstate.ProjectStateAccess,
 	art artifact.ArtifactAccess,
 	wrk workeraccess.WorkerAccess,
-	durable durableexecution.DurableExecutionAccess,
 	handOff handoff.HandOffEngine,
 	interventionEng intervention.InterventionEngine,
 	reviewEng review.ReviewEngine,
@@ -87,7 +84,6 @@ func newConstructionManager(
 		projectState:           projectState,
 		artifact:               art,
 		worker:                 wrk,
-		durable:                durable,
 		handOff:                handOff,
 		intervention:           interventionEng,
 		review:                 reviewEng,

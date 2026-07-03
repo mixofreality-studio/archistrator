@@ -108,7 +108,7 @@ var componentAbbrev = map[string]string{
 	"IE":  "interventionEngine",
 	"SDE": "systemDesignEngine",
 	"AV":  "artifactValidationEngine",
-	"EE":  "constructionEstimationEngine",
+	"EE":  "estimationEngine",
 	"OE":  "operationEstimationEngine",
 	"SE":  "settlementEngine",
 	"PA":  "projectStateAccess",
