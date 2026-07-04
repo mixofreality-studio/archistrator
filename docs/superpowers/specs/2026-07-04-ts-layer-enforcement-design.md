@@ -33,32 +33,50 @@ import-direction gate mirroring the Go `arch` philosophy.
 ## Layer Model
 
 Views are dumb; **all business logic lives in the server**. The bottom app layer does
-one thing: call the generated API client. Five element types:
+one thing: call the generated API client.
 
-| Layer        | Folder        | Role                                                        |
-|--------------|---------------|------------------------------------------------------------|
-| `routes`     | `src/routes/` | Pages / screens (top). Compose components.                 |
-| `components` | `src/components/` | Dumb views. No business logic, no direct API access.   |
-| `hooks`      | `src/hooks/`  | Thin data-access. TanStack Query wrappers over the client. |
-| `api`        | `src/api/`    | **Generated** client (`schema.ts`, `client.ts`). Leaf.     |
-| `utilities`  | `src/utilities/` | Cross-cutting leaf: theme, auth context, constants, config. |
+> **Amendment (reality-driven, 2026-07-04):** the original design had 5 element types
+> with a single `api` leaf. Inspecting the real webApp showed that ~90 of the imports
+> from `src/api/` are inert **data types, pure adapters, wire-mapping functions, and
+> error classes** — things dumb views legitimately need to render — while the genuine
+> IO surface is essentially just the `apiClient` instance. Collapsing those into one
+> "only hooks may import" leaf would force pointless re-export churn through hooks (a
+> lint workaround, not a real fix). So the model is refined to **6 element types**,
+> splitting the inert `contracts` (universal leaf) from the IO `api` (hooks-only leaf).
+> This mirrors the Go layering precisely: `api` ≈ ResourceAccess (sole IO leaf),
+> `contracts` ≈ shared data contracts, `utilities` ≈ Utility.
+
+Six element types:
+
+| Layer        | Folder            | Role                                                              |
+|--------------|-------------------|------------------------------------------------------------------|
+| `routes`     | `src/routes/`     | Pages / screens (top). Compose components. Data via hooks.        |
+| `components` | `src/components/` | Dumb views. No IO. Consume contracts/utilities + hooks/props.     |
+| `hooks`      | `src/hooks/`      | Thin data-access. TanStack Query wrappers. **Sole `api` importer.** |
+| `api`        | `src/api/`        | The IO client only (`apiClient`). Hooks-only leaf.               |
+| `contracts`  | `src/contracts/`  | Data types, adapters, wire mappers, error classes, generated `schema.ts`. Pure. Universal leaf. |
+| `utilities`  | `src/utilities/`  | Cross-cutting: theme, auth context, constants, config, static data. Universal leaf. |
 
 ### Import rule matrix (downward-only; sideways *within* a layer allowed)
 
 ```
-routes      → components, hooks, utilities
-components  → components (siblings), hooks, utilities
-hooks       → hooks (siblings), api, utilities
-api         → utilities                      (generated leaf)
-utilities   → utilities (siblings)           (leaf)
+routes      → components, hooks, contracts, utilities        (NOT api)
+components  → components (siblings), hooks, contracts, utilities   (NOT api, NOT routes)
+hooks       → hooks (siblings), api, contracts, utilities    (the ONLY api importer)
+api         → contracts, utilities                           (IO client: needs schema types + config)
+utilities   → utilities (siblings), contracts                (infra may use pure types)
+contracts   → contracts (siblings)                           (pure leaf, bottom of the DAG)
 ```
 
 Key constraints, all decided:
-- **Only `hooks` may import `api`.** Routes and components never touch the generated
-  client directly — they get data via hooks (or props). This is the "dumb views"
-  guarantee.
+- **Only `hooks` may import `api` (the IO client).** Routes and components never touch
+  `apiClient` — they get server data via hooks (or props). This is the "dumb views"
+  guarantee, and the thing the gate actually enforces.
+- **`contracts` is freely importable by everyone.** Types and pure adapters are inert;
+  a typed dumb view needs them. `contracts` itself imports nothing but sibling
+  contracts (the generated `schema.ts` type file lives here — it is inert types, not IO).
 - **No upward imports.** `hooks` cannot import `components` or `routes`;
-  `components` cannot import `routes`.
+  `components` cannot import `routes`; `api` cannot import `hooks`/`components`/`routes`.
 - **Sideways is allowed *within* a layer** (a component composes sibling components; a
   hook may use a sibling hook). This is the deliberate, necessary divergence from
   Go's no-sideways rule — React components must compose.
@@ -73,7 +91,8 @@ Key constraints, all decided:
 Chosen because it maps almost 1:1 onto the Go `arch` model as pure ESLint:
 
 - `settings['boundaries/elements']` tags each folder with its element type
-  (mode `folder`, canonical `src/<layer>` patterns).
+  (mode `folder`, canonical `src/<layer>` patterns) for all six types:
+  `routes`, `components`, `hooks`, `api`, `contracts`, `utilities`.
 - `boundaries/element-types` encodes the direction matrix above (default `disallow`,
   explicit `allow` per layer) — this is the downward-only rule, declarative instead of
   path regexes.
@@ -137,45 +156,62 @@ transitively via one install). `peerDependencies`: `eslint >=9`, `typescript >=5
 
 ## webApp Migration (proving ground — Option A)
 
-The webApp is migrated now as the reference implementation:
+The webApp is migrated now as the reference implementation. The measured current
+state (2026-07-04): `src/api/` = 14 files, only ~5 files import the IO surface outside
+`hooks/`, and all 5 import merely `ApiError` (an error class), not `apiClient`. So the
+migration is **mechanical moves + import rewrites**, with no data-fetching logic moved
+into hooks.
 
-1. **Rename `src/screens/` → `src/routes/`** (update imports; `src/navigation/router.tsx`
-   references screens).
-2. **Consolidate cross-cutting dirs under `src/utilities/`:** move `theme/`, `auth/`,
-   `constants/`, `config.ts`, `data/` → `src/utilities/{theme,auth,constants,config,data}`
-   (or keep `config.ts` as `src/utilities/config.ts`). Update imports.
-3. **Router wiring** (`src/navigation/router.tsx`): classify as `routes` (route tree
-   definition) — move to `src/routes/` or map `navigation` as part of the routes
-   element. Decision: move under `src/routes/`.
-4. **Replace `webApp/eslint.config.js`** with the factory import above; drop the now-
-   duplicated baseline and plugin devDependencies (they arrive via the shared package).
-5. **Run `eslint .` and fix every real violation** the boundary rules surface — most
-   likely a `component` importing `api/` directly, which must be rerouted through a
-   hook. Each such fix is a genuine "dumb views" correction, not a lint workaround.
-6. **Verify** `npm run lint` and `npm run typecheck` are clean; run the app locally on
-   real state (per the founder's standing review loop) to confirm no runtime
-   regressions from the moves.
+1. **`src/screens/` → `src/routes/`**; move `src/navigation/router.tsx` →
+   `src/routes/router.tsx`. `src/App.tsx` stays at src root, classified `routes`.
+2. **Create `src/contracts/`** and move the inert data files there: `types.ts`,
+   `enums.ts`, `models.ts`, `operationsTypes.ts`, `adapters.ts`, `projectAdapters.ts`,
+   `constructionAdapters.ts`, `operationsAdapters.ts`, `serviceContracts.ts`,
+   `contractComponentId.ts`, `constructionRows.ts`, `wire.ts`, and the generated
+   `schema.ts`.
+3. **Extract error types from `src/api/client.ts`** — move `ApiError`, `WireError`,
+   `toApiError` into `src/contracts/errors.ts`. `src/api/client.ts` then exports only
+   `apiClient` (the `createClient<paths>` instance). The 5 `ApiError` importers now
+   point at `contracts/errors`, resolving the only cross-layer "violations" cleanly.
+4. **Create `src/utilities/`** and move `theme/`, `auth/`, `constants/`, `config.ts`,
+   `data/` under it (`src/utilities/{theme,auth,constants,config,data}`).
+5. **Update the codegen** `scripts/gen-api.mjs` to emit `schema.ts` into
+   `src/contracts/` instead of `src/api/`, and the eslint `ignores` entry accordingly
+   (`src/contracts/schema.ts`).
+6. **Rewrite all import specifiers** across `src/**` to the new paths (scripted, then
+   gated by `tsc --noEmit` which will flag any missed path). Update `tsconfig` paths if
+   any alias references the moved dirs.
+7. **Replace `webApp/eslint.config.js`** with the factory import; drop the now-
+   duplicated baseline + plugin devDependencies (they arrive via the shared package).
+8. **Verify** `npm run typecheck`, `npm run lint`, `npm run build` all clean; then run
+   the app locally on real state (per the founder's standing review loop) to confirm no
+   runtime regressions from the moves.
 
-Ignored entry/ambient files during migration: `src/main.tsx`, `src/vite-env.d.ts`.
+Ignored entry/ambient files: `src/main.tsx`, `src/vite-env.d.ts`.
+
+**Review note:** file moves that touch rendered screens fall under the founder's
+"STOP-for-review per UI change" loop. This migration changes *only import paths and
+file locations*, not component behavior or markup — but the branch is left for founder
+review (run locally) before merge rather than self-merged.
 
 ## Testing
 
 - **Package fixtures:** the eslint-config package ships a `fixtures/` tree with a
   *valid* sample app (passes clean) and an *invalid* sample app exercising each rule —
-  component→api, hook→component, route imported by hook, an unclassified file — each
-  asserted to produce the expected boundary error. A `test` script runs eslint over the
-  fixtures and checks the error set. This is the analogue of `framework-go/arch`'s
-  self-test.
+  component→api (IO client), hook→component (upward), route→api, api→hooks (upward),
+  and an unclassified file — each asserted to produce the expected boundary error. A
+  `test` script runs eslint over the fixtures and checks the error set. This is the
+  analogue of `framework-go/arch`'s self-test.
 - **webApp:** `npm run lint` clean post-migration is the integration proof.
 
 ## Rollout / Risks
 
 - **Rename churn** (`screens`→`routes`, utilities consolidation) touches many imports;
   done in one migration commit with typecheck + local run as the gate.
-- **Generated `api/`:** `boundaries/elements` must classify `src/api` as `api` and the
-  config must still ignore `src/api/schema.ts` *content* (generated), while the folder
-  itself remains a classified leaf — the ignore is for lint rules on generated code,
-  not for boundary classification.
+- **Generated `schema.ts`:** now lives in `src/contracts/` (inert types). The eslint
+  `ignores` skips linting its content, but `src/contracts` remains a classified leaf —
+  the ignore is for lint rules on generated code, not for boundary classification. The
+  codegen script's output path moves with it.
 - **Future apps** adopt by (a) using the canonical `src/<layer>` layout and (b) the
   three-line factory import. No per-app boundary config needed.
 
