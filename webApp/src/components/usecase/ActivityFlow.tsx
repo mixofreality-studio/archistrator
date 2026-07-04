@@ -12,8 +12,16 @@
  * detected back-edge / loop) render dashed in the accent color. Selecting a node
  * arms a comment anchor. Derivation is memoized on (use case, theme).
  */
-import { useMemo, type ReactNode } from 'react';
-import { ReactFlow, Background, Controls, MarkerType, type Edge, type Node } from '@xyflow/react';
+import { useEffect, useMemo, type ReactNode } from 'react';
+import {
+  ReactFlow,
+  Background,
+  Controls,
+  MarkerType,
+  useReactFlow,
+  type Edge,
+  type Node,
+} from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import Box from '@mui/material/Box';
 import type { UseCaseView } from '../../api/adapters';
@@ -125,6 +133,37 @@ function build(
   return { nodes: [...laneNodes, ...activityNodes], edges };
 }
 
+/**
+ * Pans + zooms the canvas to center the current walkthrough node whenever it
+ * changes (mirrors the contracts view centering on a clicked method). Lives as a
+ * child of <ReactFlow> so it can use the flow hooks; a double-rAF waits for the
+ * node to be measured before centering, else its dimensions read stale.
+ */
+function FocusNode({ nodeId }: { nodeId: string }): null {
+  const { setCenter, getNode } = useReactFlow();
+  useEffect(() => {
+    if (nodeId === '') return undefined;
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        const n = getNode(nodeId);
+        if (n === undefined) return;
+        const w = n.measured?.width ?? 0;
+        const h = n.measured?.height ?? 0;
+        void setCenter(n.position.x + w / 2, n.position.y + h / 2, {
+          zoom: 1,
+          duration: 400,
+        });
+      });
+    });
+    return (): void => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
+  }, [nodeId, setCenter, getNode]);
+  return null;
+}
+
 export function ActivityFlow({
   uc,
   useCaseIndex,
@@ -163,8 +202,8 @@ export function ActivityFlow({
     >
       <ReactFlow
         elementsSelectable
-        fitView
         edges={edges}
+        fitView={highlight === undefined}
         fitViewOptions={{ padding: 0.18 }}
         key={uc.id}
         maxZoom={1.4}
@@ -177,6 +216,7 @@ export function ActivityFlow({
       >
         <Background color={t.line} gap={22} size={1} />
         <Controls showInteractive={false} />
+        {highlight !== undefined && <FocusNode nodeId={highlight.current} />}
       </ReactFlow>
     </Box>
   );
