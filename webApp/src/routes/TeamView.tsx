@@ -26,10 +26,10 @@ import TerminalIcon from '@mui/icons-material/Terminal';
 import { getRouteApi } from '@tanstack/react-router';
 import { AppShell } from '../components/AppShell';
 import { RoleAvatar } from '../components/RoleAvatar';
-import { TEAM_SECTIONS, roleById, type TeamRole } from '../data/team';
-import { useTokens } from '../theme/ThemeContext';
-import type { Tokens } from '../theme/themes';
-import { UI_IDENTIFIERS } from '../constants/UIIdentifiers';
+import { TEAM_SECTIONS, roleById, type TeamRole } from '../utilities/data/team';
+import { useTokens } from '../utilities/theme/ThemeContext';
+import type { Tokens } from '../utilities/theme/themes';
+import { UI_IDENTIFIERS } from '../utilities/constants/UIIdentifiers';
 
 const routeApi = getRouteApi('/project/$projectId/team');
 

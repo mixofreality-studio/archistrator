@@ -11,8 +11,8 @@
 import type { ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import Tooltip from '@mui/material/Tooltip';
-import type { Tokens } from '../../theme/themes';
-import { type RuntimePhase, phaseIsConverging } from '../../api/operationsAdapters';
+import type { Tokens } from '../../utilities/theme/themes';
+import { type RuntimePhase, phaseIsConverging } from '../../contracts/operationsAdapters';
 
 export function phaseColor(t: Tokens, p: RuntimePhase): string {
   switch (p) {

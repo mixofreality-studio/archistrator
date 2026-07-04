@@ -20,9 +20,9 @@ import ReceiptLongOutlinedIcon from '@mui/icons-material/ReceiptLongOutlined';
 import CreditCardOutlinedIcon from '@mui/icons-material/CreditCardOutlined';
 import { getRouteApi, useNavigate } from '@tanstack/react-router';
 import { AppShell } from '../components/AppShell';
-import { useTokens } from '../theme/ThemeContext';
-import type { Tokens } from '../theme/themes';
-import { UI_IDENTIFIERS } from '../constants/UIIdentifiers';
+import { useTokens } from '../utilities/theme/ThemeContext';
+import type { Tokens } from '../utilities/theme/themes';
+import { UI_IDENTIFIERS } from '../utilities/constants/UIIdentifiers';
 
 const routeApi = getRouteApi('/project/$projectId/billing');
 

@@ -9,13 +9,13 @@
 import type { ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
-import type { CheckStatus } from '../api/models';
-import { toStandardCheckView } from '../api/adapters';
-import type { ArtifactModelEnvelope } from '../api/types';
+import type { CheckStatus } from '../contracts/models';
+import { toStandardCheckView } from '../contracts/adapters';
+import type { ArtifactModelEnvelope } from '../contracts/types';
 import { CommentableList } from './comments/CommentableList';
 import { standardCheckItemAnchor } from './comments/CommentContext';
-import { useTokens } from '../theme/ThemeContext';
-import type { Tokens } from '../theme/themes';
+import { useTokens } from '../utilities/theme/ThemeContext';
+import type { Tokens } from '../utilities/theme/themes';
 
 function statusColor(t: Tokens, status: CheckStatus): { bg: string; fg: string } {
   if (status === 'pass') return { bg: t.committedBg, fg: t.committedFg };

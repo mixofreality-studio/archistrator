@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
-import { UI_IDENTIFIERS } from '../../../constants/UIIdentifiers';
+import { UI_IDENTIFIERS } from '../../../utilities/constants/UIIdentifiers';
 import type { ArtifactRendererProps } from '../artifactRenderers';
 import { ScenarioBrowser } from './ScenarioBrowser';
 

@@ -11,7 +11,7 @@
  * without fabricating any data: it reads only the ordinal the status implies.
  */
 
-import type { BuildStatus } from '../../api/constructionAdapters';
+import type { BuildStatus } from '../../contracts/constructionAdapters';
 import type { ActivityKind } from './KindBadge';
 
 // ---------------------------------------------------------------------------

@@ -29,17 +29,17 @@ import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import RocketLaunchIcon from '@mui/icons-material/RocketLaunch';
 import { getRouteApi, useNavigate } from '@tanstack/react-router';
 
-import { ApiError } from '../api/client';
-import { PHASE2_ORDER } from '../constants/MethodMetadata';
-import { METHOD_METADATA } from '../constants/MethodMetadata';
-import { slotStageFromOrdinal } from '../api/adapters';
+import { ApiError } from '../contracts/errors';
+import { PHASE2_ORDER } from '../contracts/methodMetadata';
+import { METHOD_METADATA } from '../contracts/methodMetadata';
+import { slotStageFromOrdinal } from '../contracts/adapters';
 import type {
   ProjectArtifactKind,
   ProjectArtifactModelEnvelope,
   ProjectPhaseAdvanceResponse,
   ProjectState,
   Finding,
-} from '../api/types';
+} from '../contracts/types';
 
 import { useProject } from '../hooks/useProject';
 import { useProjectSessionState } from '../hooks/useProjectSessionState';
@@ -62,9 +62,9 @@ import { StageChip } from '../components/StageChip';
 import { ProjectArtifactRenderer } from '../components/project/ProjectArtifactRenderer';
 import { CommentProvider, useComments } from '../components/comments/CommentContext';
 
-import { useTokens } from '../theme/ThemeContext';
-import type { Tokens } from '../theme/themes';
-import { UI_IDENTIFIERS } from '../constants/UIIdentifiers';
+import { useTokens } from '../utilities/theme/ThemeContext';
+import type { Tokens } from '../utilities/theme/themes';
+import { UI_IDENTIFIERS } from '../utilities/constants/UIIdentifiers';
 
 const projectRouteApi = getRouteApi('/project/$projectId/design/project');
 

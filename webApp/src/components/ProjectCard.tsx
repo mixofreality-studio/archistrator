@@ -11,10 +11,10 @@ import Chip from '@mui/material/Chip';
 import LinearProgress from '@mui/material/LinearProgress';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import GitHubIcon from '@mui/icons-material/GitHub';
-import type { ProjectSummary } from '../api/types';
+import type { ProjectSummary } from '../contracts/types';
 import { PHASE_LABELS, formatUpdatedAt } from './projectFormat';
-import { useTokens } from '../theme/ThemeContext';
-import { UI_IDENTIFIERS } from '../constants/UIIdentifiers';
+import { useTokens } from '../utilities/theme/ThemeContext';
+import { UI_IDENTIFIERS } from '../utilities/constants/UIIdentifiers';
 
 export function ProjectCard({
   project,

@@ -24,13 +24,13 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import Box from '@mui/material/Box';
-import type { UseCaseView } from '../../api/adapters';
+import type { UseCaseView } from '../../contracts/adapters';
 import { ActivityNode } from './ActivityNode';
 import { SwimlaneBackground } from './SwimlaneBackground';
 import { activityNodeAnchor, useComments } from '../comments/CommentContext';
 import { laneColors, laneBand } from './laneColors';
-import { useTokens } from '../../theme/ThemeContext';
-import type { Tokens } from '../../theme/themes';
+import { useTokens } from '../../utilities/theme/ThemeContext';
+import type { Tokens } from '../../utilities/theme/themes';
 import { layoutActivity, isBackEdge, HEADER_HEIGHT } from './activityLayout';
 
 const nodeTypes = { activity: ActivityNode, swimlane: SwimlaneBackground };

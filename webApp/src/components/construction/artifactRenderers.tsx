@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
-import type { ArtifactModelEnvelope, ProjectStateWithGit } from '../../api/types';
-import type { Tokens } from '../../theme/themes';
+import type { ArtifactModelEnvelope, ProjectStateWithGit } from '../../contracts/types';
+import type { Tokens } from '../../utilities/theme/themes';
 import type { ArtifactActivityVM } from './ArtifactActivityList';
 import type { Classification } from './artifactClassification';
 import { SystemTestRunView } from './renderers/SystemTestRunView';

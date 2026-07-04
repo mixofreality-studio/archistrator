@@ -9,7 +9,7 @@ import type { ReactNode } from 'react';
 import { BaseEdge, getSmoothStepPath, type EdgeProps, type NodeProps } from '@xyflow/react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
-import { useTokens } from '../../theme/ThemeContext';
+import { useTokens } from '../../utilities/theme/ThemeContext';
 import type { Anchor } from '../comments/CommentContext';
 import { GUTTER_W, NODE_H } from './flowLayout';
 

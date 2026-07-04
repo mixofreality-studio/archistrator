@@ -38,15 +38,15 @@ import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import Collapse from '@mui/material/Collapse';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import type { ProjectArtifactModelEnvelope } from '../../api/types';
+import type { ProjectArtifactModelEnvelope } from '../../contracts/types';
 import {
   toNetworkView,
   type FloatBand,
   type NetworkView as NetworkViewModel,
-} from '../../api/projectAdapters';
-import type { BuildStatus } from '../../api/constructionAdapters';
-import { useTokens } from '../../theme/ThemeContext';
-import type { Tokens } from '../../theme/themes';
+} from '../../contracts/projectAdapters';
+import type { BuildStatus } from '../../contracts/constructionAdapters';
+import { useTokens } from '../../utilities/theme/ThemeContext';
+import type { Tokens } from '../../utilities/theme/themes';
 import { ComputedBadge, ComputedLegend } from './computed';
 import { NetworkSummaryStrip } from './NetworkSummaryStrip';
 import { NetworkNode, type NetworkNodeData } from './NetworkNode';

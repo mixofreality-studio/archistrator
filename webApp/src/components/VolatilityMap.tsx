@@ -15,12 +15,12 @@ import Typography from '@mui/material/Typography';
 import Tooltip from '@mui/material/Tooltip';
 import Button from '@mui/material/Button';
 import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
-import { toVolatilityView, AXIS1_LABEL, AXIS2_LABEL, type VolatilityPoint } from '../api/adapters';
-import type { ArtifactModelEnvelope } from '../api/types';
-import type { Axis } from '../api/models';
+import { toVolatilityView, AXIS1_LABEL, AXIS2_LABEL, type VolatilityPoint } from '../contracts/adapters';
+import type { ArtifactModelEnvelope } from '../contracts/types';
+import type { Axis } from '../contracts/models';
 import { useComments, volatilityAnchor } from './comments/CommentContext';
-import { useTokens } from '../theme/ThemeContext';
-import type { Tokens } from '../theme/themes';
+import { useTokens } from '../utilities/theme/ThemeContext';
+import type { Tokens } from '../utilities/theme/themes';
 
 function axisColor(t: Tokens, a: Axis): string {
   return a === 'sameCustomerOverTime' ? t.accent2 : t.committedDot;

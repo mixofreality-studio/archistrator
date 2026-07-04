@@ -30,24 +30,24 @@ import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined';
 import PlayArrowRoundedIcon from '@mui/icons-material/PlayArrowRounded';
 import { getRouteApi, useNavigate } from '@tanstack/react-router';
 
-import { ApiError } from '../api/client';
+import { ApiError } from '../contracts/errors';
 import type {
   ConstructionRow,
   GitRow,
   ProjectArtifactModelEnvelope,
   ProjectStateWithGit,
-} from '../api/types';
-import { gitFor } from '../api/types';
-import type { OverrideKind } from '../api/types';
-import { slotStageFromOrdinal } from '../api/adapters';
+} from '../contracts/types';
+import { gitFor } from '../contracts/types';
+import type { OverrideKind } from '../contracts/types';
+import { slotStageFromOrdinal } from '../contracts/adapters';
 import {
   buildStatusForStage,
   sessionIsLive,
   activeActivityId,
   computeActivityStatuses,
   type BuildStatus,
-} from '../api/constructionAdapters';
-import { toNetworkView, narrowProject } from '../api/projectAdapters';
+} from '../contracts/constructionAdapters';
+import { toNetworkView, narrowProject } from '../contracts/projectAdapters';
 import { useProject } from '../hooks/useProject';
 import { useConstructionSession } from '../hooks/useConstructionSession';
 import {
@@ -66,9 +66,9 @@ import { ActivityLifecyclePanel } from '../components/construction/ActivityLifec
 import { PhaseGatePanel } from '../components/construction/PhaseGatePanel';
 import { CommentProvider, useComments } from '../components/comments/CommentContext';
 
-import { useTokens } from '../theme/ThemeContext';
-import type { Tokens } from '../theme/themes';
-import { UI_IDENTIFIERS } from '../constants/UIIdentifiers';
+import { useTokens } from '../utilities/theme/ThemeContext';
+import type { Tokens } from '../utilities/theme/themes';
+import { UI_IDENTIFIERS } from '../utilities/constants/UIIdentifiers';
 
 const routeApi = getRouteApi('/project/$projectId/construction');
 

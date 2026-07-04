@@ -48,7 +48,7 @@ import type {
   UseCaseDecision,
   Volatilities,
 } from './models';
-import { METHOD_METADATA, PHASE1_ORDER, PHASE2_ORDER } from '../constants/MethodMetadata';
+import { METHOD_METADATA, PHASE1_ORDER, PHASE2_ORDER } from './methodMetadata';
 
 // ---------------------------------------------------------------------------
 // Phase spine — the three Method phases as locked/active/done cards.

@@ -5,8 +5,9 @@
  * resolves to the server-minted projectId the caller navigates to.
  */
 import { useMutation, useQueryClient, type UseMutationResult } from '@tanstack/react-query';
-import { apiClient, toApiError } from '../api/client';
-import { useUser } from '../auth/UserContext';
+import { apiClient } from '../api/client';
+import { toApiError } from '../contracts/errors';
+import { useUser } from '../utilities/auth/UserContext';
 import { projectsKey } from './useProjects';
 
 export function useCreateProject(): UseMutationResult<string, Error, string> {

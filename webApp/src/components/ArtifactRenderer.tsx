@@ -16,8 +16,8 @@
  */
 import type { ReactNode } from 'react';
 import Box from '@mui/material/Box';
-import { toMarkdown } from '../api/adapters';
-import type { ArtifactModelEnvelope, ServiceContracts } from '../api/types';
+import { toMarkdown } from '../contracts/adapters';
+import type { ArtifactModelEnvelope, ServiceContracts } from '../contracts/types';
 import { Prose } from './Prose';
 import { GlossaryView } from './GlossaryView';
 import { MissionView } from './MissionView';
@@ -27,7 +27,7 @@ import { VolatilityMap } from './VolatilityMap';
 import { ArchitectureView } from './flow/ArchitectureView';
 import { OperationalConceptsView } from './OperationalConceptsView';
 import { UseCaseCarousel } from './usecase/UseCaseCarousel';
-import { UI_IDENTIFIERS } from '../constants/UIIdentifiers';
+import { UI_IDENTIFIERS } from '../utilities/constants/UIIdentifiers';
 
 export function ArtifactRenderer({
   envelope,

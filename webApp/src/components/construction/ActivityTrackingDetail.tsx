@@ -20,12 +20,12 @@ import ReplayIcon from '@mui/icons-material/Replay';
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
 import SkipNextIcon from '@mui/icons-material/SkipNext';
 import OpenWithIcon from '@mui/icons-material/OpenWith';
-import type { ConstructionSessionState, OverrideKind } from '../../api/types';
-import type { GitRow } from '../../api/types';
-import { STAGE_LABEL } from '../../api/constructionAdapters';
-import { useTokens } from '../../theme/ThemeContext';
-import type { Tokens } from '../../theme/themes';
-import { UI_IDENTIFIERS } from '../../constants/UIIdentifiers';
+import type { ConstructionSessionState, OverrideKind } from '../../contracts/types';
+import type { GitRow } from '../../contracts/types';
+import { STAGE_LABEL } from '../../contracts/constructionAdapters';
+import { useTokens } from '../../utilities/theme/ThemeContext';
+import type { Tokens } from '../../utilities/theme/themes';
+import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 import { GitRowMeta } from '../GitStatus';
 
 const OVERRIDE_KINDS: { kind: OverrideKind; label: string; detail: string; icon: ReactNode }[] = [

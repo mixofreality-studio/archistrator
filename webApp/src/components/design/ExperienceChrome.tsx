@@ -19,8 +19,8 @@ import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
 
 import { ThemeSwitcher } from '../ThemeSwitcher';
 import { SelectionPopover } from '../comments/SelectionPopover';
-import { useTokens } from '../../theme/ThemeContext';
-import { UI_IDENTIFIERS } from '../../constants/UIIdentifiers';
+import { useTokens } from '../../utilities/theme/ThemeContext';
+import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 
 export function ExperienceChrome({
   phaseNum,

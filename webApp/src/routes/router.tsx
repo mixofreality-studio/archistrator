@@ -14,15 +14,15 @@
  * definitions here) so fast-refresh stays happy alongside the `router` export.
  */
 import { createRootRoute, createRoute, createRouter, Outlet } from '@tanstack/react-router';
-import { ProjectsLanding } from '../screens/ProjectsLanding';
-import { HomeBase } from '../screens/HomeBase';
-import { SystemDesignScreen, ProjectDesignScreen } from '../screens/DesignExperience';
-import { ConstructionConsoleScreen } from '../screens/ConstructionConsole';
-import { OperationsConsoleScreen } from '../screens/OperationsConsole';
-import { ChangeRequestsScreen } from '../screens/ChangeRequests';
-import { SubprojectFlowScreen } from '../screens/SubprojectFlow';
-import { BillingScreen } from '../screens/Billing';
-import { TeamScreen } from '../screens/TeamView';
+import { ProjectsLanding } from './ProjectsLanding';
+import { HomeBase } from './HomeBase';
+import { SystemDesignScreen, ProjectDesignScreen } from './DesignExperience';
+import { ConstructionConsoleScreen } from './ConstructionConsole';
+import { OperationsConsoleScreen } from './OperationsConsole';
+import { ChangeRequestsScreen } from './ChangeRequests';
+import { SubprojectFlowScreen } from './SubprojectFlow';
+import { BillingScreen } from './Billing';
+import { TeamScreen } from './TeamView';
 
 const rootRoute = createRootRoute({ component: Outlet });
 

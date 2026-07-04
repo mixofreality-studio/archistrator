@@ -1,5 +1,5 @@
 /**
- * gen:api — generate src/api/schema.ts from the server's OpenAPI document.
+ * gen:api — generate src/contracts/schema.ts from the server's OpenAPI document.
  *
  * The server OAS is merged from per-manager surfaces (system-design,
  * project-design, construction, operations, project). Those surfaces reuse the
@@ -25,7 +25,7 @@ import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const oasPath = join(here, '..', '..', 'server', 'api', 'openapi.yaml');
-const outPath = join(here, '..', 'src', 'api', 'schema.ts');
+const outPath = join(here, '..', 'src', 'contracts', 'schema.ts');
 
 const source = readFileSync(oasPath, 'utf8');
 

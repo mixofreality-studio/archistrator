@@ -12,11 +12,11 @@ import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import LinearProgress from '@mui/material/LinearProgress';
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
-import type { ArtifactMeta, PhaseCardView } from '../api/adapters';
-import type { ProjectState, PlanningAssumptionsModel } from '../api/types';
-import { raise, type Tokens } from '../theme/themes';
-import { useTokens } from '../theme/ThemeContext';
-import { UI_IDENTIFIERS } from '../constants/UIIdentifiers';
+import type { ArtifactMeta, PhaseCardView } from '../contracts/adapters';
+import type { ProjectState, PlanningAssumptionsModel } from '../contracts/types';
+import { raise, type Tokens } from '../utilities/theme/themes';
+import { useTokens } from '../utilities/theme/ThemeContext';
+import { UI_IDENTIFIERS } from '../utilities/constants/UIIdentifiers';
 
 export function PhaseCard({
   phase,

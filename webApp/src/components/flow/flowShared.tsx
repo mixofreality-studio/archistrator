@@ -21,7 +21,7 @@ import {
 import '@xyflow/react/dist/style.css';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
-import type { Tokens } from '../../theme/themes';
+import type { Tokens } from '../../utilities/theme/themes';
 import { type Layer, LAYER_LABEL } from './flowLayout';
 import { edgeTypes, nodeTypes } from './flowNodeTypes';
 

@@ -29,10 +29,10 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CallMergeIcon from '@mui/icons-material/CallMerge';
 import UndoIcon from '@mui/icons-material/Undo';
 import VerifiedIcon from '@mui/icons-material/Verified';
-import { useTokens } from '../theme/ThemeContext';
-import type { Tokens } from '../theme/themes';
-import type { CiStatus, GitRow } from '../api/types';
-import { UI_IDENTIFIERS } from '../constants/UIIdentifiers';
+import { useTokens } from '../utilities/theme/ThemeContext';
+import type { Tokens } from '../utilities/theme/themes';
+import type { CiStatus, GitRow } from '../contracts/types';
+import { UI_IDENTIFIERS } from '../utilities/constants/UIIdentifiers';
 
 const CI_STATUS_VERB: Record<CiStatus, string> = {
   in_progress: 'GitHub Actions in progress',

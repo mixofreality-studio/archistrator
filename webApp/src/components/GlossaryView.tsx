@@ -15,10 +15,10 @@ import InputAdornment from '@mui/material/InputAdornment';
 import Chip from '@mui/material/Chip';
 import Stack from '@mui/material/Stack';
 import SearchIcon from '@mui/icons-material/Search';
-import { toGlossaryView } from '../api/adapters';
-import type { ArtifactModelEnvelope } from '../api/types';
-import type { GlossaryItem } from '../api/models';
-import { useTokens } from '../theme/ThemeContext';
+import { toGlossaryView } from '../contracts/adapters';
+import type { ArtifactModelEnvelope } from '../contracts/types';
+import type { GlossaryItem } from '../contracts/models';
+import { useTokens } from '../utilities/theme/ThemeContext';
 import { CommentableList } from './comments/CommentableList';
 import { glossaryItemAnchor } from './comments/CommentContext';
 

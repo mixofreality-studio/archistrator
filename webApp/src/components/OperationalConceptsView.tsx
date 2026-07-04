@@ -15,15 +15,15 @@ import Typography from '@mui/material/Typography';
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import { useParams } from '@tanstack/react-router';
-import { listDeploymentProfiles, toOperationalDecisionsView } from '../api/adapters';
-import type { ArtifactModelEnvelope } from '../api/types';
-import type { DeploymentProfile } from '../api/models';
+import { listDeploymentProfiles, toOperationalDecisionsView } from '../contracts/adapters';
+import type { ArtifactModelEnvelope } from '../contracts/types';
+import type { DeploymentProfile } from '../contracts/models';
 import { useProject } from '../hooks/useProject';
-import { useTokens } from '../theme/ThemeContext';
+import { useTokens } from '../utilities/theme/ThemeContext';
 import { CommentableList } from './comments/CommentableList';
 import { operationalDecisionAnchor } from './comments/CommentContext';
 import { DeploymentFlow } from './flow/DeploymentFlow';
-import { UI_IDENTIFIERS } from '../constants/UIIdentifiers';
+import { UI_IDENTIFIERS } from '../utilities/constants/UIIdentifiers';
 
 const PROFILE_LABEL: Record<DeploymentProfile, string> = {
   cloud: 'Cloud',

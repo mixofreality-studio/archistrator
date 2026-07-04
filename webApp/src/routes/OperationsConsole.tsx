@@ -33,9 +33,9 @@ import TrendingUpOutlinedIcon from '@mui/icons-material/TrendingUpOutlined';
 import BoltOutlinedIcon from '@mui/icons-material/BoltOutlined';
 import { getRouteApi, useNavigate, Link as RouterLink } from '@tanstack/react-router';
 
-import { ApiError } from '../api/client';
+import { ApiError } from '../contracts/errors';
 import { useOperationsView } from '../hooks/useOperationsView';
-import { sloSummary } from '../api/operationsAdapters';
+import { sloSummary } from '../contracts/operationsAdapters';
 
 import { ExperienceChrome } from '../components/design/ExperienceChrome';
 import { CommentProvider } from '../components/comments/CommentContext';
@@ -44,9 +44,9 @@ import { DeploymentsTab } from '../components/operations/DeploymentsTab';
 import { ScalingCostTab } from '../components/operations/ScalingCostTab';
 import { InterventionsTab } from '../components/operations/InterventionsTab';
 
-import { useTokens } from '../theme/ThemeContext';
-import type { Tokens } from '../theme/themes';
-import { UI_IDENTIFIERS } from '../constants/UIIdentifiers';
+import { useTokens } from '../utilities/theme/ThemeContext';
+import type { Tokens } from '../utilities/theme/themes';
+import { UI_IDENTIFIERS } from '../utilities/constants/UIIdentifiers';
 
 const routeApi = getRouteApi('/operations/$operatedAppId');
 

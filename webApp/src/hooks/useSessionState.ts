@@ -8,10 +8,11 @@
  * the DraftFailedPanel rather than spinning.
  */
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
-import { apiClient, ApiError, toApiError } from '../api/client';
-import { artifactKindToOrdinal } from '../api/enums';
-import { mapSessionState } from '../api/wire';
-import type { ArtifactKind, SessionStage, SessionStateResponse } from '../api/types';
+import { apiClient } from '../api/client';
+import { ApiError, toApiError } from '../contracts/errors';
+import { artifactKindToOrdinal } from '../contracts/enums';
+import { mapSessionState } from '../contracts/wire';
+import type { ArtifactKind, SessionStage, SessionStateResponse } from '../contracts/types';
 
 const POLL_INTERVAL_MS = 2000;
 

@@ -8,11 +8,11 @@
 import type { ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
-import { toScrubbedRequirementsView } from '../api/adapters';
-import type { ArtifactModelEnvelope } from '../api/types';
+import { toScrubbedRequirementsView } from '../contracts/adapters';
+import type { ArtifactModelEnvelope } from '../contracts/types';
 import { CommentableList } from './comments/CommentableList';
 import { scrubbedRequirementAnchor } from './comments/CommentContext';
-import { useTokens } from '../theme/ThemeContext';
+import { useTokens } from '../utilities/theme/ThemeContext';
 
 export function ScrubbedRequirementsView({
   envelope,

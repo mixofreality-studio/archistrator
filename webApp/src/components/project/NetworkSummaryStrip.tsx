@@ -9,9 +9,9 @@ import type { ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
-import type { NetworkView } from '../../api/projectAdapters';
-import { useTokens } from '../../theme/ThemeContext';
-import type { Tokens } from '../../theme/themes';
+import type { NetworkView } from '../../contracts/projectAdapters';
+import { useTokens } from '../../utilities/theme/ThemeContext';
+import type { Tokens } from '../../utilities/theme/themes';
 import { ComputedBadge } from './computed';
 
 function Metric({

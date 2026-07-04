@@ -17,9 +17,9 @@ import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import FlagOutlinedIcon from '@mui/icons-material/FlagOutlined';
 import CheckIcon from '@mui/icons-material/Check';
-import type { ArtifactKind } from '../../api/types';
-import { useTokens } from '../../theme/ThemeContext';
-import { UI_IDENTIFIERS } from '../../constants/UIIdentifiers';
+import type { ArtifactKind } from '../../contracts/types';
+import { useTokens } from '../../utilities/theme/ThemeContext';
+import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 
 /** The framing copy per rich-canvas kind, by stage. Pure presentation data. */
 const INTRO: Partial<Record<ArtifactKind, { draft: string; committed: string }>> = {

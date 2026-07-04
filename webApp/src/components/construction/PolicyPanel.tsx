@@ -34,10 +34,10 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { KindBadge, kindColor } from './KindBadge';
 import type { ActivityKind } from './KindBadge';
 import { useUpdateReviewPolicy } from '../../hooks/useConstructionMutations';
-import { useTokens } from '../../theme/ThemeContext';
-import type { Tokens } from '../../theme/themes';
-import { UI_IDENTIFIERS } from '../../constants/UIIdentifiers';
-import type { ProjectStateWithGit } from '../../api/types';
+import { useTokens } from '../../utilities/theme/ThemeContext';
+import type { Tokens } from '../../utilities/theme/themes';
+import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
+import type { ProjectStateWithGit } from '../../contracts/types';
 
 // ---------------------------------------------------------------------------
 // Seam: guarantee the ActivityKind values are the server's ActivityType wire names.

@@ -5,11 +5,12 @@
  * Phase-2 TWIN of useSessionState.ts.
  */
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
-import { apiClient, ApiError, toApiError } from '../api/client';
-import { artifactKindToOrdinal } from '../api/enums';
-import { mapProjectSessionState } from '../api/wire';
-import { PROJECT_TERMINAL_STAGES } from '../api/types';
-import type { ProjectArtifactKind, ProjectSessionState } from '../api/types';
+import { apiClient } from '../api/client';
+import { ApiError, toApiError } from '../contracts/errors';
+import { artifactKindToOrdinal } from '../contracts/enums';
+import { mapProjectSessionState } from '../contracts/wire';
+import { PROJECT_TERMINAL_STAGES } from '../contracts/types';
+import type { ProjectArtifactKind, ProjectSessionState } from '../contracts/types';
 
 const POLL_INTERVAL_MS = 2000;
 

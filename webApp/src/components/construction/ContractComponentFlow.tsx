@@ -27,9 +27,9 @@ import {
 import '@xyflow/react/dist/style.css';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
-import type { ContractParty } from '../../api/types';
-import type { Tokens } from '../../theme/themes';
-import { useTokens } from '../../theme/ThemeContext';
+import type { ContractParty } from '../../contracts/types';
+import type { Tokens } from '../../utilities/theme/themes';
+import { useTokens } from '../../utilities/theme/ThemeContext';
 
 // ---------------------------------------------------------------------------
 // Custom node

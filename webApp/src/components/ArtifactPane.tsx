@@ -10,10 +10,10 @@ import type { ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
-import type { ArtifactMeta } from '../api/adapters';
-import type { ArtifactModelEnvelope, ServiceContracts } from '../api/types';
+import type { ArtifactMeta } from '../contracts/adapters';
+import type { ArtifactModelEnvelope, ServiceContracts } from '../contracts/types';
 import { ArtifactRenderer } from './ArtifactRenderer';
-import { useTokens } from '../theme/ThemeContext';
+import { useTokens } from '../utilities/theme/ThemeContext';
 
 export function ArtifactPane({
   artifact,

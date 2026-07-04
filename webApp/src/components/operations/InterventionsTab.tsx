@@ -13,9 +13,9 @@ import type { ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import BoltIcon from '@mui/icons-material/Bolt';
-import { useTokens } from '../../theme/ThemeContext';
-import type { OperationsView } from '../../api/operationsTypes';
-import { UI_IDENTIFIERS } from '../../constants/UIIdentifiers';
+import { useTokens } from '../../utilities/theme/ThemeContext';
+import type { OperationsView } from '../../contracts/operationsTypes';
+import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 import { AwaitingPanel } from './AwaitingPanel';
 
 export function InterventionsTab({ view }: { view: OperationsView | undefined }): ReactNode {

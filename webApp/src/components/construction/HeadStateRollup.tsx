@@ -8,8 +8,8 @@ import type { ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import { statusColor } from './status';
-import { BUILD_STATUS_META, type BuildStatus } from '../../api/constructionAdapters';
-import { useTokens } from '../../theme/ThemeContext';
+import { BUILD_STATUS_META, type BuildStatus } from '../../contracts/constructionAdapters';
+import { useTokens } from '../../utilities/theme/ThemeContext';
 
 export interface StatusCount {
   status: BuildStatus;

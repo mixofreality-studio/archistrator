@@ -22,8 +22,8 @@ import Button from '@mui/material/Button';
 import ReplayIcon from '@mui/icons-material/Replay';
 import CloseIcon from '@mui/icons-material/Close';
 import ReportProblemOutlinedIcon from '@mui/icons-material/ReportProblemOutlined';
-import { useTokens } from '../../theme/ThemeContext';
-import { UI_IDENTIFIERS } from '../../constants/UIIdentifiers';
+import { useTokens } from '../../utilities/theme/ThemeContext';
+import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 
 const FALLBACK_REASON = "The AI worker couldn't produce a draft.";
 const ASYNC_FALLBACK_REASON =

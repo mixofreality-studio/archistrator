@@ -12,16 +12,12 @@ import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 import StarIcon from '@mui/icons-material/Star';
-import type { ProjectArtifactKind, ProjectArtifactModelEnvelope } from '../../api/types';
-import { SOLUTION_LABELS } from '../../api/types';
-import {
-  toSolutionView,
-  formatMoney,
-  solutionAccentColor,
-  narrowProject,
-} from '../../api/projectAdapters';
-import { useTokens } from '../../theme/ThemeContext';
-import type { Tokens } from '../../theme/themes';
+import type { ProjectArtifactKind, ProjectArtifactModelEnvelope } from '../../contracts/types';
+import { SOLUTION_LABELS } from '../../contracts/types';
+import { toSolutionView, formatMoney, narrowProject } from '../../contracts/projectAdapters';
+import { solutionAccentColor } from './solutionAccent';
+import { useTokens } from '../../utilities/theme/ThemeContext';
+import type { Tokens } from '../../utilities/theme/themes';
 import { AuthoredBadge, ComputedBadge } from './computed';
 import { CommentableList } from '../comments/CommentableList';
 import { solutionAnchor } from '../comments/CommentContext';

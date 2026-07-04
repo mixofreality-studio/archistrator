@@ -1,7 +1,7 @@
 import { useMemo, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
-import { useTokens } from '../theme/ThemeContext';
-import type { Tokens } from '../theme/themes';
+import { useTokens } from '../utilities/theme/ThemeContext';
+import type { Tokens } from '../utilities/theme/themes';
 
 /**
  * A self-contained, deterministic 8-bit *person* — a little retro pixel figure

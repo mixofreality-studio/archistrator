@@ -16,11 +16,11 @@ import Typography from '@mui/material/Typography';
 import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
 import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
-import { toMissionView } from '../api/adapters';
-import type { ArtifactModelEnvelope } from '../api/types';
+import { toMissionView } from '../contracts/adapters';
+import type { ArtifactModelEnvelope } from '../contracts/types';
 import { CommentableList } from './comments/CommentableList';
 import { useComments, missionObjectiveAnchor, missionProseAnchor } from './comments/CommentContext';
-import { useTokens } from '../theme/ThemeContext';
+import { useTokens } from '../utilities/theme/ThemeContext';
 
 function SectionHeading({ children }: { children: ReactNode }): ReactNode {
   const t = useTokens();

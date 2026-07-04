@@ -9,16 +9,17 @@
  * invalidates the operations view so the console re-reads fresh server state.
  */
 import { useMutation, useQueryClient, type UseMutationResult } from '@tanstack/react-query';
-import { apiClient, toApiError } from '../api/client';
-import type { components } from '../api/schema';
+import { apiClient } from '../api/client';
+import { toApiError } from '../contracts/errors';
+import type { components } from '../contracts/schema';
 import {
   REASON_DEPLOY_AFTER_CONSTRUCTION,
   REASON_OPERATOR,
   PATCH_FULL_BUNDLE,
   PATCH_SCALE,
   PATCH_POLICY,
-} from '../api/enums';
-import type { DeployResult, WithdrawResult } from '../api/operationsTypes';
+} from '../contracts/enums';
+import type { DeployResult, WithdrawResult } from '../contracts/operationsTypes';
 import { operationsViewKey } from './useOperationsView';
 
 /** The kinds of desired-state republish the console can trigger. */

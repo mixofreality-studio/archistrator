@@ -23,8 +23,8 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import Box from '@mui/material/Box';
 import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
 import { useComments, proseAnchor } from './CommentContext';
-import { useTokens } from '../../theme/ThemeContext';
-import { UI_IDENTIFIERS } from '../../constants/UIIdentifiers';
+import { useTokens } from '../../utilities/theme/ThemeContext';
+import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 
 interface Pending {
   text: string;

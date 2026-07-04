@@ -4,9 +4,9 @@ import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
-import { UI_IDENTIFIERS } from '../../../constants/UIIdentifiers';
-import type { ProducedArtifactRow } from '../../../api/types';
-import type { Tokens } from '../../../theme/themes';
+import { UI_IDENTIFIERS } from '../../../utilities/constants/UIIdentifiers';
+import type { ProducedArtifactRow } from '../../../contracts/types';
+import type { Tokens } from '../../../utilities/theme/themes';
 import type { ArtifactRendererProps } from '../artifactRenderers';
 
 /**

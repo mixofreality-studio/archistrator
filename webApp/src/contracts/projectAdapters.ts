@@ -26,7 +26,6 @@ import type {
 
 /** Re-exported so the renderers import the band type from one adapter surface. */
 export type { FloatBand } from './types';
-import type { Tokens } from '../theme/themes';
 
 // ---------------------------------------------------------------------------
 // Envelope narrowing.
@@ -61,14 +60,6 @@ export function isSolutionKind(kind: ProjectArtifactKind): boolean {
     kind === 'subcriticalSolution' ||
     kind === 'compressedSolution'
   );
-}
-
-/** A stable accent colour per solution option, shared by every Phase-2 renderer. */
-export function solutionAccentColor(t: Tokens, kind: ProjectArtifactKind): string {
-  if (kind === 'decompressedSolution') return t.committedDot;
-  if (kind === 'compressedSolution') return t.accent;
-  if (kind === 'normalSolution') return t.accent2;
-  return t.muted;
 }
 
 // ---------------------------------------------------------------------------

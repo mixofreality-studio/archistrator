@@ -23,16 +23,16 @@ import CloseIcon from '@mui/icons-material/Close';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked';
 
-import type { NetworkNodeView } from '../../api/projectAdapters';
-import type { BuildStatus } from '../../api/constructionAdapters';
-import type { ConstructionRow, GitRow } from '../../api/types';
-import { useTokens } from '../../theme/ThemeContext';
-import type { Tokens } from '../../theme/themes';
+import type { NetworkNodeView } from '../../contracts/projectAdapters';
+import type { BuildStatus } from '../../contracts/constructionAdapters';
+import type { ConstructionRow, GitRow } from '../../contracts/types';
+import { useTokens } from '../../utilities/theme/ThemeContext';
+import type { Tokens } from '../../utilities/theme/themes';
 import { KindBadge, type ActivityKind } from './KindBadge';
 import { StatusChip } from './status';
 import { GitRowMeta } from '../GitStatus';
 import { phaseStateFor, progressPct, type PhaseState } from './lifecycleTemplates';
-import { UI_IDENTIFIERS } from '../../constants/UIIdentifiers';
+import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 
 // ---------------------------------------------------------------------------
 // Public props

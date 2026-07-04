@@ -8,7 +8,7 @@ import type { ReactNode } from 'react';
 import type { NodeProps } from '@xyflow/react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
-import { useTokens } from '../../theme/ThemeContext';
+import { useTokens } from '../../utilities/theme/ThemeContext';
 
 export interface SwimlaneData {
   lane: string;

@@ -9,8 +9,8 @@ import Paper from '@mui/material/Paper';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import HourglassEmptyIcon from '@mui/icons-material/HourglassEmpty';
-import { useTokens } from '../../theme/ThemeContext';
-import { UI_IDENTIFIERS } from '../../constants/UIIdentifiers';
+import { useTokens } from '../../utilities/theme/ThemeContext';
+import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 
 export function AwaitingPanel({ title, detail }: { title: string; detail: string }): ReactNode {
   const t = useTokens();

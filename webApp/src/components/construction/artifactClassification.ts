@@ -1,4 +1,4 @@
-import type { ConstructionRow } from '../../api/types';
+import type { ConstructionRow } from '../../contracts/types';
 
 /**
  * The renderer dispatch key: an activity's artifact family. Testing splits by

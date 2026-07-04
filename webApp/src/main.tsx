@@ -17,9 +17,9 @@ import '@fontsource/playfair-display/900.css';
 import '@fontsource/jetbrains-mono/400.css';
 import '@fontsource/jetbrains-mono/500.css';
 import '@fontsource/jetbrains-mono/700.css';
-import { ApiError } from './api/client';
+import { ApiError } from './contracts/errors';
 import './index.css';
-import App from './App.tsx';
+import App from './App';
 
 const queryClient = new QueryClient({
   defaultOptions: {

@@ -7,10 +7,10 @@
  */
 import type { ReactNode } from 'react';
 import { RouterProvider } from '@tanstack/react-router';
-import { ThemeProvider } from './theme/ThemeContext';
-import { AppTheme } from './theme/AppTheme';
-import { UserProvider } from './auth/UserContext';
-import { router } from './navigation/router';
+import { ThemeProvider } from './utilities/theme/ThemeContext';
+import { AppTheme } from './utilities/theme/AppTheme';
+import { UserProvider } from './utilities/auth/UserContext';
+import { router } from './routes/router';
 
 export default function App(): ReactNode {
   return (

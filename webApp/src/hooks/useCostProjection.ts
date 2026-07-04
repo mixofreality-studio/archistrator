@@ -5,9 +5,10 @@
  * what-if curve (a replica list). A 404 is surfaced without retry storms.
  */
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
-import { apiClient, ApiError, toApiError } from '../api/client';
-import { mapCostProjection } from '../api/wire';
-import type { CostProjection } from '../api/operationsTypes';
+import { apiClient } from '../api/client';
+import { ApiError, toApiError } from '../contracts/errors';
+import { mapCostProjection } from '../contracts/wire';
+import type { CostProjection } from '../contracts/operationsTypes';
 
 /** The default scale what-if curve points the console requests. */
 export const DEFAULT_WHATIF_POINTS: readonly number[] = [1, 3, 5, 8];

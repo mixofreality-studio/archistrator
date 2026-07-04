@@ -3,7 +3,7 @@
  * (renders each shape at these sizes) and ActivityFlow (centers each node in its
  * swim-lane row using the same measurements).
  */
-import type { ActivityNodeKind } from '../../api/models';
+import type { ActivityNodeKind } from '../../contracts/models';
 
 
 export const NODE_DIMS: Record<ActivityNodeKind, { w: number; h: number }> = {

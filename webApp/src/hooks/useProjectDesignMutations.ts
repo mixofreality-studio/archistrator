@@ -11,21 +11,22 @@ import {
   type UseMutationResult,
   type QueryClient,
 } from '@tanstack/react-query';
-import { apiClient, toApiError } from '../api/client';
+import { apiClient } from '../api/client';
+import { toApiError } from '../contracts/errors';
 import {
   artifactKindToOrdinal,
   reviewDecisionToOrdinal,
   sdpDecisionToOrdinal,
   projectArtifactKindFromOrdinal,
-} from '../api/enums';
+} from '../contracts/enums';
 import type {
   ProjectArtifactKind,
   ProjectPhaseAdvanceResponse,
   ReviewDecision,
   SDPDecision,
   SDPDecisionDetail,
-} from '../api/types';
-import { SDP_REVIEW_KIND } from '../api/types';
+} from '../contracts/types';
+import { SDP_REVIEW_KIND } from '../contracts/types';
 import { projectKey } from './useProject';
 import { projectSessionStateKey } from './useProjectSessionState';
 

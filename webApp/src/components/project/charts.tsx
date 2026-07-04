@@ -6,7 +6,7 @@
  */
 import type { ReactNode } from 'react';
 import Box from '@mui/material/Box';
-import type { Tokens } from '../../theme/themes';
+import type { Tokens } from '../../utilities/theme/themes';
 
 // ---------------------------------------------------------------------------
 // Scatter curve with exclusion bands — the SDP time-risk / time-cost charts.

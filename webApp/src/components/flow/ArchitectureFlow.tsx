@@ -21,10 +21,10 @@ import type { Edge, Node } from '@xyflow/react';
 import Box from '@mui/material/Box';
 import Autocomplete from '@mui/material/Autocomplete';
 import TextField from '@mui/material/TextField';
-import { toC4View, type C4Component, type C4Relationship } from '../../api/adapters';
-import type { ArtifactModelEnvelope } from '../../api/types';
-import { useTokens } from '../../theme/ThemeContext';
-import type { Tokens } from '../../theme/themes';
+import { toC4View, type C4Component, type C4Relationship } from '../../contracts/adapters';
+import type { ArtifactModelEnvelope } from '../../contracts/types';
+import { useTokens } from '../../utilities/theme/ThemeContext';
+import type { Tokens } from '../../utilities/theme/themes';
 import {
   type Layer,
   LAYER_ORDER,

@@ -10,9 +10,9 @@
  */
 import { useMemo, type ReactNode } from 'react';
 import type { Edge, Node } from '@xyflow/react';
-import { toPerspective, type C4Component, type C4View } from '../../api/adapters';
-import { useTokens } from '../../theme/ThemeContext';
-import type { Tokens } from '../../theme/themes';
+import { toPerspective, type C4Component, type C4View } from '../../contracts/adapters';
+import { useTokens } from '../../utilities/theme/ThemeContext';
+import type { Tokens } from '../../utilities/theme/themes';
 import { computeLayout, decorativeNodes, c4Node, flowEdge, layerColors } from './flowLayout';
 import { FlowCanvas, FlowEmpty } from './flowShared';
 import { useComments, componentAnchor } from '../comments/CommentContext';

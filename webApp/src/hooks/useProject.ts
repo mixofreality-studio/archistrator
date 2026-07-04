@@ -4,9 +4,10 @@
  * unconditionally.
  */
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
-import { apiClient, toApiError } from '../api/client';
-import { mapProjectState } from '../api/wire';
-import type { ProjectStateWithGit } from '../api/types';
+import { apiClient } from '../api/client';
+import { toApiError } from '../contracts/errors';
+import { mapProjectState } from '../contracts/wire';
+import type { ProjectStateWithGit } from '../contracts/types';
 
 export function projectKey(projectId: string): readonly unknown[] {
   return ['project', projectId];

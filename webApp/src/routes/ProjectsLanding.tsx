@@ -14,15 +14,15 @@ import Skeleton from '@mui/material/Skeleton';
 import AddIcon from '@mui/icons-material/Add';
 import { useNavigate } from '@tanstack/react-router';
 import { useProjects } from '../hooks/useProjects';
-import { useUser } from '../auth/UserContext';
-import { userLabel } from '../auth/userInfo';
+import { useUser } from '../utilities/auth/UserContext';
+import { userLabel } from '../utilities/auth/userInfo';
 import { ProjectCard } from '../components/ProjectCard';
 import { CreateProjectDialog } from '../components/CreateProjectDialog';
 import { ThemeSwitcher } from '../components/ThemeSwitcher';
 import { ErrorAlert } from '../components/shared/ErrorAlert';
-import { useTokens } from '../theme/ThemeContext';
-import type { Tokens } from '../theme/themes';
-import { UI_IDENTIFIERS } from '../constants/UIIdentifiers';
+import { useTokens } from '../utilities/theme/ThemeContext';
+import type { Tokens } from '../utilities/theme/themes';
+import { UI_IDENTIFIERS } from '../utilities/constants/UIIdentifiers';
 
 export function ProjectsLanding(): ReactNode {
   const t = useTokens();

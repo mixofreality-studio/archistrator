@@ -11,7 +11,7 @@ import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import FunctionsIcon from '@mui/icons-material/Functions';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
-import type { Tokens } from '../../theme/themes';
+import type { Tokens } from '../../utilities/theme/themes';
 
 export function ComputedBadge({ t, label = 'computed' }: { t: Tokens; label?: string }): ReactNode {
   return (

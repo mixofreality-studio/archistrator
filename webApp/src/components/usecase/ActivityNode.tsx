@@ -12,9 +12,9 @@ import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Typography from '@mui/material/Typography';
 import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
-import type { ActivityNodeKind } from '../../api/models';
-import { useTokens } from '../../theme/ThemeContext';
-import type { Tokens } from '../../theme/themes';
+import type { ActivityNodeKind } from '../../contracts/models';
+import { useTokens } from '../../utilities/theme/ThemeContext';
+import type { Tokens } from '../../utilities/theme/themes';
 import { useComments } from '../comments/CommentContext';
 import { NODE_DIMS } from './nodeDims';
 
