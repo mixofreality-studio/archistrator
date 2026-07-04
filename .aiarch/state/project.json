@@ -6040,7 +6040,7 @@
           },
           {
             "topic": "layering style",
-            "decision": "Closed layering per App C §3.4. No Client-to-Engine, Client-to-ResourceAccess, or skip-layer edges. One permitted exception: the queued SettlementManager-to-OperationsManager applyDelinquencyPolicy Temporal Signal (queued M→M per §3.4c.ii).",
+            "decision": "Closed layering per App C §3.4. No Client-to-Engine, Client-to-ResourceAccess, or skip-layer edges. One permitted exception: the queued BillingManager-to-OperationsManager applyDelinquencyPolicy Temporal Signal (queued M→M per §3.4c.ii).",
             "justifyingObjective": 2
           },
           {
@@ -6075,7 +6075,7 @@
           },
           {
             "topic": "billing model — usage-based cloud hosting only",
-            "decision": "aiarch bills the user a usage-based hosting fee for operated systems (DEPLOYED — OPERATED only); there is no flat subscription and construction is not charged (construction runs on the user's own Claude Code account and GitHub Actions). settlementEngine pivots on ServicePricing as a Strategy (tier floors, free-tier subsidies; no token unit price). aiarch is merchant of record only for its own service invoices; it never touches end-user revenue.",
+            "decision": "aiarch bills the user a usage-based hosting fee for operated systems (DEPLOYED — OPERATED only); there is no flat subscription and construction is not charged (construction runs on the user's own Claude Code account and GitHub Actions). billingEngine pivots on ServicePricing as a Strategy (tier floors, free-tier subsidies; no token unit price). aiarch is merchant of record only for its own service invoices; it never touches end-user revenue.",
             "justifyingObjective": 3
           },
           {
@@ -6100,23 +6100,21 @@
               "components": [
                 "MCPClient",
                 "SchedulerClient",
-                "SettlementManager",
+                "BillingManager",
                 "ConstructionManager",
                 "OperationsManager",
                 "ProjectDesignManager",
                 "SystemDesignManager",
                 "AutoscalerEngine",
-                "SettlementEngine",
+                "BillingEngine",
                 "EstimationEngine",
                 "HandOffEngine",
                 "InterventionEngine",
                 "OperationEstimationEngine",
                 "ReviewEngine",
                 "MerchantGatewayAccess",
-                "SettlementStateAccess",
+                "BillingStateAccess",
                 "ArtifactAccess",
-                "WorkerAccess",
-                "RevenueLedgerAccess",
                 "ConstructionPipelineAccess",
                 "DurableExecutionAccess",
                 "OperatedRuntimeAccess",
@@ -6220,15 +6218,9 @@
                           "tags": []
                         },
                         {
-                          "name": "SettlementState",
+                          "name": "BillingState",
                           "technology": "CloudNativePG · Postgres 16",
-                          "description": "settlement head-state rows on the shared archistrator-postgres cluster",
-                          "tags": []
-                        },
-                        {
-                          "name": "RevenueLedger",
-                          "technology": "CloudNativePG · Postgres 16",
-                          "description": "append-only inbound revenue / reversal entries (dedup on gateway event id)",
+                          "description": "billing head-state rows on the shared archistrator-postgres cluster",
                           "tags": []
                         },
                         {
@@ -6345,15 +6337,9 @@
                       "tags": []
                     },
                     {
-                      "name": "SettlementState",
+                      "name": "BillingState",
                       "technology": "ephemeral",
-                      "description": "sqlite/postgres (docker) stub — settlement head-state rows",
-                      "tags": []
-                    },
-                    {
-                      "name": "RevenueLedger",
-                      "technology": "ephemeral",
-                      "description": "append-only inbound revenue / reversal entries (dedup on gateway event id)",
+                      "description": "sqlite/postgres (docker) stub — billing head-state rows",
                       "tags": []
                     },
                     {
