@@ -2596,7 +2596,7 @@
           },
           {
             "id": "R-002",
-            "statement": "The architect user must have a conversational surface for each Method artifact in which they can co-author with an automated assistant."
+            "statement": "The architect user must be able to co-author each Method artifact with an automated assistant."
           },
           {
             "id": "R-003",
@@ -2604,7 +2604,7 @@
           },
           {
             "id": "R-004",
-            "statement": "The platform must produce, for a planned system, multiple options (normal, decompressed, compressed, subcritical) with duration, cost, and risk."
+            "statement": "The platform must produce, for a planned project, multiple project options (normal, decompressed, compressed, subcritical), each with duration, cost, and risk."
           },
           {
             "id": "R-005",
@@ -2612,7 +2612,7 @@
           },
           {
             "id": "R-006",
-            "statement": "The construction hand-off model is policy: which kind of worker handles which Method role (architect / senior / junior)."
+            "statement": "Which kind of worker fulfills each Method role (architect, senior, junior) must be allowed to vary."
           },
           {
             "id": "R-007",
@@ -2620,51 +2620,35 @@
           },
           {
             "id": "R-008",
-            "statement": "The platform must deploy and operate delivered systems on managed runtime, executing build and deploy through orchestrated workflows."
+            "statement": "The platform must deploy and operate delivered systems on the customer's behalf."
           },
           {
             "id": "R-009",
-            "statement": "The platform must produce, for a completed project, an artifact bundle deployable to managed runtime without manual handoff."
-          },
-          {
-            "id": "R-010",
-            "statement": "aiarch bills the user for hosting of operated systems on a usage-based basis (no flat subscription); construction runs on the user's own Claude Code account and GitHub Actions — aiarch does not charge for construction or LLM work. aiarch is merchant of record only for its own invoices and never touches end-user revenue."
+            "statement": "The platform must produce, for a completed project, everything needed to deploy and operate the delivered system without manual handoff."
           },
           {
             "id": "R-011",
-            "statement": "Customer types are heterogeneous and will grow; the platform must not bake assumptions about customer size, internal team, or sophistication into the architecture."
-          },
-          {
-            "id": "R-012",
-            "statement": "The estimation engine must accept worker-model as an input parameter and emit an estimate per choice."
+            "statement": "The platform must serve heterogeneous and growing customer types without baking assumptions about customer size, internal team, or sophistication into its design."
           },
           {
             "id": "R-013",
-            "statement": "aiarch invoices the user, usage-based, for hosting of operated systems — no flat subscription, no charge for construction or LLM work; it does not invoice for, or share in, end-user revenue."
+            "statement": "The platform bills the customer usage-based for hosting of operated systems only — no flat subscription and no charge for construction or automated-assistant work — and never invoices for, or shares in, end-user revenue."
           },
           {
             "id": "R-014",
-            "statement": "Everything aiarch persists — project state (typed Method models as JSON) and source/charts/manifests — lives in one git target per scenario: the user's own GitHub (via a GitHub App) in the cloud scenarios; aiarch orchestrates via the GitHub API and the user owns the repo and their code outright."
+            "statement": "All state and source the platform produces for a customer must reside in one customer-owned store per scenario, owned outright and retrievable by the customer at any time."
           },
           {
             "id": "R-015",
-            "statement": "The platform orchestrates construction; the build/test/push runs on the user's own GitHub Actions (cloud) or a local runner (LOCAL), dispatched and observed by aiarch via the ConstructionPipelineAccess seam."
+            "statement": "The platform orchestrates and observes construction while build, test, and deployment execute on compute the customer owns."
           },
           {
             "id": "R-016",
             "statement": "The platform must support pause, replay, override, and human takeover of any in-flight construction activity."
           },
           {
-            "id": "R-017",
-            "statement": "MCP is an entry-channel whose internal decomposition is a Client-layer choice, not an architectural pillar; read/write split is an internal MCP-server concern, not a system-level component."
-          },
-          {
-            "id": "R-018",
-            "statement": "The platform is implemented inside the existing monorepo; the tech stack of internal components is constrained but is not a requirement of the system being built."
-          },
-          {
             "id": "R-023",
-            "statement": "The platform must automatically adjust an Operated System's capacity (scale up, scale down, idle-pause, resume-to-baseline) from observed telemetry, per a customer-tunable policy; the autoscaler publishes revised desired state and never drives convergence directly."
+            "statement": "The platform must automatically adjust an Operated System's capacity (scale up, scale down, idle-pause, resume-to-baseline) from observed telemetry, per a customer-tunable policy."
           },
           {
             "id": "R-024",
@@ -2676,7 +2660,7 @@
           },
           {
             "id": "R-026",
-            "statement": "Customer apps deployed by aiarch use a curated, evolving set of infrastructure constituents (launch set: Go + Temporal + Postgres + Git + S3); the supported set evolves and worker generation, autoscaling, and cost projection adapt via Strategy registrations on the affected components."
+            "statement": "The platform must support an evolving, curated set of infrastructure building blocks for deployed customer systems, such that adding or retiring a building block is absorbed without re-architecting."
           }
         ]
       }
