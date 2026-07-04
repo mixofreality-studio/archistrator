@@ -125,9 +125,14 @@ on:
 # CLAUDE_CODE_OAUTH_TOKEN repo Actions secret, which is provisioned by the Claude
 # Code GitHub App when the user runs /install-github-app (aiarch does no secret
 # management), NOT by this in-run GITHUB_TOKEN.
+# id-token is required by claude-code-action's OIDC exchange (it mints its
+# GitHub credential via the Claude GitHub App when no github_token input is
+# supplied) — same grant as the reference aiarch-construct.yml. Observed live
+# 2026-07-04: without it the draft job dies at "Failed to get OIDC token".
 permissions:
   contents: write
   pull-requests: write
+  id-token: write
 
 # One in-flight design run per dedup token — belt-and-braces alongside the RA's
 # own run-name convergence (identical to construction).
