@@ -51,7 +51,7 @@ export interface NetworkNodeData {
 function NodeToolbarActions({ t, d }: { t: Tokens; d: NetworkNodeData }): ReactNode {
   const { setAnchor } = useComments();
   return (
-    <NodeToolbar isVisible offset={6} position={Position.Top}>
+    <NodeToolbar offset={6} position={Position.Top}>
       <Box sx={{ display: 'flex', gap: 0.5 }}>
         <Button
           size="small"

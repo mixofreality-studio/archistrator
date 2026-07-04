@@ -80,7 +80,7 @@ func main() {
 			Type:        projectstate.DeriveType(id),
 			Variant:     projectstate.DeriveVariant(id),
 			BuildStatus: status,
-			Produced:    projectstate.DeriveProduced(cp, comp),
+			Produced:    projectstate.DeriveProduced(cp, comp, projectstate.DeriveType(id)),
 		}
 		matched = append(matched, id)
 		if comp == "" && cp.HasLog {

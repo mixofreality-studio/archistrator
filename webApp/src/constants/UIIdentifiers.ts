@@ -131,6 +131,8 @@ export const UI_IDENTIFIERS = {
     artifactRow: (id: string) => `construction-artifact-row-${id}`,
     SYSTEM_TEST_VIEW: 'construction-system-test-view',
     TEST_PLAN_VIEW: 'construction-test-plan-view',
+    FRONTEND_VIEW: 'construction-frontend-view',
+    FRONTEND_PREVIEW_FRAME: 'construction-frontend-preview-frame',
     SCENARIO_PICKER: 'construction-scenario-picker',
     caseChip: (caseId: string) => `construction-case-chip-${caseId}`,
     BEGIN_BUTTON: 'construction-begin',

@@ -209,6 +209,19 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   };
   const beginActive = cascading || begin.isPending;
 
+  // Whether construction has already been started at all: a live/known session
+  // exists, or any activity has advanced beyond not-started (the seeded rows only
+  // hold integrated/in-review/in-construction). Drives Begin→Resume so an active
+  // project (60 integrated) never invites a fresh "Begin".
+  const constructionStarted =
+    (session !== undefined && !sessionMissing) ||
+    Object.keys(project?.constructionRows ?? {}).length > 0;
+  const beginLabel = beginActive
+    ? 'Construction running…'
+    : constructionStarted
+      ? 'Resume construction'
+      : 'Begin construction';
+
   const overrideError = override.error instanceof Error ? override.error.message : undefined;
   const pauseError = pause.error instanceof Error ? pause.error.message : undefined;
 
@@ -369,7 +382,7 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
                     variant="contained"
                     onClick={onBegin}
                   >
-                    {beginActive ? 'Construction running…' : 'Begin construction'}
+                    {beginLabel}
                   </Button>
                 ) : undefined
               }

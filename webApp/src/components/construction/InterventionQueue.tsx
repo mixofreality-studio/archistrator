@@ -29,9 +29,21 @@ import { useTokens } from '../../theme/ThemeContext';
 import type { Tokens } from '../../theme/themes';
 import { UI_IDENTIFIERS } from '../../constants/UIIdentifiers';
 import { KindBadge, KIND_META } from './KindBadge';
+import type { ActivityKind } from './KindBadge';
 import { StatusChip } from './status';
 import { kindColor } from './KindBadge';
 import { GitRowMeta } from '../GitStatus';
+
+// Explicit CTA label per activity kind — one entry per ActivityKind so a gate on a
+// deployment/documentation activity never borrows the testing wording. Kept
+// consistent with the gateLabel ("Code review · <kind> life cycle") phrasing.
+const ACTION_LABEL: Record<ActivityKind, string> = {
+  service: 'Review contract / change',
+  frontend: 'Open the design loop',
+  testing: 'Review the test plan',
+  deployment: 'Review the deployment change',
+  documentation: 'Review the doc change',
+};
 
 // ---------------------------------------------------------------------------
 // QueueCard — one awaiting-approval activity row
@@ -54,12 +66,7 @@ function QueueCard({
 }): ReactNode {
   const kc = kindColor(t, row.kind);
   const gateLabel = `gate · Code review · ${KIND_META[row.kind].label} life cycle`;
-  const actionLabel =
-    row.kind === 'service'
-      ? 'Review contract / change'
-      : row.kind === 'frontend'
-        ? 'Open the design loop'
-        : 'Review the test plan';
+  const actionLabel = ACTION_LABEL[row.kind];
 
   return (
     <Paper

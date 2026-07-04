@@ -79,6 +79,52 @@ export const TESTING_PHASES: readonly PhaseTemplate[] = [
 ];
 
 // ---------------------------------------------------------------------------
+// DEPLOYMENT — 5 phases, weights sum to 100
+// App A noncoding activity lifecycle: Provisioning spec (requirements) →
+// Detailed design → Apply (construction) → Review → Convergence verification.
+// Mirrors the server ActivityTypeDeployment profile (activityprofile.go).
+// ---------------------------------------------------------------------------
+
+export const DEPLOYMENT_PHASES: readonly PhaseTemplate[] = [
+  { id: 'dep-spec',    name: 'Provisioning spec',       exitCriterion: 'Target environment + resources + rollback captured',              weight: 15 },
+  { id: 'dep-design',  name: 'Detailed design',         exitCriterion: 'The provisioning/IaC change is designed + reviewed',             weight: 20 },
+  { id: 'dep-apply',   name: 'Apply',                   exitCriterion: 'The change is applied to the target environment',                weight: 35 },
+  { id: 'dep-review',  name: 'Review',                  exitCriterion: 'devops / architect approve the applied change',                  weight: 15 },
+  { id: 'dep-verify',  name: 'Convergence verification',exitCriterion: 'Environment converged to the declared desired state',           weight: 15 },
+];
+
+// ---------------------------------------------------------------------------
+// DOCUMENTATION — 5 phases, weights sum to 100
+// App A noncoding activity lifecycle: Outline (requirements) → Structure design →
+// Authoring (construction) → Review → Publish verification.
+// Mirrors the server ActivityTypeDocumentation profile (activityprofile.go).
+// ---------------------------------------------------------------------------
+
+export const DOCUMENTATION_PHASES: readonly PhaseTemplate[] = [
+  { id: 'doc-outline', name: 'Outline',                 exitCriterion: 'Scope + audience + the sections to write are agreed',            weight: 15 },
+  { id: 'doc-design',  name: 'Structure design',        exitCriterion: 'Document structure + source references designed',                weight: 20 },
+  { id: 'doc-author',  name: 'Authoring',               exitCriterion: 'The document is drafted against the outline',                    weight: 35 },
+  { id: 'doc-review',  name: 'Review',                  exitCriterion: 'architect / co-author confirm the document is accurate',         weight: 15 },
+  { id: 'doc-publish', name: 'Publish verification',    exitCriterion: 'Document published + linked from the corpus',                    weight: 15 },
+];
+
+// The kind → template registry. Exhaustive over ActivityKind so a new kind is a
+// compile error rather than a silent fall-through to TESTING_PHASES.
+const TEMPLATES: Record<ActivityKind, readonly PhaseTemplate[]> = {
+  service: SERVICE_PHASES,
+  frontend: FRONTEND_PHASES,
+  testing: TESTING_PHASES,
+  deployment: DEPLOYMENT_PHASES,
+  documentation: DOCUMENTATION_PHASES,
+};
+
+// Neutral single-phase fallback for an unknown (bad-data) kind — never borrow
+// another kind's lifecycle silently.
+const UNKNOWN_PHASES: readonly PhaseTemplate[] = [
+  { id: 'unknown', name: 'Unknown lifecycle', exitCriterion: 'No lifecycle template registered for this activity kind', weight: 100 },
+];
+
+// ---------------------------------------------------------------------------
 // Status → phase-ordinal mapping
 //
 // Each BuildStatus implies an "active index" in the ordered template. Phases
@@ -121,6 +167,19 @@ function activeIdxForStatus(kind: ActivityKind, status: BuildStatus): number | n
       case 'not-started':        return null;
     }
   }
+  // deployment and documentation share a 5-phase (spec→design→apply→review→verify)
+  // mapping. Review is the penultimate phase (idx 3); apply/authoring is idx 2.
+  if (kind === 'deployment' || kind === 'documentation') {
+    switch (status) {
+      case 'integrated':         return null;
+      case 'in-review':          return 3;
+      case 'in-construction':    return 2;
+      case 'in-detailed-design': return 1;
+      case 'eligible':           return 0;
+      case 'blocked':
+      case 'not-started':        return null;
+    }
+  }
   // service and frontend share the same phase-index mapping
   switch (status) {
     case 'integrated':         return null; // all done sentinel: see phaseStateFor
@@ -143,10 +202,11 @@ export function phaseStateFor(
   kind: ActivityKind,
   status: BuildStatus,
 ): PhaseState[] {
+  // Runtime-tolerant lookup: TS proves `kind` is an ActivityKind, but bad project
+  // data could carry an unknown kind — fall back loudly to the neutral template
+  // rather than silently borrowing another kind's lifecycle.
   const tpl: readonly PhaseTemplate[] =
-    kind === 'service' ? SERVICE_PHASES :
-    kind === 'frontend' ? FRONTEND_PHASES :
-    TESTING_PHASES;
+    (TEMPLATES as Partial<Record<ActivityKind, readonly PhaseTemplate[]>>)[kind] ?? UNKNOWN_PHASES;
 
   const allDone = status === 'integrated';
   const activeIdx = allDone ? null : activeIdxForStatus(kind, status);

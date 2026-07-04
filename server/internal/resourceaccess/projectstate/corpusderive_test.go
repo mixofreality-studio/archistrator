@@ -34,7 +34,7 @@ func TestDeriveBuildStatus(t *testing.T) {
 }
 
 func TestDeriveProduced(t *testing.T) {
-	got := DeriveProduced(CorpusPresence{HasLog: true, HasContract: true, ContractFile: "implementation/contracts/webClient.md"}, "webClient")
+	got := DeriveProduced(CorpusPresence{HasLog: true, HasContract: true, ContractFile: "implementation/contracts/webClient.md"}, "webClient", ActivityTypeService)
 	if len(got) != 2 {
 		t.Fatalf("want 2 artifacts (contract+code) got %d", len(got))
 	}
@@ -43,6 +43,26 @@ func TestDeriveProduced(t *testing.T) {
 	}
 	if got[1].Kind != "code" || !got[1].Produced {
 		t.Errorf("code artifact wrong: %+v", got[1])
+	}
+}
+
+func TestDeriveProduced_Frontend(t *testing.T) {
+	got := DeriveProduced(CorpusPresence{HasLog: true}, "SystemDesignScreen", ActivityTypeFrontend)
+	if len(got) != 2 {
+		t.Fatalf("want 2 artifacts (ui-design+ui-code) got %d: %+v", len(got), got)
+	}
+	if got[0].Kind != "ui-design" || !got[0].Produced {
+		t.Errorf("ui-design artifact wrong: %+v", got[0])
+	}
+	if got[1].Kind != "ui-code" || !got[1].Produced {
+		t.Errorf("ui-code artifact wrong: %+v", got[1])
+	}
+}
+
+func TestDeriveProduced_Deployment(t *testing.T) {
+	got := DeriveProduced(CorpusPresence{HasLog: true}, "R-DEP", ActivityTypeDeployment)
+	if len(got) != 1 || got[0].Kind != "deployment" || !got[0].Produced {
+		t.Fatalf("want 1 deployment artifact got %+v", got)
 	}
 }
 

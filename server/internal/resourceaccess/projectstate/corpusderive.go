@@ -116,9 +116,20 @@ func DeriveBuildStatus(p CorpusPresence) (ActivityBuildStatus, bool) {
 	}
 }
 
-// DeriveProduced builds the produced-artifact list: a frozen contract (when a contract
-// file exists) and the built code (when a construction log exists).
-func DeriveProduced(p CorpusPresence, componentName string) []ProducedArtifact {
+// DeriveProduced builds the produced-artifact list from corpus evidence, KIND-SPECIFIC
+// by the activity type. A frozen contract is emitted for any component that produced
+// one (a Client exposes one too). The built work-product then differs by type — this is
+// the fix for the "generic code stub" that made frontend/deployment activities render a
+// thin, wrong Artifacts-tab experience:
+//
+//   - Frontend    → a ui-design CONCEPT artifact + a ui-code artifact whose Source
+//     carries the SPA preview ROUTE (a "/project/..." path). The
+//     Artifacts-tab frontend renderer frames that route as a live
+//     same-origin iframe. Source is backfilled with the real route per
+//     surface (seed leaves it empty; the renderer degrades gracefully).
+//   - Deployment  → a single deployment artifact (the applied provisioning change).
+//   - everything  → the generic built-component "code" artifact (unchanged).
+func DeriveProduced(p CorpusPresence, componentName string, typ ActivityType) []ProducedArtifact {
 	var out []ProducedArtifact
 	if p.HasContract {
 		out = append(out, ProducedArtifact{
@@ -129,7 +140,44 @@ func DeriveProduced(p CorpusPresence, componentName string) []ProducedArtifact {
 			Note:     "Frozen App-B service contract.",
 		})
 	}
-	if p.HasLog {
+	if !p.HasLog {
+		return out
+	}
+	switch typ {
+	case ActivityTypeFrontend:
+		out = append(out,
+			ProducedArtifact{
+				Kind:     "ui-design",
+				Title:    componentName + " — UI design concept",
+				Source:   "implementation/log",
+				Produced: true,
+				Note:     "UI-design concept: personas, screens, layout, and flows for this surface.",
+			},
+			ProducedArtifact{
+				Kind:     "ui-code",
+				Title:    componentName + " — built UI",
+				Source:   "", // backfilled with the SPA preview route, e.g. /project/archistrator/design/system
+				Produced: true,
+				Note:     "SPA surface built against the approved design; preview at the route in Source.",
+			},
+		)
+	case ActivityTypeDeployment:
+		out = append(out, ProducedArtifact{
+			Kind:     "deployment",
+			Title:    componentName + " — deployment change",
+			Source:   "implementation/log",
+			Produced: true,
+			Note:     "Provisioning/deployment change applied and verified against the target environment.",
+		})
+	case ActivityTypeService, ActivityTypeTesting, ActivityTypeDocumentation:
+		out = append(out, ProducedArtifact{
+			Kind:     "code",
+			Title:    componentName + " — built component",
+			Source:   "implementation/log",
+			Produced: true,
+			Note:     "Construction output recorded in the implementation log.",
+		})
+	default:
 		out = append(out, ProducedArtifact{
 			Kind:     "code",
 			Title:    componentName + " — built component",

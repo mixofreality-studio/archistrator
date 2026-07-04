@@ -58,18 +58,32 @@ function ActivityHeader({ t, vm }: { t: Tokens; vm: ArtifactActivityVM }): React
 // LifecycleStrip
 // ---------------------------------------------------------------------------
 
-/** Derived lifecycle phases from the kind and produced set. */
+/**
+ * Derived lifecycle phases — MONOTONIC by the status ordinal. The build status is
+ * the authority: an `integrated` activity shows every prior phase done; `in-review`
+ * shows Designed+Built done; `in-construction` shows Designed done. Artifact counts
+ * may only ENRICH (mark an earlier phase done sooner) — they can never contradict the
+ * ordinal by leaving Designed/Built pending while Reviewed/Integrated read done.
+ */
 function lifecyclePhases(row: ConstructionRow): { name: string; done: boolean }[] {
   const produced = row.produced ?? [];
-  const total = produced.length;
-  const done = produced.filter((a) => a.produced).length;
+  const hasAny = produced.length > 0;
+  const hasProduced = produced.some((a) => a.produced);
   const kindLabel = KIND_META[row.kind].label;
   const prefix = kindLabel[0] ?? '?';
+
+  // Status ordinal: in-construction(0) < in-review(1) < integrated(2).
+  const ord =
+    row.status === 'integrated' ? 2 : row.status === 'in-review' ? 1 : 0;
+
   return [
-    { name: `${prefix}:Designed`, done: total > 0 },
-    { name: `${prefix}:Built`, done: done > 0 },
-    { name: `${prefix}:Reviewed`, done: row.status === 'in-review' || row.status === 'integrated' },
-    { name: `${prefix}:Integrated`, done: row.status === 'integrated' },
+    // Designed: any construction status implies design is done; artifacts enrich.
+    { name: `${prefix}:Designed`, done: ord >= 0 || hasAny },
+    // Built: code complete at the review gate (ord>=1); a produced artifact enriches.
+    { name: `${prefix}:Built`, done: ord >= 1 || hasProduced },
+    // Reviewed / Integrated: gated purely on the ordinal — never on artifact counts.
+    { name: `${prefix}:Reviewed`, done: ord >= 2 },
+    { name: `${prefix}:Integrated`, done: ord >= 2 },
   ];
 }
 

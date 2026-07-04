@@ -5,6 +5,7 @@ import type { ArtifactActivityVM } from './ArtifactActivityList';
 import type { Classification } from './artifactClassification';
 import { SystemTestRunView } from './renderers/SystemTestRunView';
 import { TestPlanView } from './renderers/TestPlanView';
+import { FrontendArtifactView } from './renderers/FrontendArtifactView';
 
 export interface ArtifactRendererProps {
   vm: ArtifactActivityVM;
@@ -23,4 +24,5 @@ export const artifactRenderers: Partial<
 > = {
   'testing:plan': TestPlanView,
   'testing:systemTest': SystemTestRunView,
+  frontend: FrontendArtifactView,
 };
