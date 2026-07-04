@@ -1073,31 +1073,53 @@ func assembleOption(
 		onCritical[name] = true
 	}
 
+	classSet := map[string]struct{}{}
 	activities := make([]projectstate.OptionActivity, 0, len(al.Activities))
 	for _, a := range al.Activities {
+		classSet[a.WorkerClass] = struct{}{}
 		activities = append(activities, projectstate.OptionActivity{
-			ActivityID:     a.Name,
-			EffortDays:     a.EffortDays,
-			WorkerClass:    a.WorkerClass,
+			ActivityID:  a.Name,
+			EffortDays:  a.EffortDays,
+			WorkerClass: a.WorkerClass,
+			// OnCriticalPath/RiskBucket are authored METADATA only — the estimationEngine
+			// computes its OWN per-option critical path + float-based risk from the network
+			// (Phase-2 rework F2/F3); it no longer trusts these fields for the math.
 			OnCriticalPath: onCritical[a.Name],
 			RiskBucket:     a.RiskBucket,
 		})
 	}
-
-	calendar := sol.CalendarDaysPerWeek
-	if calendar == 0 {
-		calendar = pa.CalendarDaysPerWeek
+	classes := make([]string, 0, len(classSet))
+	for c := range classSet {
+		classes = append(classes, c)
 	}
 
+	// Calendar is a SHARED planning assumption for EVERY option (Phase-2 rework F5): the
+	// per-option Solution.CalendarDaysPerWeek "cheat" (compressed silently switching 2→5
+	// d/wk) is retired. Compression now comes from a higher StaffingCap (parallelism where
+	// the network allows) + the 30% exclusion guard in recommendOption.
+	//
+	// EARMARK (F5e — deferred): the book's SECOND compression lever, "top resources" (a
+	// model-tier upgrade, e.g. junior sonnet→opus, that shortens critical-activity effort
+	// at higher $/day), is NOT modeled here — cap-based parallelism cannot shorten below
+	// the unconstrained critical path. When implemented, the compressed option would carry
+	// a per-class effort/throughput multiplier fed to the estimationEngine.
 	return projectstate.ProjectOption{
-		OptionID:            projectstate.OptionID(kind.String()),
-		SolutionKind:        kind,
-		Network:             projectstate.ActivityNetwork{Activities: activities},
-		WorkerMix:           projectstate.WorkerMix{ClassRates: sol.ClassRates, StaffingCap: sol.StaffingCap},
-		CalendarDaysPerWeek: calendar,
+		OptionID:     projectstate.OptionID(kind.String()),
+		SolutionKind: kind,
+		Network:      projectstate.ActivityNetwork{Activities: activities},
+		// AI-derived per-class $/day rates (Phase-2 rework F11) — not the old flat human rates.
+		WorkerMix:           projectstate.WorkerMix{ClassRates: deriveClassRates(pa, classes), StaffingCap: sol.StaffingCap},
+		CalendarDaysPerWeek: pa.CalendarDaysPerWeek,
 		Terms:               pa.Terms,
 		DeclaredUsage:       pa.DeclaredUsage,
 		InfrastructureKind:  pa.InfrastructureKind,
+		Dependencies:        nw.Dependencies,
+		Milestones:          nw.Milestones,
+		IndirectDailyRate:   indirectDailyRateOf(pa),
+		BufferDays:          sol.BufferDays,
+		// Top-resource compression lever (F5e): >1 for the compressed option, which speeds
+		// up its critical path (shorter + riskier) at a convex cost premium in the engine.
+		CriticalSpeedup: sol.CriticalSpeedup,
 	}
 }
 
@@ -1147,11 +1169,22 @@ func toEstimationOption(opt projectstate.ProjectOption) estimation.ProjectOption
 	for cls, m := range opt.WorkerMix.ClassRates {
 		rates[cls] = estimation.Money{MinorUnits: m.MinorUnits, Currency: m.Currency}
 	}
+	deps := make([]estimation.NetworkDependency, 0, len(opt.Dependencies))
+	for _, d := range opt.Dependencies {
+		deps = append(deps, estimation.NetworkDependency{Activity: d.Activity, DependsOn: d.DependsOn})
+	}
+	milestones := make([]estimation.NetworkMilestone, 0, len(opt.Milestones))
+	for _, m := range opt.Milestones {
+		milestones = append(milestones, estimation.NetworkMilestone{Id: m.ID, DependsOn: m.DependsOn})
+	}
 	return estimation.ProjectOption{
 		OptionId:            estimation.OptionID(opt.OptionID),
-		Network:             estimation.ActivityNetwork{Activities: activities},
+		Network:             estimation.ActivityNetwork{Activities: activities, Dependencies: deps, Milestones: milestones},
 		WorkerMix:           estimation.WorkerMix{ClassRates: rates, StaffingCap: int64(opt.WorkerMix.StaffingCap)},
 		CalendarDaysPerWeek: opt.CalendarDaysPerWeek,
+		IndirectDailyRate:   estimation.Money{MinorUnits: opt.IndirectDailyRate.MinorUnits, Currency: opt.IndirectDailyRate.Currency},
+		BufferDays:          opt.BufferDays,
+		CriticalSpeedup:     opt.CriticalSpeedup,
 	}
 }
 
@@ -1162,25 +1195,65 @@ func toProjectStateMoneyFromEstimation(m estimation.Money) projectstate.Money {
 	return projectstate.Money{MinorUnits: m.MinorUnits, Currency: m.Currency}
 }
 
-// recommendOption picks the row with the best (lowest CompositeRisk, tie-break
-// lowest DurationDays) and returns its OptionID + a short deterministic rationale.
-// NOTE: this is a Manager-side placeholder earmarked for the deferred risk/estimation
-// engine re-plan (the estimationEngine follow-up: G1 longest-path, G2 float-based
-// activity risk) — the ranking heuristic migrates into that Engine when it lands.
+// Exclusion-zone bounds (App C §4.7g–i; the-method-risk-modeling Step 5). Options with
+// composite risk above tooRisky or below overSafe are OUT; a compressed option more than
+// maxCompression shorter than normal is OUT (death-zone proximity / >30% rule, F8).
+const (
+	riskTooRisky   = 0.75
+	riskOverSafe   = 0.30
+	maxCompression = 0.30
+)
+
+// recommendOption applies the App C exclusion zones across the option rows, then picks the
+// best IN-band option (lowest CompositeRisk, tie-break lowest DurationDays) — this is the
+// cost-risk sweet spot the book expects to land on the decompressed-normal (F8). If every
+// option is out of band it falls back to the lowest-risk row so the recommendation is never
+// empty (management still needs a pointer, with the caveat in the rationale).
 func recommendOption(rows []projectstate.SdpOptionRow) (projectstate.OptionID, string) {
 	if len(rows) == 0 {
 		return "", "no options assembled"
 	}
-	best := rows[0]
-	for _, r := range rows[1:] {
-		if r.CompositeRisk < best.CompositeRisk ||
-			(r.CompositeRisk == best.CompositeRisk && r.DurationDays < best.DurationDays) {
-			best = r
+	normalDur := 0.0
+	for _, r := range rows {
+		if r.SolutionKind == projectstate.KindNormalSolution {
+			normalDur = r.DurationDays
 		}
 	}
+	included := func(r projectstate.SdpOptionRow) bool {
+		if r.CompositeRisk > riskTooRisky || r.CompositeRisk < riskOverSafe {
+			return false
+		}
+		if normalDur > 0 && r.DurationDays < normalDur {
+			if (normalDur-r.DurationDays)/normalDur > maxCompression {
+				return false
+			}
+		}
+		return true
+	}
+	pickBest := func(pred func(projectstate.SdpOptionRow) bool) (projectstate.SdpOptionRow, bool) {
+		var best projectstate.SdpOptionRow
+		found := false
+		for _, r := range rows {
+			if !pred(r) {
+				continue
+			}
+			if !found || r.CompositeRisk < best.CompositeRisk ||
+				(r.CompositeRisk == best.CompositeRisk && r.DurationDays < best.DurationDays) {
+				best = r
+				found = true
+			}
+		}
+		return best, found
+	}
+	if best, ok := pickBest(included); ok {
+		return best.OptionID, fmt.Sprintf(
+			"recommend %s: lowest in-band composite risk (%.3f) at %.1f days (App C risk-crossover exclusions applied)",
+			best.OptionID, best.CompositeRisk, best.DurationDays)
+	}
+	best, _ := pickBest(func(projectstate.SdpOptionRow) bool { return true })
 	return best.OptionID, fmt.Sprintf(
-		"recommend %s: lowest composite risk (%.3f) at %.1f days",
-		best.OptionID, best.CompositeRisk, best.DurationDays)
+		"recommend %s: ALL options fell outside the App C risk band [%.2f,%.2f]; picked lowest composite risk (%.3f) — review before committing",
+		best.OptionID, riskOverSafe, riskTooRisky, best.CompositeRisk)
 }
 
 // optionInReview reports whether id names one of the assembled option rows.

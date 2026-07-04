@@ -471,12 +471,14 @@ type PhaseArtifacts struct {
 }
 
 type PlanningAssumptions struct {
-	Resources           []string           `json:"resources"`
-	CalendarDaysPerWeek float64            `json:"calendarDaysPerWeek"`
-	InfrastructureKind  InfrastructureKind `json:"infrastructureKind"`
-	DeclaredUsage       UsageAssumption    `json:"declaredUsage"`
-	Terms               SettlementTerms    `json:"terms"`
-	Notes               string             `json:"notes"`
+	Resources           []string                  `json:"resources"`
+	CalendarDaysPerWeek float64                   `json:"calendarDaysPerWeek"`
+	InfrastructureKind  InfrastructureKind        `json:"infrastructureKind"`
+	DeclaredUsage       UsageAssumption           `json:"declaredUsage"`
+	Terms               SettlementTerms           `json:"terms"`
+	Notes               string                    `json:"notes"`
+	IndirectDailyRate   Money                     `json:"indirectDailyRate"`
+	RateCard            map[string]WorkerRateSpec `json:"rateCard,omitempty"`
 }
 
 type ProducedArtifact struct {
@@ -505,14 +507,19 @@ type ProjectCatalogRef struct {
 type ProjectID string
 
 type ProjectOption struct {
-	OptionID            OptionID           `json:"optionId"`
-	SolutionKind        ArtifactKind       `json:"solutionKind"`
-	Network             ActivityNetwork    `json:"network"`
-	WorkerMix           WorkerMix          `json:"workerMix"`
-	CalendarDaysPerWeek float64            `json:"calendarDaysPerWeek"`
-	Terms               SettlementTerms    `json:"terms"`
-	DeclaredUsage       UsageAssumption    `json:"declaredUsage"`
-	InfrastructureKind  InfrastructureKind `json:"infrastructureKind"`
+	OptionID            OptionID            `json:"optionId"`
+	SolutionKind        ArtifactKind        `json:"solutionKind"`
+	Network             ActivityNetwork     `json:"network"`
+	WorkerMix           WorkerMix           `json:"workerMix"`
+	CalendarDaysPerWeek float64             `json:"calendarDaysPerWeek"`
+	Terms               SettlementTerms     `json:"terms"`
+	DeclaredUsage       UsageAssumption     `json:"declaredUsage"`
+	InfrastructureKind  InfrastructureKind  `json:"infrastructureKind"`
+	Dependencies        []NetworkDependency `json:"dependencies,omitempty"`
+	Milestones          []NetworkMilestone  `json:"milestones,omitempty"`
+	IndirectDailyRate   Money               `json:"indirectDailyRate"`
+	BufferDays          float64             `json:"bufferDays"`
+	CriticalSpeedup     float64             `json:"criticalSpeedup"`
 }
 
 type ProjectSummary struct {
@@ -577,7 +584,11 @@ type ReviewPolicy struct {
 }
 
 type RiskModel struct {
-	Rows []RiskRow `json:"rows"`
+	Rows              []RiskRow    `json:"rows"`
+	TooRiskyThreshold float64      `json:"tooRiskyThreshold"`
+	OverSafeThreshold float64      `json:"overSafeThreshold"`
+	MaxCompressionPct float64      `json:"maxCompressionPct"`
+	Recommendation    ArtifactKind `json:"recommendation"`
 }
 
 type RiskRow struct {
@@ -585,6 +596,10 @@ type RiskRow struct {
 	CriticalityRisk float64      `json:"criticalityRisk"`
 	ActivityRisk    float64      `json:"activityRisk"`
 	Composite       float64      `json:"composite"`
+	DurationDays    float64      `json:"durationDays"`
+	TotalCost       Money        `json:"totalCost"`
+	Included        bool         `json:"included"`
+	ExclusionReason string       `json:"exclusionReason"`
 }
 
 type SRSRecord struct {
@@ -644,6 +659,7 @@ type Solution struct {
 	CalendarDaysPerWeek float64          `json:"calendarDaysPerWeek"`
 	ClassRates          map[string]Money `json:"classRates"`
 	BufferDays          float64          `json:"bufferDays"`
+	CriticalSpeedup     float64          `json:"criticalSpeedup"`
 }
 
 type StandardCheck struct {
@@ -718,6 +734,12 @@ type Volatility struct {
 type WorkerMix struct {
 	ClassRates  map[string]Money `json:"classRates"`
 	StaffingCap int              `json:"staffingCap"`
+}
+
+type WorkerRateSpec struct {
+	ModelID             string  `json:"modelId"`
+	MegatokensInPerDay  float64 `json:"megatokensInPerDay"`
+	MegatokensOutPerDay float64 `json:"megatokensOutPerDay"`
 }
 
 // ProjectStateAccess is the generated service-contract interface for this component.

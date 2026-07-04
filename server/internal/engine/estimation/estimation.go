@@ -101,10 +101,6 @@ import (
 // block; the CPM solve reads only Dependencies + Milestones (it COMPUTES the rest),
 // so the slim mirror carries only those.
 
-// topFibonacciBucket is the highest Fibonacci risk bucket (contract activity-risk
-// normalization divides the per-activity bucket sum by count × 13.0).
-const topFibonacciBucket = 13.0
-
 // maxCalendarStretch caps the calendar stretch factor so a pathological
 // CalendarDaysPerWeek (e.g. fractional days/week) cannot inflate the duration
 // without bound. 5 d/wk → 1.0; 1 d/wk → 5.0; capped at 7.0.
@@ -180,10 +176,8 @@ func (EstimationEngineImpl) EstimateForOption(_ fweng.Context, option ProjectOpt
 		}
 	}
 
-	// --- Build cost: Σ (effort person-days × worker-class build rate). The cost
-	// currency is the single shared currency of the participating rates; a mixed
+	// --- Cost currency: the single shared currency of the participating rates; a mixed
 	// or empty currency is a ContractMisuse (the Manager mis-assembled the mix). ---
-	var totalMinorUnits int64
 	currency := ""
 	for i, a := range activities {
 		rate := rates[a.WorkerClass]
@@ -198,31 +192,52 @@ func (EstimationEngineImpl) EstimateForOption(_ fweng.Context, option ProjectOpt
 				"EstimateForOption: mixed rate currencies ("+quote(currency)+" vs "+
 					quote(rate.Currency)+") at activity "+activityRef(a, i))
 		}
-		// Integer minor-units cost: effort person-days × per-person-day rate.
-		// Deterministic float→int truncation (no rounding mode ambiguity).
-		totalMinorUnits += int64(a.EffortDays * float64(rate.MinorUnits))
 	}
-	buildCost := Money{MinorUnits: totalMinorUnits, Currency: currency}
 
-	// --- Duration: CPM critical-path length in sim-days. ---
-	durationDays := criticalPathDays(activities, option.WorkerMix.StaffingCap)
-	// Calendar stretch: a 5 d/wk team progresses faster than a 2 d/wk team, so a
-	// lower CalendarDaysPerWeek stretches the sim-day duration. 5 d/wk => 1.0.
-	durationDays *= calendarStretch(option.CalendarDaysPerWeek)
+	deps, milestones := option.Network.Dependencies, option.Network.Milestones
+	cap := option.WorkerMix.StaffingCap
 
-	// --- Risk decomposition. ---
-	count := float64(len(activities))
-	criticalCount := 0
-	var bucketSum int64
-	for _, a := range activities {
-		if a.OnCriticalPath {
-			criticalCount++
-		}
-		bucketSum += a.RiskBucket
+	// --- Top-resource compression (Löwy ch.9 §2/§3; Phase-2 rework F5e). CriticalSpeedup
+	// s>1 assigns faster "top resources" to the RESOURCE-CRITICAL activities (found by an
+	// unbuffered base solve): their effort is divided by s, so the project finishes sooner
+	// AND off-critical float shrinks (riskier). The book's SECOND compression lever, after
+	// parallelism (a higher StaffingCap). s==1 (every non-compressed option) is a no-op. ---
+	speedup := option.CriticalSpeedup
+	if speedup < 1 {
+		speedup = 1
 	}
-	criticalityRisk := float64(criticalCount) / count
-	activityRisk := clamp01(float64(bucketSum) / (count * topFibonacciBucket))
+	onCP := criticalSet(activities, deps, milestones, cap)
+	solveActs := speedUpCritical(activities, onCP, speedup)
+
+	// --- Duration: resource-constrained (resource-leveled) schedule length in sim-days
+	// PLUS the decompression buffer, then calendar-stretched. The engine runs its OWN CPM
+	// + resource solve over the option's dependency graph honoring the staffing cap; it no
+	// longer sums authored on-critical-path efforts (Phase-2 rework F1/F3/F4). ---
+	sched := resourceLevelSchedule(solveActs, deps, milestones, cap, option.BufferDays)
+	stretch := calendarStretch(option.CalendarDaysPerWeek)
+	durationDays := sched.projectDuration * stretch
+
+	directCost := Money{MinorUnits: directCostMinorUnits(activities, rates, onCP, speedup), Currency: currency}
+
+	// --- Risk decomposition from the RESOURCE-CONSTRAINED floats (Löwy ch.10 §3). ---
+	criticalityRisk := criticalityRiskOf(sched.activities)
+	activityRisk := activityRiskOf(sched.activities)
 	composite := clamp01(0.5*criticalityRisk + 0.5*activityRisk)
+
+	// --- Indirect cost: duration (calendar days) × indirect daily rate (Phase-2 rework
+	// F6). This is what makes a longer option (subcritical) COSTLIER even when its direct
+	// cost is similar, and gives the time-cost curve its minimum. Zero-value rate ⇒ no
+	// indirect term (back-compat). A mismatched non-empty currency is a ContractMisuse. ---
+	indirectCost := Money{Currency: directCost.Currency}
+	if r := option.IndirectDailyRate; r.MinorUnits != 0 || r.Currency != "" {
+		if r.Currency != "" && directCost.Currency != "" && r.Currency != directCost.Currency {
+			return ConstructionEstimate{}, fweng.New(fweng.ContractMisuse,
+				"EstimateForOption: IndirectDailyRate currency "+quote(r.Currency)+
+					" != direct cost currency "+quote(directCost.Currency))
+		}
+		indirectCost = Money{MinorUnits: int64(durationDays * float64(r.MinorUnits)), Currency: directCost.Currency}
+	}
+	buildCost := Money{MinorUnits: directCost.MinorUnits + indirectCost.MinorUnits, Currency: directCost.Currency}
 
 	// --- InternalInvariant guards: a bug if any of these holds post-computation. ---
 	if durationDays < 0 {
@@ -237,6 +252,8 @@ func (EstimationEngineImpl) EstimateForOption(_ fweng.Context, option ProjectOpt
 	return ConstructionEstimate{
 		DurationDays: durationDays,
 		BuildCost:    buildCost,
+		DirectCost:   directCost,
+		IndirectCost: indirectCost,
 		Risk: RiskScore{
 			Composite:       composite,
 			CriticalityRisk: criticalityRisk,
@@ -245,32 +262,121 @@ func (EstimationEngineImpl) EstimateForOption(_ fweng.Context, option ProjectOpt
 	}, nil
 }
 
-// criticalPathDays returns the construction critical-path length in sim-days.
-//
-// The option's ActivityNetwork is a flat activity set whose critical-path
-// membership is already flagged (OptionActivity.OnCriticalPath), so the CPM
-// critical-path length is the sum of effort over flagged activities. If NO
-// activity is flagged, fall back to a parallelism estimate: total effort spread
-// across the staffing cap (max(StaffingCap, 1) workers). Deterministic — no
-// tie-breaking ambiguity because the input ordering is not consulted.
-func criticalPathDays(activities []OptionActivity, staffingCap int64) float64 {
-	var criticalDays, totalDays float64
-	anyCritical := false
-	for _, a := range activities {
-		totalDays += a.EffortDays
-		if a.OnCriticalPath {
-			anyCritical = true
-			criticalDays += a.EffortDays
+// criticalSet runs an unbuffered resource-leveled base solve and returns the set of
+// resource-critical activity ids — the path top resources are applied to under compression.
+func criticalSet(activities []OptionActivity, deps []NetworkDependency, milestones []NetworkMilestone, cap int64) map[string]bool {
+	base := resourceLevelSchedule(activities, deps, milestones, cap, 0)
+	onCP := make(map[string]bool, len(base.activities))
+	for _, a := range base.activities {
+		if a.onCP {
+			onCP[a.id] = true
 		}
 	}
-	if anyCritical {
-		return criticalDays
+	return onCP
+}
+
+// speedUpCritical returns the activity set with critical-path effort divided by speedup
+// (top-resource compression, Löwy ch.9 §2/§3; F5e). speedup==1 is a no-op returning the
+// input unchanged. Off-critical effort is untouched, so their float shrinks (riskier).
+func speedUpCritical(activities []OptionActivity, onCP map[string]bool, speedup float64) []OptionActivity {
+	if speedup <= 1 {
+		return activities
 	}
-	cap := staffingCap
-	if cap < 1 {
-		cap = 1
+	out := make([]OptionActivity, len(activities))
+	for i, a := range activities {
+		out[i] = a
+		if onCP[a.ActivityId] {
+			out[i].EffortDays = a.EffortDays / speedup
+		}
 	}
-	return totalDays / float64(cap)
+	return out
+}
+
+// directCostMinorUnits sums effort × rate, with a CONVEX premium (rate × speedup²) on the
+// sped-up critical activities. The QUADRATIC premium reproduces the book's convex time-cost
+// curve (ch.9 §3): buying schedule with top resources gets disproportionately expensive, so
+// the compressed option sits ABOVE normal on cost even though its shorter duration saves
+// indirect — the time-cost minimum lands near normal, not at the shortest schedule.
+func directCostMinorUnits(activities []OptionActivity, rates map[string]Money, onCP map[string]bool, speedup float64) int64 {
+	var total int64
+	for _, a := range activities {
+		perDay := float64(rates[a.WorkerClass].MinorUnits)
+		if speedup > 1 && onCP[a.ActivityId] {
+			total += int64(a.EffortDays * perDay * speedup * speedup)
+		} else {
+			total += int64(a.EffortDays * perDay)
+		}
+	}
+	return total
+}
+
+// --- Float-based risk (Löwy ch.10 §3.4 "Criticality Risk" + §3.6 "Activity Risk") -----
+
+// Float-criticality band weights. criticality risk weights each activity by how much
+// float it has: a zero-float (critical) activity is the riskiest (weight 4); a generous-
+// float activity is the safest (weight 1). The bands themselves reuse the network.go
+// defaultBandPolicy thresholds (critical=0, red≤5d, yellow≤25d, green>25d) so the risk
+// decomposition and the SPA's band colouring never drift apart.
+const (
+	weightCritical = 4.0 // 0 float           (defaultBandPolicy: critical)
+	weightHigh     = 3.0 // 0 < float ≤ 5d     (red / near-critical)
+	weightMedium   = 2.0 // 5 < float ≤ 25d    (yellow)
+	weightLow      = 1.0 // float > 25d        (green)
+)
+
+// criticalityRiskOf implements the book's WEIGHTED criticality risk (ch.10 §3.4):
+//
+//	criticality = (Wc·Nc + Wh·Nh + Wm·Nm + Wl·Nl) / (Wc·N)
+//
+// with Wc=4, Wh=3, Wm=2, Wl=1. The denominator Wc·N is the all-critical maximum, so the
+// score is 1.0 when every activity is critical and floors at Wl/Wc = 0.25 when every
+// activity has generous float. Replaces the old "fraction of activities on the CP" (F2).
+func criticalityRiskOf(acts []leveledActivity) float64 {
+	n := len(acts)
+	if n == 0 {
+		return 0
+	}
+	weighted := 0.0
+	for _, a := range acts {
+		switch defaultBandPolicy.classify(a.onCP, a.totalFloat) {
+		case bandCritical:
+			weighted += weightCritical
+		case bandRed:
+			weighted += weightHigh
+		case bandYellow:
+			weighted += weightMedium
+		default: // bandGreen
+			weighted += weightLow
+		}
+	}
+	return clamp01(weighted / (weightCritical * float64(n)))
+}
+
+// activityRiskOf implements the book's activity risk (ch.10 §3.6):
+//
+//	activity = 1 − Σ Fi / (N · Fmax)
+//
+// High when most activities have low float; low when many have generous float. Edge
+// cases the book notes (F2): an empty set is 0 risk; a UNIFORM-float set (every activity
+// on the resource-critical path with Fmax≈0) is maximum risk 1.0 rather than a 0/0 NaN.
+func activityRiskOf(acts []leveledActivity) float64 {
+	n := len(acts)
+	if n == 0 {
+		return 0
+	}
+	sumFloat := 0.0
+	maxFloat := 0.0
+	for _, a := range acts {
+		sumFloat += a.totalFloat
+		if a.totalFloat > maxFloat {
+			maxFloat = a.totalFloat
+		}
+	}
+	if maxFloat <= floatEpsilon {
+		// All activities are critical (zero float) — maximal, brittle. Avoid 0/0.
+		return 1.0
+	}
+	return clamp01(1.0 - sumFloat/(float64(n)*maxFloat))
 }
 
 // calendarStretch maps the option's working days/week to a duration multiplier:

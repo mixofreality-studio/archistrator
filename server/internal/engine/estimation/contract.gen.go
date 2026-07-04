@@ -17,13 +17,17 @@ type ActivityList struct {
 }
 
 type ActivityNetwork struct {
-	Activities []OptionActivity `json:"activities"`
+	Activities   []OptionActivity    `json:"activities"`
+	Dependencies []NetworkDependency `json:"dependencies,omitempty"`
+	Milestones   []NetworkMilestone  `json:"milestones,omitempty"`
 }
 
 type ConstructionEstimate struct {
 	DurationDays float64   `json:"DurationDays"`
 	BuildCost    Money     `json:"BuildCost"`
 	Risk         RiskScore `json:"Risk"`
+	DirectCost   Money     `json:"DirectCost"`
+	IndirectCost Money     `json:"IndirectCost"`
 }
 
 type EVCurve struct {
@@ -101,6 +105,9 @@ type ProjectOption struct {
 	Network             ActivityNetwork `json:"network"`
 	WorkerMix           WorkerMix       `json:"workerMix"`
 	CalendarDaysPerWeek float64         `json:"calendarDaysPerWeek"`
+	IndirectDailyRate   Money           `json:"indirectDailyRate"`
+	BufferDays          float64         `json:"bufferDays"`
+	CriticalSpeedup     float64         `json:"criticalSpeedup"`
 }
 
 type RiskScore struct {
@@ -116,9 +123,9 @@ type WorkerMix struct {
 
 // EstimationEngine is the generated service-contract interface for this component.
 type EstimationEngine interface {
+	ComputeEarnedValue(rc fweng.Context, activities ActivityList, network Network, integrated []string, totalWeeks int64, calendarDaysPerWeek int64) (EVCurve, error)
 	ComputeNetwork(rc fweng.Context, activities ActivityList, network Network) (NetworkSolution, error)
 	EstimateForOption(rc fweng.Context, option ProjectOption) (ConstructionEstimate, error)
-	ComputeEarnedValue(rc fweng.Context, activities ActivityList, network Network, integrated []string, totalWeeks int64, calendarDaysPerWeek int64) (EVCurve, error)
 }
 
 // EstimationEngineImpl is the generated concrete EstimationEngine. Engines are pure (no

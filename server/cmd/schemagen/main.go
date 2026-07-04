@@ -376,6 +376,7 @@ var registry = []component{
 			estimation.NetworkNode{},
 			estimation.NetworkMilestoneSolution{},
 			estimation.NetworkSummary{},
+			estimation.EVCurve{},
 			// Domain INPUT types redefined as this component's OWN defs (Option B full
 			// encapsulation). They MIRROR projectstate (the canonical home owned by
 			// projectStateAccess); the projectDesignManager (EstimateForOption) and the
@@ -838,6 +839,7 @@ var registry = []component{
 			projectstate.DocOutlineRecord{},
 			projectstate.DynamicView{},
 			projectstate.EdgeKind(0),
+			projectstate.EvPoint{},
 			projectstate.FailureReason(0),
 			projectstate.Glossary{},
 			projectstate.GlossaryItem{},
@@ -898,6 +900,7 @@ var registry = []component{
 			projectstate.Volatilities{},
 			projectstate.Volatility{},
 			projectstate.WorkerMix{},
+			projectstate.WorkerRateSpec{},
 		},
 		// bindByName — kept hand-written, referenced by bare Go name. TWO reasons:
 		//   1. VALUE+OMITEMPTY structs: they carry `json:"x,omitempty"` on VALUE-typed
