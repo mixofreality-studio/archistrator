@@ -14,7 +14,7 @@ import Typography from '@mui/material/Typography';
 import StarIcon from '@mui/icons-material/Star';
 import type { ProjectArtifactKind, ProjectArtifactModelEnvelope } from '../../api/types';
 import { SOLUTION_LABELS } from '../../api/types';
-import { toSolutionView, formatMoney, solutionAccentColor } from '../../api/projectAdapters';
+import { toSolutionView, formatMoney, solutionAccentColor, narrowProject } from '../../api/projectAdapters';
 import { useTokens } from '../../theme/ThemeContext';
 import type { Tokens } from '../../theme/themes';
 import { AuthoredBadge, ComputedBadge } from './computed';
@@ -38,15 +38,22 @@ function Fig({ t, k, v, strong }: { t: Tokens; k: string; v: string; strong?: bo
 export function SolutionView({
   envelope,
   kind,
+  planningAssumptionsEnvelope,
 }: {
   envelope: ProjectArtifactModelEnvelope | undefined;
   kind: ProjectArtifactKind;
+  /** The calendar is a shared planning assumption; solution slots no longer carry
+   * their own per-option override. Used only as a display fallback when the
+   * option's own calendarDaysPerWeek is unset. */
+  planningAssumptionsEnvelope?: ProjectArtifactModelEnvelope | undefined;
 }): ReactNode {
   const t = useTokens();
   const view = toSolutionView(envelope, kind);
   const color = solutionAccentColor(t, kind);
   const title = SOLUTION_LABELS[kind] ?? kind;
   const recommended = kind === 'decompressedSolution';
+  const sharedCalendar = narrowProject(planningAssumptionsEnvelope, 'planningAssumptions')?.calendarDaysPerWeek;
+  const calendarDaysPerWeek = view !== undefined && view.calendarDaysPerWeek > 0 ? view.calendarDaysPerWeek : sharedCalendar;
 
   if (view === undefined) {
     return (
@@ -78,7 +85,9 @@ export function SolutionView({
               <AuthoredBadge t={t} />
             </Box>
             <Fig strong k="Staffing cap" t={t} v={`${String(view.staffingCap)} concurrent`} />
-            <Fig k="Calendar" t={t} v={`${String(view.calendarDaysPerWeek)} d/wk`} />
+            {calendarDaysPerWeek !== undefined && calendarDaysPerWeek > 0 ? (
+              <Fig k="Calendar" t={t} v={`${String(calendarDaysPerWeek)} d/wk`} />
+            ) : null}
             <Fig k="Schedule buffer" t={t} v={`${String(view.bufferDays)} d`} />
           </Box>
           {/* class rates */}

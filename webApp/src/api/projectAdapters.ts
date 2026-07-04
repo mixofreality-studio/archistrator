@@ -90,6 +90,13 @@ export function formatMoney(m: Money | undefined): string {
   }
 }
 
+/** Formats a duration in days to at most 1 decimal place (e.g. "533.3 d"),
+ * dropping the fraction entirely for whole-day durations (e.g. "737 d"). */
+export function formatDurationDays(days: number): string {
+  const rounded = Math.round(days * 10) / 10;
+  return `${Number.isInteger(rounded) ? rounded.toFixed(0) : rounded.toFixed(1)} d`;
+}
+
 // ---------------------------------------------------------------------------
 // Activity list → grouped rows by ID prefix.
 // ---------------------------------------------------------------------------
@@ -399,7 +406,19 @@ export interface RiskRowView {
   criticalityRisk: number;
   activityRisk: number;
   composite: number;
+  durationDays: number;
+  totalCost: Money;
+  included: boolean;
+  exclusionReason: string;
 }
+
+export interface RiskModelView {
+  rows: RiskRowView[];
+  tooRiskyThreshold: number;
+  overSafeThreshold: number;
+}
+
+const EMPTY_RISK_MODEL_VIEW: RiskModelView = { rows: [], tooRiskyThreshold: 0, overSafeThreshold: 0 };
 
 /** Maps the typed RiskModel into per-option rows. */
 export function toRiskRows(envelope: ProjectArtifactModelEnvelope | undefined): RiskRowView[] {
@@ -410,7 +429,22 @@ export function toRiskRows(envelope: ProjectArtifactModelEnvelope | undefined): 
     criticalityRisk: r.criticalityRisk,
     activityRisk: r.activityRisk,
     composite: r.composite,
+    durationDays: r.durationDays,
+    totalCost: r.totalCost,
+    included: r.included,
+    exclusionReason: r.exclusionReason,
   }));
+}
+
+/** Maps the typed RiskModel into the full curve/exclusion-zone view. */
+export function toRiskModelView(envelope: ProjectArtifactModelEnvelope | undefined): RiskModelView {
+  const model = narrowProject(envelope, 'riskModel');
+  if (model === undefined) return EMPTY_RISK_MODEL_VIEW;
+  return {
+    rows: toRiskRows(envelope),
+    tooRiskyThreshold: model.tooRiskyThreshold,
+    overSafeThreshold: model.overSafeThreshold,
+  };
 }
 
 // ---------------------------------------------------------------------------

@@ -172,6 +172,7 @@ function VolChip({
   return (
     <Tooltip title={v.rationale}>
       <Box
+        aria-label={v.name}
         aria-pressed={active}
         role="button"
         sx={{

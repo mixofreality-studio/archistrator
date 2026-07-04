@@ -95,6 +95,16 @@ function committedActivityEnvelope(
   return slot.model as unknown as ProjectArtifactModelEnvelope;
 }
 
+/** The committed planning-assumptions slot's typed envelope — used by solution
+ * views as a display fallback for the shared calendarDaysPerWeek. */
+function committedPlanningAssumptionsEnvelope(
+  project: ProjectState | undefined
+): ProjectArtifactModelEnvelope | undefined {
+  const slot = (project?.slots ?? []).find((s) => s.kind === 'planningAssumptions');
+  if (slot === undefined || slotStageFromOrdinal(slot.stage) !== 'committed') return undefined;
+  return slot.model as unknown as ProjectArtifactModelEnvelope;
+}
+
 export function ProjectDesignScreen(): ReactNode {
   const { projectId } = projectRouteApi.useParams();
   return (
@@ -109,9 +119,10 @@ function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
   const t = useTokens();
   const { comments, reset, toWire, freeformNotes, requestId } = useComments();
 
-  const { data: project } = useProject(projectId);
+  const { data: project, isLoading: projectLoading } = useProject(projectId);
   const spine = useMemo(() => buildSpine(project), [project]);
   const activityEnvelope = useMemo(() => committedActivityEnvelope(project), [project]);
+  const planningAssumptionsEnvelope = useMemo(() => committedPlanningAssumptionsEnvelope(project), [project]);
 
   const firstOpen = spine.findIndex((s) => !s.committed);
   const [activeIndex, setActiveIndex] = useState(firstOpen < 0 ? spine.length - 1 : firstOpen);
@@ -253,6 +264,8 @@ function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
           hasDraft={hasDraft}
           isSdpStep={isSdpStep}
           loading={session.isLoading}
+          planningAssumptionsEnvelope={planningAssumptionsEnvelope}
+          projectLoading={projectLoading}
           retryPending={requestDraft.isPending || assembleSdp.isPending}
           sdpPending={submitSdp.isPending}
           sessionMissing={sessionMissing}
@@ -287,12 +300,14 @@ function ProjectStepBody({
   committedEnvelope,
   failureReason,
   hasDraft,
+  projectLoading,
   sessionMissing,
   stage,
   title,
   blurb,
   view,
   activityEnvelope,
+  planningAssumptionsEnvelope,
   findings,
   commentCount,
   decisionPending,
@@ -322,12 +337,15 @@ function ProjectStepBody({
   committedEnvelope: ProjectArtifactModelEnvelope | undefined;
   failureReason: string | undefined;
   hasDraft: boolean;
+  /** The project head-state query (slots/committed status) hasn't resolved yet. */
+  projectLoading: boolean;
   sessionMissing: boolean;
   stage: string | undefined;
   title: string;
   blurb: string;
   view: { draft: ProjectArtifactModelEnvelope } | undefined;
   activityEnvelope: ProjectArtifactModelEnvelope | undefined;
+  planningAssumptionsEnvelope: ProjectArtifactModelEnvelope | undefined;
   findings: Finding[];
   commentCount: number;
   decisionPending: boolean;
@@ -369,10 +387,39 @@ function ProjectStepBody({
       </Box>
     );
   }
+  // Session-missing (404) is ambiguous until the project head-state has resolved:
+  // it could mean "committed, no co-author session" or "genuinely no draft yet".
+  // While the project query is still in flight, show a neutral spinner rather than
+  // guessing — otherwise the "No draft yet" / "not assembled yet" CTA briefly
+  // flashes before swapping to the committed read-only render.
+  if (sessionMissing && projectLoading) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
 
-  // The SDP step, once committed, offers the advance-to-construction seal.
+  // The SDP step, once committed: render the full committed SDP content
+  // read-only (options table, curves, recommendation) with its decision gate
+  // disabled, THEN the advance-to-construction seal below it.
   if (isSdpStep && committed) {
-    return <AdvancePanel pending={advancePending} result={advanceResult} t={t} onAdvance={onAdvance} />;
+    const sdpEnvelope = view?.draft ?? committedEnvelope;
+    return (
+      <>
+        <Box sx={{ mb: 3 }}>
+          <ProjectArtifactRenderer
+            readOnly
+            envelope={sdpEnvelope}
+            kind={activeKind}
+            sdpPending={false}
+            onSdpCommit={() => { /* read-only: already committed */ }}
+            onSdpRejectAll={() => { /* read-only: already committed */ }}
+          />
+        </Box>
+        <AdvancePanel pending={advancePending} result={advanceResult} t={t} onAdvance={onAdvance} />
+      </>
+    );
   }
 
   // When the session is missing (404) but the slot is committed in the project
@@ -384,6 +431,7 @@ function ProjectStepBody({
         envelope={committedEnvelope}
         kind={activeKind}
         networkHeight={560}
+        planningAssumptionsEnvelope={planningAssumptionsEnvelope}
       />
     );
   }
@@ -434,6 +482,7 @@ function ProjectStepBody({
           envelope={view?.draft}
           kind={activeKind}
           networkHeight={560}
+          planningAssumptionsEnvelope={planningAssumptionsEnvelope}
         />
       </Box>
       {gateOpen ? (

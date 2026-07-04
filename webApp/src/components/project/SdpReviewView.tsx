@@ -18,7 +18,7 @@ import CheckIcon from '@mui/icons-material/Check';
 import ReplayIcon from '@mui/icons-material/Replay';
 import type { ProjectArtifactKind, ProjectArtifactModelEnvelope } from '../../api/types';
 import { SOLUTION_LABELS } from '../../api/types';
-import { toSdpReviewView, formatMoney, solutionAccentColor, type SdpOptionView } from '../../api/projectAdapters';
+import { toSdpReviewView, formatMoney, formatDurationDays, solutionAccentColor, type SdpOptionView } from '../../api/projectAdapters';
 import { useTokens } from '../../theme/ThemeContext';
 import type { Tokens } from '../../theme/themes';
 import { BandedScatter, type ScatterPoint } from './charts';
@@ -40,12 +40,15 @@ function bounds(values: number[], pad: number): { min: number; max: number } {
 export function SdpReviewView({
   envelope,
   pending,
+  readOnly = false,
   onCommit,
   onRejectAll,
 }: {
   envelope: ProjectArtifactModelEnvelope | undefined;
   /** A decision mutation is in flight — disable the gate. */
   pending: boolean;
+  /** The SDP is already committed — render the decision gate disabled, read-only. */
+  readOnly?: boolean;
   onCommit: (optionId: string) => void;
   onRejectAll: (feedback: string) => void;
 }): ReactNode {
@@ -117,7 +120,7 @@ export function SdpReviewView({
                   <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 11.5, color: t.ink }}>{SOLUTION_LABELS[o.solutionKind] ?? o.solutionKind}</Typography>
                   {o.recommended ? <StarIcon sx={{ fontSize: 13, color: t.accent }} /> : null}
                 </Box>
-                <Cell t={t}>{`${String(o.durationDays)} d`}</Cell>
+                <Cell t={t}>{formatDurationDays(o.durationDays)}</Cell>
                 <Cell t={t}>{formatMoney(o.buildCost)}</Cell>
                 <Cell strong t={t}>{o.compositeRisk.toFixed(2)}</Cell>
                 <Cell t={t}>{formatMoney(o.projectedMonthlyCost)}</Cell>
@@ -163,39 +166,43 @@ export function SdpReviewView({
         </Paper>
       )}
 
-      {/* DECISION CAPTURE — the terminal gate */}
+      {/* DECISION CAPTURE — the terminal gate (disabled + read-only once committed) */}
       <Paper data-testid={UI_IDENTIFIERS.SdpReview.GATE} sx={{ p: 0, overflow: 'hidden', border: `2px solid ${t.accent}` }}>
         <Box sx={{ px: 2.5, py: 1.5, bgcolor: t.accent, display: 'flex', alignItems: 'center', gap: 1 }}>
           <CheckIcon sx={{ fontSize: 18, color: t.accentText }} />
-          <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 13, letterSpacing: '0.06em', color: t.accentText }}>DECISION CAPTURE — THE SDP GATE</Typography>
+          <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 13, letterSpacing: '0.06em', color: t.accentText }}>
+            {readOnly ? 'DECISION CAPTURE — COMMITTED' : 'DECISION CAPTURE — THE SDP GATE'}
+          </Typography>
           <Box sx={{ flexGrow: 1 }} />
-          <AuthoredBadge label="you decide" t={t} />
+          <AuthoredBadge label={readOnly ? 'committed' : 'you decide'} t={t} />
         </Box>
 
         <Box sx={{ p: 2.5 }}>
-          {rejecting ? (
+          {rejecting && !readOnly ? (
             <RejectAll feedback={feedback} pending={pending} t={t} onCancel={() => { setRejecting(false); }} onChange={setFeedback} onReject={() => { onRejectAll(feedback); }} />
           ) : (
             <>
               <Typography sx={{ fontFamily: t.mono, fontSize: 11, letterSpacing: '0.08em', color: t.muted, mb: 1 }}>1 · CHOOSE AN OPTION</Typography>
               <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', md: `repeat(${String(Math.min(view.options.length, 4))}, 1fr)` }, gap: 1, mb: 2.5 }}>
                 {view.options.map((o) => (
-                  <OptionCard key={o.optionId} option={o} selected={selected === o.optionId} t={t} onSelect={() => { setChosen(o.optionId); }} />
+                  <OptionCard key={o.optionId} option={o} selected={selected === o.optionId} t={t} onSelect={() => { if (!readOnly) setChosen(o.optionId); }} />
                 ))}
               </Box>
 
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
                 <Box sx={{ minWidth: 0 }}>
                   <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 12.5, color: t.ink }}>
-                    You will commit: {SOLUTION_LABELS[view.options.find((o) => o.optionId === selected)?.solutionKind ?? 'sdpReview'] ?? selected}
+                    {readOnly ? 'Committed' : 'You will commit'}: {SOLUTION_LABELS[view.options.find((o) => o.optionId === selected)?.solutionKind ?? 'sdpReview'] ?? selected}
                   </Typography>
-                  <Typography sx={{ fontFamily: t.body, fontSize: 11.5, color: t.muted }}>Commit binds the plan of record and unlocks Phase 3 (Construction).</Typography>
+                  <Typography sx={{ fontFamily: t.body, fontSize: 11.5, color: t.muted }}>
+                    {readOnly ? 'This decision is already bound as the plan of record.' : 'Commit binds the plan of record and unlocks Phase 3 (Construction).'}
+                  </Typography>
                 </Box>
                 <Box sx={{ flexGrow: 1 }} />
-                <Button color="inherit" data-testid={UI_IDENTIFIERS.SdpReview.REJECT_ALL} disabled={pending} startIcon={<ReplayIcon />} sx={{ color: t.muted }} variant="text" onClick={() => { setRejecting(true); }}>
+                <Button color="inherit" data-testid={UI_IDENTIFIERS.SdpReview.REJECT_ALL} disabled={pending || readOnly} startIcon={<ReplayIcon />} sx={{ color: t.muted }} variant="text" onClick={() => { setRejecting(true); }}>
                   Reject all
                 </Button>
-                <Button color="primary" data-testid={UI_IDENTIFIERS.SdpReview.COMMIT} disabled={pending || selected.length === 0} startIcon={<CheckIcon />} variant="contained" onClick={() => { onCommit(selected); }}>
+                <Button color="primary" data-testid={UI_IDENTIFIERS.SdpReview.COMMIT} disabled={pending || readOnly || selected.length === 0} startIcon={<CheckIcon />} variant="contained" onClick={() => { onCommit(selected); }}>
                   Commit &amp; unlock Phase 3
                 </Button>
               </Box>

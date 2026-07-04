@@ -125,7 +125,7 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
   const t = useTokens();
   const { comments, reset, toWire, freeformNotes, requestId } = useComments();
 
-  const { data: project } = useProject(projectId);
+  const { data: project, isLoading: projectLoading } = useProject(projectId);
   const spine = useMemo(() => buildSpine(project), [project]);
 
   // Default active step: first non-committed, else last.
@@ -287,6 +287,7 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
           hasDraft={hasDraft}
           loading={session.isLoading}
           needsResearch={needsResearch}
+          projectLoading={projectLoading}
           researchPending={setResearch.isPending || startDesign.isPending}
           retryPending={requestDraft.isPending}
           sessionMissing={sessionMissing}
@@ -319,6 +320,7 @@ function StepBody({
   asyncFailed,
   failureReason,
   hasDraft,
+  projectLoading,
   sessionMissing,
   stage,
   title,
@@ -349,6 +351,8 @@ function StepBody({
   asyncFailed: boolean;
   failureReason: string | undefined;
   hasDraft: boolean;
+  /** The project head-state query (slots/committed status) hasn't resolved yet. */
+  projectLoading: boolean;
   sessionMissing: boolean;
   stage: string | undefined;
   title: string;
@@ -392,6 +396,18 @@ function StepBody({
     return <GeneratingScene artifact={title} />;
   }
   if (loading && view === undefined) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
+  // Session-missing (404) is ambiguous until the project head-state has resolved:
+  // it could mean "committed, no co-author session" or "genuinely no draft yet".
+  // While the project query is still in flight, show a neutral spinner rather than
+  // guessing — otherwise the "No draft yet" CTA briefly flashes before swapping to
+  // the committed read-only render.
+  if (sessionMissing && projectLoading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
         <CircularProgress />

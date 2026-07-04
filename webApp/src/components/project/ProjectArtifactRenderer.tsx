@@ -35,8 +35,10 @@ export function ProjectArtifactRenderer({
   envelope,
   kind,
   activityEnvelope,
+  planningAssumptionsEnvelope,
   networkHeight,
   sdpPending,
+  readOnly,
   onSdpCommit,
   onSdpRejectAll,
 }: {
@@ -45,16 +47,21 @@ export function ProjectArtifactRenderer({
   kind: ProjectArtifactKind;
   /** The committed activity-list envelope, joined into the network CPM derivation. */
   activityEnvelope?: ProjectArtifactModelEnvelope | undefined;
+  /** The committed planning-assumptions envelope — solution views fall back to its
+   * shared calendarDaysPerWeek when the option no longer carries its own. */
+  planningAssumptionsEnvelope?: ProjectArtifactModelEnvelope | undefined;
   /** Optional network canvas height override. */
   networkHeight?: number;
   /** SDP decision mutation in flight. */
   sdpPending?: boolean;
+  /** Render the SDP decision gate disabled — the slot is already committed. */
+  readOnly?: boolean;
   onSdpCommit?: (optionId: string) => void;
   onSdpRejectAll?: (feedback: string) => void;
 }): ReactNode {
   return (
     <Box data-artifact-kind={envelope?.kind ?? kind} data-testid={UI_IDENTIFIERS.DesignExperience.ARTIFACT_RENDER}>
-      {renderBody({ envelope, kind, activityEnvelope, networkHeight, sdpPending, onSdpCommit, onSdpRejectAll })}
+      {renderBody({ envelope, kind, activityEnvelope, planningAssumptionsEnvelope, networkHeight, sdpPending, readOnly, onSdpCommit, onSdpRejectAll })}
     </Box>
   );
 }
@@ -63,16 +70,20 @@ function renderBody({
   envelope,
   kind,
   activityEnvelope,
+  planningAssumptionsEnvelope,
   networkHeight,
   sdpPending,
+  readOnly,
   onSdpCommit,
   onSdpRejectAll,
 }: {
   envelope: ProjectArtifactModelEnvelope | undefined;
   kind: ProjectArtifactKind;
   activityEnvelope: ProjectArtifactModelEnvelope | undefined;
+  planningAssumptionsEnvelope: ProjectArtifactModelEnvelope | undefined;
   networkHeight: number | undefined;
   sdpPending: boolean | undefined;
+  readOnly: boolean | undefined;
   onSdpCommit: ((optionId: string) => void) | undefined;
   onSdpRejectAll: ((feedback: string) => void) | undefined;
 }): ReactNode {
@@ -87,13 +98,14 @@ function renderBody({
       />
     );
   }
-  if (isSolutionKind(kind)) return <SolutionView envelope={envelope} kind={kind} />;
+  if (isSolutionKind(kind)) return <SolutionView envelope={envelope} kind={kind} planningAssumptionsEnvelope={planningAssumptionsEnvelope} />;
   if (kind === 'riskModel') return <RiskModelView envelope={envelope} />;
   if (kind === 'sdpReview') {
     return (
       <SdpReviewView
         envelope={envelope}
         pending={sdpPending ?? false}
+        readOnly={readOnly ?? false}
         onCommit={onSdpCommit ?? noop}
         onRejectAll={onSdpRejectAll ?? noop}
       />

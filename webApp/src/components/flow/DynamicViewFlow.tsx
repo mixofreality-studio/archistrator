@@ -146,6 +146,7 @@ function StepBar({
     <Box sx={{ mb: 1.5 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
         <IconButton
+          aria-label="Previous step"
           disabled={stepIndex <= 0}
           size="small"
           sx={btnSx}
@@ -167,6 +168,7 @@ function StepBar({
           Step {stepIndex + 1} of {total}
         </Typography>
         <IconButton
+          aria-label="Next step"
           disabled={stepIndex >= total - 1}
           size="small"
           sx={btnSx}

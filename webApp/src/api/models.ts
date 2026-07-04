@@ -389,17 +389,30 @@ export interface SolutionModel {
   bufferDays: number;
 }
 
-/** projectstate.RiskRow — per-option risk decomposition. */
+/** projectstate.RiskRow — per-option risk decomposition, plus the duration/cost
+ * curve point and inclusion verdict against the exclusion-zone thresholds. */
 export interface RiskRow {
   solutionKind: ProjectArtifactKind;
   criticalityRisk: number;
   activityRisk: number;
   composite: number;
+  durationDays: number;
+  totalCost: Money;
+  included: boolean;
+  exclusionReason: string;
 }
 
-/** projectstate.RiskModel — the Phase-2 risk-model artifact. */
+/** projectstate.RiskModel — the Phase-2 risk-model artifact: the per-option rows
+ * (doubling as time-cost/time-risk curve points) plus the exclusion-zone bounds. */
 export interface RiskModelModel {
   rows: RiskRow[];
+  /** Composite risk above this ceiling excludes the option ("too risky"). */
+  tooRiskyThreshold: number;
+  /** Composite risk below this floor excludes the option ("over-decompressed" — more
+   * schedule slack than the risk warrants). */
+  overSafeThreshold: number;
+  maxCompressionPct: number;
+  recommendation: string;
 }
 
 /** projectstate.SdpOptionRow — one joined row of the SDP-review options table. */
