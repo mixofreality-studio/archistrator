@@ -1386,7 +1386,7 @@
       "status": 2,
       "kind": 0,
       "model": {
-        "vision": "A platform that produces predictably-engineered software and, for a usage-based fee, builds and hosts it for the user.",
+        "vision": "A platform that produces predictably-engineered software and delivers and operates it on the customer's behalf.",
         "objectives": [
           {
             "number": 1,
@@ -1398,7 +1398,7 @@
           },
           {
             "number": 3,
-            "statement": "Usage-based hosting vendor revenue: aiarch earns by billing the user a usage-based hosting fee when it operates the delivered system (DEPLOYED — OPERATED scenario only); there is no flat subscription; construction runs on the user's own Claude Code account and GitHub Actions — aiarch does not charge for construction or LLM work; the only metered, aiarch-borne cost is hosting/compute; aiarch is a pure service vendor and is merchant of record only for its own invoices."
+            "statement": "Revenue only from operation: the platform earns a usage-based fee solely for operating a delivered system on the customer's behalf; it never charges for design, construction, or the customer's own compute — the only billable quantity is what a running operated system consumes."
           },
           {
             "number": 4,
@@ -1406,7 +1406,7 @@
           },
           {
             "number": 5,
-            "statement": "Cost transparency at decision time: the projected hosting cost (usage-based, DEPLOYED — OPERATED only) is presented as a traceable figure whenever a customer is asked to commit money, including a usage-to-hosting-cost forecast per option; there is no flat subscription line."
+            "statement": "Cost transparency at decision time: whenever the customer is asked to commit money, the projected operating cost is presented as a traceable, per-option figure, so every financial decision is informed by a forecast of what running the system will cost."
           },
           {
             "number": 6,
@@ -1418,10 +1418,10 @@
           },
           {
             "number": 8,
-            "statement": "Drivable by the user's own AI agent and the user's own CI: aiarch is shaped so that the user drives it with their own AI agent (over the remote MCP channel — the full human Manager surface as tools) and so that all work needing an LLM or a build runs on the user's own CI (a GitHub Action running the agentic-coding job on the user's CLAUDE_CODE_OAUTH_TOKEN and CI minutes); delivery collapses to one cloud topology with operate on/off plus a test profile."
+            "statement": "Customer-driven automation: the customer can drive the entire platform through their own AI agent and their own automation — not only through a human interface — with the same capabilities exposed to software and people alike."
           }
         ],
-        "mission": "Design and build a collection of software components that together: (a) carry a customer through The Method as a guided workflow, (b) orchestrate, dispatch, and supervise the automated work — each LLM-needing activity dispatched as an agentic-coding job to the user's own CI (a GitHub Action running claude-code-action on the user's Claude Code token), aiarch holding no code text and no LLM key and reading results back from the user's git, (c) deploy and operate the delivered system on managed infrastructure (in the operated scenario), and (d) bill the user a usage-based hosting fee for operated systems only — no flat subscription, no charge for construction or LLM work (the user's own Claude Code account pays for all LLM work); the mission is to orchestrate, not to author code or hold tokens; specific build experiences and operational offerings are assembled from those components."
+        "mission": "Design and build a collection of software components that together (a) carry a customer through The Method as a guided workflow, (b) orchestrate, dispatch, and supervise the automated work that produces the system, (c) deploy and operate the delivered system on the customer's behalf, and (d) bill the customer a usage-based fee for operating that system. The mission is to orchestrate, not to author code; specific build experiences and operational offerings are assembled from these components."
       }
     },
     "1": {
