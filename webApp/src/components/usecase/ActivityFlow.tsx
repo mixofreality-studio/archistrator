@@ -27,7 +27,7 @@ import Box from '@mui/material/Box';
 import type { UseCaseView } from '../../api/adapters';
 import { ActivityNode } from './ActivityNode';
 import { SwimlaneBackground } from './SwimlaneBackground';
-import { activityNodeAnchor } from '../comments/CommentContext';
+import { activityNodeAnchor, useComments } from '../comments/CommentContext';
 import { laneColors, laneBand } from './laneColors';
 import { useTokens } from '../../theme/ThemeContext';
 import type { Tokens } from '../../theme/themes';
@@ -177,6 +177,7 @@ export function ActivityFlow({
   highlight?: ActivityHighlight;
 }): ReactNode {
   const t = useTokens();
+  const { setAnchor } = useComments();
   const { nodes, edges } = useMemo(
     () => build(uc, useCaseIndex, t, highlight),
     [uc, useCaseIndex, t, highlight]
@@ -213,6 +214,18 @@ export function ActivityFlow({
         nodesConnectable={false}
         nodesDraggable={false}
         proOptions={{ hideAttribution: true }}
+        onNodeClick={(_e, n) => {
+          // Arm a per-step comment anchor (the rail auto-opens on arm) so an
+          // activity node in the full diagram is individually commentable.
+          const d = n.data as { label?: string; source?: string; jsonPath?: string };
+          if (d.jsonPath === undefined) return;
+          setAnchor({
+            kind: 'node',
+            label: d.label ?? n.id,
+            source: d.source ?? 'activity diagram',
+            jsonPath: d.jsonPath,
+          });
+        }}
       >
         <Background color={t.line} gap={22} size={1} />
         <Controls showInteractive={false} />

@@ -37,11 +37,13 @@ import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
 import SkipNextIcon from '@mui/icons-material/SkipNext';
 import PauseCircleOutlineIcon from '@mui/icons-material/PauseCircleOutline';
 import HistoryIcon from '@mui/icons-material/History';
+import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
 import type { ConstructionRow, GitRow, ProjectStateWithGit } from '../../api/types';
 import { contractForActivity } from '../../api/serviceContracts';
 import { useTokens } from '../../theme/ThemeContext';
 import type { Tokens } from '../../theme/themes';
 import { UI_IDENTIFIERS } from '../../constants/UIIdentifiers';
+import { useComments, interventionAnchor } from '../comments/CommentContext';
 import { KindBadge, KIND_META } from './KindBadge';
 import { ServiceContractView } from './ServiceContractView';
 import { GitRowMeta } from '../GitStatus';
@@ -109,7 +111,23 @@ const AFFORDANCES: Affordance[] = [
 // OperatorBar — the steer control strip (all INERT; see module-level doc).
 // ---------------------------------------------------------------------------
 
-function OperatorBar({ t }: { t: Tokens }): ReactNode {
+function OperatorBar({ activityId, t }: { activityId: string; t: Tokens }): ReactNode {
+  const { setAnchor } = useComments();
+  // Arm an intervention-scoped anchor so the operator can attach a comment that
+  // accumulates in the co-author rail. NOTE: unlike the steer buttons (inert until
+  // R-CPR), this arming is live — collecting the feedback is valuable now. The
+  // eventual SUBMIT of these comments alongside a per-activity send-back needs a
+  // server-contract change (ConstructionActivityOverride carries only { kind, notes },
+  // no comments field) — see the report; that wire step is deliberately not invented.
+  const armIntervention = (): void => {
+    setAnchor({
+      kind: 'node',
+      label: activityId,
+      source: 'Construction · intervention',
+      jsonPath: interventionAnchor(activityId),
+    });
+  };
+
   return (
     <Box
       data-testid={UI_IDENTIFIERS.Construction.INTERVENTION_OPERATOR_BAR}
@@ -121,17 +139,36 @@ function OperatorBar({ t }: { t: Tokens }): ReactNode {
         bgcolor: t.paper,
       }}
     >
-      <Typography
-        sx={{
-          fontFamily: t.mono,
-          fontSize: 9.5,
-          letterSpacing: '0.06em',
-          color: t.muted,
-          mb: 0.75,
-        }}
-      >
-        OPERATOR STEER · constructionManager.overrideActivity · reviewEngine gate
-      </Typography>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.75 }}>
+        <Typography
+          sx={{
+            fontFamily: t.mono,
+            fontSize: 9.5,
+            letterSpacing: '0.06em',
+            color: t.muted,
+          }}
+        >
+          OPERATOR STEER · constructionManager.overrideActivity · reviewEngine gate
+        </Typography>
+        <Box sx={{ flexGrow: 1 }} />
+        <Button
+          data-testid={UI_IDENTIFIERS.Comments.listItemComment(activityId)}
+          size="small"
+          startIcon={<ChatBubbleOutlineIcon sx={{ fontSize: 14 }} />}
+          sx={{
+            py: 0.25,
+            fontSize: 11,
+            color: t.accentText,
+            bgcolor: t.accent,
+            border: `1.5px solid ${t.line}`,
+            '&:hover': { bgcolor: t.accent2 },
+          }}
+          variant="contained"
+          onClick={armIntervention}
+        >
+          Comment
+        </Button>
+      </Box>
 
       {/* inert note */}
       <Box
@@ -144,9 +181,7 @@ function OperatorBar({ t }: { t: Tokens }): ReactNode {
           borderRadius: 1,
         }}
       >
-        <Typography
-          sx={{ fontFamily: t.mono, fontSize: 9.5, color: t.muted, lineHeight: 1.4 }}
-        >
+        <Typography sx={{ fontFamily: t.mono, fontSize: 9.5, color: t.muted, lineHeight: 1.4 }}>
           Acts once the live construction pump (R-CPR) is provisioned — currently read-only.
         </Typography>
       </Box>
@@ -230,9 +265,7 @@ function DrawerBody({
         >
           ⚑ WHAT YOU ARE BEING ASKED TO APPROVE
         </Typography>
-        <Typography
-          sx={{ fontFamily: t.body, fontSize: 13, color: t.awaitingFg, lineHeight: 1.5 }}
-        >
+        <Typography sx={{ fontFamily: t.body, fontSize: 13, color: t.awaitingFg, lineHeight: 1.5 }}>
           {askString(activityId, row)}
         </Typography>
       </Box>
@@ -267,8 +300,8 @@ function DrawerBody({
             }}
           >
             <Typography sx={{ fontFamily: t.mono, fontSize: 11.5, color: t.muted }}>
-              No service contract resolved for {name} ({activityId}). The contract will appear
-              here once the activity produces a service-contract artifact.
+              No service contract resolved for {name} ({activityId}). The contract will appear here
+              once the activity produces a service-contract artifact.
             </Typography>
           </Box>
         )
@@ -321,6 +354,8 @@ export function InterventionDrawer({
       open={open}
       slotProps={{
         paper: {
+          'aria-labelledby': 'intervention-drawer-title',
+          role: 'dialog',
           sx: { width: { xs: '100%', md: 720 }, bgcolor: t.bg, backgroundImage: 'none' },
         },
       }}
@@ -357,6 +392,7 @@ export function InterventionDrawer({
                 <KindBadge kind={row.kind} size="xs" t={t} />
               </Box>
               <Typography
+                id="intervention-drawer-title"
                 sx={{
                   fontFamily: t.display,
                   fontWeight: 800,
@@ -389,8 +425,8 @@ export function InterventionDrawer({
             t={t}
           />
 
-          {/* operator steer bar — inert until pump */}
-          <OperatorBar t={t} />
+          {/* operator steer bar — inert until pump; the Comment action is live */}
+          <OperatorBar activityId={activityId} t={t} />
         </Box>
       ) : null}
     </Drawer>

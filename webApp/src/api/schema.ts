@@ -458,6 +458,7 @@ export interface components {
     schemas: {
         ConstructionActivityID: string;
         ConstructionActivityOverride: {
+            comments?: null | components["schemas"]["ConstructionAnchoredComment"][];
             kind: components["schemas"]["ConstructionOverrideKind"];
             notes: string;
         };

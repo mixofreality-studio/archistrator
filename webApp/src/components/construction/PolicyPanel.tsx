@@ -255,8 +255,12 @@ export function PolicyPanel({
 
   return (
     <Paper data-testid={UI_IDENTIFIERS.Construction.POLICY_PANEL} sx={{ p: 0, overflow: 'hidden' }}>
-      {/* header bar — always visible; click to toggle */}
+      {/* header bar — always visible; a real disclosure button (click OR keyboard) */}
       <Box
+        aria-controls="intervention-policy-body"
+        aria-expanded={open}
+        aria-label="Intervention policy — toggle configuration"
+        role="button"
         sx={{
           px: 2,
           py: 1.1,
@@ -268,9 +272,17 @@ export function PolicyPanel({
           flexWrap: 'wrap',
           cursor: 'pointer',
           '&:hover': { bgcolor: t.paper },
+          '&:focus-visible': { outline: `2px solid ${t.accent}`, outlineOffset: -2 },
         }}
+        tabIndex={0}
         onClick={() => {
           setOpen((o) => !o);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            setOpen((o) => !o);
+          }
         }}
       >
         <TuneIcon sx={{ fontSize: 16, color: t.muted }} />
@@ -317,7 +329,7 @@ export function PolicyPanel({
         />
       </Box>
 
-      <Collapse unmountOnExit in={open}>
+      <Collapse unmountOnExit id="intervention-policy-body" in={open}>
         {/* description sub-header */}
         <Box
           sx={{

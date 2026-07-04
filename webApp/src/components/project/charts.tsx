@@ -20,6 +20,34 @@ export interface ScatterPoint {
   out?: boolean;
 }
 
+/** A concise numeric format for the aria-label series summary. */
+function fmtNum(n: number): string {
+  if (Number.isInteger(n)) return n.toLocaleString();
+  return Math.abs(n) < 10 ? n.toFixed(2) : Math.round(n).toLocaleString();
+}
+
+/**
+ * A computed accessible summary of the scatter series so screen-reader users get
+ * the same trade-off signal the sighted chart conveys, e.g.
+ * "composite risk versus duration (days): Normal 737.5 / 0.71; …".
+ */
+function describeSeries(
+  points: ScatterPoint[],
+  xLabel: string,
+  yLabel: string,
+  hasBands: boolean
+): string {
+  if (points.length === 0) return `${yLabel} versus ${xLabel}: no data.`;
+  const series = points
+    .map(
+      (p) =>
+        `${p.label} ${fmtNum(p.x)} ${xLabel} / ${fmtNum(p.y)} ${yLabel}${p.out === true ? ' (excluded)' : ''}`
+    )
+    .join('; ');
+  const bands = hasBands ? ' Exclusion zones shaded.' : '';
+  return `Scatter chart, ${yLabel} versus ${xLabel}. ${series}.${bands}`;
+}
+
 export function BandedScatter({
   t,
   points,
@@ -63,15 +91,37 @@ export function BandedScatter({
     .join(' ');
 
   return (
-    <Box component="svg" sx={{ width: '100%', height, display: 'block' }} viewBox={`0 0 ${String(W)} ${String(H)}`}>
+    <Box
+      aria-label={describeSeries(points, xLabel, yLabel, bands !== undefined && bands.length > 0)}
+      component="svg"
+      role="img"
+      sx={{ width: '100%', height, display: 'block' }}
+      viewBox={`0 0 ${String(W)} ${String(H)}`}
+    >
       {bands?.map((b, i) => {
         const yTop = py(Math.max(b.from, b.to));
         const yBot = py(Math.min(b.from, b.to));
         const fill = b.kind === 'in' ? t.committedDot : t.awaitingFg;
         return (
           <g key={i}>
-            <rect fill={fill} height={yBot - yTop} opacity={b.kind === 'in' ? 0.1 : 0.13} width={plotW} x={padL} y={yTop} />
-            <text fill={fill} fontFamily={t.mono} fontSize={9} fontWeight={700} opacity={0.9} textAnchor="end" x={padL + plotW - 6} y={yTop + 12}>
+            <rect
+              fill={fill}
+              height={yBot - yTop}
+              opacity={b.kind === 'in' ? 0.1 : 0.13}
+              width={plotW}
+              x={padL}
+              y={yTop}
+            />
+            <text
+              fill={fill}
+              fontFamily={t.mono}
+              fontSize={9}
+              fontWeight={700}
+              opacity={0.9}
+              textAnchor="end"
+              x={padL + plotW - 6}
+              y={yTop + 12}
+            >
               {b.kind === 'in' ? 'INCLUSION ZONE' : 'EXCLUSION'}
             </text>
           </g>
@@ -83,15 +133,37 @@ export function BandedScatter({
       <line stroke={t.line} strokeWidth={1.5} x1={padL} x2={W - padR} y1={H - padB} y2={H - padB} />
 
       {/* axis labels */}
-      <text fill={t.muted} fontFamily={t.mono} fontSize={10} textAnchor="middle" x={padL + plotW / 2} y={H - 6}>
+      <text
+        fill={t.muted}
+        fontFamily={t.mono}
+        fontSize={10}
+        textAnchor="middle"
+        x={padL + plotW / 2}
+        y={H - 6}
+      >
         {xLabel} →
       </text>
-      <text fill={t.muted} fontFamily={t.mono} fontSize={10} textAnchor="middle" transform={`rotate(-90 14 ${String(padT + plotH / 2)})`} x={14} y={padT + plotH / 2}>
+      <text
+        fill={t.muted}
+        fontFamily={t.mono}
+        fontSize={10}
+        textAnchor="middle"
+        transform={`rotate(-90 14 ${String(padT + plotH / 2)})`}
+        x={14}
+        y={padT + plotH / 2}
+      >
         {yLabel} →
       </text>
 
       {/* connecting curve */}
-      <path d={line} fill="none" opacity={0.8} stroke={t.muted} strokeDasharray="5 4" strokeWidth={1.5} />
+      <path
+        d={line}
+        fill="none"
+        opacity={0.8}
+        stroke={t.muted}
+        strokeDasharray="5 4"
+        strokeWidth={1.5}
+      />
 
       {/* points */}
       {points.map((p, i) => {
@@ -100,13 +172,36 @@ export function BandedScatter({
         const r = p.emphasized === true ? 8 : 6;
         return (
           <g key={i}>
-            <circle cx={cx} cy={cy} fill={p.color} r={r} stroke={p.emphasized === true ? t.accent : t.line} strokeWidth={p.emphasized === true ? 2.5 : 1.5} />
+            <circle
+              cx={cx}
+              cy={cy}
+              fill={p.color}
+              r={r}
+              stroke={p.emphasized === true ? t.accent : t.line}
+              strokeWidth={p.emphasized === true ? 2.5 : 1.5}
+            />
             {p.out === true && (
-              <text fill={t.accentText} fontFamily={t.mono} fontSize={9} fontWeight={700} textAnchor="middle" x={cx} y={cy + 3.5}>
+              <text
+                fill={t.accentText}
+                fontFamily={t.mono}
+                fontSize={9}
+                fontWeight={700}
+                textAnchor="middle"
+                x={cx}
+                y={cy + 3.5}
+              >
                 ✕
               </text>
             )}
-            <text fill={p.emphasized === true ? t.accent : t.ink} fontFamily={t.mono} fontSize={9.5} fontWeight={700} textAnchor="middle" x={cx} y={cy - r - 4}>
+            <text
+              fill={p.emphasized === true ? t.accent : t.ink}
+              fontFamily={t.mono}
+              fontSize={9.5}
+              fontWeight={700}
+              textAnchor="middle"
+              x={cx}
+              y={cy - r - 4}
+            >
               {p.label}
             </text>
           </g>

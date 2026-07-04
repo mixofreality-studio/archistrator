@@ -37,7 +37,13 @@ import {
   type Layout,
 } from './flowLayout';
 import { LayerLegend, FlowCanvas, FlowEmpty, FocusNodes } from './flowShared';
-import { relationshipAnchor, useComments, type Anchor } from '../comments/CommentContext';
+import {
+  componentAnchor,
+  relationshipAnchor,
+  useComments,
+  type Anchor,
+} from '../comments/CommentContext';
+import type { C4NodeData } from './C4Node';
 
 interface Model {
   components: C4Component[];
@@ -222,7 +228,18 @@ export function ArchitectureFlow({
           if (comment !== undefined) setAnchor(comment);
         }}
         onNodeClick={(_e, n) => {
-          if (n.type === 'c4') setSelectedId((s) => (s === n.id ? null : n.id));
+          if (n.type !== 'c4') return;
+          // Highlight the call-chain neighbourhood AND arm a component comment
+          // anchor (the rail auto-opens on arm, giving visible feedback) — clicking
+          // a component is the primary way to comment on it in Static view.
+          setSelectedId((s) => (s === n.id ? null : n.id));
+          const d = n.data as C4NodeData;
+          setAnchor({
+            kind: 'node',
+            label: d.name,
+            source: `Architecture · ${d.name}`,
+            jsonPath: componentAnchor(d.componentId),
+          });
         }}
         onNodeMouseEnter={(_e, n) => {
           enterNode(n);

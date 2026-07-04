@@ -19,8 +19,9 @@ import (
 type ActivityID string
 
 type ActivityOverride struct {
-	Kind  OverrideKind `json:"kind"`
-	Notes string       `json:"notes"`
+	Kind     OverrideKind      `json:"kind"`
+	Notes    string            `json:"notes"`
+	Comments []AnchoredComment `json:"comments,omitempty"`
 }
 
 type AnchoredComment struct {

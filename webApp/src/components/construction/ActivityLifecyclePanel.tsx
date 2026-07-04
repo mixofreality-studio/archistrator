@@ -71,6 +71,8 @@ export function ActivityLifecyclePanel({
       open={activityId !== null}
       slotProps={{
         paper: {
+          'aria-labelledby': 'activity-lifecycle-title',
+          role: 'dialog',
           sx: {
             width: { xs: '100%', sm: 480 },
             bgcolor: t.paper,
@@ -97,14 +99,14 @@ export function ActivityLifecyclePanel({
           {/* ---- Body ---------------------------------------------------- */}
           <Box sx={{ flexGrow: 1, overflowY: 'auto', px: 2.5, py: 2 }}>
             {row !== undefined ? (
-              <PanelBody
+              <PanelBody derivedStatus={derivedStatus} kind={row.kind} node={node} t={t} />
+            ) : (
+              <NoConstructionData
+                activityId={activityId}
                 derivedStatus={derivedStatus}
-                kind={row.kind}
                 node={node}
                 t={t}
               />
-            ) : (
-              <NoConstructionData activityId={activityId} derivedStatus={derivedStatus} node={node} t={t} />
             )}
           </Box>
         </Box>
@@ -184,6 +186,7 @@ function PanelHeader({
         {activityId}
       </Typography>
       <Typography
+        id="activity-lifecycle-title"
         sx={{
           fontFamily: t.display,
           fontWeight: 800,
@@ -256,9 +259,7 @@ function PanelBody({
         {node !== undefined && (
           <NumCell
             accent={node.onCriticalPath}
-            hint={
-              node.onCriticalPath ? 'critical · float 0' : `float ${String(node.float)}d`
-            }
+            hint={node.onCriticalPath ? 'critical · float 0' : `float ${String(node.float)}d`}
             label="EST"
             t={t}
             value={`${String(node.days)}d`}
@@ -361,9 +362,7 @@ function NoConstructionData({
         <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1, mb: 0.5 }}>
           <NumCell
             accent={node.onCriticalPath}
-            hint={
-              node.onCriticalPath ? 'critical · float 0' : `float ${String(node.float)}d`
-            }
+            hint={node.onCriticalPath ? 'critical · float 0' : `float ${String(node.float)}d`}
             label="EST"
             t={t}
             value={`${String(node.days)}d`}
@@ -379,10 +378,9 @@ function NoConstructionData({
         }}
       >
         <Typography sx={{ fontFamily: t.body, fontSize: 12.5, color: t.muted, lineHeight: 1.55 }}>
-          <b>{activityId}</b> — status:{' '}
-          <span style={{ color: t.ink }}>{derivedStatus}</span>. No construction
-          row recorded yet — the kind-specific lifecycle will appear once this
-          activity enters construction.
+          <b>{activityId}</b> — status: <span style={{ color: t.ink }}>{derivedStatus}</span>. No
+          construction row recorded yet — the kind-specific lifecycle will appear once this activity
+          enters construction.
         </Typography>
       </Box>
     </Box>
@@ -408,9 +406,7 @@ function PhaseRow({ p, t }: { p: PhaseState; t: Tokens }): ReactNode {
       }}
     >
       {p.done ? (
-        <CheckCircleIcon
-          sx={{ fontSize: 16, color: t.committedDot, mt: 0.1, flexShrink: 0 }}
-        />
+        <CheckCircleIcon sx={{ fontSize: 16, color: t.committedDot, mt: 0.1, flexShrink: 0 }} />
       ) : (
         <RadioButtonUncheckedIcon
           sx={{ fontSize: 16, color: p.active ? t.accent : t.muted, mt: 0.1, flexShrink: 0 }}
@@ -485,7 +481,9 @@ function NumCell({
         bgcolor: t.paperAlt,
       }}
     >
-      <Typography sx={{ fontFamily: t.mono, fontSize: 8.5, letterSpacing: '0.08em', color: t.muted }}>
+      <Typography
+        sx={{ fontFamily: t.mono, fontSize: 8.5, letterSpacing: '0.08em', color: t.muted }}
+      >
         {label}
       </Typography>
       <Typography

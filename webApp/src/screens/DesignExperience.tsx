@@ -21,7 +21,7 @@
  *
  * Phase-2 (`/design/project`) reuses this shell with a "coming soon" stub body.
  */
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
@@ -45,10 +45,7 @@ import { METHOD_METADATA } from '../constants/MethodMetadata';
 
 import { useProject } from '../hooks/useProject';
 import { useSessionState } from '../hooks/useSessionState';
-import {
-  useRequestArtifactDraft,
-  useSubmitReviewDecision,
-} from '../hooks/useDesignMutations';
+import { useRequestArtifactDraft, useSubmitReviewDecision } from '../hooks/useDesignMutations';
 import { useSetResearchInput, useStartSystemDesign } from '../hooks/useStartDesign';
 
 import { ArtifactRenderer } from '../components/ArtifactRenderer';
@@ -56,19 +53,13 @@ import { ArtifactIntro } from '../components/design/ArtifactIntro';
 import { StageChip } from '../components/StageChip';
 import { ExperienceChrome } from '../components/design/ExperienceChrome';
 import { SlimSpine, type SpineStep } from '../components/design/SlimSpine';
-import {
-  DesignExperienceSkeleton,
-  SkeletonContentCard,
-} from '../components/design/DesignSkeleton';
+import { DesignExperienceSkeleton, SkeletonContentCard } from '../components/design/DesignSkeleton';
 import { GeneratingScene } from '../components/design/GeneratingScene';
 import { DraftFailedPanel } from '../components/design/DraftFailedPanel';
 import { GatePanel } from '../components/design/GatePanel';
 import { ChatRail } from '../components/design/ChatRail';
 import { ResearchInputPanel } from '../components/design/ResearchInputPanel';
-import {
-  CommentProvider,
-  useComments,
-} from '../components/comments/CommentContext';
+import { CommentProvider, useComments } from '../components/comments/CommentContext';
 
 // Prose (markdown) artifact kinds get a paper surface in the full-screen design
 // experience; diagram kinds (volatilities/system/coreUseCases/operationalConcepts)
@@ -126,7 +117,7 @@ export function SystemDesignScreen(): ReactNode {
 function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
   const navigate = useNavigate();
   const t = useTokens();
-  const { comments, reset, toWire, freeformNotes, requestId } = useComments();
+  const { comments, reset, toWire, freeformNotes, requestId, setAnchor } = useComments();
 
   const { data: project, isLoading: projectLoading } = useProject(projectId);
   const spine = useMemo(() => buildSpine(project), [project]);
@@ -136,6 +127,13 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
   const [activeIndex, setActiveIndex] = useState(firstOpen < 0 ? spine.length - 1 : firstOpen);
   const safeIndex = Math.min(activeIndex, PHASE1_ARTIFACTS.length - 1);
   const activeKind: ArtifactKind = PHASE1_ARTIFACTS[safeIndex] ?? 'mission';
+
+  // Disarm any pending anchor when the active artifact changes, so an anchor
+  // armed on one step never bleeds onto the next (it would attach a comment to a
+  // stale, unrelated location).
+  useEffect(() => {
+    setAnchor(null);
+  }, [activeKind, setAnchor]);
 
   // The rail auto-opens whenever the architect arms an anchor (requestId bumps).
   // We derive open-state from (requestId, manual toggles) rather than an effect:
@@ -153,8 +151,7 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
   const startDesign = useStartSystemDesign(projectId);
   const setResearch = useSetResearchInput(projectId);
 
-  const sessionMissing =
-    session.error instanceof ApiError && session.error.status === 404;
+  const sessionMissing = session.error instanceof ApiError && session.error.status === 404;
   const view = session.data?.view;
   const stage = session.data?.stage;
   // Committed envelope from head-state: used as read-only fallback when there is no
@@ -224,12 +221,23 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
     const feedback = notes.length > 0 ? notes : wireComments.map((c) => c.text).join('\n');
     submitReview.mutate(
       { kind: activeKind, decision: 'reject', detail: { feedback, comments: wireComments } },
-      { onSuccess: () => { reset(); } }
+      {
+        onSuccess: () => {
+          reset();
+        },
+      }
     );
   };
 
   const withdraw = (): void => {
-    submitReview.mutate({ kind: activeKind, decision: 'withdraw' }, { onSuccess: () => { reset(); } });
+    submitReview.mutate(
+      { kind: activeKind, decision: 'withdraw' },
+      {
+        onSuccess: () => {
+          reset();
+        },
+      }
+    );
   };
 
   const meta = METHOD_METADATA[activeKind];
@@ -252,14 +260,24 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
 
   return (
     <ExperienceChrome
-      chat={chatOpen ? <ChatRail onCollapse={() => { setChatOpen(false); }} /> : undefined}
+      chat={
+        chatOpen ? (
+          <ChatRail
+            onCollapse={() => {
+              setChatOpen(false);
+            }}
+          />
+        ) : undefined
+      }
       chatOpen={chatOpen}
       phaseNum={1}
       phaseTitle="System Design"
       projectName={project?.name}
       spine={<SlimSpine activeIndex={safeIndex} steps={spine} onSelect={selectStep} />}
       onClose={() => void navigate({ to: '/project/$projectId/home', params: { projectId } })}
-      onOpenChat={() => { setChatOpen(true); }}
+      onOpenChat={() => {
+        setChatOpen(true);
+      }}
     >
       <Box sx={{ flexGrow: 1, minWidth: 0, overflowY: 'auto', px: { xs: 2, md: 4 }, py: 3 }}>
         {/* artifact header */}
@@ -284,8 +302,20 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
             </Typography>
           </Box>
           <Box sx={{ flexGrow: 1 }} />
-          <Chip label="architect" size="small" sx={{ bgcolor: t.chatArchitectBg, color: t.chatArchitectFg }} variant="outlined" />
-          {meta.hasPmCritic ? <Chip label="pm" size="small" sx={{ bgcolor: t.chatPmBg, color: t.chatPmFg }} variant="outlined" /> : null}
+          <Chip
+            label="architect"
+            size="small"
+            sx={{ bgcolor: t.chatArchitectBg, color: t.chatArchitectFg }}
+            variant="outlined"
+          />
+          {meta.hasPmCritic ? (
+            <Chip
+              label="pm"
+              size="small"
+              sx={{ bgcolor: t.chatPmBg, color: t.chatPmFg }}
+              variant="outlined"
+            />
+          ) : null}
         </Box>
 
         {/* body */}
@@ -457,14 +487,16 @@ function StepBody({
           <ArtifactRenderer envelope={view?.draft} height={620} title={title} />
         )}
       </Box>
-      {gateOpen ? <GatePanel
+      {gateOpen ? (
+        <GatePanel
           commentCount={commentCount}
           findings={findings}
           pending={decisionPending}
           onApprove={onApprove}
           onSendBack={onSendBack}
           onWithdraw={onWithdraw}
-        /> : null}
+        />
+      ) : null}
     </>
   );
 }

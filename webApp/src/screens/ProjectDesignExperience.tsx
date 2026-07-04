@@ -18,7 +18,7 @@
  *     (submitSDPDecision commit <optionId> / rejectAll <feedback>); once committed
  *     an "Advance to construction" affordance calls advanceToConstruction.
  */
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
@@ -53,10 +53,7 @@ import {
 
 import { ExperienceChrome } from '../components/design/ExperienceChrome';
 import { SlimSpine, type SpineStep } from '../components/design/SlimSpine';
-import {
-  DesignExperienceSkeleton,
-  SkeletonContentCard,
-} from '../components/design/DesignSkeleton';
+import { DesignExperienceSkeleton, SkeletonContentCard } from '../components/design/DesignSkeleton';
 import { GeneratingScene } from '../components/design/GeneratingScene';
 import { DraftFailedPanel } from '../components/design/DraftFailedPanel';
 import { GatePanel } from '../components/design/GatePanel';
@@ -120,18 +117,28 @@ export function ProjectDesignScreen(): ReactNode {
 function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
   const navigate = useNavigate();
   const t = useTokens();
-  const { comments, reset, toWire, freeformNotes, requestId } = useComments();
+  const { comments, reset, toWire, freeformNotes, requestId, setAnchor } = useComments();
 
   const { data: project, isLoading: projectLoading } = useProject(projectId);
   const spine = useMemo(() => buildSpine(project), [project]);
   const activityEnvelope = useMemo(() => committedActivityEnvelope(project), [project]);
-  const planningAssumptionsEnvelope = useMemo(() => committedPlanningAssumptionsEnvelope(project), [project]);
+  const planningAssumptionsEnvelope = useMemo(
+    () => committedPlanningAssumptionsEnvelope(project),
+    [project]
+  );
 
   const firstOpen = spine.findIndex((s) => !s.committed);
   const [activeIndex, setActiveIndex] = useState(firstOpen < 0 ? spine.length - 1 : firstOpen);
   const safeIndex = Math.min(activeIndex, PHASE2_KINDS.length - 1);
   const activeKind: ProjectArtifactKind = PHASE2_KINDS[safeIndex] ?? 'planningAssumptions';
   const isSdpStep = activeKind === 'sdpReview';
+
+  // Disarm any pending anchor when the active artifact changes, so an anchor
+  // armed on one step never bleeds onto the next (it would attach a comment to a
+  // stale, unrelated location). Mirrors SystemDesignBody.
+  useEffect(() => {
+    setAnchor(null);
+  }, [activeKind, setAnchor]);
 
   // Chat rail open-state mirrors the Phase-1 derivation (newer anchor re-opens it).
   const [closedAt, setClosedAt] = useState<number | null>(null);
@@ -162,7 +169,9 @@ function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
   const failureReason = view?.failureReason;
   // Committed envelope from head-state: used as read-only fallback when there is no
   // co-author session (sessionMissing) but the slot is already committed.
-  const committedEnvelope = project?.slots.find((s) => s.kind === activeKind)?.model as unknown as ProjectArtifactModelEnvelope | undefined;
+  const committedEnvelope = project?.slots.find((s) => s.kind === activeKind)?.model as unknown as
+    | ProjectArtifactModelEnvelope
+    | undefined;
 
   const selectStep = (i: number): void => {
     setActiveIndex(i);
@@ -202,12 +211,23 @@ function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
     const feedback = notes.length > 0 ? notes : wireComments.map((c) => c.text).join('\n');
     submitReview.mutate(
       { kind: activeKind, decision: 'reject', feedback },
-      { onSuccess: () => { reset(); } }
+      {
+        onSuccess: () => {
+          reset();
+        },
+      }
     );
   };
 
   const withdraw = (): void => {
-    submitReview.mutate({ kind: activeKind, decision: 'withdraw' }, { onSuccess: () => { reset(); } });
+    submitReview.mutate(
+      { kind: activeKind, decision: 'withdraw' },
+      {
+        onSuccess: () => {
+          reset();
+        },
+      }
+    );
   };
 
   const sdpCommit = (optionId: string): void => {
@@ -215,7 +235,14 @@ function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
   };
 
   const sdpRejectAll = (feedback: string): void => {
-    submitSdp.mutate({ decision: 'rejectAll', detail: { feedback } }, { onSuccess: () => { reset(); } });
+    submitSdp.mutate(
+      { decision: 'rejectAll', detail: { feedback } },
+      {
+        onSuccess: () => {
+          reset();
+        },
+      }
+    );
   };
 
   const meta = METHOD_METADATA[activeKind];
@@ -238,29 +265,50 @@ function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
 
   return (
     <ExperienceChrome
-      chat={chatOpen ? <ChatRail onCollapse={() => { setChatOpen(false); }} /> : undefined}
+      chat={
+        chatOpen ? (
+          <ChatRail
+            onCollapse={() => {
+              setChatOpen(false);
+            }}
+          />
+        ) : undefined
+      }
       chatOpen={chatOpen}
       phaseNum={2}
       phaseTitle="Project Design"
       projectName={project?.name}
       spine={<SlimSpine activeIndex={safeIndex} steps={spine} onSelect={selectStep} />}
       onClose={() => void navigate({ to: '/project/$projectId/home', params: { projectId } })}
-      onOpenChat={() => { setChatOpen(true); }}
+      onOpenChat={() => {
+        setChatOpen(true);
+      }}
     >
       <Box sx={{ flexGrow: 1, minWidth: 0, overflowY: 'auto', px: { xs: 2, md: 4 }, py: 3 }}>
         {/* artifact header */}
         <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5, mb: 2 }}>
           <Box>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-              <Typography component="h1" sx={{ color: t.ink }} variant="h4">{meta.title}</Typography>
-              <StageChip stage={committed ? 'committed' : stage === 'awaitingReview' ? 'awaitingReview' : 'empty'} />
+              <Typography component="h1" sx={{ color: t.ink }} variant="h4">
+                {meta.title}
+              </Typography>
+              <StageChip
+                stage={
+                  committed ? 'committed' : stage === 'awaitingReview' ? 'awaitingReview' : 'empty'
+                }
+              />
             </Box>
             <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.muted, mt: 0.5 }}>
               {meta.file} · step {safeIndex + 1} of {PHASE2_KINDS.length}
             </Typography>
           </Box>
           <Box sx={{ flexGrow: 1 }} />
-          <Chip label="architect" size="small" sx={{ bgcolor: t.chatArchitectBg, color: t.chatArchitectFg }} variant="outlined" />
+          <Chip
+            label="architect"
+            size="small"
+            sx={{ bgcolor: t.chatArchitectBg, color: t.chatArchitectFg }}
+            variant="outlined"
+          />
         </Box>
 
         <ProjectStepBody
@@ -291,7 +339,9 @@ function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
           title={meta.title}
           view={view}
           withdrawPending={decisionPending}
-          onAdvance={() => { advance.mutate(undefined); }}
+          onAdvance={() => {
+            advance.mutate(undefined);
+          }}
           onApprove={approve}
           onBegin={beginDraft}
           onRetry={retryDraft}
@@ -415,8 +465,12 @@ function ProjectStepBody({
             envelope={sdpEnvelope}
             kind={activeKind}
             sdpPending={false}
-            onSdpCommit={() => { /* read-only: already committed */ }}
-            onSdpRejectAll={() => { /* read-only: already committed */ }}
+            onSdpCommit={() => {
+              /* read-only: already committed */
+            }}
+            onSdpRejectAll={() => {
+              /* read-only: already committed */
+            }}
           />
         </Box>
         <AdvancePanel pending={advancePending} result={advanceResult} t={t} onAdvance={onAdvance} />
@@ -445,10 +499,16 @@ function ProjectStepBody({
         <Typography sx={{ fontFamily: t.mono, mt: 1, color: t.ink }}>
           {isSdpStep ? 'The SDP review is not assembled yet.' : 'No draft yet.'}
         </Typography>
-        <Typography sx={{ color: t.muted, display: 'block', mb: 2 }} variant="caption">{blurb}</Typography>
+        <Typography sx={{ color: t.muted, display: 'block', mb: 2 }} variant="caption">
+          {blurb}
+        </Typography>
         <Button
           color="primary"
-          data-testid={isSdpStep ? UI_IDENTIFIERS.ProjectDesign.SDP_ASSEMBLE : UI_IDENTIFIERS.DesignExperience.REQUEST_DRAFT}
+          data-testid={
+            isSdpStep
+              ? UI_IDENTIFIERS.ProjectDesign.SDP_ASSEMBLE
+              : UI_IDENTIFIERS.DesignExperience.REQUEST_DRAFT
+          }
           disabled={beginPending}
           startIcon={<AutoAwesomeIcon />}
           variant="contained"
@@ -513,11 +573,16 @@ function AdvancePanel({
   onAdvance: () => void;
 }): ReactNode {
   return (
-    <Paper sx={{ p: 4, maxWidth: 720, mx: 'auto', textAlign: 'center', border: `2px solid ${t.accent}` }}>
+    <Paper
+      sx={{ p: 4, maxWidth: 720, mx: 'auto', textAlign: 'center', border: `2px solid ${t.accent}` }}
+    >
       <RocketLaunchIcon sx={{ fontSize: 34, color: t.accent }} />
-      <Typography sx={{ color: t.ink, mt: 1 }} variant="h5">SDP committed — plan of record bound</Typography>
+      <Typography sx={{ color: t.ink, mt: 1 }} variant="h5">
+        SDP committed — plan of record bound
+      </Typography>
       <Typography sx={{ color: t.muted, mt: 1, mb: 2, lineHeight: 1.6 }}>
-        Seal Project Design and advance to Construction. A non-advanced result lists the slots still owed.
+        Seal Project Design and advance to Construction. A non-advanced result lists the slots still
+        owed.
       </Typography>
       {result !== undefined && !result.advanced && result.missingArtifacts.length > 0 && (
         <Alert
@@ -528,9 +593,15 @@ function AdvancePanel({
           Still owed before advancing: {result.missingArtifacts.join(', ')}.
         </Alert>
       )}
-      {result?.advanced === true ? <Alert data-testid={UI_IDENTIFIERS.ProjectDesign.ADVANCE_RESULT} severity="success" sx={{ textAlign: 'left', mb: 2 }}>
+      {result?.advanced === true ? (
+        <Alert
+          data-testid={UI_IDENTIFIERS.ProjectDesign.ADVANCE_RESULT}
+          severity="success"
+          sx={{ textAlign: 'left', mb: 2 }}
+        >
           Advanced to Construction — Phase 3 is unlocked.
-        </Alert> : null}
+        </Alert>
+      ) : null}
       <Button
         color="primary"
         data-testid={UI_IDENTIFIERS.ProjectDesign.ADVANCE_CONSTRUCTION}

@@ -5,6 +5,12 @@ components:
         ConstructionActivityOverride:
             additionalProperties: false
             properties:
+                comments:
+                    items:
+                        $ref: '#/components/schemas/ConstructionAnchoredComment'
+                    type:
+                        - "null"
+                        - array
                 kind:
                     $ref: '#/components/schemas/ConstructionOverrideKind'
                 notes:

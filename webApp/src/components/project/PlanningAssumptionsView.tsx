@@ -16,15 +16,35 @@ import { narrowProject } from '../../api/projectAdapters';
 import { useTokens } from '../../theme/ThemeContext';
 import type { Tokens } from '../../theme/themes';
 import { AuthoredBadge } from './computed';
+import { CommentableList } from '../comments/CommentableList';
+import { planningFlagAnchor } from '../comments/CommentContext';
 
-function Stat({ t, label, value, sub }: { t: Tokens; label: string; value: string; sub: string }): ReactNode {
+function Stat({
+  t,
+  label,
+  value,
+  sub,
+}: {
+  t: Tokens;
+  label: string;
+  value: string;
+  sub: string;
+}): ReactNode {
   return (
     <Box>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-        <Typography sx={{ fontFamily: t.mono, fontSize: 9.5, letterSpacing: '0.14em', color: t.muted }}>{label}</Typography>
+        <Typography
+          sx={{ fontFamily: t.mono, fontSize: 9.5, letterSpacing: '0.14em', color: t.muted }}
+        >
+          {label}
+        </Typography>
         <AuthoredBadge t={t} />
       </Box>
-      <Typography sx={{ fontFamily: t.display, fontWeight: 800, fontSize: 26, color: t.ink, lineHeight: 1.1 }}>{value}</Typography>
+      <Typography
+        sx={{ fontFamily: t.display, fontWeight: 800, fontSize: 26, color: t.ink, lineHeight: 1.1 }}
+      >
+        {value}
+      </Typography>
       <Typography sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.muted }}>{sub}</Typography>
     </Box>
   );
@@ -61,15 +81,40 @@ export function PlanningAssumptionsView({
       {/* summary strip */}
       <Paper sx={{ p: 2, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 3 }}>
         <Stat label="RESOURCES" sub="named staff" t={t} value={String(resources.length)} />
-        <Stat label="CALENDAR" sub="working days / week" t={t} value={String(model.calendarDaysPerWeek)} />
-        <Stat label="DECLARED DAU" sub="daily active users" t={t} value={usage.expectedDailyActiveUsers.toLocaleString()} />
-        <Stat label="REVENUE SHARE" sub="settlement rate" t={t} value={`${String(terms.revenueSharePercent)}%`} />
+        <Stat
+          label="CALENDAR"
+          sub="working days / week"
+          t={t}
+          value={String(model.calendarDaysPerWeek)}
+        />
+        <Stat
+          label="DECLARED DAU"
+          sub="daily active users"
+          t={t}
+          value={usage.expectedDailyActiveUsers.toLocaleString()}
+        />
+        <Stat
+          label="REVENUE SHARE"
+          sub="settlement rate"
+          t={t}
+          value={`${String(terms.revenueSharePercent)}%`}
+        />
         <Box sx={{ flexGrow: 1 }} />
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, maxWidth: 460 }}>
-          <Typography sx={{ fontFamily: t.mono, fontSize: 9.5, letterSpacing: '0.14em', color: t.muted }}>RESOURCES</Typography>
+          <Typography
+            sx={{ fontFamily: t.mono, fontSize: 9.5, letterSpacing: '0.14em', color: t.muted }}
+          >
+            RESOURCES
+          </Typography>
           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
             {resources.map((r) => (
-              <Chip key={r} label={r} size="small" sx={{ fontSize: 10.5, color: t.ink, bgcolor: t.paperAlt }} variant="outlined" />
+              <Chip
+                key={r}
+                label={r}
+                size="small"
+                sx={{ fontSize: 10.5, color: t.ink, bgcolor: t.paperAlt }}
+                variant="outlined"
+              />
             ))}
           </Box>
         </Box>
@@ -78,10 +123,22 @@ export function PlanningAssumptionsView({
       {/* declared usage detail */}
       <Paper sx={{ p: 2 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-          <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 12, letterSpacing: '0.06em', color: t.ink }}>DECLARED USAGE</Typography>
+          <Typography
+            sx={{
+              fontFamily: t.mono,
+              fontWeight: 700,
+              fontSize: 12,
+              letterSpacing: '0.06em',
+              color: t.ink,
+            }}
+          >
+            DECLARED USAGE
+          </Typography>
           <AuthoredBadge t={t} />
         </Box>
-        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, 1fr)' }, gap: 2 }}>
+        <Box
+          sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, 1fr)' }, gap: 2 }}
+        >
           <KV k="daily active users" t={t} v={usage.expectedDailyActiveUsers.toLocaleString()} />
           <KV k="requests / minute" t={t} v={String(usage.requestsPerMinute)} />
           <KV k="avg payload bytes" t={t} v={usage.avgPayloadBytes.toLocaleString()} />
@@ -91,24 +148,72 @@ export function PlanningAssumptionsView({
       {/* risk flags from the authored notes */}
       {flags.length > 0 && (
         <Paper sx={{ p: 0, overflow: 'hidden', borderLeft: `5px solid ${t.awaitingFg}` }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 2.5, py: 1.5, bgcolor: t.awaitingBg, borderBottom: `1.5px solid ${t.line}` }}>
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1,
+              px: 2.5,
+              py: 1.5,
+              bgcolor: t.awaitingBg,
+              borderBottom: `1.5px solid ${t.line}`,
+            }}
+          >
             <WarningAmberIcon sx={{ fontSize: 18, color: t.awaitingFg }} />
-            <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 12.5, letterSpacing: '0.06em', color: t.awaitingFg }}>
+            <Typography
+              sx={{
+                fontFamily: t.mono,
+                fontWeight: 700,
+                fontSize: 12.5,
+                letterSpacing: '0.06em',
+                color: t.awaitingFg,
+              }}
+            >
               LOAD-BEARING RISK FLAGS
             </Typography>
             <AuthoredBadge t={t} />
             <Box sx={{ flexGrow: 1 }} />
-            <Typography sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.awaitingFg, opacity: 0.85 }}>
+            <Typography
+              sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.awaitingFg, opacity: 0.85 }}
+            >
               flow into the network, risk model &amp; SDP
             </Typography>
           </Box>
-          <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 1.25 }}>
-            {flags.map((f, i) => (
-              <Box key={i} sx={{ display: 'flex', gap: 1.5, alignItems: 'flex-start' }}>
-                <Chip label={`#${String(i + 1)}`} size="small" sx={{ mt: 0.25, height: 20, fontSize: 9, color: t.awaitingFg, bgcolor: t.awaitingBg, flexShrink: 0 }} />
-                <Typography sx={{ fontFamily: t.body, fontSize: 12.5, lineHeight: 1.5, color: t.ink }}>{f}</Typography>
-              </Box>
-            ))}
+          <Box sx={{ p: 1.5 }}>
+            <CommentableList
+              ariaLabel="Load-bearing risk flags"
+              gap={0.5}
+              getAnchor={(_f, i) => ({
+                kind: 'node',
+                label: `risk flag #${String(i + 1)}`,
+                source: `Planning Assumptions · risk flag #${String(i + 1)}`,
+                jsonPath: planningFlagAnchor(i),
+              })}
+              getKey={(_f, i) => `flag-${String(i)}`}
+              getLabel={(_f, i) => `risk flag ${String(i + 1)}`}
+              items={flags}
+              renderItem={(f, i) => (
+                <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'flex-start' }}>
+                  <Chip
+                    label={`#${String(i + 1)}`}
+                    size="small"
+                    sx={{
+                      mt: 0.25,
+                      height: 20,
+                      fontSize: 9,
+                      color: t.awaitingFg,
+                      bgcolor: t.awaitingBg,
+                      flexShrink: 0,
+                    }}
+                  />
+                  <Typography
+                    sx={{ fontFamily: t.body, fontSize: 12.5, lineHeight: 1.5, color: t.ink }}
+                  >
+                    {f}
+                  </Typography>
+                </Box>
+              )}
+            />
           </Box>
         </Paper>
       )}
@@ -120,7 +225,9 @@ function KV({ t, k, v }: { t: Tokens; k: string; v: string }): ReactNode {
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.25 }}>
       <Typography sx={{ fontFamily: t.mono, fontSize: 10, color: t.muted }}>{k}</Typography>
-      <Typography sx={{ fontFamily: t.mono, fontSize: 16, fontWeight: 700, color: t.ink }}>{v}</Typography>
+      <Typography sx={{ fontFamily: t.mono, fontSize: 16, fontWeight: 700, color: t.ink }}>
+        {v}
+      </Typography>
     </Box>
   );
 }

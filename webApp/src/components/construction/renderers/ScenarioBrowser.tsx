@@ -10,6 +10,7 @@ import type { TestCaseView, TestScenarioView } from '../../../api/types';
 import type { C4Component, DynamicViewModel, SequencedRelationship } from '../../../api/adapters';
 import type { Tokens } from '../../../theme/themes';
 import { DynamicViewFlow, type StepDetail, type StepStatus } from '../../flow/DynamicViewFlow';
+import { useComments, testScenarioStepAnchor } from '../../comments/CommentContext';
 
 /** 'plan' (N-STP) → every call is a red target; 'run' (N-IT) → coloured by last-run status. */
 export type ScenarioMode = 'plan' | 'run';
@@ -27,7 +28,10 @@ function kindColor(kind: string, t: Tokens): string {
  * call each other). Carries each call's concrete inputs/expected as step detail, and
  * a per-call status colour (plan = red target; run = green/red by last-run status).
  */
-function caseToDynamic(c: TestCaseView, mode: ScenarioMode): {
+function caseToDynamic(
+  c: TestCaseView,
+  mode: ScenarioMode
+): {
   dv: DynamicViewModel;
   statusBySeq: Map<number, StepStatus>;
   detailBySeq: Map<number, StepDetail>;
@@ -40,7 +44,13 @@ function caseToDynamic(c: TestCaseView, mode: ScenarioMode): {
   for (const st of steps) {
     if (!seen.has(st.component)) {
       seen.add(st.component);
-      participants.push({ id: st.component, name: st.component, kind: 'manager', layer: 'manager', encapsulates: '' });
+      participants.push({
+        id: st.component,
+        name: st.component,
+        kind: 'manager',
+        layer: 'manager',
+        encapsulates: '',
+      });
     }
   }
   const edges: SequencedRelationship[] = steps.map((st) => ({
@@ -85,19 +95,38 @@ export function ScenarioBrowser({
   t: Tokens;
   statusChip?: (s: TestScenarioView) => ReactNode;
 }): ReactNode {
+  const { setAnchor } = useComments();
   const [selectedId, setSelectedId] = useState<string>('');
   const [selectedCaseId, setSelectedCaseId] = useState<string>('');
-  const activeId = scenarios.some((s) => s.id === selectedId) ? selectedId : (scenarios[0]?.id ?? '');
+  const activeId = scenarios.some((s) => s.id === selectedId)
+    ? selectedId
+    : (scenarios[0]?.id ?? '');
   const active = scenarios.find((s) => s.id === activeId);
   const cases = active?.cases ?? [];
   const activeCase = cases.find((c) => c.id === selectedCaseId) ?? cases[0];
   const seq = activeCase !== undefined ? caseToDynamic(activeCase, mode) : null;
 
+  // Arm an anchored comment on a single test-scenario step (seq → the case's step),
+  // so the operator can attach feedback to a specific call in the plan/run.
+  const onCommentStep =
+    activeCase !== undefined
+      ? (edge: SequencedRelationship): void => {
+          setAnchor({
+            kind: 'node',
+            label: `${edge.label} (step ${String(edge.seq)})`,
+            source: `${activeId} · ${activeCase.id}`,
+            jsonPath: testScenarioStepAnchor(activeId, activeCase.id, edge.seq),
+          });
+        }
+      : undefined;
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, minWidth: 0 }}>
       {/* scenario dropdown selector — mirrors the architecture view picker */}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-        <Typography sx={{ fontFamily: t.mono, fontSize: 10, letterSpacing: '0.08em', color: t.muted }}>
+        <Typography
+          sx={{ fontFamily: t.mono, fontSize: 10, letterSpacing: '0.08em', color: t.muted }}
+        >
           SCENARIO
         </Typography>
         <FormControl size="small" sx={{ minWidth: 360 }}>
@@ -105,7 +134,10 @@ export function ScenarioBrowser({
             data-testid={UI_IDENTIFIERS.Construction.SCENARIO_PICKER}
             sx={{ fontFamily: t.mono, fontSize: 13 }}
             value={activeId}
-            onChange={(e) => { setSelectedId(e.target.value); setSelectedCaseId(''); }}
+            onChange={(e) => {
+              setSelectedId(e.target.value);
+              setSelectedCaseId('');
+            }}
           >
             {scenarios.map((s) => (
               <MenuItem key={s.id} sx={{ fontFamily: t.mono, fontSize: 13 }} value={s.id}>
@@ -132,10 +164,14 @@ export function ScenarioBrowser({
           </Box>
           {active.description !== undefined && active.description.length > 0 ? (
             <Box sx={{ borderLeft: `3px solid ${t.line}`, pl: 1.25, py: 0.25 }}>
-              <Typography sx={{ fontFamily: t.mono, fontSize: 9, letterSpacing: '0.08em', color: t.muted }}>
+              <Typography
+                sx={{ fontFamily: t.mono, fontSize: 9, letterSpacing: '0.08em', color: t.muted }}
+              >
                 WHAT THIS PROVES
               </Typography>
-              <Typography sx={{ fontFamily: t.body, fontSize: 12.5, color: t.ink, lineHeight: 1.5 }}>
+              <Typography
+                sx={{ fontFamily: t.body, fontSize: 12.5, color: t.ink, lineHeight: 1.5 }}
+              >
                 {active.description}
               </Typography>
             </Box>
@@ -143,8 +179,18 @@ export function ScenarioBrowser({
 
           {/* case selector — pick happy / negative / boundary */}
           {cases.length > 0 ? (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap', mt: 0.25 }}>
-              <Typography sx={{ fontFamily: t.mono, fontSize: 10, letterSpacing: '0.08em', color: t.muted, mr: 0.25 }}>
+            <Box
+              sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap', mt: 0.25 }}
+            >
+              <Typography
+                sx={{
+                  fontFamily: t.mono,
+                  fontSize: 10,
+                  letterSpacing: '0.08em',
+                  color: t.muted,
+                  mr: 0.25,
+                }}
+              >
                 CASE
               </Typography>
               {cases.map((c) => {
@@ -166,7 +212,9 @@ export function ScenarioBrowser({
                       color: on ? t.paper : t.ink,
                       border: `1.5px solid ${col}`,
                     }}
-                    onClick={() => { setSelectedCaseId(c.id); }}
+                    onClick={() => {
+                      setSelectedCaseId(c.id);
+                    }}
                   />
                 );
               })}
@@ -175,15 +223,22 @@ export function ScenarioBrowser({
 
           {/* case-level "what this proves / expected outcome" */}
           {activeCase !== undefined ? (
-            <Box sx={{ borderLeft: `3px solid ${kindColor(activeCase.kind, t)}`, pl: 1.25, py: 0.25 }}>
+            <Box
+              sx={{ borderLeft: `3px solid ${kindColor(activeCase.kind, t)}`, pl: 1.25, py: 0.25 }}
+            >
               {activeCase.proves !== undefined && activeCase.proves.length > 0 ? (
-                <Typography sx={{ fontFamily: t.body, fontSize: 12, color: t.ink, lineHeight: 1.5 }}>
+                <Typography
+                  sx={{ fontFamily: t.body, fontSize: 12, color: t.ink, lineHeight: 1.5 }}
+                >
                   {activeCase.proves}
                 </Typography>
               ) : null}
               {activeCase.expectedOutcome !== undefined && activeCase.expectedOutcome.length > 0 ? (
                 <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted, mt: 0.35 }}>
-                  <Box component="span" sx={{ color: kindColor(activeCase.kind, t), fontWeight: 700 }}>
+                  <Box
+                    component="span"
+                    sx={{ color: kindColor(activeCase.kind, t), fontWeight: 700 }}
+                  >
                     EXPECT{' '}
                   </Box>
                   {activeCase.expectedOutcome}
@@ -199,6 +254,7 @@ export function ScenarioBrowser({
               height={440}
               resetKey={`${activeId}::${activeCase.id}`}
               statusBySeq={seq.statusBySeq}
+              {...(onCommentStep ? { onCommentStep } : {})}
             />
           ) : null}
         </Box>

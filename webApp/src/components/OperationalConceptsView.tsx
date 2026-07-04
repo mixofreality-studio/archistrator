@@ -15,15 +15,15 @@ import Typography from '@mui/material/Typography';
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import { useParams } from '@tanstack/react-router';
-import { listDeploymentProfiles, toMarkdown } from '../api/adapters';
+import { listDeploymentProfiles, toOperationalDecisionsView } from '../api/adapters';
 import type { ArtifactModelEnvelope } from '../api/types';
 import type { DeploymentProfile } from '../api/models';
 import { useProject } from '../hooks/useProject';
 import { useTokens } from '../theme/ThemeContext';
-import { Prose } from './Prose';
+import { CommentableList } from './comments/CommentableList';
+import { operationalDecisionAnchor } from './comments/CommentContext';
 import { DeploymentFlow } from './flow/DeploymentFlow';
 import { UI_IDENTIFIERS } from '../constants/UIIdentifiers';
-
 
 const PROFILE_LABEL: Record<DeploymentProfile, string> = {
   cloud: 'Cloud',
@@ -56,15 +56,52 @@ export function OperationalConceptsView({
       ? profile
       : profiles[0]?.profile;
 
-  const markdown = toMarkdown(envelope);
+  const decisions = toOperationalDecisionsView(envelope);
 
   return (
     <Box>
-      <Prose
-        artifactKind="operationalConcepts"
-        markdown={markdown.length > 0 ? markdown : '_No content yet._'}
-        source="Operational Concepts"
-      />
+      {decisions.length === 0 ? (
+        <Typography sx={{ fontFamily: t.mono, fontSize: 12.5, color: t.muted }}>
+          No operational decisions drafted yet.
+        </Typography>
+      ) : (
+        <CommentableList
+          ariaLabel="Operational decisions"
+          getAnchor={(d, i) => ({
+            kind: 'node',
+            label: d.topic,
+            source: `Operational Concepts · ${d.topic}`,
+            jsonPath: operationalDecisionAnchor(i),
+          })}
+          getKey={(d, i) => `${d.topic}-${String(i)}`}
+          getLabel={(d) => `decision: ${d.topic}`}
+          items={decisions}
+          renderItem={(d) => (
+            <Box>
+              <Typography
+                component="span"
+                sx={{ fontFamily: t.mono, fontSize: 12.5, fontWeight: 700, color: t.ink }}
+              >
+                {d.topic}
+              </Typography>
+              <Typography
+                sx={{
+                  color: t.ink,
+                  fontFamily: t.body,
+                  fontSize: '0.92rem',
+                  lineHeight: 1.55,
+                  mt: 0.25,
+                }}
+              >
+                {d.decision}
+              </Typography>
+              <Typography sx={{ color: t.muted, fontFamily: t.mono, fontSize: 11, mt: 0.25 }}>
+                justifies objective {d.justifyingObjective}
+              </Typography>
+            </Box>
+          )}
+        />
+      )}
 
       <Box sx={{ mt: 4 }}>
         <Typography

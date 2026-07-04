@@ -20,6 +20,9 @@ import { toMarkdown } from '../api/adapters';
 import type { ArtifactModelEnvelope, ServiceContracts } from '../api/types';
 import { Prose } from './Prose';
 import { GlossaryView } from './GlossaryView';
+import { MissionView } from './MissionView';
+import { ScrubbedRequirementsView } from './ScrubbedRequirementsView';
+import { StandardCheckView } from './StandardCheckView';
 import { VolatilityMap } from './VolatilityMap';
 import { ArchitectureView } from './flow/ArchitectureView';
 import { OperationalConceptsView } from './OperationalConceptsView';
@@ -57,9 +60,12 @@ function renderBody(
   serviceContracts: ServiceContracts | undefined
 ): ReactNode {
   const kind = envelope?.kind;
+  if (kind === 'mission') return <MissionView envelope={envelope} />;
   if (kind === 'glossary') {
     return <GlossaryView envelope={envelope} {...(height !== undefined ? { height } : {})} />;
   }
+  if (kind === 'scrubbedRequirements') return <ScrubbedRequirementsView envelope={envelope} />;
+  if (kind === 'standardCheck') return <StandardCheckView envelope={envelope} />;
   if (kind === 'volatilities') return <VolatilityMap envelope={envelope} />;
   if (kind === 'system') {
     return (

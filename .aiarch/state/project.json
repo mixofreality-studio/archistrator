@@ -3162,6 +3162,15 @@
             },
             "notes": {
               "type": "string"
+            },
+            "comments": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/AnchoredComment"
+              }
             }
           },
           "required": [

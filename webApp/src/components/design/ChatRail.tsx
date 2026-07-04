@@ -48,10 +48,26 @@ function LocationPill({ anchor, t }: { anchor: Anchor; t: Tokens }): ReactNode {
         }}
       >
         <PlaceIcon sx={{ fontSize: 13 }} />
-        <Typography sx={{ fontFamily: t.mono, fontSize: 10, fontWeight: 700, letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>
+        <Typography
+          sx={{
+            fontFamily: t.mono,
+            fontSize: 10,
+            fontWeight: 700,
+            letterSpacing: '0.04em',
+            whiteSpace: 'nowrap',
+          }}
+        >
           {anchor.source.split(' · ')[0]}
         </Typography>
-        <Typography sx={{ fontSize: 11.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 }}>
+        <Typography
+          sx={{
+            fontSize: 11.5,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            maxWidth: 200,
+          }}
+        >
           {anchor.label}
         </Typography>
       </Box>
@@ -78,23 +94,75 @@ export function ChatRail({ onCollapse }: { onCollapse: () => void }): ReactNode 
       data-testid={UI_IDENTIFIERS.Chat.RAIL}
       sx={{ height: '100%', display: 'flex', flexDirection: 'column', bgcolor: t.paperAlt }}
     >
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 2, py: 1.25, borderBottom: `1.5px solid ${t.line}` }}>
-        <Typography sx={{ fontFamily: t.mono, fontWeight: 700, letterSpacing: '0.1em', fontSize: 12 }}>CO-AUTHOR</Typography>
-        <Chip label="architect" size="small" sx={{ height: 20, bgcolor: t.chatArchitectBg, color: t.chatArchitectFg }} variant="outlined" />
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 1,
+          px: 2,
+          py: 1.25,
+          borderBottom: `1.5px solid ${t.line}`,
+        }}
+      >
+        <Typography
+          sx={{ fontFamily: t.mono, fontWeight: 700, letterSpacing: '0.1em', fontSize: 12 }}
+        >
+          CO-AUTHOR
+        </Typography>
+        <Chip
+          label="architect"
+          size="small"
+          sx={{ height: 20, bgcolor: t.chatArchitectBg, color: t.chatArchitectFg }}
+          variant="outlined"
+        />
         <Box sx={{ flexGrow: 1 }} />
-        <IconButton aria-label="collapse chat" size="small" sx={{ color: t.ink }} onClick={onCollapse}>
+        <IconButton
+          aria-label="collapse chat"
+          size="small"
+          sx={{ color: t.ink }}
+          onClick={onCollapse}
+        >
           <ChevronRightIcon fontSize="small" />
         </IconButton>
       </Box>
 
-      <Box sx={{ flexGrow: 1, overflowY: 'auto', p: 2, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+      <Box
+        sx={{
+          flexGrow: 1,
+          overflowY: 'auto',
+          p: 2,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 1.5,
+        }}
+      >
         {comments.length === 0 ? (
-          <Typography sx={{ fontFamily: t.mono, fontSize: 11.5, color: t.muted, textAlign: 'center', my: 2, lineHeight: 1.6 }}>
-            Type feedback to send back for a redraft — or highlight prose / select a diagram node or
-            scatter point first to anchor it to a spot. Everything here rides the next “Send back”.
+          <Typography
+            sx={{
+              fontFamily: t.mono,
+              fontSize: 11.5,
+              color: t.muted,
+              textAlign: 'center',
+              my: 2,
+              lineHeight: 1.6,
+            }}
+          >
+            Type feedback to send back for a redraft — or click the comment button on any item (or a
+            diagram node) to anchor it to that spot first. Everything here rides the next “Send
+            back”.
           </Typography>
         ) : (
-          comments.map((c, i) => <CommentBubble c={c} index={i} key={i} t={t} onRemove={() => { remove(i); }} />)
+          comments.map((c, i) => (
+            <CommentBubble
+              c={c}
+              index={i}
+              key={i}
+              t={t}
+              onRemove={() => {
+                remove(i);
+              }}
+            />
+          ))
         )}
       </Box>
 
@@ -119,17 +187,42 @@ export function ChatRail({ onCollapse }: { onCollapse: () => void }): ReactNode 
               <FormatQuoteIcon sx={{ fontSize: 16, color: t.accent }} />
             )}
             <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-              <Typography sx={{ fontFamily: t.mono, fontSize: 10, color: t.muted }}>{anchor.source}</Typography>
-              <Typography sx={{ fontSize: 12.5, color: t.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <Typography sx={{ fontFamily: t.mono, fontSize: 10, color: t.muted }}>
+                {anchor.source}
+              </Typography>
+              <Typography
+                sx={{
+                  fontSize: 12.5,
+                  color: t.ink,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
                 {anchor.label}
               </Typography>
             </Box>
-            <IconButton size="small" sx={{ color: t.muted }} onClick={() => { setAnchor(null); }}>
+            <IconButton
+              size="small"
+              sx={{ color: t.muted }}
+              onClick={() => {
+                setAnchor(null);
+              }}
+            >
               <CloseIcon sx={{ fontSize: 14 }} />
             </IconButton>
           </Box>
         )}
-        <Box sx={{ display: 'flex', alignItems: 'center', border: `1.5px solid ${t.line}`, borderRadius: 1.5, px: 1.5, bgcolor: t.paper }}>
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            border: `1.5px solid ${t.line}`,
+            borderRadius: 1.5,
+            px: 1.5,
+            bgcolor: t.paper,
+          }}
+        >
           <InputBase
             multiline
             data-testid={UI_IDENTIFIERS.Chat.INPUT}
@@ -137,7 +230,9 @@ export function ChatRail({ onCollapse }: { onCollapse: () => void }): ReactNode 
             placeholder={anchor !== null ? 'Add your comment…' : 'Type feedback for a redraft…'}
             sx={{ flexGrow: 1, fontSize: 13.5, py: 1, color: t.ink }}
             value={draft}
-            onChange={(e) => { setDraft(e.target.value); }}
+            onChange={(e) => {
+              setDraft(e.target.value);
+            }}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
@@ -150,7 +245,13 @@ export function ChatRail({ onCollapse }: { onCollapse: () => void }): ReactNode 
             data-testid={UI_IDENTIFIERS.Chat.SEND}
             disabled={!canSend}
             size="small"
-            sx={{ bgcolor: t.accent, color: t.accentText, ml: 1, '&:hover': { bgcolor: t.accent2 }, '&.Mui-disabled': { bgcolor: t.line } }}
+            sx={{
+              bgcolor: t.accent,
+              color: t.accentText,
+              ml: 1,
+              '&:hover': { bgcolor: t.accent2 },
+              '&.Mui-disabled': { bgcolor: t.line },
+            }}
             onClick={submit}
           >
             <SendIcon sx={{ fontSize: 16 }} />
@@ -181,14 +282,34 @@ function CommentBubble({
       sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}
     >
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.25 }}>
-        <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 11, color: t.ink }}>You</Typography>
-        <IconButton aria-label="remove comment" size="small" sx={{ color: t.muted, p: 0.25 }} onClick={onRemove}>
+        <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 11, color: t.ink }}>
+          You
+        </Typography>
+        <IconButton
+          aria-label="remove comment"
+          size="small"
+          sx={{ color: t.muted, p: 0.25 }}
+          onClick={onRemove}
+        >
           <CloseIcon sx={{ fontSize: 13 }} />
         </IconButton>
       </Box>
-      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', maxWidth: '92%' }}>
+      <Box
+        sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', maxWidth: '92%' }}
+      >
         {c.anchor !== null ? <LocationPill anchor={c.anchor} t={t} /> : null}
-        <Box sx={{ bgcolor: t.accent, color: t.accentText, border: `1.5px solid ${t.line}`, borderRadius: 1.5, px: 1.5, py: 1, fontSize: 13.5, lineHeight: 1.5 }}>
+        <Box
+          sx={{
+            bgcolor: t.accent,
+            color: t.accentText,
+            border: `1.5px solid ${t.line}`,
+            borderRadius: 1.5,
+            px: 1.5,
+            py: 1,
+            fontSize: 13.5,
+            lineHeight: 1.5,
+          }}
+        >
           {c.text}
         </Box>
       </Box>

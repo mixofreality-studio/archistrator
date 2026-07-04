@@ -12,13 +12,66 @@ import type { ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
-import type { ProjectArtifactModelEnvelope } from '../../api/types';
+import IconButton from '@mui/material/IconButton';
+import Tooltip from '@mui/material/Tooltip';
+import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
+import type { ProjectArtifactKind, ProjectArtifactModelEnvelope } from '../../api/types';
 import { SOLUTION_LABELS } from '../../api/types';
-import { toRiskModelView, formatMoney, formatDurationDays, solutionAccentColor } from '../../api/projectAdapters';
+import {
+  toRiskModelView,
+  formatMoney,
+  formatDurationDays,
+  solutionAccentColor,
+} from '../../api/projectAdapters';
 import { useTokens } from '../../theme/ThemeContext';
 import type { Tokens } from '../../theme/themes';
 import { ComputedBadge } from './computed';
 import { BandedScatter, type ScatterPoint } from './charts';
+import { useComments } from '../comments/CommentContext';
+import { riskModelRowAnchor } from '../comments/CommentContext';
+import { UI_IDENTIFIERS } from '../../constants/UIIdentifiers';
+
+/** The per-row "Comment on this item" affordance for the ARIA-table rows (the
+ * CommentableList primitive is a listbox, so table rows carry their own button). */
+function RowCommentButton({
+  t,
+  label,
+  testKey,
+  onArm,
+}: {
+  t: Tokens;
+  label: string;
+  testKey: string;
+  onArm: () => void;
+}): ReactNode {
+  return (
+    <Tooltip title="Comment on this item">
+      <IconButton
+        aria-label={`Comment on ${label}`}
+        className="row-comment-action"
+        data-testid={UI_IDENTIFIERS.Comments.listItemComment(testKey)}
+        size="small"
+        sx={{
+          color: t.accentText,
+          bgcolor: t.accent,
+          border: `1.5px solid ${t.line}`,
+          borderRadius: 1,
+          '&:hover': { bgcolor: t.accent2 },
+        }}
+        onClick={onArm}
+      >
+        <ChatBubbleOutlineIcon sx={{ fontSize: 14 }} />
+      </IconButton>
+    </Tooltip>
+  );
+}
+
+/** Shared sx that reveals a row's comment button on row hover / keyboard focus. */
+const ROW_REVEAL_SX = {
+  display: 'contents',
+  '& .row-comment-action': { opacity: 0, transition: 'opacity 120ms' },
+  '&:hover .row-comment-action, &:focus-within .row-comment-action': { opacity: 1 },
+} as const;
 
 function bounds(values: number[], pad: number): { min: number; max: number } {
   if (values.length === 0) return { min: 0, max: 1 };
@@ -34,8 +87,19 @@ export function RiskModelView({
   envelope: ProjectArtifactModelEnvelope | undefined;
 }): ReactNode {
   const t = useTokens();
+  const { setAnchor } = useComments();
   const view = toRiskModelView(envelope);
   const rows = view.rows;
+
+  const armRow = (kind: ProjectArtifactKind): void => {
+    const label = SOLUTION_LABELS[kind] ?? kind;
+    setAnchor({
+      kind: 'node',
+      label,
+      source: `Risk Model · ${label}`,
+      jsonPath: riskModelRowAnchor(kind),
+    });
+  };
 
   if (rows.length === 0) {
     return (
@@ -65,8 +129,14 @@ export function RiskModelView({
     out: !r.included,
   }));
 
-  const durBounds = bounds(rows.map((r) => r.durationDays), 0.12);
-  const costBounds = bounds(rows.map((r) => r.totalCost.minorUnits / 100), 0.15);
+  const durBounds = bounds(
+    rows.map((r) => r.durationDays),
+    0.12
+  );
+  const costBounds = bounds(
+    rows.map((r) => r.totalCost.minorUnits / 100),
+    0.15
+  );
   const riskLo = Math.min(0, view.overSafeThreshold, ...rows.map((r) => r.composite));
   const riskHi = Math.max(1, view.tooRiskyThreshold, ...rows.map((r) => r.composite));
   const riskBounds = bounds([riskLo, riskHi], 0.08);
@@ -81,17 +151,62 @@ export function RiskModelView({
       </Box>
 
       <Paper sx={{ p: 0, overflow: 'hidden' }}>
-        <Box sx={{ display: 'grid', gridTemplateColumns: '1.3fr 0.9fr 0.9fr 1fr 1fr 1fr 1.6fr' }}>
-          {['OPTION', 'DURATION', 'COST', 'CRITICALITY', 'ACTIVITY', 'COMPOSITE', 'STATUS'].map((h) => (
-            <Box key={h} sx={{ px: 1.5, py: 0.9, borderBottom: `1.5px solid ${t.line}`, bgcolor: t.paperAlt }}>
-              <Typography sx={{ fontFamily: t.mono, fontSize: 9.5, letterSpacing: '0.06em', color: t.muted }}>{h}</Typography>
-            </Box>
-          ))}
+        <Box
+          aria-label="Risk model options"
+          role="table"
+          sx={{ display: 'grid', gridTemplateColumns: '1.3fr 0.9fr 0.9fr 1fr 1fr 1fr 1.6fr' }}
+        >
+          <Box role="row" sx={{ display: 'contents' }}>
+            {['OPTION', 'DURATION', 'COST', 'CRITICALITY', 'ACTIVITY', 'COMPOSITE', 'STATUS'].map(
+              (h) => (
+                <Box
+                  key={h}
+                  role="columnheader"
+                  sx={{
+                    px: 1.5,
+                    py: 0.9,
+                    borderBottom: `1.5px solid ${t.line}`,
+                    bgcolor: t.paperAlt,
+                  }}
+                >
+                  <Typography
+                    sx={{
+                      fontFamily: t.mono,
+                      fontSize: 9.5,
+                      letterSpacing: '0.06em',
+                      color: t.muted,
+                    }}
+                  >
+                    {h}
+                  </Typography>
+                </Box>
+              )
+            )}
+          </Box>
           {rows.map((r) => (
-            <Box key={r.solutionKind} sx={{ display: 'contents' }}>
-              <Box sx={{ px: 1.5, py: 1, borderBottom: `1px solid ${t.line}`, display: 'flex', alignItems: 'center', gap: 0.6 }}>
-                <Box sx={{ width: 9, height: 9, bgcolor: solutionAccentColor(t, r.solutionKind), border: `1.5px solid ${t.line}` }} />
-                <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 11.5, color: t.ink }}>
+            <Box key={r.solutionKind} role="row" sx={ROW_REVEAL_SX}>
+              <Box
+                role="cell"
+                sx={{
+                  px: 1.5,
+                  py: 1,
+                  borderBottom: `1px solid ${t.line}`,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 0.6,
+                }}
+              >
+                <Box
+                  sx={{
+                    width: 9,
+                    height: 9,
+                    bgcolor: solutionAccentColor(t, r.solutionKind),
+                    border: `1.5px solid ${t.line}`,
+                  }}
+                />
+                <Typography
+                  sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 11.5, color: t.ink }}
+                >
                   {SOLUTION_LABELS[r.solutionKind] ?? r.solutionKind}
                 </Typography>
               </Box>
@@ -99,11 +214,44 @@ export function RiskModelView({
               <Cell t={t}>{formatMoney(r.totalCost)}</Cell>
               <Cell t={t}>{r.criticalityRisk.toFixed(2)}</Cell>
               <Cell t={t}>{r.activityRisk.toFixed(2)}</Cell>
-              <Cell strong t={t}>{r.composite.toFixed(2)}</Cell>
-              <Box sx={{ px: 1.5, py: 1, borderBottom: `1px solid ${t.line}`, display: 'flex', alignItems: 'center' }}>
-                <Typography sx={{ fontFamily: t.mono, fontSize: 10.5, fontWeight: r.included ? 500 : 700, color: r.included ? t.muted : t.accent }}>
-                  {r.included ? 'included' : (r.exclusionReason.length > 0 ? r.exclusionReason : 'excluded')}
+              <Cell strong t={t}>
+                {r.composite.toFixed(2)}
+              </Cell>
+              <Box
+                role="cell"
+                sx={{
+                  px: 1.5,
+                  py: 1,
+                  borderBottom: `1px solid ${t.line}`,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1,
+                }}
+              >
+                <Typography
+                  sx={{
+                    fontFamily: t.mono,
+                    fontSize: 10.5,
+                    fontWeight: r.included ? 500 : 700,
+                    color: r.included ? t.muted : t.accent,
+                    flexGrow: 1,
+                    minWidth: 0,
+                  }}
+                >
+                  {r.included
+                    ? 'included'
+                    : r.exclusionReason.length > 0
+                      ? r.exclusionReason
+                      : 'excluded'}
                 </Typography>
+                <RowCommentButton
+                  label={SOLUTION_LABELS[r.solutionKind] ?? r.solutionKind}
+                  t={t}
+                  testKey={r.solutionKind}
+                  onArm={() => {
+                    armRow(r.solutionKind);
+                  }}
+                />
               </Box>
             </Box>
           ))}
@@ -115,14 +263,28 @@ export function RiskModelView({
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2 }}>
         <Paper sx={{ p: 2 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-            <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 12, color: t.ink }}>TIME–COST CURVE</Typography>
+            <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 12, color: t.ink }}>
+              TIME–COST CURVE
+            </Typography>
             <ComputedBadge t={t} />
           </Box>
-          <BandedScatter height={260} points={costPts} t={t} xLabel="duration (days)" xMax={durBounds.max} xMin={durBounds.min} yLabel="total cost" yMax={costBounds.max} yMin={costBounds.min} />
+          <BandedScatter
+            height={260}
+            points={costPts}
+            t={t}
+            xLabel="duration (days)"
+            xMax={durBounds.max}
+            xMin={durBounds.min}
+            yLabel="total cost"
+            yMax={costBounds.max}
+            yMin={costBounds.min}
+          />
         </Paper>
         <Paper sx={{ p: 2 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-            <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 12, color: t.ink }}>TIME–RISK CURVE</Typography>
+            <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 12, color: t.ink }}>
+              TIME–RISK CURVE
+            </Typography>
             <ComputedBadge t={t} />
           </Box>
           <BandedScatter
@@ -146,10 +308,36 @@ export function RiskModelView({
   );
 }
 
-function Cell({ t, children, strong }: { t: Tokens; children: ReactNode; strong?: boolean }): ReactNode {
+function Cell({
+  t,
+  children,
+  strong,
+}: {
+  t: Tokens;
+  children: ReactNode;
+  strong?: boolean;
+}): ReactNode {
   return (
-    <Box sx={{ px: 1.5, py: 1, borderBottom: `1px solid ${t.line}`, display: 'flex', alignItems: 'center' }}>
-      <Typography sx={{ fontFamily: t.mono, fontSize: strong === true ? 13 : 12, fontWeight: strong === true ? 700 : 500, color: t.ink }}>{children}</Typography>
+    <Box
+      role="cell"
+      sx={{
+        px: 1.5,
+        py: 1,
+        borderBottom: `1px solid ${t.line}`,
+        display: 'flex',
+        alignItems: 'center',
+      }}
+    >
+      <Typography
+        sx={{
+          fontFamily: t.mono,
+          fontSize: strong === true ? 13 : 12,
+          fontWeight: strong === true ? 700 : 500,
+          color: t.ink,
+        }}
+      >
+        {children}
+      </Typography>
     </Box>
   );
 }

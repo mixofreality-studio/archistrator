@@ -13,6 +13,7 @@
  * present in the signature — so clicking always expands something real.
  */
 import {
+  useCallback,
   useEffect,
   useMemo,
   useState,
@@ -35,9 +36,14 @@ import {
 import '@xyflow/react/dist/style.css';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
+import IconButton from '@mui/material/IconButton';
+import Tooltip from '@mui/material/Tooltip';
+import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
 import type { ContractOp, ContractStruct } from '../../api/types';
 import type { Tokens } from '../../theme/themes';
 import { useTokens } from '../../theme/ThemeContext';
+import { useComments, contractOpAnchor } from '../comments/CommentContext';
+import { UI_IDENTIFIERS } from '../../constants/UIIdentifiers';
 
 // ---------------------------------------------------------------------------
 // Signature parser — derive fallback struct names from an op signature string.
@@ -157,6 +163,10 @@ interface InterfaceNodeData {
   component: string;
   ops: ContractOp[];
   activeOp: string | null;
+  /** Toggle an op's request/response expansion (keyboard path — Enter/Space). */
+  onToggleOp: (signature: string) => void;
+  /** Arm an anchored comment on an op (contractOpAnchor). */
+  onCommentOp: (signature: string) => void;
   [key: string]: unknown;
 }
 
@@ -201,18 +211,44 @@ function InterfaceNode({ data }: NodeProps): ReactNode {
           const active = op.signature === d.activeOp;
           // data-op is read by the ReactFlow onNodeClick handler to know which
           // op row was clicked (all rows live inside the single interface node).
+          // The row is also a real keyboard button (role/tabIndex/aria-expanded):
+          // Enter/Space toggles the request/response expansion without the mouse.
           return (
             <Box
+              aria-expanded={active}
+              aria-label={`${op.signature} — toggle request/response`}
               data-op={op.signature}
               key={`${op.signature}-${String(i)}`}
+              role="button"
               sx={{
+                position: 'relative',
                 px: 1.4,
                 py: 0.7,
+                pr: 4,
                 cursor: 'pointer',
                 borderBottom: i === d.ops.length - 1 ? 'none' : `1px solid ${t.line}`,
                 borderLeft: `3px solid ${active ? t.accent : 'transparent'}`,
                 bgcolor: active ? t.awaitingBg : 'transparent',
+                '& .contract-op-comment': { opacity: 0, transition: 'opacity 120ms' },
+                '&:hover .contract-op-comment, &:focus-visible .contract-op-comment': {
+                  opacity: 1,
+                },
                 '&:hover': { bgcolor: active ? t.awaitingBg : t.paper },
+                '&:focus-visible': {
+                  outline: `2px solid ${t.accent}`,
+                  outlineOffset: -2,
+                  '& .contract-op-comment': { opacity: 1 },
+                },
+              }}
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  d.onToggleOp(op.signature);
+                } else if (e.key === 'c' || e.key === 'C') {
+                  e.preventDefault();
+                  d.onCommentOp(op.signature);
+                }
               }}
             >
               <Typography
@@ -243,6 +279,33 @@ function InterfaceNode({ data }: NodeProps): ReactNode {
                   {op.note}
                 </Typography>
               ) : null}
+              <Tooltip title="Comment on this operation">
+                <IconButton
+                  aria-label={`Comment on ${op.signature}`}
+                  className="contract-op-comment"
+                  data-testid={UI_IDENTIFIERS.Comments.listItemComment(op.signature)}
+                  size="small"
+                  sx={{
+                    position: 'absolute',
+                    top: 4,
+                    right: 4,
+                    width: 20,
+                    height: 20,
+                    color: t.accentText,
+                    bgcolor: t.accent,
+                    border: `1.5px solid ${t.line}`,
+                    borderRadius: 1,
+                    '&:hover': { bgcolor: t.accent2 },
+                  }}
+                  tabIndex={-1}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    d.onCommentOp(op.signature);
+                  }}
+                >
+                  <ChatBubbleOutlineIcon sx={{ fontSize: 12 }} />
+                </IconButton>
+              </Tooltip>
             </Box>
           );
         })}
@@ -407,6 +470,24 @@ export function ContractCodeFlow({
   t: Tokens;
 }): ReactNode {
   const [activeOp, setActiveOp] = useState<string | null>(null);
+  const { setAnchor } = useComments();
+
+  const toggleOp = useCallback((sig: string): void => {
+    setActiveOp((cur) => (cur === sig ? null : sig));
+  }, []);
+
+  // Arm an anchored comment on a specific op (rides the next phase-gate send-back).
+  const commentOp = useCallback(
+    (sig: string): void => {
+      setAnchor({
+        kind: 'node',
+        label: sig,
+        source: `${component} · contract op`,
+        jsonPath: contractOpAnchor(component, sig),
+      });
+    },
+    [component, setAnchor]
+  );
 
   // React Flow's onNodeClick. Defining it also tells React Flow these nodes are
   // interactive, so it keeps pointer-events enabled on them (otherwise a
@@ -434,7 +515,7 @@ export function ContractCodeFlow({
         id: 'iface',
         type: 'iface',
         position: { x: IFACE_X, y: 0 },
-        data: { component, ops, activeOp },
+        data: { component, ops, activeOp, onToggleOp: toggleOp, onCommentOp: commentOp },
         draggable: false,
         selectable: false,
       },
@@ -481,7 +562,7 @@ export function ContractCodeFlow({
     }
 
     return { nodes: ns, edges: es };
-  }, [component, ops, activeOp, t]);
+  }, [component, ops, activeOp, t, toggleOp, commentOp]);
 
   const activeMethod = ops.find((o) => o.signature === activeOp);
 

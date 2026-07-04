@@ -53,6 +53,8 @@ export interface OverrideActivityVars {
   activityId: string;
   kind: OverrideKind;
   notes?: string;
+  /** Anchored comments accumulated for this steer, ride alongside the notes. */
+  comments?: components['schemas']['ConstructionAnchoredComment'][];
 }
 
 export function useOverrideActivity(
@@ -65,7 +67,13 @@ export function useOverrideActivity(
         '/api/v1/construction/override-activity/{projectID}/{activityID}',
         {
           params: { path: { projectID: projectId, activityID: vars.activityId } },
-          body: { override: { kind: overrideKindToOrdinal(vars.kind), notes: vars.notes ?? '' } },
+          body: {
+            override: {
+              kind: overrideKindToOrdinal(vars.kind),
+              notes: vars.notes ?? '',
+              ...(vars.comments && vars.comments.length > 0 ? { comments: vars.comments } : {}),
+            },
+          },
         }
       );
       if (error !== undefined) throw toApiError(response.status, error);

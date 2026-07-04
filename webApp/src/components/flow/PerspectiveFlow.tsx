@@ -15,6 +15,8 @@ import { useTokens } from '../../theme/ThemeContext';
 import type { Tokens } from '../../theme/themes';
 import { computeLayout, decorativeNodes, c4Node, flowEdge, layerColors } from './flowLayout';
 import { FlowCanvas, FlowEmpty } from './flowShared';
+import { useComments, componentAnchor } from '../comments/CommentContext';
+import type { C4NodeData } from './C4Node';
 
 function build(view: C4View, componentId: string, t: Tokens): { nodes: Node[]; edges: Edge[] } {
   const { focus, inbound, outbound } = toPerspective(view, componentId);
@@ -47,7 +49,11 @@ function build(view: C4View, componentId: string, t: Tokens): { nodes: Node[]; e
   const nodes: Node[] = subset.map((c) => {
     const base = c4Node(c, layout.pos.get(c.id) ?? { x: 0, y: 0 }, colors);
     if (c.id === focus.id) {
-      return { ...base, data: { ...base.data, color: t.accent }, style: { filter: `drop-shadow(0 0 6px ${t.accent})` } };
+      return {
+        ...base,
+        data: { ...base.data, color: t.accent },
+        style: { filter: `drop-shadow(0 0 6px ${t.accent})` },
+      };
     }
     return base;
   });
@@ -59,7 +65,10 @@ function build(view: C4View, componentId: string, t: Tokens): { nodes: Node[]; e
   for (const [i, r] of rels.entries()) {
     if (!seen.has(r.from) || !seen.has(r.to)) continue;
     if (layerOf.get(r.to) === 'utility') continue;
-    const slug = r.label.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+    const slug = r.label
+      .toLowerCase()
+      .replace(/\s+/g, '-')
+      .replace(/[^a-z0-9-]/g, '');
     const id = slug ? `${r.from}-${r.to}-${slug}` : `${r.from}-${r.to}-${String(i)}`;
     edges.push(flowEdge(id, r.from, r.to, r.label, t, { dashed: r.mode !== 'sync' }));
   }
@@ -78,11 +87,29 @@ export function PerspectiveFlow({
   height?: number;
 }): ReactNode {
   const t = useTokens();
+  const { setAnchor } = useComments();
   const { nodes, edges } = useMemo(() => build(view, componentId, t), [view, componentId, t]);
 
   if (nodes.length === 0) {
     return <FlowEmpty label="Select a component to focus on." t={t} />;
   }
 
-  return <FlowCanvas edges={edges} height={height} nodes={nodes} t={t} />;
+  return (
+    <FlowCanvas
+      edges={edges}
+      height={height}
+      nodes={nodes}
+      t={t}
+      onNodeClick={(_e, n) => {
+        if (n.type !== 'c4') return;
+        const d = n.data as C4NodeData;
+        setAnchor({
+          kind: 'node',
+          label: d.name,
+          source: `Architecture · ${d.name}`,
+          jsonPath: componentAnchor(d.componentId),
+        });
+      }}
+    />
+  );
 }

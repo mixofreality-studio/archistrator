@@ -497,6 +497,13 @@ export function NetworkView({
             border: `1.5px solid ${t.line}`,
             borderRadius: t.radius / 8 + 0.5,
             bgcolor: t.bg,
+            // Keyboard users focus graph nodes via react-flow's own tab order;
+            // give them a visible focus ring (the default UA outline is suppressed
+            // by react-flow's node styling).
+            '& .react-flow__node:focus-visible': {
+              outline: `2px solid ${t.accent}`,
+              outlineOffset: 2,
+            },
           }}
         >
           <ReactFlowProvider>

@@ -10,7 +10,6 @@
  */
 import type { ReactNode } from 'react';
 import Box from '@mui/material/Box';
-import Typography from '@mui/material/Typography';
 import { useTokens } from '../../theme/ThemeContext';
 
 export interface FloatChain {
@@ -26,22 +25,72 @@ export function NearCriticalFloat({ chains }: { chains: FloatChain[] }): ReactNo
   }
 
   return (
-    <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 110px' }}>
-      {(['CHAIN (activity)', 'TOTAL FLOAT'] as const).map((h) => (
-        <Box key={h} sx={{ borderBottom: `1.5px solid ${t.line}`, px: 2, py: 0.75 }}>
-          <Typography sx={{ color: t.muted, fontFamily: t.mono, fontSize: 9, letterSpacing: '0.08em' }}>
-            {h}
-          </Typography>
-        </Box>
-      ))}
-      {chains.map((r) => (
-        <Box key={r.chain} sx={{ display: 'contents' }}>
-          <Box sx={{ borderBottom: `1px solid ${t.line}`, px: 2, py: 0.9 }}>
-            <Typography sx={{ color: t.ink, fontFamily: t.mono, fontSize: 12 }}>{r.chain}</Typography>
+    <Box
+      aria-label="Near-critical chain float"
+      component="table"
+      sx={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}
+    >
+      <Box component="thead">
+        <Box component="tr">
+          <Box
+            component="th"
+            scope="col"
+            sx={{
+              textAlign: 'left',
+              borderBottom: `1.5px solid ${t.line}`,
+              px: 2,
+              py: 0.75,
+              color: t.muted,
+              fontFamily: t.mono,
+              fontSize: 9,
+              fontWeight: 400,
+              letterSpacing: '0.08em',
+            }}
+          >
+            CHAIN (activity)
           </Box>
-          <Box sx={{ borderBottom: `1px solid ${t.line}`, px: 2, py: 0.9 }}>
-            <Typography
+          <Box
+            component="th"
+            scope="col"
+            sx={{
+              width: 110,
+              textAlign: 'left',
+              borderBottom: `1.5px solid ${t.line}`,
+              px: 2,
+              py: 0.75,
+              color: t.muted,
+              fontFamily: t.mono,
+              fontSize: 9,
+              fontWeight: 400,
+              letterSpacing: '0.08em',
+            }}
+          >
+            TOTAL FLOAT
+          </Box>
+        </Box>
+      </Box>
+      <Box component="tbody">
+        {chains.map((r) => (
+          <Box component="tr" key={r.chain}>
+            <Box
+              component="td"
               sx={{
+                borderBottom: `1px solid ${t.line}`,
+                px: 2,
+                py: 0.9,
+                color: t.ink,
+                fontFamily: t.mono,
+                fontSize: 12,
+              }}
+            >
+              {r.chain}
+            </Box>
+            <Box
+              component="td"
+              sx={{
+                borderBottom: `1px solid ${t.line}`,
+                px: 2,
+                py: 0.9,
                 color: r.floatDays <= 5 ? t.awaitingFg : t.ink,
                 fontFamily: t.mono,
                 fontSize: 12,
@@ -49,10 +98,10 @@ export function NearCriticalFloat({ chains }: { chains: FloatChain[] }): ReactNo
               }}
             >
               {`${r.floatDays.toString()}d`}
-            </Typography>
+            </Box>
           </Box>
-        </Box>
-      ))}
+        ))}
+      </Box>
     </Box>
   );
 }

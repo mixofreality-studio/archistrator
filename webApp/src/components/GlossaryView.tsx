@@ -19,6 +19,8 @@ import { toGlossaryView } from '../api/adapters';
 import type { ArtifactModelEnvelope } from '../api/types';
 import type { GlossaryItem } from '../api/models';
 import { useTokens } from '../theme/ThemeContext';
+import { CommentableList } from './comments/CommentableList';
+import { glossaryItemAnchor } from './comments/CommentContext';
 
 // The Four Questions, in canonical order; anything else sinks to the end.
 const CATEGORY_ORDER = ['Who', 'What', 'How', 'Where', 'Uncategorized'];
@@ -46,6 +48,14 @@ export function GlossaryView({
   const items = toGlossaryView(envelope);
   const [query, setQuery] = useState('');
   const [activeCat, setActiveCat] = useState<string | null>(null);
+
+  // Term → index in the ORIGINAL model items array, so a per-term comment anchors
+  // to `$.items[n]` regardless of the filtered/regrouped display order.
+  const originalIndex = useMemo(() => {
+    const m = new Map<string, number>();
+    items.forEach((it, i) => m.set(it.term, i));
+    return m;
+  }, [items]);
 
   const categories = useMemo(() => {
     const counts = new Map<string, number>();
@@ -157,23 +167,35 @@ export function GlossaryView({
               >
                 {cat} · {entries.length}
               </Typography>
-              {entries.map((it) => (
-                <Box key={it.term} sx={{ py: 1.25, maxWidth: 760 }}>
-                  <Typography
-                    component="span"
-                    sx={{ fontWeight: 700, fontFamily: t.body, color: t.ink }}
-                  >
-                    {it.term}
-                  </Typography>
-                  <Typography
-                    component="span"
-                    sx={{ color: t.ink, fontFamily: t.body, lineHeight: 1.6 }}
-                  >
-                    {' — '}
-                    {it.definition}
-                  </Typography>
-                </Box>
-              ))}
+              <CommentableList
+                ariaLabel={`${cat} glossary terms`}
+                getAnchor={(it) => ({
+                  kind: 'node',
+                  label: it.term,
+                  source: `Glossary · ${it.term}`,
+                  jsonPath: glossaryItemAnchor(originalIndex.get(it.term) ?? 0),
+                })}
+                getKey={(it) => it.term}
+                getLabel={(it) => `term ${it.term}`}
+                items={entries}
+                renderItem={(it) => (
+                  <Box sx={{ maxWidth: 760 }}>
+                    <Typography
+                      component="span"
+                      sx={{ fontWeight: 700, fontFamily: t.body, color: t.ink }}
+                    >
+                      {it.term}
+                    </Typography>
+                    <Typography
+                      component="span"
+                      sx={{ color: t.ink, fontFamily: t.body, lineHeight: 1.6 }}
+                    >
+                      {' — '}
+                      {it.definition}
+                    </Typography>
+                  </Box>
+                )}
+              />
             </Box>
           ))
         )}

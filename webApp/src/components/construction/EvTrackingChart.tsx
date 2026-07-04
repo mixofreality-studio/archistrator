@@ -110,9 +110,22 @@ export function EvTrackingChart({
 
   const viewBox = `0 0 ${W.toString()} ${H.toString()}`;
 
+  // Screen-reader summary: the chart's shape has no accessible text otherwise. Give
+  // the latest planned vs earned percent-complete and the week span so the picture
+  // (ahead/behind schedule) is conveyed without sight of the curves.
+  const lastPlanned = ev.planned.length > 0 ? ev.planned[ev.planned.length - 1] : undefined;
+  const lastEarned = hasPts ? pts[pts.length - 1]?.earnedPct : ev.earned[ev.earned.length - 1];
+  const ariaLabel =
+    `Earned-value tracking chart across ${String(maxWeek)} construction weeks: ` +
+    `planned vs earned percent-complete.` +
+    (lastPlanned !== undefined ? ` Latest planned ${String(Math.round(lastPlanned))}%.` : '') +
+    (lastEarned !== undefined ? ` Latest earned ${String(Math.round(lastEarned))}%.` : '');
+
   return (
     <Box
+      aria-label={ariaLabel}
       component="svg"
+      role="img"
       sx={{ display: 'block', height: H, width: '100%' }}
       viewBox={viewBox}
     >
@@ -142,14 +155,7 @@ export function EvTrackingChart({
       ))}
 
       {/* Y-axis */}
-      <line
-        stroke={t.line}
-        strokeWidth={1.5}
-        x1={PAD_L}
-        x2={PAD_L}
-        y1={PAD_T}
-        y2={H - PAD_B}
-      />
+      <line stroke={t.line} strokeWidth={1.5} x1={PAD_L} x2={PAD_L} y1={PAD_T} y2={H - PAD_B} />
 
       {/* X-axis labels — decimated to the interval computed above */}
       {weeks
@@ -180,7 +186,13 @@ export function EvTrackingChart({
       </text>
 
       {/* Planned PV — dashed accent2 */}
-      <path d={toPath(plannedPts)} fill="none" stroke={t.accent2} strokeDasharray="5 4" strokeWidth={2} />
+      <path
+        d={toPath(plannedPts)}
+        fill="none"
+        stroke={t.accent2}
+        strokeDasharray="5 4"
+        strokeWidth={2}
+      />
       {plannedPts.map(([x, y], i) => (
         <circle cx={x} cy={y} fill={t.accent2} key={i} r={2.2} />
       ))}

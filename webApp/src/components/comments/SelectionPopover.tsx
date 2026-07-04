@@ -45,7 +45,10 @@ export function SelectionPopover(): ReactNode {
   }, []);
 
   // Reads the current selection and, when it is a non-collapsed range inside a
-  // [data-commentable] host, positions the popover + captures the pending anchor.
+  // SINGLE [data-commentable] host, positions the popover + captures the pending
+  // anchor. A range whose two endpoints fall in different commentable blocks (or
+  // partly outside one) is rejected — this is the clamp that stops a drag across
+  // several items from producing one meaningless cross-item anchor.
   const evaluate = useCallback((): void => {
     const sel = window.getSelection();
     const text = sel?.toString().trim() ?? '';
@@ -53,10 +56,14 @@ export function SelectionPopover(): ReactNode {
       clear();
       return;
     }
-    const node = sel.anchorNode;
-    const el = node?.nodeType === 1 ? (node as Element) : (node?.parentElement ?? null);
-    const host = el?.closest('[data-commentable]') ?? null;
-    if (host === null) {
+    const hostOf = (node: Node | null): Element | null => {
+      const el = node?.nodeType === 1 ? (node as Element) : (node?.parentElement ?? null);
+      return el?.closest('[data-commentable]') ?? null;
+    };
+    const host = hostOf(sel.anchorNode);
+    const focusHost = hostOf(sel.focusNode);
+    // Both endpoints must resolve to the SAME commentable block.
+    if (host === null || focusHost !== host) {
       clear();
       return;
     }

@@ -26,6 +26,7 @@ import type {
   ActivityNodeKind,
   Axis,
   CallMode,
+  CheckItem,
   Classification,
   ComponentKind,
   ContainerInstance,
@@ -39,6 +40,8 @@ import type {
   Layer,
   MissionStatement,
   OperationalConcepts,
+  OperationalDecision,
+  Requirement,
   ScrubbedRequirements,
   StandardCheck,
   System,
@@ -678,6 +681,38 @@ function glossaryToMarkdown(g: Glossary): string {
  */
 export function toGlossaryView(envelope: ArtifactModelEnvelope | undefined): GlossaryItem[] {
   const model = narrow(envelope, 'glossary');
+  return model?.items ?? [];
+}
+
+/** The typed MissionStatement (vision / objectives / mission), safe-empty. */
+export function toMissionView(envelope: ArtifactModelEnvelope | undefined): MissionStatement {
+  const model = narrow(envelope, 'mission');
+  return {
+    vision: model?.vision ?? '',
+    objectives: model?.objectives ?? [],
+    mission: model?.mission ?? '',
+  };
+}
+
+/** The typed scrubbed requirements (id + statement), safe-empty. */
+export function toScrubbedRequirementsView(
+  envelope: ArtifactModelEnvelope | undefined
+): Requirement[] {
+  const model = narrow(envelope, 'scrubbedRequirements');
+  return model?.items ?? [];
+}
+
+/** The typed operational-concept decisions, safe-empty. */
+export function toOperationalDecisionsView(
+  envelope: ArtifactModelEnvelope | undefined
+): OperationalDecision[] {
+  const model = narrow(envelope, 'operationalConcepts');
+  return model?.decisions ?? [];
+}
+
+/** The typed standard-check rows, safe-empty. */
+export function toStandardCheckView(envelope: ArtifactModelEnvelope | undefined): CheckItem[] {
+  const model = narrow(envelope, 'standardCheck');
   return model?.items ?? [];
 }
 

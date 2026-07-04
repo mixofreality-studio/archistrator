@@ -58,12 +58,13 @@ import {
 } from '../hooks/useConstructionMutations';
 
 import { ExperienceChrome } from '../components/design/ExperienceChrome';
+import { ChatRail } from '../components/design/ChatRail';
 import { ConstructionTracker } from '../components/construction/ConstructionTracker';
 import { InterventionsTab } from '../components/construction/InterventionsTab';
 import { ArtifactsTab } from '../components/construction/ArtifactsTab';
 import { ActivityLifecyclePanel } from '../components/construction/ActivityLifecyclePanel';
 import { PhaseGatePanel } from '../components/construction/PhaseGatePanel';
-import { CommentProvider } from '../components/comments/CommentContext';
+import { CommentProvider, useComments } from '../components/comments/CommentContext';
 
 import { useTokens } from '../theme/ThemeContext';
 import type { Tokens } from '../theme/themes';
@@ -106,13 +107,33 @@ function committedEnvelope(
 
 export function ConstructionConsoleScreen(): ReactNode {
   const { projectId } = routeApi.useParams();
-  return <ConstructionConsoleBody projectId={projectId} />;
+  // The CommentProvider wraps the body (mirrors Phase-1 SystemDesignScreen) so the
+  // body itself can read useComments() — the accumulated anchored comments + the
+  // toWire()/freeformNotes() the phase-gate "Send back" carries into the redraft.
+  return (
+    <CommentProvider>
+      <ConstructionConsoleBody projectId={projectId} />
+    </CommentProvider>
+  );
 }
 
 function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNode {
   const t = useTokens();
   const navigate = useNavigate();
   const [tab, setTab] = useState<TabId>('tracker');
+  const { reset, toWire, freeformNotes, requestId } = useComments();
+
+  // Co-author rail open-state, driven by (requestId, manual toggles) exactly like
+  // the Phase-1 design experience — but DEFAULT-CLOSED here (construction is a
+  // supervision console, not a co-authoring flow): the rail stays collapsed until
+  // the operator arms an anchor (any commentable surface bumps requestId), then it
+  // auto-opens so the armed comment has somewhere to go. A manual collapse records
+  // the requestId it happened at; a newer anchor re-opens the rail.
+  const [closedAt, setClosedAt] = useState<number | null>(0);
+  const chatOpen = closedAt === null || requestId > closedAt;
+  const setChatOpen = (open: boolean): void => {
+    setClosedAt(open ? null : requestId);
+  };
 
   // Live-cascade poll: while the construction pump is draining the network, poll the
   // project read every 1.5s so the tracker animates eligible→in-construction→integrated.
@@ -186,20 +207,51 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
 
   const approvePhase = (): void => {
     if (activeInConstructionId === undefined || phaseGateRow === undefined) return;
-    submitPhaseDecision.mutate({
-      activityId: activeInConstructionId,
-      phase: phaseGateRow.phase,
-      decision: 'approve',
-    });
+    submitPhaseDecision.mutate(
+      {
+        activityId: activeInConstructionId,
+        phase: phaseGateRow.phase,
+        decision: 'approve',
+      },
+      // Clear any accumulated anchors/comments once the gate is decided so they do
+      // not bleed into the next activity's gate cycle.
+      {
+        onSuccess: () => {
+          reset();
+        },
+      }
+    );
   };
 
   const sendBackPhase = (): void => {
     if (activeInConstructionId === undefined || phaseGateRow === undefined) return;
-    submitPhaseDecision.mutate({
-      activityId: activeInConstructionId,
-      phase: phaseGateRow.phase,
-      decision: 'sendBack',
-    });
+    // Attach the accumulated anchored comments + free-form notes to the phase-gate
+    // redraft, exactly like Phase-1's send-back. The submit-phase-decision endpoint
+    // already carries ConstructionReviewFeedback { notes, comments } — no server
+    // contract change needed. The Manager weaves the comments beneath the notes into
+    // the role redraft prompt (jsonPath is opaque, human-meaningful guidance).
+    const wireComments = toWire();
+    const freeform = freeformNotes();
+    // notes is required on the wire; when the operator only anchored comments (no
+    // free-form note) synthesize the notes from them so the redraft always carries
+    // actionable guidance (mirrors DesignExperience.sendBack).
+    const notes = freeform.length > 0 ? freeform : wireComments.map((c) => c.text).join('\n');
+    const hasFeedback = wireComments.length > 0 || notes.length > 0;
+    submitPhaseDecision.mutate(
+      {
+        activityId: activeInConstructionId,
+        phase: phaseGateRow.phase,
+        decision: 'sendBack',
+        ...(hasFeedback
+          ? { feedback: { notes, ...(wireComments.length > 0 ? { comments: wireComments } : {}) } }
+          : {}),
+      },
+      {
+        onSuccess: () => {
+          reset();
+        },
+      }
+    );
   };
 
   const onBegin = (): void => {
@@ -226,11 +278,24 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   const pauseError = pause.error instanceof Error ? pause.error.message : undefined;
 
   const onOverride = (activityId: string, kind: OverrideKind, notes: string): void => {
-    override.mutate({
-      activityId,
-      kind,
-      ...(notes.trim().length > 0 ? { notes: notes.trim() } : {}),
-    });
+    // Attach any anchored intervention comments the operator armed in the rail to
+    // the steer, mirroring the phase-gate send-back. ActivityOverride now carries
+    // `comments` end-to-end (contract → manager signal), so a send-back-style steer
+    // no longer drops the operator's per-item feedback.
+    const wireComments = toWire();
+    override.mutate(
+      {
+        activityId,
+        kind,
+        ...(notes.trim().length > 0 ? { notes: notes.trim() } : {}),
+        ...(wireComments.length > 0 ? { comments: wireComments } : {}),
+      },
+      {
+        onSuccess: () => {
+          reset();
+        },
+      }
+    );
   };
   const onPause = (reason: string): void => {
     pause.mutate(reason);
@@ -297,185 +362,194 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   );
 
   return (
-    <CommentProvider>
-      <ExperienceChrome
-        phaseNum={3}
-        phaseTitle="Construction"
-        projectName={project?.name}
-        onClose={() => void navigate({ to: '/project/$projectId/home', params: { projectId } })}
+    <ExperienceChrome
+      chat={
+        chatOpen ? (
+          <ChatRail
+            onCollapse={() => {
+              setChatOpen(false);
+            }}
+          />
+        ) : undefined
+      }
+      chatOpen={chatOpen}
+      phaseNum={3}
+      phaseTitle="Construction"
+      projectName={project?.name}
+      onClose={() => void navigate({ to: '/project/$projectId/home', params: { projectId } })}
+      onOpenChat={() => {
+        setChatOpen(true);
+      }}
+    >
+      <Box
+        data-testid={UI_IDENTIFIERS.Construction.ROOT}
+        sx={{ flexGrow: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}
       >
-        <Box
-          data-testid={UI_IDENTIFIERS.Construction.ROOT}
-          sx={{ flexGrow: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}
+        {/* tab bar — replaces the ordered spine */}
+        <Tabs
+          aria-label="Construction console sections"
+          scrollButtons={false}
+          sx={{
+            flexShrink: 0,
+            minHeight: 0,
+            px: 2.5,
+            bgcolor: t.paperAlt,
+            borderBottom: `1.5px solid ${t.line}`,
+            '& .MuiTabs-flexContainer': { gap: 0.5 },
+            '& .MuiTabs-indicator': { backgroundColor: t.accent, height: 3 },
+          }}
+          value={tab}
+          variant="scrollable"
+          onChange={(_e, value: TabId) => {
+            setTab(value);
+          }}
         >
-          {/* tab bar — replaces the ordered spine */}
-          <Tabs
-            aria-label="Construction console sections"
-            scrollButtons={false}
-            sx={{
-              flexShrink: 0,
-              minHeight: 0,
-              px: 2.5,
-              bgcolor: t.paperAlt,
-              borderBottom: `1.5px solid ${t.line}`,
-              '& .MuiTabs-flexContainer': { gap: 0.5 },
-              '& .MuiTabs-indicator': { backgroundColor: t.accent, height: 3 },
-            }}
-            value={tab}
-            variant="scrollable"
-            onChange={(_e, value: TabId) => {
-              setTab(value);
-            }}
-          >
-            {TABS.map((x) => (
-              <Tab
-                data-testid={x.testid}
-                icon={x.icon}
-                iconPosition="start"
-                key={x.id}
-                label={x.title}
-                sx={{
-                  minHeight: 0,
-                  flexShrink: 0,
-                  gap: 0.75,
-                  px: 1.5,
-                  py: 1.25,
-                  fontFamily: t.mono,
-                  fontWeight: 700,
-                  fontSize: 12.5,
-                  letterSpacing: '0.04em',
-                  textTransform: 'none',
-                  color: t.muted,
-                  '&:hover': { color: t.ink },
-                  '&.Mui-selected': { color: t.accent },
-                }}
-                value={x.id}
-              />
-            ))}
-          </Tabs>
-
-          <Box sx={{ flexGrow: 1, minHeight: 0, overflowY: 'auto', px: { xs: 2, md: 4 }, py: 3 }}>
-            <ConsoleHeader
-              action={
-                tab === 'tracker' ? (
-                  <Button
-                    data-testid={UI_IDENTIFIERS.Construction.BEGIN_BUTTON}
-                    disabled={beginActive}
-                    size="small"
-                    startIcon={
-                      beginActive ? (
-                        <CircularProgress color="inherit" size={14} />
-                      ) : (
-                        <PlayArrowRoundedIcon />
-                      )
-                    }
-                    sx={{
-                      fontFamily: t.mono,
-                      fontWeight: 700,
-                      fontSize: 12,
-                      textTransform: 'none',
-                      color: t.bg,
-                      bgcolor: t.accent,
-                      px: 1.75,
-                      '&:hover': { bgcolor: t.accent2 },
-                    }}
-                    variant="contained"
-                    onClick={onBegin}
-                  >
-                    {beginLabel}
-                  </Button>
-                ) : undefined
-              }
-              subtitle={tabSubtitle(tab)}
-              t={t}
-              title={activeTitle}
+          {TABS.map((x) => (
+            <Tab
+              data-testid={x.testid}
+              icon={x.icon}
+              iconPosition="start"
+              key={x.id}
+              label={x.title}
+              sx={{
+                minHeight: 0,
+                flexShrink: 0,
+                gap: 0.75,
+                px: 1.5,
+                py: 1.25,
+                fontFamily: t.mono,
+                fontWeight: 700,
+                fontSize: 12.5,
+                letterSpacing: '0.04em',
+                textTransform: 'none',
+                color: t.muted,
+                '&:hover': { color: t.ink },
+                '&.Mui-selected': { color: t.accent },
+              }}
+              value={x.id}
             />
+          ))}
+        </Tabs>
 
-            {projectLoading ? (
-              <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
-                <CircularProgress />
-              </Box>
-            ) : tab === 'tracker' ? (
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <ConstructionTracker
-                  activityEnvelope={activityEnvelope}
-                  constructionProgress={project?.constructionProgress}
-                  constructionRows={project?.constructionRows}
-                  gitFor={gitForActivity}
-                  networkEnvelope={networkEnvelope}
-                  overrideError={overrideError}
-                  overridePending={override.isPending}
-                  session={session}
-                  sessionMissing={sessionMissing}
-                  onOverride={onOverride}
-                  onSelectActivity={setSelectedActivityId}
-                />
-                {/* Phase gate — rendered when ConstructionSessionView.stage === awaitingApproval */}
-                {phaseGateRow !== undefined && (
-                  <PhaseGatePanel
-                    activityKind={phaseGateRow.kind}
-                    pending={submitPhaseDecision.isPending}
-                    phase={phaseGateRow.phase}
-                    reviewSet={phaseGateSession?.view.reviewSet}
-                    onApprove={approvePhase}
-                    onSendBack={sendBackPhase}
-                  />
-                )}
-              </Box>
-            ) : tab === 'interventions' ? (
-              <InterventionsTab
+        <Box sx={{ flexGrow: 1, minHeight: 0, overflowY: 'auto', px: { xs: 2, md: 4 }, py: 3 }}>
+          <ConsoleHeader
+            action={
+              tab === 'tracker' ? (
+                <Button
+                  data-testid={UI_IDENTIFIERS.Construction.BEGIN_BUTTON}
+                  disabled={beginActive}
+                  size="small"
+                  startIcon={
+                    beginActive ? (
+                      <CircularProgress color="inherit" size={14} />
+                    ) : (
+                      <PlayArrowRoundedIcon />
+                    )
+                  }
+                  sx={{
+                    fontFamily: t.mono,
+                    fontWeight: 700,
+                    fontSize: 12,
+                    textTransform: 'none',
+                    color: t.bg,
+                    bgcolor: t.accent,
+                    px: 1.75,
+                    '&:hover': { bgcolor: t.accent2 },
+                  }}
+                  variant="contained"
+                  onClick={onBegin}
+                >
+                  {beginLabel}
+                </Button>
+              ) : undefined
+            }
+            subtitle={tabSubtitle(tab)}
+            t={t}
+            title={activeTitle}
+          />
+
+          {projectLoading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
+              <CircularProgress />
+            </Box>
+          ) : tab === 'tracker' ? (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <ConstructionTracker
                 activityEnvelope={activityEnvelope}
+                constructionProgress={project?.constructionProgress}
                 constructionRows={project?.constructionRows}
                 gitFor={gitForActivity}
+                networkEnvelope={networkEnvelope}
                 overrideError={overrideError}
                 overridePending={override.isPending}
-                pauseError={pauseError}
-                pausePending={pause.isPending}
-                project={project}
-                projectId={projectId}
                 session={session}
                 sessionMissing={sessionMissing}
                 onOverride={onOverride}
-                onPause={onPause}
+                onSelectActivity={setSelectedActivityId}
               />
-            ) : (
-              <ArtifactsTab
-                activityEnvelope={activityEnvelope}
-                constructionRows={project?.constructionRows}
-                project={project}
-                session={session}
-                sessionMissing={sessionMissing}
-              />
-            )}
-          </Box>
+              {/* Phase gate — rendered when ConstructionSessionView.stage === awaitingApproval */}
+              {phaseGateRow !== undefined && (
+                <PhaseGatePanel
+                  activityKind={phaseGateRow.kind}
+                  pending={submitPhaseDecision.isPending}
+                  phase={phaseGateRow.phase}
+                  reviewSet={phaseGateSession?.view.reviewSet}
+                  onApprove={approvePhase}
+                  onSendBack={sendBackPhase}
+                />
+              )}
+            </Box>
+          ) : tab === 'interventions' ? (
+            <InterventionsTab
+              activityEnvelope={activityEnvelope}
+              constructionRows={project?.constructionRows}
+              gitFor={gitForActivity}
+              overrideError={overrideError}
+              overridePending={override.isPending}
+              pauseError={pauseError}
+              pausePending={pause.isPending}
+              project={project}
+              projectId={projectId}
+              session={session}
+              sessionMissing={sessionMissing}
+              onOverride={onOverride}
+              onPause={onPause}
+            />
+          ) : (
+            <ArtifactsTab
+              activityEnvelope={activityEnvelope}
+              constructionRows={project?.constructionRows}
+              project={project}
+              session={session}
+              sessionMissing={sessionMissing}
+            />
+          )}
         </Box>
+      </Box>
 
-        {/* Activity Lifecycle Panel — additive overlay on Tracker node click. */}
-        <ActivityLifecyclePanel
-          activityId={selectedActivityId}
-          activityTitle={selectedActivityId !== null ? titleForId(selectedActivityId) : undefined}
-          derivedStatus={
-            selectedActivityId !== null
-              ? (statusMap.get(selectedActivityId) ?? 'not-started')
-              : 'not-started'
-          }
-          git={selectedActivityId !== null ? gitForActivity(selectedActivityId) : undefined}
-          node={
-            selectedActivityId !== null
-              ? networkView.nodes.find((n) => n.id === selectedActivityId)
-              : undefined
-          }
-          row={
-            selectedActivityId !== null
-              ? project?.constructionRows?.[selectedActivityId]
-              : undefined
-          }
-          onClose={() => {
-            setSelectedActivityId(null);
-          }}
-        />
-      </ExperienceChrome>
-    </CommentProvider>
+      {/* Activity Lifecycle Panel — additive overlay on Tracker node click. */}
+      <ActivityLifecyclePanel
+        activityId={selectedActivityId}
+        activityTitle={selectedActivityId !== null ? titleForId(selectedActivityId) : undefined}
+        derivedStatus={
+          selectedActivityId !== null
+            ? (statusMap.get(selectedActivityId) ?? 'not-started')
+            : 'not-started'
+        }
+        git={selectedActivityId !== null ? gitForActivity(selectedActivityId) : undefined}
+        node={
+          selectedActivityId !== null
+            ? networkView.nodes.find((n) => n.id === selectedActivityId)
+            : undefined
+        }
+        row={
+          selectedActivityId !== null ? project?.constructionRows?.[selectedActivityId] : undefined
+        }
+        onClose={() => {
+          setSelectedActivityId(null);
+        }}
+      />
+    </ExperienceChrome>
   );
 }
 
