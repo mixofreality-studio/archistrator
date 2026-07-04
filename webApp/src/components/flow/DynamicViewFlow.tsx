@@ -37,7 +37,7 @@ import {
   c4Node,
   flowEdge,
 } from './flowLayout';
-import { LayerLegend, FlowCanvas, FlowEmpty } from './flowShared';
+import { LayerLegend, FlowCanvas, FlowEmpty, FocusNodes } from './flowShared';
 
 /** Per-call status for the test views: 'red' = target/failing, 'green' = passing. */
 export type StepStatus = 'red' | 'green';
@@ -125,7 +125,10 @@ function StepBar({
 }): ReactNode {
   const total = dv.edges.length;
   const current = dv.edges[stepIndex];
-  const nameOf = useMemo(() => new Map(dv.participants.map((c) => [c.id, c.name])), [dv.participants]);
+  const nameOf = useMemo(
+    () => new Map(dv.participants.map((c) => [c.id, c.name])),
+    [dv.participants]
+  );
   if (total === 0 || current === undefined) return null;
 
   const btnSx = {
@@ -146,18 +149,30 @@ function StepBar({
           disabled={stepIndex <= 0}
           size="small"
           sx={btnSx}
-          onClick={() => { setStepIndex(stepIndex - 1); }}
+          onClick={() => {
+            setStepIndex(stepIndex - 1);
+          }}
         >
           <ChevronLeftIcon fontSize="small" />
         </IconButton>
-        <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.muted, minWidth: 90, textAlign: 'center' }}>
+        <Typography
+          sx={{
+            fontFamily: t.mono,
+            fontSize: 12,
+            color: t.muted,
+            minWidth: 90,
+            textAlign: 'center',
+          }}
+        >
           Step {stepIndex + 1} of {total}
         </Typography>
         <IconButton
           disabled={stepIndex >= total - 1}
           size="small"
           sx={btnSx}
-          onClick={() => { setStepIndex(stepIndex + 1); }}
+          onClick={() => {
+            setStepIndex(stepIndex + 1);
+          }}
         >
           <ChevronRightIcon fontSize="small" />
         </IconButton>
@@ -200,8 +215,24 @@ function StepBar({
           </>
         ) : null}
       </Box>
-      <Box sx={{ p: 1.25, border: `1.5px solid ${t.line}`, borderLeft: `3px solid ${captionAccent}`, borderRadius: 1, bgcolor: t.paper }}>
-        <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 13, color: t.ink, wordBreak: 'break-word' }}>
+      <Box
+        sx={{
+          p: 1.25,
+          border: `1.5px solid ${t.line}`,
+          borderLeft: `3px solid ${captionAccent}`,
+          borderRadius: 1,
+          bgcolor: t.paper,
+        }}
+      >
+        <Typography
+          sx={{
+            fontFamily: t.mono,
+            fontWeight: 700,
+            fontSize: 13,
+            color: t.ink,
+            wordBreak: 'break-word',
+          }}
+        >
           {current.seq}. {current.label}
         </Typography>
         <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted, mt: 0.25 }}>
@@ -216,7 +247,9 @@ function StepBar({
             ) : null}
             {detail.errorExpected ? (
               <CaptionRow c={t.dangerFg} k="err" t={t}>
-                {detail.errorCode !== undefined && detail.errorCode.length > 0 ? detail.errorCode : 'expected failure'}
+                {detail.errorCode !== undefined && detail.errorCode.length > 0
+                  ? detail.errorCode
+                  : 'expected failure'}
               </CaptionRow>
             ) : detail.result !== undefined && detail.result.length > 0 ? (
               <CaptionRow c={t.committedDot} k="out" t={t}>
@@ -236,13 +269,35 @@ function StepBar({
 }
 
 /** One labelled monospace row in the step caption (in / out / err). */
-function CaptionRow({ k, c, t, children }: { k: string; c?: string; t: Tokens; children: ReactNode }): ReactNode {
+function CaptionRow({
+  k,
+  c,
+  t,
+  children,
+}: {
+  k: string;
+  c?: string;
+  t: Tokens;
+  children: ReactNode;
+}): ReactNode {
   return (
     <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'baseline' }}>
-      <Typography sx={{ fontFamily: t.mono, fontSize: 8.5, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: c ?? t.muted, minWidth: 22 }}>
+      <Typography
+        sx={{
+          fontFamily: t.mono,
+          fontSize: 8.5,
+          fontWeight: 700,
+          letterSpacing: '0.08em',
+          textTransform: 'uppercase',
+          color: c ?? t.muted,
+          minWidth: 22,
+        }}
+      >
         {k}
       </Typography>
-      <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: c ?? t.ink, wordBreak: 'break-word' }}>
+      <Typography
+        sx={{ fontFamily: t.mono, fontSize: 11, color: c ?? t.ink, wordBreak: 'break-word' }}
+      >
         {children}
       </Typography>
     </Box>
@@ -290,15 +345,30 @@ export function DynamicViewFlow({
     [dv, t, safeStep, focalComponentId, statusBySeq]
   );
 
+  // Recenter the camera on the current call's two endpoints as you step.
+  const focusIds = useMemo(() => {
+    const c = dv.edges[safeStep];
+    return c !== undefined ? [c.from, c.to] : [];
+  }, [dv, safeStep]);
+
   if (dv.participants.length === 0) {
     return <FlowEmpty label="No call chain to render yet." t={t} />;
   }
 
   return (
     <Box>
-      <StepBar detailBySeq={detailBySeq} dv={dv} setStepIndex={setStepIndex} statusBySeq={statusBySeq} stepIndex={safeStep} t={t} onCommentStep={onCommentStep} />
+      <StepBar
+        detailBySeq={detailBySeq}
+        dv={dv}
+        setStepIndex={setStepIndex}
+        statusBySeq={statusBySeq}
+        stepIndex={safeStep}
+        t={t}
+        onCommentStep={onCommentStep}
+      />
       <FlowCanvas edges={edges} height={height} nodes={nodes} t={t}>
         <LayerLegend colors={colors} t={t} usedLayers={usedLayers} />
+        <FocusNodes dep={String(safeStep)} nodeIds={focusIds} />
       </FlowCanvas>
     </Box>
   );

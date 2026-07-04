@@ -5,12 +5,13 @@
  * (colours, node/edge factories, the layer vocabulary) live in ./flowLayout so
  * this module exports only components.
  */
-import type { ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import {
   ReactFlow,
   Background,
   Controls,
   Panel,
+  useReactFlow,
   type Edge,
   type Node,
   type NodeTypes,
@@ -36,11 +37,23 @@ export function LayerLegend({
 }): ReactNode {
   return (
     <Panel position="top-left">
-      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, p: 1, bgcolor: t.paper, border: `1.5px solid ${t.line}`, borderRadius: t.radius / 8 + 0.5 }}>
+      <Box
+        sx={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 0.5,
+          p: 1,
+          bgcolor: t.paper,
+          border: `1.5px solid ${t.line}`,
+          borderRadius: t.radius / 8 + 0.5,
+        }}
+      >
         {usedLayers.map((l) => (
           <Box key={l} sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
             <Box sx={{ width: 12, height: 4, bgcolor: colors[l] }} />
-            <Typography sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.ink }}>{LAYER_LABEL[l]}</Typography>
+            <Typography sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.ink }}>
+              {LAYER_LABEL[l]}
+            </Typography>
           </Box>
         ))}
       </Box>
@@ -81,7 +94,15 @@ export function FlowCanvas({
   children?: ReactNode;
 }): ReactNode {
   return (
-    <Box sx={{ height, width: '100%', border: `1.5px solid ${t.line}`, borderRadius: t.radius / 8 + 0.5, bgcolor: t.bg }}>
+    <Box
+      sx={{
+        height,
+        width: '100%',
+        border: `1.5px solid ${t.line}`,
+        borderRadius: t.radius / 8 + 0.5,
+        bgcolor: t.bg,
+      }}
+    >
       <ReactFlow
         elementsSelectable
         fitView
@@ -108,9 +129,36 @@ export function FlowCanvas({
   );
 }
 
+/**
+ * Pans + zooms the canvas to frame a set of nodes whenever `dep` changes — used to
+ * recenter the Dynamic call-chain view on the current step's endpoints (and to
+ * focus a searched component in Static), mirroring the use-case walkthrough. Lives
+ * as a child of <ReactFlow> for hook access; a double-rAF waits for measurement.
+ */
+export function FocusNodes({ nodeIds, dep }: { nodeIds: string[]; dep: string }): null {
+  const { fitView } = useReactFlow();
+  useEffect(() => {
+    if (nodeIds.length === 0) return undefined;
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        void fitView({
+          nodes: nodeIds.map((id) => ({ id })),
+          duration: 400,
+          padding: 0.4,
+          maxZoom: 1.2,
+        });
+      });
+    });
+    return (): void => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
+  }, [dep, nodeIds, fitView]);
+  return null;
+}
+
 /** Shared "nothing to render" placeholder used by every flow. */
 export function FlowEmpty({ label, t }: { label: string; t: Tokens }): ReactNode {
-  return (
-    <Box sx={{ py: 6, textAlign: 'center', color: t.muted, fontFamily: t.mono }}>{label}</Box>
-  );
+  return <Box sx={{ py: 6, textAlign: 'center', color: t.muted, fontFamily: t.mono }}>{label}</Box>;
 }
