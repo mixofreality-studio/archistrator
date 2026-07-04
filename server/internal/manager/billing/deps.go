@@ -1,4 +1,4 @@
-package settlement
+package billing
 
 import (
 	"context"
@@ -7,18 +7,18 @@ import (
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
-// This file declares settlementManager's CONSUMER-SIDE dependency interfaces (the Go
-// "accept interfaces" idiom). Per the senior hand-off, NONE of settlementManager's
+// This file declares billingManager's CONSUMER-SIDE dependency interfaces (the Go
+// "accept interfaces" idiom). Per the senior hand-off, NONE of billingManager's
 // collaborators is yet built as a Go package in this module, so this Manager is built
 // against their FROZEN CONTRACTS as interfaces it declares here, and unit-tested with
 // hand-written fakes:
 //
-//   - SettlementStateAccess  — settlementStateAccess.md §2/§3 (design-only; FU-MST-1 id migration)
+//   - BillingStateAccess  — billingStateAccess.md §2/§3 (design-only; FU-MST-1 id migration)
 //   - RevenueLedgerAccess    — revenueLedgerAccess.md §2/§3 (FROZEN; not yet built)
 //   - UsageAccess            — usageAccess.md §2/§3 (FROZEN; not yet built)
 //   - MerchantGatewayAccess  — merchantGatewayAccess (D-MA — NOT YET CONTRACTED; FU-MST-2/OQ-2)
 //   - OperatedRuntimeAccess  — operatedRuntimeAccess.md §2/§3 (FROZEN; not yet built)
-//   - SettlementEngine       — settlementEngine.md §2.1/§2.2 (FROZEN; not yet built)
+//   - BillingEngine       — billingEngine.md §2.1/§2.2 (FROZEN; not yet built)
 //   - InterventionEngine     — interventionEngine.md §2.3 (FROZEN; not yet built)
 //   - DurableExecutionAccess — exists as internal/resourceaccess/durableexecution, but
 //     consumed via a NARROW seam interface (deliverSignal + registerSchedule) so the
@@ -30,45 +30,45 @@ import (
 // Manager-local SEAM form mirroring the frozen contract, suffixed "Seam" where the
 // owning package will later own the canonical type. When the owner ships, these local
 // mirrors are deleted and the import substituted; no public façade op changes
-// (settlementManager.md OQ-7). This keeps the Method discipline "models live in their
+// (billingManager.md OQ-7). This keeps the Method discipline "models live in their
 // owning RA/Engine" intact.
 //
 // §3.0 IDENTITY: every collaborator below keys on CustomerID = uuid.UUID. We do NOT
-// reintroduce SettlementID(string) (the §3.0 ruling); settlementStateAccess is
+// reintroduce BillingID(string) (the §3.0 ruling); billingStateAccess is
 // consumed here ALREADY MIGRATED (the FU-MST-1 shape), which the composition root will
 // satisfy once that RA is built.
 
 // ===========================================================================
-// settlementStateAccess — DESIGN-ONLY (FU-MST-1: id-type migrated to CustomerID).
+// billingStateAccess — DESIGN-ONLY (FU-MST-1: id-type migrated to CustomerID).
 // Narrow consumer interface: the head-state reads + the additive write verbs. Each
 // WRITE carries expectedVersion + idempotencyKey; a stale-version fwra.Conflict drives
 // the §6.5 re-read→re-apply loop. Keyed on CustomerID per §3.0.
 // ===========================================================================
 
-// SettlementStateAccess mirrors settlementStateAccess.md §2 (post FU-MST-1) — the
-// settlement/customer head-state RA. Reads are pure; writes carry the version guard +
+// BillingStateAccess mirrors billingStateAccess.md §2 (post FU-MST-1) — the
+// billing/customer head-state RA. Reads are pure; writes carry the version guard +
 // dedup-first idempotency key.
-type settlementStateAccess interface {
-	// ReadSettlement returns the whole head-state aggregate (NotFound if no row).
-	ReadSettlement(ctx context.Context, customerID customerID) (settlementHead, error)
+type billingStateAccess interface {
+	// ReadBilling returns the whole head-state aggregate (NotFound if no row).
+	ReadBilling(ctx context.Context, customerID customerID) (billingHead, error)
 	// ReadPersistentlyDelinquentCustomers returns the persistently-delinquent customer
 	// set (drives the shortfall sweep). Platform/scope input; a cross-row read.
 	ReadPersistentlyDelinquentCustomers(ctx context.Context, scope delinquencyScope) ([]customerSummary, error)
-	// RegisterCustomer opens the settlement aggregate (additive write).
+	// RegisterCustomer opens the billing aggregate (additive write).
 	RegisterCustomer(ctx context.Context, customerID customerID, expectedVersion version, profile customerProfileSeam, idempotencyKey fwra.IdempotencyKey) (version, error)
 	// BindGatewayLive records that the merchant-gateway binding is live (additive write).
 	BindGatewayLive(ctx context.Context, customerID customerID, expectedVersion version, binding gatewayBindingSeam, idempotencyKey fwra.IdempotencyKey) (version, error)
-	// SettleCycle records the settlement outcome for a cycle (additive write).
-	SettleCycle(ctx context.Context, customerID customerID, expectedVersion version, cycle cycleID, outcome settlementOutcomeSeam, idempotencyKey fwra.IdempotencyKey) (version, error)
+	// SettleCycle records the billing outcome for a cycle (additive write).
+	SettleCycle(ctx context.Context, customerID customerID, expectedVersion version, cycle cycleID, outcome billingOutcomeSeam, idempotencyKey fwra.IdempotencyKey) (version, error)
 	// ResettleCycle records a correction to a previously-settled cycle (additive write).
-	ResettleCycle(ctx context.Context, customerID customerID, expectedVersion version, cycle cycleID, correction settlementOutcomeSeam, idempotencyKey fwra.IdempotencyKey) (version, error)
+	ResettleCycle(ctx context.Context, customerID customerID, expectedVersion version, cycle cycleID, correction billingOutcomeSeam, idempotencyKey fwra.IdempotencyKey) (version, error)
 }
 
-// Version is the settlement head-state optimistic-concurrency version
-// (settlementStateAccess.md §3). Mirrors the owning RA's Version type.
+// Version is the billing head-state optimistic-concurrency version
+// (billingStateAccess.md §3). Mirrors the owning RA's Version type.
 type version uint64
 
-// CustomerProfileSeam mirrors settlementStateAccess.md §3 CustomerProfile — the
+// CustomerProfileSeam mirrors billingStateAccess.md §3 CustomerProfile — the
 // infrastructure-opaque customer identity/payout snapshot opened at registration.
 type customerProfileSeam struct {
 	// PayoutAccountRef is an opaque gateway/payout-account reference (the contract is
@@ -76,37 +76,37 @@ type customerProfileSeam struct {
 	PayoutAccountRef string
 }
 
-// GatewayBindingSeam mirrors settlementStateAccess.md §3 GatewayBinding — the
+// GatewayBindingSeam mirrors billingStateAccess.md §3 GatewayBinding — the
 // connected-account / gateway identifiers recorded at onboarding.
 type gatewayBindingSeam struct {
 	ConnectedAccountID string
 }
 
-// SettlementOutcomeSeam mirrors settlementStateAccess.md §3 SettlementOutcome — the
+// BillingOutcomeSeam mirrors billingStateAccess.md §3 BillingOutcome — the
 // per-cycle business record of "cycle settled with this net". The money movement is a
 // separate ledger step; this is the head-state outcome. Money is exact minor units.
-type settlementOutcomeSeam struct {
+type billingOutcomeSeam struct {
 	Net       Money                // the signed settled net (exact minor units; never a float)
 	Directive routingDirectiveSeam // the routed directive the Manager executed
 	// Escalated flags the OQ-4 charge-failure escalation surfaced to the operator
-	// dashboard via readSettlement (no new DSL edge; §6.3).
+	// dashboard via readBilling (no new DSL edge; §6.3).
 	Escalated bool
 }
 
-// Settlement mirrors settlementStateAccess.md §3 — the head-state aggregate the
+// Billing mirrors billingStateAccess.md §3 — the head-state aggregate the
 // workflow reads to carry expectedVersion forward and resolve the customer's terms +
 // gateway binding. Keyed on CustomerID per §3.0.
-type settlementHead struct {
+type billingHead struct {
 	ID            customerID
 	Version       version
-	GatewayBound  bool                // a GatewayBinding is present (registered + onboarded)
-	Registered    bool                // the aggregate is open (registerCustomer ran)
-	Terms         settlementTermsSeam // the customer's settlement terms (fed to the Engine by value)
-	PayoutAccount string              // opaque payout-account ref (resolved deployedAppIdentity)
+	GatewayBound  bool             // a GatewayBinding is present (registered + onboarded)
+	Registered    bool             // the aggregate is open (registerCustomer ran)
+	Terms         billingTermsSeam // the customer's billing terms (fed to the Engine by value)
+	PayoutAccount string           // opaque payout-account ref (resolved deployedAppIdentity)
 }
 
-// CustomerSummary mirrors settlementStateAccess.md §3 CustomerSummary (post FU-MST-1
-// id migration: ID is CustomerID, not SettlementID) — one persistently-delinquent
+// CustomerSummary mirrors billingStateAccess.md §3 CustomerSummary (post FU-MST-1
+// id migration: ID is CustomerID, not BillingID) — one persistently-delinquent
 // customer in the sweep's cross-row read. PauseNotWithdraw carries the BillingTerms-
 // derived enforcement shape the downstream operationsManager executes.
 type customerSummary struct {
@@ -115,7 +115,7 @@ type customerSummary struct {
 }
 
 // DelinquencyScope is the consumer-side platform/project scope for the sweep's
-// cross-row read (settlementManager.md §2.4 — platform scope). Empty ⇒ all customers.
+// cross-row read (billingManager.md §2.4 — platform scope). Empty ⇒ all customers.
 type delinquencyScope struct {
 	// ProjectID optionally narrows the scope; empty ⇒ platform-wide.
 	ProjectID string
@@ -180,7 +180,7 @@ type reversalEntrySeam struct {
 // usageAccess — FROZEN, NOT YET BUILT. Narrow consumer interface (usageAccess.md §2).
 // This Manager only READS (the cycle fold at close; OperatedAppID nil = whole cycle).
 // The append-writes (recordComputeUsage / recordFinalUsage) belong to operationsManager,
-// NOT settlementManager — they are not on this seam.
+// NOT billingManager — they are not on this seam.
 // ===========================================================================
 
 // UsageAccess mirrors usageAccess.md §2.3 — the cycle-scope read this Manager uses to
@@ -191,11 +191,11 @@ type usageAccess interface {
 }
 
 // UsageRangeQuerySeam mirrors usageAccess.md §3 UsageRangeQuery — the cycle-scope read
-// query. settlementManager folds the WHOLE cycle, so OperatedAppID is nil (§5.2 / D-UA §2.3).
+// query. billingManager folds the WHOLE cycle, so OperatedAppID is nil (§5.2 / D-UA §2.3).
 type usageRangeQuerySeam struct {
 	CustomerID    customerID
 	CycleID       cycleID
-	OperatedAppID *deployedAppID // nil for settlement's whole-cycle fold
+	OperatedAppID *deployedAppID // nil for billing's whole-cycle fold
 }
 
 // ComputeUnitsSeam mirrors usageAccess.md §3 ComputeUnits — an infrastructure-neutral
@@ -224,7 +224,7 @@ type usageEventSeam struct {
 // ===========================================================================
 
 // MerchantGatewayAccess mirrors the four merchantGatewayAccess verbs this Manager
-// calls (settlementManager.md §5.2/§6.4). The Manager moves money here by VALUE; the
+// calls (billingManager.md §5.2/§6.4). The Manager moves money here by VALUE; the
 // gateway dedups on the Manager-supplied idempotency key. SEAM — D-MA is unbuilt
 // (FU-MST-2); replace with the owner import when it lands.
 type merchantGatewayAccess interface {
@@ -232,7 +232,7 @@ type merchantGatewayAccess interface {
 	// settle:{customerId}:{cycleId} (Stripe-native dedup).
 	PayoutCustomer(ctx context.Context, customerID customerID, amount Money, idempotencyKey string) error
 	// ChargeCustomer charges the (positive magnitude of the negative) shortfall net.
-	// A decline/auth/contract-misuse is terminal and drives decideOnSettlementFailure.
+	// A decline/auth/contract-misuse is terminal and drives decideOnBillingFailure.
 	ChargeCustomer(ctx context.Context, customerID customerID, amount Money, idempotencyKey string) error
 	// CreateConnectedAccount creates the merchant connected account (onboarding).
 	CreateConnectedAccount(ctx context.Context, customerID customerID, idempotencyKey string) (gatewayBindingSeam, error)
@@ -248,7 +248,7 @@ type merchantGatewayAccess interface {
 // ===========================================================================
 
 // OperatedRuntimeAccess mirrors the one operatedRuntimeAccess verb this Manager uses at
-// onboarding (settlementManager.md §5.2). Idempotent on the caller-supplied key (git
+// onboarding (billingManager.md §5.2). Idempotent on the caller-supplied key (git
 // content-address).
 type operatedRuntimeAccess interface {
 	// WirePaymentConfig wires the gateway binding into the deployed app's runtime
@@ -293,23 +293,23 @@ type scheduleSpec struct {
 }
 
 // ===========================================================================
-// settlementEngine — FROZEN, NOT YET BUILT. Consumer interface + local mirrors of the
-// two settlement-compute verbs (settlementEngine.md §2.1/§2.2). DECIDE → the Manager
+// billingEngine — FROZEN, NOT YET BUILT. Consumer interface + local mirrors of the
+// two billing-compute verbs (billingEngine.md §2.1/§2.2). DECIDE → the Manager
 // EXECUTES the routing. Pure, deterministic, called DIRECTLY in-workflow (no Activity,
 // no idempotency key, imports no Temporal). The Manager passes VALUE snapshots.
 // ===========================================================================
 
-// SettlementEngine mirrors settlementEngine.md §2.1/§2.2 — the signed-net + routing
+// BillingEngine mirrors billingEngine.md §2.1/§2.2 — the signed-net + routing
 // compute. The Engine STATES the directive; the Manager EXECUTES it.
-type settlementEngine interface {
+type billingEngine interface {
 	// ComputeNet computes the cycle's signed net + routing directive (UC6 close).
-	ComputeNet(revenue cycleRevenueSeam, usage cycleUsageSeam, terms settlementTermsSeam) (settlementResultSeam, error)
+	ComputeNet(revenue cycleRevenueSeam, usage cycleUsageSeam, terms billingTermsSeam) (billingResultSeam, error)
 	// RecomputeNet recomputes the corrected net + DELTA directive after a reversal
 	// (ncuc4 chargeback; forward-only).
-	RecomputeNet(affected reSettlementInputSeam) (settlementResultSeam, error)
+	RecomputeNet(affected reBillingInputSeam) (billingResultSeam, error)
 }
 
-// RoutingDirectiveSeam mirrors settlementEngine.md §3 RoutingDirective — the closed
+// RoutingDirectiveSeam mirrors billingEngine.md §3 RoutingDirective — the closed
 // routing decision set. The iota order matches the frozen contract (NoAction, Payout,
 // Charge).
 type routingDirectiveSeam int
@@ -337,7 +337,7 @@ func (d routingDirectiveSeam) String() string {
 	}
 }
 
-// CycleRevenueSeam mirrors settlementEngine.md §3 CycleRevenue — the value snapshot of
+// CycleRevenueSeam mirrors billingEngine.md §3 CycleRevenue — the value snapshot of
 // the cycle's inbound revenue the Manager folds from revenueLedgerAccess.readRange. For
 // recompute this is the REVERSAL-ADJUSTED total (the Manager appended the reversal and
 // re-read the range). Exact minor units.
@@ -349,7 +349,7 @@ type cycleRevenueSeam struct {
 	EventCount   int
 }
 
-// CycleUsageSeam mirrors settlementEngine.md §3 CycleUsage — the value snapshot of the
+// CycleUsageSeam mirrors billingEngine.md §3 CycleUsage — the value snapshot of the
 // cycle's compute usage the Manager folds from usageAccess.readRange.
 type cycleUsageSeam struct {
 	CustomerID         customerID
@@ -357,80 +357,80 @@ type cycleUsageSeam struct {
 	ComputeUnitSeconds float64
 }
 
-// SettlementTermsSeam mirrors settlementEngine.md §3 SettlementTerms — the customer's
-// terms snapshot, read from settlement head-state and fed to the Engine by value. The
+// BillingTermsSeam mirrors billingEngine.md §3 BillingTerms — the customer's
+// terms snapshot, read from billing head-state and fed to the Engine by value. The
 // Strategy discriminators are package-internal to the Engine.
-type settlementTermsSeam struct {
+type billingTermsSeam struct {
 	RevenueShareKind int // opaque discriminator; the Engine pivots on it
 	ComputeCostKind  int
 	ScheduleKind     int
 	BillingKind      int
 }
 
-// SettlementResultSeam mirrors settlementEngine.md §3 SettlementResult — the shared
+// BillingResultSeam mirrors billingEngine.md §3 BillingResult — the shared
 // output of ComputeNet/RecomputeNet. SignedNet is exact minor units; the Manager routes
 // the directive. RevenueShareApplied/ComputeCostApplied are the statement decomposition.
-type settlementResultSeam struct {
+type billingResultSeam struct {
 	SignedNet           Money
 	RoutingDirective    routingDirectiveSeam
 	RevenueShareApplied Money
 	ComputeCostApplied  Money
 }
 
-// ReSettlementInputSeam mirrors settlementEngine.md §3 ReSettlementInput — the
+// ReBillingInputSeam mirrors billingEngine.md §3 ReBillingInput — the
 // reversal-adjusted recompute input carrying the prior settled result so the DELTA can
 // be computed (forward-only).
-type reSettlementInputSeam struct {
+type reBillingInputSeam struct {
 	Revenue      cycleRevenueSeam
 	Usage        cycleUsageSeam
-	Terms        settlementTermsSeam
-	PriorSettled settlementResultSeam
+	Terms        billingTermsSeam
+	PriorSettled billingResultSeam
 }
 
 // ===========================================================================
 // interventionEngine — FROZEN, NOT YET BUILT. Consumer interface + local mirrors of
-// the settlement-failure verb (interventionEngine.md §2.3 decideOnSettlementFailure).
+// the billing-failure verb (interventionEngine.md §2.3 decideOnBillingFailure).
 // DECIDE → the Manager EXECUTES. Pure, deterministic, direct in-workflow.
 // ===========================================================================
 
-// InterventionEngine mirrors interventionEngine.md §2.3 — the settlement-failure
+// InterventionEngine mirrors interventionEngine.md §2.3 — the billing-failure
 // decision. The Engine DECIDES {Retry | Delay | Escalate}; the Manager EXECUTES.
 type interventionEngine interface {
-	DecideOnSettlementFailure(failure settlementFailureSeam) (settlementFailureDirectiveSeam, error)
+	DecideOnBillingFailure(failure billingFailureSeam) (billingFailureDirectiveSeam, error)
 }
 
-// SettlementFailureKindSeam mirrors interventionEngine.md §3 SettlementFailureKind.
-type settlementFailureKindSeam int
+// BillingFailureKindSeam mirrors interventionEngine.md §3 BillingFailureKind.
+type billingFailureKindSeam int
 
 const (
-	// SettlementFailureChargeDeclined is a declined shortfall charge.
-	settlementFailureChargeDeclined settlementFailureKindSeam = iota
-	// SettlementFailureDisputed is a disputed cycle.
-	settlementFailureDisputed
-	// SettlementFailureChargedBack is a charged-back cycle.
-	settlementFailureChargedBack
+	// BillingFailureChargeDeclined is a declined shortfall charge.
+	billingFailureChargeDeclined billingFailureKindSeam = iota
+	// BillingFailureDisputed is a disputed cycle.
+	billingFailureDisputed
+	// BillingFailureChargedBack is a charged-back cycle.
+	billingFailureChargedBack
 )
 
-// SettlementFailureSeam mirrors interventionEngine.md §3 SettlementFailure — the
+// BillingFailureSeam mirrors interventionEngine.md §3 BillingFailure — the
 // failed-action context fed to the decision by value.
-type settlementFailureSeam struct {
+type billingFailureSeam struct {
 	CustomerID   customerID
 	CycleID      cycleID
-	Kind         settlementFailureKindSeam
+	Kind         billingFailureKindSeam
 	AttemptCount int
 	ShortfallAge int // sweeps elapsed; NOT a clock read
 }
 
-// SettlementFailureDirectiveSeam mirrors interventionEngine.md §3 — the closed
+// BillingFailureDirectiveSeam mirrors interventionEngine.md §3 — the closed
 // decision set. The directive IDENTITY (not the numeric value) is load-bearing
 // (interventionEngine.md §3 senior note); the order mirrors the frozen contract.
-type settlementFailureDirectiveSeam int
+type billingFailureDirectiveSeam int
 
 const (
-	// SettlementRetry re-attempts the charge now (within budget).
-	settlementRetry settlementFailureDirectiveSeam = iota
-	// SettlementDelay backs off; re-attempts on the next shortfallSweep (grace).
-	settlementDelay
-	// SettlementEscalate flags delinquency (tolerance exhausted).
-	settlementEscalate
+	// BillingRetry re-attempts the charge now (within budget).
+	billingRetry billingFailureDirectiveSeam = iota
+	// BillingDelay backs off; re-attempts on the next shortfallSweep (grace).
+	billingDelay
+	// BillingEscalate flags delinquency (tolerance exhausted).
+	billingEscalate
 )

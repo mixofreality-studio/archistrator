@@ -59,44 +59,6 @@ func (wf *workflows) ReadProjectVersionActivity(ctx context.Context, projectID p
 	return v, nil
 }
 
-// ---- GenerateWorkActivity (wraps the generic typed worker) ------------------
-// The work-dispatch step (constructionManager.md §6.3 step 2 / step 5 review
-// fan-out). The Manager's SEQUENCE assembled the prompt (prompts.go) and chose the
-// WorkerClass; this Activity asks the worker for a typed ConstructionOutput.
-//
-// idempotencyKey = "${workflowId}:${activityId}" -> forwarded VERBATIM into
-// worker.Generate (long StartToClose, small retry budget; §6.4). A worker
-// UnmarshalError (the worker ran but produced a non-ConstructionOutput) becomes a
-// non-retryable WorkerRefused terminal routed into intervention; transport/auth/
-// quota errors bubble up via the canonical mapping for the RetryPolicy to act.
-
-// generateWorkArgs bundles the generic worker dispatch inputs for the Activity
-// boundary.
-type generateWorkArgs struct {
-	WorkerClass string
-	Prompt      string
-}
-
-// workerRefusedErrType is the Temporal error Type() for the unconstructable /
-// refused terminal (the worker ran but produced a non-ConstructionOutput).
-const workerRefusedErrType = "WorkerRefused"
-
-func (wf *workflows) GenerateWorkActivity(ctx context.Context, a generateWorkArgs) (artifact.ConstructionOutput, error) {
-	key := activityIdempotencyKey(ctx)
-	out, err := generateConstructionOutput(ctx, wf.Workers, workerGenerateSpec(a), key)
-	if err != nil {
-		return artifact.ConstructionOutput{}, mapWorkerError(err)
-	}
-	return out, nil
-}
-
-// ---- CancelWorkerActivity (wraps workerAccess.Cancel) -----------------------
-// The operator-pause / takeover abandon path (DSL-static Cancel(key) edge,
-// constructionManager.md §6.3). Idempotent: an unknown key is success in the RA.
-func (wf *workflows) CancelWorkerActivity(ctx context.Context, _ struct{}) (struct{}, error) {
-	return struct{}{}, fwmanager.MapError(wf.Workers.Cancel(ctx, activityIdempotencyKey(ctx)))
-}
-
 // ---- constructionPipelineAccess Activities ----------------------------------
 
 // SubmitPipelineActivity wraps submitConstructionPipeline (UC3 543). Deterministic

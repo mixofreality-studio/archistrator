@@ -79,11 +79,6 @@ func (wf *workflows) runPauseBranch(ctx workflow.Context, projectID ProjectID, r
 		}
 	}
 
-	// EXECUTE: abandon any in-flight worker dispatch on the pause path.
-	if err := wf.cancelWorker(ctx); err != nil {
-		return err
-	}
-
 	// EXECUTE: record the operator-paused head-state transition.
 	if plan.RecordPaused {
 		headVersion := wf.readVersion(ctx, projectID)

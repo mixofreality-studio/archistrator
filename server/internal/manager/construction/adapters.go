@@ -28,7 +28,6 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/constructionpipeline"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
-	workeraccess "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/worker"
 )
 
 // ===========================================================================
@@ -513,30 +512,6 @@ func (a artifactAdapter) StoreConstructionOutput(ctx context.Context, output art
 
 func (a artifactAdapter) RetrieveConstructionOutput(ctx context.Context, contentAddress string) (artifact.ConstructionOutput, error) {
 	return a.inner.RetrieveConstructionOutput(fwra.Context{Context: ctx}, contentAddress)
-}
-
-// ===========================================================================
-// workerAccess adapter — workerAccess seam over the published worker.WorkerAccess.
-// ===========================================================================
-
-type workerAdapter struct{ inner workeraccess.WorkerAccess }
-
-var _ workerAccess = workerAdapter{}
-
-func (a workerAdapter) Generate(ctx context.Context, spec workerGenerateSpec, idempotencyKey fwra.IdempotencyKey) ([]byte, error) {
-	rc := fwra.Context{Context: ctx, IdempotencyKey: idempotencyKey}
-	raw, err := a.inner.Generate(rc, workeraccess.GenerateSpec{
-		WorkerClass: workeraccess.WorkerClass(spec.WorkerClass),
-		Prompt:      spec.Prompt,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return raw, nil
-}
-
-func (a workerAdapter) Cancel(ctx context.Context, idempotencyKey fwra.IdempotencyKey) error {
-	return a.inner.Cancel(fwra.Context{Context: ctx, IdempotencyKey: idempotencyKey})
 }
 
 // ===========================================================================

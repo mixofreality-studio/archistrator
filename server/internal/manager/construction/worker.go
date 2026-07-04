@@ -53,8 +53,6 @@ const (
 const (
 	actReadProject             = "ReadProjectActivity"
 	actReadProjectVersion      = "ReadProjectVersionActivity"
-	actGenerateWork            = "GenerateWorkActivity"
-	actCancelWorker            = "CancelWorkerActivity"
 	actSubmitPipeline          = "SubmitPipelineActivity"
 	actObservePipeline         = "ObservePipelineActivity"
 	actCancelPipeline          = "CancelPipelineActivity"
@@ -114,7 +112,6 @@ func RegisterWorker(w worker.Worker, m ConstructionManager) {
 		ConstructionTransition: impl.constructionTransition,
 		Pipeline:               pipelineAdapter{inner: impl.pipeline},
 		Artifacts:              artifactAdapter{inner: impl.artifact},
-		Workers:                workerAdapter{inner: impl.worker},
 		NextEligibleActivity:   nextEligibleActivity,
 		HandOffPolicy:          handOffPolicy{},
 		InterventionPolicy:     mgrPolicy,
@@ -142,8 +139,6 @@ func RegisterWorker(w worker.Worker, m ConstructionManager) {
 
 	w.RegisterActivityWithOptions(wf.ReadProjectActivity, activity.RegisterOptions{Name: actReadProject})
 	w.RegisterActivityWithOptions(wf.ReadProjectVersionActivity, activity.RegisterOptions{Name: actReadProjectVersion})
-	w.RegisterActivityWithOptions(wf.GenerateWorkActivity, activity.RegisterOptions{Name: actGenerateWork})
-	w.RegisterActivityWithOptions(wf.CancelWorkerActivity, activity.RegisterOptions{Name: actCancelWorker})
 	w.RegisterActivityWithOptions(wf.SubmitPipelineActivity, activity.RegisterOptions{Name: actSubmitPipeline})
 	w.RegisterActivityWithOptions(wf.ObservePipelineActivity, activity.RegisterOptions{Name: actObservePipeline})
 	w.RegisterActivityWithOptions(wf.CancelPipelineActivity, activity.RegisterOptions{Name: actCancelPipeline})

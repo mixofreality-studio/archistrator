@@ -1,4 +1,4 @@
-package settlement
+package billing
 
 import (
 	"context"
@@ -14,9 +14,9 @@ import (
 )
 
 // =============================================================================
-// settlementManager workflow unit tests over the Temporal in-memory test environment
-// (testsuite.WorkflowTestSuite). The two Engines (settlementEngine, interventionEngine)
-// and the six ResourceAccess ports (settlementStateAccess, revenueLedgerAccess,
+// billingManager workflow unit tests over the Temporal in-memory test environment
+// (testsuite.WorkflowTestSuite). The two Engines (billingEngine, interventionEngine)
+// and the six ResourceAccess ports (billingStateAccess, revenueLedgerAccess,
 // usageAccess, merchantGatewayAccess, operatedRuntimeAccess, durableExecutionAccess) are
 // constructed as interface test doubles (fakes) — the not-yet-built deps are driven
 // against their FROZEN CONTRACTS as the Manager-declared consumer interfaces (deps.go).
@@ -32,12 +32,12 @@ import (
 
 // ---- Fakes (interface test doubles for the downstream deps) -----------------
 
-// fakeSettlementState records the head-state transition calls + serves scripted state.
-// Satisfies SettlementStateAccess (deps.go).
-type fakeSettlementState struct {
+// fakeBillingState records the head-state transition calls + serves scripted state.
+// Satisfies BillingStateAccess (deps.go).
+type fakeBillingState struct {
 	mu sync.Mutex
 
-	settlement settlementHead
+	billing    billingHead
 	delinquent []customerSummary
 	notFound   bool
 
@@ -48,69 +48,69 @@ type fakeSettlementState struct {
 
 	registered []customerID
 	bound      []customerID
-	settled    []settlementOutcomeSeam
-	resettled  []settlementOutcomeSeam
+	settled    []billingOutcomeSeam
+	resettled  []billingOutcomeSeam
 	readN      int
 	version    version
 }
 
-func (f *fakeSettlementState) ReadSettlement(_ context.Context, _ customerID) (settlementHead, error) {
+func (f *fakeBillingState) ReadBilling(_ context.Context, _ customerID) (billingHead, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.readN++
 	if f.notFound {
-		return settlementHead{}, fwra.New(fwra.NotFound, "no row")
+		return billingHead{}, fwra.New(fwra.NotFound, "no row")
 	}
-	return f.settlement, nil
+	return f.billing, nil
 }
 
-func (f *fakeSettlementState) ReadPersistentlyDelinquentCustomers(_ context.Context, _ delinquencyScope) ([]customerSummary, error) {
+func (f *fakeBillingState) ReadPersistentlyDelinquentCustomers(_ context.Context, _ delinquencyScope) ([]customerSummary, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.delinquent, nil
 }
 
-func (f *fakeSettlementState) bump() version {
+func (f *fakeBillingState) bump() version {
 	f.version++
-	f.settlement.Version = f.version
+	f.billing.Version = f.version
 	return f.version
 }
 
-func (f *fakeSettlementState) RegisterCustomer(_ context.Context, c customerID, _ version, _ customerProfileSeam, _ fwra.IdempotencyKey) (version, error) {
+func (f *fakeBillingState) RegisterCustomer(_ context.Context, c customerID, _ version, _ customerProfileSeam, _ fwra.IdempotencyKey) (version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.registered = append(f.registered, c)
 	return f.bump(), nil
 }
 
-func (f *fakeSettlementState) BindGatewayLive(_ context.Context, c customerID, _ version, _ gatewayBindingSeam, _ fwra.IdempotencyKey) (version, error) {
+func (f *fakeBillingState) BindGatewayLive(_ context.Context, c customerID, _ version, _ gatewayBindingSeam, _ fwra.IdempotencyKey) (version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.bound = append(f.bound, c)
 	return f.bump(), nil
 }
 
-func (f *fakeSettlementState) SettleCycle(_ context.Context, _ customerID, _ version, _ cycleID, outcome settlementOutcomeSeam, _ fwra.IdempotencyKey) (version, error) {
+func (f *fakeBillingState) SettleCycle(_ context.Context, _ customerID, _ version, _ cycleID, outcome billingOutcomeSeam, _ fwra.IdempotencyKey) (version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.settleConflictFirst > 0 {
 		f.settleConflictFirst--
 		f.version++ // a racing mutation advanced the version
-		f.settlement.Version = f.version
+		f.billing.Version = f.version
 		return 0, fwra.New(fwra.Conflict, "stale version")
 	}
 	f.settled = append(f.settled, outcome)
 	return f.bump(), nil
 }
 
-func (f *fakeSettlementState) ResettleCycle(_ context.Context, _ customerID, _ version, _ cycleID, correction settlementOutcomeSeam, _ fwra.IdempotencyKey) (version, error) {
+func (f *fakeBillingState) ResettleCycle(_ context.Context, _ customerID, _ version, _ cycleID, correction billingOutcomeSeam, _ fwra.IdempotencyKey) (version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.resettled = append(f.resettled, correction)
 	return f.bump(), nil
 }
 
-var _ settlementStateAccess = (*fakeSettlementState)(nil)
+var _ billingStateAccess = (*fakeBillingState)(nil)
 
 // fakeRevenueLedger records appends + serves a scripted range.
 type fakeRevenueLedger struct {
@@ -245,32 +245,32 @@ func (d *fakeDurable) RegisterSchedule(_ context.Context, spec scheduleSpec) err
 
 var _ durableExecutionAccess = (*fakeDurable)(nil)
 
-// fakeSettlementEngine returns a scripted SettlementResult for compute + recompute.
-type fakeSettlementEngine struct {
-	computeResult   settlementResultSeam
-	recomputeResult settlementResultSeam
+// fakeBillingEngine returns a scripted BillingResult for compute + recompute.
+type fakeBillingEngine struct {
+	computeResult   billingResultSeam
+	recomputeResult billingResultSeam
 	computeN        int
 	recomputeN      int
 }
 
-func (e *fakeSettlementEngine) ComputeNet(_ cycleRevenueSeam, _ cycleUsageSeam, _ settlementTermsSeam) (settlementResultSeam, error) {
+func (e *fakeBillingEngine) ComputeNet(_ cycleRevenueSeam, _ cycleUsageSeam, _ billingTermsSeam) (billingResultSeam, error) {
 	e.computeN++
 	return e.computeResult, nil
 }
 
-func (e *fakeSettlementEngine) RecomputeNet(_ reSettlementInputSeam) (settlementResultSeam, error) {
+func (e *fakeBillingEngine) RecomputeNet(_ reBillingInputSeam) (billingResultSeam, error) {
 	e.recomputeN++
 	return e.recomputeResult, nil
 }
 
-var _ settlementEngine = (*fakeSettlementEngine)(nil)
+var _ billingEngine = (*fakeBillingEngine)(nil)
 
-// fakeIntervention returns a scripted settlement-failure directive.
+// fakeIntervention returns a scripted billing-failure directive.
 type fakeIntervention struct {
-	directive settlementFailureDirectiveSeam
+	directive billingFailureDirectiveSeam
 }
 
-func (i *fakeIntervention) DecideOnSettlementFailure(_ settlementFailureSeam) (settlementFailureDirectiveSeam, error) {
+func (i *fakeIntervention) DecideOnBillingFailure(_ billingFailureSeam) (billingFailureDirectiveSeam, error) {
 	return i.directive, nil
 }
 
@@ -279,31 +279,31 @@ var _ interventionEngine = (*fakeIntervention)(nil)
 // ---- helpers ----------------------------------------------------------------
 
 type fakes struct {
-	state   *fakeSettlementState
+	state   *fakeBillingState
 	ledger  *fakeRevenueLedger
 	usage   *fakeUsage
 	gateway *fakeGateway
 	runtime *fakeRuntime
 	durable *fakeDurable
-	engine  *fakeSettlementEngine
+	engine  *fakeBillingEngine
 	interv  *fakeIntervention
 }
 
 func baseDeps() (wfDeps, *fakes) {
 	f := &fakes{
-		state:   &fakeSettlementState{},
+		state:   &fakeBillingState{},
 		ledger:  &fakeRevenueLedger{},
 		usage:   &fakeUsage{},
 		gateway: &fakeGateway{},
 		runtime: &fakeRuntime{},
 		durable: &fakeDurable{},
-		engine:  &fakeSettlementEngine{},
-		interv:  &fakeIntervention{directive: settlementRetry},
+		engine:  &fakeBillingEngine{},
+		interv:  &fakeIntervention{directive: billingRetry},
 	}
 	return wfDeps{
-		Settlement:      f.engine,
+		Billing:         f.engine,
 		Intervention:    f.interv,
-		SettlementState: f.state,
+		BillingState:    f.state,
 		RevenueLedger:   f.ledger,
 		Usage:           f.usage,
 		Gateway:         f.gateway,
@@ -314,7 +314,7 @@ func baseDeps() (wfDeps, *fakes) {
 
 func registerOnboard(env *testsuite.TestWorkflowEnvironment, wf *workflows) {
 	env.RegisterWorkflowWithOptions(wf.OnboardWorkflow, workflow.RegisterOptions{Name: executionKindOnboard})
-	env.RegisterActivity(wf.ReadSettlementActivity)
+	env.RegisterActivity(wf.ReadBillingActivity)
 	env.RegisterActivity(wf.CreateConnectedAccountActivity)
 	env.RegisterActivity(wf.WirePaymentConfigActivity)
 	env.RegisterActivity(wf.BindGatewayLiveActivity)
@@ -329,7 +329,7 @@ func registerRegister(env *testsuite.TestWorkflowEnvironment, wf *workflows) {
 
 func registerClose(env *testsuite.TestWorkflowEnvironment, wf *workflows) {
 	env.RegisterWorkflowWithOptions(wf.CloseCycleWorkflow, workflow.RegisterOptions{Name: executionKindClose})
-	env.RegisterActivity(wf.ReadSettlementActivity)
+	env.RegisterActivity(wf.ReadBillingActivity)
 	env.RegisterActivity(wf.ReadRevenueRangeActivity)
 	env.RegisterActivity(wf.ReadUsageRangeActivity)
 	env.RegisterActivity(wf.PayoutCustomerActivity)
@@ -346,9 +346,9 @@ func registerSweep(env *testsuite.TestWorkflowEnvironment, wf *workflows) {
 	env.RegisterActivity(wf.DeliverDelinquencySignalActivity)
 }
 
-// boundSettlement returns a registered + gateway-bound settlement at the given version.
-func boundSettlement(id customerID, version version) settlementHead {
-	return settlementHead{ID: id, Version: version, Registered: true, GatewayBound: true}
+// boundBilling returns a registered + gateway-bound billing at the given version.
+func boundBilling(id customerID, version version) billingHead {
+	return billingHead{ID: id, Version: version, Registered: true, GatewayBound: true}
 }
 
 func usd(minor int64) Money { return Money{MinorUnits: minor, Currency: "USD"} }
@@ -363,7 +363,7 @@ func Test_Onboard_HappyPath(t *testing.T) {
 
 	deps, f := baseDeps()
 	cid := uuid.New()
-	f.state.settlement = settlementHead{ID: cid, Version: 2}
+	f.state.billing = billingHead{ID: cid, Version: 2}
 	wf := newWorkflows(deps)
 	registerOnboard(env, wf)
 
@@ -372,7 +372,7 @@ func Test_Onboard_HappyPath(t *testing.T) {
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)
 	}
-	var ref SettlementRef
+	var ref BillingRef
 	if err := env.GetWorkflowResult(&ref); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
@@ -393,7 +393,7 @@ func Test_Onboard_HappyPath(t *testing.T) {
 	}
 }
 
-// B2: a missing settlement aggregate (read NotFound) fails the pre-condition; no money
+// B2: a missing billing aggregate (read NotFound) fails the pre-condition; no money
 // move happens.
 func Test_Onboard_NoAggregate_FailedPrecondition(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
@@ -407,7 +407,7 @@ func Test_Onboard_NoAggregate_FailedPrecondition(t *testing.T) {
 	env.ExecuteWorkflow(executionKindOnboard, onboardInput{DeployedAppID: uuid.New()})
 
 	if env.GetWorkflowError() == nil {
-		t.Fatal("want a FailedPrecondition error for a missing settlement aggregate")
+		t.Fatal("want a FailedPrecondition error for a missing billing aggregate")
 	}
 	if f.gateway.created != 0 {
 		t.Fatalf("nothing must be created on a failed pre-condition, got %d", f.gateway.created)
@@ -448,8 +448,8 @@ func Test_Close_Payout(t *testing.T) {
 
 	deps, f := baseDeps()
 	cid := uuid.New()
-	f.state.settlement = boundSettlement(cid, 3)
-	f.engine.computeResult = settlementResultSeam{SignedNet: usd(5000), RoutingDirective: routingPayout}
+	f.state.billing = boundBilling(cid, 3)
+	f.engine.computeResult = billingResultSeam{SignedNet: usd(5000), RoutingDirective: routingPayout}
 	wf := newWorkflows(deps)
 	registerClose(env, wf)
 
@@ -482,8 +482,8 @@ func Test_Close_Charge_ExactMagnitude(t *testing.T) {
 
 	deps, f := baseDeps()
 	cid := uuid.New()
-	f.state.settlement = boundSettlement(cid, 1)
-	f.engine.computeResult = settlementResultSeam{SignedNet: usd(-1299), RoutingDirective: routingCharge}
+	f.state.billing = boundBilling(cid, 1)
+	f.engine.computeResult = billingResultSeam{SignedNet: usd(-1299), RoutingDirective: routingCharge}
 	wf := newWorkflows(deps)
 	registerClose(env, wf)
 
@@ -514,8 +514,8 @@ func Test_Close_NoAction(t *testing.T) {
 
 	deps, f := baseDeps()
 	cid := uuid.New()
-	f.state.settlement = boundSettlement(cid, 1)
-	f.engine.computeResult = settlementResultSeam{SignedNet: usd(0), RoutingDirective: routingNoAction}
+	f.state.billing = boundBilling(cid, 1)
+	f.engine.computeResult = billingResultSeam{SignedNet: usd(0), RoutingDirective: routingNoAction}
 	wf := newWorkflows(deps)
 	registerClose(env, wf)
 
@@ -540,7 +540,7 @@ func Test_Close_NotBound_FailedPrecondition(t *testing.T) {
 
 	deps, f := baseDeps()
 	cid := uuid.New()
-	f.state.settlement = settlementHead{ID: cid, Version: 1, Registered: true, GatewayBound: false}
+	f.state.billing = billingHead{ID: cid, Version: 1, Registered: true, GatewayBound: false}
 	wf := newWorkflows(deps)
 	registerClose(env, wf)
 
@@ -562,8 +562,8 @@ func Test_Close_DrainsInboundRevenueSignals(t *testing.T) {
 
 	deps, f := baseDeps()
 	cid := uuid.New()
-	f.state.settlement = boundSettlement(cid, 1)
-	f.engine.computeResult = settlementResultSeam{SignedNet: usd(100), RoutingDirective: routingPayout}
+	f.state.billing = boundBilling(cid, 1)
+	f.engine.computeResult = billingResultSeam{SignedNet: usd(100), RoutingDirective: routingPayout}
 	wf := newWorkflows(deps)
 	registerClose(env, wf)
 
@@ -593,10 +593,10 @@ func Test_Close_ChargeDecline_Retry_Recharges(t *testing.T) {
 
 	deps, f := baseDeps()
 	cid := uuid.New()
-	f.state.settlement = boundSettlement(cid, 1)
-	f.engine.computeResult = settlementResultSeam{SignedNet: usd(-2000), RoutingDirective: routingCharge}
+	f.state.billing = boundBilling(cid, 1)
+	f.engine.computeResult = billingResultSeam{SignedNet: usd(-2000), RoutingDirective: routingCharge}
 	f.gateway.declineChargeFirst = 1 // first charge declines, retry succeeds
-	f.interv.directive = settlementRetry
+	f.interv.directive = billingRetry
 	wf := newWorkflows(deps)
 	registerClose(env, wf)
 
@@ -625,10 +625,10 @@ func Test_Close_ChargeDecline_Escalate_FlagsDelinquency(t *testing.T) {
 
 	deps, f := baseDeps()
 	cid := uuid.New()
-	f.state.settlement = boundSettlement(cid, 1)
-	f.engine.computeResult = settlementResultSeam{SignedNet: usd(-2000), RoutingDirective: routingCharge}
+	f.state.billing = boundBilling(cid, 1)
+	f.engine.computeResult = billingResultSeam{SignedNet: usd(-2000), RoutingDirective: routingCharge}
 	f.gateway.declineChargeFirst = 99 // never succeeds
-	f.interv.directive = settlementEscalate
+	f.interv.directive = billingEscalate
 	wf := newWorkflows(deps)
 	registerClose(env, wf)
 
@@ -657,10 +657,10 @@ func Test_Close_ChargeDecline_Delay_NoEscalation(t *testing.T) {
 
 	deps, f := baseDeps()
 	cid := uuid.New()
-	f.state.settlement = boundSettlement(cid, 1)
-	f.engine.computeResult = settlementResultSeam{SignedNet: usd(-2000), RoutingDirective: routingCharge}
+	f.state.billing = boundBilling(cid, 1)
+	f.engine.computeResult = billingResultSeam{SignedNet: usd(-2000), RoutingDirective: routingCharge}
 	f.gateway.declineChargeFirst = 99
-	f.interv.directive = settlementDelay
+	f.interv.directive = billingDelay
 	wf := newWorkflows(deps)
 	registerClose(env, wf)
 
@@ -689,10 +689,10 @@ func Test_Close_Chargeback_ForwardOnlyRecompute(t *testing.T) {
 
 	deps, f := baseDeps()
 	cid := uuid.New()
-	f.state.settlement = boundSettlement(cid, 1)
-	f.engine.computeResult = settlementResultSeam{SignedNet: usd(5000), RoutingDirective: routingPayout}
+	f.state.billing = boundBilling(cid, 1)
+	f.engine.computeResult = billingResultSeam{SignedNet: usd(5000), RoutingDirective: routingPayout}
 	// After the reversal, the corrected net is a charge of 1500 (delta to claw back).
-	f.engine.recomputeResult = settlementResultSeam{SignedNet: usd(-1500), RoutingDirective: routingCharge}
+	f.engine.recomputeResult = billingResultSeam{SignedNet: usd(-1500), RoutingDirective: routingCharge}
 	wf := newWorkflows(deps)
 	registerClose(env, wf)
 
@@ -794,9 +794,9 @@ func Test_Close_SettleConflict_ReReadReApply_ConvergesToOne(t *testing.T) {
 
 	deps, f := baseDeps()
 	cid := uuid.New()
-	f.state.settlement = boundSettlement(cid, 1)
+	f.state.billing = boundBilling(cid, 1)
 	f.state.settleConflictFirst = 2 // first two settleCycle calls Conflict, then succeed
-	f.engine.computeResult = settlementResultSeam{SignedNet: usd(0), RoutingDirective: routingNoAction}
+	f.engine.computeResult = billingResultSeam{SignedNet: usd(0), RoutingDirective: routingNoAction}
 	wf := newWorkflows(deps)
 	registerClose(env, wf)
 

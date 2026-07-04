@@ -1214,20 +1214,20 @@
         {
           "id": "STP-UC5",
           "useCase": "bill-the-user-for-usage",
-          "title": "Bill the User for Usage (client op: closeSettlementCycle)",
-          "description": "Black-box exercise of the settlementManager close-cycle surface (the constructed contract: CloseSettlementCycle / RunShortfallSweep). Proves a cycle closes into exactly one computed signed net routed exactly once through the merchant gateway; breaks it with a duplicate close (idempotency / no double money move) and a gateway decline (shortfall sweep path, no phantom settlement). Step inputs are grounded in the uc5 dynamic-view signatures (closeSettlementCycle(customerId, cycleId), etc.). NOTE: settlement is deferred build scope — the backing RAs (settlementState, revenueLedger, merchantGateway) are generated not-implemented stubs on main; this scenario activates with that scope.",
+          "title": "Bill the User for Usage (client op: closeBillingCycle)",
+          "description": "Black-box exercise of the billingManager close-cycle surface (the constructed contract: CloseBillingCycle / RunShortfallSweep). Proves a cycle closes into exactly one computed signed net routed exactly once through the merchant gateway; breaks it with a duplicate close (idempotency / no double money move) and a gateway decline (shortfall sweep path, no phantom billing). Step inputs are grounded in the uc5 dynamic-view signatures (closeBillingCycle(customerId, cycleId), etc.). NOTE: billing is deferred build scope — the backing RAs (billingState, revenueLedger, merchantGateway) are generated not-implemented stubs on main; this scenario activates with that scope.",
           "cases": [
             {
               "id": "STP-UC5-H1",
               "kind": "happy",
-              "title": "Close a settlement cycle -\u003e compute net -\u003e route money once",
-              "proves": "Closing a cycle reads revenue + usage, computes the signed net, routes it exactly once, and settles the cycle (mirrors uc5: closeSettlementCycle -\u003e readSettlement -\u003e readRange x2 -\u003e ComputeNet -\u003e charge|payout -\u003e settleCycle).",
+              "title": "Close a billing cycle -\u003e compute net -\u003e route money once",
+              "proves": "Closing a cycle reads revenue + usage, computes the signed net, routes it exactly once, and settles the cycle (mirrors uc5: closeBillingCycle -\u003e readBilling -\u003e readRange x2 -\u003e ComputeNet -\u003e charge|payout -\u003e settleCycle).",
               "expectedOutcome": "Exactly one settled cycle is recorded for (customer, cycle); the gateway moves money once under Idempotency-Key settle:cust-88:2026-06.",
               "steps": [
                 {
                   "seq": 1,
-                  "component": "settlementManager",
-                  "operation": "CloseSettlementCycle",
+                  "component": "billingManager",
+                  "operation": "CloseBillingCycle",
                   "status": "",
                   "inputs": [
                     {
@@ -1246,21 +1246,21 @@
                     "errorExpected": false,
                     "errorCode": ""
                   },
-                  "assertion": "One settled cycle is recorded for cust-88/2026-06; usageAccess.ReadRange, revenueLedgerAccess.ReadRange, settlementEngine.ComputeNet, and exactly one merchantGatewayAccess.ChargeCustomer OR PayoutCustomer occur; no error."
+                  "assertion": "One settled cycle is recorded for cust-88/2026-06; usageAccess.ReadRange, revenueLedgerAccess.ReadRange, billingEngine.ComputeNet, and exactly one merchantGatewayAccess.ChargeCustomer OR PayoutCustomer occur; no error."
                 }
               ]
             },
             {
               "id": "STP-UC5-N1",
               "kind": "negative",
-              "title": "Duplicate closeSettlementCycle for the same cycle does not move money twice",
-              "proves": "The load-bearing money-safety invariant: replaying closeSettlementCycle for the same (customer, cycle) must not produce a second settlement or a second gateway money move (same Stripe Idempotency-Key; settleCycle applied_mutation dedup).",
+              "title": "Duplicate closeBillingCycle for the same cycle does not move money twice",
+              "proves": "The load-bearing money-safety invariant: replaying closeBillingCycle for the same (customer, cycle) must not produce a second billing or a second gateway money move (same Stripe Idempotency-Key; settleCycle applied_mutation dedup).",
               "expectedOutcome": "The second close is a no-op with respect to money: settled-cycle count stays 1 and the gateway is not invoked a second time.",
               "steps": [
                 {
                   "seq": 1,
-                  "component": "settlementManager",
-                  "operation": "CloseSettlementCycle",
+                  "component": "billingManager",
+                  "operation": "CloseBillingCycle",
                   "status": "",
                   "inputs": [
                     {
@@ -1283,8 +1283,8 @@
                 },
                 {
                   "seq": 2,
-                  "component": "settlementManager",
-                  "operation": "CloseSettlementCycle",
+                  "component": "billingManager",
+                  "operation": "CloseBillingCycle",
                   "status": "",
                   "inputs": [
                     {
@@ -1303,21 +1303,21 @@
                     "errorExpected": false,
                     "errorCode": ""
                   },
-                  "assertion": "Replay for the same cycle: still exactly one settlement; the gateway is NOT re-invoked (Idempotency-Key settle:cust-88:2026-06 dedupes). No double move."
+                  "assertion": "Replay for the same cycle: still exactly one billing; the gateway is NOT re-invoked (Idempotency-Key settle:cust-88:2026-06 dedupes). No double move."
                 }
               ]
             },
             {
               "id": "STP-UC5-N2",
               "kind": "negative",
-              "title": "Gateway decline leaves the cycle unsettled and drives the shortfall sweep - no phantom settlement",
-              "proves": "A declined shortfall charge must surface as a failure and leave the cycle open (feeding DecideOnSettlementFailure / the delinquency path), never record a settlement that did not collect.",
+              "title": "Gateway decline leaves the cycle unsettled and drives the shortfall sweep - no phantom billing",
+              "proves": "A declined shortfall charge must surface as a failure and leave the cycle open (feeding DecideOnBillingFailure / the delinquency path), never record a billing that did not collect.",
               "expectedOutcome": "chargeCustomer declines; the cycle is not marked settled; runShortfallSweep re-attempts the open shortfall without duplicating it.",
               "steps": [
                 {
                   "seq": 1,
-                  "component": "settlementManager",
-                  "operation": "CloseSettlementCycle",
+                  "component": "billingManager",
+                  "operation": "CloseBillingCycle",
                   "status": "",
                   "inputs": [
                     {
@@ -1336,11 +1336,11 @@
                     "errorExpected": true,
                     "errorCode": "GatewayDeclined"
                   },
-                  "assertion": "merchantGatewayAccess.ChargeCustomer returns card_declined; the cycle stays unsettled, no settlement is recorded; interventionEngine.DecideOnSettlementFailure chooses Retry | Escalate | Delay."
+                  "assertion": "merchantGatewayAccess.ChargeCustomer returns card_declined; the cycle stays unsettled, no billing is recorded; interventionEngine.DecideOnBillingFailure chooses Retry | Escalate | Delay."
                 },
                 {
                   "seq": 2,
-                  "component": "settlementManager",
+                  "component": "billingManager",
                   "operation": "RunShortfallSweep",
                   "status": "",
                   "inputs": [
@@ -1355,7 +1355,7 @@
                     "errorExpected": false,
                     "errorCode": ""
                   },
-                  "assertion": "The sweep re-attempts the single open shortfall for cust-declined-99; it does not create a second settlement and it feeds ApplyDelinquencyPolicy if it keeps failing."
+                  "assertion": "The sweep re-attempts the single open shortfall for cust-declined-99; it does not create a second billing and it feeds ApplyDelinquencyPolicy if it keeps failing."
                 }
               ]
             }
@@ -8743,33 +8743,108 @@
     "billingEngine": {
       "component": "billingEngine",
       "layer": "Engine",
-      "goPackage": "",
+      "goPackage": "internal/engine/billing",
       "title": "billing contract",
       "$defs": {
-        "CustomerID": {
-          "type": "string"
-        },
-        "HostingRate": {
+        "BillingResult": {
           "type": "object",
           "properties": {
-            "PerComputeUnitSecond": {
+            "SignedNet": {
               "$ref": "#/$defs/Money"
             },
-            "PerStorageGiBMonth": {
+            "RoutingDirective": {
+              "$ref": "#/$defs/RoutingDirective"
+            },
+            "RevenueShareApplied": {
               "$ref": "#/$defs/Money"
             },
-            "PerEgressGiB": {
+            "ComputeCostApplied": {
               "$ref": "#/$defs/Money"
-            },
-            "Currency": {
-              "type": "string"
             }
           },
           "required": [
-            "PerComputeUnitSecond",
-            "PerStorageGiBMonth",
-            "PerEgressGiB",
-            "Currency"
+            "SignedNet",
+            "RoutingDirective",
+            "RevenueShareApplied",
+            "ComputeCostApplied"
+          ],
+          "additionalProperties": false
+        },
+        "BillingTerms": {
+          "type": "object",
+          "properties": {
+            "revenueShare": {
+              "$ref": "#/$defs/RevenueShareKind"
+            },
+            "revenueSharePercent": {
+              "type": "number"
+            },
+            "computeCost": {
+              "$ref": "#/$defs/ComputeCostKind"
+            },
+            "computeMarkupPercent": {
+              "type": "number"
+            },
+            "schedule": {
+              "$ref": "#/$defs/ScheduleKind"
+            }
+          },
+          "required": [
+            "revenueShare",
+            "revenueSharePercent",
+            "computeCost",
+            "computeMarkupPercent",
+            "schedule"
+          ],
+          "additionalProperties": false
+        },
+        "ComputeCostKind": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2
+          ],
+          "x-enum-varnames": [
+            "ComputeCostUnknown",
+            "ComputeCostFlatMarkup",
+            "ComputeCostTieredFloors"
+          ],
+          "x-go-base": "int"
+        },
+        "CycleRevenue": {
+          "type": "object",
+          "properties": {
+            "GrossInbound": {
+              "$ref": "#/$defs/Money"
+            },
+            "EventCount": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "GrossInbound",
+            "EventCount"
+          ],
+          "additionalProperties": false
+        },
+        "CycleUsage": {
+          "type": "object",
+          "properties": {
+            "ComputeUnitSeconds": {
+              "type": "number"
+            },
+            "StorageBytesMonths": {
+              "type": "number"
+            },
+            "EgressBytes": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "ComputeUnitSeconds",
+            "StorageBytesMonths",
+            "EgressBytes"
           ],
           "additionalProperties": false
         },
@@ -8792,126 +8867,111 @@
         "OptionID": {
           "type": "string"
         },
-        "PeriodID": {
-          "type": "string"
-        },
-        "PeriodUsage": {
-          "type": "object",
-          "properties": {
-            "CustomerID": {
-              "$ref": "#/$defs/CustomerID"
-            },
-            "PeriodID": {
-              "$ref": "#/$defs/PeriodID"
-            },
-            "ConstructionTokens": {
-              "type": "integer"
-            },
-            "ComputeUnitSeconds": {
-              "type": "number"
-            },
-            "StorageBytesMonths": {
-              "type": "number"
-            },
-            "EgressBytes": {
-              "type": "number"
-            },
-            "Currency": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "CustomerID",
-            "PeriodID",
-            "ConstructionTokens",
-            "ComputeUnitSeconds",
-            "StorageBytesMonths",
-            "EgressBytes",
-            "Currency"
-          ],
-          "additionalProperties": false
-        },
         "ProjectOption": {
           "type": "object",
           "properties": {
             "OptionID": {
               "$ref": "#/$defs/OptionID"
             },
-            "Pricing": {
-              "$ref": "#/$defs/ServicePricing"
+            "Terms": {
+              "$ref": "#/$defs/BillingTerms"
             }
           },
           "required": [
             "OptionID",
-            "Pricing"
+            "Terms"
           ],
           "additionalProperties": false
         },
-        "ServiceCostProjection": {
+        "Projection": {
           "type": "object",
           "properties": {
-            "TokenCostEstimate": {
-              "$ref": "#/$defs/Money"
+            "RevenueShareKind": {
+              "$ref": "#/$defs/RevenueShareKind"
             },
-            "HostingRate": {
-              "$ref": "#/$defs/HostingRate"
-            }
-          },
-          "required": [
-            "TokenCostEstimate",
-            "HostingRate"
-          ],
-          "additionalProperties": false
-        },
-        "ServiceInvoice": {
-          "type": "object",
-          "properties": {
-            "ServiceInvoiceAmount": {
-              "$ref": "#/$defs/Money"
-            },
-            "TokenCharge": {
-              "$ref": "#/$defs/Money"
-            },
-            "HostingCharge": {
-              "$ref": "#/$defs/Money"
-            }
-          },
-          "required": [
-            "ServiceInvoiceAmount",
-            "TokenCharge",
-            "HostingCharge"
-          ],
-          "additionalProperties": false
-        },
-        "ServicePricing": {
-          "type": "object",
-          "properties": {
-            "Kind": {
-              "$ref": "#/$defs/ServicePricingKind"
-            },
-            "MarkupPercent": {
+            "RevenueSharePercent": {
               "type": "number"
             },
-            "Currency": {
-              "type": "string"
+            "ComputeCostKind": {
+              "$ref": "#/$defs/ComputeCostKind"
+            },
+            "ComputeMarkupPercent": {
+              "type": "number"
             }
           },
           "required": [
-            "Kind",
-            "MarkupPercent",
-            "Currency"
+            "RevenueShareKind",
+            "RevenueSharePercent",
+            "ComputeCostKind",
+            "ComputeMarkupPercent"
           ],
           "additionalProperties": false
         },
-        "ServicePricingKind": {
+        "ReBillingInput": {
+          "type": "object",
+          "properties": {
+            "Revenue": {
+              "$ref": "#/$defs/CycleRevenue"
+            },
+            "Usage": {
+              "$ref": "#/$defs/CycleUsage"
+            },
+            "Terms": {
+              "$ref": "#/$defs/BillingTerms"
+            },
+            "PriorSettled": {
+              "$ref": "#/$defs/BillingResult"
+            }
+          },
+          "required": [
+            "Revenue",
+            "Usage",
+            "Terms",
+            "PriorSettled"
+          ],
+          "additionalProperties": false
+        },
+        "RevenueShareKind": {
           "type": "integer",
           "enum": [
             0,
-            1
+            1,
+            2
           ],
           "x-enum-varnames": [
-            "ServicePricingUnknown",
-            "ServicePricingFlatMarkup"
+            "RevenueShareUnknown",
+            "RevenueShareLaunchFlat10",
+            "RevenueShareNegotiatedRate"
+          ],
+          "x-go-base": "int"
+        },
+        "RoutingDirective": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2
+          ],
+          "x-enum-varnames": [
+            "RoutingNoAction",
+            "RoutingPayout",
+            "RoutingCharge"
+          ],
+          "x-go-base": "int"
+        },
+        "ScheduleKind": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "x-enum-varnames": [
+            "ScheduleUnknown",
+            "ScheduleMonthly",
+            "ScheduleWeekly",
+            "ScheduleDaily"
           ],
           "x-go-base": "int"
         }
@@ -8921,7 +8981,34 @@
         "layer": "engine",
         "operations": [
           {
-            "name": "PriceServiceForOption",
+            "name": "ComputeNet",
+            "params": [
+              {
+                "name": "revenue",
+                "schema": {
+                  "$ref": "#/$defs/CycleRevenue"
+                }
+              },
+              {
+                "name": "usage",
+                "schema": {
+                  "$ref": "#/$defs/CycleUsage"
+                }
+              },
+              {
+                "name": "terms",
+                "schema": {
+                  "$ref": "#/$defs/BillingTerms"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/BillingResult"
+            },
+            "error": true
+          },
+          {
+            "name": "ProjectCommitTimeRevenueShareAndComputeCost",
             "params": [
               {
                 "name": "option",
@@ -8931,93 +9018,731 @@
               }
             ],
             "result": {
-              "$ref": "#/$defs/ServiceCostProjection"
+              "$ref": "#/$defs/Projection"
             },
             "error": true
           },
           {
-            "name": "PriceUsage",
+            "name": "RecomputeNet",
             "params": [
               {
-                "name": "usage",
+                "name": "affectedCycle",
                 "schema": {
-                  "$ref": "#/$defs/PeriodUsage"
-                }
-              },
-              {
-                "name": "servicePricing",
-                "schema": {
-                  "$ref": "#/$defs/ServicePricing"
+                  "$ref": "#/$defs/ReBillingInput"
                 }
               }
             ],
             "result": {
-              "$ref": "#/$defs/ServiceInvoice"
+              "$ref": "#/$defs/BillingResult"
             },
             "error": true
           }
         ]
-      },
-      "notes": "[PARKED 2026-07-03: built on main but no consuming Manager; the 2026-06-09 charge-only re-cut is deferred — settlementEngine is the live engine. Remove or revive with the billing/settlement re-plan.]"
+      }
     },
-    "billingGatewayAccess": {
-      "component": "billingGatewayAccess",
-      "layer": "ResourceAccess",
-      "title": "billingGatewayAccess contract",
+    "billingManager": {
+      "component": "billingManager",
+      "layer": "Manager",
+      "goPackage": "internal/manager/billing",
+      "deps": [
+        {
+          "name": "client",
+          "goType": "client.Client",
+          "goImport": "go.temporal.io/sdk/client"
+        },
+        {
+          "name": "billingState",
+          "component": "billingStateAccess"
+        },
+        {
+          "name": "usage",
+          "component": "usageAccess"
+        },
+        {
+          "name": "merchantGateway",
+          "component": "merchantGatewayAccess"
+        },
+        {
+          "name": "operatedRuntime",
+          "component": "operatedRuntimeAccess"
+        },
+        {
+          "name": "durableExecution",
+          "component": "durableExecutionAccess"
+        },
+        {
+          "name": "billing",
+          "component": "billingEngine"
+        },
+        {
+          "name": "intervention",
+          "component": "interventionEngine"
+        }
+      ],
+      "title": "billing-manager contract",
+      "$defs": {
+        "BillingRef": {
+          "type": "object",
+          "properties": {
+            "customerId": {
+              "type": "string",
+              "format": "uuid",
+              "x-go-import": "github.com/google/uuid",
+              "x-go-name": "CustomerID",
+              "x-go-type": "uuid.UUID"
+            }
+          },
+          "required": [
+            "customerId"
+          ],
+          "additionalProperties": false
+        },
+        "CloseCycleResult": {
+          "type": "object",
+          "properties": {
+            "customerId": {
+              "type": "string",
+              "format": "uuid",
+              "x-go-import": "github.com/google/uuid",
+              "x-go-name": "CustomerID",
+              "x-go-type": "uuid.UUID"
+            },
+            "cycleId": {
+              "type": "string",
+              "x-go-name": "CycleID"
+            },
+            "routed": {
+              "$ref": "#/$defs/RoutingDirective"
+            },
+            "escalated": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "customerId",
+            "cycleId",
+            "routed",
+            "escalated"
+          ],
+          "additionalProperties": false
+        },
+        "GatewayRevenueEvent": {
+          "type": "object",
+          "properties": {
+            "gatewayEventId": {
+              "type": "string",
+              "x-go-name": "GatewayEventID"
+            },
+            "customerId": {
+              "type": "string",
+              "format": "uuid",
+              "x-go-import": "github.com/google/uuid",
+              "x-go-name": "CustomerID",
+              "x-go-type": "uuid.UUID"
+            },
+            "cycleId": {
+              "type": "string",
+              "x-go-name": "CycleID"
+            },
+            "amount": {
+              "$ref": "#/$defs/Money"
+            },
+            "occurredAt": {
+              "type": "string",
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            }
+          },
+          "required": [
+            "gatewayEventId",
+            "customerId",
+            "cycleId",
+            "amount",
+            "occurredAt"
+          ],
+          "additionalProperties": false
+        },
+        "GatewayReversalEvent": {
+          "type": "object",
+          "properties": {
+            "gatewayEventId": {
+              "type": "string",
+              "x-go-name": "GatewayEventID"
+            },
+            "customerId": {
+              "type": "string",
+              "format": "uuid",
+              "x-go-import": "github.com/google/uuid",
+              "x-go-name": "CustomerID",
+              "x-go-type": "uuid.UUID"
+            },
+            "cycleId": {
+              "type": "string",
+              "x-go-name": "CycleID"
+            },
+            "amount": {
+              "$ref": "#/$defs/Money"
+            },
+            "reversesGatewayEventId": {
+              "type": [
+                "null",
+                "string"
+              ],
+              "x-go-name": "ReversesGatewayEventID"
+            },
+            "occurredAt": {
+              "type": "string",
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            }
+          },
+          "required": [
+            "gatewayEventId",
+            "customerId",
+            "cycleId",
+            "amount",
+            "occurredAt"
+          ],
+          "additionalProperties": false
+        },
+        "Money": {
+          "type": "object",
+          "properties": {
+            "minorUnits": {
+              "type": "integer"
+            },
+            "currency": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "minorUnits",
+            "currency"
+          ],
+          "additionalProperties": false
+        },
+        "RoutingDirective": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2
+          ],
+          "x-enum-varnames": [
+            "RoutingDirectiveNoAction",
+            "RoutingDirectivePayout",
+            "RoutingDirectiveCharge"
+          ],
+          "x-go-base": "int"
+        },
+        "ShortfallSweepResult": {
+          "type": "object",
+          "properties": {
+            "signalledCustomers": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "string",
+                "format": "uuid",
+                "x-go-import": "github.com/google/uuid",
+                "x-go-type": "uuid.UUID"
+              }
+            }
+          },
+          "required": [
+            "signalledCustomers"
+          ],
+          "additionalProperties": false
+        }
+      },
       "interface": {
-        "name": "BillingGatewayAccess",
-        "layer": "resourceaccess",
+        "name": "BillingManager",
+        "layer": "manager",
         "operations": [
           {
-            "name": "chargeUser",
-            "params": null,
+            "name": "CloseBillingCycle",
+            "params": [
+              {
+                "name": "customerID",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid",
+                  "x-go-import": "github.com/google/uuid",
+                  "x-go-type": "uuid.UUID"
+                }
+              },
+              {
+                "name": "cycleID",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/CloseCycleResult"
+            },
             "error": true
           },
           {
-            "name": "validateStoredInstrument",
-            "params": null,
+            "name": "OnboardPaymentIntegration",
+            "params": [
+              {
+                "name": "deployedAppID",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid",
+                  "x-go-import": "github.com/google/uuid",
+                  "x-go-type": "uuid.UUID"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/BillingRef"
+            },
+            "error": true
+          },
+          {
+            "name": "RecordInboundRevenue",
+            "params": [
+              {
+                "name": "event",
+                "schema": {
+                  "$ref": "#/$defs/GatewayRevenueEvent"
+                }
+              }
+            ],
+            "error": true
+          },
+          {
+            "name": "RecordRevenueReversal",
+            "params": [
+              {
+                "name": "event",
+                "schema": {
+                  "$ref": "#/$defs/GatewayReversalEvent"
+                }
+              }
+            ],
+            "error": true
+          },
+          {
+            "name": "RegisterCustomer",
+            "params": [
+              {
+                "name": "customerID",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid",
+                  "x-go-import": "github.com/google/uuid",
+                  "x-go-type": "uuid.UUID"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/BillingRef"
+            },
+            "error": true
+          },
+          {
+            "name": "RunShortfallSweep",
+            "params": [
+              {
+                "name": "tickID",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/ShortfallSweepResult"
+            },
             "error": true
           }
         ]
-      },
-      "notes": "[SUPERSEDED 2026-07-03 by merchantGatewayAccess (constructed stub); the approved C-BG implementation is parked on branch aiarch/construct/C-BG.]"
+      }
     },
     "billingStateAccess": {
       "component": "billingStateAccess",
       "layer": "ResourceAccess",
+      "goPackage": "internal/resourceaccess/billingstate",
+      "stub": true,
       "title": "billingStateAccess contract",
+      "$defs": {
+        "CustomerProfile": {
+          "type": "object",
+          "properties": {
+            "PayoutAccountRef": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "PayoutAccountRef"
+          ],
+          "additionalProperties": false
+        },
+        "CustomerSummary": {
+          "type": "object",
+          "properties": {
+            "ID": {
+              "type": "string",
+              "format": "uuid",
+              "x-go-import": "github.com/google/uuid",
+              "x-go-type": "uuid.UUID"
+            },
+            "PauseNotWithdraw": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "ID",
+            "PauseNotWithdraw"
+          ],
+          "additionalProperties": false
+        },
+        "DelinquencyScope": {
+          "type": "object",
+          "properties": {
+            "ProjectID": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "ProjectID"
+          ],
+          "additionalProperties": false
+        },
+        "GatewayBinding": {
+          "type": "object",
+          "properties": {
+            "ConnectedAccountID": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "ConnectedAccountID"
+          ],
+          "additionalProperties": false
+        },
+        "Money": {
+          "type": "object",
+          "properties": {
+            "MinorUnits": {
+              "type": "integer"
+            },
+            "Currency": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "MinorUnits",
+            "Currency"
+          ],
+          "additionalProperties": false
+        },
+        "RoutingDirective": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2
+          ],
+          "x-enum-varnames": [
+            "RoutingNoAction",
+            "RoutingPayout",
+            "RoutingCharge"
+          ],
+          "x-go-base": "int"
+        },
+        "Billing": {
+          "type": "object",
+          "properties": {
+            "ID": {
+              "type": "string",
+              "format": "uuid",
+              "x-go-import": "github.com/google/uuid",
+              "x-go-type": "uuid.UUID"
+            },
+            "Version": {
+              "$ref": "#/$defs/Version"
+            },
+            "GatewayBound": {
+              "type": "boolean"
+            },
+            "Registered": {
+              "type": "boolean"
+            },
+            "Terms": {
+              "$ref": "#/$defs/BillingTerms"
+            },
+            "PayoutAccount": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "ID",
+            "Version",
+            "GatewayBound",
+            "Registered",
+            "Terms",
+            "PayoutAccount"
+          ],
+          "additionalProperties": false
+        },
+        "BillingOutcome": {
+          "type": "object",
+          "properties": {
+            "Net": {
+              "$ref": "#/$defs/Money"
+            },
+            "Directive": {
+              "$ref": "#/$defs/RoutingDirective"
+            },
+            "Escalated": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "Net",
+            "Directive",
+            "Escalated"
+          ],
+          "additionalProperties": false
+        },
+        "BillingTerms": {
+          "type": "object",
+          "properties": {
+            "RevenueShareKind": {
+              "type": "integer"
+            },
+            "ComputeCostKind": {
+              "type": "integer"
+            },
+            "ScheduleKind": {
+              "type": "integer"
+            },
+            "BillingKind": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "RevenueShareKind",
+            "ComputeCostKind",
+            "ScheduleKind",
+            "BillingKind"
+          ],
+          "additionalProperties": false
+        },
+        "Version": {
+          "type": "integer",
+          "x-go-type": "uint64"
+        }
+      },
       "interface": {
         "name": "BillingStateAccess",
         "layer": "resourceaccess",
         "operations": [
           {
-            "name": "registerCustomer",
-            "params": null,
+            "name": "BindGatewayLive",
+            "params": [
+              {
+                "name": "customerID",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid",
+                  "x-go-import": "github.com/google/uuid",
+                  "x-go-type": "uuid.UUID"
+                }
+              },
+              {
+                "name": "expectedVersion",
+                "schema": {
+                  "$ref": "#/$defs/Version"
+                }
+              },
+              {
+                "name": "binding",
+                "schema": {
+                  "$ref": "#/$defs/GatewayBinding"
+                }
+              },
+              {
+                "name": "idempotencyKey",
+                "schema": {
+                  "type": "string",
+                  "x-go-type": "fwra.IdempotencyKey"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/Version"
+            },
             "error": true
           },
           {
-            "name": "bindStoredInstrument",
-            "params": null,
+            "name": "ReadPersistentlyDelinquentCustomers",
+            "params": [
+              {
+                "name": "scope",
+                "schema": {
+                  "$ref": "#/$defs/DelinquencyScope"
+                }
+              }
+            ],
+            "result": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/CustomerSummary"
+              }
+            },
             "error": true
           },
           {
-            "name": "recordServiceInvoice",
-            "params": null,
+            "name": "ReadBilling",
+            "params": [
+              {
+                "name": "customerID",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid",
+                  "x-go-import": "github.com/google/uuid",
+                  "x-go-type": "uuid.UUID"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/Billing"
+            },
             "error": true
           },
           {
-            "name": "readBilling",
-            "params": null,
+            "name": "RegisterCustomer",
+            "params": [
+              {
+                "name": "customerID",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid",
+                  "x-go-import": "github.com/google/uuid",
+                  "x-go-type": "uuid.UUID"
+                }
+              },
+              {
+                "name": "expectedVersion",
+                "schema": {
+                  "$ref": "#/$defs/Version"
+                }
+              },
+              {
+                "name": "profile",
+                "schema": {
+                  "$ref": "#/$defs/CustomerProfile"
+                }
+              },
+              {
+                "name": "idempotencyKey",
+                "schema": {
+                  "type": "string",
+                  "x-go-type": "fwra.IdempotencyKey"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/Version"
+            },
             "error": true
           },
           {
-            "name": "readPersistentlyDelinquentCustomers",
-            "params": null,
+            "name": "ResettleCycle",
+            "params": [
+              {
+                "name": "customerID",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid",
+                  "x-go-import": "github.com/google/uuid",
+                  "x-go-type": "uuid.UUID"
+                }
+              },
+              {
+                "name": "expectedVersion",
+                "schema": {
+                  "$ref": "#/$defs/Version"
+                }
+              },
+              {
+                "name": "cycle",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "name": "correction",
+                "schema": {
+                  "$ref": "#/$defs/BillingOutcome"
+                }
+              },
+              {
+                "name": "idempotencyKey",
+                "schema": {
+                  "type": "string",
+                  "x-go-type": "fwra.IdempotencyKey"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/Version"
+            },
+            "error": true
+          },
+          {
+            "name": "SettleCycle",
+            "params": [
+              {
+                "name": "customerID",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid",
+                  "x-go-import": "github.com/google/uuid",
+                  "x-go-type": "uuid.UUID"
+                }
+              },
+              {
+                "name": "expectedVersion",
+                "schema": {
+                  "$ref": "#/$defs/Version"
+                }
+              },
+              {
+                "name": "cycle",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "name": "outcome",
+                "schema": {
+                  "$ref": "#/$defs/BillingOutcome"
+                }
+              },
+              {
+                "name": "idempotencyKey",
+                "schema": {
+                  "type": "string",
+                  "x-go-type": "fwra.IdempotencyKey"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/Version"
+            },
             "error": true
           }
         ]
-      },
-      "notes": "[SUPERSEDED 2026-07-03 by settlementStateAccess (constructed); deferred billing scope.]"
+      }
     },
     "estimationEngine": {
       "component": "estimationEngine",
@@ -9551,10 +10276,6 @@
         {
           "name": "artifact",
           "component": "artifactAccess"
-        },
-        {
-          "name": "worker",
-          "component": "workerAccess"
         },
         {
           "name": "handOff",
@@ -13092,8 +13813,8 @@
           "component": "operationEstimationEngine"
         },
         {
-          "name": "settlementEstimator",
-          "component": "settlementEngine"
+          "name": "billingEstimator",
+          "component": "billingEngine"
         },
         {
           "name": "repo",
@@ -16070,185 +16791,6 @@
       },
       "notes": "Factored into four facets over the frozen core port: BranchAwareProjectStateAccess (2 ops — projectstate.go:58), ConstructionTransitionAccess (10 ops — construction_transition_port.go), GitActivityStatusAccess (4 ops — gitactivity.go), and the ProjectCatalog seam (1 op — gitstore.go:134); catalog split (CreateProject/ListProjects → projectCatalogAccess) fires on the next core-port op addition."
     },
-    "revenueLedgerAccess": {
-      "component": "revenueLedgerAccess",
-      "layer": "ResourceAccess",
-      "goPackage": "internal/resourceaccess/revenueledger",
-      "stub": true,
-      "title": "revenueLedgerAccess contract",
-      "$defs": {
-        "EntryRef": {
-          "type": "string"
-        },
-        "Money": {
-          "type": "object",
-          "properties": {
-            "MinorUnits": {
-              "type": "integer"
-            },
-            "Currency": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "MinorUnits",
-            "Currency"
-          ],
-          "additionalProperties": false
-        },
-        "RevenueEntry": {
-          "type": "object",
-          "properties": {
-            "CustomerID": {
-              "type": "string",
-              "format": "uuid",
-              "x-go-import": "github.com/google/uuid",
-              "x-go-type": "uuid.UUID"
-            },
-            "CycleID": {
-              "type": "string"
-            },
-            "Kind": {
-              "$ref": "#/$defs/RevenueKind"
-            },
-            "Amount": {
-              "$ref": "#/$defs/Money"
-            },
-            "GatewayEventID": {
-              "type": "string"
-            },
-            "OccurredAt": {
-              "type": "string",
-              "format": "date-time",
-              "x-go-import": "time",
-              "x-go-type": "time.Time"
-            }
-          },
-          "required": [
-            "CustomerID",
-            "CycleID",
-            "Kind",
-            "Amount",
-            "GatewayEventID",
-            "OccurredAt"
-          ],
-          "additionalProperties": false
-        },
-        "RevenueKind": {
-          "type": "integer",
-          "enum": [
-            0,
-            1
-          ],
-          "x-enum-varnames": [
-            "RevenueKindInbound",
-            "RevenueKindReversal"
-          ],
-          "x-go-base": "int"
-        },
-        "ReversalEntry": {
-          "type": "object",
-          "properties": {
-            "CustomerID": {
-              "type": "string",
-              "format": "uuid",
-              "x-go-import": "github.com/google/uuid",
-              "x-go-type": "uuid.UUID"
-            },
-            "CycleID": {
-              "type": "string"
-            },
-            "Amount": {
-              "$ref": "#/$defs/Money"
-            },
-            "GatewayEventID": {
-              "type": "string"
-            },
-            "ReversesGatewayEventID": {
-              "type": "string"
-            },
-            "OccurredAt": {
-              "type": "string",
-              "format": "date-time",
-              "x-go-import": "time",
-              "x-go-type": "time.Time"
-            }
-          },
-          "required": [
-            "CustomerID",
-            "CycleID",
-            "Amount",
-            "GatewayEventID",
-            "ReversesGatewayEventID",
-            "OccurredAt"
-          ],
-          "additionalProperties": false
-        }
-      },
-      "interface": {
-        "name": "RevenueLedgerAccess",
-        "layer": "resourceaccess",
-        "operations": [
-          {
-            "name": "ReadRange",
-            "params": [
-              {
-                "name": "customerID",
-                "schema": {
-                  "type": "string",
-                  "format": "uuid",
-                  "x-go-import": "github.com/google/uuid",
-                  "x-go-type": "uuid.UUID"
-                }
-              },
-              {
-                "name": "cycleID",
-                "schema": {
-                  "type": "string"
-                }
-              }
-            ],
-            "result": {
-              "type": "array",
-              "items": {
-                "$ref": "#/$defs/RevenueEntry"
-              }
-            },
-            "error": true
-          },
-          {
-            "name": "RecordInboundRevenue",
-            "params": [
-              {
-                "name": "entry",
-                "schema": {
-                  "$ref": "#/$defs/RevenueEntry"
-                }
-              }
-            ],
-            "result": {
-              "$ref": "#/$defs/EntryRef"
-            },
-            "error": true
-          },
-          {
-            "name": "RecordReversal",
-            "params": [
-              {
-                "name": "reversal",
-                "schema": {
-                  "$ref": "#/$defs/ReversalEntry"
-                }
-              }
-            ],
-            "result": {
-              "$ref": "#/$defs/EntryRef"
-            },
-            "error": true
-          }
-        ]
-      }
-    },
     "reviewEngine": {
       "component": "reviewEngine",
       "layer": "Engine",
@@ -16393,1014 +16935,6 @@
           {
             "name": "obtainServiceIdentity",
             "params": null,
-            "error": true
-          }
-        ]
-      }
-    },
-    "settlementEngine": {
-      "component": "settlementEngine",
-      "layer": "Engine",
-      "goPackage": "internal/engine/settlement",
-      "title": "settlement contract",
-      "$defs": {
-        "ComputeCostKind": {
-          "type": "integer",
-          "enum": [
-            0,
-            1,
-            2
-          ],
-          "x-enum-varnames": [
-            "ComputeCostUnknown",
-            "ComputeCostFlatMarkup",
-            "ComputeCostTieredFloors"
-          ],
-          "x-go-base": "int"
-        },
-        "CycleRevenue": {
-          "type": "object",
-          "properties": {
-            "GrossInbound": {
-              "$ref": "#/$defs/Money"
-            },
-            "EventCount": {
-              "type": "integer"
-            }
-          },
-          "required": [
-            "GrossInbound",
-            "EventCount"
-          ],
-          "additionalProperties": false
-        },
-        "CycleUsage": {
-          "type": "object",
-          "properties": {
-            "ComputeUnitSeconds": {
-              "type": "number"
-            },
-            "StorageBytesMonths": {
-              "type": "number"
-            },
-            "EgressBytes": {
-              "type": "number"
-            }
-          },
-          "required": [
-            "ComputeUnitSeconds",
-            "StorageBytesMonths",
-            "EgressBytes"
-          ],
-          "additionalProperties": false
-        },
-        "Money": {
-          "type": "object",
-          "properties": {
-            "minorUnits": {
-              "type": "integer"
-            },
-            "currency": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "minorUnits",
-            "currency"
-          ],
-          "additionalProperties": false
-        },
-        "OptionID": {
-          "type": "string"
-        },
-        "ProjectOption": {
-          "type": "object",
-          "properties": {
-            "OptionID": {
-              "$ref": "#/$defs/OptionID"
-            },
-            "Terms": {
-              "$ref": "#/$defs/SettlementTerms"
-            }
-          },
-          "required": [
-            "OptionID",
-            "Terms"
-          ],
-          "additionalProperties": false
-        },
-        "Projection": {
-          "type": "object",
-          "properties": {
-            "RevenueShareKind": {
-              "$ref": "#/$defs/RevenueShareKind"
-            },
-            "RevenueSharePercent": {
-              "type": "number"
-            },
-            "ComputeCostKind": {
-              "$ref": "#/$defs/ComputeCostKind"
-            },
-            "ComputeMarkupPercent": {
-              "type": "number"
-            }
-          },
-          "required": [
-            "RevenueShareKind",
-            "RevenueSharePercent",
-            "ComputeCostKind",
-            "ComputeMarkupPercent"
-          ],
-          "additionalProperties": false
-        },
-        "ReSettlementInput": {
-          "type": "object",
-          "properties": {
-            "Revenue": {
-              "$ref": "#/$defs/CycleRevenue"
-            },
-            "Usage": {
-              "$ref": "#/$defs/CycleUsage"
-            },
-            "Terms": {
-              "$ref": "#/$defs/SettlementTerms"
-            },
-            "PriorSettled": {
-              "$ref": "#/$defs/SettlementResult"
-            }
-          },
-          "required": [
-            "Revenue",
-            "Usage",
-            "Terms",
-            "PriorSettled"
-          ],
-          "additionalProperties": false
-        },
-        "RevenueShareKind": {
-          "type": "integer",
-          "enum": [
-            0,
-            1,
-            2
-          ],
-          "x-enum-varnames": [
-            "RevenueShareUnknown",
-            "RevenueShareLaunchFlat10",
-            "RevenueShareNegotiatedRate"
-          ],
-          "x-go-base": "int"
-        },
-        "RoutingDirective": {
-          "type": "integer",
-          "enum": [
-            0,
-            1,
-            2
-          ],
-          "x-enum-varnames": [
-            "RoutingNoAction",
-            "RoutingPayout",
-            "RoutingCharge"
-          ],
-          "x-go-base": "int"
-        },
-        "ScheduleKind": {
-          "type": "integer",
-          "enum": [
-            0,
-            1,
-            2,
-            3
-          ],
-          "x-enum-varnames": [
-            "ScheduleUnknown",
-            "ScheduleMonthly",
-            "ScheduleWeekly",
-            "ScheduleDaily"
-          ],
-          "x-go-base": "int"
-        },
-        "SettlementResult": {
-          "type": "object",
-          "properties": {
-            "SignedNet": {
-              "$ref": "#/$defs/Money"
-            },
-            "RoutingDirective": {
-              "$ref": "#/$defs/RoutingDirective"
-            },
-            "RevenueShareApplied": {
-              "$ref": "#/$defs/Money"
-            },
-            "ComputeCostApplied": {
-              "$ref": "#/$defs/Money"
-            }
-          },
-          "required": [
-            "SignedNet",
-            "RoutingDirective",
-            "RevenueShareApplied",
-            "ComputeCostApplied"
-          ],
-          "additionalProperties": false
-        },
-        "SettlementTerms": {
-          "type": "object",
-          "properties": {
-            "revenueShare": {
-              "$ref": "#/$defs/RevenueShareKind"
-            },
-            "revenueSharePercent": {
-              "type": "number"
-            },
-            "computeCost": {
-              "$ref": "#/$defs/ComputeCostKind"
-            },
-            "computeMarkupPercent": {
-              "type": "number"
-            },
-            "schedule": {
-              "$ref": "#/$defs/ScheduleKind"
-            }
-          },
-          "required": [
-            "revenueShare",
-            "revenueSharePercent",
-            "computeCost",
-            "computeMarkupPercent",
-            "schedule"
-          ],
-          "additionalProperties": false
-        }
-      },
-      "interface": {
-        "name": "SettlementEngine",
-        "layer": "engine",
-        "operations": [
-          {
-            "name": "ComputeNet",
-            "params": [
-              {
-                "name": "revenue",
-                "schema": {
-                  "$ref": "#/$defs/CycleRevenue"
-                }
-              },
-              {
-                "name": "usage",
-                "schema": {
-                  "$ref": "#/$defs/CycleUsage"
-                }
-              },
-              {
-                "name": "terms",
-                "schema": {
-                  "$ref": "#/$defs/SettlementTerms"
-                }
-              }
-            ],
-            "result": {
-              "$ref": "#/$defs/SettlementResult"
-            },
-            "error": true
-          },
-          {
-            "name": "ProjectCommitTimeRevenueShareAndComputeCost",
-            "params": [
-              {
-                "name": "option",
-                "schema": {
-                  "$ref": "#/$defs/ProjectOption"
-                }
-              }
-            ],
-            "result": {
-              "$ref": "#/$defs/Projection"
-            },
-            "error": true
-          },
-          {
-            "name": "RecomputeNet",
-            "params": [
-              {
-                "name": "affectedCycle",
-                "schema": {
-                  "$ref": "#/$defs/ReSettlementInput"
-                }
-              }
-            ],
-            "result": {
-              "$ref": "#/$defs/SettlementResult"
-            },
-            "error": true
-          }
-        ]
-      }
-    },
-    "settlementManager": {
-      "component": "settlementManager",
-      "layer": "Manager",
-      "goPackage": "internal/manager/settlement",
-      "deps": [
-        {
-          "name": "client",
-          "goType": "client.Client",
-          "goImport": "go.temporal.io/sdk/client"
-        },
-        {
-          "name": "settlementState",
-          "component": "settlementStateAccess"
-        },
-        {
-          "name": "revenueLedger",
-          "component": "revenueLedgerAccess"
-        },
-        {
-          "name": "usage",
-          "component": "usageAccess"
-        },
-        {
-          "name": "merchantGateway",
-          "component": "merchantGatewayAccess"
-        },
-        {
-          "name": "operatedRuntime",
-          "component": "operatedRuntimeAccess"
-        },
-        {
-          "name": "durableExecution",
-          "component": "durableExecutionAccess"
-        },
-        {
-          "name": "settlement",
-          "component": "settlementEngine"
-        },
-        {
-          "name": "intervention",
-          "component": "interventionEngine"
-        }
-      ],
-      "title": "settlement-manager contract",
-      "$defs": {
-        "CloseCycleResult": {
-          "type": "object",
-          "properties": {
-            "customerId": {
-              "type": "string",
-              "format": "uuid",
-              "x-go-import": "github.com/google/uuid",
-              "x-go-name": "CustomerID",
-              "x-go-type": "uuid.UUID"
-            },
-            "cycleId": {
-              "type": "string",
-              "x-go-name": "CycleID"
-            },
-            "routed": {
-              "$ref": "#/$defs/RoutingDirective"
-            },
-            "escalated": {
-              "type": "boolean"
-            }
-          },
-          "required": [
-            "customerId",
-            "cycleId",
-            "routed",
-            "escalated"
-          ],
-          "additionalProperties": false
-        },
-        "GatewayRevenueEvent": {
-          "type": "object",
-          "properties": {
-            "gatewayEventId": {
-              "type": "string",
-              "x-go-name": "GatewayEventID"
-            },
-            "customerId": {
-              "type": "string",
-              "format": "uuid",
-              "x-go-import": "github.com/google/uuid",
-              "x-go-name": "CustomerID",
-              "x-go-type": "uuid.UUID"
-            },
-            "cycleId": {
-              "type": "string",
-              "x-go-name": "CycleID"
-            },
-            "amount": {
-              "$ref": "#/$defs/Money"
-            },
-            "occurredAt": {
-              "type": "string",
-              "format": "date-time",
-              "x-go-import": "time",
-              "x-go-type": "time.Time"
-            }
-          },
-          "required": [
-            "gatewayEventId",
-            "customerId",
-            "cycleId",
-            "amount",
-            "occurredAt"
-          ],
-          "additionalProperties": false
-        },
-        "GatewayReversalEvent": {
-          "type": "object",
-          "properties": {
-            "gatewayEventId": {
-              "type": "string",
-              "x-go-name": "GatewayEventID"
-            },
-            "customerId": {
-              "type": "string",
-              "format": "uuid",
-              "x-go-import": "github.com/google/uuid",
-              "x-go-name": "CustomerID",
-              "x-go-type": "uuid.UUID"
-            },
-            "cycleId": {
-              "type": "string",
-              "x-go-name": "CycleID"
-            },
-            "amount": {
-              "$ref": "#/$defs/Money"
-            },
-            "reversesGatewayEventId": {
-              "type": [
-                "null",
-                "string"
-              ],
-              "x-go-name": "ReversesGatewayEventID"
-            },
-            "occurredAt": {
-              "type": "string",
-              "format": "date-time",
-              "x-go-import": "time",
-              "x-go-type": "time.Time"
-            }
-          },
-          "required": [
-            "gatewayEventId",
-            "customerId",
-            "cycleId",
-            "amount",
-            "occurredAt"
-          ],
-          "additionalProperties": false
-        },
-        "Money": {
-          "type": "object",
-          "properties": {
-            "minorUnits": {
-              "type": "integer"
-            },
-            "currency": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "minorUnits",
-            "currency"
-          ],
-          "additionalProperties": false
-        },
-        "RoutingDirective": {
-          "type": "integer",
-          "enum": [
-            0,
-            1,
-            2
-          ],
-          "x-enum-varnames": [
-            "RoutingDirectiveNoAction",
-            "RoutingDirectivePayout",
-            "RoutingDirectiveCharge"
-          ],
-          "x-go-base": "int"
-        },
-        "SettlementRef": {
-          "type": "object",
-          "properties": {
-            "customerId": {
-              "type": "string",
-              "format": "uuid",
-              "x-go-import": "github.com/google/uuid",
-              "x-go-name": "CustomerID",
-              "x-go-type": "uuid.UUID"
-            }
-          },
-          "required": [
-            "customerId"
-          ],
-          "additionalProperties": false
-        },
-        "ShortfallSweepResult": {
-          "type": "object",
-          "properties": {
-            "signalledCustomers": {
-              "type": [
-                "null",
-                "array"
-              ],
-              "items": {
-                "type": "string",
-                "format": "uuid",
-                "x-go-import": "github.com/google/uuid",
-                "x-go-type": "uuid.UUID"
-              }
-            }
-          },
-          "required": [
-            "signalledCustomers"
-          ],
-          "additionalProperties": false
-        }
-      },
-      "interface": {
-        "name": "SettlementManager",
-        "layer": "manager",
-        "operations": [
-          {
-            "name": "CloseSettlementCycle",
-            "params": [
-              {
-                "name": "customerID",
-                "schema": {
-                  "type": "string",
-                  "format": "uuid",
-                  "x-go-import": "github.com/google/uuid",
-                  "x-go-type": "uuid.UUID"
-                }
-              },
-              {
-                "name": "cycleID",
-                "schema": {
-                  "type": "string"
-                }
-              }
-            ],
-            "result": {
-              "$ref": "#/$defs/CloseCycleResult"
-            },
-            "error": true
-          },
-          {
-            "name": "OnboardPaymentIntegration",
-            "params": [
-              {
-                "name": "deployedAppID",
-                "schema": {
-                  "type": "string",
-                  "format": "uuid",
-                  "x-go-import": "github.com/google/uuid",
-                  "x-go-type": "uuid.UUID"
-                }
-              }
-            ],
-            "result": {
-              "$ref": "#/$defs/SettlementRef"
-            },
-            "error": true
-          },
-          {
-            "name": "RecordInboundRevenue",
-            "params": [
-              {
-                "name": "event",
-                "schema": {
-                  "$ref": "#/$defs/GatewayRevenueEvent"
-                }
-              }
-            ],
-            "error": true
-          },
-          {
-            "name": "RecordRevenueReversal",
-            "params": [
-              {
-                "name": "event",
-                "schema": {
-                  "$ref": "#/$defs/GatewayReversalEvent"
-                }
-              }
-            ],
-            "error": true
-          },
-          {
-            "name": "RegisterCustomer",
-            "params": [
-              {
-                "name": "customerID",
-                "schema": {
-                  "type": "string",
-                  "format": "uuid",
-                  "x-go-import": "github.com/google/uuid",
-                  "x-go-type": "uuid.UUID"
-                }
-              }
-            ],
-            "result": {
-              "$ref": "#/$defs/SettlementRef"
-            },
-            "error": true
-          },
-          {
-            "name": "RunShortfallSweep",
-            "params": [
-              {
-                "name": "tickID",
-                "schema": {
-                  "type": "string"
-                }
-              }
-            ],
-            "result": {
-              "$ref": "#/$defs/ShortfallSweepResult"
-            },
-            "error": true
-          }
-        ]
-      }
-    },
-    "settlementStateAccess": {
-      "component": "settlementStateAccess",
-      "layer": "ResourceAccess",
-      "goPackage": "internal/resourceaccess/settlementstate",
-      "stub": true,
-      "title": "settlementStateAccess contract",
-      "$defs": {
-        "CustomerProfile": {
-          "type": "object",
-          "properties": {
-            "PayoutAccountRef": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "PayoutAccountRef"
-          ],
-          "additionalProperties": false
-        },
-        "CustomerSummary": {
-          "type": "object",
-          "properties": {
-            "ID": {
-              "type": "string",
-              "format": "uuid",
-              "x-go-import": "github.com/google/uuid",
-              "x-go-type": "uuid.UUID"
-            },
-            "PauseNotWithdraw": {
-              "type": "boolean"
-            }
-          },
-          "required": [
-            "ID",
-            "PauseNotWithdraw"
-          ],
-          "additionalProperties": false
-        },
-        "DelinquencyScope": {
-          "type": "object",
-          "properties": {
-            "ProjectID": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "ProjectID"
-          ],
-          "additionalProperties": false
-        },
-        "GatewayBinding": {
-          "type": "object",
-          "properties": {
-            "ConnectedAccountID": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "ConnectedAccountID"
-          ],
-          "additionalProperties": false
-        },
-        "Money": {
-          "type": "object",
-          "properties": {
-            "MinorUnits": {
-              "type": "integer"
-            },
-            "Currency": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "MinorUnits",
-            "Currency"
-          ],
-          "additionalProperties": false
-        },
-        "RoutingDirective": {
-          "type": "integer",
-          "enum": [
-            0,
-            1,
-            2
-          ],
-          "x-enum-varnames": [
-            "RoutingNoAction",
-            "RoutingPayout",
-            "RoutingCharge"
-          ],
-          "x-go-base": "int"
-        },
-        "Settlement": {
-          "type": "object",
-          "properties": {
-            "ID": {
-              "type": "string",
-              "format": "uuid",
-              "x-go-import": "github.com/google/uuid",
-              "x-go-type": "uuid.UUID"
-            },
-            "Version": {
-              "$ref": "#/$defs/Version"
-            },
-            "GatewayBound": {
-              "type": "boolean"
-            },
-            "Registered": {
-              "type": "boolean"
-            },
-            "Terms": {
-              "$ref": "#/$defs/SettlementTerms"
-            },
-            "PayoutAccount": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "ID",
-            "Version",
-            "GatewayBound",
-            "Registered",
-            "Terms",
-            "PayoutAccount"
-          ],
-          "additionalProperties": false
-        },
-        "SettlementOutcome": {
-          "type": "object",
-          "properties": {
-            "Net": {
-              "$ref": "#/$defs/Money"
-            },
-            "Directive": {
-              "$ref": "#/$defs/RoutingDirective"
-            },
-            "Escalated": {
-              "type": "boolean"
-            }
-          },
-          "required": [
-            "Net",
-            "Directive",
-            "Escalated"
-          ],
-          "additionalProperties": false
-        },
-        "SettlementTerms": {
-          "type": "object",
-          "properties": {
-            "RevenueShareKind": {
-              "type": "integer"
-            },
-            "ComputeCostKind": {
-              "type": "integer"
-            },
-            "ScheduleKind": {
-              "type": "integer"
-            },
-            "BillingKind": {
-              "type": "integer"
-            }
-          },
-          "required": [
-            "RevenueShareKind",
-            "ComputeCostKind",
-            "ScheduleKind",
-            "BillingKind"
-          ],
-          "additionalProperties": false
-        },
-        "Version": {
-          "type": "integer",
-          "x-go-type": "uint64"
-        }
-      },
-      "interface": {
-        "name": "SettlementStateAccess",
-        "layer": "resourceaccess",
-        "operations": [
-          {
-            "name": "BindGatewayLive",
-            "params": [
-              {
-                "name": "customerID",
-                "schema": {
-                  "type": "string",
-                  "format": "uuid",
-                  "x-go-import": "github.com/google/uuid",
-                  "x-go-type": "uuid.UUID"
-                }
-              },
-              {
-                "name": "expectedVersion",
-                "schema": {
-                  "$ref": "#/$defs/Version"
-                }
-              },
-              {
-                "name": "binding",
-                "schema": {
-                  "$ref": "#/$defs/GatewayBinding"
-                }
-              },
-              {
-                "name": "idempotencyKey",
-                "schema": {
-                  "type": "string",
-                  "x-go-type": "fwra.IdempotencyKey"
-                }
-              }
-            ],
-            "result": {
-              "$ref": "#/$defs/Version"
-            },
-            "error": true
-          },
-          {
-            "name": "ReadPersistentlyDelinquentCustomers",
-            "params": [
-              {
-                "name": "scope",
-                "schema": {
-                  "$ref": "#/$defs/DelinquencyScope"
-                }
-              }
-            ],
-            "result": {
-              "type": "array",
-              "items": {
-                "$ref": "#/$defs/CustomerSummary"
-              }
-            },
-            "error": true
-          },
-          {
-            "name": "ReadSettlement",
-            "params": [
-              {
-                "name": "customerID",
-                "schema": {
-                  "type": "string",
-                  "format": "uuid",
-                  "x-go-import": "github.com/google/uuid",
-                  "x-go-type": "uuid.UUID"
-                }
-              }
-            ],
-            "result": {
-              "$ref": "#/$defs/Settlement"
-            },
-            "error": true
-          },
-          {
-            "name": "RegisterCustomer",
-            "params": [
-              {
-                "name": "customerID",
-                "schema": {
-                  "type": "string",
-                  "format": "uuid",
-                  "x-go-import": "github.com/google/uuid",
-                  "x-go-type": "uuid.UUID"
-                }
-              },
-              {
-                "name": "expectedVersion",
-                "schema": {
-                  "$ref": "#/$defs/Version"
-                }
-              },
-              {
-                "name": "profile",
-                "schema": {
-                  "$ref": "#/$defs/CustomerProfile"
-                }
-              },
-              {
-                "name": "idempotencyKey",
-                "schema": {
-                  "type": "string",
-                  "x-go-type": "fwra.IdempotencyKey"
-                }
-              }
-            ],
-            "result": {
-              "$ref": "#/$defs/Version"
-            },
-            "error": true
-          },
-          {
-            "name": "ResettleCycle",
-            "params": [
-              {
-                "name": "customerID",
-                "schema": {
-                  "type": "string",
-                  "format": "uuid",
-                  "x-go-import": "github.com/google/uuid",
-                  "x-go-type": "uuid.UUID"
-                }
-              },
-              {
-                "name": "expectedVersion",
-                "schema": {
-                  "$ref": "#/$defs/Version"
-                }
-              },
-              {
-                "name": "cycle",
-                "schema": {
-                  "type": "string"
-                }
-              },
-              {
-                "name": "correction",
-                "schema": {
-                  "$ref": "#/$defs/SettlementOutcome"
-                }
-              },
-              {
-                "name": "idempotencyKey",
-                "schema": {
-                  "type": "string",
-                  "x-go-type": "fwra.IdempotencyKey"
-                }
-              }
-            ],
-            "result": {
-              "$ref": "#/$defs/Version"
-            },
-            "error": true
-          },
-          {
-            "name": "SettleCycle",
-            "params": [
-              {
-                "name": "customerID",
-                "schema": {
-                  "type": "string",
-                  "format": "uuid",
-                  "x-go-import": "github.com/google/uuid",
-                  "x-go-type": "uuid.UUID"
-                }
-              },
-              {
-                "name": "expectedVersion",
-                "schema": {
-                  "$ref": "#/$defs/Version"
-                }
-              },
-              {
-                "name": "cycle",
-                "schema": {
-                  "type": "string"
-                }
-              },
-              {
-                "name": "outcome",
-                "schema": {
-                  "$ref": "#/$defs/SettlementOutcome"
-                }
-              },
-              {
-                "name": "idempotencyKey",
-                "schema": {
-                  "type": "string",
-                  "x-go-type": "fwra.IdempotencyKey"
-                }
-              }
-            ],
-            "result": {
-              "$ref": "#/$defs/Version"
-            },
             "error": true
           }
         ]
@@ -19765,269 +19299,6 @@
           {
             "name": "readOperatedSystemView",
             "params": null,
-            "error": true
-          }
-        ]
-      }
-    },
-    "workerAccess": {
-      "component": "workerAccess",
-      "layer": "ResourceAccess",
-      "goPackage": "internal/resourceaccess/worker",
-      "infra": [
-        "Anthropic",
-        "Ollama",
-        "Replay"
-      ],
-      "title": "worker contract",
-      "$defs": {
-        "AssistantTurn": {
-          "type": "object",
-          "properties": {
-            "text": {
-              "type": [
-                "null",
-                "string"
-              ]
-            },
-            "toolCalls": {
-              "type": [
-                "null",
-                "array"
-              ],
-              "items": {
-                "$ref": "#/$defs/ToolCall"
-              }
-            },
-            "stopReason": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "stopReason"
-          ],
-          "additionalProperties": false
-        },
-        "GenerateSpec": {
-          "type": "object",
-          "properties": {
-            "WorkerClass": {
-              "$ref": "#/$defs/WorkerClass"
-            },
-            "Prompt": {
-              "type": "string"
-            },
-            "Tools": {
-              "type": [
-                "null",
-                "array"
-              ],
-              "items": {
-                "$ref": "#/$defs/ToolSpec"
-              }
-            },
-            "Context": {
-              "type": "string",
-              "contentEncoding": "base64",
-              "x-go-type": "[]byte"
-            }
-          },
-          "required": [
-            "WorkerClass",
-            "Prompt",
-            "Tools",
-            "Context"
-          ],
-          "additionalProperties": false
-        },
-        "Message": {
-          "type": "object",
-          "properties": {
-            "role": {
-              "type": "string"
-            },
-            "text": {
-              "type": [
-                "null",
-                "string"
-              ]
-            },
-            "toolCalls": {
-              "type": [
-                "null",
-                "array"
-              ],
-              "items": {
-                "$ref": "#/$defs/ToolCall"
-              }
-            },
-            "toolResults": {
-              "type": [
-                "null",
-                "array"
-              ],
-              "items": {
-                "$ref": "#/$defs/ToolResult"
-              }
-            }
-          },
-          "required": [
-            "role"
-          ],
-          "additionalProperties": false
-        },
-        "ToolCall": {
-          "type": "object",
-          "properties": {
-            "id": {
-              "type": "string"
-            },
-            "name": {
-              "type": "string"
-            },
-            "input": {
-              "type": [
-                "null"
-              ],
-              "x-go-import": "encoding/json",
-              "x-go-type": "json.RawMessage"
-            }
-          },
-          "required": [
-            "id",
-            "name"
-          ],
-          "additionalProperties": false
-        },
-        "ToolResult": {
-          "type": "object",
-          "properties": {
-            "toolCallId": {
-              "type": "string"
-            },
-            "content": {
-              "type": "string"
-            },
-            "isError": {
-              "type": [
-                "null",
-                "boolean"
-              ]
-            }
-          },
-          "required": [
-            "toolCallId",
-            "content"
-          ],
-          "additionalProperties": false
-        },
-        "ToolSpec": {
-          "type": "object",
-          "properties": {
-            "name": {
-              "type": "string"
-            },
-            "description": {
-              "type": "string"
-            },
-            "inputSchema": {
-              "type": [
-                "null"
-              ],
-              "x-go-import": "encoding/json",
-              "x-go-type": "json.RawMessage"
-            },
-            "strict": {
-              "type": [
-                "null",
-                "boolean"
-              ]
-            }
-          },
-          "required": [
-            "name",
-            "description"
-          ],
-          "additionalProperties": false
-        },
-        "ToolTurnSpec": {
-          "type": "object",
-          "properties": {
-            "WorkerClass": {
-              "$ref": "#/$defs/WorkerClass"
-            },
-            "System": {
-              "type": "string"
-            },
-            "Messages": {
-              "type": [
-                "null",
-                "array"
-              ],
-              "items": {
-                "$ref": "#/$defs/Message"
-              }
-            },
-            "Tools": {
-              "type": [
-                "null",
-                "array"
-              ],
-              "items": {
-                "$ref": "#/$defs/ToolSpec"
-              }
-            }
-          },
-          "required": [
-            "WorkerClass",
-            "System",
-            "Messages",
-            "Tools"
-          ],
-          "additionalProperties": false
-        },
-        "WorkerClass": {
-          "type": "string"
-        }
-      },
-      "interface": {
-        "name": "WorkerAccess",
-        "layer": "resourceaccess",
-        "operations": [
-          {
-            "name": "Cancel",
-            "params": null,
-            "error": true
-          },
-          {
-            "name": "Generate",
-            "params": [
-              {
-                "name": "spec",
-                "schema": {
-                  "$ref": "#/$defs/GenerateSpec"
-                }
-              }
-            ],
-            "result": {
-              "x-go-import": "encoding/json",
-              "x-go-type": "json.RawMessage"
-            },
-            "error": true
-          },
-          {
-            "name": "GenerateToolTurn",
-            "params": [
-              {
-                "name": "spec",
-                "schema": {
-                  "$ref": "#/$defs/ToolTurnSpec"
-                }
-              }
-            ],
-            "result": {
-              "$ref": "#/$defs/AssistantTurn"
-            },
             "error": true
           }
         ]

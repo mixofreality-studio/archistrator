@@ -2,10 +2,11 @@ package main
 
 // construction_dryrun.go holds the IN-MEMORY stubs that back the UC3 construction
 // Worker when ARCHISTRATOR_CONSTRUCTION_DRYRUN=true (config.go). They replace the
-// three EXTERNAL-effect dependencies of the per-activity construction spine — the
-// GitHub-Actions pipeline (constructionPipelineAccess), the content-addressable
-// output store (artifactAccess), and the LLM worker (workerAccess) — with instant,
-// deterministic, side-effect-free successes.
+// two EXTERNAL-effect dependencies of the per-activity construction spine — the
+// GitHub-Actions pipeline (constructionPipelineAccess) and the content-addressable
+// output store (artifactAccess) — with instant, deterministic, side-effect-free
+// successes. Construction dispatches real work via the GH-Actions pipeline
+// (agentic-everywhere); there is no server-side LLM worker seam.
 //
 // Per the founder DI model these now satisfy each dependency's PUBLISHED interface
 // directly (the construction Manager's consumer mirrors were folded into the manager
@@ -21,12 +22,9 @@ package main
 // RA packages; none imports Temporal (the Manager owns it).
 
 import (
-	"encoding/json"
-
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/constructionpipeline"
-	workeraccess "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/worker"
 )
 
 // ---------------------------------------------------------------------------
@@ -70,29 +68,4 @@ func (dryRunArtifacts) RetrieveConstructionOutput(_ fwra.Context, _ string) (art
 
 func (dryRunArtifacts) RetrieveOutputTree(_ fwra.Context, contentAddress string) (artifact.OutputTree, error) {
 	return artifact.OutputTree{Root: contentAddress, Entries: map[string]string{}}, nil
-}
-
-// ---------------------------------------------------------------------------
-// dryRunWorker — workeraccess.WorkerAccess stub. Generate returns bytes that decode
-// into a valid artifact.ConstructionOutput; Cancel is a no-op. No LLM is called.
-// ---------------------------------------------------------------------------
-
-type dryRunWorker struct{}
-
-var _ workeraccess.WorkerAccess = dryRunWorker{}
-
-func (dryRunWorker) Generate(_ fwra.Context, spec workeraccess.GenerateSpec) (json.RawMessage, error) {
-	out := artifact.ConstructionOutput{
-		Bytes:    []byte("dry-run output for worker class " + string(spec.WorkerClass)),
-		MIMEType: "text/plain",
-	}
-	return json.Marshal(out)
-}
-
-func (dryRunWorker) GenerateToolTurn(_ fwra.Context, _ workeraccess.ToolTurnSpec) (workeraccess.AssistantTurn, error) {
-	return workeraccess.AssistantTurn{StopReason: "end_turn"}, nil
-}
-
-func (dryRunWorker) Cancel(_ fwra.Context) error {
-	return nil
 }

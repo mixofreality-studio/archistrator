@@ -11,9 +11,9 @@ import (
 
 	"github.com/google/uuid"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	billing "github.com/mixofreality-studio/archistrator/server/internal/engine/billing"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/estimation"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/operationestimation"
-	"github.com/mixofreality-studio/archistrator/server/internal/engine/settlement"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 )
@@ -211,7 +211,7 @@ func newRailWorkflows(ps projectstate.ProjectStateAccess, pipe *fakePipeline, ra
 	return &workflows{
 		Estimation:   estimation.NewEstimationEngine(),
 		OperationEst: operationestimation.NewOperationEstimationEngine(),
-		Settlement:   settlement.NewSettlementEngine(),
+		Settlement:   billing.NewBillingEngine(),
 		ProjectState: ps,
 		Pipeline:     pipe,
 		Rail:         rail,

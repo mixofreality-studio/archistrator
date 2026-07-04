@@ -1,7 +1,7 @@
-package settlement
+package billing
 
 // This file documents the two webhook-fed Signals the CloseCycleWorkflow handles
-// (settlementManager.md §6.1/§6.2). Both are durable point-to-point Signals targeting
+// (billingManager.md §6.1/§6.2). Both are durable point-to-point Signals targeting
 // the affected cycle's workflow id {customerId}:{cycleId}:close; signal-with-start
 // starts the cycle workflow when it is not yet running (§6.2).
 //
@@ -18,7 +18,7 @@ package settlement
 // the revenueLedgerAccess-owned entry shapes. awaitSignal (the wait on these channels)
 // is the Manager's OWN in-workflow primitive (D-DA category A), NOT a contract op.
 
-// Signal names (settlementManager.md §6.1/§6.2). The two webhook-fed revenue facts are
+// Signal names (billingManager.md §6.1/§6.2). The two webhook-fed revenue facts are
 // delivered as durable Signals to the affected cycle's workflow.
 const (
 	// SignalInboundRevenueReceived backs RecordInboundRevenue (op 2.5).

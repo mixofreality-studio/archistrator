@@ -1,4 +1,4 @@
-package settlement
+package billing
 
 import (
 	"errors"
@@ -10,18 +10,17 @@ import (
 	"go.temporal.io/sdk/client"
 
 	fwmgr "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
+	billingengine "github.com/mixofreality-studio/archistrator/server/internal/engine/billing"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
-	settlementengine "github.com/mixofreality-studio/archistrator/server/internal/engine/settlement"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/billingstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/durableexecution"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/merchantgateway"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedruntime"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/revenueledger"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/settlementstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
 )
 
-// SettlementManager is the settlementManager port — the public use-case surface of the
-// façade (settlementManager.md §2). Each op leads with the Manager-layer call Context
+// BillingManager is the billingManager port — the public use-case surface of the
+// façade (billingManager.md §2). Each op leads with the Manager-layer call Context
 // (fwmgr.Context, embedding context.Context + the Principal); the *Manager derives
 // ctx := rc.Context inside.
 //
@@ -31,81 +30,78 @@ import (
 // consumer-side dependency interfaces (deps.go) and the Temporal Workflows struct
 // (workflow.go) stay hand-written and are NOT part of this contract.
 
-// Compile-time proof the concrete settlementManager satisfies the generated
-// SettlementManager port. Each op leads with the Manager-layer call Context
+// Compile-time proof the concrete billingManager satisfies the generated
+// BillingManager port. Each op leads with the Manager-layer call Context
 // (fwmgr.Context); the impl derives ctx := rc.Context inside.
-var _ SettlementManager = (*settlementManager)(nil)
+var _ BillingManager = (*billingManager)(nil)
 
-// settlementManager is the settlementManager façade — the concrete implementation of the
-// GENERATED SettlementManager interface (contract.gen.go). It exposes the six public
-// use-case ops (settlementManager.md §2) and OWNS Temporal. The Temporal-backed ops:
+// billingManager is the billingManager façade — the concrete implementation of the
+// GENERATED BillingManager interface (contract.gen.go). It exposes the six public
+// use-case ops (billingManager.md §2) and OWNS Temporal. The Temporal-backed ops:
 //   - OnboardPaymentIntegration — Workflow (entry; StartWorkflow, id {customerId}:onboard)
 //   - RegisterCustomer          — Workflow (entry; StartWorkflow, id {customerId}:register)
-//   - CloseSettlementCycle      — Workflow (entry; StartWorkflow, id {customerId}:{cycleId}:close)
+//   - CloseBillingCycle      — Workflow (entry; StartWorkflow, id {customerId}:{cycleId}:close)
 //   - RunShortfallSweep         — Workflow (entry; StartWorkflow, id :all:shortfallSweep:{tickId})
 //   - RecordInboundRevenue      — Signal (SignalWithStart inboundRevenueReceived → close id)
 //   - RecordRevenueReversal     — Signal (SignalWithStart chargebackReceived → close id)
 //
 // The façade methods use only the Temporal client; the pre-condition checks (non-empty
-// ids) are enforced here before any Temporal call (settlementManager.md §2/§3.1). It ALSO
+// ids) are enforced here before any Temporal call (billingManager.md §2/§3.1). It ALSO
 // stores the PUBLISHED downstream deps the GENERATED constructor was given so
 // RegisterWorker can fold them (adapters.go) into the hand-written Temporal Workflows.
 // The former exported consumer-mirror interfaces are RETIRED; the Manager depends on the
 // deps' PUBLISHED interfaces and adapts them internally.
-type settlementManager struct {
+type billingManager struct {
 	client client.Client
 
-	settlementState  settlementstate.SettlementStateAccess
-	revenueLedger    revenueledger.RevenueLedgerAccess
+	billingState     billingstate.BillingStateAccess
 	usage            usage.UsageAccess
 	merchantGateway  merchantgateway.MerchantGatewayAccess
 	operatedRuntime  operatedruntime.OperatedRuntimeAccess
 	durableExecution durableexecution.DurableExecutionAccess
-	settlement       settlementengine.SettlementEngine
+	billing          billingengine.BillingEngine
 	intervention     intervention.InterventionEngine
 }
 
-// newSettlementManager is the hand-written, unexported builder the generated
-// NewSettlementManager constructor delegates to. It wires the Temporal client + the
+// newBillingManager is the hand-written, unexported builder the generated
+// NewBillingManager constructor delegates to. It wires the Temporal client + the
 // published deps into the façade. The façade itself uses only the client; the deps are
 // stored for RegisterWorker (worker.go), which folds them into the Temporal Workflows.
-func newSettlementManager(
+func newBillingManager(
 	c client.Client,
-	settlementState settlementstate.SettlementStateAccess,
-	revenueLedger revenueledger.RevenueLedgerAccess,
+	billingState billingstate.BillingStateAccess,
 	usage usage.UsageAccess,
 	merchantGateway merchantgateway.MerchantGatewayAccess,
 	operatedRuntime operatedruntime.OperatedRuntimeAccess,
 	durableExecution durableexecution.DurableExecutionAccess,
-	settlement settlementengine.SettlementEngine,
+	billing billingengine.BillingEngine,
 	interventionEng intervention.InterventionEngine,
-) *settlementManager {
-	return &settlementManager{
+) *billingManager {
+	return &billingManager{
 		client:           c,
-		settlementState:  settlementState,
-		revenueLedger:    revenueLedger,
+		billingState:     billingState,
 		usage:            usage,
 		merchantGateway:  merchantGateway,
 		operatedRuntime:  operatedRuntime,
 		durableExecution: durableExecution,
-		settlement:       settlement,
+		billing:          billing,
 		intervention:     interventionEng,
 	}
 }
 
 // OnboardPaymentIntegration — op 2.1. Temporal Workflow (entry; StartWorkflow, id
-// {customerId}:onboard). Resolves the settlement aggregate (deployedAppId → customerId
-// via readSettlement) → creates the connected account → wires runtime payment config →
-// records the binding → registers the per-customer closeSettlementCycle Schedule.
-// Idempotent on the id (a redundant start returns the running SettlementRef). SYNC:
+// {customerId}:onboard). Resolves the billing aggregate (deployedAppId → customerId
+// via readBilling) → creates the connected account → wires runtime payment config →
+// records the binding → registers the per-customer closeBillingCycle Schedule.
+// Idempotent on the id (a redundant start returns the running BillingRef). SYNC:
 // returns once the onboarding workflow is durably accepted.
-func (m *settlementManager) OnboardPaymentIntegration(rc fwmgr.Context, deployedAppID deployedAppID) (SettlementRef, error) {
+func (m *billingManager) OnboardPaymentIntegration(rc fwmgr.Context, deployedAppID deployedAppID) (BillingRef, error) {
 	ctx := rc.Context
 	if deployedAppID == uuid.Nil {
-		return SettlementRef{}, newError(fwmgr.ContractMisuse, "empty deployedAppId")
+		return BillingRef{}, newError(fwmgr.ContractMisuse, "empty deployedAppId")
 	}
 
-	// The onboarding workflow resolves deployedAppId → customerId via readSettlement
+	// The onboarding workflow resolves deployedAppId → customerId via readBilling
 	// (§3.0 / §2.1); the workflow id is derived from the resolved customerId inside the
 	// workflow's start. The Manager seeds the workflow id family on the deployedAppId
 	// until the customer is resolved (a deterministic start token).
@@ -119,22 +115,22 @@ func (m *settlementManager) OnboardPaymentIntegration(rc fwmgr.Context, deployed
 		DeployedAppID: deployedAppID,
 	})
 	if err != nil {
-		return SettlementRef{}, mapStartError(err)
+		return BillingRef{}, mapStartError(err)
 	}
-	var result SettlementRef
+	var result BillingRef
 	if err := we.Get(ctx, &result); err != nil {
-		return SettlementRef{}, newError(fwmgr.Infrastructure, err.Error())
+		return BillingRef{}, newError(fwmgr.Infrastructure, err.Error())
 	}
 	return result, nil
 }
 
 // RegisterCustomer — op 2.2. Temporal Workflow (entry; StartWorkflow, id
 // {customerId}:register). Validates the stored instrument (zero-amount auth) → opens
-// the settlement aggregate. Idempotent on the id. SYNC.
-func (m *settlementManager) RegisterCustomer(rc fwmgr.Context, customerID customerID) (SettlementRef, error) {
+// the billing aggregate. Idempotent on the id. SYNC.
+func (m *billingManager) RegisterCustomer(rc fwmgr.Context, customerID customerID) (BillingRef, error) {
 	ctx := rc.Context
 	if customerID == uuid.Nil {
-		return SettlementRef{}, newError(fwmgr.ContractMisuse, "empty customerId")
+		return BillingRef{}, newError(fwmgr.ContractMisuse, "empty customerId")
 	}
 
 	wfID := registerWorkflowID(customerID)
@@ -147,23 +143,23 @@ func (m *settlementManager) RegisterCustomer(rc fwmgr.Context, customerID custom
 		CustomerID: customerID,
 	})
 	if err != nil {
-		return SettlementRef{}, mapStartError(err)
+		return BillingRef{}, mapStartError(err)
 	}
-	var result SettlementRef
+	var result BillingRef
 	if err := we.Get(ctx, &result); err != nil {
-		return SettlementRef{}, newError(fwmgr.Infrastructure, err.Error())
+		return BillingRef{}, newError(fwmgr.Infrastructure, err.Error())
 	}
 	return result, nil
 }
 
-// CloseSettlementCycle — op 2.3. Temporal Workflow (entry; scheduler-triggered via the
-// per-customer closeSettlementCycle:<customerId> Schedule; id {customerId}:{cycleId}:close
+// CloseBillingCycle — op 2.3. Temporal Workflow (entry; scheduler-triggered via the
+// per-customer closeBillingCycle:<customerId> Schedule; id {customerId}:{cycleId}:close
 // — the continuity token chargeback Signals target). Reads revenue + usage → computes
 // the signed net + routing directive in-workflow by value → executes the directive
 // (payout/charge/skip; on charge failure decides+executes {Retry|Escalate|Delay}) →
 // records the outcome. Idempotent on the id (a redundant firing collapses to the
 // running close). SYNC from the scheduler's POV.
-func (m *settlementManager) CloseSettlementCycle(rc fwmgr.Context, customerID customerID, cycleID cycleID) (CloseCycleResult, error) {
+func (m *billingManager) CloseBillingCycle(rc fwmgr.Context, customerID customerID, cycleID cycleID) (CloseCycleResult, error) {
 	ctx := rc.Context
 	if customerID == uuid.Nil {
 		return CloseCycleResult{}, newError(fwmgr.ContractMisuse, "empty customerId")
@@ -197,7 +193,7 @@ func (m *settlementManager) CloseSettlementCycle(rc fwmgr.Context, customerID cu
 // persistently-delinquent customer set and, for each, delivers a queued
 // applyDelinquencyPolicy Signal to operationsManager (the single sanctioned queued M→M
 // edge). Does NOT pause/withdraw apps itself. SYNC.
-func (m *settlementManager) RunShortfallSweep(rc fwmgr.Context, tickID string) (ShortfallSweepResult, error) {
+func (m *billingManager) RunShortfallSweep(rc fwmgr.Context, tickID string) (ShortfallSweepResult, error) {
 	ctx := rc.Context
 	if tickID == "" {
 		return ShortfallSweepResult{}, newError(fwmgr.ContractMisuse, "empty tickId")
@@ -226,7 +222,7 @@ func (m *settlementManager) RunShortfallSweep(rc fwmgr.Context, tickID string) (
 // fact to the Revenue Ledger (idempotent on the gateway event id). SYNC from the
 // Client's POV: returns once the signal is durably enqueued. Signature verified
 // upstream — this façade does not re-verify.
-func (m *settlementManager) RecordInboundRevenue(rc fwmgr.Context, event GatewayRevenueEvent) error {
+func (m *billingManager) RecordInboundRevenue(rc fwmgr.Context, event GatewayRevenueEvent) error {
 	ctx := rc.Context
 	if event.CustomerID == uuid.Nil {
 		return newError(fwmgr.ContractMisuse, "empty customerId")
@@ -258,7 +254,7 @@ func (m *settlementManager) RecordInboundRevenue(rc fwmgr.Context, event Gateway
 // completed). The cycle workflow appends the reversal (idempotent on the chargeback's
 // gateway event id), recomputes the net forward-only, records the correction, and
 // routes the delta. Compensation is forward-only; no rollback. SYNC.
-func (m *settlementManager) RecordRevenueReversal(rc fwmgr.Context, event GatewayReversalEvent) error {
+func (m *billingManager) RecordRevenueReversal(rc fwmgr.Context, event GatewayReversalEvent) error {
 	ctx := rc.Context
 	if event.CustomerID == uuid.Nil {
 		return newError(fwmgr.ContractMisuse, "empty customerId")
@@ -284,7 +280,7 @@ func (m *settlementManager) RecordRevenueReversal(rc fwmgr.Context, event Gatewa
 	return nil
 }
 
-// --- workflow id derivation (continuity tokens; settlementManager.md §6.1) ----
+// --- workflow id derivation (continuity tokens; billingManager.md §6.1) ----
 
 // onboardWorkflowID derives the onboarding workflow id. The contract names it
 // {customerId}:onboard once resolved; the Manager seeds the start token on the
@@ -311,7 +307,7 @@ func shortfallSweepWorkflowID(tickID string) string {
 	return fmt.Sprintf(":all:shortfallSweep:%s", tickID)
 }
 
-// --- error mapping at the façade boundary (settlementManager.md §3.1) ---------
+// --- error mapping at the façade boundary (billingManager.md §3.1) ---------
 
 func mapStartError(err error) error {
 	// A "workflow already started" race under UseExisting policy is benign; any other

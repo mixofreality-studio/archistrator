@@ -1,20 +1,20 @@
-// Package settlement is the settlementEngine — the Engine that encapsulates
-// settlement-terms volatility (revenue share, compute-cost pricing, schedule,
+// Package billing is the billingEngine — the Engine that encapsulates
+// billing-terms volatility (revenue share, compute-cost pricing, schedule,
 // billing): how the signed net for a customer's cycle is computed from inbound
 // revenue and compute usage, and which way (payout vs shortfall charge) it routes.
 //
-// Contract: designs/aiarch/implementation/contracts/settlementEngine.md (FROZEN
+// Contract: designs/aiarch/implementation/contracts/billingEngine.md (FROZEN
 // 2026-05-29). Layer rules: [[the-method-layers]] / Löwy ch. 5 — the Engine layer.
 //
 // PURE & DETERMINISTIC. This package does NO I/O, reads NO clock (no time.Now()),
 // uses NO RNG (no math/rand), starts no goroutines, and makes NO outbound calls to
 // any ResourceAccess, Manager, or other Engine. It STATES a routing directive as a
-// VALUE; it never moves money. The two calling Managers (settlementManager,
+// VALUE; it never moves money. The two calling Managers (billingManager,
 // projectDesignManager) read all inputs from the ledgers / head-state, pass value
 // snapshots in, and execute the returned directive themselves. This is what makes
 // the Managers' direct in-workflow calls replay-safe.
 //
-// Money safety (settlementEngine.md §3, §6): money is NEVER a float — all money math
+// Money safety (billingEngine.md §3, §6): money is NEVER a float — all money math
 // is exact int64 minor units. Settling real money under an unregistered
 // revenue-share / compute-cost regime is a financial-correctness hazard, so an
 // unknown-terms input returns an error (fweng.InvalidInput, "unknown terms"); the
@@ -27,11 +27,11 @@
 //
 // Imports ONLY framework-go/engine (the shared Engine error model, aliased fweng).
 // Per Option B full encapsulation the contract redefines every domain type it uses
-// as its OWN generated def (contract.gen.go: Money, SettlementTerms, the
-// settlement-terms enums, ProjectOption, OptionID), so this package imports NO
+// as its OWN generated def (contract.gen.go: Money, BillingTerms, the
+// billing-terms enums, ProjectOption, OptionID), so this package imports NO
 // projectstate — the projectDesignManager converts the canonical projectstate option
-// to settlement.ProjectOption at the call boundary.
-package settlement
+// to billing.ProjectOption at the call boundary.
+package billing
 
 import (
 	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
@@ -46,7 +46,7 @@ const computeCostCentsPerComputeUnitSecond int64 = 1
 // RoutingDirective is which way the signed net routes. It is a VALUE the Engine
 // returns; the Manager executes it against merchantGatewayAccess (it is never
 // performed here). For RecomputeNet the directive still reflects the corrected net's
-// sign; the Manager computes the re-charge / re-payout delta vs the prior settlement.
+// sign; the Manager computes the re-charge / re-payout delta vs the prior billing.
 
 // RoutingNoAction — net == 0; nothing routes.
 
@@ -67,9 +67,9 @@ const computeCostCentsPerComputeUnitSecond int64 = 1
 
 // metered compute consumed over the cycle window
 
-// SettlementResult is the shared output of ComputeNet AND RecomputeNet (the
-// factor-up, settlementEngine.md §2.4): the signed net plus the routing directive,
-// plus the decomposition the Manager renders into the settlement statement. It is
+// BillingResult is the shared output of ComputeNet AND RecomputeNet (the
+// factor-up, billingEngine.md §2.4): the signed net plus the routing directive,
+// plus the decomposition the Manager renders into the billing statement. It is
 // NOT the executed payout/charge — the Manager executes that.
 
 // SignedNet = (inbound revenue − revenue share − compute cost). Signed:
@@ -79,7 +79,7 @@ const computeCostCentsPerComputeUnitSecond int64 = 1
 // the cut taken (for the statement)
 // the pass-through applied (for the statement)
 
-// ReSettlementInput is the input to RecomputeNet (the DSL label recomputeNet(affectedCycle)).
+// ReBillingInput is the input to RecomputeNet (the DSL label recomputeNet(affectedCycle)).
 // The affected-cycle value carries everything needed to recompute by value: the
 // reversal-adjusted revenue, the usage, the terms, and the prior settled result (so
 // the Manager can compute the re-charge / re-payout delta). The Engine never re-reads
@@ -91,7 +91,7 @@ const computeCostCentsPerComputeUnitSecond int64 = 1
 
 // ProjectOption is the input to ProjectCommitTimeRevenueShareAndComputeCost: the
 // committed project option as this Engine needs it — it reads ONLY the customer's
-// settlement Terms (and carries OptionID for audit/labeling). The canonical Phase-2
+// billing Terms (and carries OptionID for audit/labeling). The canonical Phase-2
 // option model is owned by projectStateAccess (projectstate.ProjectOption) and
 // carries many more option-shaping fields (network, worker mix, usage assumption)
 // read by the two estimation Engines; this Engine ignores them, so — per the
@@ -99,29 +99,29 @@ const computeCostCentsPerComputeUnitSecond int64 = 1
 // the slice it reads. The projectDesignManager converts the canonical option to
 // this snapshot at the call boundary.
 
-// the customer's settlement terms, carried on the option by value
+// the customer's billing terms, carried on the option by value
 
 // Projection is the output of ProjectCommitTimeRevenueShareAndComputeCost: the
 // terms-side projection bound to the committed option for the SDP confirmation row
 // (UC2). It is a PROJECTION OF TERMS — no actuals exist at commit time — and is NOT
 // the operation-side cost forecast (that is operationEstimationEngine).
 
-// SettlementEngine is the pure, deterministic settlement-terms-application port
-// (settlementEngine.md §2). Three ops, two callers, ZERO outbound edges.
+// BillingEngine is the pure, deterministic billing-terms-application port
+// (billingEngine.md §2). Three ops, two callers, ZERO outbound edges.
 
 // ComputeNet — UC6 cycle-close signed net + routing for an actual closed cycle.
-// Called by settlementManager. (settlementEngine.md §2.1)
+// Called by billingManager. (billingEngine.md §2.1)
 
-// RecomputeNet — ncuc4 chargeback re-settlement: the corrected net for a cycle
-// whose revenue was reversal-adjusted by a chargeback. Called by settlementManager.
-// (settlementEngine.md §2.2)
+// RecomputeNet — ncuc4 chargeback re-billing: the corrected net for a cycle
+// whose revenue was reversal-adjusted by a chargeback. Called by billingManager.
+// (billingEngine.md §2.2)
 
 // ProjectCommitTimeRevenueShareAndComputeCost — UC2 commit-time terms projection.
 // Takes only the option (which carries the customer's terms by value). Called by
-// projectDesignManager. (settlementEngine.md §2.3)
+// projectDesignManager. (billingEngine.md §2.3)
 
-// The stateless implementation of SettlementEngine — SettlementEngineImpl — and its
-// constructor NewSettlementEngine() are GENERATED into contract.gen.go. It holds no
+// The stateless implementation of BillingEngine — BillingEngineImpl — and its
+// constructor NewBillingEngine() are GENERATED into contract.gen.go. It holds no
 // fields, does no I/O, reads no clock/RNG, and starts no goroutines — safe to call
 // directly from workflow code. The behaviour below is hand-written on the generated
 // struct.
@@ -130,15 +130,15 @@ const computeCostCentsPerComputeUnitSecond int64 = 1
 // a deploy/config hazard — settling real money under an unregistered revenue-share or
 // compute-cost regime is forbidden, so callers turn a false here into an
 // InvalidInput "unknown terms" error rather than a silent default.
-func termsKnown(terms SettlementTerms) bool {
+func termsKnown(terms BillingTerms) bool {
 	return terms.RevenueShare != RevenueShareUnknown &&
 		terms.ComputeCost != ComputeCostUnknown
 }
 
 // ProjectCommitTimeRevenueShareAndComputeCost echoes the committed option's
-// settlement-terms regime kinds and percents as a projection (no actuals). Unknown
+// billing-terms regime kinds and percents as a projection (no actuals). Unknown
 // terms ⇒ InvalidInput "unknown terms" — never a silent default (money safety).
-func (SettlementEngineImpl) ProjectCommitTimeRevenueShareAndComputeCost(_ fweng.Context, option ProjectOption) (Projection, error) {
+func (BillingEngineImpl) ProjectCommitTimeRevenueShareAndComputeCost(_ fweng.Context, option ProjectOption) (Projection, error) {
 	terms := option.Terms
 	if !termsKnown(terms) {
 		return Projection{}, fweng.New(fweng.InvalidInput, "unknown terms")
@@ -152,15 +152,15 @@ func (SettlementEngineImpl) ProjectCommitTimeRevenueShareAndComputeCost(_ fweng.
 }
 
 // ComputeNet computes the signed net for an actual closed cycle and the routing
-// directive. All money math is exact int64 minor units. (settlementEngine.md §2.1)
-func (SettlementEngineImpl) ComputeNet(_ fweng.Context, revenue CycleRevenue, usage CycleUsage, terms SettlementTerms) (SettlementResult, error) {
+// directive. All money math is exact int64 minor units. (billingEngine.md §2.1)
+func (BillingEngineImpl) ComputeNet(_ fweng.Context, revenue CycleRevenue, usage CycleUsage, terms BillingTerms) (BillingResult, error) {
 	return computeNet(revenue, usage, terms)
 }
 
 // RecomputeNet computes the corrected signed net for a reversal-adjusted cycle. The
 // computation is identical to ComputeNet over the reversal-adjusted revenue total;
-// the Manager computes the delta vs affectedCycle.PriorSettled. (settlementEngine.md §2.2)
-func (SettlementEngineImpl) RecomputeNet(_ fweng.Context, affectedCycle ReSettlementInput) (SettlementResult, error) {
+// the Manager computes the delta vs affectedCycle.PriorSettled. (billingEngine.md §2.2)
+func (BillingEngineImpl) RecomputeNet(_ fweng.Context, affectedCycle ReBillingInput) (BillingResult, error) {
 	return computeNet(affectedCycle.Revenue, affectedCycle.Usage, affectedCycle.Terms)
 }
 
@@ -175,19 +175,19 @@ func (SettlementEngineImpl) RecomputeNet(_ fweng.Context, affectedCycle ReSettle
 //	signedNet           = GrossInbound − revenueShareApplied − computeCostApplied
 //
 // RoutingDirective follows the sign of signedNet (>0 Payout, <0 Charge, ==0 NoAction).
-func computeNet(revenue CycleRevenue, usage CycleUsage, terms SettlementTerms) (SettlementResult, error) {
+func computeNet(revenue CycleRevenue, usage CycleUsage, terms BillingTerms) (BillingResult, error) {
 	// Pre-conditions — Manager wiring bugs, not "no-net-possible" outcomes.
 	if revenue.GrossInbound.Currency == "" {
-		return SettlementResult{}, fweng.New(fweng.ContractMisuse,
+		return BillingResult{}, fweng.New(fweng.ContractMisuse,
 			"computeNet: revenue currency is empty (Manager failed to assemble a valid CycleRevenue)")
 	}
 	if revenue.GrossInbound.MinorUnits < 0 {
-		return SettlementResult{}, fweng.New(fweng.ContractMisuse,
+		return BillingResult{}, fweng.New(fweng.ContractMisuse,
 			"computeNet: gross inbound revenue is negative (Manager failed to assemble a valid CycleRevenue)")
 	}
 	if !termsKnown(terms) {
 		// Money safety: never settle real money under an unregistered regime.
-		return SettlementResult{}, fweng.New(fweng.InvalidInput, "unknown terms")
+		return BillingResult{}, fweng.New(fweng.InvalidInput, "unknown terms")
 	}
 
 	currency := revenue.GrossInbound.Currency
@@ -209,7 +209,7 @@ func computeNet(revenue CycleRevenue, usage CycleUsage, terms SettlementTerms) (
 
 	signedNetUnits := gross - revenueShareUnits - computeCostUnits
 
-	result := SettlementResult{
+	result := BillingResult{
 		SignedNet:           Money{MinorUnits: signedNetUnits, Currency: currency},
 		RoutingDirective:    directiveFor(signedNetUnits),
 		RevenueShareApplied: Money{MinorUnits: revenueShareUnits, Currency: currency},
@@ -218,15 +218,15 @@ func computeNet(revenue CycleRevenue, usage CycleUsage, terms SettlementTerms) (
 
 	// Internal-invariant guards (Engine bugs, not domain outcomes).
 	if revenueShareUnits > gross {
-		return SettlementResult{}, fweng.New(fweng.InternalInvariant,
+		return BillingResult{}, fweng.New(fweng.InternalInvariant,
 			"computeNet: revenue share exceeds gross inbound")
 	}
 	if computeCostUnits < 0 {
-		return SettlementResult{}, fweng.New(fweng.InternalInvariant,
+		return BillingResult{}, fweng.New(fweng.InternalInvariant,
 			"computeNet: compute cost is negative")
 	}
 	if !directiveConsistent(signedNetUnits, result.RoutingDirective) {
-		return SettlementResult{}, fweng.New(fweng.InternalInvariant,
+		return BillingResult{}, fweng.New(fweng.InternalInvariant,
 			"computeNet: routing directive inconsistent with the sign of the net")
 	}
 

@@ -1,4 +1,4 @@
-package settlement
+package billing
 
 import (
 	"context"
@@ -11,50 +11,50 @@ import (
 )
 
 // This file holds the Manager-owned Temporal Activity wrappers — one per ResourceAccess
-// call the workflows make (settlementManager.md §6.4). They are METHODS ON THE Workflows
+// call the workflows make (billingManager.md §6.4). They are METHODS ON THE Workflows
 // STRUCT: there is no separate Activities type. The RA dependencies live as fields on
 // Workflows (workflow.go) and are reached on the struct, but the calls run inside
 // Temporal Activities because those RA operations are I/O / non-deterministic and would
-// break replay determinism on the workflow goroutine. The two Engines (settlementEngine,
+// break replay determinism on the workflow goroutine. The two Engines (billingEngine,
 // interventionEngine) are deliberately NOT Activities: they are pure deterministic
-// functions the workflow body calls directly (settlementManager.md §6.4 "NOT Activities").
+// functions the workflow body calls directly (billingManager.md §6.4 "NOT Activities").
 //
-// Each settlement head-state WRITE Activity derives idempotencyKey
+// Each billing head-state WRITE Activity derives idempotencyKey
 // "${workflowId}:${activityId}" from the Temporal activity context (so the RA layer
 // never reads Temporal context). The append-only ledger writes dedup on the gateway
 // event id carried in the entry (revenueLedgerAccess.md §3). The gateway money moves
 // dedup on the Manager-supplied Stripe Idempotency-Key settle:{customerId}:{cycleId}
-// (settlementManager.md §6.4). Every result runs through fwmgr.MapError so terminal
+// (billingManager.md §6.4). Every result runs through fwmgr.MapError so terminal
 // port failures surface to Temporal as terminal errors of their canonical Type().
 
 // activityIdempotencyKey derives "${workflowId}:${activityId}" from the running
-// Activity's info — the stable, distinct key each logical settlement head-state write
-// needs (settlementManager.md §6.4/§6.5).
+// Activity's info — the stable, distinct key each logical billing head-state write
+// needs (billingManager.md §6.4/§6.5).
 func activityIdempotencyKey(ctx context.Context) fwra.IdempotencyKey {
 	info := activity.GetInfo(ctx)
 	return fwra.IdempotencyKey(fmt.Sprintf("%s:%s", info.WorkflowExecution.ID, info.ActivityID))
 }
 
 // gatewayIdempotencyKey derives the Stripe Idempotency-Key settle:{customerId}:{cycleId}
-// for the money-moving gateway Activities (settlementManager.md §6.4 line 264/706).
+// for the money-moving gateway Activities (billingManager.md §6.4 line 264/706).
 func gatewayIdempotencyKey(customerID customerID, cycleID cycleID) string {
 	return fmt.Sprintf("settle:%s:%s", customerID, cycleID)
 }
 
 // =============================================================================
-// settlementStateAccess (head-state) Activities.
+// billingStateAccess (head-state) Activities.
 // =============================================================================
 
-// ReadSettlementActivity wraps settlementStateAccess.readSettlement. Pure whole-aggregate
+// ReadBillingActivity wraps billingStateAccess.readBilling. Pure whole-aggregate
 // read; no idempotency key.
-func (wf *workflows) ReadSettlementActivity(ctx context.Context, customerID customerID) (settlementHead, error) {
-	return mapErr(wf.SettlementState.ReadSettlement(ctx, customerID))
+func (wf *workflows) ReadBillingActivity(ctx context.Context, customerID customerID) (billingHead, error) {
+	return mapErr(wf.BillingState.ReadBilling(ctx, customerID))
 }
 
-// ReadDelinquentActivity wraps settlementStateAccess.readPersistentlyDelinquentCustomers.
+// ReadDelinquentActivity wraps billingStateAccess.readPersistentlyDelinquentCustomers.
 // Pure cross-row read; no idempotency key.
 func (wf *workflows) ReadDelinquentActivity(ctx context.Context, scope delinquencyScope) ([]customerSummary, error) {
-	return mapErr(wf.SettlementState.ReadPersistentlyDelinquentCustomers(ctx, scope))
+	return mapErr(wf.BillingState.ReadPersistentlyDelinquentCustomers(ctx, scope))
 }
 
 // RegisterCustomerArgs bundles the register head-state write inputs.
@@ -63,11 +63,11 @@ type registerCustomerArgs struct {
 	ExpectedVersion version
 }
 
-// RegisterCustomerActivity wraps settlementStateAccess.registerCustomer. idempotencyKey =
+// RegisterCustomerActivity wraps billingStateAccess.registerCustomer. idempotencyKey =
 // "${workflowId}:${activityId}"; a stale expectedVersion surfaces fwra.Conflict for the
 // §6.5 re-read loop.
 func (wf *workflows) RegisterCustomerActivity(ctx context.Context, a registerCustomerArgs) (version, error) {
-	return mapErr(wf.SettlementState.RegisterCustomer(ctx, a.CustomerID, a.ExpectedVersion, customerProfileSeam{}, activityIdempotencyKey(ctx)))
+	return mapErr(wf.BillingState.RegisterCustomer(ctx, a.CustomerID, a.ExpectedVersion, customerProfileSeam{}, activityIdempotencyKey(ctx)))
 }
 
 // BindGatewayLiveArgs bundles the bind head-state write inputs.
@@ -77,9 +77,9 @@ type bindGatewayLiveArgs struct {
 	Binding         gatewayBindingSeam
 }
 
-// BindGatewayLiveActivity wraps settlementStateAccess.bindGatewayLive.
+// BindGatewayLiveActivity wraps billingStateAccess.bindGatewayLive.
 func (wf *workflows) BindGatewayLiveActivity(ctx context.Context, a bindGatewayLiveArgs) (version, error) {
-	return mapErr(wf.SettlementState.BindGatewayLive(ctx, a.CustomerID, a.ExpectedVersion, a.Binding, activityIdempotencyKey(ctx)))
+	return mapErr(wf.BillingState.BindGatewayLive(ctx, a.CustomerID, a.ExpectedVersion, a.Binding, activityIdempotencyKey(ctx)))
 }
 
 // SettleCycleArgs bundles the settle head-state write inputs.
@@ -87,14 +87,14 @@ type settleCycleArgs struct {
 	CustomerID      customerID
 	ExpectedVersion version
 	CycleID         cycleID
-	Outcome         settlementOutcomeSeam
+	Outcome         billingOutcomeSeam
 }
 
-// SettleCycleActivity wraps settlementStateAccess.settleCycle (the money-affecting
+// SettleCycleActivity wraps billingStateAccess.settleCycle (the money-affecting
 // head-state outcome record). idempotencyKey = "${workflowId}:${activityId}"; the
 // dedup-first ledger makes an idempotent replay a no-op success (§6.5).
 func (wf *workflows) SettleCycleActivity(ctx context.Context, a settleCycleArgs) (version, error) {
-	return mapErr(wf.SettlementState.SettleCycle(ctx, a.CustomerID, a.ExpectedVersion, a.CycleID, a.Outcome, activityIdempotencyKey(ctx)))
+	return mapErr(wf.BillingState.SettleCycle(ctx, a.CustomerID, a.ExpectedVersion, a.CycleID, a.Outcome, activityIdempotencyKey(ctx)))
 }
 
 // ResettleCycleArgs bundles the resettle head-state write inputs.
@@ -102,13 +102,13 @@ type resettleCycleArgs struct {
 	CustomerID      customerID
 	ExpectedVersion version
 	CycleID         cycleID
-	Correction      settlementOutcomeSeam
+	Correction      billingOutcomeSeam
 }
 
-// ResettleCycleActivity wraps settlementStateAccess.resettleCycle (the chargeback
+// ResettleCycleActivity wraps billingStateAccess.resettleCycle (the chargeback
 // correction record).
 func (wf *workflows) ResettleCycleActivity(ctx context.Context, a resettleCycleArgs) (version, error) {
-	return mapErr(wf.SettlementState.ResettleCycle(ctx, a.CustomerID, a.ExpectedVersion, a.CycleID, a.Correction, activityIdempotencyKey(ctx)))
+	return mapErr(wf.BillingState.ResettleCycle(ctx, a.CustomerID, a.ExpectedVersion, a.CycleID, a.Correction, activityIdempotencyKey(ctx)))
 }
 
 // =============================================================================
@@ -162,7 +162,7 @@ func (wf *workflows) PayoutCustomerActivity(ctx context.Context, a gatewayMoveAr
 }
 
 // ChargeCustomerActivity wraps merchantGatewayAccess.chargeCustomer. A terminal decline
-// (RA Auth) surfaces to the workflow's decideOnSettlementFailure branch (OQ-4).
+// (RA Auth) surfaces to the workflow's decideOnBillingFailure branch (OQ-4).
 func (wf *workflows) ChargeCustomerActivity(ctx context.Context, a gatewayMoveArgs) (struct{}, error) {
 	return struct{}{}, fwmgr.MapError(wf.Gateway.ChargeCustomer(ctx, a.CustomerID, a.Amount, gatewayIdempotencyKey(a.CustomerID, a.CycleID)))
 }
@@ -215,7 +215,7 @@ func (wf *workflows) DeliverDelinquencySignalActivity(ctx context.Context, a del
 }
 
 // RegisterScheduleActivity wraps durableExecutionAccess.registerSchedule for the
-// per-customer closeSettlementCycle:<customerId> Schedule (idempotent by id). Registered
+// per-customer closeBillingCycle:<customerId> Schedule (idempotent by id). Registered
 // at onboarding (op 2.1).
 func (wf *workflows) RegisterScheduleActivity(ctx context.Context, customerID customerID) (struct{}, error) {
 	return struct{}{}, fwmgr.MapError(wf.Durable.RegisterSchedule(ctx, scheduleSpec{

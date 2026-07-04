@@ -6,9 +6,9 @@ package projectdesign
 import (
 	"encoding/json"
 	fwm "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/billing"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/estimation"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/operationestimation"
-	"github.com/mixofreality-studio/archistrator/server/internal/engine/settlement"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/constructionpipeline"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
@@ -133,6 +133,6 @@ type ProjectDesignManager interface {
 // builder newProjectDesignManager in the manager package (which owns the stateful facade setup:
 // the Temporal client, the deps, and config). The constructor returns the
 // interface, so the concrete manager impl stays unexported.
-func NewProjectDesignManager(client client.Client, projectState projectstate.ProjectStateAccess, pipeline constructionpipeline.ConstructionPipelineAccess, rail sourcecontrol.SourceControlAccess, estimator estimation.EstimationEngine, operationEstimator operationestimation.OperationEstimationEngine, settlementEstimator settlement.SettlementEngine, repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool)) ProjectDesignManager {
-	return newProjectDesignManager(client, projectState, pipeline, rail, estimator, operationEstimator, settlementEstimator, repo)
+func NewProjectDesignManager(client client.Client, projectState projectstate.ProjectStateAccess, pipeline constructionpipeline.ConstructionPipelineAccess, rail sourcecontrol.SourceControlAccess, estimator estimation.EstimationEngine, operationEstimator operationestimation.OperationEstimationEngine, billingEstimator billing.BillingEngine, repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool)) ProjectDesignManager {
+	return newProjectDesignManager(client, projectState, pipeline, rail, estimator, operationEstimator, billingEstimator, repo)
 }

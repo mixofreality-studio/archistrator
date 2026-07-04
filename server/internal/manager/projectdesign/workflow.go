@@ -13,9 +13,9 @@ import (
 	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	billing "github.com/mixofreality-studio/archistrator/server/internal/engine/billing"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/estimation"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/operationestimation"
-	"github.com/mixofreality-studio/archistrator/server/internal/engine/settlement"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 )
@@ -89,7 +89,7 @@ const (
 type workflows struct {
 	Estimation   estimation.EstimationEngine
 	OperationEst operationestimation.OperationEstimationEngine
-	Settlement   settlement.SettlementEngine
+	Settlement   billing.BillingEngine
 	ProjectState projectstate.ProjectStateAccess
 	Pipeline     constructionPipelineAccess
 
@@ -1013,16 +1013,16 @@ func (wf *workflows) assembleSdpReview(proj projectstate.Project, feedback strin
 // encapsulation: the Engine redefines every domain type it uses as its own generated
 // def and imports no projectstate, so the Manager maps field-by-field here). The
 // Engine reads only the option's settlement Terms, so only OptionID + Terms cross.
-func toSettlementOption(opt projectstate.ProjectOption) settlement.ProjectOption {
+func toSettlementOption(opt projectstate.ProjectOption) billing.ProjectOption {
 	t := opt.Terms
-	return settlement.ProjectOption{
-		OptionID: settlement.OptionID(opt.OptionID),
-		Terms: settlement.SettlementTerms{
-			RevenueShare:         settlement.RevenueShareKind(t.RevenueShare),
+	return billing.ProjectOption{
+		OptionID: billing.OptionID(opt.OptionID),
+		Terms: billing.BillingTerms{
+			RevenueShare:         billing.RevenueShareKind(t.RevenueShare),
 			RevenueSharePercent:  t.RevenueSharePercent,
-			ComputeCost:          settlement.ComputeCostKind(t.ComputeCost),
+			ComputeCost:          billing.ComputeCostKind(t.ComputeCost),
 			ComputeMarkupPercent: t.ComputeMarkupPercent,
-			Schedule:             settlement.ScheduleKind(t.Schedule),
+			Schedule:             billing.ScheduleKind(t.Schedule),
 		},
 	}
 }

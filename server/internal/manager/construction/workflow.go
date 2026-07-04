@@ -24,7 +24,7 @@ import (
 // How the two dependency kinds are reached differs by determinism class:
 //   - The three Engines (HandOff / Intervention / Review) are PURE, deterministic,
 //     called DIRECTLY in-workflow (no Activity wrapper — replay-safe).
-//   - The ResourceAccess ports (ProjectState / Pipeline / Artifacts / Workers) are
+//   - The ResourceAccess ports (ProjectState / Pipeline / Artifacts) are
 //     I/O and NON-deterministic; the workflow invokes the Activity methods on this
 //     same struct via workflow.ExecuteActivity (activities.go).
 
@@ -47,7 +47,6 @@ type wfDeps struct {
 	ConstructionTransition constructionTransitionAccess
 	Pipeline               constructionPipelineAccess
 	Artifacts              artifactAccess
-	Workers                workerAccess
 
 	// Rail + GitStatus are the OPTIONAL git-forward slice (C-MCN-GIT). When both are
 	// non-nil the per-activity spine wraps each activity in a branch→PR→CI→+1→merge
@@ -85,7 +84,6 @@ type workflows struct {
 	ConstructionTransition constructionTransitionAccess
 	Pipeline               constructionPipelineAccess
 	Artifacts              artifactAccess
-	Workers                workerAccess
 
 	Rail      sourceControlRail
 	GitStatus gitActivityStatusAccess
@@ -115,7 +113,6 @@ func newWorkflows(d wfDeps) *workflows {
 		ConstructionTransition: ct,
 		Pipeline:               d.Pipeline,
 		Artifacts:              d.Artifacts,
-		Workers:                d.Workers,
 		Rail:                   d.Rail,
 		GitStatus:              d.GitStatus,
 		Repo:                   d.Repo,
@@ -164,13 +161,6 @@ func readProjectOpts(ctx workflow.Context) workflow.Context {
 				fwmanager.RAErrType(fwra.ContractMisuse),
 			},
 		},
-	})
-}
-
-func cancelWorkerOpts(ctx workflow.Context) workflow.Context {
-	return workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 30 * time.Second,
-		RetryPolicy:         &temporal.RetryPolicy{},
 	})
 }
 
@@ -1006,11 +996,9 @@ func (wf *workflows) handleVariance(
 		state.stage = StageDispatching
 		return false, nil // loop to re-dispatch
 	case directiveTakeover:
-		// EXECUTE takeover: abandon the in-flight worker, then loop to re-dispatch
-		// under a changed arrangement.
-		if err := wf.cancelWorker(ctx); err != nil {
-			return false, err
-		}
+		// EXECUTE takeover: loop to re-dispatch under a changed arrangement. The
+		// prior phase pipeline already reached a terminal state before intervention
+		// was consulted, so there is no in-flight dispatch to abandon here.
 		state.stage = StageDispatching
 		return false, nil
 	case directiveEscalate:
@@ -1063,9 +1051,8 @@ func (wf *workflows) executeOverride(
 		state.stage = StageDispatching
 		return false, nil
 	case OverrideTakeover:
-		if err := wf.cancelWorker(ctx); err != nil {
-			return false, err
-		}
+		// Loop to re-dispatch; the prior phase pipeline is already terminal (see the
+		// directiveTakeover note), so there is no in-flight dispatch to abandon.
 		state.stage = StageDispatching
 		return false, nil
 	case OverrideSkip:
@@ -1131,13 +1118,6 @@ func (wf *workflows) awaitOverrideBounded(ctx workflow.Context, overrideCh workf
 	})
 	sel.Select(ctx)
 	return sig, got
-}
-
-// cancelWorker runs the worker-abandon Activity (the takeover / operator-pause
-// path — workerAccess.Cancel).
-func (wf *workflows) cancelWorker(ctx workflow.Context) error {
-	c := cancelWorkerOpts(ctx)
-	return workflow.ExecuteActivity(c, wf.CancelWorkerActivity, struct{}{}).Get(ctx, nil)
 }
 
 // ===========================================================================

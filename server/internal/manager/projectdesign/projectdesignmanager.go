@@ -7,9 +7,9 @@ import (
 
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	billing "github.com/mixofreality-studio/archistrator/server/internal/engine/billing"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/estimation"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/operationestimation"
-	"github.com/mixofreality-studio/archistrator/server/internal/engine/settlement"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/constructionpipeline"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
@@ -63,7 +63,7 @@ type projectDesignManager struct {
 	rail         sourcecontrol.SourceControlAccess
 	estimator    estimation.EstimationEngine
 	opEstimator  operationestimation.OperationEstimationEngine
-	settlement   settlement.SettlementEngine
+	settlement   billing.BillingEngine
 	repo         func(projectID ProjectID) (sourcecontrol.RepoRef, bool)
 }
 
@@ -80,7 +80,7 @@ func newProjectDesignManager(
 	rail sourcecontrol.SourceControlAccess,
 	estimator estimation.EstimationEngine,
 	opEstimator operationestimation.OperationEstimationEngine,
-	settle settlement.SettlementEngine,
+	settle billing.BillingEngine,
 	repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool),
 ) *projectDesignManager {
 	return &projectDesignManager{

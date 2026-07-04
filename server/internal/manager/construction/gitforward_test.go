@@ -268,7 +268,6 @@ func gitWiredWorkflows(ps *fakeProjectState, rail *stubRail, git *stubGitStatus,
 		ProjectState: ps,
 		Pipeline:     &fakePipeline{phase: PipelineSucceeded},
 		Artifacts:    &fakeArtifacts{},
-		Workers:      &fakeWorker{},
 		// git-forward slice wired directly (the former WithGitForward composition helper
 		// is retired — RegisterWorker now folds these from the manager's stored deps).
 		Rail:      rail,
@@ -435,7 +434,7 @@ func Test_GitForward_Dormant_WhenUnwired(t *testing.T) {
 	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{class: aiWorker}, Intervention: &fakeIntervention{directive: directiveRetry},
 		Review: &fakeReview{}, ProjectState: ps, Pipeline: &fakePipeline{phase: PipelineSucceeded},
-		Artifacts: &fakeArtifacts{}, Workers: &fakeWorker{},
+		Artifacts: &fakeArtifacts{},
 		// no WithGitForward — Rail/GitStatus/Repo nil.
 	})
 	registerConstruct(env, wf)

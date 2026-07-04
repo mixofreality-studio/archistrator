@@ -20,7 +20,6 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/constructionpipeline"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
-	workeraccess "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/worker"
 )
 
 // constructionManager is the constructionManager façade — the concrete
@@ -45,7 +44,6 @@ type constructionManager struct {
 
 	projectState           projectstate.ProjectStateAccess
 	artifact               artifact.ArtifactAccess
-	worker                 workeraccess.WorkerAccess
 	handOff                handoff.HandOffEngine
 	intervention           intervention.InterventionEngine
 	review                 review.ReviewEngine
@@ -68,7 +66,6 @@ func newConstructionManager(
 	c client.Client,
 	projectState projectstate.ProjectStateAccess,
 	art artifact.ArtifactAccess,
-	wrk workeraccess.WorkerAccess,
 	handOff handoff.HandOffEngine,
 	interventionEng intervention.InterventionEngine,
 	reviewEng review.ReviewEngine,
@@ -83,7 +80,6 @@ func newConstructionManager(
 		client:                 c,
 		projectState:           projectState,
 		artifact:               art,
-		worker:                 wrk,
 		handOff:                handOff,
 		intervention:           interventionEng,
 		review:                 reviewEng,

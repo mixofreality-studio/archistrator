@@ -1,4 +1,4 @@
-package settlement
+package billing
 
 import (
 	"context"
@@ -11,32 +11,32 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// Shared Temporal identity constants (settlementManager.md §6.1/§6.2).
+// Shared Temporal identity constants (billingManager.md §6.1/§6.2).
 // ---------------------------------------------------------------------------
 
 // TaskQueue is the one queue per Manager that the in-process Temporal Worker in the
-// server polls (settlementManager.md §6.1; operational-concepts.md §6 — "one Worker per
-// task queue: ... settlement").
-const TaskQueue = "settlement"
+// server polls (billingManager.md §6.1; operational-concepts.md §6 — "one Worker per
+// task queue: ... billing").
+const TaskQueue = "billing"
 
-// ExecutionKinds — the registered workflow names (settlementManager.md §6.2).
+// ExecutionKinds — the registered workflow names (billingManager.md §6.2).
 const (
 	// ExecutionKindOnboard is the UC5 payment-integration onboarding workflow.
-	executionKindOnboard = "settlementOnboardPayment"
+	executionKindOnboard = "billingOnboardPayment"
 	// ExecutionKindRegister is the ncuc1 customer-registration workflow.
-	executionKindRegister = "settlementRegisterCustomer"
+	executionKindRegister = "billingRegisterCustomer"
 	// ExecutionKindClose is the UC6 cycle-close workflow (also hosts the inbound/
 	// chargeback Signals and the forward-only recompute saga).
-	executionKindClose = "settlementCloseCycle"
+	executionKindClose = "billingCloseCycle"
 	// ExecutionKindShortfallSweep is the ncuc5 shortfall-sweep workflow.
-	executionKindShortfallSweep = "settlementShortfallSweep"
+	executionKindShortfallSweep = "billingShortfallSweep"
 )
 
-// Schedule ids + cadence (settlementManager.md §6.1; operational-concepts.md §4).
+// Schedule ids + cadence (billingManager.md §6.1; operational-concepts.md §4).
 const (
 	// scheduleIDCloseCyclePrefix is the per-customer cycle-close Schedule id prefix; the
-	// full id is "closeSettlementCycle:<customerId>" (registered at onboarding, op 2.1).
-	scheduleIDCloseCyclePrefix = "closeSettlementCycle"
+	// full id is "closeBillingCycle:<customerId>" (registered at onboarding, op 2.1).
+	scheduleIDCloseCyclePrefix = "closeBillingCycle"
 
 	// scheduleIDShortfallSweep is the platform-wide shortfall-sweep Schedule id
 	// (registered at startup).
@@ -44,7 +44,7 @@ const (
 
 	// closeCycleDefaultIntervalSecs is the default per-customer cycle cadence (daily) the
 	// onboarding Schedule registers; the real cadence is derived from the customer's
-	// SettlementSchedule (operational-concepts.md §4 line 113). Default = 24h.
+	// BillingSchedule (operational-concepts.md §4 line 113). Default = 24h.
 	closeCycleDefaultIntervalSecs = 24 * 60 * 60
 
 	// shortfallSweepIntervalSecs is the hourly shortfall-sweep cadence (1h;
@@ -54,10 +54,10 @@ const (
 
 // Activity name constants. The Activity methods are registered under these stable names
 // and the workflow bodies invoke them by the method value on wf, so the registered name
-// and the call stay in lockstep (settlementManager.md §6.4 — one per RA call).
+// and the call stay in lockstep (billingManager.md §6.4 — one per RA call).
 const (
-	// settlementStateAccess (head-state) Activities.
-	actReadSettlement   = "ReadSettlementActivity"
+	// billingStateAccess (head-state) Activities.
+	actReadBilling      = "ReadBillingActivity"
 	actReadDelinquent   = "ReadDelinquentActivity"
 	actRegisterCustomer = "RegisterCustomerActivity"
 	actBindGatewayLive  = "BindGatewayLiveActivity"
@@ -84,30 +84,30 @@ const (
 	actRegisterSchedule   = "RegisterScheduleActivity"
 )
 
-// RegisterWorker wires the settlementManager onto a Temporal Worker polling the
-// settlement task queue (settlementManager.md §6.1). The Manager's workflow dependencies
-// — the two Engines (settlementEngine, interventionEngine, called DIRECTLY in-workflow)
-// and the ResourceAccess ports (settlementStateAccess, revenueLedgerAccess, usageAccess,
+// RegisterWorker wires the billingManager onto a Temporal Worker polling the
+// billing task queue (billingManager.md §6.1). The Manager's workflow dependencies
+// — the two Engines (billingEngine, interventionEngine, called DIRECTLY in-workflow)
+// and the ResourceAccess ports (billingStateAccess, revenueLedgerAccess, usageAccess,
 // merchantGatewayAccess, operatedRuntimeAccess, durableExecutionAccess) — live on a
 // single Workflows struct (there is no separate Activities type).
 //
 // The two Engines' verbs are called DIRECTLY from workflow code (deterministic, by
 // value) and are NOT Activities. The durableExecutionAccess in-workflow primitive
 // (awaitSignal) is the Manager's own code (category A) and is NOT an Activity either.
-func RegisterWorker(w worker.Worker, m SettlementManager) {
-	impl, ok := m.(*settlementManager)
+func RegisterWorker(w worker.Worker, m BillingManager) {
+	impl, ok := m.(*billingManager)
 	if !ok {
-		panic("settlement: RegisterWorker requires a *settlementManager from NewSettlementManager")
+		panic("billing: RegisterWorker requires a *billingManager from NewBillingManager")
 	}
 
 	// Fold the published deps the constructor stored into the unexported seams the
 	// Workflows struct holds (adapters.go) — the Option-B boundary mapping that replaces
 	// the former composition-root wfDeps wiring.
 	deps := wfDeps{
-		Settlement:      settlementEngineAdapter{inner: impl.settlement},
+		Billing:         billingEngineAdapter{inner: impl.billing},
 		Intervention:    interventionAdapter{inner: impl.intervention},
-		SettlementState: settlementStateAdapter{inner: impl.settlementState},
-		RevenueLedger:   revenueLedgerAdapter{inner: impl.revenueLedger},
+		BillingState:    billingStateAdapter{inner: impl.billingState},
+		RevenueLedger:   noopRevenueLedger{},
 		Usage:           usageAdapter{inner: impl.usage},
 		Gateway:         merchantGatewayAdapter{inner: impl.merchantGateway},
 		OperatedRuntime: operatedRuntimeAdapter{inner: impl.operatedRuntime},
@@ -120,8 +120,8 @@ func RegisterWorker(w worker.Worker, m SettlementManager) {
 	w.RegisterWorkflowWithOptions(wf.CloseCycleWorkflow, workflow.RegisterOptions{Name: executionKindClose})
 	w.RegisterWorkflowWithOptions(wf.ShortfallSweepWorkflow, workflow.RegisterOptions{Name: executionKindShortfallSweep})
 
-	// The Activities (settlementManager.md §6.4), one per RA call.
-	w.RegisterActivityWithOptions(wf.ReadSettlementActivity, activity.RegisterOptions{Name: actReadSettlement})
+	// The Activities (billingManager.md §6.4), one per RA call.
+	w.RegisterActivityWithOptions(wf.ReadBillingActivity, activity.RegisterOptions{Name: actReadBilling})
 	w.RegisterActivityWithOptions(wf.ReadDelinquentActivity, activity.RegisterOptions{Name: actReadDelinquent})
 	w.RegisterActivityWithOptions(wf.RegisterCustomerActivity, activity.RegisterOptions{Name: actRegisterCustomer})
 	w.RegisterActivityWithOptions(wf.BindGatewayLiveActivity, activity.RegisterOptions{Name: actBindGatewayLive})
@@ -145,8 +145,8 @@ func RegisterWorker(w worker.Worker, m SettlementManager) {
 }
 
 // RegisterSchedules registers (idempotently) the platform-wide shortfallSweep (hourly)
-// Temporal Schedule at startup via durableExecutionAccess (settlementManager.md §6.1;
-// FU-MST-3). Called once at process start. The per-customer closeSettlementCycle:<customerId>
+// Temporal Schedule at startup via durableExecutionAccess (billingManager.md §6.1;
+// FU-MST-3). Called once at process start. The per-customer closeBillingCycle:<customerId>
 // Schedule is NOT registered here — it is registered per-customer at onboarding (op 2.1,
 // RegisterScheduleActivity).
 func RegisterSchedules(ctx context.Context, durable durableexecution.DurableExecutionAccess) error {

@@ -1,8 +1,8 @@
-package settlement
+package billing
 
 // adapters.go holds the FOLDED composition-root adapters that bridge the published
 // engine / ResourceAccess interfaces (the dependencies the GENERATED constructor
-// NewSettlementManager receives) to the Manager's unexported downstream seams (deps.go).
+// NewBillingManager receives) to the Manager's unexported downstream seams (deps.go).
 // Per the founder DI model (2026-06-28) these were retired from cmd/server and live HERE,
 // in the one package that knows both sides — the Manager depends on each dependency's
 // PUBLISHED interface and adapts it internally (Option-B boundary mapping), exactly as
@@ -13,7 +13,7 @@ package settlement
 // The mechanical enum/struct copies map by IDENTITY (an explicit switch), not by raw int,
 // so a future re-order on either side is safe. Where the published shape is RICHER than
 // the Manager-local seam (extra percent/policy fields) the unset fields default to zero —
-// the settlement Worker carries no policy config yet, and the stub RAs return
+// the billing Worker carries no policy config yet, and the stub RAs return
 // not-implemented at runtime regardless.
 
 import (
@@ -23,43 +23,42 @@ import (
 
 	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	billingengine "github.com/mixofreality-studio/archistrator/server/internal/engine/billing"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
-	settlementengine "github.com/mixofreality-studio/archistrator/server/internal/engine/settlement"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/billingstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/durableexecution"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/merchantgateway"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedruntime"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/revenueledger"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/settlementstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
 )
 
 // ===========================================================================
-// settlementStateAccess adapter — over settlementstate.SettlementStateAccess.
+// billingStateAccess adapter — over billingstate.BillingStateAccess.
 // ===========================================================================
 
-type settlementStateAdapter struct {
-	inner settlementstate.SettlementStateAccess
+type billingStateAdapter struct {
+	inner billingstate.BillingStateAccess
 }
 
-var _ settlementStateAccess = settlementStateAdapter{}
+var _ billingStateAccess = billingStateAdapter{}
 
-func (a settlementStateAdapter) ReadSettlement(ctx context.Context, customerID customerID) (settlementHead, error) {
-	s, err := a.inner.ReadSettlement(fwra.Context{Context: ctx}, customerID)
+func (a billingStateAdapter) ReadBilling(ctx context.Context, customerID customerID) (billingHead, error) {
+	s, err := a.inner.ReadBilling(fwra.Context{Context: ctx}, customerID)
 	if err != nil {
-		return settlementHead{}, err
+		return billingHead{}, err
 	}
-	return settlementHead{
+	return billingHead{
 		ID:            s.ID,
 		Version:       version(s.Version),
 		GatewayBound:  s.GatewayBound,
 		Registered:    s.Registered,
-		Terms:         settlementTermsFromState(s.Terms),
+		Terms:         billingTermsFromState(s.Terms),
 		PayoutAccount: s.PayoutAccount,
 	}, nil
 }
 
-func (a settlementStateAdapter) ReadPersistentlyDelinquentCustomers(ctx context.Context, scope delinquencyScope) ([]customerSummary, error) {
-	rows, err := a.inner.ReadPersistentlyDelinquentCustomers(fwra.Context{Context: ctx}, settlementstate.DelinquencyScope{
+func (a billingStateAdapter) ReadPersistentlyDelinquentCustomers(ctx context.Context, scope delinquencyScope) ([]customerSummary, error) {
+	rows, err := a.inner.ReadPersistentlyDelinquentCustomers(fwra.Context{Context: ctx}, billingstate.DelinquencyScope{
 		ProjectID: scope.ProjectID,
 	})
 	if err != nil {
@@ -72,54 +71,54 @@ func (a settlementStateAdapter) ReadPersistentlyDelinquentCustomers(ctx context.
 	return out, nil
 }
 
-func (a settlementStateAdapter) RegisterCustomer(ctx context.Context, customerID customerID, expectedVersion version, profile customerProfileSeam, idempotencyKey fwra.IdempotencyKey) (version, error) {
+func (a billingStateAdapter) RegisterCustomer(ctx context.Context, customerID customerID, expectedVersion version, profile customerProfileSeam, idempotencyKey fwra.IdempotencyKey) (version, error) {
 	v, err := a.inner.RegisterCustomer(
 		fwra.Context{Context: ctx, IdempotencyKey: idempotencyKey},
 		customerID,
-		settlementstate.Version(expectedVersion),
-		settlementstate.CustomerProfile{PayoutAccountRef: profile.PayoutAccountRef},
+		billingstate.Version(expectedVersion),
+		billingstate.CustomerProfile{PayoutAccountRef: profile.PayoutAccountRef},
 		idempotencyKey,
 	)
 	return version(v), err
 }
 
-func (a settlementStateAdapter) BindGatewayLive(ctx context.Context, customerID customerID, expectedVersion version, binding gatewayBindingSeam, idempotencyKey fwra.IdempotencyKey) (version, error) {
+func (a billingStateAdapter) BindGatewayLive(ctx context.Context, customerID customerID, expectedVersion version, binding gatewayBindingSeam, idempotencyKey fwra.IdempotencyKey) (version, error) {
 	v, err := a.inner.BindGatewayLive(
 		fwra.Context{Context: ctx, IdempotencyKey: idempotencyKey},
 		customerID,
-		settlementstate.Version(expectedVersion),
-		settlementstate.GatewayBinding{ConnectedAccountID: binding.ConnectedAccountID},
+		billingstate.Version(expectedVersion),
+		billingstate.GatewayBinding{ConnectedAccountID: binding.ConnectedAccountID},
 		idempotencyKey,
 	)
 	return version(v), err
 }
 
-func (a settlementStateAdapter) SettleCycle(ctx context.Context, customerID customerID, expectedVersion version, cycle cycleID, outcome settlementOutcomeSeam, idempotencyKey fwra.IdempotencyKey) (version, error) {
+func (a billingStateAdapter) SettleCycle(ctx context.Context, customerID customerID, expectedVersion version, cycle cycleID, outcome billingOutcomeSeam, idempotencyKey fwra.IdempotencyKey) (version, error) {
 	v, err := a.inner.SettleCycle(
 		fwra.Context{Context: ctx, IdempotencyKey: idempotencyKey},
 		customerID,
-		settlementstate.Version(expectedVersion),
+		billingstate.Version(expectedVersion),
 		string(cycle),
-		settlementOutcomeToState(outcome),
+		billingOutcomeToState(outcome),
 		idempotencyKey,
 	)
 	return version(v), err
 }
 
-func (a settlementStateAdapter) ResettleCycle(ctx context.Context, customerID customerID, expectedVersion version, cycle cycleID, correction settlementOutcomeSeam, idempotencyKey fwra.IdempotencyKey) (version, error) {
+func (a billingStateAdapter) ResettleCycle(ctx context.Context, customerID customerID, expectedVersion version, cycle cycleID, correction billingOutcomeSeam, idempotencyKey fwra.IdempotencyKey) (version, error) {
 	v, err := a.inner.ResettleCycle(
 		fwra.Context{Context: ctx, IdempotencyKey: idempotencyKey},
 		customerID,
-		settlementstate.Version(expectedVersion),
+		billingstate.Version(expectedVersion),
 		string(cycle),
-		settlementOutcomeToState(correction),
+		billingOutcomeToState(correction),
 		idempotencyKey,
 	)
 	return version(v), err
 }
 
-func settlementTermsFromState(t settlementstate.SettlementTerms) settlementTermsSeam {
-	return settlementTermsSeam{
+func billingTermsFromState(t billingstate.BillingTerms) billingTermsSeam {
+	return billingTermsSeam{
 		RevenueShareKind: int(t.RevenueShareKind),
 		ComputeCostKind:  int(t.ComputeCostKind),
 		ScheduleKind:     int(t.ScheduleKind),
@@ -127,97 +126,61 @@ func settlementTermsFromState(t settlementstate.SettlementTerms) settlementTerms
 	}
 }
 
-func settlementOutcomeToState(o settlementOutcomeSeam) settlementstate.SettlementOutcome {
-	return settlementstate.SettlementOutcome{
-		Net:       settlementstate.Money{MinorUnits: o.Net.MinorUnits, Currency: o.Net.Currency},
+func billingOutcomeToState(o billingOutcomeSeam) billingstate.BillingOutcome {
+	return billingstate.BillingOutcome{
+		Net:       billingstate.Money{MinorUnits: o.Net.MinorUnits, Currency: o.Net.Currency},
 		Directive: routingDirectiveToState(o.Directive),
 		Escalated: o.Escalated,
 	}
 }
 
-func routingDirectiveToState(d routingDirectiveSeam) settlementstate.RoutingDirective {
+func routingDirectiveToState(d routingDirectiveSeam) billingstate.RoutingDirective {
 	switch d {
 	case routingPayout:
-		return settlementstate.RoutingPayout
+		return billingstate.RoutingPayout
 	case routingCharge:
-		return settlementstate.RoutingCharge
+		return billingstate.RoutingCharge
 	case routingNoAction:
 		// net == 0 (or a recompute delta == 0) — skip; same as default.
-		return settlementstate.RoutingNoAction
+		return billingstate.RoutingNoAction
 	default:
-		return settlementstate.RoutingNoAction
+		return billingstate.RoutingNoAction
 	}
 }
 
 // ===========================================================================
-// revenueLedgerAccess adapter — over revenueledger.RevenueLedgerAccess.
+// revenueLedgerAccess NO-OP stub.
+//
+// TODO(charge-only): the append-only inbound-revenue ledger (revenueLedgerAccess)
+// was REMOVED under the charge-only model (slot 5 has no revenue-ledger component;
+// inbound end-user revenue is no longer platform-tracked). The billing Manager's
+// workflow still carries the revenue-fold seam (deps.go revenueLedgerAccess + the
+// record/read Activities) so the close/recompute spine keeps compiling unchanged,
+// but it is wired to this no-op: RecordInboundRevenue / RecordReversal are dropped
+// (return a stub ref) and ReadRange returns no facts (GrossInbound folds to zero —
+// under charge-only there is no revenue share, only the hosting-cost charge). A
+// follow-up should excise the revenue-fold spine from the workflow entirely rather
+// than keep the dormant seam.
 // ===========================================================================
 
-type revenueLedgerAdapter struct {
-	inner revenueledger.RevenueLedgerAccess
+type noopRevenueLedger struct{}
+
+var _ revenueLedgerAccess = noopRevenueLedger{}
+
+func (noopRevenueLedger) RecordInboundRevenue(_ context.Context, _ revenueEntrySeam) (entryRefSeam, error) {
+	return entryRefSeam(""), nil
 }
 
-var _ revenueLedgerAccess = revenueLedgerAdapter{}
-
-func (a revenueLedgerAdapter) RecordInboundRevenue(ctx context.Context, entry revenueEntrySeam) (entryRefSeam, error) {
-	ref, err := a.inner.RecordInboundRevenue(fwra.Context{Context: ctx}, revenueledger.RevenueEntry{
-		CustomerID:     entry.CustomerID,
-		CycleID:        string(entry.CycleID),
-		Kind:           revenueKindToLedger(entry.Kind),
-		Amount:         revenueledger.Money{MinorUnits: entry.Amount.MinorUnits, Currency: entry.Amount.Currency},
-		GatewayEventID: entry.GatewayEventID,
-		OccurredAt:     entry.OccurredAt,
-	})
-	return entryRefSeam(ref), err
+func (noopRevenueLedger) RecordReversal(_ context.Context, _ reversalEntrySeam) (entryRefSeam, error) {
+	return entryRefSeam(""), nil
 }
 
-func (a revenueLedgerAdapter) RecordReversal(ctx context.Context, reversal reversalEntrySeam) (entryRefSeam, error) {
-	ref, err := a.inner.RecordReversal(fwra.Context{Context: ctx}, revenueledger.ReversalEntry{
-		CustomerID:             reversal.CustomerID,
-		CycleID:                string(reversal.CycleID),
-		Amount:                 revenueledger.Money{MinorUnits: reversal.Amount.MinorUnits, Currency: reversal.Amount.Currency},
-		GatewayEventID:         reversal.GatewayEventID,
-		ReversesGatewayEventID: reversal.ReversesGatewayEventID,
-		OccurredAt:             reversal.OccurredAt,
-	})
-	return entryRefSeam(ref), err
-}
-
-func (a revenueLedgerAdapter) ReadRange(ctx context.Context, customerID customerID, cycleID cycleID) ([]revenueEntrySeam, error) {
-	entries, err := a.inner.ReadRange(fwra.Context{Context: ctx}, customerID, string(cycleID))
-	if err != nil {
-		return nil, err
-	}
-	out := make([]revenueEntrySeam, 0, len(entries))
-	for _, e := range entries {
-		out = append(out, revenueEntrySeam{
-			CustomerID:     e.CustomerID,
-			CycleID:        string(e.CycleID),
-			Kind:           revenueKindFromLedger(e.Kind),
-			Amount:         Money{MinorUnits: e.Amount.MinorUnits, Currency: e.Amount.Currency},
-			GatewayEventID: e.GatewayEventID,
-			OccurredAt:     e.OccurredAt,
-		})
-	}
-	return out, nil
-}
-
-func revenueKindToLedger(k revenueKindSeam) revenueledger.RevenueKind {
-	if k == revenueKindReversal {
-		return revenueledger.RevenueKindReversal
-	}
-	return revenueledger.RevenueKindInbound
-}
-
-func revenueKindFromLedger(k revenueledger.RevenueKind) revenueKindSeam {
-	if k == revenueledger.RevenueKindReversal {
-		return revenueKindReversal
-	}
-	return revenueKindInbound
+func (noopRevenueLedger) ReadRange(_ context.Context, _ customerID, _ cycleID) ([]revenueEntrySeam, error) {
+	return nil, nil
 }
 
 // ===========================================================================
-// usageAccess adapter — over usage.UsageAccess (settlement reads the whole cycle).
+// usageAccess adapter — over usage.UsageAccess (billing reads the whole cycle).
 // ===========================================================================
 
 type usageAdapter struct {
@@ -355,75 +318,75 @@ func (a durableAdapter) RegisterSchedule(ctx context.Context, spec scheduleSpec)
 }
 
 // ===========================================================================
-// settlementEngine adapter — over settlementengine.SettlementEngine (the two compute
+// billingEngine adapter — over billingengine.BillingEngine (the two compute
 // verbs the Manager calls DIRECTLY in-workflow).
 // ===========================================================================
 
-type settlementEngineAdapter struct {
-	inner settlementengine.SettlementEngine
+type billingEngineAdapter struct {
+	inner billingengine.BillingEngine
 }
 
-var _ settlementEngine = settlementEngineAdapter{}
+var _ billingEngine = billingEngineAdapter{}
 
-func (a settlementEngineAdapter) ComputeNet(revenue cycleRevenueSeam, usage cycleUsageSeam, terms settlementTermsSeam) (settlementResultSeam, error) {
+func (a billingEngineAdapter) ComputeNet(revenue cycleRevenueSeam, usage cycleUsageSeam, terms billingTermsSeam) (billingResultSeam, error) {
 	res, err := a.inner.ComputeNet(
 		fweng.Context{Context: context.Background()},
 		cycleRevenueToEngine(revenue),
 		cycleUsageToEngine(usage),
-		settlementTermsToEngine(terms),
+		billingTermsToEngine(terms),
 	)
 	if err != nil {
-		return settlementResultSeam{}, err
+		return billingResultSeam{}, err
 	}
-	return settlementResultFromEngine(res), nil
+	return billingResultFromEngine(res), nil
 }
 
-func (a settlementEngineAdapter) RecomputeNet(affected reSettlementInputSeam) (settlementResultSeam, error) {
+func (a billingEngineAdapter) RecomputeNet(affected reBillingInputSeam) (billingResultSeam, error) {
 	res, err := a.inner.RecomputeNet(
 		fweng.Context{Context: context.Background()},
-		settlementengine.ReSettlementInput{
+		billingengine.ReBillingInput{
 			Revenue:      cycleRevenueToEngine(affected.Revenue),
 			Usage:        cycleUsageToEngine(affected.Usage),
-			Terms:        settlementTermsToEngine(affected.Terms),
-			PriorSettled: settlementResultToEngine(affected.PriorSettled),
+			Terms:        billingTermsToEngine(affected.Terms),
+			PriorSettled: billingResultToEngine(affected.PriorSettled),
 		},
 	)
 	if err != nil {
-		return settlementResultSeam{}, err
+		return billingResultSeam{}, err
 	}
-	return settlementResultFromEngine(res), nil
+	return billingResultFromEngine(res), nil
 }
 
-func cycleRevenueToEngine(r cycleRevenueSeam) settlementengine.CycleRevenue {
-	return settlementengine.CycleRevenue{
-		GrossInbound: settlementengine.Money{MinorUnits: r.GrossInbound.MinorUnits, Currency: r.GrossInbound.Currency},
+func cycleRevenueToEngine(r cycleRevenueSeam) billingengine.CycleRevenue {
+	return billingengine.CycleRevenue{
+		GrossInbound: billingengine.Money{MinorUnits: r.GrossInbound.MinorUnits, Currency: r.GrossInbound.Currency},
 		EventCount:   int64(r.EventCount),
 	}
 }
 
-func cycleUsageToEngine(u cycleUsageSeam) settlementengine.CycleUsage {
-	return settlementengine.CycleUsage{ComputeUnitSeconds: u.ComputeUnitSeconds}
+func cycleUsageToEngine(u cycleUsageSeam) billingengine.CycleUsage {
+	return billingengine.CycleUsage{ComputeUnitSeconds: u.ComputeUnitSeconds}
 }
 
-func settlementTermsToEngine(t settlementTermsSeam) settlementengine.SettlementTerms {
-	return settlementengine.SettlementTerms{
-		RevenueShare: settlementengine.RevenueShareKind(t.RevenueShareKind),
-		ComputeCost:  settlementengine.ComputeCostKind(t.ComputeCostKind),
-		Schedule:     settlementengine.ScheduleKind(t.ScheduleKind),
+func billingTermsToEngine(t billingTermsSeam) billingengine.BillingTerms {
+	return billingengine.BillingTerms{
+		RevenueShare: billingengine.RevenueShareKind(t.RevenueShareKind),
+		ComputeCost:  billingengine.ComputeCostKind(t.ComputeCostKind),
+		Schedule:     billingengine.ScheduleKind(t.ScheduleKind),
 	}
 }
 
-func settlementResultToEngine(r settlementResultSeam) settlementengine.SettlementResult {
-	return settlementengine.SettlementResult{
-		SignedNet:           settlementengine.Money{MinorUnits: r.SignedNet.MinorUnits, Currency: r.SignedNet.Currency},
+func billingResultToEngine(r billingResultSeam) billingengine.BillingResult {
+	return billingengine.BillingResult{
+		SignedNet:           billingengine.Money{MinorUnits: r.SignedNet.MinorUnits, Currency: r.SignedNet.Currency},
 		RoutingDirective:    routingDirectiveToEngine(r.RoutingDirective),
-		RevenueShareApplied: settlementengine.Money{MinorUnits: r.RevenueShareApplied.MinorUnits, Currency: r.RevenueShareApplied.Currency},
-		ComputeCostApplied:  settlementengine.Money{MinorUnits: r.ComputeCostApplied.MinorUnits, Currency: r.ComputeCostApplied.Currency},
+		RevenueShareApplied: billingengine.Money{MinorUnits: r.RevenueShareApplied.MinorUnits, Currency: r.RevenueShareApplied.Currency},
+		ComputeCostApplied:  billingengine.Money{MinorUnits: r.ComputeCostApplied.MinorUnits, Currency: r.ComputeCostApplied.Currency},
 	}
 }
 
-func settlementResultFromEngine(r settlementengine.SettlementResult) settlementResultSeam {
-	return settlementResultSeam{
+func billingResultFromEngine(r billingengine.BillingResult) billingResultSeam {
+	return billingResultSeam{
 		SignedNet:           Money{MinorUnits: r.SignedNet.MinorUnits, Currency: r.SignedNet.Currency},
 		RoutingDirective:    routingDirectiveFromEngine(r.RoutingDirective),
 		RevenueShareApplied: Money{MinorUnits: r.RevenueShareApplied.MinorUnits, Currency: r.RevenueShareApplied.Currency},
@@ -431,27 +394,27 @@ func settlementResultFromEngine(r settlementengine.SettlementResult) settlementR
 	}
 }
 
-func routingDirectiveToEngine(d routingDirectiveSeam) settlementengine.RoutingDirective {
+func routingDirectiveToEngine(d routingDirectiveSeam) billingengine.RoutingDirective {
 	switch d {
 	case routingPayout:
-		return settlementengine.RoutingPayout
+		return billingengine.RoutingPayout
 	case routingCharge:
-		return settlementengine.RoutingCharge
+		return billingengine.RoutingCharge
 	case routingNoAction:
 		// net == 0 (or a recompute delta == 0) — skip; same as default.
-		return settlementengine.RoutingNoAction
+		return billingengine.RoutingNoAction
 	default:
-		return settlementengine.RoutingNoAction
+		return billingengine.RoutingNoAction
 	}
 }
 
-func routingDirectiveFromEngine(d settlementengine.RoutingDirective) routingDirectiveSeam {
+func routingDirectiveFromEngine(d billingengine.RoutingDirective) routingDirectiveSeam {
 	switch d {
-	case settlementengine.RoutingPayout:
+	case billingengine.RoutingPayout:
 		return routingPayout
-	case settlementengine.RoutingCharge:
+	case billingengine.RoutingCharge:
 		return routingCharge
-	case settlementengine.RoutingNoAction:
+	case billingengine.RoutingNoAction:
 		// net == 0 (or a recompute delta == 0) — skip; same as default.
 		return routingNoAction
 	default:
@@ -460,7 +423,7 @@ func routingDirectiveFromEngine(d settlementengine.RoutingDirective) routingDire
 }
 
 // ===========================================================================
-// interventionEngine adapter — over intervention.InterventionEngine (the settlement-
+// interventionEngine adapter — over intervention.InterventionEngine (the billing-
 // failure decision verb).
 // ===========================================================================
 
@@ -470,37 +433,37 @@ type interventionAdapter struct {
 
 var _ interventionEngine = interventionAdapter{}
 
-func (a interventionAdapter) DecideOnSettlementFailure(failure settlementFailureSeam) (settlementFailureDirectiveSeam, error) {
+func (a interventionAdapter) DecideOnBillingFailure(failure billingFailureSeam) (billingFailureDirectiveSeam, error) {
 	d, err := a.inner.DecideOnSettlementFailure(fweng.Context{Context: context.Background()}, intervention.SettlementFailure{
 		CustomerID:   intervention.CustomerID(failure.CustomerID.String()),
 		CycleID:      intervention.CycleID(string(failure.CycleID)),
-		Kind:         settlementFailureKindToEngine(failure.Kind),
+		Kind:         billingFailureKindToEngine(failure.Kind),
 		AttemptCount: int64(failure.AttemptCount),
 		ShortfallAge: int64(failure.ShortfallAge),
 	})
 	if err != nil {
-		return settlementRetry, err
+		return billingRetry, err
 	}
 	switch d {
 	case intervention.SettlementDelay:
-		return settlementDelay, nil
+		return billingDelay, nil
 	case intervention.SettlementEscalate:
-		return settlementEscalate, nil
+		return billingEscalate, nil
 	case intervention.SettlementRetry:
 		// re-attempt the charge now (within budget) — same as default.
-		return settlementRetry, nil
+		return billingRetry, nil
 	default:
-		return settlementRetry, nil
+		return billingRetry, nil
 	}
 }
 
-func settlementFailureKindToEngine(k settlementFailureKindSeam) intervention.SettlementFailureKind {
+func billingFailureKindToEngine(k billingFailureKindSeam) intervention.SettlementFailureKind {
 	switch k {
-	case settlementFailureChargeDeclined:
+	case billingFailureChargeDeclined:
 		return intervention.ChargeDeclined
-	case settlementFailureDisputed:
+	case billingFailureDisputed:
 		return intervention.Disputed
-	case settlementFailureChargedBack:
+	case billingFailureChargedBack:
 		return intervention.ChargedBack
 	default:
 		return intervention.SettlementFailureKindUnknown

@@ -2,7 +2,6 @@ package construction
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"sync"
 	"testing"
@@ -256,43 +255,6 @@ var _ projectStateReader = (*fakeProjectState)(nil)
 var _ constructionTransitionAccess = (*fakeProjectState)(nil)
 var _ gitActivityStatusAccess = (*fakeProjectState)(nil)
 
-// fakeWorker is the generic typed worker double. It returns a scripted raw-JSON
-// body per Generate call (the last is repeated), or genErr verbatim. badJSON, when
-// true, returns un-unmarshallable bytes (drives the WorkerRefused terminal).
-type fakeWorker struct {
-	mu sync.Mutex
-
-	genErr    error
-	badJSON   bool
-	prompts   []string
-	classes   []string
-	cancelled []fwra.IdempotencyKey
-}
-
-func (w *fakeWorker) Generate(_ context.Context, spec workerGenerateSpec, _ fwra.IdempotencyKey) ([]byte, error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	w.prompts = append(w.prompts, spec.Prompt)
-	w.classes = append(w.classes, spec.WorkerClass)
-	if w.genErr != nil {
-		return nil, w.genErr
-	}
-	if w.badJSON {
-		return []byte("not json"), nil
-	}
-	b, _ := json.Marshal(artifact.ConstructionOutput{Bytes: []byte("built"), MIMEType: "text/plain"})
-	return b, nil
-}
-
-func (w *fakeWorker) Cancel(_ context.Context, key fwra.IdempotencyKey) error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	w.cancelled = append(w.cancelled, key)
-	return nil
-}
-
-var _ workerAccess = (*fakeWorker)(nil)
-
 // fakePipeline serves a scripted terminal observation after one running poll.
 type fakePipeline struct {
 	mu sync.Mutex
@@ -405,8 +367,6 @@ func registerConstruct(env *testsuite.TestWorkflowEnvironment, wf *workflows) {
 	env.RegisterWorkflowWithOptions(wf.ConstructActivityWorkflow, workflow.RegisterOptions{Name: executionKindConstructActivity})
 	env.RegisterActivity(wf.ReadProjectActivity)
 	env.RegisterActivity(wf.ReadProjectVersionActivity)
-	env.RegisterActivity(wf.GenerateWorkActivity)
-	env.RegisterActivity(wf.CancelWorkerActivity)
 	env.RegisterActivity(wf.SubmitPipelineActivity)
 	env.RegisterActivity(wf.ObservePipelineActivity)
 	env.RegisterActivity(wf.CancelPipelineActivity)
@@ -430,8 +390,6 @@ func registerPump(env *testsuite.TestWorkflowEnvironment, wf *workflows) {
 	// child runs end-to-end and ALL its activities must be registered.
 	env.RegisterActivity(wf.ReadProjectActivity)
 	env.RegisterActivity(wf.ReadProjectVersionActivity)
-	env.RegisterActivity(wf.GenerateWorkActivity)
-	env.RegisterActivity(wf.CancelWorkerActivity)
 	env.RegisterActivity(wf.SubmitPipelineActivity)
 	env.RegisterActivity(wf.ObservePipelineActivity)
 	env.RegisterActivity(wf.CancelPipelineActivity)
@@ -446,7 +404,6 @@ func registerSupervision(env *testsuite.TestWorkflowEnvironment, wf *workflows) 
 	env.RegisterWorkflowWithOptions(wf.ProjectSupervisionWorkflow, workflow.RegisterOptions{Name: executionKindProjectSupervision})
 	env.RegisterActivity(wf.ReadProjectActivity)
 	env.RegisterActivity(wf.ReadProjectVersionActivity)
-	env.RegisterActivity(wf.CancelWorkerActivity)
 	env.RegisterActivity(wf.CancelPipelineActivity)
 	env.RegisterActivity(wf.RecordOperatorPausedActivity)
 }
@@ -478,10 +435,9 @@ func Test_Construct_HappyPath_RecordsReviewedAndExited(t *testing.T) {
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(uuid.NewString()), Version: 3, Phase: 2}}
 	pipe := &fakePipeline{phase: PipelineSucceeded}
 	art := &fakeArtifacts{}
-	w := &fakeWorker{}
 	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{class: aiWorker}, Intervention: &fakeIntervention{directive: directiveRetry},
-		Review: &fakeReview{}, ProjectState: ps, Pipeline: pipe, Artifacts: art, Workers: w,
+		Review: &fakeReview{}, ProjectState: ps, Pipeline: pipe, Artifacts: art,
 	})
 	registerConstruct(env, wf)
 
@@ -519,10 +475,9 @@ func runPumpWith(t *testing.T, act constructionActivity) *fakePipeline {
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(uuid.NewString()), Version: 3, Phase: 2}}
 	pipe := &fakePipeline{phase: PipelineSucceeded}
 	art := &fakeArtifacts{}
-	w := &fakeWorker{}
 	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{class: aiWorker}, Intervention: &fakeIntervention{directive: directiveRetry},
-		Review: &fakeReview{}, ProjectState: ps, Pipeline: pipe, Artifacts: art, Workers: w,
+		Review: &fakeReview{}, ProjectState: ps, Pipeline: pipe, Artifacts: art,
 	})
 	registerConstruct(env, wf)
 
@@ -564,10 +519,10 @@ func Test_Construct_ArchitectOnly_AwaitsOverride_SkipExits(t *testing.T) {
 	env := ts.NewTestWorkflowEnvironment()
 
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(uuid.NewString()), Version: 1, Phase: 2}}
-	w := &fakeWorker{}
+	pipe := &fakePipeline{}
 	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{class: architectOnly}, Intervention: &fakeIntervention{directive: directiveRetry},
-		Review: &fakeReview{}, ProjectState: ps, Pipeline: &fakePipeline{}, Artifacts: &fakeArtifacts{}, Workers: w,
+		Review: &fakeReview{}, ProjectState: ps, Pipeline: pipe, Artifacts: &fakeArtifacts{},
 	})
 	registerConstruct(env, wf)
 
@@ -582,28 +537,28 @@ func Test_Construct_ArchitectOnly_AwaitsOverride_SkipExits(t *testing.T) {
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)
 	}
-	if len(w.prompts) != 0 {
-		t.Fatalf("architectOnly must NOT dispatch a worker, got %d dispatches", len(w.prompts))
+	if len(pipe.submitted) != 0 {
+		t.Fatalf("architectOnly must NOT dispatch a pipeline, got %d dispatches", len(pipe.submitted))
 	}
 	if len(ps.exited) != 1 || ps.exited[0].outcome != projectstate.ActivityOutcomeSkipped {
 		t.Fatalf("want one recordActivityExited(Skipped), got %v", ps.exited)
 	}
 }
 
-// A failed pipeline → variance → DecideOnVariance(Takeover): the takeover cancels
-// the in-flight worker, then re-dispatches; with the pipeline now succeeding the
-// activity completes normally on the next loop.
-func Test_Construct_PipelineFailed_Takeover_CancelsWorker_ThenCompletes(t *testing.T) {
+// A failed pipeline → variance → DecideOnVariance(Takeover): the takeover re-dispatches;
+// with the pipeline now succeeding the activity completes normally on the next loop. (The
+// prior phase pipeline is already terminal at intervention time, so takeover abandons
+// nothing — the LLM worker-cancel seam is retired under agentic-everywhere.)
+func Test_Construct_PipelineFailed_Takeover_ThenCompletes(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
 
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(uuid.NewString()), Version: 1, Phase: 2}}
 	// The pipeline fails on the first run, then a flippable fake makes it succeed.
 	pipe := &flippablePipeline{first: PipelineFailed, rest: PipelineSucceeded}
-	w := &fakeWorker{}
 	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{class: aiWorker}, Intervention: &fakeIntervention{directive: directiveTakeover},
-		Review: &fakeReview{}, ProjectState: ps, Pipeline: pipe, Artifacts: &fakeArtifacts{}, Workers: w,
+		Review: &fakeReview{}, ProjectState: ps, Pipeline: pipe, Artifacts: &fakeArtifacts{},
 	})
 	registerConstruct(env, wf)
 
@@ -613,9 +568,6 @@ func Test_Construct_PipelineFailed_Takeover_CancelsWorker_ThenCompletes(t *testi
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)
-	}
-	if len(w.cancelled) == 0 {
-		t.Fatal("takeover must cancel the in-flight worker")
 	}
 	if len(ps.exited) != 1 || ps.exited[0].outcome != projectstate.ActivityOutcomeCompleted {
 		t.Fatalf("want a completed exit after takeover+re-dispatch, got %v", ps.exited)
@@ -667,7 +619,7 @@ func Test_Construct_ConflictOnRecord_ReReadReApply_Succeeds(t *testing.T) {
 	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{class: aiWorker}, Intervention: &fakeIntervention{directive: directiveRetry},
 		Review: &fakeReview{}, ProjectState: ps, Pipeline: &fakePipeline{phase: PipelineSucceeded},
-		Artifacts: &fakeArtifacts{}, Workers: &fakeWorker{},
+		Artifacts: &fakeArtifacts{},
 	})
 	registerConstruct(env, wf)
 
@@ -697,7 +649,7 @@ func Test_Pump_NoEligibleActivity_QuietTick(t *testing.T) {
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(uuid.NewString()), Version: 1, Phase: 2}}
 	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{}, Intervention: &fakeIntervention{}, Review: &fakeReview{},
-		ProjectState: ps, Pipeline: &fakePipeline{}, Artifacts: &fakeArtifacts{}, Workers: &fakeWorker{},
+		ProjectState: ps, Pipeline: &fakePipeline{}, Artifacts: &fakeArtifacts{},
 		NextEligibleActivity: nil,
 	})
 	registerPump(env, wf)
@@ -724,7 +676,7 @@ func Test_Pump_ProjectNotFound_QuietTick(t *testing.T) {
 	ps := &fakeProjectState{notFound: true}
 	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{}, Intervention: &fakeIntervention{}, Review: &fakeReview{},
-		ProjectState: ps, Pipeline: &fakePipeline{}, Artifacts: &fakeArtifacts{}, Workers: &fakeWorker{},
+		ProjectState: ps, Pipeline: &fakePipeline{}, Artifacts: &fakeArtifacts{},
 	})
 	registerPump(env, wf)
 
@@ -753,7 +705,7 @@ func Test_Pump_EligibleActivity_RunsChild_ThenContinueAsNew(t *testing.T) {
 	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{class: aiWorker}, Intervention: &fakeIntervention{directive: directiveRetry},
 		Review: &fakeReview{}, ProjectState: ps, Pipeline: &fakePipeline{phase: PipelineSucceeded},
-		Artifacts: &fakeArtifacts{}, Workers: &fakeWorker{},
+		Artifacts: &fakeArtifacts{},
 		NextEligibleActivity: func(_ projectstate.Project) (constructionActivity, bool) {
 			return sampleActivity(), true
 		},
@@ -792,7 +744,7 @@ func Test_Pump_EligibleActivity_SurfacesSyncDispatchDecision(t *testing.T) {
 	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{class: aiWorker}, Intervention: &fakeIntervention{directive: directiveRetry},
 		Review: &fakeReview{}, ProjectState: ps, Pipeline: &fakePipeline{phase: PipelineSucceeded},
-		Artifacts: &fakeArtifacts{}, Workers: &fakeWorker{},
+		Artifacts: &fakeArtifacts{},
 		NextEligibleActivity: func(_ projectstate.Project) (constructionActivity, bool) {
 			return sampleActivity(), true
 		},
@@ -828,7 +780,7 @@ func Test_Pump_DrainedNetwork_SurfacesQuiescentDecision(t *testing.T) {
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
 	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{class: aiWorker}, Intervention: &fakeIntervention{}, Review: &fakeReview{},
-		ProjectState: ps, Pipeline: &fakePipeline{}, Artifacts: &fakeArtifacts{}, Workers: &fakeWorker{},
+		ProjectState: ps, Pipeline: &fakePipeline{}, Artifacts: &fakeArtifacts{},
 		NextEligibleActivity: func(_ projectstate.Project) (constructionActivity, bool) {
 			return constructionActivity{}, false
 		},
@@ -863,7 +815,7 @@ func Test_Pump_DrainedNetwork_QuietNoContinueAsNew(t *testing.T) {
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
 	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{class: aiWorker}, Intervention: &fakeIntervention{}, Review: &fakeReview{},
-		ProjectState: ps, Pipeline: &fakePipeline{}, Artifacts: &fakeArtifacts{}, Workers: &fakeWorker{},
+		ProjectState: ps, Pipeline: &fakePipeline{}, Artifacts: &fakeArtifacts{},
 		NextEligibleActivity: func(_ projectstate.Project) (constructionActivity, bool) {
 			return constructionActivity{}, false // network drained
 		},
@@ -896,7 +848,7 @@ func Test_Pump_PauseSignal_HaltsCascade_NoDispatch(t *testing.T) {
 	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{class: aiWorker}, Intervention: &fakeIntervention{directive: directiveRetry},
 		Review: &fakeReview{}, ProjectState: ps, Pipeline: &fakePipeline{phase: PipelineSucceeded},
-		Artifacts: &fakeArtifacts{}, Workers: &fakeWorker{},
+		Artifacts: &fakeArtifacts{},
 		NextEligibleActivity: func(_ projectstate.Project) (constructionActivity, bool) {
 			return sampleActivity(), true // an activity IS eligible — but the pause wins
 		},
@@ -930,8 +882,9 @@ func Test_Pump_PauseSignal_HaltsCascade_NoDispatch(t *testing.T) {
 // ---- Tests: pause branch (ProjectSupervisionWorkflow / NCUC2) ---------------
 
 // The operator-pause branch: applyPausePolicy returns a plan naming a pipeline to
-// cancel + RecordPaused; the Manager EXECUTES the cancel + worker-cancel +
-// recordOperatorPaused.
+// cancel + RecordPaused; the Manager EXECUTES the pipeline cancel + recordOperatorPaused.
+// (The LLM worker-cancel abandon step is retired under agentic-everywhere; the in-flight
+// dispatch is the GH-Actions pipeline, cancelled via the pause plan's PipelinesToCancel.)
 func Test_Pause_AppliesPolicy_CancelsPipeline_RecordsPaused(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
@@ -939,11 +892,10 @@ func Test_Pause_AppliesPolicy_CancelsPipeline_RecordsPaused(t *testing.T) {
 	pid := ProjectID(uuid.NewString())
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 2, Phase: 2}}
 	pipe := &fakePipeline{}
-	w := &fakeWorker{}
 	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{}, Review: &fakeReview{},
 		Intervention: &fakeIntervention{plan: pausePlan{PipelinesToCancel: []string{"wf-C-1"}, RecordPaused: true}},
-		ProjectState: ps, Pipeline: pipe, Artifacts: &fakeArtifacts{}, Workers: w,
+		ProjectState: ps, Pipeline: pipe, Artifacts: &fakeArtifacts{},
 	})
 	registerSupervision(env, wf)
 
@@ -958,9 +910,6 @@ func Test_Pause_AppliesPolicy_CancelsPipeline_RecordsPaused(t *testing.T) {
 	}
 	if len(pipe.cancelled) != 1 {
 		t.Fatalf("want one pipeline cancel from the pause plan, got %d", len(pipe.cancelled))
-	}
-	if len(w.cancelled) != 1 {
-		t.Fatalf("want one worker cancel on the pause abandon path, got %d", len(w.cancelled))
 	}
 	if len(ps.paused) != 1 || ps.paused[0] != "operator halt" {
 		t.Fatalf("want one recordOperatorPaused(operator halt), got %v", ps.paused)
@@ -978,7 +927,7 @@ func Test_ReplanSweep_QuietSweep_EmptyResult(t *testing.T) {
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
 	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{}, Intervention: &fakeIntervention{}, Review: &fakeReview{},
-		ProjectState: ps, Pipeline: &fakePipeline{}, Artifacts: &fakeArtifacts{}, Workers: &fakeWorker{},
+		ProjectState: ps, Pipeline: &fakePipeline{}, Artifacts: &fakeArtifacts{},
 	})
 	registerReplanSweep(env, wf)
 
@@ -993,38 +942,6 @@ func Test_ReplanSweep_QuietSweep_EmptyResult(t *testing.T) {
 	}
 	if len(res.FlaggedVariances) != 0 {
 		t.Fatalf("want an empty quiet sweep, got %v", res.FlaggedVariances)
-	}
-}
-
-// ---- worker-output adapter unit test (no Temporal) --------------------------
-
-// generateConstructionOutput round-trips a JSON ConstructionOutput; a bad body is
-// a *workerUnmarshalError (distinct from a transport error); a nil (cancelled)
-// body is the zero value with nil error.
-func Test_GenerateConstructionOutput_Cases(t *testing.T) {
-	good := &fakeWorker{}
-	out, err := generateConstructionOutput(context.Background(), good, workerGenerateSpec{}, "k")
-	if err != nil {
-		t.Fatalf("good worker: %v", err)
-	}
-	if string(out.Bytes) != "built" {
-		t.Fatalf("want built bytes, got %q", out.Bytes)
-	}
-
-	bad := &fakeWorker{badJSON: true}
-	_, err = generateConstructionOutput(context.Background(), bad, workerGenerateSpec{}, "k")
-	var ue *workerUnmarshalError
-	if !errors.As(err, &ue) {
-		t.Fatalf("want *workerUnmarshalError for bad JSON, got %T: %v", err, err)
-	}
-
-	cancelled := &cancelledWorker{}
-	out, err = generateConstructionOutput(context.Background(), cancelled, workerGenerateSpec{}, "k")
-	if err != nil {
-		t.Fatalf("cancelled worker: %v", err)
-	}
-	if len(out.Bytes) != 0 {
-		t.Fatalf("cancelled (nil) response must be the zero ConstructionOutput, got %q", out.Bytes)
 	}
 }
 
@@ -1053,7 +970,6 @@ func gateDeps(ps *fakeProjectState, pipe constructionPipelineAccess) wfDeps {
 		GitStatus:    ps,
 		Pipeline:     pipe,
 		Artifacts:    &fakeArtifacts{},
-		Workers:      &fakeWorker{},
 	}
 }
 
@@ -1206,7 +1122,6 @@ func Test_Construct_VarianceRetry_NonGit_DoesNotReGateApprovedPhase(t *testing.T
 		ProjectState: ps,
 		Pipeline:     pipe,
 		Artifacts:    &fakeArtifacts{},
-		Workers:      &fakeWorker{},
 	})
 	registerConstruct(env, wf)
 	approvals := 0
@@ -1300,7 +1215,6 @@ func Test_Construct_EmptyPolicy_NonGit_NoPhaseRecords(t *testing.T) {
 		ProjectState: ps,
 		Pipeline:     pipe,
 		Artifacts:    &fakeArtifacts{},
-		Workers:      &fakeWorker{},
 	})
 	registerConstruct(env, wf)
 
@@ -1326,13 +1240,3 @@ func Test_Construct_EmptyPolicy_NonGit_NoPhaseRecords(t *testing.T) {
 		t.Fatalf("empty-policy non-git submitted %d pipelines, want %d", len(pipe.submitted), len(act.Phases))
 	}
 }
-
-// cancelledWorker returns nil bytes + nil error (the Cancel-then-Generate replay).
-type cancelledWorker struct{}
-
-func (cancelledWorker) Generate(context.Context, workerGenerateSpec, fwra.IdempotencyKey) ([]byte, error) {
-	return nil, nil
-}
-func (cancelledWorker) Cancel(context.Context, fwra.IdempotencyKey) error { return nil }
-
-var _ workerAccess = cancelledWorker{}

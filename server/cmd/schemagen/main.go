@@ -64,16 +64,16 @@ import (
 
 	"github.com/mixofreality-studio/archistrator/server/cmd/internal/codegen"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/autoscaler"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/billing"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/estimation"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/handoff"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/operationestimation"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
-	"github.com/mixofreality-studio/archistrator/server/internal/engine/settlement"
+	mgrbilling "github.com/mixofreality-studio/archistrator/server/internal/manager/billing"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/construction"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/operations"
 	mgrprojectdesign "github.com/mixofreality-studio/archistrator/server/internal/manager/projectdesign"
-	mgrsettlement "github.com/mixofreality-studio/archistrator/server/internal/manager/settlement"
 	mgrsystemdesign "github.com/mixofreality-studio/archistrator/server/internal/manager/systemdesign"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/constructionpipeline"
@@ -81,7 +81,6 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/worker"
 )
 
 // component declares one component's contract surface to capture.
@@ -293,35 +292,37 @@ var registry = []component{
 		iface:     reflect.TypeOf((*intervention.InterventionEngine)(nil)).Elem(),
 	},
 	{
-		name: "settlement",
-		dir:  "internal/engine/settlement",
+		name: "billing",
+		dir:  "internal/engine/billing",
 		models: []any{
 			// Own I/O structs.
-			settlement.CycleRevenue{},
-			settlement.CycleUsage{},
-			settlement.SettlementResult{},
-			settlement.ReSettlementInput{},
-			settlement.Projection{},
-			settlement.ProjectOption{},
+			billing.CycleRevenue{},
+			billing.CycleUsage{},
+			billing.BillingResult{},
+			billing.ReBillingInput{},
+			billing.Projection{},
+			billing.ProjectOption{},
 			// Own enums + scalar.
-			settlement.RoutingDirective(0),
-			settlement.OptionID(""),
+			billing.RoutingDirective(0),
+			billing.OptionID(""),
 			// Domain types redefined as this component's OWN defs (Option B full
-			// encapsulation): Money/SettlementTerms structs plus the settlement-terms
+			// encapsulation): Money/BillingTerms structs plus the billing-terms
 			// enums they carry. These MIRROR projectstate (the canonical home owned by
 			// projectStateAccess); the projectDesignManager converts at the call
-			// boundary. They are registered as the component's own settlement.* types
+			// boundary. They are registered as the component's own billing.* types
 			// (post-seed steady state) so nested field refs resolve and the contract
 			// regenerates identically — idempotent (the enum const blocks are captured
 			// from contract.gen.go in this dir, not from projectstate).
-			settlement.Money{},
-			settlement.SettlementTerms{},
-			settlement.RevenueShareKind(0),
-			settlement.ComputeCostKind(0),
-			settlement.ScheduleKind(0),
+			// TODO(charge-only): RevenueShareKind/ComputeCostKind are vestigial MoR
+			// concepts under charge-only; kept for a compiling pure rename.
+			billing.Money{},
+			billing.BillingTerms{},
+			billing.RevenueShareKind(0),
+			billing.ComputeCostKind(0),
+			billing.ScheduleKind(0),
 		},
-		ifaceName: "SettlementEngine",
-		iface:     reflect.TypeOf((*settlement.SettlementEngine)(nil)).Elem(),
+		ifaceName: "BillingEngine",
+		iface:     reflect.TypeOf((*billing.BillingEngine)(nil)).Elem(),
 	},
 	{
 		name: "operationestimation",
@@ -428,30 +429,6 @@ var registry = []component{
 		},
 		ifaceName: "AutoscalerEngine",
 		iface:     reflect.TypeOf((*autoscaler.AutoscalerEngine)(nil)).Elem(),
-	},
-	{
-		name: "worker",
-		dir:  "internal/resourceaccess/worker",
-		models: []any{
-			// The full transitive closure of WorkerAccess's OWN contract value types
-			// (workerAccess.md §1f–§9f). All defined in this package — full
-			// encapsulation: the contract pulls NO external (projectstate/artifact)
-			// dep. Tool envelopes carry json.RawMessage (opaque schema/inputs) and
-			// GenerateSpec carries []byte (opaque caller context); the generator binds
-			// those to their exact Go types (wellKnownByType).
-			worker.GenerateSpec{},
-			worker.ToolSpec{},
-			worker.ToolTurnSpec{},
-			worker.Message{},
-			worker.ToolCall{},
-			worker.ToolResult{},
-			worker.AssistantTurn{},
-			// Named scalar (a bare identifier newtype — no const block; the logical
-			// WorkerClass→model mapping lives behind the seam, never on the surface).
-			worker.WorkerClass(""),
-		},
-		ifaceName: "WorkerAccess",
-		iface:     reflect.TypeOf((*worker.WorkerAccess)(nil)).Elem(),
 	},
 	{
 		name: "artifact",
@@ -686,11 +663,11 @@ var registry = []component{
 		iface:     reflect.TypeOf((*operations.OperationsManager)(nil)).Elem(),
 	},
 	{
-		name: "settlement-manager",
-		dir:  "internal/manager/settlement",
+		name: "billing-manager",
+		dir:  "internal/manager/billing",
 		models: []any{
-			// The full transitive closure of SettlementManager's OWN port I/O types
-			// (settlementManager.md §2/§3). All defined in this package — FULL
+			// The full transitive closure of BillingManager's OWN port I/O types
+			// (billingManager.md §2/§3). All defined in this package — FULL
 			// ENCAPSULATION: the generated contract pulls NO external (projectstate) dep
 			// and NO Temporal dep (the Manager OWNS Temporal behind the port; the
 			// consumer-side dependency interfaces in deps.go + the Temporal Workflows
@@ -704,17 +681,17 @@ var registry = []component{
 			// so the generated enum carries no behavior. Money is shared by both the
 			// façade contract and the deps.go seams; it lives in the generated file and
 			// the seams reference it in-package.
-			mgrsettlement.SettlementRef{},
-			mgrsettlement.CloseCycleResult{},
-			mgrsettlement.ShortfallSweepResult{},
-			mgrsettlement.GatewayRevenueEvent{},
-			mgrsettlement.GatewayReversalEvent{},
-			mgrsettlement.Money{},
+			mgrbilling.BillingRef{},
+			mgrbilling.CloseCycleResult{},
+			mgrbilling.ShortfallSweepResult{},
+			mgrbilling.GatewayRevenueEvent{},
+			mgrbilling.GatewayReversalEvent{},
+			mgrbilling.Money{},
 			// Enum (one zero value — const block captured from this dir).
-			mgrsettlement.RoutingDirective(0),
+			mgrbilling.RoutingDirective(0),
 		},
-		ifaceName: "SettlementManager",
-		iface:     reflect.TypeOf((*mgrsettlement.SettlementManager)(nil)).Elem(),
+		ifaceName: "BillingManager",
+		iface:     reflect.TypeOf((*mgrbilling.BillingManager)(nil)).Elem(),
 	},
 	{
 		name: "systemdesign",

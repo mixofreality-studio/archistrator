@@ -1,15 +1,11 @@
 package construction
 
 import (
-	"errors"
-
-	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
-	"go.temporal.io/sdk/temporal"
 )
 
 // This file owns the Manager's Temporal-boundary serialization helpers
-// (constructionManager.md §6.4) plus the generic-worker typed-output adapter.
+// (constructionManager.md §6.4).
 
 // projectEnvelope is the Temporal-serializable projection of the head-state
 // Project the pump/sweep needs across the ReadProjectActivity boundary. The full
@@ -101,41 +97,4 @@ func decodeProject(e projectEnvelope) projectstate.Project {
 		p.ActivityList = projectstate.ArtifactSlot{Status: projectstate.ReviewCommitted, Model: e.ActivityList}
 	}
 	return p
-}
-
-// ---------------------------------------------------------------------------
-// Generic-worker typed-output adapter. The constructionManager's SEQUENCE owns
-// the prompt and asks the generic worker for a typed artifact.ConstructionOutput
-// (workerAccess.md §0b: Generate raw + mechanical unmarshal). This mirrors the
-// package-level worker.GenerateTypedData[T] helper but is bound to the Manager's
-// narrow WorkerAccess consumer interface (deps.go) so the test fakes stay small.
-// The artifact-typed body + the unmarshal/refuse logic live in worker_output.go.
-// ---------------------------------------------------------------------------
-
-// workerUnmarshalError is the DISTINCT error generateConstructionOutput returns
-// when the worker's response arrives without a transport error BUT cannot be
-// unmarshalled into a ConstructionOutput — "the worker ran but produced something
-// that is not a ConstructionOutput". The Manager routes it through intervention
-// (constructionManager.md §6.3 step 7: varianceWorkerRefused).
-type workerUnmarshalError struct {
-	Raw []byte
-	Err error
-}
-
-func (e *workerUnmarshalError) Error() string {
-	return "worker: response could not be unmarshalled into a ConstructionOutput: " + e.Err.Error()
-}
-
-func (e *workerUnmarshalError) Unwrap() error { return e.Err }
-
-// mapWorkerError translates a generateConstructionOutput error to the Activity
-// boundary. A *workerUnmarshalError becomes a NON-RETRYABLE WorkerRefused terminal
-// (routed through intervention, never an Activity retry). Transport/auth/quota
-// *fwra.Error gets the canonical mapping so the Activity RetryPolicy can act.
-func mapWorkerError(err error) error {
-	var ue *workerUnmarshalError
-	if errors.As(err, &ue) {
-		return temporal.NewNonRetryableApplicationError(ue.Error(), workerRefusedErrType, ue)
-	}
-	return fwmanager.MapError(err)
 }

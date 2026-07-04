@@ -1,7 +1,7 @@
-package settlement
+package billing
 
 // =============================================================================
-// SERVICE TEST PLAN (STP) — settlementManager (C-MST)
+// SERVICE TEST PLAN (STP) — billingManager (C-MST)
 // (the-method-testing: STP-first — the list of all the ways to demonstrate the
 //  component does NOT work. NO BDD/Gherkin. White-box test client + black-box tests
 //  with hand-written fakes for the frozen-collaborator seams. This Manager handles
@@ -11,8 +11,8 @@ package settlement
 //    the checks short-circuit before any client call, a nil client is safe):
 //   A1  OnboardPaymentIntegration rejects empty deployedAppId      → ContractMisuse
 //   A2  RegisterCustomer rejects empty customerId                  → ContractMisuse
-//   A3  CloseSettlementCycle rejects empty customerId              → ContractMisuse
-//   A4  CloseSettlementCycle rejects empty cycleId                 → ContractMisuse
+//   A3  CloseBillingCycle rejects empty customerId              → ContractMisuse
+//   A4  CloseBillingCycle rejects empty cycleId                 → ContractMisuse
 //   A5  RunShortfallSweep rejects empty tickId                     → ContractMisuse
 //   A6  RecordInboundRevenue rejects empty customerId/cycleId/gatewayEventId → ContractMisuse
 //   A7  RecordRevenueReversal rejects empty customerId/cycleId/gatewayEventId → ContractMisuse
@@ -23,7 +23,7 @@ package settlement
 // B. OnboardWorkflow (workflow_test.go):
 //   B1  happy path: read → createConnectedAccount → wireRuntime → bindGatewayLive →
 //                   registerSchedule; returns the resolved customerId
-//   B2  a missing settlement aggregate (read NotFound) → FailedPrecondition; no gateway move
+//   B2  a missing billing aggregate (read NotFound) → FailedPrecondition; no gateway move
 //
 // C. RegisterCustomerWorkflow (workflow_test.go):
 //   C1  happy path: validateStoredInstrument → registerCustomer; returns the customerId
@@ -62,15 +62,15 @@ import (
 )
 
 // These tests cover the façade-boundary pre-condition checks the contract puts on the
-// six public ops (settlementManager.md §2/§3.1). They run BEFORE any Temporal client
+// six public ops (billingManager.md §2/§3.1). They run BEFORE any Temporal client
 // call, so they need no cluster and no client — a nil client is safe because the checks
 // short-circuit first.
 
-func asSettlementError(t *testing.T, err error) *fwmgr.Error {
+func asBillingError(t *testing.T, err error) *fwmgr.Error {
 	t.Helper()
 	var se *fwmgr.Error
 	if !errors.As(err, &se) {
-		t.Fatalf("expected *SettlementError, got %T: %v", err, err)
+		t.Fatalf("expected *BillingError, got %T: %v", err, err)
 	}
 	return se
 }
@@ -84,9 +84,9 @@ func testCtx() fwmgr.Context {
 // ---- A1: OnboardPaymentIntegration ------------------------------------------
 
 func Test_Onboard_EmptyDeployedAppID(t *testing.T) {
-	m := newSettlementManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newBillingManager(nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.OnboardPaymentIntegration(testCtx(), uuid.Nil)
-	if got := asSettlementError(t, err).Kind; got != fwmgr.ContractMisuse {
+	if got := asBillingError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
 	}
 }
@@ -94,27 +94,27 @@ func Test_Onboard_EmptyDeployedAppID(t *testing.T) {
 // ---- A2: RegisterCustomer ----------------------------------------------------
 
 func Test_Register_EmptyCustomerID(t *testing.T) {
-	m := newSettlementManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newBillingManager(nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.RegisterCustomer(testCtx(), uuid.Nil)
-	if got := asSettlementError(t, err).Kind; got != fwmgr.ContractMisuse {
+	if got := asBillingError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
 	}
 }
 
-// ---- A3/A4: CloseSettlementCycle --------------------------------------------
+// ---- A3/A4: CloseBillingCycle --------------------------------------------
 
 func Test_Close_EmptyCustomerID(t *testing.T) {
-	m := newSettlementManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
-	_, err := m.CloseSettlementCycle(testCtx(), uuid.Nil, "cycle-1")
-	if got := asSettlementError(t, err).Kind; got != fwmgr.ContractMisuse {
+	m := newBillingManager(nil, nil, nil, nil, nil, nil, nil, nil)
+	_, err := m.CloseBillingCycle(testCtx(), uuid.Nil, "cycle-1")
+	if got := asBillingError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
 	}
 }
 
 func Test_Close_EmptyCycleID(t *testing.T) {
-	m := newSettlementManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
-	_, err := m.CloseSettlementCycle(testCtx(), uuid.New(), "")
-	if got := asSettlementError(t, err).Kind; got != fwmgr.ContractMisuse {
+	m := newBillingManager(nil, nil, nil, nil, nil, nil, nil, nil)
+	_, err := m.CloseBillingCycle(testCtx(), uuid.New(), "")
+	if got := asBillingError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
 	}
 }
@@ -122,9 +122,9 @@ func Test_Close_EmptyCycleID(t *testing.T) {
 // ---- A5: RunShortfallSweep --------------------------------------------------
 
 func Test_Sweep_EmptyTickID(t *testing.T) {
-	m := newSettlementManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newBillingManager(nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.RunShortfallSweep(testCtx(), "")
-	if got := asSettlementError(t, err).Kind; got != fwmgr.ContractMisuse {
+	if got := asBillingError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
 	}
 }
@@ -132,25 +132,25 @@ func Test_Sweep_EmptyTickID(t *testing.T) {
 // ---- A6: RecordInboundRevenue -----------------------------------------------
 
 func Test_RecordInbound_EmptyCustomerID(t *testing.T) {
-	m := newSettlementManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newBillingManager(nil, nil, nil, nil, nil, nil, nil, nil)
 	err := m.RecordInboundRevenue(testCtx(), GatewayRevenueEvent{CycleID: "c1", GatewayEventID: "g1"})
-	if got := asSettlementError(t, err).Kind; got != fwmgr.ContractMisuse {
+	if got := asBillingError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
 	}
 }
 
 func Test_RecordInbound_EmptyCycleID(t *testing.T) {
-	m := newSettlementManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newBillingManager(nil, nil, nil, nil, nil, nil, nil, nil)
 	err := m.RecordInboundRevenue(testCtx(), GatewayRevenueEvent{CustomerID: uuid.New(), GatewayEventID: "g1"})
-	if got := asSettlementError(t, err).Kind; got != fwmgr.ContractMisuse {
+	if got := asBillingError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
 	}
 }
 
 func Test_RecordInbound_EmptyGatewayEventID(t *testing.T) {
-	m := newSettlementManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newBillingManager(nil, nil, nil, nil, nil, nil, nil, nil)
 	err := m.RecordInboundRevenue(testCtx(), GatewayRevenueEvent{CustomerID: uuid.New(), CycleID: "c1"})
-	if got := asSettlementError(t, err).Kind; got != fwmgr.ContractMisuse {
+	if got := asBillingError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
 	}
 }
@@ -158,17 +158,17 @@ func Test_RecordInbound_EmptyGatewayEventID(t *testing.T) {
 // ---- A7: RecordRevenueReversal ----------------------------------------------
 
 func Test_RecordReversal_EmptyGatewayEventID(t *testing.T) {
-	m := newSettlementManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newBillingManager(nil, nil, nil, nil, nil, nil, nil, nil)
 	err := m.RecordRevenueReversal(testCtx(), GatewayReversalEvent{CustomerID: uuid.New(), CycleID: "c1"})
-	if got := asSettlementError(t, err).Kind; got != fwmgr.ContractMisuse {
+	if got := asBillingError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
 	}
 }
 
 func Test_RecordReversal_EmptyCustomerID(t *testing.T) {
-	m := newSettlementManager(nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newBillingManager(nil, nil, nil, nil, nil, nil, nil, nil)
 	err := m.RecordRevenueReversal(testCtx(), GatewayReversalEvent{CycleID: "c1", GatewayEventID: "g1"})
-	if got := asSettlementError(t, err).Kind; got != fwmgr.ContractMisuse {
+	if got := asBillingError(t, err).Kind; got != fwmgr.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
 	}
 }

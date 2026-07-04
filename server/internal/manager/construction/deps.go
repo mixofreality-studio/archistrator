@@ -111,16 +111,6 @@ type artifactAccess interface {
 }
 
 // ===========================================================================
-// workerAccess seam — the GENERIC typed worker. The folded workerAdapter
-// (adapters.go) bridges the published worker.WorkerAccess to it.
-// ===========================================================================
-
-type workerAccess interface {
-	Generate(ctx context.Context, spec workerGenerateSpec, idempotencyKey fwra.IdempotencyKey) ([]byte, error)
-	Cancel(ctx context.Context, idempotencyKey fwra.IdempotencyKey) error
-}
-
-// ===========================================================================
 // handOffEngine seam — pure, deterministic, called DIRECTLY in-workflow. The folded
 // handoffAdapter (adapters.go) bridges the published handoff.HandOffEngine to it.
 // ===========================================================================
@@ -344,15 +334,4 @@ type pipelineHandle struct {
 type pipelineObservation struct {
 	Phase      PipelinePhase
 	Diagnostic string
-}
-
-// ===========================================================================
-// Local seam value carriers for the worker seam.
-// ===========================================================================
-
-// workerGenerateSpec mirrors worker.GenerateSpec's caller-owned fields the Manager
-// fills (WorkerClass logical name + the assembled Prompt).
-type workerGenerateSpec struct {
-	WorkerClass string
-	Prompt      string
 }

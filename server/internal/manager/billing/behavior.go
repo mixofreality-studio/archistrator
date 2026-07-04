@@ -1,4 +1,4 @@
-package settlement
+package billing
 
 // This file holds the FREE FUNCTIONS that carry behavior over the contract value
 // types. The generated contract surface (contract.gen.go) is PURE DATA — enums and

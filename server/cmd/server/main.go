@@ -47,28 +47,26 @@ import (
 	projectdesignweb "github.com/mixofreality-studio/archistrator/server/internal/client/web/projectdesign"
 	systemdesignweb "github.com/mixofreality-studio/archistrator/server/internal/client/web/systemdesign"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/autoscaler"
+	enginebilling "github.com/mixofreality-studio/archistrator/server/internal/engine/billing"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/estimation"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/handoff"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/operationestimation"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
-	enginesettlement "github.com/mixofreality-studio/archistrator/server/internal/engine/settlement"
+	"github.com/mixofreality-studio/archistrator/server/internal/manager/billing"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/construction"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/operations"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/projectdesign"
-	"github.com/mixofreality-studio/archistrator/server/internal/manager/settlement"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/systemdesign"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/billingstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/constructionpipeline"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/merchantgateway"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedruntime"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedsystemstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/revenueledger"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/settlementstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
-	workeraccess "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/worker"
 
 	githubinfra "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github"
 	keycloak "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-keycloak"
@@ -382,7 +380,7 @@ func run(logger *slog.Logger) error {
 	// settlementEngine contracts).
 	estimator := estimation.NewEstimationEngine()
 	operationEstimator := operationestimation.NewOperationEstimationEngine()
-	settlementEstimator := enginesettlement.NewSettlementEngine()
+	billingEstimator := enginebilling.NewBillingEngine()
 
 	// --- Utility ---------------------------------------------------------------
 
@@ -440,7 +438,7 @@ func run(logger *slog.Logger) error {
 	// prUrl). The existing projectStateAccess covers the catalog + head-state read, and
 	// scAccess (nil ⇒ repo-less) drives the project-birth adopt + scaffold seating.
 	manager := systemdesign.NewSystemDesignManager(tc, designProjectState, pipeline, scAccess, designRepoSD, estimator, repoBase)
-	projectDesignManager := projectdesign.NewProjectDesignManager(tc, designProjectState, pipeline, scAccess, estimator, operationEstimator, settlementEstimator, designRepoPD)
+	projectDesignManager := projectdesign.NewProjectDesignManager(tc, designProjectState, pipeline, scAccess, estimator, operationEstimator, billingEstimator, designRepoPD)
 
 	// Phase-1 (system-design) Worker. The Manager registers its own workflows/activities
 	// from its stored deps (it folds the design-dispatch + PR-rail mapping internally).
@@ -473,7 +471,7 @@ func run(logger *slog.Logger) error {
 	// worker) default to nil (worker not registered) unless the dry-run profile is set
 	// (instant in-memory stubs — construction_dryrun.go) or the real GitHub-Actions
 	// pipeline + artifact store are configured.
-	constructionPipeline, constructionArtifacts, constructionWorkers, registerConstruction := selectConstructionDeps(cfg, pipeline, artifacts, logger)
+	constructionPipeline, constructionArtifacts, registerConstruction := selectConstructionDeps(cfg, pipeline, artifacts, logger)
 
 	// The construction-transition + git head-state writes share the design head-state
 	// GIT substrate. designProjectState is always the git adapter now (the Postgres
@@ -497,7 +495,6 @@ func run(logger *slog.Logger) error {
 		tc,
 		designProjectState,
 		constructionArtifacts,
-		constructionWorkers,
 		handOffEngine,
 		interventionEngine,
 		reviewEngine,
@@ -566,28 +563,27 @@ func run(logger *slog.Logger) error {
 	// operatedRuntime the profiled RA (LOCAL dry-run / REAL skeleton, C-OR), settlement +
 	// intervention the real pure engines. durableExecution is nil (schedule registration
 	// belongs to the unbuilt schedulerClient; the Worker + façade do not dereference it).
-	settlementManager := settlement.NewSettlementManager(
+	billingManager := billing.NewBillingManager(
 		tc,
-		settlementstate.NewSettlementStateAccess(),
-		revenueledger.NewRevenueLedgerAccess(),
+		billingstate.NewBillingStateAccess(),
 		usageAccess,
 		merchantgateway.NewMerchantGatewayAccess(),
 		operatedRuntime,
 		nil, // durableExecution — schedules unwired (schedulerClient concern)
-		settlementEstimator,
+		billingEstimator,
 		interventionEngine,
 	)
 
 	// Settlement Worker — one Worker per Manager task queue. The Manager registers its own
 	// workflows/activities (incl. the two Engines) from its stored deps via
 	// RegisterWorker(ws, m).
-	ws := worker.New(tc, settlement.TaskQueue, worker.Options{})
-	settlement.RegisterWorker(ws, settlementManager)
+	ws := worker.New(tc, billing.TaskQueue, worker.Options{})
+	billing.RegisterWorker(ws, billingManager)
 	if err := ws.Start(); err != nil {
 		return err
 	}
 	defer ws.Stop()
-	logger.Info("embedded temporal worker started", "taskQueue", settlement.TaskQueue)
+	logger.Info("embedded temporal worker started", "taskQueue", billing.TaskQueue)
 
 	// CLIENT LAYER — 100% GENERATED from project.json (.serviceContracts). Each
 	// per-manager Handler (internal/client/web/<mgr>, generated by
@@ -818,22 +814,21 @@ func buildDesignRepoResolvers(cfg config, scConcrete sourcecontrol.SourceControl
 	return designRepoSD, designRepoPD
 }
 
-// selectConstructionDeps chooses the three EXTERNAL-effect construction deps (pipeline +
-// artifact store + LLM worker) and whether to register the construction Worker. They
-// default to nil (worker not registered) unless the dry-run profile is set (instant
-// in-memory stubs) or the real GitHub-Actions pipeline + artifact store are configured.
-func selectConstructionDeps(cfg config, pipeline constructionpipeline.ConstructionPipelineAccess, artifacts artifact.ArtifactAccess, logger *slog.Logger) (constructionpipeline.ConstructionPipelineAccess, artifact.ArtifactAccess, workeraccess.WorkerAccess, bool) {
+// selectConstructionDeps chooses the two EXTERNAL-effect construction deps (pipeline +
+// artifact store) and whether to register the construction Worker. They default to nil
+// (worker not registered) unless the dry-run profile is set (instant in-memory stubs) or
+// the real GitHub-Actions pipeline + artifact store are configured. Construction dispatches
+// real work via the GH-Actions pipeline (agentic-everywhere); there is no server-side LLM
+// worker seam.
+func selectConstructionDeps(cfg config, pipeline constructionpipeline.ConstructionPipelineAccess, artifacts artifact.ArtifactAccess, logger *slog.Logger) (constructionpipeline.ConstructionPipelineAccess, artifact.ArtifactAccess, bool) {
 	switch {
 	case cfg.ConstructionDryRun:
-		logger.Warn("construction Worker DRY-RUN mode — pipeline/artifact/worker effects are STUBBED (no GitHub Actions run, no LLM call); the real pump + per-activity lifecycle + head-state cascade run end-to-end")
-		return dryRunPipeline{}, dryRunArtifacts{}, dryRunWorker{}, true
+		logger.Warn("construction Worker DRY-RUN mode — pipeline/artifact effects are STUBBED (no GitHub Actions run); the real pump + per-activity lifecycle + head-state cascade run end-to-end")
+		return dryRunPipeline{}, dryRunArtifacts{}, true
 	case pipeline != nil && artifacts != nil:
-		// Construction does NOT use a server-side LLM. dryRunWorker is a no-LLM stub
-		// that satisfies the worker seam with a valid ConstructionOutput so the workflow
-		// advances to the real GH-Actions dispatch.
-		return pipeline, artifacts, dryRunWorker{}, true
+		return pipeline, artifacts, true
 	default:
-		return nil, nil, nil, false
+		return nil, nil, false
 	}
 }
 

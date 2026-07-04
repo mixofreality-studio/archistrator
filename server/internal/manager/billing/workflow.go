@@ -1,4 +1,4 @@
-package settlement
+package billing
 
 import (
 	"errors"
@@ -12,27 +12,27 @@ import (
 )
 
 // This file holds the Workflows struct (the Manager's downstream dependency set), the
-// five workflow bodies (the encapsulated SettlementWorkflow volatility —
-// settlementManager.md §6.3), the workflow-level Conflict re-read→re-apply loop (§6.5),
+// five workflow bodies (the encapsulated BillingWorkflow volatility —
+// billingManager.md §6.3), the workflow-level Conflict re-read→re-apply loop (§6.5),
 // the forward-only chargeback recompute saga, and the activity-option presets.
 //
 // How the two dependency kinds are reached differs by determinism class:
-//   - The two Engines (settlementEngine / interventionEngine) are PURE, deterministic,
+//   - The two Engines (billingEngine / interventionEngine) are PURE, deterministic,
 //     called DIRECTLY in-workflow by value (no Activity wrapper — replay-safe).
-//   - The ResourceAccess ports (settlementStateAccess / revenueLedgerAccess /
+//   - The ResourceAccess ports (billingStateAccess / revenueLedgerAccess /
 //     usageAccess / merchantGatewayAccess / operatedRuntimeAccess /
 //     durableExecutionAccess) are I/O and NON-deterministic; the workflow invokes the
 //     Activity methods on this same struct via workflow.ExecuteActivity (activities.go).
 
-// wfDeps bundles every downstream dependency the settlementManager orchestrates, passed
+// wfDeps bundles every downstream dependency the billingManager orchestrates, passed
 // to RegisterWorker (worker.go) and held on the Workflows struct. Each field is a
 // CONSUMER-DEFINED interface (deps.go): the concrete RA types are adapted at the
 // composition root; the not-yet-built Engines/RA are unit-tested with fakes.
 type wfDeps struct {
-	Settlement   settlementEngine
+	Billing      billingEngine
 	Intervention interventionEngine
 
-	SettlementState settlementStateAccess
+	BillingState    billingStateAccess
 	RevenueLedger   revenueLedgerAccess
 	Usage           usageAccess
 	Gateway         merchantGatewayAccess
@@ -40,14 +40,14 @@ type wfDeps struct {
 	Durable         durableExecutionAccess
 }
 
-// Workflows is the single settlementManager component struct — BOTH the workflow
+// Workflows is the single billingManager component struct — BOTH the workflow
 // receiver and the activity receiver (no separate Activities type, mirroring
 // operations/construction).
 type workflows struct {
-	Settlement   settlementEngine
+	Billing      billingEngine
 	Intervention interventionEngine
 
-	SettlementState settlementStateAccess
+	BillingState    billingStateAccess
 	RevenueLedger   revenueLedgerAccess
 	Usage           usageAccess
 	Gateway         merchantGatewayAccess
@@ -58,9 +58,9 @@ type workflows struct {
 // newWorkflows builds the Workflows receiver from the injected wfDeps.
 func newWorkflows(d wfDeps) *workflows {
 	return &workflows{
-		Settlement:      d.Settlement,
+		Billing:         d.Billing,
 		Intervention:    d.Intervention,
-		SettlementState: d.SettlementState,
+		BillingState:    d.BillingState,
 		RevenueLedger:   d.RevenueLedger,
 		Usage:           d.Usage,
 		Gateway:         d.Gateway,
@@ -82,12 +82,12 @@ const (
 )
 
 // ---------------------------------------------------------------------------
-// Activity option presets (settlementManager.md §6.4). Concrete RetryPolicy / timeout
+// Activity option presets (billingManager.md §6.4). Concrete RetryPolicy / timeout
 // choices live here, in the Manager. FU-MST-4 (named RetryPolicy library) is not yet
 // landed; the inline §6.4 parameters are used.
 // ---------------------------------------------------------------------------
 
-// readHeadOpts — settlement head-state pure reads (terminal NotFound/ContractMisuse).
+// readHeadOpts — billing head-state pure reads (terminal NotFound/ContractMisuse).
 func readHeadOpts(ctx workflow.Context) workflow.Context {
 	return workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 10 * time.Second,
@@ -100,7 +100,7 @@ func readHeadOpts(ctx workflow.Context) workflow.Context {
 	})
 }
 
-// recordHeadOpts — settlement head-state write transitions (terminal
+// recordHeadOpts — billing head-state write transitions (terminal
 // NotFound/ContractMisuse; Conflict is surfaced for the workflow-level re-read loop, so
 // it is NOT non-retryable here — the workflow body recovers it).
 func recordHeadOpts(ctx workflow.Context) workflow.Context {
@@ -130,7 +130,7 @@ func ledgerOpts(ctx workflow.Context) workflow.Context {
 }
 
 // gatewayOpts — merchantGatewayAccess money movements (externalGateway; small budget;
-// terminal Auth/NotFound/ContractMisuse → decideOnSettlementFailure). Stripe-native
+// terminal Auth/NotFound/ContractMisuse → decideOnBillingFailure). Stripe-native
 // dedup on the Manager-supplied Idempotency-Key.
 func gatewayOpts(ctx workflow.Context) workflow.Context {
 	return workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
@@ -179,8 +179,8 @@ func durableOpts(ctx workflow.Context) workflow.Context {
 // re-read→re-apply loop (§6.5).
 var raConflictErrType = fwmgr.RAErrType(fwra.Conflict)
 
-// raNotFoundErrType is the canonical Temporal Type() ReadSettlement surfaces for a
-// missing settlement aggregate.
+// raNotFoundErrType is the canonical Temporal Type() ReadBilling surfaces for a
+// missing billing aggregate.
 var raNotFoundErrType = fwmgr.RAErrType(fwra.NotFound)
 
 // gatewayFailureErrType is the canonical Temporal Type() a terminal charge decline
@@ -197,57 +197,57 @@ type onboardInput struct {
 	DeployedAppID deployedAppID
 }
 
-// OnboardWorkflow drives UC5 onboard (settlementManager.md §6.3):
-//  1. ReadSettlementActivity → resolves deployedAppId → customerId + terms/payout.
+// OnboardWorkflow drives UC5 onboard (billingManager.md §6.3):
+//  1. ReadBillingActivity → resolves deployedAppId → customerId + terms/payout.
 //  2. CreateConnectedAccountActivity (merchantGatewayAccess).
 //  3. WirePaymentConfigActivity (operatedRuntimeAccess → publishDesiredState).
 //  4. BindGatewayLiveActivity (head-state; Conflict loop).
-//  5. RegisterScheduleActivity (the per-customer closeSettlementCycle:<customerId> Schedule).
-func (wf *workflows) OnboardWorkflow(ctx workflow.Context, in onboardInput) (SettlementRef, error) {
+//  5. RegisterScheduleActivity (the per-customer closeBillingCycle:<customerId> Schedule).
+func (wf *workflows) OnboardWorkflow(ctx workflow.Context, in onboardInput) (BillingRef, error) {
 	logger := workflow.GetLogger(ctx)
 
-	// Resolve the settlement aggregate. The head-state row carries the customerId the
+	// Resolve the billing aggregate. The head-state row carries the customerId the
 	// deployed app settles under (§3.0 / UC5 line 683).
-	settlement, err := wf.readSettlementByDeployedApp(ctx, in.DeployedAppID)
+	billing, err := wf.readBillingByDeployedApp(ctx, in.DeployedAppID)
 	if err != nil {
-		// A missing settlement aggregate violates the UC5 pre-condition ("the deployed
+		// A missing billing aggregate violates the UC5 pre-condition ("the deployed
 		// app exists and is operated"); surface it as a terminal FailedPrecondition.
 		if isReadNotFound(err) {
-			return SettlementRef{}, temporal.NewNonRetryableApplicationError(
-				"no settlement aggregate for the deployed app (not registered/operated)",
+			return BillingRef{}, temporal.NewNonRetryableApplicationError(
+				"no billing aggregate for the deployed app (not registered/operated)",
 				fwmgr.ManagerErrType(fwmgr.FailedPrecondition), nil)
 		}
-		return SettlementRef{}, err
+		return BillingRef{}, err
 	}
-	customerID := settlement.ID
+	customerID := billing.ID
 
 	// Create the merchant connected account (external gateway).
 	binding, gerr := wf.createConnectedAccount(ctx, customerID)
 	if gerr != nil {
-		return SettlementRef{}, gerr
+		return BillingRef{}, gerr
 	}
 
 	// Wire the gateway binding into the deployed app's runtime (git commit).
 	if werr := wf.wirePaymentConfig(ctx, in.DeployedAppID, binding); werr != nil {
-		return SettlementRef{}, werr
+		return BillingRef{}, werr
 	}
 
 	// Record the binding (head-state; Conflict loop).
-	if _, berr := wf.bindGatewayLive(ctx, customerID, settlement.Version, binding); berr != nil {
-		return SettlementRef{}, berr
+	if _, berr := wf.bindGatewayLive(ctx, customerID, billing.Version, binding); berr != nil {
+		return BillingRef{}, berr
 	}
 
 	// Register the per-customer cycle-close Schedule (idempotent by id).
 	if rerr := wf.registerCloseSchedule(ctx, customerID); rerr != nil {
-		return SettlementRef{}, rerr
+		return BillingRef{}, rerr
 	}
 
 	logger.Info("payment integration onboarded", "customerId", customerID.String(), "deployedAppId", in.DeployedAppID.String())
-	return SettlementRef{CustomerID: customerID}, nil
+	return BillingRef{CustomerID: customerID}, nil
 }
 
 // ===========================================================================
-// RegisterCustomerWorkflow — op 2.2 entry (ncuc1 open the settlement aggregate).
+// RegisterCustomerWorkflow — op 2.2 entry (ncuc1 open the billing aggregate).
 // ===========================================================================
 
 // RegisterInput is the start payload for RegisterCustomerWorkflow.
@@ -255,24 +255,24 @@ type registerInput struct {
 	CustomerID customerID
 }
 
-// RegisterCustomerWorkflow drives ncuc1 (settlementManager.md §6.3):
+// RegisterCustomerWorkflow drives ncuc1 (billingManager.md §6.3):
 //  1. ValidateStoredInstrumentActivity (merchantGatewayAccess; zero-amount auth).
 //  2. RegisterCustomerActivity (head-state; opens the aggregate; Conflict loop).
-func (wf *workflows) RegisterCustomerWorkflow(ctx workflow.Context, in registerInput) (SettlementRef, error) {
+func (wf *workflows) RegisterCustomerWorkflow(ctx workflow.Context, in registerInput) (BillingRef, error) {
 	logger := workflow.GetLogger(ctx)
 
 	if verr := wf.validateStoredInstrument(ctx, in.CustomerID); verr != nil {
-		return SettlementRef{}, verr
+		return BillingRef{}, verr
 	}
 
 	// Open the aggregate. A fresh registration seeds expectedVersion 0; the Conflict
 	// loop recovers a racing register.
 	if _, rerr := wf.registerCustomer(ctx, in.CustomerID, 0); rerr != nil {
-		return SettlementRef{}, rerr
+		return BillingRef{}, rerr
 	}
 
 	logger.Info("customer registered", "customerId", in.CustomerID.String())
-	return SettlementRef(in), nil
+	return BillingRef(in), nil
 }
 
 // ===========================================================================
@@ -287,12 +287,12 @@ type closeInput struct {
 	CycleID    cycleID
 }
 
-// CloseCycleWorkflow drives UC6 cycle-close (settlementManager.md §6.3):
+// CloseCycleWorkflow drives UC6 cycle-close (billingManager.md §6.3):
 //  1. (drain any inbound-revenue signals already enqueued — the append is idempotent on
 //     the gateway event id; the net is computed here, not at signal time).
-//  2. ReadSettlementActivity → terms + expectedVersion.
+//  2. ReadBillingActivity → terms + expectedVersion.
 //  3. ReadRevenueRangeActivity + ReadUsageRangeActivity → value snapshots.
-//  4. settlementEngine.ComputeNet (direct, by value) → {signedNet, routingDirective}.
+//  4. billingEngine.ComputeNet (direct, by value) → {signedNet, routingDirective}.
 //  5. execute the directive: Payout / Charge (on failure decide→execute) / NoAction.
 //  6. SettleCycleActivity (head-state; Conflict loop).
 //  7. await chargebackReceived → forward-only RecomputeCycle saga (§6.3).
@@ -304,11 +304,11 @@ func (wf *workflows) CloseCycleWorkflow(ctx workflow.Context, in closeInput) (Cl
 	// id; the net is computed below, not at signal time (§2.5).
 	wf.drainInboundRevenue(ctx, in.CustomerID, in.CycleID)
 
-	settlement, err := wf.readSettlement(ctx, in.CustomerID)
+	billing, err := wf.readBilling(ctx, in.CustomerID)
 	if err != nil {
 		return CloseCycleResult{}, err
 	}
-	if !settlement.GatewayBound {
+	if !billing.GatewayBound {
 		return CloseCycleResult{}, temporal.NewNonRetryableApplicationError(
 			"customer is not registered + gateway-bound; cannot close cycle",
 			fwmgr.ManagerErrType(fwmgr.FailedPrecondition), nil)
@@ -324,7 +324,7 @@ func (wf *workflows) CloseCycleWorkflow(ctx workflow.Context, in closeInput) (Cl
 	}
 
 	// Compute the signed net + routing directive — DIRECT, by value, in-workflow.
-	result, cerr := wf.Settlement.ComputeNet(revenue, usage, settlement.Terms)
+	result, cerr := wf.Billing.ComputeNet(revenue, usage, billing.Terms)
 	if cerr != nil {
 		return CloseCycleResult{}, fwmgr.MapError(cerr)
 	}
@@ -334,13 +334,13 @@ func (wf *workflows) CloseCycleWorkflow(ctx workflow.Context, in closeInput) (Cl
 		return CloseCycleResult{}, routeErr
 	}
 
-	// Record the settlement outcome (head-state; Conflict loop).
-	outcome := settlementOutcomeSeam{
+	// Record the billing outcome (head-state; Conflict loop).
+	outcome := billingOutcomeSeam{
 		Net:       result.SignedNet,
 		Directive: result.RoutingDirective,
 		Escalated: escalated,
 	}
-	if _, serr := wf.settleCycle(ctx, in.CustomerID, settlement.Version, in.CycleID, outcome); serr != nil {
+	if _, serr := wf.settleCycle(ctx, in.CustomerID, billing.Version, in.CycleID, outcome); serr != nil {
 		return CloseCycleResult{}, serr
 	}
 
@@ -357,19 +357,19 @@ func (wf *workflows) CloseCycleWorkflow(ctx workflow.Context, in closeInput) (Cl
 		CustomerID: in.CustomerID,
 		CycleID:    in.CycleID,
 		// Convert the Engine-seam directive to the façade's OWN RoutingDirective at the
-		// boundary (full encapsulation: the public contract carries settlement's own
+		// boundary (full encapsulation: the public contract carries billing's own
 		// enum, not the deps.go seam). The iota order matches, so the cast is faithful.
 		Routed:    RoutingDirective(result.RoutingDirective),
 		Escalated: escalated,
 	}, nil
 }
 
-// routeNet executes the Engine's routing directive (settlementManager.md §6.3 / §0
+// routeNet executes the Engine's routing directive (billingManager.md §6.3 / §0
 // decision 2). Payout → payoutCustomer; Charge → chargeCustomer (on failure
 // decide→execute {Retry|Escalate|Delay}); NoAction → skip. Returns whether the cycle
 // was escalated (the OQ-4 head-state escalation flag). attempt seeds the re-charge
 // budget for the Retry directive.
-func (wf *workflows) routeNet(ctx workflow.Context, customerID customerID, cycleID cycleID, result settlementResultSeam, attempt int) (escalated bool, err error) {
+func (wf *workflows) routeNet(ctx workflow.Context, customerID customerID, cycleID cycleID, result billingResultSeam, attempt int) (escalated bool, err error) {
 	switch result.RoutingDirective {
 	case routingPayout:
 		return false, wf.payoutCustomer(ctx, customerID, cycleID, result.SignedNet)
@@ -389,7 +389,7 @@ func (wf *workflows) routeNet(ctx workflow.Context, customerID customerID, cycle
 		return false, nil
 	default:
 		return false, temporal.NewNonRetryableApplicationError(
-			"settlement engine returned an unknown routing directive", "UnknownRoutingDirective", nil)
+			"billing engine returned an unknown routing directive", "UnknownRoutingDirective", nil)
 	}
 }
 
@@ -398,39 +398,39 @@ func (wf *workflows) routeNet(ctx workflow.Context, customerID customerID, cycle
 //   - Delay   → leave the shortfall for the next shortfallSweep (the head-state record
 //     carries no escalation; the sweep re-attempts). Returns escalated=false.
 //   - Escalate→ flag delinquency on head-state (escalated=true); the operator dashboard
-//     reads it via readSettlement (no new DSL edge; §6.3).
-func (wf *workflows) handleChargeFailure(ctx workflow.Context, customerID customerID, cycleID cycleID, result settlementResultSeam, attempt int) (escalated bool, err error) {
-	directive, derr := wf.Intervention.DecideOnSettlementFailure(settlementFailureSeam{
+//     reads it via readBilling (no new DSL edge; §6.3).
+func (wf *workflows) handleChargeFailure(ctx workflow.Context, customerID customerID, cycleID cycleID, result billingResultSeam, attempt int) (escalated bool, err error) {
+	directive, derr := wf.Intervention.DecideOnBillingFailure(billingFailureSeam{
 		CustomerID:   customerID,
 		CycleID:      cycleID,
-		Kind:         settlementFailureChargeDeclined,
+		Kind:         billingFailureChargeDeclined,
 		AttemptCount: attempt + 1,
 	})
 	if derr != nil {
 		return false, fwmgr.MapError(derr)
 	}
 	switch directive {
-	case settlementRetry:
+	case billingRetry:
 		if attempt+1 >= maxChargeRetries {
 			// Budget exhausted — flip to an escalation rather than loop forever.
 			return true, nil
 		}
 		// EXECUTE Retry: re-route the same net (re-enters the charge).
 		return wf.routeNet(ctx, customerID, cycleID, result, attempt+1)
-	case settlementDelay:
+	case billingDelay:
 		// EXECUTE Delay: leave for the next shortfallSweep; no escalation flag.
 		workflow.GetLogger(ctx).Info("charge delayed to next shortfall sweep",
 			"customerId", customerID.String(), "cycleId", cycleID)
 		return false, nil
-	case settlementEscalate:
+	case billingEscalate:
 		// EXECUTE Escalate: flag delinquency on the head-state outcome (read by the
-		// operator dashboard via readSettlement; no new edge).
-		workflow.GetLogger(ctx).Warn("settlement charge escalated to delinquency",
+		// operator dashboard via readBilling; no new edge).
+		workflow.GetLogger(ctx).Warn("billing charge escalated to delinquency",
 			"customerId", customerID.String(), "cycleId", cycleID)
 		return true, nil
 	default:
 		return false, temporal.NewNonRetryableApplicationError(
-			"intervention returned an unknown settlement-failure directive", "UnknownSettlementDirective", nil)
+			"intervention returned an unknown billing-failure directive", "UnknownBillingDirective", nil)
 	}
 }
 
@@ -464,7 +464,7 @@ func (wf *workflows) drainInboundRevenue(ctx workflow.Context, customerID custom
 // and, on arrival, runs the forward-only recompute saga (§6.3). The wait is the
 // Manager's own in-workflow primitive (awaitSignal — category A). It returns once a
 // chargeback is handled or the cycle window elapses with none.
-func (wf *workflows) awaitChargeback(ctx workflow.Context, customerID customerID, cycleID cycleID, prior settlementResultSeam) {
+func (wf *workflows) awaitChargeback(ctx workflow.Context, customerID customerID, cycleID cycleID, prior billingResultSeam) {
 	ch := workflow.GetSignalChannel(ctx, signalChargebackReceived)
 	var event GatewayReversalEvent
 	if !ch.ReceiveAsync(&event) {
@@ -477,14 +477,14 @@ func (wf *workflows) awaitChargeback(ctx workflow.Context, customerID customerID
 	}
 }
 
-// recomputeCycle runs the forward-only chargeback recompute saga (settlementManager.md
+// recomputeCycle runs the forward-only chargeback recompute saga (billingManager.md
 // §6.3 RecomputeCycleWorkflow body):
 //  1. RecordReversalActivity (revenueLedgerAccess; dedup on the chargeback event id).
 //  2. re-fold the reversal-adjusted revenue + usage.
-//  3. settlementEngine.RecomputeNet (direct, by value) → corrected net + DELTA directive.
+//  3. billingEngine.RecomputeNet (direct, by value) → corrected net + DELTA directive.
 //  4. ResettleCycleActivity (head-state correction; Conflict loop).
 //  5. route the DELTA charge/payout via the gateway. No rollback (forward-only).
-func (wf *workflows) recomputeCycle(ctx workflow.Context, customerID customerID, cycleID cycleID, event GatewayReversalEvent, prior settlementResultSeam) error {
+func (wf *workflows) recomputeCycle(ctx workflow.Context, customerID customerID, cycleID cycleID, event GatewayReversalEvent, prior billingResultSeam) error {
 	// Append the reversal (idempotent on the chargeback's gateway event id).
 	if err := wf.recordReversal(ctx, reversalEntrySeam{
 		CustomerID:     customerID,
@@ -510,16 +510,16 @@ func (wf *workflows) recomputeCycle(ctx workflow.Context, customerID customerID,
 		return uerr
 	}
 
-	settlement, serr := wf.readSettlement(ctx, customerID)
+	billing, serr := wf.readBilling(ctx, customerID)
 	if serr != nil {
 		return serr
 	}
 
 	// Recompute the corrected net + DELTA directive — DIRECT, by value, in-workflow.
-	corrected, cerr := wf.Settlement.RecomputeNet(reSettlementInputSeam{
+	corrected, cerr := wf.Billing.RecomputeNet(reBillingInputSeam{
 		Revenue:      revenue,
 		Usage:        usage,
-		Terms:        settlement.Terms,
+		Terms:        billing.Terms,
 		PriorSettled: prior,
 	})
 	if cerr != nil {
@@ -527,11 +527,11 @@ func (wf *workflows) recomputeCycle(ctx workflow.Context, customerID customerID,
 	}
 
 	// Record the correction (head-state in place; Conflict loop).
-	correction := settlementOutcomeSeam{
+	correction := billingOutcomeSeam{
 		Net:       corrected.SignedNet,
 		Directive: corrected.RoutingDirective,
 	}
-	if _, rserr := wf.resettleCycle(ctx, customerID, settlement.Version, cycleID, correction); rserr != nil {
+	if _, rserr := wf.resettleCycle(ctx, customerID, billing.Version, cycleID, correction); rserr != nil {
 		return rserr
 	}
 
@@ -549,7 +549,7 @@ type shortfallSweepInput struct {
 	ProjectID string // optional scope narrow; empty ⇒ platform-wide
 }
 
-// ShortfallSweepWorkflow drives ncuc5 (settlementManager.md §6.3):
+// ShortfallSweepWorkflow drives ncuc5 (billingManager.md §6.3):
 //  1. ReadDelinquentActivity → the persistently-delinquent customer set.
 //  2. for each, DeliverDelinquencySignalActivity → the queued applyDelinquencyPolicy
 //     Signal to operationsManager (the single sanctioned queued M→M edge).
@@ -579,26 +579,26 @@ func (wf *workflows) ShortfallSweepWorkflow(ctx workflow.Context, in shortfallSw
 // Read + fold helpers.
 // ---------------------------------------------------------------------------
 
-// readSettlement runs the ReadSettlementActivity (whole head-state read).
-func (wf *workflows) readSettlement(ctx workflow.Context, customerID customerID) (settlementHead, error) {
+// readBilling runs the ReadBillingActivity (whole head-state read).
+func (wf *workflows) readBilling(ctx workflow.Context, customerID customerID) (billingHead, error) {
 	c := readHeadOpts(ctx)
-	var s settlementHead
-	if err := workflow.ExecuteActivity(c, wf.ReadSettlementActivity, customerID).Get(ctx, &s); err != nil {
-		return settlementHead{}, err
+	var s billingHead
+	if err := workflow.ExecuteActivity(c, wf.ReadBillingActivity, customerID).Get(ctx, &s); err != nil {
+		return billingHead{}, err
 	}
 	return s, nil
 }
 
-// readSettlementByDeployedApp resolves a deployedAppId to its settlement aggregate
+// readBillingByDeployedApp resolves a deployedAppId to its billing aggregate
 // (UC5 onboarding). The head-state RA keys on customerId; the onboarding read carries
 // the deployedAppId so the RA resolves the owning customer. Modelled as the same
-// ReadSettlementActivity over the deployedApp's resolved customer; here the deployedApp
+// ReadBillingActivity over the deployedApp's resolved customer; here the deployedApp
 // id IS the resolution input the RA maps to the customer aggregate.
-func (wf *workflows) readSettlementByDeployedApp(ctx workflow.Context, deployedAppID deployedAppID) (settlementHead, error) {
-	// The settlement aggregate is per-customer; the onboarding RA read resolves the
+func (wf *workflows) readBillingByDeployedApp(ctx workflow.Context, deployedAppID deployedAppID) (billingHead, error) {
+	// The billing aggregate is per-customer; the onboarding RA read resolves the
 	// owning customer from the deployed app. We pass the deployedAppId as the read key;
-	// the RA returns the customer's Settlement (ID = customerId).
-	return wf.readSettlement(ctx, deployedAppID)
+	// the RA returns the customer's Billing (ID = customerId).
+	return wf.readBilling(ctx, deployedAppID)
 }
 
 // foldRevenue reads the cycle's revenue facts and folds them into the Engine's
@@ -746,7 +746,7 @@ func (wf *workflows) bindGatewayLive(ctx workflow.Context, customerID customerID
 	})
 }
 
-func (wf *workflows) settleCycle(ctx workflow.Context, customerID customerID, seed version, cycleID cycleID, outcome settlementOutcomeSeam) (version, error) {
+func (wf *workflows) settleCycle(ctx workflow.Context, customerID customerID, seed version, cycleID cycleID, outcome billingOutcomeSeam) (version, error) {
 	return wf.applyRecovering(ctx, customerID, seed, func(expected version) (version, error) {
 		c := recordHeadOpts(ctx)
 		var v version
@@ -757,7 +757,7 @@ func (wf *workflows) settleCycle(ctx workflow.Context, customerID customerID, se
 	})
 }
 
-func (wf *workflows) resettleCycle(ctx workflow.Context, customerID customerID, seed version, cycleID cycleID, correction settlementOutcomeSeam) (version, error) {
+func (wf *workflows) resettleCycle(ctx workflow.Context, customerID customerID, seed version, cycleID cycleID, correction billingOutcomeSeam) (version, error) {
 	return wf.applyRecovering(ctx, customerID, seed, func(expected version) (version, error) {
 		c := recordHeadOpts(ctx)
 		var v version
@@ -790,15 +790,15 @@ func (wf *workflows) applyRecovering(
 		}
 		if attempt+1 >= maxMutateConflictAttempts {
 			return 0, temporal.NewNonRetryableApplicationError(
-				"settlement head-state conflict did not converge within bounded attempts",
+				"billing head-state conflict did not converge within bounded attempts",
 				"MutateConflictExhausted", err)
 		}
-		s, rerr := wf.readSettlement(ctx, customerID)
+		s, rerr := wf.readBilling(ctx, customerID)
 		if rerr != nil {
 			return 0, rerr
 		}
 		expected = s.Version
-		workflow.GetLogger(ctx).Info("settlement head-state conflict; re-read version and retrying",
+		workflow.GetLogger(ctx).Info("billing head-state conflict; re-read version and retrying",
 			"attempt", attempt+1, "nextExpectedVersion", expected)
 	}
 }

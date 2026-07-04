@@ -1,4 +1,4 @@
-package settlement
+package billing
 
 import (
 	"errors"
@@ -9,9 +9,9 @@ import (
 
 // launchTerms is the registered launch regime: flat 10% revenue share, flat compute
 // markup of 20%, monthly schedule. Both pivot regimes are known. Uses the Engine's
-// OWN generated SettlementTerms (Option B full encapsulation — no projectstate import).
-func launchTerms() SettlementTerms {
-	return SettlementTerms{
+// OWN generated BillingTerms (Option B full encapsulation — no projectstate import).
+func launchTerms() BillingTerms {
+	return BillingTerms{
 		RevenueShare:         RevenueShareLaunchFlat10,
 		RevenueSharePercent:  10.0,
 		ComputeCost:          ComputeCostFlatMarkup,
@@ -25,11 +25,11 @@ func usd(minor int64) Money {
 }
 
 func TestProjectCommitTimeRevenueShareAndComputeCost(t *testing.T) {
-	e := NewSettlementEngine()
+	e := NewBillingEngine()
 
 	tests := []struct {
 		name      string
-		terms     SettlementTerms
+		terms     BillingTerms
 		want      Projection
 		wantErr   bool
 		errKind   fweng.Kind
@@ -47,7 +47,7 @@ func TestProjectCommitTimeRevenueShareAndComputeCost(t *testing.T) {
 		},
 		{
 			name: "unknown revenue share is unknown-terms error",
-			terms: SettlementTerms{
+			terms: BillingTerms{
 				RevenueShare: RevenueShareUnknown,
 				ComputeCost:  ComputeCostFlatMarkup,
 			},
@@ -57,7 +57,7 @@ func TestProjectCommitTimeRevenueShareAndComputeCost(t *testing.T) {
 		},
 		{
 			name: "unknown compute cost is unknown-terms error",
-			terms: SettlementTerms{
+			terms: BillingTerms{
 				RevenueShare: RevenueShareLaunchFlat10,
 				ComputeCost:  ComputeCostUnknown,
 			},
@@ -88,14 +88,14 @@ func TestProjectCommitTimeRevenueShareAndComputeCost(t *testing.T) {
 }
 
 func TestComputeNet(t *testing.T) {
-	e := NewSettlementEngine()
+	e := NewBillingEngine()
 
 	tests := []struct {
 		name      string
 		revenue   CycleRevenue
 		usage     CycleUsage
-		terms     SettlementTerms
-		want      SettlementResult
+		terms     BillingTerms
+		want      BillingResult
 		wantErr   bool
 		errKind   fweng.Kind
 		errDetail string
@@ -107,7 +107,7 @@ func TestComputeNet(t *testing.T) {
 			revenue: CycleRevenue{GrossInbound: usd(100000), EventCount: 7},
 			usage:   CycleUsage{ComputeUnitSeconds: 100},
 			terms:   launchTerms(),
-			want: SettlementResult{
+			want: BillingResult{
 				SignedNet:           usd(89880),
 				RoutingDirective:    RoutingPayout,
 				RevenueShareApplied: usd(10000),
@@ -122,7 +122,7 @@ func TestComputeNet(t *testing.T) {
 			revenue: CycleRevenue{GrossInbound: usd(50)},
 			usage:   CycleUsage{ComputeUnitSeconds: 1000},
 			terms:   launchTerms(),
-			want: SettlementResult{
+			want: BillingResult{
 				SignedNet:           usd(-1155),
 				RoutingDirective:    RoutingCharge,
 				RevenueShareApplied: usd(5),
@@ -135,7 +135,7 @@ func TestComputeNet(t *testing.T) {
 			revenue: CycleRevenue{GrossInbound: usd(0)},
 			usage:   CycleUsage{},
 			terms:   launchTerms(),
-			want: SettlementResult{
+			want: BillingResult{
 				SignedNet:           usd(0),
 				RoutingDirective:    RoutingNoAction,
 				RevenueShareApplied: usd(0),
@@ -146,7 +146,7 @@ func TestComputeNet(t *testing.T) {
 			name:    "unknown terms is unknown-terms error",
 			revenue: CycleRevenue{GrossInbound: usd(100000)},
 			usage:   CycleUsage{ComputeUnitSeconds: 100},
-			terms: SettlementTerms{
+			terms: BillingTerms{
 				RevenueShare: RevenueShareUnknown,
 				ComputeCost:  ComputeCostUnknown,
 			},
@@ -190,17 +190,17 @@ func TestComputeNet(t *testing.T) {
 }
 
 func TestRecomputeNet(t *testing.T) {
-	e := NewSettlementEngine()
+	e := NewBillingEngine()
 
 	// A chargeback reversal halved the gross from 100000 to 50000. The corrected
 	// net is computed fresh from the reversal-adjusted revenue; the Manager computes
 	// the delta vs PriorSettled (not the Engine's job).
 	prior, err := e.ComputeNet(fweng.Context{}, CycleRevenue{GrossInbound: usd(100000)}, CycleUsage{ComputeUnitSeconds: 100}, launchTerms())
 	if err != nil {
-		t.Fatalf("seeding prior settlement: %v", err)
+		t.Fatalf("seeding prior billing: %v", err)
 	}
 
-	got, err := e.RecomputeNet(fweng.Context{}, ReSettlementInput{
+	got, err := e.RecomputeNet(fweng.Context{}, ReBillingInput{
 		Revenue:      CycleRevenue{GrossInbound: usd(50000)},
 		Usage:        CycleUsage{ComputeUnitSeconds: 100},
 		Terms:        launchTerms(),
@@ -211,7 +211,7 @@ func TestRecomputeNet(t *testing.T) {
 	}
 
 	// gross 50000, 10% = 5000, compute 100*1*1.20 = 120. net = 50000-5000-120 = 44880.
-	want := SettlementResult{
+	want := BillingResult{
 		SignedNet:           usd(44880),
 		RoutingDirective:    RoutingPayout,
 		RevenueShareApplied: usd(5000),
@@ -222,9 +222,9 @@ func TestRecomputeNet(t *testing.T) {
 	}
 
 	// RecomputeNet honours the same money-safety guard.
-	_, err = e.RecomputeNet(fweng.Context{}, ReSettlementInput{
+	_, err = e.RecomputeNet(fweng.Context{}, ReBillingInput{
 		Revenue: CycleRevenue{GrossInbound: usd(50000)},
-		Terms:   SettlementTerms{RevenueShare: RevenueShareUnknown, ComputeCost: ComputeCostUnknown},
+		Terms:   BillingTerms{RevenueShare: RevenueShareUnknown, ComputeCost: ComputeCostUnknown},
 	})
 	assertEngineErr(t, err, fweng.InvalidInput, "unknown terms")
 }
@@ -232,7 +232,7 @@ func TestRecomputeNet(t *testing.T) {
 // TestDeterminism asserts that identical inputs yield identical outputs across
 // repeated invocations (the Engine reads no clock/RNG/state).
 func TestDeterminism(t *testing.T) {
-	e := NewSettlementEngine()
+	e := NewBillingEngine()
 	revenue := CycleRevenue{GrossInbound: usd(123456), EventCount: 3}
 	usage := CycleUsage{ComputeUnitSeconds: 250, StorageBytesMonths: 10, EgressBytes: 5}
 	terms := launchTerms()
@@ -256,14 +256,14 @@ func TestDeterminism(t *testing.T) {
 // float money path): the computation over money produces equality with a
 // hand-computed int64, and the share+cost+net reconcile exactly.
 func TestMoneyIsExactInt64(t *testing.T) {
-	e := NewSettlementEngine()
+	e := NewBillingEngine()
 	// gross 99 cents, 33% share. 99*3300/10000 = 326700/10000 = 32 (integer floor).
 	// compute 0. net = 99 - 32 - 0 = 67.
 	got, err := e.ComputeNet(
 		fweng.Context{},
 		CycleRevenue{GrossInbound: usd(99)},
 		CycleUsage{},
-		SettlementTerms{
+		BillingTerms{
 			RevenueShare:         RevenueShareNegotiatedRate,
 			RevenueSharePercent:  33.0,
 			ComputeCost:          ComputeCostFlatMarkup,

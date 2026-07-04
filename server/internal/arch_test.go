@@ -155,7 +155,7 @@ var encapsulationAllowlistData = map[string][]string{
 	},
 	// Temporal registration entrypoints (see construction). RegisterSchedules registers the
 	// shortfallSweep Schedule.
-	"internal/manager/settlement": {
+	"internal/manager/billing": {
 		"RegisterSchedules",
 		"RegisterWorker",
 		"TaskQueue",
@@ -503,16 +503,5 @@ var encapsulationAllowlistData = map[string][]string{
 		"CustomerID",
 		"Error",
 		"OperatedAppID",
-	},
-	// The generic typed-data PUBLIC API a Go interface cannot express: GenerateTypedData[T] is a
-	// package-level generic function (generic methods are illegal on the WorkerAccess contract
-	// interface), plus the distinct UnmarshalError it returns. + Error alias. (ReplayMode and its
-	// members are already contract surface via the generated NewReplayWorkerAccess constructor.)
-	"internal/resourceaccess/worker": {
-		"Error",
-		"GenerateTypedData",
-		"UnmarshalError",
-		"UnmarshalError.Error",
-		"UnmarshalError.Unwrap",
 	},
 }
