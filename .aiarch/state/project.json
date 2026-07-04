@@ -2794,7 +2794,7 @@
                   {
                     "id": "read-prior-models",
                     "kind": "action",
-                    "label": "Read prior committed models + ResearchInput",
+                    "label": "Review prior approved artifacts and research input",
                     "roleName": "",
                     "linkedActorId": null,
                     "linkedCompId": null
@@ -2802,7 +2802,7 @@
                   {
                     "id": "dispatch-draft-job",
                     "kind": "action",
-                    "label": "Dispatch agentic draft job (architect-role prompt, branch, kind)",
+                    "label": "Draft the design artifact",
                     "roleName": "",
                     "linkedActorId": null,
                     "linkedCompId": null
@@ -2810,7 +2810,7 @@
                   {
                     "id": "observe-read-back",
                     "kind": "action",
-                    "label": "Observe run; read committed model + CI-check result from git",
+                    "label": "Read back the drafted result",
                     "roleName": "",
                     "linkedActorId": null,
                     "linkedCompId": null
@@ -2818,7 +2818,7 @@
                   {
                     "id": "ci-check",
                     "kind": "decision",
-                    "label": "Required Method-invariant CI check green?",
+                    "label": "Draft valid?",
                     "roleName": "",
                     "linkedActorId": null,
                     "linkedCompId": null
@@ -2834,7 +2834,7 @@
                   {
                     "id": "pm-assigned",
                     "kind": "decision",
-                    "label": "Method assigns a PM reviewer for this kind?",
+                    "label": "PM review required for this artifact?",
                     "roleName": "",
                     "linkedActorId": null,
                     "linkedCompId": null
@@ -2842,7 +2842,7 @@
                   {
                     "id": "dispatch-critique-job",
                     "kind": "action",
-                    "label": "Dispatch agentic critique job (PM-role prompt)",
+                    "label": "Obtain PM critique of the draft",
                     "roleName": "",
                     "linkedActorId": null,
                     "linkedCompId": null
@@ -2858,7 +2858,7 @@
                   {
                     "id": "weave-pm-notes",
                     "kind": "action",
-                    "label": "Weave PM notes into next architect-role prompt",
+                    "label": "Incorporate PM notes into the next draft",
                     "roleName": "",
                     "linkedActorId": null,
                     "linkedCompId": null
@@ -2874,7 +2874,7 @@
                   {
                     "id": "stage-for-review",
                     "kind": "action",
-                    "label": "Stage typed model (AwaitingReview)",
+                    "label": "Submit draft for human review",
                     "roleName": "",
                     "linkedActorId": null,
                     "linkedCompId": null
@@ -2882,7 +2882,7 @@
                   {
                     "id": "human-gate",
                     "kind": "action",
-                    "label": "Architect reviews client-rendered artifact; submits decision",
+                    "label": "Architect reviews the artifact; submits decision",
                     "roleName": "Architect User",
                     "linkedActorId": "architect-user",
                     "linkedCompId": null
@@ -2898,7 +2898,7 @@
                   {
                     "id": "commit-advance",
                     "kind": "action",
-                    "label": "commitArtifact; parent advances to next step",
+                    "label": "Approve the artifact; advance to the next design step",
                     "roleName": "",
                     "linkedActorId": null,
                     "linkedCompId": null
@@ -2906,7 +2906,7 @@
                   {
                     "id": "withdraw",
                     "kind": "action",
-                    "label": "withdrawArtifact; stays at prior step",
+                    "label": "Withdraw the artifact; remain at the prior step",
                     "roleName": "",
                     "linkedActorId": null,
                     "linkedCompId": null
@@ -2914,7 +2914,7 @@
                   {
                     "id": "weave-feedback",
                     "kind": "action",
-                    "label": "Weave free-form notes + JSONPath-anchored comments into next draft; re-run PM critique",
+                    "label": "Incorporate feedback into the next draft; repeat PM critique",
                     "roleName": "",
                     "linkedActorId": null,
                     "linkedCompId": null
@@ -2922,7 +2922,7 @@
                   {
                     "id": "more-steps",
                     "kind": "decision",
-                    "label": "More Phase-1 steps remain?",
+                    "label": "More design steps remain?",
                     "roleName": "",
                     "linkedActorId": null,
                     "linkedCompId": null
@@ -2930,7 +2930,7 @@
                   {
                     "id": "seal-phase",
                     "kind": "action",
-                    "label": "Run phase-seal gate (advancePhase); Phase 1 complete",
+                    "label": "Seal the phase; system design complete",
                     "roleName": "",
                     "linkedActorId": null,
                     "linkedCompId": null
@@ -3126,7 +3126,7 @@
                   {
                     "id": "await-decision",
                     "kind": "action",
-                    "label": "Append SDPReviewAwaitingDecision; workflow suspends on architect-decision signal",
+                    "label": "Present the project options; await the architect's decision",
                     "roleName": "",
                     "linkedActorId": null,
                     "linkedCompId": null
@@ -3158,7 +3158,7 @@
                   {
                     "id": "apply-price",
                     "kind": "action",
-                    "label": "Apply price model -\u003e compute build-cost ceiling",
+                    "label": "Apply price model -> compute build-cost ceiling",
                     "roleName": "",
                     "linkedActorId": null,
                     "linkedCompId": null
@@ -3166,7 +3166,7 @@
                   {
                     "id": "open-work-items",
                     "kind": "action",
-                    "label": "Open a work item per sealed activity (workItemAccess)",
+                    "label": "Open a work item per sealed activity",
                     "roleName": "",
                     "linkedActorId": null,
                     "linkedCompId": null
@@ -3174,7 +3174,7 @@
                   {
                     "id": "commit-option",
                     "kind": "action",
-                    "label": "Append OptionCommitted; project approved for construction",
+                    "label": "Record the commitment; project approved for construction",
                     "roleName": "",
                     "linkedActorId": null,
                     "linkedCompId": null
@@ -3190,7 +3190,7 @@
                   {
                     "id": "revoke",
                     "kind": "action",
-                    "label": "Append OptionRevoked; re-suspend (treated as new commit)",
+                    "label": "Revoke the commitment; await a new decision",
                     "roleName": "",
                     "linkedActorId": null,
                     "linkedCompId": null
@@ -3198,7 +3198,7 @@
                   {
                     "id": "reject-all",
                     "kind": "action",
-                    "label": "Append SDPReviewRejected with feedback; re-enter Phase 2",
+                    "label": "Reject all options with feedback; return to project design",
                     "roleName": "",
                     "linkedActorId": null,
                     "linkedCompId": null
@@ -3316,8 +3316,8 @@
               "name": "Execute a Construction Activity",
               "actors": [
                 {
-                  "id": "project",
-                  "role": "Project"
+                  "id": "architect-user",
+                  "role": "Architect User"
                 },
                 {
                   "id": "operator",
@@ -3340,7 +3340,7 @@
                   {
                     "id": "activity-eligible",
                     "kind": "action",
-                    "label": "Activity eligible: predecessors done; pick worker per hand-off policy",
+                    "label": "Activity eligible: predecessors done; assign a worker per hand-off policy",
                     "roleName": "",
                     "linkedActorId": null,
                     "linkedCompId": null
@@ -3348,7 +3348,7 @@
                   {
                     "id": "update-work-item",
                     "kind": "action",
-                    "label": "Update work item -\u003e in-progress; open per-activity branch",
+                    "label": "Mark the work item in progress",
                     "roleName": "",
                     "linkedActorId": null,
                     "linkedCompId": null
@@ -3356,7 +3356,7 @@
                   {
                     "id": "dispatch-job",
                     "kind": "action",
-                    "label": "Dispatch agentic-coding job (claude-code-action edits code, opens PR)",
+                    "label": "Carry out the coding work for the activity",
                     "roleName": "",
                     "linkedActorId": null,
                     "linkedCompId": null
@@ -3364,7 +3364,7 @@
                   {
                     "id": "observe-validate",
                     "kind": "action",
-                    "label": "Observe run; validate against exit criteria",
+                    "label": "Validate the work against exit criteria",
                     "roleName": "",
                     "linkedActorId": null,
                     "linkedCompId": null
@@ -3404,7 +3404,7 @@
                   {
                     "id": "propose-reviews",
                     "kind": "action",
-                    "label": "reviewEngine.proposeReviews -\u003e reviewer set",
+                    "label": "Determine the reviewer set for the change",
                     "roleName": "",
                     "linkedActorId": null,
                     "linkedCompId": null
@@ -3412,7 +3412,7 @@
                   {
                     "id": "dispatch-reviewers",
                     "kind": "action",
-                    "label": "Dispatch reviewer agentic jobs (neighbour/own D### authors, UI designer)",
+                    "label": "Reviewers review the work product",
                     "roleName": "",
                     "linkedActorId": null,
                     "linkedCompId": null
@@ -3420,7 +3420,7 @@
                   {
                     "id": "may-amend",
                     "kind": "decision",
-                    "label": "mayAmend verdict?",
+                    "label": "Reviewer amendment required?",
                     "roleName": "",
                     "linkedActorId": null,
                     "linkedCompId": null
@@ -3428,7 +3428,7 @@
                   {
                     "id": "re-stage-amended",
                     "kind": "action",
-                    "label": "Re-stage amended D### / UI design",
+                    "label": "Resubmit the amended design",
                     "roleName": "",
                     "linkedActorId": null,
                     "linkedCompId": null
@@ -3444,7 +3444,7 @@
                   {
                     "id": "record-review-merge",
                     "kind": "action",
-                    "label": "Record ChangeReviewed; relay +1; gated merge; close work item",
+                    "label": "Record the approval; accept the change; close the work item",
                     "roleName": "",
                     "linkedActorId": null,
                     "linkedCompId": null
@@ -3690,7 +3690,7 @@
                   {
                     "id": "publish-trigger",
                     "kind": "action",
-                    "label": "Operator deploy/withdraw/scale OR delinquency pause OR autoscaler decision",
+                    "label": "Operator deploys/withdraws/scales OR delinquency pause OR automatic scaling decision",
                     "roleName": "Operator",
                     "linkedActorId": "operator",
                     "linkedCompId": null
@@ -3698,7 +3698,7 @@
                   {
                     "id": "render-manifests-a",
                     "kind": "action",
-                    "label": "Render manifests from project state + bundle",
+                    "label": "Determine the desired runtime state",
                     "roleName": "",
                     "linkedActorId": null,
                     "linkedCompId": null
@@ -3706,7 +3706,7 @@
                   {
                     "id": "publish-a",
                     "kind": "action",
-                    "label": "OperatedRuntimeAccess.publishDesiredState (git commit to manifests repo)",
+                    "label": "Publish desired runtime state",
                     "roleName": "",
                     "linkedActorId": null,
                     "linkedCompId": null
@@ -3714,7 +3714,7 @@
                   {
                     "id": "argo-reconcile",
                     "kind": "action",
-                    "label": "ArgoCD reconciles cluster to manifests (infrastructure-driven)",
+                    "label": "Infrastructure converges to desired state",
                     "roleName": "Infrastructure",
                     "linkedActorId": null,
                     "linkedCompId": null
@@ -3722,7 +3722,7 @@
                   {
                     "id": "record-published-a",
                     "kind": "action",
-                    "label": "Append DesiredStatePublished (reason = operator | delinquency | autoscale)",
+                    "label": "Record the publication and its reason",
                     "roleName": "",
                     "linkedActorId": null,
                     "linkedCompId": null
@@ -3738,7 +3738,7 @@
                   {
                     "id": "schedule-fires",
                     "kind": "action",
-                    "label": "Schedule[operatedStateReconcile] fires (~30s)",
+                    "label": "Periodic health check comes due",
                     "roleName": "Infrastructure",
                     "linkedActorId": null,
                     "linkedCompId": null
@@ -3746,7 +3746,7 @@
                   {
                     "id": "read-app-set",
                     "kind": "action",
-                    "label": "Read in-flight operated-app set + last-known status",
+                    "label": "Read the in-flight systems and their last-known status",
                     "roleName": "",
                     "linkedActorId": null,
                     "linkedCompId": null
@@ -3754,7 +3754,7 @@
                   {
                     "id": "pull-telemetry",
                     "kind": "action",
-                    "label": "Pull getApplicationHealth / getSloStatus / readComputeAttribution",
+                    "label": "Collect health, SLO, and compute-usage telemetry",
                     "roleName": "Infrastructure",
                     "linkedActorId": null,
                     "linkedCompId": null
@@ -3762,7 +3762,7 @@
                   {
                     "id": "state-transition",
                     "kind": "decision",
-                    "label": "State transition vs last-known?",
+                    "label": "Status changed since last check?",
                     "roleName": "",
                     "linkedActorId": null,
                     "linkedCompId": null
@@ -3770,7 +3770,7 @@
                   {
                     "id": "record-status",
                     "kind": "action",
-                    "label": "Append RuntimeStatusChanged + RecordComputeUsage; interventionEngine decides",
+                    "label": "Record status change and compute usage; decide on intervention",
                     "roleName": "",
                     "linkedActorId": null,
                     "linkedCompId": null
@@ -3786,7 +3786,7 @@
                   {
                     "id": "autoscale-decide",
                     "kind": "action",
-                    "label": "AutoscalerEngine.proposeDesiredState(telemetry, currentDesired, policy, infrastructureKind)",
+                    "label": "Evaluate scaling policy against telemetry",
                     "roleName": "",
                     "linkedActorId": null,
                     "linkedCompId": null
@@ -3794,7 +3794,7 @@
                   {
                     "id": "decision-nochange",
                     "kind": "decision",
-                    "label": "Decision = NoChange?",
+                    "label": "No change needed?",
                     "roleName": "",
                     "linkedActorId": null,
                     "linkedCompId": null
@@ -3802,7 +3802,7 @@
                   {
                     "id": "render-manifests-c",
                     "kind": "action",
-                    "label": "Render revised manifests",
+                    "label": "Determine the revised runtime state",
                     "roleName": "",
                     "linkedActorId": null,
                     "linkedCompId": null
@@ -3810,7 +3810,7 @@
                   {
                     "id": "publish-c",
                     "kind": "action",
-                    "label": "OperatedRuntimeAccess.publishDesiredState (shared with Path A)",
+                    "label": "Publish desired runtime state",
                     "roleName": "",
                     "linkedActorId": null,
                     "linkedCompId": null
@@ -3818,7 +3818,7 @@
                   {
                     "id": "record-published-c",
                     "kind": "action",
-                    "label": "Append DesiredStatePublished (reason = autoscale)",
+                    "label": "Record the publication (automatic scaling)",
                     "roleName": "",
                     "linkedActorId": null,
                     "linkedCompId": null
@@ -3990,12 +3990,12 @@
               "name": "Bill the User for Usage",
               "actors": [
                 {
-                  "id": "settlement-manager",
-                  "role": "Settlement Manager"
-                },
-                {
                   "id": "customer",
                   "role": "Customer"
+                },
+                {
+                  "id": "payment-provider",
+                  "role": "Payment Provider"
                 }
               ],
               "trigger": "timer",
@@ -4014,7 +4014,7 @@
                   {
                     "id": "period-elapses",
                     "kind": "action",
-                    "label": "Settlement cycle elapses OR immediate-settlement event",
+                    "label": "Settlement cycle elapses OR immediate settlement is required",
                     "roleName": "",
                     "linkedActorId": null,
                     "linkedCompId": null
@@ -4022,7 +4022,7 @@
                   {
                     "id": "read-hosting-usage",
                     "kind": "action",
-                    "label": "Read hosting usage for the period (UsageAccess; no token metering)",
+                    "label": "Read hosting usage for the period",
                     "roleName": "",
                     "linkedActorId": null,
                     "linkedCompId": null
@@ -4030,7 +4030,7 @@
                   {
                     "id": "price-invoice",
                     "kind": "action",
-                    "label": "SettlementEngine: net = ComputeNet(cycle revenue, compute usage, terms)",
+                    "label": "Compute the net settlement (cycle revenue, usage, terms)",
                     "roleName": "",
                     "linkedActorId": null,
                     "linkedCompId": null
@@ -4038,9 +4038,9 @@
                   {
                     "id": "charge-user",
                     "kind": "action",
-                    "label": "MerchantGatewayAccess.chargeCustomer (shortfall) / payoutCustomer (net)",
-                    "roleName": "Merchant Gateway",
-                    "linkedActorId": null,
+                    "label": "Charge the customer (shortfall) or pay out the net",
+                    "roleName": "Payment Provider",
+                    "linkedActorId": "payment-provider",
                     "linkedCompId": null
                   },
                   {
@@ -4078,7 +4078,7 @@
                   {
                     "id": "persistent-decline",
                     "kind": "action",
-                    "label": "Append ServiceInvoicePersistentlyDeclined (shortfallSweep / InterventionPolicy)",
+                    "label": "Record persistent decline; escalate per intervention policy",
                     "roleName": "",
                     "linkedActorId": null,
                     "linkedCompId": null
@@ -4240,7 +4240,7 @@
                 ]
               }
             },
-            "rejectionReason": "Project registry / ownership / cross-phase read - identity-management mechanics over the ProjectCatalog volatility. Distinct use case from UC1 but non-core: no business-differentiating Method behaviour, no orchestration, no Engine, no durable workflow. Encapsulated by the thin projectManager (the 6th Manager, explicit cardinality waiver)."
+            "rejectionReason": "Project registry, ownership, and cross-phase reads - identity-management mechanics over the project-catalog area of volatility. A non-core variation of Drive System Design: no business-differentiating Method behaviour and no orchestration of its own."
           },
           {
             "useCase": {
@@ -4284,7 +4284,7 @@
                 ]
               }
             },
-            "rejectionReason": "Permutation of UC5 (Bill the User for Usage): the decline-retry loop in the activity diagram, plus the scheduled runShortfallSweep. Not a separate core."
+            "rejectionReason": "Permutation of Bill the User for Usage: the decline-retry loop in its activity diagram, plus the scheduled shortfall sweep. Not a separate core."
           },
           {
             "useCase": {
@@ -4328,7 +4328,7 @@
                 ]
               }
             },
-            "rejectionReason": "Identity / payment-instrument mechanics. Permutation of 'customer record exists.' Standard utility use case (Customer Access + Auth Utility), not differentiating."
+            "rejectionReason": "Identity / payment-instrument mechanics. Permutation of 'customer record exists.' Standard supporting onboarding, not differentiating."
           },
           {
             "useCase": {
@@ -4372,7 +4372,7 @@
                 ]
               }
             },
-            "rejectionReason": "Permutation of UC1 (Co-author a Method Artifact) at a later phase. Same mechanics, different phase input."
+            "rejectionReason": "Permutation of Drive System Design at a later phase. Same mechanics, different phase input."
           },
           {
             "useCase": {
@@ -4380,8 +4380,8 @@
               "name": "Replan Under Scope Change",
               "actors": [
                 {
-                  "id": "project",
-                  "role": "Project"
+                  "id": "architect-user",
+                  "role": "Architect User"
                 }
               ],
               "trigger": "busMessage",
@@ -4416,7 +4416,7 @@
                 ]
               }
             },
-            "rejectionReason": "Permutation of UC3 (Execute a Construction Activity) - the variance branch in the activity diagram. Already covered."
+            "rejectionReason": "Permutation of Execute a Construction Activity - the variance branch in its activity diagram. Already covered."
           },
           {
             "useCase": {
@@ -4460,7 +4460,7 @@
                 ]
               }
             },
-            "rejectionReason": "A read-side view of state already accumulated by UC3 (earned-value updates). No new behavior."
+            "rejectionReason": "A read-side view of state already accumulated by Execute a Construction Activity (earned-value updates). No new behavior."
           },
           {
             "useCase": {
@@ -4504,7 +4504,7 @@
                 ]
               }
             },
-            "rejectionReason": "Pure read. Variation of UC3 in observe-only mode."
+            "rejectionReason": "Pure read. Variation of Execute a Construction Activity in observe-only mode."
           },
           {
             "useCase": {
@@ -4548,7 +4548,7 @@
                 ]
               }
             },
-            "rejectionReason": "Pure read against the work-product store (projectStateAccess Phase-3 construction-output contract, over the one projectGitRepo). Variation; no new behavior."
+            "rejectionReason": "Pure read against the work-product store. Variation of Execute a Construction Activity; no new behavior."
           },
           {
             "useCase": {
@@ -4592,7 +4592,7 @@
                 ]
               }
             },
-            "rejectionReason": "Pure read against OperationEstimationEngine.projectForOperatedApp. Read variation of UC4 (no DesiredStatePublished, no RuntimeStatusChanged)."
+            "rejectionReason": "Pure read: an operating-cost projection over existing telemetry. Read variation of Operate a Delivered System - nothing published, nothing recorded."
           },
           {
             "useCase": {
