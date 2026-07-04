@@ -33,6 +33,7 @@ import {
   type Layout,
 } from './flowLayout';
 import { LayerLegend, FlowCanvas, FlowEmpty } from './flowShared';
+import { relationshipAnchor, useComments, type Anchor } from '../comments/CommentContext';
 
 interface Model {
   components: C4Component[];
@@ -68,9 +69,23 @@ function edgeId(r: C4Relationship, i: number): string {
   return slug ? `${r.from}-${r.to}-${slug}` : `${r.from}-${r.to}-${String(i)}`;
 }
 
+/** Human-meaningful anchor for a call edge: "<from> → <to>" (+ the call label). */
+function edgeAnchor(r: C4Relationship, nameOf: Map<string, string>): Anchor {
+  const from = nameOf.get(r.from) ?? r.from;
+  const to = nameOf.get(r.to) ?? r.to;
+  const call = r.label.length > 0 ? `${r.label} · ` : '';
+  return {
+    kind: 'node',
+    label: `${call}${from} → ${to}`,
+    source: 'Architecture · C4',
+    jsonPath: relationshipAnchor(r.from, r.to),
+  };
+}
+
 function derive(model: Model, hoveredId: string | null, t: Tokens): { nodes: Node[]; edges: Edge[] } {
   const { components, relationships, layout, layerOf, colors } = model;
   const near = hoveredId !== null ? neighbourhood(hoveredId, relationships) : null;
+  const nameOf = new Map(components.map((c) => [c.id, c.name]));
 
   const nodes: Node[] = components.map((c) => {
     const pos = layout.pos.get(c.id) ?? { x: 0, y: 0 };
@@ -87,12 +102,14 @@ function derive(model: Model, hoveredId: string | null, t: Tokens): { nodes: Nod
     .map((r, i) => {
       const incident = hoveredId !== null && (r.from === hoveredId || r.to === hoveredId);
       const dashed = r.mode !== 'sync'; // queued / pub-sub calls render dashed
-      if (hoveredId === null) return flowEdge(edgeId(r, i), r.from, r.to, r.label, t, { dashed });
+      const comment = edgeAnchor(r, nameOf);
+      if (hoveredId === null) return flowEdge(edgeId(r, i), r.from, r.to, r.label, t, { dashed, comment });
       // Hover: only the hovered node's own edges stay; the rest fade out.
       return flowEdge(edgeId(r, i), r.from, r.to, r.label, t, {
         hidden: !incident,
         variant: incident ? 'focus' : 'muted',
         dashed,
+        comment,
       });
     });
 
@@ -107,6 +124,7 @@ export function ArchitectureFlow({
   height?: number;
 }): ReactNode {
   const t = useTokens();
+  const { setAnchor } = useComments();
   const model = useMemo(() => buildModel(envelope, t), [envelope, t]);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const { nodes, edges } = useMemo(() => derive(model, hoveredId, t), [model, hoveredId, t]);
@@ -146,6 +164,10 @@ export function ArchitectureFlow({
       height={height}
       nodes={nodes}
       t={t}
+      onEdgeClick={(_e, edge) => {
+        const comment = (edge.data as { comment?: Anchor } | undefined)?.comment;
+        if (comment !== undefined) setAnchor(comment);
+      }}
       onNodeMouseEnter={(_e, n) => { enterNode(n); }}
       onNodeMouseLeave={() => { leaveNode(); }}
     >

@@ -30,6 +30,7 @@ import { DynamicViewFlow } from './DynamicViewFlow';
 import { PerspectiveFlow } from './PerspectiveFlow';
 import { ServiceContractView } from '../construction/ServiceContractView';
 import { type Layer, LAYER_ORDER, LAYER_LABEL } from './flowLayout';
+import { useComments, dynamicEdgeAnchor } from '../comments/CommentContext';
 
 type ViewMode = 'static' | 'dynamic' | 'perspective';
 
@@ -59,6 +60,7 @@ export function ArchitectureView({
   serviceContracts?: ServiceContracts;
 }): ReactNode {
   const t = useTokens();
+  const { setAnchor } = useComments();
   const c4 = useMemo(() => toC4View(envelope), [envelope]);
   const dynamicViews = useMemo(() => listDynamicViews(envelope), [envelope]);
 
@@ -201,7 +203,22 @@ export function ArchitectureView({
 
       {mode === 'static' && <ArchitectureFlow envelope={envelope} height={height} />}
       {mode === 'dynamic' && (
-        <DynamicViewFlow dv={dynamicModel} height={height} resetKey={activeDynamicKey} />
+        <DynamicViewFlow
+          dv={dynamicModel}
+          height={height}
+          resetKey={activeDynamicKey}
+          onCommentStep={(edge) => {
+            const nameOf = new Map(dynamicModel.participants.map((c) => [c.id, c.name]));
+            const from = nameOf.get(edge.from) ?? edge.from;
+            const to = nameOf.get(edge.to) ?? edge.to;
+            setAnchor({
+              kind: 'node',
+              label: `${String(edge.seq)}. ${edge.label} (${from} → ${to})`,
+              source: `${dynamicModel.title} · step`,
+              jsonPath: dynamicEdgeAnchor(activeDynamicKey, edge.seq),
+            });
+          }}
+        />
       )}
       {mode === 'perspective' && (
         <>

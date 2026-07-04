@@ -97,6 +97,21 @@ export const UI_IDENTIFIERS = {
     INPUT: 'chat-input',
     commentAnchor: (n: number) => `comment-anchor-${String(n)}`,
   },
+  // Comment-anchoring affordances that arm a CommentContext anchor from a
+  // diagram surface or a text selection. Diagram edges/nodes arm on CLICK (React
+  // Flow's `selected` state is inert in these controlled graphs), so the two
+  // click-armed surfaces expose no button of their own — assert via ARMED_ANCHOR.
+  Comments: {
+    // Floating "Comment" button over a non-collapsed text selection (mouse OR keyboard).
+    SELECTION_POPOVER: 'comment-selection-popover',
+    // Dynamic sequence-view per-step comment button (in the step caption bar).
+    STEP_COMMENT: 'comment-step',
+    // Use-case-as-a-whole comment button (next to the use-case picker).
+    USECASE_COMMENT: 'comment-usecase',
+    // Invisible probe reflecting the currently-armed anchor (data-anchor-* attrs).
+    // Static-edge + deployment-node arming (click-only) is observed through this.
+    ARMED_ANCHOR: 'comment-armed-anchor',
+  },
   ProjectDesign: {
     SDP_ASSEMBLE: 'sdp-assemble',
     ADVANCE_CONSTRUCTION: 'advance-construction',

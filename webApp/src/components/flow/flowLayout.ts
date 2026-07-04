@@ -10,6 +10,7 @@ import { MarkerType, type Edge, type Node } from '@xyflow/react';
 import type { Layer } from '../../api/models';
 import type { Tokens } from '../../theme/themes';
 import type { C4Component } from '../../api/adapters';
+import type { Anchor } from '../comments/CommentContext';
 
 export type { Layer };
 
@@ -249,6 +250,9 @@ export interface EdgeOpts {
   opacity?: number;
   /** Render dashed — used for queued / pub-sub (async) calls vs solid sync calls. */
   dashed?: boolean;
+  /** When set, the edge is commentable: selecting it reveals a Comment affordance
+   *  that arms this anchor (only the static architecture graph passes this). */
+  comment?: Anchor;
 }
 
 /** A directed, arrow-headed smoothstep edge in the shared visual language. */
@@ -271,12 +275,15 @@ export function flowEdge(
     targetHandle: opts.toUtility === true ? 'tl' : 't',
     label: opts.showLabel === true ? label : undefined,
     hidden: opts.hidden === true,
+    selectable: opts.comment !== undefined,
+    ...(opts.comment !== undefined ? { data: { comment: opts.comment } } : {}),
     type: 'layeredStep',
     style: {
       stroke,
       strokeWidth: variant === 'focus' ? 2 : 1.5,
       opacity,
       ...(opts.dashed === true ? { strokeDasharray: '6 4' } : {}),
+      ...(opts.comment !== undefined ? { cursor: 'pointer' } : {}),
     },
     labelStyle: { fontFamily: t.mono, fontSize: 10, fontWeight: 700, fill: t.ink },
     labelBgStyle: { fill: t.paper, fillOpacity: 0.95 },

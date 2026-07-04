@@ -15,6 +15,7 @@ import {
   type Node,
   type NodeTypes,
   type NodeMouseHandler,
+  type EdgeMouseHandler,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import Box from '@mui/material/Box';
@@ -61,6 +62,8 @@ export function FlowCanvas({
   nodeTypes: nodeTypesOverride,
   onNodeMouseEnter,
   onNodeMouseLeave,
+  onNodeClick,
+  onEdgeClick,
   children,
 }: {
   nodes: Node[];
@@ -70,6 +73,11 @@ export function FlowCanvas({
   nodeTypes?: NodeTypes;
   onNodeMouseEnter?: NodeMouseHandler;
   onNodeMouseLeave?: NodeMouseHandler;
+  /** Arm-on-click handlers. Used for comment anchoring — React Flow's built-in
+   *  selection is inert here (nodes/edges are controlled with no change handler),
+   *  so click callbacks, not `selected` state, drive the comment affordances. */
+  onNodeClick?: NodeMouseHandler;
+  onEdgeClick?: EdgeMouseHandler;
   children?: ReactNode;
 }): ReactNode {
   return (
@@ -89,6 +97,8 @@ export function FlowCanvas({
         proOptions={{ hideAttribution: true }}
         {...(onNodeMouseEnter ? { onNodeMouseEnter } : {})}
         {...(onNodeMouseLeave ? { onNodeMouseLeave } : {})}
+        {...(onNodeClick ? { onNodeClick } : {})}
+        {...(onEdgeClick ? { onEdgeClick } : {})}
       >
         <Background color={t.line} gap={22} size={1} />
         <Controls showInteractive={false} />

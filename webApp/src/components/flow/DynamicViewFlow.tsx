@@ -20,9 +20,12 @@ import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
 import IconButton from '@mui/material/IconButton';
 import Typography from '@mui/material/Typography';
+import Button from '@mui/material/Button';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
-import type { DynamicViewModel } from '../../api/adapters';
+import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
+import type { DynamicViewModel, SequencedRelationship } from '../../api/adapters';
+import { UI_IDENTIFIERS } from '../../constants/UIIdentifiers';
 import { useTokens } from '../../theme/ThemeContext';
 import type { Tokens } from '../../theme/themes';
 import {
@@ -108,6 +111,7 @@ function StepBar({
   setStepIndex,
   statusBySeq,
   detailBySeq,
+  onCommentStep,
   t,
 }: {
   dv: DynamicViewModel;
@@ -115,6 +119,8 @@ function StepBar({
   setStepIndex: (i: number) => void;
   statusBySeq: Map<number, StepStatus> | undefined;
   detailBySeq: Map<number, StepDetail> | undefined;
+  /** When provided, the caption bar shows a Comment button that anchors this step. */
+  onCommentStep: ((edge: SequencedRelationship) => void) | undefined;
   t: Tokens;
 }): ReactNode {
   const total = dv.edges.length;
@@ -169,6 +175,29 @@ function StepBar({
               border: `1.5px solid ${captionAccent}`,
             }}
           />
+        ) : null}
+        {onCommentStep !== undefined ? (
+          <>
+            <Box sx={{ flexGrow: 1 }} />
+            <Button
+              data-testid={UI_IDENTIFIERS.Comments.STEP_COMMENT}
+              size="small"
+              startIcon={<ChatBubbleOutlineIcon sx={{ fontSize: 14 }} />}
+              sx={{
+                py: 0.25,
+                color: t.accentText,
+                bgcolor: t.accent,
+                border: `1.5px solid ${t.line}`,
+                fontFamily: t.mono,
+                '&:hover': { bgcolor: t.accent2 },
+              }}
+              onClick={() => {
+                onCommentStep(current);
+              }}
+            >
+              Comment
+            </Button>
+          </>
         ) : null}
       </Box>
       <Box sx={{ p: 1.25, border: `1.5px solid ${t.line}`, borderLeft: `3px solid ${captionAccent}`, borderRadius: 1, bgcolor: t.paper }}>
@@ -227,6 +256,7 @@ export function DynamicViewFlow({
   focalComponentId,
   statusBySeq,
   detailBySeq,
+  onCommentStep,
 }: {
   /** The ordered call chain to render (system use case or test scenario). */
   dv: DynamicViewModel;
@@ -239,6 +269,10 @@ export function DynamicViewFlow({
   statusBySeq?: Map<number, StepStatus>;
   /** Optional per-call concrete detail (test views): seq → inputs / expected. */
   detailBySeq?: Map<number, StepDetail>;
+  /** Optional per-step comment handler: enables a Comment button in the caption bar
+   *  that arms an anchor for the current call (system-design use only; omitted for
+   *  the read-only test-scenario views). */
+  onCommentStep?: (edge: SequencedRelationship) => void;
 }): ReactNode {
   const t = useTokens();
   const [stepIndex, setStepIndex] = useState(0);
@@ -262,7 +296,7 @@ export function DynamicViewFlow({
 
   return (
     <Box>
-      <StepBar detailBySeq={detailBySeq} dv={dv} setStepIndex={setStepIndex} statusBySeq={statusBySeq} stepIndex={safeStep} t={t} />
+      <StepBar detailBySeq={detailBySeq} dv={dv} setStepIndex={setStepIndex} statusBySeq={statusBySeq} stepIndex={safeStep} t={t} onCommentStep={onCommentStep} />
       <FlowCanvas edges={edges} height={height} nodes={nodes} t={t}>
         <LayerLegend colors={colors} t={t} usedLayers={usedLayers} />
       </FlowCanvas>

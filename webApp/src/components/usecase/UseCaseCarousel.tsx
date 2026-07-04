@@ -18,14 +18,20 @@ import Select from '@mui/material/Select';
 import MenuItem from '@mui/material/MenuItem';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
 import { toCoreUseCasesView } from '../../api/adapters';
 import type { ArtifactModelEnvelope } from '../../api/types';
 import { ActivityFlow } from './ActivityFlow';
 import { laneColors } from './laneColors';
+// Aliased away from a `use*` name so the react-hooks lint heuristic doesn't
+// mistake this plain anchor builder for a React hook.
+import { useComments, useCaseAnchor as buildUseCaseAnchor } from '../comments/CommentContext';
+import { UI_IDENTIFIERS } from '../../constants/UIIdentifiers';
 import { useTokens } from '../../theme/ThemeContext';
 
 export function UseCaseCarousel({ envelope }: { envelope: ArtifactModelEnvelope | undefined }): ReactNode {
   const t = useTokens();
+  const { setAnchor } = useComments();
   const [i, setI] = useState(0);
   const useCases = toCoreUseCasesView(envelope).useCases;
 
@@ -78,6 +84,22 @@ export function UseCaseCarousel({ envelope }: { envelope: ArtifactModelEnvelope 
         </IconButton>
         <IconButton aria-label="Next use case" size="small" sx={{ border: `1.5px solid ${t.line}`, borderRadius: 1, color: t.ink }} onClick={() => { go(1); }}>
           <ChevronRightIcon fontSize="small" />
+        </IconButton>
+        <IconButton
+          aria-label={`Comment on use case ${uc.name}`}
+          data-testid={UI_IDENTIFIERS.Comments.USECASE_COMMENT}
+          size="small"
+          sx={{ border: `1.5px solid ${t.line}`, borderRadius: 1, color: t.accentText, bgcolor: t.accent, flexShrink: 0, '&:hover': { bgcolor: t.accent2 } }}
+          onClick={() => {
+            setAnchor({
+              kind: 'node',
+              label: uc.name,
+              source: `${uc.name} · use case`,
+              jsonPath: buildUseCaseAnchor(active),
+            });
+          }}
+        >
+          <ChatBubbleOutlineIcon fontSize="small" />
         </IconButton>
       </Box>
 

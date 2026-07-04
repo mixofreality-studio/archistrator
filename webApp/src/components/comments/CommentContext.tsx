@@ -24,6 +24,9 @@
  *                        $.decisions[n].useCase.activity.nodes[m]  (a step node)
  *   system               $.components[id=<compId>]   (a C4 component)
  *                        $.relationships[from=<a>,to=<b>]          (a call edge)
+ *                        $.dynamicViews[key=<k>].edges[seq=<n>]    (a sequence step)
+ *   operationalConcepts  $.decisions[n]
+ *                        $.deployment.environments[profile=<p>]..[name=<name>]  (a topology node)
  *
  * For free prose selection without a structured index we fall back to a section
  * anchor: `$..[?(section="<heading>")]` carrying the quoted text in the comment,
@@ -31,6 +34,7 @@
  */
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
 import type { AnchoredComment } from '../../api/types';
+import { UI_IDENTIFIERS } from '../../constants/UIIdentifiers';
 
 /** A pending selection the architect may turn into an anchored comment. */
 export interface Anchor {
@@ -145,7 +149,23 @@ export function CommentProvider({ children }: { children: ReactNode }): ReactNod
     [comments, armedAnchor, setAnchor, post, remove, reset, toWire, freeformNotes, requestId]
   );
 
-  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+  return (
+    <Ctx.Provider value={value}>
+      {/* Invisible test probe: reflects the currently-armed anchor so black-box
+          uitests (and headless smokes) can assert that ANY commentable surface —
+          diagram edge/node, sequence step, deployment node, use case, or a text
+          selection — armed its anchor, without depending on the ChatRail (which
+          needs a live co-author session). Empty attributes when nothing is armed. */}
+      <span
+        data-anchor-label={armedAnchor?.label ?? ''}
+        data-anchor-path={armedAnchor?.jsonPath ?? ''}
+        data-anchor-source={armedAnchor?.source ?? ''}
+        data-testid={UI_IDENTIFIERS.Comments.ARMED_ANCHOR}
+        style={{ display: 'none' }}
+      />
+      {children}
+    </Ctx.Provider>
+  );
 }
 
 // ── JSONPath builders — the single source of the anchoring scheme ───────────
@@ -169,6 +189,17 @@ export function componentAnchor(componentId: string): string {
 /** A C4 relationship anchor by its endpoints. */
 export function relationshipAnchor(from: string, to: string): string {
   return `$.relationships[from=${from},to=${to}]`;
+}
+
+/** A dynamic-view sequence-step anchor: a view's ordered call by 1-based seq. */
+export function dynamicEdgeAnchor(viewKey: string, seq: number): string {
+  return `$.dynamicViews[key=${viewKey}].edges[seq=${String(seq)}]`;
+}
+
+/** A deployment-topology node anchor by profile + node/instance name. */
+export function deploymentAnchor(profile: string, name: string): string {
+  const safe = name.replace(/"/g, '\\"');
+  return `$.deployment.environments[profile=${profile}]..[name="${safe}"]`;
 }
 
 /** A use-case activity-node anchor within a use-case decision. */

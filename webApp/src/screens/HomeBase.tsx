@@ -23,6 +23,7 @@ import { ArtifactPane } from '../components/ArtifactPane';
 import { StageChip } from '../components/StageChip';
 import { ErrorAlert } from '../components/shared/ErrorAlert';
 import { CommentProvider } from '../components/comments/CommentContext';
+import { SelectionPopover } from '../components/comments/SelectionPopover';
 import { useProject } from '../hooks/useProject';
 import {
   toArtifactTableOfContents,
@@ -270,6 +271,9 @@ function HomeBaseBody({
                   The Architecture ('system') section is enriched with the component
                   service contracts once they exist (serviceContracts threaded in). */}
               <CommentProvider>
+                {/* Selection-commenting works on the committed-artifact browser
+                    too: highlight prose (mouse or keyboard) to arm a quote anchor. */}
+                <SelectionPopover />
                 <ArtifactPane
                   artifact={selected}
                   envelope={selectedEnvelope}

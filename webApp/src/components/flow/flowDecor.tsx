@@ -10,6 +10,7 @@ import { BaseEdge, getSmoothStepPath, type EdgeProps, type NodeProps } from '@xy
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import { useTokens } from '../../theme/ThemeContext';
+import type { Anchor } from '../comments/CommentContext';
 import { GUTTER_W, NODE_H } from './flowLayout';
 
 /**
@@ -29,6 +30,7 @@ export function LayeredStepEdge({
   targetPosition,
   style,
   markerEnd,
+  data,
 }: EdgeProps): ReactNode {
   // Bend ~40px above the target top, but never above the source (guards the rare
   // same-row edge, e.g. a queued Manager→Manager call).
@@ -43,8 +45,14 @@ export function LayeredStepEdge({
     borderRadius: 8,
     centerY,
   });
+  // A commentable edge (the static architecture graph) carries an anchor in its
+  // data; it gets a wide invisible hit area so a click anywhere near the line arms
+  // the anchor (via ArchitectureFlow's onEdgeClick — React Flow's own `selected`
+  // state is inert here since the graph is controlled without a change handler).
+  const commentable = (data as { comment?: Anchor } | undefined)?.comment !== undefined;
   return (
     <BaseEdge
+      interactionWidth={commentable ? 26 : 0}
       path={path}
       {...(markerEnd !== undefined ? { markerEnd } : {})}
       {...(style !== undefined ? { style } : {})}

@@ -21,6 +21,7 @@ import {
 import type { ArtifactModelEnvelope } from '../../api/types';
 import type { DeploymentProfile } from '../../api/models';
 import { useTokens } from '../../theme/ThemeContext';
+import { useComments, deploymentAnchor } from '../comments/CommentContext';
 import { FlowCanvas, FlowEmpty } from './flowShared';
 import {
   DeployGroupNode,
@@ -156,13 +157,16 @@ function measure(node: DeploymentNodeView): Sized {
   };
 }
 
-/** Top-down: emit a parent group node then its wrapped grid + nested child groups. */
+/** Top-down: emit a parent group node then its wrapped grid + nested child groups.
+ *  Every rendered node carries the active `profile` so its Comment affordance can
+ *  anchor into the committed topology by profile + name. */
 function emit(
   sized: Sized,
   parentId: string | undefined,
   idPath: string,
   x: number,
   y: number,
+  profile: string,
   out: Node[]
 ): void {
   out.push({
@@ -176,9 +180,10 @@ function emit(
       technology: sized.node.technology,
       description: sized.node.description,
       instances: sized.node.instances,
+      profile,
     },
     draggable: false,
-    selectable: false,
+    selectable: true,
     ...(parentId !== undefined ? { parentId, extent: 'parent' as const } : {}),
   });
 
@@ -192,7 +197,7 @@ function emit(
       parentId: idPath,
       extent: 'parent' as const,
       draggable: false,
-      selectable: false,
+      selectable: true,
     };
     switch (item.kind) {
       case 'container':
@@ -205,6 +210,7 @@ function emit(
             description: item.view.description,
             note: item.view.note,
             components: item.view.components,
+            profile,
           },
         });
         break;
@@ -216,6 +222,7 @@ function emit(
             name: item.view.name,
             technology: item.view.technology,
             description: item.view.description,
+            profile,
           },
         });
         break;
@@ -227,6 +234,7 @@ function emit(
             name: item.view.name,
             technology: item.view.technology,
             description: item.view.description,
+            profile,
           },
         });
         break;
@@ -237,17 +245,17 @@ function emit(
   if (sized.gridH > 0 && sized.children.length > 0) cursorY += GAP;
 
   sized.children.forEach((child, i) => {
-    emit(child, idPath, `${idPath}/g-${String(i)}`, PAD, cursorY, out);
+    emit(child, idPath, `${idPath}/g-${String(i)}`, PAD, cursorY, profile, out);
     cursorY += child.h + GAP;
   });
 }
 
-function build(roots: DeploymentNodeView[]): Node[] {
+function build(roots: DeploymentNodeView[], profile: string): Node[] {
   const out: Node[] = [];
   let x = 0;
   roots.forEach((root, i) => {
     const sized = measure(root);
-    emit(sized, undefined, `root-${String(i)}`, x, 0, out);
+    emit(sized, undefined, `root-${String(i)}`, x, 0, profile, out);
     x += sized.w + GAP * 2;
   });
   return out;
@@ -265,15 +273,35 @@ export function DeploymentFlow({
   height?: number;
 }): ReactNode {
   const t = useTokens();
+  const { setAnchor } = useComments();
   const roots = useMemo(
     () => toDeploymentView(opEnvelope, systemEnvelope, profile),
     [opEnvelope, systemEnvelope, profile]
   );
-  const nodes = useMemo(() => (roots !== undefined ? build(roots) : []), [roots]);
+  const nodes = useMemo(() => (roots !== undefined ? build(roots, profile) : []), [roots, profile]);
 
   if (roots === undefined || nodes.length === 0) {
     return <FlowEmpty label="No deployment topology for this profile." t={t} />;
   }
 
-  return <FlowCanvas edges={[]} height={height} nodeTypes={nodeTypes} nodes={nodes} t={t} />;
+  return (
+    <FlowCanvas
+      edges={[]}
+      height={height}
+      nodeTypes={nodeTypes}
+      nodes={nodes}
+      t={t}
+      onNodeClick={(_e, node) => {
+        const d = node.data as { profile?: string; name?: string; label?: string };
+        const name = d.name ?? d.label ?? '';
+        if (name.length === 0 || d.profile === undefined) return;
+        setAnchor({
+          kind: 'node',
+          label: name,
+          source: `Deployment · ${d.profile}`,
+          jsonPath: deploymentAnchor(d.profile, name),
+        });
+      }}
+    />
+  );
 }

@@ -21,11 +21,18 @@ import Typography from '@mui/material/Typography';
 import { useTokens } from '../../theme/ThemeContext';
 import { layerColors, type Layer } from './flowLayout';
 
+// Deployment-topology nodes are commentable: clicking any node arms a deployment
+// anchor (handled by DeploymentFlow's onNodeClick, which reads `profile` + name
+// from node.data). React Flow's own `selected` state is inert here (the graph is
+// controlled without a change handler), so a pointer cursor — not a select
+// toolbar — signals commentability. `profile` rides in each node's data.
+
 export interface DeployGroupData {
   label: string;
   technology: string;
   description: string;
   instances: number;
+  profile: string;
   [key: string]: unknown;
 }
 
@@ -41,6 +48,7 @@ export interface DeployContainerData {
   description: string;
   note: string;
   components: DeployComponentRef[];
+  profile: string;
   [key: string]: unknown;
 }
 
@@ -48,6 +56,7 @@ export interface DeployInfraData {
   name: string;
   technology: string;
   description: string;
+  profile: string;
   [key: string]: unknown;
 }
 
@@ -55,6 +64,7 @@ export interface DeployExternalData {
   name: string;
   technology: string;
   description: string;
+  profile: string;
   [key: string]: unknown;
 }
 
@@ -77,6 +87,7 @@ export function DeployGroupNode({ data, width, height }: NodeProps): ReactNode {
         bgcolor: t.paper,
         border: `1.5px dashed ${t.line}`,
         borderRadius: t.radius / 8 + 0.5,
+        cursor: 'pointer',
       }}
     >
       <Box sx={{ px: 1, py: 0.5, borderBottom: `1px solid ${t.line}`, bgcolor: t.paperAlt }}>
@@ -143,7 +154,7 @@ export function DeployContainerNode({ data, width, height }: NodeProps): ReactNo
   const count = d.components.length;
   return (
     <Box
-      sx={{ position: 'relative', width, height }}
+      sx={{ position: 'relative', width, height, cursor: 'pointer' }}
       onMouseEnter={() => {
         setOpen(true);
       }}
@@ -277,6 +288,7 @@ export function DeployInfraNode({ data, width, height }: NodeProps): ReactNode {
   return (
     <Box
       sx={{
+        position: 'relative',
         width,
         height,
         px: 1.25,
@@ -286,6 +298,7 @@ export function DeployInfraNode({ data, width, height }: NodeProps): ReactNode {
         border: `1.5px solid ${t.muted}`,
         borderRadius: 2,
         overflow: 'hidden',
+        cursor: 'pointer',
       }}
     >
       <Typography
@@ -337,6 +350,7 @@ export function DeployExternalNode({ data, width, height }: NodeProps): ReactNod
   return (
     <Box
       sx={{
+        position: 'relative',
         width,
         height,
         px: 1.25,
@@ -346,6 +360,7 @@ export function DeployExternalNode({ data, width, height }: NodeProps): ReactNod
         border: `1.5px dashed ${t.muted}`,
         borderRadius: 2,
         overflow: 'hidden',
+        cursor: 'pointer',
       }}
     >
       <Typography
