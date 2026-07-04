@@ -7375,12 +7375,44 @@
     "U-SPA-S": {
       "activityID": "U-SPA-S",
       "phase": 2,
-      "buildStatus": 2
+      "buildStatus": 2,
+      "produced": [
+        {
+          "Kind": "ui-design",
+          "Title": "SPA scaffold + auth wiring + design system — UI design concept",
+          "Source": "implementation/log",
+          "Produced": true,
+          "Note": "Design concept covers the app shell shared by every persona: authenticated navigation, project switcher, and the base design-system primitives (cards, badges, tabs, buttons) that later surfaces compose. Establishes the light/dark theming and layout grid so Phase-1 through Phase-3 screens read as one system. No use-case-specific flows live here — it is the scaffold other SPA activities build on."
+        },
+        {
+          "Kind": "ui-code",
+          "Title": "SPA scaffold + auth wiring + design system — built UI",
+          "Source": "/project/archistrator/home",
+          "Produced": true,
+          "Note": "SPA surface built against the approved design; preview at the route in Source."
+        }
+      ]
     },
     "U-SPA-1": {
       "activityID": "U-SPA-1",
       "phase": 2,
-      "buildStatus": 2
+      "buildStatus": 2,
+      "produced": [
+        {
+          "Kind": "ui-design",
+          "Title": "SPA — Phase-1 system-design screens (architect persona; React-Flow C4 + volatility scatter + activity diagrams + co-author gate) — UI design concept",
+          "Source": "implementation/log",
+          "Produced": true,
+          "Note": "Design concept covers the architect persona walking the Phase-1 system-design screens: React-Flow C4 diagrams for the layered architecture, a volatility scatter plot mapping the business/technology axes, activity diagrams for dynamic views, and the co-author gate where the architect and product-manager ratify each artifact. Screens progress mission through standard-check in sequence, mirroring the .systemDesign slot render order."
+        },
+        {
+          "Kind": "ui-code",
+          "Title": "SPA — Phase-1 system-design screens (architect persona; React-Flow C4 + volatility scatter + activity diagrams + co-author gate) — built UI",
+          "Source": "/project/archistrator/design/system",
+          "Produced": true,
+          "Note": "SPA surface built against the approved design; preview at the route in Source."
+        }
+      ]
     },
     "U-SPA-2": {
       "activityID": "U-SPA-2",
@@ -7389,38 +7421,125 @@
       "buildStatus": 2,
       "produced": [
         {
-          "Kind": "code",
-          "Title": " — built component",
+          "Kind": "ui-design",
+          "Title": "SPA — Phase-2 project-design screens (architect persona) — UI design concept",
           "Source": "implementation/log",
           "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
+          "Note": "Design concept covers the architect persona walking Phase-2 project-design screens: the activity list and network diagram, normal/subcritical/compressed/decompressed solution comparison, the time-cost and time-risk curves, and the SDP review summary presented for management sign-off. Layout reuses the Phase-1 diagram/table split so the two phases feel continuous."
+        },
+        {
+          "Kind": "ui-code",
+          "Title": "SPA — Phase-2 project-design screens (architect persona) — built UI",
+          "Source": "/project/archistrator/design/project",
+          "Produced": true,
+          "Note": "SPA surface built against the approved design; preview at the route in Source."
         }
       ]
     },
     "U-SPA-3": {
       "activityID": "U-SPA-3",
       "phase": 2,
-      "buildStatus": 2
+      "buildStatus": 2,
+      "produced": [
+        {
+          "Kind": "ui-design",
+          "Title": "SPA — Construction tracking + artifacts console (architect persona) — UI design concept",
+          "Source": "implementation/log",
+          "Produced": true,
+          "Note": "Design concept covers the architect persona's construction console: a network-driven activity board showing eligible/in-progress/blocked/done state, per-activity artifact cards (service-contract, code, ui-design, ui-code, deployment) rendered kind-specific, and a review-routing panel showing pending verdicts. Supports drilling into one activity's produced artifacts and triggering the next-eligible dispatch."
+        },
+        {
+          "Kind": "ui-code",
+          "Title": "SPA — Construction tracking + artifacts console (architect persona) — built UI",
+          "Source": "/project/archistrator/construction",
+          "Produced": true,
+          "Note": "SPA surface built against the approved design; preview at the route in Source."
+        }
+      ]
     },
     "U-SPA-4": {
       "activityID": "U-SPA-4",
       "phase": 2,
-      "buildStatus": 2
+      "buildStatus": 2,
+      "produced": [
+        {
+          "Kind": "ui-design",
+          "Title": "SPA — Operations console (customer + operator personas) — UI design concept",
+          "Source": "implementation/log",
+          "Produced": true,
+          "Note": "Design concept covers both the customer and operator personas: a system-health/runtime overview for operators (component status, recent activity) and a customer-facing operated-system view (usage summary, current state). Shares layout chrome with billing but scopes data access per persona role."
+        },
+        {
+          "Kind": "ui-code",
+          "Title": "SPA — Operations console (customer + operator personas) — built UI",
+          "Source": "/operations/archistrator",
+          "Produced": true,
+          "Note": "SPA surface built against the approved design; preview at the route in Source."
+        }
+      ]
     },
     "U-SPA-5": {
       "activityID": "U-SPA-5",
       "phase": 2,
-      "buildStatus": 2
+      "buildStatus": 2,
+      "produced": [
+        {
+          "Kind": "ui-design",
+          "Title": "SPA — Billing screens (customer + operator personas) — UI design concept",
+          "Source": "implementation/log",
+          "Produced": true,
+          "Note": "Design concept covers customer and operator billing screens: a usage-to-date and projected-charge summary for the customer, and a settlement/ledger view for the operator. Built on the charge-only Stripe Connect model, so ledger entries are metering + payout records rather than MoR invoices."
+        },
+        {
+          "Kind": "ui-code",
+          "Title": "SPA — Billing screens (customer + operator personas) — built UI",
+          "Source": "/project/archistrator/billing",
+          "Produced": true,
+          "Note": "SPA surface built against the approved design; preview at the route in Source."
+        }
+      ]
     },
     "U-SPA-6": {
       "activityID": "U-SPA-6",
       "phase": 2,
-      "buildStatus": 2
+      "buildStatus": 2,
+      "produced": [
+        {
+          "Kind": "ui-design",
+          "Title": "SPA — change-request → subproject flow (Method re-entry) — UI design concept",
+          "Source": "implementation/log",
+          "Produced": true,
+          "Note": "Design concept covers the change-request intake flow: a form capturing the scope change (addition, removal, deadline shift, resource change), followed by a re-entry view showing the regenerated Phase-2 options (network/solutions/SDP review) for management to re-approve — mirroring the Method's scope-change doctrine of never silently absorbing scope."
+        },
+        {
+          "Kind": "ui-code",
+          "Title": "SPA — change-request → subproject flow (Method re-entry) — built UI",
+          "Source": "/project/archistrator/changes",
+          "Produced": true,
+          "Note": "SPA surface built against the approved design; preview at the route in Source."
+        }
+      ]
     },
     "U-SPA-TEAM": {
       "activityID": "U-SPA-TEAM",
       "phase": 2,
-      "buildStatus": 2
+      "buildStatus": 2,
+      "produced": [
+        {
+          "Kind": "ui-design",
+          "Title": "SPA — Team / Agents roster view (Method roles, charters + read-only prompts) — UI design concept",
+          "Source": "implementation/log",
+          "Produced": true,
+          "Note": "Design concept covers a read-only roster of Method roles (architect, PM, senior/junior developer, QA, testers, UX reviewer) with each role's charter and the system prompt driving that agent, so the founder can audit who does what without opening .claude/agents directly."
+        },
+        {
+          "Kind": "ui-code",
+          "Title": "SPA — Team / Agents roster view (Method roles, charters + read-only prompts) — built UI",
+          "Source": "/project/archistrator/team",
+          "Produced": true,
+          "Note": "SPA surface built against the approved design; preview at the route in Source."
+        }
+      ]
     },
     "C-CM": {
       "activityID": "C-CM",
@@ -8177,15 +8296,15 @@
     "N-DEP": {
       "activityID": "N-DEP",
       "phase": 2,
-      "kind": "testing",
+      "kind": "deployment",
       "buildStatus": 1,
       "produced": [
         {
-          "Kind": "code",
-          "Title": " — built component",
+          "Kind": "deployment",
+          "Title": "Production deployment — deployment change",
           "Source": "implementation/log",
           "Produced": true,
-          "Note": "Construction output recorded in the implementation log."
+          "Note": "Provisioning/deployment change applied and verified against the target environment."
         }
       ]
     },
