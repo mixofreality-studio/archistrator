@@ -179,22 +179,6 @@ func (wf *workflows) ValidateStoredInstrumentActivity(ctx context.Context, custo
 }
 
 // =============================================================================
-// operatedRuntimeAccess Activity (onboarding runtime wiring).
-// =============================================================================
-
-// WirePaymentConfigArgs bundles the runtime-wiring inputs.
-type wirePaymentConfigArgs struct {
-	DeployedAppID deployedAppID
-	Binding       gatewayBindingSeam
-}
-
-// WirePaymentConfigActivity wraps operatedRuntimeAccess.wirePaymentConfig (git
-// commit; content-idempotent on the "${workflowId}:${activityId}" key).
-func (wf *workflows) WirePaymentConfigActivity(ctx context.Context, a wirePaymentConfigArgs) (struct{}, error) {
-	return struct{}{}, fwmgr.MapError(wf.OperatedRuntime.WirePaymentConfig(ctx, a.DeployedAppID, a.Binding, activityIdempotencyKey(ctx)))
-}
-
-// =============================================================================
 // durableExecutionAccess (category-B control-plane) Activities.
 // =============================================================================
 

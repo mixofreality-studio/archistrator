@@ -209,18 +209,6 @@ func (g *fakeGateway) ValidateStoredInstrument(_ context.Context, _ customerID, 
 
 var _ merchantGatewayAccess = (*fakeGateway)(nil)
 
-// fakeRuntime records wirePaymentConfig calls.
-type fakeRuntime struct {
-	wired int
-}
-
-func (r *fakeRuntime) WirePaymentConfig(_ context.Context, _ deployedAppID, _ gatewayBindingSeam, _ fwra.IdempotencyKey) error {
-	r.wired++
-	return nil
-}
-
-var _ operatedRuntimeAccess = (*fakeRuntime)(nil)
-
 // fakeDurable records delivered signals + registered schedules.
 type fakeDurable struct {
 	mu sync.Mutex
@@ -283,7 +271,6 @@ type fakes struct {
 	ledger  *fakeRevenueLedger
 	usage   *fakeUsage
 	gateway *fakeGateway
-	runtime *fakeRuntime
 	durable *fakeDurable
 	engine  *fakeBillingEngine
 	interv  *fakeIntervention
@@ -295,20 +282,18 @@ func baseDeps() (wfDeps, *fakes) {
 		ledger:  &fakeRevenueLedger{},
 		usage:   &fakeUsage{},
 		gateway: &fakeGateway{},
-		runtime: &fakeRuntime{},
 		durable: &fakeDurable{},
 		engine:  &fakeBillingEngine{},
 		interv:  &fakeIntervention{directive: billingRetry},
 	}
 	return wfDeps{
-		Billing:         f.engine,
-		Intervention:    f.interv,
-		BillingState:    f.state,
-		RevenueLedger:   f.ledger,
-		Usage:           f.usage,
-		Gateway:         f.gateway,
-		OperatedRuntime: f.runtime,
-		Durable:         f.durable,
+		Billing:       f.engine,
+		Intervention:  f.interv,
+		BillingState:  f.state,
+		RevenueLedger: f.ledger,
+		Usage:         f.usage,
+		Gateway:       f.gateway,
+		Durable:       f.durable,
 	}, f
 }
 
@@ -316,7 +301,6 @@ func registerOnboard(env *testsuite.TestWorkflowEnvironment, wf *workflows) {
 	env.RegisterWorkflowWithOptions(wf.OnboardWorkflow, workflow.RegisterOptions{Name: executionKindOnboard})
 	env.RegisterActivity(wf.ReadBillingActivity)
 	env.RegisterActivity(wf.CreateConnectedAccountActivity)
-	env.RegisterActivity(wf.WirePaymentConfigActivity)
 	env.RegisterActivity(wf.BindGatewayLiveActivity)
 	env.RegisterActivity(wf.RegisterScheduleActivity)
 }
@@ -355,8 +339,8 @@ func usd(minor int64) Money { return Money{MinorUnits: minor, Currency: "USD"} }
 
 // ============================ B. OnboardWorkflow =============================
 
-// B1: happy path resolves the customer, creates the connected account, wires the
-// runtime, binds the gateway, and registers the per-customer cycle Schedule.
+// B1: happy path resolves the customer, creates the connected account, binds the
+// gateway, and registers the per-customer cycle Schedule.
 func Test_Onboard_HappyPath(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
@@ -381,9 +365,6 @@ func Test_Onboard_HappyPath(t *testing.T) {
 	}
 	if f.gateway.created != 1 {
 		t.Fatalf("want one connected account, got %d", f.gateway.created)
-	}
-	if f.runtime.wired != 1 {
-		t.Fatalf("want one runtime wire, got %d", f.runtime.wired)
 	}
 	if len(f.state.bound) != 1 {
 		t.Fatalf("want one bindGatewayLive, got %d", len(f.state.bound))

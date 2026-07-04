@@ -560,15 +560,14 @@ func run(logger *slog.Logger) error {
 	// revenue-ledger / merchant-gateway RAs are the generated no-arg STUBS (their methods
 	// return not-implemented at runtime — the onboard/close/sweep workflows fail fast
 	// against them until those RAs are built); usage is the real Postgres ledger,
-	// operatedRuntime the profiled RA (LOCAL dry-run / REAL skeleton, C-OR), settlement +
-	// intervention the real pure engines. durableExecution is nil (schedule registration
-	// belongs to the unbuilt schedulerClient; the Worker + façade do not dereference it).
+	// settlement + intervention the real pure engines. durableExecution is nil (schedule
+	// registration belongs to the unbuilt schedulerClient; the Worker + façade do not
+	// dereference it).
 	billingManager := billing.NewBillingManager(
 		tc,
 		billingstate.NewBillingStateAccess(),
 		usageAccess,
 		merchantgateway.NewMerchantGatewayAccess(),
-		operatedRuntime,
 		nil, // durableExecution — schedules unwired (schedulerClient concern)
 		billingEstimator,
 		interventionEngine,

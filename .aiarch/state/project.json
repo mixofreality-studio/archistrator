@@ -1620,6 +1620,11 @@
             "category": "Where"
           },
           {
+            "term": "Durable Execution Runtime",
+            "definition": "The substrate that durably sequences and persists the platform's own long-running workflows — phase drives, billing cycles, and operation loops — across restarts and failures.",
+            "category": "Where"
+          },
+          {
             "term": "Payment Gateway",
             "definition": "The external payment system through which aiarch charges customers' stored instruments for its service invoices.",
             "category": "Where"
@@ -2671,114 +2676,114 @@
       "model": {
         "items": [
           {
-            "name": "SystemDesignPhaseWorkflow",
+            "name": "System Design Phase Workflow",
             "axis": "sameCustomerOverTime",
             "rationale": "The sequence of Phase 1 activities (business alignment → requirements analysis → volatility identification → core use cases → architecture → operational concepts → standard check) will evolve as architectural taste matures: new sub-skills added (security review, accessibility review), existing ones reordered, gating rules changed, artifact schemas refined. A customer completing a project today and starting another in 18 months will encounter an evolved Phase 1 step set, and the platform must absorb that evolution without being rebuilt. Evolves independently of Phase 2."
           },
           {
-            "name": "ProjectDesignPhaseWorkflow",
+            "name": "Project Design Phase Workflow",
             "axis": "sameCustomerOverTime",
             "rationale": "The sequence of Phase 2 activities (planning assumptions → activity list → network → normal/decompressed/subcritical/compressed → risk modeling → SDP review) will evolve as project-planning sophistication grows: cone-of-uncertainty intervals replacing 5-day quanta, new option types, a new operational-risk curve. Evolves independently of Phase 1 — improvements to the SDP review do not in themselves change requirements scrubbing. Lives on axis 1 because the platform evolves it for everyone at once."
           },
           {
-            "name": "ConstructionPhaseWorkflow",
+            "name": "Construction Phase Workflow",
             "axis": "sameCustomerOverTime",
             "rationale": "The sequence of Phase 3 activities (hand-off model → per-component contract design → construction → weekly tracking → scope-change handling) will evolve as construction practice matures: continuous earned-value replacing weekly tracking, automatic contract-drafting at hand-off, AI-driven scope-change proposals. Evolves independently of Phase 1 and Phase 2."
           },
           {
-            "name": "OperationsWorkflow",
+            "name": "Operation Phase Workflow",
             "axis": "sameCustomerOverTime",
-            "rationale": "The choreography by which the platform operates a delivered system — the deploy-after-construction ceremony, reconcile cadence, the health→intervention→autoscale sequencing, delinquency application, withdraw — will evolve as operating practice matures: event-driven reconciliation replacing polled sweeps, progressive-delivery gates (canary, automatic rollback) in the deploy step, self-healing sequences before escalation. Same shape as the three Method-phase workflow volatilities: what varies is the Manager's activity sequence, NOT the policies it consults (InterventionPolicy, AutoscalerPolicy) nor the runtime it drives (OperatedRuntime) nor where it records state (OperationalStateStore). Evolves independently of the Method phases and of the billing cycle."
+            "rationale": "The choreography by which the platform operates a delivered system — the deploy-after-construction ceremony, reconcile cadence, the health→intervention→autoscale sequencing, delinquency application, withdraw — will evolve as operating practice matures: event-driven reconciliation replacing polled sweeps, progressive-delivery gates (canary, automatic rollback) in the deploy step, self-healing sequences before escalation. Same shape as the three Method-phase workflow volatilities: what varies is the Manager's activity sequence, NOT the policies it consults (Intervention Policy, Autoscaling Policy) nor the runtime it drives (Operated Runtime) nor where it records state (Operational State Store). Evolves independently of the Method phases and of the billing cycle."
           },
           {
-            "name": "BillingWorkflow",
+            "name": "Billing Workflow",
             "axis": "sameCustomerOverTime",
-            "rationale": "The choreography of a billing cycle — read cycle usage, compute the charge, execute the charge, record the outcome, unpaid-charge sweeps, dunning, delinquency escalation — will evolve: dunning sequences, proration on mid-cycle plan changes, pre-authorization holds before large charges. Deliberately distinct from ServicePricing (the pricing policy BillingEngine pivots on — what the charge IS) and from PaymentProvider (which gateway executes the money movement): what varies here is the cycle's activity sequence itself."
+            "rationale": "The choreography of a billing cycle — read cycle usage, compute the charge, execute the charge, record the outcome, unpaid-charge sweeps, dunning, delinquency escalation — will evolve: dunning sequences, proration on mid-cycle plan changes, pre-authorization holds before large charges. Deliberately distinct from Service Pricing (the pricing policy BillingEngine pivots on — what the charge IS) and from Payment Provider (which gateway executes the money movement): what varies here is the cycle's activity sequence itself."
           },
           {
-            "name": "ConstructionEstimationModel",
+            "name": "Construction Estimation Model",
             "axis": "sameCustomerOverTime",
-            "rationale": "How construction duration, cost, and risk are computed will change as workers change, as historical data accumulates, and as the team refines the model. Construction estimation only — the operating-side forecast is split out as OperationEstimationModel. The two evolve on independent timelines (construction estimation matures with worker/build telemetry; operation estimation matures with fleet/usage telemetry)."
+            "rationale": "How construction duration, cost, and risk are computed will change as workers change, as historical data accumulates, and as the team refines the model. Construction estimation only — the operating-side forecast is split out as Operation Estimation Model. The two evolve on independent timelines (construction estimation matures with worker/build telemetry; operation estimation matures with fleet/usage telemetry)."
           },
           {
-            "name": "OperationEstimationModel",
+            "name": "Operation Estimation Model",
             "axis": "sameCustomerOverTime",
-            "rationale": "How operating cost is forecasted as a function of usage. Used at design-time (SDP review: usage-to-operating-cost curve + payout-vs-shortfall forecast) and at op-time (OperationsManager: current run-rate, projected monthly cost, what-if curve over observed usage). Evolves as telemetry deepens and as CustomerAppInfrastructure expands. Independent of ConstructionEstimationModel because the inputs differ (usage curves + infrastructure cost model vs. build graph + worker throughput) and the outputs serve different decisions."
+            "rationale": "How operating cost is forecasted as a function of usage. Used at design-time (SDP review: usage-to-operating-cost curve + payout-vs-shortfall forecast) and at op-time (OperationsManager: current run-rate, projected monthly cost, what-if curve over observed usage). Evolves as telemetry deepens and as Customer App Infrastructure expands. Independent of Construction Estimation Model because the inputs differ (usage curves + infrastructure cost model vs. build graph + worker throughput) and the outputs serve different decisions."
           },
           {
-            "name": "CustomerAppInfrastructure",
+            "name": "Customer App Infrastructure",
             "axis": "sameCustomerOverTime",
             "rationale": "The list of technologies that a customer's deployed app is permitted to use. Launch set: Go + Temporal + Postgres + Git + S3. The list evolves as the platform broadens (e.g., adding pgvector for AI-feature apps, WASM compute units). The fact of constraint is design given; the contents of the constrained set is what is volatile. Encapsulated by Strategy registrations on AutoscalerEngine and OperationEstimationEngine — a cross-cutting axis with no single owning component. Every customer operates on the same permitted set at any given moment — the set broadens for everyone at once."
           },
           {
-            "name": "ServicePricing",
+            "name": "Service Pricing",
             "axis": "sameCustomerOverTime",
             "rationale": "How aiarch prices its own service to the user evolves system-wide over time. Current instance (2026-06-14): a usage-based hosting fee for operated systems only (DEPLOYED — OPERATED); no flat subscription; construction is not charged (runs on the user's own Claude Code token and CI minutes). Tomorrow: per-seat tiers, free-tier subsidies, hosting-resource-class pricing, volume discounts. This is open-ended, will ripple, and must not be a hardcoded constant — it is the policy billingEngine pivots on as a Strategy. Lives on axis 1 because aiarch re-prices its service for everyone as its cost structure and market position change."
           },
           {
-            "name": "InterventionPolicy",
+            "name": "Intervention Policy",
             "axis": "sameCustomerOverTime",
             "rationale": "What counts as 'stuck', who is notified, when a human is paged, and what authority they have to override is policy that will change as the platform matures. Trigger surface includes construction variance, unhealthy operated state, and billing failures (a user's stored instrument declines an aiarch service invoice). Early on, every variance escalates to a single operator. Later, severity tiers, customer SLA classes, and self-healing rules emerge."
           },
           {
-            "name": "ReviewPolicy",
+            "name": "Review Policy",
             "axis": "sameCustomerOverTime",
             "rationale": "Who must review a produced change, from what perspective, and against which reference artifact is policy that will evolve as the platform's engineering practice matures. Today: a code change is reviewed by the owners of each inbound/outbound neighbour component, plus the change's own component owner. Tomorrow: new reviewer roles, adjacency rules keyed on layer or risk, deeper review for higher-risk components, bidirectional amend rules. Lives on axis 1 because the platform evolves the policy system-wide as practice matures. Phase-3 construction only — Phase-1 role choreography is the Manager's fixed sequence."
           },
           {
-            "name": "AutoscalerPolicy",
+            "name": "Autoscaling Policy",
             "axis": "allCustomersAtOneTime",
-            "rationale": "At the same moment, different operated apps run different capacity policies: SLA-class tiers, per-app idle-pause thresholds, scale-from-zero cold-start tolerance, predictive vs. reactive scaling, operator overrides. What counts as 'this app's capacity is right' for one customer's app is wrong for another's. The rule set also matures over time, but the dominant axis is per-app/per-customer policy variance at one moment. Symmetrical with InterventionPolicy in shape but structurally distinct: InterventionPolicy answers 'is this app broken and what do we do?'; AutoscalerPolicy answers 'is this app's capacity right and what do we do?' Two axes, two encapsulators."
+            "rationale": "At the same moment, different operated apps run different capacity policies: SLA-class tiers, per-app idle-pause thresholds, scale-from-zero cold-start tolerance, predictive vs. reactive scaling, operator overrides. What counts as 'this app's capacity is right' for one customer's app is wrong for another's. The rule set also matures over time, but the dominant axis is per-app/per-customer policy variance at one moment. Symmetrical with Intervention Policy in shape but structurally distinct: Intervention Policy answers 'is this app broken and what do we do?'; Autoscaling Policy answers 'is this app's capacity right and what do we do?' Two axes, two encapsulators."
           },
           {
-            "name": "CustomerInteractionChannel",
+            "name": "Customer Interaction Channel",
             "axis": "allCustomersAtOneTime",
             "rationale": "Different customers reach the platform through different entry channels at the same moment. Today: a browser hitting a JSON HTTP API, and an MCP client (remote MCP over HTTP). Tomorrow: IDE plugins, Slack apps, agentic clients, voice. The kind of caller is what varies here. Encapsulated by the Client tier — each Client component (WebClient, MCPClient) owns one channel's specifics so Managers never see channel. As of 2026-06-14 the customer-facing MCP instance is remote MCP over HTTP only (the MCP-over-stdio instance dropped from the customer surface with the LOCAL story)."
           },
           {
-            "name": "Transport",
+            "name": "Customer Interaction Transport",
             "axis": "allCustomersAtOneTime",
             "rationale": "Even for a fixed channel, the wire-level delivery mechanism will evolve: JSON-over-HTTP/1.1 today, server-sent-events or WebSockets for streaming draft co-authoring tomorrow; MCP-over-HTTP today, MCP-over-streamable-HTTP tomorrow. Independent of channel: a channel can keep its identity while its transport changes. Each Client component owns sole ownership of its transport stack — including the SchedulerClient, whose varying trigger-delivery mechanism (durable-runtime schedule callback today; cron or event triggers later) is this same axis. Managers never see transport types."
           },
           {
-            "name": "WorkflowRuntime",
+            "name": "Durable Execution Runtime",
             "axis": "allCustomersAtOneTime",
-            "rationale": "Which durable-execution runtime sequences Manager workflow code. Current instances: Temporal in the cloud deployment; an in-process embedded executor in the test profile; other durable executors later. The same Manager code runs unchanged against either — the executeWorkflow/signal/query/timer/schedule/spawn verbs are stable while the runtime behind them varies per deployment profile at one moment and migrates over time. Encapsulated by durableExecutionAccess. Narrowed from the former two-faced definition: the agentic-coding pipeline face is now its own axis, ConstructionPipelineTarget, because the two vary independently with different change drivers."
+            "rationale": "Which durable-execution runtime sequences Manager workflow code. Current instances: Temporal in the cloud deployment; an in-process embedded executor in the test profile; other durable executors later. The same Manager code runs unchanged against either — the executeWorkflow/signal/query/timer/schedule/spawn verbs are stable while the runtime behind them varies per deployment profile at one moment and migrates over time. Encapsulated by durableExecutionAccess. Narrowed from the former two-faced definition: the agentic-coding pipeline face is now its own axis, Construction Pipeline Target, because the two vary independently with different change drivers."
           },
           {
-            "name": "ConstructionPipelineTarget",
+            "name": "Construction Pipeline Target",
             "axis": "allCustomersAtOneTime",
-            "rationale": "Which CI/agentic-pipeline system executes dispatched construction jobs. Current instance: the user's own GitHub Actions running claude-code-action; instance set: claude-code-action → GitHub Copilot coding agent → GitLab CI; the dry-run/test profile is a stubbed instance of the pipeline target behind the same verbs. At one moment different customers run different pipeline targets — it is THEIR CI — and a customer can migrate CI without any Manager change. The submit/observe/cancel verbs are stable; the pipeline system behind them is what varies. Encapsulated by constructionPipelineAccess. Split out of the former WorkflowRuntime: the pipeline target varies per customer with their CI choice, while the durable Manager-sequencing executor varies per deployment profile and platform migration — two independent axes, two encapsulators."
+            "rationale": "Which CI/agentic-pipeline system executes dispatched construction jobs. Current instance: the user's own GitHub Actions running claude-code-action; instance set: claude-code-action → GitHub Copilot coding agent → GitLab CI; the dry-run/test profile is a stubbed instance of the pipeline target behind the same verbs. At one moment different customers run different pipeline targets — it is THEIR CI — and a customer can migrate CI without any Manager change. The submit/observe/cancel verbs are stable; the pipeline system behind them is what varies. Encapsulated by constructionPipelineAccess. Split out of the former Durable Execution Runtime: the pipeline target varies per customer with their CI choice, while the durable Manager-sequencing executor varies per deployment profile and platform migration — two independent axes, two encapsulators."
           },
           {
-            "name": "OperatedRuntime",
+            "name": "Operated Runtime",
             "axis": "allCustomersAtOneTime",
-            "rationale": "Same shape as WorkflowRuntime but for the runtime that hosts delivered systems in the DEPLOYED — OPERATED scenario. Today: GitOps over Kubernetes via Argo CD + Argo Rollouts on the aiarch hosting cluster. Three faces: convergence infrastructure (how desired-state-in-the-repo becomes actual-state-in-the-cluster), compute cost attribution (per-customer cost-of-goods surface), and runtime-status transport (how the platform learns about state changes in the operated runtime). All three encapsulated behind OperatedRuntimeAccess."
+            "rationale": "Same shape as Durable Execution Runtime but for the runtime that hosts delivered systems in the DEPLOYED — OPERATED scenario. Today: GitOps over Kubernetes via Argo CD + Argo Rollouts on the aiarch hosting cluster. Three faces: convergence infrastructure (how desired-state-in-the-repo becomes actual-state-in-the-cluster), compute cost attribution (per-customer cost-of-goods surface), and runtime-status transport (how the platform learns about state changes in the operated runtime). All three encapsulated behind OperatedRuntimeAccess."
           },
           {
-            "name": "HandOffPolicy",
+            "name": "Construction Hand-Off Policy",
             "axis": "allCustomersAtOneTime",
             "rationale": "At any given moment, different customers have chosen different splits of human vs. automated work along the Method's architect / senior / junior hand-off. Some customers want every line of code reviewed by a senior human; others want fully automated construction with the customer acting only as the architect."
           },
           {
-            "name": "GitTarget",
+            "name": "Source Control Target",
             "axis": "allCustomersAtOneTime",
             "rationale": "At the same moment, different scenarios put the per-project repo — and everything aiarch does through it — on different source-control providers/targets. Current instances: the user's own GitHub (via a GitHub App, cloud) and an ephemeral throwaway git repo (test); GitLab later. The axis covers both faces of the provider, which co-vary when the provider swaps: (1) the persistence target for typed project state and Phase-3 construction outputs (stable verbs: createProject / readProject / commit / stageArtifact / storeConstructionOutput / retrieveOutputTree), and (2) the provider's collaboration/authorization surface (app installation and tokens, secrets, branch protection, branches, pull requests, reviews, merges). One axis fronted by three ResourceAccess components, one per stable verb family: projectStateAccess (typed state), artifactAccess (construction outputs), sourceControlAccess (collaboration/authorization). The former 'GitHubAppLifecycle' is a mechanism of the current GitHub instance, not an axis of change."
           },
           {
-            "name": "WorkTracking",
+            "name": "Work Tracking",
             "axis": "allCustomersAtOneTime",
             "rationale": "At the same moment, different customers track the Method's activities in different work-item systems: GitHub Issues today → Jira / Linear / Azure Boards later. Each Method activity is mirrored as a work item: open-on-seal, status-mirror, close-on-merge. The verbs are stable (openWorkItem / updateWorkItem / closeWorkItem; deferred observeWorkItem); the tracker behind them varies per customer. Independent seam from the repo/CI seams — a customer can run GitHub repo + GitHub Actions + Jira issues, or GitLab + GitLab CI + Linear, with no Manager/Engine-layer change."
           },
           {
-            "name": "PaymentProvider",
+            "name": "Payment Provider",
             "axis": "allCustomersAtOneTime",
             "rationale": "Which merchant gateway executes aiarch's money movement — charging customers for cycle amounts and validating stored instruments. Current instances: Stripe live, and a deterministic fake in the test profile; regional or alternative gateways (Adyen, Braintree) later, potentially differing per customer geography at the same moment. The verbs are stable (chargeCustomer / validateStoredInstrument); the gateway behind them — its idempotency mechanics and webhook shapes — is what varies. Encapsulated by merchantGatewayAccess. The former 'MerchantGateway' encapsulates-value was the resource noun, not the axis."
           },
           {
-            "name": "OperationalStateStore",
+            "name": "Operational State Store",
             "axis": "allCustomersAtOneTime",
-            "rationale": "Which storage substrate holds the platform's own operational records — operated-system state, billing state, and the usage log. Current instances: Postgres in the cloud deployment; in-memory/embedded stores in the test profile; managed alternatives later, potentially per record family. The atomic business verbs on each record family are stable (readOperatedSystem / publishDesiredState / recordRuntimeStatusChange…; readBilling / settleCycle / resettleCycle…; recordComputeUsage / recordFinalUsage / readRange); the substrate behind them — engine, consistency mechanics (version + applied_mutation dedup vs append-dedup), and hosting — varies per deployment profile at one moment and can migrate per record family over time. One axis fronted by three ResourceAccess components, each converting one verb family: operatedSystemStateAccess, billingStateAccess, usageAccess — parallel to GitTarget being one provider axis fronted by three RAs. Deliberately distinct from GitTarget: these are transactional row/append stores, not the per-project git repo. The former per-RA encapsulates values were resource nouns and a mechanism, not axes."
+            "rationale": "Which storage substrate holds the platform's own operational records — operated-system state, billing state, and the usage log. Current instances: Postgres in the cloud deployment; in-memory/embedded stores in the test profile; managed alternatives later, potentially per record family. The atomic business verbs on each record family are stable (readOperatedSystem / publishDesiredState / recordRuntimeStatusChange…; readBilling / settleCycle / resettleCycle…; recordComputeUsage / recordFinalUsage / readRange); the substrate behind them — engine, consistency mechanics (version + applied_mutation dedup vs append-dedup), and hosting — varies per deployment profile at one moment and can migrate per record family over time. One axis fronted by three ResourceAccess components, each converting one verb family: operatedSystemStateAccess, billingStateAccess, usageAccess — parallel to Source Control Target being one provider axis fronted by three RAs. Deliberately distinct from Source Control Target: these are transactional row/append stores, not the per-project git repo. The former per-RA encapsulates values were resource nouns and a mechanism, not axes."
           }
         ]
       }
@@ -4696,7 +4701,7 @@
             "name": "SystemDesignManager",
             "kind": "manager",
             "layer": "manager",
-            "encapsulates": "SystemDesignPhaseWorkflow",
+            "encapsulates": "System Design Phase Workflow",
             "atomicBusinessVerbs": []
           },
           {
@@ -4704,7 +4709,7 @@
             "name": "ProjectDesignManager",
             "kind": "manager",
             "layer": "manager",
-            "encapsulates": "ProjectDesignPhaseWorkflow",
+            "encapsulates": "Project Design Phase Workflow",
             "atomicBusinessVerbs": []
           },
           {
@@ -4712,7 +4717,7 @@
             "name": "ConstructionManager",
             "kind": "manager",
             "layer": "manager",
-            "encapsulates": "ConstructionPhaseWorkflow",
+            "encapsulates": "Construction Phase Workflow",
             "atomicBusinessVerbs": []
           },
           {
@@ -4720,7 +4725,7 @@
             "name": "OperationsManager",
             "kind": "manager",
             "layer": "manager",
-            "encapsulates": "OperationsWorkflow",
+            "encapsulates": "Operation Phase Workflow",
             "atomicBusinessVerbs": []
           },
           {
@@ -4728,7 +4733,7 @@
             "name": "BillingManager",
             "kind": "manager",
             "layer": "manager",
-            "encapsulates": "BillingWorkflow",
+            "encapsulates": "Billing Workflow",
             "atomicBusinessVerbs": []
           },
           {
@@ -4736,7 +4741,7 @@
             "name": "EstimationEngine",
             "kind": "engine",
             "layer": "engine",
-            "encapsulates": "ConstructionEstimationModel",
+            "encapsulates": "Construction Estimation Model",
             "atomicBusinessVerbs": []
           },
           {
@@ -4744,7 +4749,7 @@
             "name": "OperationEstimationEngine",
             "kind": "engine",
             "layer": "engine",
-            "encapsulates": "OperationEstimationModel",
+            "encapsulates": "Operation Estimation Model",
             "atomicBusinessVerbs": []
           },
           {
@@ -4752,7 +4757,7 @@
             "name": "BillingEngine",
             "kind": "engine",
             "layer": "engine",
-            "encapsulates": "ServicePricing",
+            "encapsulates": "Service Pricing",
             "atomicBusinessVerbs": []
           },
           {
@@ -4760,7 +4765,7 @@
             "name": "HandOffEngine",
             "kind": "engine",
             "layer": "engine",
-            "encapsulates": "HandOffPolicy",
+            "encapsulates": "Construction Hand-Off Policy",
             "atomicBusinessVerbs": []
           },
           {
@@ -4768,7 +4773,7 @@
             "name": "InterventionEngine",
             "kind": "engine",
             "layer": "engine",
-            "encapsulates": "InterventionPolicy",
+            "encapsulates": "Intervention Policy",
             "atomicBusinessVerbs": []
           },
           {
@@ -4776,7 +4781,7 @@
             "name": "AutoscalerEngine",
             "kind": "engine",
             "layer": "engine",
-            "encapsulates": "AutoscalerPolicy",
+            "encapsulates": "Autoscaling Policy",
             "atomicBusinessVerbs": []
           },
           {
@@ -4784,7 +4789,7 @@
             "name": "ReviewEngine",
             "kind": "engine",
             "layer": "engine",
-            "encapsulates": "ReviewPolicy",
+            "encapsulates": "Review Policy",
             "atomicBusinessVerbs": []
           },
           {
@@ -4792,7 +4797,7 @@
             "name": "ProjectStateAccess",
             "kind": "resourceAccess",
             "layer": "resourceAccess",
-            "encapsulates": "GitTarget",
+            "encapsulates": "Source Control Target",
             "atomicBusinessVerbs": [
               "createProject",
               "listProjects",
@@ -4815,7 +4820,7 @@
             "name": "OperatedSystemStateAccess",
             "kind": "resourceAccess",
             "layer": "resourceAccess",
-            "encapsulates": "OperationalStateStore",
+            "encapsulates": "Operational State Store",
             "atomicBusinessVerbs": [
               "readOperatedSystem",
               "readInFlightOperatedApps",
@@ -4830,7 +4835,7 @@
             "name": "BillingStateAccess",
             "kind": "resourceAccess",
             "layer": "resourceAccess",
-            "encapsulates": "OperationalStateStore",
+            "encapsulates": "Operational State Store",
             "atomicBusinessVerbs": [
               "readBilling",
               "registerCustomer",
@@ -4845,7 +4850,7 @@
             "name": "WorkItemAccess",
             "kind": "resourceAccess",
             "layer": "resourceAccess",
-            "encapsulates": "WorkTracking",
+            "encapsulates": "Work Tracking",
             "atomicBusinessVerbs": [
               "openWorkItem",
               "updateWorkItem",
@@ -4858,7 +4863,7 @@
             "name": "ConstructionPipelineAccess",
             "kind": "resourceAccess",
             "layer": "resourceAccess",
-            "encapsulates": "ConstructionPipelineTarget",
+            "encapsulates": "Construction Pipeline Target",
             "atomicBusinessVerbs": [
               "submitConstructionPipeline",
               "observeConstructionPipeline",
@@ -4870,7 +4875,7 @@
             "name": "OperatedRuntimeAccess",
             "kind": "resourceAccess",
             "layer": "resourceAccess",
-            "encapsulates": "OperatedRuntime",
+            "encapsulates": "Operated Runtime",
             "atomicBusinessVerbs": [
               "publishDesiredState",
               "withdraw",
@@ -4884,7 +4889,7 @@
             "name": "UsageAccess",
             "kind": "resourceAccess",
             "layer": "resourceAccess",
-            "encapsulates": "OperationalStateStore",
+            "encapsulates": "Operational State Store",
             "atomicBusinessVerbs": [
               "recordComputeUsage",
               "recordFinalUsage",
@@ -4896,7 +4901,7 @@
             "name": "MerchantGatewayAccess",
             "kind": "resourceAccess",
             "layer": "resourceAccess",
-            "encapsulates": "PaymentProvider",
+            "encapsulates": "Payment Provider",
             "atomicBusinessVerbs": [
               "chargeCustomer",
               "validateStoredInstrument"
@@ -4907,7 +4912,7 @@
             "name": "SourceControlAccess",
             "kind": "resourceAccess",
             "layer": "resourceAccess",
-            "encapsulates": "GitTarget",
+            "encapsulates": "Source Control Target",
             "atomicBusinessVerbs": [
               "installAuthorizeApp",
               "provisionProjectRepo",
@@ -4927,7 +4932,7 @@
             "name": "DurableExecutionAccess",
             "kind": "resourceAccess",
             "layer": "resourceAccess",
-            "encapsulates": "WorkflowRuntime",
+            "encapsulates": "Durable Execution Runtime",
             "atomicBusinessVerbs": [
               "executeWorkflow",
               "signal",
@@ -4942,7 +4947,7 @@
             "name": "ArtifactAccess",
             "kind": "resourceAccess",
             "layer": "resourceAccess",
-            "encapsulates": "GitTarget",
+            "encapsulates": "Source Control Target",
             "atomicBusinessVerbs": [
               "storeConstructionOutput",
               "retrieveConstructionOutput",
@@ -9061,10 +9066,6 @@
         {
           "name": "merchantGateway",
           "component": "merchantGatewayAccess"
-        },
-        {
-          "name": "operatedRuntime",
-          "component": "operatedRuntimeAccess"
         },
         {
           "name": "durableExecution",

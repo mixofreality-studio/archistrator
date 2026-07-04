@@ -15,7 +15,6 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/billingstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/durableexecution"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/merchantgateway"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedruntime"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
 )
 
@@ -57,7 +56,6 @@ type billingManager struct {
 	billingState     billingstate.BillingStateAccess
 	usage            usage.UsageAccess
 	merchantGateway  merchantgateway.MerchantGatewayAccess
-	operatedRuntime  operatedruntime.OperatedRuntimeAccess
 	durableExecution durableexecution.DurableExecutionAccess
 	billing          billingengine.BillingEngine
 	intervention     intervention.InterventionEngine
@@ -72,7 +70,6 @@ func newBillingManager(
 	billingState billingstate.BillingStateAccess,
 	usage usage.UsageAccess,
 	merchantGateway merchantgateway.MerchantGatewayAccess,
-	operatedRuntime operatedruntime.OperatedRuntimeAccess,
 	durableExecution durableexecution.DurableExecutionAccess,
 	billing billingengine.BillingEngine,
 	interventionEng intervention.InterventionEngine,
@@ -82,7 +79,6 @@ func newBillingManager(
 		billingState:     billingState,
 		usage:            usage,
 		merchantGateway:  merchantGateway,
-		operatedRuntime:  operatedRuntime,
 		durableExecution: durableExecution,
 		billing:          billing,
 		intervention:     interventionEng,
@@ -91,8 +87,10 @@ func newBillingManager(
 
 // OnboardPaymentIntegration — op 2.1. Temporal Workflow (entry; StartWorkflow, id
 // {customerId}:onboard). Resolves the billing aggregate (deployedAppId → customerId
-// via readBilling) → creates the connected account → wires runtime payment config →
-// records the binding → registers the per-customer closeBillingCycle Schedule.
+// via readBilling) → creates the connected account → records the binding → registers
+// the per-customer closeBillingCycle Schedule. (Runtime payment-config wiring is an
+// operations desired-state concern — OperationsManager's publishDesiredState — not a
+// billing edge; see operational concept #2.)
 // Idempotent on the id (a redundant start returns the running BillingRef). SYNC:
 // returns once the onboarding workflow is durably accepted.
 func (m *billingManager) OnboardPaymentIntegration(rc fwmgr.Context, deployedAppID deployedAppID) (BillingRef, error) {

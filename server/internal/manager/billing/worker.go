@@ -76,9 +76,6 @@ const (
 	actCreateConnectedAccount = "CreateConnectedAccountActivity"
 	actValidateStoredInstr    = "ValidateStoredInstrumentActivity"
 
-	// operatedRuntimeAccess Activity.
-	actWirePaymentConfig = "WirePaymentConfigActivity"
-
 	// durableExecutionAccess (category-B) Activities.
 	actDeliverDelinquency = "DeliverDelinquencySignalActivity"
 	actRegisterSchedule   = "RegisterScheduleActivity"
@@ -88,7 +85,7 @@ const (
 // billing task queue (billingManager.md §6.1). The Manager's workflow dependencies
 // — the two Engines (billingEngine, interventionEngine, called DIRECTLY in-workflow)
 // and the ResourceAccess ports (billingStateAccess, revenueLedgerAccess, usageAccess,
-// merchantGatewayAccess, operatedRuntimeAccess, durableExecutionAccess) — live on a
+// merchantGatewayAccess, durableExecutionAccess) — live on a
 // single Workflows struct (there is no separate Activities type).
 //
 // The two Engines' verbs are called DIRECTLY from workflow code (deterministic, by
@@ -104,14 +101,13 @@ func RegisterWorker(w worker.Worker, m BillingManager) {
 	// Workflows struct holds (adapters.go) — the Option-B boundary mapping that replaces
 	// the former composition-root wfDeps wiring.
 	deps := wfDeps{
-		Billing:         billingEngineAdapter{inner: impl.billing},
-		Intervention:    interventionAdapter{inner: impl.intervention},
-		BillingState:    billingStateAdapter{inner: impl.billingState},
-		RevenueLedger:   noopRevenueLedger{},
-		Usage:           usageAdapter{inner: impl.usage},
-		Gateway:         merchantGatewayAdapter{inner: impl.merchantGateway},
-		OperatedRuntime: operatedRuntimeAdapter{inner: impl.operatedRuntime},
-		Durable:         durableAdapter{inner: impl.durableExecution},
+		Billing:       billingEngineAdapter{inner: impl.billing},
+		Intervention:  interventionAdapter{inner: impl.intervention},
+		BillingState:  billingStateAdapter{inner: impl.billingState},
+		RevenueLedger: noopRevenueLedger{},
+		Usage:         usageAdapter{inner: impl.usage},
+		Gateway:       merchantGatewayAdapter{inner: impl.merchantGateway},
+		Durable:       durableAdapter{inner: impl.durableExecution},
 	}
 	wf := newWorkflows(deps)
 
@@ -137,8 +133,6 @@ func RegisterWorker(w worker.Worker, m BillingManager) {
 	w.RegisterActivityWithOptions(wf.ChargeCustomerActivity, activity.RegisterOptions{Name: actChargeCustomer})
 	w.RegisterActivityWithOptions(wf.CreateConnectedAccountActivity, activity.RegisterOptions{Name: actCreateConnectedAccount})
 	w.RegisterActivityWithOptions(wf.ValidateStoredInstrumentActivity, activity.RegisterOptions{Name: actValidateStoredInstr})
-
-	w.RegisterActivityWithOptions(wf.WirePaymentConfigActivity, activity.RegisterOptions{Name: actWirePaymentConfig})
 
 	w.RegisterActivityWithOptions(wf.DeliverDelinquencySignalActivity, activity.RegisterOptions{Name: actDeliverDelinquency})
 	w.RegisterActivityWithOptions(wf.RegisterScheduleActivity, activity.RegisterOptions{Name: actRegisterSchedule})

@@ -28,7 +28,6 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/billingstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/durableexecution"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/merchantgateway"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedruntime"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
 )
 
@@ -256,26 +255,6 @@ func (a merchantGatewayAdapter) ValidateStoredInstrument(ctx context.Context, cu
 	return a.inner.ValidateStoredInstrument(
 		fwra.Context{Context: ctx, IdempotencyKey: fwra.IdempotencyKey(idempotencyKey)},
 		customerID,
-		idempotencyKey,
-	)
-}
-
-// ===========================================================================
-// operatedRuntimeAccess adapter — over operatedruntime.OperatedRuntimeAccess (only the
-// onboarding wirePaymentConfig verb).
-// ===========================================================================
-
-type operatedRuntimeAdapter struct {
-	inner operatedruntime.OperatedRuntimeAccess
-}
-
-var _ operatedRuntimeAccess = operatedRuntimeAdapter{}
-
-func (a operatedRuntimeAdapter) WirePaymentConfig(ctx context.Context, deployedAppID deployedAppID, binding gatewayBindingSeam, idempotencyKey fwra.IdempotencyKey) error {
-	return a.inner.WirePaymentConfig(
-		fwra.Context{Context: ctx, IdempotencyKey: idempotencyKey},
-		deployedAppID,
-		operatedruntime.GatewayBinding{ConnectedAccountID: binding.ConnectedAccountID},
 		idempotencyKey,
 	)
 }

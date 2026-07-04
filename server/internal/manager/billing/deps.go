@@ -17,7 +17,6 @@ import (
 //   - RevenueLedgerAccess    — revenueLedgerAccess.md §2/§3 (FROZEN; not yet built)
 //   - UsageAccess            — usageAccess.md §2/§3 (FROZEN; not yet built)
 //   - MerchantGatewayAccess  — merchantGatewayAccess (D-MA — NOT YET CONTRACTED; FU-MST-2/OQ-2)
-//   - OperatedRuntimeAccess  — operatedRuntimeAccess.md §2/§3 (FROZEN; not yet built)
 //   - BillingEngine       — billingEngine.md §2.1/§2.2 (FROZEN; not yet built)
 //   - InterventionEngine     — interventionEngine.md §2.3 (FROZEN; not yet built)
 //   - DurableExecutionAccess — exists as internal/resourceaccess/durableexecution, but
@@ -239,21 +238,6 @@ type merchantGatewayAccess interface {
 	// ValidateStoredInstrument validates the stored instrument via a zero-amount auth
 	// (customer registration; ncuc1).
 	ValidateStoredInstrument(ctx context.Context, customerID customerID, idempotencyKey string) error
-}
-
-// ===========================================================================
-// operatedRuntimeAccess — FROZEN, NOT YET BUILT. Narrow consumer interface — only the
-// onboarding write this Manager uses: wirePaymentConfig (folds into publishDesiredState
-// per D-OR §2.5). Git-content-idempotent — no version guard.
-// ===========================================================================
-
-// OperatedRuntimeAccess mirrors the one operatedRuntimeAccess verb this Manager uses at
-// onboarding (billingManager.md §5.2). Idempotent on the caller-supplied key (git
-// content-address).
-type operatedRuntimeAccess interface {
-	// WirePaymentConfig wires the gateway binding into the deployed app's runtime
-	// (folds into publishDesiredState; D-OR §2.5).
-	WirePaymentConfig(ctx context.Context, deployedAppID deployedAppID, binding gatewayBindingSeam, idempotencyKey fwra.IdempotencyKey) error
 }
 
 // ===========================================================================

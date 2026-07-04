@@ -20,7 +20,7 @@ import (
 //   - The two Engines (billingEngine / interventionEngine) are PURE, deterministic,
 //     called DIRECTLY in-workflow by value (no Activity wrapper — replay-safe).
 //   - The ResourceAccess ports (billingStateAccess / revenueLedgerAccess /
-//     usageAccess / merchantGatewayAccess / operatedRuntimeAccess /
+//     usageAccess / merchantGatewayAccess /
 //     durableExecutionAccess) are I/O and NON-deterministic; the workflow invokes the
 //     Activity methods on this same struct via workflow.ExecuteActivity (activities.go).
 
@@ -32,12 +32,11 @@ type wfDeps struct {
 	Billing      billingEngine
 	Intervention interventionEngine
 
-	BillingState    billingStateAccess
-	RevenueLedger   revenueLedgerAccess
-	Usage           usageAccess
-	Gateway         merchantGatewayAccess
-	OperatedRuntime operatedRuntimeAccess
-	Durable         durableExecutionAccess
+	BillingState  billingStateAccess
+	RevenueLedger revenueLedgerAccess
+	Usage         usageAccess
+	Gateway       merchantGatewayAccess
+	Durable       durableExecutionAccess
 }
 
 // Workflows is the single billingManager component struct — BOTH the workflow
@@ -47,25 +46,23 @@ type workflows struct {
 	Billing      billingEngine
 	Intervention interventionEngine
 
-	BillingState    billingStateAccess
-	RevenueLedger   revenueLedgerAccess
-	Usage           usageAccess
-	Gateway         merchantGatewayAccess
-	OperatedRuntime operatedRuntimeAccess
-	Durable         durableExecutionAccess
+	BillingState  billingStateAccess
+	RevenueLedger revenueLedgerAccess
+	Usage         usageAccess
+	Gateway       merchantGatewayAccess
+	Durable       durableExecutionAccess
 }
 
 // newWorkflows builds the Workflows receiver from the injected wfDeps.
 func newWorkflows(d wfDeps) *workflows {
 	return &workflows{
-		Billing:         d.Billing,
-		Intervention:    d.Intervention,
-		BillingState:    d.BillingState,
-		RevenueLedger:   d.RevenueLedger,
-		Usage:           d.Usage,
-		Gateway:         d.Gateway,
-		OperatedRuntime: d.OperatedRuntime,
-		Durable:         d.Durable,
+		Billing:       d.Billing,
+		Intervention:  d.Intervention,
+		BillingState:  d.BillingState,
+		RevenueLedger: d.RevenueLedger,
+		Usage:         d.Usage,
+		Gateway:       d.Gateway,
+		Durable:       d.Durable,
 	}
 }
 
@@ -146,20 +143,6 @@ func gatewayOpts(ctx workflow.Context) workflow.Context {
 	})
 }
 
-// runtimeOpts — operatedRuntimeAccess.wirePaymentConfig (~60s; git-content-idempotent;
-// terminal Auth/ContractMisuse).
-func runtimeOpts(ctx workflow.Context) workflow.Context {
-	return workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 60 * time.Second,
-		RetryPolicy: &temporal.RetryPolicy{
-			NonRetryableErrorTypes: []string{
-				fwmgr.RAErrType(fwra.Auth),
-				fwmgr.RAErrType(fwra.ContractMisuse),
-			},
-		},
-	})
-}
-
 // durableOpts — durableExecutionAccess deliverSignal / registerSchedule (~30s; terminal
 // NotFound/ContractMisuse).
 func durableOpts(ctx workflow.Context) workflow.Context {
@@ -200,9 +183,14 @@ type onboardInput struct {
 // OnboardWorkflow drives UC5 onboard (billingManager.md §6.3):
 //  1. ReadBillingActivity → resolves deployedAppId → customerId + terms/payout.
 //  2. CreateConnectedAccountActivity (merchantGatewayAccess).
-//  3. WirePaymentConfigActivity (operatedRuntimeAccess → publishDesiredState).
-//  4. BindGatewayLiveActivity (head-state; Conflict loop).
-//  5. RegisterScheduleActivity (the per-customer closeBillingCycle:<customerId> Schedule).
+//  3. BindGatewayLiveActivity (head-state; Conflict loop).
+//  4. RegisterScheduleActivity (the per-customer closeBillingCycle:<customerId> Schedule).
+//
+// (Runtime payment-config wiring is NOT a billing step: publishing desired state into
+// the operated runtime is OperationsManager's publishDesiredState concern — the
+// declared architecture gives billing no operatedRuntimeAccess edge; per operational
+// concept #2 billing reaches operations only via the queued applyDelinquencyPolicy
+// signal.)
 func (wf *workflows) OnboardWorkflow(ctx workflow.Context, in onboardInput) (BillingRef, error) {
 	logger := workflow.GetLogger(ctx)
 
@@ -225,11 +213,6 @@ func (wf *workflows) OnboardWorkflow(ctx workflow.Context, in onboardInput) (Bil
 	binding, gerr := wf.createConnectedAccount(ctx, customerID)
 	if gerr != nil {
 		return BillingRef{}, gerr
-	}
-
-	// Wire the gateway binding into the deployed app's runtime (git commit).
-	if werr := wf.wirePaymentConfig(ctx, in.DeployedAppID, binding); werr != nil {
-		return BillingRef{}, werr
 	}
 
 	// Record the binding (head-state; Conflict loop).
@@ -688,13 +671,6 @@ func (wf *workflows) chargeCustomer(ctx workflow.Context, customerID customerID,
 	c := gatewayOpts(ctx)
 	return workflow.ExecuteActivity(c, wf.ChargeCustomerActivity, gatewayMoveArgs{
 		CustomerID: customerID, CycleID: cycleID, Amount: amount,
-	}).Get(ctx, nil)
-}
-
-func (wf *workflows) wirePaymentConfig(ctx workflow.Context, deployedAppID deployedAppID, binding gatewayBindingSeam) error {
-	c := runtimeOpts(ctx)
-	return workflow.ExecuteActivity(c, wf.WirePaymentConfigActivity, wirePaymentConfigArgs{
-		DeployedAppID: deployedAppID, Binding: binding,
 	}).Get(ctx, nil)
 }
 
