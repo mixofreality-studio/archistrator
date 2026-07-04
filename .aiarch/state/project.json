@@ -1431,453 +1431,198 @@
         "items": [
           {
             "term": "Customer",
-            "definition": "The platform's counterparty and the party aiarch bills. Owns one or more projects; pays aiarch, usage-based, for hosting of operated systems (DEPLOYED — OPERATED scenario only); construction runs on the user's own Claude Code account and GitHub Actions — aiarch does not charge for construction or LLM work. The user owns their code and is merchant of record for their own app — aiarch never collects or shares in the user's end-customer revenue. May be a solo founder, an internal product/eng lead, or a consultancy.",
+            "definition": "The party that owns one or more projects and pays aiarch for hosting when aiarch operates the delivered system; construction itself runs on the customer's own accounts at no charge from aiarch.",
             "category": "Who"
           },
           {
             "term": "Architect User",
-            "definition": "The customer-side person who drives a project through The Method. The Architect User is the architect-of-record (decision-maker and requirements source) but typically not an engineer; they may be a non-technical founder, internal product lead, or hobbyist. The platform's AI Worker plays the role of architectural expert / Method sidekick — drafting, guiding, validating — but the Architect User commits every gate.",
+            "definition": "The customer-side person who drives a project through The Method as architect-of-record — typically not an engineer — approving every gated decision the platform's Workers draft.",
             "category": "Who"
           },
           {
             "term": "Operator",
-            "definition": "A mixofreality staff member with authority to intervene in a running project or operating system.",
+            "definition": "A platform staff member with authority to intervene in a running project or operated system.",
             "category": "Who"
           },
           {
             "term": "Worker",
-            "definition": "Any entity that produces work products on behalf of a project. The default is an AI agent. A Worker may also be a human contractor sourced through aiarch's contractor marketplace. Multiple Worker classes may coexist on one project (planner Worker, coder Worker, reviewer Worker), and AI and human Workers may be mixed.",
+            "definition": "Any entity — an AI agent by default, or a human contractor — that produces work products on behalf of a project.",
             "category": "Who"
           },
           {
             "term": "End User",
-            "definition": "A person who uses a customer's deployed application. Pays the customer (the customer is merchant of record for their own app); aiarch never sees or touches End-User payments. From aiarch's perspective an End User is invisible — they interact only with the customer's deployed system, not with aiarch.",
+            "definition": "A person who uses the customer's deployed application; they pay the customer, never aiarch, and never interact with the platform.",
             "category": "Who"
           },
           {
-            "term": "Operated System",
-            "definition": "The software the platform built and is now operating on the customer's behalf (DEPLOYED — OPERATED scenario only). A runtime subject: it emits telemetry and consumes hosting capacity, which aiarch meters and bills the customer for.",
-            "category": "Who"
-          },
-          {
-            "term": "Plan a Project",
-            "definition": "Produce the validated artifacts that constitute system design and project design for a customer's intended system, including options for management decision-making.",
+            "term": "Project",
+            "definition": "A customer's undertaking to design, build, and optionally operate one software system, progressing through the system-design, project-design, and construction phases.",
             "category": "What"
-          },
-          {
-            "term": "Execute a Project",
-            "definition": "Drive the construction phase to completion: dispatch work, supervise progress, replan on variance.",
-            "category": "What"
-          },
-          {
-            "term": "Operate a Delivered System",
-            "definition": "Host, run, scale, and observe the system the project produced (DEPLOYED — OPERATED scenario only).",
-            "category": "What"
-          },
-          {
-            "term": "Bill the User for Usage",
-            "definition": "Meter the hosting/compute a customer consumed over a billing period (DEPLOYED — OPERATED only), price it per the current ServicePricing, and charge the customer's stored instrument for aiarch's own service invoice. One-directional (aiarch charges the user; there is no payout). Construction LLM work is never metered by aiarch — the user's own Claude Code account pays for that.",
-            "category": "What"
-          },
-          {
-            "term": "Intervene",
-            "definition": "Pause, replay, override, or take over an in-flight project or operated system.",
-            "category": "What"
-          },
-          {
-            "term": "Method Step Authoring",
-            "definition": "Capture or refine a single Method artifact (mission, glossary, volatilities, etc.) with the architect user in the loop.",
-            "category": "How-activity"
-          },
-          {
-            "term": "Project Estimation",
-            "definition": "Produce duration, build cost, and risk for one project option, given an activity network and a worker mix. Does not include operating-cost forecasts (see Operation Estimation).",
-            "category": "How-activity"
-          },
-          {
-            "term": "Operation Estimation",
-            "definition": "Produce the usage-to-operating-cost curve and payout-vs-shortfall forecast for one project option (at SDP-review time, given the customer's declared usage assumptions) or for one in-flight Operated System (at op-time, given observed telemetry plus a set of scale what-if points).",
-            "category": "How-activity"
-          },
-          {
-            "term": "Cost Projection (op-time)",
-            "definition": "A read-side activity: surface the current run-rate, the projected monthly cost, and a what-if curve for an Operated System so the Operator and Customer can see how cost scales with load. Powered by Operation Estimation over observed usage; no state mutation.",
-            "category": "How-activity"
-          },
-          {
-            "term": "Work Dispatch",
-            "definition": "Assign a discrete construction activity to a worker and supervise it to completion or failure.",
-            "category": "How-activity"
-          },
-          {
-            "term": "Capacity Allocation",
-            "definition": "Bind an operated system to runtime capacity (compute, storage, network) on the platform's managed infrastructure.",
-            "category": "How-activity"
-          },
-          {
-            "term": "Autoscaling",
-            "definition": "The platform's own decision to change an Operated System's desired capacity (scale up, scale down, idle-pause, resume-to-baseline) from observed telemetry, per the customer's AutoscalerPolicy. Same mechanism as Operator-driven scaling (publishes revised desired state); different decider. Fires inside the same reconcile tick that does observation, so there is no separate autoscaler schedule.",
-            "category": "How-activity"
-          },
-          {
-            "term": "Idle-Pause",
-            "definition": "The Autoscaling decision to publish replicas=0 for an Operated System after a threshold of inactivity (no inbound traffic for AutoscalerPolicy.idleThreshold). The app is held at zero replicas at no compute cost; routing remains live behind the platform's edge.",
-            "category": "How-activity"
-          },
-          {
-            "term": "Scale-from-Zero",
-            "definition": "An infrastructure-side capability (Envoy + a scale-from-zero controller such as KEDA HTTP scaler or Knative) that intercepts the first inbound request to an idle-paused app, holds the request, raises replicas to baseline, and forwards. The next reconcile tick observes the new actual state. Not a platform-side activity; an Operated Runtime infrastructure property exposed through OperatedRuntimeAccess.",
-            "category": "How-activity"
-          },
-          {
-            "term": "Metering",
-            "definition": "Convert observed operation events into a billable quantity: hosting/compute consumption attributed to the customer for their service invoice (DEPLOYED — OPERATED only). Construction-token consumption is not metered by aiarch — that is the user's own Claude Code account.",
-            "category": "How-activity"
-          },
-          {
-            "term": "Billing",
-            "definition": "The act of pricing a customer's hosting/compute usage for a billing period and charging the resulting amount to the customer's stored instrument (DEPLOYED — OPERATED only). One-directional (aiarch charges the user; there is no payout, no netting against any inbound revenue). No flat subscription; no charge for construction or LLM work.",
-            "category": "How-activity"
-          },
-          {
-            "term": "Intervention Decision",
-            "definition": "Given a stalled or off-track project, an unhealthy operated system, or a failed service invoice (declined charge), determine whether to retry, escalate to a human, or take over.",
-            "category": "How-activity"
-          },
-          {
-            "term": "Method Artifact",
-            "definition": "Umbrella term for one typed Method work product belonging to a project (Phase 1/2). Recorded in Project State; carries a review status (awaiting / committed / rejected / withdrawn). Lives in the projectstate Go package; Engines and Managers import it as legal downward edges.",
-            "category": "What"
-          },
-          {
-            "term": "System (model)",
-            "definition": "The typed representation of a system designed with the Method: its components (Client / Manager / Engine / ResourceAccess / Resource / Utility) and the relationships among them, over which the book's call-legality and cardinality rules are expressible. The SPA renders it client-side as a React-Flow C4 component graph.",
-            "category": "What"
-          },
-          {
-            "term": "Use Case (model)",
-            "definition": "The typed representation of a use case and its activity diagram: actors/roles, trigger, core-vs-non-core classification, and the activity-diagram nodes/edges the book permits (start, action, decision, fork/join, merge, swimlane, end). The SPA renders it client-side as a React-Flow activity/lane graph.",
-            "category": "What"
-          },
-          {
-            "term": "Record Project State",
-            "definition": "Apply an atomic business-verb mutation to the project's head-state aggregate (e.g. commit/reject/withdraw an artifact, advance the phase). The head-state carries the typed Method artifact models themselves for Phase 1/2 (the canonical definitions). As of 2026-06-09 project state is serialized as JSON files in the project's git repo (e.g. under .aiarch/state/), mutated in place; optimistic concurrency is git ref compare-and-swap (a push rejected on non-fast-forward → reload + retry the verb), and idempotency is an in-repo applied_mutation record.",
-            "category": "How-activity"
-          },
-          {
-            "term": "Read Project State",
-            "definition": "Read the project's current head-state aggregate from the project's git repo.",
-            "category": "How-activity"
-          },
-          {
-            "term": "Stage an Artifact",
-            "definition": "Deposit a Phase-3 construction output (source code, build artifact, chart, manifest) into the project's git repo (commit-addressable). As of 2026-06-15 this is projectStateAccess's 2nd contract (Phase-3 construction-output staging), not a separate artifactAccess seam.",
-            "category": "How-activity"
-          },
-          {
-            "term": "Retrieve an Artifact",
-            "definition": "Fetch a previously staged construction output by its content address (commit SHA) from the project's git repo (projectStateAccess contract 2; 2026-06-15 — was artifactAccess).",
-            "category": "How-activity"
-          },
-          {
-            "term": "Render an Artifact",
-            "definition": "Produce a human-facing rendering of a typed Method artifact model. As of 2026-06-01 this is a client concern: the server returns the typed model and the React SPA renders it (React-Flow C4/activity graph, SVG volatility scatter, react-markdown prose). The rendering is a derivation, never the source of truth.",
-            "category": "How-activity"
-          },
-          {
-            "term": "Manage Projects",
-            "definition": "Create, list, and read a project as a catalog entry (the projects landing grid + the per-project home base). The new thin projectManager (CreateProject / ListProjects / GetProject) owns this; CreateProject is the explicit project birth. A non-core use case encapsulating the ProjectCatalog volatility.",
-            "category": "How-activity"
-          },
-          {
-            "term": "Submit a Construction Pipeline",
-            "definition": "submitConstructionPipeline(spec) on constructionPipelineAccess. As of 2026-06-14 the dispatched job is an agentic-coding job — a GitHub Action running claude-code-action that checks out the branch, has the agent do the task on the user's Claude Code token, runs the repo validation step, and commits / opens a PR.",
-            "category": "How-activity"
-          },
-          {
-            "term": "Observe Construction Pipeline Progress",
-            "definition": "Read status, step logs, run result, and (for an agentic job) the committed result / opened PR of a submitted job.",
-            "category": "How-activity"
-          },
-          {
-            "term": "Deploy an Operated System",
-            "definition": "Apply the desired state of an operated system to managed runtime capacity.",
-            "category": "How-activity"
-          },
-          {
-            "term": "Withdraw an Operated System",
-            "definition": "Release the runtime capacity bound to an operated system.",
-            "category": "How-activity"
-          },
-          {
-            "term": "Read Compute Attribution",
-            "definition": "Read per-customer compute/hosting cost from the operated runtime's telemetry / FinOps surface (for the hosting portion of the user's bill).",
-            "category": "How-activity"
-          },
-          {
-            "term": "Record Usage Event",
-            "definition": "Append a billable hosting/compute usage event (operation) to the usage log. As of 2026-06-14 token metering dropped — the user's Claude Code account pays for LLM work, so there are no construction tokens for aiarch to meter.",
-            "category": "How-activity"
-          },
-          {
-            "term": "Read Usage Range",
-            "definition": "Read a customer's metered hosting usage over a billing period.",
-            "category": "How-activity"
-          },
-          {
-            "term": "Charge User",
-            "definition": "Submit an authorized payment request against the customer's stored instrument for an aiarch service invoice (hosting/compute usage, DEPLOYED — OPERATED only). One-directional vendor charge; aiarch is merchant of record for its own invoices only. No flat subscription; construction is not billed by aiarch.",
-            "category": "How-activity"
-          },
-          {
-            "term": "Provision Source Control",
-            "definition": "Install/authorize the GitHub App on the user's GitHub org and provision the per-project repo. As of 2026-06-14 also: writeActionsSecret (store the user's CLAUDE_CODE_OAUTH_TOKEN as a repo Actions secret in the user's own repo — aiarch holds no LLM key) and commitAgenticWorkflowFile (commit the claude-code-action workflow .yml into the user's repo). The thin sourceControlAccess ResourceAccess owns these.",
-            "category": "How-activity"
-          },
-          {
-            "term": "Open / Update / Close a Work Item",
-            "definition": "openWorkItem(activity) → WorkItemRef / updateWorkItem(ref, {status, assignee, comment}) / closeWorkItem(ref) on the new workItemAccess ResourceAccess (encapsulates the WorkTracking volatility). Mirrors a Method activity to the customer's work-item tracker (GitHub Issue today → Jira/Linear later). Write-mostly v1 — the Method network is the source of truth; the work item is a one-directional mirror.",
-            "category": "How-activity"
-          },
-          {
-            "term": "Record Activity Work Item Opened",
-            "definition": "recordActivityWorkItemOpened(activityId, WorkItemRef) on projectStateAccess: records the opened work item's ref onto the activity head-state, paralleling the git/PR head-state verbs. This is where the activity's two composing external head-states (issue + PR) are joined — at the Manager/projectStateAccess level, NOT by an RA→RA call.",
-            "category": "How-activity"
-          },
-          {
-            "term": "Project Git Repo",
-            "definition": "The single per-project Git repo that holds everything aiarch persists: project state (the typed Phase-1/2 Method models serialized as JSON, e.g. under .aiarch/state/) and Phase-3 construction outputs (source, charts, manifests) in the same repo tree. As of 2026-06-15 fronted by projectStateAccess alone — one ResourceAccess with two contracts over the one Resource.",
-            "category": "Where"
           },
           {
             "term": "Project State",
-            "definition": "The head-state record of each project's current lifecycle state (phase + per-artifact review status) and the typed Method artifact models for Phase 1/2 (the canonical definitions), serialized as JSON in the Project Git Repo and mutated in place under git ref CAS.",
-            "category": "Where"
-          },
-          {
-            "term": "Construction Pipeline Runtime",
-            "definition": "The agentic-coding-job + pipeline-execution infrastructure used during drafting + construction. This is the user's own GitHub Actions running claude-code-action (per-job containers with resource classes, actions/cache + artifact passing; the agent does the task on the user's Claude Code token and commits / opens a PR); in the test profile, a local exec runner / stub.",
-            "category": "Where"
-          },
-          {
-            "term": "OperatedRuntime",
-            "definition": "The infrastructure that runs operated systems (DEPLOYED — OPERATED only): Kubernetes via Argo CD + Argo Rollouts, watching the manifests in the user's own GitHub repo and reconciling the aiarch hosting cluster. Receives deployments, reports health, surfaces per-customer compute/hosting attribution.",
-            "category": "Where"
-          },
-          {
-            "term": "Usage Log",
-            "definition": "The durable record of metered hosting/compute usage events (DEPLOYED — OPERATED only), used to compute the customer's service bill. Construction-token consumption is not recorded here — the user's own Claude Code account handles that.",
-            "category": "Where"
-          },
-          {
-            "term": "GitHub",
-            "definition": "The user's own external system. aiarch installs a GitHub App on the user's org to provision the per-project repo and run construction via GitHub Actions in the user's account. aiarch orchestrates via the GitHub API; the user owns the repos and CI minutes.",
-            "category": "Where"
-          },
-          {
-            "term": "Merchant Gateway",
-            "definition": "The external merchant-services system (Stripe) fronted by merchantGatewayAccess. Constructed surface: chargeCustomer (shortfall), payoutCustomer (net revenue), createConnectedAccount (onboarding), validateStoredInstrument. NOTE: the payout / connected-account half implements the pre-2026-06-09 merchant-of-record model and is dormant under the ratified charge-only ruling; retained as constructed reality pending the deferred billing/settlement re-plan.",
-            "category": "Where"
-          },
-          {
-            "term": "Work Item Tracker",
-            "definition": "The external project-management SaaS where Method activities are mirrored as work items. Instance: GitHub Issues today → Jira / Linear / Azure Boards. Fronted by workItemAccess (the WorkTracking volatility). Independent seam from GitHub (repos/CI) — a customer may run GitHub repos + Jira issues, or GitLab + Linear.",
-            "category": "Where"
-          },
-          {
-            "term": "Billing Period",
-            "definition": "A bounded time window over which a customer's metered hosting/compute consumption (DEPLOYED — OPERATED only) is accumulated for a single service invoice. Cadence is an aiarch operational parameter. No flat subscription line; no construction-token line — the user's own Claude Code account pays for all LLM work, and aiarch charges only for hosting.",
-            "category": ""
-          },
-          {
-            "term": "ServicePricing",
-            "definition": "How aiarch prices its own service to the user. 2026-06-14 instance: a hosting rate for operated systems (tier floors, free-tier subsidies — all Strategy parameters; no token unit price, no flat subscription). The ServicePricing volatility (axis 1); billingEngine pivots on it as a Strategy. Applies only in the DEPLOYED — OPERATED scenario.",
-            "category": ""
-          },
-          {
-            "term": "Service Invoice",
-            "definition": "The amount a customer owes aiarch for a billing period (hosting/compute usage, DEPLOYED — OPERATED only), charged to the customer's stored instrument via the Billing Gateway (Stripe as an ordinary vendor charge). No flat subscription; construction is not billed by aiarch. aiarch is merchant of record only for its own invoices.",
-            "category": ""
-          },
-          {
-            "term": "Billing Failure",
-            "definition": "A declined service-invoice charge. Retried per the billing schedule; on persistent decline it becomes an InterventionPolicy trigger (operator escalation; possible pause/withdraw of the operated system per intervention policy).",
-            "category": ""
-          },
-          {
-            "term": "Usage Assumption",
-            "definition": "The customer's declared expectation of end-user load on a deployed app (e.g., expected daily active users, requests per minute, average payload size, peak-to-trough ratio). Captured during project design as part of planning assumptions; used by Operation Estimation at SDP-review time to produce a usage-to-operating-cost curve so the customer can forecast their hosting bill.",
-            "category": ""
-          },
-          {
-            "term": "Usage-to-Operating-Cost Curve",
-            "definition": "A function plotting projected hosting cost against load level (e.g., monthly compute cost at 1×, 2×, 5×, 10× the declared or observed usage). Shown at SDP-review time per project option so the customer sees how their hosting bill evolves with success; also shown at op-time per Operated System against observed usage for live cost visibility.",
-            "category": ""
-          },
-          {
-            "term": "Agentic-Coding Job",
-            "definition": "The unit of LLM-needing work in aiarch as of 2026-06-14: a GitHub Action run that executes claude-code-action against the user's project repo. Dispatched by a Manager via constructionPipelineAccess.submitConstructionPipeline (workflow_dispatch with the activity's prompt / branch / contract); the agent does the task on the user's Claude Code token, runs the repo validation step, and commits / opens a PR. Replaces the synchronous workerAccess call across Phase-1/2 drafting AND Phase-3 construction. Async — minutes per run.",
-            "category": "How-activity"
-          },
-          {
-            "term": "claude-code-action",
-            "definition": "The GitHub Action that runs the coding agent inside the user's CI. The current instance of the agentic-coding-job runtime (WorkflowRuntime face-1). Future instances: GitHub Copilot coding agent, GitLab CI — same dispatch/observe shape, different workflow body + credential mechanics.",
-            "category": "How-activity"
-          },
-          {
-            "term": "Claude Code Token (CLAUDE_CODE_OAUTH_TOKEN)",
-            "definition": "The user's own Claude Code account credential, stored as a repo Actions secret in the user's own repo (written by sourceControlAccess.writeActionsSecret). It pays for all LLM work done by the agentic job (Goal G2 — zero LLM spend by aiarch; the user does not double-pay). The token never touches aiarch infra; the Action runs on the user's CI minutes.",
-            "category": "Who"
-          },
-          {
-            "term": "Work Item",
-            "definition": "The mirror of a Method activity in the customer's tracker (a GitHub Issue today). Opened when the Phase-2 activity network seals (openWorkItem), updated during construction (updateWorkItem), closed on merge (closeWorkItem). Write-mostly v1 — the Method network (git-JSON) is the source of truth; the work item is a one-directional projection. An activity carries two composing external head-states: its work item (issue) and its PR (deliverable).",
+            "definition": "The durable record of a project's current phase, its Method artifacts, and each artifact's review status.",
             "category": "What"
           },
           {
-            "term": "Work Item Ref",
-            "definition": "The opaque handle to a work item returned by openWorkItem. Recorded onto the activity head-state via projectStateAccess.recordActivityWorkItemOpened; projected to the SPA alongside the gitRows. Activity-id → ref is name-as-identity (server-resolved; no LLM-minted ids).",
+            "term": "Method Artifact",
+            "definition": "A single typed Method work product belonging to a project — mission, glossary, architecture, plan, and so on — carrying a review status of awaiting, committed, rejected, or withdrawn.",
+            "category": "What"
+          },
+          {
+            "term": "Use Case",
+            "definition": "A description of one business activity the customer's system must support, with its actors, trigger, and flow of steps.",
+            "category": "What"
+          },
+          {
+            "term": "Core Use Case",
+            "definition": "A use case that captures the essence of the customer's business rather than a permutation of another; the small set the architecture must be validated against.",
+            "category": "What"
+          },
+          {
+            "term": "Estimate",
+            "definition": "The computed duration, cost, and risk of one project option.",
+            "category": "What"
+          },
+          {
+            "term": "Project Option",
+            "definition": "One candidate way to schedule and staff a project — such as normal, compressed, or subcritical — presented with its estimate for the customer's decision.",
+            "category": "What"
+          },
+          {
+            "term": "Operated System",
+            "definition": "The software the platform built and now runs on the customer's behalf, consuming hosting capacity that aiarch meters and bills.",
+            "category": "What"
+          },
+          {
+            "term": "Work Item",
+            "definition": "The mirror of a single project activity in the customer's work-item tracker, opened when planning completes, updated during construction, and closed when the work is accepted.",
             "category": "What"
           },
           {
             "term": "Deployment Scenario",
-            "definition": "A named bundle of instance selections across the durable-execution, client/transport, git-target, agentic-coding-CI, work-item-tracker, and service-pricing seams, plus an operation on/off flag, chosen at process start. Configuration, not a volatility. Two production scenarios + a test profile as of 2026-06-14: DEPLOYED — NOT OPERATED, DEPLOYED — OPERATED, and the internal Test Profile.",
-            "category": "How-activity"
-          },
-          {
-            "term": "DEPLOYED — NOT OPERATED",
-            "definition": "Hosted in aiarch's cloud through construction (and change-requests), but aiarch does not host the result: Temporal for durable execution, web UI behind cluster ingress + a remote MCP endpoint, the user's own GitHub (via a GitHub App) as the git target, GitHub Actions running claude-code-action for the agentic-coding CI, the user's GitHub Issues for work tracking. No aiarch billing in this scenario — construction runs on the user's own Claude Code token and CI minutes, and there is no operated system to charge for. The operations Manager / operated runtime / hosting billing are simply not instantiated.",
-            "category": "How-activity"
-          },
-          {
-            "term": "DEPLOYED — OPERATED",
-            "definition": "As DEPLOYED — NOT OPERATED, plus aiarch hosts the result: ArgoCD/Rollouts sync the user's GitHub manifests to aiarch's hosting cluster. Billed usage-based for hosting/compute only — no flat subscription, no construction charges. The full revenue path.",
-            "category": "How-activity"
-          },
-          {
-            "term": "Test Profile",
-            "definition": "The in-process, ephemeral mirror used for fast, no-cluster tests: the Embedded Durable Executor, an ephemeral throwaway git repo, a local exec-runner / stubbed agentic job, and stubbed external SaaS (github, billingGateway, workItemTracker, workerProvider via the test-double workerAccess). Not a customer scenario.",
-            "category": "How-activity"
-          },
-          {
-            "term": "Embedded Durable Executor",
-            "definition": "The single-process instance of the durable-execution runtime behind durableExecutionAccess, used in the test profile (vs Temporal in the production scenarios). Satisfies the same frozen verb set (execute / signal / query / timer / schedule / spawn) and the same replay/determinism semantics.",
-            "category": "How-activity"
-          },
-          {
-            "term": "GitHub App",
-            "definition": "The mechanism by which aiarch operates on the user's own GitHub org: installed/authorized on the user's account, it provisions the per-project repo, writes the CLAUDE_CODE_OAUTH_TOKEN Actions secret + commits the claude-code-action workflow file (2026-06-14), and dispatches/observes the agentic-coding runs (GitHub Actions). aiarch never owns the repos or CI minutes; the user does. Fronted by the thin sourceControlAccess ResourceAccess.",
-            "category": "How-activity"
-          },
-          {
-            "term": "GitTarget",
-            "definition": "The git provider that holds everything aiarch persists (project state JSON + code + manifests), selected per scenario: the user's own GitHub (cloud) vs. the user's local on-disk repo (LOCAL). The GitTarget volatility (renamed from ArtifactTarget 2026-06-09; Gitea removed). Encapsulated by projectStateAccess + artifactAccess + operatedRuntimeAccess swapping which target they front.",
-            "category": "Where"
-          },
-          {
-            "term": "MCP Tool Surface",
-            "definition": "The projection of every human-accessible Manager method as an MCP tool, so an AI agent drives the platform as a human would. Generated from the same per-Manager OpenAPI specs as the REST clients (a Client-generation rule, not a volatility). Used by both MCP instances (stdio in LOCAL, HTTP in the cloud scenarios).",
-            "category": "How-activity"
-          },
-          {
-            "term": "Portability Boundary",
-            "definition": "The rule that durableExecutionAccess's verb set is frozen and exposes no runtime-specific primitive (GetVersion, reset, search attributes), so the same Manager code runs unchanged on Temporal (cloud) or the Embedded Durable Executor (LOCAL). What keeps deployment scenarios configuration rather than a volatility.",
-            "category": "How-activity"
-          },
-          {
-            "term": "SystemDesignPhaseWorkflow",
-            "definition": "The ordered sequence of Phase 1 (system design) Method steps a project is driven through — business alignment, requirements analysis, volatility identification, core use cases, architecture, operational concepts, standard check — including each step's gating rules and artifact schemas. Owned as workflow by SystemDesignManager.",
-            "category": "How-activity"
-          },
-          {
-            "term": "ProjectDesignPhaseWorkflow",
-            "definition": "The ordered sequence of Phase 2 (project design) Method steps — planning assumptions, activity list, network, staffing options (normal / decompressed / subcritical / compressed), risk modeling, SDP review — including each step's gating rules and artifact schemas. Owned as workflow by ProjectDesignManager.",
-            "category": "How-activity"
-          },
-          {
-            "term": "ConstructionPhaseWorkflow",
-            "definition": "The ordered sequence of Phase 3 (construction) Method steps — hand-off, per-component contract design, construction dispatch, tracking, scope-change handling — including gating rules and review choreography. Owned as workflow by ConstructionManager.",
-            "category": "How-activity"
-          },
-          {
-            "term": "ProjectCatalog",
-            "definition": "The platform's registry of project entities: how a project comes into being, who owns it, how an owner lists and discovers their projects, and the lifecycle states a project moves through across the Method phases. The registry and ownership of the project entity itself, as distinct from the step sequence inside any phase.",
-            "category": "Where"
-          },
-          {
-            "term": "ConstructionEstimationModel",
-            "definition": "The model by which the platform computes duration, build cost, and risk for a project option from its activity network and worker throughput telemetry. The computational core behind Project Estimation.",
-            "category": "How-activity"
-          },
-          {
-            "term": "OperationEstimationModel",
-            "definition": "The model by which the platform forecasts operating cost as a function of usage: at design time the Usage-to-Operating-Cost Curve and payout-vs-shortfall forecast shown at SDP review; at op time the current run-rate, projected monthly cost, and what-if curve over observed usage. The computational core behind Operation Estimation and Cost Projection (op-time).",
-            "category": "How-activity"
-          },
-          {
-            "term": "CustomerAppInfrastructure",
-            "definition": "The permitted technology set for a customer's deployed application (launch set: Go, Temporal, Postgres, Git, S3). Every customer app is constrained to this set at any given moment; the contents of the set broaden as the platform matures.",
+            "definition": "The customer's choice of how far the platform's responsibility extends — building and delivering the system only, or also hosting and operating it.",
             "category": "What"
           },
           {
-            "term": "InterventionPolicy",
-            "definition": "The policy governing Intervention Decisions: what counts as stuck or unhealthy, who is notified, when a human operator is paged, and what authority the operator has to pause, replay, override, or take over. Trigger surface spans construction variance, unhealthy operated state, and billing failures.",
-            "category": "How-activity"
-          },
-          {
-            "term": "AutoscalerPolicy",
-            "definition": "The policy governing Autoscaling decisions: when and how the platform changes an Operated System's desired capacity (scale up, scale down, idle-pause, resume-to-baseline) from observed telemetry, including thresholds, SLA-class tiers, and operator overrides.",
-            "category": "How-activity"
-          },
-          {
-            "term": "ReviewPolicy",
-            "definition": "The policy determining who must review a produced change during Phase-3 construction, from what perspective, and against which reference artifact. Current rule: a change is reviewed by the owners of each inbound/outbound neighbour component plus the change's own component owner.",
-            "category": "How-activity"
-          },
-          {
-            "term": "ArtifactRendering",
-            "definition": "The production of human-facing views — C4 diagrams, activity diagrams, scatter plots, markdown prose, DSL — from a project's canonical typed Method Artifact models. Performed render-on-read by the SPA; the typed model is the source of truth and never changes when a rendering does.",
-            "category": "How-activity"
-          },
-          {
-            "term": "CustomerInteractionChannel",
-            "definition": "The kind of entry path through which a customer reaches the platform: a browser against the JSON HTTP API, or a remote MCP client over HTTP. Each channel is a distinct Client component projecting the same Manager surface.",
-            "category": "Who"
-          },
-          {
-            "term": "Transport",
-            "definition": "The wire-level protocol carrying a Customer Interaction Channel's traffic — JSON over HTTP/1.1 and MCP over HTTP today; streaming variants (SSE, WebSockets, streamable HTTP) tomorrow. Owned solely by the Client component serving the channel; never visible to Managers.",
-            "category": "How-activity"
-          },
-          {
-            "term": "WorkflowRuntime",
-            "definition": "The execution infrastructure behind the platform's long-running work, in two faces: the agentic-coding-job runtime that runs dispatched construction jobs (the user's GitHub Actions running claude-code-action today, fronted by constructionPipelineAccess), and the durable executor that sequences Manager workflow code (Temporal in production, the Embedded Durable Executor in the test profile, fronted by durableExecutionAccess).",
-            "category": "Where"
-          },
-          {
-            "term": "HandOffPolicy",
-            "definition": "A customer's chosen split of human versus automated work along the Method's architect / senior / junior hand-off chain — from every line reviewed by a senior human, to fully automated construction with the customer acting only as the architect.",
-            "category": "How-activity"
-          },
-          {
-            "term": "WorkTracking",
-            "definition": "The mirroring of Method activities into a customer's work-item system via stable verbs (openWorkItem / updateWorkItem / closeWorkItem): each activity is opened as a Work Item when the network seals, status-mirrored during construction, and closed on merge. The tracker behind the verbs (GitHub Issues today; Jira / Linear / Azure Boards later) varies per customer.",
-            "category": "How-activity"
-          },
-          {
-            "term": "Settlement Cycle",
-            "definition": "A bounded time window over which a customer's inbound revenue and metered compute usage are netted into one signed settlement (closeSettlementCycle). The settlement-side generalization of a Billing Period.",
+            "term": "Usage",
+            "definition": "The hosting and compute consumption an operated system accrues, metered as the sole basis of the customer's bill.",
             "category": "What"
           },
           {
-            "term": "Revenue Ledger",
-            "definition": "The append-only durable record of inbound revenue events and reversals per customer, deduplicated on the gateway event id; read by cycle range at settlement close.",
-            "category": "Where"
+            "term": "Usage Assumption",
+            "definition": "The customer's declared expectation of end-user load on the delivered application, used during project design to forecast operating cost.",
+            "category": "What"
           },
           {
-            "term": "Worker Substrate",
-            "definition": "The LLM provider / agent runtime that executes Worker turns (the Anthropic Messages API today). The volatility workerAccess encapsulates: which model vendor, wire protocol, and streaming shape produce typed work products.",
+            "term": "Billing Period",
+            "definition": "The bounded time window over which a customer's metered usage is accumulated into a single service invoice.",
+            "category": "What"
+          },
+          {
+            "term": "Service Invoice",
+            "definition": "The amount a customer owes aiarch for one billing period's metered hosting usage, charged to their stored payment instrument.",
+            "category": "What"
+          },
+          {
+            "term": "System Design",
+            "definition": "The first project phase, in which the platform leads the Architect User from business vision to a validated, volatility-based architecture.",
             "category": "How"
+          },
+          {
+            "term": "Project Design",
+            "definition": "The second project phase, in which the platform turns the architecture into staffing-and-schedule options with estimated duration, cost, and risk.",
+            "category": "How"
+          },
+          {
+            "term": "Construction",
+            "definition": "The third project phase, in which Workers build, review, and integrate the system component by component against the chosen project option.",
+            "category": "How"
+          },
+          {
+            "term": "Operation",
+            "definition": "The ongoing phase after delivery, available by scenario choice, in which the platform hosts, scales, observes, and bills for the customer's system.",
+            "category": "How"
+          },
+          {
+            "term": "Method Step Authoring",
+            "definition": "Capturing or refining a single Method artifact together with the Architect User, who approves or rejects it at a review gate.",
+            "category": "How"
+          },
+          {
+            "term": "Operation Estimation",
+            "definition": "Forecasting what a system will cost to operate as a function of usage — at decision time from declared assumptions, and while running from observed load.",
+            "category": "How"
+          },
+          {
+            "term": "SDP Review",
+            "definition": "The decision point closing project design, where the customer chooses among the presented project options.",
+            "category": "How"
+          },
+          {
+            "term": "Work Dispatch",
+            "definition": "Assigning a discrete construction activity to a Worker and supervising it to completion or failure.",
+            "category": "How"
+          },
+          {
+            "term": "Review",
+            "definition": "Evaluating a produced change against the project's design before it is accepted into the project.",
+            "category": "How"
+          },
+          {
+            "term": "Project Tracking",
+            "definition": "Measuring construction progress against the plan at a regular cadence and triggering replanning when progress deviates significantly.",
+            "category": "How"
+          },
+          {
+            "term": "Deployment",
+            "definition": "Placing a built system onto managed runtime capacity, or releasing that capacity when the system is withdrawn.",
+            "category": "How"
+          },
+          {
+            "term": "Autoscaling",
+            "definition": "The platform's own decision to raise, lower, pause, or resume an operated system's capacity in response to observed demand, within the customer's chosen policy.",
+            "category": "How"
+          },
+          {
+            "term": "Idle-Pause",
+            "definition": "The autoscaling decision to hold an inactive operated system at zero capacity — and zero compute cost — while keeping it reachable for the next request.",
+            "category": "How"
+          },
+          {
+            "term": "Metering",
+            "definition": "Converting an operated system's observed consumption into billable usage attributed to its customer.",
+            "category": "How"
+          },
+          {
+            "term": "Billing",
+            "definition": "Pricing a customer's metered usage for a billing period and charging the resulting service invoice to their stored payment instrument.",
+            "category": "How"
+          },
+          {
+            "term": "Intervention",
+            "definition": "Pausing, replaying, overriding, or taking over an in-flight project or operated system when it is stuck, unhealthy, or failing to pay.",
+            "category": "How"
+          },
+          {
+            "term": "Project Repository",
+            "definition": "The single per-project store holding everything the platform persists for that project — its state, its Method artifacts, and its constructed outputs.",
+            "category": "Where"
+          },
+          {
+            "term": "Source Control System",
+            "definition": "The customer's own code-hosting system, where the project repository lives and where construction work runs on the customer's account and credentials.",
+            "category": "Where"
+          },
+          {
+            "term": "Work Item Tracker",
+            "definition": "The customer's external project-management system in which the project's activities are mirrored as work items.",
+            "category": "Where"
+          },
+          {
+            "term": "Payment Gateway",
+            "definition": "The external payment system through which aiarch charges customers' stored instruments for its service invoices.",
+            "category": "Where"
           }
         ]
       }
