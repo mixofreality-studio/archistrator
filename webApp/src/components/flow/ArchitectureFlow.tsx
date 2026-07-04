@@ -18,6 +18,9 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Edge, Node } from '@xyflow/react';
+import Box from '@mui/material/Box';
+import Autocomplete from '@mui/material/Autocomplete';
+import TextField from '@mui/material/TextField';
 import { toC4View, type C4Component, type C4Relationship } from '../../api/adapters';
 import type { ArtifactModelEnvelope } from '../../api/types';
 import { useTokens } from '../../theme/ThemeContext';
@@ -25,6 +28,7 @@ import type { Tokens } from '../../theme/themes';
 import {
   type Layer,
   LAYER_ORDER,
+  LAYER_LABEL,
   layerColors,
   computeLayout,
   decorativeNodes,
@@ -32,7 +36,7 @@ import {
   flowEdge,
   type Layout,
 } from './flowLayout';
-import { LayerLegend, FlowCanvas, FlowEmpty } from './flowShared';
+import { LayerLegend, FlowCanvas, FlowEmpty, FocusNodes } from './flowShared';
 import { relationshipAnchor, useComments, type Anchor } from '../comments/CommentContext';
 
 interface Model {
@@ -51,7 +55,14 @@ function buildModel(envelope: ArtifactModelEnvelope | undefined, t: Tokens): Mod
   const colors = layerColors(t);
   const present = new Set(view.components.map((c) => c.layer));
   const usedLayers = LAYER_ORDER.filter((l) => present.has(l));
-  return { components: view.components, relationships: view.relationships, layout, layerOf, colors, usedLayers };
+  return {
+    components: view.components,
+    relationships: view.relationships,
+    layout,
+    layerOf,
+    colors,
+    usedLayers,
+  };
 }
 
 /** The hovered node's closed neighbourhood: itself + direct callers + direct callees. */
@@ -65,7 +76,10 @@ function neighbourhood(hoveredId: string, rels: C4Relationship[]): Set<string> {
 }
 
 function edgeId(r: C4Relationship, i: number): string {
-  const slug = r.label.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+  const slug = r.label
+    .toLowerCase()
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9-]/g, '');
   return slug ? `${r.from}-${r.to}-${slug}` : `${r.from}-${r.to}-${String(i)}`;
 }
 
@@ -82,7 +96,11 @@ function edgeAnchor(r: C4Relationship, nameOf: Map<string, string>): Anchor {
   };
 }
 
-function derive(model: Model, hoveredId: string | null, t: Tokens): { nodes: Node[]; edges: Edge[] } {
+function derive(
+  model: Model,
+  hoveredId: string | null,
+  t: Tokens
+): { nodes: Node[]; edges: Edge[] } {
   const { components, relationships, layout, layerOf, colors } = model;
   const near = hoveredId !== null ? neighbourhood(hoveredId, relationships) : null;
   const nameOf = new Map(components.map((c) => [c.id, c.name]));
@@ -103,7 +121,8 @@ function derive(model: Model, hoveredId: string | null, t: Tokens): { nodes: Nod
       const incident = hoveredId !== null && (r.from === hoveredId || r.to === hoveredId);
       const dashed = r.mode !== 'sync'; // queued / pub-sub calls render dashed
       const comment = edgeAnchor(r, nameOf);
-      if (hoveredId === null) return flowEdge(edgeId(r, i), r.from, r.to, r.label, t, { dashed, comment });
+      if (hoveredId === null)
+        return flowEdge(edgeId(r, i), r.from, r.to, r.label, t, { dashed, comment });
       // Hover: only the hovered node's own edges stay; the rest fade out.
       return flowEdge(edgeId(r, i), r.from, r.to, r.label, t, {
         hidden: !incident,
@@ -127,7 +146,23 @@ export function ArchitectureFlow({
   const { setAnchor } = useComments();
   const model = useMemo(() => buildModel(envelope, t), [envelope, t]);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
-  const { nodes, edges } = useMemo(() => derive(model, hoveredId, t), [model, hoveredId, t]);
+  // A component pinned via the finder / a click (keyboard + touch reach the
+  // neighbourhood highlight this way, not only mouse hover). Hover wins while active.
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const activeId = hoveredId ?? selectedId;
+  const { nodes, edges } = useMemo(() => derive(model, activeId, t), [model, activeId, t]);
+
+  // Finder options: all components, grouped by Method layer, alpha within layer.
+  const finderOptions = useMemo(
+    () =>
+      [...model.components].sort(
+        (a, b) =>
+          LAYER_ORDER.indexOf(a.layer) - LAYER_ORDER.indexOf(b.layer) ||
+          a.name.localeCompare(b.name)
+      ),
+    [model.components]
+  );
+  const selectedOption = finderOptions.find((c) => c.id === selectedId) ?? null;
 
   // Hover focus, debounced: moving the cursor between two nodes briefly crosses
   // empty canvas (firing mouse-leave then mouse-enter). Clearing immediately would
@@ -159,19 +194,46 @@ export function ArchitectureFlow({
   }
 
   return (
-    <FlowCanvas
-      edges={edges}
-      height={height}
-      nodes={nodes}
-      t={t}
-      onEdgeClick={(_e, edge) => {
-        const comment = (edge.data as { comment?: Anchor } | undefined)?.comment;
-        if (comment !== undefined) setAnchor(comment);
-      }}
-      onNodeMouseEnter={(_e, n) => { enterNode(n); }}
-      onNodeMouseLeave={() => { leaveNode(); }}
-    >
-      <LayerLegend colors={model.colors} t={t} usedLayers={model.usedLayers} />
-    </FlowCanvas>
+    <Box>
+      <Autocomplete
+        blurOnSelect
+        clearOnEscape
+        getOptionLabel={(c) => c.name}
+        groupBy={(c) => LAYER_LABEL[c.layer]}
+        isOptionEqualToValue={(a, b) => a.id === b.id}
+        options={finderOptions}
+        renderInput={(params) => (
+          <TextField {...params} placeholder="Find a component…" sx={{ fontFamily: t.mono }} />
+        )}
+        size="small"
+        sx={{ mb: 1.5, maxWidth: 360 }}
+        value={selectedOption}
+        onChange={(_e, c) => {
+          setSelectedId(c?.id ?? null);
+        }}
+      />
+      <FlowCanvas
+        edges={edges}
+        height={height}
+        nodes={nodes}
+        t={t}
+        onEdgeClick={(_e, edge) => {
+          const comment = (edge.data as { comment?: Anchor } | undefined)?.comment;
+          if (comment !== undefined) setAnchor(comment);
+        }}
+        onNodeClick={(_e, n) => {
+          if (n.type === 'c4') setSelectedId((s) => (s === n.id ? null : n.id));
+        }}
+        onNodeMouseEnter={(_e, n) => {
+          enterNode(n);
+        }}
+        onNodeMouseLeave={() => {
+          leaveNode();
+        }}
+      >
+        <LayerLegend colors={model.colors} t={t} usedLayers={model.usedLayers} />
+        {selectedId !== null && <FocusNodes dep={selectedId} nodeIds={[selectedId]} />}
+      </FlowCanvas>
+    </Box>
   );
 }
