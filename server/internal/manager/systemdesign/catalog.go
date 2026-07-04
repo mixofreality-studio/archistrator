@@ -71,24 +71,24 @@ func (m *systemDesignManager) CreateProject(rc fwm.Context, owner OwnerScope, na
 			Title:    name,
 		})
 		if err != nil {
-			return "", mapRAError(err)
+			return "", mapRAError(err, "sourceControlAccess.AdoptProjectRepo")
 		}
 		cred, err := m.rail.GetInstallationToken(fwra.Context{Context: ctx}, repo)
 		if err != nil {
-			return "", mapRAError(err)
+			return "", mapRAError(err, "sourceControlAccess.GetInstallationToken")
 		}
 		files, err := sourcecontrol.ManagedScaffoldFiles(repo)
 		if err != nil {
-			return "", mapRAError(err)
+			return "", mapRAError(err, "sourceControlAccess.ManagedScaffoldFiles")
 		}
 		if _, err := m.rail.CommitManagedFiles(fwra.Context{Context: ctx, IdempotencyKey: key}, repo, files, cred); err != nil {
-			return "", mapRAError(err)
+			return "", mapRAError(err, "sourceControlAccess.CommitManagedFiles")
 		}
 	}
 
 	if _, err := m.projectState.CreateProject(fwra.Context{Context: ctx, IdempotencyKey: key},
 		projectstate.ProjectID(projectID), projectstate.OwnerScope(owner), name); err != nil {
-		return "", mapRAError(err)
+		return "", mapRAError(err, "projectStateAccess.CreateProject")
 	}
 	return projectID, nil
 }
@@ -110,7 +110,7 @@ func (m *systemDesignManager) ListProjects(rc fwm.Context, owner OwnerScope) ([]
 	}
 	summaries, err := m.projectState.ListProjects(fwra.Context{Context: ctx}, projectstate.OwnerScope(owner))
 	if err != nil {
-		return nil, mapRAError(err)
+		return nil, mapRAError(err, "projectStateAccess.ListProjects")
 	}
 	out := make([]ProjectSummary, 0, len(summaries))
 	for _, s := range summaries {
@@ -129,7 +129,7 @@ func (m *systemDesignManager) GetProject(rc fwm.Context, projectID ProjectID) (P
 	}
 	proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID))
 	if err != nil {
-		return ProjectState{}, mapRAError(err)
+		return ProjectState{}, mapRAError(err, "projectStateAccess.ReadProject")
 	}
 	m.computeNetworkAtRead(&proj)
 	return m.projectStateToContract(proj), nil
@@ -139,8 +139,12 @@ func (m *systemDesignManager) GetProject(rc fwm.Context, projectID ProjectID) (P
 // Manager façade error model. fwra.NotFound → NotFound; fwra.ContractMisuse →
 // ContractMisuse; everything else (incl. Conflict — a thin read/catalog op has no
 // optimistic-concurrency loop to recover it) → Infrastructure with the original
-// retryability preserved.
-func mapRAError(err error) error {
+// retryability preserved. label identifies the ACTUAL failing dependency+op (e.g.
+// "sourceControlAccess.AdoptProjectRepo") — CreateProject fans across two RAs, so a
+// fixed label would misattribute a source-control fault to projectStateAccess. It is
+// the opaque Detail returned to the client; the full cause chain stays server-side
+// (Cause), surfaced only in the composition-root log.
+func mapRAError(err error, label string) error {
 	if err == nil {
 		return nil
 	}
@@ -154,16 +158,18 @@ func mapRAError(err error) error {
 		case fwra.Unknown, fwra.Transient, fwra.RateLimited, fwra.Infrastructure,
 			fwra.Auth, fwra.Conflict, fwra.QuotaExhausted, fwra.ContentPolicy:
 			// "Everything else... → Infrastructure" per the doc comment above.
-			mapped := fwm.Wrap(fwm.Infrastructure, err, "projectStateAccess")
+			mapped := fwm.Wrap(fwm.Infrastructure, err, label)
 			mapped.Retryable = raErr.Retryable
 			return mapped
 		default:
-			mapped := fwm.Wrap(fwm.Infrastructure, err, "projectStateAccess")
+			mapped := fwm.Wrap(fwm.Infrastructure, err, label)
 			mapped.Retryable = raErr.Retryable
 			return mapped
 		}
 	}
-	return newError(fwm.Infrastructure, err.Error())
+	// A non-fwra error (e.g. ManagedScaffoldFiles scaffold assembly) still carries
+	// its cause for the server log while keeping the client Detail opaque (label).
+	return fwm.Wrap(fwm.Infrastructure, err, label)
 }
 
 // ---------------------------------------------------------------------------
