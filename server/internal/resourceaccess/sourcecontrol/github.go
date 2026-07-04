@@ -23,6 +23,7 @@ package sourcecontrol
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"sort"
 	"strconv"
 	"strings"
@@ -92,7 +93,9 @@ type githubClient interface {
 	SetRepoTopics(ctx context.Context, fullName, instToken string, topics []string) error
 
 	// Adopt back-end: GetRepoMetadata is used ONLY for the reachability check
-	// (404 → NotUnderInstallation); the topic/description is applied via SetRepoTopics.
+	// (404 → NotUnderInstallation); the aiarch-project topic is applied (best-effort)
+	// via SetRepoTopics. (No description-set primitive exists on this seam — spec.Title
+	// is not written to the repo; see AdoptProjectRepo.)
 	// (The strict-empty branch-list + .aiarch path-probe primitives were removed by the
 	// 2026-06-16 permissive-resume adopt ruling — adopt no longer probes content. The
 	// satellite still implements ListRepoBranches/ProbeRepoPathExists; this seam just no
@@ -232,10 +235,14 @@ func (a *access) InstallAuthorizeApp(rc fwra.Context, account AccountRef) (Insta
 }
 
 // AdoptProjectRepo verifies the user's EXISTING repo (spec.RepoName under
-// spec.Account) is reachable under the App installation, then tags it
-// (aiarch-project topic + spec.Title as description) and returns its RepoRef. It
-// REPLACES ProvisionProjectRepo (2026-06-15 agentic pivot): aiarch no longer
-// CREATES the repo — the user supplies the repo.
+// spec.Account) is reachable under the App installation, then BEST-EFFORT tags it
+// with the aiarch-project topic and returns its RepoRef. It REPLACES
+// ProvisionProjectRepo (2026-06-15 agentic pivot): aiarch no longer CREATES the
+// repo — the user supplies the repo. (NB: spec.Title is NOT applied as a repo
+// description here — this seam has no description-set primitive; the topic is the
+// SOLE mutation. The catalog renders the title from the committed project state,
+// not from the repo description. The old doc claim "+ spec.Title as description"
+// was aspirational and never wired.)
 //
 // PERMISSIVE-RESUME ADOPT (founder ruling 2026-06-16, REPLACES the strict-empty
 // policy). adopt succeeds REGARDLESS of repo content: a README, a claude.yml (from
@@ -243,15 +250,35 @@ func (a *access) InstallAuthorizeApp(rc fwra.Context, account AccountRef) (Insta
 // all fine. The emptiness probe and the RepoNotEmpty/Conflict hard-fail are GONE.
 // "If the repo already has .aiarch/, just re-initialize the project with that repo
 // from its current progress" — the RESUME is handled one layer up (the projectState
-// CreateProject reads the committed state and returns it). The only real error this
-// verb keeps is NotUnderInstallation (the App MUST be installed on the repo):
+// CreateProject reads the committed state and returns it).
 //
+// BEST-EFFORT TOPIC TAGGING (founder ruling 2026-07-04, SUPERSEDES part of the
+// 2026-06-16 adopt policy). Onboarding now requires the USER to create the repo and
+// install the aiarch App on it FIRST, and the App must NOT be required to hold the
+// `administration` permission "for the time being". A GitHub App needs
+// administration:write to set repo topics (PUT /repos/{repo}/topics), so on an
+// installation carrying only contents:write + metadata:read the topic PUT 403s. That
+// 403 must NOT sink the whole adoption (the live failure that motivated this: a valid
+// installation, reachable repo, but SetRepoTopics 403 → CreateProject 503'd). So:
+//
+//   - reachability (GetRepoMetadata) stays a HARD error — the App MUST be installed:
 //   - not under the installation        → NotFound  (surfaced "NotUnderInstallation")
-//   - under the installation (ANY content) → SUCCESS, apply topic + description
+//   - topic tagging is BEST-EFFORT:
+//   - SetRepoTopics fails with Auth (401/403, missing permission) → WARN + PROCEED
+//   - SetRepoTopics fails Transient/Infrastructure/other (real outage) → HARD error
+//     (a genuine outage must not be masked as a silent skip)
+//   - under the installation (ANY content) → SUCCESS (topic applied, or skipped-with-WARN)
 //   - empty RepoName / Account          → ContractMisuse (before any wire call)
 //
-// Idempotent on the repo name: re-adopting an already-tagged repo re-applies the
-// topic/description (converged → effective no-op).
+// EARMARK (temporary): best-effort tagging is a stopgap until the App permission story
+// is settled. The consequence is real — cloudProjectCatalog discovers projects BY the
+// aiarch-project topic, so a repo whose topic never applied is invisible to catalog
+// enumeration. Until the App can be granted administration (or topics move to a
+// contents-permission mechanism), onboarding tells the user to add the topic manually
+// (see webApp CreateProjectDialog "BEFORE YOU ADOPT").
+//
+// Idempotent on the repo name: re-adopting an already-tagged repo re-applies the topic
+// (converged → effective no-op); a permission-blocked re-adopt is a WARN no-op.
 func (a *access) AdoptProjectRepo(rc fwra.Context, spec RepoAdoptionSpec) (RepoRef, error) {
 	ctx := rc.Context
 	if strings.TrimSpace(spec.RepoName) == "" {
@@ -278,14 +305,25 @@ func (a *access) AdoptProjectRepo(rc fwra.Context, spec RepoAdoptionSpec) (RepoR
 		return "", err
 	}
 
-	// 2. Adopt regardless of content: apply the project-title description + the
-	//    aiarch-project topic. This is the only mutation. Idempotent: re-applying a
-	//    converged topic/description is an effective no-op. The repo's pre-existing
-	//    content (README/claude.yml/.aiarch from a prior run) is NOT probed and NOT a
-	//    blocker — RESUME (loading any committed project state) is handled by
-	//    projectStateAccess.CreateProject, not here.
+	// 2. Adopt regardless of content: BEST-EFFORT apply the aiarch-project topic. This
+	//    is the only mutation. Idempotent: re-applying a converged topic is an effective
+	//    no-op. The repo's pre-existing content (README/claude.yml/.aiarch from a prior
+	//    run) is NOT probed and NOT a blocker — RESUME (loading any committed project
+	//    state) is handled by projectStateAccess.CreateProject, not here.
+	//
+	//    Founder ruling 2026-07-04: the App is NOT required to hold `administration`
+	//    for the time being, but setting topics needs administration:write, so this PUT
+	//    can 403 (→ fwra.Auth) on a contents+metadata-only installation. Degrade ONLY on
+	//    Auth (a permission/credential terminal): WARN and proceed with adoption. Every
+	//    other failure — Transient/RateLimited/Infrastructure/Unknown — is a real outage
+	//    and stays a HARD error so a genuine failure is never masked as a silent skip.
 	if err := a.client.SetRepoTopics(ctx, fullName, instToken, []string{projectRepoTopic}); err != nil {
-		return "", err
+		if kindOfErr(err) != fwra.Auth {
+			return "", err
+		}
+		slog.WarnContext(ctx,
+			"AdoptProjectRepo: topic tagging skipped — App lacks permission to set repo topics (needs administration:write); proceeding with adoption. The user must add the topic manually for cloud catalog discovery",
+			"repo", fullName, "topic", projectRepoTopic, "cause", err.Error())
 	}
 	return makeRepoRef(acct, fullName), nil
 }

@@ -481,6 +481,59 @@ func TestU13_AdoptIdempotentReadopt(t *testing.T) {
 	}
 }
 
+// TestU41_AdoptBestEffortTopicOnPermissionDenied proves the 2026-07-04 founder ruling:
+// the App is NOT required to hold `administration`, so the topic PUT can 403
+// (→ fwra.Auth) on a contents+metadata-only installation. That permission-denied MUST
+// NOT sink the adoption — the repo is reachable, so adopt SUCCEEDS (WARN-and-proceed)
+// and returns a live RepoRef. (The live failure this fixes: a valid installation +
+// reachable repo, but SetRepoTopics 403 → the whole CreateProject 503'd.)
+func TestU41_AdoptBestEffortTopicOnPermissionDenied(t *testing.T) {
+	fake := gh.Start()
+	defer fake.Close()
+	seedInstallation(fake, testAccount)
+	fake.EnableRepoCatalog()
+	// Reachable repo (GET /repos/... served from the catalog) ...
+	fake.SeedRepo(testAccount, "no-admin", "No admin perm", nil, true)
+	// ... but the topic PUT is forbidden (App lacks administration:write). A scripted
+	// route takes precedence over the stateful catalog, so this forces the 403 → Auth.
+	fake.On("PUT", "/repos/acme/no-admin/topics", gh.Response{Status: 403, Body: `{"message":"Resource not accessible by integration"}`})
+	a := newAccess(t, fake)
+
+	ref, err := a.AdoptProjectRepo(rc(context.Background()), sc.RepoAdoptionSpec{
+		RepoName: "no-admin", Account: testAccount, Title: "No Admin",
+	})
+	if err != nil {
+		t.Fatalf("permission-denied topic tagging must NOT fail adoption (best-effort); got: %v", err)
+	}
+	if sc.RepoRefIsZero(ref) {
+		t.Fatalf("expected a non-zero RepoRef even when topic tagging was skipped")
+	}
+	// The attempt was made (and degraded), not silently skipped: the PUT was issued.
+	if countRequests(fake, "PUT", "/repos/acme/no-admin/topics") != 1 {
+		t.Fatalf("adopt should still ATTEMPT the topic PUT once before degrading")
+	}
+}
+
+// TestU42_AdoptStillFailsOnTransientTopicError proves the degrade is NARROW: a
+// transient/infra failure of the topic PUT (here a 500 → fwra.Transient) is a REAL
+// outage and stays a HARD error — it is NOT masked as a best-effort skip. Only the
+// Auth (permission) kind degrades.
+func TestU42_AdoptStillFailsOnTransientTopicError(t *testing.T) {
+	fake := gh.Start()
+	defer fake.Close()
+	seedInstallation(fake, testAccount)
+	fake.EnableRepoCatalog()
+	fake.SeedRepo(testAccount, "flaky", "Flaky", nil, true)
+	// A GitHub 5xx → fwra.Transient. This must propagate, not degrade.
+	fake.On("PUT", "/repos/acme/flaky/topics", gh.Response{Status: 500, Body: `{"message":"server error"}`})
+	a := newAccess(t, fake)
+
+	_, err := a.AdoptProjectRepo(rc(context.Background()), sc.RepoAdoptionSpec{
+		RepoName: "flaky", Account: testAccount, Title: "Flaky",
+	})
+	requireKind(t, err, fwra.Transient)
+}
+
 // TestU31_AdoptSucceedsWithPreExistingAiarchTree proves permissive adopt over the
 // RESUME shape AT THE RA SEAM: a repo that already carries a committed `.aiarch/` tree
 // (a prior run's design state) ADOPTS SUCCESSFULLY — it is NOT a RepoNotEmpty hard-fail

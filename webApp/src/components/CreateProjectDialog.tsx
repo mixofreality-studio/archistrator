@@ -143,12 +143,13 @@ export function CreateProjectDialog({
 function PrereqPanel({ t }: { t: ReturnType<typeof useTokens> }): ReactNode {
   const items: { label: string; detail: string }[] = [
     {
-      label: 'Create an (empty) GitHub repository',
-      detail: 'Its name becomes this project’s identity.',
+      label: 'Create the GitHub repository and add the aiarch-project topic',
+      detail:
+        'Its name becomes this project’s identity. Add the repository topic aiarch-project so the cloud catalog can discover it.',
     },
     {
       label: 'Install the aiarch GitHub App on the repo',
-      detail: 'Grants contents:write + administration + metadata so aiarch can adopt and drive it.',
+      detail: 'Grants contents:write + metadata:read so aiarch can adopt and drive it.',
     },
     {
       label: 'Install the Claude Code GitHub App (run /install-github-app)',
@@ -168,11 +169,16 @@ function PrereqPanel({ t }: { t: ReturnType<typeof useTokens> }): ReactNode {
     >
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1 }}>
         <GitHubIcon sx={{ fontSize: 16, color: t.ink }} />
-        <Typography sx={{ fontFamily: t.mono, fontSize: 11.5, letterSpacing: '0.12em', color: t.muted }}>
+        <Typography
+          sx={{ fontFamily: t.mono, fontSize: 11.5, letterSpacing: '0.12em', color: t.muted }}
+        >
           BEFORE YOU ADOPT
         </Typography>
       </Box>
-      <Box component="ol" sx={{ m: 0, pl: 2.25, display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+      <Box
+        component="ol"
+        sx={{ m: 0, pl: 2.25, display: 'flex', flexDirection: 'column', gap: 0.75 }}
+      >
         {items.map((it) => (
           <Box component="li" key={it.label} sx={{ color: t.ink, fontSize: 13 }}>
             <Typography component="span" sx={{ fontSize: 13, fontWeight: 600, color: t.ink }}>
