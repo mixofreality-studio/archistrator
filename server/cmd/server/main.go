@@ -610,6 +610,11 @@ func run(logger *slog.Logger) error {
 	// generated NewServer handles everything else (/healthz, /readyz, /api/v1/...).
 	root := http.NewServeMux()
 	root.Handle("GET /api/userinfo", web.AuthMiddleware(cfg.Dev, tokenValidator)(http.HandlerFunc(security.UserInfoHandler)))
+	// MCP transport — the SAME four web-wired managers exposed over the Model
+	// Context Protocol (streamable HTTP, official go-sdk) at /mcp, behind the SAME
+	// auth boundary as /api/v1 (mcp_mount.go). The generated per-manager tool
+	// Handlers bind the identical manager instances the REST Handlers use.
+	root.Handle("/mcp", newMCPHandler(cfg.Dev, tokenValidator, manager, projectDesignManager, constructionManager, operationsManager))
 	root.Handle("/", genServer)
 	// otelhttp wraps the whole route tree: it starts a server span per request
 	// (extracting any inbound W3C trace context) and records http.server.* metrics
