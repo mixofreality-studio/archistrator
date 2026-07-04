@@ -489,6 +489,7 @@ var encapsulationAllowlistData = map[string][]string{
 		"PullRequestRefFromString",
 		"PullRequestRefIsZero",
 		"PullRequestRefString",
+		"RailAppSlug",
 		"RepoCredentialIsZero",
 		"RepoRefEqual",
 		"RepoRefFromString",

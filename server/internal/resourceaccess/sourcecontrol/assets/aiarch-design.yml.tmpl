@@ -1,5 +1,11 @@
 # aiarch DESIGN workflow (TEMPLATE — server-committed, do not hand-edit in the user repo)
 # =============================================================================
+# This is a Go text/template. Its action delimiters are the double-square-bracket
+# pair (not the default brace pair) — chosen so GitHub Actions' own ${{ ... }}
+# expressions are left untouched. The server renders it with the
+# configured GitHub App slug before seating it (renderDesignWorkflow); the ONLY
+# templated value is the allowed_bots actor on the claude-code-action step.
+#
 # This is the DESIGN counterpart of the construction reference workflow
 # (products/archistrator/deploy/construction-workflow/aiarch-construct.yml).
 #
@@ -7,7 +13,7 @@
 # construction repo), archistrator-server COMMITS THIS FILE into each user
 # project repo at project birth, bundled with the go-test gate scaffold (go.mod +
 # aiarch_method_test.go), via
-#   sourceControlAccess.CommitManagedFiles(repo, ManagedScaffoldFiles(repo), ...)
+#   sourceControlAccess.CommitManagedFiles(repo, ManagedScaffoldFiles(repo, slug), ...)
 # (the C-PM-Δ caller threads the accessor). It then DISPATCHES it for every
 # LLM-needing DESIGN activity (UC1 system-design + UC2 project-design drafting,
 # PM-critique, redraft) via the SAME frozen verb construction uses —
@@ -165,6 +171,17 @@ jobs:
           # Claude Code GitHub App (/install-github-app). NAME-only reference —
           # aiarch never mints or sees this value.
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          [[- if .AppSlug ]]
+          # The DESIGN workflow is ALWAYS workflow_dispatch'ed by the aiarch GitHub
+          # App (a Bot actor); claude-code-action refuses bot-initiated runs unless
+          # the bot is allow-listed (observed live: run 28723145540 failed with
+          # "Workflow initiated by non-human actor: <app> (type: Bot). Add bot to
+          # allowed_bots list"). Mirrors aiarch-construct.yml's allowed_bots. The App
+          # slug varies per deployment, so the SERVER templates it here; when it is
+          # unconfigured this line is omitted entirely, leaving human-dispatched runs
+          # working.
+          allowed_bots: [[ .AppSlug ]]
+          [[- end ]]
           # The composed Method-role prompt. The action must draft the typed
           # `${{ inputs.artifact_kind }}` artifact and write the canonical JSON to
           # .aiarch/state/project.json (the path methodcheck.Check + projectStateAccess

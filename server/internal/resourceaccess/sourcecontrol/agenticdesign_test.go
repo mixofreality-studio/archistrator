@@ -2,9 +2,15 @@ package sourcecontrol
 
 // agenticdesign_test.go — structural tests over the embedded DESIGN workflow asset
 // (agenticdesign.go). It is an INTERNAL test package (package sourcecontrol) so it
-// can read the unexported designWorkflowYAML embed var; the component's external
-// service tests live in sourcecontrol_test.go (package sourcecontrol_test). Both
-// test packages coexisting in one directory is permitted by go test.
+// can read the unexported designWorkflowTmplText embed var + renderDesignWorkflow; the
+// component's external service tests live in sourcecontrol_test.go (package
+// sourcecontrol_test). Both test packages coexisting in one directory is permitted by
+// go test.
+//
+// The workflow asset is now a Go text/template (custom [[ ]] delimiters) rendered with
+// the GitHub App slug, so the structural tests assert against the RENDERED bytes
+// (renderDesignWorkflow) rather than the raw template (which is not valid YAML on its
+// own — the [[ if ]] control line is not YAML).
 //
 // These assert the asset WIRING (the contract anchors), not a live Actions run.
 // The yaml.v3 + framework-go-infrastructure-github imports here are TEST-ONLY, so
@@ -16,8 +22,24 @@ import (
 	"testing"
 
 	fwgithub "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github"
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"gopkg.in/yaml.v3"
 )
+
+// testAppSlug is a representative configured App slug the structural tests render the
+// workflow with.
+const testAppSlug = "archistrator-bot"
+
+// renderedDesignWorkflow renders the embedded template with the given slug or fails the
+// test. Most structural assertions are slug-independent, so they use testAppSlug.
+func renderedDesignWorkflow(t *testing.T, appSlug string) []byte {
+	t.Helper()
+	b, err := renderDesignWorkflow(appSlug)
+	if err != nil {
+		t.Fatalf("renderDesignWorkflow(%q): %v", appSlug, err)
+	}
+	return b
+}
 
 // expectedDispatchInputs is the CONTRACT between this template and the design
 // Managers (C-MSD-Δ / C-MPD-Δ DispatchInputs on PipelineSpec). idempotency_token
@@ -57,15 +79,15 @@ type workflowDoc struct {
 }
 
 func TestEmbeddedTemplateNonEmpty(t *testing.T) {
-	if len(designWorkflowYAML) == 0 {
-		t.Fatal("embedded aiarch-design.yml is empty")
+	if len(designWorkflowTmplText) == 0 {
+		t.Fatal("embedded aiarch-design.yml.tmpl is empty")
 	}
 }
 
 func TestEmbeddedTemplateParsesAsYAML(t *testing.T) {
 	var doc workflowDoc
-	if err := yaml.Unmarshal(designWorkflowYAML, &doc); err != nil {
-		t.Fatalf("embedded template does not parse as YAML: %v", err)
+	if err := yaml.Unmarshal(renderedDesignWorkflow(t, testAppSlug), &doc); err != nil {
+		t.Fatalf("rendered template does not parse as YAML: %v", err)
 	}
 	if doc.Name == "" {
 		t.Error("workflow has no top-level name")
@@ -74,7 +96,7 @@ func TestEmbeddedTemplateParsesAsYAML(t *testing.T) {
 
 func TestDeclaresExpectedDispatchInputs(t *testing.T) {
 	var doc workflowDoc
-	if err := yaml.Unmarshal(designWorkflowYAML, &doc); err != nil {
+	if err := yaml.Unmarshal(renderedDesignWorkflow(t, testAppSlug), &doc); err != nil {
 		t.Fatalf("parse: %v", err)
 	}
 	inputs := doc.On.WorkflowDispatch.Inputs
@@ -103,7 +125,7 @@ func TestDeclaresExpectedDispatchInputs(t *testing.T) {
 
 func TestIdempotencyAnchorMatchesDispatchConstants(t *testing.T) {
 	var doc workflowDoc
-	if err := yaml.Unmarshal(designWorkflowYAML, &doc); err != nil {
+	if err := yaml.Unmarshal(renderedDesignWorkflow(t, testAppSlug), &doc); err != nil {
 		t.Fatalf("parse: %v", err)
 	}
 	// The load-bearing input name MUST equal the satellite constant the
@@ -122,7 +144,7 @@ func TestIdempotencyAnchorMatchesDispatchConstants(t *testing.T) {
 }
 
 func TestReferencesGoTestGateAndStatePath(t *testing.T) {
-	body := string(designWorkflowYAML)
+	body := string(renderedDesignWorkflow(t, testAppSlug))
 
 	// The required check is now `go test ./...` (the seated aiarch_method_test.go →
 	// methodcheck.Check), NOT a pinned aiarch-validate container. The container/CLI
@@ -153,6 +175,33 @@ func TestReferencesGoTestGateAndStatePath(t *testing.T) {
 	}
 }
 
+// TestDesignWorkflowAllowedBots asserts the allowed_bots actor is templated from the
+// configured App slug (never hardcoded) and, crucially, is OMITTED entirely when the
+// slug is empty — an unconfigured deployment then still supports human-dispatched runs
+// rather than emitting an empty/invalid allowed_bots value.
+func TestDesignWorkflowAllowedBots(t *testing.T) {
+	// With a configured slug, allowed_bots renders with exactly that slug, and it must
+	// parse as valid YAML.
+	withSlug := string(renderedDesignWorkflow(t, "acme-aiarch-bot"))
+	if !strings.Contains(withSlug, "allowed_bots: acme-aiarch-bot") {
+		t.Errorf("rendered workflow must set allowed_bots to the configured slug; got:\n%s", withSlug)
+	}
+	var doc workflowDoc
+	if err := yaml.Unmarshal([]byte(withSlug), &doc); err != nil {
+		t.Fatalf("rendered workflow (with slug) must parse as YAML: %v", err)
+	}
+
+	// With an empty slug, the allowed_bots KEY must be ABSENT (guard: omit, don't emit
+	// empty). The result must still be a valid workflow (parses as YAML).
+	empty := string(renderedDesignWorkflow(t, ""))
+	if strings.Contains(empty, "allowed_bots:") {
+		t.Errorf("empty slug must omit the allowed_bots key entirely; got:\n%s", empty)
+	}
+	if err := yaml.Unmarshal([]byte(empty), &doc); err != nil {
+		t.Fatalf("rendered workflow (empty slug) must parse as YAML: %v", err)
+	}
+}
+
 // TestManagedScaffoldFiles asserts the birth scaffold bundle: the design workflow +
 // the templated go-test gate (go.mod + aiarch_method_test.go), all on the managed-
 // file allowlist, with the repo's module path templated in.
@@ -160,7 +209,7 @@ func TestManagedScaffoldFiles(t *testing.T) {
 	// owner|owner/repo encoding the RA produces (makeRepoRef): account=acme,
 	// fullName=acme/widgets.
 	repo := makeRepoRef("acme", "acme/widgets")
-	files, err := ManagedScaffoldFiles(repo)
+	files, err := ManagedScaffoldFiles(repo, testAppSlug)
 	if err != nil {
 		t.Fatalf("ManagedScaffoldFiles: %v", err)
 	}
@@ -181,13 +230,17 @@ func TestManagedScaffoldFiles(t *testing.T) {
 		}
 	}
 
-	// (1) the design workflow is the embedded template bytes under .github/workflows/.
+	// (1) the design workflow is the template RENDERED with the App slug, under
+	// .github/workflows/. It must equal renderDesignWorkflow(slug) and carry allowed_bots.
 	wf, ok := byPath[DesignWorkflowPath]
 	if !ok {
 		t.Fatalf("missing %s in the scaffold bundle", DesignWorkflowPath)
 	}
-	if !bytes.Equal(wf.Content, designWorkflowYAML) {
-		t.Error("workflow content must be the embedded template bytes")
+	if !bytes.Equal(wf.Content, renderedDesignWorkflow(t, testAppSlug)) {
+		t.Error("workflow content must be the template rendered with the App slug")
+	}
+	if !strings.Contains(string(wf.Content), "allowed_bots: "+testAppSlug) {
+		t.Errorf("seated workflow must allow-list the configured App slug; got:\n%s", wf.Content)
 	}
 
 	// (2) go.mod templated with the derived module path + the framework-go require pin.
@@ -221,7 +274,65 @@ func TestManagedScaffoldFiles(t *testing.T) {
 // TestManagedScaffoldFilesRejectsZeroRepo proves a malformed RepoRef (no owner/repo)
 // is a ContractMisuse the accessor surfaces, not a silent empty module path.
 func TestManagedScaffoldFilesRejectsZeroRepo(t *testing.T) {
-	if _, err := ManagedScaffoldFiles(RepoRef("")); err == nil {
+	if _, err := ManagedScaffoldFiles(RepoRef(""), testAppSlug); err == nil {
 		t.Fatal("expected an error for a zero RepoRef (unresolvable module path)")
 	}
 }
+
+// TestRailAppSlug proves the birth-scaffold caller can read the App slug off the
+// concrete GitHub access (which knows its own slug), and that a rail NOT exposing it
+// yields "" (so allowed_bots is omitted rather than emitted empty).
+func TestRailAppSlug(t *testing.T) {
+	// The concrete access exposes its configured slug via AppSlug(); RailAppSlug reads it.
+	a := &access{appSlug: "cfg-app-slug"}
+	if got := a.AppSlug(); got != "cfg-app-slug" {
+		t.Errorf("access.AppSlug() = %q, want cfg-app-slug", got)
+	}
+	if got := RailAppSlug(a); got != "cfg-app-slug" {
+		t.Errorf("RailAppSlug(access) = %q, want cfg-app-slug", got)
+	}
+
+	// A rail that does not expose AppSlug (any SourceControlAccess without the method)
+	// yields "" — the omit-allowed_bots guard.
+	if got := RailAppSlug(railWithoutSlug{}); got != "" {
+		t.Errorf("RailAppSlug(rail-without-AppSlug) = %q, want empty", got)
+	}
+}
+
+// railWithoutSlug is a SourceControlAccess that does NOT implement AppSlug() (like a
+// test fake), used to prove RailAppSlug degrades to "". All methods panic — RailAppSlug
+// only type-asserts, it never calls them.
+type railWithoutSlug struct{}
+
+func (railWithoutSlug) AdoptProjectRepo(fwra.Context, RepoAdoptionSpec) (RepoRef, error) {
+	panic("unused")
+}
+func (railWithoutSlug) CommitManagedFiles(fwra.Context, RepoRef, []ManagedFile, RepoCredential) (CommitRef, error) {
+	panic("unused")
+}
+func (railWithoutSlug) ConfigureBranchProtection(fwra.Context, RepoRef, RepoCredential) error {
+	panic("unused")
+}
+func (railWithoutSlug) GetInstallationToken(fwra.Context, RepoRef) (RepoCredential, error) {
+	panic("unused")
+}
+func (railWithoutSlug) GetPullRequestStatus(fwra.Context, RepoRef, PullRequestRef, RepoCredential) (PullRequestStatus, error) {
+	panic("unused")
+}
+func (railWithoutSlug) InstallAuthorizeApp(fwra.Context, AccountRef) (Installation, error) {
+	panic("unused")
+}
+func (railWithoutSlug) MergePullRequest(fwra.Context, RepoRef, PullRequestRef, RepoCredential) (MergeResult, error) {
+	panic("unused")
+}
+func (railWithoutSlug) OpenBranch(fwra.Context, RepoRef, BranchName, RepoCredential) (BranchRef, error) {
+	panic("unused")
+}
+func (railWithoutSlug) OpenPullRequest(fwra.Context, RepoRef, PullRequestSpec, RepoCredential) (PullRequestRef, error) {
+	panic("unused")
+}
+func (railWithoutSlug) PostReview(fwra.Context, RepoRef, PullRequestRef, ReviewSubmission, RepoCredential) error {
+	panic("unused")
+}
+
+var _ SourceControlAccess = railWithoutSlug{}

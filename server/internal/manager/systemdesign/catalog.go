@@ -77,7 +77,7 @@ func (m *systemDesignManager) CreateProject(rc fwm.Context, owner OwnerScope, na
 		if err != nil {
 			return "", mapRAError(err, "sourceControlAccess.GetInstallationToken")
 		}
-		files, err := sourcecontrol.ManagedScaffoldFiles(repo)
+		files, err := sourcecontrol.ManagedScaffoldFiles(repo, sourcecontrol.RailAppSlug(m.rail))
 		if err != nil {
 			return "", mapRAError(err, "sourceControlAccess.ManagedScaffoldFiles")
 		}

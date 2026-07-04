@@ -9,14 +9,20 @@ package sourcecontrol
 //      products/archistrator/deploy/construction-workflow/aiarch-construct.yml). It
 //      is COMMITTED by the server (not hand-installed), so the template is embedded
 //      (//go:embed) and wrapped in the RA's provider-neutral ManagedFile value type.
+//      It is TEMPLATED with the configured GitHub App slug so the claude-code-action
+//      step allow-lists that bot (allowed_bots) — the design workflow is ALWAYS
+//      workflow_dispatch'ed by the aiarch App (a Bot actor), which the action refuses
+//      unless allow-listed. The slug varies per deployment, so it is not hardcoded.
 //   2. go.mod — `module <REPO_MODULE>` (github.com/<owner>/<repo>, derived from the
 //      adopted RepoRef) + a go directive + `require github.com/mixofreality-studio/archistrator-platform/framework-go`
 //      pinned to FrameworkGoVersion, so the seated `go test` resolves methodcheck.
 //   3. aiarch_method_test.go — the single test calling methodcheck.Check (the
 //      all-in-one Method gate). It is what `go test ./...` runs as the REQUIRED check.
 //
-// (2) and (3) are TEMPLATED with the repo's module path (and the pinned framework-go
-// version) at birth; (1) is a static embedded asset.
+// All three are TEMPLATED at birth: (2) and (3) with the repo's module path (and the
+// pinned framework-go version); (1) with the configured GitHub App slug (allowed_bots).
+// (1) uses custom Go-template delimiters [[ ]] so GitHub's own ${{ ... }} expressions
+// are left untouched.
 //
 // This asset accessor lives DIRECTLY in the sourceControlAccess package (not a
 // sub-package) on purpose: the embedded templates are consumed only by this RA's own
@@ -41,11 +47,13 @@ import (
 	"text/template"
 )
 
-// designWorkflowYAML is the embedded DESIGN workflow template bytes. It is the exact
-// content the server commits into the user repo at .github/workflows/.
+// designWorkflowTmplText is the embedded DESIGN workflow text/template source. It is
+// rendered (renderDesignWorkflow) with the configured GitHub App slug, then committed
+// into the user repo at .github/workflows/aiarch-design.yml. It uses custom [[ ]]
+// delimiters so GitHub Actions' own ${{ ... }} expressions pass through verbatim.
 //
-//go:embed assets/aiarch-design.yml
-var designWorkflowYAML []byte
+//go:embed assets/aiarch-design.yml.tmpl
+var designWorkflowTmplText string
 
 // goModTemplateText / methodTestTemplateText are the embedded text/template sources
 // for the go-test gate scaffold, rendered with the adopted repo's module path (+ the
@@ -87,18 +95,43 @@ const FrameworkGoVersion = "v0.4.0"
 // Actions secret is provisioned by the Claude Code GitHub App when the USER runs
 // /install-github-app on their repo — aiarch does NOT seat it.
 
-// designWorkflowManagedFile returns the embedded claude-code-action DESIGN workflow
-// as a provider-neutral ManagedFile (static; no templating).
-func designWorkflowManagedFile() ManagedFile {
-	return ManagedFile{Path: DesignWorkflowPath, Content: designWorkflowYAML}
+// renderDesignWorkflow renders the embedded DESIGN workflow template with the given
+// GitHub App slug. It uses custom [[ ]] delimiters so GitHub's ${{ ... }} expressions
+// are literal text. An EMPTY appSlug omits the allowed_bots line entirely — the seated
+// workflow then still runs for a human-dispatched run (a bot-dispatched run would fail
+// the action's non-human-actor guard, which is the correct signal in an unconfigured
+// deployment rather than an empty/invalid allowed_bots value).
+func renderDesignWorkflow(appSlug string) ([]byte, error) {
+	t, err := template.New("aiarch-design.yml").Delims("[[", "]]").Parse(designWorkflowTmplText)
+	if err != nil {
+		return nil, fmt.Errorf("sourcecontrol: parse aiarch-design.yml template: %w", err)
+	}
+	var buf bytes.Buffer
+	if err := t.Execute(&buf, scaffoldTemplateData{AppSlug: appSlug}); err != nil {
+		return nil, fmt.Errorf("sourcecontrol: render aiarch-design.yml template: %w", err)
+	}
+	return buf.Bytes(), nil
 }
 
-// scaffoldTemplateData is the render context for the go-test gate templates: the
-// repo's Go module path + the Go + framework-go version pins.
+// designWorkflowManagedFile returns the claude-code-action DESIGN workflow rendered
+// with the configured App slug as a provider-neutral ManagedFile.
+func designWorkflowManagedFile(appSlug string) (ManagedFile, error) {
+	content, err := renderDesignWorkflow(appSlug)
+	if err != nil {
+		return ManagedFile{}, err
+	}
+	return ManagedFile{Path: DesignWorkflowPath, Content: content}, nil
+}
+
+// scaffoldTemplateData is the render context for the birth-scaffold templates: the
+// repo's Go module path + the Go + framework-go version pins (go.mod + method test),
+// plus the configured GitHub App slug (the DESIGN workflow's allowed_bots actor). Each
+// template uses only the fields it needs.
 type scaffoldTemplateData struct {
 	Module             string
 	GoVersion          string
 	FrameworkGoVersion string
+	AppSlug            string
 }
 
 // renderScaffoldFile renders one embedded text/template with the module path + pins.
@@ -117,13 +150,18 @@ func renderScaffoldFile(name, tmplText string, data scaffoldTemplateData) ([]byt
 // ManagedScaffoldFiles returns the FULL aiarch-managed project scaffold bundle to
 // seat at project birth — the design workflow + the go-test gate (go.mod +
 // aiarch_method_test.go) — templated with the adopted repo's Go module path
-// (github.com/<owner>/<repo>, derived from repo via RepoRef.OwnerRepo) and the pinned
-// Go + framework-go versions. The C-PM-Δ caller hands the returned slice to
+// (github.com/<owner>/<repo>, derived from repo via RepoRef.OwnerRepo), the pinned
+// Go + framework-go versions, and the configured GitHub App slug (the design
+// workflow's allowed_bots actor). The C-PM-Δ caller hands the returned slice to
 // CommitManagedFiles, which seats all three in one birth seat.
+//
+// appSlug is the deployment's GitHub App slug (from the composition root). The caller
+// reads it off the rail with RailAppSlug so it is never hardcoded. An EMPTY slug
+// (unconfigured dev server) is valid: the design workflow simply omits allowed_bots.
 //
 // An empty/malformed RepoRef (owner/repo unresolvable) is a ContractMisuse the caller
 // surfaces — the module path cannot be templated without the repo coordinates.
-func ManagedScaffoldFiles(repo RepoRef) ([]ManagedFile, error) {
+func ManagedScaffoldFiles(repo RepoRef, appSlug string) ([]ManagedFile, error) {
 	owner, name, err := RepoRefOwnerRepo(repo)
 	if err != nil {
 		return nil, err
@@ -135,6 +173,10 @@ func ManagedScaffoldFiles(repo RepoRef) ([]ManagedFile, error) {
 		FrameworkGoVersion: FrameworkGoVersion,
 	}
 
+	workflow, err := designWorkflowManagedFile(appSlug)
+	if err != nil {
+		return nil, err
+	}
 	goMod, err := renderScaffoldFile("go.mod", goModTemplateText, data)
 	if err != nil {
 		return nil, err
@@ -145,8 +187,22 @@ func ManagedScaffoldFiles(repo RepoRef) ([]ManagedFile, error) {
 	}
 
 	return []ManagedFile{
-		designWorkflowManagedFile(),
+		workflow,
 		{Path: GoModPath, Content: goMod},
 		{Path: MethodTestPath, Content: methodTest},
 	}, nil
+}
+
+// RailAppSlug reads the configured GitHub App slug off a SourceControlAccess when the
+// concrete implementation exposes it (the GitHub-backed access does — see
+// (*access).AppSlug). A rail that does not — e.g. a test fake or a repo-less dev
+// server (nil rail) — yields "" so the seated design workflow omits allowed_bots (a
+// human-dispatched run still works). This keeps the slug's source of truth inside the
+// RA: the birth-scaffold caller obtains it FROM the rail rather than threading it
+// through the Manager's generated constructor.
+func RailAppSlug(rail SourceControlAccess) string {
+	if p, ok := rail.(interface{ AppSlug() string }); ok {
+		return p.AppSlug()
+	}
+	return ""
 }

@@ -211,6 +211,17 @@ func deterministicRepoName(p ProjectID) string {
 	return string(p)
 }
 
+// AppSlug reports the configured GitHub App slug — the Bot actor the seated DESIGN
+// workflow allow-lists via allowed_bots (the design workflow is always
+// workflow_dispatch'ed by this App, a Bot actor, which claude-code-action refuses
+// unless allow-listed). It is OFF the frozen SourceControlAccess contract: a wiring
+// detail on the hand-written auxiliary surface, reached by the birth-scaffold seam via
+// the package-level RailAppSlug helper. Empty when the App slug is unconfigured (a
+// repo-less dev server) — RailAppSlug then yields "" and allowed_bots is omitted.
+func (a *access) AppSlug() string {
+	return a.appSlug
+}
+
 // ---------------------------------------------------------------------------
 // Contract #1 — ISourceControlLifecycle.
 // ---------------------------------------------------------------------------
