@@ -35,6 +35,7 @@ import type {
   DeploymentProfile,
   EdgeKind,
   Glossary,
+  GlossaryItem,
   Layer,
   MissionStatement,
   OperationalConcepts,
@@ -668,6 +669,16 @@ function glossaryToMarkdown(g: Glossary): string {
     })
     .join('\n');
   return `## Glossary\n\n${rows}`;
+}
+
+/**
+ * Typed glossary items for the dedicated GlossaryView (search + category filter +
+ * grouped sticky subheaders) — the glossary is a ~40-term reference, not prose, so
+ * it gets a real renderer instead of the flat markdown fallback. Safe-empty.
+ */
+export function toGlossaryView(envelope: ArtifactModelEnvelope | undefined): GlossaryItem[] {
+  const model = narrow(envelope, 'glossary');
+  return model?.items ?? [];
 }
 
 function scrubbedRequirementsToMarkdown(r: ScrubbedRequirements): string {

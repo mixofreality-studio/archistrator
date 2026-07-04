@@ -2,6 +2,7 @@
  * The single dispatcher that renders any typed ArtifactModelEnvelope by its string
  * `kind`, choosing the right client-side renderer:
  *
+ *   glossary      → GlossaryView      (search + category filter, toGlossaryView)
  *   volatilities  → VolatilityMap     (two-axis scatter, toVolatilityView)
  *   system        → ArchitectureFlow  (xyflow C4 layered view, toC4View)
  *   coreUseCases  → UseCaseCarousel   (xyflow activity diagrams, toCoreUseCasesView)
@@ -18,6 +19,7 @@ import Box from '@mui/material/Box';
 import { toMarkdown } from '../api/adapters';
 import type { ArtifactModelEnvelope, ServiceContracts } from '../api/types';
 import { Prose } from './Prose';
+import { GlossaryView } from './GlossaryView';
 import { VolatilityMap } from './VolatilityMap';
 import { ArchitectureView } from './flow/ArchitectureView';
 import { OperationalConceptsView } from './OperationalConceptsView';
@@ -55,6 +57,9 @@ function renderBody(
   serviceContracts: ServiceContracts | undefined
 ): ReactNode {
   const kind = envelope?.kind;
+  if (kind === 'glossary') {
+    return <GlossaryView envelope={envelope} {...(height !== undefined ? { height } : {})} />;
+  }
   if (kind === 'volatilities') return <VolatilityMap envelope={envelope} />;
   if (kind === 'system') {
     return (
@@ -72,7 +77,7 @@ function renderBody(
     );
   }
 
-  // Prose kinds (mission / glossary / scrubbedRequirements / operationalConcepts /
+  // Prose kinds (mission / scrubbedRequirements / operationalConcepts /
   // standardCheck) and any Phase-2 kind project to markdown via toMarkdown.
   const markdown = toMarkdown(envelope);
   return (

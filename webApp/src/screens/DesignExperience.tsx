@@ -70,7 +70,7 @@ import {
 // Prose (markdown) artifact kinds get a paper surface in the full-screen design
 // experience; diagram kinds (volatilities/system/coreUseCases/operationalConcepts)
 // render on their own bordered canvases, so they stay unwrapped.
-const PROSE_ARTIFACT_KINDS = new Set<string>(['mission', 'glossary', 'scrubbedRequirements', 'standardCheck']);
+const PROSE_ARTIFACT_KINDS = new Set<string>(['mission', 'scrubbedRequirements', 'standardCheck']);
 
 function proseSurface(kind: string | undefined, node: ReactNode): ReactNode {
   return kind !== undefined && PROSE_ARTIFACT_KINDS.has(kind) ? (
