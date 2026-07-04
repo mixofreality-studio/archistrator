@@ -6442,9 +6442,9 @@
           },
           {
             "section": "Directive 2",
-            "guideline": "Decompose based on volatility — every component cites a volatilities.md entry.",
+            "guideline": "Decompose based on volatility — every component cites a volatilities entry.",
             "status": "pass",
-            "justification": ""
+            "justification": "Verified 2026-07-03: every Manager, Engine, and ResourceAccess carries an encapsulates citation into the 22-item volatilities slot; the three Client-tier and cross-cutting volatilities (Customer Interaction Channel, Customer Interaction Transport, Customer App Infrastructure) name their encapsulators in the volatility rationale."
           },
           {
             "section": "Directive 3",
@@ -6508,27 +6508,27 @@
           },
           {
             "section": "Req 1d",
-            "guideline": "Eliminate solutions masquerading as requirements — scrubbed-requirements.md complete.",
+            "guideline": "Eliminate solutions masquerading as requirements — scrubbed requirements complete.",
             "status": "pass",
             "justification": ""
           },
           {
             "section": "Req 1e",
-            "guideline": "Validate by supporting all core use cases — every core UC has a dynamic view in architecture.dsl.",
+            "guideline": "Validate by supporting all core use cases — every core UC has a dynamic view in the system model.",
             "status": "pass",
-            "justification": ""
+            "justification": "5 core use cases, 5 dynamic views (uc1-drive-system-design, uc2-commit-project-option, uc3-execute-construction-activity, uc4-operate-delivered-system, uc5-bill-user-for-usage); each dynamic view enters exactly one Manager."
           },
           {
             "section": "§2",
             "guideline": "Rarely more than 6 core use cases.",
             "status": "pass",
-            "justification": "5 core use cases as of 2026-06-09 (UC5 Onboard Payment Integration removed with merchant-of-record reversal). Cardinality flag resolved; previously at ceiling of 6, now comfortably within bound."
+            "justification": "5 core use cases as of 2026-07-03 (verified in the coreUseCases slot: 5 core, 10 nonCore with rejection reasons). Comfortably within bound."
           },
           {
             "section": "§2a",
             "guideline": "5 or fewer Managers without subsystems.",
-            "status": "waived",
-            "justification": "6 Managers — the thin projectManager (encapsulates ProjectCatalog volatility: 3 ops, no durable workflow, 0 Engines, 0 Resources) is the 6th. Introducing subsystems solely to avoid +1 would add complexity without payoff. Waiver granted 2026-06-01; no Manager added since. Re-evaluate if count grows past 6."
+            "status": "pass",
+            "justification": "5 Managers as of 2026-07-03: systemDesignManager, projectDesignManager, constructionManager, operationsManager, billingManager. The 2026-06-01 waiver for a 6th thin projectManager is RETIRED — projectManager was removed in the charge-only reconciliation (catalog reads re-homed to systemDesignManager.getProject). Item returns to a clean pass."
           },
           {
             "section": "§2b",
@@ -6545,32 +6545,32 @@
           {
             "section": "§2d",
             "guideline": "Golden Engines-to-Managers ratio — fewer Engines than Managers (the book's expectation).",
-            "status": "pass",
-            "justification": "7 Engines / 6 Managers as of 2026-06-15 (artifactValidationEngine removed — validation re-homes to a required CI check inside the agentic Action). Ratio smell narrowed further toward the book's expectation. Each remaining Engine encapsulates exactly one named activity volatility. Warning, not error; each Engine has a 1:1 volatility-to-encapsulator relationship."
+            "status": "waived",
+            "justification": "WAIVED 2026-07-03 (architect disposition): 7 Engines against 5 Managers inverts the book's ratio (5 Managers expect ~3 Engines per ch. 3 cardinality). Consolidation candidates examined and rejected: (1) EstimationEngine + OperationEstimationEngine encapsulate two independently-evolving volatilities (Construction Estimation Model vs Operation Estimation Model) with disjoint caller sets beyond the shared projectDesignManager — merging violates one-volatility-per-encapsulator; (2) InterventionEngine + AutoscalerEngine encapsulate policies on OPPOSITE volatility axes (Intervention Policy = same-customer-over-time; Autoscaling Policy = all-customers-at-one-time) and have different reuse profiles (Intervention shared by 3 Managers, Autoscaler by 1) — merging couples the two axes, the exact smell ch. 2 warns against. Consolidating mid-construction is additionally a scope change cascading through serviceContracts, the activity network, and Go packages. Each of the 7 Engines has a 1:1 volatility-to-encapsulator relationship. Re-evaluate at the next scope-change replan, or immediately if either pair's volatilities begin changing together."
           },
           {
             "section": "§2e",
             "guideline": "ResourceAccess may serve multiple Resources.",
             "status": "pass",
-            "justification": ""
+            "justification": "Permitted, not required — as of 2026-07-03 each of the 11 ResourceAccess components fronts exactly one Resource; projectGitRepo is fronted by two RAs (projectStateAccess, artifactAccess), which is the converse arrangement and equally legal."
           },
           {
             "section": "§2f",
             "guideline": "ResourceAccess count within order-of-magnitude bound (~10).",
             "status": "pass",
-            "justification": "10 production ResourceAccess components as of 2026-06-15: projectStateAccess, operatedSystemStateAccess, billingStateAccess, constructionPipelineAccess, operatedRuntimeAccess, usageAccess, billingGatewayAccess, sourceControlAccess, durableExecutionAccess, workItemAccess. artifactAccess folded into projectStateAccess C2; workerAccess removed entirely. Inside the order-of-magnitude bound."
+            "justification": "11 production ResourceAccess components as of 2026-07-03: projectStateAccess, artifactAccess, operatedSystemStateAccess, billingStateAccess, constructionPipelineAccess, operatedRuntimeAccess, usageAccess, merchantGatewayAccess (renamed from billingGatewayAccess in the charge-only reconciliation), sourceControlAccess, durableExecutionAccess, workItemAccess. artifactAccess is re-established as its own RA (staging/retrieval of construction outputs), reversing the earlier fold into projectStateAccess C2. Inside the order-of-magnitude bound."
           },
           {
             "section": "§2g",
             "guideline": "Resource count within order-of-magnitude bound (~10).",
             "status": "pass",
-            "justification": "7 internal Resources + 3 external softwareSystems (billingGateway, github, workItemTracker) as of 2026-06-15. workerProvider removed as external system. Inside bound."
+            "justification": "10 Resources as of 2026-07-03: 7 internal (projectGitRepo, operatedSystemState, billingState, constructionPipelineRuntime, durableExecutionRuntime, operatedRuntime, usageLog) + 3 external systems (merchantGateway, github, workItemTracker). Inside bound."
           },
           {
             "section": "§2h",
             "guideline": "Volatility count within 6–15 target range.",
             "status": "waived",
-            "justification": "18 volatilities as of 2026-06-15 — over the 6–15 upper bound. Each entry has exactly one encapsulator and a business trace; no speculative subdivision. Count flat since 2026-06-14 (WorkTracking +1, Worker subsumed into WorkflowRuntime f1 −1). Accepted: compression candidate (ConstructionEstimationModel + OperationEstimationModel) would violate one-volatility-per-encapsulator if merged, as their evolution timelines are independent."
+            "justification": "WAIVED (re-affirmed 2026-07-03): 22 volatilities in the committed slot — 11 same-customer-over-time, 11 all-customers-at-one-time — over the 6–15 upper bound. Growth from 18 came with the charge-only reconciliation ratified 2026-07-03 (Payment Provider, interaction channel/transport split, operational-state entries). Every entry has exactly one named encapsulator and a business trace; no speculative subdivision. Compression candidates (Construction Estimation Model + Operation Estimation Model; Intervention Policy + Autoscaling Policy) rejected for the same axis-independence reasons recorded under §2d. Re-evaluate if the count grows past 25 or any entry loses its 1:1 encapsulator."
           },
           {
             "section": "§3a",
@@ -6600,7 +6600,7 @@
             "section": "§3e",
             "guideline": "Symmetric design — all Managers receive direct Client calls, use Strategy-style Engines, read/write through ResourceAccess, log via Utilities.",
             "status": "pass",
-            "justification": ""
+            "justification": "All 5 Managers receive exactly one Client entry per use case and call at least one Engine (verified 2026-07-03: systemDesignManager to estimationEngine; projectDesignManager to estimation/operationEstimation/billing; constructionManager to handOff/review/intervention; operationsManager to autoscaler/operationEstimation/intervention; billingManager to billing/intervention). The single queued M-to-M edge is the only asymmetry and is documented in operational concepts."
           },
           {
             "section": "§3f",
@@ -6612,7 +6612,7 @@
             "section": "§3.3",
             "guideline": "Resources serve one purpose — each Resource is fronted by ResourceAccess encapsulating a distinct volatility.",
             "status": "pass",
-            "justification": "projectGitRepo fronted by projectStateAccess alone (one RA, two contracts) as of 2026-06-15. Cleaner than the prior two-RA arrangement: one access component hides the resource; the two write-disciplines are contract boundaries, not separate components."
+            "justification": "As of 2026-07-03 projectGitRepo is fronted by two RAs with distinct access volatilities: projectStateAccess (typed head-state verbs under git ref CAS) and artifactAccess (construction-output staging/retrieval). This reverses the 2026-06-15 fold-in: the two write-disciplines proved to be separate volatilities, so each got its own access component. Every other Resource is fronted by exactly one RA."
           },
           {
             "section": "§4a",
@@ -6640,9 +6640,9 @@
           },
           {
             "section": "§4c.ii",
-            "guideline": "No sideways edges except queued M↔M or M→E.",
+            "guideline": "No sideways edges except queued M-to-M or M-to-E.",
             "status": "pass",
-            "justification": ""
+            "justification": "Exactly one sideways edge exists as of 2026-07-03 and it is the permitted form: billingManager queues applyDelinquencyPolicy to operationsManager (mode=queued). All 12 Manager-to-Engine edges are sync in-process calls. No other sideways edges."
           },
           {
             "section": "§4c.iii",
@@ -6654,7 +6654,7 @@
             "section": "§4c.iv",
             "guideline": "Resolve open architecture attempts via queued or async calls.",
             "status": "pass",
-            "justification": "Trivially satisfied — no sideways open attempts exist."
+            "justification": "The one cross-Manager flow (billing delinquency escalation into operations) is resolved exactly this way — a queued call, documented in the operational-concepts layering-style decision. No unresolved open attempts."
           },
           {
             "section": "§4d",
@@ -6672,49 +6672,49 @@
             "section": "§5b",
             "guideline": "Managers and Engines can call ResourceAccess; Engines must not do I/O.",
             "status": "pass",
-            "justification": "As of 2026-06-15 no Engine does I/O: artifactValidationEngine (which previously shelled out to a CI check) is removed; renderingEngine (which shelled out to a CLI tool) is removed per 2026-06-01 pivot. All remaining Engines are pure-computation functions of their inputs."
+            "justification": "All 7 Engines (estimation, operationEstimation, handOff, intervention, autoscaler, review, billing) are pure-computation functions of their inputs; no Engine holds a ResourceAccess dependency or does I/O."
           },
           {
             "section": "§5c",
             "guideline": "Managers can call Engines — every Manager calls at least one Engine.",
             "status": "pass",
-            "justification": ""
+            "justification": "Verified 2026-07-03 against the relationships slot: all 5 Managers have at least one sync Engine edge (systemDesignManager has exactly one, to estimationEngine)."
           },
           {
             "section": "§5d",
             "guideline": "Managers can queue calls to another Manager.",
             "status": "pass",
-            "justification": "Permitted but not used — every cross-Manager transition is Client-initiated. No internal bus; no rent paid for a bus. Documented in operational-concepts §1 and §2."
+            "justification": "Used exactly once as of 2026-07-03: billingManager queues applyDelinquencyPolicy to operationsManager (the delinquency suspend/resume escalation). All other cross-Manager transitions remain Client-initiated. No internal bus."
           },
           {
             "section": "§6a",
             "guideline": "Clients do not call multiple Managers per use case.",
             "status": "pass",
-            "justification": ""
+            "justification": "Verified 2026-07-03: each of the 5 dynamic views enters exactly one Manager from its Client."
           },
           {
             "section": "§6b",
             "guideline": "Managers do not queue to more than one Manager per use case.",
             "status": "pass",
-            "justification": "Trivially satisfied — Managers do not queue calls at all."
+            "justification": "billingManager is the only queueing Manager and queues to exactly one Manager (operationsManager) in the billing use case. No Manager queues to two."
           },
           {
             "section": "§6c",
             "guideline": "Engines do not receive queued calls.",
             "status": "pass",
-            "justification": "Trivially satisfied — Engines receive only sync in-process calls from Managers."
+            "justification": "All 12 Manager-to-Engine edges are mode=sync; the sole queued edge in the system is Manager-to-Manager."
           },
           {
             "section": "§6d",
             "guideline": "ResourceAccess does not receive queued calls.",
             "status": "pass",
-            "justification": "Trivially satisfied — RA receives only sync in-process calls from Managers."
+            "justification": "All RA inbound edges are sync in-process calls; the sole queued edge in the system is Manager-to-Manager."
           },
           {
             "section": "§6e",
             "guideline": "Clients do not publish events.",
             "status": "pass",
-            "justification": "Trivially satisfied — bus removed. Each Client makes a direct in-process call to exactly one Manager method per inbound request. The prior Don't 6e waiver (Clients publishing onto the bus) is revoked."
+            "justification": "Trivially satisfied — no bus. Each Client makes a direct in-process call to exactly one Manager method per inbound request. The prior Don't 6e waiver (Clients publishing onto the bus) remains revoked."
           },
           {
             "section": "§6f",
@@ -6741,34 +6741,46 @@
             "justification": "Trivially satisfied."
           },
           {
-            "section": "§6 (contracts)",
-            "guideline": "Service contracts: per-component op-count within sweet spot (3–5 typical, ≤12 hard cap); ≤2 contracts per ResourceAccess.",
+            "section": "§naming",
+            "guideline": "Engine names are gerunds (ch. 3 naming rule: gerund + Engine suffix, e.g. MatchingEngine).",
+            "status": "waived",
+            "justification": "WAIVED 2026-07-03 (architect disposition): 6 of 7 Engines are noun-named rather than gerund-named (EstimationEngine, OperationEstimationEngine, HandOffEngine, InterventionEngine, AutoscalerEngine, ReviewEngine; only BillingEngine conforms). The rule is a readability convention, not a structural one — each Engine's classification, purity, and volatility encapsulation are correct. Renaming mid-construction would cascade through the systemDesign component ids, serviceContracts keys, the activity network, and Go package/component names while construction agents are actively working in server/ — cost far exceeds the convention's benefit now. Re-evaluation trigger: apply gerund names opportunistically whenever an architectural change next touches a given Engine's contract, and at the latest during the next major-version decomposition review."
+          },
+          {
+            "section": "§temporal",
+            "guideline": "Temporal vocabulary on architecture edges (skill Section I, 7a–7j).",
             "status": "pass",
-            "justification": "projectStateAccess carries 2 contracts (≤2 verified per App B §5.4): C1 = typed Phase-1/2 head-state verbs; C2 = Phase-3 construction-output staging/retrieval. sourceControlAccess carries exactly 2 contracts (repo-lifecycle + IPullRequestRail). All RA op-counts within App B bands per contract."
+            "justification": "Marked N/A by design: the operational-concepts decision 'durable primitives are execution substrate, not architecture edges' deliberately keeps Temporal primitives (startTimer, awaitSignal, executeChild, client.Client) off the typed relationship labels — edges carry business verbs with a sync/queued mode instead. Determinism and idempotency discipline live in operational concepts and per-component contracts, not in edge labels."
+          },
+          {
+            "section": "§6 (contracts)",
+            "guideline": "Service contracts: per-component op-count within sweet spot (3–5 typical, 12 hard cap); 2 or fewer contracts per ResourceAccess.",
+            "status": "pass",
+            "justification": "Forward-look enforced per component at detailed design. Structure as of 2026-07-03: the former projectStateAccess C2 (construction-output staging/retrieval) is now the separate artifactAccess component, so no RA carries more than 2 contracts; sourceControlAccess retains its repo-lifecycle + pull-request-rail split. Full App B walk re-runs per contract during Phase 3 detailed-design activities."
           },
           {
             "section": "§DEP-GRAPH-IDENTITY",
             "guideline": "Identical component set in test and production — no test-only production seams.",
             "status": "pass",
-            "justification": "Strengthened 2026-06-15: workerAccess removed entirely (not just demoted to test-only). The LLM is stubbed at the agentic-job boundary (constructionPipelineAccess/sourceControlAccess), not at a workerAccess seam. Internal component set is genuinely identical in test and prod."
+            "justification": "workerAccess removed entirely (charge-only architecture: no direct LLM access component — construction runs on the user's own Claude Code account via agentic GitHub jobs). The LLM is stubbed at the agentic-job boundary (constructionPipelineAccess/sourceControlAccess), not at an internal seam. Internal component set is genuinely identical in test and prod."
           },
           {
             "section": "§mission",
             "guideline": "Mission integrity and traceability — every volatility has an encapsulator; every objective has a component.",
             "status": "pass",
-            "justification": ""
+            "justification": "Verified 2026-07-03 across all 22 volatilities: 19 cited directly by component encapsulates fields; Customer Interaction Channel and Customer Interaction Transport encapsulated by the Client tier; Customer App Infrastructure encapsulated via Strategy registrations on AutoscalerEngine and OperationEstimationEngine (recorded in the volatility rationale)."
           },
           {
             "section": "§dsl",
-            "guideline": "Structurizr DSL validity — architecture.dsl and workspace.dsl validate clean.",
+            "guideline": "Structurizr DSL validity — the rendered architecture DSL validates clean.",
             "status": "pass",
-            "justification": ""
+            "justification": "The DSL is render-on-read of the typed systemDesign slot; the typed model (39 components, 5 dynamic views) is the source of truth and round-trips through the Go codec."
           },
           {
             "section": "§billing-model",
-            "guideline": "Billing model: usage-based cloud hosting charge only; no flat subscription; construction runs on the user's own Claude Code account; aiarch is a pure service vendor, merchant of record for its own invoices only.",
+            "guideline": "Billing model: usage-based cloud hosting charge only; no flat subscription; construction runs on the user's own Claude Code account; aiarch is a pure service vendor.",
             "status": "pass",
-            "justification": "CON-3 reversed 2026-06-09: aiarch is a pure service vendor. BillingManager + BillingEngine + BillingGatewayAccess + UsageAccess implement one-directional hosting charge (meter hosting/compute → price via ServicePricing → charge the user). No flat subscription; no token metering; no construction charges; no revenue-share."
+            "justification": "Charge-only architecture ratified 2026-07-03: BillingManager + BillingEngine + MerchantGatewayAccess (Stripe Connect direct charges — payment provider is the encapsulated Payment Provider volatility; aiarch is NOT merchant of record for customer apps) + UsageAccess implement the one-directional hosting charge (meter hosting/compute, price via ServicePricing, charge the user). No flat subscription; no token metering; no construction charges; no revenue-share. Delinquency escalates via the queued billingManager-to-operationsManager edge."
           }
         ]
       }
