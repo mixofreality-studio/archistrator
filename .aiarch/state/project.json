@@ -2686,11 +2686,6 @@
             "axis": "sameCustomerOverTime"
           },
           {
-            "name": "ProjectCatalog",
-            "rationale": "The platform's project registry — how a project comes into being, who owns it, how projects are listed/discovered for an owner, and the lifecycle states a project moves through before and across the Method phases — will evolve over a customer's tenure: explicit creation today, later templated/forked creation, archival/soft-delete, shared/team ownership, project-level tagging and search, cross-phase status rollups. Distinct from the three phase-workflow volatilities: those encapsulate the step sequence within a phase; ProjectCatalog encapsulates the registry and ownership of the project entity itself. Lives on axis 1 because the platform matures the catalog system-wide for everyone at once.",
-            "axis": "sameCustomerOverTime"
-          },
-          {
             "name": "ConstructionEstimationModel",
             "rationale": "How construction duration, cost, and risk are computed will change as workers change, as historical data accumulates, and as the team refines the model. Construction estimation only — the operating-side forecast is split out as OperationEstimationModel. The two evolve on independent timelines (construction estimation matures with worker/build telemetry; operation estimation matures with fleet/usage telemetry).",
             "axis": "sameCustomerOverTime"
@@ -2707,7 +2702,7 @@
           },
           {
             "name": "ServicePricing",
-            "rationale": "How aiarch prices its own service to the user evolves system-wide over time. Current instance (2026-06-14): a usage-based hosting fee for operated systems only (DEPLOYED — OPERATED); no flat subscription; construction is not charged (runs on the user's own Claude Code token and CI minutes). Tomorrow: per-seat tiers, free-tier subsidies, hosting-resource-class pricing, volume discounts. This is open-ended, will ripple, and must not be a hardcoded constant — it is the policy billingEngine pivots on as a Strategy. Lives on axis 1 because aiarch re-prices its service for everyone as its cost structure and market position change.",
+            "rationale": "How aiarch prices its own service to the user evolves system-wide over time. Current instance (2026-06-14): a usage-based hosting fee for operated systems only (DEPLOYED — OPERATED); no flat subscription; construction is not charged (runs on the user's own Claude Code token and CI minutes). Tomorrow: per-seat tiers, free-tier subsidies, hosting-resource-class pricing, volume discounts. This is open-ended, will ripple, and must not be a hardcoded constant — it is the policy SettlementEngine pivots on as a Strategy. Lives on axis 1 because aiarch re-prices its service for everyone as its cost structure and market position change.",
             "axis": "sameCustomerOverTime"
           },
           {
@@ -2717,17 +2712,12 @@
           },
           {
             "name": "AutoscalerPolicy",
-            "rationale": "When and how the platform drives capacity changes (scale up / scale down / idle-pause / resume-to-baseline) on an operated app from observed telemetry. Rules mature on their own timeline: idle-pause thresholds, predictive vs. reactive scaling, SLA-class tiers, scale-from-zero cold-start tolerance, operator overrides. Symmetrical with InterventionPolicy in shape but structurally distinct: InterventionPolicy answers 'is this app broken and what do we do?'; AutoscalerPolicy answers 'is this app's capacity right and what do we do?' Two timelines, two encapsulators.",
-            "axis": "sameCustomerOverTime"
+            "rationale": "When and how the platform drives capacity changes (scale up / scale down / idle-pause / resume-to-baseline) on an operated app from observed telemetry. Per R-023 this is a customer-tunable policy: at any given moment, different customers run different policies on their operated apps — one tolerates scale-from-zero cold starts to minimize cost, another pins a warm baseline for latency, each with its own idle-pause thresholds and overrides. Encapsulated as a Strategy on AutoscalerEngine. Symmetrical with InterventionPolicy in shape but structurally distinct: InterventionPolicy answers 'is this app broken and what do we do?'; AutoscalerPolicy answers 'is this app's capacity right and what do we do?'",
+            "axis": "allCustomersAtOneTime"
           },
           {
             "name": "ReviewPolicy",
             "rationale": "Who must review a produced change, from what perspective, and against which reference artifact is policy that will evolve as the platform's engineering practice matures. Today: a code change is reviewed by the owners of each inbound/outbound neighbour component, plus the change's own component owner. Tomorrow: new reviewer roles, adjacency rules keyed on layer or risk, deeper review for higher-risk components, bidirectional amend rules. Lives on axis 1 because the platform evolves the policy system-wide as practice matures. Phase-3 construction only — Phase-1 role choreography is the Manager's fixed sequence.",
-            "axis": "sameCustomerOverTime"
-          },
-          {
-            "name": "ArtifactRendering",
-            "rationale": "The Method's artifacts are typed domain models codified in aiarch/server. What is open-ended is how those canonical models are rendered for human consumption. As of 2026-06-01 this volatility is encapsulated in the client (React SPA), not on the server. The server returns typed models as JSON; the SPA renders them — React-Flow C4 diagrams, a two-axis SVG scatter from the Volatilities model, React-Flow activity diagrams, and markdown prose. The canonical typed model never changes when the renderer does. Lives on axis 1 because the SPA upgrades its rendering system-wide as front-end tooling matures.",
             "axis": "sameCustomerOverTime"
           },
           {
@@ -2763,6 +2753,11 @@
           {
             "name": "WorkTracking",
             "rationale": "At the same moment, different customers track the Method's activities in different work-item systems: GitHub Issues today → Jira / Linear / Azure Boards later. Each Method activity is mirrored as a work item: open-on-seal, status-mirror, close-on-merge. The verbs are stable (openWorkItem / updateWorkItem / closeWorkItem; deferred observeWorkItem); the tracker behind them varies per customer. Independent seam from the repo/CI seams — a customer can run GitHub repo + GitHub Actions + Jira issues, or GitLab + GitLab CI + Linear, with no Manager/Engine-layer change.",
+            "axis": "allCustomersAtOneTime"
+          },
+          {
+            "name": "PaymentProvider",
+            "rationale": "The external merchant provider through which aiarch charges customers for its service varies at the same moment across deployment scenarios: a real payment provider in the cloud scenario (plausibly Stripe) and a no-op/recording gateway in the test profile; later, alternate providers or direct invoicing for enterprise customers. The verbs are stable (store instrument, charge invoice, report settlement outcome); the provider behind them is what varies. Encapsulated by merchantGatewayAccess fronting the MerchantGateway resource — the volatility that justifies that seam's existence.",
             "axis": "allCustomersAtOneTime"
           }
         ]
