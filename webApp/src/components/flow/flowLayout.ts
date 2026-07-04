@@ -147,26 +147,30 @@ export function computeLayout(components: LayoutComponent[], relationships: Layo
   return { pos, rows, utilityIds: utility.map((u) => u.id), barX, barTop, barBottom };
 }
 
-/** Row-gutter label text, book-style: Managers + Engines share a "Business Logic" band. */
+/** Row-gutter label text: the Method component-layer name for each row (matches
+ *  the legend). Utilities are labeled by their own side-bar frame, not a gutter row. */
 function rowLabelText(layer: Layer): string | null {
   switch (layer) {
     case 'client':
-      return 'Client';
+      return 'Clients';
+    case 'manager':
+      return 'Managers';
+    case 'engine':
+      return 'Engines';
     case 'resourceAccess':
       return 'Resource\nAccess';
     case 'resource':
-      return 'Resource';
-    case 'manager':
-    case 'engine':
+      return 'Resources';
     case 'utility':
-      return null; // manager / engine → covered by the Business Logic band; utility → side bar
+      return null; // utility → side bar frame
   }
 }
 
 /**
  * The non-interactive decoration for a layered layout: the left row-label gutter
- * (incl. a "Business Logic" band spanning the Manager+Engine rows) and the
- * Utilities frame. Rendered by the `rowLabel` / `utilityFrame` node types.
+ * (one Method layer name per row: Clients / Managers / Engines / Resource Access /
+ * Resources) and the Utilities frame. Rendered by the `rowLabel` / `utilityFrame`
+ * node types.
  */
 export function decorativeNodes(layout: Layout): Node[] {
   const nodes: Node[] = [];
@@ -183,12 +187,6 @@ export function decorativeNodes(layout: Layout): Node[] {
   for (const r of layout.rows) {
     const text = rowLabelText(r.layer);
     if (text !== null) nodes.push(decor(r.layer, r.y, text));
-  }
-  const blYs = layout.rows
-    .filter((r) => r.layer === 'manager' || r.layer === 'engine')
-    .map((r) => r.y);
-  if (blYs.length > 0) {
-    nodes.push(decor('business-logic', blYs.reduce((a, b) => a + b, 0) / blYs.length, 'Business\nLogic'));
   }
 
   if (layout.utilityIds.length > 0) {
