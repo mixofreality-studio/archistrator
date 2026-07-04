@@ -227,15 +227,24 @@ func writePriorsPointer(b *strings.Builder, kinds ...string) {
 	fmt.Fprintf(b, "Read these prior committed artifacts from .aiarch/state/project.json as context: %s.\n", strings.Join(kinds, ", "))
 }
 
-// writeResearch weaves the Phase-1 research corpus into the mission-draft prompt
-// (rework §2.6 / §8). An empty corpus is skipped.
+// writeResearch POINTS the mission-draft prompt at the Phase-1 research corpus
+// committed in .aiarch/state/project.json rather than INLINING the source content
+// (rework §2.6 / §8; QA finding F11). The corpus is already committed at the JSON path
+// .research.Sources[] on the checked-out project state (the Action runs IN the repo and
+// prior_state_ref is always empty ⇒ github.ref, the default branch, which carries the
+// committed research from the very first SetResearchInput). Inlining a book-sized corpus
+// blew both the Temporal workflow-payload budget (TMPRL1103) and GitHub's 64KB
+// workflow_dispatch input cap (422 ContractMisuse), making system design impossible. We
+// UNIFORMLY point — never inline, no size cliff — listing only each source's short TITLE
+// so the drafting agent knows what is there and can read the full text by title. An empty
+// corpus is skipped (IsZero guard preserved).
 func writeResearch(b *strings.Builder, research projectstate.ResearchInput) {
 	if research.IsZero() {
 		return
 	}
-	b.WriteString("\nResearch corpus (the raw material for the mission):\n")
+	b.WriteString("\nResearch corpus (the raw material for the mission): read the full text of each source from .aiarch/state/project.json at the JSON path .research.Sources[] in the checked-out repository — each entry has a \"Title\" and its full \"Content\". Do NOT expect the content inline here; it lives in the committed project state. The sources present, by title, are:\n")
 	for _, s := range research.Sources {
-		fmt.Fprintf(b, "- %s: %s\n", s.Title, s.Content)
+		fmt.Fprintf(b, "- %s\n", s.Title)
 	}
 }
 
