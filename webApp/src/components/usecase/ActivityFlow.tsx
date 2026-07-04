@@ -27,10 +27,23 @@ import { layoutActivity, isBackEdge, HEADER_HEIGHT } from './activityLayout';
 
 const nodeTypes = { activity: ActivityNode, swimlane: SwimlaneBackground };
 
+/**
+ * Walkthrough highlight state: the current node, the set of visited node ids, and
+ * the set of traversed edge keys (`${from}-${to}`). When present, the diagram
+ * behaves as a "you-are-here" map — current node ringed, visited path emphasized,
+ * everything else dimmed. Absent → the plain static diagram.
+ */
+export interface ActivityHighlight {
+  current: string;
+  visitedNodes: Set<string>;
+  visitedEdges: Set<string>;
+}
+
 function build(
   uc: UseCaseView,
   useCaseIndex: number,
-  t: Tokens
+  t: Tokens,
+  hl: ActivityHighlight | undefined
 ): { nodes: Node[]; edges: Edge[] } {
   const colors = laneColors(t, uc.lanes);
   const layout = layoutActivity(uc);
@@ -58,6 +71,9 @@ function build(
 
   const activityNodes: Node[] = uc.nodes.map((n) => {
     const pos = layout.positions.get(n.id) ?? { x: 0, y: 0 };
+    const isCurrent = hl?.current === n.id;
+    const onPath = hl?.visitedNodes.has(n.id) ?? false;
+    const dim = hl !== undefined && !isCurrent && !onPath;
     return {
       id: n.id,
       type: 'activity',
@@ -71,25 +87,38 @@ function build(
         jsonPath: activityNodeAnchor(useCaseIndex, n.id),
       },
       draggable: false,
-      zIndex: 1,
-      style: { zIndex: 1 },
+      zIndex: isCurrent ? 3 : 1,
+      style: {
+        zIndex: isCurrent ? 3 : 1,
+        opacity: dim ? 0.25 : 1,
+        ...(isCurrent ? { boxShadow: `0 0 0 3px ${t.accent}`, borderRadius: 6 } : {}),
+        transition: 'opacity 120ms',
+      },
     };
   });
 
   const edges: Edge[] = uc.edges.map((e) => {
     const dashed = e.kind === 'guardedFlow' || isBackEdge(layout, e.from, e.to);
+    const onPath = hl?.visitedEdges.has(`${e.from}-${e.to}`) ?? false;
+    const dim = hl !== undefined && !onPath;
+    const stroke = onPath ? t.accent : dashed ? t.accent2 : t.muted;
     return {
       id: `${e.from}-${e.to}`,
       source: e.from,
       target: e.to,
       ...(e.guard.length > 0 ? { label: e.guard } : {}),
       type: 'smoothstep',
-      zIndex: 2,
-      style: { stroke: dashed ? t.accent2 : t.muted, strokeWidth: 1.5, strokeDasharray: dashed ? '5 4' : undefined },
+      zIndex: onPath ? 3 : 2,
+      style: {
+        stroke,
+        strokeWidth: onPath ? 2.75 : 1.5,
+        strokeDasharray: dashed && !onPath ? '5 4' : undefined,
+        opacity: dim ? 0.2 : 1,
+      },
       labelStyle: { fontFamily: t.mono, fontSize: 10, fontWeight: 700, fill: t.ink },
       labelBgStyle: { fill: t.paper, fillOpacity: 0.95 },
       labelBgPadding: [5, 3] as [number, number],
-      markerEnd: { type: MarkerType.ArrowClosed, color: dashed ? t.accent2 : t.muted },
+      markerEnd: { type: MarkerType.ArrowClosed, color: stroke },
     };
   });
 
@@ -100,13 +129,19 @@ export function ActivityFlow({
   uc,
   useCaseIndex,
   height = 560,
+  highlight,
 }: {
   uc: UseCaseView;
   useCaseIndex: number;
   height?: number;
+  /** When set, the diagram renders as a walkthrough "you-are-here" map. */
+  highlight?: ActivityHighlight;
 }): ReactNode {
   const t = useTokens();
-  const { nodes, edges } = useMemo(() => build(uc, useCaseIndex, t), [uc, useCaseIndex, t]);
+  const { nodes, edges } = useMemo(
+    () => build(uc, useCaseIndex, t, highlight),
+    [uc, useCaseIndex, t, highlight]
+  );
 
   if (uc.nodes.length === 0) {
     return (
@@ -117,7 +152,15 @@ export function ActivityFlow({
   }
 
   return (
-    <Box sx={{ height, width: '100%', border: `1.5px solid ${t.line}`, borderRadius: t.radius / 8 + 0.5, bgcolor: t.bg }}>
+    <Box
+      sx={{
+        height,
+        width: '100%',
+        border: `1.5px solid ${t.line}`,
+        borderRadius: t.radius / 8 + 0.5,
+        bgcolor: t.bg,
+      }}
+    >
       <ReactFlow
         elementsSelectable
         fitView

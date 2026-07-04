@@ -16,23 +16,37 @@ import FormControl from '@mui/material/FormControl';
 import InputLabel from '@mui/material/InputLabel';
 import Select from '@mui/material/Select';
 import MenuItem from '@mui/material/MenuItem';
+import ToggleButton from '@mui/material/ToggleButton';
+import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
 import { toCoreUseCasesView } from '../../api/adapters';
 import type { ArtifactModelEnvelope } from '../../api/types';
 import { ActivityFlow } from './ActivityFlow';
+import { UseCaseWalkthrough } from './UseCaseWalkthrough';
 import { laneColors } from './laneColors';
+
+// Diagram-view mode survives the design-experience remount that would otherwise
+// reset it every render, so a reader who chose "walkthrough" stays there while
+// paging use cases. Module-scoped (see the diagram-view remount convention).
+type UcViewMode = 'walkthrough' | 'diagram';
+const viewMemory: { mode: UcViewMode } = { mode: 'walkthrough' };
 // Aliased away from a `use*` name so the react-hooks lint heuristic doesn't
 // mistake this plain anchor builder for a React hook.
 import { useComments, useCaseAnchor as buildUseCaseAnchor } from '../comments/CommentContext';
 import { UI_IDENTIFIERS } from '../../constants/UIIdentifiers';
 import { useTokens } from '../../theme/ThemeContext';
 
-export function UseCaseCarousel({ envelope }: { envelope: ArtifactModelEnvelope | undefined }): ReactNode {
+export function UseCaseCarousel({
+  envelope,
+}: {
+  envelope: ArtifactModelEnvelope | undefined;
+}): ReactNode {
   const t = useTokens();
   const { setAnchor } = useComments();
   const [i, setI] = useState(0);
+  const [mode, setMode] = useState<UcViewMode>(viewMemory.mode);
   const useCases = toCoreUseCasesView(envelope).useCases;
 
   if (useCases.length === 0) {
@@ -79,17 +93,38 @@ export function UseCaseCarousel({ envelope }: { envelope: ArtifactModelEnvelope 
         <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.muted, flexShrink: 0 }}>
           {active + 1} / {useCases.length}
         </Typography>
-        <IconButton aria-label="Previous use case" size="small" sx={{ border: `1.5px solid ${t.line}`, borderRadius: 1, color: t.ink }} onClick={() => { go(-1); }}>
+        <IconButton
+          aria-label="Previous use case"
+          size="small"
+          sx={{ border: `1.5px solid ${t.line}`, borderRadius: 1, color: t.ink }}
+          onClick={() => {
+            go(-1);
+          }}
+        >
           <ChevronLeftIcon fontSize="small" />
         </IconButton>
-        <IconButton aria-label="Next use case" size="small" sx={{ border: `1.5px solid ${t.line}`, borderRadius: 1, color: t.ink }} onClick={() => { go(1); }}>
+        <IconButton
+          aria-label="Next use case"
+          size="small"
+          sx={{ border: `1.5px solid ${t.line}`, borderRadius: 1, color: t.ink }}
+          onClick={() => {
+            go(1);
+          }}
+        >
           <ChevronRightIcon fontSize="small" />
         </IconButton>
         <IconButton
           aria-label={`Comment on use case ${uc.name}`}
           data-testid={UI_IDENTIFIERS.Comments.USECASE_COMMENT}
           size="small"
-          sx={{ border: `1.5px solid ${t.line}`, borderRadius: 1, color: t.accentText, bgcolor: t.accent, flexShrink: 0, '&:hover': { bgcolor: t.accent2 } }}
+          sx={{
+            border: `1.5px solid ${t.line}`,
+            borderRadius: 1,
+            color: t.accentText,
+            bgcolor: t.accent,
+            flexShrink: 0,
+            '&:hover': { bgcolor: t.accent2 },
+          }}
           onClick={() => {
             setAnchor({
               kind: 'node',
@@ -103,9 +138,24 @@ export function UseCaseCarousel({ envelope }: { envelope: ArtifactModelEnvelope 
         </IconButton>
       </Box>
 
-      <Paper sx={{ display: 'flex', alignItems: 'stretch', overflow: 'hidden', flexDirection: { xs: 'column', md: 'row' } }}>
+      <Paper
+        sx={{
+          display: 'flex',
+          alignItems: 'stretch',
+          overflow: 'hidden',
+          flexDirection: { xs: 'column', md: 'row' },
+        }}
+      >
         {/* meta sidebar */}
-        <Box sx={{ width: { xs: '100%', md: 300 }, flexShrink: 0, p: 3, borderRight: { md: `1.5px solid ${t.line}` }, bgcolor: t.paperAlt }}>
+        <Box
+          sx={{
+            width: { xs: '100%', md: 300 },
+            flexShrink: 0,
+            p: 3,
+            borderRight: { md: `1.5px solid ${t.line}` },
+            bgcolor: t.paperAlt,
+          }}
+        >
           <Typography sx={{ color: t.muted }} variant="overline">
             {isCore ? 'Core Use Case' : 'Variation'}
           </Typography>
@@ -115,7 +165,11 @@ export function UseCaseCarousel({ envelope }: { envelope: ArtifactModelEnvelope 
           <Chip
             label={isCore ? 'CORE' : 'NON-CORE'}
             size="small"
-            sx={{ bgcolor: isCore ? t.committedBg : t.awaitingBg, color: isCore ? t.committedFg : t.awaitingFg, mb: 2 }}
+            sx={{
+              bgcolor: isCore ? t.committedBg : t.awaitingBg,
+              color: isCore ? t.committedFg : t.awaitingFg,
+              mb: 2,
+            }}
           />
           {!isCore && uc.rejectionReason.length > 0 && (
             <Typography sx={{ color: t.muted, fontSize: 13, lineHeight: 1.6, mb: 3 }}>
@@ -128,16 +182,55 @@ export function UseCaseCarousel({ envelope }: { envelope: ArtifactModelEnvelope 
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
             {uc.lanes.map((l) => (
               <Box key={l} sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-                <Box sx={{ width: 11, height: 11, bgcolor: colors[l], border: `1.5px solid ${t.line}`, flexShrink: 0 }} />
+                <Box
+                  sx={{
+                    width: 11,
+                    height: 11,
+                    bgcolor: colors[l],
+                    border: `1.5px solid ${t.line}`,
+                    flexShrink: 0,
+                  }}
+                />
                 <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.ink }}>{l}</Typography>
               </Box>
             ))}
           </Box>
         </Box>
 
-        {/* diagram hero — React Flow */}
+        {/* hero: walkthrough (choose-your-path) or the full diagram */}
         <Box sx={{ flexGrow: 1, minWidth: 0, p: 1.5 }}>
-          <ActivityFlow height={580} uc={uc} useCaseIndex={active} />
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1.5 }}>
+            <ToggleButtonGroup
+              exclusive
+              aria-label="Use case view mode"
+              size="small"
+              value={mode}
+              onChange={(_e, next: UcViewMode | null) => {
+                if (next !== null) {
+                  viewMemory.mode = next;
+                  setMode(next);
+                }
+              }}
+            >
+              <ToggleButton
+                sx={{ fontFamily: t.mono, fontSize: 11, textTransform: 'none' }}
+                value="walkthrough"
+              >
+                Walkthrough
+              </ToggleButton>
+              <ToggleButton
+                sx={{ fontFamily: t.mono, fontSize: 11, textTransform: 'none' }}
+                value="diagram"
+              >
+                Full diagram
+              </ToggleButton>
+            </ToggleButtonGroup>
+          </Box>
+          {mode === 'walkthrough' ? (
+            <UseCaseWalkthrough height={560} key={uc.id} uc={uc} useCaseIndex={active} />
+          ) : (
+            <ActivityFlow height={580} uc={uc} useCaseIndex={active} />
+          )}
         </Box>
       </Paper>
     </Box>
