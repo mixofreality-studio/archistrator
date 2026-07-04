@@ -11,9 +11,9 @@ import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
 import PaletteOutlinedIcon from '@mui/icons-material/PaletteOutlined';
 import CheckIcon from '@mui/icons-material/Check';
-import { useThemeSwitch } from '../theme/ThemeContext';
-import { THEME_ORDER, TOKENS } from '../theme/themes';
-import { UI_IDENTIFIERS } from '../constants/UIIdentifiers';
+import { useThemeSwitch } from '../utilities/theme/ThemeContext';
+import { THEME_ORDER, TOKENS } from '../utilities/theme/themes';
+import { UI_IDENTIFIERS } from '../utilities/constants/UIIdentifiers';
 
 export function ThemeSwitcher(): ReactNode {
   const { themeKey, setThemeKey, tokens } = useThemeSwitch();

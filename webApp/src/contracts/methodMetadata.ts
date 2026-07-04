@@ -4,7 +4,7 @@
  * Keyed by the string ArtifactKind wire discriminator (both phases). Pure data,
  * no logic — the screens/adapters read it to build the table-of-contents.
  */
-import type { ArtifactKindFull } from '../api/types';
+import type { ArtifactKindFull } from './types';
 
 export interface MethodArtifactMeta {
   /** The string ArtifactKind wire discriminator. */

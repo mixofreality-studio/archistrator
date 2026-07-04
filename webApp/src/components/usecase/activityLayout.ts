@@ -7,7 +7,7 @@
  * merge below. Knows nothing about React-Flow, theming, or node shapes; ActivityFlow
  * consumes these positions and the back-edge set to build the actual nodes/edges.
  */
-import type { UseCaseView } from '../../api/adapters';
+import type { UseCaseView } from '../../contracts/adapters';
 import { NODE_DIMS } from './nodeDims';
 
 export const SLOT_WIDTH = 280;

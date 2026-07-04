@@ -7,8 +7,8 @@
  */
 import type { ReactNode } from 'react';
 import Box from '@mui/material/Box';
-import type { EvCurves, EvPoint } from '../../api/types';
-import { useTokens } from '../../theme/ThemeContext';
+import type { EvCurves, EvPoint } from '../../contracts/types';
+import { useTokens } from '../../utilities/theme/ThemeContext';
 
 const W = 760;
 const H = 280;

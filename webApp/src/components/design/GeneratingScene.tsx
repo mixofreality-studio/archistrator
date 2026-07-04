@@ -16,9 +16,9 @@ import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import Link from '@mui/material/Link';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
-import { useTokens } from '../../theme/ThemeContext';
-import type { Tokens } from '../../theme/themes';
-import { UI_IDENTIFIERS } from '../../constants/UIIdentifiers';
+import { useTokens } from '../../utilities/theme/ThemeContext';
+import type { Tokens } from '../../utilities/theme/themes';
+import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 
 const STAGES = ['DRAFT', 'VALIDATE', 'CRITIQUE', 'READY'] as const;
 

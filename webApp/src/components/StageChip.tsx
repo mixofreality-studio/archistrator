@@ -11,8 +11,8 @@ import RateReviewOutlinedIcon from '@mui/icons-material/RateReviewOutlined';
 import CircleOutlinedIcon from '@mui/icons-material/CircleOutlined';
 import CloseIcon from '@mui/icons-material/Close';
 import UndoIcon from '@mui/icons-material/Undo';
-import type { SlotStage } from '../api/adapters';
-import { useTokens } from '../theme/ThemeContext';
+import type { SlotStage } from '../contracts/adapters';
+import { useTokens } from '../utilities/theme/ThemeContext';
 
 export function StageChip({
   stage,

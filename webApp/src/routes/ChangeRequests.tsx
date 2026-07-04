@@ -26,8 +26,8 @@ import AddIcon from '@mui/icons-material/Add';
 import SwapCallsOutlinedIcon from '@mui/icons-material/SwapCallsOutlined';
 import { getRouteApi, useNavigate } from '@tanstack/react-router';
 import { useProject } from '../hooks/useProject';
-import { useTokens } from '../theme/ThemeContext';
-import { UI_IDENTIFIERS } from '../constants/UIIdentifiers';
+import { useTokens } from '../utilities/theme/ThemeContext';
+import { UI_IDENTIFIERS } from '../utilities/constants/UIIdentifiers';
 
 const routeApi = getRouteApi('/project/$projectId/changes');
 

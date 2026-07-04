@@ -6,8 +6,8 @@
  * from theme tokens — never hardcoded.
  */
 import { alpha } from '@mui/material/styles';
-import type { Tokens } from '../../theme/themes';
-import type { FloatBand } from '../../api/projectAdapters';
+import type { Tokens } from '../../utilities/theme/themes';
+import type { FloatBand } from '../../contracts/projectAdapters';
 
 export interface BandTokens {
   /** The strong band colour (left-border, chip text/border, minimap fill). */

@@ -16,11 +16,11 @@ import Button from '@mui/material/Button';
 import RocketLaunchOutlinedIcon from '@mui/icons-material/RocketLaunchOutlined';
 import TrendingUpOutlinedIcon from '@mui/icons-material/TrendingUpOutlined';
 import PowerSettingsNewIcon from '@mui/icons-material/PowerSettingsNew';
-import { useTokens } from '../../theme/ThemeContext';
-import type { OperationsView } from '../../api/operationsTypes';
-import { normalizePhase } from '../../api/operationsAdapters';
+import { useTokens } from '../../utilities/theme/ThemeContext';
+import type { OperationsView } from '../../contracts/operationsTypes';
+import { normalizePhase } from '../../contracts/operationsAdapters';
 import { useOperationAction, useWithdrawOperatedApp } from '../../hooks/useOperationsMutations';
-import { UI_IDENTIFIERS } from '../../constants/UIIdentifiers';
+import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 import { PhaseChip } from './phase';
 import { AwaitingPanel } from './AwaitingPanel';
 

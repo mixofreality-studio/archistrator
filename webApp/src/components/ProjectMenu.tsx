@@ -19,8 +19,8 @@ import { useNavigate } from '@tanstack/react-router';
 import { useProjects } from '../hooks/useProjects';
 import { CreateProjectDialog } from './CreateProjectDialog';
 import { PHASE_LABELS, formatUpdatedAt } from './projectFormat';
-import { useTokens } from '../theme/ThemeContext';
-import { UI_IDENTIFIERS } from '../constants/UIIdentifiers';
+import { useTokens } from '../utilities/theme/ThemeContext';
+import { UI_IDENTIFIERS } from '../utilities/constants/UIIdentifiers';
 
 export function ProjectMenu({
   projectId,

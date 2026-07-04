@@ -8,10 +8,11 @@
  * dispatches the next eligible activity for the supplied tickID (idempotency key).
  */
 import { useMutation, useQueryClient, type UseMutationResult } from '@tanstack/react-query';
-import { apiClient, toApiError } from '../api/client';
-import { overrideKindToOrdinal, phaseDecisionToOrdinal } from '../api/enums';
-import type { OverrideKind, PhaseDecision } from '../api/types';
-import type { components } from '../api/schema';
+import { apiClient } from '../api/client';
+import { toApiError } from '../contracts/errors';
+import { overrideKindToOrdinal, phaseDecisionToOrdinal } from '../contracts/enums';
+import type { OverrideKind, PhaseDecision } from '../contracts/types';
+import type { components } from '../contracts/schema';
 import { constructionSessionKey } from './useConstructionSession';
 import { projectKey } from './useProject';
 

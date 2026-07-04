@@ -9,18 +9,19 @@ import {
   type UseMutationResult,
   type QueryClient,
 } from '@tanstack/react-query';
-import { apiClient, toApiError } from '../api/client';
+import { apiClient } from '../api/client';
+import { toApiError } from '../contracts/errors';
 import {
   artifactKindToOrdinal,
   reviewDecisionToOrdinal,
   systemArtifactKindFromOrdinal,
-} from '../api/enums';
+} from '../contracts/enums';
 import type {
   ArtifactKind,
   PhaseAdvanceResponse,
   ReviewDecision,
   ReviewDecisionDetail,
-} from '../api/types';
+} from '../contracts/types';
 import { projectKey } from './useProject';
 import { sessionStateKey } from './useSessionState';
 

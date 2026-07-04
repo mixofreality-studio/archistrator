@@ -39,11 +39,11 @@ import Typography from '@mui/material/Typography';
 import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
 import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
-import type { ContractOp, ContractStruct } from '../../api/types';
-import type { Tokens } from '../../theme/themes';
-import { useTokens } from '../../theme/ThemeContext';
+import type { ContractOp, ContractStruct } from '../../contracts/types';
+import type { Tokens } from '../../utilities/theme/themes';
+import { useTokens } from '../../utilities/theme/ThemeContext';
 import { useComments, contractOpAnchor } from '../comments/CommentContext';
-import { UI_IDENTIFIERS } from '../../constants/UIIdentifiers';
+import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 
 // ---------------------------------------------------------------------------
 // Signature parser — derive fallback struct names from an op signature string.

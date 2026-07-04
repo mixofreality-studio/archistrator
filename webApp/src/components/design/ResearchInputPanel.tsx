@@ -12,9 +12,9 @@ import Typography from '@mui/material/Typography';
 import TextField from '@mui/material/TextField';
 import Button from '@mui/material/Button';
 import ScienceOutlinedIcon from '@mui/icons-material/ScienceOutlined';
-import type { ResearchInput } from '../../api/types';
-import { useTokens } from '../../theme/ThemeContext';
-import { UI_IDENTIFIERS } from '../../constants/UIIdentifiers';
+import type { ResearchInput } from '../../contracts/types';
+import { useTokens } from '../../utilities/theme/ThemeContext';
+import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 
 export function ResearchInputPanel({
   pending,

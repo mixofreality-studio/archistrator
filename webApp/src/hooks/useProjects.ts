@@ -5,10 +5,11 @@
  * re-fetches calm.
  */
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
-import { apiClient, toApiError } from '../api/client';
-import { mapProjectSummary } from '../api/wire';
-import { useUser } from '../auth/UserContext';
-import type { ProjectSummary } from '../api/types';
+import { apiClient } from '../api/client';
+import { toApiError } from '../contracts/errors';
+import { mapProjectSummary } from '../contracts/wire';
+import { useUser } from '../utilities/auth/UserContext';
+import type { ProjectSummary } from '../contracts/types';
 
 /** Base key — owner-scoped queries hang under it so invalidation by prefix works. */
 export function projectsKey(): readonly unknown[] {

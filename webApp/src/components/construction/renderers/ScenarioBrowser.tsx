@@ -5,10 +5,10 @@ import Typography from '@mui/material/Typography';
 import FormControl from '@mui/material/FormControl';
 import Select from '@mui/material/Select';
 import MenuItem from '@mui/material/MenuItem';
-import { UI_IDENTIFIERS } from '../../../constants/UIIdentifiers';
-import type { TestCaseView, TestScenarioView } from '../../../api/types';
-import type { C4Component, DynamicViewModel, SequencedRelationship } from '../../../api/adapters';
-import type { Tokens } from '../../../theme/themes';
+import { UI_IDENTIFIERS } from '../../../utilities/constants/UIIdentifiers';
+import type { TestCaseView, TestScenarioView } from '../../../contracts/types';
+import type { C4Component, DynamicViewModel, SequencedRelationship } from '../../../contracts/adapters';
+import type { Tokens } from '../../../utilities/theme/themes';
 import { DynamicViewFlow, type StepDetail, type StepStatus } from '../../flow/DynamicViewFlow';
 import { useComments, testScenarioStepAnchor } from '../../comments/CommentContext';
 

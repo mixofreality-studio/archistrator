@@ -18,10 +18,10 @@ import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import UndoIcon from '@mui/icons-material/Undo';
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
 import FlagIcon from '@mui/icons-material/Flag';
-import type { UseCaseView } from '../../api/adapters';
+import type { UseCaseView } from '../../contracts/adapters';
 import { ActivityFlow, type ActivityHighlight } from './ActivityFlow';
 import { laneColors } from './laneColors';
-import { useTokens } from '../../theme/ThemeContext';
+import { useTokens } from '../../utilities/theme/ThemeContext';
 
 type NodeView = UseCaseView['nodes'][number];
 type EdgeView = UseCaseView['edges'][number];

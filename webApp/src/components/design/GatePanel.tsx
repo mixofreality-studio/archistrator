@@ -21,9 +21,9 @@ import CheckIcon from '@mui/icons-material/Check';
 import ReplayIcon from '@mui/icons-material/Replay';
 import UndoIcon from '@mui/icons-material/Undo';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import type { Finding } from '../../api/types';
-import { useTokens } from '../../theme/ThemeContext';
-import { UI_IDENTIFIERS } from '../../constants/UIIdentifiers';
+import type { Finding } from '../../contracts/types';
+import { useTokens } from '../../utilities/theme/ThemeContext';
+import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 
 export function GatePanel({
   findings,

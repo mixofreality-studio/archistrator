@@ -25,9 +25,9 @@ import CloseIcon from '@mui/icons-material/Close';
 import FormatQuoteIcon from '@mui/icons-material/FormatQuote';
 import AccountTreeOutlinedIcon from '@mui/icons-material/AccountTreeOutlined';
 import { useComments, type Anchor, type PostedComment } from '../comments/CommentContext';
-import { useTokens } from '../../theme/ThemeContext';
-import type { Tokens } from '../../theme/themes';
-import { UI_IDENTIFIERS } from '../../constants/UIIdentifiers';
+import { useTokens } from '../../utilities/theme/ThemeContext';
+import type { Tokens } from '../../utilities/theme/themes';
+import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 
 function LocationPill({ anchor, t }: { anchor: Anchor; t: Tokens }): ReactNode {
   return (

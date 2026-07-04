@@ -11,7 +11,7 @@ import DesignServicesOutlinedIcon from '@mui/icons-material/DesignServicesOutlin
 import FactCheckOutlinedIcon from '@mui/icons-material/FactCheckOutlined';
 import RocketLaunchOutlinedIcon from '@mui/icons-material/RocketLaunchOutlined';
 import MenuBookOutlinedIcon from '@mui/icons-material/MenuBookOutlined';
-import type { Tokens } from '../../theme/themes';
+import type { Tokens } from '../../utilities/theme/themes';
 
 export type ActivityKind = 'service' | 'frontend' | 'testing' | 'deployment' | 'documentation';
 

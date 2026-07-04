@@ -22,9 +22,9 @@ import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
 import CheckIcon from '@mui/icons-material/Check';
 import ReplayIcon from '@mui/icons-material/Replay';
-import type { ConstructionReviewSet } from '../../api/types';
-import { useTokens } from '../../theme/ThemeContext';
-import { UI_IDENTIFIERS } from '../../constants/UIIdentifiers';
+import type { ConstructionReviewSet } from '../../contracts/types';
+import { useTokens } from '../../utilities/theme/ThemeContext';
+import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 
 // ---------------------------------------------------------------------------
 // Phase label map — canonical ActivityMethodPhase wire names → display strings.

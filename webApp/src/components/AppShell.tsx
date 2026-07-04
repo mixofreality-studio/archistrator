@@ -23,15 +23,15 @@ import ReceiptLongOutlinedIcon from '@mui/icons-material/ReceiptLongOutlined';
 import GroupsOutlinedIcon from '@mui/icons-material/GroupsOutlined';
 import LogoutIcon from '@mui/icons-material/Logout';
 import { useNavigate } from '@tanstack/react-router';
-import { useUser } from '../auth/UserContext';
-import { userLabel } from '../auth/userInfo';
+import { useUser } from '../utilities/auth/UserContext';
+import { userLabel } from '../utilities/auth/userInfo';
 import { useProject } from '../hooks/useProject';
-import { config } from '../config';
+import { config } from '../utilities/config';
 import { PHASE_LABELS } from './projectFormat';
 import { ProjectMenu } from './ProjectMenu';
 import { ThemeSwitcher } from './ThemeSwitcher';
-import { useTokens } from '../theme/ThemeContext';
-import { UI_IDENTIFIERS } from '../constants/UIIdentifiers';
+import { useTokens } from '../utilities/theme/ThemeContext';
+import { UI_IDENTIFIERS } from '../utilities/constants/UIIdentifiers';
 
 export function AppShell({
   projectId,

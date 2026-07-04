@@ -11,8 +11,8 @@ import Typography from '@mui/material/Typography';
 import Tooltip from '@mui/material/Tooltip';
 import CheckIcon from '@mui/icons-material/Check';
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
-import { useTokens } from '../../theme/ThemeContext';
-import { UI_IDENTIFIERS } from '../../constants/UIIdentifiers';
+import { useTokens } from '../../utilities/theme/ThemeContext';
+import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 
 /** One spine step: a phase artifact slot projected for the progress rail. */
 export interface SpineStep {

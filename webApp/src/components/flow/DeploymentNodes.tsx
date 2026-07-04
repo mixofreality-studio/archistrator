@@ -18,7 +18,7 @@ import type { NodeProps } from '@xyflow/react';
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import Typography from '@mui/material/Typography';
-import { useTokens } from '../../theme/ThemeContext';
+import { useTokens } from '../../utilities/theme/ThemeContext';
 import { layerColors, type Layer } from './flowLayout';
 
 // Deployment-topology nodes are commentable: clicking any node arms a deployment

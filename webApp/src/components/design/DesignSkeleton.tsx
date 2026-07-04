@@ -25,9 +25,9 @@ import Paper from '@mui/material/Paper';
 import Skeleton from '@mui/material/Skeleton';
 
 import { ExperienceChrome } from './ExperienceChrome';
-import { useTokens } from '../../theme/ThemeContext';
-import type { Tokens } from '../../theme/themes';
-import { UI_IDENTIFIERS } from '../../constants/UIIdentifiers';
+import { useTokens } from '../../utilities/theme/ThemeContext';
+import type { Tokens } from '../../utilities/theme/themes';
+import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 
 /** Neutral placeholder rail: N muted pips joined by short rails, no status. */
 export function SkeletonSpine({ steps }: { steps: number }): ReactNode {

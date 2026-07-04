@@ -7,9 +7,10 @@
  * 404 (no session yet — the pump is dormant) is surfaced WITHOUT retry storms.
  */
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
-import { apiClient, ApiError, toApiError } from '../api/client';
-import { mapConstructionSession } from '../api/wire';
-import type { ConstructionSessionState } from '../api/types';
+import { apiClient } from '../api/client';
+import { ApiError, toApiError } from '../contracts/errors';
+import { mapConstructionSession } from '../contracts/wire';
+import type { ConstructionSessionState } from '../contracts/types';
 
 const POLL_INTERVAL_MS = 3000;
 

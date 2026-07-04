@@ -33,8 +33,8 @@
  * which is still meaningful to a human reader of the redraft prompt.
  */
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
-import type { AnchoredComment } from '../../api/types';
-import { UI_IDENTIFIERS } from '../../constants/UIIdentifiers';
+import type { AnchoredComment } from '../../contracts/types';
+import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 
 /** A pending selection the architect may turn into an anchored comment. */
 export interface Anchor {

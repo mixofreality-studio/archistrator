@@ -15,21 +15,17 @@ import Typography from '@mui/material/Typography';
 import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
 import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
-import type { ProjectArtifactKind, ProjectArtifactModelEnvelope } from '../../api/types';
-import { SOLUTION_LABELS } from '../../api/types';
-import {
-  toRiskModelView,
-  formatMoney,
-  formatDurationDays,
-  solutionAccentColor,
-} from '../../api/projectAdapters';
-import { useTokens } from '../../theme/ThemeContext';
-import type { Tokens } from '../../theme/themes';
+import type { ProjectArtifactKind, ProjectArtifactModelEnvelope } from '../../contracts/types';
+import { SOLUTION_LABELS } from '../../contracts/types';
+import { toRiskModelView, formatMoney, formatDurationDays } from '../../contracts/projectAdapters';
+import { solutionAccentColor } from './solutionAccent';
+import { useTokens } from '../../utilities/theme/ThemeContext';
+import type { Tokens } from '../../utilities/theme/themes';
 import { ComputedBadge } from './computed';
 import { BandedScatter, type ScatterPoint } from './charts';
 import { useComments } from '../comments/CommentContext';
 import { riskModelRowAnchor } from '../comments/CommentContext';
-import { UI_IDENTIFIERS } from '../../constants/UIIdentifiers';
+import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 
 /** The per-row "Comment on this item" affordance for the ARIA-table rows (the
  * CommentableList primitive is a listbox, so table rows carry their own button). */

@@ -19,22 +19,22 @@ import StarIcon from '@mui/icons-material/Star';
 import CheckIcon from '@mui/icons-material/Check';
 import ReplayIcon from '@mui/icons-material/Replay';
 import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
-import type { ProjectArtifactKind, ProjectArtifactModelEnvelope } from '../../api/types';
-import { SOLUTION_LABELS } from '../../api/types';
+import type { ProjectArtifactKind, ProjectArtifactModelEnvelope } from '../../contracts/types';
+import { SOLUTION_LABELS } from '../../contracts/types';
 import {
   toSdpReviewView,
   formatMoney,
   formatDurationDays,
-  solutionAccentColor,
   type SdpOptionView,
-} from '../../api/projectAdapters';
-import { useTokens } from '../../theme/ThemeContext';
-import type { Tokens } from '../../theme/themes';
+} from '../../contracts/projectAdapters';
+import { solutionAccentColor } from './solutionAccent';
+import { useTokens } from '../../utilities/theme/ThemeContext';
+import type { Tokens } from '../../utilities/theme/themes';
 import { BandedScatter, type ScatterPoint } from './charts';
 import { ComputedBadge, AuthoredBadge } from './computed';
 import { useComments } from '../comments/CommentContext';
 import { sdpOptionAnchor } from '../comments/CommentContext';
-import { UI_IDENTIFIERS } from '../../constants/UIIdentifiers';
+import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 
 /** The per-row "Comment on this item" affordance for the ARIA-table option rows. */
 function RowCommentButton({

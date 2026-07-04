@@ -30,8 +30,8 @@ import Button from '@mui/material/Button';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import { getRouteApi, useNavigate } from '@tanstack/react-router';
 
-import { ApiError } from '../api/client';
-import { PHASE1_ARTIFACTS } from '../api/types';
+import { ApiError } from '../contracts/errors';
+import { PHASE1_ARTIFACTS } from '../contracts/types';
 import type {
   ArtifactKind,
   ArtifactModelEnvelope,
@@ -39,9 +39,9 @@ import type {
   ProjectState,
   ResearchInput,
   SessionStateResponse,
-} from '../api/types';
-import { slotStageFromOrdinal } from '../api/adapters';
-import { METHOD_METADATA } from '../constants/MethodMetadata';
+} from '../contracts/types';
+import { slotStageFromOrdinal } from '../contracts/adapters';
+import { METHOD_METADATA } from '../contracts/methodMetadata';
 
 import { useProject } from '../hooks/useProject';
 import { useSessionState } from '../hooks/useSessionState';
@@ -74,9 +74,9 @@ function proseSurface(kind: string | undefined, node: ReactNode): ReactNode {
   );
 }
 
-import { useTokens } from '../theme/ThemeContext';
-import type { Tokens } from '../theme/themes';
-import { UI_IDENTIFIERS } from '../constants/UIIdentifiers';
+import { useTokens } from '../utilities/theme/ThemeContext';
+import type { Tokens } from '../utilities/theme/themes';
+import { UI_IDENTIFIERS } from '../utilities/constants/UIIdentifiers';
 
 export { ProjectDesignScreen } from './ProjectDesignExperience';
 

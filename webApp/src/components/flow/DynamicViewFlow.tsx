@@ -24,10 +24,10 @@ import Button from '@mui/material/Button';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
-import type { DynamicViewModel, SequencedRelationship } from '../../api/adapters';
-import { UI_IDENTIFIERS } from '../../constants/UIIdentifiers';
-import { useTokens } from '../../theme/ThemeContext';
-import type { Tokens } from '../../theme/themes';
+import type { DynamicViewModel, SequencedRelationship } from '../../contracts/adapters';
+import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
+import { useTokens } from '../../utilities/theme/ThemeContext';
+import type { Tokens } from '../../utilities/theme/themes';
 import {
   type Layer,
   LAYER_ORDER,

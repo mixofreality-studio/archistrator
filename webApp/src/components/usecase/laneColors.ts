@@ -5,7 +5,7 @@
  * (used for headers, borders, terminal fills); `laneBand` derives the faint
  * background tint painted behind a lane column.
  */
-import type { Tokens } from '../../theme/themes';
+import type { Tokens } from '../../utilities/theme/themes';
 
 export function laneColors(t: Tokens, lanes: string[]): Record<string, string> {
   const palette = [t.accent, t.accent2, t.committedDot, t.awaitingFg, t.muted];

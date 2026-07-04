@@ -7,9 +7,9 @@ import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 import HistoryIcon from '@mui/icons-material/History';
-import type { ContractRevision } from '../../api/types';
-import type { Tokens } from '../../theme/themes';
-import { UI_IDENTIFIERS } from '../../constants/UIIdentifiers';
+import type { ContractRevision } from '../../contracts/types';
+import type { Tokens } from '../../utilities/theme/themes';
+import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 
 function RevisionRow({ r, t, isLatest, isLast }: { r: ContractRevision; t: Tokens; isLatest: boolean; isLast: boolean }): ReactNode {
   const dotColor = isLatest ? t.committedDot : t.accent2;

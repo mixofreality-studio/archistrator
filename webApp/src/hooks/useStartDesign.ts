@@ -6,9 +6,10 @@
  * invalidate the project head-state so downstream reads refresh.
  */
 import { useMutation, useQueryClient, type UseMutationResult } from '@tanstack/react-query';
-import { apiClient, toApiError } from '../api/client';
-import { toResearchInputWire } from '../api/wire';
-import type { ResearchInput } from '../api/types';
+import { apiClient } from '../api/client';
+import { toApiError } from '../contracts/errors';
+import { toResearchInputWire } from '../contracts/wire';
+import type { ResearchInput } from '../contracts/types';
 import { projectKey } from './useProject';
 
 /** No-arg start trigger — TVariables is undefined (mirrors useAdvancePhase). */

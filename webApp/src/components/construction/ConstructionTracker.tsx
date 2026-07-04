@@ -17,25 +17,25 @@ import { useMemo, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
-import { toNetworkView } from '../../api/projectAdapters';
+import { toNetworkView } from '../../contracts/projectAdapters';
 import type {
   GitRow,
   ProjectArtifactModelEnvelope,
   ConstructionRows,
   ConstructionProgress,
   ConstructionRow,
-} from '../../api/types';
-import type { ConstructionSessionState, OverrideKind } from '../../api/types';
+} from '../../contracts/types';
+import type { ConstructionSessionState, OverrideKind } from '../../contracts/types';
 import {
   buildStatusForStage,
   sessionIsLive,
   activeActivityId,
   computeActivityStatuses,
   type BuildStatus,
-} from '../../api/constructionAdapters';
-import { narrowProject } from '../../api/projectAdapters';
-import { useTokens } from '../../theme/ThemeContext';
-import type { Tokens } from '../../theme/themes';
+} from '../../contracts/constructionAdapters';
+import { narrowProject } from '../../contracts/projectAdapters';
+import { useTokens } from '../../utilities/theme/ThemeContext';
+import type { Tokens } from '../../utilities/theme/themes';
 import { ComputedBadge } from '../project/computed';
 import { StatusLegend } from './status';
 import { NetworkView } from '../project/NetworkView';

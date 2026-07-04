@@ -30,12 +30,12 @@ import {
   toPhaseCards,
   type PhaseCardView,
   type PhaseId,
-} from '../api/adapters';
-import type { ProjectStateWithGit } from '../api/types';
-import { PHASE1_ORDER } from '../constants/MethodMetadata';
-import { useTokens } from '../theme/ThemeContext';
-import type { Tokens } from '../theme/themes';
-import { UI_IDENTIFIERS } from '../constants/UIIdentifiers';
+} from '../contracts/adapters';
+import type { ProjectStateWithGit } from '../contracts/types';
+import { PHASE1_ORDER } from '../contracts/methodMetadata';
+import { useTokens } from '../utilities/theme/ThemeContext';
+import type { Tokens } from '../utilities/theme/themes';
+import { UI_IDENTIFIERS } from '../utilities/constants/UIIdentifiers';
 
 const routeApi = getRouteApi('/project/$projectId/home');
 

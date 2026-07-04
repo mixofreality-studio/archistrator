@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import Box from '@mui/material/Box';
-import type { Tokens } from '../../../theme/themes';
+import type { Tokens } from '../../../utilities/theme/themes';
 
 export interface RecordColumn {
   key: string;

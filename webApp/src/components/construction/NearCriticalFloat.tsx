@@ -10,7 +10,7 @@
  */
 import type { ReactNode } from 'react';
 import Box from '@mui/material/Box';
-import { useTokens } from '../../theme/ThemeContext';
+import { useTokens } from '../../utilities/theme/ThemeContext';
 
 export interface FloatChain {
   chain: string;

@@ -7,9 +7,10 @@
  * awaiting state.
  */
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
-import { apiClient, ApiError, toApiError } from '../api/client';
-import { mapOperationsView } from '../api/wire';
-import type { OperationsView } from '../api/operationsTypes';
+import { apiClient } from '../api/client';
+import { ApiError, toApiError } from '../contracts/errors';
+import { mapOperationsView } from '../contracts/wire';
+import type { OperationsView } from '../contracts/operationsTypes';
 
 /** Reconcile cadence — runtime status is observed roughly every ~30s. */
 const POLL_INTERVAL_MS = 30_000;

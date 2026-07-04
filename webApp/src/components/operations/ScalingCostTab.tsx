@@ -17,13 +17,13 @@ import Tooltip from '@mui/material/Tooltip';
 import Chip from '@mui/material/Chip';
 import Button from '@mui/material/Button';
 import TuneIcon from '@mui/icons-material/Tune';
-import type { Tokens } from '../../theme/themes';
-import { useTokens } from '../../theme/ThemeContext';
-import type { AutoscalerDecision, OperationsView, WhatIfPoint } from '../../api/operationsTypes';
-import { formatMoney, formatEventTime } from '../../api/operationsAdapters';
+import type { Tokens } from '../../utilities/theme/themes';
+import { useTokens } from '../../utilities/theme/ThemeContext';
+import type { AutoscalerDecision, OperationsView, WhatIfPoint } from '../../contracts/operationsTypes';
+import { formatMoney, formatEventTime } from '../../contracts/operationsAdapters';
 import { useCostProjection } from '../../hooks/useCostProjection';
 import { useOperationAction } from '../../hooks/useOperationsMutations';
-import { UI_IDENTIFIERS } from '../../constants/UIIdentifiers';
+import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 import { AwaitingPanel } from './AwaitingPanel';
 
 export function ScalingCostTab({

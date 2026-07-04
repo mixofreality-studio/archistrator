@@ -8,8 +8,8 @@
 import type { ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
-import type { Tokens } from '../../theme/themes';
-import { BUILD_STATUS_META, type BuildStatus } from '../../api/constructionAdapters';
+import type { Tokens } from '../../utilities/theme/themes';
+import { BUILD_STATUS_META, type BuildStatus } from '../../contracts/constructionAdapters';
 
 /** One token-driven status colour, used by the tracker node + the status legend. */
 export function statusColor(t: Tokens, s: BuildStatus): string {

@@ -25,13 +25,13 @@ import Typography from '@mui/material/Typography';
 import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
 import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
-import type { Tokens } from '../../theme/themes';
-import type { ConstructionRow } from '../../api/types';
+import type { Tokens } from '../../utilities/theme/themes';
+import type { ConstructionRow } from '../../contracts/types';
 import { StatusChip } from './status';
-import type { BuildStatus } from '../../api/constructionAdapters';
+import type { BuildStatus } from '../../contracts/constructionAdapters';
 import { KindBadge, kindColor } from './KindBadge';
 import { useComments, activityConstructionAnchor } from '../comments/CommentContext';
-import { UI_IDENTIFIERS } from '../../constants/UIIdentifiers';
+import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 
 /** A view-model row joining a ConstructionRow with the activity-list display name. */
 export interface ArtifactActivityVM {

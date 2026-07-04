@@ -25,8 +25,8 @@ import AddIcon from '@mui/icons-material/Add';
 import GitHubIcon from '@mui/icons-material/GitHub';
 import { useNavigate } from '@tanstack/react-router';
 import { useCreateProject } from '../hooks/useCreateProject';
-import { useTokens } from '../theme/ThemeContext';
-import { UI_IDENTIFIERS } from '../constants/UIIdentifiers';
+import { useTokens } from '../utilities/theme/ThemeContext';
+import { UI_IDENTIFIERS } from '../utilities/constants/UIIdentifiers';
 import { ErrorAlert } from './shared/ErrorAlert';
 
 export function CreateProjectDialog({

@@ -8,7 +8,7 @@ import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Typography from '@mui/material/Typography';
 import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
-import { useTokens } from '../../theme/ThemeContext';
+import { useTokens } from '../../utilities/theme/ThemeContext';
 import { useComments, componentAnchor } from '../comments/CommentContext';
 
 export interface C4NodeData {

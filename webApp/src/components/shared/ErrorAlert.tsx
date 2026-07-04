@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import Alert from '@mui/material/Alert';
-import { ApiError } from '../../api/client';
-import { UI_IDENTIFIERS } from '../../constants/UIIdentifiers';
+import { ApiError } from '../../contracts/errors';
+import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 
 export function ErrorAlert({ error }: { error: Error | null }): ReactNode {
   if (error === null) return null;

@@ -17,10 +17,10 @@ import {
   type ContainerInstanceView,
   type InfraView,
   type ExternalView,
-} from '../../api/adapters';
-import type { ArtifactModelEnvelope } from '../../api/types';
-import type { DeploymentProfile } from '../../api/models';
-import { useTokens } from '../../theme/ThemeContext';
+} from '../../contracts/adapters';
+import type { ArtifactModelEnvelope } from '../../contracts/types';
+import type { DeploymentProfile } from '../../contracts/models';
+import { useTokens } from '../../utilities/theme/ThemeContext';
 import { useComments, deploymentAnchor } from '../comments/CommentContext';
 import { FlowCanvas, FlowEmpty } from './flowShared';
 import {

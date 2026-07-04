@@ -16,9 +16,9 @@
  */
 import type { ReactNode } from 'react';
 import Box from '@mui/material/Box';
-import type { ProjectArtifactKind, ProjectArtifactModelEnvelope } from '../../api/types';
-import { isSolutionKind } from '../../api/projectAdapters';
-import { UI_IDENTIFIERS } from '../../constants/UIIdentifiers';
+import type { ProjectArtifactKind, ProjectArtifactModelEnvelope } from '../../contracts/types';
+import { isSolutionKind } from '../../contracts/projectAdapters';
+import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 import { PlanningAssumptionsView } from './PlanningAssumptionsView';
 import { ActivityListView } from './ActivityListView';
 import { NetworkView } from './NetworkView';

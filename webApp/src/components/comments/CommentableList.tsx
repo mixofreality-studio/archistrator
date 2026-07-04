@@ -26,8 +26,8 @@ import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
 import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
 import { useComments, type Anchor } from './CommentContext';
-import { useTokens } from '../../theme/ThemeContext';
-import { UI_IDENTIFIERS } from '../../constants/UIIdentifiers';
+import { useTokens } from '../../utilities/theme/ThemeContext';
+import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 
 export function CommentableList<T>({
   items,

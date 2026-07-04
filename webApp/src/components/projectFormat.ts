@@ -3,7 +3,7 @@
  * base header — human labels for the typed ProjectPhase enum and a compact
  * relative "updated" rendering of the ISO timestamp. Pure, no React.
  */
-import type { ProjectPhase } from '../api/types';
+import type { ProjectPhase } from '../contracts/types';
 
 /** Human-facing label for each lifecycle phase. */
 export const PHASE_LABELS: Record<ProjectPhase, string> = {

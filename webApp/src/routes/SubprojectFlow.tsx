@@ -19,8 +19,8 @@ import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import { getRouteApi, useNavigate } from '@tanstack/react-router';
-import { useTokens } from '../theme/ThemeContext';
-import { UI_IDENTIFIERS } from '../constants/UIIdentifiers';
+import { useTokens } from '../utilities/theme/ThemeContext';
+import { UI_IDENTIFIERS } from '../utilities/constants/UIIdentifiers';
 
 const routeApi = getRouteApi('/project/$projectId/changes/$subprojectId');
 

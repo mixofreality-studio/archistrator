@@ -10,11 +10,11 @@ import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 import Tooltip from '@mui/material/Tooltip';
-import type { Tokens } from '../../theme/themes';
-import { useTokens } from '../../theme/ThemeContext';
-import type { OperationsSlo, OperationsView } from '../../api/operationsTypes';
-import { normalizePhase, sloSummary, formatEventTime } from '../../api/operationsAdapters';
-import { UI_IDENTIFIERS } from '../../constants/UIIdentifiers';
+import type { Tokens } from '../../utilities/theme/themes';
+import { useTokens } from '../../utilities/theme/ThemeContext';
+import type { OperationsSlo, OperationsView } from '../../contracts/operationsTypes';
+import { normalizePhase, sloSummary, formatEventTime } from '../../contracts/operationsAdapters';
+import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 import { PhaseChip, SloPill, phaseColor } from './phase';
 import { AwaitingPanel } from './AwaitingPanel';
 

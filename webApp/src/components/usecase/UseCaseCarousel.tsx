@@ -21,8 +21,8 @@ import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
-import { toCoreUseCasesView } from '../../api/adapters';
-import type { ArtifactModelEnvelope } from '../../api/types';
+import { toCoreUseCasesView } from '../../contracts/adapters';
+import type { ArtifactModelEnvelope } from '../../contracts/types';
 import { ActivityFlow } from './ActivityFlow';
 import { UseCaseWalkthrough } from './UseCaseWalkthrough';
 import { laneColors } from './laneColors';
@@ -35,8 +35,8 @@ const viewMemory: { mode: UcViewMode } = { mode: 'walkthrough' };
 // Aliased away from a `use*` name so the react-hooks lint heuristic doesn't
 // mistake this plain anchor builder for a React hook.
 import { useComments, useCaseAnchor as buildUseCaseAnchor } from '../comments/CommentContext';
-import { UI_IDENTIFIERS } from '../../constants/UIIdentifiers';
-import { useTokens } from '../../theme/ThemeContext';
+import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
+import { useTokens } from '../../utilities/theme/ThemeContext';
 
 export function UseCaseCarousel({
   envelope,
