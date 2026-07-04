@@ -56,6 +56,7 @@ export const UI_IDENTIFIERS = {
     ROOT: 'design-experience',
     CLOSE: 'design-close',
     SLIM_SPINE: 'slim-spine',
+    LOADING_SKELETON: 'design-loading-skeleton',
     spineStep: (kind: string) => `spine-step-${kind}`,
     REQUEST_DRAFT: 'request-draft',
     RESEARCH_INPUT: 'research-input',

@@ -27,7 +27,6 @@ import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 import Chip from '@mui/material/Chip';
 import Button from '@mui/material/Button';
-import CircularProgress from '@mui/material/CircularProgress';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import { getRouteApi, useNavigate } from '@tanstack/react-router';
 
@@ -57,6 +56,10 @@ import { ArtifactIntro } from '../components/design/ArtifactIntro';
 import { StageChip } from '../components/StageChip';
 import { ExperienceChrome } from '../components/design/ExperienceChrome';
 import { SlimSpine, type SpineStep } from '../components/design/SlimSpine';
+import {
+  DesignExperienceSkeleton,
+  SkeletonContentCard,
+} from '../components/design/DesignSkeleton';
 import { GeneratingScene } from '../components/design/GeneratingScene';
 import { DraftFailedPanel } from '../components/design/DraftFailedPanel';
 import { GatePanel } from '../components/design/GatePanel';
@@ -232,6 +235,21 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
   const meta = METHOD_METADATA[activeKind];
   const decisionPending = submitReview.isPending;
 
+  // While the project head-state is in flight we cannot yet know any step's
+  // committed/locked status, the active artifact, or its stage — render the themed
+  // skeleton rather than chrome that guesses (a "NOT DRAFTED" chip / step-1 rail)
+  // and then contradicts itself once the data lands.
+  if (projectLoading) {
+    return (
+      <DesignExperienceSkeleton
+        phaseNum={1}
+        phaseTitle="System Design"
+        steps={PHASE1_ARTIFACTS.length}
+        onClose={() => void navigate({ to: '/project/$projectId/home', params: { projectId } })}
+      />
+    );
+  }
+
   return (
     <ExperienceChrome
       chat={chatOpen ? <ChatRail onCollapse={() => { setChatOpen(false); }} /> : undefined}
@@ -287,7 +305,6 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
           hasDraft={hasDraft}
           loading={session.isLoading}
           needsResearch={needsResearch}
-          projectLoading={projectLoading}
           researchPending={setResearch.isPending || startDesign.isPending}
           retryPending={requestDraft.isPending}
           sessionMissing={sessionMissing}
@@ -320,7 +337,6 @@ function StepBody({
   asyncFailed,
   failureReason,
   hasDraft,
-  projectLoading,
   sessionMissing,
   stage,
   title,
@@ -351,8 +367,6 @@ function StepBody({
   asyncFailed: boolean;
   failureReason: string | undefined;
   hasDraft: boolean;
-  /** The project head-state query (slots/committed status) hasn't resolved yet. */
-  projectLoading: boolean;
   sessionMissing: boolean;
   stage: string | undefined;
   title: string;
@@ -395,24 +409,12 @@ function StepBody({
   if (generating) {
     return <GeneratingScene artifact={title} />;
   }
+  // The project head-state has resolved by now (the screen renders the full-screen
+  // skeleton while it is in flight), so the surrounding header/chip/spine are already
+  // truthful. Only the co-author session is still loading — sketch the content card
+  // instead of a bare spinner so it stays consistent with the design system.
   if (loading && view === undefined) {
-    return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
-        <CircularProgress />
-      </Box>
-    );
-  }
-  // Session-missing (404) is ambiguous until the project head-state has resolved:
-  // it could mean "committed, no co-author session" or "genuinely no draft yet".
-  // While the project query is still in flight, show a neutral spinner rather than
-  // guessing — otherwise the "No draft yet" CTA briefly flashes before swapping to
-  // the committed read-only render.
-  if (sessionMissing && projectLoading) {
-    return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
-        <CircularProgress />
-      </Box>
-    );
+    return <SkeletonContentCard t={t} />;
   }
   // When the session is missing (404) but the slot is committed in the project
   // head-state, render the committed model read-only — no co-author chrome.
