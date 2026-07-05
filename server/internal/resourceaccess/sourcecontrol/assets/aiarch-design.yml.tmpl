@@ -23,9 +23,17 @@
 # user's CI minutes. aiarch holds NO LLM key and makes NO synchronous LLM call.
 # The action drafts the typed Method artifact per the supplied PROMPT and commits
 # the resulting JSON under .aiarch/state/ (the exact path methodcheck.Check and
-# projectStateAccess read), opening a PR so the human gate + the required
-# `go test` check apply. A red validate check BLOCKS merge — that red check
-# IS the trust boundary (C-VCI).
+# projectStateAccess read).
+#
+# WHETHER A PR IS OPENED DEPENDS ON job_mode (F39 rail-debris fix):
+#   - job_mode=draft: the action ALSO opens a PR so the human review gate + the
+#     required `go test` check apply to the drafted model. A red validate check
+#     BLOCKS merge — that red check IS the trust boundary (C-VCI).
+#   - job_mode=critique: the action does NOT open a PR. The Manager reads the
+#     committed `critiqueVerdict` STRAIGHT OFF the branch; a critique PR is never
+#     merged (by design) and would accumulate as abandoned rail debris (F39). The
+#     verdict is committed to the branch and the guard below proves the branch
+#     advanced — no PR, no merge gate, is involved on the critique path.
 #
 # -----------------------------------------------------------------------------
 # LOAD-BEARING DISPATCH CONTRACT — DO NOT CHANGE THESE ANCHORS:
@@ -59,7 +67,10 @@
 #                MUST commit a non-empty `critiqueVerdict` and MUST NOT touch the
 #                slot's `notes` (the architect's reject/withdraw rationale). The exact
 #                JSON shape is spelled out in the composed `design_prompt`; this flag
-#                only steers the template's commit-target instruction below.
+#                steers BOTH the template's commit-target instruction AND whether a PR
+#                is opened: a critique job commits to the branch and does NOT open a PR
+#                (the Manager reads `critiqueVerdict` off the branch; a critique PR is
+#                never merged and would pile up as abandoned rail debris — F39).
 #
 # REQUIRED CHECK — `go test ./...`:
 #   The `validate` job runs `go mod tidy` (to materialize go.sum in the runner — see
@@ -223,8 +234,15 @@ jobs:
             revision guidance. Always commit a non-empty "critiqueVerdict"; never touch
             the slot's "notes" field.
 
-            In both modes, commit onto the branch "${{ inputs.target_branch }}" and open a
-            pull request so the human review gate and the required `go test` check apply.
+            In BOTH modes, commit your change onto the branch "${{ inputs.target_branch }}".
+
+            If job_mode is "draft": ALSO open a pull request from that branch, so the
+            human review gate and the required `go test` check apply to the drafted model.
+
+            If job_mode is "critique": do NOT open a pull request. Commit the
+            "critiqueVerdict" (and, on "revise", "critiqueNotes") onto the branch and
+            stop — the manager reads the verdict straight off the branch. A critique PR
+            is never merged by design and would only accumulate as abandoned rail debris.
 
       # Silent-failure guard. claude-code-action can exit SUCCESS while committing
       # nothing (observed live 2026-07-04, run 28724066929: draft job green, zero

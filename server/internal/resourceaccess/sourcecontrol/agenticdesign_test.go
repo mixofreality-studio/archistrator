@@ -175,6 +175,44 @@ func TestReferencesGoTestGateAndStatePath(t *testing.T) {
 	}
 }
 
+// TestDesignWorkflowCritiqueDoesNotOpenPR asserts the F39 rail-debris fix: the
+// prompt block instructs DRAFT mode to open a pull request but CRITIQUE mode to
+// commit to the branch and NOT open a PR (the manager reads critiqueVerdict off the
+// branch; a critique PR is never merged and would accumulate as debris). It also
+// pins the invariant that nothing in the template depends on a critique PR existing:
+// the run-name and the validate job both key off the branch, never a PR.
+func TestDesignWorkflowCritiqueDoesNotOpenPR(t *testing.T) {
+	body := string(renderedDesignWorkflow(t, testAppSlug))
+
+	// DRAFT mode still opens a PR.
+	if !strings.Contains(body, "If job_mode is \"draft\": ALSO open a pull request") {
+		t.Error("draft mode must still instruct opening a pull request")
+	}
+	// CRITIQUE mode must explicitly NOT open a PR.
+	if !strings.Contains(body, "If job_mode is \"critique\": do NOT open a pull request") {
+		t.Error("critique mode must explicitly instruct NOT to open a pull request")
+	}
+	// The stale universal "In both modes ... open a pull request" instruction must be gone.
+	if strings.Contains(body, "and open a\n            pull request") ||
+		strings.Contains(body, "In both modes, commit onto the branch") {
+		t.Error("the old unconditional both-modes open-a-PR instruction must be removed")
+	}
+
+	// No PR dependency anywhere structural: the run-name keys off the idempotency
+	// token, and the validate job checks out the target branch — never a PR ref.
+	var doc workflowDoc
+	if err := yaml.Unmarshal([]byte(body), &doc); err != nil {
+		t.Fatalf("rendered template must still parse as YAML after the critique-mode edit: %v", err)
+	}
+	if !strings.Contains(doc.RunName, "idempotency_token") {
+		t.Errorf("run-name must key off idempotency_token, not a PR: %q", doc.RunName)
+	}
+	// The validate job checks out inputs.target_branch (the branch), not a PR merge ref.
+	if !strings.Contains(body, "ref: ${{ inputs.target_branch }}") {
+		t.Error("validate must check out the target branch (no critique-PR dependency)")
+	}
+}
+
 // TestDesignWorkflowAllowedBots asserts the allowed_bots actor is templated from the
 // configured App slug (never hardcoded) and, crucially, is OMITTED entirely when the
 // slug is empty — an unconfigured deployment then still supports human-dispatched runs
