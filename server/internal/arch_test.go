@@ -101,6 +101,7 @@ func appArchSpec() arch.Spec {
 		"github.com/go-git/",                     // sanctioned Git/Gitea client (go-git + go-billy)
 		"go.temporal.io/",                        // sanctioned durable-execution substrate
 		"github.com/modelcontextprotocol/go-sdk", // sanctioned MCP substrate for the generated mcpClient tool surface (internal/client/mcp/*, framework-go-mcp-generator output)
+		"github.com/google/jsonschema-go",        // the MCP SDK's own JSON Schema type; the generated mcpClient tools carry explicit InputSchema (enum values/meanings + REST-matching optionality) built from it (internal/client/mcp/*, cmd/clientgen mcpemit output)
 	}
 	return spec
 }

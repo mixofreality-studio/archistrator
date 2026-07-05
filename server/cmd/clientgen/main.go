@@ -37,8 +37,8 @@ import (
 
 	httpcontract "github.com/mixofreality-studio/archistrator-platform/framework-go-http-generator/contract"
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-http-generator/httpgen"
-	mcpcontract "github.com/mixofreality-studio/archistrator-platform/framework-go-mcp-generator/contract"
-	"github.com/mixofreality-studio/archistrator-platform/framework-go-mcp-generator/mcpgen"
+
+	"github.com/mixofreality-studio/archistrator/server/cmd/clientgen/internal/mcpemit"
 )
 
 // projectFile is the default path (relative to the server module root, where the
@@ -136,17 +136,22 @@ func main() {
 		}
 		oasDocs = append(oasDocs, contractOAS{prefix: hdoc.ManagerBase(), doc: oasDoc})
 
-		// --- MCP tools (mcp generator) ---
-		mdoc, err := mcpcontract.Parse(entry)
-		if err != nil {
-			fatal("contract %q: mcp parse: %v", key, err)
+		// --- MCP tools (in-repo mcpemit generator) ---
+		var ifaceMeta struct {
+			Interface struct {
+				Name string `json:"name"`
+			} `json:"interface"`
 		}
-		mres, err := mcpgen.Generate(mdoc, mcpgen.Options{
+		if err := json.Unmarshal(entry, &ifaceMeta); err != nil {
+			fatal("contract %q: parse interface name: %v", key, err)
+		}
+		mres, err := mcpemit.Generate(entry, mcpemit.Options{
 			Package:       pkg,
 			ManagerImport: managerImport,
+			OpDoc:         opDocFor(ifaceMeta.Interface.Name),
 		})
 		if err != nil {
-			fatal("contract %q: mcpgen: %v", key, err)
+			fatal("contract %q: mcpemit: %v", key, err)
 		}
 		mcpDir := filepath.Join(mcpRoot, pkg)
 		mustMkdir(mcpDir)
