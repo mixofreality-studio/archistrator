@@ -209,12 +209,16 @@ export function decorativeNodes(layout: Layout): Node[] {
 
 // --- node / edge factories ------------------------------------------------
 
-/** Builds a `c4`-type React-Flow node for one component at an explicit position. */
+/** Builds a `c4`-type React-Flow node for one component at an explicit position.
+ *  `showEncapsulates` (default true) governs whether the node body renders the
+ *  clamped volatility preview: on for the Static / Component-focus lenses, off for
+ *  the Dynamic step-through (where the caption rail already carries the detail), per
+ *  the house diagram convention — names + layer tags on nodes, prose off the canvas. */
 export function c4Node(
   c: C4Component,
   position: { x: number; y: number },
   colors: Record<Layer, string>,
-  opts: { dimmed?: boolean } = {}
+  opts: { dimmed?: boolean; showEncapsulates?: boolean } = {}
 ): Node {
   return {
     id: c.id,
@@ -225,6 +229,7 @@ export function c4Node(
       name: c.name,
       layer: LAYER_LABEL[c.layer],
       encapsulates: c.encapsulates,
+      showEncapsulates: opts.showEncapsulates !== false,
       color: colors[c.layer],
     },
     draggable: false,

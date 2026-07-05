@@ -30,6 +30,7 @@ import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 export function GeneratingScene({
   artifact,
   actionsUrl,
+  amendingRevision,
 }: {
   artifact: string;
   /**
@@ -38,6 +39,13 @@ export function GeneratingScene({
    * the CI wait — it just omits the link rather than fabricating one.
    */
   actionsUrl?: string;
+  /**
+   * When set, this drafting run is amending an ALREADY-COMMITTED artifact (revision
+   * N). Surfaces an honest framing line so the committed header + generating scene
+   * don't read as unexplained: the committed version stays current until the new
+   * revision is approved. Omitted for a first-time draft.
+   */
+  amendingRevision?: number | undefined;
 }): ReactNode {
   const t = useTokens();
 
@@ -61,6 +69,29 @@ export function GeneratingScene({
       <Typography sx={{ fontFamily: t.mono, fontSize: 12, letterSpacing: '0.16em', color: t.muted }}>
         GENERATING · {artifact.toUpperCase()}
       </Typography>
+
+      {/* Amendment-in-flight framing: when the slot is already committed, the header
+          still reads COMMITTED and this scene is drafting the NEXT revision — say so
+          honestly, so the committed header + generating scene don't look contradictory. */}
+      {amendingRevision !== undefined ? (
+        <Box
+          data-testid={UI_IDENTIFIERS.DesignExperience.AMENDING_NOTICE}
+          sx={{
+            maxWidth: 520,
+            px: 2,
+            py: 1,
+            borderLeft: `3px solid ${t.accent}`,
+            bgcolor: t.committedBg,
+            borderRadius: t.radius / 8 + 0.5,
+          }}
+        >
+          <Typography sx={{ fontSize: 12.5, color: t.ink, lineHeight: 1.5 }}>
+            {amendingRevision >= 1
+              ? `Amending committed revision ${String(amendingRevision)} — the committed version remains current until this revision is approved.`
+              : 'Amending the committed version — it remains current until this revision is approved.'}
+          </Typography>
+        </Box>
+      ) : null}
 
       <DraftingDesk t={t} />
 

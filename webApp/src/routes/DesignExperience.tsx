@@ -520,7 +520,14 @@ function StepBody({
     );
   }
   if (generating) {
-    return <GeneratingScene artifact={title} />;
+    // A committed slot that is generating is an amendment-in-flight: frame it so the
+    // committed header + this scene read honestly (the committed revision stays current).
+    return (
+      <GeneratingScene
+        amendingRevision={committed ? (committedRevisions ?? 0) : undefined}
+        artifact={title}
+      />
+    );
   }
   // The project head-state has resolved by now (the screen renders the full-screen
   // skeleton while it is in flight), so the surrounding header/chip/spine are already
