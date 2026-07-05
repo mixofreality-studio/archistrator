@@ -136,7 +136,6 @@ func (r *scriptedRail) OpenBranch(_ context.Context, _ sourcecontrol.RepoRef, br
 
 func (r *scriptedRail) OpenPullRequest(_ context.Context, _ sourcecontrol.RepoRef, spec sourcecontrol.PullRequestSpec, _ sourcecontrol.RepoCredential, _ fwra.IdempotencyKey) (sourcecontrol.PullRequestRef, error) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	r.calls["OpenPullRequest"]++
 	head := string(spec.Head)
 	pr, ok := r.prByHead[head]
@@ -145,6 +144,13 @@ func (r *scriptedRail) OpenPullRequest(_ context.Context, _ sourcecontrol.RepoRe
 		pr = "pr/" + head
 		r.prByHead[head] = pr
 		r.openedPRHeads = append(r.openedPRHeads, head)
+	}
+	r.mu.Unlock()
+	// Ordered event (F40 openPR-after-read-back proof): record WHEN the PR was opened
+	// relative to the read-back so a test can assert the PR is never opened before a
+	// committed model has been confirmed on the session branch.
+	if r.log != nil {
+		r.log.add("openPR", head)
 	}
 	return sourcecontrol.PullRequestRefFromString(pr), nil
 }
@@ -544,5 +550,72 @@ func Test_CoAuthor_Rail_RequiredCheckRed_BlocksMerge_NoCommit_Recovers(t *testin
 	// It RECOVERED (withdraw from the StageDraftFailed gate), it did not wedge or crash.
 	if len(base.withdrawn) != 1 {
 		t.Fatalf("a blocked merge must route to the recovery gate; withdraw expected once, got %d", len(base.withdrawn))
+	}
+}
+
+// PROOF 6 (F40 live-bug fix) — the PR is opened ONLY AFTER the read-back confirms a
+// committed model on the session branch (i.e. only once the branch has ≥1 commit beyond
+// main), never at session start. This regresses the observed gtdapp 422: a PR opened on a
+// freshly-cut, zero-commit branch is rejected by GitHub ("no commits between base and
+// head"). The load-bearing ordered assertion: the FIRST "openPR" event strictly follows
+// the FIRST "readBranch" (read-back) event. Reject → redraft reuses the SAME one PR;
+// approve merges it.
+func Test_CoAuthor_Rail_OpenPR_OnlyAfterReadBack_ReuseThenMerge(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	log := &seqLog{}
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	ps := &seqProjectState{fakeProjectState: base, log: log}
+	pipe := newFakePipeline() // every dispatch Succeeds
+	rail := newScriptedRail(true, log)
+	wf := newSeqRailWorkflows(ps, pipe, rail)
+	registerRailCoAuthor(env, wf)
+
+	// First gate: REJECT → redraft on the SAME branch/PR. Second gate: APPROVE → merge.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewReject, Feedback: &ReviewFeedback{Notes: "tighten"}})
+	}, 30*time.Second)
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
+	}, 70*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("openPR-after-read-back workflow error: %v", err)
+	}
+
+	// THE LOAD-BEARING ORDERING (the reorder fix): the branch is OpenBranch'd, then the
+	// draft lands a commit, then the read-back confirms it — and ONLY THEN is the PR opened.
+	firstReadBack := log.firstIndexOf("readBranch")
+	firstOpenPR := log.firstIndexOf("openPR")
+	if firstReadBack < 0 {
+		t.Fatalf("expected a session-branch read-back; ops=%v", log.ops())
+	}
+	if firstOpenPR < 0 {
+		t.Fatalf("a successful draft must open the PR; ops=%v", log.ops())
+	}
+	if firstOpenPR <= firstReadBack {
+		t.Fatalf("the PR must be opened AFTER the first read-back (never on a zero-commit branch at session start); ops=%v", log.ops())
+	}
+	// The branch WAS opened before the read-back (dispatch-time half), so the ordering above
+	// is 'PR after read-back', NOT 'no branch at all'.
+	if rail.count("OpenBranch") == 0 {
+		t.Fatalf("OpenBranch (dispatch-time half) must run so the Action has a branch to commit on; ops=%v", log.ops())
+	}
+
+	// Opened EXACTLY ONE PR across the reject→redraft round (idempotent on head), and it is
+	// the session-branch PR that ultimately merges.
+	b1 := pipe.submits[0].dispatchInputs[dispatchInputTargetBranch]
+	if len(rail.openedPRHeads) != 1 || rail.openedPRHeads[0] != b1 {
+		t.Fatalf("reject→redraft must reuse the ONE persistent PR, got heads %v", rail.openedPRHeads)
+	}
+	if len(rail.mergedPRs) != 1 || rail.mergedPRs[0] != "pr/"+b1 {
+		t.Fatalf("approve must merge the one persistent PR pr/%s, got %v", b1, rail.mergedPRs)
+	}
+	if len(base.committed) != 1 {
+		t.Fatalf("want one commit-on-main after redraft→approve, got %v", base.committed)
 	}
 }

@@ -802,16 +802,13 @@ func (wf *workflows) runDraftRoundTrip(
 		logger.Warn("design draft job reached a terminal failure phase; entering StageDraftFailed", "diagnostic", draftObs.Diagnostic)
 		return draft, gf, 0, wf.recoverDraftFailed(ctx, in, headVersion, draftObs.Diagnostic, draftObs.RunURL, state, feedback, redraftCount)
 	}
-	// Rail: open the PR (head=sessionBranch, base=main) now the draft is green.
-	// Idempotent on head — if the Action already opened it the rail returns the existing
-	// handle (the server's handle is authoritative for the merge step).
-	if err := wf.openPR(ctx, &gf, in.ArtifactKind); err != nil {
-		return draft, gf, 0, stepErr(err)
-	}
 	// READ-BACK on the SESSION BRANCH (§2a): the Action committed the typed JSON on the
 	// session branch; read it back as the not-yet-merged draft. A dormant rail reads main
 	// (readBackBranch() == ""). The read-back Version is the ACTUAL branch version — the
 	// stage must expect THIS, not the stale main version captured at workflow start (QA F29).
+	// The read-back happens BEFORE opening the PR (below): it is the confirmation that the
+	// draft actually LANDED a commit on the branch. A session that fails before any commit
+	// therefore leaves NO PR (correct) — see the openPR reorder note below.
 	model, readBackVersion, rbErr := wf.readBackCommittedModelOn(ctx, in.ProjectID, in.ArtifactKind, gf.readBackBranch())
 	if rbErr != nil {
 		if decodeMsg, terminal := isTerminalReadBack(rbErr); terminal {
@@ -828,6 +825,16 @@ func (wf *workflows) runDraftRoundTrip(
 	}
 	draft = model
 	state.findings = nil
+	// Rail: open the PR (head=sessionBranch, base=main) ONLY NOW — AFTER the read-back
+	// CONFIRMED a committed model on the session branch, so the branch has ≥1 commit beyond
+	// main and GitHub will not 422 "no commits between base and head" (F40 fix). Opening it
+	// before the first commit lands 422s on a freshly-cut branch (observed on gtdapp amendment
+	// kind 1: the -amend-N branch was cut from main with zero commits). Idempotent on head —
+	// subsequent reject/redraft rounds reuse the SAME PR; the server's handle is authoritative
+	// for the merge step.
+	if err := wf.openPR(ctx, &gf, in.ArtifactKind); err != nil {
+		return draft, gf, 0, stepErr(err)
+	}
 	return draft, gf, readBackVersion, stepProceed()
 }
 

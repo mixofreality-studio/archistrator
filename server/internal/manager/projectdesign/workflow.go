@@ -609,15 +609,11 @@ func (wf *workflows) coAuthorDraftRound(
 		*redraftCount++
 		return coAuthorContinue, coAuthorUnknown, nil
 	}
-	// Rail: open the PR (head=sessionBranch, base=main) now the draft is green.
-	// Idempotent on head — if the Action already opened it the rail returns the
-	// existing handle (authoritative for the merge step).
-	if err := wf.openPR(ctx, gf, in.ArtifactKind); err != nil {
-		return coAuthorProceed, coAuthorUnknown, err
-	}
 	// READ-BACK on the SESSION BRANCH (§2a): the Action committed the typed Phase-2
 	// JSON on the session branch; read it back as the not-yet-merged draft. A dormant
-	// rail reads main (readBackBranch() == "").
+	// rail reads main (readBackBranch() == ""). The read-back happens BEFORE opening the
+	// PR (below): it confirms the draft actually LANDED a commit on the branch, so a session
+	// that fails before any commit leaves NO PR (correct).
 	model, readBackVersion, rbErr := wf.readBackCommittedModelOn(ctx, in.ProjectID, in.ArtifactKind, gf.readBackBranch())
 	if rbErr != nil {
 		if decodeMsg, terminal := isTerminalReadBack(rbErr); terminal {
@@ -641,6 +637,15 @@ func (wf *workflows) coAuthorDraftRound(
 	}
 	draft = model
 	state.findings = nil
+
+	// Rail: open the PR (head=sessionBranch, base=main) ONLY NOW — AFTER the read-back
+	// CONFIRMED a committed model on the session branch, so the branch has ≥1 commit beyond
+	// main and GitHub will not 422 "no commits between base and head" (F40 fix; observed on
+	// gtdapp). Idempotent on head — reject/redraft rounds reuse the SAME PR; the server's
+	// handle is authoritative for the merge step.
+	if err := wf.openPR(ctx, gf, in.ArtifactKind); err != nil {
+		return coAuthorProceed, coAuthorUnknown, err
+	}
 
 	// QA F29: adopt the ACTUAL read-back substrate version as the head version before
 	// staging. The read-back read the session branch (rail) or main (dormant); its Version
