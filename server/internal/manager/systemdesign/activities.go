@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"go.temporal.io/sdk/activity"
+	"go.temporal.io/sdk/temporal"
 
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
@@ -207,6 +208,29 @@ func (wf *workflows) RejectArtifactActivity(ctx context.Context, a mutateArtifac
 		return mapErr(ba.RejectArtifactOnBranch(ctx, a.ProjectID, a.ExpectedVersion, a.Branch, a.Kind, a.Notes, activityIdempotencyKey(ctx)))
 	}
 	return mapErr(wf.ProjectState.RejectArtifact(fwra.Context{Context: ctx, IdempotencyKey: activityIdempotencyKey(ctx)}, a.ProjectID, a.ExpectedVersion, a.Kind, a.Notes))
+}
+
+// reconcileBranchArgs bundles the F80c server-side branch-reconcile inputs.
+type reconcileBranchArgs struct {
+	ProjectID       projectstate.ProjectID
+	ExpectedVersion projectstate.Version
+	Branch          string
+	Kind            projectstate.ArtifactKind
+}
+
+// ReconcileBranchActivity overlays main's slots (bar the session's own) onto the session
+// branch tip so a diverged PR becomes mergeable again (F80c). It routes to the OPTIONAL
+// ReconcilingProjectStateAccess extension; a substrate WITHOUT it (or an empty branch) is a
+// non-retryable "unsupported" the merge window treats as "cannot reconcile — honest
+// AwaitingReview fallback". A stale-version Conflict surfaces canonically for the
+// workflow's applyRecovering loop.
+func (wf *workflows) ReconcileBranchActivity(ctx context.Context, a reconcileBranchArgs) (projectstate.Version, error) {
+	rec, ok := wf.ProjectState.(projectstate.ReconcilingProjectStateAccess)
+	if !ok || a.Branch == "" {
+		return 0, temporal.NewNonRetryableApplicationError(
+			"branch reconcile unsupported by the substrate (or no session branch)", "ReconcileUnsupported", nil)
+	}
+	return mapErr(rec.ReconcileBranchFromMain(ctx, a.ProjectID, a.ExpectedVersion, a.Branch, a.Kind, activityIdempotencyKey(ctx)))
 }
 
 func (wf *workflows) WithdrawArtifactActivity(ctx context.Context, a mutateArtifactArgs) (projectstate.Version, error) {

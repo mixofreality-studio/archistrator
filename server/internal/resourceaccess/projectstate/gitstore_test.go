@@ -436,6 +436,22 @@ func TestGitStore_RejectArtifactOnBranch_EmptyBranchIsMain(t *testing.T) {
 	}
 }
 
+// TestGitStore_ReconcileBranchFromMain_EmptyBranchIsMisuse proves the F80c branch
+// reconciler refuses an empty branch: reconciliation only makes sense against a real
+// session branch (main never diverges from itself), so an empty branch is a ContractMisuse
+// rather than a silent no-op that could mask a wiring bug.
+func TestGitStore_ReconcileBranchFromMain_EmptyBranchIsMisuse(t *testing.T) {
+	store, cred, ctx := newLocalGitStore(t)
+	id := ps.ProjectID(uuid.NewString())
+	if _, err := store.CreateProject(ctx, id, "alice", "Demo", cred, "wf:create"); err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	_, err := store.ReconcileBranchFromMain(ctx, id, 1, "", ps.KindMission, cred, "wf:reconcile")
+	if k := kindOf(t, err); k != fwra.ContractMisuse {
+		t.Fatalf("reconcile with empty branch kind = %v, want ContractMisuse", k)
+	}
+}
+
 // TestGitStore_RejectArtifactOnBranch_UnpopulatedSlotIsMisuse proves rejecting a slot
 // that was never staged is a ContractMisuse — the RA-level guard whose main-path
 // triggering (in the PR rail, where the draft lives on the session branch and main's slot

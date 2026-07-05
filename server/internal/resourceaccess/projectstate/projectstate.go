@@ -113,6 +113,22 @@ type LedgerProjectStateAccess interface {
 	SeedReviewCommentsOnBranch(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, round int64, comments []ReviewComment, idempotencyKey fwra.IdempotencyKey) (Version, error)
 }
 
+// ReconcilingProjectStateAccess is the OPTIONAL branch-reconcile extension of the no-cred
+// projectStateAccess port (F80c, 2026-07-05). Like the extensions above it is a SEPARATE
+// interface so every existing caller/adapter/test fake compiles unchanged: the design
+// Manager type-asserts its ProjectStateAccess field to it and reconciles a diverged session
+// branch server-side ONLY when the substrate supports it, falling back to the honest
+// re-await when it does not.
+type ReconcilingProjectStateAccess interface {
+	// ReconcileBranchFromMain overlays main's every slot EXCEPT the session's own (kind)
+	// onto the session-branch tip and commits it, so the branch's project.json differs from
+	// main only in the in-flight slot and the PR becomes mergeable again (a main-side advance
+	// — a staleness ack, a question seed — that diverged the branch is picked up
+	// deterministically). It is the server-side twin of the workflow refresh-step reconcile.
+	// A non-empty branch is required.
+	ReconcileBranchFromMain(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, idempotencyKey fwra.IdempotencyKey) (Version, error)
+}
+
 // StaleAckProjectStateAccess is the OPTIONAL per-slot staleness-acknowledge extension of the
 // no-cred projectStateAccess port (F45, founder-ratified 2026-07-05). Like the ledger
 // extension above it is a SEPARATE interface so every existing caller/adapter/test fake

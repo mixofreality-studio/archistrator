@@ -251,6 +251,40 @@ func TestDesignWorkflowWiresStateMcp(t *testing.T) {
 	}
 }
 
+// TestDesignWorkflowReconcilesStateConflict asserts the F80 refresh-step wiring: answer
+// jobs skip the merge-from-main, and a draft/critique conflict on the state document is
+// resolved DETERMINISTICALLY via the aiarch-state-mcp `reconcile` subcommand rather than
+// dead-ending RED.
+func TestDesignWorkflowReconcilesStateConflict(t *testing.T) {
+	body := string(renderedDesignWorkflow(t, testAppSlug))
+
+	// F80(a): answer jobs short-circuit before the merge (still on the branch tip).
+	if !strings.Contains(body, `[ "${JOB_MODE}" = "answer" ]`) {
+		t.Error("refresh step must skip the merge-from-main for answer jobs (F80a)")
+	}
+	// F80(b): a state-document conflict is reconciled, not failed.
+	if !strings.Contains(body, "reconcile") {
+		t.Error("refresh step must invoke the aiarch-state-mcp reconcile subcommand (F80b)")
+	}
+	if !strings.Contains(body, "--diff-filter=U") {
+		t.Error("refresh step must detect the conflicted file set before auto-resolving")
+	}
+	// It reads BOTH merge stages of the state file (ours = :2, theirs/main = :3).
+	if !strings.Contains(body, `:2:${STATE_FILE}`) || !strings.Contains(body, `:3:${STATE_FILE}`) {
+		t.Error("reconcile must read both merge stages of the state document")
+	}
+	// The MCP binary is installed BEFORE the refresh step needs it (reconcile).
+	iInstall := strings.Index(body, "go install "+StateMcpModulePath)
+	iRefresh := strings.Index(body, "Refresh the session branch from main")
+	if iInstall < 0 || iRefresh < 0 || iInstall > iRefresh {
+		t.Error("the aiarch-state MCP binary must be installed before the refresh step (which invokes reconcile)")
+	}
+	var doc workflowDoc
+	if err := yaml.Unmarshal([]byte(body), &doc); err != nil {
+		t.Fatalf("rendered workflow must parse as YAML after the F80 reconcile wiring: %v", err)
+	}
+}
+
 // TestDesignWorkflowAllowedBots asserts the allowed_bots actor is templated from the
 // configured App slug (never hardcoded) and, crucially, is OMITTED entirely when the
 // slug is empty — an unconfigured deployment then still supports human-dispatched runs

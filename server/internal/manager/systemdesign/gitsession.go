@@ -128,7 +128,7 @@ func (wf *workflows) openPR(ctx workflow.Context, gf *gitSession, kind ArtifactK
 // was not green (the caller routes that to the StageDraftFailed recovery gate — the PR
 // is not green, do NOT merge, never wedge). A dormant session returns ok=true (the
 // non-git spine commits on main with no rail).
-func (wf *workflows) mergeOnApprove(ctx workflow.Context, gf *gitSession, kind ArtifactKind) (bool, error) {
+func (wf *workflows) mergeOnApprove(ctx workflow.Context, projectID ProjectID, gf *gitSession, kind ArtifactKind) (bool, error) {
 	if !gf.enabled {
 		return true, nil
 	}
@@ -146,6 +146,26 @@ func (wf *workflows) mergeOnApprove(ctx workflow.Context, gf *gitSession, kind A
 	}
 	if !st.CheckGreen {
 		return false, nil
+	}
+
+	// F80c: the required check is green, but the PR may be MERGEABLE=false — main advanced
+	// under the session branch (a staleness ack, a question seed) and their project.json
+	// (a server-owned, single-writer-per-slot document) conflicts, so mergeable_state is
+	// dirty. Attempting the merge here would fail and, worse, RE-APPROVING would loop
+	// forever (the branch stays dirty). Instead RECONCILE the branch server-side — overlay
+	// main's other slots onto the branch tip so it differs from main only in the in-flight
+	// slot — which pushes a new commit that makes the PR mergeable. That push re-triggers
+	// the required CI check, so we cannot merge in THIS pass; return the honest not-merged
+	// path carrying an actionable reason (the caller re-awaits, and the next approve — once
+	// CI is green again — merges cleanly). If the substrate cannot reconcile, the same
+	// honest fallback applies.
+	if !st.Mergeable {
+		if rerr := wf.reconcileDivergedBranch(ctx, projectID, gf, kind); rerr != nil {
+			return false, rerr
+		}
+		return false, temporal.NewNonRetryableApplicationError(
+			"design PR was not mergeable (main advanced under the session branch); the branch was reconciled with main and CI is re-validating — re-approve once it is green",
+			"DesignBranchReconciled", nil)
 	}
 
 	// Relay the architecture +1 (the counted approval + audit).
@@ -169,6 +189,29 @@ func (wf *workflows) mergeOnApprove(ctx workflow.Context, gf *gitSession, kind A
 			"design PR merge did not complete (not mergeable)", "DesignMergeNotCompleted", nil)
 	}
 	return true, nil
+}
+
+// reconcileDivergedBranch overlays main's slots (bar the in-flight one) onto the session
+// branch tip so a MERGEABLE=false PR becomes mergeable again (F80c). It runs through
+// applyRecovering so a stale-version Conflict re-reads the branch version and retries
+// within bounded attempts; a substrate that lacks the reconcile extension surfaces the
+// non-retryable ReconcileUnsupported the caller contains as an honest re-await. Seeding
+// expectedVersion 0 is safe: an existing branch row trips the version guard → Conflict →
+// applyRecovering re-reads the real branch version and retries.
+func (wf *workflows) reconcileDivergedBranch(ctx workflow.Context, projectID ProjectID, gf *gitSession, kind ArtifactKind) error {
+	branch := gf.readBackBranch()
+	if branch == "" {
+		return nil // dormant rail: no session branch to reconcile
+	}
+	_, err := wf.applyRecovering(ctx, projectID, branch, 0, func(expected projectstate.Version) (projectstate.Version, error) {
+		c := mutateOpts(ctx)
+		var v projectstate.Version
+		e := workflow.ExecuteActivity(c, wf.ReconcileBranchActivity, reconcileBranchArgs{
+			ProjectID: projectstate.ProjectID(projectID), ExpectedVersion: expected, Branch: branch, Kind: toPSKind(kind),
+		}).Get(ctx, &v)
+		return v, e
+	})
+	return err
 }
 
 // railAuthRetry* bound the workflow-side rail retry on a transient-403-as-Auth fault

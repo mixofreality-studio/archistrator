@@ -65,6 +65,7 @@ func RegisterWorker(w worker.Worker, m SystemDesignManager) {
 	w.RegisterActivityWithOptions(wf.CommitArtifactActivity, activity.RegisterOptions{Name: actCommitArtifact})
 	w.RegisterActivityWithOptions(wf.RejectArtifactActivity, activity.RegisterOptions{Name: actRejectArtifact})
 	w.RegisterActivityWithOptions(wf.WithdrawArtifactActivity, activity.RegisterOptions{Name: actWithdrawArtifact})
+	w.RegisterActivityWithOptions(wf.ReconcileBranchActivity, activity.RegisterOptions{Name: actReconcileBranch})
 	w.RegisterActivityWithOptions(wf.SetReviewCommentStatusActivity, activity.RegisterOptions{Name: actSetReviewCommentStatus})
 	w.RegisterActivityWithOptions(wf.SeedReviewCommentsActivity, activity.RegisterOptions{Name: actSeedReviewComments})
 	w.RegisterActivityWithOptions(wf.AdvancePhaseActivity, activity.RegisterOptions{Name: actAdvancePhase})

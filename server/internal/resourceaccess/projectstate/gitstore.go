@@ -262,6 +262,37 @@ func (s *GitStore) stageArtifactForReviewOnBranch(ctx context.Context, projectID
 	})
 }
 
+// ReconcileBranchFromMain resolves a diverged session branch server-side (F80c): it reads
+// main's committed aggregate and overlays every slot EXCEPT the session's OWN one (kind)
+// onto the session-branch tip, then commits that reconciliation to the branch. project.json
+// is a SERVER-OWNED, SINGLE-WRITER-PER-SLOT document, so the branch legitimately owns only
+// `kind`; adopting main's other slots makes the branch's project.json differ from main only
+// in `kind`, so the PR's 3-way merge (over the multi-line document) no longer conflicts and
+// the approve-time merge can complete. It is the branch-write twin of the workflow's
+// aiarch-state-mcp reconcile (both call the same overlay semantics). An EMPTY branch is a
+// no-op error (reconciliation only makes sense against a real session branch).
+func (s *GitStore) ReconcileBranchFromMain(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	if branch == "" {
+		return 0, fwra.New(fwra.ContractMisuse, "projectstate.ReconcileBranchFromMain: empty branch (nothing to reconcile)")
+	}
+	// Read main's committed aggregate — the source of every OTHER slot's latest content.
+	mainProj, err := s.readProjectOnBranch(ctx, projectID, "", cred)
+	if err != nil {
+		return 0, err
+	}
+	return s.applyMutationOnBranch(ctx, "ReconcileBranchFromMain", projectID, expectedVersion, branch, cred, idempotencyKey, modeUpsert, func(p *Project) error {
+		// p is the session-branch tip; overlay main's slots for every kind but the
+		// session's own, leaving the in-flight draft (+ its review ledger) intact.
+		for _, e := range slotTable() {
+			if e.kind == kind {
+				continue
+			}
+			*e.ptr(p) = *e.ptr(&mainProj)
+		}
+		return nil
+	})
+}
+
 func (s *GitStore) CommitArtifact(ctx context.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	// commitTransition (F38) flips to Committed AND bumps Revisions + clears this slot's
 	// StaleBasis + flags downstream committed slots stale — all in one atomic commit on main.

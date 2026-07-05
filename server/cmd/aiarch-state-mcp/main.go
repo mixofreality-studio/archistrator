@@ -20,6 +20,18 @@ import (
 )
 
 func main() {
+	// ONE-SHOT subcommands run and exit WITHOUT starting the stdio MCP server. `reconcile`
+	// is the deterministic project.json merge-conflict resolver the design workflow's
+	// refresh step invokes when a session branch has diverged from main (F80): it keeps
+	// ALL state-file logic in ProjectStateAccess code (projectstate.ReconcileSlotOntoBase)
+	// rather than a bash/jq hack in the workflow.
+	if len(os.Args) > 1 && os.Args[1] == "reconcile" {
+		if err := runReconcile(os.Getenv, os.Args[2:]); err != nil {
+			fatalf("reconcile: %v", err)
+		}
+		return
+	}
+
 	wd, err := os.Getwd()
 	if err != nil {
 		fatalf("resolve working directory: %v", err)

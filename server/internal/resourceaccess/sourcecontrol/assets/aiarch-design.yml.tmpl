@@ -183,37 +183,6 @@ jobs:
           ref: ${{ inputs.prior_state_ref != '' && inputs.prior_state_ref || github.ref }}
           fetch-depth: 0
 
-      # REFRESH-FROM-MAIN (F40 founder ruling 2026-07-05). One persistent session branch
-      # per artifact now accumulates every draft/critique/redraft until it merges (not a
-      # branch-per-attempt). The stale-base problem the old branch-per-retry topology
-      # solved (a branch cut from main BEFORE a main-side fix landed — e.g. the internal/
-      # scaffold fix — whose required `go test` gate then fails forever) is handled HERE
-      # instead: before every job we re-merge origin/main into the session branch so it
-      # (and its CI base) always picks up main-side fixes. The session branch already
-      # exists on the remote (the Manager's OpenBranch created it before dispatch). A merge
-      # CONFLICT fails the run RED with an ::error so it surfaces at the human failed gate —
-      # never a silent stale base. The push uses the run's own GITHUB_TOKEN (contents:write).
-      - name: Refresh the session branch from main
-        env:
-          TARGET_BRANCH: ${{ inputs.target_branch }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git fetch --no-tags origin main "${TARGET_BRANCH}"
-          git checkout -B "${TARGET_BRANCH}" "origin/${TARGET_BRANCH}"
-          if ! git merge --no-edit origin/main; then
-            echo "::error::merge conflict refreshing session branch '${TARGET_BRANCH}' from origin/main — resolve the conflict on the branch and retry the draft."
-            exit 1
-          fi
-          git push origin "HEAD:${TARGET_BRANCH}"
-
-      # Record the base commit the draft is built on — the REFRESHED session-branch tip (so
-      # the post-claude guard measures whether CLAUDE advanced the branch beyond the refresh,
-      # not the refresh merge itself). See "Verify claude pushed a commit".
-      - name: Record base SHA
-        id: base
-        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-
       # -----------------------------------------------------------------------
       # aiarch-state MCP server (agentic-managers spec §Construction application).
       # The drafting agent NO LONGER hand-edits .aiarch/state/project.json or runs git:
@@ -222,6 +191,10 @@ jobs:
       # every model through the FULL projectstate codec + methodcheck BEFORE writing (so a
       # bad enum / missing id is rejected in-loop with an actionable error, not committed
       # to stall the rail), and publishDraft is the single, exactly-once commit+push.
+      #
+      # It is installed BEFORE the refresh step because the refresh's deterministic
+      # conflict RESOLVER (F80) invokes this same binary's `reconcile` subcommand — keeping
+      # ALL state-file logic in ProjectStateAccess code rather than a bash/jq hack.
       #
       # DELIVERY: the binary is obtained the SAME way the seated `go test` obtains
       # framework-go — `go install <module>@<pin>` resolved via GOPROXY (a published
@@ -248,6 +221,76 @@ jobs:
           mkdir -p "${GOBIN}"
           go install [[ .StateMcpModulePath ]]@[[ .StateMcpModulePin ]]
           echo "bin=${GOBIN}/aiarch-state-mcp" >> "$GITHUB_OUTPUT"
+
+      # REFRESH-FROM-MAIN (F40 founder ruling 2026-07-05; F80 reconcile 2026-07-05). One
+      # persistent session branch per artifact accumulates every draft/critique/redraft
+      # until it merges (not a branch-per-attempt). The stale-base problem the old
+      # branch-per-retry topology solved (a branch cut from main BEFORE a main-side fix
+      # landed — e.g. the internal/scaffold fix — whose required `go test` gate then fails
+      # forever) is handled HERE instead: before every DRAFT/CRITIQUE job we re-merge
+      # origin/main into the session branch so it (and its CI base) always picks up
+      # main-side fixes.
+      #
+      # F80(a): ANSWER jobs are EXEMPT from the merge-from-main — they only append
+      # per-question responses onto the branch tip's review ledger, never touch the model,
+      # and must not risk a merge conflict (the live failure: an answer job died refreshing
+      # from main). They STILL check out the session-branch tip (the append target) but
+      # short-circuit before the merge. Draft/critique jobs merge main as before.
+      #
+      # F80(b): project.json is a SERVER-OWNED, SINGLE-WRITER-PER-SLOT document, so a
+      # main-side advance (a staleness ack, a question seed) legitimately collides with the
+      # in-flight draft on that one file. Rather than dead-ending RED, a conflict is
+      # resolved DETERMINISTICALLY by `aiarch-state-mcp reconcile` — main's document with
+      # THIS session's own slot overlaid — and the resolution is committed to complete the
+      # merge. A conflict on ANY OTHER file (there should be none — the branch only writes
+      # state) is still an honest RED failure. The push uses the run's own GITHUB_TOKEN.
+      - name: Refresh the session branch from main
+        env:
+          JOB_MODE: ${{ inputs.job_mode }}
+          TARGET_BRANCH: ${{ inputs.target_branch }}
+          ARTIFACT_KIND: ${{ inputs.artifact_kind }}
+          PROJECT_ID: ${{ github.event.repository.name }}
+          STATE_MCP: ${{ steps.statemcp.outputs.bin }}
+          STATE_FILE: .aiarch/state/project.json
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch --no-tags origin main "${TARGET_BRANCH}"
+          git checkout -B "${TARGET_BRANCH}" "origin/${TARGET_BRANCH}"
+          if [ "${JOB_MODE}" = "answer" ]; then
+            echo "answer job: on the session-branch tip, skipping merge-from-main (F80a)"
+            exit 0
+          fi
+          if git merge --no-edit origin/main; then
+            git push origin "HEAD:${TARGET_BRANCH}"
+            exit 0
+          fi
+          # Conflict: only the server-owned state document may conflict; anything else is
+          # an honest failure that a human must resolve.
+          conflicts="$(git diff --name-only --diff-filter=U)"
+          if [ "${conflicts}" != "${STATE_FILE}" ]; then
+            echo "::error::merge conflict on files other than ${STATE_FILE} (${conflicts}); refusing to auto-resolve — resolve on the branch and retry."
+            git merge --abort
+            exit 1
+          fi
+          echo "reconciling ${STATE_FILE}: main + this session's own slot (${ARTIFACT_KIND})"
+          git show ":3:${STATE_FILE}" > "${RUNNER_TEMP}/main-project.json"   # theirs = origin/main
+          git show ":2:${STATE_FILE}" > "${RUNNER_TEMP}/ours-project.json"   # ours   = session branch
+          AIARCH_PROJECT_ID="${PROJECT_ID}" AIARCH_ARTIFACT_KIND="${ARTIFACT_KIND}" \
+            "${STATE_MCP}" reconcile \
+              --base "${RUNNER_TEMP}/main-project.json" \
+              --ours "${RUNNER_TEMP}/ours-project.json" \
+              --out "${STATE_FILE}"
+          git add "${STATE_FILE}"
+          git commit --no-edit
+          git push origin "HEAD:${TARGET_BRANCH}"
+
+      # Record the base commit the draft is built on — the REFRESHED session-branch tip (so
+      # the post-claude guard measures whether CLAUDE advanced the branch beyond the refresh,
+      # not the refresh merge itself). See "Verify claude pushed a commit".
+      - name: Record base SHA
+        id: base
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       # The MCP config claude-code-action passes to the Claude CLI (--mcp-config). The
       # ambient session context is baked in as env on the MCP server process from the

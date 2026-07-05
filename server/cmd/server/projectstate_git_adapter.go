@@ -320,6 +320,7 @@ func (a *projectStateGitAdapter) SetReviewCommentStatusOnBranch(ctx context.Cont
 }
 
 var _ projectstate.StaleAckProjectStateAccess = (*projectStateGitAdapter)(nil)
+var _ projectstate.ReconcilingProjectStateAccess = (*projectStateGitAdapter)(nil)
 
 // AcknowledgeStaleBasis clears a committed slot's StaleBasis + records the reviewer's
 // "reviewed — unaffected" audit entry on main (F45). The cred is minted just-in-time, exactly
@@ -330,6 +331,17 @@ func (a *projectStateGitAdapter) AcknowledgeStaleBasis(ctx context.Context, proj
 		return 0, err
 	}
 	return a.store.AcknowledgeStaleBasis(ctx, projectID, expectedVersion, kind, note, cred, idempotencyKey)
+}
+
+// ReconcileBranchFromMain is the branch-reconcile verb (F80c): it overlays main's slots
+// (bar the session's own) onto the session-branch tip so a diverged PR becomes mergeable.
+// The cred is minted just-in-time, exactly like the other branch-aware verbs.
+func (a *projectStateGitAdapter) ReconcileBranchFromMain(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
+	cred, err := a.minter.credentialFor(ctx, projectID)
+	if err != nil {
+		return 0, err
+	}
+	return a.store.ReconcileBranchFromMain(ctx, projectID, expectedVersion, branch, kind, cred, idempotencyKey)
 }
 
 // ---------------------------------------------------------------------------

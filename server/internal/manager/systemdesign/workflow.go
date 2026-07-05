@@ -127,6 +127,8 @@ const (
 	actRejectArtifact      = "RejectArtifactActivity"
 	actWithdrawArtifact    = "WithdrawArtifactActivity"
 	actAdvancePhase        = "AdvancePhaseActivity"
+	// F80c: the server-side diverged-branch reconcile at the approve/merge window.
+	actReconcileBranch = "ReconcileBranchActivity"
 	// review-ledger: the human waive/reopen branch mutation.
 	actSetReviewCommentStatus = "SetReviewCommentStatusActivity"
 	actSeedReviewComments     = "SeedReviewCommentsActivity"
@@ -1244,7 +1246,7 @@ func (wf *workflows) commitOnApprove(
 	state *coAuthorState,
 ) coAuthorStep {
 	logger := workflow.GetLogger(ctx)
-	merged, mErr := wf.mergeOnApprove(ctx, gf, in.ArtifactKind)
+	merged, mErr := wf.mergeOnApprove(ctx, in.ProjectID, gf, in.ArtifactKind)
 	if mErr != nil {
 		// QA F35: a merge-window fault (PR-status read / +1 relay / merge) must NOT kill the
 		// workflow. The staged draft is intact on the session branch and main is untouched,
