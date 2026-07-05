@@ -508,6 +508,10 @@ var encapsulationAllowlistData = map[string][]string{
 		"RepoRefOwnerRepo",
 		"RepoRefString",
 		"SourceControlCatalogAccess",
+		// The managed-scaffold pins for the local project-state MCP server the DESIGN
+		// workflow `go install`s (agentic-managers spec §Construction application).
+		"StateMcpModulePath",
+		"StateMcpModulePin",
 	},
 	// Cross-package identity value types (CustomerID, OperatedAppID) consumed by downstream
 	// Managers, + Error alias.

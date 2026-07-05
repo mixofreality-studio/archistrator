@@ -8,24 +8,27 @@ package systemdesign
 
 import (
 	"encoding/json"
-	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
-// F68 (Phase-1 sibling): the slot number rendered into the draft prompt MUST equal the session's
-// wire kind for EVERY Phase-1 kind — the canonical mapping that flows identically through the
-// prompt, the branch (int(kind)), and the server read-back. Phase-1 kinds have distinct model
-// types, but the same authoritative-slot directive prevents any positional mis-write.
-func Test_SlotPlacement_PromptSlotNumberEqualsWireKind(t *testing.T) {
+// F68, made STRUCTURAL: the prompt no longer carries a slot-placement directive at all —
+// putDraftModel writes to the ambient kind's slot, so the agent can never mis-place it
+// positionally. Every Phase-1 draft prompt must state that the job fixes the slot and must
+// NOT carry the old numeric slot-key directive.
+func Test_DraftPrompt_NoSlotPlacementDirective(t *testing.T) {
 	for _, kind := range projectstate.Phase1RequiredKinds() {
 		prompt := architectDraftPrompt(kind, projectstate.Project{}, ReviewFeedback{}, nil, 0)
-		want := fmt.Sprintf("slot keyed exactly %q", fmt.Sprintf("%d", int(kind)))
-		if !strings.Contains(prompt, want) {
-			t.Fatalf("kind %s (wire %d): prompt must name the authoritative slot key %q; got:\n%s",
-				kind, int(kind), want, prompt)
+		if strings.Contains(prompt, "slot keyed exactly") || strings.Contains(strings.ToUpper(prompt), "SLOT PLACEMENT") {
+			t.Fatalf("kind %s: prompt must not carry a slot-placement directive; got:\n%s", kind, prompt)
+		}
+		if !strings.Contains(prompt, "putDraftModel") {
+			t.Fatalf("kind %s: prompt must direct the agent to submit via putDraftModel; got:\n%s", kind, prompt)
+		}
+		if !strings.Contains(prompt, "never choose a slot") {
+			t.Fatalf("kind %s: prompt must state the job fixes the slot; got:\n%s", kind, prompt)
 		}
 	}
 }
@@ -39,10 +42,10 @@ func projWithResearch(sources ...projectstate.ResearchSourceRef) projectstate.Pr
 	}
 }
 
-// The mission-draft prompt POINTS at each corpus source's FILE PATH and lists each source
-// TITLE, but the source CONTENT must not appear inline (F42 files-not-JSON; F11 guard). The
-// persisted corpus carries only {Title, Path} pointers — content lives in the repo files.
-func Test_MissionPrompt_PointsAtResearchFiles_NeverInlinesContent(t *testing.T) {
+// The mission-draft prompt directs the agent to the research corpus via the aiarch-state
+// tools (listResearchSources / getResearchSource) and never inlines content or enumerates
+// file paths (the corpus can be book-sized; F11/F42 guard).
+func Test_MissionPrompt_PointsAtResearchTools_NeverInlinesContent(t *testing.T) {
 	prompt := architectDraftPrompt(
 		projectstate.KindMission,
 		projWithResearch(
@@ -54,22 +57,17 @@ func Test_MissionPrompt_PointsAtResearchFiles_NeverInlinesContent(t *testing.T) 
 		0,
 	)
 
-	// The prompt must POINT at each source's FILE PATH (the file-path pointer form).
-	if !strings.Contains(prompt, ".aiarch/state/research/00-founder-brief.txt") ||
-		!strings.Contains(prompt, ".aiarch/state/research/01-competitor-analysis.txt") {
-		t.Errorf("prompt must point at each source's research file path; got:\n%s", prompt)
+	// The prompt must direct the agent to the research tools, not a file/JSON path.
+	if !strings.Contains(prompt, "listResearchSources") || !strings.Contains(prompt, "getResearchSource") {
+		t.Errorf("prompt must direct the agent to listResearchSources + getResearchSource; got:\n%s", prompt)
 	}
-	// It must direct the agent to read each source from its FILE (not a project.json path).
-	if !strings.Contains(prompt, "FILE") {
-		t.Errorf("prompt must instruct reading each source from its file; got:\n%s", prompt)
+	// No file paths and no JSON path are enumerated in the prompt anymore.
+	if strings.Contains(prompt, ".aiarch/state/research/") || strings.Contains(prompt, ".research.Sources") {
+		t.Errorf("prompt must not enumerate research file/JSON paths (the tools do that); got:\n%s", prompt)
 	}
-	// The old JSON-path pointer form is gone (F42).
-	if strings.Contains(prompt, ".research.Sources") {
-		t.Errorf("prompt must not use the old .research.Sources JSON-path form (F42); got:\n%s", prompt)
-	}
-	// The prompt must list each source TITLE so the agent knows what is available to read.
-	if !strings.Contains(prompt, "Founder brief") || !strings.Contains(prompt, "Competitor analysis") {
-		t.Errorf("prompt must list each source title; got:\n%s", prompt)
+	// The (book-sized) content must never be inline.
+	if strings.Contains(prompt, "expect any research content inline") == false {
+		t.Errorf("prompt must state research content is not inline; got:\n%s", prompt)
 	}
 }
 
@@ -130,21 +128,18 @@ func Test_MissionPrompt_EmptyCorpus_EmitsNoResearchBlock(t *testing.T) {
 // writeResearch is the composition unit under the prompt: it points, never inlines, and
 // honours the IsZero guard. Direct coverage so the contract holds independent of the
 // mission-prompt wrapper.
-func Test_writeResearch_PointerForm(t *testing.T) {
+func Test_writeResearch_ToolForm(t *testing.T) {
 	var b strings.Builder
 	writeResearch(&b, projectstate.ResearchCorpus{Sources: []projectstate.ResearchSourceRef{
 		{Title: "Customer interviews", Path: ".aiarch/state/research/00-customer-interviews.txt", ContentBytes: 12345},
 	}})
 	out := b.String()
-	if !strings.Contains(out, "Customer interviews") {
-		t.Errorf("writeResearch must list the source title; got:\n%s", out)
+	// It directs the agent to the research tools and inlines neither paths nor content.
+	if !strings.Contains(out, "listResearchSources") || !strings.Contains(out, "getResearchSource") {
+		t.Errorf("writeResearch must direct the agent to the research tools; got:\n%s", out)
 	}
-	// F42 file-path pointer form: title → file path, and NOT the old JSON-path form.
-	if !strings.Contains(out, ".aiarch/state/research/00-customer-interviews.txt") {
-		t.Errorf("writeResearch must point at the source's research file path; got:\n%s", out)
-	}
-	if strings.Contains(out, ".research.Sources") {
-		t.Errorf("writeResearch must not use the old .research.Sources JSON-path form (F42); got:\n%s", out)
+	if strings.Contains(out, ".aiarch/state/research/") || strings.Contains(out, ".research.Sources") {
+		t.Errorf("writeResearch must not enumerate research paths; got:\n%s", out)
 	}
 
 	var empty strings.Builder
@@ -167,49 +162,18 @@ func wireNameOf(t *testing.T, v interface{}) string {
 	return strings.Trim(string(b), `"`)
 }
 
-// QA F36: the CoreUseCases draft prompt must enumerate the CLOSED-ENUM wire names (Trigger,
-// Classification) and carry the schema-conformance pointer. The root cause of F36 was free
-// prose committed into the "trigger" closed enum — the CI validate check accepted it (its
-// Go mirror types the field as a free string) but the server codec rejected it on read-back.
-// Telling the drafting agent the exact allowed wire names here is the only pre-read-back
-// defense. The expected names are DERIVED from the codec so this stays in lockstep with it.
-func Test_CoreUseCasesPrompt_EnumeratesClosedEnumWireNames(t *testing.T) {
+// QA F36 is now handled by putDraftModel's in-loop codec validation, so the CoreUseCases
+// prompt no longer carries the closed-enum wire-name dump (a schema dump). It must NOT carry
+// the SCHEMA CONFORMANCE block anymore — the agent learns the exact enum values from
+// putDraftModel's rejection, not a prompt-side enumeration.
+func Test_CoreUseCasesPrompt_NoClosedEnumDump(t *testing.T) {
 	prompt := architectDraftPrompt(projectstate.KindCoreUseCases, projectstate.Project{}, ReviewFeedback{}, nil, 0)
-
-	// The schema-conformance pointer line: point at the checked-out state + name the enum rule.
-	if !strings.Contains(prompt, "SCHEMA CONFORMANCE") {
-		t.Errorf("prompt must carry the SCHEMA CONFORMANCE pointer line; got:\n%s", prompt)
+	if strings.Contains(prompt, "SCHEMA CONFORMANCE") {
+		t.Errorf("prompt must not carry the closed-enum schema dump anymore; got:\n%s", prompt)
 	}
-	if !strings.Contains(prompt, ".aiarch/state/project.json") {
-		t.Errorf("prompt must point at the checked-out state (.aiarch/state/project.json); got:\n%s", prompt)
-	}
-	if !strings.Contains(strings.ToLower(prompt), "wire name") {
-		t.Errorf("prompt must instruct that enum fields accept only their wire names; got:\n%s", prompt)
-	}
-
-	// Every Trigger + Classification wire name must be enumerated verbatim (anti-drift:
-	// derived from the codec's MarshalJSON, not a hand-copy).
-	triggers := []projectstate.Trigger{
-		projectstate.TriggerClientAction, projectstate.TriggerTimer, projectstate.TriggerBusMessage,
-	}
-	for _, tr := range triggers {
-		name := wireNameOf(t, tr)
-		if !strings.Contains(prompt, name) {
-			t.Errorf("CoreUseCases prompt missing Trigger wire name %q; got:\n%s", name, prompt)
-		}
-	}
-	classes := []projectstate.Classification{projectstate.ClassCore, projectstate.ClassNonCore}
-	for _, c := range classes {
-		name := wireNameOf(t, c)
-		if !strings.Contains(prompt, name) {
-			t.Errorf("CoreUseCases prompt missing Classification wire name %q; got:\n%s", name, prompt)
-		}
-	}
-
-	// The failing free-prose trigger from the live incident must be framed as INVALID — the
-	// prompt explicitly says the trigger is one of the fixed names, not a free-text sentence.
-	if !strings.Contains(prompt, "NOT a free-text sentence") {
-		t.Errorf("prompt must warn that trigger is not free text; got:\n%s", prompt)
+	// The prompt still carries the drafting DOCTRINE (how to abstract core use cases).
+	if !strings.Contains(prompt, "ABSTRACTION") {
+		t.Errorf("prompt must still carry the core-use-case drafting doctrine; got:\n%s", prompt)
 	}
 }
 
@@ -261,25 +225,16 @@ func Test_MissionPrompt_HasNoClosedEnumBlock(t *testing.T) {
 	}
 }
 
-// The System draft prompt carries the ComponentKind + relationship-mode wire names.
-func Test_SystemPrompt_EnumeratesComponentKindAndMode(t *testing.T) {
+// The System draft prompt no longer dumps the ComponentKind / CallMode enum wire names
+// (putDraftModel validates them). It must NOT carry the SCHEMA CONFORMANCE block, but it must
+// still carry the decomposition DOCTRINE.
+func Test_SystemPrompt_NoClosedEnumDump(t *testing.T) {
 	prompt := architectDraftPrompt(projectstate.KindSystem, projectstate.Project{}, ReviewFeedback{}, nil, 0)
-	kinds := []projectstate.ComponentKind{
-		projectstate.CompClient, projectstate.CompManager, projectstate.CompEngine,
-		projectstate.CompResourceAccess, projectstate.CompResource, projectstate.CompUtility,
+	if strings.Contains(prompt, "SCHEMA CONFORMANCE") {
+		t.Errorf("System prompt must not carry the closed-enum schema dump anymore; got:\n%s", prompt)
 	}
-	for _, k := range kinds {
-		name := wireNameOf(t, k)
-		if !strings.Contains(prompt, name) {
-			t.Errorf("System prompt missing ComponentKind wire name %q; got:\n%s", name, prompt)
-		}
-	}
-	modes := []projectstate.CallMode{projectstate.CallSync, projectstate.CallQueued, projectstate.CallEventPubSub}
-	for _, m := range modes {
-		name := wireNameOf(t, m)
-		if !strings.Contains(prompt, name) {
-			t.Errorf("System prompt missing CallMode wire name %q; got:\n%s", name, prompt)
-		}
+	if !strings.Contains(prompt, "Decompose the system by VOLATILITY") {
+		t.Errorf("System prompt must still carry the decomposition doctrine; got:\n%s", prompt)
 	}
 }
 
@@ -360,10 +315,10 @@ func Test_ArchitectDraftPrompt_WeavesOpenReviewLedger(t *testing.T) {
 			t.Errorf("open-comment prompt missing %q; got:\n%s", want, prompt)
 		}
 	}
-	// The response-carrier contract is stated (mirrors the critique carrier).
-	for _, want := range []string{"reviewThread", "response", "STAYS OPEN"} {
+	// The response contract is stated via the respondToReviewComment tool.
+	for _, want := range []string{"respondToReviewComment", "response", "STAYS OPEN"} {
 		if !strings.Contains(prompt, want) {
-			t.Errorf("response-carrier contract missing %q; got:\n%s", want, prompt)
+			t.Errorf("response contract missing %q; got:\n%s", want, prompt)
 		}
 	}
 	// Addressed + waived comments are NOT listed (only open ones block/redraft).

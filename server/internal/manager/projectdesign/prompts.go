@@ -29,7 +29,7 @@ import (
 // artifact itself is ASSEMBLED deterministically by the workflow from the three Engine
 // outputs (workflow.go), not drafted by the worker — so it has no prompt.
 
-const architectHeader = "You are the Architect agent drafting a typed Phase-2 (Project Design) Method artifact for an architecture project, following Juval Lowy's The Method to the letter. You are running inside the project repository; read the prior committed Method artifacts from .aiarch/state/project.json and commit your drafted artifact back into .aiarch/state/.\n"
+const architectHeader = "You are the Architect agent drafting a typed Phase-2 (Project Design) Method artifact for an architecture project, following Juval Lowy's The Method to the letter. You author the project's Method state ONLY through the aiarch-state MCP tools — never hand-edit files and never run git. Read prior committed artifacts with getCommittedSlot, read your current draft (on an amendment) with getDraftSlot, submit your draft with putDraftModel (it validates the model and returns actionable errors if it is wrong — fix them and resubmit), and finish by calling publishDraft.\n"
 
 // architectDraftPrompt assembles the architect-role draft prompt for the given Phase-2
 // artifact kind. It points the Action at the prior committed state by path/kind (NOT
@@ -41,22 +41,13 @@ const architectHeader = "You are the Architect agent drafting a typed Phase-2 (P
 func architectDraftPrompt(kind projectstate.ArtifactKind, proj projectstate.Project, feedback string, reviewThread []projectstate.ReviewComment, amendment int) string {
 	var b strings.Builder
 	b.WriteString(architectHeader)
-	fmt.Fprintf(&b, "Target artifact: %s\n", kind)
-	// F68: the AUTHORITATIVE slot key. The four solution options share ONE Solution type
-	// (distinguished only by SlotKind) and the Phase-2 DRAFT ORDER (normal → decompressed →
-	// subcritical → compressed) is NON-MONOTONIC in the numeric slot values (normal=11,
-	// subcritical=12, compressed=13, decompressed=14). Without an explicit slot number the
-	// drafting agent infers it POSITIONALLY (the 2nd solution drafted, decompressed, landed in
-	// slot 12 = subcritical) and cross-writes the wrong sibling. State the wire ArtifactKind as
-	// the exact slots-map key so the number the agent writes is identical to the branch and the
-	// server read-back (both derived from this same kind).
-	b.WriteString(slotPlacementDirective(kind))
+	fmt.Fprintf(&b, "Target artifact: %s. The design job already fixes which artifact you are drafting — putDraftModel writes it to the correct slot (even for the four solution siblings that share one model type), so you never choose a slot or a kind.\n", kind.WireName())
 
-	// F38 AMENDMENT: this session REOPENS an already-committed Phase-2 artifact. Revise the
-	// committed version (its own base) rather than drafting from scratch; the reopening
-	// reasons are the OPEN review-ledger comments below.
+	// F38 AMENDMENT: this session REOPENS an already-committed Phase-2 artifact. Read the
+	// committed version with getDraftSlot and REVISE it rather than drafting from scratch; the
+	// reopening reasons are the OPEN review-ledger comments below.
 	if amendment > 0 {
-		fmt.Fprintf(&b, "\nThis is an AMENDMENT (revision %d) of the already-COMMITTED %s. Start from the committed version in the checked-out .aiarch/state/project.json and REVISE it to address the reopening feedback — do NOT discard it and redraft from scratch. The reasons this artifact was reopened are the OPEN review-ledger comments listed below; address each and record your response per the ledger contract.\n", amendment, kind)
+		fmt.Fprintf(&b, "\nThis is an AMENDMENT (revision %d) of the already-COMMITTED %s. Read the committed version with getDraftSlot and REVISE it to address the reopening feedback — do NOT discard it and redraft from scratch. The reasons this artifact was reopened are the OPEN review-ledger comments listed below; address each and respond to it with respondToReviewComment.\n", amendment, kind.WireName())
 	}
 
 	// Per-kind priors: name the committed predecessor artifacts the Method draws on, by
@@ -87,22 +78,15 @@ func architectDraftPrompt(kind projectstate.ArtifactKind, proj projectstate.Proj
 
 	writeFeedback(&b, feedback)
 	// REVIEW LEDGER (review-ledger §3): on a redraft, weave in every OPEN durable ledger
-	// comment (with its stable id + anchor + anchor-text snapshot) and the response-carrier
-	// contract, mirroring the critique carrier. Empty on the first draft (no ledger).
+	// comment (with its stable id + anchor + anchor-text snapshot) and the response contract
+	// (respondToReviewComment). Empty on the first draft (no ledger).
 	writeReviewLedger(&b, reviewThread)
 	fmt.Fprintf(&b, "\nTask: %s\n", draftTask(kind))
-	// TYPED-SHAPE DISCIPLINE (QA F36 Phase-2 sibling): for each drafted Phase-2 kind whose
-	// typed model has fields where an LLM would plausibly guess a RICHER SHAPE than the codec
-	// accepts (an array of objects where []string is expected, a nested object where a scalar
-	// is expected, an array where a string-keyed map is expected), enumerate those hotspots so
-	// the drafting agent commits the exact shape. The CI validate check did NOT catch the live
-	// incident (PlanningAssumptions.resources drafted as objects — a terminal read-back decode
-	// failure) because its Go mirror types these fields loosely; the exact-shape instruction
-	// here is the only defense before the server codec reads the draft back.
-	if guide := shapeGuide(kind); guide != "" {
-		b.WriteString("\n")
-		b.WriteString(guide)
-	}
+	// TYPED-SHAPE discipline is no longer taught in the prompt (QA F36 Phase-2 sibling was the
+	// wrong-shape read-back stall): putDraftModel validates the model through the FULL server
+	// codec, so a field drafted with the wrong shape (an array of objects where []string is
+	// expected, a bare number where a Money object is expected) is rejected in-loop with an
+	// actionable error the agent self-corrects — the per-kind shape dump is obsolete.
 	// OPERATING-MODEL CONSTRAINT (founder ruling 2026-07-05): when the project is
 	// archistrator-operated the PlanningAssumptions launch infrastructure is
 	// CONSTRAINED to the platform palette (CNPG Postgres, Temporal, Keycloak, the otel
@@ -116,21 +100,8 @@ func architectDraftPrompt(kind projectstate.ArtifactKind, proj projectstate.Proj
 			b.WriteString(c)
 		}
 	}
+	b.WriteString("\nSubmit the finished artifact with putDraftModel; if it reports validation errors, fix the model and submit again. When it is accepted (and every open review comment has a response), call publishDraft.\n")
 	return b.String()
-}
-
-// slotPlacementDirective renders the AUTHORITATIVE slot-placement instruction (F68): the
-// exact numeric slots-map key the drafted model must land under, derived from the SAME wire
-// ArtifactKind the workflow uses for the branch and the read-back — so the number the agent
-// writes can never diverge from the number the server reads. int(kind) IS the canonical
-// slots-map key (the git substrate keys .slots by the numeric ArtifactKind). Naming it
-// explicitly forbids the positional inference that made the shared-Solution siblings
-// cross-write.
-func slotPlacementDirective(kind projectstate.ArtifactKind) string {
-	n := int(kind)
-	return fmt.Sprintf(
-		"\nSLOT PLACEMENT (authoritative — do NOT infer the slot from the draft order or from sibling slots): commit your drafted model as the \"model\" of the slot keyed exactly \"%d\" in the \"slots\" object of .aiarch/state/project.json — that is the %s slot (ArtifactKind %d) — and set the model's own \"kind\" field to %d. Do NOT write to any other slot key, and do NOT renumber, move, or overwrite any sibling slot. When you open the pull request, title it for the %s artifact (ArtifactKind %d).\n",
-		n, kind.WireName(), n, n, kind.WireName(), n)
 }
 
 // operatingModelInfrastructureConstraint returns the launch-infrastructure constraint
@@ -153,69 +124,6 @@ func operatingModelInfrastructureConstraint(m projectstate.OperatingModel) strin
 		"FORBIDDEN for this operating model: AWS (RDS, EKS, ECS, CloudFront, S3, Lambda), GCP, Azure, or any other bespoke / self-managed / third-party-managed cloud infrastructure or hosting — those are legitimate ONLY for self-operated projects. The launch infrastructure is the platform cluster; there is no per-project cloud-provider decision to assume."
 }
 
-// schemaConformancePreamble is the general typed-shape discipline every drafted Phase-2
-// prompt carries (QA F36 Phase-2 sibling). It mirrors systemdesign's enumConformancePreamble
-// but targets SHAPE rather than closed-enum wire names: the failure it prevents is a drafted
-// value whose SHAPE (object vs scalar vs array vs string-keyed map) diverges from the typed
-// codec. It points the drafting agent at the authoritative typed schema it can actually read
-// in its checkout — the JSON Schema embedded in the committed .serviceContracts $defs blocks —
-// AND at the already-committed prior artifacts as worked examples of the same layout.
-// shapeGuide then appends the per-kind hotspot lines.
-const schemaConformancePreamble = "SCHEMA CONFORMANCE — the typed JSON you commit MUST conform to this artifact's fixed schema EXACTLY. The authoritative shape is the typed JSON Schema committed in this repo's .aiarch/state/project.json under .serviceContracts — each component's \"$defs\" block (the Phase-2 model shapes are under .serviceContracts.projectStateAccess.$defs; the Network shape is under .serviceContracts.estimationEngine.$defs), and the already-committed prior artifacts in the same file are worked examples of the same layout. Conform EXACTLY: do NOT invent a nested object where a scalar or an array-of-scalars is expected, do NOT wrap a bare number in an object, and do NOT turn a string-keyed map into an array of objects. A shape the schema does not declare will be REJECTED by the server codec when it reads your draft back (the CI validate check did NOT catch this in the live incident that motivated this guidance — you alone are responsible for the exact shape). Typed-shape hotspots for this artifact:\n"
-
-// shapeGuide returns the per-kind typed-shape hotspot block woven into the draft prompt, or
-// "" for a kind that is not agent-drafted in Phase 2 (SdpReview is assembled deterministically
-// by the workflow, not drafted — see the package doc above) or carries no shape trap. The
-// hotspots are DERIVED FROM the projectstate Go types (contract.gen.go): []string vs
-// []object, Money{minorUnits,currency} vs a bare number, string-keyed maps vs arrays, and the
-// Network compute-at-read block that must not be authored. Keep this in lockstep with those
-// types — prompts_test.go cross-checks representative hotspots against the marshalled/reflected
-// type definitions to prevent drift.
-func shapeGuide(kind projectstate.ArtifactKind) string {
-	switch kind {
-	case projectstate.KindPlanningAssumptions:
-		return schemaConformancePreamble +
-			"- \"resources\" is an array of STRINGS — the plain NAMES of the staff/resources (e.g. [\"Alice\",\"Bob\",\"Contractor-1\"]). It is NOT an array of objects; do NOT give a resource a nested {name, role, rate, ...} shape. (This exact field caused a terminal read-back decode failure when drafted as objects.)\n" +
-			"- \"calendarDaysPerWeek\" is a single NUMBER (e.g. 5), not an object.\n" +
-			"- \"indirectDailyRate\" is a Money OBJECT {\"minorUnits\": <integer minor units>, \"currency\": \"USD\"} — NOT a bare number and NOT a formatted string like \"$500\".\n" +
-			"- \"rateCard\" is a STRING-KEYED MAP of worker-class name -> {\"modelId\", \"megatokensInPerDay\", \"megatokensOutPerDay\"} — an OBJECT keyed by class name, NOT an array of {class, ...} objects.\n" +
-			"- \"declaredUsage\" and \"terms\" are each a single nested OBJECT (UsageAssumption / SettlementTerms) of scalar fields — not arrays.\n"
-	case projectstate.KindActivityList:
-		return schemaConformancePreamble +
-			"- the artifact is an OBJECT {\"activities\": [ ... ]} — the activities live under the \"activities\" key; it is NOT a bare top-level array.\n" +
-			"- each activity's \"effortDays\" is a NUMBER of person-days (e.g. 10), not an object like {\"value\":10,\"unit\":\"days\"}.\n" +
-			"- \"riskBucket\" is a single INTEGER from the Fibonacci set (1,2,3,5,8,13), not an object and not a label string like \"high\".\n" +
-			"- \"coding\" is a boolean; \"name\", \"workerClass\", \"title\" are plain strings.\n"
-	case projectstate.KindNetwork:
-		return schemaConformancePreamble +
-			"- \"dependencies\" is an array of {\"activity\": <name string>, \"dependsOn\": [<name string>, ...]} — \"dependsOn\" is an array of plain activity-NAME STRINGS, not an array of objects.\n" +
-			"- \"criticalPath\" is an array of plain activity-NAME STRINGS, not an array of objects.\n" +
-			"- each milestone's \"dependsOn\" is likewise an array of predecessor activity-id STRINGS.\n" +
-			"- Do NOT author the COMPUTED block: \"computed\", \"summary\", and each milestone's \"onCriticalPath\"/\"eventTime\" are filled in by the server at READ time — omit them entirely (authoring them is wrong).\n"
-	case projectstate.KindNormalSolution,
-		projectstate.KindSubcriticalSolution,
-		projectstate.KindCompressedSolution,
-		projectstate.KindDecompressedSolution:
-		return schemaConformancePreamble +
-			"- \"classRates\" is a STRING-KEYED MAP of worker-class name -> Money OBJECT {\"minorUnits\": <integer minor units>, \"currency\": \"USD\"} — an object keyed by class name whose VALUES are Money objects. It is NOT an array, and its values are NOT bare numbers.\n" +
-			"- \"staffingCap\" is an INTEGER; \"calendarDaysPerWeek\", \"bufferDays\", \"criticalSpeedup\" are plain NUMBERS — none of them is an object.\n"
-	case projectstate.KindRiskModel:
-		return schemaConformancePreamble +
-			"- \"rows\" is an array of per-option objects; each row's \"totalCost\" is a Money OBJECT {\"minorUnits\": <integer minor units>, \"currency\": \"USD\"}, NOT a bare number.\n" +
-			"- \"criticalityRisk\", \"activityRisk\", \"composite\", \"durationDays\" and the \"tooRiskyThreshold\"/\"overSafeThreshold\"/\"maxCompressionPct\" thresholds are plain NUMBERS — not objects or percentage strings.\n" +
-			"- \"included\" is a boolean; \"exclusionReason\" is a plain string.\n"
-	case projectstate.KindMission, projectstate.KindGlossary, projectstate.KindScrubbedRequirements,
-		projectstate.KindVolatilities, projectstate.KindCoreUseCases, projectstate.KindSystem,
-		projectstate.KindOperationalConcepts, projectstate.KindStandardCheck, projectstate.KindSdpReview:
-		// Phase-1 kinds never reach this Phase-2-only assembler, and the SdpReview is
-		// ASSEMBLED deterministically by the workflow (not drafted, see the package doc) —
-		// so neither gets a shape block. Same no-op as the default below.
-		return ""
-	default:
-		return ""
-	}
-}
-
 // writeReviewLedger weaves the OPEN durable review-ledger comments into a redraft prompt and
 // states the response-carrier contract the drafting agent must honor (review-ledger §3): the
 // agent commits a per-comment "response" (and proposed "addressed" status) back onto the SAME
@@ -232,7 +140,7 @@ func writeReviewLedger(b *strings.Builder, thread []projectstate.ReviewComment) 
 	if len(open) == 0 {
 		return
 	}
-	b.WriteString("\nThis artifact has OPEN reviewer comments in its durable review ledger. For EACH open comment listed below you MUST: (1) revise the draft to address it; and (2) in .aiarch/state/project.json, on this artifact's slot, in its \"reviewThread\" array, find the entry with the matching \"id\" and set its \"response\" to how you addressed it (or a concise, reasoned pushback if you disagree), and set its \"status\" to \"addressed\". Do NOT add, delete, reorder, or renumber reviewThread entries, and do NOT modify entries not listed here. A comment whose \"response\" you leave empty STAYS OPEN and blocks approval — so respond to every one.\n")
+	b.WriteString("\nThis artifact has OPEN reviewer comments in its durable review ledger (read them with getReviewThread). For EACH open comment listed below you MUST: (1) revise the draft to address it; and (2) call respondToReviewComment with the matching comment id and your response — how you addressed it, or a concise reasoned pushback if you disagree. A comment whose response you leave empty STAYS OPEN and blocks approval — so respond to every one.\n")
 	for _, c := range open {
 		anchor := c.Anchor
 		if strings.TrimSpace(anchor) == "" {
@@ -282,7 +190,7 @@ func writePriorsPointer(b *strings.Builder, kinds ...string) {
 	if len(kinds) == 0 {
 		return
 	}
-	fmt.Fprintf(b, "Prior committed artifacts to read from .aiarch/state/project.json: %s\n", strings.Join(kinds, ", "))
+	fmt.Fprintf(b, "Prior committed artifacts to read as context with getCommittedSlot: %s\n", strings.Join(kinds, ", "))
 }
 
 // writeFeedback appends a revision-feedback block (architect rejection notes)

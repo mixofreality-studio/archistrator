@@ -32,9 +32,9 @@ import (
 // the required CI validation check enforces its shape — the schema/DTO injection the
 // old in-process worker needed is GONE (validation is the CI check, §0d.5).
 
-const architectHeader = "You are the Architect agent drafting a typed Method artifact for an architecture project, following Juval Lowy's The Method to the letter. You are running inside the project repository; read the prior committed Method artifacts from .aiarch/state/project.json and commit your drafted artifact back into .aiarch/state/.\n"
+const architectHeader = "You are the Architect agent drafting a typed Method artifact for an architecture project, following Juval Lowy's The Method to the letter. You author the project's Method state ONLY through the aiarch-state MCP tools — never hand-edit files and never run git. Read prior committed artifacts with getCommittedSlot, read your current draft (on an amendment) with getDraftSlot, submit your draft with putDraftModel (it validates the model and returns actionable errors if it is wrong — fix them and resubmit), and finish by calling publishDraft.\n"
 
-const pmHeader = "You are the Product Manager agent critiquing a drafted Method artifact, following Juval Lowy's The Method. You are running inside the project repository; read the drafted artifact and the prior committed state from .aiarch/state/project.json.\n"
+const pmHeader = "You are the Product Manager agent critiquing a drafted Method artifact, following Juval Lowy's The Method. You work ONLY through the aiarch-state MCP tools — never hand-edit files and never run git. Read the drafted artifact with getDraftSlot and its prior committed predecessors with getCommittedSlot; record your verdict with setCritiqueVerdict; finish by calling publishDraft.\n"
 
 // architectDraftPrompt assembles the architect-role draft prompt for the given
 // Phase-1 artifact kind. It points the Action at the prior committed state by
@@ -45,18 +45,13 @@ const pmHeader = "You are the Product Manager agent critiquing a drafted Method 
 func architectDraftPrompt(kind projectstate.ArtifactKind, proj projectstate.Project, feedback ReviewFeedback, reviewThread []projectstate.ReviewComment, amendment int) string {
 	var b strings.Builder
 	b.WriteString(architectHeader)
-	fmt.Fprintf(&b, "Target artifact: %s\n", kind)
-	// F68 (canonical slot mapping, Phase-1 sibling): state the AUTHORITATIVE numeric slots-map
-	// key so the number the agent writes is identical to the branch and the server read-back
-	// (both derived from this same kind) and can never be inferred positionally.
-	b.WriteString(slotPlacementDirective(kind))
+	fmt.Fprintf(&b, "Target artifact: %s. The design job already fixes which artifact you are drafting — putDraftModel writes it to the correct slot; you never choose a slot or a kind.\n", kind.WireName())
 
 	// F38 AMENDMENT: this session REOPENS an already-committed artifact. State that the agent
-	// is AMENDING the committed version (its own base — read it from the checked-out state)
-	// rather than drafting from scratch, and that the reopening reasons are the OPEN review
-	// ledger entries below (the "why").
+	// is AMENDING the committed version (read it back with getDraftSlot) rather than drafting
+	// from scratch, and that the reopening reasons are the OPEN review ledger entries below.
 	if amendment > 0 {
-		fmt.Fprintf(&b, "\nThis is an AMENDMENT (revision %d) of the already-COMMITTED %s. Start from the committed version in the checked-out .aiarch/state/project.json and REVISE it to address the reopening feedback — do NOT discard it and redraft from scratch. The specific reasons this artifact was reopened are the OPEN review-ledger comments listed below; address each and record your response per the ledger contract.\n", amendment, kind)
+		fmt.Fprintf(&b, "\nThis is an AMENDMENT (revision %d) of the already-COMMITTED %s. Read the committed version with getDraftSlot and REVISE it to address the reopening feedback — do NOT discard it and redraft from scratch. The specific reasons this artifact was reopened are the OPEN review-ledger comments listed below; address each and respond to it with respondToReviewComment.\n", amendment, kind.WireName())
 	}
 
 	// Per-kind priors: name the committed predecessor artifacts the Method draws on,
@@ -94,15 +89,10 @@ func architectDraftPrompt(kind projectstate.ArtifactKind, proj projectstate.Proj
 	// effective status. Empty on the first draft (no ledger).
 	writeReviewLedger(&b, reviewThread)
 	fmt.Fprintf(&b, "\nTask: %s\n", draftTask(kind))
-	// CLOSED-ENUM DISCIPLINE (QA F36): for kinds whose typed model carries closed enums,
-	// enumerate the allowed wire names so the drafting agent never writes free prose into an
-	// enum field. The CI validate check will NOT catch such a value (its Go mirror types
-	// these enums as free strings — see the methodcheck-vs-codec asymmetry), so the ONLY
-	// defense before read-back is telling the agent the exact allowed values here.
-	if guide := closedEnumGuide(kind); guide != "" {
-		b.WriteString("\n")
-		b.WriteString(guide)
-	}
+	// CLOSED-ENUM discipline is no longer taught in the prompt (QA F36 was the enum-prose
+	// stall): putDraftModel validates the model through the FULL server codec, so a
+	// closed-enum field carrying free prose is rejected in-loop with an actionable error the
+	// agent self-corrects — the enum wire-name dump the prompt used to carry is obsolete.
 	// OPERATING-MODEL CONSTRAINT (founder ruling 2026-07-05): when the project is
 	// archistrator-operated the deployment topology is CONSTRAINED to the platform
 	// palette — the OperationalConcepts draft carries the deployment topology, so this
@@ -114,6 +104,7 @@ func architectDraftPrompt(kind projectstate.ArtifactKind, proj projectstate.Proj
 			b.WriteString(c)
 		}
 	}
+	b.WriteString("\nSubmit the finished artifact with putDraftModel; if it reports validation errors, fix the model and submit again. When it is accepted (and every open review comment has a response), call publishDraft.\n")
 	return b.String()
 }
 
@@ -152,8 +143,8 @@ func operatingModelDeploymentConstraint(m projectstate.OperatingModel) string {
 func pmCritiquePrompt(kind projectstate.ArtifactKind, draft projectstate.ArtifactModel) string {
 	var b strings.Builder
 	b.WriteString(pmHeader)
-	fmt.Fprintf(&b, "Artifact under review: %s (read its just-committed draft from .aiarch/state/project.json)\n", kind)
-	b.WriteString("\nTask: as the Product Manager, ratify the draft (Approve) or request a concrete revision (Revise with notes naming the revision the architect should make). Ratify only what faithfully serves the business; the human makes the final commit decision.\n")
+	fmt.Fprintf(&b, "Artifact under review: %s (read its just-drafted model with getDraftSlot)\n", kind.WireName())
+	b.WriteString("\nTask: as the Product Manager, ratify the draft (approve) or request a concrete revision (revise, with notes naming the revision the architect should make). Ratify only what faithfully serves the business; the human makes the final commit decision.\n")
 	// Per-kind critique doctrine — kept in lockstep with draftTask so the
 	// draft<->critique loop is CONVERGENT (QA finding F27, founder ruling 2026-07-05).
 	// For the Mission the critique enforces exactly what the mission draft prompt now
@@ -162,15 +153,10 @@ func pmCritiquePrompt(kind projectstate.ArtifactKind, draft projectstate.Artifac
 	if kind == projectstate.KindMission {
 		b.WriteString("\nMission doctrine you MUST enforce: the mission and vision must describe the BUSINESS CAPABILITY and USER-FACING VALUE in business and user language only. REVISE the draft if it uses the words component, module, service, subsystem, layer, or any other system-architecture / software-decomposition terminology, or if it asserts or implies any breakdown of the system into parts — the structural boundaries are derived LATER from volatility analysis, so pre-deciding a decomposition in the mission is a defect to send back. Do NOT ask the architect to ADD component or architecture language; that is exactly what must be kept out.\n")
 	}
-	// CRITIQUE READ-BACK CONTRACT (D-MSD-Δ amendment). The PM-critique job does NOT
-	// rewrite the artifact model. It records its verdict into the SAME slot's
-	// first-class critique carrier so the Manager reads it back: in
-	// .aiarch/state/project.json, on this artifact's slot, set "critiqueVerdict" to
-	// exactly "approve" or "revise", and on "revise" set "critiqueNotes" to the
-	// revision guidance (leave it empty on "approve"). Do NOT touch the slot's
-	// "notes" field (that is the human architect's reject/withdraw rationale). Commit
-	// onto the critique branch and open a PR so the required validate check applies.
-	b.WriteString("\nRecord your verdict on this artifact's slot in .aiarch/state/project.json: set \"critiqueVerdict\" to exactly \"approve\" or \"revise\". On \"revise\", set \"critiqueNotes\" to the concrete revision guidance; leave \"critiqueNotes\" empty on \"approve\". Do NOT modify the slot's \"notes\" field, and do NOT rewrite the artifact \"model\". A verdict is REQUIRED — never commit the critique with an empty \"critiqueVerdict\".\n")
+	// CRITIQUE READ-BACK CONTRACT (D-MSD-Δ amendment). The PM-critique job does NOT rewrite
+	// the artifact model. It records its verdict through setCritiqueVerdict — the first-class
+	// carrier the Manager reads back — never touching the architect's model or notes.
+	b.WriteString("\nRecord your verdict with setCritiqueVerdict: verdict is exactly \"approve\" or \"revise\". On \"revise\", give concrete revision notes naming the change the architect should make; on \"approve\" leave the notes empty. Do NOT rewrite the model. A verdict is REQUIRED. Then call publishDraft to commit it.\n")
 	return b.String()
 }
 
@@ -266,59 +252,6 @@ func draftTask(kind projectstate.ArtifactKind) string {
 	}
 }
 
-// enumConformancePreamble is the closed-enum discipline every enum-bearing draft prompt
-// carries (QA F36). The drafted CoreUseCases had free prose written into the "trigger"
-// field — a CLOSED ENUM — which the CI validate check accepted (its Go mirror types the
-// field as a free string) but the server codec rejected on read-back, stalling the design.
-// This preamble names the failure mode explicitly and points the agent at the checked-out
-// state as the shape reference; closedEnumGuide then enumerates the per-kind wire names.
-const enumConformancePreamble = "SCHEMA CONFORMANCE — the typed JSON you commit MUST conform to this artifact's fixed schema exactly. Read the prior committed artifacts in .aiarch/state/project.json as the reference for the exact field layout. Every ENUM-typed field below accepts ONLY one of its fixed camelCase WIRE NAMES — writing a sentence, a phrase, or any free-text description into an enum field is INVALID and will be REJECTED by the server when it reads your draft back (the CI validate check does NOT catch this, so you alone are responsible for using the exact wire name).\n"
-
-// closedEnumGuide returns the per-kind closed-enum wire-name block woven into the draft
-// prompt, or "" for a kind whose drafted model carries no closed enum. The wire names are
-// the SINGLE SOURCE OF TRUTH in projectstate/enumjson.go — keep this in lockstep with it
-// (prompts_test.go cross-checks each block against the marshalled enum values). Phase-2
-// design models (planning-assumptions / activity-list / network / solutions / risk-model)
-// carry NO closed enums — their worker-class/risk fields are free strings/ints — so the
-// projectdesign prompts need no counterpart block (audited for QA F36).
-func closedEnumGuide(kind projectstate.ArtifactKind) string {
-	switch kind {
-	case projectstate.KindCoreUseCases:
-		return enumConformancePreamble +
-			"Closed enums in this artifact:\n" +
-			"- each use case's \"trigger\" is EXACTLY one of: clientAction, timer, busMessage — the KIND of thing that initiates the use case (a client/user action, a scheduled timer, or an inbound bus/queue message). It is NOT a free-text sentence describing the trigger.\n" +
-			"- each use case's \"classification\" is EXACTLY one of: core, nonCore.\n" +
-			"- activity-diagram node \"kind\" and edge \"kind\" use the wire names given in the ACTIVITY DIAGRAM section above.\n"
-	case projectstate.KindVolatilities:
-		return enumConformancePreamble +
-			"Closed enums in this artifact:\n" +
-			"- each volatility's \"axis\" is EXACTLY one of: sameCustomerOverTime, allCustomersAtOneTime.\n"
-	case projectstate.KindSystem:
-		return enumConformancePreamble +
-			"Closed enums in this artifact:\n" +
-			"- each component's \"kind\" is EXACTLY one of: client, manager, engine, resourceAccess, resource, utility (do NOT emit a component \"layer\" — the server derives it from the kind).\n" +
-			"- each relationship's \"mode\" is EXACTLY one of: sync, queued, eventPubSub.\n"
-	case projectstate.KindOperationalConcepts:
-		return enumConformancePreamble +
-			"Closed enums in this artifact:\n" +
-			"- the system \"deliveryStyle\" is EXACTLY one of: cloud, local, both.\n" +
-			"- each deployment environment \"profile\" is EXACTLY one of: cloud, local, test.\n" +
-			"- each cross-component edge \"mode\" is EXACTLY one of: sync, queued, eventPubSub.\n"
-	case projectstate.KindStandardCheck:
-		return enumConformancePreamble +
-			"Closed enums in this artifact:\n" +
-			"- each checklist item's \"status\" is EXACTLY one of: pass, waived, fail.\n"
-	case projectstate.KindMission, projectstate.KindGlossary, projectstate.KindScrubbedRequirements,
-		projectstate.KindPlanningAssumptions, projectstate.KindActivityList, projectstate.KindNetwork,
-		projectstate.KindNormalSolution, projectstate.KindSubcriticalSolution, projectstate.KindCompressedSolution,
-		projectstate.KindDecompressedSolution, projectstate.KindRiskModel, projectstate.KindSdpReview:
-		// No closed enum in the drafted model — no enum block.
-		return ""
-	default:
-		return ""
-	}
-}
-
 // kindHasPMCritique reports whether the Method assigns a PM reviewer to this kind
 // (mission / glossary+scrubbed / core-use-cases — rework §2.1, §6.6). The
 // architect-owned steps (volatilities, architecture, standard-check) skip PM
@@ -343,18 +276,6 @@ func kindHasPMCritique(kind projectstate.ArtifactKind) bool {
 	}
 }
 
-// slotPlacementDirective renders the AUTHORITATIVE slot-placement instruction (F68): the
-// exact numeric slots-map key the drafted model must land under, derived from the SAME wire
-// ArtifactKind the workflow uses for the branch and the read-back — so the number the agent
-// writes can never diverge from the number the server reads. int(kind) IS the canonical
-// slots-map key (the git substrate keys .slots by the numeric ArtifactKind).
-func slotPlacementDirective(kind projectstate.ArtifactKind) string {
-	n := int(kind)
-	return fmt.Sprintf(
-		"\nSLOT PLACEMENT (authoritative — do NOT infer the slot from the draft order or from sibling slots): commit your drafted model as the \"model\" of the slot keyed exactly \"%d\" in the \"slots\" object of .aiarch/state/project.json — that is the %s slot (ArtifactKind %d) — and set the model's own \"kind\" field to %d. Do NOT write to any other slot key, and do NOT renumber, move, or overwrite any sibling slot. When you open the pull request, title it for the %s artifact (ArtifactKind %d).\n",
-		n, kind.WireName(), n, n, kind.WireName(), n)
-}
-
 // writePriorsPointer names the committed predecessor artifacts (by kind) the Method
 // step draws on, pointing the Action at .aiarch/state/project.json rather than
 // embedding model bytes (§0d.2 step 2 — the Action runs in the repo and reads the
@@ -363,7 +284,7 @@ func writePriorsPointer(b *strings.Builder, kinds ...string) {
 	if len(kinds) == 0 {
 		return
 	}
-	fmt.Fprintf(b, "Read these prior committed artifacts from .aiarch/state/project.json as context: %s.\n", strings.Join(kinds, ", "))
+	fmt.Fprintf(b, "Read these prior committed artifacts as context with getCommittedSlot: %s.\n", strings.Join(kinds, ", "))
 }
 
 // writeResearch POINTS the mission-draft prompt at the Phase-1 research corpus
@@ -381,13 +302,10 @@ func writeResearch(b *strings.Builder, research projectstate.ResearchCorpus) {
 	if research.IsZero() {
 		return
 	}
-	// F42: the corpus content lives as FILES in the checked-out repo (not inlined in
-	// project.json). Point the drafting Action straight at each source's file path — simpler
-	// for the agent than a JSON path, and the content never rides this prompt.
-	b.WriteString("\nResearch corpus (the raw material for the mission): read the full text of each source from its FILE in the checked-out repository. Do NOT expect the content inline here. The sources present (title → file path) are:\n")
-	for _, s := range research.Sources {
-		fmt.Fprintf(b, "- %s → %s\n", s.Title, s.Path)
-	}
+	// The corpus never rides this prompt (it can be book-sized). The agent enumerates the
+	// sources with listResearchSources and reads each one's full text with getResearchSource
+	// — so no path list and no content is inlined here.
+	b.WriteString("\nResearch corpus (the raw material for the mission): call listResearchSources to see every source, then getResearchSource to read each one's full text. Do NOT expect any research content inline in this prompt.\n")
 }
 
 // writeFeedback appends a revision-feedback block weaving in the architect's
@@ -429,7 +347,7 @@ func writeReviewLedger(b *strings.Builder, thread []projectstate.ReviewComment) 
 	if len(open) == 0 {
 		return
 	}
-	b.WriteString("\nThis artifact has OPEN reviewer comments in its durable review ledger. For EACH open comment listed below you MUST: (1) revise the draft to address it; and (2) in .aiarch/state/project.json, on this artifact's slot, in its \"reviewThread\" array, find the entry with the matching \"id\" and set its \"response\" to how you addressed it (or a concise, reasoned pushback if you disagree), and set its \"status\" to \"addressed\". Do NOT add, delete, reorder, or renumber reviewThread entries, and do NOT modify entries not listed here. A comment whose \"response\" you leave empty STAYS OPEN and blocks approval — so respond to every one.\n")
+	b.WriteString("\nThis artifact has OPEN reviewer comments in its durable review ledger (read them with getReviewThread). For EACH open comment listed below you MUST: (1) revise the draft to address it; and (2) call respondToReviewComment with the matching comment id and your response — how you addressed it, or a concise reasoned pushback if you disagree. A comment whose response you leave empty STAYS OPEN and blocks approval — so respond to every one.\n")
 	for _, c := range open {
 		anchor := c.Anchor
 		if strings.TrimSpace(anchor) == "" {

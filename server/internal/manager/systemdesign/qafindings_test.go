@@ -92,8 +92,9 @@ func Test_encodeProject_SlimsResearchContentAcrossActivityBoundary(t *testing.T)
 		t.Fatalf("source file paths must survive encoding, got %+v", env.Research.Sources)
 	}
 
-	// The decoded head-state still lists the corpus (IsZero preserved) and writeResearch
-	// still emits every title + file path so the mission-draft prompt names the sources.
+	// The decoded head-state still carries the corpus (IsZero preserved) so writeResearch
+	// emits the research-tools block — the agent reads the sources with listResearchSources /
+	// getResearchSource rather than from an inlined title/path list.
 	dec, err := env.decode()
 	if err != nil {
 		t.Fatalf("decode: %v", err)
@@ -104,10 +105,8 @@ func Test_encodeProject_SlimsResearchContentAcrossActivityBoundary(t *testing.T)
 	var b strings.Builder
 	writeResearch(&b, dec.Research)
 	prompt := b.String()
-	for _, want := range []string{"The Founder Brief", "Competitor Analysis", ".aiarch/state/research/00-the-founder-brief.txt"} {
-		if !strings.Contains(prompt, want) {
-			t.Fatalf("writeResearch must list source %q; prompt:\n%s", want, prompt)
-		}
+	if !strings.Contains(prompt, "listResearchSources") || !strings.Contains(prompt, "getResearchSource") {
+		t.Fatalf("writeResearch must direct the agent to the research tools; prompt:\n%s", prompt)
 	}
 }
 
