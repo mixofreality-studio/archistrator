@@ -198,11 +198,33 @@ func (wf *workflows) readVersion(ctx workflow.Context, projectID ProjectID) (pro
 	return v, nil
 }
 
+// readVersionOnBranch returns the optimistic-concurrency token of the substrate the
+// mutation targets (I-DESIGN-DISPATCH §2a). A branch mutation (stage / reject during the
+// AwaitingReview window) advances the SESSION BRANCH, so its Conflict re-read must read
+// THAT branch — not main, whose version trails. branch=="" reads main exactly as before.
+// This is the fix for QA F29: a Conflict on a branch mutation that re-read main could
+// never converge (main's version never catches up to the branch's), wedging the bounded
+// loop into a non-retryable MutateConflictExhausted crash.
+func (wf *workflows) readVersionOnBranch(ctx workflow.Context, projectID ProjectID, branch string) (projectstate.Version, error) {
+	if branch == "" {
+		return wf.readVersion(ctx, projectID)
+	}
+	p, err := wf.readProjectOnBranch(ctx, projectID, branch)
+	if err != nil {
+		return 0, err
+	}
+	return p.Version, nil
+}
+
 // applyRecovering executes one head-state mutation Activity with a workflow-level
-// Conflict re-read→re-apply loop.
+// Conflict re-read→re-apply loop. branch names the substrate the mutation targets so the
+// Conflict re-read reads the RIGHT version (the session branch for a review-window branch
+// mutation, main for a main mutation) — see readVersionOnBranch (QA F29). branch=="" is
+// the original main-only behavior every existing caller relied on.
 func (wf *workflows) applyRecovering(
 	ctx workflow.Context,
 	projectID ProjectID,
+	branch string,
 	seed projectstate.Version,
 	apply func(expected projectstate.Version) (projectstate.Version, error),
 ) (projectstate.Version, error) {
@@ -220,7 +242,7 @@ func (wf *workflows) applyRecovering(
 				"head-state conflict did not converge within bounded attempts",
 				"MutateConflictExhausted", err)
 		}
-		v, rerr := wf.readVersion(ctx, projectID)
+		v, rerr := wf.readVersionOnBranch(ctx, projectID, branch)
 		if rerr != nil {
 			if isReadNotFound(rerr) {
 				expected = 0
@@ -230,7 +252,7 @@ func (wf *workflows) applyRecovering(
 		}
 		expected = v
 		workflow.GetLogger(ctx).Info("head-state conflict; re-read version and retrying",
-			"attempt", attempt+1, "nextExpectedVersion", expected)
+			"attempt", attempt+1, "branch", branch, "nextExpectedVersion", expected)
 	}
 }
 
@@ -494,22 +516,33 @@ func (wf *workflows) coAuthorDraftRound(
 	// READ-BACK on the SESSION BRANCH (§2a): the Action committed the typed Phase-2
 	// JSON on the session branch; read it back as the not-yet-merged draft. A dormant
 	// rail reads main (readBackBranch() == "").
-	model, rbErr := wf.readBackCommittedModelOn(ctx, in.ProjectID, in.ArtifactKind, gf.readBackBranch())
+	model, readBackVersion, rbErr := wf.readBackCommittedModelOn(ctx, in.ProjectID, in.ArtifactKind, gf.readBackBranch())
 	if rbErr != nil {
 		return coAuthorProceed, coAuthorUnknown, rbErr
 	}
 	draft = model
 	state.findings = nil
 
+	// QA F29: adopt the ACTUAL read-back substrate version as the head version before
+	// staging. The read-back read the session branch (rail) or main (dormant); its Version
+	// is the correct optimistic-concurrency token for the stage-on-branch. A fresh workflow
+	// reusing a dirty session branch (prior draft/critique commits left it ahead of main)
+	// would otherwise stage against the stale main-captured version and Conflict
+	// non-recoverably. In the dormant path the read-back version equals the main head, so
+	// this is a no-op there.
+	*headVersion = readBackVersion
+
 	// Track the staged typed draft for the query.
 	state.draft = draft
 
-	// Step 4: stageArtifactForReview, with the workflow-level Conflict loop.
+	// Step 4: stageArtifactForReview, with the workflow-level Conflict loop. The Conflict
+	// re-read targets the SESSION BRANCH (gf.readBackBranch()) so it converges on a dirty
+	// reused branch (QA F29).
 	draftEnvelope, encErr := encodeModel(draft)
 	if encErr != nil {
 		return coAuthorProceed, coAuthorUnknown, fwmanager.MapError(encErr)
 	}
-	newVersion, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+	newVersion, err := wf.applyRecovering(ctx, in.ProjectID, gf.readBackBranch(), *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
 		c := mutateOpts(ctx)
 		var v projectstate.Version
 		e := workflow.ExecuteActivity(c, wf.StageArtifactForReviewActivity, stageArtifactForReviewArgs{
@@ -518,7 +551,22 @@ func (wf *workflows) coAuthorDraftRound(
 		return v, e
 	})
 	if err != nil {
-		return coAuthorProceed, coAuthorUnknown, err
+		// CRASH CONTAINMENT (QA F29). A stage-for-review activity fault must NOT kill the
+		// workflow — it had no recoverable gate (only dispatch/reject faults were contained
+		// after F15/F28). Land at the human-visible StageDraftFailed gate keeping the
+		// feedback, so a Retry redrafts. A workflow-cancellation still propagates.
+		if temporal.IsCanceledError(err) {
+			return coAuthorProceed, coAuthorUnknown, err
+		}
+		outcome, retry, recErr := wf.awaitDraftFailedRecovery(ctx, in.ProjectID, in.ArtifactKind, *headVersion, stageFailedReason(err), state, feedback)
+		if recErr != nil {
+			return coAuthorProceed, coAuthorUnknown, recErr
+		}
+		if !retry {
+			return coAuthorReturn, outcome, nil
+		}
+		*redraftCount++
+		return coAuthorContinue, coAuthorUnknown, nil
 	}
 	*headVersion = newVersion
 	state.stage = StageAwaitingReview
@@ -550,7 +598,7 @@ func (wf *workflows) coAuthorApplyDecision(
 		// gate still holds the feedback for a Retry instead of silently discarding the
 		// send-back (QA F28).
 		*feedback = notes
-		newVersion, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		newVersion, err := wf.applyRecovering(ctx, in.ProjectID, gf.readBackBranch(), *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
 			c := mutateOpts(ctx)
 			var v projectstate.Version
 			e := workflow.ExecuteActivity(c, wf.RejectArtifactActivity, mutateArtifactArgs{
@@ -593,7 +641,13 @@ func (wf *workflows) coAuthorApplyDecision(
 
 	case ReviewWithdraw:
 		notes := signalNotes(sig.Feedback)
-		if _, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		// Withdraw is a MAIN write (WithdrawArtifactActivity is not branch-aware), so its
+		// Conflict re-read targets main (branch==""). headVersion may be a branch version in
+		// the review window, so the first attempt can Conflict; the main re-read converges it
+		// to main's version. (A rail-flow withdraw of a not-yet-merged draft still trips the
+		// RA's populated-slot guard on main — a pre-existing, separate concern from F29's
+		// version bookkeeping; earmarked, not addressed here.)
+		if _, err := wf.applyRecovering(ctx, in.ProjectID, "", *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
 			c := mutateOpts(ctx)
 			var v projectstate.Version
 			e := workflow.ExecuteActivity(c, wf.WithdrawArtifactActivity, mutateArtifactArgs{
@@ -666,7 +720,9 @@ func (wf *workflows) coAuthorApprove(
 			return coAuthorProceed, coAuthorUnknown, rerr
 		}
 	}
-	if _, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+	// Commit lands on MAIN after the merge (the re-seed above set headVersion to main's
+	// tip), so its Conflict re-read targets main (branch=="").
+	if _, err := wf.applyRecovering(ctx, in.ProjectID, "", *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
 		c := mutateOpts(ctx)
 		var v projectstate.Version
 		e := workflow.ExecuteActivity(c, wf.CommitArtifactActivity, mutateArtifactArgs{
@@ -845,7 +901,9 @@ func (wf *workflows) stageReview(ctx workflow.Context, projectID ProjectID, revi
 	if encErr != nil {
 		return fwmanager.MapError(encErr)
 	}
-	v, err := wf.applyRecovering(ctx, projectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+	// The SDP review is assembled and staged directly on MAIN (no agentic draft rail /
+	// session branch), so the Conflict re-read targets main (branch=="").
+	v, err := wf.applyRecovering(ctx, projectID, "", *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
 		c := mutateOpts(ctx)
 		var got projectstate.Version
 		e := workflow.ExecuteActivity(c, wf.StageArtifactForReviewActivity, stageArtifactForReviewArgs{
@@ -862,7 +920,7 @@ func (wf *workflows) stageReview(ctx workflow.Context, projectID ProjectID, revi
 
 // commitReview commits the SdpReview slot.
 func (wf *workflows) commitReview(ctx workflow.Context, projectID ProjectID, headVersion *projectstate.Version) error {
-	v, err := wf.applyRecovering(ctx, projectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+	v, err := wf.applyRecovering(ctx, projectID, "", *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
 		c := mutateOpts(ctx)
 		var got projectstate.Version
 		e := workflow.ExecuteActivity(c, wf.CommitArtifactActivity, mutateArtifactArgs{
@@ -879,7 +937,7 @@ func (wf *workflows) commitReview(ctx workflow.Context, projectID ProjectID, hea
 
 // rejectReview records a rejected SdpReview outcome.
 func (wf *workflows) rejectReview(ctx workflow.Context, projectID ProjectID, notes string, headVersion *projectstate.Version) error {
-	v, err := wf.applyRecovering(ctx, projectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+	v, err := wf.applyRecovering(ctx, projectID, "", *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
 		c := mutateOpts(ctx)
 		var got projectstate.Version
 		e := workflow.ExecuteActivity(c, wf.RejectArtifactActivity, mutateArtifactArgs{
@@ -942,8 +1000,8 @@ func (wf *workflows) Phase2AdvanceWorkflow(ctx workflow.Context, in phaseAdvance
 		return PhaseAdvanceResult{Advanced: false, MissingArtifacts: missing}, nil
 	}
 
-	// Seal Phase 2.
-	if _, err := wf.applyRecovering(ctx, in.ProjectID, proj.Version, func(expected projectstate.Version) (projectstate.Version, error) {
+	// Seal Phase 2. AdvancePhase is a MAIN write (Conflict re-read targets main, branch=="").
+	if _, err := wf.applyRecovering(ctx, in.ProjectID, "", proj.Version, func(expected projectstate.Version) (projectstate.Version, error) {
 		c := mutateOpts(ctx)
 		var v projectstate.Version
 		e := workflow.ExecuteActivity(c, wf.AdvancePhaseActivity, advancePhaseArgs{
@@ -1426,7 +1484,9 @@ func (wf *workflows) awaitDraftFailedRecovery(
 			return coAuthorUnknown, true, nil
 		}
 		if withdraw {
-			if _, err := wf.applyRecovering(ctx, projectID, headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+			// Withdraw at the failed gate is a MAIN write; its Conflict re-read targets main
+			// (branch=="").
+			if _, err := wf.applyRecovering(ctx, projectID, "", headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
 				c := mutateOpts(ctx)
 				var v projectstate.Version
 				e := workflow.ExecuteActivity(c, wf.WithdrawArtifactActivity, mutateArtifactArgs{
@@ -1450,6 +1510,18 @@ func draftFailedReason(diagnostic string) string {
 		return "the Phase-2 design job failed in CI — retry or withdraw"
 	}
 	return "the Phase-2 design job failed in CI: " + diagnostic + " — retry or withdraw"
+}
+
+// stageFailedReason renders the human "why" for the StageDraftFailed screen when the
+// AwaitingReview stage-for-review write FAULTED terminally (QA F29 crash containment). The
+// draft is valid (its CI check passed); only the head-state thin-write failed, so a Retry
+// re-attempts staging it.
+func stageFailedReason(err error) string {
+	summary := dispatchErrSummary(err)
+	if summary == "" {
+		return "staging the draft for your review failed — retry or withdraw"
+	}
+	return "staging the draft for your review failed: " + summary + " — retry or withdraw"
 }
 
 // rejectFailedReason renders the human "why" for the StageDraftFailed screen when the

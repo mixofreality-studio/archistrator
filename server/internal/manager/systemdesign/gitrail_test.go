@@ -2,6 +2,7 @@ package systemdesign
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -423,5 +424,168 @@ func Test_CoAuthor_RailEnabled_RejectWriteFaults_RecoversAtFailedGate_RetainsFee
 		if !strings.Contains(redraftPrompt, want) {
 			t.Fatalf("the retained feedback %q must survive the fault and drive the redraft; prompt:\n%s", want, redraftPrompt)
 		}
+	}
+}
+
+// ---- f29BranchFake: version-enforcing branch-aware substrate (QA F29) --------
+
+// f29BranchFake models the production reality F29 exposed: MAIN and the SESSION BRANCH
+// sit at DIFFERENT versions. A fresh CoAuthor workflow captures main's version (mainVer),
+// but the Action's prior draft/critique commits left a REUSED session branch AHEAD
+// (branchVer). The read-back reads the BRANCH (branchVer); a stage that expects the stale
+// main version Conflicts. Unlike the version-ignoring base fake, this fake ENFORCES the
+// branch version on stage-on-branch, so a stale expected version surfaces the real
+// fwra.Conflict — the exact non-retryable stage crash of F29 — and the test proves the fix
+// converges. stageFailsRemaining injects terminal stage faults for the containment test.
+type f29BranchFake struct {
+	*fakeProjectState
+	mu                  sync.Mutex
+	mainVer             projectstate.Version
+	branchVer           projectstate.Version
+	stageExpecteds      []projectstate.Version
+	stageFailsRemaining int
+}
+
+var _ projectstate.BranchAwareProjectStateAccess = (*f29BranchFake)(nil)
+
+func (f *f29BranchFake) ReadProject(_ fwra.Context, _ projectstate.ProjectID) (projectstate.Project, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	p := f.project
+	p.Version = f.mainVer
+	return p, nil
+}
+
+func (f *f29BranchFake) ReadProjectVersion(_ fwra.Context, _ projectstate.ProjectID) (projectstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.mainVer, nil
+}
+
+func (f *f29BranchFake) ReadProjectOnBranch(_ context.Context, _ projectstate.ProjectID, _ string) (projectstate.Project, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	p := f.project
+	p.Version = f.branchVer // the dirty session branch is AHEAD of main
+	return p, nil
+}
+
+func (f *f29BranchFake) StageArtifactForReviewOnBranch(_ context.Context, _ projectstate.ProjectID, expected projectstate.Version, _ string, model projectstate.ArtifactModel, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.stageExpecteds = append(f.stageExpecteds, expected)
+	if f.stageFailsRemaining > 0 {
+		f.stageFailsRemaining--
+		return 0, fwra.New(fwra.ContractMisuse, "projectstate.StageArtifactForReview: simulated terminal stage fault")
+	}
+	if expected != f.branchVer {
+		// The real GitStore's optimistic-concurrency guard — the F29 Conflict.
+		return 0, fwra.New(fwra.Conflict, fmt.Sprintf("projectstate.StageArtifactForReview: stale version: have %d, expected %d", f.branchVer, expected))
+	}
+	f.branchVer++
+	f.staged = append(f.staged, model)
+	return f.branchVer, nil
+}
+
+func (f *f29BranchFake) RejectArtifactOnBranch(_ context.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.branchVer++
+	return f.branchVer, nil
+}
+
+// THE QA F29 REGRESSION — a fresh workflow reusing a session branch already AHEAD of main
+// stages against the ACTUAL branch version and CONVERGES, instead of Conflicting
+// non-recoverably against the stale main-captured version and crashing the workflow.
+func Test_CoAuthor_RailEnabled_StageAgainstDirtyBranch_Converges_NoCrash(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	// main at v2; the reused session branch already advanced to v4 by prior draft/critique
+	// commits — the exact "have 4, expected 2" split from the F29 report.
+	ps := &f29BranchFake{fakeProjectState: base, mainVer: 2, branchVer: 4}
+	pipe := newFakePipeline()
+	rail := &fakeRail{checkGreen: true}
+	wf := newRailWorkflows(ps, pipe, rail)
+	registerRailCoAuthor(env, wf)
+
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
+	}, 30*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	// F29 crashed the workflow (non-retryable Conflict → MutateConflictExhausted). The fix
+	// must let it complete.
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("staging against a dirty session branch must converge, not crash: %v", err)
+	}
+	// A stage SUCCEEDED (the branch version advanced past 4) — it converged on the branch.
+	if ps.branchVer != 5 {
+		t.Fatalf("stage must converge and advance the branch version to 5, got %d (expecteds=%v)", ps.branchVer, ps.stageExpecteds)
+	}
+	// The successful stage expected the ACTUAL branch version (4), never the stale main 2.
+	last := ps.stageExpecteds[len(ps.stageExpecteds)-1]
+	if last != 4 {
+		t.Fatalf("the converged stage must expect the branch version 4, got %d (expecteds=%v)", last, ps.stageExpecteds)
+	}
+	if len(base.committed) != 1 || base.committed[0] != projectstate.KindSystem {
+		t.Fatalf("want one commit after the converged stage → approve, got %v", base.committed)
+	}
+}
+
+// CRASH CONTAINMENT AT THE STAGE STEP (QA F29 item 2). A terminal stage-for-review fault
+// must NOT kill the workflow: the spine lands at the human-visible StageDraftFailed
+// recovery gate. A Retry redrafts and the second stage converges.
+func Test_CoAuthor_RailEnabled_StageFaults_RecoversAtFailedGate(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	// The FIRST stage faults terminally; the retry's stage converges.
+	ps := &f29BranchFake{fakeProjectState: base, mainVer: 2, branchVer: 4, stageFailsRemaining: 1}
+	pipe := newFakePipeline()
+	rail := &fakeRail{checkGreen: true}
+	wf := newRailWorkflows(ps, pipe, rail)
+	registerRailCoAuthor(env, wf)
+
+	// After the stage fault the session is at StageDraftFailed — assert the recoverable
+	// gate (not a crash), then Retry.
+	env.RegisterDelayedCallback(func() {
+		enc, err := env.QueryWorkflow(querySessionState)
+		if err != nil {
+			t.Fatalf("QueryWorkflow at failed gate: %v", err)
+		}
+		var view SessionStateView
+		if derr := enc.Get(&view); derr != nil {
+			t.Fatalf("decode SessionStateView: %v", derr)
+		}
+		if view.Stage != StageDraftFailed {
+			t.Fatalf("a faulted stage must land at StageDraftFailed, got stage %v", view.Stage)
+		}
+		if view.FailureReason == nil || *view.FailureReason == "" {
+			t.Fatal("the failed gate must surface a human FailureReason")
+		}
+	}, 30*time.Second)
+	// Retry via the redraft lever → re-draft → the second stage converges.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(lSignalRedraft, redraftSignal{})
+	}, 45*time.Second)
+	// After the recovered stage reaches AwaitingReview, Withdraw to end.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 80*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a faulted stage must not crash the workflow: %v", err)
+	}
+	// The recovered retry staged successfully (branch advanced past 4).
+	if ps.branchVer != 5 {
+		t.Fatalf("the recovered retry must converge its stage (branch → 5), got %d", ps.branchVer)
 	}
 }

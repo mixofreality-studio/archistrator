@@ -503,17 +503,21 @@ func (wf *workflows) readBackCritiqueOn(ctx workflow.Context, projectID ProjectI
 // readBackCommittedModelOn reads the typed model with an OPTIONAL branch override
 // (§2a): the draft Action commits the typed JSON on the SESSION BRANCH, so the read-back
 // reads that branch while the human reviews the not-yet-merged draft. branch=="" reads
-// main (the dormant-rail / non-git behavior).
-func (wf *workflows) readBackCommittedModelOn(ctx workflow.Context, projectID ProjectID, kind ArtifactKind, branch string) (projectstate.ArtifactModel, error) {
+// main (the dormant-rail / non-git behavior). It returns the read-back substrate's
+// Version alongside the model so the caller can stage against the ACTUAL branch version
+// — a fresh workflow reusing a dirty session branch (prior draft/critique commits) sees
+// the branch already advanced, and staging against a stale main-captured version would
+// Conflict (QA F29).
+func (wf *workflows) readBackCommittedModelOn(ctx workflow.Context, projectID ProjectID, kind ArtifactKind, branch string) (projectstate.ArtifactModel, projectstate.Version, error) {
 	proj, err := wf.readProjectOnBranch(ctx, projectID, branch)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	slot := slotFor(proj, kind)
 	if slot.Model == nil {
-		return nil, temporal.NewNonRetryableApplicationError(
+		return nil, 0, temporal.NewNonRetryableApplicationError(
 			fmt.Sprintf("design job reported success but committed no %s model to read back", artifactKindString(kind)),
 			"ReadBackEmpty", nil)
 	}
-	return slot.Model, nil
+	return slot.Model, proj.Version, nil
 }

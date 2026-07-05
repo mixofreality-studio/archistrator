@@ -118,11 +118,31 @@ type projectEnvelope struct {
 	Slots    map[projectstate.ArtifactKind]slotEnvelope `json:"slots,omitempty"`
 }
 
+// researchTitlesOnly returns a copy of the research corpus with each source's Content
+// STRIPPED — keeping only the Titles (and the Sources length, so IsZero is preserved).
+// The Manager workflow only ever reads source TITLES (writeResearch points the drafting
+// Action at .research.Sources[] in the checked-out repo and lists titles; it never inlines
+// Content) plus IsZero. Carrying the full book-sized corpus across the ReadProjectActivity
+// Temporal boundary blew the payload budget (TMPRL1103 warnings) for no benefit — the
+// Action reads the full Content from the committed project.json, not from this envelope
+// (QA F29 bonus).
+func researchTitlesOnly(r projectstate.ResearchInput) projectstate.ResearchInput {
+	if len(r.Sources) == 0 {
+		return projectstate.ResearchInput{}
+	}
+	slim := projectstate.ResearchInput{Sources: make([]projectstate.ResearchSource, len(r.Sources))}
+	for i, s := range r.Sources {
+		slim.Sources[i] = projectstate.ResearchSource{Title: s.Title} // Content intentionally dropped
+	}
+	return slim
+}
+
 // encodeProject wraps the head-state aggregate for the Temporal boundary. The
-// ResearchInput field round-trips so the mission-draft step can weave it in
-// (rework-2026-05-29 §2.6 / §8).
+// ResearchInput field round-trips (TITLES ONLY — see researchTitlesOnly) so the
+// mission-draft step can list the corpus sources by title (rework-2026-05-29 §2.6 / §8;
+// QA F29 bonus payload-slimming).
 func encodeProject(p projectstate.Project) (projectEnvelope, error) {
-	out := projectEnvelope{ID: p.ID, Version: p.Version, Phase: p.Phase, Research: p.ResearchInput, Slots: map[projectstate.ArtifactKind]slotEnvelope{}}
+	out := projectEnvelope{ID: p.ID, Version: p.Version, Phase: p.Phase, Research: researchTitlesOnly(p.ResearchInput), Slots: map[projectstate.ArtifactKind]slotEnvelope{}}
 	for _, kind := range allSlotKinds() {
 		slot := slotFor(p, ArtifactKind(kind))
 		if slot.Status == projectstate.ReviewNone && slot.Model == nil {

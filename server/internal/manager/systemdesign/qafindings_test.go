@@ -54,6 +54,66 @@ func Test_researchToContract_SlimsContentKeepsTitleAndBytes(t *testing.T) {
 	}
 }
 
+// ---- F29 bonus: Temporal-envelope research slimming ------------------------
+
+// The ReadProjectActivity envelope (encodeProject) must carry research source TITLES
+// across the Temporal Activity boundary but NOT the corpus Content — a single source can
+// be a whole book, and the Manager workflow only ever reads titles (writeResearch points
+// the Action at .research.Sources[] in the checked-out repo) plus IsZero. Carrying the
+// full corpus blew the Temporal payload budget (TMPRL1103 warnings). Prove encodeProject
+// strips Content, keeps Titles, preserves IsZero (so writeResearch still lists sources),
+// and that the corpus content never crosses the boundary.
+func Test_encodeProject_SlimsResearchContentAcrossActivityBoundary(t *testing.T) {
+	book := strings.Repeat("x", 660_000)
+	p := projectstate.Project{
+		ID:      projectstate.ProjectID("gtdapp"),
+		Version: 3,
+		ResearchInput: projectstate.ResearchInput{Sources: []projectstate.ResearchSource{
+			{Title: "The Founder Brief", Content: book},
+			{Title: "Competitor Analysis", Content: "short note"},
+		}},
+	}
+
+	env, err := encodeProject(p)
+	if err != nil {
+		t.Fatalf("encodeProject: %v", err)
+	}
+
+	// Titles cross the boundary; content does NOT.
+	if len(env.Research.Sources) != 2 {
+		t.Fatalf("want 2 source titles preserved in the envelope, got %d", len(env.Research.Sources))
+	}
+	if env.Research.Sources[0].Title != "The Founder Brief" || env.Research.Sources[1].Title != "Competitor Analysis" {
+		t.Fatalf("titles must survive encoding, got %q / %q", env.Research.Sources[0].Title, env.Research.Sources[1].Title)
+	}
+	for i, s := range env.Research.Sources {
+		if s.Content != "" {
+			t.Fatalf("source %d Content must NOT cross the activity boundary, got %d bytes", i, len(s.Content))
+		}
+	}
+
+	// The decoded head-state still lists the corpus (IsZero preserved) and writeResearch
+	// still emits every title so the mission-draft prompt names the sources.
+	dec, err := env.decode()
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if dec.ResearchInput.IsZero() {
+		t.Fatal("decoded research must not be zero — the titles-only carrier preserves IsZero")
+	}
+	var b strings.Builder
+	writeResearch(&b, dec.ResearchInput)
+	prompt := b.String()
+	for _, title := range []string{"The Founder Brief", "Competitor Analysis"} {
+		if !strings.Contains(prompt, title) {
+			t.Fatalf("writeResearch must still list source title %q; prompt:\n%s", title, prompt)
+		}
+	}
+	if strings.Contains(prompt, book) {
+		t.Fatal("writeResearch must NOT inline the corpus content")
+	}
+}
+
 // ---- F19: review-gate precondition -----------------------------------------
 
 // stubEncodedStage is a minimal converter.EncodedValue whose Get sets only the Stage,

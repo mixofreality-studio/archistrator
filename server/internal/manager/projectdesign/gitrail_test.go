@@ -2,6 +2,7 @@ package projectdesign
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -652,5 +653,99 @@ func Test_CoAuthorPhase2_Rail_RejectWriteFaults_RecoversAtFailedGate_RetainsFeed
 	redraftPrompt := pipe.submits[len(pipe.submits)-1].dispatchInputs[dispatchInputDesignPrompt]
 	if !strings.Contains(redraftPrompt, rejectNotes) {
 		t.Fatalf("the retained feedback %q must survive the fault and drive the redraft; prompt:\n%s", rejectNotes, redraftPrompt)
+	}
+}
+
+// ---- f29BranchFake (Phase-2 twin): version-enforcing branch-aware substrate --
+
+// f29BranchFake models the F29 reality for the Phase-2 spine: MAIN and the reused SESSION
+// BRANCH sit at DIFFERENT versions. A fresh workflow captures main's version, but the
+// Action's prior commits left the branch AHEAD. The read-back reads the branch version; a
+// stage expecting the stale main version Conflicts. This fake ENFORCES the branch version
+// on stage-on-branch (unlike the version-ignoring base fake), so the fix's convergence is
+// proven.
+type f29BranchFake struct {
+	*fakeProjectState
+	mu             sync.Mutex
+	mainVer        projectstate.Version
+	branchVer      projectstate.Version
+	stageExpecteds []projectstate.Version
+}
+
+var _ projectstate.BranchAwareProjectStateAccess = (*f29BranchFake)(nil)
+
+func (f *f29BranchFake) ReadProject(_ fwra.Context, _ projectstate.ProjectID) (projectstate.Project, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	p := f.project
+	p.Version = f.mainVer
+	return p, nil
+}
+
+func (f *f29BranchFake) ReadProjectVersion(_ fwra.Context, _ projectstate.ProjectID) (projectstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.mainVer, nil
+}
+
+func (f *f29BranchFake) ReadProjectOnBranch(_ context.Context, _ projectstate.ProjectID, _ string) (projectstate.Project, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	p := f.project
+	p.Version = f.branchVer
+	return p, nil
+}
+
+func (f *f29BranchFake) StageArtifactForReviewOnBranch(_ context.Context, _ projectstate.ProjectID, expected projectstate.Version, _ string, model projectstate.ArtifactModel, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.stageExpecteds = append(f.stageExpecteds, expected)
+	if expected != f.branchVer {
+		return 0, fwra.New(fwra.Conflict, fmt.Sprintf("projectstate.StageArtifactForReview: stale version: have %d, expected %d", f.branchVer, expected))
+	}
+	f.branchVer++
+	f.staged = append(f.staged, model)
+	return f.branchVer, nil
+}
+
+func (f *f29BranchFake) RejectArtifactOnBranch(_ context.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.branchVer++
+	return f.branchVer, nil
+}
+
+// THE QA F29 REGRESSION (Phase-2 twin) — a fresh workflow reusing a session branch already
+// AHEAD of main stages against the ACTUAL branch version and CONVERGES, instead of
+// Conflicting non-recoverably against the stale main-captured version and crashing.
+func Test_CoAuthorPhase2_Rail_StageAgainstDirtyBranch_Converges_NoCrash(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: planningAssumptionsReadBack(projectstate.ProjectID(id))}
+	ps := &f29BranchFake{fakeProjectState: base, mainVer: 2, branchVer: 4}
+	pipe := newFakePipeline()
+	rail := newScriptedRail(true, &seqLog{})
+	wf := newRailWorkflows(ps, pipe, rail)
+	registerRailCoAuthor(env, wf)
+
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
+	}, 30*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindPlanningAssumptions})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("staging against a dirty session branch must converge, not crash: %v", err)
+	}
+	if ps.branchVer != 5 {
+		t.Fatalf("stage must converge and advance the branch version to 5, got %d (expecteds=%v)", ps.branchVer, ps.stageExpecteds)
+	}
+	if last := ps.stageExpecteds[len(ps.stageExpecteds)-1]; last != 4 {
+		t.Fatalf("the converged stage must expect the branch version 4, got %d (expecteds=%v)", last, ps.stageExpecteds)
+	}
+	if len(base.committed) != 1 || base.committed[0] != projectstate.KindPlanningAssumptions {
+		t.Fatalf("want one commit after the converged stage → approve, got %v", base.committed)
 	}
 }
