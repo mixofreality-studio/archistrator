@@ -541,6 +541,14 @@ func (wf *workflows) CoAuthorArtifactWorkflow(ctx workflow.Context, in coAuthorI
 		headVersion = p.Version
 	}
 
+	// Capture the committed CoreUseCases once (founder extension, 2026-07-05): the
+	// KindSystem read-back check needs it to flag a System draft that leaves any
+	// committed use case without a dynamic view (USECASE-DYNAMIC-MISSING). Read
+	// deterministically from the head-state proj, so it is replay-safe.
+	if cuc, ok := proj.CoreUseCases.Model.(*projectstate.CoreUseCases); ok {
+		state.committedCoreUseCases = cuc
+	}
+
 	// feedback carried into the next draft dispatch: seeded from the explicit
 	// re-request feedback (OQ6), then replaced by PM-revise / reject-loop / validation
 	// feedback. Carries Notes + the architect's JSONPath-anchored Comments (the
@@ -1424,6 +1432,11 @@ type coAuthorState struct {
 	// so the sessionState Query surfaces the live thread and the approve gate can block
 	// while any comment is still open. Nil until the first read-back that carries comments.
 	reviewThread []projectstate.ReviewComment
+	// committedCoreUseCases is the head-state CoreUseCases (captured once at workflow
+	// start), threaded here so the KindSystem read-back check can flag a System draft
+	// that leaves any committed use case without a dynamic view (USECASE-DYNAMIC-MISSING,
+	// founder extension 2026-07-05). Nil for every other kind and until it is populated.
+	committedCoreUseCases *projectstate.CoreUseCases
 	// resumeFromReadBack is the F35-twin checkpoint: set true when a POST-read-back rail step
 	// (openPR) faulted and the session landed at the failed gate WITH the draft already
 	// committed on the branch. On the next Retry the draft round-trip consumes it and RESUMES
@@ -1446,6 +1459,12 @@ func (s *coAuthorState) view() (SessionStateView, error) {
 	// Appended only for the CoreUseCases kind (nil for every other kind), so the
 	// nil-when-empty wire form of Findings is preserved for all other artifacts.
 	if extra := useCaseActivityFindings(s.artifactKind, s.draft); len(extra) > 0 {
+		findings = append(append([]Finding{}, findings...), extra...)
+	}
+	// FOUNDER EXTENSION (2026-07-05): a System draft must carry a dynamic view for EVERY
+	// committed use case (core AND nonCore variation). Twin of the activity check above;
+	// surfaces one ERROR finding per uncovered use case at the review panel.
+	if extra := useCaseDynamicFindings(s.artifactKind, s.draft, s.committedCoreUseCases); len(extra) > 0 {
 		findings = append(append([]Finding{}, findings...), extra...)
 	}
 	if s.unresolvedCritique != "" {
@@ -1504,6 +1523,51 @@ func useCaseActivityFindings(kind ArtifactKind, draft projectstate.ArtifactModel
 			RuleID:   "USECASE-ACTIVITY-MISSING",
 			Severity: SeverityError,
 			Message:  fmt.Sprintf("Use case %q %s; every use case (core AND supporting) must carry a non-empty activity diagram with a start node and at least one action step.", label, reason),
+			Location: &Location{Ordinal: int64(i), Section: "use case " + label},
+		})
+	}
+	return out
+}
+
+// useCaseDynamicFindings returns one ERROR finding per committed use case that the
+// System draft leaves without a dynamic view, for the KindSystem artifact ONLY (nil
+// for every other kind, for a nil/absent draft, and when no CoreUseCases is committed
+// yet). The founder extension (2026-07-05) requires EVERY use case — core AND nonCore
+// variation — to carry a call chain in the architecture, going beyond Löwy who
+// validates only the core (that core subset is the twin ARCH-CHAINCOV / methodcheck
+// rule). This is the read-back surface at the human review panel; the authoritative
+// gate is methodcheck's USECASE-DYNAMIC-MISSING, which putDraftModel enforces while
+// the agent authors.
+func useCaseDynamicFindings(kind ArtifactKind, draft projectstate.ArtifactModel, committed *projectstate.CoreUseCases) []Finding {
+	if kind != KindSystem || committed == nil {
+		return nil
+	}
+	sys, ok := draft.(*projectstate.System)
+	if !ok || sys == nil {
+		return nil
+	}
+	covered := make(map[projectstate.UseCaseID]bool, len(sys.DynamicViews))
+	for _, dv := range sys.DynamicViews {
+		covered[projectstate.UseCaseID(dv.UseCaseID)] = true
+	}
+	var out []Finding
+	for i, d := range committed.Decisions {
+		uc := d.UseCase
+		if covered[uc.ID] {
+			continue
+		}
+		label := uc.Name
+		if label == "" {
+			label = fmt.Sprintf("use case %d", i+1)
+		}
+		kindWord := "use case"
+		if uc.Classification != projectstate.ClassCore {
+			kindWord = "nonCore use-case variation"
+		}
+		out = append(out, Finding{
+			RuleID:   "USECASE-DYNAMIC-MISSING",
+			Severity: SeverityError,
+			Message:  fmt.Sprintf("Use case %q has no dynamic view in the System; every %s (core AND nonCore variation) must carry its own call chain.", label, kindWord),
 			Location: &Location{Ordinal: int64(i), Section: "use case " + label},
 		})
 	}

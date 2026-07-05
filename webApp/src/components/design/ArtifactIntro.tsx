@@ -33,7 +33,7 @@ const INTRO: Partial<Record<ArtifactKind, { draft: string; committed: string }>>
   },
   system: {
     draft: 'DRAFT — a navigable C4 family. Switch lenses: the Static decomposition, a Dynamic call chain per use case, or a single Component’s perspective. Pan / zoom; click any node to comment.',
-    committed: 'COMMITTED — the layered architecture is sealed, with one dynamic view per core use case.',
+    committed: 'COMMITTED — the layered architecture is sealed, with a dynamic view for every use case.',
   },
 };
 

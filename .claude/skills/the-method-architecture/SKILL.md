@@ -1,6 +1,6 @@
 ---
 name: the-method-architecture
-description: Decompose the system into layered components and express the decomposition as a typed System model (components, relationships, one dynamic view per core use case). Call-chain validation iterates back into the decomposition — they are one activity, not two. Produces the typed System committed to project.json → .systemDesign (Structurizr DSL is a render-on-read). Use after core use cases, before operational concepts.
+description: Decompose the system into layered components and express the decomposition as a typed System model (components, relationships, a dynamic view for every use case — founder extension beyond Löwy's core-only). Call-chain validation iterates back into the decomposition — they are one activity, not two. Produces the typed System committed to project.json → .systemDesign (Structurizr DSL is a render-on-read). Use after core use cases, before operational concepts.
 ---
 
 # The Method — Architecture
@@ -42,8 +42,10 @@ State is git-as-DB: archistrator is a single Go-server repo whose canonical proj
 The typed **`System`** model (Go shape in `server/internal/resourceaccess/projectstate/system.go`: `Components []Component`, `Relationships []Relationship`, `DynamicViews []DynamicView`), committed to **`.aiarch/state/project.json` → `.systemDesign`**. It carries:
 
 1. The static architecture (`Components` + `Relationships`).
-2. One `DynamicView` (call chain) per core use case, plus 2–3 non-core dynamic views demonstrating versatility.
+2. One `DynamicView` (call chain) per use case — **every** use case in the committed `.coreUseCases`, core AND every non-core variation (see the **Founder extension** callout below). Löwy validates only the core; the founder requires a call chain for every use case.
 3. Supplementary PlantUML sequence-diagram source carried on a dynamic view *only* where order, duration, or multiplicity is non-obvious — not a separate `<use-case>.md` file.
+
+> **Founder extension (2026-07-05) — beyond Löwy.** Löwy's Method (Ch. 4–5) requires a call chain only for each *core* use case, and treats 2–3 non-core chains as an optional versatility demonstration. The archistrator founder extends this: **the committed architecture MUST carry a `DynamicView` for EVERY use case in the committed `.coreUseCases` set — core AND every non-core variation.** No use case may ship without a call chain. This is enforced as an ERROR at two points: methodcheck's `USECASE-DYNAMIC-MISSING` (the authoritative gate, run by `putDraftModel` while the agent authors and by the CI methodcheck gate) and the app-side read-back finding of the same id on the System review panel. It is the dynamic-view twin of `USECASE-ACTIVITY-MISSING` (every use case must also carry a non-empty activity diagram). The existing core-only rule `ARCH-CHAINCOV` stays as the Löwy-faithful core gate; `USECASE-DYNAMIC-MISSING` covers the whole set.
 
 The Structurizr DSL (`architecture.dsl` / `workspace.dsl`) and any sequence-diagram markdown are **render-on-read** of this model, produced by the server's rendering access — never the source of truth, never files you hand-author. Per the two usage patterns (agentic/CI dispatch and local interactive), the agent emits the typed `System` JSON and commits it into `.systemDesign`; the server stages it (`StageArtifactForReview`) for the human review gate.
 
@@ -155,9 +157,9 @@ Mark sync vs queued in `Relationship.Mode` (`CallSync` / `CallQueued`) — the r
 
 The static-architecture view (Clients at top, Resources at bottom — the layered pyramid) is derived automatically from `System.Components` + `System.Relationships` by the renderer; you do not author a separate view declaration. Just ensure the components and relationships are complete and well-tagged so the rendered top-to-bottom layout is correct. See `STRUCTURIZR-CONVENTIONS.md` for the rendered shape.
 
-### Step 9 — Author one `DynamicView` per core use case (the validation)
+### Step 9 — Author one `DynamicView` per use case (the validation)
 
-For each core use case in the committed `.coreUseCases`, add a typed `DynamicView` to `System.DynamicViews` (`UseCaseID`, `Key`, `Title`, `Participants`, ordered `Edges`):
+For **every** use case in the committed `.coreUseCases` — core AND every non-core variation (founder extension; see the callout under **Output**) — add a typed `DynamicView` to `System.DynamicViews` (`UseCaseID`, `Key`, `Title`, `Participants`, ordered `Edges`):
 
 - `UseCaseID` — links to the `UseCase` it validates.
 - `Key` — stable view key, e.g. `uc1-coauthor-method-artifact`.
@@ -188,13 +190,13 @@ This is the **call chain** referenced throughout Chapter 4 and 5 of the book. Th
 | Every edge label uses the destination-layer vocabulary (no `Activity:` / `StartWorkflow(` / `git commit` / `POST /endpoint` style labels) | The label is leaking workflow-engine or platform implementation into the architecture — rewrite per `STRUCTURIZR-CONVENTIONS.md` "Edge-label conventions" |
 | No dynamic-view edge targets a infrastructure ResourceAccess | The infrastructure is implementation; static-architecture edges retain it, dynamic views do not |
 
-**If any rule fails, the decomposition is wrong — not the use case.** Return to Step 1, revise the component set, regenerate the affected `container` declarations and relationships, and re-trace. Iterate until every core use case draws cleanly.
+**If any rule fails, the decomposition is wrong — not the use case.** Return to Step 1, revise the component set, regenerate the affected `container` declarations and relationships, and re-trace. Iterate until every use case draws cleanly.
 
-### Step 10 — Demonstrate versatility with 2–3 non-core call chains
+### Step 10 — Cover every non-core use-case variation (founder extension)
 
-Per [Ch. 5 §6](../../../../rightingsoftware/OEBPS/xhtml/ch05.xhtml#ch05lev1sec6): validate that the architecture also handles non-core use cases without modification. Pick 2–3 entries from the rejection list in the committed `.coreUseCases` and add their `DynamicView` entries to the same `System` model.
+Per [Ch. 5 §6](../../../../rightingsoftware/OEBPS/xhtml/ch05.xhtml#ch05lev1sec6), Löwy uses 2–3 non-core call chains to *demonstrate* that the architecture also handles non-core use cases without modification. **The founder extension makes this mandatory and total (2026-07-05):** every non-core use-case variation in the committed `.coreUseCases` must carry its own `DynamicView` in the same `System` model — not a representative sample. A System draft that leaves any use case (core or non-core variation) without a call chain is rejected by `USECASE-DYNAMIC-MISSING` (methodcheck ERROR at `putDraftModel` + CI, and the app-side read-back finding on the review panel).
 
-If a non-core use case cannot be drawn either, the decomposition is missing a volatility — return to `the-method-volatility-identification` before continuing.
+If a non-core use case cannot be drawn, the decomposition is missing a volatility — return to `the-method-volatility-identification` before continuing.
 
 ### Step 11 — Add sequence diagrams only where order/duration/multiplicity matter
 
@@ -225,15 +227,14 @@ If a build is involved when running the server locally, the Go build is `GOWORK=
 - `.aiarch/state/project.json` → `.systemDesign` holds the typed `System` model, and it renders to Structurizr DSL that parses cleanly (no parser errors, no ERROR-level log lines) during server-side artifact validation.
 - Every `Component` cites a volatility from `.volatilities` in its `Encapsulates`.
 - Cardinality limits respected (see [[the-method-layers]]).
-- Every core use case from `.coreUseCases` has a `DynamicView` that traces cleanly through the layers.
-- 2–3 non-core use cases also draw cleanly.
+- **Every** use case from `.coreUseCases` — core AND every non-core variation — has a `DynamicView` that traces cleanly through the layers (founder extension; enforced by `USECASE-DYNAMIC-MISSING`). No use case ships without a call chain.
 - Sequence-diagram source is carried on any `DynamicView` where order/duration/multiplicity is non-obvious.
 
 Move to `the-method-operational-concepts`.
 
 ## Anti-patterns to reject
 
-- **Missing dynamic view for a core use case** — incomplete validation.
+- **Missing dynamic view for any use case (core or non-core variation)** — incomplete validation; rejected by `USECASE-DYNAMIC-MISSING` (founder extension).
 - **Dynamic view enters multiple Managers from a Client** — Don't 6a; decomposition wrong.
 - **Dynamic view shows Client → Engine, Client → ResourceAccess, or Client → Resource directly** — layer skip; decomposition wrong.
 - **Engines or ResourceAccess publishing events** — Don't rule violated; component misclassified.

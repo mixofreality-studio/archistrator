@@ -84,7 +84,7 @@ export const METHOD_METADATA: Record<ArtifactKindFull, MethodArtifactMeta> = {
     kind: 'system',
     title: 'Architecture',
     file: 'architecture.dsl',
-    blurb: 'Layered decomposition + one dynamic view per core use case.',
+    blurb: 'Layered decomposition + a dynamic view for every use case.',
     hasPmCritic: false,
   },
   operationalConcepts: {
