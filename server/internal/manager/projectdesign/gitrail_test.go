@@ -1198,3 +1198,187 @@ func Test_CoAuthorPhase2_RedraftSignalFeedbackReachesPrompt(t *testing.T) {
 		t.Fatalf("the redraft-signal feedback %q must reach the next draft prompt; prompt:\n%s", notes, p)
 	}
 }
+
+// F48 — the Temporal activity-boundary codec MUST carry the durable review ledger. Without it,
+// loadReviewThread (which reads the session branch through this projectEnvelope) returned [] even
+// though the reject-with-comments append lives in the branch git — so the session-state query,
+// the redraft prompt's writeReviewLedger block, and the approve gate all saw an empty thread.
+func Test_projectEnvelope_PreservesReviewThread(t *testing.T) {
+	var p projectstate.Project
+	p.PlanningAssumptions = projectstate.ArtifactSlot{
+		Status: projectstate.ReviewAwaitingReview,
+		Model:  &projectstate.PlanningAssumptions{CalendarDaysPerWeek: 5},
+		ReviewThread: []projectstate.ReviewComment{
+			{ID: "r0c1", Text: "resources must be plain strings, not objects", AuthorRole: "architect", Round: 0, Status: projectstate.ReviewCommentOpen},
+		},
+	}
+	env, err := encodeProject(p)
+	if err != nil {
+		t.Fatalf("encodeProject: %v", err)
+	}
+	got, err := env.decode()
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	thread := slotFor(got, projectstate.KindPlanningAssumptions).ReviewThread
+	if len(thread) != 1 {
+		t.Fatalf("the review thread must survive the Temporal codec round-trip, got %d comments: %+v", len(thread), thread)
+	}
+	if thread[0].ID != "r0c1" || thread[0].Status != projectstate.ReviewCommentOpen || thread[0].Text == "" {
+		t.Fatalf("the codec must preserve the comment's id/status/text, got %+v", thread[0])
+	}
+}
+
+// ledgerThreadFake stores a MUTABLE review thread and implements the review-ledger seam so a
+// workflow-level test can drive reject-with-comments and read the thread back THROUGH the real
+// Temporal codec (F48). ReadProjectOnBranch injects the live thread into the slot the read-back
+// returns, modelling the git branch state the reject-append produced.
+type ledgerThreadFake struct {
+	*seqProjectState
+	tmu    sync.Mutex
+	thread []projectstate.ReviewComment
+}
+
+var (
+	_ projectstate.BranchAwareProjectStateAccess = (*ledgerThreadFake)(nil)
+	_ projectstate.LedgerProjectStateAccess      = (*ledgerThreadFake)(nil)
+)
+
+func (f *ledgerThreadFake) snapshot() []projectstate.ReviewComment {
+	f.tmu.Lock()
+	defer f.tmu.Unlock()
+	return append([]projectstate.ReviewComment(nil), f.thread...)
+}
+
+func (f *ledgerThreadFake) ReadProjectOnBranch(ctx context.Context, projectID projectstate.ProjectID, branch string) (projectstate.Project, error) {
+	proj, err := f.seqProjectState.ReadProjectOnBranch(ctx, projectID, branch)
+	if err != nil {
+		return projectstate.Project{}, err
+	}
+	slot := proj.PlanningAssumptions
+	slot.ReviewThread = f.snapshot()
+	proj.PlanningAssumptions = slot
+	return proj, nil
+}
+
+func (f *ledgerThreadFake) RejectArtifactOnBranchWithComments(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, round int64, comments []projectstate.ReviewComment, key fwra.IdempotencyKey) (projectstate.Version, error) {
+	f.tmu.Lock()
+	for i, c := range comments {
+		f.thread = append(f.thread, projectstate.ReviewComment{
+			ID: fmt.Sprintf("r%dc%d", round, i+1), Anchor: c.Anchor, AnchorText: c.AnchorText,
+			Text: c.Text, AuthorRole: c.AuthorRole, Round: round, Status: projectstate.ReviewCommentOpen,
+		})
+	}
+	f.tmu.Unlock()
+	return f.RejectArtifactOnBranch(ctx, projectID, expectedVersion, branch, kind, notes, key)
+}
+
+func (f *ledgerThreadFake) SetReviewCommentStatusOnBranch(_ context.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, commentID string, status string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	f.tmu.Lock()
+	for i := range f.thread {
+		if f.thread[i].ID == commentID {
+			f.thread[i].Status = status
+		}
+	}
+	f.tmu.Unlock()
+	return f.bump(), nil
+}
+
+func (f *ledgerThreadFake) SeedReviewCommentsOnBranch(_ context.Context, _ projectstate.ProjectID, expectedVersion projectstate.Version, _ string, _ projectstate.ArtifactKind, round int64, comments []projectstate.ReviewComment, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	f.tmu.Lock()
+	for i, c := range comments {
+		f.thread = append(f.thread, projectstate.ReviewComment{ID: fmt.Sprintf("r%dc%d", round, i+1), Text: c.Text, AuthorRole: c.AuthorRole, Round: round, Status: projectstate.ReviewCommentOpen})
+	}
+	f.tmu.Unlock()
+	return expectedVersion, nil
+}
+
+// F48 END-TO-END — reject-with-comments must flow through the whole review-ledger loop now that
+// the Temporal codec carries the thread: (a) the session-state query shows the open entry, (b)
+// the redraft prompt contains the writeReviewLedger block, and (c) Approve is BLOCKED until the
+// open comment is waived. All three read the workflow's in-memory reviewThread, which is
+// reloaded from the branch read-back — the read that silently dropped the thread pre-F48.
+func Test_CoAuthorPhase2_RejectWithComments_ThreadRefreshes_QueryPromptAndApproveGate(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: planningAssumptionsReadBack(projectstate.ProjectID(id))}
+	ps := &ledgerThreadFake{seqProjectState: &seqProjectState{fakeProjectState: base, log: &seqLog{}}}
+	pipe := newFakePipeline() // every dispatch succeeds
+	rail := newScriptedRail(true, &seqLog{})
+	wf := newRailWorkflows(ps, pipe, rail)
+	registerRailCoAuthor(env, wf)
+	// The review-ledger activities the base helper does not register (only ledger-flow tests use them).
+	env.RegisterActivity(wf.SetReviewCommentStatusActivity)
+	env.RegisterActivity(wf.SeedReviewCommentsActivity)
+
+	const commentText = "resources must be plain strings, not objects"
+
+	// t=30s: at the first AwaitingReview, REJECT with an anchored comment.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{
+			Decision: ReviewReject,
+			Feedback: &ReviewFeedback{Comments: []AnchoredComment{{JSONPath: "$.resources", Text: commentText}}},
+		})
+	}, 30*time.Second)
+
+	// t=80s: at the second AwaitingReview, the query must SHOW the open comment; then Approve
+	// (which must be BLOCKED because the comment is still open).
+	env.RegisterDelayedCallback(func() {
+		enc, err := env.QueryWorkflow(querySessionState)
+		if err != nil {
+			t.Fatalf("QueryWorkflow: %v", err)
+		}
+		var view SessionStateView
+		if err := enc.Get(&view); err != nil {
+			t.Fatalf("decode SessionStateView: %v", err)
+		}
+		if len(view.ReviewThread) != 1 || view.ReviewThread[0].Status != projectstate.ReviewCommentOpen {
+			t.Fatalf("(a) the session-state query must show the OPEN reject comment, got %+v", view.ReviewThread)
+		}
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
+	}, 80*time.Second)
+
+	// t=130s: Approve must have been BLOCKED (still AwaitingReview, nothing committed). Then waive.
+	env.RegisterDelayedCallback(func() {
+		enc, _ := env.QueryWorkflow(querySessionState)
+		var view SessionStateView
+		_ = enc.Get(&view)
+		if view.Stage != StageAwaitingReview {
+			t.Fatalf("(c) Approve must be BLOCKED while a comment is open — want AwaitingReview, got stage %d", view.Stage)
+		}
+		if len(base.committed) != 0 {
+			t.Fatalf("(c) nothing may commit while a comment is open, got %v", base.committed)
+		}
+		env.SignalWorkflow(signalSetCommentStatus, setCommentStatusSignal{CommentID: "r0c1", Status: projectstate.ReviewCommentWaived})
+	}, 130*time.Second)
+
+	// t=170s: with the comment waived, Approve now merges.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
+	}, 170*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindPlanningAssumptions})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("the review-ledger loop must not crash: %v", err)
+	}
+	var outcome coAuthorOutcome
+	if err := env.GetWorkflowResult(&outcome); err != nil {
+		t.Fatalf("decode outcome: %v", err)
+	}
+	if outcome != coAuthorApproved {
+		t.Fatalf("after waive + approve the session must be Approved, got %d", outcome)
+	}
+	if len(base.committed) != 1 {
+		t.Fatalf("approve-after-waive must commit once, got %v", base.committed)
+	}
+	// (b) the REDRAFT prompt (the second dispatch, after the reject) carried the ledger block.
+	if len(pipe.submits) < 2 {
+		t.Fatalf("the reject must trigger a redraft dispatch, got %d", len(pipe.submits))
+	}
+	if p := pipe.submits[1].dispatchInputs[dispatchInputDesignPrompt]; !strings.Contains(p, commentText) {
+		t.Fatalf("(b) the redraft prompt must carry the open review-ledger comment; prompt:\n%s", p)
+	}
+}

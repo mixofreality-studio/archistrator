@@ -120,6 +120,13 @@ type slotEnvelope struct {
 	Status projectstate.ArtifactReviewStatus `json:"status"`
 	Notes  string                            `json:"notes,omitempty"`
 	Model  modelEnvelope                     `json:"model"`
+	// ReviewThread carries the DURABLE review ledger across the ReadProjectOnBranchActivity
+	// Temporal boundary (F48). Without it, loadReviewThread — which reads the session branch
+	// through this envelope — silently returned [] even though the reject-with-comments append
+	// lives in the branch git, so the redraft prompt lost its writeReviewLedger block, the
+	// session-state query showed no comments, and the approve gate did not block. omitempty
+	// keeps the payload byte-identical for any slot the ledger never touched.
+	ReviewThread []projectstate.ReviewComment `json:"reviewThread,omitempty"`
 }
 
 // projectEnvelope is the wire form of the head-state Project across the
@@ -151,7 +158,7 @@ func encodeProject(p projectstate.Project) (projectEnvelope, error) {
 		if err != nil {
 			return projectEnvelope{}, err
 		}
-		out.Slots[kind] = slotEnvelope{Status: slot.Status, Notes: slot.Notes, Model: me}
+		out.Slots[kind] = slotEnvelope{Status: slot.Status, Notes: slot.Notes, Model: me, ReviewThread: slot.ReviewThread}
 	}
 	return out, nil
 }
@@ -164,7 +171,7 @@ func (e projectEnvelope) decode() (projectstate.Project, error) {
 		if err != nil {
 			return projectstate.Project{}, err
 		}
-		if err := setSlot(&p, kind, projectstate.ArtifactSlot{Status: se.Status, Model: model, Notes: se.Notes}); err != nil {
+		if err := setSlot(&p, kind, projectstate.ArtifactSlot{Status: se.Status, Model: model, Notes: se.Notes, ReviewThread: se.ReviewThread}); err != nil {
 			return projectstate.Project{}, err
 		}
 	}

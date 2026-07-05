@@ -1428,3 +1428,33 @@ func Test_CoAuthor_RailEnabled_RedraftSignalFeedbackReachesPrompt(t *testing.T) 
 		t.Fatalf("the redraft-signal feedback %q must reach the next draft prompt; prompt:\n%s", notes, p)
 	}
 }
+
+// F48 — the Temporal activity-boundary codec MUST carry the durable review ledger (audited from
+// projectdesign; systemdesign had the same hole). Without it, loadReviewThread reads the session
+// branch through this projectEnvelope and returns [] despite the reject-append living in git.
+func Test_projectEnvelope_PreservesReviewThread(t *testing.T) {
+	id := ProjectID(uuid.NewString())
+	p := systemReadBack(t, id)
+	p.SystemDesign = projectstate.ArtifactSlot{
+		Status: projectstate.ReviewAwaitingReview,
+		Model:  &projectstate.System{},
+		ReviewThread: []projectstate.ReviewComment{
+			{ID: "r0c1", Text: "split this Manager per volatility", AuthorRole: "architect", Round: 0, Status: projectstate.ReviewCommentOpen},
+		},
+	}
+	env, err := encodeProject(p)
+	if err != nil {
+		t.Fatalf("encodeProject: %v", err)
+	}
+	got, err := env.decode()
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	thread := slotFor(got, KindSystem).ReviewThread
+	if len(thread) != 1 {
+		t.Fatalf("the review thread must survive the Temporal codec round-trip, got %d comments: %+v", len(thread), thread)
+	}
+	if thread[0].ID != "r0c1" || thread[0].Status != projectstate.ReviewCommentOpen || thread[0].Text == "" {
+		t.Fatalf("the codec must preserve the comment's id/status/text, got %+v", thread[0])
+	}
+}

@@ -126,6 +126,13 @@ type slotEnvelope struct {
 	// slot a critique never touched.
 	CritiqueVerdict string `json:"critiqueVerdict,omitempty"`
 	CritiqueNotes   string `json:"critiqueNotes,omitempty"`
+	// ReviewThread carries the DURABLE review ledger across the ReadProjectOnBranchActivity
+	// Temporal boundary (F48). Without it, loadReviewThread — which reads the session branch
+	// through this envelope — silently returned [] even though the reject-with-comments append
+	// lives in the branch git, so the redraft prompt lost its writeReviewLedger block, the
+	// session-state query showed no comments, and the approve gate did not block. omitempty
+	// keeps the payload byte-identical for any slot the ledger never touched.
+	ReviewThread []projectstate.ReviewComment `json:"reviewThread,omitempty"`
 }
 
 // projectEnvelope is the wire form of the head-state Project across the
@@ -161,6 +168,7 @@ func encodeProject(p projectstate.Project) (projectEnvelope, error) {
 			Model:           me,
 			CritiqueVerdict: slot.CritiqueVerdict,
 			CritiqueNotes:   slot.CritiqueNotes,
+			ReviewThread:    slot.ReviewThread,
 		}
 	}
 	return out, nil
@@ -180,6 +188,7 @@ func (e projectEnvelope) decode() (projectstate.Project, error) {
 			Notes:           se.Notes,
 			CritiqueVerdict: se.CritiqueVerdict,
 			CritiqueNotes:   se.CritiqueNotes,
+			ReviewThread:    se.ReviewThread,
 		}); err != nil {
 			return projectstate.Project{}, err
 		}
