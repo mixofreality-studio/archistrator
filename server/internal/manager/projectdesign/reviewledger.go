@@ -62,6 +62,8 @@ func toReviewCommentView(c projectstate.ReviewComment) ReviewCommentView {
 		Round:      c.Round,
 		Status:     c.Status,
 		Response:   c.Response,
+		Type:       c.Type,
+		Addressee:  c.Addressee,
 	}
 }
 
@@ -78,12 +80,13 @@ func reviewThreadToView(thread []projectstate.ReviewComment) []ReviewCommentView
 	return out
 }
 
-// openReviewCommentIDs returns the ids of every OPEN ledger entry — the comments that gate
-// approve (review-ledger §4). Empty ⇒ approve is unblocked.
+// openReviewCommentIDs returns the ids of every OPEN CHANGE-REQUEST — the comments that gate
+// approve (review-ledger §4). Open QUESTIONS never gate (question-comments §approve). Empty
+// ⇒ approve is unblocked.
 func openReviewCommentIDs(thread []projectstate.ReviewComment) []string {
 	var ids []string
 	for _, c := range thread {
-		if c.Status == projectstate.ReviewCommentOpen {
+		if projectstate.ReviewCommentBlocksApprove(c) {
 			ids = append(ids, c.ID)
 		}
 	}

@@ -389,11 +389,13 @@ func (m *projectDesignManager) SetReviewCommentStatus(rc fwmanager.Context, proj
 	return nil
 }
 
-// openReviewCommentViewIDs returns the ids of every OPEN comment in a wire thread.
+// openReviewCommentViewIDs returns the ids of every OPEN CHANGE-REQUEST in a wire thread —
+// the approve blocker set. Open QUESTIONS are excluded (a soft approve-gate warning, never a
+// hard block; question-comments §approve).
 func openReviewCommentViewIDs(thread []ReviewCommentView) []string {
 	var ids []string
 	for _, c := range thread {
-		if c.Status == projectstate.ReviewCommentOpen {
+		if c.Status == projectstate.ReviewCommentOpen && c.Type != projectstate.ReviewCommentTypeQuestion {
 			ids = append(ids, c.ID)
 		}
 	}

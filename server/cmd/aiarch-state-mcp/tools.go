@@ -91,6 +91,11 @@ func buildServer(s *Session) *mcp.Server {
 	}, textHandler(func(context.Context, emptyInput) (string, error) { return s.getReviewThread() }))
 
 	// ---- mode-specific write verbs ----
+	// critique  → setCritiqueVerdict (only)
+	// draft     → putDraftModel + respondToReviewComment
+	// answer    → respondToReviewComment (only) — question-comments: answer open QUESTION
+	//             entries in place; NO putDraftModel (never rewrite the artifact), NO
+	//             setCritiqueVerdict.
 
 	if s.Mode == jobModeCritique {
 		mcp.AddTool(srv, &mcp.Tool{
@@ -103,7 +108,9 @@ func buildServer(s *Session) *mcp.Server {
 			}
 			return "Recorded the critique verdict. Call publishDraft to commit it.", nil
 		}))
-	} else {
+	}
+
+	if s.Mode == jobModeDraft {
 		mcp.AddTool(srv, &mcp.Tool{
 			Name: "putDraftModel",
 			Description: "Submit the complete typed model for THIS design job's artifact. It is validated through the FULL server codec AND the Method CI rules " +
@@ -119,11 +126,16 @@ func buildServer(s *Session) *mcp.Server {
 			}
 			return "The draft passed the server codec and the Method CI rules and was written. Respond to any open review comments, then call publishDraft.", nil
 		}))
+	}
 
+	// respondToReviewComment is shared by draft mode (respond after addressing a
+	// change-request in the redraft) and answer mode (answer an open QUESTION in place).
+	if s.Mode == jobModeDraft || s.Mode == jobModeAnswer {
 		mcp.AddTool(srv, &mcp.Tool{
 			Name: "respondToReviewComment",
-			Description: "Record your response to one OPEN review-ledger comment (matched by id from getReviewThread) after you revise the draft to address it. " +
-				"A comment you leave without a response stays open and blocks approval.",
+			Description: "Record your response to one OPEN review-ledger comment (matched by id from getReviewThread). In answer mode this ANSWERS a question in place; " +
+				"in draft mode you respond after revising the draft to address a change-request. A change-request left without a response stays open and blocks approval; " +
+				"an answered question is marked addressed.",
 		}, textHandler(func(_ context.Context, in respondToReviewCommentInput) (string, error) {
 			if err := s.respondToReviewComment(in.ID, in.Response); err != nil {
 				return "", err

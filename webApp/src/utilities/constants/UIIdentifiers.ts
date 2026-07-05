@@ -126,6 +126,12 @@ export const UI_IDENTIFIERS = {
     TOGGLE: 'chat-toggle',
     SEND: 'chat-send',
     INPUT: 'chat-input',
+    // Composer type/addressee pickers + the separate Ask send (question-comments).
+    TYPE_CHANGE_REQUEST: 'chat-type-change-request',
+    TYPE_QUESTION: 'chat-type-question',
+    ADDRESSEE_PM: 'chat-addressee-pm',
+    ADDRESSEE_ARCHITECT: 'chat-addressee-architect',
+    ASK: 'chat-ask',
     commentAnchor: (n: number) => `comment-anchor-${String(n)}`,
     // A durable review-ledger thread entry (server), keyed by its ledger id.
     threadEntry: (id: string) => `thread-entry-${id}`,

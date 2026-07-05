@@ -41,7 +41,9 @@ import type {
   ProjectStateWithGit,
   ProjectSummary,
   ResearchInput,
+  ReviewCommentAddressee,
   ReviewCommentStatus,
+  ReviewCommentType,
   ReviewCommentView,
   ServiceContract,
   ServiceContracts,
@@ -75,6 +77,16 @@ function reviewStatus(s: string): ReviewCommentStatus {
   return s === 'addressed' || s === 'waived' ? s : 'open';
 }
 
+/** Normalize the wire comment type (empty/legacy → 'changeRequest'). */
+function reviewType(s: string): ReviewCommentType {
+  return s === 'question' ? 'question' : 'changeRequest';
+}
+
+/** Normalize the wire addressee (only meaningful for questions). */
+function reviewAddressee(s: string): ReviewCommentAddressee {
+  return s === 'pm' || s === 'architect' ? s : '';
+}
+
 /** One durable review-ledger entry. The two manager shapes are structurally identical. */
 function mapReviewComment(
   w: Schemas['SystemDesignReviewCommentView'] | Schemas['ProjectDesignReviewCommentView']
@@ -88,6 +100,8 @@ function mapReviewComment(
     round: w.round,
     status: reviewStatus(w.status),
     response: w.response,
+    type: reviewType(w.type),
+    addressee: reviewAddressee(w.addressee),
   };
 }
 

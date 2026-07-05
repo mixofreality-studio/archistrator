@@ -132,12 +132,15 @@ on:
         required: false
         type: string
         default: ""
-      # DRAFT vs PM-CRITIQUE discriminator (D-MSD-Δ). "draft" (default) commits the
-      # typed model; "critique" commits the slot's critiqueVerdict/critiqueNotes
-      # read-back carrier per the composed design_prompt. Defaulted so a dispatch that
-      # omits it behaves exactly as a draft (back-compat with UC2 callers).
+      # DRAFT vs PM-CRITIQUE vs ANSWER discriminator (D-MSD-Δ + question-comments).
+      # "draft" (default) commits the typed model; "critique" commits the slot's
+      # critiqueVerdict/critiqueNotes read-back carrier; "answer" (question-comments)
+      # commits per-question responses into the slot's reviewThread via
+      # respondToReviewComment (no model rewrite, no verdict). Only "draft" opens a PR;
+      # critique and answer commit to the branch and the Manager reads back off it.
+      # Defaulted so a dispatch that omits it behaves exactly as a draft.
       job_mode:
-        description: "draft (commit the typed model) or critique (commit critiqueVerdict/critiqueNotes)"
+        description: "draft (commit the typed model), critique (commit critiqueVerdict/critiqueNotes), or answer (commit review-comment responses)"
         required: false
         type: string
         default: "draft"
@@ -321,7 +324,9 @@ jobs:
             last thing you do. You do NOT open a pull request: in draft mode the review pull
             request is opened for you automatically after your publish, so the human review
             gate and the required `go test` check apply; in critique mode no PR is opened (the
-            manager reads your verdict straight off the branch).
+            manager reads your verdict straight off the branch); in answer mode no PR is opened
+            either — you answer each open question via respondToReviewComment and the manager
+            reads your responses straight off the branch.
 
       # Silent-failure guard. claude-code-action can exit SUCCESS while committing
       # nothing (observed live 2026-07-04, run 28724066929: draft job green, zero

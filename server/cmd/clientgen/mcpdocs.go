@@ -17,6 +17,7 @@ package main
 var mcpOpDocs = map[string]map[string]string{
 	"SystemDesignManager": {
 		"AdvancePhase":           "Advance the project from System Design (phase 1) to Project Design (phase 2). Requires every phase-1 artifact to be committed and reviewed; returns the resulting phase plus any reason the advance was gated.",
+		"AskQuestions":           "Ask one or more clarifying QUESTIONS about a System-Design artifact (selected by kind) addressed to a role (pm or architect), WITHOUT sending the draft back for a redraft. The questions are appended to the artifact's review ledger as question-type entries and a lightweight answer job is dispatched so the addressed role answers each in place. Works on a committed artifact too (seeds a question-only thread without opening an amendment). Unlike change-request comments, open questions do NOT block approve.",
 		"CreateProject":          "Create a new archistrator project owned by the given owner scope, with the given display name, and return its generated project ID.",
 		"GetProject":             "Return the project head-state: its ID, current Method phase, name, owner, and high-level progress.",
 		"GetSessionState":        "Return the current draft/review session state for one System-Design artifact (selected by kind): its stage, the latest AI draft, and any review feedback. Read-only.",
@@ -30,6 +31,7 @@ var mcpOpDocs = map[string]map[string]string{
 	},
 	"ProjectDesignManager": {
 		"AdvanceToConstruction":  "Advance the project from Project Design (phase 2) to Construction (phase 3), once the SDP has been committed. Returns the resulting phase plus any reason the advance was gated.",
+		"AskQuestions":           "Ask one or more clarifying QUESTIONS about a Project-Design artifact (selected by kind) addressed to a role (pm or architect), WITHOUT sending the draft back for a redraft. The questions are appended to the artifact's review ledger as question-type entries and a lightweight answer job is dispatched so the addressed role answers each in place. Works on a committed artifact too (seeds a question-only thread without opening an amendment). Unlike change-request comments, open questions do NOT block approve.",
 		"GetSessionState":        "Return the current draft/review session state for one Project-Design artifact (selected by kind): its stage, the latest AI draft, and any review feedback. Read-only.",
 		"RequestArtifactDraft":   "Kick off (or re-run) the AI drafting of one Project-Design artifact (selected by kind, e.g. the activity list, project network, or a solution option). Pass feedback to re-draft against review notes. Returns a handle to the asynchronous drafting session.",
 		"RequestSDPCommit":       "Assemble the SDP Review (every solution option plus the risk model) for management sign-off. Returns a handle to the assembly session.",

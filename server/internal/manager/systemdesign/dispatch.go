@@ -262,14 +262,22 @@ const (
 const (
 	jobModeDraft    = "draft"
 	jobModeCritique = "critique"
+	// jobModeAnswer is the question-comments answer job: the addressed role (pm/architect)
+	// answers open QUESTION ledger entries in place via respondToReviewComment (no
+	// putDraftModel, no setCritiqueVerdict). Like critique, it does NOT open a PR.
+	jobModeAnswer = "answer"
 )
 
 // jobModeFor maps a DispatchTarget to its job_mode dispatch value.
 func jobModeFor(target dispatchTarget) string {
-	if target == dispatchTargetCritique {
+	switch target {
+	case dispatchTargetCritique:
 		return jobModeCritique
+	case dispatchTargetAnswer:
+		return jobModeAnswer
+	default:
+		return jobModeDraft
 	}
-	return jobModeDraft
 }
 
 // dispatchTarget discriminates which Method-role agentic job the dispatch round-
@@ -281,6 +289,7 @@ type dispatchTarget int
 const (
 	dispatchTargetDraft    dispatchTarget = iota // draft the artifact named by ArtifactKind
 	dispatchTargetCritique                       // PM-critique the just-committed draft
+	dispatchTargetAnswer                         // answer open QUESTION ledger entries in place
 )
 
 // observePollInterval spaces the observe-poll loop's durable timer waits. A

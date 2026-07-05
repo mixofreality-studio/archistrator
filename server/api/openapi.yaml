@@ -715,6 +715,8 @@ components:
         ProjectDesignReviewCommentView:
             additionalProperties: false
             properties:
+                addressee:
+                    type: string
                 anchor:
                     type: string
                 anchorText:
@@ -732,6 +734,9 @@ components:
                     type: string
                 text:
                     type: string
+                type:
+                    type: string
+                    x-go-name: Type
             required:
                 - id
                 - anchor
@@ -741,6 +746,8 @@ components:
                 - round
                 - status
                 - response
+                - type
+                - addressee
             type: object
         ProjectDesignReviewDecision:
             enum:
@@ -1559,6 +1566,8 @@ components:
         SystemDesignReviewCommentView:
             additionalProperties: false
             properties:
+                addressee:
+                    type: string
                 anchor:
                     type: string
                 anchorText:
@@ -1576,6 +1585,9 @@ components:
                     type: string
                 text:
                     type: string
+                type:
+                    type: string
+                    x-go-name: Type
             required:
                 - id
                 - anchor
@@ -1585,6 +1597,8 @@ components:
                 - round
                 - status
                 - response
+                - type
+                - addressee
             type: object
         SystemDesignReviewDecision:
             enum:
@@ -2935,6 +2949,81 @@ paths:
                     description: infrastructure unavailable
             security:
                 - bearerAuth: []
+    /api/v1/project-design/ask-questions/{projectID}:
+        post:
+            operationId: AskQuestions
+            parameters:
+                - in: path
+                  name: projectID
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/ProjectDesignProjectID'
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            properties:
+                                addressee:
+                                    type: string
+                                kind:
+                                    $ref: '#/components/schemas/ProjectDesignArtifactKind'
+                                questions:
+                                    items:
+                                        $ref: '#/components/schemas/ProjectDesignAnchoredComment'
+                                    type: array
+                            required:
+                                - kind
+                                - addressee
+                                - questions
+                            type: object
+                required: true
+            responses:
+                "204":
+                    description: no content
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
     /api/v1/project-design/get-session-state/{projectID}:
         get:
             operationId: GetSessionState
@@ -3379,6 +3468,81 @@ paths:
                             schema:
                                 $ref: '#/components/schemas/SystemDesignPhaseAdvanceResult'
                     description: success
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
+    /api/v1/system-design/ask-questions/{projectID}:
+        post:
+            operationId: AskQuestions
+            parameters:
+                - in: path
+                  name: projectID
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/SystemDesignProjectID'
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            properties:
+                                addressee:
+                                    type: string
+                                kind:
+                                    $ref: '#/components/schemas/SystemDesignArtifactKind'
+                                questions:
+                                    items:
+                                        $ref: '#/components/schemas/SystemDesignAnchoredComment'
+                                    type: array
+                            required:
+                                - kind
+                                - addressee
+                                - questions
+                            type: object
+                required: true
+            responses:
+                "204":
+                    description: no content
                 "400":
                     content:
                         application/json:

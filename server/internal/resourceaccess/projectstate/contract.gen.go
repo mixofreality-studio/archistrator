@@ -591,6 +591,8 @@ type ReviewComment struct {
 	Round      int64  `json:"round"`
 	Status     string `json:"status"`
 	Response   string `json:"response"`
+	Type       string `json:"type"`
+	Addressee  string `json:"addressee"`
 }
 
 type ReviewPolicy struct {

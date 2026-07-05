@@ -228,6 +228,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/project-design/ask-questions/{projectID}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["AskQuestions"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/project-design/get-session-state/{projectID}": {
         parameters: {
             query?: never;
@@ -334,6 +350,22 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["AdvancePhase"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/system-design/ask-questions/{projectID}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["AskQuestions_2"];
         delete?: never;
         options?: never;
         head?: never;
@@ -700,6 +732,7 @@ export interface components {
         };
         ProjectDesignProjectID: string;
         ProjectDesignReviewCommentView: {
+            addressee: string;
             anchor: string;
             anchorText: string;
             authorRole: string;
@@ -708,6 +741,7 @@ export interface components {
             round: number;
             status: string;
             text: string;
+            type: string;
         };
         /** @enum {integer} */
         ProjectDesignReviewDecision: 0 | 1 | 2 | 3;
@@ -934,6 +968,7 @@ export interface components {
             title: string;
         };
         SystemDesignReviewCommentView: {
+            addressee: string;
             anchor: string;
             anchorText: string;
             authorRole: string;
@@ -942,6 +977,7 @@ export interface components {
             round: number;
             status: string;
             text: string;
+            type: string;
         };
         /** @enum {integer} */
         SystemDesignReviewDecision: 0 | 1 | 2 | 3;
@@ -2304,6 +2340,97 @@ export interface operations {
             };
         };
     };
+    AskQuestions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectID: components["schemas"]["ProjectDesignProjectID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    addressee: string;
+                    kind: components["schemas"]["ProjectDesignArtifactKind"];
+                    questions: components["schemas"]["ProjectDesignAnchoredComment"][];
+                };
+            };
+        };
+        responses: {
+            /** @description no content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description contract misuse */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDesignErrorResponse"];
+                };
+            };
+            /** @description unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDesignErrorResponse"];
+                };
+            };
+            /** @description forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDesignErrorResponse"];
+                };
+            };
+            /** @description not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDesignErrorResponse"];
+                };
+            };
+            /** @description failed precondition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDesignErrorResponse"];
+                };
+            };
+            /** @description internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDesignErrorResponse"];
+                };
+            };
+            /** @description infrastructure unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDesignErrorResponse"];
+                };
+            };
+        };
+    };
     GetSessionState_2: {
         parameters: {
             query: {
@@ -2866,6 +2993,97 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["SystemDesignPhaseAdvanceResult"];
                 };
+            };
+            /** @description contract misuse */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description failed precondition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description infrastructure unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+        };
+    };
+    AskQuestions_2: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectID: components["schemas"]["SystemDesignProjectID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    addressee: string;
+                    kind: components["schemas"]["SystemDesignArtifactKind"];
+                    questions: components["schemas"]["SystemDesignAnchoredComment"][];
+                };
+            };
+        };
+        responses: {
+            /** @description no content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description contract misuse */
             400: {

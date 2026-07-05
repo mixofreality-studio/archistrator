@@ -145,6 +145,58 @@ func TestRig_CritiqueModeToolSet(t *testing.T) {
 	}
 }
 
+// TestRig_AnswerModeToolSet asserts the question-comments answer mode exposes
+// respondToReviewComment (+ reads + publishDraft) but NEITHER putDraftModel NOR
+// setCritiqueVerdict.
+func TestRig_AnswerModeToolSet(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	bin := buildBinary(t)
+	p := minimalProject()
+	p.Mission = projectstate.ArtifactSlot{Status: projectstate.ReviewCommitted, Model: &projectstate.MissionStatement{}}
+	repo := initGitRepoWithProject(t, p, "aiarch-design/rigproj/0")
+
+	cmd := exec.Command(bin)
+	cmd.Dir = repo
+	cmd.Env = append(os.Environ(),
+		envArtifactKind+"=Mission",
+		envJobMode+"=answer",
+		envProjectID+"=rigproj",
+		envStateRoot+"="+repo,
+	)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "rig", Version: "0"}, nil)
+	session, err := client.Connect(ctx, &mcp.CommandTransport{Command: cmd}, nil)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer func() { _ = session.Close() }()
+
+	tools, err := session.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+	names := map[string]bool{}
+	for _, tl := range tools.Tools {
+		names[tl.Name] = true
+	}
+	if names["putDraftModel"] {
+		t.Fatalf("answer mode must NOT expose putDraftModel")
+	}
+	if names["setCritiqueVerdict"] {
+		t.Fatalf("answer mode must NOT expose setCritiqueVerdict")
+	}
+	if !names["respondToReviewComment"] {
+		t.Fatalf("answer mode must expose respondToReviewComment")
+	}
+	if !names["getReviewThread"] || !names["publishDraft"] {
+		t.Fatalf("answer mode must expose the read verbs + publishDraft")
+	}
+}
+
 // ---- rig helpers ----
 
 func buildBinary(t *testing.T) string {

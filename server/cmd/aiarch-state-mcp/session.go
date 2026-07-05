@@ -27,10 +27,12 @@ import (
 // Job-mode values — the discriminator the workflow template passes as AIARCH_JOB_MODE,
 // mirroring the design workflow's job_mode dispatch input. Draft mode exposes the full
 // authoring tool set (incl. putDraftModel); critique mode exposes read verbs +
-// setCritiqueVerdict and NEVER putDraftModel.
+// setCritiqueVerdict and NEVER putDraftModel; answer mode (question-comments) exposes read
+// verbs + respondToReviewComment and NEITHER putDraftModel NOR setCritiqueVerdict.
 const (
 	jobModeDraft    = "draft"
 	jobModeCritique = "critique"
+	jobModeAnswer   = "answer"
 )
 
 // Ambient-context env var names. The workflow template stamps these onto the MCP
@@ -85,8 +87,8 @@ func newSessionFromEnv(getenv func(string) string, wd string) (*Session, error) 
 	if mode == "" {
 		mode = jobModeDraft
 	}
-	if mode != jobModeDraft && mode != jobModeCritique {
-		return nil, fmt.Errorf("%s=%q is not a known job mode (want %q or %q)", envJobMode, mode, jobModeDraft, jobModeCritique)
+	if mode != jobModeDraft && mode != jobModeCritique && mode != jobModeAnswer {
+		return nil, fmt.Errorf("%s=%q is not a known job mode (want %q, %q, or %q)", envJobMode, mode, jobModeDraft, jobModeCritique, jobModeAnswer)
 	}
 
 	kindStr := strings.TrimSpace(getenv(envArtifactKind))

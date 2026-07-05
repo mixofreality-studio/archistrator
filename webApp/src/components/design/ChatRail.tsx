@@ -28,10 +28,16 @@ import AccountTreeOutlinedIcon from '@mui/icons-material/AccountTreeOutlined';
 import ReplyIcon from '@mui/icons-material/SubdirectoryArrowRight';
 import BlockIcon from '@mui/icons-material/Block';
 import ReplayIcon from '@mui/icons-material/Replay';
+import QuestionAnswerOutlinedIcon from '@mui/icons-material/QuestionAnswerOutlined';
 import { useComments, type Anchor, type PostedComment } from '../comments/CommentContext';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import type { Tokens } from '../../utilities/theme/themes';
-import type { ReviewCommentStatus, ReviewCommentView } from '../../contracts/types';
+import type {
+  ReviewCommentAddressee,
+  ReviewCommentStatus,
+  ReviewCommentType,
+  ReviewCommentView,
+} from '../../contracts/types';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 
 /**
@@ -111,30 +117,48 @@ export function ChatRail({
   onCollapse,
   thread = [],
   statusPending = false,
+  askPending = false,
   onWaive,
   onReopen,
+  onAsk,
 }: {
   onCollapse: () => void;
   /** The durable server review-ledger thread for the active slot. */
   thread?: readonly ReviewCommentView[];
   /** A waive/reopen mutation is in flight — disable the per-entry actions. */
   statusPending?: boolean;
+  /** An AskQuestions mutation is in flight — disable the Ask action. */
+  askPending?: boolean;
   /** Dismiss an open entry. Omitted on read-only surfaces (no affordance). */
   onWaive?: (id: string) => void;
   /** Reopen an addressed entry. Omitted on read-only surfaces. */
   onReopen?: (id: string) => void;
+  /**
+   * Submit the pending QUESTIONS (question-comments) — a separate send from the gate's
+   * "Send back", so asking never triggers a redraft. Omitted on surfaces that cannot ask
+   * (the type picker still lets a comment be marked a question, but Ask is hidden).
+   */
+  onAsk?: () => void;
 }): ReactNode {
   const t = useTokens();
-  const { comments, anchor, setAnchor, post, remove } = useComments();
+  const { comments, anchor, setAnchor, post, remove, pendingQuestions } = useComments();
   const [draft, setDraft] = useState('');
+  // Composer type + addressee (question-comments): a comment is a change-request by default;
+  // marking it a question routes it to an addressee and off the redraft path.
+  const [commentType, setCommentType] = useState<ReviewCommentType>('changeRequest');
+  const [addressee, setAddressee] = useState<Exclude<ReviewCommentAddressee, ''>>('pm');
   const sortedThread = sortThread(thread);
+  const pendingQuestionCount = pendingQuestions().length;
 
   // With an anchor armed, post the anchored comment (empty text gets a fallback);
   // with no anchor, post free-form feedback only when something was typed.
   const canSend = anchor !== null || draft.trim().length > 0;
   const submit = (): void => {
     if (!canSend) return;
-    post(draft);
+    post(draft, {
+      commentType,
+      ...(commentType === 'question' ? { addressee } : {}),
+    });
     setDraft('');
   };
 
@@ -306,6 +330,52 @@ export function ChatRail({
             </IconButton>
           </Box>
         )}
+        {/* Composer type picker (question-comments): change-request (default, rides the
+            next Send back) vs question (a non-blocking ask routed to an addressee). */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 1, flexWrap: 'wrap' }}>
+          <ComposerToggle
+            active={commentType === 'changeRequest'}
+            label="Change request"
+            t={t}
+            testid={UI_IDENTIFIERS.Chat.TYPE_CHANGE_REQUEST}
+            onClick={() => {
+              setCommentType('changeRequest');
+            }}
+          />
+          <ComposerToggle
+            active={commentType === 'question'}
+            label="Question"
+            t={t}
+            testid={UI_IDENTIFIERS.Chat.TYPE_QUESTION}
+            onClick={() => {
+              setCommentType('question');
+            }}
+          />
+          {commentType === 'question' ? (
+            <>
+              <Box sx={{ width: 8 }} />
+              <Typography sx={{ fontFamily: t.mono, fontSize: 10, color: t.muted }}>to</Typography>
+              <ComposerToggle
+                active={addressee === 'pm'}
+                label="PM"
+                t={t}
+                testid={UI_IDENTIFIERS.Chat.ADDRESSEE_PM}
+                onClick={() => {
+                  setAddressee('pm');
+                }}
+              />
+              <ComposerToggle
+                active={addressee === 'architect'}
+                label="Architect"
+                t={t}
+                testid={UI_IDENTIFIERS.Chat.ADDRESSEE_ARCHITECT}
+                onClick={() => {
+                  setAddressee('architect');
+                }}
+              />
+            </>
+          ) : null}
+        </Box>
         <Box
           sx={{
             display: 'flex',
@@ -320,7 +390,13 @@ export function ChatRail({
             multiline
             data-testid={UI_IDENTIFIERS.Chat.INPUT}
             maxRows={4}
-            placeholder={anchor !== null ? 'Add your comment…' : 'Type feedback for a redraft…'}
+            placeholder={
+              commentType === 'question'
+                ? 'Ask a question…'
+                : anchor !== null
+                  ? 'Add your comment…'
+                  : 'Type feedback for a redraft…'
+            }
             sx={{ flexGrow: 1, fontSize: 13.5, py: 1, color: t.ink }}
             value={draft}
             onChange={(e) => {
@@ -350,11 +426,73 @@ export function ChatRail({
             <SendIcon sx={{ fontSize: 16 }} />
           </IconButton>
         </Box>
+        {/* Ask — submit ONLY the pending questions, no redraft. Shown when this surface can
+            ask and at least one question is staged. */}
+        {onAsk !== undefined && pendingQuestionCount > 0 ? (
+          <Button
+            fullWidth
+            data-testid={UI_IDENTIFIERS.Chat.ASK}
+            disabled={askPending}
+            size="small"
+            startIcon={<QuestionAnswerOutlinedIcon sx={{ fontSize: 15 }} />}
+            sx={{
+              mt: 1,
+              color: t.accentText,
+              bgcolor: t.accent,
+              textTransform: 'none',
+              fontFamily: t.mono,
+              fontSize: 12,
+              '&:hover': { bgcolor: t.accent2 },
+            }}
+            variant="contained"
+            onClick={onAsk}
+          >
+            {`Ask ${String(pendingQuestionCount)} question${pendingQuestionCount === 1 ? '' : 's'} (no redraft)`}
+          </Button>
+        ) : null}
         <Typography sx={{ fontFamily: t.mono, fontSize: 10, color: t.muted, mt: 0.75 }}>
           Embedded mode · agent conversation mirroring is stubbed in this build
         </Typography>
       </Box>
     </Paper>
+  );
+}
+
+/** A compact pill toggle for the composer type/addressee pickers. */
+function ComposerToggle({
+  active,
+  label,
+  onClick,
+  t,
+  testid,
+}: {
+  active: boolean;
+  label: string;
+  onClick: () => void;
+  t: Tokens;
+  testid: string;
+}): ReactNode {
+  return (
+    <Box
+      component="button"
+      data-testid={testid}
+      sx={{
+        cursor: 'pointer',
+        px: 1,
+        py: 0.3,
+        borderRadius: 99,
+        fontFamily: t.mono,
+        fontSize: 10.5,
+        fontWeight: 700,
+        letterSpacing: '0.03em',
+        border: `1.5px solid ${active ? t.accent : t.line}`,
+        bgcolor: active ? t.accent : 'transparent',
+        color: active ? t.accentText : t.muted,
+      }}
+      onClick={onClick}
+    >
+      {label}
+    </Box>
   );
 }
 
@@ -396,6 +534,15 @@ function ThreadEntry({
           sx={{ height: 17, fontSize: 9.5, fontFamily: t.mono, bgcolor: chip.bg, color: chip.fg }}
           variant="outlined"
         />
+        {entry.type === 'question' ? (
+          <Chip
+            icon={<QuestionAnswerOutlinedIcon sx={{ fontSize: 11 }} />}
+            label={entry.addressee.length > 0 ? `question → ${entry.addressee}` : 'question'}
+            size="small"
+            sx={{ height: 17, fontSize: 9.5, fontFamily: t.mono, bgcolor: t.chatArchitectBg, color: t.chatArchitectFg }}
+            variant="outlined"
+          />
+        ) : null}
       </Box>
       {/* anchor pill (reuse the pill styling; show the anchorText snippet) */}
       {hasAnchor ? (
@@ -527,6 +674,15 @@ function CommentBubble({
         <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 11, color: t.ink }}>
           You
         </Typography>
+        {c.commentType === 'question' ? (
+          <Chip
+            icon={<QuestionAnswerOutlinedIcon sx={{ fontSize: 11 }} />}
+            label={`question → ${c.addressee ?? 'pm'}`}
+            size="small"
+            sx={{ height: 17, fontSize: 9.5, fontFamily: t.mono, bgcolor: t.chatArchitectBg, color: t.chatArchitectFg }}
+            variant="outlined"
+          />
+        ) : null}
         {confirming ? (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
             <Typography sx={{ fontSize: 11, color: t.muted }}>Discard this note?</Typography>

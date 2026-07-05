@@ -41,7 +41,11 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import type { AnchoredComment } from '../../contracts/types';
+import type {
+  AnchoredComment,
+  ReviewCommentAddressee,
+  ReviewCommentType,
+} from '../../contracts/types';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 
 /** localStorage namespace for pending (client-side, unsent) send-back comments. */
@@ -101,6 +105,34 @@ export interface Anchor {
 export interface PostedComment {
   text: string;
   anchor: Anchor | null;
+  /**
+   * Change-request (default) or a non-blocking question (question-comments). A
+   * change-request rides the next "Send back" (reject/redraft); a question rides the
+   * separate "Ask" action and never triggers a redraft. Absent ⇒ 'changeRequest'
+   * (migration-safe for any persisted pending entry from before this field existed).
+   */
+  commentType?: ReviewCommentType;
+  /** For a question, the role it is addressed to (pm/architect). */
+  addressee?: ReviewCommentAddressee;
+}
+
+/** Options carried on {@link CommentCtx.post} for a question (vs a plain change-request). */
+export interface PostOptions {
+  commentType?: ReviewCommentType;
+  addressee?: ReviewCommentAddressee;
+}
+
+/** A pending question grouped for the "Ask" action: its addressee + anchored payload. */
+export interface PendingQuestion {
+  addressee: ReviewCommentAddressee;
+  jsonPath: string;
+  text: string;
+  anchorText: string;
+}
+
+/** True when a pending entry is a question (absent type ⇒ change-request). */
+function isQuestion(c: PostedComment): boolean {
+  return c.commentType === 'question';
 }
 
 interface CommentCtx {
@@ -121,13 +153,16 @@ interface CommentCtx {
   /**
    * Commit `text` as a posted entry. With an armed anchor it becomes an anchored
    * comment (clears the anchor); with no anchor a non-empty `text` becomes a
-   * free-form feedback note.
+   * free-form feedback note. `opts` carries the comment type (change-request/question)
+   * and, for a question, its addressee.
    */
-  post: (text: string) => void;
+  post: (text: string, opts?: PostOptions) => void;
   /** Drop a previously-posted entry by index. */
   remove: (index: number) => void;
   /** Clear all accumulated entries (after a successful send-back). */
   reset: () => void;
+  /** Clear only the pending QUESTION entries (after a successful "Ask"), keeping change-requests. */
+  clearQuestions: () => void;
   /**
    * Bind the accumulator to a (projectId, kind) localStorage slot. Loads that
    * slot's persisted pending entries and routes subsequent post/remove/reset
@@ -135,10 +170,12 @@ interface CommentCtx {
    * swaps to that step's own pending set. A no-op on read-only surfaces.
    */
   setActiveKey: (key: string) => void;
-  /** Maps the ANCHORED entries into the wire AnchoredComment[] shape. */
+  /** Maps the ANCHORED CHANGE-REQUEST entries into the wire AnchoredComment[] shape (questions excluded). */
   toWire: () => AnchoredComment[];
-  /** The FREE-FORM entries joined into the reject `feedback` notes string. */
+  /** The FREE-FORM CHANGE-REQUEST entries joined into the reject `feedback` notes string (questions excluded). */
   freeformNotes: () => string;
+  /** The pending QUESTION entries (anchored or free-form) for the "Ask" action. */
+  pendingQuestions: () => PendingQuestion[];
   /** Monotonic counter; bumps whenever an anchor is armed. */
   requestId: number;
 }
@@ -198,16 +235,20 @@ export function CommentProvider({
   );
 
   const post = useCallback(
-    (text: string): void => {
+    (text: string, opts?: PostOptions): void => {
       const trimmed = text.trim();
+      const meta: Pick<PostedComment, 'commentType' | 'addressee'> = {
+        commentType: opts?.commentType ?? 'changeRequest',
+        ...(opts?.addressee !== undefined ? { addressee: opts.addressee } : {}),
+      };
       let next: PostedComment[] | null = null;
       if (armedAnchor === null) {
         // Free-form feedback: only post when the architect actually typed something.
         if (trimmed.length === 0) return;
-        next = [...comments, { text: trimmed, anchor: null }];
+        next = [...comments, { text: trimmed, anchor: null, ...meta }];
       } else {
         const body = trimmed.length > 0 ? trimmed : `(comment on ${armedAnchor.label})`;
-        next = [...comments, { text: body, anchor: armedAnchor }];
+        next = [...comments, { text: body, anchor: armedAnchor, ...meta }];
         setArmedAnchor(null);
       }
       setComments(next);
@@ -231,10 +272,19 @@ export function CommentProvider({
     persist([]);
   }, [persist]);
 
+  const clearQuestions = useCallback((): void => {
+    setComments((prev) => {
+      const next = prev.filter((c) => !isQuestion(c));
+      persist(next);
+      return next;
+    });
+  }, [persist]);
+
   const toWire = useCallback((): AnchoredComment[] => {
     const out: AnchoredComment[] = [];
     for (const c of comments) {
-      if (c.anchor !== null) {
+      // Questions ride the separate "Ask" action, never a Send-back redraft.
+      if (c.anchor !== null && !isQuestion(c)) {
         // anchorText is the item's rendered-text snapshot; the label already carries
         // it for every arm surface, so fall back to it when no richer text was set.
         out.push({
@@ -250,9 +300,20 @@ export function CommentProvider({
   const freeformNotes = useCallback(
     (): string =>
       comments
-        .filter((c) => c.anchor === null)
+        .filter((c) => c.anchor === null && !isQuestion(c))
         .map((c) => c.text)
         .join('\n'),
+    [comments]
+  );
+
+  const pendingQuestions = useCallback(
+    (): PendingQuestion[] =>
+      comments.filter(isQuestion).map((c) => ({
+        addressee: c.addressee ?? 'pm',
+        jsonPath: c.anchor?.jsonPath ?? '',
+        text: c.text,
+        anchorText: c.anchor?.anchorText ?? c.anchor?.label ?? '',
+      })),
     [comments]
   );
 
@@ -265,9 +326,11 @@ export function CommentProvider({
       post,
       remove,
       reset,
+      clearQuestions,
       setActiveKey,
       toWire,
       freeformNotes,
+      pendingQuestions,
       requestId,
     }),
     [
@@ -278,9 +341,11 @@ export function CommentProvider({
       post,
       remove,
       reset,
+      clearQuestions,
       setActiveKey,
       toWire,
       freeformNotes,
+      pendingQuestions,
       requestId,
     ]
   );

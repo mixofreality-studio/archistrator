@@ -33,6 +33,7 @@ func (h *Handler) Register(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{Name: "systemDesignRequestArtifactDraft", Description: "Kick off (or re-run) the AI drafting of one System-Design artifact (selected by kind, e.g. the mission, glossary, or volatilities). Pass feedback to re-draft an existing artifact against review notes. Returns a handle to the asynchronous drafting session.", InputSchema: requestArtifactDraftInputSchema(), OutputSchema: requestArtifactDraftOutputSchema()}, h.handleRequestArtifactDraft)
 	mcp.AddTool(srv, &mcp.Tool{Name: "systemDesignSetOperatingModel", Description: "Set the project's operating model — selfOperated (the customer runs the built app in their own infrastructure; the default) or archistratorOperated (archistrator operates the app on the platform, which constrains the deployment design to the platform palette: CNPG Postgres, Temporal, Keycloak, the otel stack, deployed to the platform Kubernetes cluster). Choose at creation, before starting System Design. Returns the new project state version.", InputSchema: setOperatingModelInputSchema(), OutputSchema: setOperatingModelOutputSchema()}, h.handleSetOperatingModel)
 	mcp.AddTool(srv, &mcp.Tool{Name: "systemDesignSetResearchInput", Description: "Attach or replace the raw research corpus the architect distils the mission, glossary, and volatilities from. Returns the new project state version.", InputSchema: setResearchInputInputSchema(), OutputSchema: setResearchInputOutputSchema()}, h.handleSetResearchInput)
+	mcp.AddTool(srv, &mcp.Tool{Name: "systemDesignAskQuestions", Description: "Ask one or more clarifying QUESTIONS about a System-Design artifact (selected by kind) addressed to a role (pm or architect), WITHOUT sending the draft back for a redraft. The questions are appended to the artifact's review ledger as question-type entries and a lightweight answer job is dispatched so the addressed role answers each in place. Works on a committed artifact too (seeds a question-only thread without opening an amendment). Unlike change-request comments, open questions do NOT block approve.", InputSchema: askQuestionsInputSchema(), OutputSchema: askQuestionsOutputSchema()}, h.handleAskQuestions)
 	mcp.AddTool(srv, &mcp.Tool{Name: "systemDesignSetReviewCommentStatus", Description: "Change the status of one durable review-ledger comment on a System-Design artifact (selected by kind): waive an open comment to dismiss it, or reopen an addressed comment to send it back. Approve is blocked while any comment is still open.", InputSchema: setReviewCommentStatusInputSchema(), OutputSchema: setReviewCommentStatusOutputSchema()}, h.handleSetReviewCommentStatus)
 	mcp.AddTool(srv, &mcp.Tool{Name: "systemDesignStartSystemDesign", Description: "Begin the System-Design phase for a project, seeding the artifact spine (mission first). Returns a handle to the kickoff session.", InputSchema: startSystemDesignInputSchema(), OutputSchema: startSystemDesignOutputSchema()}, h.handleStartSystemDesign)
 	mcp.AddTool(srv, &mcp.Tool{Name: "systemDesignSubmitReviewDecision", Description: "Record a review verdict (approve / reject / withdraw) on the current draft of a System-Design artifact (selected by kind). Reject and withdraw should carry feedback; approve commits the artifact and unblocks its successors.", InputSchema: submitReviewDecisionInputSchema(), OutputSchema: submitReviewDecisionOutputSchema()}, h.handleSubmitReviewDecision)
@@ -108,6 +109,15 @@ type setResearchInputInput struct {
 type setResearchInputOutput struct {
 	Result mgr.Version `json:"result"`
 }
+
+type askQuestionsInput struct {
+	ProjectID mgr.ProjectID         `json:"projectID"`
+	Kind      mgr.ArtifactKind      `json:"kind"`
+	Addressee string                `json:"addressee"`
+	Questions []mgr.AnchoredComment `json:"questions"`
+}
+
+type askQuestionsOutput struct{}
 
 type setReviewCommentStatusInput struct {
 	ProjectID mgr.ProjectID    `json:"projectID"`
@@ -201,6 +211,15 @@ func setResearchInputInputSchema() *jsonschema.Schema {
 	return s
 }
 
+// askQuestionsInputSchema is the explicit MCP input schema for the AskQuestions operation.
+func askQuestionsInputSchema() *jsonschema.Schema {
+	s := objectSchema[askQuestionsInput]()
+	relaxRawJSON(s)
+	s.Required = []string{"projectID", "kind", "addressee", "questions"}
+	s.Properties["kind"] = enumSchemaArtifactKind()
+	return s
+}
+
 // setReviewCommentStatusInputSchema is the explicit MCP input schema for the SetReviewCommentStatus operation.
 func setReviewCommentStatusInputSchema() *jsonschema.Schema {
 	s := objectSchema[setReviewCommentStatusInput]()
@@ -280,6 +299,13 @@ func setOperatingModelOutputSchema() *jsonschema.Schema {
 // setResearchInputOutputSchema is the explicit MCP output schema for the SetResearchInput operation.
 func setResearchInputOutputSchema() *jsonschema.Schema {
 	s := objectSchema[setResearchInputOutput]()
+	relaxRawJSON(s)
+	return s
+}
+
+// askQuestionsOutputSchema is the explicit MCP output schema for the AskQuestions operation.
+func askQuestionsOutputSchema() *jsonschema.Schema {
+	s := objectSchema[askQuestionsOutput]()
 	relaxRawJSON(s)
 	return s
 }
@@ -424,6 +450,17 @@ func (h *Handler) handleSetResearchInput(ctx context.Context, _ *mcp.CallToolReq
 		return nil, out, mapManagerError(err)
 	}
 	out.Result = result
+	return nil, out, nil
+}
+
+// handleAskQuestions is the MCP tool handler for the AskQuestions operation.
+func (h *Handler) handleAskQuestions(ctx context.Context, _ *mcp.CallToolRequest, in askQuestionsInput) (*mcp.CallToolResult, askQuestionsOutput, error) {
+	var out askQuestionsOutput
+	principal, _ := security.PrincipalFrom(ctx)
+	rc := fwmanager.Context{Context: ctx, Principal: principal}
+	if err := h.Manager.AskQuestions(rc, in.ProjectID, in.Kind, in.Addressee, in.Questions); err != nil {
+		return nil, out, mapManagerError(err)
+	}
 	return nil, out, nil
 }
 

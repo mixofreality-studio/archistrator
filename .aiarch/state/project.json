@@ -6849,6 +6849,13 @@
             },
             "response": {
               "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "x-go-name": "Type"
+            },
+            "addressee": {
+              "type": "string"
             }
           },
           "required": [
@@ -6859,7 +6866,9 @@
             "authorRole",
             "round",
             "status",
-            "response"
+            "response",
+            "type",
+            "addressee"
           ],
           "additionalProperties": false
         },
@@ -7097,6 +7106,39 @@
             "result": {
               "$ref": "#/$defs/SessionRef"
             },
+            "error": true
+          },
+          {
+            "name": "AskQuestions",
+            "params": [
+              {
+                "name": "projectID",
+                "schema": {
+                  "$ref": "#/$defs/ProjectID"
+                }
+              },
+              {
+                "name": "kind",
+                "schema": {
+                  "$ref": "#/$defs/ArtifactKind"
+                }
+              },
+              {
+                "name": "addressee",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "name": "questions",
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/AnchoredComment"
+                  }
+                }
+              }
+            ],
             "error": true
           },
           {
@@ -9053,6 +9095,13 @@
             },
             "response": {
               "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "x-go-name": "Type"
+            },
+            "addressee": {
+              "type": "string"
             }
           },
           "required": [
@@ -9063,7 +9112,9 @@
             "authorRole",
             "round",
             "status",
-            "response"
+            "response",
+            "type",
+            "addressee"
           ],
           "additionalProperties": false
         },
@@ -11572,6 +11623,13 @@
             },
             "response": {
               "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "x-go-name": "Type"
+            },
+            "addressee": {
+              "type": "string"
             }
           },
           "required": [
@@ -11582,7 +11640,9 @@
             "authorRole",
             "round",
             "status",
-            "response"
+            "response",
+            "type",
+            "addressee"
           ],
           "additionalProperties": false
         },
@@ -12271,6 +12331,39 @@
             "result": {
               "$ref": "#/$defs/Version"
             },
+            "error": true
+          },
+          {
+            "name": "AskQuestions",
+            "params": [
+              {
+                "name": "projectID",
+                "schema": {
+                  "$ref": "#/$defs/ProjectID"
+                }
+              },
+              {
+                "name": "kind",
+                "schema": {
+                  "$ref": "#/$defs/ArtifactKind"
+                }
+              },
+              {
+                "name": "addressee",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "name": "questions",
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/AnchoredComment"
+                  }
+                }
+              }
+            ],
             "error": true
           },
           {

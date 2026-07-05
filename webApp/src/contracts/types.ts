@@ -102,6 +102,17 @@ export interface AnchoredComment {
 export type ReviewCommentStatus = 'open' | 'addressed' | 'waived';
 
 /**
+ * Review-ledger comment type (question-comments, 2026-07-05). A `changeRequest` must be
+ * addressed (redraft) or waived before approve; a `question` is a non-blocking ask routed
+ * to an `addressee` and answered in place. The wire empty string maps to `changeRequest`
+ * (migration-safe default for every legacy entry).
+ */
+export type ReviewCommentType = 'changeRequest' | 'question';
+
+/** The role a question is addressed to. Empty for change-requests. */
+export type ReviewCommentAddressee = 'pm' | 'architect' | '';
+
+/**
  * One durable review-thread entry as the server exposes it on the session view.
  * Distinct from the client-side pending {@link AnchoredComment}: these have been
  * committed to the ledger, carry an author role + round, a lifecycle `status`, and
@@ -119,6 +130,10 @@ export interface ReviewCommentView {
   status: ReviewCommentStatus;
   /** The agent's per-entry response committed on redraft; empty while still open. */
   response: string;
+  /** Change-request (default) or a non-blocking question (question-comments). */
+  type: ReviewCommentType;
+  /** For a question, the role it is addressed to; empty for change-requests. */
+  addressee: ReviewCommentAddressee;
 }
 
 export interface ResearchSource {

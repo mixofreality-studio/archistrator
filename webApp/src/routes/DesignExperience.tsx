@@ -47,6 +47,7 @@ import { METHOD_METADATA } from '../contracts/methodMetadata';
 import { useProject } from '../hooks/useProject';
 import { useSessionState } from '../hooks/useSessionState';
 import {
+  useAskQuestions,
   useRequestArtifactDraft,
   useSetReviewCommentStatus,
   useSubmitReviewDecision,
@@ -132,8 +133,17 @@ export function SystemDesignScreen(): ReactNode {
 function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
   const navigate = useNavigate();
   const t = useTokens();
-  const { comments, reset, toWire, freeformNotes, requestId, setAnchor, setActiveKey } =
-    useComments();
+  const {
+    comments,
+    reset,
+    toWire,
+    freeformNotes,
+    pendingQuestions,
+    clearQuestions,
+    requestId,
+    setAnchor,
+    setActiveKey,
+  } = useComments();
 
   const { data: project, isLoading: projectLoading } = useProject(projectId);
   const spine = useMemo(() => buildSpine(project), [project]);
@@ -171,6 +181,7 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
   const requestDraft = useRequestArtifactDraft(projectId);
   const submitReview = useSubmitReviewDecision(projectId);
   const setCommentStatus = useSetReviewCommentStatus(projectId);
+  const askQuestionsMut = useAskQuestions(projectId);
   const startDesign = useStartSystemDesign(projectId);
   const setResearch = useSetResearchInput(projectId);
 
@@ -269,6 +280,31 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
     setCommentStatus.mutate({ kind: activeKind, commentID, status: 'open' });
   };
 
+  // "Ask" — submit ONLY the pending questions, grouped by addressee, without a redraft.
+  // Change-requests stay pending for a later Send back; a successful Ask clears the
+  // questions it sent (they now live on the server review thread).
+  const askQuestions = (): void => {
+    const pending = pendingQuestions();
+    if (pending.length === 0) return;
+    const byAddressee = new Map<'pm' | 'architect', typeof pending>();
+    for (const q of pending) {
+      const key: 'pm' | 'architect' = q.addressee === 'architect' ? 'architect' : 'pm';
+      byAddressee.set(key, [...(byAddressee.get(key) ?? []), q]);
+    }
+    for (const [addressee, group] of byAddressee) {
+      askQuestionsMut.mutate({
+        kind: activeKind,
+        addressee,
+        questions: group.map((q) => ({
+          jsonPath: q.jsonPath,
+          text: q.text,
+          anchorText: q.anchorText,
+        })),
+      });
+    }
+    clearQuestions();
+  };
+
   const sendBack = (): void => {
     const wireComments = toWire();
     const notes = freeformNotes();
@@ -320,8 +356,10 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
       chat={
         chatOpen ? (
           <ChatRail
+            askPending={askQuestionsMut.isPending}
             statusPending={setCommentStatus.isPending}
             thread={reviewThread}
+            onAsk={askQuestions}
             onCollapse={() => {
               setChatOpen(false);
             }}

@@ -33,6 +33,39 @@ const (
 	ReviewCommentWaived = "waived"
 )
 
+// ReviewComment.Type wire values — the closed type enum of a ledger entry
+// (question-comments feature, founder-ratified 2026-07-05). The empty string is the
+// MIGRATION-SAFE zero value: every legacy entry (and every reject/amendment comment)
+// decodes to "" and is treated as a change-request. Only "question" entries are
+// non-blocking asks routed to an addressee.
+const (
+	// ReviewCommentTypeChangeRequest — a comment that must be addressed by a redraft
+	// (or waived) before approve. The default; "" normalizes to this.
+	ReviewCommentTypeChangeRequest = "changeRequest"
+	// ReviewCommentTypeQuestion — a clarifying question to an addressee (pm/architect)
+	// answered in place WITHOUT a redraft; does NOT block approve.
+	ReviewCommentTypeQuestion = "question"
+)
+
+// Review-comment addressee roles for question-type entries. Empty for change-requests.
+const (
+	ReviewAddresseePM        = "pm"
+	ReviewAddresseeArchitect = "architect"
+)
+
+// ReviewCommentIsQuestion reports whether an entry is a question (migration-safe:
+// the empty/legacy type is a change-request, never a question).
+func ReviewCommentIsQuestion(c ReviewComment) bool {
+	return c.Type == ReviewCommentTypeQuestion
+}
+
+// ReviewCommentBlocksApprove reports whether an OPEN entry gates approve: only an open
+// CHANGE-REQUEST blocks. An open (unanswered) QUESTION is surfaced as a soft warning at
+// the approve gate, never a hard block (question-comments §approve).
+func ReviewCommentBlocksApprove(c ReviewComment) bool {
+	return c.Status == ReviewCommentOpen && !ReviewCommentIsQuestion(c)
+}
+
 // reviewCommentID mints the STABLE, deterministic id for the comment filed at
 // (round, index). Deterministic minting is what makes RejectArtifactOnBranchWithComments
 // idempotent: a Temporal activity retry re-appends the SAME ids and appendReviewComments
@@ -40,6 +73,13 @@ const (
 // Index is 1-based for a friendlier id (r2c1 = round 2, first comment).
 func reviewCommentID(round int64, index int) string {
 	return fmt.Sprintf("r%dc%d", round, index+1)
+}
+
+// ReviewCommentID exposes the deterministic id minting so a caller that appends a fresh
+// round (guaranteed collision-free) can predict the ids the append will stamp — e.g. the
+// AskQuestions dispatch, which must name each question's id in the answer-job prompt.
+func ReviewCommentID(round int64, index int) string {
+	return reviewCommentID(round, index)
 }
 
 // appendReviewComments appends the given round's comments to thread as OPEN entries,
@@ -67,6 +107,11 @@ func appendReviewComments(thread []ReviewComment, round int64, comments []Review
 			Round:      round,
 			Status:     ReviewCommentOpen,
 			Response:   "",
+			// Carry the caller-supplied type/addressee (question-comments): a seeded
+			// question keeps its "question" type + addressee; a reject/amendment comment
+			// leaves them "" (a change-request, the migration-safe default).
+			Type:      c.Type,
+			Addressee: c.Addressee,
 		})
 		present[id] = true
 	}

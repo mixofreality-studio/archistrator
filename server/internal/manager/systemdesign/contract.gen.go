@@ -308,6 +308,8 @@ type ReviewCommentView struct {
 	Round      int64  `json:"round"`
 	Status     string `json:"status"`
 	Response   string `json:"response"`
+	Type       string `json:"type"`
+	Addressee  string `json:"addressee"`
 }
 
 type ReviewDecision int
@@ -457,6 +459,7 @@ type SystemDesignManager interface {
 	RequestArtifactDraft(rc fwm.Context, projectID ProjectID, kind ArtifactKind, feedback *ReviewFeedback) (SessionRef, error)
 	SetOperatingModel(rc fwm.Context, projectID ProjectID, model OperatingModel) (Version, error)
 	SetResearchInput(rc fwm.Context, projectID ProjectID, research ResearchInput) (Version, error)
+	AskQuestions(rc fwm.Context, projectID ProjectID, kind ArtifactKind, addressee string, questions []AnchoredComment) error
 	SetReviewCommentStatus(rc fwm.Context, projectID ProjectID, kind ArtifactKind, commentID string, status string) error
 	StartSystemDesign(rc fwm.Context, projectID ProjectID) (SessionRef, error)
 	SubmitReviewDecision(rc fwm.Context, projectID ProjectID, kind ArtifactKind, decision ReviewDecision, feedback *ReviewFeedback) error

@@ -425,6 +425,19 @@ var encapsulationAllowlistData = map[string][]string{
 		"ReviewCommentAddressed",
 		"ReviewCommentOpen",
 		"ReviewCommentWaived",
+		// QUESTION-COMMENTS vocabulary + behavior — the closed type/addressee wire values of a
+		// durable ReviewComment plus the pure classification helpers over them. Plain-string
+		// consts + funcs owned here (same category as the status vocabulary above); the
+		// ReviewComment.Type/Addressee fields themselves are generated contract surface.
+		// ReviewCommentID is exposed so the AskQuestions dispatch can predict the ids a fresh
+		// append will mint (to name each question in the answer-job prompt).
+		"ReviewCommentTypeChangeRequest",
+		"ReviewCommentTypeQuestion",
+		"ReviewAddresseePM",
+		"ReviewAddresseeArchitect",
+		"ReviewCommentIsQuestion",
+		"ReviewCommentBlocksApprove",
+		"ReviewCommentID",
 		// FACTORY FREE FUNCTION: ReviewPolicyFromGateIDs converts the webApp PolicyPanel's
 		// ad-hoc gate-id vocabulary (e.g. "svc-contract") into the canonical ReviewPolicy
 		// value stored in head-state. It is the client-facing constructor for ReviewPolicy
