@@ -28,14 +28,24 @@ import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 export function GatePanel({
   findings,
   commentCount,
+  openCommentCount = 0,
+  gateError,
   pending,
   onApprove,
   onSendBack,
   onWithdraw,
 }: {
   findings: Finding[];
-  /** Number of accumulated anchored send-back comments. */
+  /** Number of accumulated (client-side, unsent) anchored send-back comments. */
   commentCount: number;
+  /**
+   * Open entries on the SERVER review thread. While > 0 the server rejects Approve
+   * (FailedPrecondition), so we disable it here and name the count. Each must be
+   * addressed (agent response) or waived first.
+   */
+  openCommentCount?: number;
+  /** Graceful message from a FailedPrecondition approve race — refetch + surface. */
+  gateError?: string | undefined;
   /** A decision mutation is in flight — disable the buttons. */
   pending: boolean;
   onApprove: () => void;
@@ -44,6 +54,7 @@ export function GatePanel({
 }): ReactNode {
   const t = useTokens();
   const [showFindings, setShowFindings] = useState(true);
+  const approveBlocked = openCommentCount > 0;
   // Two-step approve when notes are pending: accumulated comments ride the next
   // "Send back", so approving discards them. We make that loss explicit (never
   // block it) by flipping the primary button into an inline confirm strip.
@@ -119,6 +130,28 @@ export function GatePanel({
         </Box>
       </Collapse>
 
+      {/* Open server-thread entries block approve until addressed or waived. */}
+      {approveBlocked ? (
+        <Box data-testid={UI_IDENTIFIERS.GatePanel.OPEN_BLOCK} sx={{ px: 2.5, pt: 2 }}>
+          <Alert severity="warning" sx={{ alignItems: 'flex-start' }}>
+            {openCommentCount} open comment{openCommentCount === 1 ? '' : 's'} must be addressed or
+            waived before approve.
+          </Alert>
+        </Box>
+      ) : null}
+
+      {/* Graceful FailedPrecondition surface after an approve race (thread refetched). */}
+      {gateError !== undefined && gateError.length > 0 ? (
+        <Box data-testid={UI_IDENTIFIERS.GatePanel.GATE_ERROR} sx={{ px: 2.5, pt: 2 }}>
+          <Alert severity="error" sx={{ alignItems: 'flex-start' }}>
+            {gateError}
+          </Alert>
+        </Box>
+      ) : null}
+
+      {/* TODO(server): StaleBasis chips render here once the amendment/basis-drift
+          op lands — an approved-but-stale slot flags its downstream dependents. */}
+
       <Box
         sx={{
           px: 2.5,
@@ -166,7 +199,7 @@ export function GatePanel({
             <Button
               color="primary"
               data-testid={UI_IDENTIFIERS.GatePanel.APPROVE}
-              disabled={pending}
+              disabled={pending || approveBlocked}
               startIcon={<CheckIcon />}
               variant="contained"
               onClick={onApproveClick}
@@ -201,7 +234,7 @@ export function GatePanel({
             <Button
               color="primary"
               data-testid={UI_IDENTIFIERS.GatePanel.APPROVE}
-              disabled={pending}
+              disabled={pending || approveBlocked}
               startIcon={<CheckIcon />}
               variant="contained"
               onClick={onApproveClick}

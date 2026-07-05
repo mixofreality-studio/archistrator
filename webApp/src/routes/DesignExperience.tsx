@@ -38,6 +38,7 @@ import type {
   Finding,
   ProjectState,
   ResearchInput,
+  ReviewCommentView,
   SessionStateResponse,
 } from '../contracts/types';
 import { slotStageFromOrdinal } from '../contracts/adapters';
@@ -45,7 +46,11 @@ import { METHOD_METADATA } from '../contracts/methodMetadata';
 
 import { useProject } from '../hooks/useProject';
 import { useSessionState } from '../hooks/useSessionState';
-import { useRequestArtifactDraft, useSubmitReviewDecision } from '../hooks/useDesignMutations';
+import {
+  useRequestArtifactDraft,
+  useSetReviewCommentStatus,
+  useSubmitReviewDecision,
+} from '../hooks/useDesignMutations';
 import { useSetResearchInput, useStartSystemDesign } from '../hooks/useStartDesign';
 
 import { ArtifactRenderer } from '../components/ArtifactRenderer';
@@ -117,7 +122,8 @@ export function SystemDesignScreen(): ReactNode {
 function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
   const navigate = useNavigate();
   const t = useTokens();
-  const { comments, reset, toWire, freeformNotes, requestId, setAnchor } = useComments();
+  const { comments, reset, toWire, freeformNotes, requestId, setAnchor, setActiveKey } =
+    useComments();
 
   const { data: project, isLoading: projectLoading } = useProject(projectId);
   const spine = useMemo(() => buildSpine(project), [project]);
@@ -135,6 +141,12 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
     setAnchor(null);
   }, [activeKind, setAnchor]);
 
+  // Bind the pending-comment accumulator to this (project, kind) localStorage slot
+  // so unsent notes survive a reload and swap when the architect changes steps.
+  useEffect(() => {
+    setActiveKey(`${projectId}:${activeKind}`);
+  }, [projectId, activeKind, setActiveKey]);
+
   // The rail auto-opens whenever the architect arms an anchor (requestId bumps).
   // We derive open-state from (requestId, manual toggles) rather than an effect:
   // a manual collapse records the requestId it happened at; a newer anchor (a
@@ -148,8 +160,13 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
   const session = useSessionState(projectId, activeKind, true);
   const requestDraft = useRequestArtifactDraft(projectId);
   const submitReview = useSubmitReviewDecision(projectId);
+  const setCommentStatus = useSetReviewCommentStatus(projectId);
   const startDesign = useStartSystemDesign(projectId);
   const setResearch = useSetResearchInput(projectId);
+
+  // Graceful FailedPrecondition surface: an approve that races an open thread
+  // entry fails; we refetch the thread and name the message rather than wedge.
+  const [gateError, setGateError] = useState<string | undefined>(undefined);
 
   const sessionMissing = session.error instanceof ApiError && session.error.status === 404;
   const view = session.data?.view;
@@ -159,6 +176,8 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
   const committedEnvelope = project?.slots.find((s) => s.kind === activeKind)?.model;
   const hasDraft = view?.draft.model !== undefined;
   const findings: Finding[] = view?.findings ?? [];
+  const reviewThread: ReviewCommentView[] = view?.reviewThread ?? [];
+  const openCommentCount = reviewThread.filter((c) => c.status === 'open').length;
   const isFirstStep = safeIndex === 0;
   const needsResearch = isFirstStep && isPreconditionError(startDesign.error);
   const generating = stage === 'drafting' || stage === 'redrafting';
@@ -200,6 +219,7 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
   };
 
   const approve = (): void => {
+    setGateError(undefined);
     submitReview.mutate(
       { kind: activeKind, decision: 'approve' },
       {
@@ -209,8 +229,22 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
           const next = Math.min(safeIndex + 1, PHASE1_ARTIFACTS.length - 1);
           setActiveIndex(next);
         },
+        onError: (err) => {
+          // A FailedPrecondition (open thread entries) or any other approve fault:
+          // surface the message and refetch the thread so the gate reflects truth.
+          setGateError(err.message);
+          void session.refetch();
+        },
       }
     );
+  };
+
+  const waiveComment = (commentID: string): void => {
+    setCommentStatus.mutate({ kind: activeKind, commentID, status: 'waived' });
+  };
+
+  const reopenComment = (commentID: string): void => {
+    setCommentStatus.mutate({ kind: activeKind, commentID, status: 'open' });
   };
 
   const sendBack = (): void => {
@@ -264,9 +298,13 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
       chat={
         chatOpen ? (
           <ChatRail
+            statusPending={setCommentStatus.isPending}
+            thread={reviewThread}
             onCollapse={() => {
               setChatOpen(false);
             }}
+            onReopen={reopenComment}
+            onWaive={waiveComment}
           />
         ) : undefined
       }
@@ -333,10 +371,12 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
           failureReason={failureReason}
           failureRunUrl={failureRunUrl}
           findings={findings}
+          gateError={gateError}
           generating={generating}
           hasDraft={hasDraft}
           loading={session.isLoading}
           needsResearch={needsResearch}
+          openCommentCount={openCommentCount}
           researchPending={setResearch.isPending || startDesign.isPending}
           retryPending={requestDraft.isPending}
           sessionMissing={sessionMissing}
@@ -377,6 +417,8 @@ function StepBody({
   view,
   findings,
   commentCount,
+  openCommentCount,
+  gateError,
   decisionPending,
   beginPending,
   researchPending,
@@ -408,6 +450,8 @@ function StepBody({
   view: SessionStateResponse['view'] | undefined;
   findings: Finding[];
   commentCount: number;
+  openCommentCount: number;
+  gateError: string | undefined;
   decisionPending: boolean;
   beginPending: boolean;
   researchPending: boolean;
@@ -496,6 +540,8 @@ function StepBody({
         <GatePanel
           commentCount={commentCount}
           findings={findings}
+          gateError={gateError}
+          openCommentCount={openCommentCount}
           pending={decisionPending}
           onApprove={onApprove}
           onSendBack={onSendBack}

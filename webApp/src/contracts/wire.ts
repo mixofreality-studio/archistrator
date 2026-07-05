@@ -41,6 +41,8 @@ import type {
   ProjectStateWithGit,
   ProjectSummary,
   ResearchInput,
+  ReviewCommentStatus,
+  ReviewCommentView,
   ServiceContract,
   ServiceContracts,
   SessionStateResponse,
@@ -65,6 +67,27 @@ function mapFinding(w: Schemas['SystemDesignFinding'] | Schemas['ProjectDesignFi
     ...(w.location !== undefined
       ? { location: { ordinal: w.location.ordinal, section: w.location.section } }
       : {}),
+  };
+}
+
+/** Normalize a wire review-status string into the app union (unknown → 'open'). */
+function reviewStatus(s: string): ReviewCommentStatus {
+  return s === 'addressed' || s === 'waived' ? s : 'open';
+}
+
+/** One durable review-ledger entry. The two manager shapes are structurally identical. */
+function mapReviewComment(
+  w: Schemas['SystemDesignReviewCommentView'] | Schemas['ProjectDesignReviewCommentView']
+): ReviewCommentView {
+  return {
+    id: w.id,
+    anchor: w.anchor,
+    anchorText: w.anchorText,
+    text: w.text,
+    authorRole: w.authorRole,
+    round: w.round,
+    status: reviewStatus(w.status),
+    response: w.response,
   };
 }
 
@@ -303,6 +326,9 @@ export function mapSessionState(w: Schemas['SystemDesignSessionStateView']): Ses
       ...(w.failureRunUrl !== undefined && w.failureRunUrl !== null
         ? { failureRunUrl: w.failureRunUrl }
         : {}),
+      ...(w.reviewThread !== undefined && w.reviewThread !== null
+        ? { reviewThread: w.reviewThread.map(mapReviewComment) }
+        : {}),
     },
   };
 }
@@ -327,6 +353,9 @@ export function mapProjectSessionState(
         : {}),
       ...(w.failureReason !== undefined && w.failureReason !== null
         ? { failureReason: w.failureReason }
+        : {}),
+      ...(w.reviewThread !== undefined && w.reviewThread !== null
+        ? { reviewThread: w.reviewThread.map(mapReviewComment) }
         : {}),
     },
   };

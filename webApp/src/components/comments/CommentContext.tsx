@@ -32,9 +32,46 @@
  * anchor: `$..[?(section="<heading>")]` carrying the quoted text in the comment,
  * which is still meaningful to a human reader of the redraft prompt.
  */
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import type { AnchoredComment } from '../../contracts/types';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
+
+/** localStorage namespace for pending (client-side, unsent) send-back comments. */
+const PENDING_STORAGE_PREFIX = 'aiarch.pendingComments';
+
+function storageKeyFor(activeKey: string): string {
+  return `${PENDING_STORAGE_PREFIX}.${activeKey}`;
+}
+
+/** Best-effort load of a slot's persisted pending entries (storage may be unavailable). */
+function loadPending(activeKey: string): PostedComment[] {
+  try {
+    const raw = localStorage.getItem(storageKeyFor(activeKey));
+    if (raw === null) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? (parsed as PostedComment[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Best-effort persist (empty list removes the slot so a cleared step leaves no orphan). */
+function savePending(activeKey: string, list: PostedComment[]): void {
+  try {
+    if (list.length === 0) localStorage.removeItem(storageKeyFor(activeKey));
+    else localStorage.setItem(storageKeyFor(activeKey), JSON.stringify(list));
+  } catch {
+    /* storage unavailable (private mode / quota) — pending stays in-memory only. */
+  }
+}
 
 /** A pending selection the architect may turn into an anchored comment. */
 export interface Anchor {
@@ -46,6 +83,13 @@ export interface Anchor {
   source: string;
   /** The JSONPath into the typed model this selection refers to. */
   jsonPath: string;
+  /**
+   * The anchored item's RENDERED text snapshot, sent to the review ledger as
+   * `anchorText`. Optional at the arm sites: when omitted, `toWire` falls back to
+   * `label` (which already carries the item's content for every arm surface).
+   * SelectionPopover sets it to the full, untruncated quote.
+   */
+  anchorText?: string;
 }
 
 /**
@@ -84,6 +128,13 @@ interface CommentCtx {
   remove: (index: number) => void;
   /** Clear all accumulated entries (after a successful send-back). */
   reset: () => void;
+  /**
+   * Bind the accumulator to a (projectId, kind) localStorage slot. Loads that
+   * slot's persisted pending entries and routes subsequent post/remove/reset
+   * writes to it, so unsent notes survive a reload and switching artifact steps
+   * swaps to that step's own pending set. A no-op on read-only surfaces.
+   */
+  setActiveKey: (key: string) => void;
   /** Maps the ANCHORED entries into the wire AnchoredComment[] shape. */
   toWire: () => AnchoredComment[];
   /** The FREE-FORM entries joined into the reject `feedback` notes string. */
@@ -111,6 +162,29 @@ export function CommentProvider({
   const [comments, setComments] = useState<PostedComment[]>([]);
   const [armedAnchor, setArmedAnchor] = useState<Anchor | null>(null);
   const [requestId, setRequestId] = useState(0);
+  // The (projectId, kind) localStorage slot the pending entries persist to. A ref
+  // (not state) so post/remove/reset persist to the current slot synchronously
+  // without re-subscribing every mutator on each key change.
+  const activeKeyRef = useRef<string | null>(null);
+
+  // Persist to the bound slot (no-op on read-only surfaces / before a key is set).
+  const persist = useCallback(
+    (list: PostedComment[]): void => {
+      if (!enabled || activeKeyRef.current === null) return;
+      savePending(activeKeyRef.current, list);
+    },
+    [enabled]
+  );
+
+  const setActiveKey = useCallback(
+    (key: string): void => {
+      if (!enabled || activeKeyRef.current === key) return;
+      activeKeyRef.current = key;
+      setComments(loadPending(key));
+      setArmedAnchor(null);
+    },
+    [enabled]
+  );
 
   const setAnchor = useCallback(
     (a: Anchor | null): void => {
@@ -126,32 +200,49 @@ export function CommentProvider({
   const post = useCallback(
     (text: string): void => {
       const trimmed = text.trim();
+      let next: PostedComment[] | null = null;
       if (armedAnchor === null) {
         // Free-form feedback: only post when the architect actually typed something.
         if (trimmed.length === 0) return;
-        setComments((prev) => [...prev, { text: trimmed, anchor: null }]);
-        return;
+        next = [...comments, { text: trimmed, anchor: null }];
+      } else {
+        const body = trimmed.length > 0 ? trimmed : `(comment on ${armedAnchor.label})`;
+        next = [...comments, { text: body, anchor: armedAnchor }];
+        setArmedAnchor(null);
       }
-      const body = trimmed.length > 0 ? trimmed : `(comment on ${armedAnchor.label})`;
-      setComments((prev) => [...prev, { text: body, anchor: armedAnchor }]);
-      setArmedAnchor(null);
+      setComments(next);
+      persist(next);
     },
-    [armedAnchor]
+    [armedAnchor, comments, persist]
   );
 
-  const remove = useCallback((index: number): void => {
-    setComments((prev) => prev.filter((_, i) => i !== index));
-  }, []);
+  const remove = useCallback(
+    (index: number): void => {
+      const next = comments.filter((_, i) => i !== index);
+      setComments(next);
+      persist(next);
+    },
+    [comments, persist]
+  );
 
   const reset = useCallback((): void => {
     setComments([]);
     setArmedAnchor(null);
-  }, []);
+    persist([]);
+  }, [persist]);
 
   const toWire = useCallback((): AnchoredComment[] => {
     const out: AnchoredComment[] = [];
     for (const c of comments) {
-      if (c.anchor !== null) out.push({ jsonPath: c.anchor.jsonPath, text: c.text });
+      if (c.anchor !== null) {
+        // anchorText is the item's rendered-text snapshot; the label already carries
+        // it for every arm surface, so fall back to it when no richer text was set.
+        out.push({
+          jsonPath: c.anchor.jsonPath,
+          text: c.text,
+          anchorText: c.anchor.anchorText ?? c.anchor.label,
+        });
+      }
     }
     return out;
   }, [comments]);
@@ -174,6 +265,7 @@ export function CommentProvider({
       post,
       remove,
       reset,
+      setActiveKey,
       toWire,
       freeformNotes,
       requestId,
@@ -186,6 +278,7 @@ export function CommentProvider({
       post,
       remove,
       reset,
+      setActiveKey,
       toWire,
       freeformNotes,
       requestId,

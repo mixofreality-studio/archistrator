@@ -393,7 +393,13 @@ function HomeBaseBody({
                   mounted disabled so the shared artifact views (which read the
                   CommentContext) render zero comment affordances here — no header
                   comment icons, no per-row hover buttons, no selection popover, no
-                  test probe, no extra tab stops. */}
+                  test probe, no extra tab stops.
+
+                  Review-thread note (F41): the durable reviewThread lives on the
+                  co-authoring SESSION view, not the committed head-state slots this
+                  pane reads — so a read-only thread is NOT trivially reusable here
+                  (it would need a per-slot session fetch). Skipped per the F41
+                  gating: comment AFFORDANCES stay design-experience-only. */}
               <CommentProvider enabled={false}>
                 <ArtifactPane
                   artifact={selected}

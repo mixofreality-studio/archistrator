@@ -97,6 +97,10 @@ export const UI_IDENTIFIERS = {
     SENDBACK: 'gate-sendback',
     WITHDRAW: 'gate-withdraw',
     FINDINGS: 'findings',
+    // Banner naming the open-comment count that blocks approve.
+    OPEN_BLOCK: 'gate-open-block',
+    // Graceful FailedPrecondition surface after an approve race.
+    GATE_ERROR: 'gate-error',
   },
   Chat: {
     RAIL: 'chat-rail',
@@ -104,6 +108,11 @@ export const UI_IDENTIFIERS = {
     SEND: 'chat-send',
     INPUT: 'chat-input',
     commentAnchor: (n: number) => `comment-anchor-${String(n)}`,
+    // A durable review-ledger thread entry (server), keyed by its ledger id.
+    threadEntry: (id: string) => `thread-entry-${id}`,
+    // Per-entry lifecycle actions: waive an open entry / reopen an addressed one.
+    threadWaive: (id: string) => `thread-waive-${id}`,
+    threadReopen: (id: string) => `thread-reopen-${id}`,
   },
   // Comment-anchoring affordances that arm a CommentContext anchor from a
   // diagram surface or a text selection. Diagram edges/nodes arm on CLICK (React

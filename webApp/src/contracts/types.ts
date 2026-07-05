@@ -84,10 +84,41 @@ export interface Finding {
   location?: { ordinal: number; section: string };
 }
 
-/** A JSONPath-anchored "send back" comment. */
+/**
+ * A JSONPath-anchored "send back" comment. `anchorText` is the client-supplied
+ * snapshot of the anchored item's RENDERED text at post time — the durable review
+ * ledger stores it so a later reader (or a redraft that moved the item) still sees
+ * what the reviewer was pointing at. Free-form (unanchored) feedback rides the
+ * reject `feedback.notes`, never this array, so anchored entries always carry both
+ * a jsonPath and a non-empty anchorText.
+ */
 export interface AnchoredComment {
   jsonPath: string;
   text: string;
+  anchorText: string;
+}
+
+/** Server review-ledger comment status: open → addressed (by an agent response) → optionally waived. */
+export type ReviewCommentStatus = 'open' | 'addressed' | 'waived';
+
+/**
+ * One durable review-thread entry as the server exposes it on the session view.
+ * Distinct from the client-side pending {@link AnchoredComment}: these have been
+ * committed to the ledger, carry an author role + round, a lifecycle `status`, and
+ * (once the agent redrafts) a `response`.
+ */
+export interface ReviewCommentView {
+  id: string;
+  /** JSONPath into the typed model this entry anchors to (empty for free-form). */
+  anchor: string;
+  /** Snapshot of the anchored item's rendered text at post time (empty for free-form). */
+  anchorText: string;
+  text: string;
+  authorRole: string;
+  round: number;
+  status: ReviewCommentStatus;
+  /** The agent's per-entry response committed on redraft; empty while still open. */
+  response: string;
 }
 
 export interface ResearchSource {
@@ -145,6 +176,8 @@ export interface SessionStateView {
   failureReason?: string;
   /** URL of the failed CI run, when the failure came from a job that actually ran. */
   failureRunUrl?: string;
+  /** The durable review-ledger thread for this slot (open/addressed/waived entries). */
+  reviewThread?: ReviewCommentView[];
 }
 
 /** The Phase-1 session-state poll result (outer string stage drives the machine). */
@@ -251,6 +284,8 @@ export interface ProjectSessionStateView {
   draft: ProjectArtifactModelEnvelope;
   findings?: Finding[];
   failureReason?: string;
+  /** The durable review-ledger thread for this slot (open/addressed/waived entries). */
+  reviewThread?: ReviewCommentView[];
 }
 
 /** The decoded Phase-2 session-state poll result. */

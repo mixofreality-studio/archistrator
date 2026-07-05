@@ -145,6 +145,8 @@ export function SelectionPopover(): ReactNode {
       label,
       source: pending.source,
       jsonPath: proseAnchor(pending.kind, pending.source),
+      // The chip label is truncated for display; send the FULL quote as anchorText.
+      anchorText: pending.text,
     });
     clear();
     window.getSelection()?.removeAllRanges();

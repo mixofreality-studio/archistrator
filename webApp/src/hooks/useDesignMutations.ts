@@ -19,6 +19,7 @@ import {
 import type {
   ArtifactKind,
   PhaseAdvanceResponse,
+  ReviewCommentStatus,
   ReviewDecision,
   ReviewDecisionDetail,
 } from '../contracts/types';
@@ -93,6 +94,42 @@ export function useSubmitReviewDecision(
                   },
                 }
               : {}),
+          },
+        }
+      );
+      if (error !== undefined) throw toApiError(response.status, error);
+      return undefined;
+    },
+    onSuccess: (_data, vars) => invalidateArtifact(client, projectId, vars.kind),
+  });
+}
+
+export interface SetReviewCommentStatusVars {
+  kind: ArtifactKind;
+  commentID: string;
+  /** 'waived' dismisses an open entry; 'open' reopens an addressed one. */
+  status: Extract<ReviewCommentStatus, 'open' | 'waived'>;
+}
+
+/**
+ * Waive (dismiss) an open review-ledger entry, or reopen an addressed one. On
+ * success it invalidates the session query so the thread re-reads with the flipped
+ * status (the SPA never mutates the thread locally past the optimistic caller).
+ */
+export function useSetReviewCommentStatus(
+  projectId: string
+): UseMutationResult<undefined, Error, SetReviewCommentStatusVars> {
+  const client = useQueryClient();
+  return useMutation<undefined, Error, SetReviewCommentStatusVars>({
+    mutationFn: async (vars) => {
+      const { error, response } = await apiClient.POST(
+        '/api/v1/system-design/set-review-comment-status/{projectID}',
+        {
+          params: { path: { projectID: projectId } },
+          body: {
+            kind: artifactKindToOrdinal(vars.kind),
+            commentID: vars.commentID,
+            status: vars.status,
           },
         }
       );

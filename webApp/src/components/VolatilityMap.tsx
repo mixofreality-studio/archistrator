@@ -106,7 +106,8 @@ export function VolatilityMap({
           ) : (
             <Typography sx={{ color: t.muted, fontSize: 13.5, lineHeight: 1.6 }}>
               Two axes of change: the left lane evolves for one customer over time; the right lane
-              differs across customers at one moment. Select a volatility to inspect or comment.
+              differs across customers at one moment. Select a volatility to inspect
+              {enabled ? ' or comment' : ''}.
             </Typography>
           )}
         </Paper>

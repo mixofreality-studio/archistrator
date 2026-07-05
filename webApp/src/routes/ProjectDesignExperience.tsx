@@ -39,6 +39,7 @@ import type {
   ProjectPhaseAdvanceResponse,
   ProjectState,
   Finding,
+  ReviewCommentView,
 } from '../contracts/types';
 
 import { useProject } from '../hooks/useProject';
@@ -46,6 +47,7 @@ import { useProjectSessionState } from '../hooks/useProjectSessionState';
 import {
   useRequestProjectArtifactDraft,
   useSubmitProjectReviewDecision,
+  useSetProjectReviewCommentStatus,
   useRequestSDPCommit,
   useSubmitSDPDecision,
   useAdvanceToConstruction,
@@ -117,7 +119,8 @@ export function ProjectDesignScreen(): ReactNode {
 function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
   const navigate = useNavigate();
   const t = useTokens();
-  const { comments, reset, toWire, freeformNotes, requestId, setAnchor } = useComments();
+  const { comments, reset, toWire, freeformNotes, requestId, setAnchor, setActiveKey } =
+    useComments();
 
   const { data: project, isLoading: projectLoading } = useProject(projectId);
   const spine = useMemo(() => buildSpine(project), [project]);
@@ -140,6 +143,12 @@ function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
     setAnchor(null);
   }, [activeKind, setAnchor]);
 
+  // Bind the pending-comment accumulator to this (project, kind) localStorage slot
+  // so unsent notes survive a reload and swap when the architect changes steps.
+  useEffect(() => {
+    setActiveKey(`${projectId}:${activeKind}`);
+  }, [projectId, activeKind, setActiveKey]);
+
   // Chat rail open-state mirrors the Phase-1 derivation (newer anchor re-opens it).
   const [closedAt, setClosedAt] = useState<number | null>(null);
   const chatOpen = closedAt === null || requestId > closedAt;
@@ -150,15 +159,22 @@ function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
   const session = useProjectSessionState(projectId, activeKind, true);
   const requestDraft = useRequestProjectArtifactDraft(projectId);
   const submitReview = useSubmitProjectReviewDecision(projectId);
+  const setCommentStatus = useSetProjectReviewCommentStatus(projectId);
   const assembleSdp = useRequestSDPCommit(projectId);
   const submitSdp = useSubmitSDPDecision(projectId);
   const advance = useAdvanceToConstruction(projectId);
+
+  // Graceful FailedPrecondition surface: an approve that races an open thread
+  // entry fails; we refetch the thread and name the message rather than wedge.
+  const [gateError, setGateError] = useState<string | undefined>(undefined);
 
   const sessionMissing = session.error instanceof ApiError && session.error.status === 404;
   const view = session.data?.view;
   const stage = session.data?.stage;
   const hasDraft = view?.draft.model !== undefined;
   const findings: Finding[] = view?.findings ?? [];
+  const reviewThread: ReviewCommentView[] = view?.reviewThread ?? [];
+  const openCommentCount = reviewThread.filter((c) => c.status === 'open').length;
   const generating = stage === 'drafting' || stage === 'redrafting' || stage === 'assemblingSdp';
   // Terminal failure (anti-wedge): inline worker `refused` OR the async design job
   // landed in `draftFailed`. Both surface the DraftFailedPanel; draftFailed uses the
@@ -194,12 +210,17 @@ function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
   };
 
   const approve = (): void => {
+    setGateError(undefined);
     submitReview.mutate(
       { kind: activeKind, decision: 'approve' },
       {
         onSuccess: () => {
           reset();
           setActiveIndex(Math.min(safeIndex + 1, PHASE2_KINDS.length - 1));
+        },
+        onError: (err) => {
+          setGateError(err.message);
+          void session.refetch();
         },
       }
     );
@@ -210,13 +231,21 @@ function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
     const notes = freeformNotes();
     const feedback = notes.length > 0 ? notes : wireComments.map((c) => c.text).join('\n');
     submitReview.mutate(
-      { kind: activeKind, decision: 'reject', feedback },
+      { kind: activeKind, decision: 'reject', feedback, comments: wireComments },
       {
         onSuccess: () => {
           reset();
         },
       }
     );
+  };
+
+  const waiveComment = (commentID: string): void => {
+    setCommentStatus.mutate({ kind: activeKind, commentID, status: 'waived' });
+  };
+
+  const reopenComment = (commentID: string): void => {
+    setCommentStatus.mutate({ kind: activeKind, commentID, status: 'open' });
   };
 
   const withdraw = (): void => {
@@ -268,9 +297,13 @@ function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
       chat={
         chatOpen ? (
           <ChatRail
+            statusPending={setCommentStatus.isPending}
+            thread={reviewThread}
             onCollapse={() => {
               setChatOpen(false);
             }}
+            onReopen={reopenComment}
+            onWaive={waiveComment}
           />
         ) : undefined
       }
@@ -326,10 +359,12 @@ function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
           draftFailed={draftFailed}
           failureReason={failureReason}
           findings={findings}
+          gateError={gateError}
           generating={generating}
           hasDraft={hasDraft}
           isSdpStep={isSdpStep}
           loading={session.isLoading}
+          openCommentCount={openCommentCount}
           planningAssumptionsEnvelope={planningAssumptionsEnvelope}
           retryPending={requestDraft.isPending || assembleSdp.isPending}
           sdpPending={submitSdp.isPending}
@@ -376,6 +411,8 @@ function ProjectStepBody({
   planningAssumptionsEnvelope,
   findings,
   commentCount,
+  openCommentCount,
+  gateError,
   decisionPending,
   beginPending,
   retryPending,
@@ -412,6 +449,8 @@ function ProjectStepBody({
   planningAssumptionsEnvelope: ProjectArtifactModelEnvelope | undefined;
   findings: Finding[];
   commentCount: number;
+  openCommentCount: number;
+  gateError: string | undefined;
   decisionPending: boolean;
   beginPending: boolean;
   retryPending: boolean;
@@ -551,6 +590,8 @@ function ProjectStepBody({
         <GatePanel
           commentCount={commentCount}
           findings={findings}
+          gateError={gateError}
+          openCommentCount={openCommentCount}
           pending={decisionPending}
           onApprove={onApprove}
           onSendBack={onSendBack}
