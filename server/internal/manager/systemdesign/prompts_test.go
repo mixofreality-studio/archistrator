@@ -54,6 +54,52 @@ func Test_MissionPrompt_PointsAtResearch_NeverInlinesContent(t *testing.T) {
 	}
 }
 
+// The mission draft prompt must NOT instruct the architect to express the mission in
+// component / system-architecture terms and must NOT pre-decide a decomposition
+// (founder ruling 2026-07-05, QA finding F27). The old prompt said the mission "is
+// expressed in terms of the system's COMPONENTS" — that contradicted the PM critique's
+// doctrine and made the draft<->critique loop non-convergent. Guard against regressing to it.
+func Test_MissionPrompt_ForbidsComponentLanguage(t *testing.T) {
+	prompt := architectDraftPrompt(projectstate.KindMission, projWithResearch(
+		projectstate.ResearchSource{Title: "Founder brief", Content: "x"},
+	), ReviewFeedback{})
+
+	// The prompt must NOT tell the architect to express the mission in component terms.
+	if strings.Contains(prompt, "terms of the system's COMPONENTS") {
+		t.Errorf("mission prompt must not instruct component-language framing (F27 regression); got:\n%s", prompt)
+	}
+	// It must instead direct the architect to the business capability / user-facing value.
+	if !strings.Contains(prompt, "BUSINESS CAPABILITY") || !strings.Contains(prompt, "USER-FACING VALUE") {
+		t.Errorf("mission prompt must frame the mission as business capability and user-facing value; got:\n%s", prompt)
+	}
+	// It must forbid architecture / decomposition terminology explicitly.
+	if !strings.Contains(prompt, "MUST NOT use the words component") {
+		t.Errorf("mission prompt must forbid component/architecture terminology; got:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "volatility analysis") {
+		t.Errorf("mission prompt must defer structural boundaries to volatility analysis; got:\n%s", prompt)
+	}
+}
+
+// The PM critique for the Mission must ENFORCE the same no-component-language doctrine the
+// draft prompt instructs, so the draft<->critique loop converges (F27). It must not read
+// as generic ratification for the mission kind.
+func Test_MissionCritiquePrompt_EnforcesNoComponentLanguage(t *testing.T) {
+	critique := pmCritiquePrompt(projectstate.KindMission, nil)
+	if !strings.Contains(critique, "component") {
+		t.Errorf("mission critique must name the component-language rule it enforces; got:\n%s", critique)
+	}
+	if !strings.Contains(critique, "volatility analysis") {
+		t.Errorf("mission critique must defer decomposition to volatility analysis; got:\n%s", critique)
+	}
+
+	// A non-mission critique carries no mission-specific doctrine (generic ratification only).
+	glossary := pmCritiquePrompt(projectstate.KindGlossary, nil)
+	if strings.Contains(glossary, "Mission doctrine you MUST enforce") {
+		t.Errorf("non-mission critique must not carry the mission doctrine block; got:\n%s", glossary)
+	}
+}
+
 // The IsZero guard is preserved: with no corpus, no research block is emitted at all.
 func Test_MissionPrompt_EmptyCorpus_EmitsNoResearchBlock(t *testing.T) {
 	prompt := architectDraftPrompt(projectstate.KindMission, projWithResearch(), ReviewFeedback{})

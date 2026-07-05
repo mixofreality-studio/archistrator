@@ -90,6 +90,14 @@ func pmCritiquePrompt(kind projectstate.ArtifactKind, draft projectstate.Artifac
 	b.WriteString(pmHeader)
 	fmt.Fprintf(&b, "Artifact under review: %s (read its just-committed draft from .aiarch/state/project.json)\n", kind)
 	b.WriteString("\nTask: as the Product Manager, ratify the draft (Approve) or request a concrete revision (Revise with notes naming the revision the architect should make). Ratify only what faithfully serves the business; the human makes the final commit decision.\n")
+	// Per-kind critique doctrine — kept in lockstep with draftTask so the
+	// draft<->critique loop is CONVERGENT (QA finding F27, founder ruling 2026-07-05).
+	// For the Mission the critique enforces exactly what the mission draft prompt now
+	// instructs: business/user language only, no component/architecture terminology,
+	// no pre-decided decomposition (that is derived later from volatility analysis).
+	if kind == projectstate.KindMission {
+		b.WriteString("\nMission doctrine you MUST enforce: the mission and vision must describe the BUSINESS CAPABILITY and USER-FACING VALUE in business and user language only. REVISE the draft if it uses the words component, module, service, subsystem, layer, or any other system-architecture / software-decomposition terminology, or if it asserts or implies any breakdown of the system into parts — the structural boundaries are derived LATER from volatility analysis, so pre-deciding a decomposition in the mission is a defect to send back. Do NOT ask the architect to ADD component or architecture language; that is exactly what must be kept out.\n")
+	}
 	// CRITIQUE READ-BACK CONTRACT (D-MSD-Δ amendment). The PM-critique job does NOT
 	// rewrite the artifact model. It records its verdict into the SAME slot's
 	// first-class critique carrier so the Manager reads it back: in
@@ -154,7 +162,7 @@ while-loop — a decision back-edges to the loop-head merge:
 func draftTask(kind projectstate.ArtifactKind) string {
 	switch kind {
 	case projectstate.KindMission:
-		return "Produce the mission from the research corpus. The vision is ONE terse sentence naming the future the system creates. The mission is expressed in terms of the system's COMPONENTS and their evolving relationships — NOT a feature list. First distill the 2-3 business pillars that DIFFERENTIATE this system from competitors; ground the vision and objectives in those. Each objective is a numbered, measurable business outcome (not a feature deliverable)."
+		return "Produce the mission from the research corpus. The vision is ONE terse sentence naming the future the system creates. First distill the 2-3 business pillars that DIFFERENTIATE this system from competitors; ground the vision, mission, and objectives in those. The mission narrative describes the BUSINESS CAPABILITY and USER-FACING VALUE of the end-to-end workflow — why it matters, and what outcome or trust it produces for the user — NOT a feature list. Write it PURELY in business and user language: you MUST NOT use the words component, module, service, subsystem, layer, or any system-architecture / software-decomposition terminology, and you MUST NOT assert or imply any breakdown of the system into parts. The structural boundaries are derived LATER from volatility analysis in the Structure artifact — pre-deciding a decomposition here is a defect. Each objective is a numbered, measurable BUSINESS outcome (not a feature deliverable)."
 
 	case projectstate.KindGlossary:
 		return "Extract the system's ubiquitous-language terms, each categorised by the Four Questions: Who interacts with the system, What is required of it, How (the business activity), Where (state lives). Define each term crisply in business language with NO solution/implementation wording. These terms are the shared vocabulary every later artifact must reuse verbatim."
