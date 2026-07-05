@@ -70,6 +70,7 @@ export const UI_IDENTIFIERS = {
     ARTIFACT_RENDER: 'artifact-render',
     DRAFT_FAILED: 'draft-failed',
     DRAFT_FAILURE_REASON: 'draft-failure-reason',
+    DRAFT_FAILURE_RUN_LINK: 'draft-failure-run-link',
     RETRY_DRAFT: 'retry-draft',
     WITHDRAW_DRAFT: 'withdraw-draft',
   },

@@ -143,6 +143,8 @@ export interface SessionStateView {
   draft: ArtifactModelEnvelope;
   findings?: Finding[];
   failureReason?: string;
+  /** URL of the failed CI run, when the failure came from a job that actually ran. */
+  failureRunUrl?: string;
 }
 
 /** The Phase-1 session-state poll result (outer string stage drives the machine). */

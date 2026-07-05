@@ -3665,6 +3665,9 @@
             "Diagnostic": {
               "type": "string"
             },
+            "RunURL": {
+              "type": "string"
+            },
             "StartedAt": {
               "type": "string",
               "format": "date-time",
@@ -3687,6 +3690,7 @@
             "Steps",
             "FailedStep",
             "Diagnostic",
+            "RunURL",
             "StartedAt"
           ],
           "additionalProperties": false
@@ -11600,6 +11604,13 @@
                 "null",
                 "string"
               ]
+            },
+            "failureRunUrl": {
+              "type": [
+                "null",
+                "string"
+              ],
+              "x-go-name": "FailureRunURL"
             }
           },
           "required": [

@@ -170,6 +170,7 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
   const asyncFailed = stage === 'draftFailed';
   const draftFailed = stage === 'refused' || asyncFailed;
   const failureReason = view?.failureReason;
+  const failureRunUrl = view?.failureRunUrl;
 
   const selectStep = (i: number): void => {
     setActiveIndex(i);
@@ -330,6 +331,7 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
           decisionPending={decisionPending}
           draftFailed={draftFailed}
           failureReason={failureReason}
+          failureRunUrl={failureRunUrl}
           findings={findings}
           generating={generating}
           hasDraft={hasDraft}
@@ -366,6 +368,7 @@ function StepBody({
   draftFailed,
   asyncFailed,
   failureReason,
+  failureRunUrl,
   hasDraft,
   sessionMissing,
   stage,
@@ -396,6 +399,7 @@ function StepBody({
   draftFailed: boolean;
   asyncFailed: boolean;
   failureReason: string | undefined;
+  failureRunUrl: string | undefined;
   hasDraft: boolean;
   sessionMissing: boolean;
   stage: string | undefined;
@@ -430,6 +434,7 @@ function StepBody({
         async={asyncFailed}
         pending={retryPending}
         reason={failureReason}
+        runUrl={failureRunUrl}
         withdrawPending={withdrawPending}
         onRetry={onRetry}
         onWithdraw={asyncFailed ? onWithdraw : undefined}

@@ -7,6 +7,12 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/mock"
+	enumspb "go.temporal.io/api/enums/v1"
+	workflowpb "go.temporal.io/api/workflow/v1"
+	"go.temporal.io/api/workflowservice/v1"
+	temporalmocks "go.temporal.io/sdk/mocks"
+
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
@@ -257,6 +263,67 @@ func Test_GetSessionState_EmptyProjectID(t *testing.T) {
 	if got := asSystemDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %d", got)
 	}
+}
+
+// QA F15 gap 2a (query-side defense). A CoAuthor workflow that died ABNORMALLY (FAILED)
+// still answers the sessionState Query by history-replay with its last stage (StageDrafting),
+// which LIES that drafting is in progress. GetSessionState must Describe the execution,
+// detect the abnormal-closed status, and synthesize an explicit StageDraftFailed view —
+// WITHOUT trusting (or even calling) the replayed Query.
+func Test_GetSessionState_DeadWorkflow_SynthesizesFailedView(t *testing.T) {
+	id := ProjectID(uuid.NewString())
+	wfID := coAuthorWorkflowID(id, KindMission)
+
+	mc := &temporalmocks.Client{}
+	resp := &workflowservice.DescribeWorkflowExecutionResponse{
+		WorkflowExecutionInfo: &workflowpb.WorkflowExecutionInfo{
+			Status: enumspb.WORKFLOW_EXECUTION_STATUS_FAILED,
+		},
+	}
+	mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "").Return(resp, nil)
+	// Deliberately set NO QueryWorkflow expectation: if GetSessionState fell through to the
+	// (lying) replayed query for an abnormal-closed workflow, the mock would panic — proving
+	// the synthesis path bypasses it.
+
+	m := &systemDesignManager{client: mc}
+	view, err := m.GetSessionState(bgRC(), id, KindMission)
+	if err != nil {
+		t.Fatalf("GetSessionState on a dead workflow must synthesize a view, got err: %v", err)
+	}
+	if view.Stage != StageDraftFailed {
+		t.Fatalf("a dead workflow must surface StageDraftFailed (not the replayed StageDrafting), got %d", view.Stage)
+	}
+	if view.FailureReason == nil || *view.FailureReason == "" {
+		t.Fatal("a synthesized dead-workflow view must carry a human FailureReason")
+	}
+	mc.AssertExpectations(t)
+}
+
+// A RUNNING execution falls through to the live Query (Describe reports RUNNING) — the
+// synthesis path must NOT hijack a healthy session. Here the Query is left unmocked and
+// the mock is asserted to have been asked to Describe; a RUNNING status must not short-
+// circuit to a synthesized failure.
+func Test_GetSessionState_RunningWorkflow_DoesNotSynthesize(t *testing.T) {
+	id := ProjectID(uuid.NewString())
+	wfID := coAuthorWorkflowID(id, KindMission)
+
+	mc := &temporalmocks.Client{}
+	resp := &workflowservice.DescribeWorkflowExecutionResponse{
+		WorkflowExecutionInfo: &workflowpb.WorkflowExecutionInfo{
+			Status: enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING,
+		},
+	}
+	mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "").Return(resp, nil)
+	// QueryWorkflow returns an error so we don't have to synthesize a real EncodedValue;
+	// the point is only that the RUNNING path REACHES the query rather than synthesizing.
+	mc.On("QueryWorkflow", mock.Anything, wfID, "", querySessionState).
+		Return(nil, errors.New("boom"))
+
+	m := &systemDesignManager{client: mc}
+	if _, err := m.GetSessionState(bgRC(), id, KindMission); err == nil {
+		t.Fatal("a RUNNING session must fall through to the live Query (which here errors), not synthesize success")
+	}
+	mc.AssertExpectations(t)
 }
 
 // SessionRef is opaque: it round-trips and compares by value, never parsed.

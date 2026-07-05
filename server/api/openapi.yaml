@@ -1619,6 +1619,11 @@ components:
                     type:
                         - "null"
                         - string
+                failureRunUrl:
+                    type:
+                        - "null"
+                        - string
+                    x-go-name: FailureRunURL
                 findings:
                     items:
                         $ref: '#/components/schemas/SystemDesignFinding'

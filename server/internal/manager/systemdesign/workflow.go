@@ -617,9 +617,17 @@ func (wf *workflows) runDraftRoundTrip(
 		TargetRepo: gf.dispatchRepo(),
 	})
 	if derr != nil {
-		// A TRANSIENT dispatch/observe fault that exhausted its retry budget is an
-		// infrastructure escalation (not a ran-but-failed job): close the workflow.
-		return draft, gf, stepErr(derr)
+		// The DISPATCH/observe round-trip itself FAILED terminally — e.g. GitHub 422s the
+		// workflow_dispatch (an oversized dispatch), so DispatchDesignJobActivity exhausts
+		// its retries / fails non-retryably (ContractMisuse). Historically this returned the
+		// error and CRASHED the whole CoAuthor workflow (and, via Get, the parent) FAILED,
+		// while the sessionState Query still replayed StageDrafting — the SPA wedged forever
+		// on "GENERATING" (QA F15 gap 2a). Instead route it to the SAME human-visible
+		// StageDraftFailed gate as a ran-but-failed job: the workflow stays OPEN + QUERYABLE
+		// (Retry / Withdraw), never an invisible crash. A workflow-cancellation error still
+		// propagates (recoverDispatchFailed guards it).
+		logger.Warn("design draft dispatch failed terminally; entering StageDraftFailed", "error", derr.Error())
+		return draft, gf, wf.recoverDispatchFailed(ctx, in, headVersion, derr, state, feedback, redraftCount)
 	}
 	if draftObs.Phase != pipelineSucceeded {
 		// The job RAN and FAILED (drafting failed or CI validation went red) — a
@@ -627,7 +635,7 @@ func (wf *workflows) runDraftRoundTrip(
 		// land the session in the human-visible StageDraftFailed and suspend on the gate
 		// awaiting Retry (redraft) or Withdraw (§0d.4 — the anti-wedge rule).
 		logger.Warn("design draft job reached a terminal failure phase; entering StageDraftFailed", "diagnostic", draftObs.Diagnostic)
-		return draft, gf, wf.recoverDraftFailed(ctx, in, headVersion, draftObs.Diagnostic, state, feedback, redraftCount)
+		return draft, gf, wf.recoverDraftFailed(ctx, in, headVersion, draftObs.Diagnostic, draftObs.RunURL, state, feedback, redraftCount)
 	}
 	// Rail: open the PR (head=sessionBranch, base=main) now the draft is green.
 	// Idempotent on head — if the Action already opened it the rail returns the existing
@@ -684,13 +692,16 @@ func (wf *workflows) runPMCritique(
 		TargetRepo: gf.dispatchRepo(),
 	})
 	if cerr != nil {
-		return stepErr(cerr)
+		// The critique DISPATCH itself failed terminally — route to the human-visible
+		// StageDraftFailed gate (same anti-wedge rule as the draft dispatch), never crash.
+		logger.Warn("PM-critique dispatch failed terminally; entering StageDraftFailed", "error", cerr.Error())
+		return wf.recoverDispatchFailed(ctx, in, headVersion, cerr, state, feedback, redraftCount)
 	}
 	if critObs.Phase != pipelineSucceeded {
 		// A terminal PM-critique job failure routes to the same StageDraftFailed human
 		// gate as a terminal draft failure — never crash the workflow.
 		logger.Warn("PM-critique job reached a terminal failure phase; entering StageDraftFailed", "diagnostic", critObs.Diagnostic)
-		return wf.recoverDraftFailed(ctx, in, headVersion, critObs.Diagnostic, state, feedback, redraftCount)
+		return wf.recoverDraftFailed(ctx, in, headVersion, critObs.Diagnostic, critObs.RunURL, state, feedback, redraftCount)
 	}
 	critiqueReadBranch := ""
 	if gf.enabled {
@@ -705,7 +716,7 @@ func (wf *workflows) runPMCritique(
 			// failure (NOT a silent approve, NOT a workflow crash — the anti-wedge rule),
 			// awaiting human Retry-via-Reject / Withdraw.
 			logger.Warn("PM-critique read-back found no verdict (missing-verdict safe default); entering StageDraftFailed")
-			return wf.recoverDraftFailed(ctx, in, headVersion, critiqueMissingVerdictDiagnostic, state, feedback, redraftCount)
+			return wf.recoverDraftFailed(ctx, in, headVersion, critiqueMissingVerdictDiagnostic, "", state, feedback, redraftCount)
 		}
 		return stepErr(crbErr)
 	}
@@ -728,20 +739,59 @@ func (wf *workflows) runPMCritique(
 	return stepProceed()
 }
 
-// recoverDraftFailed lands a failed/non-converging design job at the StageDraftFailed
-// human gate (the anti-wedge rule) and maps the recovery outcome to a coAuthorStep: a
-// Retry bumps the redraft counter and asks the spine to redraft; a Withdraw returns the
-// terminal outcome.
+// recoverDraftFailed lands a RAN-BUT-FAILED design job (a terminal PhaseFailed /
+// PhaseCancelled observation, or a missing critique verdict) at the StageDraftFailed
+// human gate (the anti-wedge rule). runURL is the failed GitHub Actions run's URL when
+// the job actually ran (deep-linked on the SPA's failed card); "" when unavailable.
 func (wf *workflows) recoverDraftFailed(
 	ctx workflow.Context,
 	in coAuthorInput,
 	headVersion projectstate.Version,
 	diagnostic string,
+	runURL string,
 	state *coAuthorState,
 	feedback *ReviewFeedback,
 	redraftCount *int,
 ) coAuthorStep {
-	outcome, retry, recErr := wf.awaitDraftFailedRecovery(ctx, in.ProjectID, in.ArtifactKind, headVersion, diagnostic, state, feedback)
+	return wf.recoverAtFailedGate(ctx, in, headVersion, draftFailedReason(diagnostic), runURL, state, feedback, redraftCount)
+}
+
+// recoverDispatchFailed lands a terminal DISPATCH/observe fault (the round-trip itself
+// errored — e.g. GitHub 422 rejecting the workflow_dispatch, ContractMisuse non-
+// retryable) at the SAME StageDraftFailed human gate instead of crashing the workflow
+// (QA F15 gap 2a). A workflow-CANCELLATION error is NOT a job failure — it means the
+// workflow is being torn down, so it propagates unchanged rather than being masked as a
+// draft failure. There is no run to deep-link (dispatch never created one), so runURL="".
+func (wf *workflows) recoverDispatchFailed(
+	ctx workflow.Context,
+	in coAuthorInput,
+	headVersion projectstate.Version,
+	err error,
+	state *coAuthorState,
+	feedback *ReviewFeedback,
+	redraftCount *int,
+) coAuthorStep {
+	if temporal.IsCanceledError(err) {
+		return stepErr(err)
+	}
+	return wf.recoverAtFailedGate(ctx, in, headVersion, dispatchFailedReason(err), "", state, feedback, redraftCount)
+}
+
+// recoverAtFailedGate suspends at the StageDraftFailed human gate carrying the human
+// reason + optional failed-run URL, and maps the recovery outcome to a coAuthorStep: a
+// Retry bumps the redraft counter and asks the spine to redraft; a Withdraw returns the
+// terminal outcome.
+func (wf *workflows) recoverAtFailedGate(
+	ctx workflow.Context,
+	in coAuthorInput,
+	headVersion projectstate.Version,
+	reason string,
+	runURL string,
+	state *coAuthorState,
+	feedback *ReviewFeedback,
+	redraftCount *int,
+) coAuthorStep {
+	outcome, retry, recErr := wf.awaitDraftFailedRecovery(ctx, in.ProjectID, in.ArtifactKind, headVersion, reason, runURL, state, feedback)
 	if recErr != nil {
 		return stepErr(recErr)
 	}
@@ -867,7 +917,7 @@ func (wf *workflows) commitOnApprove(
 		// merge, do NOT commit. Route to the SAME StageDraftFailed recovery gate as a
 		// draft failure (the anti-wedge rule) awaiting Retry-via-Reject / Withdraw.
 		logger.Warn("design PR not mergeable at approve (CI not green); entering StageDraftFailed")
-		outcome, retry, recErr := wf.awaitDraftFailedRecovery(ctx, in.ProjectID, in.ArtifactKind, *headVersion, "the design PR is not green — its required CI check has not passed", state, feedback)
+		outcome, retry, recErr := wf.awaitDraftFailedRecovery(ctx, in.ProjectID, in.ArtifactKind, *headVersion, draftFailedReason("the design PR is not green — its required CI check has not passed"), "", state, feedback)
 		if recErr != nil {
 			return stepErr(recErr)
 		}
@@ -985,6 +1035,12 @@ type coAuthorState struct {
 	// failureReason is set only on StageDraftFailed: the neutral job Diagnostic, the
 	// human "why" for the SPA's retry/withdraw screen.
 	failureReason string
+	// failureRunURL is set only on StageDraftFailed when the failure came from a design
+	// job that actually RAN (the observe-failed path): the URL of the failed GitHub
+	// Actions run, so the SPA's failed card can deep-link the operator to the run/logs
+	// that explain WHY (QA F15 gap 2b). Empty for the dispatch-REJECTION path (no run
+	// was ever created) and for the not-green-PR gate.
+	failureRunURL string
 	// unresolvedCritique, when non-empty, is the PM critique note that did not
 	// converge within maxRedraftAttempts; surfaced at the human gate as a WARNING
 	// finding so the architect makes the final call (warnings don't block Approve).
@@ -1011,6 +1067,7 @@ func (s *coAuthorState) view() (SessionStateView, error) {
 		Draft:         draft,
 		Findings:      findings,
 		FailureReason: strPtrOrNil(s.failureReason),
+		FailureRunURL: strPtrOrNil(s.failureRunURL),
 	}, nil
 }
 
@@ -1090,13 +1147,16 @@ func (wf *workflows) awaitDraftFailedRecovery(
 	projectID ProjectID,
 	kind ArtifactKind,
 	headVersion projectstate.Version,
-	diagnostic string,
+	reason string,
+	runURL string,
 	state *coAuthorState,
 	feedback *ReviewFeedback,
 ) (coAuthorOutcome, bool, error) {
-	// Surface the human-visible failed stage + the neutral diagnostic for the Query.
+	// Surface the human-visible failed stage + the human reason (+ optional failed-run
+	// URL) for the Query.
 	state.stage = StageDraftFailed
-	state.failureReason = draftFailedReason(diagnostic)
+	state.failureReason = reason
+	state.failureRunURL = runURL
 
 	redraftCh := workflow.GetSignalChannel(ctx, lSignalRedraft)
 	reviewCh := workflow.GetSignalChannel(ctx, signalReviewDecision)
@@ -1139,6 +1199,7 @@ func (wf *workflows) awaitDraftFailedRecovery(
 			// Clear the failed state before re-entering the draft loop.
 			state.stage = StageRedrafting
 			state.failureReason = ""
+			state.failureRunURL = ""
 			return coAuthorUnknown, true, nil
 		}
 		if withdraw {
@@ -1166,4 +1227,33 @@ func draftFailedReason(diagnostic string) string {
 		return "the design job failed in CI — retry or withdraw"
 	}
 	return "the design job failed in CI: " + diagnostic + " — retry or withdraw"
+}
+
+// dispatchFailedReason renders the human "why" for the StageDraftFailed screen when the
+// DISPATCH itself failed terminally (the job never ran — e.g. GitHub rejected the
+// workflow_dispatch). It frames it distinctly from a ran-but-failed job (no CI run to
+// point at) and folds in a neutral summary of the terminal error.
+func dispatchFailedReason(err error) string {
+	summary := dispatchErrSummary(err)
+	if summary == "" {
+		return "the design job could not be started in your repository — retry or withdraw"
+	}
+	return "the design job could not be started in your repository: " + summary + " — retry or withdraw"
+}
+
+// dispatchErrSummary extracts a neutral, bounded summary from a terminal dispatch error.
+// A Temporal ApplicationError (the wrapped RA fault, e.g. ContractMisuse from a rejected
+// dispatch) carries a human Message(); otherwise the error string is used. Deterministic
+// across replay — the error is reconstructed identically from workflow history.
+func dispatchErrSummary(err error) string {
+	if err == nil {
+		return ""
+	}
+	var appErr *temporal.ApplicationError
+	if errors.As(err, &appErr) {
+		if msg := appErr.Message(); msg != "" {
+			return msg
+		}
+	}
+	return err.Error()
 }

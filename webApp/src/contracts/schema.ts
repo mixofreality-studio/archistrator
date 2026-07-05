@@ -895,6 +895,7 @@ export interface components {
             artifactKind: components["schemas"]["SystemDesignArtifactKind"];
             draft: components["schemas"]["SystemDesignDraftModel"];
             failureReason?: null | string;
+            failureRunUrl?: null | string;
             findings?: null | components["schemas"]["SystemDesignFinding"][];
             projectId: components["schemas"]["SystemDesignProjectID"];
             stage: components["schemas"]["SystemDesignSessionStage"];

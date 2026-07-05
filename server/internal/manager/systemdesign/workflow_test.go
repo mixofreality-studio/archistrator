@@ -184,6 +184,11 @@ type fakePipeline struct {
 	phases []pipelinePhase
 	// diagnostic is attached to a failed/cancelled observation.
 	diagnostic string
+	// runURL is attached to a failed/cancelled observation (the RA's resolved run URL).
+	runURL string
+	// submitErr, when non-nil, makes SubmitConstructionPipeline FAIL (a terminal
+	// dispatch-rejection fault, e.g. GitHub 422 → ContractMisuse) — the F15 gap-2a path.
+	submitErr error
 
 	submits []submitRecord
 	// handleByName tracks the phase to return for each issued handle.
@@ -212,6 +217,12 @@ func newFakePipeline(phases ...pipelinePhase) *fakePipeline {
 func (p *fakePipeline) SubmitConstructionPipeline(_ context.Context, spec pipelineSpec, key fwra.IdempotencyKey) (pipelineHandle, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.submitErr != nil {
+		// Record the attempt so a test can still assert the dispatch was tried, then fail
+		// the submit — the terminal dispatch-rejection path (the whole round-trip errors).
+		p.submits = append(p.submits, submitRecord{projectID: spec.ProjectID, idempotencyKey: key, dispatchInputs: spec.DispatchInputs})
+		return pipelineHandle{}, p.submitErr
+	}
 	idx := len(p.submits)
 	p.submits = append(p.submits, submitRecord{
 		projectID:      spec.ProjectID,
@@ -239,6 +250,7 @@ func (p *fakePipeline) ObserveConstructionPipeline(_ context.Context, handle pip
 	phase := p.handlePhase[handle.Name]
 	hook := p.onObserve
 	diag := p.diagnostic
+	runURL := p.runURL
 	p.mu.Unlock()
 	if hook != nil {
 		hook()
@@ -246,6 +258,7 @@ func (p *fakePipeline) ObserveConstructionPipeline(_ context.Context, handle pip
 	obs := pipelineObservation{Phase: phase}
 	if phase == pipelineFailed || phase == pipelineCancelled {
 		obs.Diagnostic = diag
+		obs.RunURL = runURL
 	}
 	return obs, nil
 }
@@ -543,6 +556,103 @@ func Test_CoAuthor_PhaseCancelled_LandsInStageDraftFailed(t *testing.T) {
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("PhaseCancelled must not crash the workflow: %v", err)
+	}
+}
+
+// QA F15 gap 2a — THE DISPATCH-REJECTION ANTI-WEDGE TEST. When the dispatch itself is
+// rejected terminally (GitHub 422s the workflow_dispatch → DispatchDesignJobActivity
+// fails non-retryably with ContractMisuse), the round-trip returns an ERROR. Historically
+// this CRASHED the whole CoAuthor workflow FAILED while sessionState still replayed
+// StageDrafting — the SPA wedged forever on "GENERATING" with no recovery. The fix routes
+// it to the SAME human-visible StageDraftFailed gate: the workflow stays OPEN + QUERYABLE
+// (Retry / Withdraw), never an invisible crash.
+func Test_CoAuthor_DispatchRejected_LandsInStageDraftFailed_NotCrash(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: systemReadBack(t, id)}
+	pipe := newFakePipeline() // phase scripting irrelevant: the SUBMIT fails.
+	// A terminal, non-retryable RA fault (ContractMisuse) — the dispatchOpts RetryPolicy
+	// marks it non-retryable, so the activity fails on the first attempt.
+	pipe.submitErr = fwra.New(fwra.ContractMisuse, "github 422: workflow_dispatch payload too large")
+	wf := newWorkflows(ps, pipe)
+	registerCoAuthor(env, wf)
+
+	env.RegisterDelayedCallback(func() {
+		enc, err := env.QueryWorkflow(querySessionState)
+		if err != nil {
+			t.Fatalf("QueryWorkflow: %v", err)
+		}
+		var view SessionStateView
+		if err := enc.Get(&view); err != nil {
+			t.Fatalf("decode SessionStateView: %v", err)
+		}
+		// The load-bearing F15 assertion: a rejected DISPATCH must NOT leave a perpetual
+		// StageDrafting (the invisible-failure the SPA wedged on).
+		if view.Stage == StageDrafting {
+			t.Fatal("a rejected dispatch must NOT leave the session in perpetual StageDrafting (the F15 wedge)")
+		}
+		if view.Stage != StageDraftFailed {
+			t.Fatalf("want StageDraftFailed after a terminal dispatch rejection, got %d", view.Stage)
+		}
+		if view.FailureReason == nil || *view.FailureReason == "" {
+			t.Fatal("a dispatch rejection must carry a human FailureReason")
+		}
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 30*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	if !env.IsWorkflowCompleted() {
+		t.Fatal("workflow did not complete after withdraw from the dispatch-failed gate")
+	}
+	// The fix: a terminal dispatch rejection is escalated to the human gate, NOT a crash.
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a terminal dispatch rejection must NOT fail the workflow (F15), got: %v", err)
+	}
+	if len(ps.staged) != 0 {
+		t.Fatalf("a rejected dispatch must stage nothing, got %d", len(ps.staged))
+	}
+}
+
+// QA F15 gap 2b — a RAN-BUT-FAILED design job surfaces the failed run's URL on the
+// session view, so the SPA's failed card can deep-link the operator to the CI run/logs
+// that explain WHY.
+func Test_CoAuthor_RunFailed_SurfacesRunURL(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: systemReadBack(t, id)}
+	pipe := newFakePipeline(pipelineFailed)
+	pipe.diagnostic = "construction pipeline failed"
+	pipe.runURL = "https://github.com/acme/widgets/actions/runs/123"
+	wf := newWorkflows(ps, pipe)
+	registerCoAuthor(env, wf)
+
+	env.RegisterDelayedCallback(func() {
+		enc, err := env.QueryWorkflow(querySessionState)
+		if err != nil {
+			t.Fatalf("QueryWorkflow: %v", err)
+		}
+		var view SessionStateView
+		if err := enc.Get(&view); err != nil {
+			t.Fatalf("decode SessionStateView: %v", err)
+		}
+		if view.Stage != StageDraftFailed {
+			t.Fatalf("want StageDraftFailed, got %d", view.Stage)
+		}
+		if view.FailureRunURL == nil || *view.FailureRunURL != "https://github.com/acme/widgets/actions/runs/123" {
+			t.Fatalf("a ran-but-failed job must surface the failed run URL, got %v", view.FailureRunURL)
+		}
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 30*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
 	}
 }
 

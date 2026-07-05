@@ -301,6 +301,24 @@ func (m *systemDesignManager) GetSessionState(rc fwmanager.Context, projectID Pr
 	}
 	wfID := coAuthorWorkflowID(projectID, kind)
 
+	// F15 gap 2a (query-side defense): a CoAuthorArtifactWorkflow that ended ABNORMALLY
+	// (FAILED / TERMINATED / TIMED_OUT / CANCELED — e.g. an activity crashed the run)
+	// STILL answers the sessionState Query by HISTORY-REPLAY, returning its last in-memory
+	// stage (typically StageDrafting). That LIES that drafting is in progress and wedges the
+	// SPA on an infinite "GENERATING" screen with no recovery. Describe the execution first;
+	// when it is closed-ABNORMAL, synthesize an explicit StageDraftFailed view instead of
+	// trusting the replayed query — supervision must reflect the real state. A RUNNING or
+	// normally-COMPLETED (approved/withdrawn) execution falls through to the live query,
+	// which is authoritative for those. A Describe error other than NotFound is best-effort:
+	// fall through to the query rather than masking a transient Describe blip as a failure.
+	if desc, derr := m.client.DescribeWorkflowExecution(ctx, wfID, ""); derr == nil {
+		if status := desc.GetWorkflowExecutionInfo().GetStatus(); isAbnormalClosedStatus(status) {
+			return failedSessionView(projectID, kind, status), nil
+		}
+	} else if isNotFound(derr) {
+		return SessionStateView{}, newError(fwmanager.NotFound, derr.Error())
+	}
+
 	enc, err := m.client.QueryWorkflow(ctx, wfID, "", querySessionState)
 	if err != nil {
 		return SessionStateView{}, mapQueryError(err)
@@ -310,6 +328,73 @@ func (m *systemDesignManager) GetSessionState(rc fwmanager.Context, projectID Pr
 		return SessionStateView{}, newError(fwmanager.Infrastructure, err.Error())
 	}
 	return view, nil
+}
+
+// isAbnormalClosedStatus reports whether a workflow-execution status is a CLOSED-ABNORMAL
+// terminal state — the session died without a clean commit/withdraw. A normally COMPLETED
+// or still-RUNNING (or CONTINUED_AS_NEW) execution is NOT abnormal.
+func isAbnormalClosedStatus(s enumspb.WorkflowExecutionStatus) bool {
+	switch s {
+	case enumspb.WORKFLOW_EXECUTION_STATUS_FAILED,
+		enumspb.WORKFLOW_EXECUTION_STATUS_TERMINATED,
+		enumspb.WORKFLOW_EXECUTION_STATUS_TIMED_OUT,
+		enumspb.WORKFLOW_EXECUTION_STATUS_CANCELED:
+		return true
+	case enumspb.WORKFLOW_EXECUTION_STATUS_UNSPECIFIED,
+		enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING,
+		enumspb.WORKFLOW_EXECUTION_STATUS_COMPLETED,
+		enumspb.WORKFLOW_EXECUTION_STATUS_CONTINUED_AS_NEW,
+		enumspb.WORKFLOW_EXECUTION_STATUS_PAUSED:
+		return false
+	default:
+		return false
+	}
+}
+
+// failedSessionView synthesizes the human-visible failed view for a session whose
+// workflow died abnormally (see GetSessionState). It reuses StageDraftFailed — the SAME
+// terminal-failure stage the live anti-wedge gate uses — so the SPA renders its existing
+// "design job failed → retry / withdraw" card (Retry re-dispatches via signal-with-start,
+// starting a fresh run). Carries a neutral human FailureReason; no run URL (the death was
+// not a specific CI run).
+func failedSessionView(projectID ProjectID, kind ArtifactKind, status enumspb.WorkflowExecutionStatus) SessionStateView {
+	reason := terminatedSessionReason(status)
+	return SessionStateView{
+		ProjectID:     projectID,
+		ArtifactKind:  kind,
+		Stage:         StageDraftFailed,
+		Draft:         DraftModel{Kind: artifactKindWireName(kind)},
+		FailureReason: &reason,
+	}
+}
+
+// terminatedSessionReason renders the neutral human "why" for a session whose workflow
+// died abnormally.
+func terminatedSessionReason(status enumspb.WorkflowExecutionStatus) string {
+	return "the design session ended unexpectedly and is no longer running (" + workflowStatusLabel(status) + "). Retry to start a fresh draft."
+}
+
+// workflowStatusLabel maps an abnormal-closed status to a short, infrastructure-neutral
+// label for the failed card.
+func workflowStatusLabel(s enumspb.WorkflowExecutionStatus) string {
+	switch s {
+	case enumspb.WORKFLOW_EXECUTION_STATUS_FAILED:
+		return "the job failed"
+	case enumspb.WORKFLOW_EXECUTION_STATUS_TIMED_OUT:
+		return "the job timed out"
+	case enumspb.WORKFLOW_EXECUTION_STATUS_TERMINATED:
+		return "the job was terminated"
+	case enumspb.WORKFLOW_EXECUTION_STATUS_CANCELED:
+		return "the job was canceled"
+	case enumspb.WORKFLOW_EXECUTION_STATUS_UNSPECIFIED,
+		enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING,
+		enumspb.WORKFLOW_EXECUTION_STATUS_COMPLETED,
+		enumspb.WORKFLOW_EXECUTION_STATUS_CONTINUED_AS_NEW,
+		enumspb.WORKFLOW_EXECUTION_STATUS_PAUSED:
+		return "the job stopped"
+	default:
+		return "the job stopped"
+	}
 }
 
 // SetResearchInput — op 2.6 (2026-05-30). SYNCHRONOUS, non-Temporal: it records

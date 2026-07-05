@@ -19,6 +19,7 @@ package constructionpipeline
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -194,7 +195,21 @@ func (c *ghActionsRESTClient) getRun(ctx context.Context, tgt ghTarget, runID in
 	if err != nil {
 		return ghRun{}, err
 	}
-	return toGHRun(run), nil
+	gr := toGHRun(run)
+	// Build the run's browser URL here — the concrete GitHub realisation is the only
+	// place the github.com lexeme lives (the satellite's WorkflowRun does not carry it).
+	gr.htmlURL = runHTMLURL(owner, repo, run.ID)
+	return gr, nil
+}
+
+// runHTMLURL builds a GitHub Actions run's browser URL from its owner/repo/run id. The
+// github.com host lexeme is confined to this concrete realisation (the seam/core stay
+// host-agnostic). Empty when owner or repo is unknown.
+func runHTMLURL(owner, repo string, runID int64) string {
+	if owner == "" || repo == "" {
+		return ""
+	}
+	return fmt.Sprintf("https://github.com/%s/%s/actions/runs/%d", owner, repo, runID)
 }
 
 func (c *ghActionsRESTClient) cancelRun(ctx context.Context, tgt ghTarget, runID int64) error {

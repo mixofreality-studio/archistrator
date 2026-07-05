@@ -349,6 +349,7 @@ type SessionStateView struct {
 	Draft         DraftModel   `json:"draft"`
 	Findings      []Finding    `json:"findings,omitempty"`
 	FailureReason *string      `json:"failureReason,omitempty"`
+	FailureRunURL *string      `json:"failureRunUrl,omitempty"`
 }
 
 type Severity string

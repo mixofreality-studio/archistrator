@@ -300,6 +300,9 @@ export function mapSessionState(w: Schemas['SystemDesignSessionStateView']): Ses
       ...(w.failureReason !== undefined && w.failureReason !== null
         ? { failureReason: w.failureReason }
         : {}),
+      ...(w.failureRunUrl !== undefined && w.failureRunUrl !== null
+        ? { failureRunUrl: w.failureRunUrl }
+        : {}),
     },
   };
 }

@@ -1,17 +1,24 @@
 /**
  * The "AI at work" loader shown while an artifact is drafting/redrafting. A small
  * drafting-desk scene (worker at a board, self-drawing blueprint lines, turning
- * gears) plus a stage ticker DRAFT → VALIDATE → CRITIQUE → READY. Purely visual —
- * the real stage transitions are driven by useSessionState polling, this just
- * animates the wait. Ported from the frozen UX mock; recolored from tokens.
+ * gears) plus an HONEST indeterminate status line + the standing "design job running
+ * in your GitHub Actions" affordance. Recolored from tokens.
  *
- * Drafting is now ASYNC: the draft is produced by a GitHub Action running in the
- * USER's CI (minutes per draft), not an inline server call. So this scene carries a
- * standing "design job running in your GitHub Actions" affordance — a clear
- * explanation of the wait + an optional link to the repo's Actions tab — so the
- * minutes-long wait reads as a tracked job, never a hung spinner.
+ * HONESTY (QA F15 gap 2c): the server exposes only a single coarse stage
+ * (drafting/redrafting) — it does NOT report per-phase DRAFT/VALIDATE/CRITIQUE
+ * progress. The former animated ticker rendered cumulative ✓ checkmarks on those
+ * phases purely off a wall-clock timer (and rotating quips asserting specific machine
+ * activities like "Machine checking cross-artifact rules…"), which LIED that work had
+ * completed while nothing had. Both are removed: this scene now shows only what is
+ * TRUE — an indeterminate "drafting" indicator and the tracked-CI-job explanation.
+ * The drafting-desk illustration stays as clearly-decorative chrome.
+ *
+ * Drafting is ASYNC: the draft is produced by a GitHub Action running in the USER's CI
+ * (minutes per draft), not an inline server call. The standing affordance (+ optional
+ * link to the repo's Actions tab) makes the minutes-long wait read as a tracked job,
+ * never a hung spinner.
  */
-import { useEffect, useState, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import Link from '@mui/material/Link';
@@ -19,18 +26,6 @@ import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import type { Tokens } from '../../utilities/theme/themes';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
-
-const STAGES = ['DRAFT', 'VALIDATE', 'CRITIQUE', 'READY'] as const;
-
-const QUIPS = [
-  'Architect sketching the decomposition…',
-  'Drawing call-legality edges…',
-  'Machine checking cross-artifact rules…',
-  'PM poking holes in the draft…',
-  'Tightening the volatility map…',
-  'Rendering the activity diagrams…',
-  'Naming the seams…',
-];
 
 export function GeneratingScene({
   artifact,
@@ -45,21 +40,6 @@ export function GeneratingScene({
   actionsUrl?: string;
 }): ReactNode {
   const t = useTokens();
-  const [stage, setStage] = useState(0);
-  const [quip, setQuip] = useState(0);
-
-  useEffect(() => {
-    const s = setInterval(() => {
-      setStage((n) => (n + 1) % STAGES.length);
-    }, 1100);
-    const q = setInterval(() => {
-      setQuip((n) => (n + 1) % QUIPS.length);
-    }, 1500);
-    return (): void => {
-      clearInterval(s);
-      clearInterval(q);
-    };
-  }, []);
 
   return (
     <Box
@@ -84,40 +64,25 @@ export function GeneratingScene({
 
       <DraftingDesk t={t} />
 
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-        {STAGES.map((s, i) => {
-          const done = i < stage;
-          const activeStage = i === stage;
-          return (
-            <Box key={s} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Box
-                sx={{
-                  fontFamily: t.mono,
-                  fontWeight: 700,
-                  fontSize: 11,
-                  px: 1,
-                  py: 0.4,
-                  border: `1.5px solid ${activeStage || done ? t.accent : t.line}`,
-                  borderRadius: t.radius / 8 + 0.5,
-                  color: activeStage ? t.accentText : done ? t.accent : t.muted,
-                  bgcolor: activeStage ? t.accent : 'transparent',
-                  opacity: i > stage ? 0.5 : 1,
-                  animation: activeStage ? 'pulse 1.1s ease-in-out infinite' : 'none',
-                  '@keyframes pulse': { '0%,100%': { opacity: 1 }, '50%': { opacity: 0.55 } },
-                }}
-              >
-                {done ? '✓ ' : ''}
-                {s}
-              </Box>
-              {i < STAGES.length - 1 && <Box sx={{ color: t.muted, fontFamily: t.mono }}>›</Box>}
-            </Box>
-          );
-        })}
+      {/* HONEST indeterminate indicator: a single "drafting" pill that only claims what
+          is true (a draft job is in progress), with no fabricated per-phase checkmarks. */}
+      <Box
+        sx={{
+          fontFamily: t.mono,
+          fontWeight: 700,
+          fontSize: 11,
+          letterSpacing: '0.12em',
+          px: 1.25,
+          py: 0.5,
+          border: `1.5px solid ${t.accent}`,
+          borderRadius: t.radius / 8 + 0.5,
+          color: t.accent,
+          animation: 'pulse 1.4s ease-in-out infinite',
+          '@keyframes pulse': { '0%,100%': { opacity: 1 }, '50%': { opacity: 0.5 } },
+        }}
+      >
+        DRAFTING…
       </Box>
-
-      <Typography sx={{ fontFamily: t.mono, fontSize: 13, color: t.ink, minHeight: 20, textAlign: 'center' }}>
-        {QUIPS[quip]}
-      </Typography>
 
       {/* Async-job affordance: the draft runs as a GitHub Action in the user's CI
           (minutes), so we say so explicitly — never a hung-looking spinner. */}

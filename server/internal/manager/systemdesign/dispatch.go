@@ -123,6 +123,7 @@ func (a pipelineDispatchAdapter) ObserveConstructionPipeline(ctx context.Context
 	return pipelineObservation{
 		Phase:      designPipelinePhase(obs.Phase),
 		Diagnostic: obs.Diagnostic,
+		RunURL:     obs.RunURL,
 	}, nil
 }
 
@@ -230,6 +231,10 @@ func (p pipelinePhase) IsTerminal() bool {
 type pipelineObservation struct {
 	Phase      pipelinePhase
 	Diagnostic string
+	// RunURL is the failed CI run's URL on a terminal-failure observation (QA F15 gap
+	// 2b) — the "why" pointer the Manager threads onto the StageDraftFailed card. Empty
+	// when the RA could not resolve it (or on a non-failure observation).
+	RunURL string
 }
 
 // ===========================================================================
