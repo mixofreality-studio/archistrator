@@ -48,6 +48,11 @@ type fakeRail struct {
 	// error (the platform's rate-limit-403-as-Auth) and decrement — used to exercise the
 	// QA F35 bounded-retry + approve-window containment.
 	statusAuthFailsRemaining int
+	// openPRAuthFailsRemaining, when >0, makes OpenPullRequest return an fwra.Auth error
+	// (the same rate-limit-403-as-Auth) and decrement — the QA F35 TWIN in the draft
+	// round-trip. Set to railAuthRetryMaxAttempts (3) to exhaust the bounded retry so the
+	// FIRST openPR faults and lands at the failed gate; the resume openPR then succeeds.
+	openPRAuthFailsRemaining int
 }
 
 func (r *fakeRail) record(c railCall) {
@@ -81,11 +86,23 @@ func (r *fakeRail) OpenBranch(_ context.Context, repo sourcecontrol.RepoRef, bra
 }
 
 func (r *fakeRail) OpenPullRequest(_ context.Context, repo sourcecontrol.RepoRef, spec sourcecontrol.PullRequestSpec, _ sourcecontrol.RepoCredential, _ fwra.IdempotencyKey) (sourcecontrol.PullRequestRef, error) {
+	r.record(railCall{verb: "OpenPullRequest", repo: sourcecontrol.RepoRefString(repo), branch: string(spec.Head), prRef: "pr/" + string(spec.Head)})
+	r.mu.Lock()
+	fail := r.openPRAuthFailsRemaining > 0
+	if fail {
+		r.openPRAuthFailsRemaining--
+	}
+	r.mu.Unlock()
+	if fail {
+		// The observed F35-twin fault: OpenPullRequest hits a GitHub secondary rate-limit 403
+		// the platform classifier reports as Auth. The shared bounded retry absorbs it; a
+		// persistent one lands the draft round-trip at the failed gate (draft preserved).
+		return sourcecontrol.PullRequestRefFromString(""), fwra.New(fwra.Auth, "openPullRequest: github auth/permission denied")
+	}
 	r.mu.Lock()
 	r.openedPRs++
 	prRef := "pr/" + string(spec.Head)
 	r.mu.Unlock()
-	r.record(railCall{verb: "OpenPullRequest", repo: sourcecontrol.RepoRefString(repo), branch: string(spec.Head), prRef: prRef})
 	return sourcecontrol.PullRequestRefFromString(prRef), nil
 }
 
@@ -1283,5 +1300,91 @@ func Test_CoAuthor_Rail_Amendment_PreFieldCommittedSlot_AmendBranch_Prompt_SeedF
 	}
 	if len(ps.seededComments) == 0 || len(ps.seededComments[0]) == 0 {
 		t.Fatal("the seed must carry the reopening comments as OPEN ledger entries")
+	}
+}
+
+// F35 TWIN (the draft-round-trip openPR fault) — a GREEN draft + successful read-back, then
+// OpenPullRequest persistently Auth-faults (secondary-rate-limit-403-as-Auth) past the shared
+// bounded retry. The whole CoAuthor workflow must NOT die (as it did live on gtdapp kind 5):
+// it CONTAINS the fault at the StageDraftFailed gate, and on Retry it RESUMES from the
+// read-back — WITHOUT a second dispatch (which would burn another 20+ min draft and red the
+// no-commit guard) — re-opens the PR, and Approve merges.
+func Test_CoAuthor_Rail_OpenPRAuthFault_ContainsAtGate_RetryResumesNoRedispatch_ThenMerges(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	ps := &branchAwareFakeProjectState{fakeProjectState: base}
+	pipe := newFakePipeline() // the draft job succeeds (a green 20+ min draft)
+	// OpenPullRequest Auth-faults for all railAuthRetryMaxAttempts of the FIRST openPR, so the
+	// bounded retry exhausts and the round-trip lands at the failed gate; the resume openPR succeeds.
+	rail := &fakeRail{checkGreen: true, openPRAuthFailsRemaining: railAuthRetryMaxAttempts}
+	wf := newRailWorkflows(ps, pipe, rail)
+	registerRailCoAuthor(env, wf)
+
+	// At the failed gate: assert StageDraftFailed with the honest openPR reason, then RETRY.
+	env.RegisterDelayedCallback(func() {
+		enc, err := env.QueryWorkflow(querySessionState)
+		if err != nil {
+			t.Fatalf("QueryWorkflow: %v", err)
+		}
+		var view SessionStateView
+		if err := enc.Get(&view); err != nil {
+			t.Fatalf("decode SessionStateView: %v", err)
+		}
+		if view.Stage != StageDraftFailed {
+			t.Fatalf("a persistent openPR Auth fault must CONTAIN at StageDraftFailed, got stage %d", view.Stage)
+		}
+		reason := ""
+		if view.FailureReason != nil {
+			reason = *view.FailureReason
+		}
+		if !strings.Contains(reason, "pull request") {
+			t.Fatalf("the failed gate must name the openPR step honestly, got %q", reason)
+		}
+		// Only ONE dispatch so far — the draft is preserved on the branch.
+		if len(pipe.submits) != 1 {
+			t.Fatalf("before retry there must be exactly ONE dispatch, got %d", len(pipe.submits))
+		}
+		env.SignalWorkflow(lSignalRedraft, redraftSignal{})
+	}, 40*time.Second)
+
+	// After the resume re-stages, Approve → merge.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
+	}, 90*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("an openPR Auth fault must NOT kill the workflow: %v", err)
+	}
+	var outcome coAuthorOutcome
+	if err := env.GetWorkflowResult(&outcome); err != nil {
+		t.Fatalf("decode outcome: %v", err)
+	}
+	if outcome != coAuthorApproved {
+		t.Fatalf("after resume + approve the session must be Approved, got %d", outcome)
+	}
+
+	// THE LOAD-BEARING ASSERTION: the Retry RESUMED from read-back — NO second dispatch.
+	if len(pipe.submits) != 1 {
+		t.Fatalf("the retry must NOT re-dispatch (resume from read-back); got %d dispatches", len(pipe.submits))
+	}
+	// OpenPullRequest was attempted railAuthRetryMaxAttempts times (all faulting) in the first
+	// round + once more on the resume (success) = maxAttempts+1.
+	if got, want := rail.verbCount("OpenPullRequest"), railAuthRetryMaxAttempts+1; got != want {
+		t.Fatalf("OpenPullRequest attempts: got %d, want %d (%d bounded-retry faults + 1 resume success)", got, want, railAuthRetryMaxAttempts)
+	}
+	// Exactly one PR was actually opened (the resume success), then merged, then committed once.
+	if rail.openedPRs != 1 {
+		t.Fatalf("exactly one PR must actually open (on the resume), got %d", rail.openedPRs)
+	}
+	if rail.verbCount("MergePullRequest") != 1 {
+		t.Fatalf("approve must merge once, got %d", rail.verbCount("MergePullRequest"))
+	}
+	if len(base.committed) != 1 {
+		t.Fatalf("approve must commit once, got %v", base.committed)
 	}
 }

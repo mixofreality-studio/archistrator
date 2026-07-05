@@ -82,10 +82,13 @@ func (wf *workflows) beginSession(ctx workflow.Context, projectID ProjectID, ses
 	}
 	gf.cred = cred
 
+	// OpenBranch through the shared bounded Auth retry: a secondary-rate-limit 403 here no
+	// longer kills the session (QA F35 twin). A genuine denial exhausts the budget and the
+	// caller (runDraftRoundTrip) CONTAINS the fault at the failed gate.
 	var branchRef string
-	if err := workflow.ExecuteActivity(railOpts(ctx), wf.OpenBranchActivity, openBranchArgs{
+	if err := wf.execRailActivityWithAuthRetry(ctx, wf.OpenBranchActivity, openBranchArgs{
 		RepoRef: sourcecontrol.RepoRefString(repoRef), Branch: sessionBranch, Cred: cred,
-	}).Get(ctx, &branchRef); err != nil {
+	}, &branchRef); err != nil {
 		return gitSession{}, err
 	}
 	return gf, nil
@@ -99,15 +102,19 @@ func (wf *workflows) openPR(ctx workflow.Context, gf *gitSession, kind ArtifactK
 	if !gf.enabled {
 		return nil
 	}
+	// OpenPullRequest through the shared bounded Auth retry (QA F35 twin): openPR runs in the
+	// draft round-trip AFTER a 20+ minute draft, so a single secondary-rate-limit 403 must not
+	// discard that work. A genuine permission denial exhausts the budget and the caller CONTAINS
+	// the fault at the failed gate (the committed draft is preserved; Retry resumes).
 	var prRef string
-	if err := workflow.ExecuteActivity(railOpts(ctx), wf.OpenPullRequestActivity, openPullRequestArgs{
+	if err := wf.execRailActivityWithAuthRetry(ctx, wf.OpenPullRequestActivity, openPullRequestArgs{
 		RepoRef: sourcecontrol.RepoRefString(gf.repoRef),
 		Head:    gf.branch,
 		Base:    mainBranch,
 		Title:   designPRTitle(kind),
 		Body:    designPRBody(kind),
 		Cred:    gf.cred,
-	}).Get(ctx, &prRef); err != nil {
+	}, &prRef); err != nil {
 		return err
 	}
 	gf.prRef = prRef
@@ -128,11 +135,11 @@ func (wf *workflows) mergeOnApprove(ctx workflow.Context, gf *gitSession, kind A
 
 	// Merge guard: the required CI check must be green before the App merges (the
 	// "blocks merge" trust boundary). A non-green PR is NOT merged — the caller routes
-	// to recovery. execApproveRailActivity absorbs a transient (rate-limit) 403 within a
-	// bounded WORKFLOW-SIDE budget (QA F35) so a single secondary-rate-limit blip no longer
+	// to recovery. execRailActivityWithAuthRetry absorbs a transient (rate-limit) 403 within
+	// a bounded WORKFLOW-SIDE budget (QA F35) so a single secondary-rate-limit blip no longer
 	// kills the approve.
 	var st pullRequestStatusView
-	if err := wf.execApproveRailActivity(ctx, wf.GetPullRequestStatusActivity, getPullRequestStatusArgs{
+	if err := wf.execRailActivityWithAuthRetry(ctx, wf.GetPullRequestStatusActivity, getPullRequestStatusArgs{
 		RepoRef: sourcecontrol.RepoRefString(gf.repoRef), PRRef: gf.prRef, Cred: gf.cred,
 	}, &st); err != nil {
 		return false, err
@@ -142,7 +149,7 @@ func (wf *workflows) mergeOnApprove(ctx workflow.Context, gf *gitSession, kind A
 	}
 
 	// Relay the architecture +1 (the counted approval + audit).
-	if err := wf.execApproveRailActivity(ctx, wf.PostReviewActivity, postReviewArgs{
+	if err := wf.execRailActivityWithAuthRetry(ctx, wf.PostReviewActivity, postReviewArgs{
 		RepoRef: sourcecontrol.RepoRefString(gf.repoRef), PRRef: gf.prRef, Body: designArchApprovalBody(kind), Cred: gf.cred,
 	}, nil); err != nil {
 		return false, err
@@ -150,7 +157,7 @@ func (wf *workflows) mergeOnApprove(ctx workflow.Context, gf *gitSession, kind A
 
 	// App-mediated merge of sessionBranch → main.
 	var merged bool
-	if err := wf.execApproveRailActivity(ctx, wf.MergePullRequestActivity, mergePullRequestArgs{
+	if err := wf.execRailActivityWithAuthRetry(ctx, wf.MergePullRequestActivity, mergePullRequestArgs{
 		RepoRef: sourcecontrol.RepoRefString(gf.repoRef), PRRef: gf.prRef, Cred: gf.cred,
 	}, &merged); err != nil {
 		return false, err
@@ -164,37 +171,41 @@ func (wf *workflows) mergeOnApprove(ctx workflow.Context, gf *gitSession, kind A
 	return true, nil
 }
 
-// approveRail* bound the workflow-side approve-window retry (QA F35).
+// railAuthRetry* bound the workflow-side rail retry on a transient-403-as-Auth fault
+// (QA F35 + its draft-round-trip twin). Shared by BOTH halves of the rail lifecycle:
+// the dispatch-time half (OpenBranch / OpenPullRequest) and the approve-time half
+// (GetPullRequestStatus / PostReview / MergePullRequest).
 const (
-	approveRailMaxAttempts = 3
-	approveRailBaseBackoff = 5 * time.Second
-	approveRailMaxBackoff  = 15 * time.Second
+	railAuthRetryMaxAttempts = 3
+	railAuthRetryBaseBackoff = 5 * time.Second
+	railAuthRetryMaxBackoff  = 15 * time.Second
 )
 
-// execApproveRailActivity runs an approve-window rail Activity (GetPullRequestStatus /
-// PostReview / MergePullRequest) with a bounded WORKFLOW-SIDE retry on a transient-403-as-
-// Auth fault (QA F35). The platform github ClassifyStatus conflates GitHub secondary
-// rate-limit 403s with real permission denials — both become a NON-RETRYABLE Auth
-// ApplicationError the Activity RetryPolicy cannot retry — so the workflow retries here:
-// up to approveRailMaxAttempts over ~30s (5s → 10s → cap 15s), with workflow.Sleep for
-// deterministic backoff. A GENUINE permission denial exhausts the budget and the error
-// propagates to commitOnApprove, which CONTAINS it (return to AwaitingReview for re-approve
-// — never a redraft, never a crash). Transport blips (Transient) are still retried INSIDE
-// the Activity by railOpts. Cancellation propagates immediately.
-func (wf *workflows) execApproveRailActivity(ctx workflow.Context, act interface{}, args interface{}, result interface{}) error {
-	backoff := approveRailBaseBackoff
+// execRailActivityWithAuthRetry runs ANY rail Activity with a bounded WORKFLOW-SIDE retry
+// on a transient-403-as-Auth fault (QA F35 + its draft-round-trip twin). The platform github
+// ClassifyStatus conflates GitHub secondary rate-limit 403s with real permission denials —
+// both become a NON-RETRYABLE Auth ApplicationError the Activity RetryPolicy cannot retry —
+// so the workflow retries here: up to railAuthRetryMaxAttempts over ~30s (5s → 10s → cap 15s),
+// with workflow.Sleep for deterministic backoff. A GENUINE permission denial exhausts the
+// budget and the error propagates to the CALLER, which CONTAINS it (openPR/OpenBranch → the
+// StageDraftFailed gate; the approve window → back to AwaitingReview for re-approve) — never a
+// crash. Transport blips (Transient) are still retried INSIDE the Activity by railOpts.
+// Cancellation propagates immediately. This is the ONE shared helper — the approve window and
+// the draft round-trip do NOT duplicate the retry loop.
+func (wf *workflows) execRailActivityWithAuthRetry(ctx workflow.Context, act interface{}, args interface{}, result interface{}) error {
+	backoff := railAuthRetryBaseBackoff
 	for attempt := 1; ; attempt++ {
 		err := workflow.ExecuteActivity(railOpts(ctx), act, args).Get(ctx, result)
 		if err == nil {
 			return nil
 		}
-		if temporal.IsCanceledError(err) || !isApproveAuthFault(err) || attempt >= approveRailMaxAttempts {
+		if temporal.IsCanceledError(err) || !isRailAuthFault(err) || attempt >= railAuthRetryMaxAttempts {
 			return err
 		}
-		workflow.GetLogger(ctx).Warn("approve-window rail 403 (auth/rate-limit); bounded workflow-side retry", "attempt", attempt)
+		workflow.GetLogger(ctx).Warn("rail 403 (auth/rate-limit); bounded workflow-side retry", "attempt", attempt)
 		_ = workflow.Sleep(ctx, backoff)
-		if backoff *= 2; backoff > approveRailMaxBackoff {
-			backoff = approveRailMaxBackoff
+		if backoff *= 2; backoff > railAuthRetryMaxBackoff {
+			backoff = railAuthRetryMaxBackoff
 		}
 	}
 }

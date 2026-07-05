@@ -186,13 +186,15 @@ var raConflictErrType = fwmanager.RAErrType(fwra.Conflict)
 // raAuthErrType is the canonical Temporal Type() a rail Activity surfaces for an Auth
 // fault. The platform github ClassifyStatus conflates GitHub secondary RATE-LIMIT 403s
 // with real permission denials (both → fwra.Auth), and marks it NON-RETRYABLE — so the
-// approve-window bounded retry (QA F35) must run WORKFLOW-SIDE (isApproveAuthFault), since
-// the Activity RetryPolicy cannot retry a non-retryable ApplicationError.
+// bounded rail retry (QA F35 + its draft-round-trip twin) must run WORKFLOW-SIDE
+// (isRailAuthFault), since the Activity RetryPolicy cannot retry a non-retryable
+// ApplicationError.
 var raAuthErrType = fwmanager.RAErrType(fwra.Auth)
 
-// isApproveAuthFault reports whether err is a rail Auth fault (the rate-limit-403-as-Auth
-// the approve-window bounded retry absorbs).
-func isApproveAuthFault(err error) bool {
+// isRailAuthFault reports whether err is a rail Auth fault (the rate-limit-403-as-Auth
+// the bounded workflow-side retry absorbs) — shared by the dispatch-time (OpenBranch /
+// OpenPullRequest) and approve-time (status/review/merge) rail verbs.
+func isRailAuthFault(err error) bool {
 	var appErr *temporal.ApplicationError
 	if errors.As(err, &appErr) {
 		return appErr.Type() == raAuthErrType
@@ -591,6 +593,94 @@ func (wf *workflows) amendmentNoChangeGate(
 	return coAuthorContinue, coAuthorUnknown, nil
 }
 
+// containAtFailedGate suspends the session at the human-visible StageDraftFailed gate with
+// the given reason and maps the human decision back into the draft-round control triple:
+// Withdraw/other outcome → coAuthorReturn; a Retry → coAuthorContinue (redraft on the SAME
+// persistent session branch, counter bumped). Shared by every draft-round failure that must
+// be CONTAINED rather than crash the workflow (job-failed, malformed read-back, and the F35-
+// twin OpenBranch/openPR rail faults). A recovery-await fault propagates as-is.
+func (wf *workflows) containAtFailedGate(
+	ctx workflow.Context,
+	in coAuthorInput,
+	headVersion projectstate.Version,
+	reason string,
+	state *coAuthorState,
+	feedback *string,
+	redraftCount *int,
+) (coAuthorStep, coAuthorOutcome, error) {
+	outcome, retry, recErr := wf.awaitDraftFailedRecovery(ctx, in.ProjectID, in.ArtifactKind, headVersion, reason, state, feedback)
+	if recErr != nil {
+		return coAuthorProceed, coAuthorUnknown, recErr
+	}
+	if !retry {
+		return coAuthorReturn, outcome, nil
+	}
+	// F40: a human Retry redrafts on the SAME persistent session branch (no branch bump).
+	*redraftCount++
+	return coAuthorContinue, coAuthorUnknown, nil
+}
+
+// dispatchDraftAndReadBack runs ONE dispatch → observe → read-back on the session branch. On
+// success it returns the read-back model + version and coAuthorProceed with a nil error. On a
+// terminal job failure or malformed read-back it CONTAINS at the failed gate and returns the
+// resulting control triple; on an infra escalation (dispatch/observe retry-budget exhaustion)
+// it returns coAuthorProceed WITH the error so the caller closes the workflow. Extracted from
+// coAuthorDraftRound so the resume path (which SKIPS this block) reads cleanly and the function
+// stays within the gocognit budget.
+func (wf *workflows) dispatchDraftAndReadBack(
+	ctx workflow.Context,
+	in coAuthorInput,
+	proj projectstate.Project,
+	gf *gitSession,
+	sessionBranch string,
+	feedback *string,
+	headVersion *projectstate.Version,
+	redraftCount *int,
+	state *coAuthorState,
+) (projectstate.ArtifactModel, projectstate.Version, coAuthorStep, coAuthorOutcome, error) {
+	logger := workflow.GetLogger(ctx)
+	// REVIEW LEDGER: on a redraft, state.reviewThread carries the durable open comments
+	// (reloaded after the reject-append); the prompt lists each for the agent to respond to.
+	draftPrompt := architectDraftPrompt(toPSKind(in.ArtifactKind), proj, *feedback, state.reviewThread, in.Amendment)
+	draftObs, derr := wf.dispatchAndObserve(ctx, dispatchDesignJobArgs{
+		ProjectID:     in.ProjectID,
+		ArtifactKind:  in.ArtifactKind,
+		Prompt:        draftPrompt,
+		TargetBranch:  sessionBranch,
+		PriorStateRef: "",
+		// Per-project-design-dispatch: dispatch to the per-project repo + aiarch-design.yml
+		// (the rail's repoRef). "" when the rail is dormant ⇒ RA falls back to construction.
+		TargetRepo: gf.dispatchRepo(),
+	})
+	if derr != nil {
+		// A TRANSIENT dispatch/observe fault that exhausted its retry budget is an
+		// infrastructure escalation (not a ran-but-failed job): close the workflow.
+		return nil, 0, coAuthorProceed, coAuthorUnknown, derr
+	}
+	if draftObs.Phase != pipelineSucceeded {
+		// The job RAN and FAILED (drafting failed or the required CI validation check went red):
+		// land at the human StageDraftFailed gate (§0.5.4 anti-wedge) — never a crash/wedge.
+		logger.Warn("Phase-2 design draft job reached a terminal failure phase; entering StageDraftFailed", "diagnostic", draftObs.Diagnostic)
+		step, outcome, err := wf.containAtFailedGate(ctx, in, *headVersion, draftFailedReason(draftObs.Diagnostic), state, feedback, redraftCount)
+		return nil, 0, step, outcome, err
+	}
+	// READ-BACK on the SESSION BRANCH (§2a): the Action committed the typed Phase-2 JSON on the
+	// session branch; read it back as the not-yet-merged draft (dormant rail reads main). The
+	// read-back CONFIRMS a commit landed before openPR opens the PR (F40).
+	model, readBackVersion, rbErr := wf.readBackCommittedModelOn(ctx, in.ProjectID, in.ArtifactKind, gf.readBackBranch())
+	if rbErr != nil {
+		if decodeMsg, terminal := isTerminalReadBack(rbErr); terminal {
+			// The committed draft DECODES MALFORMED (QA F36) — a terminal fault retry cannot fix.
+			// Land at the StageDraftFailed gate carrying the decode diagnostic.
+			logger.Warn("Phase-2 read-back decoded MALFORMED committed state; entering StageDraftFailed", "error", decodeMsg)
+			step, outcome, err := wf.containAtFailedGate(ctx, in, *headVersion, readBackDecodeFailedReason(decodeMsg), state, feedback, redraftCount)
+			return nil, 0, step, outcome, err
+		}
+		return nil, 0, coAuthorProceed, coAuthorUnknown, rbErr
+	}
+	return model, readBackVersion, coAuthorProceed, coAuthorUnknown, nil
+}
+
 func (wf *workflows) coAuthorDraftRound(
 	ctx workflow.Context,
 	in coAuthorInput,
@@ -611,78 +701,54 @@ func (wf *workflows) coAuthorDraftRound(
 	// selects a new branch via in.Amendment. Inert (just a string) when the rail is dormant.
 	sessionBranch := designBranch(in.ProjectID, in.ArtifactKind, in.Amendment)
 
+	// RESUME CHECKPOINT (F35 twin): consume the marker. When set, a PRIOR attempt of THIS
+	// session already committed the draft on the branch and then faulted at a POST-read-back
+	// rail step (openPR) — so this Retry must NOT re-dispatch (Claude onto a branch that
+	// already carries the model would red the no-commit guard). Cleared here; re-armed only if
+	// openPR faults again below.
+	resuming := state.resumeFromReadBack
+	state.resumeFromReadBack = false
+
 	// Rail (dispatch-time half): mint the credential + ensure the session branch
 	// exists BEFORE the Action drafts on it. A dormant rail returns a disabled session
 	// and the spine runs unchanged (read-back/stage on main, no branch/PR ops).
 	begun, gerr := wf.beginSession(ctx, in.ProjectID, sessionBranch)
 	if gerr != nil {
-		return coAuthorProceed, coAuthorUnknown, gerr
+		if temporal.IsCanceledError(gerr) {
+			return coAuthorProceed, coAuthorUnknown, gerr
+		}
+		// OpenBranch / mintCred faulted BEFORE any draft landed — even after the shared bounded
+		// Auth retry exhausted (a genuine permission denial or a persistent secondary-rate-limit
+		// 403). CONTAIN it (never crash the whole CoAuthor workflow): land at StageDraftFailed.
+		// Pre-read-back, so a Retry safely re-dispatches (no resume marker is set).
+		logger.Warn("Phase-2 session begin (OpenBranch) faulted after the bounded Auth retry; entering StageDraftFailed", "error", gerr.Error())
+		return wf.containAtFailedGate(ctx, in, *headVersion, railStepFailedReason("preparing the review branch", gerr), state, feedback, redraftCount)
 	}
 	*gf = begun
 
-	// REVIEW LEDGER: on a redraft, state.reviewThread carries the durable open comments
-	// (reloaded after the reject-append); the prompt lists each for the agent to respond to.
-	draftPrompt := architectDraftPrompt(toPSKind(in.ArtifactKind), proj, *feedback, state.reviewThread, in.Amendment)
-	draftObs, derr := wf.dispatchAndObserve(ctx, dispatchDesignJobArgs{
-		ProjectID:     in.ProjectID,
-		ArtifactKind:  in.ArtifactKind,
-		Prompt:        draftPrompt,
-		TargetBranch:  sessionBranch,
-		PriorStateRef: "",
-		// Per-project-design-dispatch: dispatch to the per-project repo + aiarch-design.yml
-		// (the rail's repoRef). "" when the rail is dormant ⇒ RA falls back to construction.
-		TargetRepo: gf.dispatchRepo(),
-	})
-	if derr != nil {
-		// A TRANSIENT dispatch/observe fault that exhausted its retry budget is an
-		// infrastructure escalation (not a ran-but-failed job): close the workflow.
-		return coAuthorProceed, coAuthorUnknown, derr
+	var (
+		model           projectstate.ArtifactModel
+		readBackVersion projectstate.Version
+		haveDraft       bool
+	)
+	if resuming {
+		// RESUME PROBE (F35 twin): re-run the read-back FIRST. The draft is already committed on
+		// the branch from the faulted attempt; if it is present + decodes, SKIP the re-dispatch —
+		// a re-dispatch would red the no-commit guard on a branch that already carries the model
+		// and would burn another 20+ minute draft.
+		if m, v, rbErr := wf.readBackCommittedModelOn(ctx, in.ProjectID, in.ArtifactKind, gf.readBackBranch()); rbErr == nil {
+			model, readBackVersion, haveDraft = m, v, true
+			logger.Info("resuming Phase-2 draft round from read-back; skipping re-dispatch (draft already committed on the branch)")
+		} else {
+			logger.Warn("resume read-back found no usable draft; re-dispatching a fresh draft", "error", rbErr.Error())
+		}
 	}
-	if draftObs.Phase != pipelineSucceeded {
-		// The job RAN and FAILED (drafting failed or the required CI validation check
-		// went red) — a terminal-at-the-Manager fault. Do NOT crash the workflow and do
-		// NOT loop: land the session in the human-visible StageDraftFailed and suspend
-		// on the gate awaiting Retry (redraft/Reject) or Withdraw (§0.5.4 — the
-		// anti-wedge rule).
-		logger.Warn("Phase-2 design draft job reached a terminal failure phase; entering StageDraftFailed", "diagnostic", draftObs.Diagnostic)
-		outcome, retry, recErr := wf.awaitDraftFailedRecovery(ctx, in.ProjectID, in.ArtifactKind, *headVersion, draftFailedReason(draftObs.Diagnostic), state, feedback)
-		if recErr != nil {
-			return coAuthorProceed, coAuthorUnknown, recErr
+	if !haveDraft {
+		m, v, step, outcome, err := wf.dispatchDraftAndReadBack(ctx, in, proj, gf, sessionBranch, feedback, headVersion, redraftCount, state)
+		if step != coAuthorProceed || err != nil {
+			return step, outcome, err
 		}
-		if !retry {
-			return coAuthorReturn, outcome, nil
-		}
-		// F40: a human Retry at the StageDraftFailed gate redrafts on the SAME persistent
-		// session branch (no branch bump — the template's refresh-from-main handles a stale
-		// base). The retained feedback rides into the redraft unchanged.
-		*redraftCount++
-		return coAuthorContinue, coAuthorUnknown, nil
-	}
-	// READ-BACK on the SESSION BRANCH (§2a): the Action committed the typed Phase-2
-	// JSON on the session branch; read it back as the not-yet-merged draft. A dormant
-	// rail reads main (readBackBranch() == ""). The read-back happens BEFORE opening the
-	// PR (below): it confirms the draft actually LANDED a commit on the branch, so a session
-	// that fails before any commit leaves NO PR (correct).
-	model, readBackVersion, rbErr := wf.readBackCommittedModelOn(ctx, in.ProjectID, in.ArtifactKind, gf.readBackBranch())
-	if rbErr != nil {
-		if decodeMsg, terminal := isTerminalReadBack(rbErr); terminal {
-			// The committed draft DECODES MALFORMED — a terminal fault retry cannot fix (QA
-			// F36). Land it at the human StageDraftFailed gate carrying the decode diagnostic
-			// (a Retry redrafts on a FRESH branch with the reason visible), instead of the
-			// pre-fix behavior of looping the read-back Activity every ~100s forever.
-			logger.Warn("Phase-2 read-back decoded MALFORMED committed state; entering StageDraftFailed", "error", decodeMsg)
-			outcome, retry, recErr := wf.awaitDraftFailedRecovery(ctx, in.ProjectID, in.ArtifactKind, *headVersion, readBackDecodeFailedReason(decodeMsg), state, feedback)
-			if recErr != nil {
-				return coAuthorProceed, coAuthorUnknown, recErr
-			}
-			if !retry {
-				return coAuthorReturn, outcome, nil
-			}
-			// F40: a human Retry redrafts on the SAME persistent session branch (no branch bump).
-			*redraftCount++
-			return coAuthorContinue, coAuthorUnknown, nil
-		}
-		return coAuthorProceed, coAuthorUnknown, rbErr
+		model, readBackVersion = m, v
 	}
 	draft = model
 	state.findings = nil
@@ -708,7 +774,18 @@ func (wf *workflows) coAuthorDraftRound(
 	// gtdapp). Idempotent on head — reject/redraft rounds reuse the SAME PR; the server's
 	// handle is authoritative for the merge step.
 	if err := wf.openPR(ctx, gf, in.ArtifactKind); err != nil {
-		return coAuthorProceed, coAuthorUnknown, err
+		if temporal.IsCanceledError(err) {
+			return coAuthorProceed, coAuthorUnknown, err
+		}
+		// POST-read-back rail fault after the shared bounded Auth retry exhausted (QA F35 twin):
+		// a genuine permission denial or a persistent secondary-rate-limit 403. The draft is
+		// ALREADY committed on the session branch, so DO NOT crash and DO NOT let a naive Retry
+		// re-dispatch (that would red the no-commit guard). CONTAIN at the failed gate AND
+		// checkpoint a read-back RESUME, so the Retry re-opens the PR on the preserved draft
+		// without burning another 20+ minute draft.
+		state.resumeFromReadBack = true
+		logger.Warn("Phase-2 openPR faulted after read-back (bounded Auth retry exhausted); entering StageDraftFailed — retry resumes from read-back, no re-dispatch", "error", err.Error())
+		return wf.containAtFailedGate(ctx, in, *headVersion, railStepFailedReason("opening the review pull request", err), state, feedback, redraftCount)
 	}
 
 	// QA F29: adopt the ACTUAL read-back substrate version as the head version before
@@ -1650,6 +1727,13 @@ type coAuthorState struct {
 	// refreshed from the session branch after every (re)stage and every waive/reopen so the
 	// query + approve gate see the live thread. Nil until a read-back carries comments.
 	reviewThread []projectstate.ReviewComment
+	// resumeFromReadBack is the F35-twin checkpoint: set true when a POST-read-back rail step
+	// (openPR) faulted and the session landed at the failed gate WITH the draft already
+	// committed on the branch. On the next Retry the draft round consumes it and RESUMES from
+	// the read-back — SKIPPING the re-dispatch — so it does not redispatch Claude onto a branch
+	// that already carries the model (which the no-commit guard would red). Workflow-local,
+	// deterministic on replay (set from a recorded Activity error, never wall-clock).
+	resumeFromReadBack bool
 }
 
 func (s *coAuthorState) view() (SessionStateView, error) {
@@ -1797,6 +1881,21 @@ func readBackDecodeFailedReason(decodeMsg string) string {
 // re-runs the amendment; a Withdraw abandons it.
 func amendmentNoChangeReason() string {
 	return "the amendment draft committed no changes to the artifact — there is nothing to review or merge — retry or withdraw"
+}
+
+// railStepFailedReason renders the human "why" for the StageDraftFailed screen when a rail
+// step in the draft round (OpenBranch or OpenPullRequest) faulted AFTER the shared bounded
+// workflow-side Auth retry exhausted (QA F35 twin) — a genuine permission denial or a
+// persistent GitHub secondary-rate-limit 403. `what` names the step ("preparing the review
+// branch" / "opening the review pull request"). For an openPR fault the draft is preserved and
+// a Retry resumes from read-back (no re-dispatch); a Retry after an OpenBranch fault
+// re-dispatches. Both are Retry/Withdraw from the same gate.
+func railStepFailedReason(what string, err error) string {
+	summary := dispatchErrSummary(err)
+	if summary == "" {
+		return what + " failed (a GitHub auth or rate-limit fault) — retry or withdraw"
+	}
+	return what + " failed (a GitHub auth or rate-limit fault): " + summary + " — retry or withdraw"
 }
 
 // stageFailedReason renders the human "why" for the StageDraftFailed screen when the
