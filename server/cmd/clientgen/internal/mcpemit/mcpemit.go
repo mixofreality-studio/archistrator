@@ -184,8 +184,8 @@ func genTools(doc *contract.Doc, enums map[string]enumDef, opts Options) ([]byte
 		if strings.TrimSpace(desc) == "" {
 			return nil, fmt.Errorf("mcpemit: no documentation for operation %q on %s (add it to clientgen's op-doc table)", op.Name, iface)
 		}
-		fmt.Fprintf(&b, "\tmcp.AddTool(srv, &mcp.Tool{Name: %q, Description: %q, InputSchema: %sInputSchema()}, h.handle%s)\n",
-			toolName, desc, contract.LowerFirst(op.Name), op.Name)
+		fmt.Fprintf(&b, "\tmcp.AddTool(srv, &mcp.Tool{Name: %q, Description: %q, InputSchema: %sInputSchema(), OutputSchema: %sOutputSchema()}, h.handle%s)\n",
+			toolName, desc, contract.LowerFirst(op.Name), contract.LowerFirst(op.Name), op.Name)
 	}
 	b.WriteString("}\n\n")
 
@@ -220,6 +220,11 @@ func genTools(doc *contract.Doc, enums map[string]enumDef, opts Options) ([]byte
 		writeInputSchema(&b, op, enums)
 	}
 
+	// --- per-op output schema builders ---
+	for _, op := range doc.Interface.Operations {
+		writeOutputSchema(&b, op)
+	}
+
 	// --- shared enum schema helpers ---
 	for _, name := range enumNames {
 		writeEnumSchema(&b, name, enums[name])
@@ -249,6 +254,7 @@ func writeInputSchema(b *strings.Builder, op contract.Operation, enums map[strin
 	fmt.Fprintf(b, "// %sInputSchema is the explicit MCP input schema for the %s operation.\n", lower, op.Name)
 	fmt.Fprintf(b, "func %sInputSchema() *jsonschema.Schema {\n", lower)
 	fmt.Fprintf(b, "\ts := objectSchema[%sInput]()\n", lower)
+	b.WriteString("\trelaxRawJSON(s)\n")
 
 	// required = non-pointer params, in declaration order.
 	var required []string
@@ -274,6 +280,21 @@ func writeInputSchema(b *strings.Builder, op contract.Operation, enums map[strin
 		}
 		fmt.Fprintf(b, "\ts.Properties[%q] = enumSchema%s()\n", p.Name, p.Schema.RefName())
 	}
+	b.WriteString("\treturn s\n}\n\n")
+}
+
+// writeOutputSchema emits the OutputSchema builder for one op. The SDK would
+// otherwise infer the output schema from the Go result struct, which mis-types a
+// json.RawMessage / []byte JSON-carrier field (e.g. DraftModel.model) as an array
+// of 0-255 bytes — so a REAL object payload fails the SDK's output validation
+// (QA finding F26). relaxRawJSON relaxes exactly those nodes to a permissive
+// schema while keeping the rest of the inferred output shape intact.
+func writeOutputSchema(b *strings.Builder, op contract.Operation) {
+	lower := contract.LowerFirst(op.Name)
+	fmt.Fprintf(b, "// %sOutputSchema is the explicit MCP output schema for the %s operation.\n", lower, op.Name)
+	fmt.Fprintf(b, "func %sOutputSchema() *jsonschema.Schema {\n", lower)
+	fmt.Fprintf(b, "\ts := objectSchema[%sOutput]()\n", lower)
+	b.WriteString("\trelaxRawJSON(s)\n")
 	b.WriteString("\treturn s\n}\n\n")
 }
 
@@ -344,6 +365,32 @@ func writeHelpers(b *strings.Builder) {
 	b.WriteString("\tif err != nil {\n\t\tpanic(fmt.Sprintf(\"mcp input schema inference: %v\", err))\n\t}\n")
 	b.WriteString("\tif s.Properties == nil {\n\t\ts.Properties = map[string]*jsonschema.Schema{}\n\t}\n")
 	b.WriteString("\treturn s\n}\n\n")
+
+	b.WriteString("// relaxRawJSON walks an inferred schema and relaxes every json.RawMessage /\n")
+	b.WriteString("// []byte JSON-carrier property to a permissive (accept-anything) schema. The SDK\n")
+	b.WriteString("// infers such a Go field as an array of 0-255 bytes, which rejects the real JSON\n")
+	b.WriteString("// object/string the manager actually emits or accepts (QA finding F26); the rest\n")
+	b.WriteString("// of the inferred shape is preserved.\n")
+	b.WriteString("func relaxRawJSON(s *jsonschema.Schema) {\n")
+	b.WriteString("\tif s == nil {\n\t\treturn\n\t}\n")
+	b.WriteString("\tif isRawByteArray(s) {\n\t\t*s = jsonschema.Schema{}\n\t\treturn\n\t}\n")
+	b.WriteString("\tfor _, p := range s.Properties {\n\t\trelaxRawJSON(p)\n\t}\n")
+	b.WriteString("\trelaxRawJSON(s.Items)\n")
+	b.WriteString("\trelaxRawJSON(s.AdditionalProperties)\n")
+	b.WriteString("\tfor _, p := range s.PrefixItems {\n\t\trelaxRawJSON(p)\n\t}\n")
+	b.WriteString("}\n\n")
+
+	b.WriteString("// isRawByteArray reports whether a schema is the jsonschema-go signature of a Go\n")
+	b.WriteString("// []byte / json.RawMessage: an array (possibly nullable) whose items are bytes\n")
+	b.WriteString("// (integer, 0..255).\n")
+	b.WriteString("func isRawByteArray(s *jsonschema.Schema) bool {\n")
+	b.WriteString("\tisArray := s.Type == \"array\"\n")
+	b.WriteString("\tfor _, t := range s.Types {\n\t\tif t == \"array\" {\n\t\t\tisArray = true\n\t\t}\n\t}\n")
+	b.WriteString("\tif !isArray || s.Items == nil {\n\t\treturn false\n\t}\n")
+	b.WriteString("\tit := s.Items\n")
+	b.WriteString("\tif it.Type != \"integer\" {\n\t\treturn false\n\t}\n")
+	b.WriteString("\treturn it.Minimum != nil && *it.Minimum == 0 && it.Maximum != nil && *it.Maximum == 255\n")
+	b.WriteString("}\n\n")
 
 	b.WriteString("func mapManagerError(err error) error {\n")
 	b.WriteString("\tvar me *fwmanager.Error\n")

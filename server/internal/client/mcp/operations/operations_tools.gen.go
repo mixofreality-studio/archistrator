@@ -27,12 +27,12 @@ type Handler struct {
 // explicit human description and an explicit input JSON Schema (enum values +
 // meanings, REST-matching optionality) so an agentic consumer needs no source.
 func (h *Handler) Register(srv *mcp.Server) {
-	mcp.AddTool(srv, &mcp.Tool{Name: "operationsApplyDelinquencyPolicy", Description: "Apply the billing-delinquency policy to a customer (e.g. suspend or restore their operated systems) given the current delinquency context.", InputSchema: applyDelinquencyPolicyInputSchema()}, h.handleApplyDelinquencyPolicy)
-	mcp.AddTool(srv, &mcp.Tool{Name: "operationsDeployAfterConstruction", Description: "Deploy a desired-state change to an operated application once its construction completes. Returns the deployment outcome.", InputSchema: deployAfterConstructionInputSchema()}, h.handleDeployAfterConstruction)
-	mcp.AddTool(srv, &mcp.Tool{Name: "operationsQueryCostProjection", Description: "Project the operating cost of an operated application, optionally across scale/what-if points. requestID idempotently identifies the query. Read-only.", InputSchema: queryCostProjectionInputSchema()}, h.handleQueryCostProjection)
-	mcp.AddTool(srv, &mcp.Tool{Name: "operationsQueryOperatedSystemView", Description: "Return the live operated-system view (runtime status and topology) for an operated application. requestID idempotently identifies the query. Read-only.", InputSchema: queryOperatedSystemViewInputSchema()}, h.handleQueryOperatedSystemView)
-	mcp.AddTool(srv, &mcp.Tool{Name: "operationsReconcileOperatedState", Description: "Reconcile the actual operated state toward the desired state across the given scope (or everything when omitted). tickID idempotently identifies the reconcile tick.", InputSchema: reconcileOperatedStateInputSchema()}, h.handleReconcileOperatedState)
-	mcp.AddTool(srv, &mcp.Tool{Name: "operationsWithdrawSystem", Description: "Withdraw and tear down an operated application (identified by its deploy changeID) for the given reason. Returns the withdrawal outcome.", InputSchema: withdrawSystemInputSchema()}, h.handleWithdrawSystem)
+	mcp.AddTool(srv, &mcp.Tool{Name: "operationsApplyDelinquencyPolicy", Description: "Apply the billing-delinquency policy to a customer (e.g. suspend or restore their operated systems) given the current delinquency context.", InputSchema: applyDelinquencyPolicyInputSchema(), OutputSchema: applyDelinquencyPolicyOutputSchema()}, h.handleApplyDelinquencyPolicy)
+	mcp.AddTool(srv, &mcp.Tool{Name: "operationsDeployAfterConstruction", Description: "Deploy a desired-state change to an operated application once its construction completes. Returns the deployment outcome.", InputSchema: deployAfterConstructionInputSchema(), OutputSchema: deployAfterConstructionOutputSchema()}, h.handleDeployAfterConstruction)
+	mcp.AddTool(srv, &mcp.Tool{Name: "operationsQueryCostProjection", Description: "Project the operating cost of an operated application, optionally across scale/what-if points. requestID idempotently identifies the query. Read-only.", InputSchema: queryCostProjectionInputSchema(), OutputSchema: queryCostProjectionOutputSchema()}, h.handleQueryCostProjection)
+	mcp.AddTool(srv, &mcp.Tool{Name: "operationsQueryOperatedSystemView", Description: "Return the live operated-system view (runtime status and topology) for an operated application. requestID idempotently identifies the query. Read-only.", InputSchema: queryOperatedSystemViewInputSchema(), OutputSchema: queryOperatedSystemViewOutputSchema()}, h.handleQueryOperatedSystemView)
+	mcp.AddTool(srv, &mcp.Tool{Name: "operationsReconcileOperatedState", Description: "Reconcile the actual operated state toward the desired state across the given scope (or everything when omitted). tickID idempotently identifies the reconcile tick.", InputSchema: reconcileOperatedStateInputSchema(), OutputSchema: reconcileOperatedStateOutputSchema()}, h.handleReconcileOperatedState)
+	mcp.AddTool(srv, &mcp.Tool{Name: "operationsWithdrawSystem", Description: "Withdraw and tear down an operated application (identified by its deploy changeID) for the given reason. Returns the withdrawal outcome.", InputSchema: withdrawSystemInputSchema(), OutputSchema: withdrawSystemOutputSchema()}, h.handleWithdrawSystem)
 }
 
 type applyDelinquencyPolicyInput struct {
@@ -92,6 +92,7 @@ type withdrawSystemOutput struct {
 // applyDelinquencyPolicyInputSchema is the explicit MCP input schema for the ApplyDelinquencyPolicy operation.
 func applyDelinquencyPolicyInputSchema() *jsonschema.Schema {
 	s := objectSchema[applyDelinquencyPolicyInput]()
+	relaxRawJSON(s)
 	s.Required = []string{"customerID", "delinquencyContext"}
 	return s
 }
@@ -99,6 +100,7 @@ func applyDelinquencyPolicyInputSchema() *jsonschema.Schema {
 // deployAfterConstructionInputSchema is the explicit MCP input schema for the DeployAfterConstruction operation.
 func deployAfterConstructionInputSchema() *jsonschema.Schema {
 	s := objectSchema[deployAfterConstructionInput]()
+	relaxRawJSON(s)
 	s.Required = []string{"operatedAppID", "change"}
 	return s
 }
@@ -106,6 +108,7 @@ func deployAfterConstructionInputSchema() *jsonschema.Schema {
 // queryCostProjectionInputSchema is the explicit MCP input schema for the QueryCostProjection operation.
 func queryCostProjectionInputSchema() *jsonschema.Schema {
 	s := objectSchema[queryCostProjectionInput]()
+	relaxRawJSON(s)
 	s.Required = []string{"operatedAppID", "requestID"}
 	return s
 }
@@ -113,6 +116,7 @@ func queryCostProjectionInputSchema() *jsonschema.Schema {
 // queryOperatedSystemViewInputSchema is the explicit MCP input schema for the QueryOperatedSystemView operation.
 func queryOperatedSystemViewInputSchema() *jsonschema.Schema {
 	s := objectSchema[queryOperatedSystemViewInput]()
+	relaxRawJSON(s)
 	s.Required = []string{"operatedAppID", "requestID"}
 	return s
 }
@@ -120,6 +124,7 @@ func queryOperatedSystemViewInputSchema() *jsonschema.Schema {
 // reconcileOperatedStateInputSchema is the explicit MCP input schema for the ReconcileOperatedState operation.
 func reconcileOperatedStateInputSchema() *jsonschema.Schema {
 	s := objectSchema[reconcileOperatedStateInput]()
+	relaxRawJSON(s)
 	s.Required = []string{"tickID"}
 	return s
 }
@@ -127,7 +132,50 @@ func reconcileOperatedStateInputSchema() *jsonschema.Schema {
 // withdrawSystemInputSchema is the explicit MCP input schema for the WithdrawSystem operation.
 func withdrawSystemInputSchema() *jsonschema.Schema {
 	s := objectSchema[withdrawSystemInput]()
+	relaxRawJSON(s)
 	s.Required = []string{"operatedAppID", "changeID", "reason"}
+	return s
+}
+
+// applyDelinquencyPolicyOutputSchema is the explicit MCP output schema for the ApplyDelinquencyPolicy operation.
+func applyDelinquencyPolicyOutputSchema() *jsonschema.Schema {
+	s := objectSchema[applyDelinquencyPolicyOutput]()
+	relaxRawJSON(s)
+	return s
+}
+
+// deployAfterConstructionOutputSchema is the explicit MCP output schema for the DeployAfterConstruction operation.
+func deployAfterConstructionOutputSchema() *jsonschema.Schema {
+	s := objectSchema[deployAfterConstructionOutput]()
+	relaxRawJSON(s)
+	return s
+}
+
+// queryCostProjectionOutputSchema is the explicit MCP output schema for the QueryCostProjection operation.
+func queryCostProjectionOutputSchema() *jsonschema.Schema {
+	s := objectSchema[queryCostProjectionOutput]()
+	relaxRawJSON(s)
+	return s
+}
+
+// queryOperatedSystemViewOutputSchema is the explicit MCP output schema for the QueryOperatedSystemView operation.
+func queryOperatedSystemViewOutputSchema() *jsonschema.Schema {
+	s := objectSchema[queryOperatedSystemViewOutput]()
+	relaxRawJSON(s)
+	return s
+}
+
+// reconcileOperatedStateOutputSchema is the explicit MCP output schema for the ReconcileOperatedState operation.
+func reconcileOperatedStateOutputSchema() *jsonschema.Schema {
+	s := objectSchema[reconcileOperatedStateOutput]()
+	relaxRawJSON(s)
+	return s
+}
+
+// withdrawSystemOutputSchema is the explicit MCP output schema for the WithdrawSystem operation.
+func withdrawSystemOutputSchema() *jsonschema.Schema {
+	s := objectSchema[withdrawSystemOutput]()
+	relaxRawJSON(s)
 	return s
 }
 
@@ -223,6 +271,49 @@ func objectSchema[T any]() *jsonschema.Schema {
 		s.Properties = map[string]*jsonschema.Schema{}
 	}
 	return s
+}
+
+// relaxRawJSON walks an inferred schema and relaxes every json.RawMessage /
+// []byte JSON-carrier property to a permissive (accept-anything) schema. The SDK
+// infers such a Go field as an array of 0-255 bytes, which rejects the real JSON
+// object/string the manager actually emits or accepts (QA finding F26); the rest
+// of the inferred shape is preserved.
+func relaxRawJSON(s *jsonschema.Schema) {
+	if s == nil {
+		return
+	}
+	if isRawByteArray(s) {
+		*s = jsonschema.Schema{}
+		return
+	}
+	for _, p := range s.Properties {
+		relaxRawJSON(p)
+	}
+	relaxRawJSON(s.Items)
+	relaxRawJSON(s.AdditionalProperties)
+	for _, p := range s.PrefixItems {
+		relaxRawJSON(p)
+	}
+}
+
+// isRawByteArray reports whether a schema is the jsonschema-go signature of a Go
+// []byte / json.RawMessage: an array (possibly nullable) whose items are bytes
+// (integer, 0..255).
+func isRawByteArray(s *jsonschema.Schema) bool {
+	isArray := s.Type == "array"
+	for _, t := range s.Types {
+		if t == "array" {
+			isArray = true
+		}
+	}
+	if !isArray || s.Items == nil {
+		return false
+	}
+	it := s.Items
+	if it.Type != "integer" {
+		return false
+	}
+	return it.Minimum != nil && *it.Minimum == 0 && it.Maximum != nil && *it.Maximum == 255
 }
 
 func mapManagerError(err error) error {

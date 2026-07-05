@@ -25,12 +25,12 @@ type Handler struct {
 // explicit human description and an explicit input JSON Schema (enum values +
 // meanings, REST-matching optionality) so an agentic consumer needs no source.
 func (h *Handler) Register(srv *mcp.Server) {
-	mcp.AddTool(srv, &mcp.Tool{Name: "projectDesignAdvanceToConstruction", Description: "Advance the project from Project Design (phase 2) to Construction (phase 3), once the SDP has been committed. Returns the resulting phase plus any reason the advance was gated.", InputSchema: advanceToConstructionInputSchema()}, h.handleAdvanceToConstruction)
-	mcp.AddTool(srv, &mcp.Tool{Name: "projectDesignGetSessionState", Description: "Return the current draft/review session state for one Project-Design artifact (selected by kind): its stage, the latest AI draft, and any review feedback. Read-only.", InputSchema: getSessionStateInputSchema()}, h.handleGetSessionState)
-	mcp.AddTool(srv, &mcp.Tool{Name: "projectDesignRequestArtifactDraft", Description: "Kick off (or re-run) the AI drafting of one Project-Design artifact (selected by kind, e.g. the activity list, project network, or a solution option). Pass feedback to re-draft against review notes. Returns a handle to the asynchronous drafting session.", InputSchema: requestArtifactDraftInputSchema()}, h.handleRequestArtifactDraft)
-	mcp.AddTool(srv, &mcp.Tool{Name: "projectDesignRequestSDPCommit", Description: "Assemble the SDP Review (every solution option plus the risk model) for management sign-off. Returns a handle to the assembly session.", InputSchema: requestSDPCommitInputSchema()}, h.handleRequestSDPCommit)
-	mcp.AddTool(srv, &mcp.Tool{Name: "projectDesignSubmitReviewDecision", Description: "Record a review verdict (approve / reject / withdraw) on the current draft of a Project-Design artifact (selected by kind). Reject and withdraw should carry feedback; approve commits the artifact.", InputSchema: submitReviewDecisionInputSchema()}, h.handleSubmitReviewDecision)
-	mcp.AddTool(srv, &mcp.Tool{Name: "projectDesignSubmitSDPDecision", Description: "Record management's decision on the SDP Review: commit one solution option (pass its optionID) or reject all options. Pass feedback to record the rationale.", InputSchema: submitSDPDecisionInputSchema()}, h.handleSubmitSDPDecision)
+	mcp.AddTool(srv, &mcp.Tool{Name: "projectDesignAdvanceToConstruction", Description: "Advance the project from Project Design (phase 2) to Construction (phase 3), once the SDP has been committed. Returns the resulting phase plus any reason the advance was gated.", InputSchema: advanceToConstructionInputSchema(), OutputSchema: advanceToConstructionOutputSchema()}, h.handleAdvanceToConstruction)
+	mcp.AddTool(srv, &mcp.Tool{Name: "projectDesignGetSessionState", Description: "Return the current draft/review session state for one Project-Design artifact (selected by kind): its stage, the latest AI draft, and any review feedback. Read-only.", InputSchema: getSessionStateInputSchema(), OutputSchema: getSessionStateOutputSchema()}, h.handleGetSessionState)
+	mcp.AddTool(srv, &mcp.Tool{Name: "projectDesignRequestArtifactDraft", Description: "Kick off (or re-run) the AI drafting of one Project-Design artifact (selected by kind, e.g. the activity list, project network, or a solution option). Pass feedback to re-draft against review notes. Returns a handle to the asynchronous drafting session.", InputSchema: requestArtifactDraftInputSchema(), OutputSchema: requestArtifactDraftOutputSchema()}, h.handleRequestArtifactDraft)
+	mcp.AddTool(srv, &mcp.Tool{Name: "projectDesignRequestSDPCommit", Description: "Assemble the SDP Review (every solution option plus the risk model) for management sign-off. Returns a handle to the assembly session.", InputSchema: requestSDPCommitInputSchema(), OutputSchema: requestSDPCommitOutputSchema()}, h.handleRequestSDPCommit)
+	mcp.AddTool(srv, &mcp.Tool{Name: "projectDesignSubmitReviewDecision", Description: "Record a review verdict (approve / reject / withdraw) on the current draft of a Project-Design artifact (selected by kind). Reject and withdraw should carry feedback; approve commits the artifact.", InputSchema: submitReviewDecisionInputSchema(), OutputSchema: submitReviewDecisionOutputSchema()}, h.handleSubmitReviewDecision)
+	mcp.AddTool(srv, &mcp.Tool{Name: "projectDesignSubmitSDPDecision", Description: "Record management's decision on the SDP Review: commit one solution option (pass its optionID) or reject all options. Pass feedback to record the rationale.", InputSchema: submitSDPDecisionInputSchema(), OutputSchema: submitSDPDecisionOutputSchema()}, h.handleSubmitSDPDecision)
 }
 
 type advanceToConstructionInput struct {
@@ -89,6 +89,7 @@ type submitSDPDecisionOutput struct{}
 // advanceToConstructionInputSchema is the explicit MCP input schema for the AdvanceToConstruction operation.
 func advanceToConstructionInputSchema() *jsonschema.Schema {
 	s := objectSchema[advanceToConstructionInput]()
+	relaxRawJSON(s)
 	s.Required = []string{"projectID"}
 	return s
 }
@@ -96,6 +97,7 @@ func advanceToConstructionInputSchema() *jsonschema.Schema {
 // getSessionStateInputSchema is the explicit MCP input schema for the GetSessionState operation.
 func getSessionStateInputSchema() *jsonschema.Schema {
 	s := objectSchema[getSessionStateInput]()
+	relaxRawJSON(s)
 	s.Required = []string{"projectID", "kind"}
 	s.Properties["kind"] = enumSchemaArtifactKind()
 	return s
@@ -104,6 +106,7 @@ func getSessionStateInputSchema() *jsonschema.Schema {
 // requestArtifactDraftInputSchema is the explicit MCP input schema for the RequestArtifactDraft operation.
 func requestArtifactDraftInputSchema() *jsonschema.Schema {
 	s := objectSchema[requestArtifactDraftInput]()
+	relaxRawJSON(s)
 	s.Required = []string{"projectID", "kind"}
 	s.Properties["kind"] = enumSchemaArtifactKind()
 	return s
@@ -112,6 +115,7 @@ func requestArtifactDraftInputSchema() *jsonschema.Schema {
 // requestSDPCommitInputSchema is the explicit MCP input schema for the RequestSDPCommit operation.
 func requestSDPCommitInputSchema() *jsonschema.Schema {
 	s := objectSchema[requestSDPCommitInput]()
+	relaxRawJSON(s)
 	s.Required = []string{"projectID"}
 	return s
 }
@@ -119,6 +123,7 @@ func requestSDPCommitInputSchema() *jsonschema.Schema {
 // submitReviewDecisionInputSchema is the explicit MCP input schema for the SubmitReviewDecision operation.
 func submitReviewDecisionInputSchema() *jsonschema.Schema {
 	s := objectSchema[submitReviewDecisionInput]()
+	relaxRawJSON(s)
 	s.Required = []string{"projectID", "kind", "decision"}
 	s.Properties["kind"] = enumSchemaArtifactKind()
 	s.Properties["decision"] = enumSchemaReviewDecision()
@@ -128,8 +133,51 @@ func submitReviewDecisionInputSchema() *jsonschema.Schema {
 // submitSDPDecisionInputSchema is the explicit MCP input schema for the SubmitSDPDecision operation.
 func submitSDPDecisionInputSchema() *jsonschema.Schema {
 	s := objectSchema[submitSDPDecisionInput]()
+	relaxRawJSON(s)
 	s.Required = []string{"projectID", "decision"}
 	s.Properties["decision"] = enumSchemaSDPDecision()
+	return s
+}
+
+// advanceToConstructionOutputSchema is the explicit MCP output schema for the AdvanceToConstruction operation.
+func advanceToConstructionOutputSchema() *jsonschema.Schema {
+	s := objectSchema[advanceToConstructionOutput]()
+	relaxRawJSON(s)
+	return s
+}
+
+// getSessionStateOutputSchema is the explicit MCP output schema for the GetSessionState operation.
+func getSessionStateOutputSchema() *jsonschema.Schema {
+	s := objectSchema[getSessionStateOutput]()
+	relaxRawJSON(s)
+	return s
+}
+
+// requestArtifactDraftOutputSchema is the explicit MCP output schema for the RequestArtifactDraft operation.
+func requestArtifactDraftOutputSchema() *jsonschema.Schema {
+	s := objectSchema[requestArtifactDraftOutput]()
+	relaxRawJSON(s)
+	return s
+}
+
+// requestSDPCommitOutputSchema is the explicit MCP output schema for the RequestSDPCommit operation.
+func requestSDPCommitOutputSchema() *jsonschema.Schema {
+	s := objectSchema[requestSDPCommitOutput]()
+	relaxRawJSON(s)
+	return s
+}
+
+// submitReviewDecisionOutputSchema is the explicit MCP output schema for the SubmitReviewDecision operation.
+func submitReviewDecisionOutputSchema() *jsonschema.Schema {
+	s := objectSchema[submitReviewDecisionOutput]()
+	relaxRawJSON(s)
+	return s
+}
+
+// submitSDPDecisionOutputSchema is the explicit MCP output schema for the SubmitSDPDecision operation.
+func submitSDPDecisionOutputSchema() *jsonschema.Schema {
+	s := objectSchema[submitSDPDecisionOutput]()
+	relaxRawJSON(s)
 	return s
 }
 
@@ -250,6 +298,49 @@ func objectSchema[T any]() *jsonschema.Schema {
 		s.Properties = map[string]*jsonschema.Schema{}
 	}
 	return s
+}
+
+// relaxRawJSON walks an inferred schema and relaxes every json.RawMessage /
+// []byte JSON-carrier property to a permissive (accept-anything) schema. The SDK
+// infers such a Go field as an array of 0-255 bytes, which rejects the real JSON
+// object/string the manager actually emits or accepts (QA finding F26); the rest
+// of the inferred shape is preserved.
+func relaxRawJSON(s *jsonschema.Schema) {
+	if s == nil {
+		return
+	}
+	if isRawByteArray(s) {
+		*s = jsonschema.Schema{}
+		return
+	}
+	for _, p := range s.Properties {
+		relaxRawJSON(p)
+	}
+	relaxRawJSON(s.Items)
+	relaxRawJSON(s.AdditionalProperties)
+	for _, p := range s.PrefixItems {
+		relaxRawJSON(p)
+	}
+}
+
+// isRawByteArray reports whether a schema is the jsonschema-go signature of a Go
+// []byte / json.RawMessage: an array (possibly nullable) whose items are bytes
+// (integer, 0..255).
+func isRawByteArray(s *jsonschema.Schema) bool {
+	isArray := s.Type == "array"
+	for _, t := range s.Types {
+		if t == "array" {
+			isArray = true
+		}
+	}
+	if !isArray || s.Items == nil {
+		return false
+	}
+	it := s.Items
+	if it.Type != "integer" {
+		return false
+	}
+	return it.Minimum != nil && *it.Minimum == 0 && it.Maximum != nil && *it.Maximum == 255
 }
 
 func mapManagerError(err error) error {

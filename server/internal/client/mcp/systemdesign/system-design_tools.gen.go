@@ -25,15 +25,15 @@ type Handler struct {
 // explicit human description and an explicit input JSON Schema (enum values +
 // meanings, REST-matching optionality) so an agentic consumer needs no source.
 func (h *Handler) Register(srv *mcp.Server) {
-	mcp.AddTool(srv, &mcp.Tool{Name: "systemDesignAdvancePhase", Description: "Advance the project from System Design (phase 1) to Project Design (phase 2). Requires every phase-1 artifact to be committed and reviewed; returns the resulting phase plus any reason the advance was gated.", InputSchema: advancePhaseInputSchema()}, h.handleAdvancePhase)
-	mcp.AddTool(srv, &mcp.Tool{Name: "systemDesignCreateProject", Description: "Create a new archistrator project owned by the given owner scope, with the given display name, and return its generated project ID.", InputSchema: createProjectInputSchema()}, h.handleCreateProject)
-	mcp.AddTool(srv, &mcp.Tool{Name: "systemDesignGetProject", Description: "Return the project head-state: its ID, current Method phase, name, owner, and high-level progress.", InputSchema: getProjectInputSchema()}, h.handleGetProject)
-	mcp.AddTool(srv, &mcp.Tool{Name: "systemDesignGetSessionState", Description: "Return the current draft/review session state for one System-Design artifact (selected by kind): its stage, the latest AI draft, and any review feedback. Read-only.", InputSchema: getSessionStateInputSchema()}, h.handleGetSessionState)
-	mcp.AddTool(srv, &mcp.Tool{Name: "systemDesignListProjects", Description: "List every project visible to the given owner scope, most-recently-updated first.", InputSchema: listProjectsInputSchema()}, h.handleListProjects)
-	mcp.AddTool(srv, &mcp.Tool{Name: "systemDesignRequestArtifactDraft", Description: "Kick off (or re-run) the AI drafting of one System-Design artifact (selected by kind, e.g. the mission, glossary, or volatilities). Pass feedback to re-draft an existing artifact against review notes. Returns a handle to the asynchronous drafting session.", InputSchema: requestArtifactDraftInputSchema()}, h.handleRequestArtifactDraft)
-	mcp.AddTool(srv, &mcp.Tool{Name: "systemDesignSetResearchInput", Description: "Attach or replace the raw research corpus the architect distils the mission, glossary, and volatilities from. Returns the new project state version.", InputSchema: setResearchInputInputSchema()}, h.handleSetResearchInput)
-	mcp.AddTool(srv, &mcp.Tool{Name: "systemDesignStartSystemDesign", Description: "Begin the System-Design phase for a project, seeding the artifact spine (mission first). Returns a handle to the kickoff session.", InputSchema: startSystemDesignInputSchema()}, h.handleStartSystemDesign)
-	mcp.AddTool(srv, &mcp.Tool{Name: "systemDesignSubmitReviewDecision", Description: "Record a review verdict (approve / reject / withdraw) on the current draft of a System-Design artifact (selected by kind). Reject and withdraw should carry feedback; approve commits the artifact and unblocks its successors.", InputSchema: submitReviewDecisionInputSchema()}, h.handleSubmitReviewDecision)
+	mcp.AddTool(srv, &mcp.Tool{Name: "systemDesignAdvancePhase", Description: "Advance the project from System Design (phase 1) to Project Design (phase 2). Requires every phase-1 artifact to be committed and reviewed; returns the resulting phase plus any reason the advance was gated.", InputSchema: advancePhaseInputSchema(), OutputSchema: advancePhaseOutputSchema()}, h.handleAdvancePhase)
+	mcp.AddTool(srv, &mcp.Tool{Name: "systemDesignCreateProject", Description: "Create a new archistrator project owned by the given owner scope, with the given display name, and return its generated project ID.", InputSchema: createProjectInputSchema(), OutputSchema: createProjectOutputSchema()}, h.handleCreateProject)
+	mcp.AddTool(srv, &mcp.Tool{Name: "systemDesignGetProject", Description: "Return the project head-state: its ID, current Method phase, name, owner, and high-level progress.", InputSchema: getProjectInputSchema(), OutputSchema: getProjectOutputSchema()}, h.handleGetProject)
+	mcp.AddTool(srv, &mcp.Tool{Name: "systemDesignGetSessionState", Description: "Return the current draft/review session state for one System-Design artifact (selected by kind): its stage, the latest AI draft, and any review feedback. Read-only.", InputSchema: getSessionStateInputSchema(), OutputSchema: getSessionStateOutputSchema()}, h.handleGetSessionState)
+	mcp.AddTool(srv, &mcp.Tool{Name: "systemDesignListProjects", Description: "List every project visible to the given owner scope, most-recently-updated first.", InputSchema: listProjectsInputSchema(), OutputSchema: listProjectsOutputSchema()}, h.handleListProjects)
+	mcp.AddTool(srv, &mcp.Tool{Name: "systemDesignRequestArtifactDraft", Description: "Kick off (or re-run) the AI drafting of one System-Design artifact (selected by kind, e.g. the mission, glossary, or volatilities). Pass feedback to re-draft an existing artifact against review notes. Returns a handle to the asynchronous drafting session.", InputSchema: requestArtifactDraftInputSchema(), OutputSchema: requestArtifactDraftOutputSchema()}, h.handleRequestArtifactDraft)
+	mcp.AddTool(srv, &mcp.Tool{Name: "systemDesignSetResearchInput", Description: "Attach or replace the raw research corpus the architect distils the mission, glossary, and volatilities from. Returns the new project state version.", InputSchema: setResearchInputInputSchema(), OutputSchema: setResearchInputOutputSchema()}, h.handleSetResearchInput)
+	mcp.AddTool(srv, &mcp.Tool{Name: "systemDesignStartSystemDesign", Description: "Begin the System-Design phase for a project, seeding the artifact spine (mission first). Returns a handle to the kickoff session.", InputSchema: startSystemDesignInputSchema(), OutputSchema: startSystemDesignOutputSchema()}, h.handleStartSystemDesign)
+	mcp.AddTool(srv, &mcp.Tool{Name: "systemDesignSubmitReviewDecision", Description: "Record a review verdict (approve / reject / withdraw) on the current draft of a System-Design artifact (selected by kind). Reject and withdraw should carry feedback; approve commits the artifact and unblocks its successors.", InputSchema: submitReviewDecisionInputSchema(), OutputSchema: submitReviewDecisionOutputSchema()}, h.handleSubmitReviewDecision)
 }
 
 type advancePhaseInput struct {
@@ -117,6 +117,7 @@ type submitReviewDecisionOutput struct{}
 // advancePhaseInputSchema is the explicit MCP input schema for the AdvancePhase operation.
 func advancePhaseInputSchema() *jsonschema.Schema {
 	s := objectSchema[advancePhaseInput]()
+	relaxRawJSON(s)
 	s.Required = []string{"projectID"}
 	return s
 }
@@ -124,6 +125,7 @@ func advancePhaseInputSchema() *jsonschema.Schema {
 // createProjectInputSchema is the explicit MCP input schema for the CreateProject operation.
 func createProjectInputSchema() *jsonschema.Schema {
 	s := objectSchema[createProjectInput]()
+	relaxRawJSON(s)
 	s.Required = []string{"owner", "name"}
 	return s
 }
@@ -131,6 +133,7 @@ func createProjectInputSchema() *jsonschema.Schema {
 // getProjectInputSchema is the explicit MCP input schema for the GetProject operation.
 func getProjectInputSchema() *jsonschema.Schema {
 	s := objectSchema[getProjectInput]()
+	relaxRawJSON(s)
 	s.Required = []string{"projectID"}
 	return s
 }
@@ -138,6 +141,7 @@ func getProjectInputSchema() *jsonschema.Schema {
 // getSessionStateInputSchema is the explicit MCP input schema for the GetSessionState operation.
 func getSessionStateInputSchema() *jsonschema.Schema {
 	s := objectSchema[getSessionStateInput]()
+	relaxRawJSON(s)
 	s.Required = []string{"projectID", "kind"}
 	s.Properties["kind"] = enumSchemaArtifactKind()
 	return s
@@ -146,6 +150,7 @@ func getSessionStateInputSchema() *jsonschema.Schema {
 // listProjectsInputSchema is the explicit MCP input schema for the ListProjects operation.
 func listProjectsInputSchema() *jsonschema.Schema {
 	s := objectSchema[listProjectsInput]()
+	relaxRawJSON(s)
 	s.Required = []string{"owner"}
 	return s
 }
@@ -153,6 +158,7 @@ func listProjectsInputSchema() *jsonschema.Schema {
 // requestArtifactDraftInputSchema is the explicit MCP input schema for the RequestArtifactDraft operation.
 func requestArtifactDraftInputSchema() *jsonschema.Schema {
 	s := objectSchema[requestArtifactDraftInput]()
+	relaxRawJSON(s)
 	s.Required = []string{"projectID", "kind"}
 	s.Properties["kind"] = enumSchemaArtifactKind()
 	return s
@@ -161,6 +167,7 @@ func requestArtifactDraftInputSchema() *jsonschema.Schema {
 // setResearchInputInputSchema is the explicit MCP input schema for the SetResearchInput operation.
 func setResearchInputInputSchema() *jsonschema.Schema {
 	s := objectSchema[setResearchInputInput]()
+	relaxRawJSON(s)
 	s.Required = []string{"projectID", "research"}
 	return s
 }
@@ -168,6 +175,7 @@ func setResearchInputInputSchema() *jsonschema.Schema {
 // startSystemDesignInputSchema is the explicit MCP input schema for the StartSystemDesign operation.
 func startSystemDesignInputSchema() *jsonschema.Schema {
 	s := objectSchema[startSystemDesignInput]()
+	relaxRawJSON(s)
 	s.Required = []string{"projectID"}
 	return s
 }
@@ -175,9 +183,73 @@ func startSystemDesignInputSchema() *jsonschema.Schema {
 // submitReviewDecisionInputSchema is the explicit MCP input schema for the SubmitReviewDecision operation.
 func submitReviewDecisionInputSchema() *jsonschema.Schema {
 	s := objectSchema[submitReviewDecisionInput]()
+	relaxRawJSON(s)
 	s.Required = []string{"projectID", "kind", "decision"}
 	s.Properties["kind"] = enumSchemaArtifactKind()
 	s.Properties["decision"] = enumSchemaReviewDecision()
+	return s
+}
+
+// advancePhaseOutputSchema is the explicit MCP output schema for the AdvancePhase operation.
+func advancePhaseOutputSchema() *jsonschema.Schema {
+	s := objectSchema[advancePhaseOutput]()
+	relaxRawJSON(s)
+	return s
+}
+
+// createProjectOutputSchema is the explicit MCP output schema for the CreateProject operation.
+func createProjectOutputSchema() *jsonschema.Schema {
+	s := objectSchema[createProjectOutput]()
+	relaxRawJSON(s)
+	return s
+}
+
+// getProjectOutputSchema is the explicit MCP output schema for the GetProject operation.
+func getProjectOutputSchema() *jsonschema.Schema {
+	s := objectSchema[getProjectOutput]()
+	relaxRawJSON(s)
+	return s
+}
+
+// getSessionStateOutputSchema is the explicit MCP output schema for the GetSessionState operation.
+func getSessionStateOutputSchema() *jsonschema.Schema {
+	s := objectSchema[getSessionStateOutput]()
+	relaxRawJSON(s)
+	return s
+}
+
+// listProjectsOutputSchema is the explicit MCP output schema for the ListProjects operation.
+func listProjectsOutputSchema() *jsonschema.Schema {
+	s := objectSchema[listProjectsOutput]()
+	relaxRawJSON(s)
+	return s
+}
+
+// requestArtifactDraftOutputSchema is the explicit MCP output schema for the RequestArtifactDraft operation.
+func requestArtifactDraftOutputSchema() *jsonschema.Schema {
+	s := objectSchema[requestArtifactDraftOutput]()
+	relaxRawJSON(s)
+	return s
+}
+
+// setResearchInputOutputSchema is the explicit MCP output schema for the SetResearchInput operation.
+func setResearchInputOutputSchema() *jsonschema.Schema {
+	s := objectSchema[setResearchInputOutput]()
+	relaxRawJSON(s)
+	return s
+}
+
+// startSystemDesignOutputSchema is the explicit MCP output schema for the StartSystemDesign operation.
+func startSystemDesignOutputSchema() *jsonschema.Schema {
+	s := objectSchema[startSystemDesignOutput]()
+	relaxRawJSON(s)
+	return s
+}
+
+// submitReviewDecisionOutputSchema is the explicit MCP output schema for the SubmitReviewDecision operation.
+func submitReviewDecisionOutputSchema() *jsonschema.Schema {
+	s := objectSchema[submitReviewDecisionOutput]()
+	relaxRawJSON(s)
 	return s
 }
 
@@ -330,6 +402,49 @@ func objectSchema[T any]() *jsonschema.Schema {
 		s.Properties = map[string]*jsonschema.Schema{}
 	}
 	return s
+}
+
+// relaxRawJSON walks an inferred schema and relaxes every json.RawMessage /
+// []byte JSON-carrier property to a permissive (accept-anything) schema. The SDK
+// infers such a Go field as an array of 0-255 bytes, which rejects the real JSON
+// object/string the manager actually emits or accepts (QA finding F26); the rest
+// of the inferred shape is preserved.
+func relaxRawJSON(s *jsonschema.Schema) {
+	if s == nil {
+		return
+	}
+	if isRawByteArray(s) {
+		*s = jsonschema.Schema{}
+		return
+	}
+	for _, p := range s.Properties {
+		relaxRawJSON(p)
+	}
+	relaxRawJSON(s.Items)
+	relaxRawJSON(s.AdditionalProperties)
+	for _, p := range s.PrefixItems {
+		relaxRawJSON(p)
+	}
+}
+
+// isRawByteArray reports whether a schema is the jsonschema-go signature of a Go
+// []byte / json.RawMessage: an array (possibly nullable) whose items are bytes
+// (integer, 0..255).
+func isRawByteArray(s *jsonschema.Schema) bool {
+	isArray := s.Type == "array"
+	for _, t := range s.Types {
+		if t == "array" {
+			isArray = true
+		}
+	}
+	if !isArray || s.Items == nil {
+		return false
+	}
+	it := s.Items
+	if it.Type != "integer" {
+		return false
+	}
+	return it.Minimum != nil && *it.Minimum == 0 && it.Maximum != nil && *it.Maximum == 255
 }
 
 func mapManagerError(err error) error {

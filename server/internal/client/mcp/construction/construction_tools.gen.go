@@ -25,13 +25,13 @@ type Handler struct {
 // explicit human description and an explicit input JSON Schema (enum values +
 // meanings, REST-matching optionality) so an agentic consumer needs no source.
 func (h *Handler) Register(srv *mcp.Server) {
-	mcp.AddTool(srv, &mcp.Tool{Name: "constructionExecuteNextActivity", Description: "Advance construction by one tick: dispatch the next ready activity (or continue an in-flight one) along the project network. tickID idempotently identifies this pump step.", InputSchema: executeNextActivityInputSchema()}, h.handleExecuteNextActivity)
-	mcp.AddTool(srv, &mcp.Tool{Name: "constructionGetSessionState", Description: "Return construction progress. With no activityID, the whole-network state; with an activityID, that one activity's detailed lifecycle, build, and review state. Read-only.", InputSchema: getSessionStateInputSchema()}, h.handleGetSessionState)
-	mcp.AddTool(srv, &mcp.Tool{Name: "constructionOverrideActivity", Description: "Manually override one activity's state (e.g. force-complete, reopen, or reassign) — an operator escape hatch outside the normal construction pump.", InputSchema: overrideActivityInputSchema()}, h.handleOverrideActivity)
-	mcp.AddTool(srv, &mcp.Tool{Name: "constructionPauseProject", Description: "Pause the construction pump for a project so no further activities dispatch until it is resumed. reason is recorded for the audit trail.", InputSchema: pauseProjectInputSchema()}, h.handlePauseProject)
-	mcp.AddTool(srv, &mcp.Tool{Name: "constructionRunReplanSweep", Description: "Run the re-plan sweep that detects scope or variance drift and re-derives the project network. With no projectID it sweeps every active project; tickID idempotently identifies the sweep.", InputSchema: runReplanSweepInputSchema()}, h.handleRunReplanSweep)
-	mcp.AddTool(srv, &mcp.Tool{Name: "constructionSubmitPhaseDecision", Description: "Record a review verdict (approve or send-back) for one construction phase of an activity. Send-back should carry feedback; approve advances the activity's lifecycle.", InputSchema: submitPhaseDecisionInputSchema()}, h.handleSubmitPhaseDecision)
-	mcp.AddTool(srv, &mcp.Tool{Name: "constructionUpdateReviewPolicy", Description: "Replace the construction review-routing policy (which reviewers gate which produced artifacts) for a project.", InputSchema: updateReviewPolicyInputSchema()}, h.handleUpdateReviewPolicy)
+	mcp.AddTool(srv, &mcp.Tool{Name: "constructionExecuteNextActivity", Description: "Advance construction by one tick: dispatch the next ready activity (or continue an in-flight one) along the project network. tickID idempotently identifies this pump step.", InputSchema: executeNextActivityInputSchema(), OutputSchema: executeNextActivityOutputSchema()}, h.handleExecuteNextActivity)
+	mcp.AddTool(srv, &mcp.Tool{Name: "constructionGetSessionState", Description: "Return construction progress. With no activityID, the whole-network state; with an activityID, that one activity's detailed lifecycle, build, and review state. Read-only.", InputSchema: getSessionStateInputSchema(), OutputSchema: getSessionStateOutputSchema()}, h.handleGetSessionState)
+	mcp.AddTool(srv, &mcp.Tool{Name: "constructionOverrideActivity", Description: "Manually override one activity's state (e.g. force-complete, reopen, or reassign) — an operator escape hatch outside the normal construction pump.", InputSchema: overrideActivityInputSchema(), OutputSchema: overrideActivityOutputSchema()}, h.handleOverrideActivity)
+	mcp.AddTool(srv, &mcp.Tool{Name: "constructionPauseProject", Description: "Pause the construction pump for a project so no further activities dispatch until it is resumed. reason is recorded for the audit trail.", InputSchema: pauseProjectInputSchema(), OutputSchema: pauseProjectOutputSchema()}, h.handlePauseProject)
+	mcp.AddTool(srv, &mcp.Tool{Name: "constructionRunReplanSweep", Description: "Run the re-plan sweep that detects scope or variance drift and re-derives the project network. With no projectID it sweeps every active project; tickID idempotently identifies the sweep.", InputSchema: runReplanSweepInputSchema(), OutputSchema: runReplanSweepOutputSchema()}, h.handleRunReplanSweep)
+	mcp.AddTool(srv, &mcp.Tool{Name: "constructionSubmitPhaseDecision", Description: "Record a review verdict (approve or send-back) for one construction phase of an activity. Send-back should carry feedback; approve advances the activity's lifecycle.", InputSchema: submitPhaseDecisionInputSchema(), OutputSchema: submitPhaseDecisionOutputSchema()}, h.handleSubmitPhaseDecision)
+	mcp.AddTool(srv, &mcp.Tool{Name: "constructionUpdateReviewPolicy", Description: "Replace the construction review-routing policy (which reviewers gate which produced artifacts) for a project.", InputSchema: updateReviewPolicyInputSchema(), OutputSchema: updateReviewPolicyOutputSchema()}, h.handleUpdateReviewPolicy)
 }
 
 type executeNextActivityInput struct {
@@ -96,6 +96,7 @@ type updateReviewPolicyOutput struct{}
 // executeNextActivityInputSchema is the explicit MCP input schema for the ExecuteNextActivity operation.
 func executeNextActivityInputSchema() *jsonschema.Schema {
 	s := objectSchema[executeNextActivityInput]()
+	relaxRawJSON(s)
 	s.Required = []string{"projectID", "tickID"}
 	return s
 }
@@ -103,6 +104,7 @@ func executeNextActivityInputSchema() *jsonschema.Schema {
 // getSessionStateInputSchema is the explicit MCP input schema for the GetSessionState operation.
 func getSessionStateInputSchema() *jsonschema.Schema {
 	s := objectSchema[getSessionStateInput]()
+	relaxRawJSON(s)
 	s.Required = []string{"projectID"}
 	return s
 }
@@ -110,6 +112,7 @@ func getSessionStateInputSchema() *jsonschema.Schema {
 // overrideActivityInputSchema is the explicit MCP input schema for the OverrideActivity operation.
 func overrideActivityInputSchema() *jsonschema.Schema {
 	s := objectSchema[overrideActivityInput]()
+	relaxRawJSON(s)
 	s.Required = []string{"projectID", "activityID", "override"}
 	return s
 }
@@ -117,6 +120,7 @@ func overrideActivityInputSchema() *jsonschema.Schema {
 // pauseProjectInputSchema is the explicit MCP input schema for the PauseProject operation.
 func pauseProjectInputSchema() *jsonschema.Schema {
 	s := objectSchema[pauseProjectInput]()
+	relaxRawJSON(s)
 	s.Required = []string{"projectID", "reason"}
 	return s
 }
@@ -124,6 +128,7 @@ func pauseProjectInputSchema() *jsonschema.Schema {
 // runReplanSweepInputSchema is the explicit MCP input schema for the RunReplanSweep operation.
 func runReplanSweepInputSchema() *jsonschema.Schema {
 	s := objectSchema[runReplanSweepInput]()
+	relaxRawJSON(s)
 	s.Required = []string{"tickID"}
 	return s
 }
@@ -131,6 +136,7 @@ func runReplanSweepInputSchema() *jsonschema.Schema {
 // submitPhaseDecisionInputSchema is the explicit MCP input schema for the SubmitPhaseDecision operation.
 func submitPhaseDecisionInputSchema() *jsonschema.Schema {
 	s := objectSchema[submitPhaseDecisionInput]()
+	relaxRawJSON(s)
 	s.Required = []string{"projectID", "activityID", "phase", "decision"}
 	s.Properties["decision"] = enumSchemaPhaseDecision()
 	return s
@@ -139,7 +145,57 @@ func submitPhaseDecisionInputSchema() *jsonschema.Schema {
 // updateReviewPolicyInputSchema is the explicit MCP input schema for the UpdateReviewPolicy operation.
 func updateReviewPolicyInputSchema() *jsonschema.Schema {
 	s := objectSchema[updateReviewPolicyInput]()
+	relaxRawJSON(s)
 	s.Required = []string{"projectID", "policy"}
+	return s
+}
+
+// executeNextActivityOutputSchema is the explicit MCP output schema for the ExecuteNextActivity operation.
+func executeNextActivityOutputSchema() *jsonschema.Schema {
+	s := objectSchema[executeNextActivityOutput]()
+	relaxRawJSON(s)
+	return s
+}
+
+// getSessionStateOutputSchema is the explicit MCP output schema for the GetSessionState operation.
+func getSessionStateOutputSchema() *jsonschema.Schema {
+	s := objectSchema[getSessionStateOutput]()
+	relaxRawJSON(s)
+	return s
+}
+
+// overrideActivityOutputSchema is the explicit MCP output schema for the OverrideActivity operation.
+func overrideActivityOutputSchema() *jsonschema.Schema {
+	s := objectSchema[overrideActivityOutput]()
+	relaxRawJSON(s)
+	return s
+}
+
+// pauseProjectOutputSchema is the explicit MCP output schema for the PauseProject operation.
+func pauseProjectOutputSchema() *jsonschema.Schema {
+	s := objectSchema[pauseProjectOutput]()
+	relaxRawJSON(s)
+	return s
+}
+
+// runReplanSweepOutputSchema is the explicit MCP output schema for the RunReplanSweep operation.
+func runReplanSweepOutputSchema() *jsonschema.Schema {
+	s := objectSchema[runReplanSweepOutput]()
+	relaxRawJSON(s)
+	return s
+}
+
+// submitPhaseDecisionOutputSchema is the explicit MCP output schema for the SubmitPhaseDecision operation.
+func submitPhaseDecisionOutputSchema() *jsonschema.Schema {
+	s := objectSchema[submitPhaseDecisionOutput]()
+	relaxRawJSON(s)
+	return s
+}
+
+// updateReviewPolicyOutputSchema is the explicit MCP output schema for the UpdateReviewPolicy operation.
+func updateReviewPolicyOutputSchema() *jsonschema.Schema {
+	s := objectSchema[updateReviewPolicyOutput]()
+	relaxRawJSON(s)
 	return s
 }
 
@@ -251,6 +307,49 @@ func objectSchema[T any]() *jsonschema.Schema {
 		s.Properties = map[string]*jsonschema.Schema{}
 	}
 	return s
+}
+
+// relaxRawJSON walks an inferred schema and relaxes every json.RawMessage /
+// []byte JSON-carrier property to a permissive (accept-anything) schema. The SDK
+// infers such a Go field as an array of 0-255 bytes, which rejects the real JSON
+// object/string the manager actually emits or accepts (QA finding F26); the rest
+// of the inferred shape is preserved.
+func relaxRawJSON(s *jsonschema.Schema) {
+	if s == nil {
+		return
+	}
+	if isRawByteArray(s) {
+		*s = jsonschema.Schema{}
+		return
+	}
+	for _, p := range s.Properties {
+		relaxRawJSON(p)
+	}
+	relaxRawJSON(s.Items)
+	relaxRawJSON(s.AdditionalProperties)
+	for _, p := range s.PrefixItems {
+		relaxRawJSON(p)
+	}
+}
+
+// isRawByteArray reports whether a schema is the jsonschema-go signature of a Go
+// []byte / json.RawMessage: an array (possibly nullable) whose items are bytes
+// (integer, 0..255).
+func isRawByteArray(s *jsonschema.Schema) bool {
+	isArray := s.Type == "array"
+	for _, t := range s.Types {
+		if t == "array" {
+			isArray = true
+		}
+	}
+	if !isArray || s.Items == nil {
+		return false
+	}
+	it := s.Items
+	if it.Type != "integer" {
+		return false
+	}
+	return it.Minimum != nil && *it.Minimum == 0 && it.Maximum != nil && *it.Maximum == 255
 }
 
 func mapManagerError(err error) error {

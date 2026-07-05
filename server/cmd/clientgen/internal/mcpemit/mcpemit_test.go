@@ -92,6 +92,26 @@ func TestGenerate_RequiredMatchesNonPointerParams(t *testing.T) {
 	}
 }
 
+func TestGenerate_EmitsExplicitRelaxedOutputSchema(t *testing.T) {
+	src := generate(t, func(string) string { return "doc" })
+	// Every tool wires an explicit OutputSchema builder...
+	if !strings.Contains(src, "OutputSchema: requestArtifactDraftOutputSchema()") {
+		t.Errorf("tool registration missing explicit OutputSchema wiring:\n%s", src)
+	}
+	if !strings.Contains(src, "func requestArtifactDraftOutputSchema() *jsonschema.Schema") {
+		t.Errorf("missing output schema builder")
+	}
+	// ...and the builder relaxes json.RawMessage/[]byte carriers (F26).
+	if !strings.Contains(src, "func relaxRawJSON(s *jsonschema.Schema)") ||
+		!strings.Contains(src, "func isRawByteArray(s *jsonschema.Schema) bool") {
+		t.Errorf("missing relaxRawJSON / isRawByteArray helpers:\n%s", src)
+	}
+	// The relaxer also runs on inputs (e.g. []byte params like renderedDesiredState).
+	if strings.Count(src, "relaxRawJSON(s)") < 2 {
+		t.Errorf("relaxRawJSON should run on both input and output schema builders")
+	}
+}
+
 func TestGenerate_MissingDocIsAnError(t *testing.T) {
 	_, err := Generate([]byte(sampleEntry), Options{
 		Package:       "sample",
