@@ -47,6 +47,10 @@ export const UI_IDENTIFIERS = {
     tocRow: (kind: string) => `toc-row-${kind}`,
     OPEN_SYSTEM_DESIGN: 'open-system-design',
     OPEN_PROJECT_DESIGN: 'open-project-design',
+    // Ghost-project recovery affordance (repo adopted but head-state init failed).
+    GHOST_PANEL: 'home-base-ghost-panel',
+    GHOST_FINISH_SETUP: 'home-base-ghost-finish-setup',
+    GHOST_BACK: 'home-base-ghost-back',
   },
   DesignWizard: {
     SCREEN: 'design-wizard-screen',
@@ -88,6 +92,8 @@ export const UI_IDENTIFIERS = {
   GatePanel: {
     ROOT: 'gate-panel',
     APPROVE: 'gate-approve',
+    APPROVE_CONFIRM: 'gate-approve-confirm',
+    APPROVE_CANCEL: 'gate-approve-cancel',
     SENDBACK: 'gate-sendback',
     WITHDRAW: 'gate-withdraw',
     FINDINGS: 'findings',

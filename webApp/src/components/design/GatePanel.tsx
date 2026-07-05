@@ -44,9 +44,21 @@ export function GatePanel({
 }): ReactNode {
   const t = useTokens();
   const [showFindings, setShowFindings] = useState(true);
+  // Two-step approve when notes are pending: accumulated comments ride the next
+  // "Send back", so approving discards them. We make that loss explicit (never
+  // block it) by flipping the primary button into an inline confirm strip.
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
   const errors = findings.filter((f) => f.severity === 'error').length;
   const warnings = findings.filter((f) => f.severity === 'warning').length;
   const oks = findings.length - errors - warnings;
+
+  const onApproveClick = (): void => {
+    if (commentCount > 0 && !confirmDiscard) {
+      setConfirmDiscard(true);
+      return;
+    }
+    onApprove();
+  };
 
   return (
     <Paper data-testid={UI_IDENTIFIERS.GatePanel.ROOT} sx={{ p: 0, overflow: 'hidden' }}>
@@ -130,38 +142,74 @@ export function GatePanel({
           </Typography>
         </Box>
         <Box sx={{ flexGrow: 1 }} />
-        <Button
-          color="inherit"
-          data-testid={UI_IDENTIFIERS.GatePanel.WITHDRAW}
-          disabled={pending}
-          startIcon={<UndoIcon />}
-          sx={{ color: t.muted }}
-          variant="text"
-          onClick={onWithdraw}
-        >
-          Withdraw
-        </Button>
-        <Button
-          color="inherit"
-          data-testid={UI_IDENTIFIERS.GatePanel.SENDBACK}
-          disabled={pending || commentCount === 0}
-          startIcon={<ReplayIcon />}
-          sx={{ color: t.ink, borderColor: t.line }}
-          variant="outlined"
-          onClick={onSendBack}
-        >
-          Send back
-        </Button>
-        <Button
-          color="primary"
-          data-testid={UI_IDENTIFIERS.GatePanel.APPROVE}
-          disabled={pending}
-          startIcon={<CheckIcon />}
-          variant="contained"
-          onClick={onApprove}
-        >
-          Approve &amp; continue
-        </Button>
+        {confirmDiscard ? (
+          <Box
+            data-testid={UI_IDENTIFIERS.GatePanel.APPROVE_CONFIRM}
+            sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}
+          >
+            <Typography sx={{ fontSize: 13, color: t.awaitingFg, fontWeight: 600 }}>
+              {commentCount} note{commentCount === 1 ? '' : 's'} will be discarded on approve — send
+              back first to keep {commentCount === 1 ? 'it' : 'them'}.
+            </Typography>
+            <Button
+              color="inherit"
+              data-testid={UI_IDENTIFIERS.GatePanel.APPROVE_CANCEL}
+              disabled={pending}
+              sx={{ color: t.muted }}
+              variant="text"
+              onClick={() => {
+                setConfirmDiscard(false);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              color="primary"
+              data-testid={UI_IDENTIFIERS.GatePanel.APPROVE}
+              disabled={pending}
+              startIcon={<CheckIcon />}
+              variant="contained"
+              onClick={onApproveClick}
+            >
+              Approve anyway
+            </Button>
+          </Box>
+        ) : (
+          <>
+            <Button
+              color="inherit"
+              data-testid={UI_IDENTIFIERS.GatePanel.WITHDRAW}
+              disabled={pending}
+              startIcon={<UndoIcon />}
+              sx={{ color: t.muted }}
+              variant="text"
+              onClick={onWithdraw}
+            >
+              Withdraw
+            </Button>
+            <Button
+              color="inherit"
+              data-testid={UI_IDENTIFIERS.GatePanel.SENDBACK}
+              disabled={pending || commentCount === 0}
+              startIcon={<ReplayIcon />}
+              sx={{ color: t.ink, borderColor: t.line }}
+              variant="outlined"
+              onClick={onSendBack}
+            >
+              Send back
+            </Button>
+            <Button
+              color="primary"
+              data-testid={UI_IDENTIFIERS.GatePanel.APPROVE}
+              disabled={pending}
+              startIcon={<CheckIcon />}
+              variant="contained"
+              onClick={onApproveClick}
+            >
+              Approve &amp; continue
+            </Button>
+          </>
+        )}
       </Box>
     </Paper>
   );
