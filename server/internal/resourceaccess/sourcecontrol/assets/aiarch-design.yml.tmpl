@@ -62,7 +62,8 @@
 #                only steers the template's commit-target instruction below.
 #
 # REQUIRED CHECK — `go test ./...`:
-#   The `validate` job runs `go test ./...` over the checked-out repo. The
+#   The `validate` job runs `go mod tidy` (to materialize go.sum in the runner — see
+#   below) and then `go test ./...` over the checked-out repo. The
 #   aiarch-managed aiarch_method_test.go (seated at project birth alongside this
 #   workflow + the templated go.mod) calls methodcheck.Check, the all-in-one Method
 #   gate: the design-JSON rules over the committed .aiarch/state, plus the arch layer
@@ -72,6 +73,10 @@
 #   NOTE: `go test` must resolve github.com/mixofreality-studio/archistrator-platform/framework-go (the seated
 #   go.mod's require) — it must be a fetchable module (published/tagged or via
 #   GOPROXY; a private module needs GOPROXY/auth wired here). See the founder checklist.
+#   go.sum IS NOT SEATED: the scaffold commits go.mod (the version pin, which is the
+#   trust anchor) but not go.sum, because the full dep-graph hash set can't be computed
+#   server-side at project birth. The `go mod tidy` step materializes those hashes in
+#   the runner (never committed back) so `go test` can resolve framework-go/arch.
 # =============================================================================
 
 name: aiarch-design
@@ -164,6 +169,12 @@ jobs:
           ref: ${{ inputs.prior_state_ref != '' && inputs.prior_state_ref || github.ref }}
           fetch-depth: 0
 
+      # Record the base commit the draft is built on, so the post-claude guard can prove
+      # claude actually advanced the target branch (see "Verify claude pushed a commit").
+      - name: Record base SHA
+        id: base
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: Draft the typed Method artifact (claude-code-action)
         uses: anthropics/claude-code-action@v1
         with:
@@ -182,6 +193,17 @@ jobs:
           # working.
           allowed_bots: [[ .AppSlug ]]
           [[- end ]]
+          # Autonomous CI: the runner is an ephemeral container scoped to this one
+          # design task, with NO human present to approve claude-code-action's
+          # interactive permission prompts. Without this flag, every file-write / git /
+          # gh tool call defaults to prompting and is AUTO-DENIED in CI — observed live
+          # 2026-07-04 (gtdapp run 28724066929: 53 permission_denials, 70 turns, nothing
+          # committed, no PR — yet the action still exited success). Skip the prompts so
+          # claude can write the JSON, commit, and open the PR unattended. This is the
+          # SAME grant the construction reference workflow uses (aiarch-construct.yml).
+          # The trust boundary is NOT the tool prompt: it is the branch + PR human gate
+          # plus the REQUIRED `go test` (methodcheck) check that blocks merge (C-VCI).
+          claude_args: "--dangerously-skip-permissions"
           # The composed Method-role prompt. The action must draft the typed
           # `${{ inputs.artifact_kind }}` artifact and write the canonical JSON to
           # .aiarch/state/project.json (the path methodcheck.Check + projectStateAccess
@@ -204,13 +226,40 @@ jobs:
             In both modes, commit onto the branch "${{ inputs.target_branch }}" and open a
             pull request so the human review gate and the required `go test` check apply.
 
+      # Silent-failure guard. claude-code-action can exit SUCCESS while committing
+      # nothing (observed live 2026-07-04, run 28724066929: draft job green, zero
+      # commits, no PR — the Manager's observe loop only ever saw the validate failure).
+      # This step turns "claude did nothing" into a RED run: it fails when the target
+      # branch is missing on the remote, or when it still points at the base SHA (no new
+      # commit). Deterministic: a single ls-remote + string compare, no heuristics.
+      # POSIX single-bracket tests only — the bash double-bracket test would collide
+      # with the Go-template action delimiters this file is rendered through.
+      - name: Verify claude pushed a commit to the target branch
+        if: always()
+        env:
+          TARGET_BRANCH: ${{ inputs.target_branch }}
+          BASE_SHA: ${{ steps.base.outputs.sha }}
+        run: |
+          remote_sha="$(git ls-remote origin "refs/heads/${TARGET_BRANCH}" | awk '{print $1}')"
+          if [ -z "$remote_sha" ]; then
+            echo "::error::claude-code-action exited without pushing branch '${TARGET_BRANCH}' — no commit, no PR. Treating the green claude step as a failed draft."
+            exit 1
+          fi
+          if [ "$remote_sha" = "$BASE_SHA" ]; then
+            echo "::error::branch '${TARGET_BRANCH}' is unchanged from base ${BASE_SHA} — claude committed nothing. Treating the green claude step as a failed draft."
+            exit 1
+          fi
+          echo "branch '${TARGET_BRANCH}' advanced ${BASE_SHA} -> ${remote_sha}"
+
   # ---------------------------------------------------------------------------
-  # validate — REQUIRED status check. Runs `go test ./...`, which runs the
-  # aiarch-managed aiarch_method_test.go → methodcheck.Check (the all-in-one Method
-  # gate: design-JSON rules + arch layer rules + design↔code alignment). A failing
-  # `go test` BLOCKS merge — the trust boundary. No container/CLI: the gate is the
-  # seated test, resolved against framework-go (a fetchable Go module — see the
-  # founder checklist; a private module needs GOPROXY/auth wired below).
+  # validate — REQUIRED status check. Runs `go mod tidy` (materializes go.sum in the
+  # runner — the scaffold seats the go.mod version pin but not go.sum) then
+  # `go test ./...`, which runs the aiarch-managed aiarch_method_test.go →
+  # methodcheck.Check (the all-in-one Method gate: design-JSON rules + arch layer rules
+  # + design↔code alignment). A failing `go test` BLOCKS merge — the trust boundary.
+  # No container/CLI: the gate is the seated test, resolved against framework-go (a
+  # fetchable Go module — see the founder checklist; a private module needs GOPROXY/auth
+  # wired below).
   # ---------------------------------------------------------------------------
   validate:
     runs-on: ubuntu-latest
@@ -226,10 +275,24 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Materialize go.sum (go mod tidy)
+        # The seated scaffold commits go.mod (require framework-go at the pinned version)
+        # but NOT go.sum — the full dependency-graph hash set cannot be computed
+        # server-side at project birth, so aiarch seats the version PIN only. Without a
+        # go.sum the next step fails immediately with "missing go.sum entry for module
+        # providing package .../framework-go/arch" (observed live 2026-07-04, run
+        # 28724066929). `go mod tidy` resolves the imports of the seated
+        # aiarch_method_test.go and materializes the required go.sum hashes IN THE RUNNER
+        # only (it is never committed back). The version pin in go.mod remains the trust
+        # boundary — tidy fetches and hashes exactly what that pin resolves to; it does
+        # not relax the pin.
+        # NOTE: requires github.com/mixofreality-studio/archistrator-platform/framework-go to be resolvable
+        # (published/tagged or via GOPROXY; private ⇒ wire GOPROXY/auth here).
+        run: go mod tidy
+
       - name: go test (Method-invariant required check)
         # Runs the seated aiarch_method_test.go → methodcheck.Check over
         # ./.aiarch/state/project.json + this repo's Go code (layer rules + alignment
-        # once code exists). A non-zero exit (violations) BLOCKS PR merge.
-        # NOTE: requires github.com/mixofreality-studio/archistrator-platform/framework-go to be resolvable
-        # (published/tagged or via GOPROXY; private ⇒ wire GOPROXY/auth here).
+        # once code exists). A non-zero exit (violations) BLOCKS PR merge. go.sum was
+        # materialized by the preceding `go mod tidy` step.
         run: go test ./...
