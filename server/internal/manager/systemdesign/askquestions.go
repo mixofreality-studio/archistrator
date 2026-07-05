@@ -55,7 +55,7 @@ func (m *systemDesignManager) AskQuestions(rc fwmanager.Context, projectID Proje
 
 	// Resolve the branch the ledger lives on: a live drafting/review session keeps the
 	// thread on its session branch; a committed (or absent) session keeps it on main ("").
-	branch := m.resolveQuestionBranch(ctx, projectID, kind)
+	branch := m.resolveQuestionBranch(rc, projectID, kind)
 	psID := projectstate.ProjectID(projectID)
 	psKind := toPSKind(kind)
 	key := askQuestionsIdempotencyKey(projectID, kind, branch, qs)
@@ -95,15 +95,25 @@ func (m *systemDesignManager) AskQuestions(rc fwmanager.Context, projectID Proje
 }
 
 // resolveQuestionBranch returns the branch the artifact's review ledger currently lives on:
-// the session branch when a live drafting/review session exists (so questions land beside
-// the draft under review), else "" (main) for a committed or session-less artifact. It is
+// the session branch when a GENUINELY ACTIVE session exists (so questions land beside the
+// draft under review), else "" (main) for a committed or session-less artifact. It is
 // best-effort — any read/query miss falls back to main, the safe default.
-func (m *systemDesignManager) resolveQuestionBranch(ctx context.Context, projectID ProjectID, kind ArtifactKind) string {
-	view, err := m.reviewGateView(ctx, coAuthorWorkflowID(projectID, kind))
+//
+// F73: an ACTIVE session means the co-author Temporal workflow is OPEN and in a non-terminal
+// (live) stage. Resolution reuses the P0-2 Describe-first machinery via GetSessionState —
+// NOT a bare sessionState Query. A bare query REPLAYS a CLOSED run's last in-memory stage,
+// which for a completed/committed (or abandoned) amendment is a stale mid-flight LIVE stage.
+// Trusting it wrongly resolved a DEAD amendment's leftover branch (e.g. .../2-amend-1) — and
+// because amendmentIndexFor returns >=1 for any committed slot, that branch gets synthesized
+// and the seeded questions land where nothing ever merges. GetSessionState synthesizes an
+// honest terminal for every closed run (StageCommitted / StageWithdrawn / StageDraftFailed)
+// and errors NotFound when there is no workflow — all of which fall back to main here.
+func (m *systemDesignManager) resolveQuestionBranch(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind) string {
+	view, err := m.GetSessionState(rc, projectID, kind)
 	if err != nil || !isLiveSessionStage(view.Stage) {
 		return ""
 	}
-	proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID))
+	proj, err := m.projectState.ReadProject(fwra.Context{Context: rc.Context}, projectstate.ProjectID(projectID))
 	if err != nil {
 		return ""
 	}

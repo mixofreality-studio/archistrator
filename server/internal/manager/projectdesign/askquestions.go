@@ -55,7 +55,7 @@ func (m *projectDesignManager) AskQuestions(rc fwmanager.Context, projectID Proj
 		return newError(fwmanager.FailedPrecondition, "review ledger not supported by this substrate")
 	}
 
-	branch := m.resolveQuestionBranch(ctx, projectID, kind)
+	branch := m.resolveQuestionBranch(rc, projectID, kind)
 	psID := projectstate.ProjectID(projectID)
 	psKind := toPSKind(kind)
 	key := askQuestionsIdempotencyKey(projectID, kind, branch, qs)
@@ -86,12 +86,18 @@ func (m *projectDesignManager) AskQuestions(rc fwmanager.Context, projectID Proj
 	return fwmanager.Wrap(fwmanager.Infrastructure, lastErr, "AskQuestions: exhausted conflict retries")
 }
 
-func (m *projectDesignManager) resolveQuestionBranch(ctx context.Context, projectID ProjectID, kind ArtifactKind) string {
-	view, err := m.reviewGateView(ctx, coAuthorWorkflowID(projectID, kind))
+// resolveQuestionBranch — twin of the systemdesign impl (see there for the full F73 rationale).
+// A GENUINELY ACTIVE session (co-author workflow OPEN and in a non-terminal stage) keeps its
+// ledger on the session branch; every closed/completed/withdrawn/failed/absent run falls back
+// to main (""). Resolution reuses the P0-2 Describe-first machinery via GetSessionState rather
+// than a bare sessionState Query, which would REPLAY a dead run's stale live stage and wrongly
+// resolve an abandoned amendment's leftover branch.
+func (m *projectDesignManager) resolveQuestionBranch(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind) string {
+	view, err := m.GetSessionState(rc, projectID, kind)
 	if err != nil || !isLiveSessionStage(view.Stage) {
 		return ""
 	}
-	proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID))
+	proj, err := m.projectState.ReadProject(fwra.Context{Context: rc.Context}, projectstate.ProjectID(projectID))
 	if err != nil {
 		return ""
 	}

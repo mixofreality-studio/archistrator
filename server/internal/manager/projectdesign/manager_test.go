@@ -508,3 +508,57 @@ func Test_RequestArtifactDraft_DeliversFeedbackViaRedraftSignal(t *testing.T) {
 		t.Fatalf("the redraft signal must carry the request feedback %q, got %+v", notes, sig.Feedback)
 	}
 }
+
+// F73 (part 1, Phase-2 twin). AskQuestions on a COMMITTED artifact whose co-author session is
+// CLOSED must seed on MAIN (""), not the dead session's leftover amendment branch.
+// resolveQuestionBranch keys off the P0-2 Describe-first honest view (GetSessionState), not the
+// bare sessionState Query, which REPLAYS a closed run's stale mid-flight LIVE stage.
+func Test_ResolveQuestionBranch_ClosedWorkflowLeftoverBranch_SeedsOnMain(t *testing.T) {
+	id := ProjectID(uuid.NewString())
+	wfID := coAuthorWorkflowID(id, KindPlanningAssumptions)
+
+	mc := &temporalmocks.Client{}
+	resp := &workflowservice.DescribeWorkflowExecutionResponse{
+		WorkflowExecutionInfo: &workflowpb.WorkflowExecutionInfo{
+			Status: enumspb.WORKFLOW_EXECUTION_STATUS_COMPLETED,
+		},
+	}
+	mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "").Return(resp, nil)
+	// NO QueryWorkflow expectation: trusting the replayed query for a closed run would panic.
+
+	proj := committedPhase2Project(id, KindPlanningAssumptions) // committed ⇒ amendmentIndexFor >= 1
+	ps := &fakeProjectState{project: proj}
+
+	m := &projectDesignManager{client: mc, projectState: ps}
+	if branch := m.resolveQuestionBranch(fwmanager.Context{Context: context.Background()}, id, KindPlanningAssumptions); branch != "" {
+		t.Fatalf("questions on a committed artifact whose session is closed must seed on main (\"\"), got leftover branch %q", branch)
+	}
+	mc.AssertExpectations(t)
+}
+
+// F73 (part 2, Phase-2 twin). The committed view must carry the slot's durable reviewThread so
+// questions seeded on a COMMITTED Phase-2 artifact render on it.
+func Test_CommittedSessionView_CarriesReviewThread(t *testing.T) {
+	id := ProjectID(uuid.NewString())
+	slot := projectstate.ArtifactSlot{
+		Status: projectstate.ReviewCommitted,
+		ReviewThread: []projectstate.ReviewComment{{
+			ID:         "r1c1",
+			Text:       "which resources are assumed?",
+			Type:       projectstate.ReviewCommentTypeQuestion,
+			Addressee:  projectstate.ReviewAddresseeArchitect,
+			Status:     projectstate.ReviewCommentOpen,
+			AuthorRole: reviewAuthorRole,
+		}},
+	}
+	view, err := committedSessionView(id, KindPlanningAssumptions, slot)
+	if err != nil {
+		t.Fatalf("committedSessionView on a committed slot must not error: %v", err)
+	}
+	if view.Stage != StageCommitted {
+		t.Fatalf("committed slot must render StageCommitted, got %d", view.Stage)
+	}
+	if len(view.ReviewThread) != 1 || view.ReviewThread[0].Text != "which resources are assumed?" {
+		t.Fatalf("committed view must carry the slot's reviewThread question, got %+v", view.ReviewThread)
+	}
+}

@@ -460,6 +460,64 @@ func Test_GetSessionState_CompletedUncommitted_ReturnsHonestTerminal(t *testing.
 	mc.AssertExpectations(t)
 }
 
+// F73 (part 1). AskQuestions on a COMMITTED artifact whose co-author session is CLOSED must
+// seed its question thread on MAIN (""), NOT on the dead session's leftover amendment branch.
+// resolveQuestionBranch now keys off the P0-2 Describe-first honest view (via GetSessionState),
+// not the bare sessionState Query — which REPLAYS a closed run's stale mid-flight LIVE stage.
+// Here the run is CLOSED (COMPLETED) and the slot is COMMITTED, so amendmentIndexFor would
+// synthesize an "...-amend-N" branch if a live stage were trusted; the branch must still be "".
+func Test_ResolveQuestionBranch_ClosedWorkflowLeftoverBranch_SeedsOnMain(t *testing.T) {
+	id := ProjectID(uuid.NewString())
+	wfID := coAuthorWorkflowID(id, KindScrubbedRequirements)
+
+	mc := &temporalmocks.Client{}
+	resp := &workflowservice.DescribeWorkflowExecutionResponse{
+		WorkflowExecutionInfo: &workflowpb.WorkflowExecutionInfo{
+			Status: enumspb.WORKFLOW_EXECUTION_STATUS_COMPLETED,
+		},
+	}
+	mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "").Return(resp, nil)
+	// NO QueryWorkflow expectation: if resolveQuestionBranch trusted the replayed query for a
+	// closed run, the mock would panic — proving the branch is decided from the honest view.
+
+	proj := committedProject(id, KindScrubbedRequirements) // committed slot ⇒ amendmentIndexFor >= 1
+	ps := &renderFakeProjectState{project: proj}
+
+	m := &systemDesignManager{client: mc, projectState: ps}
+	if branch := m.resolveQuestionBranch(bgRC(), id, KindScrubbedRequirements); branch != "" {
+		t.Fatalf("questions on a committed artifact whose session is closed must seed on main (\"\"), got leftover branch %q", branch)
+	}
+	mc.AssertExpectations(t)
+}
+
+// F73 (part 2). The committed view must carry the slot's durable reviewThread, so questions
+// seeded on a COMMITTED artifact (and their answers) render on it. committedSessionView is the
+// synthesis the P0-2 completed path (GetSessionState → completedSessionView) drives.
+func Test_CommittedSessionView_CarriesReviewThread(t *testing.T) {
+	id := ProjectID(uuid.NewString())
+	slot := projectstate.ArtifactSlot{
+		Status: projectstate.ReviewCommitted,
+		ReviewThread: []projectstate.ReviewComment{{
+			ID:         "r1c1",
+			Text:       "why is this scrubbed?",
+			Type:       projectstate.ReviewCommentTypeQuestion,
+			Addressee:  projectstate.ReviewAddresseeArchitect,
+			Status:     projectstate.ReviewCommentOpen,
+			AuthorRole: reviewAuthorRole,
+		}},
+	}
+	view, err := committedSessionView(id, KindScrubbedRequirements, slot)
+	if err != nil {
+		t.Fatalf("committedSessionView on a committed slot must not error: %v", err)
+	}
+	if view.Stage != StageCommitted {
+		t.Fatalf("committed slot must render StageCommitted, got %d", view.Stage)
+	}
+	if len(view.ReviewThread) != 1 || view.ReviewThread[0].Text != "why is this scrubbed?" {
+		t.Fatalf("committed view must carry the slot's reviewThread question, got %+v", view.ReviewThread)
+	}
+}
+
 // SessionRef is opaque: it round-trips and compares by value, never parsed.
 func Test_SessionRef_OpaqueValueSemantics(t *testing.T) {
 	a := newSessionRef("proj-1:1")
