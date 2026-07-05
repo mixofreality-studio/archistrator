@@ -168,6 +168,15 @@ func decodeSlotsMap(w map[string]slotJSON, p *Project) error {
 			if err := json.Unmarshal(entry.Model, model); err != nil {
 				return fmt.Errorf("decode slot %s model: %w", kind, err)
 			}
+			// F81 ZERO-VALUE HOLE: encoding/json never invokes an enum's UnmarshalJSON for
+			// an ABSENT field, so a component that omits "layer"/"kind" (or a use case that
+			// omits "trigger"/"classification") decodes to the enum zero value with no error.
+			// Reject a committed model carrying such a defaulted-required field on read-back
+			// with the SAME strictness the write path (putDraftModel) applies, so the two
+			// never disagree. Only enforced for populated slots (len(entry.Model) > 0).
+			if err := RequireModelFields(kind, entry.Model); err != nil {
+				return fmt.Errorf("decode slot %s model: %w", kind, err)
+			}
 			// Restore Solution SlotKind: the four share one concrete type; the
 			// destination slot's kind is authoritative.
 			if sol, isSol := model.(*Solution); isSol {

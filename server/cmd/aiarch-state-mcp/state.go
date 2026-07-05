@@ -47,6 +47,19 @@ func (s *Session) putDraftModel(modelJSON []byte) error {
 		return fmt.Errorf("no slot for artifact kind %s", s.Kind)
 	}
 
+	// GATE 0 — REQUIRED-FIELD PRESENCE (F81 zero-value hole). encoding/json never invokes
+	// a closed-enum's UnmarshalJSON for an ABSENT field, so an omitted "layer"/"kind" (or
+	// "trigger"/"classification"/node "kind") silently decodes to the enum zero value —
+	// e.g. a System draft that omits every component's layer decodes to all-client, which
+	// passes every layer-interaction rule VACUOUSLY. Catch a missing/defaulted required
+	// enum HERE, over the raw draft bytes, with the clearest possible actionable error
+	// (this is the SAME check the server read-back codec applies, so write ≡ read-back).
+	if err := projectstate.RequireModelFields(s.Kind, modelJSON); err != nil {
+		return fmt.Errorf("the %s draft is missing or defaulting a required field (the server would reject this on read-back): %v"+
+			" — every closed-enum field (layer, kind, mode, trigger, classification, node kind) must be emitted explicitly; a missing field silently defaults to a zero value; fix it and call putDraftModel again",
+			s.Kind.WireName(), err)
+	}
+
 	// GATE 1 — strict codec decode of the model into its concrete type (server parity).
 	model, ok := projectstate.NewModelForKind(s.Kind)
 	if !ok {

@@ -1467,6 +1467,15 @@ func (s *coAuthorState) view() (SessionStateView, error) {
 	if extra := useCaseDynamicFindings(s.artifactKind, s.draft, s.committedCoreUseCases); len(extra) > 0 {
 		findings = append(append([]Finding{}, findings...), extra...)
 	}
+	// F81 (2026-07-05): a System draft must not be layer-DEGENERATE. A drafting agent that
+	// omits every component's layer produces an all-client architecture the strict codec
+	// silently accepts and the layer-interaction rules pass VACUOUSLY. This read-back
+	// surface flags a system with no Managers / no ResourceAccess, or any component whose
+	// NAME contradicts its layer, as an ERROR at the review panel — the app-side twin of
+	// methodcheck's SYSTEM-LAYER-DEGENERATE (the authoritative gate putDraftModel enforces).
+	if extra := systemLayerDegenerateFindings(s.artifactKind, s.draft); len(extra) > 0 {
+		findings = append(append([]Finding{}, findings...), extra...)
+	}
 	if s.unresolvedCritique != "" {
 		findings = append(append([]Finding{}, findings...), Finding{
 			RuleID:   "PM-CRITIQUE-UNRESOLVED",
@@ -1608,6 +1617,109 @@ func activityDefect(a *projectstate.ActivityDiagram) string {
 		return "has an activity diagram with no action step"
 	}
 	return ""
+}
+
+// systemLayerDegenerateFindings returns ERROR findings for a layer-DEGENERATE System
+// draft, for the KindSystem artifact ONLY (nil for every other kind and for a nil/absent
+// draft). It is the app-side review-panel twin of methodcheck's SYSTEM-LAYER-DEGENERATE.
+// Two independent degeneracy signals (F81):
+//
+//  1. STRUCTURE: a Method system decomposes into at least one Manager (the workflow
+//     encapsulation) AND at least one ResourceAccess (the resource encapsulation). A
+//     system with zero of either is degenerate — the classic all-client corruption
+//     (every component's layer omitted → defaulted to client) has zero of both.
+//  2. NAME↔LAYER: a component whose NAME carries a Method stereotype suffix must sit in
+//     the matching layer ("…Manager"→manager, "…Engine"→engine, "…Access"→resourceAccess,
+//     "…Client"→client, "…Store"/"…Resource"→resource). A name/layer contradiction is the
+//     fingerprint of a defaulted layer (e.g. "OrderManager" carrying layer=client).
+func systemLayerDegenerateFindings(kind ArtifactKind, draft projectstate.ArtifactModel) []Finding {
+	if kind != KindSystem {
+		return nil
+	}
+	sys, ok := draft.(*projectstate.System)
+	if !ok || sys == nil {
+		return nil
+	}
+	var out []Finding
+	var managers, resourceAccess int
+	for _, c := range sys.Components {
+		switch c.Kind {
+		case projectstate.CompManager:
+			managers++
+		case projectstate.CompResourceAccess:
+			resourceAccess++
+		}
+	}
+	if managers == 0 {
+		out = append(out, Finding{
+			RuleID:   "SYSTEM-LAYER-DEGENERATE",
+			Severity: SeverityError,
+			Message:  "the System has zero Managers; a Method system must encapsulate at least one workflow in a Manager (an all-client architecture is the F81 corruption where every component's layer was omitted and defaulted to \"client\")",
+			Location: &Location{Section: "system layers"},
+		})
+	}
+	if resourceAccess == 0 {
+		out = append(out, Finding{
+			RuleID:   "SYSTEM-LAYER-DEGENERATE",
+			Severity: SeverityError,
+			Message:  "the System has zero ResourceAccess components; a Method system must encapsulate at least one resource behind a ResourceAccess (an all-client architecture is the F81 corruption where every component's layer was omitted and defaulted to \"client\")",
+			Location: &Location{Section: "system layers"},
+		})
+	}
+	for i, c := range sys.Components {
+		if want, suffix, mismatch := nameLayerMismatch(c.Name, c.Layer); mismatch {
+			label := c.Name
+			if label == "" {
+				label = fmt.Sprintf("component %d", i+1)
+			}
+			out = append(out, Finding{
+				RuleID:   "SYSTEM-LAYER-DEGENERATE",
+				Severity: SeverityError,
+				Message:  fmt.Sprintf("component %q ends in %q but declares layer %q instead of %q; a component's name stereotype and its layer must agree (a mismatch is the fingerprint of an omitted, defaulted layer)", label, suffix, layerWire(c.Layer), layerWire(want)),
+				Location: &Location{Ordinal: int64(i), Section: "component " + label},
+			})
+		}
+	}
+	return out
+}
+
+// nameLayerMismatch reports whether a component NAME's Method stereotype suffix
+// contradicts its declared layer. Returns the layer the name IMPLIES, the matched
+// suffix, and whether there is a mismatch. A name with no recognized suffix never
+// mismatches.
+func nameLayerMismatch(name string, layer projectstate.Layer) (projectstate.Layer, string, bool) {
+	type rule struct {
+		suffix string
+		want   projectstate.Layer
+	}
+	// Order matters: "…Resource" and "…Store" both imply resource; check specific suffixes.
+	rules := []rule{
+		{"Manager", projectstate.LayerManager},
+		{"Engine", projectstate.LayerEngine},
+		{"Access", projectstate.LayerResourceAccess},
+		{"Client", projectstate.LayerClient},
+		{"Store", projectstate.LayerResource},
+		{"Resource", projectstate.LayerResource},
+	}
+	trimmed := strings.TrimSpace(name)
+	for _, r := range rules {
+		if strings.HasSuffix(trimmed, r.suffix) {
+			if layer != r.want {
+				return r.want, r.suffix, true
+			}
+			return r.want, r.suffix, false
+		}
+	}
+	return layer, "", false
+}
+
+// layerWire renders a Layer as its wire name for a finding message.
+func layerWire(l projectstate.Layer) string {
+	b, err := l.MarshalJSON()
+	if err != nil {
+		return fmt.Sprintf("layer(%d)", int(l))
+	}
+	return strings.Trim(string(b), `"`)
 }
 
 func stageForAttempt(attempt int) SessionStage {

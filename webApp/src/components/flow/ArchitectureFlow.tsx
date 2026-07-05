@@ -21,6 +21,8 @@ import type { Edge, Node } from '@xyflow/react';
 import Box from '@mui/material/Box';
 import Autocomplete from '@mui/material/Autocomplete';
 import TextField from '@mui/material/TextField';
+import Alert from '@mui/material/Alert';
+import AlertTitle from '@mui/material/AlertTitle';
 import { toC4View, type C4Component, type C4Relationship } from '../../contracts/adapters';
 import type { ArtifactModelEnvelope } from '../../contracts/types';
 import { useTokens } from '../../utilities/theme/ThemeContext';
@@ -52,6 +54,14 @@ interface Model {
   layerOf: Map<string, Layer>;
   colors: Record<Layer, string>;
   usedLayers: Layer[];
+  /**
+   * The single layer every component claims when the layer data is DEGENERATE (F81):
+   * multiple components but only one distinct layer. This is the fingerprint of a
+   * drafting agent that omitted the per-component layer — the strict codec silently
+   * defaults an absent layer to "client", collapsing the whole system onto one row.
+   * null when the layer data is healthy (>1 distinct layer, or a single component).
+   */
+  degenerateLayer: Layer | null;
 }
 
 function buildModel(envelope: ArtifactModelEnvelope | undefined, t: Tokens): Model {
@@ -61,6 +71,8 @@ function buildModel(envelope: ArtifactModelEnvelope | undefined, t: Tokens): Mod
   const colors = layerColors(t);
   const present = new Set(view.components.map((c) => c.layer));
   const usedLayers = LAYER_ORDER.filter((l) => present.has(l));
+  const degenerateLayer =
+    view.components.length > 1 && usedLayers.length === 1 ? usedLayers[0] : null;
   return {
     components: view.components,
     relationships: view.relationships,
@@ -68,6 +80,7 @@ function buildModel(envelope: ArtifactModelEnvelope | undefined, t: Tokens): Mod
     layerOf,
     colors,
     usedLayers,
+    degenerateLayer,
   };
 }
 
@@ -201,6 +214,16 @@ export function ArchitectureFlow({
 
   return (
     <Box>
+      {model.degenerateLayer !== null && (
+        <Alert severity="warning" sx={{ mb: 1.5, alignItems: 'flex-start' }}>
+          <AlertTitle>Layer data looks degenerate</AlertTitle>
+          All {model.components.length} components claim layer &ldquo;
+          {LAYER_LABEL[model.degenerateLayer]}&rdquo; — a healthy Method system spans
+          Managers, Engines, ResourceAccess and Resources. This usually means the draft
+          omitted each component&rsquo;s layer (which silently defaults to
+          &ldquo;client&rdquo;); send it back rather than committing a flat architecture.
+        </Alert>
+      )}
       <Autocomplete
         blurOnSelect
         clearOnEscape
