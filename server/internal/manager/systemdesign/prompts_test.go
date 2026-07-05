@@ -228,6 +228,66 @@ func Test_SystemPrompt_EnumeratesComponentKindAndMode(t *testing.T) {
 	}
 }
 
+// The StandardCheck draft task is SCOPED to the system-design gate (founder ruling
+// 2026-07-05, observed on gtdapp: 52 pass / 59 waived). The Phase-1 check must walk ONLY
+// the design directives + the System Design guideline section, and must EXCLUDE the
+// project-design / project-tracking directives and guideline sections entirely — it must
+// NOT emit them as waived (phase-inapplicable is out-of-scope, not a conscious exception).
+// WAIVED stays reserved for genuine, justified exceptions to in-scope items. Those
+// out-of-scope items are checked at the Phase-2 SDP gate.
+func Test_StandardCheckPrompt_ScopedToSystemDesignGate(t *testing.T) {
+	prompt := architectDraftPrompt(projectstate.KindStandardCheck, projectstate.Project{}, ReviewFeedback{}, nil, 0)
+
+	// It must scope the walk to the in-scope system-design items (directives + SYS section).
+	for _, want := range []string{
+		"ONLY the items checkable",
+		"design directives",
+		"System Design guideline section",
+		"decompose based on volatility",
+		"closed-layer rules",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("StandardCheck prompt missing in-scope marker %q; got:\n%s", want, prompt)
+		}
+	}
+
+	// It must EXPLICITLY exclude the project-design / project-tracking parts as out of scope,
+	// and forbid emitting them as waived — routing them to the Phase-2 SDP gate instead.
+	for _, want := range []string{
+		"OUT OF SCOPE",
+		"do NOT emit them as waived",
+		"phase-inapplicable",
+		"Phase-2 SDP gate",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("StandardCheck prompt missing scope-exclusion marker %q; got:\n%s", want, prompt)
+		}
+	}
+
+	// The old blanket "Walk the App C design-standard checklist" framing (walk the WHOLE
+	// standard, waive later-phase items) must be gone — that is what produced the waiver
+	// pollution the founder ruled against.
+	if strings.Contains(prompt, "Walk the App C design-standard checklist.") {
+		t.Errorf("StandardCheck prompt must not carry the old whole-standard walk framing; got:\n%s", prompt)
+	}
+
+	// WAIVED must be framed as reserved for genuine in-scope exceptions, not phase scope.
+	if !strings.Contains(prompt, "reserved for genuine") {
+		t.Errorf("StandardCheck prompt must reserve WAIVED for genuine in-scope exceptions; got:\n%s", prompt)
+	}
+
+	// The closed-enum status block (pass/waived/fail) is still carried for this kind.
+	statuses := []projectstate.CheckStatus{
+		projectstate.CheckPass, projectstate.CheckWaived, projectstate.CheckFail,
+	}
+	for _, s := range statuses {
+		name := wireNameOf(t, s)
+		if !strings.Contains(prompt, name) {
+			t.Errorf("StandardCheck prompt missing CheckStatus wire name %q; got:\n%s", name, prompt)
+		}
+	}
+}
+
 // The redraft prompt must weave in each OPEN review-ledger comment (id + anchor + anchorText
 // + text) and state the response-carrier contract, and must NOT list addressed/waived
 // comments (review-ledger §3).
