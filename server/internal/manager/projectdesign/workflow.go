@@ -1804,7 +1804,10 @@ func (wf *workflows) awaitDraftFailedRecovery(
 			var sig redraftSignal
 			c.Receive(ctx, &sig)
 			if sig.Feedback != nil {
-				*feedback = sig.Feedback.Notes
+				// F47: MERGE the request feedback (from RequestArtifactDraft) with any gate-
+				// retained feedback — the request WINS/appends — so the operator's new
+				// instruction reaches the next draft prompt without discarding retained context.
+				*feedback = mergeRedraftNotes(*feedback, sig.Feedback.Notes)
 			}
 			retry = true
 		})
@@ -1881,6 +1884,21 @@ func readBackDecodeFailedReason(decodeMsg string) string {
 // re-runs the amendment; a Withdraw abandons it.
 func amendmentNoChangeReason() string {
 	return "the amendment draft committed no changes to the artifact — there is nothing to review or merge — retry or withdraw"
+}
+
+// mergeRedraftNotes merges the request notes (from a RequestArtifactDraft redraft signal) with
+// any gate-retained notes (F47). The request WINS: an empty request keeps the retained; an empty
+// retained takes the request; otherwise the request is APPENDED after the retained so the newest
+// instruction is present (and last) in the next draft prompt without discarding earlier context.
+func mergeRedraftNotes(retained, req string) string {
+	req = strings.TrimSpace(req)
+	if req == "" {
+		return retained
+	}
+	if strings.TrimSpace(retained) == "" {
+		return req
+	}
+	return strings.TrimSpace(retained) + "\n\n" + req
 }
 
 // railStepFailedReason renders the human "why" for the StageDraftFailed screen when a rail

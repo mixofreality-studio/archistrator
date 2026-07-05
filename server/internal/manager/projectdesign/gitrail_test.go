@@ -1159,3 +1159,42 @@ func Test_amendmentIndexFor_Rule(t *testing.T) {
 		}
 	}
 }
+
+// F47 — the REDRAFT-SIGNAL feedback path (what RequestArtifactDraft now delivers via
+// SignalWithStart, replacing the bare ExecuteWorkflow that DROPPED the feedback). A draft job
+// fails → StageDraftFailed gate; the redraft signal carries the operator's fix notes; the NEXT
+// draft dispatch's prompt must CONTAIN those notes.
+func Test_CoAuthorPhase2_RedraftSignalFeedbackReachesPrompt(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: planningAssumptionsReadBack(projectstate.ProjectID(id))}
+	ps := &seqProjectState{fakeProjectState: base, log: &seqLog{}}
+	pipe := newFakePipeline(pipelineFailed) // the draft job fails → the StageDraftFailed gate
+	rail := newScriptedRail(true, &seqLog{})
+	wf := newRailWorkflows(ps, pipe, rail)
+	registerRailCoAuthor(env, wf)
+
+	const notes = "resources must be plain strings, not objects"
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalRedraft, redraftSignal{Feedback: &ReviewFeedback{Notes: notes}})
+	}, 30*time.Second)
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 80*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindPlanningAssumptions})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a redraft-signal retry must not crash: %v", err)
+	}
+	if len(pipe.submits) < 2 {
+		t.Fatalf("the redraft signal must trigger a SECOND draft dispatch, got %d", len(pipe.submits))
+	}
+	// THE LOAD-BEARING ASSERTION: the redraft-signal feedback reached the next draft prompt
+	// (dropped live on gtdapp kind 8 because RequestArtifactDraft used a bare ExecuteWorkflow).
+	if p := pipe.submits[1].dispatchInputs[dispatchInputDesignPrompt]; !strings.Contains(p, notes) {
+		t.Fatalf("the redraft-signal feedback %q must reach the next draft prompt; prompt:\n%s", notes, p)
+	}
+}

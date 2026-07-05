@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+	"go.temporal.io/sdk/client"
 )
 
 // These tests cover the façade-boundary pre-condition checks the contract puts on
@@ -282,5 +283,68 @@ func Test_GetSessionState_EmptyProjectID(t *testing.T) {
 	_, err := m.GetSessionState(fwmanager.Context{Context: context.Background()}, ProjectID(""), KindPlanningAssumptions)
 	if got := asProjectDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %d", got)
+	}
+}
+
+// ---- F47: RequestArtifactDraft DELIVERS the feedback via the redraft signal --------
+
+// recordingStartClient captures the SignalWithStartWorkflow call so a test can assert
+// RequestArtifactDraft delivers the redraft signal (with feedback) rather than dropping it
+// via a bare ExecuteWorkflow. Embeds client.Client so any other method panics if reached.
+type recordingStartClient struct {
+	client.Client
+	signalName string
+	signalArg  interface{}
+	execCalled bool
+}
+
+type fakeWorkflowRun struct {
+	client.WorkflowRun
+	id string
+}
+
+func (r fakeWorkflowRun) GetID() string { return r.id }
+
+func (c *recordingStartClient) SignalWithStartWorkflow(_ context.Context, workflowID, signalName string, signalArg interface{}, _ client.StartWorkflowOptions, _ interface{}, _ ...interface{}) (client.WorkflowRun, error) {
+	c.signalName = signalName
+	c.signalArg = signalArg
+	return fakeWorkflowRun{id: workflowID}, nil
+}
+
+func (c *recordingStartClient) ExecuteWorkflow(_ context.Context, _ client.StartWorkflowOptions, _ interface{}, _ ...interface{}) (client.WorkflowRun, error) {
+	// The F47 regression: a bare ExecuteWorkflow against a RUNNING session (USE_EXISTING)
+	// returns the existing handle WITHOUT delivering the new feedback. RequestArtifactDraft
+	// must NOT use this path — record it so the test fails loudly if it regresses.
+	c.execCalled = true
+	return fakeWorkflowRun{id: "exec"}, nil
+}
+
+func Test_RequestArtifactDraft_DeliversFeedbackViaRedraftSignal(t *testing.T) {
+	pid := ProjectID(uuid.NewString())
+	// planningAssumptions is the first Phase-2 kind (no predecessor gate); notFound ⇒ amendment
+	// index 0 (a normal/retry draft, not an amendment). The point under test is DELIVERY.
+	ps := &fakeProjectState{notFound: true}
+	fc := &recordingStartClient{}
+	m := newProjectDesignManager(fc, ps, nil, nil, nil, nil, nil, nil)
+
+	const notes = "resources must be plain strings, not objects"
+	if _, err := m.RequestArtifactDraft(fwmanager.Context{Context: context.Background()}, pid, KindPlanningAssumptions, &ReviewFeedback{Notes: notes}); err != nil {
+		t.Fatalf("RequestArtifactDraft: %v", err)
+	}
+
+	// THE FIX: the request must DELIVER the feedback via the redraft signal (so a running
+	// session at the failed gate receives it), NOT drop it via a bare ExecuteWorkflow.
+	if fc.execCalled {
+		t.Fatal("RequestArtifactDraft must NOT use bare ExecuteWorkflow (drops feedback on a running session)")
+	}
+	if fc.signalName != signalRedraft {
+		t.Fatalf("RequestArtifactDraft must signal %q (redraft), got %q", signalRedraft, fc.signalName)
+	}
+	sig, ok := fc.signalArg.(redraftSignal)
+	if !ok {
+		t.Fatalf("the redraft signal payload must be redraftSignal, got %T", fc.signalArg)
+	}
+	if sig.Feedback == nil || sig.Feedback.Notes != notes {
+		t.Fatalf("the redraft signal must carry the request feedback %q, got %+v", notes, sig.Feedback)
 	}
 }

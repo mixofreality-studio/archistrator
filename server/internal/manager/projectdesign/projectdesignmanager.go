@@ -161,7 +161,16 @@ func (m *projectDesignManager) RequestArtifactDraft(rc fwmanager.Context, projec
 	}
 	in := coAuthorInput{ProjectID: projectID, ArtifactKind: kind, Feedback: feedback, Amendment: amendment}
 
-	we, err := m.client.ExecuteWorkflow(ctx, opts, executionKindCoAuthor, in)
+	// F47: DELIVER the feedback via the redraft SIGNAL, not a bare ExecuteWorkflow. A draft
+	// request against an ALREADY-RUNNING session (the retry-at-failed-gate path — the session
+	// is suspended at StageDraftFailed awaiting a decision) resolves USE_EXISTING to the running
+	// run; a plain ExecuteWorkflow returns that handle WITHOUT delivering `in`, so the request's
+	// feedback was silently DROPPED and the redraft repeated the same mistake. SignalWithStart
+	// delivers the redraft signal (carrying the feedback) to the running session's gate AND, when
+	// no run is live (fresh start / amendment on a committed→closed slot), starts a new run with
+	// `in` (whose Feedback the spine seeds into the first prompt). This mirrors the systemdesign
+	// Manager. The gate MERGES the signal feedback with any retained feedback (request wins).
+	we, err := m.client.SignalWithStartWorkflow(ctx, wfID, signalRedraft, redraftSignal{Feedback: feedback}, opts, executionKindCoAuthor, in)
 	if err != nil {
 		return "", mapStartError(err)
 	}

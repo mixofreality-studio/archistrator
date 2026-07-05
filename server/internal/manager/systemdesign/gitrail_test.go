@@ -1388,3 +1388,43 @@ func Test_CoAuthor_Rail_OpenPRAuthFault_ContainsAtGate_RetryResumesNoRedispatch_
 		t.Fatalf("approve must commit once, got %v", base.committed)
 	}
 }
+
+// F47 — the REDRAFT-SIGNAL feedback path (what RequestArtifactDraft delivers via
+// SignalWithStart). A draft job fails → StageDraftFailed gate; the redraft signal carries the
+// operator's fix notes; the NEXT draft dispatch's prompt must CONTAIN those notes (they were
+// dropped live on the retry-at-failed-gate path). Complements the retry-via-reject test.
+func Test_CoAuthor_RailEnabled_RedraftSignalFeedbackReachesPrompt(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	ps := &branchAwareFakeProjectState{fakeProjectState: base}
+	pipe := newFakePipeline(pipelineFailed) // the draft job fails → the StageDraftFailed gate
+	rail := &fakeRail{checkGreen: true}
+	wf := newRailWorkflows(ps, pipe, rail)
+	registerRailCoAuthor(env, wf)
+
+	const notes = "resources must be plain strings, not objects"
+	// At the failed gate, deliver the REDRAFT signal (the RequestArtifactDraft path) with notes.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(lSignalRedraft, redraftSignal{Feedback: &ReviewFeedback{Notes: notes}})
+	}, 30*time.Second)
+	// Back at the gate after the second (also-failed) dispatch, withdraw to end.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 80*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a redraft-signal retry must not crash: %v", err)
+	}
+	if len(pipe.submits) < 2 {
+		t.Fatalf("the redraft signal must trigger a SECOND draft dispatch, got %d", len(pipe.submits))
+	}
+	// THE LOAD-BEARING ASSERTION: the redraft-signal feedback reached the next draft prompt.
+	if p := pipe.submits[1].dispatchInputs[dispatchInputDesignPrompt]; !strings.Contains(p, notes) {
+		t.Fatalf("the redraft-signal feedback %q must reach the next draft prompt; prompt:\n%s", notes, p)
+	}
+}
