@@ -184,18 +184,28 @@ func TestReferencesGoTestGateAndStatePath(t *testing.T) {
 func TestDesignWorkflowCritiqueDoesNotOpenPR(t *testing.T) {
 	body := string(renderedDesignWorkflow(t, testAppSlug))
 
-	// DRAFT mode still opens a PR.
-	if !strings.Contains(body, "If job_mode is \"draft\": ALSO open a pull request") {
-		t.Error("draft mode must still instruct opening a pull request")
+	// The agent NEVER opens a PR — the server (Manager) opens the review PR after
+	// read-back in draft mode; the agent only publishes via the aiarch-state MCP tool.
+	if !strings.Contains(body, "You do NOT open a pull request") {
+		t.Error("the prompt must tell the agent it does NOT open a pull request")
 	}
-	// CRITIQUE mode must explicitly NOT open a PR.
-	if !strings.Contains(body, "If job_mode is \"critique\": do NOT open a pull request") {
-		t.Error("critique mode must explicitly instruct NOT to open a pull request")
+	// DRAFT mode: the review PR is opened automatically for the agent.
+	if !strings.Contains(body, "opened for you automatically") {
+		t.Error("draft mode must state the review PR is opened automatically after publish")
 	}
-	// The stale universal "In both modes ... open a pull request" instruction must be gone.
-	if strings.Contains(body, "and open a\n            pull request") ||
-		strings.Contains(body, "In both modes, commit onto the branch") {
-		t.Error("the old unconditional both-modes open-a-PR instruction must be removed")
+	// CRITIQUE mode: no PR is opened.
+	if !strings.Contains(body, "in critique mode no PR is opened") {
+		t.Error("critique mode must state no PR is opened")
+	}
+	// The stale agent-facing JSON-editing / open-a-PR instructions must be gone.
+	if strings.Contains(body, "ALSO open a pull request") ||
+		strings.Contains(body, "In both modes, commit onto the branch") ||
+		strings.Contains(body, "set \"critiqueVerdict\" to") {
+		t.Error("the old agent-facing file-edit / open-a-PR instructions must be removed")
+	}
+	// The aiarch-state MCP server is wired into the Claude step.
+	if !strings.Contains(body, "--mcp-config") || !strings.Contains(body, "aiarch-state") {
+		t.Error("the Claude step must wire the aiarch-state MCP server via --mcp-config")
 	}
 
 	// No PR dependency anywhere structural: the run-name keys off the idempotency
@@ -210,6 +220,34 @@ func TestDesignWorkflowCritiqueDoesNotOpenPR(t *testing.T) {
 	// The validate job checks out inputs.target_branch (the branch), not a PR merge ref.
 	if !strings.Contains(body, "ref: ${{ inputs.target_branch }}") {
 		t.Error("validate must check out the target branch (no critique-PR dependency)")
+	}
+}
+
+// TestDesignWorkflowWiresStateMcp asserts the rendered workflow obtains the local
+// aiarch-state MCP server (go install <path>@<pin>), writes its MCP config with the
+// ambient session context baked in from the dispatch inputs, and wires --mcp-config into
+// the Claude step. This is the delivery mechanism — the binary is fetched the SAME way the
+// seated go test fetches framework-go (go install @ a GOPROXY-resolvable pin).
+func TestDesignWorkflowWiresStateMcp(t *testing.T) {
+	body := string(renderedDesignWorkflow(t, testAppSlug))
+
+	if !strings.Contains(body, "go install "+StateMcpModulePath+"@"+StateMcpModulePin) {
+		t.Errorf("workflow must `go install %s@%s`; got:\n%s", StateMcpModulePath, StateMcpModulePin, body)
+	}
+	// The MCP config bakes in the ambient env keys the binary reads (never agent-supplied).
+	for _, key := range []string{"AIARCH_PROJECT_ID", "AIARCH_ARTIFACT_KIND", "AIARCH_JOB_MODE", "AIARCH_TARGET_BRANCH", "AIARCH_STATE_ROOT"} {
+		if !strings.Contains(body, key) {
+			t.Errorf("MCP config must set ambient env %q", key)
+		}
+	}
+	// The ambient kind + job mode come from the dispatch inputs, not the agent.
+	if !strings.Contains(body, "${{ inputs.artifact_kind }}") || !strings.Contains(body, "${{ inputs.job_mode }}") {
+		t.Error("MCP config must source artifact_kind + job_mode from the dispatch inputs")
+	}
+	// The rendered workflow must still be valid YAML after the MCP steps.
+	var doc workflowDoc
+	if err := yaml.Unmarshal([]byte(body), &doc); err != nil {
+		t.Fatalf("rendered workflow must parse as YAML after the MCP wiring: %v", err)
 	}
 }
 

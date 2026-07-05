@@ -114,6 +114,28 @@ const GoVersion = "1.25.0"
 // local replace. Updated here when framework-go is tagged.
 const FrameworkGoVersion = "v0.4.0"
 
+// StateMcpModulePath is the Go package path of the local stdio project-state MCP server
+// the DESIGN workflow launches inside the GitHub Actions job (cmd/aiarch-state-mcp). The
+// binary IS ProjectStateAccess code (agentic-managers spec §Construction application): it
+// operates on the checked-out working tree and validates every drafted model through the
+// SAME projectstate codec + methodcheck the server uses on read-back. It lives in the
+// archistrator SERVER module (not framework-go) because it must reuse the strict codec in
+// server/internal — a package only that module can import. The workflow obtains it the
+// SAME way the seated `go test` obtains framework-go: `go install <path>@<pin>` resolved
+// via GOPROXY (a published module), so it carries the identical trust/access profile.
+const StateMcpModulePath = "github.com/mixofreality-studio/archistrator/server/cmd/aiarch-state-mcp"
+
+// StateMcpModulePin is the version the workflow installs the state-MCP binary at. It must
+// be a git ref GOPROXY can resolve for the archistrator repo — a tag (server/vX.Y.Z → the
+// @vX.Y.Z form here) or a branch (@main, resolved to its pseudo-version).
+//
+// FOUNDER-GATED: the archistrator app repo must be PUBLIC for GOPROXY to resolve this
+// (run PUSH-APP.sh), exactly as archistrator-platform is public for the framework-go pin.
+// Until then the design workflow's MCP install step fails RED (the correct signal — a
+// visible failed gate, never a silent skip). For reproducibility the founder may move this
+// to a tagged `server/vX.Y.Z` release once cut; `main` works the moment the repo is public.
+const StateMcpModulePin = "main"
+
 // NOTE (2026-06-15 correction): the embedded DESIGN workflow reads
 // ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }} to authenticate claude-code-action, but that
 // Actions secret is provisioned by the Claude Code GitHub App when the USER runs
@@ -131,7 +153,11 @@ func renderDesignWorkflow(appSlug string) ([]byte, error) {
 		return nil, fmt.Errorf("sourcecontrol: parse aiarch-design.yml template: %w", err)
 	}
 	var buf bytes.Buffer
-	if err := t.Execute(&buf, scaffoldTemplateData{AppSlug: appSlug}); err != nil {
+	if err := t.Execute(&buf, scaffoldTemplateData{
+		AppSlug:            appSlug,
+		StateMcpModulePath: StateMcpModulePath,
+		StateMcpModulePin:  StateMcpModulePin,
+	}); err != nil {
 		return nil, fmt.Errorf("sourcecontrol: render aiarch-design.yml template: %w", err)
 	}
 	return buf.Bytes(), nil
@@ -156,6 +182,10 @@ type scaffoldTemplateData struct {
 	GoVersion          string
 	FrameworkGoVersion string
 	AppSlug            string
+	// StateMcpModulePath / StateMcpModulePin template the `go install <path>@<pin>` the
+	// DESIGN workflow uses to obtain the local project-state MCP server binary.
+	StateMcpModulePath string
+	StateMcpModulePin  string
 }
 
 // renderScaffoldFile renders one embedded text/template with the module path + pins.

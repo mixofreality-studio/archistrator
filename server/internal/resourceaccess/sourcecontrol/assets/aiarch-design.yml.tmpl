@@ -211,6 +211,67 @@ jobs:
         id: base
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
+      # -----------------------------------------------------------------------
+      # aiarch-state MCP server (agentic-managers spec §Construction application).
+      # The drafting agent NO LONGER hand-edits .aiarch/state/project.json or runs git:
+      # it authors the typed Method artifact through the "aiarch-state" MCP tools, which
+      # ARE ProjectStateAccess code operating on this checkout. putDraftModel validates
+      # every model through the FULL projectstate codec + methodcheck BEFORE writing (so a
+      # bad enum / missing id is rejected in-loop with an actionable error, not committed
+      # to stall the rail), and publishDraft is the single, exactly-once commit+push.
+      #
+      # DELIVERY: the binary is obtained the SAME way the seated `go test` obtains
+      # framework-go — `go install <module>@<pin>` resolved via GOPROXY (a published
+      # module) — so it carries the identical trust/access profile as today's platform
+      # module fetch. The binary lives in the archistrator SERVER module because it must
+      # reuse the STRICT projectstate codec in server/internal (a package only that module
+      # can import). Requires the archistrator repo to be resolvable by GOPROXY (public);
+      # until then this step fails RED, the correct visible signal.
+      # -----------------------------------------------------------------------
+      - name: Set up Go (for the aiarch-state MCP server)
+        uses: actions/setup-go@v5
+        with:
+          # Pin the toolchain INDEPENDENTLY of the seated go.mod (which tracks the user
+          # module / framework-go). `go install` of the archistrator SERVER module needs a
+          # Go at least as new as that module's own `go` directive, so pin the latest 1.25
+          # patch here rather than inheriting the user repo's (possibly older) go-version.
+          go-version: "1.25.x"
+
+      - name: Obtain the aiarch-state MCP server
+        id: statemcp
+        env:
+          GOBIN: ${{ runner.temp }}/aiarch-bin
+        run: |
+          mkdir -p "${GOBIN}"
+          go install [[ .StateMcpModulePath ]]@[[ .StateMcpModulePin ]]
+          echo "bin=${GOBIN}/aiarch-state-mcp" >> "$GITHUB_OUTPUT"
+
+      # The MCP config claude-code-action passes to the Claude CLI (--mcp-config). The
+      # ambient session context is baked in as env on the MCP server process from the
+      # dispatch inputs + the per-project repo name (project id = repo name). The agent
+      # supplies NONE of these — the ambient artifact_kind fixes the slot, so it can never
+      # infer the wrong one (the F68 fix, made structural).
+      - name: Write the aiarch-state MCP config
+        env:
+          MCP_BIN: ${{ steps.statemcp.outputs.bin }}
+        run: |
+          cat > "${RUNNER_TEMP}/aiarch-mcp.json" <<EOF
+          {
+            "mcpServers": {
+              "aiarch-state": {
+                "command": "${MCP_BIN}",
+                "env": {
+                  "AIARCH_PROJECT_ID": "${{ github.event.repository.name }}",
+                  "AIARCH_ARTIFACT_KIND": "${{ inputs.artifact_kind }}",
+                  "AIARCH_JOB_MODE": "${{ inputs.job_mode }}",
+                  "AIARCH_TARGET_BRANCH": "${{ inputs.target_branch }}",
+                  "AIARCH_STATE_ROOT": "${{ github.workspace }}"
+                }
+              }
+            }
+          }
+          EOF
+
       - name: Draft the typed Method artifact (claude-code-action)
         uses: anthropics/claude-code-action@v1
         with:
@@ -239,35 +300,28 @@ jobs:
           # SAME grant the construction reference workflow uses (aiarch-construct.yml).
           # The trust boundary is NOT the tool prompt: it is the branch + PR human gate
           # plus the REQUIRED `go test` (methodcheck) check that blocks merge (C-VCI).
-          claude_args: "--dangerously-skip-permissions"
-          # The composed Method-role prompt. The action must draft the typed
-          # `${{ inputs.artifact_kind }}` artifact and write the canonical JSON to
-          # .aiarch/state/project.json (the path methodcheck.Check + projectStateAccess
-          # read), committing on `${{ inputs.target_branch }}`.
+          # --mcp-config wires the local aiarch-state MCP server (installed above) into the
+          # Claude CLI. --dangerously-skip-permissions auto-allows tool calls (incl. the MCP
+          # tools) in the unattended runner — the trust boundary is NOT the tool prompt: it is
+          # putDraftModel's in-loop codec+methodcheck validation, the branch + PR human gate,
+          # and the REQUIRED `go test` (methodcheck) check that blocks merge (C-VCI).
+          claude_args: "--dangerously-skip-permissions --mcp-config ${{ runner.temp }}/aiarch-mcp.json"
+          # The composed Method-role prompt carries the role, task, and doctrine. All READS
+          # and WRITES of the project state go through the "aiarch-state" MCP tools — the
+          # agent does NOT hand-edit any file under .aiarch/state and does NOT run git.
           prompt: |
             ${{ inputs.design_prompt }}
 
-            Job mode: "${{ inputs.job_mode }}" for the "${{ inputs.artifact_kind }}" Method artifact.
+            You have the "aiarch-state" MCP tools for this project's Method state. Use them
+            for EVERY read and write — do NOT hand-edit any file under .aiarch/state and do
+            NOT run git yourself. The ambient design job already fixes which artifact you are
+            working on, so you never choose a slot or a kind.
 
-            If job_mode is "draft": commit the resulting typed JSON under .aiarch/state/
-            (the canonical project state document at .aiarch/state/project.json) as the
-            artifact slot's "model".
-
-            If job_mode is "critique": do NOT rewrite the artifact "model". Instead, on
-            that artifact's slot in .aiarch/state/project.json, set "critiqueVerdict" to
-            exactly "approve" or "revise" and, on "revise", set "critiqueNotes" to the
-            revision guidance. Always commit a non-empty "critiqueVerdict"; never touch
-            the slot's "notes" field.
-
-            In BOTH modes, commit your change onto the branch "${{ inputs.target_branch }}".
-
-            If job_mode is "draft": ALSO open a pull request from that branch, so the
-            human review gate and the required `go test` check apply to the drafted model.
-
-            If job_mode is "critique": do NOT open a pull request. Commit the
-            "critiqueVerdict" (and, on "revise", "critiqueNotes") onto the branch and
-            stop — the manager reads the verdict straight off the branch. A critique PR
-            is never merged by design and would only accumulate as abandoned rail debris.
+            When you finish your work, call publishDraft to commit and push it — that is the
+            last thing you do. You do NOT open a pull request: in draft mode the review pull
+            request is opened for you automatically after your publish, so the human review
+            gate and the required `go test` check apply; in critique mode no PR is opened (the
+            manager reads your verdict straight off the branch).
 
       # Silent-failure guard. claude-code-action can exit SUCCESS while committing
       # nothing (observed live 2026-07-04, run 28724066929: draft job green, zero
