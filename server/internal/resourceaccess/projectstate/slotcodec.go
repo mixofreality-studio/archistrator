@@ -39,6 +39,17 @@ type slotJSON struct {
 	// (and each comment's response/status). omitempty keeps the on-disk shape
 	// byte-identical for every slot the ledger never touched.
 	ReviewThread []ReviewComment `json:"reviewThread,omitempty"`
+	// Revisions counts how many times this slot has been COMMITTED (F38 amendments,
+	// founder ruling 2026-07-05). Bumped on every CommitArtifact; it is the AMENDMENT
+	// index a reopening seeds into the new session's branch (…-amend-N). omitempty keeps
+	// the on-disk shape byte-identical for slots that were never committed.
+	Revisions int64 `json:"revisions,omitempty"`
+	// StaleBasis is set true on an already-COMMITTED slot when an UPSTREAM artifact it
+	// depends on re-commits (an amendment shifted its basis, F38). It is a NON-blocking
+	// UI signal — never an auto-invalidate/auto-redraft — cleared when THIS slot itself
+	// re-commits (its own amendment is the reconcile). omitempty keeps the on-disk shape
+	// byte-identical for slots that are not stale.
+	StaleBasis bool `json:"staleBasis,omitempty"`
 }
 
 // slotEntry pairs a named-slot accessor with the kind that selects it. The
@@ -101,6 +112,8 @@ func encodeSlotsMap(p *Project) (map[string]slotJSON, error) {
 			CritiqueVerdict: slot.CritiqueVerdict,
 			CritiqueNotes:   slot.CritiqueNotes,
 			ReviewThread:    slot.ReviewThread,
+			Revisions:       slot.Revisions,
+			StaleBasis:      slot.StaleBasis,
 		}
 		if slot.Model != nil {
 			mb, err := json.Marshal(slot.Model)
@@ -127,6 +140,8 @@ func decodeSlotsMap(w map[string]slotJSON, p *Project) error {
 		slot.CritiqueVerdict = entry.CritiqueVerdict
 		slot.CritiqueNotes = entry.CritiqueNotes
 		slot.ReviewThread = entry.ReviewThread
+		slot.Revisions = entry.Revisions
+		slot.StaleBasis = entry.StaleBasis
 		if len(entry.Model) > 0 {
 			model, ok := NewModelForKind(kind)
 			if !ok {
@@ -163,6 +178,34 @@ func statusTransition(op string, kind ArtifactKind, to ArtifactReviewStatus, not
 		// Clear the PM-critique read-back carrier on every status transition.
 		slot.CritiqueVerdict = ""
 		slot.CritiqueNotes = ""
+		return nil
+	}
+}
+
+// commitTransition is the CommitArtifact-specific transition (F38 amendments/staleness). It
+// flips the slot to ReviewCommitted (the statusTransition contract) and then, in the SAME
+// atomic mutation over the whole Project:
+//   - bumps the committed slot's Revisions (the count of commits; the amendment index a
+//     reopening seeds into the next session's …-amend-N branch),
+//   - CLEARS the committed slot's own StaleBasis (re-committing IS the reconcile), and
+//   - sets StaleBasis=true on every ALREADY-committed DOWNSTREAM slot (its basis shifted).
+//
+// On a FIRST commit no downstream slot is committed yet, so the downstream marking is a
+// no-op; only a re-commit (amendment) actually flags anything.
+func commitTransition(kind ArtifactKind) func(*Project) error {
+	flip := statusTransition("CommitArtifact", kind, ReviewCommitted, "")
+	return func(p *Project) error {
+		if err := flip(p); err != nil {
+			return err
+		}
+		slot, _ := slotPtr(p, kind)
+		slot.Revisions++
+		slot.StaleBasis = false
+		for _, dk := range downstreamKinds(kind) {
+			if ds, ok := slotPtr(p, dk); ok && ds.Status == ReviewCommitted {
+				ds.StaleBasis = true
+			}
+		}
 		return nil
 	}
 }

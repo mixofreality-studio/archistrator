@@ -262,7 +262,9 @@ func (s *GitStore) stageArtifactForReviewOnBranch(ctx context.Context, projectID
 }
 
 func (s *GitStore) CommitArtifact(ctx context.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	return s.applyMutation(ctx, "CommitArtifact", projectID, expectedVersion, cred, idempotencyKey, modeUpsert, statusTransition("CommitArtifact", kind, ReviewCommitted, ""))
+	// commitTransition (F38) flips to Committed AND bumps Revisions + clears this slot's
+	// StaleBasis + flags downstream committed slots stale — all in one atomic commit on main.
+	return s.applyMutation(ctx, "CommitArtifact", projectID, expectedVersion, cred, idempotencyKey, modeUpsert, commitTransition(kind))
 }
 
 func (s *GitStore) RejectArtifact(ctx context.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, notes string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
@@ -318,6 +320,25 @@ func (s *GitStore) withdrawArtifactOnBranch(ctx context.Context, projectID Proje
 // appendReviewComments). Each comment supplies Anchor / AnchorText / Text / AuthorRole; the
 // id / round / open status are server-minted here. branch=="" behaves exactly as the main-path
 // reject (the dormant-rail fallback), still appending the comments.
+// SeedReviewCommentsOnBranch appends OPEN ledger comments to a slot's ReviewThread WITHOUT
+// any status change (F38 amendments). At an amendment session's start the reopening feedback
+// is seeded here as round-0 open entries — the "why" the drafting agent must address and the
+// reviewer tracks — on the SAME session branch the draft was staged on. It reuses the same
+// deterministic, idempotent append as the reject path (appendReviewComments dedups on id).
+func (s *GitStore) SeedReviewCommentsOnBranch(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, round int64, comments []ReviewComment, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	return s.applyMutationOnBranch(ctx, "SeedReviewComments", projectID, expectedVersion, branch, cred, idempotencyKey, modeUpsert, func(p *Project) error {
+		slot, ok := slotPtr(p, kind)
+		if !ok {
+			return fwra.New(fwra.ContractMisuse, fmt.Sprintf("projectstate.SeedReviewComments: unknown kind %s", kind))
+		}
+		if slot.Status == ReviewNone || slot.Model == nil {
+			return fwra.New(fwra.ContractMisuse, fmt.Sprintf("projectstate.SeedReviewComments: slot %s is unpopulated (stage a model first)", kind))
+		}
+		slot.ReviewThread = appendReviewComments(slot.ReviewThread, round, comments)
+		return nil
+	})
+}
+
 func (s *GitStore) RejectArtifactOnBranchWithComments(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, round int64, comments []ReviewComment, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	return s.applyMutationOnBranch(ctx, "RejectArtifact", projectID, expectedVersion, branch, cred, idempotencyKey, modeUpsert, func(p *Project) error {
 		if err := statusTransition("RejectArtifact", kind, ReviewRejected, notes)(p); err != nil {

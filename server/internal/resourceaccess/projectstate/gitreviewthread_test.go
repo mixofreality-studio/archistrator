@@ -52,6 +52,41 @@ func TestGitStore_RejectWithComments_AppendsOpenLedger(t *testing.T) {
 	}
 }
 
+// TestGitStore_SeedReviewComments_AppendsOpenNoStatusChange proves the F38 amendment seed:
+// it appends OPEN ledger entries WITHOUT flipping the slot status (unlike reject), so an
+// amendment session starts with the reopening feedback as tracked open comments while the
+// freshly-staged draft stays AwaitingReview.
+func TestGitStore_SeedReviewComments_AppendsOpenNoStatusChange(t *testing.T) {
+	store, cred, ctx := newLocalGitStore(t)
+	id := ps.ProjectID(uuid.NewString())
+	if _, err := store.CreateProject(ctx, id, "alice", "Demo", cred, "wf:create"); err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	v2, err := store.StageArtifactForReview(ctx, id, 1, &ps.MissionStatement{Vision: "v", Mission: "m"}, cred, "wf:stage")
+	if err != nil {
+		t.Fatalf("StageArtifactForReview: %v", err)
+	}
+	comments := []ps.ReviewComment{{Anchor: "$.vision", AnchorText: "v", Text: "the reopening reason", AuthorRole: "architect"}}
+	if _, err := store.SeedReviewCommentsOnBranch(ctx, id, v2, "", ps.KindMission, 0, comments, cred, "wf:seed"); err != nil {
+		t.Fatalf("SeedReviewCommentsOnBranch: %v", err)
+	}
+	proj, err := store.ReadProject(ctx, id, cred)
+	if err != nil {
+		t.Fatalf("ReadProject: %v", err)
+	}
+	// Status UNCHANGED (still AwaitingReview — the seed does not reject).
+	if proj.Mission.Status != ps.ReviewAwaitingReview {
+		t.Fatalf("seed must NOT change status; got %v, want AwaitingReview", proj.Mission.Status)
+	}
+	thread := proj.Mission.ReviewThread
+	if len(thread) != 1 || thread[0].ID != "r0c1" || thread[0].Status != ps.ReviewCommentOpen {
+		t.Fatalf("seed must append one OPEN round-0 entry r0c1, got %+v", thread)
+	}
+	if thread[0].Text != "the reopening reason" {
+		t.Fatalf("seeded comment text not persisted: %+v", thread[0])
+	}
+}
+
 func TestGitStore_RejectWithComments_IdempotentOnSameKey(t *testing.T) {
 	store, cred, ctx := newLocalGitStore(t)
 	id := ps.ProjectID(uuid.NewString())

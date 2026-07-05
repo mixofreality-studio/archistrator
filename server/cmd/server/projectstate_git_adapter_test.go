@@ -145,8 +145,10 @@ func TestProjectStateGitAdapter_UC2AdvanceAndResearchLandsInGit(t *testing.T) {
 	if proj.Phase == ps.PhaseSystemDesign {
 		t.Fatalf("phase did not advance past SystemDesign: %v", proj.Phase)
 	}
-	if len(proj.ResearchInput.Sources) != 1 || proj.ResearchInput.Sources[0].Content != "research-corpus" {
-		t.Fatalf("research input did not round-trip through git: %+v", proj.ResearchInput)
+	// F42: research is persisted as files + pointers ({Title, Path, ContentBytes}), so the
+	// round-trip carries the pointer (content lives in .aiarch/state/research/<slug>.txt).
+	if len(proj.Research.Sources) != 1 || proj.Research.Sources[0].Path != ".aiarch/state/research/00-src.txt" || proj.Research.Sources[0].ContentBytes != int64(len("research-corpus")) {
+		t.Fatalf("research pointer did not round-trip through git: %+v", proj.Research)
 	}
 }
 

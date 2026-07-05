@@ -125,13 +125,24 @@ func (m *projectDesignManager) RequestArtifactDraft(rc fwmanager.Context, projec
 		return "", err
 	}
 
+	// F38 BACK-EDGE / AMENDMENT (Phase-2 twin). A draft request on an already-COMMITTED
+	// Phase-2 artifact is the legal amendment path: fresh session on a …-amend-N branch
+	// (N = the slot's prior commit count) with the reopening feedback seeded into its ledger.
+	// A non-committed slot keeps today's behavior (active session redraft / fresh draft).
+	amendment := 0
+	if proj, rerr := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID)); rerr == nil {
+		if slotFor(proj, toPSKind(kind)).Status == projectstate.ReviewCommitted {
+			amendment = int(slotFor(proj, toPSKind(kind)).Revisions)
+		}
+	}
+
 	wfID := coAuthorWorkflowID(projectID, kind)
 	opts := client.StartWorkflowOptions{
 		ID:                       wfID,
 		TaskQueue:                TaskQueue,
 		WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
 	}
-	in := coAuthorInput{ProjectID: projectID, ArtifactKind: kind, Feedback: feedback}
+	in := coAuthorInput{ProjectID: projectID, ArtifactKind: kind, Feedback: feedback, Amendment: amendment}
 
 	we, err := m.client.ExecuteWorkflow(ctx, opts, executionKindCoAuthor, in)
 	if err != nil {

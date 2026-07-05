@@ -7557,6 +7557,12 @@
                 "$ref": "#/$defs/ReviewComment"
               },
               "x-go-name": "ReviewThread"
+            },
+            "Revisions": {
+              "type": "integer"
+            },
+            "StaleBasis": {
+              "type": "boolean"
             }
           },
           "required": [
@@ -7564,7 +7570,9 @@
             "Model",
             "Notes",
             "CritiqueVerdict",
-            "CritiqueNotes"
+            "CritiqueNotes",
+            "Revisions",
+            "StaleBasis"
           ],
           "additionalProperties": false
         },
@@ -10878,6 +10886,14 @@
                 "null",
                 "string"
               ]
+            },
+            "staleBasis": {
+              "type": "boolean",
+              "x-go-name": "StaleBasis"
+            },
+            "revisions": {
+              "type": "integer",
+              "x-go-name": "Revisions"
             }
           },
           "required": [

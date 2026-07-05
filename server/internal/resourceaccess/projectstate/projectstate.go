@@ -107,6 +107,10 @@ type LedgerProjectStateAccess interface {
 	// (open->waived to dismiss, addressed->open to reopen). An unknown id is NotFound; an
 	// illegal transition is ContractMisuse. branch=="" behaves exactly as the main path.
 	SetReviewCommentStatusOnBranch(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, commentID string, status string, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	// SeedReviewCommentsOnBranch appends OPEN ledger comments to a slot's ReviewThread with
+	// NO status change (F38 amendments): the reopening feedback becomes the fresh session's
+	// initial open entries. Server-minted id/round/open, deterministic + idempotent.
+	SeedReviewCommentsOnBranch(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, round int64, comments []ReviewComment, idempotencyKey fwra.IdempotencyKey) (Version, error)
 }
 
 // Error is the shared ResourceAccess error model (framework-go), re-exported as

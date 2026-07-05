@@ -42,10 +42,18 @@ const pmHeader = "You are the Product Manager agent critiquing a drafted Method 
 // carries the Method drafting doctrine, and weaves in any rejection / PM-revision
 // feedback. The ResearchInput pointer is named for the MISSION step. The composed
 // prompt is the DESIGN job's design_prompt dispatch input.
-func architectDraftPrompt(kind projectstate.ArtifactKind, proj projectstate.Project, feedback ReviewFeedback, reviewThread []projectstate.ReviewComment) string {
+func architectDraftPrompt(kind projectstate.ArtifactKind, proj projectstate.Project, feedback ReviewFeedback, reviewThread []projectstate.ReviewComment, amendment int) string {
 	var b strings.Builder
 	b.WriteString(architectHeader)
 	fmt.Fprintf(&b, "Target artifact: %s\n", kind)
+
+	// F38 AMENDMENT: this session REOPENS an already-committed artifact. State that the agent
+	// is AMENDING the committed version (its own base — read it from the checked-out state)
+	// rather than drafting from scratch, and that the reopening reasons are the OPEN review
+	// ledger entries below (the "why").
+	if amendment > 0 {
+		fmt.Fprintf(&b, "\nThis is an AMENDMENT (revision %d) of the already-COMMITTED %s. Start from the committed version in the checked-out .aiarch/state/project.json and REVISE it to address the reopening feedback — do NOT discard it and redraft from scratch. The specific reasons this artifact was reopened are the OPEN review-ledger comments listed below; address each and record your response per the ledger contract.\n", amendment, kind)
+	}
 
 	// Per-kind priors: name the committed predecessor artifacts the Method draws on,
 	// by kind (the Action reads them from .aiarch/state/project.json in the repo).

@@ -1077,8 +1077,14 @@ components:
                     type:
                         - "null"
                         - string
+                revisions:
+                    type: integer
+                    x-go-name: Revisions
                 stage:
                     $ref: '#/components/schemas/SystemDesignArtifactStage'
+                staleBasis:
+                    type: boolean
+                    x-go-name: StaleBasis
             required:
                 - kind
                 - stage

@@ -289,6 +289,16 @@ func (a *projectStateGitAdapter) RejectArtifactOnBranchWithComments(ctx context.
 	return a.store.RejectArtifactOnBranchWithComments(ctx, projectID, expectedVersion, branch, kind, notes, round, comments, cred, idempotencyKey)
 }
 
+// SeedReviewCommentsOnBranch is the F38 amendment ledger-seed (append open comments, no
+// status change). The cred is minted just-in-time, exactly like the other ledger verbs.
+func (a *projectStateGitAdapter) SeedReviewCommentsOnBranch(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, round int64, comments []projectstate.ReviewComment, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
+	cred, err := a.minter.credentialFor(ctx, projectID)
+	if err != nil {
+		return 0, err
+	}
+	return a.store.SeedReviewCommentsOnBranch(ctx, projectID, expectedVersion, branch, kind, round, comments, cred, idempotencyKey)
+}
+
 // SetReviewCommentStatusOnBranch applies a human status transition to one ledger entry on
 // the session branch (empty branch ⇒ main). The cred is minted just-in-time, exactly like
 // the no-cred write verbs.

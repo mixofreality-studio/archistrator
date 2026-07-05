@@ -178,6 +178,22 @@ func (m *systemDesignManager) RequestArtifactDraft(rc fwmanager.Context, project
 		return "", err
 	}
 
+	// F38 BACK-EDGE / AMENDMENT (founder ruling 2026-07-05, fixes F37). A draft request on
+	// an already-COMMITTED artifact is the LEGAL AMENDMENT path: it reopens the artifact and
+	// starts a FRESH review session on a new …-amend-N branch (N = the slot's prior commit
+	// count) with the committed model as the draft base and the reopening feedback seeded into
+	// the new session's review ledger. On any NON-committed slot (drafting/awaiting-review/
+	// rejected/withdrawn) amendment stays 0 and the behavior is exactly as before: an active
+	// session consumes the redraft signal (USE_EXISTING); a withdrawn/failed slot starts a
+	// fresh original draft. Because a committed slot's prior workflow run is CLOSED, the
+	// SignalWithStart below starts a brand-new run (with this Amendment) rather than reusing it.
+	amendment := 0
+	if proj, rerr := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID)); rerr == nil {
+		if slotFor(proj, kind).Status == projectstate.ReviewCommitted {
+			amendment = int(slotFor(proj, kind).Revisions)
+		}
+	}
+
 	wfID := coAuthorWorkflowID(projectID, kind)
 	opts := client.StartWorkflowOptions{
 		ID:        wfID,
@@ -187,7 +203,7 @@ func (m *systemDesignManager) RequestArtifactDraft(rc fwmanager.Context, project
 		// (systemDesignManager.md §2.1 post-condition). The signal rides along.
 		WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
 	}
-	in := coAuthorInput{ProjectID: projectID, ArtifactKind: kind, Feedback: feedback}
+	in := coAuthorInput{ProjectID: projectID, ArtifactKind: kind, Feedback: feedback, Amendment: amendment}
 
 	we, err := m.client.SignalWithStartWorkflow(ctx, wfID, lSignalRedraft, redraftSignal{Feedback: feedback}, opts, executionKindCoAuthor, in)
 	if err != nil {

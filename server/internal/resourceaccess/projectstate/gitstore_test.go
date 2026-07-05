@@ -304,6 +304,75 @@ func TestGitStore_SetResearchInput_WritesFilesAndPointer(t *testing.T) {
 	}
 }
 
+// TestGitStore_CommitArtifact_RevisionsAndStaleBasis proves the F38 amendment/staleness
+// bookkeeping baked into CommitArtifact (founder ruling 2026-07-05): each commit bumps the
+// slot's Revisions and clears its own StaleBasis, and RE-committing an upstream artifact
+// flags every already-committed DOWNSTREAM slot StaleBasis — a non-blocking UI signal,
+// cleared when that downstream slot itself re-commits (its amendment IS the reconcile).
+func TestGitStore_CommitArtifact_RevisionsAndStaleBasis(t *testing.T) {
+	store, cred, ctx := newLocalGitStore(t)
+	id := ps.ProjectID(uuid.NewString())
+	if _, err := store.CreateProject(ctx, id, "alice", "Demo", cred, "wf:create"); err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+
+	// stageCommit stages a model for a kind then commits it, returning the new version.
+	stageCommit := func(v ps.Version, kind ps.ArtifactKind, model ps.ArtifactModel, tag string) ps.Version {
+		v2, err := store.StageArtifactForReview(ctx, id, v, model, cred, fwra.IdempotencyKey("wf:stage:"+tag))
+		if err != nil {
+			t.Fatalf("stage %s: %v", tag, err)
+		}
+		v3, err := store.CommitArtifact(ctx, id, v2, kind, cred, fwra.IdempotencyKey("wf:commit:"+tag))
+		if err != nil {
+			t.Fatalf("commit %s: %v", tag, err)
+		}
+		return v3
+	}
+	read := func() ps.Project {
+		p, err := store.ReadProject(ctx, id, cred)
+		if err != nil {
+			t.Fatalf("ReadProject: %v", err)
+		}
+		return p
+	}
+
+	// Forward flow: commit Mission (rev 1) then Glossary (rev 1). No staleness yet — Glossary
+	// is DOWNSTREAM of Mission, so committing it flags nothing upstream.
+	v := stageCommit(1, ps.KindMission, &ps.MissionStatement{Vision: "v1", Mission: "m1"}, "mission1")
+	v = stageCommit(v, ps.KindGlossary, &ps.Glossary{}, "glossary1")
+	p := read()
+	if p.Mission.Revisions != 1 || p.Glossary.Revisions != 1 {
+		t.Fatalf("forward commits: want Revisions 1/1, got %d/%d", p.Mission.Revisions, p.Glossary.Revisions)
+	}
+	if p.Mission.StaleBasis || p.Glossary.StaleBasis {
+		t.Fatalf("forward flow must set NO staleness, got mission=%v glossary=%v", p.Mission.StaleBasis, p.Glossary.StaleBasis)
+	}
+
+	// AMEND Mission (re-commit): Mission.Revisions→2, Mission.StaleBasis cleared, and the
+	// already-committed DOWNSTREAM Glossary is flagged StaleBasis.
+	v = stageCommit(v, ps.KindMission, &ps.MissionStatement{Vision: "v2", Mission: "m2"}, "mission2")
+	p = read()
+	if p.Mission.Revisions != 2 {
+		t.Fatalf("amended Mission Revisions = %d, want 2", p.Mission.Revisions)
+	}
+	if p.Mission.StaleBasis {
+		t.Fatal("the amended Mission must NOT be stale (its re-commit is the reconcile)")
+	}
+	if !p.Glossary.StaleBasis {
+		t.Fatal("committed downstream Glossary must be flagged StaleBasis after Mission is amended")
+	}
+
+	// RECONCILE: amend Glossary (re-commit) → its own StaleBasis clears, Revisions→2.
+	stageCommit(v, ps.KindGlossary, &ps.Glossary{}, "glossary2")
+	p = read()
+	if p.Glossary.StaleBasis {
+		t.Fatal("re-committing the stale Glossary must clear its StaleBasis (the reconcile)")
+	}
+	if p.Glossary.Revisions != 2 {
+		t.Fatalf("reconciled Glossary Revisions = %d, want 2", p.Glossary.Revisions)
+	}
+}
+
 func TestGitStore_StageCommitRoundTrip(t *testing.T) {
 	store, cred, ctx := newLocalGitStore(t)
 	id := ps.ProjectID(uuid.NewString())

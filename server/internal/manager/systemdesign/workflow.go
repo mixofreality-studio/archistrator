@@ -129,6 +129,7 @@ const (
 	actAdvancePhase        = "AdvancePhaseActivity"
 	// review-ledger: the human waive/reopen branch mutation.
 	actSetReviewCommentStatus = "SetReviewCommentStatusActivity"
+	actSeedReviewComments     = "SeedReviewCommentsActivity"
 
 	// PR-rail Activity names (I-DESIGN-DISPATCH §2b).
 	actMintRepoCredential   = "MintRepoCredentialActivity" // #nosec G101 -- Temporal activity NAME constant, not a credential
@@ -553,6 +554,11 @@ func (wf *workflows) CoAuthorArtifactWorkflow(ctx workflow.Context, in coAuthorI
 	// round's on the SAME accumulating thread. Bumped only on an AwaitingReview-gate REJECT.
 	reviewRound := 0
 
+	// amendmentSeeded guards the one-time F38 ledger seed: when this is an AMENDMENT session
+	// (in.Amendment > 0) the reopening feedback is recorded as round-0 OPEN ledger entries
+	// right after the first stage, so the reviewer/agent track the "why" of the reopening.
+	amendmentSeeded := false
+
 	// The UC1a spine (systemDesignManager.md §0b §3): each iteration produces a
 	// reviewable draft (dispatch → observe → read-back, plus the PM-critique round for
 	// PM-reviewed kinds), stages it, suspends on the human gate, and acts on the
@@ -604,6 +610,10 @@ func (wf *workflows) CoAuthorArtifactWorkflow(ctx workflow.Context, in coAuthorI
 		state.stage = StageAwaitingReview
 		// A fresh AwaitingReview supersedes any prior approve-fault notice (QA F35).
 		state.failureReason = ""
+		// F38 AMENDMENT SEED: on the first stage of an amendment session, record the reopening
+		// feedback as round-0 OPEN ledger entries on the (now-staged) session branch so the
+		// reviewer sees the "why" and the redraft loop can track it. Once only.
+		amendmentSeeded = wf.maybeSeedAmendment(ctx, in, gf, &headVersion, amendmentSeeded, state)
 		// REVIEW LEDGER: refresh the durable thread from the branch the draft was staged on so
 		// the sessionState Query surfaces the live comments (with the drafting agent's responses,
 		// normalized on the stage) and the approve gate can block while any comment is open.
@@ -759,7 +769,7 @@ func (wf *workflows) runDraftRoundTrip(
 
 	// REVIEW LEDGER: on a redraft, state.reviewThread carries the durable open comments
 	// (reloaded after the reject-append); the prompt lists each for the agent to respond to.
-	draftPrompt := architectDraftPrompt(toPSKind(in.ArtifactKind), proj, *feedback, state.reviewThread)
+	draftPrompt := architectDraftPrompt(toPSKind(in.ArtifactKind), proj, *feedback, state.reviewThread, in.Amendment)
 	draftObs, derr := wf.dispatchAndObserve(ctx, dispatchDesignJobArgs{
 		ProjectID:     in.ProjectID,
 		ArtifactKind:  in.ArtifactKind,

@@ -127,6 +127,7 @@ const (
 	actAdvancePhase        = "AdvancePhaseActivity"
 	// review-ledger: the human waive/reopen branch mutation.
 	actSetReviewCommentStatus = "SetReviewCommentStatusActivity"
+	actSeedReviewComments     = "SeedReviewCommentsActivity"
 
 	// PR-rail Activity names (I-DESIGN-DISPATCH §2b).
 	actMintRepoCredential   = "MintRepoCredentialActivity" // #nosec G101 -- Temporal activity NAME constant, not a credential
@@ -459,6 +460,11 @@ func (wf *workflows) CoAuthorPhase2ArtifactWorkflow(ctx workflow.Context, in coA
 	// round's on the SAME accumulating thread. Bumped only on an AwaitingReview-gate REJECT.
 	reviewRound := 0
 
+	// amendmentSeeded guards the one-time F38 ledger seed (Phase-2 twin): when this is an
+	// amendment session (in.Amendment > 0) the reopening feedback is recorded as round-0 OPEN
+	// ledger entries right after the first stage.
+	amendmentSeeded := false
+
 	for {
 		// --- DRAFT round-trip: dispatch -> observe -> read-back (agentic pivot) ---
 		// coAuthorDraftRound composes the Phase-2 architect prompt IN-MEMORY, dispatches +
@@ -477,6 +483,10 @@ func (wf *workflows) CoAuthorPhase2ArtifactWorkflow(ctx workflow.Context, in coA
 		if step == coAuthorContinue {
 			continue
 		}
+
+		// F38 AMENDMENT SEED: on the first stage of an amendment session, record the reopening
+		// feedback as round-0 OPEN ledger entries on the staged session branch. Once only.
+		amendmentSeeded = wf.maybeSeedAmendment(ctx, in, gf, &headVersion, amendmentSeeded, state)
 
 		// Step 6/7: the review gate. Await a decision and act on it. An approve/merge-window
 		// fault is CONTAINED as coAuthorReAwait (QA F35): the staged draft is intact, so we
@@ -563,7 +573,7 @@ func (wf *workflows) coAuthorDraftRound(
 
 	// REVIEW LEDGER: on a redraft, state.reviewThread carries the durable open comments
 	// (reloaded after the reject-append); the prompt lists each for the agent to respond to.
-	draftPrompt := architectDraftPrompt(toPSKind(in.ArtifactKind), proj, *feedback, state.reviewThread)
+	draftPrompt := architectDraftPrompt(toPSKind(in.ArtifactKind), proj, *feedback, state.reviewThread, in.Amendment)
 	draftObs, derr := wf.dispatchAndObserve(ctx, dispatchDesignJobArgs{
 		ProjectID:     in.ProjectID,
 		ArtifactKind:  in.ArtifactKind,

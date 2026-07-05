@@ -74,6 +74,7 @@ func RegisterWorker(w worker.Worker, m ProjectDesignManager) {
 	w.RegisterActivityWithOptions(wf.RejectArtifactActivity, activity.RegisterOptions{Name: actRejectArtifact})
 	w.RegisterActivityWithOptions(wf.WithdrawArtifactActivity, activity.RegisterOptions{Name: actWithdrawArtifact})
 	w.RegisterActivityWithOptions(wf.SetReviewCommentStatusActivity, activity.RegisterOptions{Name: actSetReviewCommentStatus})
+	w.RegisterActivityWithOptions(wf.SeedReviewCommentsActivity, activity.RegisterOptions{Name: actSeedReviewComments})
 	w.RegisterActivityWithOptions(wf.AdvancePhaseActivity, activity.RegisterOptions{Name: actAdvancePhase})
 
 	// PR-rail Activities (I-DESIGN-DISPATCH §2b). Registered unconditionally; an unwired

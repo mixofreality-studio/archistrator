@@ -418,6 +418,10 @@ func slotsToContract(p projectstate.Project) []ArtifactSlotView {
 			Stage: stageForStatus(slot.Status),
 			Model: encodeSlotModel(kind, slot.Model),
 			Notes: notesPtr(slot.Notes),
+			// F38: surface the staleness chip + the amendment (commit) count so the SPA can
+			// flag "basis shifted — reconcile" and show the revision. Both omitempty on the wire.
+			StaleBasis: staleBasisPtr(slot.StaleBasis),
+			Revisions:  revisionsPtr(slot.Revisions),
 		})
 	}
 	return slots
@@ -443,6 +447,26 @@ func notesPtr(notes string) *string {
 	}
 	n := notes
 	return &n
+}
+
+// staleBasisPtr surfaces the F38 staleness chip only when the slot is actually stale
+// (omitempty on the wire: absent ⇒ not stale).
+func staleBasisPtr(stale bool) *bool {
+	if !stale {
+		return nil
+	}
+	b := true
+	return &b
+}
+
+// revisionsPtr surfaces the F38 commit/amendment count only once the slot has been
+// committed at least once (omitempty on the wire: absent ⇒ 0).
+func revisionsPtr(n int64) *int64 {
+	if n == 0 {
+		return nil
+	}
+	v := n
+	return &v
 }
 
 // stageForStatus maps the stored per-slot ArtifactReviewStatus to the contract stage.

@@ -38,10 +38,17 @@ const architectHeader = "You are the Architect agent drafting a typed Phase-2 (P
 // DESIGN job's design_prompt dispatch input. (The proj parameter is retained for
 // signature parity / future per-kind prior selection; priors are named by kind, not
 // embedded.)
-func architectDraftPrompt(kind projectstate.ArtifactKind, _ projectstate.Project, feedback string, reviewThread []projectstate.ReviewComment) string {
+func architectDraftPrompt(kind projectstate.ArtifactKind, _ projectstate.Project, feedback string, reviewThread []projectstate.ReviewComment, amendment int) string {
 	var b strings.Builder
 	b.WriteString(architectHeader)
 	fmt.Fprintf(&b, "Target artifact: %s\n", kind)
+
+	// F38 AMENDMENT: this session REOPENS an already-committed Phase-2 artifact. Revise the
+	// committed version (its own base) rather than drafting from scratch; the reopening
+	// reasons are the OPEN review-ledger comments below.
+	if amendment > 0 {
+		fmt.Fprintf(&b, "\nThis is an AMENDMENT (revision %d) of the already-COMMITTED %s. Start from the committed version in the checked-out .aiarch/state/project.json and REVISE it to address the reopening feedback — do NOT discard it and redraft from scratch. The reasons this artifact was reopened are the OPEN review-ledger comments listed below; address each and record your response per the ledger contract.\n", amendment, kind)
+	}
 
 	// Per-kind priors: name the committed predecessor artifacts the Method draws on, by
 	// kind (the Action reads them from .aiarch/state/project.json in the repo). The

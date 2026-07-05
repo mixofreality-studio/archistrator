@@ -248,6 +248,7 @@ func registerRailCoAuthor(env *testsuite.TestWorkflowEnvironment, wf *workflows)
 	env.RegisterActivity(wf.CommitArtifactActivity)
 	env.RegisterActivity(wf.RejectArtifactActivity)
 	env.RegisterActivity(wf.WithdrawArtifactActivity)
+	env.RegisterActivity(wf.SeedReviewCommentsActivity)
 	env.RegisterActivity(wf.MintRepoCredentialActivity)
 	env.RegisterActivity(wf.OpenBranchActivity)
 	env.RegisterActivity(wf.OpenPullRequestActivity)
@@ -925,5 +926,50 @@ func Test_CoAuthor_RailEnabled_ApproveStatusTransient_RetriesThenMerges(t *testi
 	}
 	if len(base.committed) != 1 {
 		t.Fatalf("want one commit on the first approve, got %v", base.committed)
+	}
+}
+
+// THE F38 AMENDMENT REGRESSION — reopening a COMMITTED artifact starts a fresh session on a
+// …-amend-N branch and the draft prompt states it AMENDS the committed version. Driven by
+// coAuthorInput.Amendment (which RequestArtifactDraft sets from the committed slot's
+// Revisions). The reopening feedback rides coAuthorInput.Feedback.
+func Test_CoAuthor_RailEnabled_Amendment_UsesAmendBranchAndPrompt(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	ps := &branchAwareFakeProjectState{fakeProjectState: base}
+	pipe := newFakePipeline()
+	rail := &fakeRail{checkGreen: true}
+	wf := newRailWorkflows(ps, pipe, rail)
+	registerRailCoAuthor(env, wf)
+
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 30*time.Second)
+
+	// Amendment 1 with anchored reopening feedback (the "why").
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{
+		ProjectID:    id,
+		ArtifactKind: KindSystem,
+		Amendment:    1,
+		Feedback:     &ReviewFeedback{Comments: []AnchoredComment{{JSONPath: "$.containers[0].name", Text: "rename this manager"}}},
+	})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("amendment session must not crash: %v", err)
+	}
+	if len(pipe.submits) == 0 {
+		t.Fatal("amendment must dispatch a draft")
+	}
+	// The draft rode a fresh …-amend-1 branch (F38 + F40 stable within the amendment session).
+	b := pipe.submits[0].dispatchInputs[dispatchInputTargetBranch]
+	if !strings.HasSuffix(b, "-amend-1") {
+		t.Fatalf("amendment 1 must draft on a …-amend-1 branch, got %q", b)
+	}
+	// The prompt states it amends the committed version.
+	if p := pipe.submits[0].dispatchInputs[dispatchInputDesignPrompt]; !strings.Contains(p, "AMENDMENT (revision 1)") {
+		t.Fatalf("amendment prompt must state it amends the committed version; prompt:\n%s", p)
 	}
 }

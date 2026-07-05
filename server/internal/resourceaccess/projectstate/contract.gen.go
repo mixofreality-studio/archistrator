@@ -150,6 +150,8 @@ type ArtifactSlot struct {
 	CritiqueVerdict string               `json:"CritiqueVerdict"`
 	CritiqueNotes   string               `json:"CritiqueNotes"`
 	ReviewThread    []ReviewComment      `json:"reviewThread,omitempty"`
+	Revisions       int64                `json:"Revisions"`
+	StaleBasis      bool                 `json:"StaleBasis"`
 }
 
 type Axis int

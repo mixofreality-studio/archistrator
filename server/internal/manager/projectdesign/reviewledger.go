@@ -110,6 +110,66 @@ func (wf *workflows) SetReviewCommentStatusActivity(ctx context.Context, a setCo
 	return mapErr(projectstate.Version(0), fwra.New(fwra.NotFound, "review ledger not supported by this substrate"))
 }
 
+// seedReviewCommentsArgs bundles the F38 amendment ledger-seed inputs across the Activity
+// boundary (Phase-2 twin).
+type seedReviewCommentsArgs struct {
+	ProjectID       projectstate.ProjectID
+	ExpectedVersion projectstate.Version
+	Kind            projectstate.ArtifactKind
+	Round           int64
+	Comments        []projectstate.ReviewComment
+	Branch          string
+}
+
+// SeedReviewCommentsActivity wraps the review-ledger seed verb (F38): appends the reopening
+// feedback as OPEN entries (no status change) to the amendment session's freshly-staged slot.
+func (wf *workflows) SeedReviewCommentsActivity(ctx context.Context, a seedReviewCommentsArgs) (projectstate.Version, error) {
+	if led, ok := wf.ProjectState.(projectstate.LedgerProjectStateAccess); ok {
+		return mapErr(led.SeedReviewCommentsOnBranch(ctx, a.ProjectID, a.ExpectedVersion, a.Branch, a.Kind, a.Round, a.Comments, activityIdempotencyKey(ctx)))
+	}
+	return mapErr(projectstate.Version(0), fwra.New(fwra.NotFound, "review ledger not supported by this substrate"))
+}
+
+// seedAmendmentLedger records the reopening feedback as round-0 OPEN ledger entries on the
+// amendment session branch after the first stage, then reloads the in-memory thread.
+// Best-effort; no-op with no anchored comments.
+// maybeSeedAmendment seeds the amendment ledger exactly once when an amendment session first
+// reaches AwaitingReview, returning the updated seeded flag (keeps the spine flat).
+func (wf *workflows) maybeSeedAmendment(ctx workflow.Context, in coAuthorInput, gf gitSession, headVersion *projectstate.Version, seeded bool, state *coAuthorState) bool {
+	if in.Amendment > 0 && !seeded {
+		wf.seedAmendmentLedger(ctx, in, gf, headVersion, state)
+		return true
+	}
+	return seeded
+}
+
+func (wf *workflows) seedAmendmentLedger(ctx workflow.Context, in coAuthorInput, gf gitSession, headVersion *projectstate.Version, state *coAuthorState) {
+	comments := feedbackToLedgerComments(in.Feedback)
+	if len(comments) == 0 {
+		return
+	}
+	newVersion, err := wf.applyRecovering(ctx, in.ProjectID, gf.readBackBranch(), *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		c := mutateOpts(ctx)
+		var v projectstate.Version
+		e := workflow.ExecuteActivity(c, wf.SeedReviewCommentsActivity, seedReviewCommentsArgs{
+			ProjectID:       projectstate.ProjectID(in.ProjectID),
+			ExpectedVersion: expected,
+			Kind:            toPSKind(in.ArtifactKind),
+			Round:           0,
+			Comments:        comments,
+			Branch:          gf.readBackBranch(),
+		}).Get(ctx, &v)
+		return v, e
+	})
+	if err != nil {
+		return
+	}
+	*headVersion = newVersion
+	if thread, terr := wf.loadReviewThread(ctx, in, gf); terr == nil {
+		state.reviewThread = thread
+	}
+}
+
 // loadReviewThread reads the artifact slot's durable ledger from the session branch ("" ⇒
 // main). Called after every (re)stage and every waive/reopen so the query + approve gate see
 // the live thread. A read fault is returned; the caller keeps the last-known thread.
