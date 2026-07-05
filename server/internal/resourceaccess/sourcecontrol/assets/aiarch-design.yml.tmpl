@@ -231,7 +231,12 @@ jobs:
       # commits, no PR — the Manager's observe loop only ever saw the validate failure).
       # This step turns "claude did nothing" into a RED run: it fails when the target
       # branch is missing on the remote, or when it still points at the base SHA (no new
-      # commit). Deterministic: a single ls-remote + string compare, no heuristics.
+      # commit). Deterministic: one ref lookup + string compare, no heuristics.
+      # MUST read the ref via the REST API with the run's own github.token — NOT
+      # `git ls-remote origin`: claude-code-action rewrites origin's URL to embed its
+      # app token for the push, then REVOKES that token in its cleanup, so any later
+      # git operation against origin fails auth (observed live 2026-07-05, run
+      # 28724503360: guard false-negatived a successful draft+PR).
       # POSIX single-bracket tests only — the bash double-bracket test would collide
       # with the Go-template action delimiters this file is rendered through.
       - name: Verify claude pushed a commit to the target branch
@@ -239,8 +244,9 @@ jobs:
         env:
           TARGET_BRANCH: ${{ inputs.target_branch }}
           BASE_SHA: ${{ steps.base.outputs.sha }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          remote_sha="$(git ls-remote origin "refs/heads/${TARGET_BRANCH}" | awk '{print $1}')"
+          remote_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${TARGET_BRANCH}" --jq .object.sha 2>/dev/null || true)"
           if [ -z "$remote_sha" ]; then
             echo "::error::claude-code-action exited without pushing branch '${TARGET_BRANCH}' — no commit, no PR. Treating the green claude step as a failed draft."
             exit 1
