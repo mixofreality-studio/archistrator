@@ -11,6 +11,7 @@ package projectdesign
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -35,6 +36,44 @@ var draftedPhase2Kinds = []projectstate.ArtifactKind{
 // draftFor composes the first-draft prompt for a kind (no feedback, no ledger, no amendment).
 func draftFor(kind projectstate.ArtifactKind) string {
 	return architectDraftPrompt(kind, projectstate.Project{}, "", nil, 0)
+}
+
+// F68: the slot number rendered into the design prompt MUST equal the session's wire kind for
+// EVERY drafted Phase-2 kind — the canonical mapping that flows identically through the prompt,
+// the branch (int(kind)), and the server read-back. The live incident: a decompressed (14) draft
+// whose prompt let the agent infer slot 12 (subcritical) — the four Solution siblings share one
+// type and the DRAFT ORDER is non-monotonic in the slot values, so an implicit slot invites a
+// positional mis-write. The directive names the authoritative number; this asserts it, and — the
+// crux of the bug — that NO OTHER solution sibling's number leaks in for a solution kind.
+func Test_SlotPlacement_PromptSlotNumberEqualsWireKind(t *testing.T) {
+	solutionKinds := map[projectstate.ArtifactKind]bool{
+		projectstate.KindNormalSolution:       true,
+		projectstate.KindSubcriticalSolution:  true,
+		projectstate.KindCompressedSolution:   true,
+		projectstate.KindDecompressedSolution: true,
+	}
+	for _, kind := range draftedPhase2Kinds {
+		prompt := draftFor(kind)
+		want := fmt.Sprintf("slot keyed exactly %q", fmt.Sprintf("%d", int(kind)))
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("kind %s (wire %d): prompt must name the authoritative slot key %q; got:\n%s",
+				kind, int(kind), want, prompt)
+		}
+		// A solution kind must NOT mention any OTHER solution sibling's slot key (the exact
+		// cross-write the incident produced: decompressed=14 drafted into slot 12).
+		if solutionKinds[kind] {
+			for sib := range solutionKinds {
+				if sib == kind {
+					continue
+				}
+				stray := fmt.Sprintf("slot keyed exactly %q", fmt.Sprintf("%d", int(sib)))
+				if strings.Contains(prompt, stray) {
+					t.Fatalf("kind %s (wire %d): prompt leaks sibling solution slot %d — the F68 cross-write",
+						kind, int(kind), int(sib))
+				}
+			}
+		}
+	}
 }
 
 // jsonFieldName returns the JSON wire name of a struct field (the part before any comma in its

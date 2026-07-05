@@ -46,6 +46,10 @@ func architectDraftPrompt(kind projectstate.ArtifactKind, proj projectstate.Proj
 	var b strings.Builder
 	b.WriteString(architectHeader)
 	fmt.Fprintf(&b, "Target artifact: %s\n", kind)
+	// F68 (canonical slot mapping, Phase-1 sibling): state the AUTHORITATIVE numeric slots-map
+	// key so the number the agent writes is identical to the branch and the server read-back
+	// (both derived from this same kind) and can never be inferred positionally.
+	b.WriteString(slotPlacementDirective(kind))
 
 	// F38 AMENDMENT: this session REOPENS an already-committed artifact. State that the agent
 	// is AMENDING the committed version (its own base — read it from the checked-out state)
@@ -337,6 +341,18 @@ func kindHasPMCritique(kind projectstate.ArtifactKind) bool {
 	default:
 		return false
 	}
+}
+
+// slotPlacementDirective renders the AUTHORITATIVE slot-placement instruction (F68): the
+// exact numeric slots-map key the drafted model must land under, derived from the SAME wire
+// ArtifactKind the workflow uses for the branch and the read-back — so the number the agent
+// writes can never diverge from the number the server reads. int(kind) IS the canonical
+// slots-map key (the git substrate keys .slots by the numeric ArtifactKind).
+func slotPlacementDirective(kind projectstate.ArtifactKind) string {
+	n := int(kind)
+	return fmt.Sprintf(
+		"\nSLOT PLACEMENT (authoritative — do NOT infer the slot from the draft order or from sibling slots): commit your drafted model as the \"model\" of the slot keyed exactly \"%d\" in the \"slots\" object of .aiarch/state/project.json — that is the %s slot (ArtifactKind %d) — and set the model's own \"kind\" field to %d. Do NOT write to any other slot key, and do NOT renumber, move, or overwrite any sibling slot. When you open the pull request, title it for the %s artifact (ArtifactKind %d).\n",
+		n, kind.WireName(), n, n, kind.WireName(), n)
 }
 
 // writePriorsPointer names the committed predecessor artifacts (by kind) the Method

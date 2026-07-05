@@ -8,11 +8,27 @@ package systemdesign
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
+
+// F68 (Phase-1 sibling): the slot number rendered into the draft prompt MUST equal the session's
+// wire kind for EVERY Phase-1 kind — the canonical mapping that flows identically through the
+// prompt, the branch (int(kind)), and the server read-back. Phase-1 kinds have distinct model
+// types, but the same authoritative-slot directive prevents any positional mis-write.
+func Test_SlotPlacement_PromptSlotNumberEqualsWireKind(t *testing.T) {
+	for _, kind := range projectstate.Phase1RequiredKinds() {
+		prompt := architectDraftPrompt(kind, projectstate.Project{}, ReviewFeedback{}, nil, 0)
+		want := fmt.Sprintf("slot keyed exactly %q", fmt.Sprintf("%d", int(kind)))
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("kind %s (wire %d): prompt must name the authoritative slot key %q; got:\n%s",
+				kind, int(kind), want, prompt)
+		}
+	}
+}
 
 // projWithResearch builds a minimal Project carrying a research corpus whose Content is a
 // distinctive, book-sized sentinel we can assert never leaks into the composed prompt.
