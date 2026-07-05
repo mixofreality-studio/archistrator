@@ -1164,3 +1164,124 @@ func Test_CoAuthor_Rail_Amendment_Advanced_OpensPR_Merges(t *testing.T) {
 		t.Fatalf("approve must commit the amendment once, got %v", base.committed)
 	}
 }
+
+// amendmentIndexFor — the pre-field fix rule. A COMMITTED slot yields an amendment index of
+// max(1, Revisions): a slot committed BEFORE the Revisions field existed reads Revisions=0
+// yet is still an amendment (index 1). Non-committed slots are the normal path (0).
+func Test_amendmentIndexFor_Rule(t *testing.T) {
+	// Pre-field committed slot (the observed gtdapp glossary case): Revisions 0 → index 1.
+	if got := amendmentIndexFor(projectstate.ArtifactSlot{Status: projectstate.ReviewCommitted, Revisions: 0}); got != 1 {
+		t.Fatalf("pre-field committed slot must yield amendment index 1, got %d", got)
+	}
+	// A committed slot with a real revision count returns it.
+	if got := amendmentIndexFor(projectstate.ArtifactSlot{Status: projectstate.ReviewCommitted, Revisions: 3}); got != 3 {
+		t.Fatalf("committed slot at revision 3 must yield amendment index 3, got %d", got)
+	}
+	// Non-committed slots are NOT amendments regardless of any stray Revisions value.
+	for _, st := range []projectstate.ArtifactReviewStatus{
+		projectstate.ReviewNone, projectstate.ReviewAwaitingReview, projectstate.ReviewRejected, projectstate.ReviewWithdrawn,
+	} {
+		if got := amendmentIndexFor(projectstate.ArtifactSlot{Status: st, Revisions: 5}); got != 0 {
+			t.Fatalf("non-committed slot (status %d) must yield amendment index 0, got %d", st, got)
+		}
+	}
+}
+
+// ledgerFakeProjectState is the branch-aware fake PLUS the review-ledger seam, so the
+// amendment SEED (SeedReviewCommentsActivity → SeedReviewCommentsOnBranch) actually FIRES
+// and is observable. It is a SEPARATE type (not the shared branchAwareFakeProjectState) so
+// existing reject tests — which assert on the non-ledger RejectArtifactOnBranch recorder —
+// are unaffected by the ledger routing.
+type ledgerFakeProjectState struct {
+	*branchAwareFakeProjectState
+	seededRounds   []int64
+	seededComments [][]projectstate.ReviewComment
+}
+
+var _ projectstate.LedgerProjectStateAccess = (*ledgerFakeProjectState)(nil)
+
+func (f *ledgerFakeProjectState) SeedReviewCommentsOnBranch(_ context.Context, _ projectstate.ProjectID, expectedVersion projectstate.Version, _ string, _ projectstate.ArtifactKind, round int64, comments []projectstate.ReviewComment, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	f.seededRounds = append(f.seededRounds, round)
+	f.seededComments = append(f.seededComments, comments)
+	return expectedVersion, nil
+}
+
+func (f *ledgerFakeProjectState) RejectArtifactOnBranchWithComments(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, _ int64, _ []projectstate.ReviewComment, key fwra.IdempotencyKey) (projectstate.Version, error) {
+	return f.RejectArtifactOnBranch(ctx, projectID, expectedVersion, branch, kind, notes, key)
+}
+
+func (f *ledgerFakeProjectState) SetReviewCommentStatusOnBranch(_ context.Context, _ projectstate.ProjectID, expectedVersion projectstate.Version, _ string, _ projectstate.ArtifactKind, _ string, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return expectedVersion, nil
+}
+
+// F38 PRE-FIELD AMENDMENT (the observed gtdapp glossary bug) — a slot COMMITTED before the
+// Revisions field existed (Status=Committed, Revisions=0) must run the FULL amendment path:
+// the index computes to 1 (amendmentIndexFor), the draft rides a …-amend-1 branch with the
+// amendment prompt framing, AND the reopening feedback is SEEDED into the review ledger
+// (round 0). Pre-fix it computed Amendment=0 → a normal draft on the canonical branch with
+// NO seed.
+func Test_CoAuthor_Rail_Amendment_PreFieldCommittedSlot_AmendBranch_Prompt_SeedFires(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	// A PRE-FIELD committed SystemDesign slot: committedSlot sets Status=Committed, Revisions=0.
+	proj := systemReadBack(t, id)
+	proj.SystemDesign = committedSlot(&projectstate.System{})
+	base := &fakeProjectState{project: proj}
+
+	// The index the manager WOULD compute for this pre-field slot must be 1 (not 0).
+	if got := amendmentIndexFor(proj.SystemDesign); got != 1 {
+		t.Fatalf("a pre-field committed slot must compute amendment index 1, got %d", got)
+	}
+
+	// The branch advances the artifact (so the no-change guard passes) and the ledger records seeds.
+	ps := &ledgerFakeProjectState{
+		branchAwareFakeProjectState: &branchAwareFakeProjectState{
+			fakeProjectState:    base,
+			branchAdvancedModel: &projectstate.System{Components: []projectstate.Component{{}}},
+		},
+	}
+	pipe := newFakePipeline()
+	rail := &fakeRail{checkGreen: true}
+	wf := newRailWorkflows(ps, pipe, rail)
+	registerRailCoAuthor(env, wf)
+
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
+	}, 30*time.Second)
+
+	// Drive the workflow with the COMPUTED index (1), as the manager would.
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{
+		ProjectID:    id,
+		ArtifactKind: KindSystem,
+		Amendment:    amendmentIndexFor(proj.SystemDesign),
+		Feedback:     &ReviewFeedback{Comments: []AnchoredComment{{JSONPath: "$.components[0].name", Text: "rename this manager"}}},
+	})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("pre-field amendment must not crash: %v", err)
+	}
+	if len(pipe.submits) == 0 {
+		t.Fatal("the amendment must dispatch a draft")
+	}
+	// -amend-1 branch (NOT the canonical branch).
+	b := pipe.submits[0].dispatchInputs[dispatchInputTargetBranch]
+	if !strings.HasSuffix(b, "-amend-1") {
+		t.Fatalf("a pre-field committed slot must draft on a …-amend-1 branch, got %q", b)
+	}
+	// Amendment prompt framing.
+	if p := pipe.submits[0].dispatchInputs[dispatchInputDesignPrompt]; !strings.Contains(p, "AMENDMENT (revision 1)") {
+		t.Fatalf("the amendment prompt must frame it as revision 1; prompt:\n%s", p)
+	}
+	// THE LOAD-BEARING FIX: the reopening feedback was SEEDED into the review ledger (round 0).
+	if len(ps.seededRounds) == 0 {
+		t.Fatal("the amendment SEED must fire for a pre-field committed slot (pre-fix it did not)")
+	}
+	if ps.seededRounds[0] != 0 {
+		t.Fatalf("the reopening feedback must seed as round 0, got round %d", ps.seededRounds[0])
+	}
+	if len(ps.seededComments) == 0 || len(ps.seededComments[0]) == 0 {
+		t.Fatal("the seed must carry the reopening comments as OPEN ledger entries")
+	}
+}

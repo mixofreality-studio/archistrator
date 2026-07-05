@@ -106,6 +106,25 @@ func newProjectDesignManager(
 // so a raw API/MCP caller cannot draft out of order (the CoAuthorPhase2ArtifactWorkflow
 // itself never gated ordering; it drafts immediately). The first Phase-2 kind
 // (planningAssumptions) has no Phase-2 predecessor.
+// amendmentIndexFor returns the AMENDMENT index for a draft request against slot: the count
+// of prior commits, used as the …-amend-N branch suffix and the "revision N" prompt framing,
+// and the signal that gates the amendment path (fresh -amend-N branch, amendment prompt, and
+// review-ledger SEED of the reopening feedback). It keys off THE AMENDMENT CONDITION — the
+// slot is COMMITTED — NOT off any Revisions magnitude. A committed slot is an amendment even
+// when its Revisions reads 0 (a slot committed BEFORE the Revisions field existed): the floor
+// of 1 guarantees every committed slot yields an index >= 1, so the workflow's Amendment>0
+// checks are a faithful proxy for "committed at request time." A non-committed slot
+// (drafting/awaiting/rejected/withdrawn/none) returns 0 — the normal (non-amendment) path.
+func amendmentIndexFor(slot projectstate.ArtifactSlot) int {
+	if slot.Status != projectstate.ReviewCommitted {
+		return 0
+	}
+	if slot.Revisions < 1 {
+		return 1 // pre-field committed slot: grandfathered to revision 1
+	}
+	return int(slot.Revisions)
+}
+
 func (m *projectDesignManager) RequestArtifactDraft(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind, feedback *ReviewFeedback) (SessionRef, error) {
 	ctx := rc.Context
 	if projectID == "" {
@@ -131,9 +150,7 @@ func (m *projectDesignManager) RequestArtifactDraft(rc fwmanager.Context, projec
 	// A non-committed slot keeps today's behavior (active session redraft / fresh draft).
 	amendment := 0
 	if proj, rerr := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID)); rerr == nil {
-		if slotFor(proj, toPSKind(kind)).Status == projectstate.ReviewCommitted {
-			amendment = int(slotFor(proj, toPSKind(kind)).Revisions)
-		}
+		amendment = amendmentIndexFor(slotFor(proj, toPSKind(kind)))
 	}
 
 	wfID := coAuthorWorkflowID(projectID, kind)

@@ -479,6 +479,13 @@ type coAuthorInput struct {
 	// the Nth reopening of an already-COMMITTED artifact — a fresh session whose v1
 	// branch/PR already merged, so it drafts on a NEW branch (…-amend-N). Constant for
 	// the life of a workflow run, so the session branch is STABLE across every redraft.
+	//
+	// INVARIANT (set by the manager's amendmentIndexFor): N >= 1 IFF the slot was COMMITTED
+	// at request time — the amendment condition. The manager floors a committed slot to 1
+	// (a slot committed before the Revisions field existed reads Revisions=0 but is still an
+	// amendment). So the spine's "Amendment > 0" checks (branch suffix, amendment prompt
+	// framing, and the maybeSeedAmendment ledger seed) are a faithful proxy for "amendment"
+	// and fire for EVERY committed slot, including pre-field ones.
 	Amendment int
 }
 

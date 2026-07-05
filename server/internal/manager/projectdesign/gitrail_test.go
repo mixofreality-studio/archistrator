@@ -1140,3 +1140,22 @@ func Test_CoAuthorPhase2_Rail_Amendment_NoChange_LandsFailedGate_NoPR(t *testing
 		t.Fatalf("a no-change amendment must commit nothing, got %v", base.committed)
 	}
 }
+
+// amendmentIndexFor — the pre-field fix rule (Phase-2 twin). A COMMITTED slot yields
+// max(1, Revisions): a slot committed BEFORE the Revisions field existed reads Revisions=0
+// yet is still an amendment (index 1). Non-committed slots are the normal path (0).
+func Test_amendmentIndexFor_Rule(t *testing.T) {
+	if got := amendmentIndexFor(projectstate.ArtifactSlot{Status: projectstate.ReviewCommitted, Revisions: 0}); got != 1 {
+		t.Fatalf("pre-field committed slot must yield amendment index 1, got %d", got)
+	}
+	if got := amendmentIndexFor(projectstate.ArtifactSlot{Status: projectstate.ReviewCommitted, Revisions: 4}); got != 4 {
+		t.Fatalf("committed slot at revision 4 must yield amendment index 4, got %d", got)
+	}
+	for _, st := range []projectstate.ArtifactReviewStatus{
+		projectstate.ReviewNone, projectstate.ReviewAwaitingReview, projectstate.ReviewRejected, projectstate.ReviewWithdrawn,
+	} {
+		if got := amendmentIndexFor(projectstate.ArtifactSlot{Status: st, Revisions: 5}); got != 0 {
+			t.Fatalf("non-committed slot (status %d) must yield amendment index 0, got %d", st, got)
+		}
+	}
+}

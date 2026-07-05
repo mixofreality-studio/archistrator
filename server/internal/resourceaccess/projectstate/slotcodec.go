@@ -40,9 +40,15 @@ type slotJSON struct {
 	// byte-identical for every slot the ledger never touched.
 	ReviewThread []ReviewComment `json:"reviewThread,omitempty"`
 	// Revisions counts how many times this slot has been COMMITTED (F38 amendments,
-	// founder ruling 2026-07-05). Bumped on every CommitArtifact; it is the AMENDMENT
-	// index a reopening seeds into the new session's branch (…-amend-N). omitempty keeps
-	// the on-disk shape byte-identical for slots that were never committed.
+	// founder ruling 2026-07-05); the FIRST commit yields 1. Bumped on every
+	// CommitArtifact (commitTransition); it is the source for the AMENDMENT index a
+	// reopening seeds into the new session's branch (…-amend-N). RULE: a COMMITTED slot is
+	// always >= 1. Slots committed BEFORE this field existed persist as 0 (omitempty) and
+	// are GRANDFATHERED to 1 on read (decodeSlotsMap) — a committed artifact is by
+	// definition revision 1. This keeps the amendment index (max(1,Revisions)) and the
+	// commit bump monotonic and -amend-N branch names unique even for pre-field slots (a
+	// pre-field re-commit reads base 1 → ++ → lands at 2). omitempty keeps the on-disk
+	// shape byte-identical for slots that were never committed (which stay 0).
 	Revisions int64 `json:"revisions,omitempty"`
 	// StaleBasis is set true on an already-COMMITTED slot when an UPSTREAM artifact it
 	// depends on re-commits (an amendment shifted its basis, F38). It is a NON-blocking
@@ -141,6 +147,18 @@ func decodeSlotsMap(w map[string]slotJSON, p *Project) error {
 		slot.CritiqueNotes = entry.CritiqueNotes
 		slot.ReviewThread = entry.ReviewThread
 		slot.Revisions = entry.Revisions
+		// PRE-FIELD GRANDFATHER (F38 follow-up 2026-07-05): a slot committed BEFORE the
+		// Revisions field existed reads back as 0 (the zero-value / omitempty gap), yet a
+		// committed artifact is by definition at least revision 1. Normalize it to 1 on read
+		// so every Revisions consumer is consistent: the amendment index (max(1,Revisions))
+		// selects a real -amend-N branch, and commitTransition's ++ lands a pre-field
+		// re-commit at 2 (base read as 1 → ++), keeping successive -amend-N names unique. A
+		// never-committed slot (Status != Committed) is left at 0 so its FIRST commit still
+		// lands at 1. This is a lazy migration: the value persists as 1 on the next aggregate
+		// write.
+		if slot.Status == ReviewCommitted && slot.Revisions == 0 {
+			slot.Revisions = 1
+		}
 		slot.StaleBasis = entry.StaleBasis
 		if len(entry.Model) > 0 {
 			model, ok := NewModelForKind(kind)
@@ -199,6 +217,10 @@ func commitTransition(kind ArtifactKind) func(*Project) error {
 			return err
 		}
 		slot, _ := slotPtr(p, kind)
+		// Bump the commit count. First commit: 0 → 1. A re-commit (amendment) bumps from
+		// the prior count; pre-field committed bases are grandfathered to 1 on read
+		// (decodeSlotsMap / ArtifactSlot.Revisions doc), so a pre-field slot's first
+		// re-commit lands at 2 — keeping successive -amend-N branch names unique.
 		slot.Revisions++
 		slot.StaleBasis = false
 		for _, dk := range downstreamKinds(kind) {
