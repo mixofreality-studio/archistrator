@@ -13597,7 +13597,8 @@
             ]
           }
         ]
-      }
+      },
+      "staleBasis": true
     },
     "11": {
       "kind": 11,
@@ -13642,7 +13643,8 @@
         "slotKind": "normalSolution",
         "staffingCap": 6
       },
-      "status": 2
+      "status": 2,
+      "staleBasis": true
     },
     "12": {
       "kind": 12,
@@ -13687,7 +13689,8 @@
         "slotKind": "subcriticalSolution",
         "staffingCap": 4
       },
-      "status": 2
+      "status": 2,
+      "staleBasis": true
     },
     "13": {
       "kind": 13,
@@ -13732,7 +13735,8 @@
         "slotKind": "compressedSolution",
         "staffingCap": 6
       },
-      "status": 2
+      "status": 2,
+      "staleBasis": true
     },
     "14": {
       "kind": 14,
@@ -13777,7 +13781,8 @@
         "slotKind": "decompressedSolution",
         "staffingCap": 6
       },
-      "status": 2
+      "status": 2,
+      "staleBasis": true
     },
     "15": {
       "kind": 15,
@@ -13841,7 +13846,8 @@
         ],
         "tooRiskyThreshold": 0.75
       },
-      "status": 2
+      "status": 2,
+      "staleBasis": true
     },
     "16": {
       "kind": 16,
@@ -13927,7 +13933,8 @@
         "rationale": "recommend decompressedSolution: lowest in-band composite risk 0.491 (App C exclusions applied)",
         "recommendation": "opt-decompressed"
       },
-      "status": 2
+      "status": 2,
+      "staleBasis": true
     },
     "2": {
       "status": 2,
@@ -14246,7 +14253,7 @@
                   {
                     "id": "human-gate",
                     "kind": "action",
-                    "label": "Architect reviews the artifact; submits decision",
+                    "label": "Architect reviews the artifact; submits a review action",
                     "roleName": "Architect User",
                     "linkedActorId": "architect-user",
                     "linkedCompId": null
@@ -14254,7 +14261,31 @@
                   {
                     "id": "decision",
                     "kind": "decision",
-                    "label": "Decision?",
+                    "label": "Review action?",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "ask-questions",
+                    "kind": "action",
+                    "label": "Record questions in the review thread; an answer job posts per-question responses (no redraft)",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "weave-feedback",
+                    "kind": "action",
+                    "label": "Incorporate change requests into the next draft; answer each comment in the thread; repeat PM critique",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "approve-gate",
+                    "kind": "decision",
+                    "label": "Open change requests remain?",
                     "roleName": "",
                     "linkedActorId": null,
                     "linkedCompId": null
@@ -14262,7 +14293,7 @@
                   {
                     "id": "commit-advance",
                     "kind": "action",
-                    "label": "Approve the artifact; advance to the next design step",
+                    "label": "Commit the artifact (open questions warn only); advance to the next design step",
                     "roleName": "",
                     "linkedActorId": null,
                     "linkedCompId": null
@@ -14276,17 +14307,25 @@
                     "linkedCompId": null
                   },
                   {
-                    "id": "weave-feedback",
-                    "kind": "action",
-                    "label": "Incorporate feedback into the next draft; repeat PM critique",
+                    "id": "more-steps",
+                    "kind": "decision",
+                    "label": "More design steps remain?",
                     "roleName": "",
                     "linkedActorId": null,
                     "linkedCompId": null
                   },
                   {
-                    "id": "more-steps",
+                    "id": "stale-check",
                     "kind": "decision",
-                    "label": "More design steps remain?",
+                    "label": "Committed slots stale from amendments?",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "reconcile-stale",
+                    "kind": "action",
+                    "label": "Amend the stale artifact, or acknowledge 'reviewed - unaffected' (audited)",
                     "roleName": "",
                     "linkedActorId": null,
                     "linkedCompId": null
@@ -14407,27 +14446,51 @@
                   },
                   {
                     "from": "decision",
-                    "to": "commit-advance",
+                    "to": "ask-questions",
                     "kind": "guardedFlow",
-                    "guard": "[approve]"
+                    "guard": "[ask questions]"
                   },
                   {
-                    "from": "decision",
-                    "to": "withdraw",
-                    "kind": "guardedFlow",
-                    "guard": "[withdraw]"
+                    "from": "ask-questions",
+                    "to": "human-gate",
+                    "kind": "controlFlow",
+                    "guard": ""
                   },
                   {
                     "from": "decision",
                     "to": "weave-feedback",
                     "kind": "guardedFlow",
-                    "guard": "[send back + feedback]"
+                    "guard": "[send back change requests]"
                   },
                   {
                     "from": "weave-feedback",
                     "to": "dispatch-draft-job",
                     "kind": "controlFlow",
                     "guard": ""
+                  },
+                  {
+                    "from": "decision",
+                    "to": "approve-gate",
+                    "kind": "guardedFlow",
+                    "guard": "[approve]"
+                  },
+                  {
+                    "from": "approve-gate",
+                    "to": "human-gate",
+                    "kind": "guardedFlow",
+                    "guard": "[yes: approve blocked]"
+                  },
+                  {
+                    "from": "approve-gate",
+                    "to": "commit-advance",
+                    "kind": "guardedFlow",
+                    "guard": "[no]"
+                  },
+                  {
+                    "from": "decision",
+                    "to": "withdraw",
+                    "kind": "guardedFlow",
+                    "guard": "[withdraw]"
                   },
                   {
                     "from": "withdraw",
@@ -14449,6 +14512,24 @@
                   },
                   {
                     "from": "more-steps",
+                    "to": "stale-check",
+                    "kind": "guardedFlow",
+                    "guard": "[no]"
+                  },
+                  {
+                    "from": "stale-check",
+                    "to": "reconcile-stale",
+                    "kind": "guardedFlow",
+                    "guard": "[yes]"
+                  },
+                  {
+                    "from": "reconcile-stale",
+                    "to": "stale-check",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "stale-check",
                     "to": "seal-phase",
                     "kind": "guardedFlow",
                     "guard": "[no]"
@@ -15586,6 +15667,78 @@
                     "linkedCompId": null
                   },
                   {
+                    "id": "prepare-repo",
+                    "kind": "action",
+                    "label": "Owner prepares a repo: project topic plus the required app installs",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "submit-create",
+                    "kind": "action",
+                    "label": "Submit the project name and the operating-model choice",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "adopt-repo",
+                    "kind": "action",
+                    "label": "Adopt the repo (name-as-identity); seat the managed design workflow",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "create-head-state",
+                    "kind": "action",
+                    "label": "Create the project head state",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "operating-model",
+                    "kind": "decision",
+                    "label": "Operated by archistrator?",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "record-operated",
+                    "kind": "action",
+                    "label": "Record the archistrator-operated constraint (platform palette only)",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "merge-model",
+                    "kind": "merge",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "catalog-open",
+                    "kind": "action",
+                    "label": "Project appears in the catalog; owner opens it to read cross-phase state",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "capture-research",
+                    "kind": "action",
+                    "label": "Capture the research input once system design begins",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
                     "id": "end",
                     "kind": "end",
                     "label": "",
@@ -15597,6 +15750,66 @@
                 "edges": [
                   {
                     "from": "start",
+                    "to": "prepare-repo",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "prepare-repo",
+                    "to": "submit-create",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "submit-create",
+                    "to": "adopt-repo",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "adopt-repo",
+                    "to": "create-head-state",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "create-head-state",
+                    "to": "operating-model",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "operating-model",
+                    "to": "record-operated",
+                    "kind": "guardedFlow",
+                    "guard": "[yes]"
+                  },
+                  {
+                    "from": "record-operated",
+                    "to": "merge-model",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "operating-model",
+                    "to": "merge-model",
+                    "kind": "guardedFlow",
+                    "guard": "[no: self-operated]"
+                  },
+                  {
+                    "from": "merge-model",
+                    "to": "catalog-open",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "catalog-open",
+                    "to": "capture-research",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "capture-research",
                     "to": "end",
                     "kind": "controlFlow",
                     "guard": ""
@@ -15630,6 +15843,86 @@
                     "linkedCompId": null
                   },
                   {
+                    "id": "charge-declined",
+                    "kind": "action",
+                    "label": "Settlement charge for the cycle is declined",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "consult-policy",
+                    "kind": "action",
+                    "label": "Consult the intervention policy for the failure",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "retry-budget",
+                    "kind": "decision",
+                    "label": "Retry budget left?",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "recharge",
+                    "kind": "action",
+                    "label": "Retry the charge under the same settlement idempotency key",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "charge-ok",
+                    "kind": "decision",
+                    "label": "Charge succeeded?",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "record-settled",
+                    "kind": "action",
+                    "label": "Record the settlement; close the cycle",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "tolerance",
+                    "kind": "decision",
+                    "label": "Shortfall within tolerance sweeps?",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "delay-sweep",
+                    "kind": "action",
+                    "label": "Leave the shortfall for the next scheduled sweep to retry",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "escalate-delinquent",
+                    "kind": "action",
+                    "label": "Flag the customer delinquent; escalate to a human; queue the delinquency pause to operations",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "merge-out",
+                    "kind": "merge",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
                     "id": "end",
                     "kind": "end",
                     "label": "",
@@ -15641,6 +15934,84 @@
                 "edges": [
                   {
                     "from": "start",
+                    "to": "charge-declined",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "charge-declined",
+                    "to": "consult-policy",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "consult-policy",
+                    "to": "retry-budget",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "retry-budget",
+                    "to": "recharge",
+                    "kind": "guardedFlow",
+                    "guard": "[yes: retry]"
+                  },
+                  {
+                    "from": "recharge",
+                    "to": "charge-ok",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "charge-ok",
+                    "to": "record-settled",
+                    "kind": "guardedFlow",
+                    "guard": "[yes]"
+                  },
+                  {
+                    "from": "charge-ok",
+                    "to": "consult-policy",
+                    "kind": "guardedFlow",
+                    "guard": "[no: declined again]"
+                  },
+                  {
+                    "from": "record-settled",
+                    "to": "merge-out",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "retry-budget",
+                    "to": "tolerance",
+                    "kind": "guardedFlow",
+                    "guard": "[no: exhausted]"
+                  },
+                  {
+                    "from": "tolerance",
+                    "to": "delay-sweep",
+                    "kind": "guardedFlow",
+                    "guard": "[yes: delay]"
+                  },
+                  {
+                    "from": "tolerance",
+                    "to": "escalate-delinquent",
+                    "kind": "guardedFlow",
+                    "guard": "[no: aged out]"
+                  },
+                  {
+                    "from": "delay-sweep",
+                    "to": "merge-out",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "escalate-delinquent",
+                    "to": "merge-out",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "merge-out",
                     "to": "end",
                     "kind": "controlFlow",
                     "guard": ""
@@ -15674,6 +16045,70 @@
                     "linkedCompId": null
                   },
                   {
+                    "id": "resolve-app",
+                    "kind": "action",
+                    "label": "Resolve the deployed app to its billing customer",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "registered",
+                    "kind": "decision",
+                    "label": "Customer aggregate registered?",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "validate-instrument",
+                    "kind": "action",
+                    "label": "Validate the stored payment instrument (zero-amount authorization)",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "register-customer",
+                    "kind": "action",
+                    "label": "Open the customer billing aggregate",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "merge-reg",
+                    "kind": "merge",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "create-connected",
+                    "kind": "action",
+                    "label": "Create the connected account with the payment provider (charge-only)",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "bind-gateway",
+                    "kind": "action",
+                    "label": "Bind the gateway account to the customer's billing state",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "register-schedule",
+                    "kind": "action",
+                    "label": "Register the recurring settlement-cycle schedule",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
                     "id": "end",
                     "kind": "end",
                     "label": "",
@@ -15685,6 +16120,60 @@
                 "edges": [
                   {
                     "from": "start",
+                    "to": "resolve-app",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "resolve-app",
+                    "to": "registered",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "registered",
+                    "to": "validate-instrument",
+                    "kind": "guardedFlow",
+                    "guard": "[no]"
+                  },
+                  {
+                    "from": "validate-instrument",
+                    "to": "register-customer",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "register-customer",
+                    "to": "merge-reg",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "registered",
+                    "to": "merge-reg",
+                    "kind": "guardedFlow",
+                    "guard": "[yes]"
+                  },
+                  {
+                    "from": "merge-reg",
+                    "to": "create-connected",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "create-connected",
+                    "to": "bind-gateway",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "bind-gateway",
+                    "to": "register-schedule",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "register-schedule",
                     "to": "end",
                     "kind": "controlFlow",
                     "guard": ""
@@ -15718,6 +16207,94 @@
                     "linkedCompId": null
                   },
                   {
+                    "id": "capture-uc",
+                    "kind": "action",
+                    "label": "Capture the new use case: actor, trigger, outcome; scrub solutions from requirements",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "core-check",
+                    "kind": "decision",
+                    "label": "Core use case, or a variation?",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "revalidate",
+                    "kind": "action",
+                    "label": "Re-validate the decomposition and volatilities; the architecture may change",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "merge-amend",
+                    "kind": "merge",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "reopen-slot",
+                    "kind": "action",
+                    "label": "Reopen the committed use-case model as an amendment session",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "redraft-review",
+                    "kind": "action",
+                    "label": "Redraft with the new use case; architect reviews and approves",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "commit-stale",
+                    "kind": "action",
+                    "label": "Re-commit bumps the revision; downstream committed artifacts are flagged stale",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "reconcile",
+                    "kind": "action",
+                    "label": "Reconcile each stale artifact: amend it, or acknowledge 'reviewed - unaffected'",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "replan-check",
+                    "kind": "decision",
+                    "label": "New components or activities required?",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "replan",
+                    "kind": "action",
+                    "label": "Add activities to the plan; recompute floats; recommend a new SDP review",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "merge-out",
+                    "kind": "merge",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
                     "id": "end",
                     "kind": "end",
                     "label": "",
@@ -15729,6 +16306,84 @@
                 "edges": [
                   {
                     "from": "start",
+                    "to": "capture-uc",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "capture-uc",
+                    "to": "core-check",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "core-check",
+                    "to": "revalidate",
+                    "kind": "guardedFlow",
+                    "guard": "[core: rare]"
+                  },
+                  {
+                    "from": "revalidate",
+                    "to": "merge-amend",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "core-check",
+                    "to": "merge-amend",
+                    "kind": "guardedFlow",
+                    "guard": "[variation]"
+                  },
+                  {
+                    "from": "merge-amend",
+                    "to": "reopen-slot",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "reopen-slot",
+                    "to": "redraft-review",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "redraft-review",
+                    "to": "commit-stale",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "commit-stale",
+                    "to": "reconcile",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "reconcile",
+                    "to": "replan-check",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "replan-check",
+                    "to": "replan",
+                    "kind": "guardedFlow",
+                    "guard": "[yes]"
+                  },
+                  {
+                    "from": "replan",
+                    "to": "merge-out",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "replan-check",
+                    "to": "merge-out",
+                    "kind": "guardedFlow",
+                    "guard": "[no]"
+                  },
+                  {
+                    "from": "merge-out",
                     "to": "end",
                     "kind": "controlFlow",
                     "guard": ""
@@ -15762,6 +16417,102 @@
                     "linkedCompId": null
                   },
                   {
+                    "id": "capture-trigger",
+                    "kind": "action",
+                    "label": "Capture the scope trigger; never answer the request in the room",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "snapshot",
+                    "kind": "action",
+                    "label": "Snapshot activity exits, float consumed, and the earned-value trend; construction continues against the current network",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "classify",
+                    "kind": "decision",
+                    "label": "Architecture change requested?",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "back-to-design",
+                    "kind": "action",
+                    "label": "Not a scope change; return to system design",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "reenter",
+                    "kind": "action",
+                    "label": "Re-enter project design at the affected step (assumptions, activities, or network)",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "rebuild-options",
+                    "kind": "action",
+                    "label": "Rebuild the options - normal, decompressed, subcritical, compressed - with risk",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "present",
+                    "kind": "action",
+                    "label": "Present the new SDP revision with deltas to management",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "mgmt",
+                    "kind": "decision",
+                    "label": "Management decision?",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "adopt",
+                    "kind": "action",
+                    "label": "Adopt the new network as the commitment; reset the planned earned-value curve",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "record-reject",
+                    "kind": "action",
+                    "label": "Record the rejection; keep the current commitment",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "flag-risk",
+                    "kind": "action",
+                    "label": "Document a decision date; flag the project at-risk while deferred",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "merge-end",
+                    "kind": "merge",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
                     "id": "end",
                     "kind": "end",
                     "label": "",
@@ -15773,6 +16524,96 @@
                 "edges": [
                   {
                     "from": "start",
+                    "to": "capture-trigger",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "capture-trigger",
+                    "to": "snapshot",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "snapshot",
+                    "to": "classify",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "classify",
+                    "to": "back-to-design",
+                    "kind": "guardedFlow",
+                    "guard": "[yes]"
+                  },
+                  {
+                    "from": "back-to-design",
+                    "to": "end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "classify",
+                    "to": "reenter",
+                    "kind": "guardedFlow",
+                    "guard": "[no: scope change]"
+                  },
+                  {
+                    "from": "reenter",
+                    "to": "rebuild-options",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "rebuild-options",
+                    "to": "present",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "present",
+                    "to": "mgmt",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "mgmt",
+                    "to": "adopt",
+                    "kind": "guardedFlow",
+                    "guard": "[accept]"
+                  },
+                  {
+                    "from": "mgmt",
+                    "to": "record-reject",
+                    "kind": "guardedFlow",
+                    "guard": "[reject]"
+                  },
+                  {
+                    "from": "mgmt",
+                    "to": "flag-risk",
+                    "kind": "guardedFlow",
+                    "guard": "[defer]"
+                  },
+                  {
+                    "from": "adopt",
+                    "to": "merge-end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "record-reject",
+                    "to": "merge-end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "flag-risk",
+                    "to": "merge-end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "merge-end",
                     "to": "end",
                     "kind": "controlFlow",
                     "guard": ""
@@ -15806,6 +16647,94 @@
                     "linkedCompId": null
                   },
                   {
+                    "id": "week-elapses",
+                    "kind": "action",
+                    "label": "Tracking week comes due",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "read-exits",
+                    "kind": "action",
+                    "label": "Read binary activity exits and phase transitions",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "compute-ev",
+                    "kind": "action",
+                    "label": "Compute the week's earned-value point",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "enough-points",
+                    "kind": "decision",
+                    "label": "At least four points recorded?",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "project-eac",
+                    "kind": "action",
+                    "label": "Project estimate-at-completion and the schedule trend",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "no-trend",
+                    "kind": "action",
+                    "label": "Record the point without a trend",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "merge-trend",
+                    "kind": "merge",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "record-point",
+                    "kind": "action",
+                    "label": "Append the tracking point to the durable progress record",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "off-track",
+                    "kind": "decision",
+                    "label": "Variance beyond threshold?",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "corrective",
+                    "kind": "action",
+                    "label": "Trigger corrective action or a scope-change replan",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "merge-out",
+                    "kind": "merge",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
                     "id": "end",
                     "kind": "end",
                     "label": "",
@@ -15817,6 +16746,84 @@
                 "edges": [
                   {
                     "from": "start",
+                    "to": "week-elapses",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "week-elapses",
+                    "to": "read-exits",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "read-exits",
+                    "to": "compute-ev",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "compute-ev",
+                    "to": "enough-points",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "enough-points",
+                    "to": "project-eac",
+                    "kind": "guardedFlow",
+                    "guard": "[yes]"
+                  },
+                  {
+                    "from": "project-eac",
+                    "to": "merge-trend",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "enough-points",
+                    "to": "no-trend",
+                    "kind": "guardedFlow",
+                    "guard": "[no]"
+                  },
+                  {
+                    "from": "no-trend",
+                    "to": "merge-trend",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "merge-trend",
+                    "to": "record-point",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "record-point",
+                    "to": "off-track",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "off-track",
+                    "to": "corrective",
+                    "kind": "guardedFlow",
+                    "guard": "[yes]"
+                  },
+                  {
+                    "from": "corrective",
+                    "to": "merge-out",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "off-track",
+                    "to": "merge-out",
+                    "kind": "guardedFlow",
+                    "guard": "[no]"
+                  },
+                  {
+                    "from": "merge-out",
                     "to": "end",
                     "kind": "controlFlow",
                     "guard": ""
@@ -15850,6 +16857,54 @@
                     "linkedCompId": null
                   },
                   {
+                    "id": "open-history",
+                    "kind": "action",
+                    "label": "Owner opens the project's state history",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "read-commits",
+                    "kind": "action",
+                    "label": "Read the state repo's commit history; each mutation is one commit naming its operation",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "read-ledger",
+                    "kind": "action",
+                    "label": "Cross-reference the applied-mutations ledger for idempotent applies",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "inspect",
+                    "kind": "decision",
+                    "label": "Drill into a specific change?",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "diff-slot",
+                    "kind": "action",
+                    "label": "Diff the typed state at that commit against its parent",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "merge-out",
+                    "kind": "merge",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
                     "id": "end",
                     "kind": "end",
                     "label": "",
@@ -15861,6 +16916,48 @@
                 "edges": [
                   {
                     "from": "start",
+                    "to": "open-history",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "open-history",
+                    "to": "read-commits",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "read-commits",
+                    "to": "read-ledger",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "read-ledger",
+                    "to": "inspect",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "inspect",
+                    "to": "diff-slot",
+                    "kind": "guardedFlow",
+                    "guard": "[yes]"
+                  },
+                  {
+                    "from": "diff-slot",
+                    "to": "merge-out",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "inspect",
+                    "to": "merge-out",
+                    "kind": "guardedFlow",
+                    "guard": "[no]"
+                  },
+                  {
+                    "from": "merge-out",
                     "to": "end",
                     "kind": "controlFlow",
                     "guard": ""
@@ -15894,6 +16991,62 @@
                     "linkedCompId": null
                   },
                   {
+                    "id": "work-merges",
+                    "kind": "action",
+                    "label": "Construction merges reviewed work into the adopted repo via pull requests",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "open-repo",
+                    "kind": "action",
+                    "label": "Owner opens their own adopted repo; generated source is already on main",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "fetch-how",
+                    "kind": "decision",
+                    "label": "How does the owner fetch it?",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "git-clone",
+                    "kind": "action",
+                    "label": "Clone or pull the repo",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "provider-archive",
+                    "kind": "action",
+                    "label": "Download the provider's archive of the repo",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "merge-fetch",
+                    "kind": "merge",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "hold-source",
+                    "kind": "action",
+                    "label": "Owner holds the generated source; no archistrator surface is involved",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
                     "id": "end",
                     "kind": "end",
                     "label": "",
@@ -15905,6 +17058,54 @@
                 "edges": [
                   {
                     "from": "start",
+                    "to": "work-merges",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "work-merges",
+                    "to": "open-repo",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "open-repo",
+                    "to": "fetch-how",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "fetch-how",
+                    "to": "git-clone",
+                    "kind": "guardedFlow",
+                    "guard": "[clone or pull]"
+                  },
+                  {
+                    "from": "git-clone",
+                    "to": "merge-fetch",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "fetch-how",
+                    "to": "provider-archive",
+                    "kind": "guardedFlow",
+                    "guard": "[archive]"
+                  },
+                  {
+                    "from": "provider-archive",
+                    "to": "merge-fetch",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "merge-fetch",
+                    "to": "hold-source",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "hold-source",
                     "to": "end",
                     "kind": "controlFlow",
                     "guard": ""
@@ -15938,6 +17139,62 @@
                     "linkedCompId": null
                   },
                   {
+                    "id": "open-console",
+                    "kind": "action",
+                    "label": "Owner opens the operations console for the deployed app",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "request-projection",
+                    "kind": "action",
+                    "label": "Request a cost projection with what-if scale points",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "app-known",
+                    "kind": "decision",
+                    "label": "Operated app registered?",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "report-unknown",
+                    "kind": "action",
+                    "label": "Report the app is not operated",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "read-usage",
+                    "kind": "action",
+                    "label": "Read observed compute usage for the current cycle",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "project-costs",
+                    "kind": "action",
+                    "label": "Project the run-rate, monthly cost, and what-if scale curve from the cost model",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "render",
+                    "kind": "action",
+                    "label": "Render the projection beside current health and SLO status",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
                     "id": "end",
                     "kind": "end",
                     "label": "",
@@ -15949,6 +17206,54 @@
                 "edges": [
                   {
                     "from": "start",
+                    "to": "open-console",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "open-console",
+                    "to": "request-projection",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "request-projection",
+                    "to": "app-known",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "app-known",
+                    "to": "report-unknown",
+                    "kind": "guardedFlow",
+                    "guard": "[no]"
+                  },
+                  {
+                    "from": "report-unknown",
+                    "to": "end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "app-known",
+                    "to": "read-usage",
+                    "kind": "guardedFlow",
+                    "guard": "[yes]"
+                  },
+                  {
+                    "from": "read-usage",
+                    "to": "project-costs",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "project-costs",
+                    "to": "render",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "render",
                     "to": "end",
                     "kind": "controlFlow",
                     "guard": ""
@@ -15982,6 +17287,78 @@
                     "linkedCompId": null
                   },
                   {
+                    "id": "dispute-arrives",
+                    "kind": "action",
+                    "label": "Payment provider reports a dispute on a service charge",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "signal-cycle",
+                    "kind": "action",
+                    "label": "Signal the settlement cycle; reopen it if already closed",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "record-reversal",
+                    "kind": "action",
+                    "label": "Record the reversal fact (deduplicated on the provider event)",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "recompute",
+                    "kind": "action",
+                    "label": "Recompute the corrected net for the cycle (forward-only, no rollback)",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "delta",
+                    "kind": "decision",
+                    "label": "Correction delta?",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "charge-delta",
+                    "kind": "action",
+                    "label": "Charge the shortfall delta",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "payout-delta",
+                    "kind": "action",
+                    "label": "Pay out the surplus delta",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "merge-delta",
+                    "kind": "merge",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "escalate-human",
+                    "kind": "action",
+                    "label": "Disputes always escalate to a human; never auto-retried",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
                     "id": "end",
                     "kind": "end",
                     "label": "",
@@ -15993,6 +17370,72 @@
                 "edges": [
                   {
                     "from": "start",
+                    "to": "dispute-arrives",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "dispute-arrives",
+                    "to": "signal-cycle",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "signal-cycle",
+                    "to": "record-reversal",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "record-reversal",
+                    "to": "recompute",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "recompute",
+                    "to": "delta",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "delta",
+                    "to": "charge-delta",
+                    "kind": "guardedFlow",
+                    "guard": "[charge]"
+                  },
+                  {
+                    "from": "charge-delta",
+                    "to": "merge-delta",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "delta",
+                    "to": "payout-delta",
+                    "kind": "guardedFlow",
+                    "guard": "[payout]"
+                  },
+                  {
+                    "from": "payout-delta",
+                    "to": "merge-delta",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "delta",
+                    "to": "merge-delta",
+                    "kind": "guardedFlow",
+                    "guard": "[no action]"
+                  },
+                  {
+                    "from": "merge-delta",
+                    "to": "escalate-human",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "escalate-human",
                     "to": "end",
                     "kind": "controlFlow",
                     "guard": ""
@@ -16001,9 +17444,396 @@
               }
             },
             "rejectionReason": "Removed 2026-06-09. No inbound end-user revenue on aiarch's side to reverse - the user is merchant of record for their own app and handles their own end-users' disputes."
+          },
+          {
+            "useCase": {
+              "id": "ask-a-clarifying-question-during-review",
+              "name": "Ask a Clarifying Question During Review",
+              "actors": [
+                {
+                  "id": "architect-user",
+                  "role": "Architect User"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "nonCore",
+              "variationOf": "drive-system-design",
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "start",
+                    "kind": "start",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "write-questions",
+                    "kind": "action",
+                    "label": "Reviewer writes one or more anchored questions addressed to the PM or the architect",
+                    "roleName": "Architect User",
+                    "linkedActorId": "architect-user",
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "artifact-state",
+                    "kind": "decision",
+                    "label": "Artifact under live review?",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "append-session-branch",
+                    "kind": "action",
+                    "label": "Append question entries to the durable review thread on the session branch",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "seed-main-thread",
+                    "kind": "action",
+                    "label": "Seed a question-only thread on main; no amendment session opens",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "merge-recorded",
+                    "kind": "merge",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "dispatch-answer-job",
+                    "kind": "action",
+                    "label": "Dispatch a lightweight answer job to the addressed role",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "answer-ran",
+                    "kind": "decision",
+                    "label": "Answer job completed?",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "record-answers",
+                    "kind": "action",
+                    "label": "Addressee posts a per-question response into the review thread",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "remain-open",
+                    "kind": "action",
+                    "label": "Questions stay recorded, unanswered; the addressee can be re-prompted",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "merge-answered",
+                    "kind": "merge",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "approve-unblocked",
+                    "kind": "action",
+                    "label": "Open questions warn at the approve gate but never block it",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "end",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "start",
+                    "to": "write-questions",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "write-questions",
+                    "to": "artifact-state",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "artifact-state",
+                    "to": "append-session-branch",
+                    "kind": "guardedFlow",
+                    "guard": "[yes: session branch]"
+                  },
+                  {
+                    "from": "artifact-state",
+                    "to": "seed-main-thread",
+                    "kind": "guardedFlow",
+                    "guard": "[no: committed]"
+                  },
+                  {
+                    "from": "append-session-branch",
+                    "to": "merge-recorded",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "seed-main-thread",
+                    "to": "merge-recorded",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "merge-recorded",
+                    "to": "dispatch-answer-job",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "dispatch-answer-job",
+                    "to": "answer-ran",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "answer-ran",
+                    "to": "record-answers",
+                    "kind": "guardedFlow",
+                    "guard": "[yes]"
+                  },
+                  {
+                    "from": "answer-ran",
+                    "to": "remain-open",
+                    "kind": "guardedFlow",
+                    "guard": "[no: dispatch miss]"
+                  },
+                  {
+                    "from": "record-answers",
+                    "to": "merge-answered",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "remain-open",
+                    "to": "merge-answered",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "merge-answered",
+                    "to": "approve-unblocked",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "approve-unblocked",
+                    "to": "end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "Question-type review comments (ratified 2026-07-05): a reviewer asks the PM or the architect for clarification without sending the draft back - a permutation of the Drive System Design review gate over the human-collaboration area of volatility. Open questions warn at approve but never gate it; a committed artifact seeds a question-only thread on main. No redraft and no orchestration of its own."
+          },
+          {
+            "useCase": {
+              "id": "send-back-change-requests-for-a-redraft",
+              "name": "Send Back Change Requests for a Redraft",
+              "actors": [
+                {
+                  "id": "architect-user",
+                  "role": "Architect User"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "nonCore",
+              "variationOf": "drive-system-design",
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "start",
+                    "kind": "start",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "anchor-comments",
+                    "kind": "action",
+                    "label": "Reviewer anchors change-request comments to locations in the staged draft",
+                    "roleName": "Architect User",
+                    "linkedActorId": "architect-user",
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "send-back",
+                    "kind": "action",
+                    "label": "Send the draft back; open change requests now gate approve",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "retain-thread",
+                    "kind": "action",
+                    "label": "Comments persist in the durable review thread on the session branch",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "redraft",
+                    "kind": "action",
+                    "label": "Redraft weaves every change request into the next draft",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "respond-per-comment",
+                    "kind": "action",
+                    "label": "The drafting agent records a per-comment response in the thread",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "restage",
+                    "kind": "action",
+                    "label": "Amended draft re-staged for review",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "re-review",
+                    "kind": "action",
+                    "label": "Reviewer re-reviews the new draft against the thread",
+                    "roleName": "Architect User",
+                    "linkedActorId": "architect-user",
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "resolved",
+                    "kind": "decision",
+                    "label": "Change requests resolved?",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "close-comments",
+                    "kind": "action",
+                    "label": "Close the comments; approve is unblocked",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  },
+                  {
+                    "id": "end",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "linkedCompId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "start",
+                    "to": "anchor-comments",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "anchor-comments",
+                    "to": "send-back",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "send-back",
+                    "to": "retain-thread",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "retain-thread",
+                    "to": "redraft",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "redraft",
+                    "to": "respond-per-comment",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "respond-per-comment",
+                    "to": "restage",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "restage",
+                    "to": "re-review",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "re-review",
+                    "to": "resolved",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "resolved",
+                    "to": "close-comments",
+                    "kind": "guardedFlow",
+                    "guard": "[yes]"
+                  },
+                  {
+                    "from": "resolved",
+                    "to": "anchor-comments",
+                    "kind": "guardedFlow",
+                    "guard": "[no: iterate]"
+                  },
+                  {
+                    "from": "close-comments",
+                    "to": "end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "Change-request review comments: the reviewer's send-back with anchored, approve-gating comments that drive a redraft - the rejection permutation of the Drive System Design review gate. Feedback is retained in the durable thread on the session branch and each comment is answered by the redraft; same session, same ledger, no business behaviour beyond the core review loop."
           }
         ]
-      }
+      },
+      "revisions": 2
     },
     "5": {
       "status": 2,
@@ -17370,7 +19200,8 @@
             ]
           }
         ]
-      }
+      },
+      "staleBasis": true
     },
     "6": {
       "status": 2,
@@ -17760,7 +19591,8 @@
             }
           ]
         }
-      }
+      },
+      "staleBasis": true
     },
     "7": {
       "status": 2,
@@ -18122,7 +19954,8 @@
             "justification": "Charge-only architecture ratified 2026-07-03: BillingManager + BillingEngine + MerchantGatewayAccess (Stripe Connect direct charges — payment provider is the encapsulated Payment Provider volatility; aiarch is NOT merchant of record for customer apps) + UsageAccess implement the one-directional hosting charge (meter hosting/compute, price via ServicePricing, charge the user). No flat subscription; no token metering; no construction charges; no revenue-share. Delinquency escalates via the queued billingManager-to-operationsManager edge."
           }
         ]
-      }
+      },
+      "staleBasis": true
     },
     "8": {
       "kind": 8,
@@ -18196,7 +20029,8 @@
           "schedule": 1
         }
       },
-      "status": 2
+      "status": 2,
+      "staleBasis": true
     },
     "9": {
       "status": 2,
@@ -18732,7 +20566,8 @@
             "title": "Project planning (this phase + downstream)"
           }
         ]
-      }
+      },
+      "staleBasis": true
     }
   },
   "testingState": {
@@ -20100,6 +21935,6 @@
       "status": ""
     }
   },
-  "updatedAt": "2026-07-04T07:27:08.327173Z",
-  "version": 566
+  "updatedAt": "2026-07-05T23:37:02.334632Z",
+  "version": 567
 }
