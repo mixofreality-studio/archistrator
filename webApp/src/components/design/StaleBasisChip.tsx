@@ -31,17 +31,22 @@ export function StaleBasisChip({ onReconcile }: { onReconcile?: () => void }): R
         label={STALE_LABEL}
         size="small"
         sx={{
-          bgcolor: t.awaitingBg,
-          color: t.awaitingFg,
-          fontWeight: 600,
-          '& .MuiChip-icon': { color: t.awaitingFg, ml: 0.75 },
+          // A true warning AMBER (the theme's bandYellow) rather than the awaiting
+          // BROWN, which blended into the app's brown accent family and read as
+          // passive. Text stays on `ink` for AA contrast against the paper chip; the
+          // amber carries the "needs-attention" signal via the icon + outline.
+          bgcolor: t.paperAlt,
+          color: t.ink,
+          fontWeight: 700,
+          border: `1.5px solid ${t.bandYellow}`,
+          '& .MuiChip-icon': { color: t.bandYellow, ml: 0.75 },
         }}
       />
       {onReconcile !== undefined ? (
         <Button
           data-testid={UI_IDENTIFIERS.DesignExperience.RECONCILE}
           size="small"
-          sx={{ color: t.awaitingFg, fontSize: 11.5, minWidth: 0, textTransform: 'none' }}
+          sx={{ color: t.ink, fontSize: 11.5, minWidth: 0, textTransform: 'none' }}
           variant="text"
           onClick={onReconcile}
         >
@@ -60,7 +65,7 @@ export function StaleBasisMarker({ kind }: { kind: string }): ReactNode {
       <Box
         aria-label={STALE_LABEL}
         data-testid={UI_IDENTIFIERS.DesignExperience.spineStale(kind)}
-        sx={{ display: 'inline-flex', alignItems: 'center', color: t.awaitingFg, ml: 0.25 }}
+        sx={{ display: 'inline-flex', alignItems: 'center', color: t.bandYellow, ml: 0.25 }}
       >
         <WarningAmberIcon sx={{ fontSize: 14 }} />
       </Box>

@@ -562,6 +562,9 @@ export interface UseCaseView {
   name: string;
   classification: Classification;
   rejectionReason: string;
+  /** The id of the use case this one is a variation of (shares its activity
+   *  diagram), or empty when this use case owns its own diagram. */
+  variationOf: string;
   /** Distinct swim-lanes, in first-seen order. */
   lanes: string[];
   nodes: ActivityNodeView[];
@@ -610,6 +613,7 @@ function toUseCaseView(decision: UseCaseDecision): UseCaseView {
     name: uc.name,
     classification: uc.classification,
     rejectionReason: decision.rejectionReason,
+    variationOf: uc.variationOf ?? '',
     lanes,
     nodes,
     edges,

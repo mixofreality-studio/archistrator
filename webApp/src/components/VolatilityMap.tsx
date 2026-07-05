@@ -12,7 +12,6 @@ import { useState, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
-import Tooltip from '@mui/material/Tooltip';
 import Button from '@mui/material/Button';
 import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
 import { toVolatilityView, AXIS1_LABEL, AXIS2_LABEL, type VolatilityPoint } from '../contracts/adapters';
@@ -151,8 +150,8 @@ function Lane({
             key={`${v.name}-${String(i)}`}
             t={t}
             v={v}
-            onToggle={() => {
-              onSelect((s) => (s === i ? null : i));
+            onSelect={() => {
+              onSelect(() => i);
             }}
           />
         ))}
@@ -166,52 +165,56 @@ function VolChip({
   v,
   color,
   active,
-  onToggle,
+  onSelect,
 }: {
   t: Tokens;
   v: VolatilityPoint;
   color: string;
   active: boolean;
-  onToggle: () => void;
+  /** Select this chip — the single source of truth for the inspector. Fired by
+   *  click, Enter/Space, AND keyboard focus, so the side rail always reflects the
+   *  focused/clicked chip. The redundant per-chip hover tooltip is intentionally
+   *  gone: it stacked, overlapped siblings, and was decoupled from the inspector. */
+  onSelect: () => void;
 }): ReactNode {
   return (
-    <Tooltip title={v.rationale}>
-      <Box
-        aria-label={v.name}
-        aria-pressed={active}
-        role="button"
-        sx={{
-          cursor: 'pointer',
-          px: 1,
-          py: 0.75,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 0.75,
-          bgcolor: active ? color : t.paperAlt,
-          color: active ? t.accentText : t.ink,
-          border: `1.5px solid ${active ? t.accent : t.line}`,
-          borderLeft: `4px solid ${color}`,
-          borderRadius: t.radius / 8 + 0.5,
-          boxShadow: active ? `0 0 0 2px ${t.accent}` : 'none',
-          '&:hover': { borderColor: t.accent },
-        }}
-        tabIndex={0}
-        onClick={onToggle}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            onToggle();
-          }
-        }}
+    <Box
+      aria-label={v.name}
+      aria-pressed={active}
+      role="button"
+      sx={{
+        cursor: 'pointer',
+        px: 1,
+        py: 0.75,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 0.75,
+        bgcolor: active ? color : t.paperAlt,
+        color: active ? t.accentText : t.ink,
+        border: `1.5px solid ${active ? t.accent : t.line}`,
+        borderLeft: `4px solid ${color}`,
+        borderRadius: t.radius / 8 + 0.5,
+        boxShadow: active ? `0 0 0 2px ${t.accent}` : 'none',
+        '&:hover': { borderColor: t.accent },
+        '&:focus-visible': { outline: `2px solid ${t.accent}`, outlineOffset: 1 },
+      }}
+      tabIndex={0}
+      onClick={onSelect}
+      onFocus={onSelect}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onSelect();
+        }
+      }}
+    >
+      <Box sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: color, flexShrink: 0 }} />
+      <Typography
+        sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 11.5, wordBreak: 'break-word' }}
       >
-        <Box sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: color, flexShrink: 0 }} />
-        <Typography
-          sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 11.5, wordBreak: 'break-word' }}
-        >
-          {v.name}
-        </Typography>
-      </Box>
-    </Tooltip>
+        {v.name}
+      </Typography>
+    </Box>
   );
 }
 

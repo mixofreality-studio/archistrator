@@ -89,6 +89,9 @@ export const UI_IDENTIFIERS = {
     AMEND_CANCEL: 'amend-cancel',
     // 'COMMITTED · revision N' meta on the committed-panel header.
     COMMITTED_REVISION: 'committed-revision',
+    // Read-only 'COMMITTED … — current' label shown above the generating scene while
+    // a committed artifact's amendment drafts.
+    AMEND_CURRENT_LABEL: 'amend-current-label',
     // 'basis changed — reconcile' warning chip (committed panel + HomeBase rows).
     STALE_CHIP: 'stale-basis-chip',
     // Compact stale marker on a spine step, keyed by slot kind.

@@ -228,20 +228,22 @@ export function ChatRail({
           ) : null
         ) : (
           <>
-            {sortedThread.length > 0 ? (
-              <Typography
-                sx={{
-                  fontFamily: t.mono,
-                  fontSize: 10,
-                  fontWeight: 700,
-                  letterSpacing: '0.1em',
-                  color: t.muted,
-                  mt: 1,
-                }}
-              >
-                PENDING · NOT SENT
-              </Typography>
-            ) : null}
+            {/* Always label the pending group so a staged (not-yet-sent) note is
+                never mistaken for a sent thread entry — even on a surface with no
+                prior server thread (this composer is reused across the design,
+                project-design, and construction rails). */}
+            <Typography
+              sx={{
+                fontFamily: t.mono,
+                fontSize: 10,
+                fontWeight: 700,
+                letterSpacing: '0.1em',
+                color: t.muted,
+                mt: sortedThread.length > 0 ? 1 : 0,
+              }}
+            >
+              PENDING · NOT SENT
+            </Typography>
             {comments.map((c, i) => (
               <CommentBubble
                 c={c}
@@ -513,6 +515,9 @@ function CommentBubble({
   t: Tokens;
   onRemove: () => void;
 }): ReactNode {
+  // Two-step inline discard, matching the approve-gate's discard-confirm idiom:
+  // the ✕ arms a confirm strip rather than dropping the staged note instantly.
+  const [confirming, setConfirming] = useState(false);
   return (
     <Box
       data-testid={UI_IDENTIFIERS.Chat.commentAnchor(index)}
@@ -522,14 +527,42 @@ function CommentBubble({
         <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 11, color: t.ink }}>
           You
         </Typography>
-        <IconButton
-          aria-label="remove comment"
-          size="small"
-          sx={{ color: t.muted, p: 0.25 }}
-          onClick={onRemove}
-        >
-          <CloseIcon sx={{ fontSize: 13 }} />
-        </IconButton>
+        {confirming ? (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            <Typography sx={{ fontSize: 11, color: t.muted }}>Discard this note?</Typography>
+            <Button
+              aria-label="confirm discard comment"
+              size="small"
+              sx={{ color: t.dangerFg, fontSize: 11, minWidth: 0, textTransform: 'none', py: 0 }}
+              variant="text"
+              onClick={onRemove}
+            >
+              Discard
+            </Button>
+            <Button
+              aria-label="cancel discard comment"
+              size="small"
+              sx={{ color: t.muted, fontSize: 11, minWidth: 0, textTransform: 'none', py: 0 }}
+              variant="text"
+              onClick={() => {
+                setConfirming(false);
+              }}
+            >
+              Cancel
+            </Button>
+          </Box>
+        ) : (
+          <IconButton
+            aria-label="remove comment"
+            size="small"
+            sx={{ color: t.muted, p: 0.25 }}
+            onClick={() => {
+              setConfirming(true);
+            }}
+          >
+            <CloseIcon sx={{ fontSize: 13 }} />
+          </IconButton>
+        )}
       </Box>
       <Box
         sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', maxWidth: '92%' }}

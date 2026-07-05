@@ -11,6 +11,7 @@ import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 import IconButton from '@mui/material/IconButton';
+import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import FormControl from '@mui/material/FormControl';
 import InputLabel from '@mui/material/InputLabel';
@@ -37,6 +38,7 @@ const viewMemory: { mode: UcViewMode } = { mode: 'walkthrough' };
 import { useComments, useCaseAnchor as buildUseCaseAnchor } from '../comments/CommentContext';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 import { useTokens } from '../../utilities/theme/ThemeContext';
+import type { Tokens } from '../../utilities/theme/themes';
 
 export function UseCaseCarousel({
   envelope,
@@ -65,6 +67,12 @@ export function UseCaseCarousel({
     setI((p) => (p + d + useCases.length) % useCases.length);
   };
   const isCore = uc.classification === 'core';
+  // A variation shares its parent's activity diagram; resolve the parent (by id) so
+  // the no-diagram surface can name it and offer a jump instead of a generic blank.
+  const parentIndex =
+    uc.variationOf.length > 0 ? useCases.findIndex((u) => u.id === uc.variationOf) : -1;
+  const parent = parentIndex >= 0 ? useCases[parentIndex] : undefined;
+  const hasDiagram = uc.nodes.length > 0;
 
   return (
     <Box>
@@ -199,42 +207,129 @@ export function UseCaseCarousel({
           </Box>
         </Box>
 
-        {/* hero: walkthrough (choose-your-path) or the full diagram */}
+        {/* hero: walkthrough (choose-your-path) or the full diagram. When this use
+            case owns no diagram, both tabs would render divergent "no diagram"
+            copy — so we short-circuit to one unified, variation-aware empty state. */}
         <Box sx={{ flexGrow: 1, minWidth: 0, p: 1.5 }}>
-          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1.5 }}>
-            <ToggleButtonGroup
-              exclusive
-              aria-label="Use case view mode"
-              size="small"
-              value={mode}
-              onChange={(_e, next: UcViewMode | null) => {
-                if (next !== null) {
-                  viewMemory.mode = next;
-                  setMode(next);
-                }
-              }}
-            >
-              <ToggleButton
-                sx={{ fontFamily: t.mono, fontSize: 11, textTransform: 'none' }}
-                value="walkthrough"
-              >
-                Walkthrough
-              </ToggleButton>
-              <ToggleButton
-                sx={{ fontFamily: t.mono, fontSize: 11, textTransform: 'none' }}
-                value="diagram"
-              >
-                Full diagram
-              </ToggleButton>
-            </ToggleButtonGroup>
-          </Box>
-          {mode === 'walkthrough' ? (
-            <UseCaseWalkthrough height={560} key={uc.id} uc={uc} useCaseIndex={active} />
+          {hasDiagram ? (
+            <>
+              <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1.5 }}>
+                <ToggleButtonGroup
+                  exclusive
+                  aria-label="Use case view mode"
+                  size="small"
+                  value={mode}
+                  onChange={(_e, next: UcViewMode | null) => {
+                    if (next !== null) {
+                      viewMemory.mode = next;
+                      setMode(next);
+                    }
+                  }}
+                >
+                  <ToggleButton
+                    sx={{ fontFamily: t.mono, fontSize: 11, textTransform: 'none' }}
+                    value="walkthrough"
+                  >
+                    Walkthrough
+                  </ToggleButton>
+                  <ToggleButton
+                    sx={{ fontFamily: t.mono, fontSize: 11, textTransform: 'none' }}
+                    value="diagram"
+                  >
+                    Full diagram
+                  </ToggleButton>
+                </ToggleButtonGroup>
+              </Box>
+              {mode === 'walkthrough' ? (
+                <UseCaseWalkthrough height={560} key={uc.id} uc={uc} useCaseIndex={active} />
+              ) : (
+                <ActivityFlow height={580} uc={uc} useCaseIndex={active} />
+              )}
+            </>
           ) : (
-            <ActivityFlow height={580} uc={uc} useCaseIndex={active} />
+            <NoDiagram
+              isVariation={!isCore}
+              parentName={parent?.name}
+              t={t}
+              onJumpToParent={
+                parent !== undefined
+                  ? (): void => {
+                      setI(parentIndex);
+                    }
+                  : undefined
+              }
+            />
           )}
         </Box>
       </Paper>
+    </Box>
+  );
+}
+
+/**
+ * The single, unified no-activity-diagram surface for a use case, replacing the two
+ * divergent inner empty states (ActivityFlow / UseCaseWalkthrough). For a VARIATION
+ * it names the parent it shares a diagram with and offers a jump; otherwise it shows
+ * one neutral "no diagram yet" message.
+ */
+function NoDiagram({
+  t,
+  isVariation = false,
+  parentName,
+  onJumpToParent,
+}: {
+  t: Tokens;
+  /** This is a variation use case (non-core) — it reuses a core use case's diagram
+   *  rather than owning one, so the empty state must not read as a missing-diagram
+   *  defect. True even when the specific parent link (variationOf) is absent. */
+  isVariation?: boolean;
+  /** The named parent this variation shares a diagram with, when resolvable. */
+  parentName?: string | undefined;
+  /** Jump to the parent use case (present only when the parent is resolvable). */
+  onJumpToParent?: (() => void) | undefined;
+}): ReactNode {
+  const hasParent = parentName !== undefined && parentName.length > 0;
+  const message = hasParent
+    ? `This variation shares ${parentName}'s activity diagram.`
+    : isVariation
+      ? 'This variation reuses a core use case’s activity diagram.'
+      : 'No activity diagram yet for this use case.';
+  return (
+    <Box
+      sx={{
+        height: 560,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        textAlign: 'center',
+        gap: 1.5,
+        px: 3,
+        border: `1.5px dashed ${t.line}`,
+        borderRadius: t.radius / 8 + 0.5,
+        bgcolor: t.bg,
+      }}
+    >
+      <Typography sx={{ fontFamily: t.mono, fontSize: 13, color: t.ink, lineHeight: 1.6 }}>
+        {message}
+      </Typography>
+      {isVariation ? (
+        <Typography sx={{ fontFamily: t.body, fontSize: 12.5, color: t.muted, maxWidth: 380 }}>
+          {hasParent
+            ? 'Variations reuse the parent use case’s flow; open the parent to walk its diagram.'
+            : 'Variations reuse a core use case’s flow rather than defining their own.'}
+        </Typography>
+      ) : null}
+      {onJumpToParent !== undefined ? (
+        <Button
+          size="small"
+          sx={{ color: t.ink, borderColor: t.line, textTransform: 'none' }}
+          variant="outlined"
+          onClick={onJumpToParent}
+        >
+          Go to {parentName}
+        </Button>
+      ) : null}
     </Box>
   );
 }

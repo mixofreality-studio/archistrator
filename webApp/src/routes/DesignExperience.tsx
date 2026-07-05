@@ -522,12 +522,60 @@ function StepBody({
   if (generating) {
     // A committed slot that is generating is an amendment-in-flight: frame it so the
     // committed header + this scene read honestly (the committed revision stays current).
-    return (
+    const scene = (
       <GeneratingScene
         amendingRevision={committed ? (committedRevisions ?? 0) : undefined}
         artifact={title}
       />
     );
+    // Reviewers must be able to READ the committed revision while its amendment
+    // drafts — don't blank the pane. Render the committed model read-only (dimmed,
+    // labeled "current") above the generating scene, in a disabled comment context
+    // so it carries zero comment affordances.
+    if (committed && committedEnvelope !== undefined) {
+      const revN = committedRevisions ?? 0;
+      return (
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <Box>
+            <Box
+              data-testid={UI_IDENTIFIERS.DesignExperience.AMEND_CURRENT_LABEL}
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1,
+                px: 2,
+                py: 1,
+                bgcolor: t.committedBg,
+                border: `1.5px solid ${t.line}`,
+                borderBottom: 'none',
+              }}
+            >
+              <Typography
+                sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 12, letterSpacing: '0.08em', color: t.committedFg }}
+              >
+                COMMITTED{revN > 1 ? ` · revision ${String(revN)}` : ''} — current
+              </Typography>
+              <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted }}>
+                stays live until the amendment is approved
+              </Typography>
+            </Box>
+            <Box
+              aria-hidden
+              sx={{ opacity: 0.6, pointerEvents: 'none', border: `1.5px solid ${t.line}`, p: 1 }}
+            >
+              <CommentProvider enabled={false}>
+                {proseSurface(
+                  committedEnvelope.kind,
+                  <ArtifactRenderer envelope={committedEnvelope} height={480} title={title} />
+                )}
+              </CommentProvider>
+            </Box>
+          </Box>
+          {scene}
+        </Box>
+      );
+    }
+    return scene;
   }
   // The project head-state has resolved by now (the screen renders the full-screen
   // skeleton while it is in flight), so the surrounding header/chip/spine are already

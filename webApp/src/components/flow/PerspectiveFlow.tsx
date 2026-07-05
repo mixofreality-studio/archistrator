@@ -47,8 +47,15 @@ function build(view: C4View, componentId: string, t: Tokens): { nodes: Node[]; e
   const layerOf = new Map(subset.map((c) => [c.id, c.layer]));
 
   const nodes: Node[] = subset.map((c) => {
-    const base = c4Node(c, layout.pos.get(c.id) ?? { x: 0, y: 0 }, colors);
-    if (c.id === focus.id) {
+    const isFocus = c.id === focus.id;
+    // Only the focused node carries its (2-line clamped) volatility preview; the
+    // neighbours render names + layer tag ONLY, so their prose can never overlap or
+    // hide the focus node's title — the focus keeps its detail in-node + on hover,
+    // matching the Static/Dynamic lens treatment.
+    const base = c4Node(c, layout.pos.get(c.id) ?? { x: 0, y: 0 }, colors, {
+      showEncapsulates: isFocus,
+    });
+    if (isFocus) {
       return {
         ...base,
         data: { ...base.data, color: t.accent },
