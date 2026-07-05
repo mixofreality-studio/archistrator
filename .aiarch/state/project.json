@@ -7022,6 +7022,12 @@
                 "schema": {
                   "$ref": "#/$defs/ProjectID"
                 }
+              },
+              {
+                "name": "acknowledgeStale",
+                "schema": {
+                  "type": "boolean"
+                }
               }
             ],
             "result": {
@@ -12108,6 +12114,12 @@
                 "name": "projectID",
                 "schema": {
                   "$ref": "#/$defs/ProjectID"
+                }
+              },
+              {
+                "name": "acknowledgeStale",
+                "schema": {
+                  "type": "boolean"
                 }
               }
             ],

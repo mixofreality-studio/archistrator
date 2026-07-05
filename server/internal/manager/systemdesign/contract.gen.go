@@ -449,7 +449,7 @@ type Version int64
 
 // SystemDesignManager is the generated service-contract interface for this component.
 type SystemDesignManager interface {
-	AdvancePhase(rc fwm.Context, projectID ProjectID) (PhaseAdvanceResult, error)
+	AdvancePhase(rc fwm.Context, projectID ProjectID, acknowledgeStale bool) (PhaseAdvanceResult, error)
 	CreateProject(rc fwm.Context, owner OwnerScope, name string) (ProjectID, error)
 	GetProject(rc fwm.Context, projectID ProjectID) (ProjectState, error)
 	GetSessionState(rc fwm.Context, projectID ProjectID, kind ArtifactKind) (SessionStateView, error)

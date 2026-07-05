@@ -374,9 +374,65 @@ func Test_SubmitReviewDecision_UnknownDecision(t *testing.T) {
 
 func Test_AdvanceToConstruction_EmptyProjectID(t *testing.T) {
 	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil)
-	_, err := m.AdvanceToConstruction(fwmanager.Context{Context: context.Background()}, ProjectID(""))
+	_, err := m.AdvanceToConstruction(fwmanager.Context{Context: context.Background()}, ProjectID(""), false)
 	if got := asProjectDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %d", got)
+	}
+}
+
+// F55 (Phase-2 twin): a committed-but-stale in-scope Phase-2 slot blocks AdvanceToConstruction
+// with a FailedPrecondition that NAMES the stale slot. Synchronous head-state read that
+// short-circuits before any Temporal call.
+func Test_AdvanceToConstruction_StaleSlot_FailedPreconditionNamingSlot(t *testing.T) {
+	pid := ProjectID(uuid.NewString())
+	proj := committedPhase2Project(pid, KindPlanningAssumptions, KindActivityList, KindNetwork)
+	proj.Network.StaleBasis = true
+	ps := &fakeProjectState{project: proj}
+	m := NewProjectDesignManager(nil, ps, nil, nil, nil, nil, nil, nil)
+
+	_, err := m.AdvanceToConstruction(fwmanager.Context{Context: context.Background()}, pid, false)
+	pde := asProjectDesignError(t, err)
+	if pde.Kind != fwmanager.FailedPrecondition {
+		t.Fatalf("want FailedPrecondition for a stale committed slot, got %d", pde.Kind)
+	}
+	if !strings.Contains(err.Error(), "network") {
+		t.Fatalf("error must name the stale slot network, got %q", err.Error())
+	}
+}
+
+// F55 (Phase-2 twin): acknowledgeStale bypasses the stale gate — the seal proceeds to the
+// Temporal start (mock errors → Infrastructure, not FailedPrecondition).
+func Test_AdvanceToConstruction_StaleSlot_AcknowledgeBypassesGate(t *testing.T) {
+	pid := ProjectID(uuid.NewString())
+	proj := committedPhase2Project(pid, KindNetwork)
+	proj.Network.StaleBasis = true
+	ps := &fakeProjectState{project: proj}
+
+	mc := &temporalmocks.Client{}
+	mc.On("ExecuteWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(nil, errors.New("boom"))
+	m := &projectDesignManager{client: mc, projectState: ps}
+
+	_, err := m.AdvanceToConstruction(fwmanager.Context{Context: context.Background()}, pid, true)
+	if got := asProjectDesignError(t, err).Kind; got == fwmanager.FailedPrecondition {
+		t.Fatal("with ack the stale gate must be bypassed, not surface FailedPrecondition")
+	}
+}
+
+// F55 (Phase-2 twin): no stale slot → the gate is a no-op and the op proceeds unchanged.
+func Test_AdvanceToConstruction_NoStaleSlot_ProceedsUnchanged(t *testing.T) {
+	pid := ProjectID(uuid.NewString())
+	proj := committedPhase2Project(pid, KindPlanningAssumptions, KindNetwork)
+	ps := &fakeProjectState{project: proj}
+
+	mc := &temporalmocks.Client{}
+	mc.On("ExecuteWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(nil, errors.New("boom"))
+	m := &projectDesignManager{client: mc, projectState: ps}
+
+	_, err := m.AdvanceToConstruction(fwmanager.Context{Context: context.Background()}, pid, false)
+	if got := asProjectDesignError(t, err).Kind; got == fwmanager.FailedPrecondition {
+		t.Fatal("with no stale slot the gate must pass, not surface FailedPrecondition")
 	}
 }
 

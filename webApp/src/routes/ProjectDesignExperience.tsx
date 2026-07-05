@@ -371,6 +371,11 @@ function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
           activityEnvelope={activityEnvelope}
           advancePending={advance.isPending}
           advanceResult={advance.data}
+          advanceStaleError={
+            advance.error instanceof ApiError && advance.error.code === 'failed_precondition'
+              ? advance.error.message
+              : undefined
+          }
           amendPending={requestDraft.isPending}
           asyncFailed={asyncFailed}
           beginPending={requestDraft.isPending || assembleSdp.isPending}
@@ -400,7 +405,10 @@ function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
           view={view}
           withdrawPending={decisionPending}
           onAdvance={() => {
-            advance.mutate(undefined);
+            advance.mutate(false);
+          }}
+          onAdvanceAnyway={() => {
+            advance.mutate(true);
           }}
           onAmend={amend}
           onApprove={approve}
@@ -449,6 +457,7 @@ function ProjectStepBody({
   sdpPending,
   advancePending,
   advanceResult,
+  advanceStaleError,
   onBegin,
   onRetry,
   onApprove,
@@ -458,6 +467,7 @@ function ProjectStepBody({
   onSdpCommit,
   onSdpRejectAll,
   onAdvance,
+  onAdvanceAnyway,
 }: {
   t: Tokens;
   activeKind: ProjectArtifactKind;
@@ -491,6 +501,7 @@ function ProjectStepBody({
   sdpPending: boolean;
   advancePending: boolean;
   advanceResult: ProjectPhaseAdvanceResponse | undefined;
+  advanceStaleError: string | undefined;
   onBegin: () => void;
   onRetry: () => void;
   onApprove: () => void;
@@ -500,6 +511,7 @@ function ProjectStepBody({
   onSdpCommit: (optionId: string) => void;
   onSdpRejectAll: (feedback: string) => void;
   onAdvance: () => void;
+  onAdvanceAnyway: () => void;
 }): ReactNode {
   if (draftFailed) {
     return (
@@ -553,7 +565,14 @@ function ProjectStepBody({
             }}
           />
         </Box>
-        <AdvancePanel pending={advancePending} result={advanceResult} t={t} onAdvance={onAdvance} />
+        <AdvancePanel
+          pending={advancePending}
+          result={advanceResult}
+          staleError={advanceStaleError}
+          t={t}
+          onAdvance={onAdvance}
+          onAdvanceAnyway={onAdvanceAnyway}
+        />
       </>
     );
   }
@@ -655,12 +674,16 @@ function AdvancePanel({
   t,
   pending,
   result,
+  staleError,
   onAdvance,
+  onAdvanceAnyway,
 }: {
   t: Tokens;
   pending: boolean;
   result: ProjectPhaseAdvanceResponse | undefined;
+  staleError: string | undefined;
   onAdvance: () => void;
+  onAdvanceAnyway: () => void;
 }): ReactNode {
   return (
     <Paper
@@ -690,6 +713,29 @@ function AdvancePanel({
           sx={{ textAlign: 'left', mb: 2 }}
         >
           Advanced to Construction — Phase 3 is unlocked.
+        </Alert>
+      ) : null}
+      {staleError !== undefined ? (
+        // F55: the seal is blocked because a committed slot is stale (a back-edge amendment
+        // shifted its basis). Name the stale slots and offer an explicit "advance anyway" that
+        // acknowledges and seals over them — mirroring the approve-with-pending-note confirm.
+        <Alert
+          action={
+            <Button
+              color="inherit"
+              data-testid={UI_IDENTIFIERS.ProjectDesign.ADVANCE_ANYWAY}
+              disabled={pending}
+              size="small"
+              onClick={onAdvanceAnyway}
+            >
+              Advance anyway
+            </Button>
+          }
+          data-testid={UI_IDENTIFIERS.ProjectDesign.ADVANCE_STALE_ERROR}
+          severity="error"
+          sx={{ textAlign: 'left', mb: 2 }}
+        >
+          {staleError}
         </Alert>
       ) : null}
       <Button

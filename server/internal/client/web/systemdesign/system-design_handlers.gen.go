@@ -35,6 +35,10 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/system-design/submit-review-decision/{projectID}", h.handleSubmitReviewDecision)
 }
 
+type advancePhaseRequest struct {
+	AcknowledgeStale bool `json:"acknowledgeStale"`
+}
+
 type createProjectRequest struct {
 	Owner mgr.OwnerScope `json:"owner"`
 	Name  string         `json:"name"`
@@ -68,6 +72,10 @@ type submitReviewDecisionRequest struct {
 // handleAdvancePhase binds POST /api/v1/system-design/advance-phase/{projectID} -> mgr.AdvancePhase.
 func (h *Handler) handleAdvancePhase(w http.ResponseWriter, r *http.Request) {
 	projectID := mgr.ProjectID(r.PathValue("projectID"))
+	var req advancePhaseRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
 	principal, ok := security.PrincipalFrom(r.Context())
 	if !ok {
 		writeError(w, http.StatusUnauthorized, "unauthenticated", "authentication required")
@@ -81,7 +89,7 @@ func (h *Handler) handleAdvancePhase(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rc := fwmanager.Context{Context: r.Context(), Principal: principal}
-	result, err := h.Manager.AdvancePhase(rc, projectID)
+	result, err := h.Manager.AdvancePhase(rc, projectID, req.AcknowledgeStale)
 	if err != nil {
 		writeManagerError(w, err)
 		return

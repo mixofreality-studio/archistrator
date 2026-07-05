@@ -31,6 +31,10 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/project-design/submit-sdp-decision/{projectID}/{optionID}", h.handleSubmitSDPDecision)
 }
 
+type advanceToConstructionRequest struct {
+	AcknowledgeStale bool `json:"acknowledgeStale"`
+}
+
 type requestArtifactDraftRequest struct {
 	Kind     mgr.ArtifactKind    `json:"kind"`
 	Feedback *mgr.ReviewFeedback `json:"feedback"`
@@ -56,6 +60,10 @@ type submitSDPDecisionRequest struct {
 // handleAdvanceToConstruction binds POST /api/v1/project-design/advance-to-construction/{projectID} -> mgr.AdvanceToConstruction.
 func (h *Handler) handleAdvanceToConstruction(w http.ResponseWriter, r *http.Request) {
 	projectID := mgr.ProjectID(r.PathValue("projectID"))
+	var req advanceToConstructionRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
 	principal, ok := security.PrincipalFrom(r.Context())
 	if !ok {
 		writeError(w, http.StatusUnauthorized, "unauthenticated", "authentication required")
@@ -69,7 +77,7 @@ func (h *Handler) handleAdvanceToConstruction(w http.ResponseWriter, r *http.Req
 		return
 	}
 	rc := fwmanager.Context{Context: r.Context(), Principal: principal}
-	result, err := h.Manager.AdvanceToConstruction(rc, projectID)
+	result, err := h.Manager.AdvanceToConstruction(rc, projectID, req.AcknowledgeStale)
 	if err != nil {
 		writeManagerError(w, err)
 		return

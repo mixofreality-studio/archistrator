@@ -35,7 +35,8 @@ func (h *Handler) Register(srv *mcp.Server) {
 }
 
 type advanceToConstructionInput struct {
-	ProjectID mgr.ProjectID `json:"projectID"`
+	ProjectID        mgr.ProjectID `json:"projectID"`
+	AcknowledgeStale bool          `json:"acknowledgeStale"`
 }
 
 type advanceToConstructionOutput struct {
@@ -100,7 +101,7 @@ type submitSDPDecisionOutput struct{}
 func advanceToConstructionInputSchema() *jsonschema.Schema {
 	s := objectSchema[advanceToConstructionInput]()
 	relaxRawJSON(s)
-	s.Required = []string{"projectID"}
+	s.Required = []string{"projectID", "acknowledgeStale"}
 	return s
 }
 
@@ -239,7 +240,7 @@ func (h *Handler) handleAdvanceToConstruction(ctx context.Context, _ *mcp.CallTo
 	var out advanceToConstructionOutput
 	principal, _ := security.PrincipalFrom(ctx)
 	rc := fwmanager.Context{Context: ctx, Principal: principal}
-	result, err := h.Manager.AdvanceToConstruction(rc, in.ProjectID)
+	result, err := h.Manager.AdvanceToConstruction(rc, in.ProjectID, in.AcknowledgeStale)
 	if err != nil {
 		return nil, out, mapManagerError(err)
 	}

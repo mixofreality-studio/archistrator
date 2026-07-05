@@ -251,9 +251,70 @@ func Test_SubmitReviewDecision_WrongPhaseKind(t *testing.T) {
 
 func Test_AdvancePhase_EmptyProjectID(t *testing.T) {
 	m := NewSystemDesignManager(nil, nil, nil, nil, nil, nil, "")
-	_, err := m.AdvancePhase(bgRC(), ProjectID(""))
+	_, err := m.AdvancePhase(bgRC(), ProjectID(""), false)
 	if got := asSystemDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %d", got)
+	}
+}
+
+// F55: a committed-but-stale in-scope slot blocks AdvancePhase with a FailedPrecondition that
+// NAMES the stale slot — the seal must not silently advance over a shifted basis. The check is
+// a synchronous head-state read that short-circuits BEFORE any Temporal call, so a nil client
+// is safe.
+func Test_AdvancePhase_StaleSlot_FailedPreconditionNamingSlot(t *testing.T) {
+	pid := ProjectID(uuid.NewString())
+	proj := committedProject(pid, KindMission, KindGlossary)
+	proj.ScrubbedRequirements.Status = projectstate.ReviewCommitted
+	proj.ScrubbedRequirements.StaleBasis = true
+	ps := &renderFakeProjectState{project: proj}
+	m := NewSystemDesignManager(nil, ps, nil, nil, nil, nil, "")
+
+	_, err := m.AdvancePhase(bgRC(), pid, false)
+	sde := asSystemDesignError(t, err)
+	if sde.Kind != fwmanager.FailedPrecondition {
+		t.Fatalf("want FailedPrecondition for a stale committed slot, got %d", sde.Kind)
+	}
+	if !strings.Contains(err.Error(), "scrubbedRequirements") {
+		t.Fatalf("error must name the stale slot scrubbedRequirements, got %q", err.Error())
+	}
+}
+
+// F55: acknowledgeStale bypasses the stale gate — the seal proceeds to the Temporal start
+// (here the mock start errors → Infrastructure, NOT the FailedPrecondition the gate would have
+// produced). Proves the ack path is not blocked by staleness.
+func Test_AdvancePhase_StaleSlot_AcknowledgeBypassesGate(t *testing.T) {
+	pid := ProjectID(uuid.NewString())
+	proj := committedProject(pid, KindMission)
+	proj.ScrubbedRequirements.Status = projectstate.ReviewCommitted
+	proj.ScrubbedRequirements.StaleBasis = true
+	ps := &renderFakeProjectState{project: proj}
+
+	mc := &temporalmocks.Client{}
+	mc.On("ExecuteWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(nil, errors.New("boom"))
+	m := &systemDesignManager{client: mc, projectState: ps}
+
+	_, err := m.AdvancePhase(bgRC(), pid, true)
+	if got := asSystemDesignError(t, err).Kind; got == fwmanager.FailedPrecondition {
+		t.Fatal("with ack the stale gate must be bypassed, not surface FailedPrecondition")
+	}
+}
+
+// F55: no stale slot → the gate is a no-op and the op proceeds unchanged (reaching the Temporal
+// start, distinguishing "gate passed" from "gate blocked with FailedPrecondition").
+func Test_AdvancePhase_NoStaleSlot_ProceedsUnchanged(t *testing.T) {
+	pid := ProjectID(uuid.NewString())
+	proj := committedProject(pid, KindMission, KindGlossary, KindScrubbedRequirements)
+	ps := &renderFakeProjectState{project: proj}
+
+	mc := &temporalmocks.Client{}
+	mc.On("ExecuteWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(nil, errors.New("boom"))
+	m := &systemDesignManager{client: mc, projectState: ps}
+
+	_, err := m.AdvancePhase(bgRC(), pid, false)
+	if got := asSystemDesignError(t, err).Kind; got == fwmanager.FailedPrecondition {
+		t.Fatal("with no stale slot the gate must pass, not surface FailedPrecondition")
 	}
 }
 

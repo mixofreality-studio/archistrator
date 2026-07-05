@@ -479,10 +479,27 @@ func sessionStageLabel(s SessionStage) string {
 
 // AdvanceToConstruction — op 2.4. Temporal Workflow (entry; StartWorkflow,
 // workflow id {projectId}:phaseAdvance). Returns the gating outcome.
-func (m *projectDesignManager) AdvanceToConstruction(rc fwmanager.Context, projectID ProjectID) (PhaseAdvanceResult, error) {
+//
+// F55 STALE-SLOT GATE (Phase-2 twin). A back-edge amendment flags every downstream committed
+// slot StaleBasis. Sealing Phase 2 over a stale committed slot silently advances to
+// construction on a shifted basis. Before starting the seal workflow, refuse with
+// FailedPrecondition naming the stale in-scope (Phase-2) slots — UNLESS the caller explicitly
+// acknowledges (acknowledgeStale). The message names the slots so a consumer knows what to
+// reconcile.
+func (m *projectDesignManager) AdvanceToConstruction(rc fwmanager.Context, projectID ProjectID, acknowledgeStale bool) (PhaseAdvanceResult, error) {
 	ctx := rc.Context
 	if projectID == "" {
 		return PhaseAdvanceResult{}, newError(fwmanager.ContractMisuse, "empty projectId")
+	}
+
+	if !acknowledgeStale {
+		if proj, rerr := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID)); rerr == nil {
+			if stale := staleCommittedPhase2Kinds(proj); len(stale) > 0 {
+				return PhaseAdvanceResult{}, newError(fwmanager.FailedPrecondition,
+					fmt.Sprintf("cannot advance to construction: %d committed artifact(s) are stale and must be reconciled first (%s). Re-run the design for each, or advance anyway by acknowledging the staleness.",
+						len(stale), strings.Join(stale, ", ")))
+			}
+		}
 	}
 
 	wfID := phaseAdvanceWorkflowID(projectID)
@@ -558,6 +575,21 @@ func (m *projectDesignManager) GetSessionState(rc fwmanager.Context, projectID P
 		return SessionStateView{}, newError(fwmanager.Infrastructure, err.Error())
 	}
 	return view, nil
+}
+
+// staleCommittedPhase2Kinds returns the wire names of every COMMITTED Phase-2 slot that carries
+// StaleBasis (a back-edge amendment invalidated its basis) — the set AdvanceToConstruction must
+// refuse to seal over unless the caller acknowledges. Order follows Phase2RequiredKinds so the
+// message reads deterministically.
+func staleCommittedPhase2Kinds(proj projectstate.Project) []string {
+	var stale []string
+	for _, kind := range projectstate.Phase2RequiredKinds() {
+		slot := slotFor(proj, kind)
+		if slot.Status == projectstate.ReviewCommitted && slot.StaleBasis {
+			stale = append(stale, kind.WireName())
+		}
+	}
+	return stale
 }
 
 // isAbnormalClosedStatus reports whether a workflow-execution status is a CLOSED-ABNORMAL

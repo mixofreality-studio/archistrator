@@ -50,8 +50,8 @@ type loggingSystemDesignManager struct {
 	log   *slog.Logger
 }
 
-func (m loggingSystemDesignManager) AdvancePhase(rc fwmanager.Context, projectID systemdesign.ProjectID) (systemdesign.PhaseAdvanceResult, error) {
-	v, err := m.inner.AdvancePhase(rc, projectID)
+func (m loggingSystemDesignManager) AdvancePhase(rc fwmanager.Context, projectID systemdesign.ProjectID, acknowledgeStale bool) (systemdesign.PhaseAdvanceResult, error) {
+	v, err := m.inner.AdvancePhase(rc, projectID, acknowledgeStale)
 	return v, logInfraError(m.log, "SystemDesign.AdvancePhase", string(projectID), err)
 }
 
@@ -112,8 +112,8 @@ type loggingProjectDesignManager struct {
 	log   *slog.Logger
 }
 
-func (m loggingProjectDesignManager) AdvanceToConstruction(rc fwmanager.Context, projectID projectdesign.ProjectID) (projectdesign.PhaseAdvanceResult, error) {
-	v, err := m.inner.AdvanceToConstruction(rc, projectID)
+func (m loggingProjectDesignManager) AdvanceToConstruction(rc fwmanager.Context, projectID projectdesign.ProjectID, acknowledgeStale bool) (projectdesign.PhaseAdvanceResult, error) {
+	v, err := m.inner.AdvanceToConstruction(rc, projectID, acknowledgeStale)
 	return v, logInfraError(m.log, "ProjectDesign.AdvanceToConstruction", string(projectID), err)
 }
 

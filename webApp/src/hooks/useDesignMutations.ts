@@ -140,16 +140,24 @@ export function useSetReviewCommentStatus(
   });
 }
 
-/** No-arg advance trigger — TVariables is undefined to avoid an invalid void. */
+/**
+ * Advance trigger — TVariables is `acknowledgeStale`. A normal advance sends
+ * false; when the server blocks with a FailedPrecondition naming stale committed
+ * slots, the caller re-invokes with true ("advance anyway") to acknowledge and seal
+ * over them (F55).
+ */
 export function useAdvancePhase(
   projectId: string
-): UseMutationResult<PhaseAdvanceResponse, Error, undefined> {
+): UseMutationResult<PhaseAdvanceResponse, Error, boolean> {
   const client = useQueryClient();
-  return useMutation<PhaseAdvanceResponse, Error, undefined>({
-    mutationFn: async () => {
+  return useMutation<PhaseAdvanceResponse, Error, boolean>({
+    mutationFn: async (acknowledgeStale: boolean) => {
       const { data, error, response } = await apiClient.POST(
         '/api/v1/system-design/advance-phase/{projectID}',
-        { params: { path: { projectID: projectId } } }
+        {
+          params: { path: { projectID: projectId } },
+          body: { acknowledgeStale },
+        }
       );
       if (error !== undefined) throw toApiError(response.status, error);
       return {

@@ -482,10 +482,28 @@ func sessionStageLabel(s SessionStage) string {
 // {projectId}:phaseAdvance). Returns the gating outcome.
 //
 // AdvancePhase is the exported public op.
-func (m *systemDesignManager) AdvancePhase(rc fwmanager.Context, projectID ProjectID) (PhaseAdvanceResult, error) {
+//
+// F55 STALE-SLOT GATE. A back-edge amendment (CommitArtifact staleness propagation) flags
+// every downstream committed slot StaleBasis when an earlier slot is re-committed. Sealing the
+// phase over a stale committed slot silently advances the project on a design whose basis has
+// shifted (the observed failure: advanced to Phase 2 while scrubbedRequirements was stale). So
+// before starting the seal workflow, refuse with FailedPrecondition naming the stale in-scope
+// slots — UNLESS the caller explicitly acknowledges (acknowledgeStale) that it intends to
+// advance over them. The message names the slots so a user/MCP consumer knows what to reconcile.
+func (m *systemDesignManager) AdvancePhase(rc fwmanager.Context, projectID ProjectID, acknowledgeStale bool) (PhaseAdvanceResult, error) {
 	ctx := rc.Context
 	if projectID == "" {
 		return PhaseAdvanceResult{}, newError(fwmanager.ContractMisuse, "empty projectId")
+	}
+
+	if !acknowledgeStale {
+		if proj, rerr := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID)); rerr == nil {
+			if stale := staleCommittedPhase1Kinds(proj); len(stale) > 0 {
+				return PhaseAdvanceResult{}, newError(fwmanager.FailedPrecondition,
+					fmt.Sprintf("cannot advance phase: %d committed artifact(s) are stale and must be reconciled first (%s). Re-run the design for each, or advance anyway by acknowledging the staleness.",
+						len(stale), strings.Join(stale, ", ")))
+			}
+		}
 	}
 
 	wfID := phaseAdvanceWorkflowID(projectID)
@@ -505,6 +523,22 @@ func (m *systemDesignManager) AdvancePhase(rc fwmanager.Context, projectID Proje
 		return PhaseAdvanceResult{}, newError(fwmanager.Infrastructure, err.Error())
 	}
 	return result, nil
+}
+
+// staleCommittedPhase1Kinds returns the wire names of every COMMITTED Phase-1 slot that
+// carries StaleBasis (a back-edge amendment invalidated its basis) — the set AdvancePhase must
+// refuse to seal over unless the caller acknowledges. Order follows the canonical Phase-1
+// spine so the message reads deterministically. A non-committed slot is never "stale" here (it
+// isn't part of the seal), so only committed slots are inspected.
+func staleCommittedPhase1Kinds(proj projectstate.Project) []string {
+	var stale []string
+	for _, kind := range phase1RequiredKinds() {
+		slot := slotFor(proj, kind)
+		if slot.Status == projectstate.ReviewCommitted && slot.StaleBasis {
+			stale = append(stale, artifactKindWireName(kind))
+		}
+	}
+	return stale
 }
 
 // getSessionState — op 2.4. Temporal Query (QueryWorkflow, query sessionState,

@@ -2873,6 +2873,17 @@ paths:
                   required: true
                   schema:
                     $ref: '#/components/schemas/ProjectDesignProjectID'
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            properties:
+                                acknowledgeStale:
+                                    type: boolean
+                            required:
+                                - acknowledgeStale
+                            type: object
+                required: true
             responses:
                 "200":
                     content:
@@ -3350,6 +3361,17 @@ paths:
                   required: true
                   schema:
                     $ref: '#/components/schemas/SystemDesignProjectID'
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            properties:
+                                acknowledgeStale:
+                                    type: boolean
+                            required:
+                                - acknowledgeStale
+                            type: object
+                required: true
             responses:
                 "200":
                     content:

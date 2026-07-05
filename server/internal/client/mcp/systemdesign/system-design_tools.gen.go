@@ -39,7 +39,8 @@ func (h *Handler) Register(srv *mcp.Server) {
 }
 
 type advancePhaseInput struct {
-	ProjectID mgr.ProjectID `json:"projectID"`
+	ProjectID        mgr.ProjectID `json:"projectID"`
+	AcknowledgeStale bool          `json:"acknowledgeStale"`
 }
 
 type advancePhaseOutput struct {
@@ -138,7 +139,7 @@ type submitReviewDecisionOutput struct{}
 func advancePhaseInputSchema() *jsonschema.Schema {
 	s := objectSchema[advancePhaseInput]()
 	relaxRawJSON(s)
-	s.Required = []string{"projectID"}
+	s.Required = []string{"projectID", "acknowledgeStale"}
 	return s
 }
 
@@ -327,7 +328,7 @@ func (h *Handler) handleAdvancePhase(ctx context.Context, _ *mcp.CallToolRequest
 	var out advancePhaseOutput
 	principal, _ := security.PrincipalFrom(ctx)
 	rc := fwmanager.Context{Context: ctx, Principal: principal}
-	result, err := h.Manager.AdvancePhase(rc, in.ProjectID)
+	result, err := h.Manager.AdvancePhase(rc, in.ProjectID, in.AcknowledgeStale)
 	if err != nil {
 		return nil, out, mapManagerError(err)
 	}

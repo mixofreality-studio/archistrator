@@ -2222,7 +2222,13 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": {
+                    acknowledgeStale: boolean;
+                };
+            };
+        };
         responses: {
             /** @description success */
             200: {
@@ -2844,7 +2850,13 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": {
+                    acknowledgeStale: boolean;
+                };
+            };
+        };
         responses: {
             /** @description success */
             200: {

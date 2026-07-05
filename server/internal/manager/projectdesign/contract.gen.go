@@ -140,7 +140,7 @@ const (
 
 // ProjectDesignManager is the generated service-contract interface for this component.
 type ProjectDesignManager interface {
-	AdvanceToConstruction(rc fwm.Context, projectID ProjectID) (PhaseAdvanceResult, error)
+	AdvanceToConstruction(rc fwm.Context, projectID ProjectID, acknowledgeStale bool) (PhaseAdvanceResult, error)
 	GetSessionState(rc fwm.Context, projectID ProjectID, kind ArtifactKind) (SessionStateView, error)
 	RequestArtifactDraft(rc fwm.Context, projectID ProjectID, kind ArtifactKind, feedback *ReviewFeedback) (SessionRef, error)
 	RequestSDPCommit(rc fwm.Context, projectID ProjectID) (SessionRef, error)

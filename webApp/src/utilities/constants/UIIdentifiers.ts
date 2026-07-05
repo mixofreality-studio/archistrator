@@ -159,6 +159,8 @@ export const UI_IDENTIFIERS = {
     SDP_ASSEMBLE: 'sdp-assemble',
     ADVANCE_CONSTRUCTION: 'advance-construction',
     ADVANCE_RESULT: 'advance-result',
+    ADVANCE_STALE_ERROR: 'advance-stale-error',
+    ADVANCE_ANYWAY: 'advance-anyway',
   },
   Construction: {
     ROOT: 'construction-console',
