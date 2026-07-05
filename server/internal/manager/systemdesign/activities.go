@@ -141,6 +141,15 @@ type mutateArtifactArgs struct {
 	ExpectedVersion projectstate.Version
 	Kind            projectstate.ArtifactKind
 	Notes           string
+	// Branch is the OPTIONAL session-branch override (I-DESIGN-DISPATCH §2a), consumed
+	// by RejectArtifactActivity. In the PR rail the draft + its AwaitingReview status
+	// live ONLY on the session branch (main is untouched until an approved draft merges),
+	// so a Reject must record the Rejected status flip on that SAME branch — where the
+	// staged model exists and the session-branch version matches. Empty ⇒ the Reject
+	// lands on main exactly as today (every existing caller/test leaves it empty and is
+	// unperturbed). Commit/Withdraw ignore it (Commit lands on main after the merge;
+	// Withdraw is main-only).
+	Branch string
 }
 
 func (wf *workflows) CommitArtifactActivity(ctx context.Context, a mutateArtifactArgs) (projectstate.Version, error) {
@@ -148,6 +157,14 @@ func (wf *workflows) CommitArtifactActivity(ctx context.Context, a mutateArtifac
 }
 
 func (wf *workflows) RejectArtifactActivity(ctx context.Context, a mutateArtifactArgs) (projectstate.Version, error) {
+	// Branch-aware Reject during the AwaitingReview window (I-DESIGN-DISPATCH §2a): when
+	// the rail wired a session branch AND the substrate supports the extension, record the
+	// Rejected status flip on the session branch the draft was staged on (where the model
+	// exists and the version matches). Otherwise fall back to the main-path RejectArtifact
+	// — the dormant-rail / non-git substrate is unperturbed.
+	if ba, ok := wf.ProjectState.(projectstate.BranchAwareProjectStateAccess); ok && a.Branch != "" {
+		return mapErr(ba.RejectArtifactOnBranch(ctx, a.ProjectID, a.ExpectedVersion, a.Branch, a.Kind, a.Notes, activityIdempotencyKey(ctx)))
+	}
 	return mapErr(wf.ProjectState.RejectArtifact(fwra.Context{Context: ctx, IdempotencyKey: activityIdempotencyKey(ctx)}, a.ProjectID, a.ExpectedVersion, a.Kind, a.Notes))
 }
 

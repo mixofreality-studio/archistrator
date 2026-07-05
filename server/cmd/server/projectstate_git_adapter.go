@@ -249,6 +249,18 @@ func (a *projectStateGitAdapter) StageArtifactForReviewOnBranch(ctx context.Cont
 	return a.store.StageArtifactForReviewOnBranch(ctx, projectID, expectedVersion, branch, model, cred, idempotencyKey)
 }
 
+// RejectArtifactOnBranch is the branch-aware Reject (I-DESIGN-DISPATCH §2a): an empty
+// branch behaves exactly as RejectArtifact (main); a non-empty branch lands the Rejected
+// status flip + notes on the session branch the draft was staged on. The cred is minted
+// just-in-time, exactly like the no-cred RejectArtifact.
+func (a *projectStateGitAdapter) RejectArtifactOnBranch(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
+	cred, err := a.minter.credentialFor(ctx, projectID)
+	if err != nil {
+		return 0, err
+	}
+	return a.store.RejectArtifactOnBranch(ctx, projectID, expectedVersion, branch, kind, notes, cred, idempotencyKey)
+}
+
 // ---------------------------------------------------------------------------
 // RepoLocator — resolves a projectID to a per-project git store handle. It is the seam
 // where the composition root supplies the concrete URL scheme

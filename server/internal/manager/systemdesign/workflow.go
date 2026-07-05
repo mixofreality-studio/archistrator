@@ -845,16 +845,38 @@ func (wf *workflows) handleReviewDecision(
 
 	case ReviewReject:
 		rejectFeedback := reviewFeedbackOrZero(sig.Feedback)
+		// RETAIN the architect's feedback in workflow state BEFORE the head-state write —
+		// both the free-text Notes AND the JSONPath-anchored Comments (consulted ONLY on
+		// Reject). Setting it first means that if the reject write itself faults (below), the
+		// crash-containment recovery gate still holds the feedback so a Retry reuses it
+		// instead of silently discarding the architect's send-back (QA F28).
+		*feedback = rejectFeedback
 		newVersion, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
 			c := mutateOpts(ctx)
 			var v projectstate.Version
 			e := workflow.ExecuteActivity(c, wf.RejectArtifactActivity, mutateArtifactArgs{
 				ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, Kind: toPSKind(in.ArtifactKind), Notes: rejectFeedback.Notes,
+				// Branch-aware Reject (I-DESIGN-DISPATCH §2a): record the Rejected status on the
+				// SESSION BRANCH the draft was staged on — where the staged model exists and the
+				// session-branch version (headVersion) matches. In the PR rail main is untouched
+				// until an approved draft merges, so a main-path reject would mismatch the version
+				// AND find the slot unpopulated (the QA F28 crash). "" when the rail is dormant ⇒
+				// the reject lands on main exactly as before.
+				Branch: gf.readBackBranch(),
 			}).Get(ctx, &v)
 			return v, e
 		})
 		if err != nil {
-			return stepErr(err)
+			// CRASH CONTAINMENT (QA F28). An activity fault while recording the Reject must
+			// NOT kill the workflow (that ends the CoAuthor spine FAILED and loses the
+			// feedback that rode the signal). Mirror the recoverDispatchFailed pattern: land
+			// at the human-visible StageDraftFailed gate carrying a reason, KEEPING the
+			// received feedback (*feedback set above) so a Retry redrafts with the architect's
+			// comments woven in. A workflow-cancellation still propagates.
+			if temporal.IsCanceledError(err) {
+				return stepErr(err)
+			}
+			return wf.recoverAtFailedGate(ctx, in, *headVersion, rejectFailedReason(err), "", state, feedback, redraftCount)
 		}
 		*headVersion = newVersion
 		// A fresh REJECT needs a NEW session branch + PR next attempt (the rejected PR
@@ -862,9 +884,7 @@ func (wf *workflows) handleReviewDecision(
 		// rail is dormant.
 		*branchAttempt++
 		// Loop to step 2 (re-draft AND re-run PM-critique) with the architect's feedback
-		// woven in — both the free-text Notes AND the JSONPath-anchored Comments (consulted
-		// ONLY here, on Reject).
-		*feedback = rejectFeedback
+		// woven in.
 		state.stage = StageRedrafting
 		return stepRedraft()
 
@@ -1239,6 +1259,18 @@ func dispatchFailedReason(err error) string {
 		return "the design job could not be started in your repository — retry or withdraw"
 	}
 	return "the design job could not be started in your repository: " + summary + " — retry or withdraw"
+}
+
+// rejectFailedReason renders the human "why" for the StageDraftFailed screen when the
+// architect's Reject was received but the head-state write recording it FAULTED terminally
+// (QA F28 crash containment). The architect's feedback is retained in workflow state, so
+// the message frames a Retry as re-applying the send-back rather than a lost review.
+func rejectFailedReason(err error) string {
+	summary := dispatchErrSummary(err)
+	if summary == "" {
+		return "recording your send-back failed — retry to re-apply your feedback, or withdraw"
+	}
+	return "recording your send-back failed: " + summary + " — retry to re-apply your feedback, or withdraw"
 }
 
 // dispatchErrSummary extracts a neutral, bounded summary from a terminal dispatch error.

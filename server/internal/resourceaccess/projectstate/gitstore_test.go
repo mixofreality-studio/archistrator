@@ -257,6 +257,55 @@ func TestGitStore_StageCommitRoundTrip(t *testing.T) {
 	}
 }
 
+// TestGitStore_RejectArtifactOnBranch_EmptyBranchIsMain proves the new branch-aware
+// Reject verb (I-DESIGN-DISPATCH §2a) behaves EXACTLY as RejectArtifact when branch=="":
+// it records the Rejected status + notes over the staged slot on main. This is the
+// documented empty-branch equivalence the non-git / dormant-rail callers rely on.
+func TestGitStore_RejectArtifactOnBranch_EmptyBranchIsMain(t *testing.T) {
+	store, cred, ctx := newLocalGitStore(t)
+	id := ps.ProjectID(uuid.NewString())
+	if _, err := store.CreateProject(ctx, id, "alice", "Demo", cred, "wf:create"); err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	mission := &ps.MissionStatement{Vision: "v", Mission: "m"}
+	v2, err := store.StageArtifactForReview(ctx, id, 1, mission, cred, "wf:stage")
+	if err != nil {
+		t.Fatalf("StageArtifactForReview: %v", err)
+	}
+	const notes = "rework the vision"
+	if _, err := store.RejectArtifactOnBranch(ctx, id, v2, "", ps.KindMission, notes, cred, "wf:reject"); err != nil {
+		t.Fatalf("RejectArtifactOnBranch(branch=\"\"): %v", err)
+	}
+	proj, err := store.ReadProject(ctx, id, cred)
+	if err != nil {
+		t.Fatalf("ReadProject: %v", err)
+	}
+	if proj.Mission.Status != ps.ReviewRejected {
+		t.Fatalf("mission status = %v, want Rejected", proj.Mission.Status)
+	}
+	if proj.Mission.Notes != notes {
+		t.Fatalf("mission notes = %q, want %q", proj.Mission.Notes, notes)
+	}
+}
+
+// TestGitStore_RejectArtifactOnBranch_UnpopulatedSlotIsMisuse proves rejecting a slot
+// that was never staged is a ContractMisuse — the RA-level guard whose main-path
+// triggering (in the PR rail, where the draft lives on the session branch and main's slot
+// is empty) was the QA F28 crash. The Manager avoids it by rejecting ON the session
+// branch (where the model IS staged); this test pins the guard the fix routes around.
+func TestGitStore_RejectArtifactOnBranch_UnpopulatedSlotIsMisuse(t *testing.T) {
+	store, cred, ctx := newLocalGitStore(t)
+	id := ps.ProjectID(uuid.NewString())
+	if _, err := store.CreateProject(ctx, id, "alice", "Demo", cred, "wf:create"); err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	// No stage — the Mission slot is unpopulated on main.
+	_, err := store.RejectArtifactOnBranch(ctx, id, 1, "", ps.KindMission, "notes", cred, "wf:reject")
+	if k := kindOf(t, err); k != fwra.ContractMisuse {
+		t.Fatalf("reject of an unpopulated slot kind = %v, want ContractMisuse", k)
+	}
+}
+
 // TestGitStore_VersionGuardConflict — a write at a stale expectedVersion (without
 // a matching dedup key) surfaces fwra.Conflict.
 func TestGitStore_VersionGuardConflict(t *testing.T) {

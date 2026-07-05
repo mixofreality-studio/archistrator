@@ -259,7 +259,22 @@ func (s *GitStore) CommitArtifact(ctx context.Context, projectID ProjectID, expe
 }
 
 func (s *GitStore) RejectArtifact(ctx context.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, notes string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	return s.applyMutation(ctx, "RejectArtifact", projectID, expectedVersion, cred, idempotencyKey, modeUpsert, statusTransition("RejectArtifact", kind, ReviewRejected, notes))
+	return s.rejectArtifactOnBranch(ctx, projectID, expectedVersion, "", kind, notes, cred, idempotencyKey)
+}
+
+// RejectArtifactOnBranch is the branch-aware Reject the design Managers use during the
+// AwaitingReview window (I-DESIGN-DISPATCH §2a) — the symmetric counterpart of
+// StageArtifactForReviewOnBranch. The Rejected status flip + notes ride over the SESSION
+// BRANCH the draft was staged on, where the staged model exists and the session-branch
+// version matches (main trails and carries no staged model until an approved draft
+// merges). An EMPTY branch behaves EXACTLY as RejectArtifact (the default/main) — zero
+// perturbation to every existing caller.
+func (s *GitStore) RejectArtifactOnBranch(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	return s.rejectArtifactOnBranch(ctx, projectID, expectedVersion, branch, kind, notes, cred, idempotencyKey)
+}
+
+func (s *GitStore) rejectArtifactOnBranch(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	return s.applyMutationOnBranch(ctx, "RejectArtifact", projectID, expectedVersion, branch, cred, idempotencyKey, modeUpsert, statusTransition("RejectArtifact", kind, ReviewRejected, notes))
 }
 
 func (s *GitStore) WithdrawArtifact(ctx context.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, notes string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {

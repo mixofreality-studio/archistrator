@@ -475,7 +475,7 @@ func (wf *workflows) coAuthorDraftRound(
 		// on the gate awaiting Retry (redraft/Reject) or Withdraw (§0.5.4 — the
 		// anti-wedge rule).
 		logger.Warn("Phase-2 design draft job reached a terminal failure phase; entering StageDraftFailed", "diagnostic", draftObs.Diagnostic)
-		outcome, retry, recErr := wf.awaitDraftFailedRecovery(ctx, in.ProjectID, in.ArtifactKind, *headVersion, draftObs.Diagnostic, state, feedback)
+		outcome, retry, recErr := wf.awaitDraftFailedRecovery(ctx, in.ProjectID, in.ArtifactKind, *headVersion, draftFailedReason(draftObs.Diagnostic), state, feedback)
 		if recErr != nil {
 			return coAuthorProceed, coAuthorUnknown, recErr
 		}
@@ -545,22 +545,49 @@ func (wf *workflows) coAuthorApplyDecision(
 
 	case ReviewReject:
 		notes := signalNotes(sig.Feedback)
+		// RETAIN the architect's feedback in workflow state BEFORE the head-state write, so
+		// that if the reject write itself faults (below), the crash-containment recovery
+		// gate still holds the feedback for a Retry instead of silently discarding the
+		// send-back (QA F28).
+		*feedback = notes
 		newVersion, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
 			c := mutateOpts(ctx)
 			var v projectstate.Version
 			e := workflow.ExecuteActivity(c, wf.RejectArtifactActivity, mutateArtifactArgs{
 				ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, Kind: toPSKind(in.ArtifactKind), Notes: notes,
+				// Branch-aware Reject (I-DESIGN-DISPATCH §2a): record the Rejected status on the
+				// SESSION BRANCH the draft was staged on — where the staged model exists and the
+				// session-branch version matches. In the PR rail main is untouched until an
+				// approved draft merges, so a main-path reject would mismatch the version AND find
+				// the slot unpopulated (the QA F28 crash). "" when the rail is dormant ⇒ the reject
+				// lands on main exactly as before.
+				Branch: gf.readBackBranch(),
 			}).Get(ctx, &v)
 			return v, e
 		})
 		if err != nil {
-			return coAuthorProceed, coAuthorUnknown, err
+			// CRASH CONTAINMENT (QA F28). An activity fault while recording the Reject must
+			// NOT kill the workflow (that ends the CoAuthor spine FAILED and loses the feedback
+			// that rode the signal). Land at the human-visible StageDraftFailed gate carrying a
+			// reason, KEEPING the received feedback (*feedback set above) so a Retry redrafts
+			// with the architect's notes woven in. A workflow-cancellation still propagates.
+			if temporal.IsCanceledError(err) {
+				return coAuthorProceed, coAuthorUnknown, err
+			}
+			outcome, retry, recErr := wf.awaitDraftFailedRecovery(ctx, in.ProjectID, in.ArtifactKind, *headVersion, rejectFailedReason(err), state, feedback)
+			if recErr != nil {
+				return coAuthorProceed, coAuthorUnknown, recErr
+			}
+			if !retry {
+				return coAuthorReturn, outcome, nil
+			}
+			*redraftCount++
+			return coAuthorContinue, coAuthorUnknown, nil
 		}
 		*headVersion = newVersion
 		// A fresh REJECT needs a NEW session branch + PR next attempt (the rejected PR
 		// cannot be reused). Bump the branch attempt; inert when the rail is dormant.
 		*branchAttempt++
-		*feedback = notes
 		state.stage = StageRedrafting
 		return coAuthorContinue, coAuthorUnknown, nil
 
@@ -618,7 +645,7 @@ func (wf *workflows) coAuthorApprove(
 		// NOT merge/commit. Route to the SAME StageDraftFailed recovery gate as a draft
 		// failure (the anti-wedge rule) awaiting Retry-via-Reject / Withdraw.
 		logger.Warn("Phase-2 design PR not mergeable at approve (CI not green); entering StageDraftFailed")
-		outcome, retry, recErr := wf.awaitDraftFailedRecovery(ctx, in.ProjectID, in.ArtifactKind, *headVersion, "the design PR is not green — its required CI check has not passed", state, feedback)
+		outcome, retry, recErr := wf.awaitDraftFailedRecovery(ctx, in.ProjectID, in.ArtifactKind, *headVersion, draftFailedReason("the design PR is not green — its required CI check has not passed"), state, feedback)
 		if recErr != nil {
 			return coAuthorProceed, coAuthorUnknown, recErr
 		}
@@ -1345,13 +1372,15 @@ func (wf *workflows) awaitDraftFailedRecovery(
 	projectID ProjectID,
 	kind ArtifactKind,
 	headVersion projectstate.Version,
-	diagnostic string,
+	reason string,
 	state *coAuthorState,
 	feedback *string,
 ) (coAuthorOutcome, bool, error) {
-	// Surface the human-visible failed stage + the neutral diagnostic for the Query.
+	// Surface the human-visible failed stage + the pre-formatted human reason for the
+	// Query. Callers pass the rendered reason (draftFailedReason for a job failure,
+	// rejectFailedReason for a review-write fault) so this gate is reason-agnostic.
 	state.stage = StageDraftFailed
-	state.failureReason = draftFailedReason(diagnostic)
+	state.failureReason = reason
 
 	redraftCh := workflow.GetSignalChannel(ctx, signalRedraft)
 	reviewCh := workflow.GetSignalChannel(ctx, signalReviewDecision)
@@ -1421,6 +1450,35 @@ func draftFailedReason(diagnostic string) string {
 		return "the Phase-2 design job failed in CI — retry or withdraw"
 	}
 	return "the Phase-2 design job failed in CI: " + diagnostic + " — retry or withdraw"
+}
+
+// rejectFailedReason renders the human "why" for the StageDraftFailed screen when the
+// architect's Reject was received but the head-state write recording it FAULTED terminally
+// (QA F28 crash containment). The architect's feedback is retained in workflow state, so
+// the message frames a Retry as re-applying the send-back rather than a lost review.
+func rejectFailedReason(err error) string {
+	summary := dispatchErrSummary(err)
+	if summary == "" {
+		return "recording your send-back failed — retry to re-apply your feedback, or withdraw"
+	}
+	return "recording your send-back failed: " + summary + " — retry to re-apply your feedback, or withdraw"
+}
+
+// dispatchErrSummary extracts a neutral, bounded summary from a terminal error. A Temporal
+// ApplicationError (the wrapped RA fault, e.g. ContractMisuse) carries a human Message();
+// otherwise the error string is used. Deterministic across replay — the error is
+// reconstructed identically from workflow history.
+func dispatchErrSummary(err error) string {
+	if err == nil {
+		return ""
+	}
+	var appErr *temporal.ApplicationError
+	if errors.As(err, &appErr) {
+		if msg := appErr.Message(); msg != "" {
+			return msg
+		}
+	}
+	return err.Error()
 }
 
 func signalNotes(f *ReviewFeedback) string {

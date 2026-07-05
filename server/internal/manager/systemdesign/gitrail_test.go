@@ -2,6 +2,7 @@ package systemdesign
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -112,9 +113,13 @@ var _ sourceControlRail = (*fakeRail)(nil)
 // assert the session-branch routing.
 type branchAwareFakeProjectState struct {
 	*fakeProjectState
-	mu            sync.Mutex
-	readBranches  []string
-	stageBranches []string
+	mu             sync.Mutex
+	readBranches   []string
+	stageBranches  []string
+	rejectBranches []string
+	// failRejectOnBranch, when true, makes RejectArtifactOnBranch fault terminally
+	// (a ContractMisuse) — used to exercise the QA F28 crash-containment recovery gate.
+	failRejectOnBranch bool
 }
 
 var _ projectstate.BranchAwareProjectStateAccess = (*branchAwareFakeProjectState)(nil)
@@ -131,6 +136,33 @@ func (f *branchAwareFakeProjectState) StageArtifactForReviewOnBranch(ctx context
 	f.stageBranches = append(f.stageBranches, branch)
 	f.mu.Unlock()
 	return f.StageArtifactForReview(fwra.Context{Context: ctx, IdempotencyKey: key}, projectID, expectedVersion, model)
+}
+
+// RejectArtifactOnBranch records the Reject on the SESSION BRANCH — the correct PR-rail
+// substrate, where the draft was staged and the branch version matches. It delegates to
+// the embedded fake's bookkeeping (rejected + Notes), then records the branch so the test
+// asserts the reject rode the session branch (non-empty), not main.
+func (f *branchAwareFakeProjectState) RejectArtifactOnBranch(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, key fwra.IdempotencyKey) (projectstate.Version, error) {
+	f.mu.Lock()
+	f.rejectBranches = append(f.rejectBranches, branch)
+	fail := f.failRejectOnBranch
+	f.mu.Unlock()
+	if fail {
+		// A terminal (non-retryable) write fault while recording the Reject — the crash
+		// scenario QA F28 must contain instead of failing the whole workflow.
+		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RejectArtifact: simulated terminal write fault")
+	}
+	return f.fakeProjectState.RejectArtifact(fwra.Context{Context: ctx, IdempotencyKey: key}, projectID, expectedVersion, kind, notes)
+}
+
+// RejectArtifact (MAIN path) models the PRODUCTION PR-rail reality that caused QA F28: in
+// the rail flow the draft is staged ONLY on the session branch, so main's slot is
+// unpopulated and a main-path reject is a ContractMisuse ("stage a model first"), exactly
+// as the real GitStore's statusTransition raises. This shadows the embedded fake so that
+// if the Manager ever regresses to rejecting on main, the workflow crashes here and the
+// regression test fails loudly.
+func (f *branchAwareFakeProjectState) RejectArtifact(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, kind projectstate.ArtifactKind, _ string) (projectstate.Version, error) {
+	return 0, fwra.New(fwra.ContractMisuse, "projectstate.RejectArtifact: slot "+kind.String()+" is unpopulated (stage a model first)")
 }
 
 func newRailWorkflows(ps projectstate.ProjectStateAccess, pipe *fakePipeline, rail sourceControlRail) *workflows {
@@ -248,5 +280,148 @@ func Test_CoAuthor_RailEnabled_ApproveButPRNotGreen_DoesNotMerge_Recovers(t *tes
 	}
 	if len(base.committed) != 0 {
 		t.Fatalf("a not-green merge guard must NEVER commit, got %v", base.committed)
+	}
+}
+
+// THE QA F28 REGRESSION — Reject/"Send back" against the PR rail. In the rail flow the
+// draft + its AwaitingReview status live ONLY on the session branch (main's slot is
+// unpopulated until an approved draft merges). The architect's Reject must therefore
+// record the Rejected status ON THE SESSION BRANCH — NOT on main, where the version
+// mismatches AND the slot is unpopulated (the ContractMisuse crash that ended the
+// CoAuthor workflow FAILED and silently discarded the review comments). After the fix the
+// Reject lands on the session branch, the workflow survives, and the redraft dispatch
+// carries the architect's anchored comments + notes woven into the design_prompt.
+func Test_CoAuthor_RailEnabled_Reject_RecordsOnSessionBranch_RedraftCarriesFeedback(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	ps := &branchAwareFakeProjectState{fakeProjectState: base}
+	pipe := newFakePipeline() // every dispatch Succeeds
+	rail := &fakeRail{checkGreen: true}
+	wf := newRailWorkflows(ps, pipe, rail)
+	registerRailCoAuthor(env, wf)
+
+	const (
+		rejectNotes = "rework the decomposition"
+		commentPath = "$.containers[0].name"
+		commentText = "this manager name violates the layering rule"
+	)
+	feedback := &ReviewFeedback{
+		Notes:    rejectNotes,
+		Comments: []AnchoredComment{{JSONPath: commentPath, Text: commentText}},
+	}
+
+	// First gate: REJECT with anchored feedback. Second gate (after the redraft reaches
+	// AwaitingReview again): WITHDRAW to end the session cleanly.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewReject, Feedback: feedback})
+	}, 30*time.Second)
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 70*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	// The reject must NOT crash the workflow (QA F28 was a non-retryable ContractMisuse
+	// that ended it FAILED).
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a PR-rail reject must not crash the workflow: %v", err)
+	}
+	// The Reject rode the SESSION BRANCH, not main (main's slot is unpopulated — the
+	// branchAwareFakeProjectState's main-path RejectArtifact would ContractMisuse).
+	if len(ps.rejectBranches) != 1 || ps.rejectBranches[0] == "" {
+		t.Fatalf("reject must target the session branch, got %v", ps.rejectBranches)
+	}
+	if len(base.rejected) != 1 || base.rejected[0].kind != projectstate.KindSystem || base.rejected[0].notes != rejectNotes {
+		t.Fatalf("want one RejectArtifact(KindSystem, %q) on the session branch, got %v", rejectNotes, base.rejected)
+	}
+	// The reject looped to a FRESH redraft dispatch that WEAVES IN the feedback: both the
+	// free-text notes AND the JSONPath-anchored comment text (writeFeedback in prompts.go).
+	if len(pipe.submits) < 2 {
+		t.Fatalf("a reject must re-dispatch a fresh draft, got %d submits", len(pipe.submits))
+	}
+	redraftPrompt := pipe.submits[len(pipe.submits)-1].dispatchInputs[dispatchInputDesignPrompt]
+	for _, want := range []string{rejectNotes, commentPath, commentText} {
+		if !strings.Contains(redraftPrompt, want) {
+			t.Fatalf("redraft design_prompt must carry the architect's feedback %q; prompt:\n%s", want, redraftPrompt)
+		}
+	}
+}
+
+// CRASH CONTAINMENT AT THE REVIEW GATE (QA F28 item 2). An activity fault while RECORDING
+// the Reject must not kill the workflow. The spine lands at the human-visible
+// StageDraftFailed recovery gate KEEPING the received feedback, so a Retry redrafts with
+// the architect's comments woven in rather than silently discarding the send-back.
+func Test_CoAuthor_RailEnabled_RejectWriteFaults_RecoversAtFailedGate_RetainsFeedback(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	ps := &branchAwareFakeProjectState{fakeProjectState: base, failRejectOnBranch: true}
+	pipe := newFakePipeline() // every dispatch Succeeds
+	rail := &fakeRail{checkGreen: true}
+	wf := newRailWorkflows(ps, pipe, rail)
+	registerRailCoAuthor(env, wf)
+
+	const (
+		rejectNotes = "rework the decomposition"
+		commentPath = "$.containers[0].name"
+		commentText = "this manager name violates the layering rule"
+	)
+	feedback := &ReviewFeedback{
+		Notes:    rejectNotes,
+		Comments: []AnchoredComment{{JSONPath: commentPath, Text: commentText}},
+	}
+
+	// First gate: REJECT (the write FAULTS terminally) → crash containment lands at the
+	// StageDraftFailed gate carrying the feedback.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewReject, Feedback: feedback})
+	}, 30*time.Second)
+	// Assert the workflow landed at the recoverable failed gate (NOT crashed) with a reason.
+	env.RegisterDelayedCallback(func() {
+		enc, err := env.QueryWorkflow(querySessionState)
+		if err != nil {
+			t.Fatalf("QueryWorkflow at failed gate: %v", err)
+		}
+		var view SessionStateView
+		if derr := enc.Get(&view); derr != nil {
+			t.Fatalf("decode SessionStateView: %v", derr)
+		}
+		if view.Stage != StageDraftFailed {
+			t.Fatalf("a faulted reject must land at StageDraftFailed, got stage %v", view.Stage)
+		}
+		if view.FailureReason == nil || *view.FailureReason == "" {
+			t.Fatal("the failed gate must surface a human FailureReason")
+		}
+	}, 45*time.Second)
+	// Retry via the redraft lever WITH NO NEW FEEDBACK: the retained feedback must drive
+	// the redraft.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(lSignalRedraft, redraftSignal{})
+	}, 60*time.Second)
+	// After the redraft reaches AwaitingReview, WITHDRAW to end.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 100*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a faulted reject must not crash the workflow: %v", err)
+	}
+	// The retry redrafted, and the RETAINED feedback (set before the faulted write) rode
+	// into the redraft prompt even though the Retry signal carried none.
+	if len(pipe.submits) < 2 {
+		t.Fatalf("the retry must issue a SECOND dispatch, got %d submits", len(pipe.submits))
+	}
+	redraftPrompt := pipe.submits[len(pipe.submits)-1].dispatchInputs[dispatchInputDesignPrompt]
+	for _, want := range []string{rejectNotes, commentPath, commentText} {
+		if !strings.Contains(redraftPrompt, want) {
+			t.Fatalf("the retained feedback %q must survive the fault and drive the redraft; prompt:\n%s", want, redraftPrompt)
+		}
 	}
 }

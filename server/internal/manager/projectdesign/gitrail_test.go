@@ -2,6 +2,7 @@ package projectdesign
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -205,6 +206,11 @@ func (f *seqProjectState) StageArtifactForReviewOnBranch(ctx context.Context, pr
 func (f *seqProjectState) CommitArtifact(ctx fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, kind projectstate.ArtifactKind) (projectstate.Version, error) {
 	f.log.add("commit", "")
 	return f.fakeProjectState.CommitArtifact(ctx, projectID, expectedVersion, kind)
+}
+
+func (f *seqProjectState) RejectArtifactOnBranch(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, key fwra.IdempotencyKey) (projectstate.Version, error) {
+	f.log.add("rejectBranch", branch)
+	return f.RejectArtifact(fwra.Context{Context: ctx, IdempotencyKey: key}, projectID, expectedVersion, kind, notes)
 }
 
 func newRailWorkflows(ps projectstate.ProjectStateAccess, pipe *fakePipeline, rail sourceControlRail) *workflows {
@@ -494,5 +500,157 @@ func Test_CoAuthorPhase2_Rail_RequiredCheckRed_BlocksMerge_NoCommit_Recovers(t *
 	}
 	if len(base.withdrawn) != 1 {
 		t.Fatalf("a blocked merge must route to the recovery gate; withdraw expected once, got %d", len(base.withdrawn))
+	}
+}
+
+// ---- branchAwareRejectFake: faithful PR-rail reject substrate (QA F28) ---------
+
+// branchAwareRejectFake models the PRODUCTION PR-rail reality that caused QA F28 for the
+// Phase-2 CoAuthor spine: the draft is staged ONLY on the session branch, so main's slot
+// is unpopulated and a MAIN-path reject is a ContractMisuse. Its RejectArtifactOnBranch
+// records the session branch (and can fault-inject); its shadowing main-path RejectArtifact
+// fails loudly, so a regression to rejecting on main crashes the workflow and the test.
+type branchAwareRejectFake struct {
+	*fakeProjectState
+	mu             sync.Mutex
+	rejectBranches []string
+	// failRejectOnBranch makes RejectArtifactOnBranch fault terminally (ContractMisuse) —
+	// exercises the crash-containment recovery gate.
+	failRejectOnBranch bool
+}
+
+var _ projectstate.BranchAwareProjectStateAccess = (*branchAwareRejectFake)(nil)
+
+func (f *branchAwareRejectFake) ReadProjectOnBranch(ctx context.Context, projectID projectstate.ProjectID, _ string) (projectstate.Project, error) {
+	return f.ReadProject(fwra.Context{Context: ctx}, projectID)
+}
+
+func (f *branchAwareRejectFake) StageArtifactForReviewOnBranch(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, _ string, model projectstate.ArtifactModel, key fwra.IdempotencyKey) (projectstate.Version, error) {
+	return f.StageArtifactForReview(fwra.Context{Context: ctx, IdempotencyKey: key}, projectID, expectedVersion, model)
+}
+
+func (f *branchAwareRejectFake) RejectArtifactOnBranch(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, key fwra.IdempotencyKey) (projectstate.Version, error) {
+	f.mu.Lock()
+	f.rejectBranches = append(f.rejectBranches, branch)
+	fail := f.failRejectOnBranch
+	f.mu.Unlock()
+	if fail {
+		// A terminal (non-retryable) write fault while recording the Reject — the crash
+		// scenario QA F28 must contain instead of failing the whole workflow.
+		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RejectArtifact: simulated terminal write fault")
+	}
+	return f.fakeProjectState.RejectArtifact(fwra.Context{Context: ctx, IdempotencyKey: key}, projectID, expectedVersion, kind, notes)
+}
+
+// RejectArtifact (MAIN path) models the PR-rail reality: main's slot is unpopulated, so a
+// main-path reject is a ContractMisuse. Shadows the embedded fake so a regression to
+// rejecting on main crashes the workflow and this test fails loudly.
+func (f *branchAwareRejectFake) RejectArtifact(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, kind projectstate.ArtifactKind, _ string) (projectstate.Version, error) {
+	return 0, fwra.New(fwra.ContractMisuse, "projectstate.RejectArtifact: slot "+kind.String()+" is unpopulated (stage a model first)")
+}
+
+// THE QA F28 REGRESSION (Phase-2 twin) — Reject/"Send back" against the PR rail records
+// the Rejected status ON THE SESSION BRANCH (not main, where the version mismatches AND
+// the slot is unpopulated), the workflow survives, and the redraft dispatch carries the
+// architect's notes woven into the design_prompt.
+func Test_CoAuthorPhase2_Rail_Reject_RecordsOnSessionBranch_RedraftCarriesFeedback(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: planningAssumptionsReadBack(projectstate.ProjectID(id))}
+	ps := &branchAwareRejectFake{fakeProjectState: base}
+	pipe := newFakePipeline() // every dispatch Succeeds
+	rail := newScriptedRail(true, &seqLog{})
+	wf := newRailWorkflows(ps, pipe, rail)
+	registerRailCoAuthor(env, wf)
+
+	const rejectNotes = "rework the staffing assumptions"
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewReject, Feedback: &ReviewFeedback{Notes: rejectNotes}})
+	}, 30*time.Second)
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 70*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindPlanningAssumptions})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a PR-rail reject must not crash the workflow: %v", err)
+	}
+	if len(ps.rejectBranches) != 1 || ps.rejectBranches[0] == "" {
+		t.Fatalf("reject must target the session branch, got %v", ps.rejectBranches)
+	}
+	if len(base.rejected) != 1 || base.rejected[0].kind != projectstate.KindPlanningAssumptions || base.rejected[0].notes != rejectNotes {
+		t.Fatalf("want one RejectArtifact(KindPlanningAssumptions, %q) on the session branch, got %v", rejectNotes, base.rejected)
+	}
+	if len(pipe.submits) < 2 {
+		t.Fatalf("a reject must re-dispatch a fresh draft, got %d submits", len(pipe.submits))
+	}
+	redraftPrompt := pipe.submits[len(pipe.submits)-1].dispatchInputs[dispatchInputDesignPrompt]
+	if !strings.Contains(redraftPrompt, rejectNotes) {
+		t.Fatalf("redraft design_prompt must carry the architect's feedback %q; prompt:\n%s", rejectNotes, redraftPrompt)
+	}
+}
+
+// CRASH CONTAINMENT AT THE REVIEW GATE (Phase-2 twin, QA F28 item 2). An activity fault
+// while RECORDING the Reject must not kill the workflow: the spine lands at the
+// human-visible StageDraftFailed recovery gate KEEPING the feedback, so a Retry redrafts
+// with the architect's notes rather than silently discarding the send-back.
+func Test_CoAuthorPhase2_Rail_RejectWriteFaults_RecoversAtFailedGate_RetainsFeedback(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: planningAssumptionsReadBack(projectstate.ProjectID(id))}
+	ps := &branchAwareRejectFake{fakeProjectState: base, failRejectOnBranch: true}
+	pipe := newFakePipeline() // every dispatch Succeeds
+	rail := newScriptedRail(true, &seqLog{})
+	wf := newRailWorkflows(ps, pipe, rail)
+	registerRailCoAuthor(env, wf)
+
+	const rejectNotes = "rework the staffing assumptions"
+	// First gate: REJECT (the write FAULTS terminally) → crash containment lands at the
+	// StageDraftFailed gate carrying the feedback.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewReject, Feedback: &ReviewFeedback{Notes: rejectNotes}})
+	}, 30*time.Second)
+	// Assert the workflow landed at the recoverable failed gate (NOT crashed) with a reason.
+	env.RegisterDelayedCallback(func() {
+		enc, err := env.QueryWorkflow(querySessionState)
+		if err != nil {
+			t.Fatalf("QueryWorkflow at failed gate: %v", err)
+		}
+		var view SessionStateView
+		if derr := enc.Get(&view); derr != nil {
+			t.Fatalf("decode SessionStateView: %v", derr)
+		}
+		if view.Stage != StageDraftFailed {
+			t.Fatalf("a faulted reject must land at StageDraftFailed, got stage %v", view.Stage)
+		}
+		if view.FailureReason == nil || *view.FailureReason == "" {
+			t.Fatal("the failed gate must surface a human FailureReason")
+		}
+	}, 45*time.Second)
+	// Retry via the redraft lever WITH NO NEW FEEDBACK: the retained feedback must drive
+	// the redraft.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalRedraft, redraftSignal{})
+	}, 60*time.Second)
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 100*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindPlanningAssumptions})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a faulted reject must not crash the workflow: %v", err)
+	}
+	if len(pipe.submits) < 2 {
+		t.Fatalf("the retry must issue a SECOND dispatch, got %d submits", len(pipe.submits))
+	}
+	redraftPrompt := pipe.submits[len(pipe.submits)-1].dispatchInputs[dispatchInputDesignPrompt]
+	if !strings.Contains(redraftPrompt, rejectNotes) {
+		t.Fatalf("the retained feedback %q must survive the fault and drive the redraft; prompt:\n%s", rejectNotes, redraftPrompt)
 	}
 }
