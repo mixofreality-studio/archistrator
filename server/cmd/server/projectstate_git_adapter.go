@@ -261,6 +261,18 @@ func (a *projectStateGitAdapter) RejectArtifactOnBranch(ctx context.Context, pro
 	return a.store.RejectArtifactOnBranch(ctx, projectID, expectedVersion, branch, kind, notes, cred, idempotencyKey)
 }
 
+// WithdrawArtifactOnBranch is the branch-aware Withdraw (I-DESIGN-DISPATCH §2a): an empty
+// branch behaves exactly as WithdrawArtifact (main); a non-empty branch lands the Withdrawn
+// status flip + notes on the session branch the draft was staged on. The cred is minted
+// just-in-time, exactly like the no-cred WithdrawArtifact.
+func (a *projectStateGitAdapter) WithdrawArtifactOnBranch(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
+	cred, err := a.minter.credentialFor(ctx, projectID)
+	if err != nil {
+		return 0, err
+	}
+	return a.store.WithdrawArtifactOnBranch(ctx, projectID, expectedVersion, branch, kind, notes, cred, idempotencyKey)
+}
+
 // ---------------------------------------------------------------------------
 // RepoLocator — resolves a projectID to a per-project git store handle. It is the seam
 // where the composition root supplies the concrete URL scheme

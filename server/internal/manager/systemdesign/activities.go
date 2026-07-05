@@ -169,6 +169,14 @@ func (wf *workflows) RejectArtifactActivity(ctx context.Context, a mutateArtifac
 }
 
 func (wf *workflows) WithdrawArtifactActivity(ctx context.Context, a mutateArtifactArgs) (projectstate.Version, error) {
+	// Branch-aware Withdraw during the AwaitingReview window (I-DESIGN-DISPATCH §2a): when
+	// the rail wired a session branch AND the substrate supports the extension, record the
+	// Withdrawn status flip on the session branch the draft was staged on (where the model
+	// exists and the version matches). Otherwise fall back to the main-path WithdrawArtifact
+	// — the dormant-rail / non-git substrate is unperturbed.
+	if ba, ok := wf.ProjectState.(projectstate.BranchAwareProjectStateAccess); ok && a.Branch != "" {
+		return mapErr(ba.WithdrawArtifactOnBranch(ctx, a.ProjectID, a.ExpectedVersion, a.Branch, a.Kind, a.Notes, activityIdempotencyKey(ctx)))
+	}
 	return mapErr(wf.ProjectState.WithdrawArtifact(fwra.Context{Context: ctx, IdempotencyKey: activityIdempotencyKey(ctx)}, a.ProjectID, a.ExpectedVersion, a.Kind, a.Notes))
 }
 

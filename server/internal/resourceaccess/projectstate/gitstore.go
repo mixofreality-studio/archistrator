@@ -278,7 +278,22 @@ func (s *GitStore) rejectArtifactOnBranch(ctx context.Context, projectID Project
 }
 
 func (s *GitStore) WithdrawArtifact(ctx context.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, notes string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	return s.applyMutation(ctx, "WithdrawArtifact", projectID, expectedVersion, cred, idempotencyKey, modeUpsert, statusTransition("WithdrawArtifact", kind, ReviewWithdrawn, notes))
+	return s.withdrawArtifactOnBranch(ctx, projectID, expectedVersion, "", kind, notes, cred, idempotencyKey)
+}
+
+// WithdrawArtifactOnBranch is the branch-aware Withdraw the design Managers use during the
+// AwaitingReview window (I-DESIGN-DISPATCH §2a) — the symmetric counterpart of
+// RejectArtifactOnBranch. The Withdrawn status flip + notes ride over the SESSION BRANCH
+// the draft was staged on, where the staged model exists and the session-branch version
+// matches (main trails and carries no staged model until an approved draft merges). An
+// EMPTY branch behaves EXACTLY as WithdrawArtifact (the default/main) — zero perturbation
+// to every existing caller.
+func (s *GitStore) WithdrawArtifactOnBranch(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	return s.withdrawArtifactOnBranch(ctx, projectID, expectedVersion, branch, kind, notes, cred, idempotencyKey)
+}
+
+func (s *GitStore) withdrawArtifactOnBranch(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	return s.applyMutationOnBranch(ctx, "WithdrawArtifact", projectID, expectedVersion, branch, cred, idempotencyKey, modeUpsert, statusTransition("WithdrawArtifact", kind, ReviewWithdrawn, notes))
 }
 
 func (s *GitStore) AdvancePhase(ctx context.Context, projectID ProjectID, expectedVersion Version, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {

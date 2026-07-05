@@ -938,17 +938,18 @@ func (wf *workflows) handleReviewDecision(
 
 	case ReviewWithdraw:
 		notes := signalNotes(sig.Feedback)
-		// Withdraw is a MAIN write (WithdrawArtifactActivity is not branch-aware), so its
-		// Conflict re-read targets main (branch==""). headVersion may be a branch version in
-		// the review window, so the first attempt can Conflict; the main re-read converges it
-		// to main's version. (A rail-flow withdraw of a not-yet-merged draft still trips the
-		// RA's populated-slot guard on main — a pre-existing, separate concern from F29's
-		// version bookkeeping; earmarked, not addressed here.)
-		if _, err := wf.applyRecovering(ctx, in.ProjectID, "", *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		// Branch-aware Withdraw (I-DESIGN-DISPATCH §2a; QA F30). The draft under review was
+		// staged on the SESSION BRANCH, so the Withdrawn status flip + notes must ride that
+		// SAME branch — where the staged model exists and the session-branch version
+		// (headVersion) matches. In the PR rail main is untouched until an approved draft
+		// merges, so a main-path withdraw would mismatch the version AND find the slot
+		// unpopulated (a crash). "" when the rail is dormant ⇒ the withdraw lands on main
+		// exactly as before, and the Conflict re-read then targets main.
+		if _, err := wf.applyRecovering(ctx, in.ProjectID, gf.readBackBranch(), *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
 			c := mutateOpts(ctx)
 			var v projectstate.Version
 			e := workflow.ExecuteActivity(c, wf.WithdrawArtifactActivity, mutateArtifactArgs{
-				ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, Kind: toPSKind(in.ArtifactKind), Notes: notes,
+				ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, Kind: toPSKind(in.ArtifactKind), Notes: notes, Branch: gf.readBackBranch(),
 			}).Get(ctx, &v)
 			return v, e
 		}); err != nil {

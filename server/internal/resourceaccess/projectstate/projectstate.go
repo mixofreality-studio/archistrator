@@ -74,6 +74,17 @@ type BranchAwareProjectStateAccess interface {
 	// main). branch=="" behaves exactly as RejectArtifact (the default/main), so a
 	// dormant-rail / non-git caller is unperturbed.
 	RejectArtifactOnBranch(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	// WithdrawArtifactOnBranch records the architect's Withdraw on branch (the session
+	// branch the draft was staged on during the AwaitingReview window). It is the
+	// symmetric counterpart of RejectArtifactOnBranch: in the PR rail the draft + its
+	// AwaitingReview status live ONLY on the session branch (main is untouched until an
+	// approved draft merges), so the Withdrawn status flip + notes must land on that SAME
+	// branch — where the staged model exists and where the session-branch version matches.
+	// Withdrawing on main would (a) mismatch the version (main trails the session branch)
+	// and (b) find the slot unpopulated (no model was ever staged on main). branch==""
+	// behaves exactly as WithdrawArtifact (the default/main), so a dormant-rail / non-git
+	// caller is unperturbed.
+	WithdrawArtifactOnBranch(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, idempotencyKey fwra.IdempotencyKey) (Version, error)
 }
 
 // Error is the shared ResourceAccess error model (framework-go), re-exported as

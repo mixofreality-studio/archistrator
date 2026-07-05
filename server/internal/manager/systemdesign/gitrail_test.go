@@ -114,13 +114,19 @@ var _ sourceControlRail = (*fakeRail)(nil)
 // assert the session-branch routing.
 type branchAwareFakeProjectState struct {
 	*fakeProjectState
-	mu             sync.Mutex
-	readBranches   []string
-	stageBranches  []string
-	rejectBranches []string
+	mu               sync.Mutex
+	readBranches     []string
+	stageBranches    []string
+	rejectBranches   []string
+	withdrawBranches []string
 	// failRejectOnBranch, when true, makes RejectArtifactOnBranch fault terminally
 	// (a ContractMisuse) — used to exercise the QA F28 crash-containment recovery gate.
 	failRejectOnBranch bool
+	// failWithdrawOnMain, when true, makes the MAIN-path WithdrawArtifact fault (models the
+	// unpopulated-main-slot ContractMisuse of the PR rail). Opt-in so ONLY the F30
+	// review-gate withdraw test arms it — the FAILED-gate withdraw tests (which legitimately
+	// ride main) leave it false and are unperturbed.
+	failWithdrawOnMain bool
 }
 
 var _ projectstate.BranchAwareProjectStateAccess = (*branchAwareFakeProjectState)(nil)
@@ -164,6 +170,32 @@ func (f *branchAwareFakeProjectState) RejectArtifactOnBranch(ctx context.Context
 // regression test fails loudly.
 func (f *branchAwareFakeProjectState) RejectArtifact(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, kind projectstate.ArtifactKind, _ string) (projectstate.Version, error) {
 	return 0, fwra.New(fwra.ContractMisuse, "projectstate.RejectArtifact: slot "+kind.String()+" is unpopulated (stage a model first)")
+}
+
+// WithdrawArtifactOnBranch records the Withdraw on the SESSION BRANCH — the correct PR-rail
+// substrate, where the draft was staged and the branch version matches. It delegates to
+// the embedded fake's bookkeeping (withdrawn), then records the branch so the test asserts
+// the withdraw rode the session branch (non-empty), not main. NOTE: the main-path
+// WithdrawArtifact is intentionally NOT shadowed to fail — the FAILED-gate withdraw
+// legitimately rides main (branch==""), so a blanket-failing shadow would break the
+// not-green recovery test. The F30 regression guard is the withdrawBranches assertion (a
+// regression to main leaves it empty).
+func (f *branchAwareFakeProjectState) WithdrawArtifactOnBranch(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, key fwra.IdempotencyKey) (projectstate.Version, error) {
+	f.mu.Lock()
+	f.withdrawBranches = append(f.withdrawBranches, branch)
+	f.mu.Unlock()
+	return f.fakeProjectState.WithdrawArtifact(fwra.Context{Context: ctx, IdempotencyKey: key}, projectID, expectedVersion, kind, notes)
+}
+
+// WithdrawArtifact (MAIN path) is the base behavior UNLESS failWithdrawOnMain is armed, in
+// which case it models the PR-rail reality that caused QA F30: main's slot is unpopulated,
+// so a main-path withdraw is a ContractMisuse. Armed only by the F30 review-gate test so a
+// regression to withdrawing on main crashes the workflow and the test fails loudly.
+func (f *branchAwareFakeProjectState) WithdrawArtifact(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, kind projectstate.ArtifactKind, notes string) (projectstate.Version, error) {
+	if f.failWithdrawOnMain {
+		return 0, fwra.New(fwra.ContractMisuse, "projectstate.WithdrawArtifact: slot "+kind.String()+" is unpopulated (stage a model first)")
+	}
+	return f.fakeProjectState.WithdrawArtifact(rc, projectID, expectedVersion, kind, notes)
 }
 
 func newRailWorkflows(ps projectstate.ProjectStateAccess, pipe *fakePipeline, rail sourceControlRail) *workflows {
@@ -494,6 +526,14 @@ func (f *f29BranchFake) RejectArtifactOnBranch(_ context.Context, _ projectstate
 	return f.branchVer, nil
 }
 
+func (f *f29BranchFake) WithdrawArtifactOnBranch(_ context.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	// Terminal in the F29 tests; leave branchVer untouched so the stage-convergence
+	// assertion stays about the stage, not this withdraw.
+	return f.branchVer, nil
+}
+
 // THE QA F29 REGRESSION — a fresh workflow reusing a session branch already AHEAD of main
 // stages against the ACTUAL branch version and CONVERGES, instead of Conflicting
 // non-recoverably against the stale main-captured version and crashing the workflow.
@@ -587,5 +627,49 @@ func Test_CoAuthor_RailEnabled_StageFaults_RecoversAtFailedGate(t *testing.T) {
 	// The recovered retry staged successfully (branch advanced past 4).
 	if ps.branchVer != 5 {
 		t.Fatalf("the recovered retry must converge its stage (branch → 5), got %d", ps.branchVer)
+	}
+}
+
+// THE QA F30 REGRESSION — Withdraw against the PR rail records the Withdrawn status ON THE
+// SESSION BRANCH (not main, where the version mismatches AND the slot is unpopulated), the
+// workflow survives, and ends withdrawn. failWithdrawOnMain arms the main-path guard so a
+// regression to withdrawing on main crashes the workflow and this test fails loudly.
+func Test_CoAuthor_RailEnabled_Withdraw_RecordsOnSessionBranch_NoCrash(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	ps := &branchAwareFakeProjectState{fakeProjectState: base, failWithdrawOnMain: true}
+	pipe := newFakePipeline()
+	rail := &fakeRail{checkGreen: true}
+	wf := newRailWorkflows(ps, pipe, rail)
+	registerRailCoAuthor(env, wf)
+
+	// At the AwaitingReview gate, WITHDRAW the not-yet-merged draft.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw, Feedback: &ReviewFeedback{Notes: "abandon this draft"}})
+	}, 30*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	// A rail-flow withdraw must NOT crash (F30 was a main-path ContractMisuse on the
+	// unpopulated main slot).
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a PR-rail withdraw must not crash the workflow: %v", err)
+	}
+	var outcome coAuthorOutcome
+	if err := env.GetWorkflowResult(&outcome); err != nil {
+		t.Fatalf("decode outcome: %v", err)
+	}
+	if outcome != coAuthorWithdrawn {
+		t.Fatalf("want CoAuthorWithdrawn, got %d", outcome)
+	}
+	// The Withdraw rode the SESSION BRANCH, not main.
+	if len(ps.withdrawBranches) != 1 || ps.withdrawBranches[0] == "" {
+		t.Fatalf("withdraw must target the session branch, got %v", ps.withdrawBranches)
+	}
+	if len(base.withdrawn) != 1 || base.withdrawn[0] != projectstate.KindSystem {
+		t.Fatalf("want one WithdrawArtifact(KindSystem) on the session branch, got %v", base.withdrawn)
 	}
 }

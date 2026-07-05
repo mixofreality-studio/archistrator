@@ -236,6 +236,11 @@ func (f *seqProjectState) RejectArtifactOnBranch(ctx context.Context, projectID 
 	return f.RejectArtifact(fwra.Context{Context: ctx, IdempotencyKey: key}, projectID, expectedVersion, kind, notes)
 }
 
+func (f *seqProjectState) WithdrawArtifactOnBranch(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, key fwra.IdempotencyKey) (projectstate.Version, error) {
+	f.log.add("withdrawBranch", branch)
+	return f.WithdrawArtifact(fwra.Context{Context: ctx, IdempotencyKey: key}, projectID, expectedVersion, kind, notes)
+}
+
 func newSeqRailWorkflows(ps projectstate.ProjectStateAccess, pipe *fakePipeline, rail sourceControlRail) *workflows {
 	return &workflows{
 		ProjectState: ps,
