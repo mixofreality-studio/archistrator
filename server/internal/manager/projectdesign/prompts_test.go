@@ -194,6 +194,35 @@ func Test_ActivityListPrompt_ScalarActivityFields(t *testing.T) {
 	}
 }
 
+// ActivityList doctrine — the base list is ONE coding activity per component (detailed design
+// and construction are internal lifecycle phases of that single activity, NOT separate network
+// nodes); integration and noncoding activities remain separate. The live finding: a draft split
+// detailed-design and construction into separate activities (40 activities for an 18-component
+// system). The draft-task text must carry the one-activity-per-component rule so the drafting
+// agent does not re-emit the split.
+func Test_ActivityListPrompt_OneCodingActivityPerComponent(t *testing.T) {
+	prompt := draftFor(projectstate.KindActivityList)
+	// The core rule: exactly one coding activity per component.
+	if !strings.Contains(prompt, "ONE coding activity per component") {
+		t.Errorf("activity-list prompt must state one coding activity per component; got:\n%s", prompt)
+	}
+	// Detailed design + construction are internal phases, not separate nodes.
+	if !strings.Contains(prompt, "internal lifecycle phases") {
+		t.Errorf("activity-list prompt must frame detailed-design/construction as internal lifecycle phases; got:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "NOT separate network nodes") {
+		t.Errorf("activity-list prompt must forbid splitting a component into separate network nodes; got:\n%s", prompt)
+	}
+	// Integration and noncoding activities stay separate.
+	if !strings.Contains(prompt, "Integration") || !strings.Contains(prompt, "noncoding") {
+		t.Errorf("activity-list prompt must keep integration and noncoding activities separate; got:\n%s", prompt)
+	}
+	// Effort in 5-day quanta.
+	if !strings.Contains(prompt, "5-day quanta") {
+		t.Errorf("activity-list prompt must state effort in 5-day quanta; got:\n%s", prompt)
+	}
+}
+
 // Network — dependsOn/criticalPath are arrays of name STRINGS, and the compute-at-read block
 // (computed/summary) must NOT be authored. These are the representative hotspots for this kind.
 func Test_NetworkPrompt_NameStringArrays_And_NoComputedBlock(t *testing.T) {

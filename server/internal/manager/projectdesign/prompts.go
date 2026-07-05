@@ -196,7 +196,7 @@ func draftTask(kind projectstate.ArtifactKind) string {
 	case projectstate.KindPlanningAssumptions:
 		return "capture the explicit planning assumptions — the resources, working calendar (days/week), launch infrastructure, the customer's declared usage, and the settlement terms — that the project network and the SDP-review estimates are built on."
 	case projectstate.KindActivityList:
-		return "convert the architecture into the activity list: one detailed-design + one construction activity per component, plus integration and noncoding activities, each with effort in 5-day quanta, its worker class, and a Fibonacci risk bucket."
+		return "convert the architecture into the activity list. Emit exactly ONE coding activity per component of the committed System, named after that component — detailed design and construction are internal lifecycle phases of that single activity (a per-phase role hand-off), NOT separate network nodes; do NOT split a component into a D### design activity and a C### construction activity in the base list. Integration (I-*) and noncoding (N-*) activities — test plan, test harness, environment setup, etc. — are separate activities. Give each activity its effort in 5-day quanta, its worker class, and a Fibonacci risk bucket."
 	case projectstate.KindNetwork:
 		return "convert the activity list into a project network: declare each activity's predecessor dependencies and identify the critical path (the activity names on it)."
 	case projectstate.KindNormalSolution:
