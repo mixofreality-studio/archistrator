@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"go.temporal.io/sdk/temporal"
@@ -144,6 +145,11 @@ func readProjectOpts(ctx workflow.Context) workflow.Context {
 	return workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 10 * time.Second,
 		RetryPolicy: &temporal.RetryPolicy{
+			// BOUND the read retries so a RETRYABLE fault (Transient / Infrastructure /
+			// RateLimited) cannot loop forever — decode failures of committed state are now
+			// TERMINAL (ContractMisuse, below), but a genuine persistent infra outage must
+			// still surface rather than wedge invisibly (QA F36, mirrors systemdesign).
+			MaximumAttempts: 8,
 			NonRetryableErrorTypes: []string{
 				fwmanager.RAErrType(fwra.NotFound),
 				fwmanager.RAErrType(fwra.ContractMisuse),
@@ -184,6 +190,24 @@ func isApproveAuthFault(err error) bool {
 		return appErr.Type() == raAuthErrType
 	}
 	return false
+}
+
+// raContractMisuseErrType is the canonical Temporal Type() the read Activities surface when
+// the committed state DECODES MALFORMED — the projectstate codec now classifies these
+// ContractMisuse (terminal) rather than Infrastructure (QA F36). On a pure READ path a
+// ContractMisuse is unambiguously a decode-of-committed-state failure (absence is NotFound).
+var raContractMisuseErrType = fwmanager.RAErrType(fwra.ContractMisuse)
+
+// isTerminalReadBack reports whether a read-back error is a TERMINAL decode-of-committed-
+// state fault retry cannot fix, and returns the decode diagnostic (preserved as the
+// ApplicationError message by fwmanager.MapError) so the caller can surface it at the human
+// StageDraftFailed gate instead of looping the read-back Activity forever (QA F36).
+func isTerminalReadBack(err error) (string, bool) {
+	var appErr *temporal.ApplicationError
+	if errors.As(err, &appErr) && appErr.Type() == raContractMisuseErrType {
+		return appErr.Message(), true
+	}
+	return "", false
 }
 
 // raNotFoundErrType is the canonical Temporal Type() the ReadProject Activity
@@ -555,6 +579,24 @@ func (wf *workflows) coAuthorDraftRound(
 	// rail reads main (readBackBranch() == "").
 	model, readBackVersion, rbErr := wf.readBackCommittedModelOn(ctx, in.ProjectID, in.ArtifactKind, gf.readBackBranch())
 	if rbErr != nil {
+		if decodeMsg, terminal := isTerminalReadBack(rbErr); terminal {
+			// The committed draft DECODES MALFORMED — a terminal fault retry cannot fix (QA
+			// F36). Land it at the human StageDraftFailed gate carrying the decode diagnostic
+			// (a Retry redrafts on a FRESH branch with the reason visible), instead of the
+			// pre-fix behavior of looping the read-back Activity every ~100s forever.
+			logger.Warn("Phase-2 read-back decoded MALFORMED committed state; entering StageDraftFailed", "error", decodeMsg)
+			outcome, retry, recErr := wf.awaitDraftFailedRecovery(ctx, in.ProjectID, in.ArtifactKind, *headVersion, readBackDecodeFailedReason(decodeMsg), state, feedback)
+			if recErr != nil {
+				return coAuthorProceed, coAuthorUnknown, recErr
+			}
+			if !retry {
+				return coAuthorReturn, outcome, nil
+			}
+			// A human Retry opens a NEW session branch cut from current main (QA F32).
+			*branchAttempt++
+			*redraftCount++
+			return coAuthorContinue, coAuthorUnknown, nil
+		}
 		return coAuthorProceed, coAuthorUnknown, rbErr
 	}
 	draft = model
@@ -1598,6 +1640,17 @@ func draftFailedReason(diagnostic string) string {
 		return "the Phase-2 design job failed in CI — retry or withdraw"
 	}
 	return "the Phase-2 design job failed in CI: " + diagnostic + " — retry or withdraw"
+}
+
+// readBackDecodeFailedReason renders the human "why" for the StageDraftFailed screen when
+// the committed draft READS BACK MALFORMED (QA F36): CI validate went green (its Go mirror
+// types the offending enum as a free string) but the server codec rejects the value on
+// read-back. It carries the decode diagnostic so a Retry redrafts with full visibility.
+func readBackDecodeFailedReason(decodeMsg string) string {
+	if strings.TrimSpace(decodeMsg) == "" {
+		return "the committed draft could not be read back — its typed shape is invalid — retry or withdraw"
+	}
+	return "the committed draft could not be read back — its typed shape is invalid: " + decodeMsg + " — retry or withdraw"
 }
 
 // stageFailedReason renders the human "why" for the StageDraftFailed screen when the

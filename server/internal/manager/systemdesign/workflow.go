@@ -3,6 +3,7 @@ package systemdesign
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"go.temporal.io/sdk/temporal"
@@ -150,6 +151,13 @@ func readProjectOpts(ctx workflow.Context) workflow.Context {
 	return workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 10 * time.Second,
 		RetryPolicy: &temporal.RetryPolicy{
+			// BOUND the read retries. A read that faults RETRYABLY (Transient / Infrastructure /
+			// RateLimited) must NOT loop forever — pre-fix a decode failure of committed state
+			// was mis-classified Infrastructure and retried every ~100s indefinitely with no
+			// failure surface (QA F36). Decode failures are now TERMINAL (ContractMisuse, listed
+			// below), but a GENUINE persistent infra outage must still surface rather than wedge
+			// invisibly, so cap the attempts.
+			MaximumAttempts: 8,
 			NonRetryableErrorTypes: []string{
 				fwmanager.RAErrType(fwra.NotFound),
 				fwmanager.RAErrType(fwra.ContractMisuse),
@@ -195,6 +203,27 @@ func isApproveAuthFault(err error) bool {
 		return appErr.Type() == raAuthErrType
 	}
 	return false
+}
+
+// raContractMisuseErrType is the canonical Temporal Type() the read Activities surface when
+// the committed state DECODES MALFORMED (a closed-enum field carrying free prose, a type
+// mismatch) — the projectstate codec now classifies these ContractMisuse (terminal) rather
+// than Infrastructure (QA F36). On a pure READ path there is no bad-argument misuse to
+// confuse it with (the addressed absence is NotFound), so a ContractMisuse from a read-back
+// is unambiguously a decode-of-committed-state failure.
+var raContractMisuseErrType = fwmanager.RAErrType(fwra.ContractMisuse)
+
+// isTerminalReadBack reports whether a read-back error is a TERMINAL decode-of-committed-
+// state fault retry cannot fix, and returns the decode diagnostic. fwmanager.MapError
+// preserves the RA error's message (the "…is not a recognized Trigger wire name" text) as
+// the ApplicationError message, so the caller can surface it verbatim at the human
+// StageDraftFailed gate instead of looping the read-back Activity forever (QA F36).
+func isTerminalReadBack(err error) (string, bool) {
+	var appErr *temporal.ApplicationError
+	if errors.As(err, &appErr) && appErr.Type() == raContractMisuseErrType {
+		return appErr.Message(), true
+	}
+	return "", false
 }
 
 // readProject runs the ReadProject Activity and returns the whole head-state
@@ -732,6 +761,16 @@ func (wf *workflows) runDraftRoundTrip(
 	// stage must expect THIS, not the stale main version captured at workflow start (QA F29).
 	model, readBackVersion, rbErr := wf.readBackCommittedModelOn(ctx, in.ProjectID, in.ArtifactKind, gf.readBackBranch())
 	if rbErr != nil {
+		if decodeMsg, terminal := isTerminalReadBack(rbErr); terminal {
+			// The committed draft DECODES MALFORMED (e.g. free prose in a closed-enum field) —
+			// a terminal fault retry cannot fix (QA F36). The CI validate went green (its Go
+			// mirror types the enum as a free string), so this only surfaces here on read-back.
+			// Land it at the human-visible StageDraftFailed gate carrying the decode diagnostic —
+			// a Retry redrafts on a FRESH branch with the reason visible — instead of the pre-fix
+			// behavior of looping the read-back Activity every ~100s forever with no failure surface.
+			logger.Warn("design read-back decoded MALFORMED committed state; entering StageDraftFailed", "error", decodeMsg)
+			return draft, gf, 0, wf.recoverAtFailedGate(ctx, in, headVersion, readBackDecodeFailedReason(decodeMsg), "", state, feedback, redraftCount, branchAttempt)
+		}
 		return draft, gf, 0, stepErr(rbErr)
 	}
 	draft = model
@@ -801,6 +840,13 @@ func (wf *workflows) runPMCritique(
 			// awaiting human Retry-via-Reject / Withdraw.
 			logger.Warn("PM-critique read-back found no verdict (missing-verdict safe default); entering StageDraftFailed")
 			return wf.recoverDraftFailed(ctx, in, headVersion, critiqueMissingVerdictDiagnostic, "", state, feedback, redraftCount, branchAttempt)
+		}
+		if decodeMsg, terminal := isTerminalReadBack(crbErr); terminal {
+			// The critique read-back decoded MALFORMED committed state (QA F36) — the same
+			// terminal fault as the draft read-back. Land at the human StageDraftFailed gate
+			// with the decode diagnostic instead of looping the read-back Activity forever.
+			logger.Warn("PM-critique read-back decoded MALFORMED committed state; entering StageDraftFailed", "error", decodeMsg)
+			return wf.recoverAtFailedGate(ctx, in, headVersion, readBackDecodeFailedReason(decodeMsg), "", state, feedback, redraftCount, branchAttempt)
 		}
 		return stepErr(crbErr)
 	}
@@ -1408,6 +1454,18 @@ func dispatchFailedReason(err error) string {
 		return "the design job could not be started in your repository — retry or withdraw"
 	}
 	return "the design job could not be started in your repository: " + summary + " — retry or withdraw"
+}
+
+// readBackDecodeFailedReason renders the human "why" for the StageDraftFailed screen when
+// the committed draft READS BACK MALFORMED (QA F36): the CI validate went GREEN (its Go
+// mirror types the offending enum as a free string) but the server codec rejects the value
+// on read-back (a closed-enum field carrying free prose). It frames it distinctly from a
+// CI failure and carries the decode diagnostic so a Retry redrafts with full visibility.
+func readBackDecodeFailedReason(decodeMsg string) string {
+	if strings.TrimSpace(decodeMsg) == "" {
+		return "the committed draft could not be read back — its typed shape is invalid — retry or withdraw"
+	}
+	return "the committed draft could not be read back — its typed shape is invalid: " + decodeMsg + " — retry or withdraw"
 }
 
 // stageFailedReason renders the human "why" for the StageDraftFailed screen when the

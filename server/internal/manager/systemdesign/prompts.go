@@ -76,6 +76,15 @@ func architectDraftPrompt(kind projectstate.ArtifactKind, proj projectstate.Proj
 
 	writeFeedback(&b, feedback)
 	fmt.Fprintf(&b, "\nTask: %s\n", draftTask(kind))
+	// CLOSED-ENUM DISCIPLINE (QA F36): for kinds whose typed model carries closed enums,
+	// enumerate the allowed wire names so the drafting agent never writes free prose into an
+	// enum field. The CI validate check will NOT catch such a value (its Go mirror types
+	// these enums as free strings — see the methodcheck-vs-codec asymmetry), so the ONLY
+	// defense before read-back is telling the agent the exact allowed values here.
+	if guide := closedEnumGuide(kind); guide != "" {
+		b.WriteString("\n")
+		b.WriteString(guide)
+	}
 	return b.String()
 }
 
@@ -197,6 +206,59 @@ func draftTask(kind projectstate.ArtifactKind) string {
 
 	default:
 		return "draft the artifact."
+	}
+}
+
+// enumConformancePreamble is the closed-enum discipline every enum-bearing draft prompt
+// carries (QA F36). The drafted CoreUseCases had free prose written into the "trigger"
+// field — a CLOSED ENUM — which the CI validate check accepted (its Go mirror types the
+// field as a free string) but the server codec rejected on read-back, stalling the design.
+// This preamble names the failure mode explicitly and points the agent at the checked-out
+// state as the shape reference; closedEnumGuide then enumerates the per-kind wire names.
+const enumConformancePreamble = "SCHEMA CONFORMANCE — the typed JSON you commit MUST conform to this artifact's fixed schema exactly. Read the prior committed artifacts in .aiarch/state/project.json as the reference for the exact field layout. Every ENUM-typed field below accepts ONLY one of its fixed camelCase WIRE NAMES — writing a sentence, a phrase, or any free-text description into an enum field is INVALID and will be REJECTED by the server when it reads your draft back (the CI validate check does NOT catch this, so you alone are responsible for using the exact wire name).\n"
+
+// closedEnumGuide returns the per-kind closed-enum wire-name block woven into the draft
+// prompt, or "" for a kind whose drafted model carries no closed enum. The wire names are
+// the SINGLE SOURCE OF TRUTH in projectstate/enumjson.go — keep this in lockstep with it
+// (prompts_test.go cross-checks each block against the marshalled enum values). Phase-2
+// design models (planning-assumptions / activity-list / network / solutions / risk-model)
+// carry NO closed enums — their worker-class/risk fields are free strings/ints — so the
+// projectdesign prompts need no counterpart block (audited for QA F36).
+func closedEnumGuide(kind projectstate.ArtifactKind) string {
+	switch kind {
+	case projectstate.KindCoreUseCases:
+		return enumConformancePreamble +
+			"Closed enums in this artifact:\n" +
+			"- each use case's \"trigger\" is EXACTLY one of: clientAction, timer, busMessage — the KIND of thing that initiates the use case (a client/user action, a scheduled timer, or an inbound bus/queue message). It is NOT a free-text sentence describing the trigger.\n" +
+			"- each use case's \"classification\" is EXACTLY one of: core, nonCore.\n" +
+			"- activity-diagram node \"kind\" and edge \"kind\" use the wire names given in the ACTIVITY DIAGRAM section above.\n"
+	case projectstate.KindVolatilities:
+		return enumConformancePreamble +
+			"Closed enums in this artifact:\n" +
+			"- each volatility's \"axis\" is EXACTLY one of: sameCustomerOverTime, allCustomersAtOneTime.\n"
+	case projectstate.KindSystem:
+		return enumConformancePreamble +
+			"Closed enums in this artifact:\n" +
+			"- each component's \"kind\" is EXACTLY one of: client, manager, engine, resourceAccess, resource, utility (do NOT emit a component \"layer\" — the server derives it from the kind).\n" +
+			"- each relationship's \"mode\" is EXACTLY one of: sync, queued, eventPubSub.\n"
+	case projectstate.KindOperationalConcepts:
+		return enumConformancePreamble +
+			"Closed enums in this artifact:\n" +
+			"- the system \"deliveryStyle\" is EXACTLY one of: cloud, local, both.\n" +
+			"- each deployment environment \"profile\" is EXACTLY one of: cloud, local, test.\n" +
+			"- each cross-component edge \"mode\" is EXACTLY one of: sync, queued, eventPubSub.\n"
+	case projectstate.KindStandardCheck:
+		return enumConformancePreamble +
+			"Closed enums in this artifact:\n" +
+			"- each checklist item's \"status\" is EXACTLY one of: pass, waived, fail.\n"
+	case projectstate.KindMission, projectstate.KindGlossary, projectstate.KindScrubbedRequirements,
+		projectstate.KindPlanningAssumptions, projectstate.KindActivityList, projectstate.KindNetwork,
+		projectstate.KindNormalSolution, projectstate.KindSubcriticalSolution, projectstate.KindCompressedSolution,
+		projectstate.KindDecompressedSolution, projectstate.KindRiskModel, projectstate.KindSdpReview:
+		// No closed enum in the drafted model — no enum block.
+		return ""
+	default:
+		return ""
 	}
 }
 

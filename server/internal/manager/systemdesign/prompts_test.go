@@ -7,6 +7,7 @@ package systemdesign
 // inlining blew the Temporal payload budget and GitHub's 64KB workflow_dispatch input cap.
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -131,5 +132,95 @@ func Test_writeResearch_PointerForm(t *testing.T) {
 	writeResearch(&empty, projectstate.ResearchInput{})
 	if empty.Len() != 0 {
 		t.Errorf("IsZero guard broken: empty corpus wrote %q", empty.String())
+	}
+}
+
+// wireNameOf marshals a projectstate enum value to its canonical camelCase wire name via
+// the SAME MarshalJSON the server codec uses, so the enum-conformance assertions below are
+// derived from the source of truth (projectstate/enumjson.go) rather than a hand-copy that
+// could drift from it.
+func wireNameOf(t *testing.T, v interface{}) string {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("marshal enum %v: %v", v, err)
+	}
+	return strings.Trim(string(b), `"`)
+}
+
+// QA F36: the CoreUseCases draft prompt must enumerate the CLOSED-ENUM wire names (Trigger,
+// Classification) and carry the schema-conformance pointer. The root cause of F36 was free
+// prose committed into the "trigger" closed enum — the CI validate check accepted it (its
+// Go mirror types the field as a free string) but the server codec rejected it on read-back.
+// Telling the drafting agent the exact allowed wire names here is the only pre-read-back
+// defense. The expected names are DERIVED from the codec so this stays in lockstep with it.
+func Test_CoreUseCasesPrompt_EnumeratesClosedEnumWireNames(t *testing.T) {
+	prompt := architectDraftPrompt(projectstate.KindCoreUseCases, projectstate.Project{}, ReviewFeedback{})
+
+	// The schema-conformance pointer line: point at the checked-out state + name the enum rule.
+	if !strings.Contains(prompt, "SCHEMA CONFORMANCE") {
+		t.Errorf("prompt must carry the SCHEMA CONFORMANCE pointer line; got:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, ".aiarch/state/project.json") {
+		t.Errorf("prompt must point at the checked-out state (.aiarch/state/project.json); got:\n%s", prompt)
+	}
+	if !strings.Contains(strings.ToLower(prompt), "wire name") {
+		t.Errorf("prompt must instruct that enum fields accept only their wire names; got:\n%s", prompt)
+	}
+
+	// Every Trigger + Classification wire name must be enumerated verbatim (anti-drift:
+	// derived from the codec's MarshalJSON, not a hand-copy).
+	triggers := []projectstate.Trigger{
+		projectstate.TriggerClientAction, projectstate.TriggerTimer, projectstate.TriggerBusMessage,
+	}
+	for _, tr := range triggers {
+		name := wireNameOf(t, tr)
+		if !strings.Contains(prompt, name) {
+			t.Errorf("CoreUseCases prompt missing Trigger wire name %q; got:\n%s", name, prompt)
+		}
+	}
+	classes := []projectstate.Classification{projectstate.ClassCore, projectstate.ClassNonCore}
+	for _, c := range classes {
+		name := wireNameOf(t, c)
+		if !strings.Contains(prompt, name) {
+			t.Errorf("CoreUseCases prompt missing Classification wire name %q; got:\n%s", name, prompt)
+		}
+	}
+
+	// The failing free-prose trigger from the live incident must be framed as INVALID — the
+	// prompt explicitly says the trigger is one of the fixed names, not a free-text sentence.
+	if !strings.Contains(prompt, "NOT a free-text sentence") {
+		t.Errorf("prompt must warn that trigger is not free text; got:\n%s", prompt)
+	}
+}
+
+// A kind whose drafted model carries NO closed enum (Mission) must NOT get the enum block —
+// the guidance is scoped so unrelated prompts stay lean.
+func Test_MissionPrompt_HasNoClosedEnumBlock(t *testing.T) {
+	prompt := architectDraftPrompt(projectstate.KindMission, projectstate.Project{}, ReviewFeedback{})
+	if strings.Contains(prompt, "SCHEMA CONFORMANCE") {
+		t.Errorf("mission prompt must not carry the closed-enum block; got:\n%s", prompt)
+	}
+}
+
+// The System draft prompt carries the ComponentKind + relationship-mode wire names.
+func Test_SystemPrompt_EnumeratesComponentKindAndMode(t *testing.T) {
+	prompt := architectDraftPrompt(projectstate.KindSystem, projectstate.Project{}, ReviewFeedback{})
+	kinds := []projectstate.ComponentKind{
+		projectstate.CompClient, projectstate.CompManager, projectstate.CompEngine,
+		projectstate.CompResourceAccess, projectstate.CompResource, projectstate.CompUtility,
+	}
+	for _, k := range kinds {
+		name := wireNameOf(t, k)
+		if !strings.Contains(prompt, name) {
+			t.Errorf("System prompt missing ComponentKind wire name %q; got:\n%s", name, prompt)
+		}
+	}
+	modes := []projectstate.CallMode{projectstate.CallSync, projectstate.CallQueued, projectstate.CallEventPubSub}
+	for _, m := range modes {
+		name := wireNameOf(t, m)
+		if !strings.Contains(prompt, name) {
+			t.Errorf("System prompt missing CallMode wire name %q; got:\n%s", name, prompt)
+		}
 	}
 }

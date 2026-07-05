@@ -789,7 +789,11 @@ func decodeProjectFromSnapshot(snap fwgithub.GitSnapshot, projectID ProjectID) (
 func decodeProjectDoc(raw []byte, projectID ProjectID) (Project, bool, error) {
 	var doc projectDoc
 	if err := json.Unmarshal(raw, &doc); err != nil {
-		return Project{}, false, fwra.Wrap(fwra.Infrastructure, err, "projectstate: decode project.json")
+		// A committed project.json that will not parse is MALFORMED COMMITTED STATE, not a
+		// transient infrastructure blip: retry cannot fix bytes already at rest on a commit
+		// (QA F36). Classify it TERMINAL (ContractMisuse) so the Manager's read-back retry
+		// policy stops looping and routes it to the human recovery gate.
+		return Project{}, false, fwra.Wrap(fwra.ContractMisuse, err, "projectstate: decode project.json")
 	}
 	p := Project{
 		ID:                   projectID,
@@ -809,7 +813,13 @@ func decodeProjectDoc(raw []byte, projectID ProjectID) (Project, bool, error) {
 		ReviewPolicy:         doc.ReviewPolicy,
 	}
 	if err := decodeSlotsMap(doc.Slots, &p); err != nil {
-		return Project{}, false, fwra.Wrap(fwra.Infrastructure, err, "projectstate: decode slots")
+		// A committed slot model that will not decode — e.g. free prose in a CLOSED-ENUM
+		// field (a Trigger/Axis/CallMode wire name), a type mismatch — is MALFORMED
+		// COMMITTED STATE, terminal by construction: no amount of retry decodes the same
+		// bytes differently (QA F36). Classify it TERMINAL (ContractMisuse), carrying the
+		// decode diagnostic, so the Manager read-back stops the infinite retry loop and
+		// lands the session at the human StageDraftFailed gate WITH this reason visible.
+		return Project{}, false, fwra.Wrap(fwra.ContractMisuse, err, "projectstate: decode slots")
 	}
 	return p, true, nil
 }

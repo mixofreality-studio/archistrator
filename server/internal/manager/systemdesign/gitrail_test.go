@@ -142,6 +142,11 @@ type branchAwareFakeProjectState struct {
 	// review-gate withdraw test arms it — the FAILED-gate withdraw tests (which legitimately
 	// ride main) leave it false and are unperturbed.
 	failWithdrawOnMain bool
+	// failReadBackDecode, when true, makes the branch READ-BACK fault as a TERMINAL decode of
+	// committed state (a ContractMisuse carrying the closed-enum wire-name diagnostic) — the
+	// QA F36 scenario: the drafting agent committed free prose into the "trigger" closed enum,
+	// CI validate went green, but the server codec rejects the value on read-back.
+	failReadBackDecode bool
 }
 
 var _ projectstate.BranchAwareProjectStateAccess = (*branchAwareFakeProjectState)(nil)
@@ -149,7 +154,15 @@ var _ projectstate.BranchAwareProjectStateAccess = (*branchAwareFakeProjectState
 func (f *branchAwareFakeProjectState) ReadProjectOnBranch(ctx context.Context, projectID projectstate.ProjectID, branch string) (projectstate.Project, error) {
 	f.mu.Lock()
 	f.readBranches = append(f.readBranches, branch)
+	fail := f.failReadBackDecode
 	f.mu.Unlock()
+	if fail {
+		// The QA F36 fault: the committed draft decodes MALFORMED (free prose in the "trigger"
+		// closed enum). The real GitStore codec classifies this TERMINAL (ContractMisuse) and
+		// carries the wire-name diagnostic; retry cannot fix the immutable committed bytes.
+		return projectstate.Project{}, fwra.New(fwra.ContractMisuse,
+			`projectstate: decode slots: decode slot CoreUseCases model: "A commitment of any size appears, however it arrives, and is still held only in the person's memory." is not a recognized Trigger wire name`)
+	}
 	return f.ReadProject(fwra.Context{Context: ctx}, projectID)
 }
 
@@ -328,6 +341,71 @@ func Test_CoAuthor_RailEnabled_ApproveButPRNotGreen_DoesNotMerge_Recovers(t *tes
 	}
 	if len(base.committed) != 0 {
 		t.Fatalf("a not-green merge guard must NEVER commit, got %v", base.committed)
+	}
+}
+
+// THE QA F36 REGRESSION — a MALFORMED committed draft read-back. The design job reports
+// success and CI validate is GREEN (its Go mirror types the "trigger" field as a free
+// string), but the server codec REJECTS the free-prose value in that closed enum on
+// read-back (a TERMINAL ContractMisuse). Pre-fix the read-back Activity retried the same
+// immutable committed bytes every ~100s FOREVER, leaving the session wedged at Drafting
+// with no failure surface. After the fix the terminal decode fault lands the session at the
+// human-visible StageDraftFailed gate carrying the DECODE DIAGNOSTIC as the FailureReason,
+// and suspends awaiting Retry/Withdraw. Withdraw ends clean with nothing staged/committed.
+func Test_CoAuthor_RailEnabled_MalformedReadBack_LandsInStageDraftFailed_WithDecodeReason(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	ps := &branchAwareFakeProjectState{fakeProjectState: base, failReadBackDecode: true}
+	pipe := newFakePipeline() // dispatch observed Succeeded; CI validate is green
+	rail := &fakeRail{checkGreen: true}
+	wf := newRailWorkflows(ps, pipe, rail)
+	registerRailCoAuthor(env, wf)
+
+	env.RegisterDelayedCallback(func() {
+		enc, err := env.QueryWorkflow(querySessionState)
+		if err != nil {
+			t.Fatalf("QueryWorkflow: %v", err)
+		}
+		var view SessionStateView
+		if err := enc.Get(&view); err != nil {
+			t.Fatalf("decode SessionStateView: %v", err)
+		}
+		// The load-bearing anti-wedge assertion: NOT stuck at Drafting (the F36 wedge).
+		if view.Stage == StageDrafting {
+			t.Fatal("a malformed read-back must NOT leave the session in perpetual StageDrafting (F36 wedge)")
+		}
+		if view.Stage != StageDraftFailed {
+			t.Fatalf("a terminal decode read-back must land in StageDraftFailed, got stage %d", view.Stage)
+		}
+		// The FailureReason must carry the DECODE DIAGNOSTIC (the wire-name rejection) so the
+		// human sees WHY — not a generic "job failed" message.
+		if view.FailureReason == nil || *view.FailureReason == "" {
+			t.Fatal("StageDraftFailed from a malformed read-back must carry a FailureReason")
+		}
+		if !strings.Contains(*view.FailureReason, "is not a recognized Trigger wire name") {
+			t.Fatalf("FailureReason must carry the decode diagnostic; got %q", *view.FailureReason)
+		}
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 30*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindCoreUseCases})
+
+	if !env.IsWorkflowCompleted() {
+		t.Fatal("workflow did not complete after withdraw from the decode-failed gate")
+	}
+	// A terminal decode-of-committed-state is contained at the Manager (human gate), NOT a
+	// workflow crash and NOT an infinite retry loop.
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a terminal decode read-back must NOT fail the workflow, got: %v", err)
+	}
+	if len(ps.stageBranches) != 0 {
+		t.Fatalf("a malformed read-back must stage nothing, got %v", ps.stageBranches)
+	}
+	if len(base.committed) != 0 {
+		t.Fatalf("a malformed read-back must commit nothing, got %v", base.committed)
 	}
 }
 
