@@ -473,6 +473,12 @@ type coAuthorInput struct {
 	// Feedback is the optional re-request feedback for the explicit
 	// withdraw-then-redraft-with-notes path (systemDesignManager.md §2.1, OQ6).
 	Feedback *ReviewFeedback
+	// Amendment is the AMENDMENT-session index (F38/F40 founder ruling 2026-07-05).
+	// 0 = the original review session (branch aiarch-design/<project>/<kind>). N>0 =
+	// the Nth reopening of an already-COMMITTED artifact — a fresh session whose v1
+	// branch/PR already merged, so it drafts on a NEW branch (…-amend-N). Constant for
+	// the life of a workflow run, so the session branch is STABLE across every redraft.
+	Amendment int
 }
 
 // coAuthorOutcome is the child gate's terminal report to the parent — whether the
@@ -540,13 +546,12 @@ func (wf *workflows) CoAuthorArtifactWorkflow(ctx workflow.Context, in coAuthorI
 	// non-convergence guard within a session). A pure in-workflow guard.
 	redraftCount := 0
 
-	// branchAttempt is the per-REJECT session-branch attempt counter (I-DESIGN-DISPATCH
-	// §2b "sessionBranch"). A within-attempt redraft (PM-revise / dispatch auto-retry)
-	// reuses the same session branch (its PR tracks head); a fresh AwaitingReview-gate
-	// REJECT bumps it so the next attempt drafts on a NEW branch + opens a NEW PR (a
-	// merged/closed PR cannot be reused). Threaded into designBranch; 0 ⇒ the original
-	// deterministic branch name. Inert when the rail is dormant.
-	branchAttempt := 0
+	// reviewRound is the monotonic REJECT-round counter within THIS session (F40). The
+	// session now commits to ONE persistent branch (no branch-per-attempt), so this counter
+	// no longer selects a branch — it survives ONLY to stamp the durable review-ledger
+	// comment ids (r{round}c{n}) so a fresh reject's comments do not collide with a prior
+	// round's on the SAME accumulating thread. Bumped only on an AwaitingReview-gate REJECT.
+	reviewRound := 0
 
 	// The UC1a spine (systemDesignManager.md §0b §3): each iteration produces a
 	// reviewable draft (dispatch → observe → read-back, plus the PM-critique round for
@@ -554,7 +559,7 @@ func (wf *workflows) CoAuthorArtifactWorkflow(ctx workflow.Context, in coAuthorI
 	// architect's decision. The per-step control flow (proceed / redraft / return) is
 	// carried out of the phase helpers as a coAuthorStep so the loop body stays flat.
 	for {
-		gf, draft, readBackVersion, step := wf.produceReviewableDraft(ctx, in, proj, &feedback, &redraftCount, &branchAttempt, headVersion, state)
+		gf, draft, readBackVersion, step := wf.produceReviewableDraft(ctx, in, proj, &feedback, &redraftCount, headVersion, state)
 		switch step.action {
 		case actionReturn:
 			return step.outcome, step.err
@@ -586,7 +591,7 @@ func (wf *workflows) CoAuthorArtifactWorkflow(ctx workflow.Context, in coAuthorI
 			if temporal.IsCanceledError(err) {
 				return coAuthorUnknown, err
 			}
-			stageStep := wf.recoverAtFailedGate(ctx, in, headVersion, stageFailedReason(err), "", state, &feedback, &redraftCount, &branchAttempt)
+			stageStep := wf.recoverAtFailedGate(ctx, in, headVersion, stageFailedReason(err), "", state, &feedback, &redraftCount)
 			switch stageStep.action {
 			case actionReturn:
 				return stageStep.outcome, stageStep.err
@@ -638,7 +643,7 @@ func (wf *workflows) CoAuthorArtifactWorkflow(ctx workflow.Context, in coAuthorI
 			}
 			_ = gotDecision
 
-			decision := wf.handleReviewDecision(ctx, in, sig, &headVersion, &branchAttempt, &redraftCount, &feedback, &gf, state)
+			decision := wf.handleReviewDecision(ctx, in, sig, &headVersion, &reviewRound, &redraftCount, &feedback, &gf, state)
 			switch decision.action {
 			case actionReturn:
 				return decision.outcome, decision.err
@@ -705,18 +710,18 @@ func (wf *workflows) produceReviewableDraft(
 	proj projectstate.Project,
 	feedback *ReviewFeedback,
 	redraftCount *int,
-	branchAttempt *int,
 	headVersion projectstate.Version,
 	state *coAuthorState,
 ) (gitSession, projectstate.ArtifactModel, projectstate.Version, coAuthorStep) {
-	draft, gf, readBackVersion, step := wf.runDraftRoundTrip(ctx, in, proj, feedback, headVersion, redraftCount, branchAttempt, state)
+	draft, gf, readBackVersion, step := wf.runDraftRoundTrip(ctx, in, proj, feedback, headVersion, redraftCount, state)
 	if step.action != actionProceed {
 		return gf, draft, readBackVersion, step
 	}
-	// The PM-critique round commits its verdict on a SEPARATE critique branch and never
-	// touches the draft session branch, so the draft read-back version stays the correct
-	// expected version for the AwaitingReview stage-on-branch (QA F29).
-	return gf, draft, readBackVersion, wf.runPMCritique(ctx, in, draft, gf, branchAttempt, headVersion, feedback, redraftCount, state)
+	// F40: the PM-critique commits its verdict to the SAME persistent session branch
+	// (sequentially after the draft; the asset template opens no critique PR), so the draft
+	// read-back version stays the correct expected version for the AwaitingReview stage —
+	// the critique's own commit advances the branch, and the stage re-reads it (QA F29).
+	return gf, draft, readBackVersion, wf.runPMCritique(ctx, in, draft, gf, headVersion, feedback, redraftCount, state)
 }
 
 // runDraftRoundTrip is the DRAFT round-trip (agentic pivot): compose the architect-role
@@ -731,17 +736,18 @@ func (wf *workflows) runDraftRoundTrip(
 	feedback *ReviewFeedback,
 	headVersion projectstate.Version,
 	redraftCount *int,
-	branchAttempt *int,
 	state *coAuthorState,
 ) (projectstate.ArtifactModel, gitSession, projectstate.Version, coAuthorStep) {
 	logger := workflow.GetLogger(ctx)
 	var draft projectstate.ArtifactModel
 	state.stage = stageForAttempt(*redraftCount)
 
-	// The per-attempt SESSION BRANCH the Action drafts + commits + opens its PR on
-	// (I-DESIGN-DISPATCH §2b). Deterministic from project+kind+attempt; bumped only on
-	// a fresh REJECT. Inert (just a string) when the rail is dormant.
-	sessionBranch := designBranch(in.ProjectID, in.ArtifactKind, dispatchTargetDraft, *branchAttempt)
+	// The ONE persistent SESSION BRANCH the Action drafts + commits + opens its PR on (F40).
+	// STABLE across every redraft/reject round of this session (no per-attempt suffix); a
+	// fresh amendment session selects a new branch via in.Amendment. Inert (just a string)
+	// when the rail is dormant. beginSession's OpenBranch is idempotent (a no-op re-open on
+	// the second and later rounds), and openPR returns the existing PR handle.
+	sessionBranch := designBranch(in.ProjectID, in.ArtifactKind, in.Amendment)
 
 	// Rail (dispatch-time half): mint the credential + ensure the session branch exists
 	// BEFORE the Action drafts on it. A dormant rail returns a disabled session and the
@@ -776,7 +782,7 @@ func (wf *workflows) runDraftRoundTrip(
 		// (Retry / Withdraw), never an invisible crash. A workflow-cancellation error still
 		// propagates (recoverDispatchFailed guards it).
 		logger.Warn("design draft dispatch failed terminally; entering StageDraftFailed", "error", derr.Error())
-		return draft, gf, 0, wf.recoverDispatchFailed(ctx, in, headVersion, derr, state, feedback, redraftCount, branchAttempt)
+		return draft, gf, 0, wf.recoverDispatchFailed(ctx, in, headVersion, derr, state, feedback, redraftCount)
 	}
 	if draftObs.Phase != pipelineSucceeded {
 		// The job RAN and FAILED (drafting failed or CI validation went red) — a
@@ -784,7 +790,7 @@ func (wf *workflows) runDraftRoundTrip(
 		// land the session in the human-visible StageDraftFailed and suspend on the gate
 		// awaiting Retry (redraft) or Withdraw (§0d.4 — the anti-wedge rule).
 		logger.Warn("design draft job reached a terminal failure phase; entering StageDraftFailed", "diagnostic", draftObs.Diagnostic)
-		return draft, gf, 0, wf.recoverDraftFailed(ctx, in, headVersion, draftObs.Diagnostic, draftObs.RunURL, state, feedback, redraftCount, branchAttempt)
+		return draft, gf, 0, wf.recoverDraftFailed(ctx, in, headVersion, draftObs.Diagnostic, draftObs.RunURL, state, feedback, redraftCount)
 	}
 	// Rail: open the PR (head=sessionBranch, base=main) now the draft is green.
 	// Idempotent on head — if the Action already opened it the rail returns the existing
@@ -806,7 +812,7 @@ func (wf *workflows) runDraftRoundTrip(
 			// a Retry redrafts on a FRESH branch with the reason visible — instead of the pre-fix
 			// behavior of looping the read-back Activity every ~100s forever with no failure surface.
 			logger.Warn("design read-back decoded MALFORMED committed state; entering StageDraftFailed", "error", decodeMsg)
-			return draft, gf, 0, wf.recoverAtFailedGate(ctx, in, headVersion, readBackDecodeFailedReason(decodeMsg), "", state, feedback, redraftCount, branchAttempt)
+			return draft, gf, 0, wf.recoverAtFailedGate(ctx, in, headVersion, readBackDecodeFailedReason(decodeMsg), "", state, feedback, redraftCount)
 		}
 		return draft, gf, 0, stepErr(rbErr)
 	}
@@ -825,7 +831,6 @@ func (wf *workflows) runPMCritique(
 	in coAuthorInput,
 	draft projectstate.ArtifactModel,
 	gf gitSession,
-	branchAttempt *int,
 	headVersion projectstate.Version,
 	feedback *ReviewFeedback,
 	redraftCount *int,
@@ -836,17 +841,18 @@ func (wf *workflows) runPMCritique(
 	}
 	logger := workflow.GetLogger(ctx)
 
-	// The critique session branch (per-attempt). The PM-critique Action commits its
-	// verdict carrier here; no PR/merge happens for critique (only the draft path gets
-	// the rail). Inert when the rail is dormant.
-	critiqueBranch := designBranch(in.ProjectID, in.ArtifactKind, dispatchTargetCritique, *branchAttempt)
+	// F40: the PM-critique commits its verdict carrier to the SAME persistent session
+	// branch as the draft (sequentially, right after the draft's commit) — no separate
+	// critique branch, no PR/merge for critique (the asset template opens no critique PR).
+	// Inert when the rail is dormant.
+	sessionBranch := designBranch(in.ProjectID, in.ArtifactKind, in.Amendment)
 	critPrompt := pmCritiquePrompt(toPSKind(in.ArtifactKind), draft)
 	critObs, cerr := wf.dispatchAndObserve(ctx, dispatchDesignJobArgs{
 		ProjectID:     in.ProjectID,
 		ArtifactKind:  in.ArtifactKind,
 		Target:        dispatchTargetCritique,
 		Prompt:        critPrompt,
-		TargetBranch:  critiqueBranch,
+		TargetBranch:  sessionBranch,
 		PriorStateRef: "",
 		// Per-project-design-dispatch: the critique job also runs in the per-project repo.
 		TargetRepo: gf.dispatchRepo(),
@@ -855,19 +861,16 @@ func (wf *workflows) runPMCritique(
 		// The critique DISPATCH itself failed terminally — route to the human-visible
 		// StageDraftFailed gate (same anti-wedge rule as the draft dispatch), never crash.
 		logger.Warn("PM-critique dispatch failed terminally; entering StageDraftFailed", "error", cerr.Error())
-		return wf.recoverDispatchFailed(ctx, in, headVersion, cerr, state, feedback, redraftCount, branchAttempt)
+		return wf.recoverDispatchFailed(ctx, in, headVersion, cerr, state, feedback, redraftCount)
 	}
 	if critObs.Phase != pipelineSucceeded {
 		// A terminal PM-critique job failure routes to the same StageDraftFailed human
 		// gate as a terminal draft failure — never crash the workflow.
 		logger.Warn("PM-critique job reached a terminal failure phase; entering StageDraftFailed", "diagnostic", critObs.Diagnostic)
-		return wf.recoverDraftFailed(ctx, in, headVersion, critObs.Diagnostic, critObs.RunURL, state, feedback, redraftCount, branchAttempt)
+		return wf.recoverDraftFailed(ctx, in, headVersion, critObs.Diagnostic, critObs.RunURL, state, feedback, redraftCount)
 	}
-	critiqueReadBranch := ""
-	if gf.enabled {
-		critiqueReadBranch = critiqueBranch
-	}
-	critique, crbErr := wf.readBackCritiqueOn(ctx, in.ProjectID, in.ArtifactKind, critiqueReadBranch)
+	// Read the critique verdict back off the SAME session branch it was committed to.
+	critique, crbErr := wf.readBackCritiqueOn(ctx, in.ProjectID, in.ArtifactKind, gf.readBackBranch())
 	if crbErr != nil {
 		if isCritiqueReadBackEmpty(crbErr) {
 			// A critique job that reported success but committed NO verdict is a
@@ -876,14 +879,14 @@ func (wf *workflows) runPMCritique(
 			// failure (NOT a silent approve, NOT a workflow crash — the anti-wedge rule),
 			// awaiting human Retry-via-Reject / Withdraw.
 			logger.Warn("PM-critique read-back found no verdict (missing-verdict safe default); entering StageDraftFailed")
-			return wf.recoverDraftFailed(ctx, in, headVersion, critiqueMissingVerdictDiagnostic, "", state, feedback, redraftCount, branchAttempt)
+			return wf.recoverDraftFailed(ctx, in, headVersion, critiqueMissingVerdictDiagnostic, "", state, feedback, redraftCount)
 		}
 		if decodeMsg, terminal := isTerminalReadBack(crbErr); terminal {
 			// The critique read-back decoded MALFORMED committed state (QA F36) — the same
 			// terminal fault as the draft read-back. Land at the human StageDraftFailed gate
 			// with the decode diagnostic instead of looping the read-back Activity forever.
 			logger.Warn("PM-critique read-back decoded MALFORMED committed state; entering StageDraftFailed", "error", decodeMsg)
-			return wf.recoverAtFailedGate(ctx, in, headVersion, readBackDecodeFailedReason(decodeMsg), "", state, feedback, redraftCount, branchAttempt)
+			return wf.recoverAtFailedGate(ctx, in, headVersion, readBackDecodeFailedReason(decodeMsg), "", state, feedback, redraftCount)
 		}
 		return stepErr(crbErr)
 	}
@@ -919,9 +922,8 @@ func (wf *workflows) recoverDraftFailed(
 	state *coAuthorState,
 	feedback *ReviewFeedback,
 	redraftCount *int,
-	branchAttempt *int,
 ) coAuthorStep {
-	return wf.recoverAtFailedGate(ctx, in, headVersion, draftFailedReason(diagnostic), runURL, state, feedback, redraftCount, branchAttempt)
+	return wf.recoverAtFailedGate(ctx, in, headVersion, draftFailedReason(diagnostic), runURL, state, feedback, redraftCount)
 }
 
 // recoverDispatchFailed lands a terminal DISPATCH/observe fault (the round-trip itself
@@ -938,19 +940,19 @@ func (wf *workflows) recoverDispatchFailed(
 	state *coAuthorState,
 	feedback *ReviewFeedback,
 	redraftCount *int,
-	branchAttempt *int,
 ) coAuthorStep {
 	if temporal.IsCanceledError(err) {
 		return stepErr(err)
 	}
-	return wf.recoverAtFailedGate(ctx, in, headVersion, dispatchFailedReason(err), "", state, feedback, redraftCount, branchAttempt)
+	return wf.recoverAtFailedGate(ctx, in, headVersion, dispatchFailedReason(err), "", state, feedback, redraftCount)
 }
 
 // recoverAtFailedGate suspends at the StageDraftFailed human gate carrying the human
 // reason + optional failed-run URL, and maps the recovery outcome to a coAuthorStep: a
-// Retry bumps BOTH the redraft counter AND the session-branch attempt (so the next draft
-// opens a FRESH branch cut from CURRENT main — QA F32), asks the spine to redraft, and
-// keeps the retained feedback; a Withdraw returns the terminal outcome.
+// Retry redrafts on the SAME persistent session branch (F40 — the branch-per-retry F32
+// topology is unwound; the stale-base problem it addressed is now handled by the workflow
+// template's refresh-from-main git step, which re-merges origin/main into the branch before
+// each draft) keeping the retained feedback; a Withdraw returns the terminal outcome.
 func (wf *workflows) recoverAtFailedGate(
 	ctx workflow.Context,
 	in coAuthorInput,
@@ -960,7 +962,6 @@ func (wf *workflows) recoverAtFailedGate(
 	state *coAuthorState,
 	feedback *ReviewFeedback,
 	redraftCount *int,
-	branchAttempt *int,
 ) coAuthorStep {
 	outcome, retry, recErr := wf.awaitDraftFailedRecovery(ctx, in.ProjectID, in.ArtifactKind, headVersion, reason, runURL, state, feedback)
 	if recErr != nil {
@@ -969,11 +970,6 @@ func (wf *workflows) recoverAtFailedGate(
 	if !retry {
 		return stepReturn(outcome)
 	}
-	// QA F32: a human Retry at the StageDraftFailed gate must open a NEW session branch cut
-	// from current main — not reuse the failed attempt's branch, which was cut BEFORE a
-	// main-side fix landed and whose CI fails forever. Bumping the attempt exactly mirrors
-	// the reject path; the retained feedback in *feedback rides into the redraft unchanged.
-	*branchAttempt++
 	*redraftCount++
 	return stepRedraft()
 }
@@ -1009,7 +1005,7 @@ func (wf *workflows) handleReviewDecision(
 	in coAuthorInput,
 	sig reviewDecisionSignal,
 	headVersion *projectstate.Version,
-	branchAttempt *int,
+	reviewRound *int,
 	redraftCount *int,
 	feedback *ReviewFeedback,
 	gf *gitSession,
@@ -1025,7 +1021,7 @@ func (wf *workflows) handleReviewDecision(
 		if open := openReviewCommentIDs(state.reviewThread); len(open) > 0 {
 			return stepReAwait()
 		}
-		return wf.commitOnApprove(ctx, in, headVersion, branchAttempt, redraftCount, feedback, gf, state)
+		return wf.commitOnApprove(ctx, in, headVersion, redraftCount, feedback, gf, state)
 
 	case ReviewReject:
 		rejectFeedback := reviewFeedbackOrZero(sig.Feedback)
@@ -1042,9 +1038,9 @@ func (wf *workflows) handleReviewDecision(
 				ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, Kind: toPSKind(in.ArtifactKind), Notes: rejectFeedback.Notes,
 				// REVIEW LEDGER (review-ledger §2): fold the reviewer's anchored comments into the
 				// reject as durable, server-minted ledger entries, round-stamped by the per-reject
-				// branch attempt (a distinct, replay-stable counter → deterministic, non-colliding
-				// ids). Empty ⇒ a plain reject.
-				Round: int64(*branchAttempt), Comments: feedbackToLedgerComments(rejectFeedback),
+				// review-round counter (a distinct, replay-stable monotonic counter → deterministic,
+				// non-colliding ids on the ONE accumulating thread — F40). Empty ⇒ a plain reject.
+				Round: int64(*reviewRound), Comments: feedbackToLedgerComments(rejectFeedback),
 				// Branch-aware Reject (I-DESIGN-DISPATCH §2a): record the Rejected status on the
 				// SESSION BRANCH the draft was staged on — where the staged model exists and the
 				// session-branch version (headVersion) matches. In the PR rail main is untouched
@@ -1065,22 +1061,23 @@ func (wf *workflows) handleReviewDecision(
 			if temporal.IsCanceledError(err) {
 				return stepErr(err)
 			}
-			return wf.recoverAtFailedGate(ctx, in, *headVersion, rejectFailedReason(err), "", state, feedback, redraftCount, branchAttempt)
+			return wf.recoverAtFailedGate(ctx, in, *headVersion, rejectFailedReason(err), "", state, feedback, redraftCount)
 		}
 		*headVersion = newVersion
-		// REVIEW LEDGER: reload the thread from the branch the reject just wrote (before the
-		// attempt bump) so it carries the freshly-appended OPEN comments — the redraft prompt
-		// lists them for the drafting agent to respond to. Best-effort: a miss keeps the prior
-		// thread (the comments are still durable on the branch either way).
+		// REVIEW LEDGER: reload the thread from the SAME persistent session branch the reject
+		// just wrote so it carries the freshly-appended OPEN comments — the redraft prompt lists
+		// them for the drafting agent to respond to. Under the F40 single-branch topology the
+		// redraft stays on THIS branch, so the durable thread truly accumulates round-over-round
+		// (closing the review-ledger cross-reject earmark). Best-effort: a miss keeps the prior
+		// thread (the comments are durable on the branch either way).
 		if thread, terr := wf.loadReviewThread(ctx, in, *gf); terr == nil {
 			state.reviewThread = thread
 		}
-		// A fresh REJECT needs a NEW session branch + PR next attempt (the rejected PR
-		// cannot be reused). Bump the branch attempt (§2b "sessionBranch"); inert when the
-		// rail is dormant.
-		*branchAttempt++
-		// Loop to step 2 (re-draft AND re-run PM-critique) with the architect's feedback
-		// woven in.
+		// F40: the redraft stays on the SAME session branch + PR (no branch bump). Advance only
+		// the review-round counter so the NEXT reject's ledger ids do not collide with this
+		// round's on the accumulating thread.
+		*reviewRound++
+		// Loop to step 2 (re-draft AND re-run PM-critique) with the architect's feedback woven in.
 		state.stage = StageRedrafting
 		return stepRedraft()
 
@@ -1124,7 +1121,6 @@ func (wf *workflows) commitOnApprove(
 	ctx workflow.Context,
 	in coAuthorInput,
 	headVersion *projectstate.Version,
-	branchAttempt *int,
 	redraftCount *int,
 	feedback *ReviewFeedback,
 	gf *gitSession,
@@ -1156,9 +1152,8 @@ func (wf *workflows) commitOnApprove(
 		if !retry {
 			return stepReturn(outcome)
 		}
-		// Retry-via-Reject from the not-green gate is a fresh attempt: new session branch
-		// + PR (a closed/abandoned PR cannot be reused).
-		*branchAttempt++
+		// F40: Retry-via-Reject from the not-green gate redrafts on the SAME session branch +
+		// PR (no branch bump — the template's refresh-from-main handles a stale base).
 		*redraftCount++
 		return stepRedraft()
 	}

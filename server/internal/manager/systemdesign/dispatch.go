@@ -294,21 +294,25 @@ const observePollInterval = 15 * time.Second
 // routed to the human gate (never a perpetual Drafting — the anti-wedge rule).
 const maxObservePolls = 240 // 240 * 15s = 1h ceiling
 
-// designBranch derives the per-artifact design SESSION branch the Action drafts +
-// commits on (Manager owns branch naming — branch-per-activity). Deterministic from
-// the project + kind + target + attempt so a within-attempt redraft (PM-revise / a
-// dispatch auto-retry) reuses a stable, human-legible branch, while a fresh REJECT
-// attempt gets a NEW branch (attempt+1) — a merged/closed PR cannot be reused
-// (I-DESIGN-DISPATCH §2b "sessionBranch"). attempt 0 omits the suffix so the first
-// branch reads exactly as the original deterministic name.
-func designBranch(projectID ProjectID, kind ArtifactKind, target dispatchTarget, attempt int) string {
-	suffix := "draft"
-	if target == dispatchTargetCritique {
-		suffix = "critique"
-	}
-	base := fmt.Sprintf("aiarch-design/%s/%d-%s", projectID, int(kind), suffix)
-	if attempt > 0 {
-		return fmt.Sprintf("%s-a%d", base, attempt)
+// designBranch derives the ONE persistent design SESSION branch per artifact review
+// session (F40 founder ruling 2026-07-05: "we should be committing to the same branch,
+// and improving that, until it merges. not a pr per draft. i want the history of changes
+// in git."). ALL jobs of a session commit here sequentially — the initial draft, the PM
+// critique (verdict commits to this SAME branch; the asset template stopped opening
+// critique PRs, 56c6e17), and every redraft — and ONE PR (opened once, idempotent on
+// head) merges it on approve. The name is deterministic from project + kind, so within a
+// session it is STABLE across every redraft/reject round (no per-attempt suffix — the F32
+// branch-per-attempt topology is unwound; the stale-base problem it solved is now handled
+// by the workflow template's refresh-from-main git step).
+//
+// amendment > 0 selects a FRESH branch for an AMENDMENT session (F38): reopening a
+// COMMITTED artifact starts session v2+ whose v1 branch/PR already merged (and may be
+// deleted), so it cannot be reused. The "-amend-N" suffix is the only place the attempt
+// counter survives, and only for amendments.
+func designBranch(projectID ProjectID, kind ArtifactKind, amendment int) string {
+	base := fmt.Sprintf("aiarch-design/%s/%d", projectID, int(kind))
+	if amendment > 0 {
+		return fmt.Sprintf("%s-amend-%d", base, amendment)
 	}
 	return base
 }

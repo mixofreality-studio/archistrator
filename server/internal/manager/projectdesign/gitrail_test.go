@@ -363,8 +363,8 @@ func Test_CoAuthorPhase2_Rail_BranchReconciliation_MergeBeforeCommit_PostMergeRe
 	}
 }
 
-// PROOF 3 — Reject → redraft on a NEW session branch (attempt+1) + a NEW PR.
-func Test_CoAuthorPhase2_Rail_RejectRedraftsOnNewSessionBranchAndNewPR(t *testing.T) {
+// PROOF 3 (F40) — Reject → redraft on the SAME persistent session branch + the SAME PR.
+func Test_CoAuthorPhase2_Rail_RejectRedraftsOnSameSessionBranchAndSamePR(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
 
@@ -398,17 +398,14 @@ func Test_CoAuthorPhase2_Rail_RejectRedraftsOnNewSessionBranchAndNewPR(t *testin
 	if b1 == "" || b2 == "" {
 		t.Fatalf("both dispatches must carry a target_branch, got %q / %q", b1, b2)
 	}
-	if b1 == b2 {
-		t.Fatalf("a fresh REJECT must redraft on a NEW session branch (attempt+1); both were %q", b1)
+	if b1 != b2 {
+		t.Fatalf("a reject must redraft on the SAME session branch (F40 single-branch); got %q then %q", b1, b2)
 	}
-	if len(rail.openedPRHeads) != 2 {
-		t.Fatalf("reject must open a NEW PR on the fresh branch (prior PR not reused), got PR heads %v", rail.openedPRHeads)
+	if len(rail.openedPRHeads) != 1 || rail.openedPRHeads[0] != b1 {
+		t.Fatalf("reject must reuse the ONE PR on the persistent branch, got PR heads %v", rail.openedPRHeads)
 	}
-	if rail.openedPRHeads[0] != b1 || rail.openedPRHeads[1] != b2 {
-		t.Fatalf("PR heads must track the two session branches %q then %q, got %v", b1, b2, rail.openedPRHeads)
-	}
-	if len(rail.mergedPRs) != 1 || rail.mergedPRs[0] != "pr/"+b2 {
-		t.Fatalf("the merged PR must be the fresh attempt's PR pr/%s, got %v", b2, rail.mergedPRs)
+	if len(rail.mergedPRs) != 1 || rail.mergedPRs[0] != "pr/"+b1 {
+		t.Fatalf("the merged PR must be the persistent PR pr/%s, got %v", b1, rail.mergedPRs)
 	}
 	if len(base.committed) != 1 {
 		t.Fatalf("want one commit after redraft→approve, got %v", base.committed)
@@ -846,11 +843,11 @@ func Test_CoAuthorPhase2_Rail_Withdraw_RecordsOnSessionBranch_NoCrash(t *testing
 	}
 }
 
-// THE QA F32 REGRESSION (Phase-2 twin) — a Retry at the StageDraftFailed gate must open a
-// FRESH session branch (attempt+1), not reuse the failed attempt's stale branch. Drives a
-// stage fault → retry-via-reject (with feedback) and asserts the redraft dispatch targets a
-// NEW branch AND carries the retained feedback.
-func Test_CoAuthorPhase2_Rail_RetryAtFailedGate_FreshBranch_RetainsFeedback(t *testing.T) {
+// F40 (Phase-2 twin) — a Retry at the StageDraftFailed gate redrafts on the SAME persistent
+// session branch (the F32 branch-per-retry topology is unwound; the template's refresh-from-
+// main handles a stale base). Drives a stage fault → retry-via-reject (with feedback) and
+// asserts the redraft dispatch targets the SAME branch AND still carries the retained feedback.
+func Test_CoAuthorPhase2_Rail_RetryAtFailedGate_SameBranch_RetainsFeedback(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
 
@@ -883,11 +880,11 @@ func Test_CoAuthorPhase2_Rail_RetryAtFailedGate_FreshBranch_RetainsFeedback(t *t
 	if b0 == "" || b1 == "" {
 		t.Fatalf("both dispatches must carry a target_branch, got %q / %q", b0, b1)
 	}
-	if b1 == b0 {
-		t.Fatalf("a failed-gate retry must redraft on a NEW session branch, both were %q", b0)
+	if b1 != b0 {
+		t.Fatalf("a failed-gate retry must redraft on the SAME session branch (F40); got %q then %q", b0, b1)
 	}
-	if !strings.HasSuffix(b1, "-a1") {
-		t.Fatalf("the retry branch must be attempt+1 (\"-a1\" suffix), got %q", b1)
+	if strings.Contains(b1, "-a") || strings.Contains(b1, "-amend-") {
+		t.Fatalf("the retry branch must be the stable session branch (no attempt/amend suffix), got %q", b1)
 	}
 	if p := pipe.submits[len(pipe.submits)-1].dispatchInputs[dispatchInputDesignPrompt]; !strings.Contains(p, retryNotes) {
 		t.Fatalf("the retained feedback %q must drive the redraft; prompt:\n%s", retryNotes, p)

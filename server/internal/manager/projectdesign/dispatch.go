@@ -248,16 +248,18 @@ const observePollInterval = 15 * time.Second
 // the human gate (never a perpetual Drafting — the anti-wedge rule).
 const maxObservePolls = 240 // 240 * 15s = 1h ceiling
 
-// designBranch derives the per-artifact design SESSION branch the Action drafts +
-// commits on (Manager owns branch naming — branch-per-activity). Deterministic from the
-// project + kind + attempt so a within-attempt redraft reuses a stable branch, while a
-// fresh REJECT attempt gets a NEW branch (attempt+1) — a merged/closed PR cannot be
-// reused (I-DESIGN-DISPATCH §2b "sessionBranch"). attempt 0 omits the suffix so the
-// first branch reads exactly as the original deterministic name.
-func designBranch(projectID ProjectID, kind ArtifactKind, attempt int) string {
-	base := fmt.Sprintf("aiarch-design/%s/%d-draft", projectID, int(kind))
-	if attempt > 0 {
-		return fmt.Sprintf("%s-a%d", base, attempt)
+// designBranch derives the ONE persistent design SESSION branch per Phase-2 artifact
+// review session (F40 founder ruling 2026-07-05: commit to the same branch until it
+// merges; the history of changes lives in git). ALL jobs of a session commit here — the
+// initial draft and every redraft — and ONE PR (opened once, idempotent on head) merges
+// it on approve. STABLE across every redraft/reject round (no per-attempt suffix; the F32
+// branch-per-attempt topology is unwound, the stale-base problem now handled by the
+// workflow template's refresh-from-main git step). amendment > 0 selects a FRESH branch
+// for an AMENDMENT session (F38) whose v1 branch/PR already merged.
+func designBranch(projectID ProjectID, kind ArtifactKind, amendment int) string {
+	base := fmt.Sprintf("aiarch-design/%s/%d", projectID, int(kind))
+	if amendment > 0 {
+		return fmt.Sprintf("%s-amend-%d", base, amendment)
 	}
 	return base
 }

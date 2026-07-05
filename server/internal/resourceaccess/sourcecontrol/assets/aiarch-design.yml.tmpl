@@ -180,8 +180,33 @@ jobs:
           ref: ${{ inputs.prior_state_ref != '' && inputs.prior_state_ref || github.ref }}
           fetch-depth: 0
 
-      # Record the base commit the draft is built on, so the post-claude guard can prove
-      # claude actually advanced the target branch (see "Verify claude pushed a commit").
+      # REFRESH-FROM-MAIN (F40 founder ruling 2026-07-05). One persistent session branch
+      # per artifact now accumulates every draft/critique/redraft until it merges (not a
+      # branch-per-attempt). The stale-base problem the old branch-per-retry topology
+      # solved (a branch cut from main BEFORE a main-side fix landed — e.g. the internal/
+      # scaffold fix — whose required `go test` gate then fails forever) is handled HERE
+      # instead: before every job we re-merge origin/main into the session branch so it
+      # (and its CI base) always picks up main-side fixes. The session branch already
+      # exists on the remote (the Manager's OpenBranch created it before dispatch). A merge
+      # CONFLICT fails the run RED with an ::error so it surfaces at the human failed gate —
+      # never a silent stale base. The push uses the run's own GITHUB_TOKEN (contents:write).
+      - name: Refresh the session branch from main
+        env:
+          TARGET_BRANCH: ${{ inputs.target_branch }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch --no-tags origin main "${TARGET_BRANCH}"
+          git checkout -B "${TARGET_BRANCH}" "origin/${TARGET_BRANCH}"
+          if ! git merge --no-edit origin/main; then
+            echo "::error::merge conflict refreshing session branch '${TARGET_BRANCH}' from origin/main — resolve the conflict on the branch and retry the draft."
+            exit 1
+          fi
+          git push origin "HEAD:${TARGET_BRANCH}"
+
+      # Record the base commit the draft is built on — the REFRESHED session-branch tip (so
+      # the post-claude guard measures whether CLAUDE advanced the branch beyond the refresh,
+      # not the refresh merge itself). See "Verify claude pushed a commit".
       - name: Record base SHA
         id: base
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"

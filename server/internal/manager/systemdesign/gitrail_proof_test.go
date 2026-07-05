@@ -371,11 +371,12 @@ func Test_CoAuthor_Rail_BranchReconciliation_MergeBeforeCommit_PostMergeReadOnMa
 	}
 }
 
-// PROOF 3 — Reject → redraft on a NEW session branch (attempt+1), a NEW PR. The
-// rejected PR is never reused: the second dispatch's target_branch differs from the
-// first, the rail opened a second distinct branch + PR, and the eventual merge is of
-// the SECOND (fresh) PR.
-func Test_CoAuthor_Rail_RejectRedraftsOnNewSessionBranchAndNewPR(t *testing.T) {
+// PROOF 3 (F40) — Reject → redraft on the SAME persistent session branch, the SAME PR.
+// The founder ruling: commit to one branch and improve it until it merges (the history of
+// changes lives in git); NOT a PR per draft. So the second dispatch's target_branch EQUALS
+// the first, the rail opened exactly ONE PR (idempotent on head), and the eventual merge is
+// of that one accumulating PR.
+func Test_CoAuthor_Rail_RejectRedraftsOnSameSessionBranchAndSamePR(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
 
@@ -388,7 +389,7 @@ func Test_CoAuthor_Rail_RejectRedraftsOnNewSessionBranchAndNewPR(t *testing.T) {
 	wf := newSeqRailWorkflows(ps, pipe, rail)
 	registerRailCoAuthor(env, wf)
 
-	// First gate: REJECT → fresh attempt branch + PR. Second gate: APPROVE → merge.
+	// First gate: REJECT → redraft on the SAME branch/PR. Second gate: APPROVE → merge.
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewReject, Feedback: &ReviewFeedback{Notes: "rework decomposition"}})
 	}, 30*time.Second)
@@ -410,20 +411,17 @@ func Test_CoAuthor_Rail_RejectRedraftsOnNewSessionBranchAndNewPR(t *testing.T) {
 	if b1 == "" || b2 == "" {
 		t.Fatalf("both dispatches must carry a target_branch, got %q / %q", b1, b2)
 	}
-	// THE LOAD-BEARING ASSERTION: the redraft is on a DIFFERENT (attempt+1) session branch.
-	if b1 == b2 {
-		t.Fatalf("a fresh REJECT must redraft on a NEW session branch (attempt+1); both were %q", b1)
+	// THE LOAD-BEARING ASSERTION (F40): the redraft is on the SAME persistent session branch.
+	if b1 != b2 {
+		t.Fatalf("a reject must redraft on the SAME session branch (F40 single-branch); got %q then %q", b1, b2)
 	}
-	// The rail opened two distinct branches + two distinct PRs (the prior PR not reused).
-	if len(rail.openedPRHeads) != 2 {
-		t.Fatalf("reject must open a NEW PR on the fresh branch (prior PR not reused), got PR heads %v", rail.openedPRHeads)
+	// The rail opened exactly ONE PR (idempotent on head — the persistent PR is reused).
+	if len(rail.openedPRHeads) != 1 || rail.openedPRHeads[0] != b1 {
+		t.Fatalf("reject must reuse the ONE PR on the persistent branch, got PR heads %v", rail.openedPRHeads)
 	}
-	if rail.openedPRHeads[0] != b1 || rail.openedPRHeads[1] != b2 {
-		t.Fatalf("PR heads must track the two session branches %q then %q, got %v", b1, b2, rail.openedPRHeads)
-	}
-	// The merge is of the SECOND (fresh) PR — the rejected one is never merged.
-	if len(rail.mergedPRs) != 1 || rail.mergedPRs[0] != "pr/"+b2 {
-		t.Fatalf("the merged PR must be the fresh attempt's PR pr/%s, got %v", b2, rail.mergedPRs)
+	// The merge is of that one accumulating PR.
+	if len(rail.mergedPRs) != 1 || rail.mergedPRs[0] != "pr/"+b1 {
+		t.Fatalf("the merged PR must be the persistent PR pr/%s, got %v", b1, rail.mergedPRs)
 	}
 	if len(base.committed) != 1 {
 		t.Fatalf("want one commit after redraft→approve, got %v", base.committed)

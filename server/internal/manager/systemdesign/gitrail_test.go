@@ -767,12 +767,12 @@ func Test_CoAuthor_RailEnabled_Withdraw_RecordsOnSessionBranch_NoCrash(t *testin
 	}
 }
 
-// THE QA F32 REGRESSION — a Retry at the StageDraftFailed gate must open a FRESH session
-// branch (attempt+1), not reuse the failed attempt's branch. The stale branch was cut from
-// main BEFORE a main-side fix landed and its CI fails forever; only bumping the attempt
-// picks up main. This drives a stage fault → retry-via-reject (with feedback) and asserts
-// the redraft dispatch targets a NEW branch AND carries the retained feedback.
-func Test_CoAuthor_RailEnabled_RetryAtFailedGate_FreshBranch_RetainsFeedback(t *testing.T) {
+// F40 — a Retry at the StageDraftFailed gate redrafts on the SAME persistent session
+// branch (the F32 branch-per-retry topology is unwound; the stale-base problem is now
+// handled by the workflow template's refresh-from-main git step, not a fresh branch). This
+// drives a stage fault → retry-via-reject (with feedback) and asserts the redraft dispatch
+// targets the SAME branch AND still carries the retained feedback.
+func Test_CoAuthor_RailEnabled_RetryAtFailedGate_SameBranch_RetainsFeedback(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
 
@@ -808,13 +808,13 @@ func Test_CoAuthor_RailEnabled_RetryAtFailedGate_FreshBranch_RetainsFeedback(t *
 	if b0 == "" || b1 == "" {
 		t.Fatalf("both dispatches must carry a target_branch, got %q / %q", b0, b1)
 	}
-	// F32: the retry drafts on a NEW attempt branch (attempt+1 ⇒ the "-a1" suffix), cut
-	// fresh from current main — NOT the stale failed branch.
-	if b1 == b0 {
-		t.Fatalf("a failed-gate retry must redraft on a NEW session branch, both were %q", b0)
+	// F40: the retry redrafts on the SAME persistent session branch (the template's
+	// refresh-from-main handles a stale base; no per-attempt suffix).
+	if b1 != b0 {
+		t.Fatalf("a failed-gate retry must redraft on the SAME session branch (F40); got %q then %q", b0, b1)
 	}
-	if !strings.HasSuffix(b1, "-a1") {
-		t.Fatalf("the retry branch must be attempt+1 (\"-a1\" suffix), got %q", b1)
+	if strings.Contains(b1, "-a") || strings.Contains(b1, "-amend-") {
+		t.Fatalf("the retry branch must be the stable session branch (no attempt/amend suffix), got %q", b1)
 	}
 	// Retained feedback rides into the redraft prompt.
 	if p := pipe.submits[len(pipe.submits)-1].dispatchInputs[dispatchInputDesignPrompt]; !strings.Contains(p, retryNotes) {

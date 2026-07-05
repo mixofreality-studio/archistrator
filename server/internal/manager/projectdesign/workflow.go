@@ -358,6 +358,12 @@ type coAuthorInput struct {
 	// Feedback is the optional re-request feedback for the explicit
 	// re-draft-with-notes path.
 	Feedback *ReviewFeedback
+	// Amendment is the AMENDMENT-session index (F38/F40 founder ruling 2026-07-05).
+	// 0 = the original review session (branch aiarch-design/<project>/<kind>). N>0 = the
+	// Nth reopening of an already-COMMITTED artifact — a fresh session whose v1 branch/PR
+	// already merged, so it drafts on a NEW branch (…-amend-N). Constant for the life of a
+	// workflow run, so the session branch is STABLE across every redraft.
+	Amendment int
 }
 
 // coAuthorOutcome is the workflow's terminal report — whether the human gate
@@ -446,12 +452,12 @@ func (wf *workflows) CoAuthorPhase2ArtifactWorkflow(ctx workflow.Context, in coA
 	// vs StageDrafting query stage. A pure in-workflow guard.
 	redraftCount := 0
 
-	// branchAttempt is the per-REJECT session-branch attempt counter (I-DESIGN-DISPATCH
-	// §2b "sessionBranch"). A within-attempt redraft reuses the same session branch; a
-	// fresh REJECT bumps it so the next attempt drafts on a NEW branch + opens a NEW PR.
-	// Threaded into designBranch; 0 ⇒ the original deterministic name. Inert when the
-	// rail is dormant.
-	branchAttempt := 0
+	// reviewRound is the monotonic REJECT-round counter within THIS session (F40). The
+	// session now commits to ONE persistent branch (no branch-per-attempt), so this counter
+	// no longer selects a branch — it survives ONLY to stamp the durable review-ledger
+	// comment ids (r{round}c{n}) so a fresh reject's comments do not collide with a prior
+	// round's on the SAME accumulating thread. Bumped only on an AwaitingReview-gate REJECT.
+	reviewRound := 0
 
 	for {
 		// --- DRAFT round-trip: dispatch -> observe -> read-back (agentic pivot) ---
@@ -461,7 +467,7 @@ func (wf *workflows) CoAuthorPhase2ArtifactWorkflow(ctx workflow.Context, in coA
 		// and suspends at the human gate (the anti-wedge rule, §0.5.4) — never a perpetual
 		// Drafting. The begun git session is written through &gf for the approve/merge step.
 		var gf gitSession
-		step, outcome, err := wf.coAuthorDraftRound(ctx, in, proj, &feedback, &headVersion, &redraftCount, &branchAttempt, state, &gf)
+		step, outcome, err := wf.coAuthorDraftRound(ctx, in, proj, &feedback, &headVersion, &redraftCount, state, &gf)
 		if err != nil {
 			return coAuthorUnknown, err
 		}
@@ -500,7 +506,7 @@ func (wf *workflows) CoAuthorPhase2ArtifactWorkflow(ctx workflow.Context, in coA
 				continue gate
 			}
 
-			step, outcome, err = wf.coAuthorApplyDecision(ctx, in, sig, &gf, &headVersion, &redraftCount, &branchAttempt, &feedback, state)
+			step, outcome, err = wf.coAuthorApplyDecision(ctx, in, sig, &gf, &headVersion, &redraftCount, &reviewRound, &feedback, state)
 			if err != nil {
 				return coAuthorUnknown, err
 			}
@@ -533,7 +539,6 @@ func (wf *workflows) coAuthorDraftRound(
 	feedback *string,
 	headVersion *projectstate.Version,
 	redraftCount *int,
-	branchAttempt *int,
 	state *coAuthorState,
 	gf *gitSession,
 ) (coAuthorStep, coAuthorOutcome, error) {
@@ -542,9 +547,10 @@ func (wf *workflows) coAuthorDraftRound(
 	var draft projectstate.ArtifactModel
 	state.stage = stageForAttempt(*redraftCount)
 
-	// The per-attempt SESSION BRANCH the Action drafts + commits + opens its PR on
-	// (I-DESIGN-DISPATCH §2b). Inert (just a string) when the rail is dormant.
-	sessionBranch := designBranch(in.ProjectID, in.ArtifactKind, *branchAttempt)
+	// The ONE persistent SESSION BRANCH the Action drafts + commits + opens its PR on (F40).
+	// STABLE across every redraft/reject round of this session; a fresh amendment session
+	// selects a new branch via in.Amendment. Inert (just a string) when the rail is dormant.
+	sessionBranch := designBranch(in.ProjectID, in.ArtifactKind, in.Amendment)
 
 	// Rail (dispatch-time half): mint the credential + ensure the session branch
 	// exists BEFORE the Action drafts on it. A dormant rail returns a disabled session
@@ -587,11 +593,9 @@ func (wf *workflows) coAuthorDraftRound(
 		if !retry {
 			return coAuthorReturn, outcome, nil
 		}
-		// QA F32: a human Retry at the StageDraftFailed gate must open a NEW session branch
-		// cut from current main — not reuse the failed attempt's branch, which was cut BEFORE
-		// a main-side fix landed and whose CI fails forever. Bump the attempt exactly like the
-		// reject path; the retained feedback rides into the redraft unchanged.
-		*branchAttempt++
+		// F40: a human Retry at the StageDraftFailed gate redrafts on the SAME persistent
+		// session branch (no branch bump — the template's refresh-from-main handles a stale
+		// base). The retained feedback rides into the redraft unchanged.
 		*redraftCount++
 		return coAuthorContinue, coAuthorUnknown, nil
 	}
@@ -619,8 +623,7 @@ func (wf *workflows) coAuthorDraftRound(
 			if !retry {
 				return coAuthorReturn, outcome, nil
 			}
-			// A human Retry opens a NEW session branch cut from current main (QA F32).
-			*branchAttempt++
+			// F40: a human Retry redrafts on the SAME persistent session branch (no branch bump).
 			*redraftCount++
 			return coAuthorContinue, coAuthorUnknown, nil
 		}
@@ -671,9 +674,8 @@ func (wf *workflows) coAuthorDraftRound(
 		if !retry {
 			return coAuthorReturn, outcome, nil
 		}
-		// QA F32: a Retry after a stage fault opens a NEW session branch cut from current
-		// main (mirrors the reject path); the retained feedback rides the redraft unchanged.
-		*branchAttempt++
+		// F40: a Retry after a stage fault redrafts on the SAME persistent session branch
+		// (no branch bump); the retained feedback rides the redraft unchanged.
 		*redraftCount++
 		return coAuthorContinue, coAuthorUnknown, nil
 	}
@@ -698,7 +700,7 @@ func (wf *workflows) coAuthorApplyDecision(
 	gf *gitSession,
 	headVersion *projectstate.Version,
 	redraftCount *int,
-	branchAttempt *int,
+	reviewRound *int,
 	feedback *string,
 	state *coAuthorState,
 ) (coAuthorStep, coAuthorOutcome, error) {
@@ -710,7 +712,7 @@ func (wf *workflows) coAuthorApplyDecision(
 		if open := openReviewCommentIDs(state.reviewThread); len(open) > 0 {
 			return coAuthorReAwait, coAuthorUnknown, nil
 		}
-		return wf.coAuthorApprove(ctx, in, gf, headVersion, redraftCount, branchAttempt, feedback, state)
+		return wf.coAuthorApprove(ctx, in, gf, headVersion, redraftCount, feedback, state)
 
 	case ReviewReject:
 		notes := signalNotes(sig.Feedback)
@@ -726,8 +728,9 @@ func (wf *workflows) coAuthorApplyDecision(
 				ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, Kind: toPSKind(in.ArtifactKind), Notes: notes,
 				// REVIEW LEDGER (review-ledger §2): fold the reviewer's anchored comments into the
 				// reject as durable, server-minted ledger entries, round-stamped by the per-reject
-				// branch attempt (a distinct, replay-stable counter → deterministic ids). Empty ⇒ plain reject.
-				Round: int64(*branchAttempt), Comments: feedbackToLedgerComments(sig.Feedback),
+				// review-round counter (replay-stable monotonic → deterministic, non-colliding ids on
+				// the ONE accumulating thread — F40). Empty ⇒ plain reject.
+				Round: int64(*reviewRound), Comments: feedbackToLedgerComments(sig.Feedback),
 				// Branch-aware Reject (I-DESIGN-DISPATCH §2a): record the Rejected status on the
 				// SESSION BRANCH the draft was staged on — where the staged model exists and the
 				// session-branch version matches. In the PR rail main is untouched until an
@@ -754,22 +757,23 @@ func (wf *workflows) coAuthorApplyDecision(
 			if !retry {
 				return coAuthorReturn, outcome, nil
 			}
-			// QA F32: a Retry after a faulted reject opens a NEW session branch cut from current
-			// main (mirrors the reject-success path below); the retained feedback rides unchanged.
-			*branchAttempt++
+			// F40: a Retry after a faulted reject redrafts on the SAME persistent session branch
+			// (no branch bump); the retained feedback rides unchanged.
 			*redraftCount++
 			return coAuthorContinue, coAuthorUnknown, nil
 		}
 		*headVersion = newVersion
-		// REVIEW LEDGER: reload the thread from the branch the reject just wrote (before the
-		// attempt bump) so it carries the freshly-appended OPEN comments — the redraft prompt
-		// lists them for the drafting agent to respond to. Best-effort.
+		// REVIEW LEDGER: reload the thread from the SAME persistent session branch the reject
+		// just wrote so it carries the freshly-appended OPEN comments — the redraft prompt lists
+		// them for the drafting agent to respond to. Under the F40 single-branch topology the
+		// redraft stays on THIS branch, so the durable thread truly accumulates round-over-round
+		// (closing the review-ledger cross-reject earmark). Best-effort.
 		if thread, terr := wf.loadReviewThread(ctx, in, *gf); terr == nil {
 			state.reviewThread = thread
 		}
-		// A fresh REJECT needs a NEW session branch + PR next attempt (the rejected PR
-		// cannot be reused). Bump the branch attempt; inert when the rail is dormant.
-		*branchAttempt++
+		// F40: the redraft stays on the SAME session branch + PR (no branch bump). Advance only
+		// the review-round counter so the NEXT reject's ledger ids do not collide with this round's.
+		*reviewRound++
 		state.stage = StageRedrafting
 		return coAuthorContinue, coAuthorUnknown, nil
 
@@ -816,7 +820,6 @@ func (wf *workflows) coAuthorApprove(
 	gf *gitSession,
 	headVersion *projectstate.Version,
 	redraftCount *int,
-	branchAttempt *int,
 	feedback *string,
 	state *coAuthorState,
 ) (coAuthorStep, coAuthorOutcome, error) {
@@ -850,7 +853,8 @@ func (wf *workflows) coAuthorApprove(
 		if !retry {
 			return coAuthorReturn, outcome, nil
 		}
-		*branchAttempt++
+		// F40: Retry-via-Reject from the not-green gate redrafts on the SAME session branch +
+		// PR (no branch bump — the template's refresh-from-main handles a stale base).
 		*redraftCount++
 		return coAuthorContinue, coAuthorUnknown, nil
 	}
