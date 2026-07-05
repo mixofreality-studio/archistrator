@@ -147,6 +147,12 @@ type branchAwareFakeProjectState struct {
 	// QA F36 scenario: the drafting agent committed free prose into the "trigger" closed enum,
 	// CI validate went green, but the server codec rejects the value on read-back.
 	failReadBackDecode bool
+	// branchAdvancedModel, when non-nil, is the SystemDesign slot model the branch read-back
+	// returns instead of main's — modeling an AMENDMENT whose Action actually CHANGED the
+	// artifact (so sameArtifactModel(branch, main) is false and the F40 no-change guard does
+	// NOT trip). Left nil, the branch read-back returns main's model verbatim (identical),
+	// which trips the amendment no-change guard — the observed zero-new-commit scenario.
+	branchAdvancedModel projectstate.ArtifactModel
 }
 
 var _ projectstate.BranchAwareProjectStateAccess = (*branchAwareFakeProjectState)(nil)
@@ -163,7 +169,19 @@ func (f *branchAwareFakeProjectState) ReadProjectOnBranch(ctx context.Context, p
 		return projectstate.Project{}, fwra.New(fwra.ContractMisuse,
 			`projectstate: decode slots: decode slot CoreUseCases model: "A commitment of any size appears, however it arrives, and is still held only in the person's memory." is not a recognized Trigger wire name`)
 	}
-	return f.ReadProject(fwra.Context{Context: ctx}, projectID)
+	proj, err := f.ReadProject(fwra.Context{Context: ctx}, projectID)
+	if err != nil {
+		return projectstate.Project{}, err
+	}
+	f.mu.Lock()
+	adv := f.branchAdvancedModel
+	f.mu.Unlock()
+	if adv != nil {
+		// The amendment's Action changed the artifact on the branch — serve a branch model
+		// distinct from main so the no-change guard sees advancement and proceeds.
+		proj.SystemDesign = awaitingSlot(adv, "", "")
+	}
+	return proj, nil
 }
 
 func (f *branchAwareFakeProjectState) StageArtifactForReviewOnBranch(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, model projectstate.ArtifactModel, key fwra.IdempotencyKey) (projectstate.Version, error) {
@@ -971,5 +989,178 @@ func Test_CoAuthor_RailEnabled_Amendment_UsesAmendBranchAndPrompt(t *testing.T) 
 	// The prompt states it amends the committed version.
 	if p := pipe.submits[0].dispatchInputs[dispatchInputDesignPrompt]; !strings.Contains(p, "AMENDMENT (revision 1)") {
 		t.Fatalf("amendment prompt must state it amends the committed version; prompt:\n%s", p)
+	}
+}
+
+// composeIdempotencyKey RUN-SCOPING (F40 root cause) — two sessions of the SAME workflow
+// ID with the SAME ActivityID but DIFFERENT RunID must derive DISTINCT keys, so the
+// constructionpipeline RA's run-name dedup (sha256(key)) never converges a fresh session
+// onto a predecessor session's completed GitHub run. Pre-fix the key was "wfID:activityID"
+// and these two COLLIDED (ActivityIDs restart from 1 on every new run of a deterministic
+// workflow ID) → no new run dispatched → observe saw stale success → OpenPullRequest 422'd.
+func Test_composeIdempotencyKey_RunScoped_DistinctPerRun(t *testing.T) {
+	const wf = "gtdapp:1" // a deterministic workflow ID (note: itself contains a colon)
+	const act = "5"       // ActivityIDs restart per run, so this repeats across sessions
+	k1 := composeIdempotencyKey(wf, "run-aaaa", act)
+	k2 := composeIdempotencyKey(wf, "run-bbbb", act)
+	if k1 == k2 {
+		t.Fatalf("distinct RunIDs must yield distinct idempotency keys (else the RA dedups a fresh session onto a predecessor's GitHub run); both = %q", k1)
+	}
+	// The RunID must actually appear in the key (it is the session-scoping segment).
+	if !strings.Contains(string(k1), "run-aaaa") || !strings.Contains(string(k2), "run-bbbb") {
+		t.Fatalf("the key must carry the RunID as its session scope; got %q / %q", k1, k2)
+	}
+	// A transient auto-retry of ONE invocation (same run, same ActivityID) must still
+	// COLLAPSE to the same key so the RA/ledger dedups the retry.
+	if composeIdempotencyKey(wf, "run-aaaa", act) != k1 {
+		t.Fatal("same (workflowID, runID, activityID) must be stable so a transient retry dedups")
+	}
+}
+
+// F40 dispatch key is RUN-SCOPED end-to-end — the DispatchDesignJobActivity composes the
+// key from activity.GetInfo, which now includes the RunID. Asserted through the fake
+// pipeline's captured key (the test env pins a fixed run id, so we assert its presence).
+func Test_CoAuthor_DispatchKey_CarriesRunID(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	ps := &branchAwareFakeProjectState{fakeProjectState: base}
+	pipe := newFakePipeline(pipelineFailed) // fail after the first dispatch so it lands quickly
+	rail := &fakeRail{checkGreen: true}
+	wf := newRailWorkflows(ps, pipe, rail)
+	registerRailCoAuthor(env, wf)
+
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 30*time.Second)
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	if len(pipe.submits) == 0 {
+		t.Fatal("expected a dispatch")
+	}
+	key := string(pipe.submits[0].idempotencyKey)
+	// The run id must be a segment of the key (run-scoping) — not merely wfID:activityID.
+	if !strings.Contains(key, ":default-test-run-id:") {
+		t.Fatalf("dispatch idempotency key must be run-scoped (contain the RunID segment), got %q", key)
+	}
+}
+
+// F40 AMENDMENT NO-CHANGE GUARD — an amendment session whose Action ran and "succeeded"
+// but committed NOTHING that changed the artifact (branch read-back == committed main
+// model) must land at the StageDraftFailed gate with the honest reason and open NO PR
+// (opening one would 422 on the zero-new-commit branch). Withdraw ends clean.
+func Test_CoAuthor_Rail_Amendment_NoChange_LandsFailedGate_NoPR(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	// branchAdvancedModel left nil ⇒ branch read-back == main ⇒ no advancement.
+	ps := &branchAwareFakeProjectState{fakeProjectState: base}
+	pipe := newFakePipeline() // the design job "succeeds"
+	rail := &fakeRail{checkGreen: true}
+	wf := newRailWorkflows(ps, pipe, rail)
+	registerRailCoAuthor(env, wf)
+
+	env.RegisterDelayedCallback(func() {
+		enc, err := env.QueryWorkflow(querySessionState)
+		if err != nil {
+			t.Fatalf("QueryWorkflow: %v", err)
+		}
+		var view SessionStateView
+		if err := enc.Get(&view); err != nil {
+			t.Fatalf("decode SessionStateView: %v", err)
+		}
+		if view.Stage != StageDraftFailed {
+			t.Fatalf("a no-change amendment must land at StageDraftFailed, got stage %d", view.Stage)
+		}
+		reason := ""
+		if view.FailureReason != nil {
+			reason = *view.FailureReason
+		}
+		if !strings.Contains(reason, "no changes") {
+			t.Fatalf("the failed gate must carry the honest no-change reason, got %q", reason)
+		}
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 30*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{
+		ProjectID:    id,
+		ArtifactKind: KindSystem,
+		Amendment:    1,
+		Feedback:     &ReviewFeedback{Notes: "please tighten"},
+	})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("no-change amendment must not crash: %v", err)
+	}
+	// The dispatch + read-back ran, but NO PR was opened (the branch never advanced).
+	if pipe.submits[0].dispatchInputs[dispatchInputTargetBranch] == "" {
+		t.Fatal("the amendment must still dispatch a draft")
+	}
+	if rail.verbCount("OpenPullRequest") != 0 {
+		t.Fatalf("a no-change amendment must open NO PR (zero-new-commit branch), got %d", rail.verbCount("OpenPullRequest"))
+	}
+	if rail.verbCount("MergePullRequest") != 0 {
+		t.Fatalf("a no-change amendment must NOT merge, got %d", rail.verbCount("MergePullRequest"))
+	}
+	if len(base.committed) != 0 {
+		t.Fatalf("a no-change amendment must commit nothing, got %v", base.committed)
+	}
+}
+
+// F40 AMENDMENT POSITIVE CONTROL — an amendment whose Action DID change the artifact
+// (branch read-back differs from committed main) must NOT trip the no-change guard: it
+// opens the PR and, on approve, merges + commits. Proves the guard blocks only genuine
+// no-ops, not every amendment.
+func Test_CoAuthor_Rail_Amendment_Advanced_OpensPR_Merges(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	ps := &branchAwareFakeProjectState{
+		fakeProjectState:    base,
+		branchAdvancedModel: &projectstate.System{Components: []projectstate.Component{{}}}, // differs from main's empty System
+	}
+	pipe := newFakePipeline()
+	rail := &fakeRail{checkGreen: true}
+	wf := newRailWorkflows(ps, pipe, rail)
+	registerRailCoAuthor(env, wf)
+
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
+	}, 30*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{
+		ProjectID:    id,
+		ArtifactKind: KindSystem,
+		Amendment:    1,
+		Feedback:     &ReviewFeedback{Notes: "add a manager"},
+	})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("advanced amendment must not crash: %v", err)
+	}
+	var outcome coAuthorOutcome
+	if err := env.GetWorkflowResult(&outcome); err != nil {
+		t.Fatalf("decode outcome: %v", err)
+	}
+	if outcome != coAuthorApproved {
+		t.Fatalf("an advanced amendment that is approved must merge+commit, got outcome %d", outcome)
+	}
+	if rail.verbCount("OpenPullRequest") == 0 {
+		t.Fatal("an advanced amendment must OPEN a PR (the branch moved beyond main)")
+	}
+	if rail.verbCount("MergePullRequest") != 1 {
+		t.Fatalf("approve must merge the amendment PR once, got %d", rail.verbCount("MergePullRequest"))
+	}
+	if len(base.committed) != 1 {
+		t.Fatalf("approve must commit the amendment once, got %v", base.committed)
 	}
 }

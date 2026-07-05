@@ -542,6 +542,48 @@ func (wf *workflows) CoAuthorPhase2ArtifactWorkflow(ctx workflow.Context, in coA
 // The returned coAuthorStep tells the driver how to proceed (Proceed → await review;
 // Continue → redraft; Return → terminate with the outcome). The sequence of workflow
 // commands is identical to the pre-extraction inline body.
+// amendmentNoChangeGate is the F40 zero-new-commit defense-in-depth guard, extracted from
+// coAuthorDraftRound to keep it under the gocognit budget. For an amendment (in.Amendment > 0)
+// it compares the branch read-back model against the committed main model: an amendment branch
+// is cut from main (which already carries the committed model), so — unlike a first draft on an
+// empty slot — the read-back succeeds even when the job advanced the branch by nothing, and a
+// PR opened on such a branch 422s ("no commits between base and head"). Byte-identical ⇒ no
+// change ⇒ drive the StageDraftFailed recovery (Retry redrafts on the same branch, Withdraw/other
+// terminates). Returns coAuthorProceed + nil err when the branch advanced OR this is not an
+// amendment — the caller then opens the PR.
+func (wf *workflows) amendmentNoChangeGate(
+	ctx workflow.Context,
+	in coAuthorInput,
+	proj projectstate.Project,
+	branchModel projectstate.ArtifactModel,
+	headVersion projectstate.Version,
+	feedback *string,
+	redraftCount *int,
+	state *coAuthorState,
+) (coAuthorStep, coAuthorOutcome, error) {
+	if in.Amendment == 0 {
+		return coAuthorProceed, coAuthorUnknown, nil
+	}
+	unchanged, cmpErr := sameArtifactModel(branchModel, slotFor(proj, toPSKind(in.ArtifactKind)).Model)
+	if cmpErr != nil {
+		return coAuthorProceed, coAuthorUnknown, fwmanager.MapError(cmpErr)
+	}
+	if !unchanged {
+		return coAuthorProceed, coAuthorUnknown, nil
+	}
+	workflow.GetLogger(ctx).Warn("amendment draft committed no change to the artifact; entering StageDraftFailed")
+	outcome, retry, recErr := wf.awaitDraftFailedRecovery(ctx, in.ProjectID, in.ArtifactKind, headVersion, amendmentNoChangeReason(), state, feedback)
+	if recErr != nil {
+		return coAuthorProceed, coAuthorUnknown, recErr
+	}
+	if !retry {
+		return coAuthorReturn, outcome, nil
+	}
+	// F40: a human Retry redrafts on the SAME persistent session branch (no branch bump).
+	*redraftCount++
+	return coAuthorContinue, coAuthorUnknown, nil
+}
+
 func (wf *workflows) coAuthorDraftRound(
 	ctx workflow.Context,
 	in coAuthorInput,
@@ -637,6 +679,21 @@ func (wf *workflows) coAuthorDraftRound(
 	}
 	draft = model
 	state.findings = nil
+
+	// AMENDMENT NO-CHANGE GUARD (defense-in-depth for the F40 zero-new-commit 422): an
+	// amendment branch is cut from main, which ALREADY carries the committed model, so — unlike
+	// a first draft on an empty slot — the read-back above still SUCCEEDS even when the job
+	// advanced the branch by nothing. Opening a PR on such an un-advanced branch 422s ("no
+	// commits between base and head"). So for an amendment, verify the branch actually MOVED
+	// the artifact beyond main before opening the PR: compare the branch read-back to the
+	// committed main model (proj was read on main at session start). Byte-identical ⇒ the
+	// amendment produced no change ⇒ land the honest failure at the human gate (Retry/Withdraw)
+	// instead of 422-crashing the rail. The run-scoped idempotency key is the primary fix (a
+	// fresh run now genuinely dispatches + seeds, so this rarely trips); this guard closes the
+	// residual "job ran but changed nothing" case the template's no-commit guard may miss.
+	if step, outcome, err := wf.amendmentNoChangeGate(ctx, in, proj, model, *headVersion, feedback, redraftCount, state); step != coAuthorProceed || err != nil {
+		return step, outcome, err
+	}
 
 	// Rail: open the PR (head=sessionBranch, base=main) ONLY NOW — AFTER the read-back
 	// CONFIRMED a committed model on the session branch, so the branch has ≥1 commit beyond
@@ -1724,6 +1781,15 @@ func readBackDecodeFailedReason(decodeMsg string) string {
 		return "the committed draft could not be read back — its typed shape is invalid — retry or withdraw"
 	}
 	return "the committed draft could not be read back — its typed shape is invalid: " + decodeMsg + " — retry or withdraw"
+}
+
+// amendmentNoChangeReason renders the human "why" for the StageDraftFailed screen when
+// an amendment session's draft committed nothing that changed the artifact — the branch
+// read-back is byte-identical to the committed main model, so there is no advancement to
+// open a PR on (opening one would 422 "no commits between base and head"). A Retry
+// re-runs the amendment; a Withdraw abandons it.
+func amendmentNoChangeReason() string {
+	return "the amendment draft committed no changes to the artifact — there is nothing to review or merge — retry or withdraw"
 }
 
 // stageFailedReason renders the human "why" for the StageDraftFailed screen when the

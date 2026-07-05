@@ -1059,3 +1059,84 @@ func Test_CoAuthorPhase2_Rail_OpenPR_OnlyAfterReadBack_ReuseThenMerge(t *testing
 		t.Fatalf("want one commit-on-main after redraft→approve, got %v", base.committed)
 	}
 }
+
+// composeIdempotencyKey RUN-SCOPING (F40 root cause) — two sessions of the SAME workflow
+// ID with the SAME ActivityID but DIFFERENT RunID must derive DISTINCT keys, so the
+// constructionpipeline RA's run-name dedup never converges a fresh session onto a
+// predecessor session's completed GitHub run (the observed amendment 422).
+func Test_composeIdempotencyKey_RunScoped_DistinctPerRun(t *testing.T) {
+	const wf = "gtdapp:planningAssumptions"
+	const act = "5"
+	k1 := composeIdempotencyKey(wf, "run-aaaa", act)
+	k2 := composeIdempotencyKey(wf, "run-bbbb", act)
+	if k1 == k2 {
+		t.Fatalf("distinct RunIDs must yield distinct idempotency keys; both = %q", k1)
+	}
+	if !strings.Contains(string(k1), "run-aaaa") || !strings.Contains(string(k2), "run-bbbb") {
+		t.Fatalf("the key must carry the RunID as its session scope; got %q / %q", k1, k2)
+	}
+	if composeIdempotencyKey(wf, "run-aaaa", act) != k1 {
+		t.Fatal("same (workflowID, runID, activityID) must be stable so a transient retry dedups")
+	}
+}
+
+// F40 AMENDMENT NO-CHANGE GUARD — a Phase-2 amendment session whose Action "succeeded"
+// but committed NOTHING that changed the artifact (branch read-back == committed main
+// model) must land at StageDraftFailed with the honest reason and open NO PR. Withdraw
+// ends clean.
+func Test_CoAuthorPhase2_Rail_Amendment_NoChange_LandsFailedGate_NoPR(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	log := &seqLog{}
+	base := &fakeProjectState{project: planningAssumptionsReadBack(projectstate.ProjectID(id))}
+	// seqProjectState.ReadProjectOnBranch returns the SAME project as main ⇒ no advancement.
+	ps := &seqProjectState{fakeProjectState: base, log: log}
+	pipe := newFakePipeline() // the design job "succeeds"
+	rail := newScriptedRail(true, log)
+	wf := newRailWorkflows(ps, pipe, rail)
+	registerRailCoAuthor(env, wf)
+
+	env.RegisterDelayedCallback(func() {
+		enc, err := env.QueryWorkflow(querySessionState)
+		if err != nil {
+			t.Fatalf("QueryWorkflow: %v", err)
+		}
+		var view SessionStateView
+		if err := enc.Get(&view); err != nil {
+			t.Fatalf("decode SessionStateView: %v", err)
+		}
+		if view.Stage != StageDraftFailed {
+			t.Fatalf("a no-change amendment must land at StageDraftFailed, got stage %d", view.Stage)
+		}
+		reason := ""
+		if view.FailureReason != nil {
+			reason = *view.FailureReason
+		}
+		if !strings.Contains(reason, "no changes") {
+			t.Fatalf("the failed gate must carry the honest no-change reason, got %q", reason)
+		}
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 30*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{
+		ProjectID:    id,
+		ArtifactKind: KindPlanningAssumptions,
+		Amendment:    1,
+		Feedback:     &ReviewFeedback{Notes: "please tighten"},
+	})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("no-change amendment must not crash: %v", err)
+	}
+	if rail.count("OpenPullRequest") != 0 {
+		t.Fatalf("a no-change amendment must open NO PR (zero-new-commit branch), got %d", rail.count("OpenPullRequest"))
+	}
+	if rail.count("MergePullRequest") != 0 {
+		t.Fatalf("a no-change amendment must NOT merge, got %d", rail.count("MergePullRequest"))
+	}
+	if len(base.committed) != 0 {
+		t.Fatalf("a no-change amendment must commit nothing, got %v", base.committed)
+	}
+}

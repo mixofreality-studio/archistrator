@@ -1,6 +1,7 @@
 package systemdesign
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 
@@ -50,6 +51,26 @@ func draftModelFor(kind ArtifactKind, model projectstate.ArtifactModel) (DraftMo
 		env.Model = &rm
 	}
 	return env, nil
+}
+
+// sameArtifactModel reports whether two typed models are byte-identical in their
+// canonical JSON form. Go marshals a given concrete struct deterministically (field
+// order is declaration order; map keys are sorted), so this is a stable, replay-safe
+// value comparison the workflow goroutine may call directly (no I/O). Used by the
+// amendment no-change guard: when an amendment session's branch read-back is identical
+// to the committed main model, the draft advanced the branch by nothing, so there is
+// no change to review or merge and the session must land at the failed gate rather than
+// 422 on an effectively-empty PR.
+func sameArtifactModel(a, b projectstate.ArtifactModel) (bool, error) {
+	ea, err := encodeModel(a)
+	if err != nil {
+		return false, err
+	}
+	eb, err := encodeModel(b)
+	if err != nil {
+		return false, err
+	}
+	return bytes.Equal(ea.Model, eb.Model), nil
 }
 
 // encodeModel wraps a (possibly nil) typed model into its envelope.

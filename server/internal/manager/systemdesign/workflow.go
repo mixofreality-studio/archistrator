@@ -825,6 +825,27 @@ func (wf *workflows) runDraftRoundTrip(
 	}
 	draft = model
 	state.findings = nil
+	// AMENDMENT NO-CHANGE GUARD (defense-in-depth for the F40 zero-new-commit 422): an
+	// amendment branch is cut from main, which ALREADY carries the committed model, so — unlike
+	// a first draft on an empty slot — the read-back above still SUCCEEDS even when the job
+	// advanced the branch by nothing. Opening a PR on such an un-advanced branch 422s ("no
+	// commits between base and head"). So for an amendment, verify the branch actually MOVED
+	// the artifact beyond main before opening the PR: compare the branch read-back to the
+	// committed main model (proj was read on main at session start). Byte-identical ⇒ the
+	// amendment produced no change ⇒ land the honest failure at the human gate (Retry/Withdraw)
+	// instead of 422-crashing the rail. The run-scoped idempotency key is the primary fix (a
+	// fresh run now genuinely dispatches + seeds, so this rarely trips); this guard closes the
+	// residual "job ran but changed nothing" case the template's no-commit guard may miss.
+	if in.Amendment > 0 {
+		unchanged, cmpErr := sameArtifactModel(model, slotFor(proj, in.ArtifactKind).Model)
+		if cmpErr != nil {
+			return draft, gf, 0, stepErr(cmpErr)
+		}
+		if unchanged {
+			logger.Warn("amendment draft committed no change to the artifact; entering StageDraftFailed")
+			return draft, gf, 0, wf.recoverAtFailedGate(ctx, in, headVersion, amendmentNoChangeReason(), "", state, feedback, redraftCount)
+		}
+	}
 	// Rail: open the PR (head=sessionBranch, base=main) ONLY NOW — AFTER the read-back
 	// CONFIRMED a committed model on the session branch, so the branch has ≥1 commit beyond
 	// main and GitHub will not 422 "no commits between base and head" (F40 fix). Opening it
@@ -1541,6 +1562,15 @@ func readBackDecodeFailedReason(decodeMsg string) string {
 		return "the committed draft could not be read back — its typed shape is invalid — retry or withdraw"
 	}
 	return "the committed draft could not be read back — its typed shape is invalid: " + decodeMsg + " — retry or withdraw"
+}
+
+// amendmentNoChangeReason renders the human "why" for the StageDraftFailed screen when
+// an amendment session's draft committed nothing that changed the artifact — the branch
+// read-back is byte-identical to the committed main model, so there is no advancement to
+// open a PR on (opening one would 422 "no commits between base and head"). A Retry
+// re-runs the amendment; a Withdraw abandons it.
+func amendmentNoChangeReason() string {
+	return "the amendment draft committed no changes to the artifact — there is nothing to review or merge — retry or withdraw"
 }
 
 // stageFailedReason renders the human "why" for the StageDraftFailed screen when the

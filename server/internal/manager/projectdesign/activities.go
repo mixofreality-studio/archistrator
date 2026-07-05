@@ -34,12 +34,38 @@ import (
 // from the Temporal activity context (so the RA layer never reads Temporal
 // context) and runs the port result through the generic error mapper mapErr.
 
-// activityIdempotencyKey derives "${workflowId}:${activityId}" from the running
-// Activity's info. The ActivityID is unique per activity invocation within a
-// workflow, giving the stable, distinct key each logical write needs.
+// activityIdempotencyKey derives "${workflowId}:${runId}:${activityId}" from the
+// running Activity's info. The ActivityID is unique per activity invocation WITHIN
+// one workflow run, giving the stable, distinct key each logical write needs on a
+// transient auto-retry (same run, same ActivityID ⇒ same key ⇒ the RA/ledger
+// collapses the retry).
+//
+// The RunID is REQUIRED in the key because ActivityIDs restart from 1 on every NEW
+// Temporal run of the SAME workflow ID (an amendment session, or a post-withdraw
+// restart, executes under the same deterministic workflow ID). Without the RunID the
+// dispatch token "${workflowId}:${activityId}" of a fresh session COLLIDES with a
+// predecessor session's token: the constructionpipeline RA's run-name dedup
+// (aiarch-cp-<sha256(key)>) would then converge on the predecessor's already-completed
+// GitHub run, so no new run is dispatched, observe sees the stale success, and
+// OpenPullRequest 422s on the zero-new-commit branch. The RunID is a property of the
+// workflow EXECUTION (fixed for the run's lifetime, identical across activity retries,
+// unchanged by replay) — it is replay-stable, unlike wall-clock. It scopes EVERY
+// per-session write key to its session, so a new run's Commit/Stage/Reject never dedups
+// against a predecessor run's ledger entry either. Same key content still hashes to a
+// valid 32-hex aiarch-cp-<token> run name, so the RA run-name + concurrency-group
+// contract is unchanged.
 func activityIdempotencyKey(ctx context.Context) fwra.IdempotencyKey {
 	info := activity.GetInfo(ctx)
-	return fwra.IdempotencyKey(fmt.Sprintf("%s:%s", info.WorkflowExecution.ID, info.ActivityID))
+	return composeIdempotencyKey(info.WorkflowExecution.ID, info.WorkflowExecution.RunID, info.ActivityID)
+}
+
+// composeIdempotencyKey is the pure derivation of the run-scoped key. Kept separate so
+// the run-scoping (distinct RunID ⇒ distinct key, even for the same workflowID +
+// ActivityID) is unit-testable without a live Activity context. The RA hashes this whole
+// string into the aiarch-cp-<token> run name, so the exact separator/order is not a wire
+// contract — only that two sessions of the same workflow ID never collide.
+func composeIdempotencyKey(workflowID, runID, activityID string) fwra.IdempotencyKey {
+	return fwra.IdempotencyKey(fmt.Sprintf("%s:%s:%s", workflowID, runID, activityID))
 }
 
 // ---- ReadProjectActivity (wraps projectStateAccess.readProject) -------------
