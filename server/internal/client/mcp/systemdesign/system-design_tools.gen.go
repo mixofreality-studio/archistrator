@@ -32,6 +32,7 @@ func (h *Handler) Register(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{Name: "systemDesignListProjects", Description: "List every project visible to the given owner scope, most-recently-updated first.", InputSchema: listProjectsInputSchema(), OutputSchema: listProjectsOutputSchema()}, h.handleListProjects)
 	mcp.AddTool(srv, &mcp.Tool{Name: "systemDesignRequestArtifactDraft", Description: "Kick off (or re-run) the AI drafting of one System-Design artifact (selected by kind, e.g. the mission, glossary, or volatilities). Pass feedback to re-draft an existing artifact against review notes. Returns a handle to the asynchronous drafting session.", InputSchema: requestArtifactDraftInputSchema(), OutputSchema: requestArtifactDraftOutputSchema()}, h.handleRequestArtifactDraft)
 	mcp.AddTool(srv, &mcp.Tool{Name: "systemDesignSetResearchInput", Description: "Attach or replace the raw research corpus the architect distils the mission, glossary, and volatilities from. Returns the new project state version.", InputSchema: setResearchInputInputSchema(), OutputSchema: setResearchInputOutputSchema()}, h.handleSetResearchInput)
+	mcp.AddTool(srv, &mcp.Tool{Name: "systemDesignSetReviewCommentStatus", Description: "Change the status of one durable review-ledger comment on a System-Design artifact (selected by kind): waive an open comment to dismiss it, or reopen an addressed comment to send it back. Approve is blocked while any comment is still open.", InputSchema: setReviewCommentStatusInputSchema(), OutputSchema: setReviewCommentStatusOutputSchema()}, h.handleSetReviewCommentStatus)
 	mcp.AddTool(srv, &mcp.Tool{Name: "systemDesignStartSystemDesign", Description: "Begin the System-Design phase for a project, seeding the artifact spine (mission first). Returns a handle to the kickoff session.", InputSchema: startSystemDesignInputSchema(), OutputSchema: startSystemDesignOutputSchema()}, h.handleStartSystemDesign)
 	mcp.AddTool(srv, &mcp.Tool{Name: "systemDesignSubmitReviewDecision", Description: "Record a review verdict (approve / reject / withdraw) on the current draft of a System-Design artifact (selected by kind). Reject and withdraw should carry feedback; approve commits the artifact and unblocks its successors.", InputSchema: submitReviewDecisionInputSchema(), OutputSchema: submitReviewDecisionOutputSchema()}, h.handleSubmitReviewDecision)
 }
@@ -96,6 +97,15 @@ type setResearchInputInput struct {
 type setResearchInputOutput struct {
 	Result mgr.Version `json:"result"`
 }
+
+type setReviewCommentStatusInput struct {
+	ProjectID mgr.ProjectID    `json:"projectID"`
+	Kind      mgr.ArtifactKind `json:"kind"`
+	CommentID string           `json:"commentID"`
+	Status    string           `json:"status"`
+}
+
+type setReviewCommentStatusOutput struct{}
 
 type startSystemDesignInput struct {
 	ProjectID mgr.ProjectID `json:"projectID"`
@@ -172,6 +182,15 @@ func setResearchInputInputSchema() *jsonschema.Schema {
 	return s
 }
 
+// setReviewCommentStatusInputSchema is the explicit MCP input schema for the SetReviewCommentStatus operation.
+func setReviewCommentStatusInputSchema() *jsonschema.Schema {
+	s := objectSchema[setReviewCommentStatusInput]()
+	relaxRawJSON(s)
+	s.Required = []string{"projectID", "kind", "commentID", "status"}
+	s.Properties["kind"] = enumSchemaArtifactKind()
+	return s
+}
+
 // startSystemDesignInputSchema is the explicit MCP input schema for the StartSystemDesign operation.
 func startSystemDesignInputSchema() *jsonschema.Schema {
 	s := objectSchema[startSystemDesignInput]()
@@ -235,6 +254,13 @@ func requestArtifactDraftOutputSchema() *jsonschema.Schema {
 // setResearchInputOutputSchema is the explicit MCP output schema for the SetResearchInput operation.
 func setResearchInputOutputSchema() *jsonschema.Schema {
 	s := objectSchema[setResearchInputOutput]()
+	relaxRawJSON(s)
+	return s
+}
+
+// setReviewCommentStatusOutputSchema is the explicit MCP output schema for the SetReviewCommentStatus operation.
+func setReviewCommentStatusOutputSchema() *jsonschema.Schema {
+	s := objectSchema[setReviewCommentStatusOutput]()
 	relaxRawJSON(s)
 	return s
 }
@@ -359,6 +385,17 @@ func (h *Handler) handleSetResearchInput(ctx context.Context, _ *mcp.CallToolReq
 		return nil, out, mapManagerError(err)
 	}
 	out.Result = result
+	return nil, out, nil
+}
+
+// handleSetReviewCommentStatus is the MCP tool handler for the SetReviewCommentStatus operation.
+func (h *Handler) handleSetReviewCommentStatus(ctx context.Context, _ *mcp.CallToolRequest, in setReviewCommentStatusInput) (*mcp.CallToolResult, setReviewCommentStatusOutput, error) {
+	var out setReviewCommentStatusOutput
+	principal, _ := security.PrincipalFrom(ctx)
+	rc := fwmanager.Context{Context: ctx, Principal: principal}
+	if err := h.Manager.SetReviewCommentStatus(rc, in.ProjectID, in.Kind, in.CommentID, in.Status); err != nil {
+		return nil, out, mapManagerError(err)
+	}
 	return nil, out, nil
 }
 

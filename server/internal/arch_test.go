@@ -354,6 +354,10 @@ var encapsulationAllowlistData = map[string][]string{
 		"LayerResource",
 		"LayerResourceAccess",
 		"LayerUtility",
+		// REVIEW-LEDGER extension port — the optional durable-comment-ledger interface the
+		// design Managers type-assert during the AwaitingReview window (the BranchAware
+		// precedent above). Its methods are served by GitStore + the composition-root adapter.
+		"LedgerProjectStateAccess",
 		"LocalRepoCredential",
 		"MissionStatement",
 		"MissionStatement.Kind",
@@ -415,6 +419,12 @@ var encapsulationAllowlistData = map[string][]string{
 		"RevenueShareLaunchFlat10",
 		"RevenueShareNegotiatedRate",
 		"RevenueShareUnknown",
+		// REVIEW-LEDGER status vocabulary — the closed wire values of a durable ReviewComment's
+		// status (the CritiqueVerdictApprove/Revise precedent above). Plain-string consts owned
+		// here; the ReviewComment type itself is generated contract surface.
+		"ReviewCommentAddressed",
+		"ReviewCommentOpen",
+		"ReviewCommentWaived",
 		// FACTORY FREE FUNCTION: ReviewPolicyFromGateIDs converts the webApp PolicyPanel's
 		// ad-hoc gate-id vocabulary (e.g. "svc-contract") into the canonical ReviewPolicy
 		// value stored in head-state. It is the client-facing constructor for ReviewPolicy

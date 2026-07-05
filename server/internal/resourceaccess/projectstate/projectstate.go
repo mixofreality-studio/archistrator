@@ -87,6 +87,28 @@ type BranchAwareProjectStateAccess interface {
 	WithdrawArtifactOnBranch(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, idempotencyKey fwra.IdempotencyKey) (Version, error)
 }
 
+// LedgerProjectStateAccess is the OPTIONAL durable review-ledger extension of the no-cred
+// projectStateAccess port the design Managers consume during the AwaitingReview window
+// (review-ledger feature, founder-ratified 2026-07-05). Like BranchAwareProjectStateAccess
+// it is a SEPARATE interface — added rather than folded into ProjectStateAccess (or into
+// BranchAwareProjectStateAccess) so every existing caller, adapter, and test fake compiles
+// unchanged: a design Manager type-asserts its ProjectStateAccess field to this extension and
+// uses the ledger verbs ONLY when the substrate supports it, falling back to the plain
+// (comment-dropping) reject when it does not. An EMPTY branch behaves EXACTLY as the
+// corresponding main-path write, so threading "" is always safe (the dormant-rail fallback).
+type LedgerProjectStateAccess interface {
+	// RejectArtifactOnBranchWithComments records the architect's Reject AND appends the
+	// reviewer's comments to the slot's durable ReviewThread in one atomic commit. Each
+	// comment carries Anchor / AnchorText / Text / AuthorRole; the id / round / open status
+	// are server-minted (deterministic per (round, index) so a Temporal retry never
+	// duplicates). branch=="" behaves exactly as the main-path reject, still appending.
+	RejectArtifactOnBranchWithComments(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, round int64, comments []ReviewComment, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	// SetReviewCommentStatusOnBranch applies a human status transition to one ledger entry
+	// (open->waived to dismiss, addressed->open to reopen). An unknown id is NotFound; an
+	// illegal transition is ContractMisuse. branch=="" behaves exactly as the main path.
+	SetReviewCommentStatusOnBranch(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, commentID string, status string, idempotencyKey fwra.IdempotencyKey) (Version, error)
+}
+
 // Error is the shared ResourceAccess error model (framework-go), re-exported as
 // an alias so this component's contract reads in its own terms while every RA
 // component shares one fixed enum. Construct with fwra.New / fwra.Wrap using the

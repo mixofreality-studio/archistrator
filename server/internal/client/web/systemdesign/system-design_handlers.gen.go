@@ -29,6 +29,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/system-design/list-projects", h.handleListProjects)
 	mux.HandleFunc("POST /api/v1/system-design/request-artifact-draft/{projectID}", h.handleRequestArtifactDraft)
 	mux.HandleFunc("POST /api/v1/system-design/set-research-input/{projectID}", h.handleSetResearchInput)
+	mux.HandleFunc("POST /api/v1/system-design/set-review-comment-status/{projectID}", h.handleSetReviewCommentStatus)
 	mux.HandleFunc("POST /api/v1/system-design/start-system-design/{projectID}", h.handleStartSystemDesign)
 	mux.HandleFunc("POST /api/v1/system-design/submit-review-decision/{projectID}", h.handleSubmitReviewDecision)
 }
@@ -45,6 +46,12 @@ type requestArtifactDraftRequest struct {
 
 type setResearchInputRequest struct {
 	Research mgr.ResearchInput `json:"research"`
+}
+
+type setReviewCommentStatusRequest struct {
+	Kind      mgr.ArtifactKind `json:"kind"`
+	CommentID string           `json:"commentID"`
+	Status    string           `json:"status"`
 }
 
 type submitReviewDecisionRequest struct {
@@ -236,6 +243,33 @@ func (h *Handler) handleSetResearchInput(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+// handleSetReviewCommentStatus binds POST /api/v1/system-design/set-review-comment-status/{projectID} -> mgr.SetReviewCommentStatus.
+func (h *Handler) handleSetReviewCommentStatus(w http.ResponseWriter, r *http.Request) {
+	projectID := mgr.ProjectID(r.PathValue("projectID"))
+	var req setReviewCommentStatusRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	principal, ok := security.PrincipalFrom(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthenticated", "authentication required")
+		return
+	}
+	decision, err := h.Security.Authorize(r.Context(), principal,
+		security.Action{Verb: "set-review-comment-status"},
+		security.ResourceRef{Kind: "project", ID: string(projectID)})
+	if err != nil || !decision.Permit {
+		writeError(w, http.StatusForbidden, "forbidden", "not permitted")
+		return
+	}
+	rc := fwmanager.Context{Context: r.Context(), Principal: principal}
+	if err := h.Manager.SetReviewCommentStatus(rc, projectID, req.Kind, req.CommentID, req.Status); err != nil {
+		writeManagerError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleStartSystemDesign binds POST /api/v1/system-design/start-system-design/{projectID} -> mgr.StartSystemDesign.

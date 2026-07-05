@@ -149,6 +149,7 @@ type ArtifactSlot struct {
 	Notes           string               `json:"Notes"`
 	CritiqueVerdict string               `json:"CritiqueVerdict"`
 	CritiqueNotes   string               `json:"CritiqueNotes"`
+	ReviewThread    []ReviewComment      `json:"reviewThread,omitempty"`
 }
 
 type Axis int
@@ -578,6 +579,17 @@ const (
 	RevenueShareLaunchFlat10   RevenueShareKind = 1
 	RevenueShareNegotiatedRate RevenueShareKind = 2
 )
+
+type ReviewComment struct {
+	ID         string `json:"id"`
+	Anchor     string `json:"anchor"`
+	AnchorText string `json:"anchorText"`
+	Text       string `json:"text"`
+	AuthorRole string `json:"authorRole"`
+	Round      int64  `json:"round"`
+	Status     string `json:"status"`
+	Response   string `json:"response"`
+}
 
 type ReviewPolicy struct {
 	GatedPhasesByType map[string][]ActivityMethodPhase `json:"gatedPhasesByType,omitempty"`

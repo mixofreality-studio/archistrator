@@ -35,6 +35,7 @@ func Test_MissionPrompt_PointsAtResearch_NeverInlinesContent(t *testing.T) {
 			projectstate.ResearchSource{Title: "Competitor analysis", Content: bigContent + " (source 2)"},
 		),
 		ReviewFeedback{},
+		nil,
 	)
 
 	// The corpus CONTENT must never be inlined into the composed prompt.
@@ -63,7 +64,7 @@ func Test_MissionPrompt_PointsAtResearch_NeverInlinesContent(t *testing.T) {
 func Test_MissionPrompt_ForbidsComponentLanguage(t *testing.T) {
 	prompt := architectDraftPrompt(projectstate.KindMission, projWithResearch(
 		projectstate.ResearchSource{Title: "Founder brief", Content: "x"},
-	), ReviewFeedback{})
+	), ReviewFeedback{}, nil)
 
 	// The prompt must NOT tell the architect to express the mission in component terms.
 	if strings.Contains(prompt, "terms of the system's COMPONENTS") {
@@ -103,7 +104,7 @@ func Test_MissionCritiquePrompt_EnforcesNoComponentLanguage(t *testing.T) {
 
 // The IsZero guard is preserved: with no corpus, no research block is emitted at all.
 func Test_MissionPrompt_EmptyCorpus_EmitsNoResearchBlock(t *testing.T) {
-	prompt := architectDraftPrompt(projectstate.KindMission, projWithResearch(), ReviewFeedback{})
+	prompt := architectDraftPrompt(projectstate.KindMission, projWithResearch(), ReviewFeedback{}, nil)
 	if strings.Contains(prompt, "Research corpus") {
 		t.Errorf("empty corpus must emit no research block; got:\n%s", prompt)
 	}
@@ -155,7 +156,7 @@ func wireNameOf(t *testing.T, v interface{}) string {
 // Telling the drafting agent the exact allowed wire names here is the only pre-read-back
 // defense. The expected names are DERIVED from the codec so this stays in lockstep with it.
 func Test_CoreUseCasesPrompt_EnumeratesClosedEnumWireNames(t *testing.T) {
-	prompt := architectDraftPrompt(projectstate.KindCoreUseCases, projectstate.Project{}, ReviewFeedback{})
+	prompt := architectDraftPrompt(projectstate.KindCoreUseCases, projectstate.Project{}, ReviewFeedback{}, nil)
 
 	// The schema-conformance pointer line: point at the checked-out state + name the enum rule.
 	if !strings.Contains(prompt, "SCHEMA CONFORMANCE") {
@@ -197,7 +198,7 @@ func Test_CoreUseCasesPrompt_EnumeratesClosedEnumWireNames(t *testing.T) {
 // A kind whose drafted model carries NO closed enum (Mission) must NOT get the enum block —
 // the guidance is scoped so unrelated prompts stay lean.
 func Test_MissionPrompt_HasNoClosedEnumBlock(t *testing.T) {
-	prompt := architectDraftPrompt(projectstate.KindMission, projectstate.Project{}, ReviewFeedback{})
+	prompt := architectDraftPrompt(projectstate.KindMission, projectstate.Project{}, ReviewFeedback{}, nil)
 	if strings.Contains(prompt, "SCHEMA CONFORMANCE") {
 		t.Errorf("mission prompt must not carry the closed-enum block; got:\n%s", prompt)
 	}
@@ -205,7 +206,7 @@ func Test_MissionPrompt_HasNoClosedEnumBlock(t *testing.T) {
 
 // The System draft prompt carries the ComponentKind + relationship-mode wire names.
 func Test_SystemPrompt_EnumeratesComponentKindAndMode(t *testing.T) {
-	prompt := architectDraftPrompt(projectstate.KindSystem, projectstate.Project{}, ReviewFeedback{})
+	prompt := architectDraftPrompt(projectstate.KindSystem, projectstate.Project{}, ReviewFeedback{}, nil)
 	kinds := []projectstate.ComponentKind{
 		projectstate.CompClient, projectstate.CompManager, projectstate.CompEngine,
 		projectstate.CompResourceAccess, projectstate.CompResource, projectstate.CompUtility,
@@ -222,5 +223,42 @@ func Test_SystemPrompt_EnumeratesComponentKindAndMode(t *testing.T) {
 		if !strings.Contains(prompt, name) {
 			t.Errorf("System prompt missing CallMode wire name %q; got:\n%s", name, prompt)
 		}
+	}
+}
+
+// The redraft prompt must weave in each OPEN review-ledger comment (id + anchor + anchorText
+// + text) and state the response-carrier contract, and must NOT list addressed/waived
+// comments (review-ledger §3).
+func Test_ArchitectDraftPrompt_WeavesOpenReviewLedger(t *testing.T) {
+	thread := []projectstate.ReviewComment{
+		{ID: "r1c1", Anchor: "$.vision", AnchorText: "the old vision", Text: "sharpen the vision", Status: projectstate.ReviewCommentOpen},
+		{ID: "r1c2", Anchor: "$.mission", AnchorText: "the mission text", Text: "already fixed", Status: projectstate.ReviewCommentAddressed, Response: "done"},
+		{ID: "r1c3", Anchor: "", AnchorText: "", Text: "dismissed nit", Status: projectstate.ReviewCommentWaived},
+	}
+	prompt := architectDraftPrompt(projectstate.KindMission, projWithResearch(), ReviewFeedback{}, thread)
+
+	// The OPEN comment is woven in with its id, anchor, anchorText, and text.
+	for _, want := range []string{"r1c1", "$.vision", "the old vision", "sharpen the vision"} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("open-comment prompt missing %q; got:\n%s", want, prompt)
+		}
+	}
+	// The response-carrier contract is stated (mirrors the critique carrier).
+	for _, want := range []string{"reviewThread", "response", "STAYS OPEN"} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("response-carrier contract missing %q; got:\n%s", want, prompt)
+		}
+	}
+	// Addressed + waived comments are NOT listed (only open ones block/redraft).
+	if strings.Contains(prompt, "r1c2") || strings.Contains(prompt, "r1c3") {
+		t.Errorf("non-open comments must not be listed in the redraft prompt; got:\n%s", prompt)
+	}
+}
+
+// The first draft (no ledger) must not emit a review-ledger block.
+func Test_ArchitectDraftPrompt_NoLedgerBlockWhenEmpty(t *testing.T) {
+	prompt := architectDraftPrompt(projectstate.KindMission, projWithResearch(), ReviewFeedback{}, nil)
+	if strings.Contains(prompt, "durable review ledger") {
+		t.Errorf("first-draft prompt must not carry a review-ledger block; got:\n%s", prompt)
 	}
 }

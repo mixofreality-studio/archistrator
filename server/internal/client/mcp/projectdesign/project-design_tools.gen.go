@@ -29,6 +29,7 @@ func (h *Handler) Register(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{Name: "projectDesignGetSessionState", Description: "Return the current draft/review session state for one Project-Design artifact (selected by kind): its stage, the latest AI draft, and any review feedback. Read-only.", InputSchema: getSessionStateInputSchema(), OutputSchema: getSessionStateOutputSchema()}, h.handleGetSessionState)
 	mcp.AddTool(srv, &mcp.Tool{Name: "projectDesignRequestArtifactDraft", Description: "Kick off (or re-run) the AI drafting of one Project-Design artifact (selected by kind, e.g. the activity list, project network, or a solution option). Pass feedback to re-draft against review notes. Returns a handle to the asynchronous drafting session.", InputSchema: requestArtifactDraftInputSchema(), OutputSchema: requestArtifactDraftOutputSchema()}, h.handleRequestArtifactDraft)
 	mcp.AddTool(srv, &mcp.Tool{Name: "projectDesignRequestSDPCommit", Description: "Assemble the SDP Review (every solution option plus the risk model) for management sign-off. Returns a handle to the assembly session.", InputSchema: requestSDPCommitInputSchema(), OutputSchema: requestSDPCommitOutputSchema()}, h.handleRequestSDPCommit)
+	mcp.AddTool(srv, &mcp.Tool{Name: "projectDesignSetReviewCommentStatus", Description: "Change the status of one durable review-ledger comment on a Project-Design artifact (selected by kind): waive an open comment to dismiss it, or reopen an addressed comment to send it back. Approve is blocked while any comment is still open.", InputSchema: setReviewCommentStatusInputSchema(), OutputSchema: setReviewCommentStatusOutputSchema()}, h.handleSetReviewCommentStatus)
 	mcp.AddTool(srv, &mcp.Tool{Name: "projectDesignSubmitReviewDecision", Description: "Record a review verdict (approve / reject / withdraw) on the current draft of a Project-Design artifact (selected by kind). Reject and withdraw should carry feedback; approve commits the artifact.", InputSchema: submitReviewDecisionInputSchema(), OutputSchema: submitReviewDecisionOutputSchema()}, h.handleSubmitReviewDecision)
 	mcp.AddTool(srv, &mcp.Tool{Name: "projectDesignSubmitSDPDecision", Description: "Record management's decision on the SDP Review: commit one solution option (pass its optionID) or reject all options. Pass feedback to record the rationale.", InputSchema: submitSDPDecisionInputSchema(), OutputSchema: submitSDPDecisionOutputSchema()}, h.handleSubmitSDPDecision)
 }
@@ -67,6 +68,15 @@ type requestSDPCommitInput struct {
 type requestSDPCommitOutput struct {
 	Result mgr.SessionRef `json:"result"`
 }
+
+type setReviewCommentStatusInput struct {
+	ProjectID mgr.ProjectID    `json:"projectID"`
+	Kind      mgr.ArtifactKind `json:"kind"`
+	CommentID string           `json:"commentID"`
+	Status    string           `json:"status"`
+}
+
+type setReviewCommentStatusOutput struct{}
 
 type submitReviewDecisionInput struct {
 	ProjectID mgr.ProjectID       `json:"projectID"`
@@ -120,6 +130,15 @@ func requestSDPCommitInputSchema() *jsonschema.Schema {
 	return s
 }
 
+// setReviewCommentStatusInputSchema is the explicit MCP input schema for the SetReviewCommentStatus operation.
+func setReviewCommentStatusInputSchema() *jsonschema.Schema {
+	s := objectSchema[setReviewCommentStatusInput]()
+	relaxRawJSON(s)
+	s.Required = []string{"projectID", "kind", "commentID", "status"}
+	s.Properties["kind"] = enumSchemaArtifactKind()
+	return s
+}
+
 // submitReviewDecisionInputSchema is the explicit MCP input schema for the SubmitReviewDecision operation.
 func submitReviewDecisionInputSchema() *jsonschema.Schema {
 	s := objectSchema[submitReviewDecisionInput]()
@@ -163,6 +182,13 @@ func requestArtifactDraftOutputSchema() *jsonschema.Schema {
 // requestSDPCommitOutputSchema is the explicit MCP output schema for the RequestSDPCommit operation.
 func requestSDPCommitOutputSchema() *jsonschema.Schema {
 	s := objectSchema[requestSDPCommitOutput]()
+	relaxRawJSON(s)
+	return s
+}
+
+// setReviewCommentStatusOutputSchema is the explicit MCP output schema for the SetReviewCommentStatus operation.
+func setReviewCommentStatusOutputSchema() *jsonschema.Schema {
+	s := objectSchema[setReviewCommentStatusOutput]()
 	relaxRawJSON(s)
 	return s
 }
@@ -257,6 +283,17 @@ func (h *Handler) handleRequestSDPCommit(ctx context.Context, _ *mcp.CallToolReq
 		return nil, out, mapManagerError(err)
 	}
 	out.Result = result
+	return nil, out, nil
+}
+
+// handleSetReviewCommentStatus is the MCP tool handler for the SetReviewCommentStatus operation.
+func (h *Handler) handleSetReviewCommentStatus(ctx context.Context, _ *mcp.CallToolRequest, in setReviewCommentStatusInput) (*mcp.CallToolResult, setReviewCommentStatusOutput, error) {
+	var out setReviewCommentStatusOutput
+	principal, _ := security.PrincipalFrom(ctx)
+	rc := fwmanager.Context{Context: ctx, Principal: principal}
+	if err := h.Manager.SetReviewCommentStatus(rc, in.ProjectID, in.Kind, in.CommentID, in.Status); err != nil {
+		return nil, out, mapManagerError(err)
+	}
 	return nil, out, nil
 }
 

@@ -273,6 +273,33 @@ func (a *projectStateGitAdapter) WithdrawArtifactOnBranch(ctx context.Context, p
 	return a.store.WithdrawArtifactOnBranch(ctx, projectID, expectedVersion, branch, kind, notes, cred, idempotencyKey)
 }
 
+// Compile-time proof the git adapter also serves the durable review-ledger extension the
+// design Managers consume during the AwaitingReview window (review-ledger feature).
+var _ projectstate.LedgerProjectStateAccess = (*projectStateGitAdapter)(nil)
+
+// RejectArtifactOnBranchWithComments is the review-ledger Reject: it lands the Rejected
+// status flip + notes AND appends the reviewer's comments to the slot's durable ReviewThread
+// in one atomic commit on the session branch (empty branch ⇒ main). The cred is minted
+// just-in-time, exactly like the no-cred RejectArtifact.
+func (a *projectStateGitAdapter) RejectArtifactOnBranchWithComments(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, round int64, comments []projectstate.ReviewComment, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
+	cred, err := a.minter.credentialFor(ctx, projectID)
+	if err != nil {
+		return 0, err
+	}
+	return a.store.RejectArtifactOnBranchWithComments(ctx, projectID, expectedVersion, branch, kind, notes, round, comments, cred, idempotencyKey)
+}
+
+// SetReviewCommentStatusOnBranch applies a human status transition to one ledger entry on
+// the session branch (empty branch ⇒ main). The cred is minted just-in-time, exactly like
+// the no-cred write verbs.
+func (a *projectStateGitAdapter) SetReviewCommentStatusOnBranch(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, commentID string, status string, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
+	cred, err := a.minter.credentialFor(ctx, projectID)
+	if err != nil {
+		return 0, err
+	}
+	return a.store.SetReviewCommentStatusOnBranch(ctx, projectID, expectedVersion, branch, kind, commentID, status, cred, idempotencyKey)
+}
+
 // ---------------------------------------------------------------------------
 // RepoLocator — resolves a projectID to a per-project git store handle. It is the seam
 // where the composition root supplies the concrete URL scheme

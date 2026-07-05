@@ -38,7 +38,7 @@ const architectHeader = "You are the Architect agent drafting a typed Phase-2 (P
 // DESIGN job's design_prompt dispatch input. (The proj parameter is retained for
 // signature parity / future per-kind prior selection; priors are named by kind, not
 // embedded.)
-func architectDraftPrompt(kind projectstate.ArtifactKind, _ projectstate.Project, feedback string) string {
+func architectDraftPrompt(kind projectstate.ArtifactKind, _ projectstate.Project, feedback string, reviewThread []projectstate.ReviewComment) string {
 	var b strings.Builder
 	b.WriteString(architectHeader)
 	fmt.Fprintf(&b, "Target artifact: %s\n", kind)
@@ -70,8 +70,42 @@ func architectDraftPrompt(kind projectstate.ArtifactKind, _ projectstate.Project
 	}
 
 	writeFeedback(&b, feedback)
+	// REVIEW LEDGER (review-ledger §3): on a redraft, weave in every OPEN durable ledger
+	// comment (with its stable id + anchor + anchor-text snapshot) and the response-carrier
+	// contract, mirroring the critique carrier. Empty on the first draft (no ledger).
+	writeReviewLedger(&b, reviewThread)
 	fmt.Fprintf(&b, "\nTask: %s\n", draftTask(kind))
 	return b.String()
+}
+
+// writeReviewLedger weaves the OPEN durable review-ledger comments into a redraft prompt and
+// states the response-carrier contract the drafting agent must honor (review-ledger §3): the
+// agent commits a per-comment "response" (and proposed "addressed" status) back onto the SAME
+// slot's "reviewThread" array in .aiarch/state/project.json, matched by the stable comment
+// "id". The server, not the agent, decides the effective status on read-back (empty response
+// keeps a comment open). Nothing is written when no comment is open (the first-draft case).
+func writeReviewLedger(b *strings.Builder, thread []projectstate.ReviewComment) {
+	var open []projectstate.ReviewComment
+	for _, c := range thread {
+		if c.Status == projectstate.ReviewCommentOpen && strings.TrimSpace(c.Text) != "" {
+			open = append(open, c)
+		}
+	}
+	if len(open) == 0 {
+		return
+	}
+	b.WriteString("\nThis artifact has OPEN reviewer comments in its durable review ledger. For EACH open comment listed below you MUST: (1) revise the draft to address it; and (2) in .aiarch/state/project.json, on this artifact's slot, in its \"reviewThread\" array, find the entry with the matching \"id\" and set its \"response\" to how you addressed it (or a concise, reasoned pushback if you disagree), and set its \"status\" to \"addressed\". Do NOT add, delete, reorder, or renumber reviewThread entries, and do NOT modify entries not listed here. A comment whose \"response\" you leave empty STAYS OPEN and blocks approval — so respond to every one.\n")
+	for _, c := range open {
+		anchor := c.Anchor
+		if strings.TrimSpace(anchor) == "" {
+			anchor = "(whole artifact)"
+		}
+		if strings.TrimSpace(c.AnchorText) != "" {
+			fmt.Fprintf(b, "- comment %s at %s (%q): %s\n", c.ID, anchor, c.AnchorText, strings.TrimSpace(c.Text))
+		} else {
+			fmt.Fprintf(b, "- comment %s at %s: %s\n", c.ID, anchor, strings.TrimSpace(c.Text))
+		}
+	}
 }
 
 // draftTask returns the per-kind task instruction.

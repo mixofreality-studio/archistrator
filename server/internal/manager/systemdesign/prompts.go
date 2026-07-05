@@ -42,7 +42,7 @@ const pmHeader = "You are the Product Manager agent critiquing a drafted Method 
 // carries the Method drafting doctrine, and weaves in any rejection / PM-revision
 // feedback. The ResearchInput pointer is named for the MISSION step. The composed
 // prompt is the DESIGN job's design_prompt dispatch input.
-func architectDraftPrompt(kind projectstate.ArtifactKind, proj projectstate.Project, feedback ReviewFeedback) string {
+func architectDraftPrompt(kind projectstate.ArtifactKind, proj projectstate.Project, feedback ReviewFeedback, reviewThread []projectstate.ReviewComment) string {
 	var b strings.Builder
 	b.WriteString(architectHeader)
 	fmt.Fprintf(&b, "Target artifact: %s\n", kind)
@@ -75,6 +75,12 @@ func architectDraftPrompt(kind projectstate.ArtifactKind, proj projectstate.Proj
 	}
 
 	writeFeedback(&b, feedback)
+	// REVIEW LEDGER (review-ledger §3): on a redraft, weave in every OPEN durable ledger
+	// comment (with its stable id + anchor + anchor-text snapshot) and the response-carrier
+	// contract, mirroring the PM-critique carrier language. The agent commits a per-comment
+	// response back into the slot's reviewThread; the server reads it back and decides the
+	// effective status. Empty on the first draft (no ledger).
+	writeReviewLedger(&b, reviewThread)
 	fmt.Fprintf(&b, "\nTask: %s\n", draftTask(kind))
 	// CLOSED-ENUM DISCIPLINE (QA F36): for kinds whose typed model carries closed enums,
 	// enumerate the allowed wire names so the drafting agent never writes free prose into an
@@ -335,6 +341,39 @@ func writeFeedback(b *strings.Builder, feedback ReviewFeedback) {
 	}
 	for _, c := range comments {
 		fmt.Fprintf(b, "- at %s: %s\n", c.JSONPath, strings.TrimSpace(c.Text))
+	}
+}
+
+// writeReviewLedger weaves the OPEN durable review-ledger comments into a redraft prompt
+// and states the response-carrier contract the drafting agent must honor (review-ledger §3).
+// It mirrors the PM-critique carrier (pmCritiquePrompt): the agent does NOT invent or reorder
+// comments — it commits a per-comment "response" (and a proposed "addressed" status) back onto
+// the SAME slot's "reviewThread" array in .aiarch/state/project.json, matched by the stable
+// comment "id". The server, not the agent, decides the effective status on read-back (an empty
+// response keeps a comment open — so a comment the agent cannot honestly address must be left
+// with an empty response or a reasoned pushback the human then waives). Nothing is written when
+// no comment is open (the common first-draft case).
+func writeReviewLedger(b *strings.Builder, thread []projectstate.ReviewComment) {
+	var open []projectstate.ReviewComment
+	for _, c := range thread {
+		if c.Status == projectstate.ReviewCommentOpen && strings.TrimSpace(c.Text) != "" {
+			open = append(open, c)
+		}
+	}
+	if len(open) == 0 {
+		return
+	}
+	b.WriteString("\nThis artifact has OPEN reviewer comments in its durable review ledger. For EACH open comment listed below you MUST: (1) revise the draft to address it; and (2) in .aiarch/state/project.json, on this artifact's slot, in its \"reviewThread\" array, find the entry with the matching \"id\" and set its \"response\" to how you addressed it (or a concise, reasoned pushback if you disagree), and set its \"status\" to \"addressed\". Do NOT add, delete, reorder, or renumber reviewThread entries, and do NOT modify entries not listed here. A comment whose \"response\" you leave empty STAYS OPEN and blocks approval — so respond to every one.\n")
+	for _, c := range open {
+		anchor := c.Anchor
+		if strings.TrimSpace(anchor) == "" {
+			anchor = "(whole artifact)"
+		}
+		if strings.TrimSpace(c.AnchorText) != "" {
+			fmt.Fprintf(b, "- comment %s at %s (%q): %s\n", c.ID, anchor, c.AnchorText, strings.TrimSpace(c.Text))
+		} else {
+			fmt.Fprintf(b, "- comment %s at %s: %s\n", c.ID, anchor, strings.TrimSpace(c.Text))
+		}
 	}
 }
 

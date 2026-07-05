@@ -6669,6 +6669,27 @@
       ],
       "title": "projectdesign contract",
       "$defs": {
+        "AnchoredComment": {
+          "type": "object",
+          "properties": {
+            "jsonPath": {
+              "type": "string",
+              "x-go-name": "JSONPath"
+            },
+            "text": {
+              "type": "string"
+            },
+            "anchorText": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "jsonPath",
+            "text",
+            "anchorText"
+          ],
+          "additionalProperties": false
+        },
         "ArtifactKind": {
           "type": "integer",
           "enum": [
@@ -6801,6 +6822,47 @@
         "ProjectID": {
           "type": "string"
         },
+        "ReviewCommentView": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "x-go-name": "ID"
+            },
+            "anchor": {
+              "type": "string"
+            },
+            "anchorText": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            },
+            "authorRole": {
+              "type": "string"
+            },
+            "round": {
+              "type": "integer"
+            },
+            "status": {
+              "type": "string"
+            },
+            "response": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "anchor",
+            "anchorText",
+            "text",
+            "authorRole",
+            "round",
+            "status",
+            "response"
+          ],
+          "additionalProperties": false
+        },
         "ReviewDecision": {
           "type": "integer",
           "enum": [
@@ -6822,6 +6884,15 @@
           "properties": {
             "notes": {
               "type": "string"
+            },
+            "comments": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/AnchoredComment"
+              }
             }
           },
           "required": [
@@ -6905,6 +6976,15 @@
                 "null",
                 "string"
               ]
+            },
+            "reviewThread": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/ReviewCommentView"
+              }
             }
           },
           "required": [
@@ -7011,6 +7091,36 @@
             "result": {
               "$ref": "#/$defs/SessionRef"
             },
+            "error": true
+          },
+          {
+            "name": "SetReviewCommentStatus",
+            "params": [
+              {
+                "name": "projectID",
+                "schema": {
+                  "$ref": "#/$defs/ProjectID"
+                }
+              },
+              {
+                "name": "kind",
+                "schema": {
+                  "$ref": "#/$defs/ArtifactKind"
+                }
+              },
+              {
+                "name": "commentID",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "name": "status",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            ],
             "error": true
           },
           {
@@ -7437,6 +7547,16 @@
             },
             "CritiqueNotes": {
               "type": "string"
+            },
+            "reviewThread": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/ReviewComment"
+              },
+              "x-go-name": "ReviewThread"
             }
           },
           "required": [
@@ -8891,6 +9011,47 @@
             "RevenueShareNegotiatedRate"
           ],
           "x-go-base": "int"
+        },
+        "ReviewComment": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "x-go-name": "ID"
+            },
+            "anchor": {
+              "type": "string"
+            },
+            "anchorText": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            },
+            "authorRole": {
+              "type": "string"
+            },
+            "round": {
+              "type": "integer"
+            },
+            "status": {
+              "type": "string"
+            },
+            "response": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "anchor",
+            "anchorText",
+            "text",
+            "authorRole",
+            "round",
+            "status",
+            "response"
+          ],
+          "additionalProperties": false
         },
         "ReviewPolicy": {
           "type": "object",
@@ -10627,11 +10788,15 @@
             },
             "text": {
               "type": "string"
+            },
+            "anchorText": {
+              "type": "string"
             }
           },
           "required": [
             "jsonPath",
-            "text"
+            "text",
+            "anchorText"
           ],
           "additionalProperties": false
         },
@@ -11327,6 +11492,47 @@
           ],
           "additionalProperties": false
         },
+        "ReviewCommentView": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "x-go-name": "ID"
+            },
+            "anchor": {
+              "type": "string"
+            },
+            "anchorText": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            },
+            "authorRole": {
+              "type": "string"
+            },
+            "round": {
+              "type": "integer"
+            },
+            "status": {
+              "type": "string"
+            },
+            "response": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "anchor",
+            "anchorText",
+            "text",
+            "authorRole",
+            "round",
+            "status",
+            "response"
+          ],
+          "additionalProperties": false
+        },
         "ReviewDecision": {
           "type": "integer",
           "enum": [
@@ -11614,6 +11820,15 @@
                 "string"
               ],
               "x-go-name": "FailureRunURL"
+            },
+            "reviewThread": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/ReviewCommentView"
+              }
             }
           },
           "required": [
@@ -11973,6 +12188,36 @@
             "result": {
               "$ref": "#/$defs/Version"
             },
+            "error": true
+          },
+          {
+            "name": "SetReviewCommentStatus",
+            "params": [
+              {
+                "name": "projectID",
+                "schema": {
+                  "$ref": "#/$defs/ProjectID"
+                }
+              },
+              {
+                "name": "kind",
+                "schema": {
+                  "$ref": "#/$defs/ArtifactKind"
+                }
+              },
+              {
+                "name": "commentID",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "name": "status",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            ],
             "error": true
           },
           {

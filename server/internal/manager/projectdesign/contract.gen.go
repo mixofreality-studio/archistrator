@@ -15,6 +15,12 @@ import (
 	"go.temporal.io/sdk/client"
 )
 
+type AnchoredComment struct {
+	JSONPath   string `json:"jsonPath"`
+	Text       string `json:"text"`
+	AnchorText string `json:"anchorText"`
+}
+
 type ArtifactKind int
 
 const (
@@ -63,6 +69,17 @@ type PhaseAdvanceResult struct {
 
 type ProjectID string
 
+type ReviewCommentView struct {
+	ID         string `json:"id"`
+	Anchor     string `json:"anchor"`
+	AnchorText string `json:"anchorText"`
+	Text       string `json:"text"`
+	AuthorRole string `json:"authorRole"`
+	Round      int64  `json:"round"`
+	Status     string `json:"status"`
+	Response   string `json:"response"`
+}
+
 type ReviewDecision int
 
 const (
@@ -73,7 +90,8 @@ const (
 )
 
 type ReviewFeedback struct {
-	Notes string `json:"notes"`
+	Notes    string            `json:"notes"`
+	Comments []AnchoredComment `json:"comments,omitempty"`
 }
 
 type RuleID string
@@ -103,12 +121,13 @@ const (
 )
 
 type SessionStateView struct {
-	ProjectID     ProjectID    `json:"projectId"`
-	ArtifactKind  ArtifactKind `json:"artifactKind"`
-	Stage         SessionStage `json:"stage"`
-	Draft         DraftModel   `json:"draft"`
-	Findings      []Finding    `json:"findings,omitempty"`
-	FailureReason *string      `json:"failureReason,omitempty"`
+	ProjectID     ProjectID           `json:"projectId"`
+	ArtifactKind  ArtifactKind        `json:"artifactKind"`
+	Stage         SessionStage        `json:"stage"`
+	Draft         DraftModel          `json:"draft"`
+	Findings      []Finding           `json:"findings,omitempty"`
+	FailureReason *string             `json:"failureReason,omitempty"`
+	ReviewThread  []ReviewCommentView `json:"reviewThread,omitempty"`
 }
 
 type Severity string
@@ -125,6 +144,7 @@ type ProjectDesignManager interface {
 	GetSessionState(rc fwm.Context, projectID ProjectID, kind ArtifactKind) (SessionStateView, error)
 	RequestArtifactDraft(rc fwm.Context, projectID ProjectID, kind ArtifactKind, feedback *ReviewFeedback) (SessionRef, error)
 	RequestSDPCommit(rc fwm.Context, projectID ProjectID) (SessionRef, error)
+	SetReviewCommentStatus(rc fwm.Context, projectID ProjectID, kind ArtifactKind, commentID string, status string) error
 	SubmitReviewDecision(rc fwm.Context, projectID ProjectID, kind ArtifactKind, decision ReviewDecision, feedback *ReviewFeedback) error
 	SubmitSDPDecision(rc fwm.Context, projectID ProjectID, decision SDPDecision, optionID *OptionID, feedback *ReviewFeedback) error
 }

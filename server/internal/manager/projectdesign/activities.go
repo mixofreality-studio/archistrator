@@ -143,6 +143,13 @@ type mutateArtifactArgs struct {
 	// unperturbed). Commit/Withdraw ignore it (Commit lands on main after the merge;
 	// Withdraw is main-only).
 	Branch string
+	// Round + Comments carry the durable review ledger on a Reject (review-ledger §2): the
+	// redraft round the reviewer's comments were filed in, and those comments (Anchor /
+	// AnchorText / Text / AuthorRole set; id / open status server-minted). RejectArtifactActivity
+	// folds the append into the SAME atomic commit as the Rejected status flip. Empty Comments ⇒
+	// a plain reject (Commit/Withdraw ignore both fields).
+	Round    int64
+	Comments []projectstate.ReviewComment
 }
 
 func (wf *workflows) CommitArtifactActivity(ctx context.Context, a mutateArtifactArgs) (projectstate.Version, error) {
@@ -155,6 +162,15 @@ func (wf *workflows) RejectArtifactActivity(ctx context.Context, a mutateArtifac
 	// Rejected status flip on the session branch the draft was staged on (where the model
 	// exists and the version matches). Otherwise fall back to the main-path RejectArtifact
 	// — the dormant-rail / non-git substrate is unperturbed.
+	//
+	// REVIEW LEDGER (review-ledger §2): when the substrate supports the durable ledger, record
+	// the Rejected status flip AND append the reviewer's comments to the slot's ReviewThread in
+	// ONE atomic commit (crash-safe, idempotent on the deterministic ids). branch=="" (dormant
+	// rail) still appends. Only a substrate WITHOUT the ledger extension falls back to the plain
+	// (comment-dropping) reject.
+	if led, ok := wf.ProjectState.(projectstate.LedgerProjectStateAccess); ok {
+		return mapErr(led.RejectArtifactOnBranchWithComments(ctx, a.ProjectID, a.ExpectedVersion, a.Branch, a.Kind, a.Notes, a.Round, a.Comments, activityIdempotencyKey(ctx)))
+	}
 	if ba, ok := wf.ProjectState.(projectstate.BranchAwareProjectStateAccess); ok && a.Branch != "" {
 		return mapErr(ba.RejectArtifactOnBranch(ctx, a.ProjectID, a.ExpectedVersion, a.Branch, a.Kind, a.Notes, activityIdempotencyKey(ctx)))
 	}

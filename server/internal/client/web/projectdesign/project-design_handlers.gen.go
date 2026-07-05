@@ -26,6 +26,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/project-design/get-session-state/{projectID}", h.handleGetSessionState)
 	mux.HandleFunc("POST /api/v1/project-design/request-artifact-draft/{projectID}", h.handleRequestArtifactDraft)
 	mux.HandleFunc("POST /api/v1/project-design/request-sdp-commit/{projectID}", h.handleRequestSDPCommit)
+	mux.HandleFunc("POST /api/v1/project-design/set-review-comment-status/{projectID}", h.handleSetReviewCommentStatus)
 	mux.HandleFunc("POST /api/v1/project-design/submit-review-decision/{projectID}", h.handleSubmitReviewDecision)
 	mux.HandleFunc("POST /api/v1/project-design/submit-sdp-decision/{projectID}/{optionID}", h.handleSubmitSDPDecision)
 }
@@ -33,6 +34,12 @@ func (h *Handler) Register(mux *http.ServeMux) {
 type requestArtifactDraftRequest struct {
 	Kind     mgr.ArtifactKind    `json:"kind"`
 	Feedback *mgr.ReviewFeedback `json:"feedback"`
+}
+
+type setReviewCommentStatusRequest struct {
+	Kind      mgr.ArtifactKind `json:"kind"`
+	CommentID string           `json:"commentID"`
+	Status    string           `json:"status"`
 }
 
 type submitReviewDecisionRequest struct {
@@ -150,6 +157,33 @@ func (h *Handler) handleRequestSDPCommit(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+// handleSetReviewCommentStatus binds POST /api/v1/project-design/set-review-comment-status/{projectID} -> mgr.SetReviewCommentStatus.
+func (h *Handler) handleSetReviewCommentStatus(w http.ResponseWriter, r *http.Request) {
+	projectID := mgr.ProjectID(r.PathValue("projectID"))
+	var req setReviewCommentStatusRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	principal, ok := security.PrincipalFrom(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthenticated", "authentication required")
+		return
+	}
+	decision, err := h.Security.Authorize(r.Context(), principal,
+		security.Action{Verb: "set-review-comment-status"},
+		security.ResourceRef{Kind: "project", ID: string(projectID)})
+	if err != nil || !decision.Permit {
+		writeError(w, http.StatusForbidden, "forbidden", "not permitted")
+		return
+	}
+	rc := fwmanager.Context{Context: r.Context(), Principal: principal}
+	if err := h.Manager.SetReviewCommentStatus(rc, projectID, req.Kind, req.CommentID, req.Status); err != nil {
+		writeManagerError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleSubmitReviewDecision binds POST /api/v1/project-design/submit-review-decision/{projectID} -> mgr.SubmitReviewDecision.

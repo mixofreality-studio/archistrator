@@ -262,12 +262,20 @@ func (m *systemDesignManager) SubmitReviewDecision(rc fwmanager.Context, project
 	// ignored), yet the op returns success {} — a no-op masquerading as a decision that
 	// wedges the reviewer. Query the stage first and refuse a decision the current gate
 	// cannot honor with a FailedPrecondition naming the actual stage.
-	stage, err := m.reviewGateStage(ctx, wfID, kind)
+	view, err := m.reviewGateView(ctx, wfID)
 	if err != nil {
 		return err
 	}
-	if perr := checkReviewPrecondition(decision, stage); perr != nil {
+	if perr := checkReviewPrecondition(decision, view.Stage); perr != nil {
 		return perr
+	}
+	// REVIEW LEDGER (review-ledger §4): approve is blocked while any comment is still open —
+	// the reviewer must address (redraft) or waive each one first. The message lists the open ids.
+	if decision == ReviewApprove {
+		if open := openReviewCommentViewIDs(view.ReviewThread); len(open) > 0 {
+			return newError(fwmanager.FailedPrecondition,
+				fmt.Sprintf("cannot approve: %d review comment(s) still open (%s) — address or waive them first", len(open), strings.Join(open, ", ")))
+		}
 	}
 
 	sig := reviewDecisionSignal{Decision: decision, Feedback: feedback}
@@ -277,31 +285,108 @@ func (m *systemDesignManager) SubmitReviewDecision(rc fwmanager.Context, project
 	return nil
 }
 
-// reviewGateStage returns the session's current gate stage for the F19 review
-// precondition. It mirrors GetSessionState's dead-workflow defense: a CLOSED-ABNORMAL
-// run is reported as StageDraftFailed (a query would replay a stale in-memory stage), a
-// missing execution is reported as SessionStageUnknown (nothing to review), and a live
-// run is read from its authoritative sessionState query.
-func (m *systemDesignManager) reviewGateStage(ctx context.Context, wfID string, _ ArtifactKind) (SessionStage, error) {
+// reviewGateView returns the session's full gate view (stage + the durable review thread)
+// for the F19 review precondition AND the review-ledger approve/waive preconditions. Same
+// dead-workflow defense as GetSessionState: a CLOSED-ABNORMAL run reports StageDraftFailed,
+// a missing execution reports SessionStageUnknown, a live run is read from the authoritative
+// sessionState query.
+func (m *systemDesignManager) reviewGateView(ctx context.Context, wfID string) (SessionStateView, error) {
 	if desc, derr := m.client.DescribeWorkflowExecution(ctx, wfID, ""); derr == nil {
 		if status := desc.GetWorkflowExecutionInfo().GetStatus(); isAbnormalClosedStatus(status) {
-			return StageDraftFailed, nil
+			return SessionStateView{Stage: StageDraftFailed}, nil
 		}
 	} else if isNotFound(derr) {
-		return SessionStageUnknown, nil
+		return SessionStateView{Stage: SessionStageUnknown}, nil
 	}
 	enc, err := m.client.QueryWorkflow(ctx, wfID, "", querySessionState)
 	if err != nil {
 		if isNotFound(err) {
-			return SessionStageUnknown, nil
+			return SessionStateView{Stage: SessionStageUnknown}, nil
 		}
-		return SessionStageUnknown, mapQueryError(err)
+		return SessionStateView{}, mapQueryError(err)
 	}
 	var view SessionStateView
 	if err := enc.Get(&view); err != nil {
-		return SessionStageUnknown, newError(fwmanager.Infrastructure, err.Error())
+		return SessionStateView{}, newError(fwmanager.Infrastructure, err.Error())
 	}
-	return view.Stage, nil
+	return view, nil
+}
+
+// SetReviewCommentStatus applies a human status transition to one durable review-ledger
+// comment (review-ledger §4): waive an OPEN comment to dismiss it, or reopen an ADDRESSED
+// comment to send it back for another redraft. It mirrors SubmitReviewDecision's F19 shape —
+// a synchronous precondition check via the sessionState query before signaling the (fire-and-
+// forget) branch mutation, so a bad request fails loudly rather than silently no-op'ing.
+func (m *systemDesignManager) SetReviewCommentStatus(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind, commentID string, status string) error {
+	ctx := rc.Context
+	if projectID == "" {
+		return newError(fwmanager.ContractMisuse, "empty projectId")
+	}
+	if !artifactKindIsPhase1(kind) {
+		return newError(fwmanager.FailedPrecondition, "artifactKind is not a Phase-1 kind")
+	}
+	if commentID == "" {
+		return newError(fwmanager.ContractMisuse, "empty commentId")
+	}
+	switch status {
+	case projectstate.ReviewCommentWaived, projectstate.ReviewCommentOpen:
+		// waive (open->waived) or reopen (addressed->open) — the only human-authored transitions.
+	default:
+		return newError(fwmanager.ContractMisuse, "status must be \"waived\" (to dismiss an open comment) or \"open\" (to reopen an addressed comment)")
+	}
+
+	wfID := coAuthorWorkflowID(projectID, kind)
+	view, err := m.reviewGateView(ctx, wfID)
+	if err != nil {
+		return err
+	}
+	if view.Stage != StageAwaitingReview {
+		return newError(fwmanager.FailedPrecondition,
+			"cannot change a review comment: the design is not awaiting review (current stage: "+sessionStageLabel(view.Stage)+")")
+	}
+	if perr := checkCommentTransition(view.ReviewThread, commentID, status); perr != nil {
+		return perr
+	}
+
+	sig := setCommentStatusSignal{CommentID: commentID, Status: status}
+	if err := m.client.SignalWorkflow(ctx, wfID, "", signalSetCommentStatus, sig); err != nil {
+		return mapSignalError(err)
+	}
+	return nil
+}
+
+// openReviewCommentViewIDs returns the ids of every OPEN comment in a wire thread — the
+// approve blocker set.
+func openReviewCommentViewIDs(thread []ReviewCommentView) []string {
+	var ids []string
+	for _, c := range thread {
+		if c.Status == projectstate.ReviewCommentOpen {
+			ids = append(ids, c.ID)
+		}
+	}
+	return ids
+}
+
+// checkCommentTransition validates a human status transition against the live thread: the
+// comment must exist and the transition must be legal (open->waived, addressed->open). Any
+// other case is a FailedPrecondition naming the reason (the durable RA verb re-checks, but a
+// synchronous refusal is a better caller experience than a silently dropped signal).
+func checkCommentTransition(thread []ReviewCommentView, id, status string) error {
+	for _, c := range thread {
+		if c.ID != id {
+			continue
+		}
+		switch {
+		case c.Status == projectstate.ReviewCommentOpen && status == projectstate.ReviewCommentWaived:
+			return nil
+		case c.Status == projectstate.ReviewCommentAddressed && status == projectstate.ReviewCommentOpen:
+			return nil
+		default:
+			return newError(fwmanager.FailedPrecondition,
+				fmt.Sprintf("cannot change comment %s from %q to %q (allowed: open->waived, addressed->open)", id, c.Status, status))
+		}
+	}
+	return newError(fwmanager.FailedPrecondition, "review comment "+id+" not found in the thread")
 }
 
 // checkReviewPrecondition enforces that the submitted decision is meaningful at the

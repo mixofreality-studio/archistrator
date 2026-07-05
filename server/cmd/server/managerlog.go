@@ -96,6 +96,10 @@ func (m loggingSystemDesignManager) SubmitReviewDecision(rc fwmanager.Context, p
 	return logInfraError(m.log, "SystemDesign.SubmitReviewDecision", string(projectID), m.inner.SubmitReviewDecision(rc, projectID, kind, decision, feedback))
 }
 
+func (m loggingSystemDesignManager) SetReviewCommentStatus(rc fwmanager.Context, projectID systemdesign.ProjectID, kind systemdesign.ArtifactKind, commentID string, status string) error {
+	return logInfraError(m.log, "SystemDesign.SetReviewCommentStatus", string(projectID), m.inner.SetReviewCommentStatus(rc, projectID, kind, commentID, status))
+}
+
 // --- ProjectDesign ---------------------------------------------------------
 
 type loggingProjectDesignManager struct {
@@ -121,6 +125,10 @@ func (m loggingProjectDesignManager) RequestArtifactDraft(rc fwmanager.Context, 
 func (m loggingProjectDesignManager) RequestSDPCommit(rc fwmanager.Context, projectID projectdesign.ProjectID) (projectdesign.SessionRef, error) {
 	v, err := m.inner.RequestSDPCommit(rc, projectID)
 	return v, logInfraError(m.log, "ProjectDesign.RequestSDPCommit", string(projectID), err)
+}
+
+func (m loggingProjectDesignManager) SetReviewCommentStatus(rc fwmanager.Context, projectID projectdesign.ProjectID, kind projectdesign.ArtifactKind, commentID string, status string) error {
+	return logInfraError(m.log, "ProjectDesign.SetReviewCommentStatus", string(projectID), m.inner.SetReviewCommentStatus(rc, projectID, kind, commentID, status))
 }
 
 func (m loggingProjectDesignManager) SubmitReviewDecision(rc fwmanager.Context, projectID projectdesign.ProjectID, kind projectdesign.ArtifactKind, decision projectdesign.ReviewDecision, feedback *projectdesign.ReviewFeedback) error {

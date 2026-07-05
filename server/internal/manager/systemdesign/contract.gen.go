@@ -76,8 +76,9 @@ const (
 )
 
 type AnchoredComment struct {
-	JSONPath string `json:"jsonPath"`
-	Text     string `json:"text"`
+	JSONPath   string `json:"jsonPath"`
+	Text       string `json:"text"`
+	AnchorText string `json:"anchorText"`
 }
 
 type ArtifactKind int
@@ -293,6 +294,17 @@ type ResearchSource struct {
 	ContentBytes *int64 `json:"contentBytes,omitempty"`
 }
 
+type ReviewCommentView struct {
+	ID         string `json:"id"`
+	Anchor     string `json:"anchor"`
+	AnchorText string `json:"anchorText"`
+	Text       string `json:"text"`
+	AuthorRole string `json:"authorRole"`
+	Round      int64  `json:"round"`
+	Status     string `json:"status"`
+	Response   string `json:"response"`
+}
+
 type ReviewDecision int
 
 const (
@@ -344,13 +356,14 @@ const (
 )
 
 type SessionStateView struct {
-	ProjectID     ProjectID    `json:"projectId"`
-	ArtifactKind  ArtifactKind `json:"artifactKind"`
-	Stage         SessionStage `json:"stage"`
-	Draft         DraftModel   `json:"draft"`
-	Findings      []Finding    `json:"findings,omitempty"`
-	FailureReason *string      `json:"failureReason,omitempty"`
-	FailureRunURL *string      `json:"failureRunUrl,omitempty"`
+	ProjectID     ProjectID           `json:"projectId"`
+	ArtifactKind  ArtifactKind        `json:"artifactKind"`
+	Stage         SessionStage        `json:"stage"`
+	Draft         DraftModel          `json:"draft"`
+	Findings      []Finding           `json:"findings,omitempty"`
+	FailureReason *string             `json:"failureReason,omitempty"`
+	FailureRunURL *string             `json:"failureRunUrl,omitempty"`
+	ReviewThread  []ReviewCommentView `json:"reviewThread,omitempty"`
 }
 
 type Severity string
@@ -438,6 +451,7 @@ type SystemDesignManager interface {
 	ListProjects(rc fwm.Context, owner OwnerScope) ([]ProjectSummary, error)
 	RequestArtifactDraft(rc fwm.Context, projectID ProjectID, kind ArtifactKind, feedback *ReviewFeedback) (SessionRef, error)
 	SetResearchInput(rc fwm.Context, projectID ProjectID, research ResearchInput) (Version, error)
+	SetReviewCommentStatus(rc fwm.Context, projectID ProjectID, kind ArtifactKind, commentID string, status string) error
 	StartSystemDesign(rc fwm.Context, projectID ProjectID) (SessionRef, error)
 	SubmitReviewDecision(rc fwm.Context, projectID ProjectID, kind ArtifactKind, decision ReviewDecision, feedback *ReviewFeedback) error
 }

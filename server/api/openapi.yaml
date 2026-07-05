@@ -585,6 +585,21 @@ components:
             required:
                 - withdrawn
             type: object
+        ProjectDesignAnchoredComment:
+            additionalProperties: false
+            properties:
+                anchorText:
+                    type: string
+                jsonPath:
+                    type: string
+                    x-go-name: JSONPath
+                text:
+                    type: string
+            required:
+                - jsonPath
+                - text
+                - anchorText
+            type: object
         ProjectDesignArtifactKind:
             enum:
                 - 0
@@ -697,6 +712,36 @@ components:
             type: object
         ProjectDesignProjectID:
             type: string
+        ProjectDesignReviewCommentView:
+            additionalProperties: false
+            properties:
+                anchor:
+                    type: string
+                anchorText:
+                    type: string
+                authorRole:
+                    type: string
+                id:
+                    type: string
+                    x-go-name: ID
+                response:
+                    type: string
+                round:
+                    type: integer
+                status:
+                    type: string
+                text:
+                    type: string
+            required:
+                - id
+                - anchor
+                - anchorText
+                - text
+                - authorRole
+                - round
+                - status
+                - response
+            type: object
         ProjectDesignReviewDecision:
             enum:
                 - 0
@@ -713,6 +758,12 @@ components:
         ProjectDesignReviewFeedback:
             additionalProperties: false
             properties:
+                comments:
+                    items:
+                        $ref: '#/components/schemas/ProjectDesignAnchoredComment'
+                    type:
+                        - "null"
+                        - array
                 notes:
                     type: string
             required:
@@ -776,6 +827,12 @@ components:
                 projectId:
                     $ref: '#/components/schemas/ProjectDesignProjectID'
                     x-go-name: ProjectID
+                reviewThread:
+                    items:
+                        $ref: '#/components/schemas/ProjectDesignReviewCommentView'
+                    type:
+                        - "null"
+                        - array
                 stage:
                     $ref: '#/components/schemas/ProjectDesignSessionStage'
             required:
@@ -945,6 +1002,8 @@ components:
         SystemDesignAnchoredComment:
             additionalProperties: false
             properties:
+                anchorText:
+                    type: string
                 jsonPath:
                     type: string
                     x-go-name: JSONPath
@@ -953,6 +1012,7 @@ components:
             required:
                 - jsonPath
                 - text
+                - anchorText
             type: object
         SystemDesignArtifactKind:
             enum:
@@ -1485,6 +1545,36 @@ components:
                 - title
                 - content
             type: object
+        SystemDesignReviewCommentView:
+            additionalProperties: false
+            properties:
+                anchor:
+                    type: string
+                anchorText:
+                    type: string
+                authorRole:
+                    type: string
+                id:
+                    type: string
+                    x-go-name: ID
+                response:
+                    type: string
+                round:
+                    type: integer
+                status:
+                    type: string
+                text:
+                    type: string
+            required:
+                - id
+                - anchor
+                - anchorText
+                - text
+                - authorRole
+                - round
+                - status
+                - response
+            type: object
         SystemDesignReviewDecision:
             enum:
                 - 0
@@ -1635,6 +1725,12 @@ components:
                 projectId:
                     $ref: '#/components/schemas/SystemDesignProjectID'
                     x-go-name: ProjectID
+                reviewThread:
+                    items:
+                        $ref: '#/components/schemas/SystemDesignReviewCommentView'
+                    type:
+                        - "null"
+                        - array
                 stage:
                     $ref: '#/components/schemas/SystemDesignSessionStage'
             required:
@@ -3015,6 +3111,79 @@ paths:
                     description: infrastructure unavailable
             security:
                 - bearerAuth: []
+    /api/v1/project-design/set-review-comment-status/{projectID}:
+        post:
+            operationId: SetReviewCommentStatus
+            parameters:
+                - in: path
+                  name: projectID
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/ProjectDesignProjectID'
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            properties:
+                                commentID:
+                                    type: string
+                                kind:
+                                    $ref: '#/components/schemas/ProjectDesignArtifactKind'
+                                status:
+                                    type: string
+                            required:
+                                - kind
+                                - commentID
+                                - status
+                            type: object
+                required: true
+            responses:
+                "204":
+                    description: no content
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
     /api/v1/project-design/submit-review-decision/{projectID}:
         post:
             operationId: SubmitReviewDecision
@@ -3576,6 +3745,79 @@ paths:
                             schema:
                                 $ref: '#/components/schemas/SystemDesignVersion'
                     description: success
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
+    /api/v1/system-design/set-review-comment-status/{projectID}:
+        post:
+            operationId: SetReviewCommentStatus
+            parameters:
+                - in: path
+                  name: projectID
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/SystemDesignProjectID'
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            properties:
+                                commentID:
+                                    type: string
+                                kind:
+                                    $ref: '#/components/schemas/SystemDesignArtifactKind'
+                                status:
+                                    type: string
+                            required:
+                                - kind
+                                - commentID
+                                - status
+                            type: object
+                required: true
+            responses:
+                "204":
+                    description: no content
                 "400":
                     content:
                         application/json:

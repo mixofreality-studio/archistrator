@@ -37,6 +37,11 @@ const (
 	lSignalRedraft = "redraft"
 	// querySessionState returns a SessionStateView; backs getSessionState.
 	querySessionState = "sessionState"
+	// signalSetCommentStatus resumes a CoAuthorArtifactWorkflow suspended at the
+	// AwaitingReview gate to apply a durable review-ledger status transition
+	// (open->waived / addressed->open) to one comment on the session branch; backs
+	// SetReviewCommentStatus (review-ledger feature).
+	signalSetCommentStatus = "setCommentStatus"
 )
 
 // ExecutionKinds for the durable-execution control plane (systemDesignManager.md §6.2).
@@ -122,6 +127,8 @@ const (
 	actRejectArtifact      = "RejectArtifactActivity"
 	actWithdrawArtifact    = "WithdrawArtifactActivity"
 	actAdvancePhase        = "AdvancePhaseActivity"
+	// review-ledger: the human waive/reopen branch mutation.
+	actSetReviewCommentStatus = "SetReviewCommentStatusActivity"
 
 	// PR-rail Activity names (I-DESIGN-DISPATCH §2b).
 	actMintRepoCredential   = "MintRepoCredentialActivity" // #nosec G101 -- Temporal activity NAME constant, not a credential
@@ -592,6 +599,13 @@ func (wf *workflows) CoAuthorArtifactWorkflow(ctx workflow.Context, in coAuthorI
 		state.stage = StageAwaitingReview
 		// A fresh AwaitingReview supersedes any prior approve-fault notice (QA F35).
 		state.failureReason = ""
+		// REVIEW LEDGER: refresh the durable thread from the branch the draft was staged on so
+		// the sessionState Query surfaces the live comments (with the drafting agent's responses,
+		// normalized on the stage) and the approve gate can block while any comment is open.
+		// Best-effort — a transient read miss keeps the last-known thread.
+		if thread, terr := wf.loadReviewThread(ctx, in, gf); terr == nil {
+			state.reviewThread = thread
+		}
 
 		// Step 6/7: the review gate. Await a decision and act on it. An approve/merge-window
 		// fault is CONTAINED as actionReAwait (QA F35): the staged draft is intact, so we
@@ -600,8 +614,29 @@ func (wf *workflows) CoAuthorArtifactWorkflow(ctx workflow.Context, in coAuthorI
 		// (reject → break to the outer loop which redrafts; withdraw → return).
 	gate:
 		for {
+			// REVIEW LEDGER: the gate now multiplexes the review decision with the
+			// SetReviewCommentStatus signal (waive / reopen). A status signal mutates the
+			// durable ledger on the branch and re-suspends at THIS gate WITHOUT redrafting; a
+			// review decision proceeds exactly as before.
 			var sig reviewDecisionSignal
-			workflow.GetSignalChannel(ctx, signalReviewDecision).Receive(ctx, &sig)
+			var stSig setCommentStatusSignal
+			var gotDecision, gotStatus bool
+			sel := workflow.NewSelector(ctx)
+			sel.AddReceive(workflow.GetSignalChannel(ctx, signalReviewDecision), func(c workflow.ReceiveChannel, _ bool) {
+				c.Receive(ctx, &sig)
+				gotDecision = true
+			})
+			sel.AddReceive(workflow.GetSignalChannel(ctx, signalSetCommentStatus), func(c workflow.ReceiveChannel, _ bool) {
+				c.Receive(ctx, &stSig)
+				gotStatus = true
+			})
+			sel.Select(ctx)
+
+			if gotStatus {
+				wf.applyCommentStatus(ctx, in, gf, &headVersion, stSig, state)
+				continue gate
+			}
+			_ = gotDecision
 
 			decision := wf.handleReviewDecision(ctx, in, sig, &headVersion, &branchAttempt, &redraftCount, &feedback, &gf, state)
 			switch decision.action {
@@ -716,7 +751,9 @@ func (wf *workflows) runDraftRoundTrip(
 		return draft, gf, 0, stepErr(gerr)
 	}
 
-	draftPrompt := architectDraftPrompt(toPSKind(in.ArtifactKind), proj, *feedback)
+	// REVIEW LEDGER: on a redraft, state.reviewThread carries the durable open comments
+	// (reloaded after the reject-append); the prompt lists each for the agent to respond to.
+	draftPrompt := architectDraftPrompt(toPSKind(in.ArtifactKind), proj, *feedback, state.reviewThread)
 	draftObs, derr := wf.dispatchAndObserve(ctx, dispatchDesignJobArgs{
 		ProjectID:     in.ProjectID,
 		ArtifactKind:  in.ArtifactKind,
@@ -980,6 +1017,14 @@ func (wf *workflows) handleReviewDecision(
 ) coAuthorStep {
 	switch sig.Decision {
 	case ReviewApprove:
+		// REVIEW LEDGER (review-ledger §4): approve is blocked while any comment is still open.
+		// The manager's SetReviewCommentStatus/approve precondition rejects this synchronously,
+		// but this workflow-side guard is the TOCTOU-safe backstop (a comment could be reopened
+		// between the manager's query and the signal). Re-suspend at the gate; the reviewer sees
+		// the open comments in the queryable thread and waives or redrafts.
+		if open := openReviewCommentIDs(state.reviewThread); len(open) > 0 {
+			return stepReAwait()
+		}
 		return wf.commitOnApprove(ctx, in, headVersion, branchAttempt, redraftCount, feedback, gf, state)
 
 	case ReviewReject:
@@ -995,6 +1040,11 @@ func (wf *workflows) handleReviewDecision(
 			var v projectstate.Version
 			e := workflow.ExecuteActivity(c, wf.RejectArtifactActivity, mutateArtifactArgs{
 				ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, Kind: toPSKind(in.ArtifactKind), Notes: rejectFeedback.Notes,
+				// REVIEW LEDGER (review-ledger §2): fold the reviewer's anchored comments into the
+				// reject as durable, server-minted ledger entries, round-stamped by the per-reject
+				// branch attempt (a distinct, replay-stable counter → deterministic, non-colliding
+				// ids). Empty ⇒ a plain reject.
+				Round: int64(*branchAttempt), Comments: feedbackToLedgerComments(rejectFeedback),
 				// Branch-aware Reject (I-DESIGN-DISPATCH §2a): record the Rejected status on the
 				// SESSION BRANCH the draft was staged on — where the staged model exists and the
 				// session-branch version (headVersion) matches. In the PR rail main is untouched
@@ -1018,6 +1068,13 @@ func (wf *workflows) handleReviewDecision(
 			return wf.recoverAtFailedGate(ctx, in, *headVersion, rejectFailedReason(err), "", state, feedback, redraftCount, branchAttempt)
 		}
 		*headVersion = newVersion
+		// REVIEW LEDGER: reload the thread from the branch the reject just wrote (before the
+		// attempt bump) so it carries the freshly-appended OPEN comments — the redraft prompt
+		// lists them for the drafting agent to respond to. Best-effort: a miss keeps the prior
+		// thread (the comments are still durable on the branch either way).
+		if thread, terr := wf.loadReviewThread(ctx, in, *gf); terr == nil {
+			state.reviewThread = thread
+		}
 		// A fresh REJECT needs a NEW session branch + PR next attempt (the rejected PR
 		// cannot be reused). Bump the branch attempt (§2b "sessionBranch"); inert when the
 		// rail is dormant.
@@ -1258,6 +1315,11 @@ type coAuthorState struct {
 	// converge within maxRedraftAttempts; surfaced at the human gate as a WARNING
 	// finding so the architect makes the final call (warnings don't block Approve).
 	unresolvedCritique string
+	// reviewThread is the durable review ledger for this artifact (review-ledger feature),
+	// refreshed from the session branch after every (re)stage and after every waive/reopen
+	// so the sessionState Query surfaces the live thread and the approve gate can block
+	// while any comment is still open. Nil until the first read-back that carries comments.
+	reviewThread []projectstate.ReviewComment
 }
 
 func (s *coAuthorState) view() (SessionStateView, error) {
@@ -1281,6 +1343,7 @@ func (s *coAuthorState) view() (SessionStateView, error) {
 		Findings:      findings,
 		FailureReason: strPtrOrNil(s.failureReason),
 		FailureRunURL: strPtrOrNil(s.failureRunURL),
+		ReviewThread:  reviewThreadToView(s.reviewThread),
 	}, nil
 }
 

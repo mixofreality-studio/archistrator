@@ -30,6 +30,15 @@ type slotJSON struct {
 	// keeps the on-disk shape byte-identical for every slot a critique never touched.
 	CritiqueVerdict string `json:"critiqueVerdict,omitempty"`
 	CritiqueNotes   string `json:"critiqueNotes,omitempty"`
+	// ReviewThread is the DURABLE review ledger for this slot (the review-ledger
+	// feature, founder-ratified 2026-07-05): the ordered, server-minted, round-stamped
+	// per-comment record that replaces the ephemeral client-only comment model. Unlike
+	// the CritiqueVerdict/CritiqueNotes carrier (cleared on every stage / status
+	// transition), the thread is DURABLE — it accumulates across redraft rounds and
+	// survives Stage/Reject/Withdraw so a reviewer always sees the full comment history
+	// (and each comment's response/status). omitempty keeps the on-disk shape
+	// byte-identical for every slot the ledger never touched.
+	ReviewThread []ReviewComment `json:"reviewThread,omitempty"`
 }
 
 // slotEntry pairs a named-slot accessor with the kind that selects it. The
@@ -91,6 +100,7 @@ func encodeSlotsMap(p *Project) (map[string]slotJSON, error) {
 			Kind:            int(e.kind),
 			CritiqueVerdict: slot.CritiqueVerdict,
 			CritiqueNotes:   slot.CritiqueNotes,
+			ReviewThread:    slot.ReviewThread,
 		}
 		if slot.Model != nil {
 			mb, err := json.Marshal(slot.Model)
@@ -116,6 +126,7 @@ func decodeSlotsMap(w map[string]slotJSON, p *Project) error {
 		slot.Notes = entry.Notes
 		slot.CritiqueVerdict = entry.CritiqueVerdict
 		slot.CritiqueNotes = entry.CritiqueNotes
+		slot.ReviewThread = entry.ReviewThread
 		if len(entry.Model) > 0 {
 			model, ok := NewModelForKind(kind)
 			if !ok {

@@ -250,6 +250,13 @@ func (s *GitStore) stageArtifactForReviewOnBranch(ctx context.Context, projectID
 		// A fresh stage supersedes any prior-round critique read-back on this slot.
 		slot.CritiqueVerdict = ""
 		slot.CritiqueNotes = ""
+		// DURABLE REVIEW LEDGER (review-ledger §3): the ReviewThread is NOT cleared on a
+		// (re)stage — unlike the critique carrier it accumulates across redraft rounds. On a
+		// redraft the drafting agent commits per-comment responses (+ a proposed status) into
+		// the thread on this branch; reconcile every non-waived entry's effective status from
+		// its response so the reviewer sees the truth the server decides, not the status the
+		// agent proposed. A no-op on the first stage (empty thread).
+		slot.ReviewThread = normalizeReviewThread(slot.ReviewThread)
 		return nil
 	})
 }
@@ -294,6 +301,61 @@ func (s *GitStore) WithdrawArtifactOnBranch(ctx context.Context, projectID Proje
 
 func (s *GitStore) withdrawArtifactOnBranch(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	return s.applyMutationOnBranch(ctx, "WithdrawArtifact", projectID, expectedVersion, branch, cred, idempotencyKey, modeUpsert, statusTransition("WithdrawArtifact", kind, ReviewWithdrawn, notes))
+}
+
+// ---------------------------------------------------------------------------
+// Review-ledger verbs (review-ledger feature, founder-ratified 2026-07-05).
+// The durable comment ledger lives on the ArtifactSlot; these verbs mutate it on the
+// session branch during the AwaitingReview window (same substrate routing as Reject),
+// with the branch=="" main-path fallback every existing verb preserves.
+// ---------------------------------------------------------------------------
+
+// RejectArtifactOnBranchWithComments is the review-ledger extension of RejectArtifactOnBranch:
+// it records the architect's Reject AND appends the reviewer's comments to the slot's durable
+// ReviewThread in ONE atomic commit (review-ledger §2). Folding the status flip and the
+// ledger append into a single mutation makes the reject crash-safe (no partial state) and
+// idempotent under Temporal retry (the deterministic per-(round,index) ids dedup — see
+// appendReviewComments). Each comment supplies Anchor / AnchorText / Text / AuthorRole; the
+// id / round / open status are server-minted here. branch=="" behaves exactly as the main-path
+// reject (the dormant-rail fallback), still appending the comments.
+func (s *GitStore) RejectArtifactOnBranchWithComments(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, round int64, comments []ReviewComment, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	return s.applyMutationOnBranch(ctx, "RejectArtifact", projectID, expectedVersion, branch, cred, idempotencyKey, modeUpsert, func(p *Project) error {
+		if err := statusTransition("RejectArtifact", kind, ReviewRejected, notes)(p); err != nil {
+			return err
+		}
+		slot, ok := slotPtr(p, kind)
+		if !ok {
+			return fwra.New(fwra.ContractMisuse, fmt.Sprintf("projectstate.RejectArtifact: unknown kind %s", kind))
+		}
+		slot.ReviewThread = appendReviewComments(slot.ReviewThread, round, comments)
+		return nil
+	})
+}
+
+// SetReviewCommentStatusOnBranch applies a HUMAN status transition (open->waived to dismiss,
+// addressed->open to reopen) to a single ledger entry on the session branch during the
+// AwaitingReview window (review-ledger §4). The transition legality + reopen-clears-response
+// rule live in applyReviewCommentStatus (reviewthread.go). branch=="" behaves exactly as the
+// main path. An unknown id surfaces NotFound; an illegal transition surfaces ContractMisuse.
+func (s *GitStore) SetReviewCommentStatusOnBranch(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, commentID string, status string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	if !validReviewCommentStatus(status) {
+		return 0, fwra.New(fwra.ContractMisuse, fmt.Sprintf("projectstate.SetReviewCommentStatus: unknown status %q", status))
+	}
+	return s.applyMutationOnBranch(ctx, "SetReviewCommentStatus", projectID, expectedVersion, branch, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
+		slot, ok := slotPtr(p, kind)
+		if !ok {
+			return fwra.New(fwra.ContractMisuse, fmt.Sprintf("projectstate.SetReviewCommentStatus: unknown kind %s", kind))
+		}
+		if slot.Status == ReviewNone || slot.Model == nil {
+			return fwra.New(fwra.ContractMisuse, fmt.Sprintf("projectstate.SetReviewCommentStatus: slot %s is unpopulated", kind))
+		}
+		updated, err := applyReviewCommentStatus(slot.ReviewThread, commentID, status)
+		if err != nil {
+			return err
+		}
+		slot.ReviewThread = updated
+		return nil
+	})
 }
 
 func (s *GitStore) AdvancePhase(ctx context.Context, projectID ProjectID, expectedVersion Version, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
