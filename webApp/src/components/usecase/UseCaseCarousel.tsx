@@ -44,7 +44,7 @@ export function UseCaseCarousel({
   envelope: ArtifactModelEnvelope | undefined;
 }): ReactNode {
   const t = useTokens();
-  const { setAnchor } = useComments();
+  const { setAnchor, enabled } = useComments();
   const [i, setI] = useState(0);
   const [mode, setMode] = useState<UcViewMode>(viewMemory.mode);
   const useCases = toCoreUseCasesView(envelope).useCases;
@@ -113,29 +113,31 @@ export function UseCaseCarousel({
         >
           <ChevronRightIcon fontSize="small" />
         </IconButton>
-        <IconButton
-          aria-label={`Comment on use case ${uc.name}`}
-          data-testid={UI_IDENTIFIERS.Comments.USECASE_COMMENT}
-          size="small"
-          sx={{
-            border: `1.5px solid ${t.line}`,
-            borderRadius: 1,
-            color: t.accentText,
-            bgcolor: t.accent,
-            flexShrink: 0,
-            '&:hover': { bgcolor: t.accent2 },
-          }}
-          onClick={() => {
-            setAnchor({
-              kind: 'node',
-              label: uc.name,
-              source: `${uc.name} · use case`,
-              jsonPath: buildUseCaseAnchor(active),
-            });
-          }}
-        >
-          <ChatBubbleOutlineIcon fontSize="small" />
-        </IconButton>
+        {enabled ? (
+          <IconButton
+            aria-label={`Comment on use case ${uc.name}`}
+            data-testid={UI_IDENTIFIERS.Comments.USECASE_COMMENT}
+            size="small"
+            sx={{
+              border: `1.5px solid ${t.line}`,
+              borderRadius: 1,
+              color: t.accentText,
+              bgcolor: t.accent,
+              flexShrink: 0,
+              '&:hover': { bgcolor: t.accent2 },
+            }}
+            onClick={() => {
+              setAnchor({
+                kind: 'node',
+                label: uc.name,
+                source: `${uc.name} · use case`,
+                jsonPath: buildUseCaseAnchor(active),
+              });
+            }}
+          >
+            <ChatBubbleOutlineIcon fontSize="small" />
+          </IconButton>
+        ) : null}
       </Box>
 
       <Paper

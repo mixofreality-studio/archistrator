@@ -329,7 +329,7 @@ export function DynamicViewFlow({
   /** Optional per-step comment handler: enables a Comment button in the caption bar
    *  that arms an anchor for the current call (system-design use only; omitted for
    *  the read-only test-scenario views). */
-  onCommentStep?: (edge: SequencedRelationship) => void;
+  onCommentStep?: ((edge: SequencedRelationship) => void) | undefined;
 }): ReactNode {
   const t = useTokens();
   const [stepIndex, setStepIndex] = useState(0);

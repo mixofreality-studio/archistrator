@@ -22,29 +22,31 @@ export interface C4NodeData {
 
 export function C4Node({ data, selected }: NodeProps): ReactNode {
   const t = useTokens();
-  const { setAnchor } = useComments();
+  const { setAnchor, enabled } = useComments();
   const d = data as C4NodeData;
   return (
     <>
       <Handle id="t" position={Position.Top} style={{ opacity: 0 }} type="target" />
       <Handle id="tl" position={Position.Left} style={{ opacity: 0 }} type="target" />
-      <NodeToolbar isVisible={selected} offset={6} position={Position.Top}>
-        <Button
-          size="small"
-          startIcon={<ChatBubbleOutlineIcon sx={{ fontSize: 14 }} />}
-          sx={{ py: 0.25, color: t.accentText, bgcolor: t.accent, border: `1.5px solid ${t.line}`, '&:hover': { bgcolor: t.accent2 } }}
-          onClick={() => {
-            setAnchor({
-              kind: 'node',
-              label: d.name,
-              source: 'Architecture · C4',
-              jsonPath: componentAnchor(d.componentId),
-            });
-          }}
-        >
-          Comment
-        </Button>
-      </NodeToolbar>
+      {enabled ? (
+        <NodeToolbar isVisible={selected} offset={6} position={Position.Top}>
+          <Button
+            size="small"
+            startIcon={<ChatBubbleOutlineIcon sx={{ fontSize: 14 }} />}
+            sx={{ py: 0.25, color: t.accentText, bgcolor: t.accent, border: `1.5px solid ${t.line}`, '&:hover': { bgcolor: t.accent2 } }}
+            onClick={() => {
+              setAnchor({
+                kind: 'node',
+                label: d.name,
+                source: 'Architecture · C4',
+                jsonPath: componentAnchor(d.componentId),
+              });
+            }}
+          >
+            Comment
+          </Button>
+        </NodeToolbar>
+      ) : null}
       <Box
         sx={{
           width: 188,

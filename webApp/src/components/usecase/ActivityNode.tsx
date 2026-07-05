@@ -181,7 +181,7 @@ function Note(t: Tokens, d: ActivityNodeData, selected: boolean): ReactNode {
 
 export function ActivityNode({ data, selected }: NodeProps): ReactNode {
   const t = useTokens();
-  const { setAnchor } = useComments();
+  const { setAnchor, enabled } = useComments();
   const d = data as ActivityNodeData;
 
   let shape: ReactNode;
@@ -218,18 +218,20 @@ export function ActivityNode({ data, selected }: NodeProps): ReactNode {
 
   return (
     <>
-      <NodeToolbar isVisible={selected} offset={8} position={Position.Right}>
-        <Button
-          size="small"
-          startIcon={<ChatBubbleOutlineIcon sx={{ fontSize: 14 }} />}
-          sx={{ py: 0.25, color: t.accentText, bgcolor: t.accent, border: `1.5px solid ${t.line}`, '&:hover': { bgcolor: t.accent2 } }}
-          onClick={() => {
-            setAnchor({ kind: 'node', label: d.label, source: d.source, jsonPath: d.jsonPath });
-          }}
-        >
-          Comment
-        </Button>
-      </NodeToolbar>
+      {enabled ? (
+        <NodeToolbar isVisible={selected} offset={8} position={Position.Right}>
+          <Button
+            size="small"
+            startIcon={<ChatBubbleOutlineIcon sx={{ fontSize: 14 }} />}
+            sx={{ py: 0.25, color: t.accentText, bgcolor: t.accent, border: `1.5px solid ${t.line}`, '&:hover': { bgcolor: t.accent2 } }}
+            onClick={() => {
+              setAnchor({ kind: 'node', label: d.label, source: d.source, jsonPath: d.jsonPath });
+            }}
+          >
+            Comment
+          </Button>
+        </NodeToolbar>
+      ) : null}
       <Handles />
       {shape}
     </>

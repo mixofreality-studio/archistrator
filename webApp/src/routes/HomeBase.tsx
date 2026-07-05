@@ -25,7 +25,6 @@ import { ArtifactPane } from '../components/ArtifactPane';
 import { StageChip } from '../components/StageChip';
 import { ErrorAlert } from '../components/shared/ErrorAlert';
 import { CommentProvider } from '../components/comments/CommentContext';
-import { SelectionPopover } from '../components/comments/SelectionPopover';
 import { ApiError } from '../contracts/errors';
 import { useProject } from '../hooks/useProject';
 import { useCreateProject } from '../hooks/useCreateProject';
@@ -387,11 +386,15 @@ function HomeBaseBody({
               )}
               {/* The system-design artifacts render via the shared ArtifactRenderer.
                   The Architecture ('system') section is enriched with the component
-                  service contracts once they exist (serviceContracts threaded in). */}
-              <CommentProvider>
-                {/* Selection-commenting works on the committed-artifact browser
-                    too: highlight prose (mouse or keyboard) to arm a quote anchor. */}
-                <SelectionPopover />
+                  service contracts once they exist (serviceContracts threaded in).
+
+                  This home base is a READ-ONLY rendering: commenting lives ONLY in
+                  the design / construction review experiences. The provider is
+                  mounted disabled so the shared artifact views (which read the
+                  CommentContext) render zero comment affordances here — no header
+                  comment icons, no per-row hover buttons, no selection popover, no
+                  test probe, no extra tab stops. */}
+              <CommentProvider enabled={false}>
                 <ArtifactPane
                   artifact={selected}
                   envelope={selectedEnvelope}

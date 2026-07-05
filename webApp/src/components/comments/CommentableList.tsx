@@ -53,7 +53,7 @@ export function CommentableList<T>({
   gap?: number;
 }): ReactNode {
   const t = useTokens();
-  const { setAnchor } = useComments();
+  const { setAnchor, enabled } = useComments();
   const [focused, setFocused] = useState(0);
   const rowRefs = useRef<(HTMLDivElement | null)[]>([]);
 
@@ -101,6 +101,22 @@ export function CommentableList<T>({
     },
     [arm, items.length, moveTo]
   );
+
+  // Read-only surface (no active commenting context): render the item bodies as a
+  // plain, inert column — NO listbox/option roles, NO roving tabindex or tab stops,
+  // NO per-row comment button, NO hover chrome. Zero comment affordance, zero
+  // orphaned ARIA, zero focusable ghosts.
+  if (!enabled) {
+    return (
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap }}>
+        {items.map((item, index) => (
+          <Box key={getKey(item, index)} sx={{ px: 1, py: 0.75 }}>
+            {renderItem(item, index)}
+          </Box>
+        ))}
+      </Box>
+    );
+  }
 
   return (
     <Box

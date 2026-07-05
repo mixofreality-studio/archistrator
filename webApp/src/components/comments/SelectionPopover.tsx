@@ -34,7 +34,7 @@ interface Pending {
 
 export function SelectionPopover(): ReactNode {
   const t = useTokens();
-  const { setAnchor } = useComments();
+  const { setAnchor, enabled } = useComments();
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
   const [pending, setPending] = useState<Pending | null>(null);
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -105,6 +105,9 @@ export function SelectionPopover(): ReactNode {
   }, [clear]);
 
   useEffect(() => {
+    // Read-only surface: attach no selection listeners at all, so highlighting
+    // prose never floats a Comment button.
+    if (!enabled) return;
     // Mouse: settle immediately on release for a snappy drag-select.
     const onUp = (): void => {
       evaluate();
@@ -130,9 +133,9 @@ export function SelectionPopover(): ReactNode {
       document.removeEventListener('keydown', onKeyDown);
       if (debounce.current !== null) clearTimeout(debounce.current);
     };
-  }, [evaluate, clear]);
+  }, [evaluate, clear, enabled]);
 
-  if (pos === null || pending === null) return null;
+  if (!enabled || pos === null || pending === null) return null;
 
   const label = pending.text.length > 60 ? `${pending.text.slice(0, 60)}…` : pending.text;
 

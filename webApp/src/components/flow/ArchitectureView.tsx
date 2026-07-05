@@ -60,7 +60,7 @@ export function ArchitectureView({
   serviceContracts?: ServiceContracts;
 }): ReactNode {
   const t = useTokens();
-  const { setAnchor } = useComments();
+  const { setAnchor, enabled } = useComments();
   const c4 = useMemo(() => toC4View(envelope), [envelope]);
   const dynamicViews = useMemo(() => listDynamicViews(envelope), [envelope]);
 
@@ -207,17 +207,21 @@ export function ArchitectureView({
           dv={dynamicModel}
           height={height}
           resetKey={activeDynamicKey}
-          onCommentStep={(edge) => {
-            const nameOf = new Map(dynamicModel.participants.map((c) => [c.id, c.name]));
-            const from = nameOf.get(edge.from) ?? edge.from;
-            const to = nameOf.get(edge.to) ?? edge.to;
-            setAnchor({
-              kind: 'node',
-              label: `${String(edge.seq)}. ${edge.label} (${from} → ${to})`,
-              source: `${dynamicModel.title} · step`,
-              jsonPath: dynamicEdgeAnchor(activeDynamicKey, edge.seq),
-            });
-          }}
+          onCommentStep={
+            enabled
+              ? (edge): void => {
+                  const nameOf = new Map(dynamicModel.participants.map((c) => [c.id, c.name]));
+                  const from = nameOf.get(edge.from) ?? edge.from;
+                  const to = nameOf.get(edge.to) ?? edge.to;
+                  setAnchor({
+                    kind: 'node',
+                    label: `${String(edge.seq)}. ${edge.label} (${from} → ${to})`,
+                    source: `${dynamicModel.title} · step`,
+                    jsonPath: dynamicEdgeAnchor(activeDynamicKey, edge.seq),
+                  });
+                }
+              : undefined
+          }
         />
       )}
       {mode === 'perspective' && (

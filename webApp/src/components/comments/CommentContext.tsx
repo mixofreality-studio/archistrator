@@ -60,6 +60,14 @@ export interface PostedComment {
 }
 
 interface CommentCtx {
+  /**
+   * Whether commenting is active in this context. `true` inside the design /
+   * construction review experiences; `false` for read-only renderings (the home
+   * base). When `false`, `setAnchor` is a no-op, no test probe is emitted, and
+   * every comment affordance renders nothing — so a read-only surface shows zero
+   * comment UI (no icons, no hover chrome, no selection popover, no tab stops).
+   */
+  enabled: boolean;
   /** Entries accumulated this gate cycle (anchored + free-form), oldest first. */
   comments: PostedComment[];
   /** The currently-armed selection (drives the chat composer affordance). */
@@ -92,15 +100,28 @@ export function useComments(): CommentCtx {
   return c;
 }
 
-export function CommentProvider({ children }: { children: ReactNode }): ReactNode {
+export function CommentProvider({
+  children,
+  enabled = true,
+}: {
+  children: ReactNode;
+  /** Defaults to active; pass `false` on read-only surfaces to suppress ALL comment UI. */
+  enabled?: boolean;
+}): ReactNode {
   const [comments, setComments] = useState<PostedComment[]>([]);
   const [armedAnchor, setArmedAnchor] = useState<Anchor | null>(null);
   const [requestId, setRequestId] = useState(0);
 
-  const setAnchor = useCallback((a: Anchor | null): void => {
-    setArmedAnchor(a);
-    if (a !== null) setRequestId((n) => n + 1);
-  }, []);
+  const setAnchor = useCallback(
+    (a: Anchor | null): void => {
+      // Read-only surface: nothing may arm an anchor (belt-and-suspenders with the
+      // affordances that don't render when disabled, e.g. a silent node-click arm).
+      if (!enabled) return;
+      setArmedAnchor(a);
+      if (a !== null) setRequestId((n) => n + 1);
+    },
+    [enabled]
+  );
 
   const post = useCallback(
     (text: string): void => {
@@ -146,6 +167,7 @@ export function CommentProvider({ children }: { children: ReactNode }): ReactNod
 
   const value = useMemo<CommentCtx>(
     () => ({
+      enabled,
       comments,
       anchor: armedAnchor,
       setAnchor,
@@ -156,7 +178,18 @@ export function CommentProvider({ children }: { children: ReactNode }): ReactNod
       freeformNotes,
       requestId,
     }),
-    [comments, armedAnchor, setAnchor, post, remove, reset, toWire, freeformNotes, requestId]
+    [
+      enabled,
+      comments,
+      armedAnchor,
+      setAnchor,
+      post,
+      remove,
+      reset,
+      toWire,
+      freeformNotes,
+      requestId,
+    ]
   );
 
   return (
@@ -165,14 +198,18 @@ export function CommentProvider({ children }: { children: ReactNode }): ReactNod
           uitests (and headless smokes) can assert that ANY commentable surface —
           diagram edge/node, sequence step, deployment node, use case, or a text
           selection — armed its anchor, without depending on the ChatRail (which
-          needs a live co-author session). Empty attributes when nothing is armed. */}
-      <span
-        data-anchor-label={armedAnchor?.label ?? ''}
-        data-anchor-path={armedAnchor?.jsonPath ?? ''}
-        data-anchor-source={armedAnchor?.source ?? ''}
-        data-testid={UI_IDENTIFIERS.Comments.ARMED_ANCHOR}
-        style={{ display: 'none' }}
-      />
+          needs a live co-author session). Empty attributes when nothing is armed.
+          Suppressed entirely on read-only surfaces (enabled === false) so the DOM
+          carries no comment-probe span there. */}
+      {enabled ? (
+        <span
+          data-anchor-label={armedAnchor?.label ?? ''}
+          data-anchor-path={armedAnchor?.jsonPath ?? ''}
+          data-anchor-source={armedAnchor?.source ?? ''}
+          data-testid={UI_IDENTIFIERS.Comments.ARMED_ANCHOR}
+          style={{ display: 'none' }}
+        />
+      ) : null}
       {children}
     </Ctx.Provider>
   );

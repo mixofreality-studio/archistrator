@@ -38,7 +38,7 @@ export function VolatilityMap({
   envelope: ArtifactModelEnvelope | undefined;
 }): ReactNode {
   const t = useTokens();
-  const { setAnchor } = useComments();
+  const { setAnchor, enabled } = useComments();
   const [sel, setSel] = useState<number | null>(null);
   const points = toVolatilityView(envelope).points;
   const selected = sel !== null ? points[sel] : undefined;
@@ -90,14 +90,18 @@ export function VolatilityMap({
             <SelectionCard
               t={t}
               v={selected}
-              onComment={() => {
-                setAnchor({
-                  kind: 'node',
-                  label: selected.name,
-                  source: 'Volatilities · axis lanes',
-                  jsonPath: volatilityAnchor(sel),
-                });
-              }}
+              onComment={
+                enabled
+                  ? (): void => {
+                      setAnchor({
+                        kind: 'node',
+                        label: selected.name,
+                        source: 'Volatilities · axis lanes',
+                        jsonPath: volatilityAnchor(sel),
+                      });
+                    }
+                  : undefined
+              }
             />
           ) : (
             <Typography sx={{ color: t.muted, fontSize: 13.5, lineHeight: 1.6 }}>
@@ -217,7 +221,8 @@ function SelectionCard({
 }: {
   v: VolatilityPoint;
   t: Tokens;
-  onComment: () => void;
+  /** Present only when commenting is active; omit on read-only surfaces. */
+  onComment?: (() => void) | undefined;
 }): ReactNode {
   const axisText =
     v.axis === 'sameCustomerOverTime' ? 'Axis 1 — over time' : 'Axis 2 — across customers';
@@ -237,18 +242,20 @@ function SelectionCard({
       <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: axisColor(t, v.axis), mb: 1 }}>
         {axisText}
       </Typography>
-      <Typography sx={{ color: t.muted, fontSize: 13.5, lineHeight: 1.6, mb: 2 }}>
+      <Typography sx={{ color: t.muted, fontSize: 13.5, lineHeight: 1.6, mb: onComment ? 2 : 0 }}>
         {v.rationale}
       </Typography>
-      <Button
-        size="small"
-        startIcon={<ChatBubbleOutlineIcon sx={{ fontSize: 14 }} />}
-        sx={{ color: t.ink, borderColor: t.line }}
-        variant="outlined"
-        onClick={onComment}
-      >
-        Comment on this
-      </Button>
+      {onComment !== undefined ? (
+        <Button
+          size="small"
+          startIcon={<ChatBubbleOutlineIcon sx={{ fontSize: 14 }} />}
+          sx={{ color: t.ink, borderColor: t.line }}
+          variant="outlined"
+          onClick={onComment}
+        >
+          Comment on this
+        </Button>
+      ) : null}
     </Box>
   );
 }
