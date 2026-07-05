@@ -9818,6 +9818,33 @@
             "error": true
           },
           {
+            "name": "SetOperatingModel",
+            "params": [
+              {
+                "name": "projectID",
+                "schema": {
+                  "$ref": "#/$defs/ProjectID"
+                }
+              },
+              {
+                "name": "expectedVersion",
+                "schema": {
+                  "$ref": "#/$defs/Version"
+                }
+              },
+              {
+                "name": "model",
+                "schema": {
+                  "x-go-type": "OperatingModel"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/Version"
+            },
+            "error": true
+          },
+          {
             "name": "SetResearchInput",
             "params": [
               {
@@ -11375,6 +11402,9 @@
             "Version": {
               "type": "integer"
             },
+            "operatingModel": {
+              "$ref": "#/$defs/OperatingModel"
+            },
             "Research": {
               "$ref": "#/$defs/ResearchInput"
             },
@@ -11428,7 +11458,8 @@
             "Slots",
             "GitRows",
             "ActivityConstruction",
-            "ServiceContracts"
+            "ServiceContracts",
+            "operatingModel"
           ],
           "additionalProperties": false
         },
@@ -12061,6 +12092,9 @@
             "scenarios"
           ],
           "additionalProperties": false
+        },
+        "OperatingModel": {
+          "type": "string"
         }
       },
       "interface": {
@@ -12182,6 +12216,27 @@
             ],
             "result": {
               "$ref": "#/$defs/SessionRef"
+            },
+            "error": true
+          },
+          {
+            "name": "SetOperatingModel",
+            "params": [
+              {
+                "name": "projectID",
+                "schema": {
+                  "$ref": "#/$defs/ProjectID"
+                }
+              },
+              {
+                "name": "model",
+                "schema": {
+                  "$ref": "#/$defs/OperatingModel"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/Version"
             },
             "error": true
           },

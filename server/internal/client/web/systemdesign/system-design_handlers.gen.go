@@ -28,6 +28,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/system-design/get-session-state/{projectID}", h.handleGetSessionState)
 	mux.HandleFunc("GET /api/v1/system-design/list-projects", h.handleListProjects)
 	mux.HandleFunc("POST /api/v1/system-design/request-artifact-draft/{projectID}", h.handleRequestArtifactDraft)
+	mux.HandleFunc("POST /api/v1/system-design/set-operating-model/{projectID}", h.handleSetOperatingModel)
 	mux.HandleFunc("POST /api/v1/system-design/set-research-input/{projectID}", h.handleSetResearchInput)
 	mux.HandleFunc("POST /api/v1/system-design/set-review-comment-status/{projectID}", h.handleSetReviewCommentStatus)
 	mux.HandleFunc("POST /api/v1/system-design/start-system-design/{projectID}", h.handleStartSystemDesign)
@@ -42,6 +43,10 @@ type createProjectRequest struct {
 type requestArtifactDraftRequest struct {
 	Kind     mgr.ArtifactKind    `json:"kind"`
 	Feedback *mgr.ReviewFeedback `json:"feedback"`
+}
+
+type setOperatingModelRequest struct {
+	Model mgr.OperatingModel `json:"model"`
 }
 
 type setResearchInputRequest struct {
@@ -210,6 +215,34 @@ func (h *Handler) handleRequestArtifactDraft(w http.ResponseWriter, r *http.Requ
 	}
 	rc := fwmanager.Context{Context: r.Context(), Principal: principal}
 	result, err := h.Manager.RequestArtifactDraft(rc, projectID, req.Kind, req.Feedback)
+	if err != nil {
+		writeManagerError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+// handleSetOperatingModel binds POST /api/v1/system-design/set-operating-model/{projectID} -> mgr.SetOperatingModel.
+func (h *Handler) handleSetOperatingModel(w http.ResponseWriter, r *http.Request) {
+	projectID := mgr.ProjectID(r.PathValue("projectID"))
+	var req setOperatingModelRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	principal, ok := security.PrincipalFrom(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthenticated", "authentication required")
+		return
+	}
+	decision, err := h.Security.Authorize(r.Context(), principal,
+		security.Action{Verb: "set-operating-model"},
+		security.ResourceRef{Kind: "project", ID: string(projectID)})
+	if err != nil || !decision.Permit {
+		writeError(w, http.StatusForbidden, "forbidden", "not permitted")
+		return
+	}
+	rc := fwmanager.Context{Context: r.Context(), Principal: principal}
+	result, err := h.Manager.SetOperatingModel(rc, projectID, req.Model)
 	if err != nil {
 		writeManagerError(w, err)
 		return

@@ -93,6 +93,48 @@ func (m *systemDesignManager) CreateProject(rc fwm.Context, owner OwnerScope, na
 	return projectID, nil
 }
 
+// SetOperatingModel records the project-level WHO-OPERATES choice (founder ruling
+// 2026-07-05). SYNCHRONOUS, non-Temporal, mirroring SetResearchInput: a single
+// idempotent head-state write via projectStateAccess.SetOperatingModel with a bounded
+// sync optimistic-concurrency loop (re-read the head Version, re-apply on Conflict). The
+// UI/MCP calls it at creation — after CreateProject, before StartSystemDesign — to pick
+// self-operated (the default the project is born with) or archistrator-operated (which
+// constrains the deployment design to the platform palette). Returns the head Version.
+func (m *systemDesignManager) SetOperatingModel(rc fwm.Context, projectID ProjectID, model OperatingModel) (Version, error) {
+	ctx := rc.Context
+	if projectID == "" {
+		return 0, newError(fwm.ContractMisuse, "empty projectId")
+	}
+	psModel := projectstate.OperatingModel(string(model))
+	if !psModel.Valid() {
+		return 0, newError(fwm.ContractMisuse, fmt.Sprintf("unknown operating model %q", string(model)))
+	}
+
+	key := fwra.IdempotencyKey(fmt.Sprintf("%s:setOperatingModel:%s", projectID, model))
+	psID := projectstate.ProjectID(projectID)
+
+	var lastErr error
+	for attempt := 0; attempt < setOperatingModelMaxAttempts; attempt++ {
+		proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, psID)
+		if err != nil {
+			return 0, mapRAError(err, "projectStateAccess.ReadProject")
+		}
+		newVersion, err := m.projectState.SetOperatingModel(fwra.Context{Context: ctx, IdempotencyKey: key}, psID, proj.Version, psModel)
+		if err == nil {
+			return Version(newVersion), nil
+		}
+		if isRAConflict(err) {
+			lastErr = err
+			continue // re-read head Version, re-apply (same idempotencyKey)
+		}
+		return 0, mapRAError(err, "projectStateAccess.SetOperatingModel")
+	}
+	return 0, fwm.Wrap(fwm.Infrastructure, lastErr, "projectStateAccess.SetOperatingModel: exhausted conflict retries")
+}
+
+// setOperatingModelMaxAttempts bounds the sync-path re-read/re-apply loop.
+const setOperatingModelMaxAttempts = 5
+
 // createProjectIdempotencyKey derives the stable logical idempotency key for "create
 // this project". The project id IS the user-supplied repo name and unique per
 // project, so it is itself the natural dedup token.
@@ -301,11 +343,14 @@ func summaryToContract(s projectstate.ProjectSummary) ProjectSummary {
 // m.estimator) are sourced server-side here rather than re-derived by the webClient.
 func (m *systemDesignManager) projectStateToContract(p projectstate.Project) ProjectState {
 	return ProjectState{
-		ProjectID:            ProjectID(p.ID),
-		Name:                 p.Name,
-		Owner:                OwnerScope(p.Owner),
-		Phase:                Phase(int(p.Phase)),
-		Version:              int64(p.Version),
+		ProjectID: ProjectID(p.ID),
+		Name:      p.Name,
+		Owner:     OwnerScope(p.Owner),
+		Phase:     Phase(int(p.Phase)),
+		Version:   int64(p.Version),
+		// OrDefault: a pre-field project (empty model) reads as self-operated on the
+		// wire — the back-compat default — so the SPA never sees an empty operating model.
+		OperatingModel:       OperatingModel(string(p.OperatingModel.OrDefault())),
 		Research:             researchToContract(p.Research),
 		Slots:                slotsToContract(p),
 		GitRows:              m.gitRowsToContract(p.ActivityGit),

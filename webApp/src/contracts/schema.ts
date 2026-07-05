@@ -420,6 +420,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/system-design/set-operating-model/{projectID}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["SetOperatingModel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/system-design/set-research-input/{projectID}": {
         parameters: {
             query?: never;
@@ -853,6 +869,7 @@ export interface components {
             ordinal: number;
             section: string;
         };
+        SystemDesignOperatingModel: string;
         SystemDesignOwnerScope: string;
         /** @enum {integer} */
         SystemDesignPhase: 0 | 1 | 2;
@@ -894,6 +911,7 @@ export interface components {
             Slots: null | components["schemas"]["SystemDesignArtifactSlotView"][];
             Version: number;
             constructionProgress?: components["schemas"]["SystemDesignConstructionProgress"];
+            operatingModel: components["schemas"]["SystemDesignOperatingModel"];
             reviewPolicy?: components["schemas"]["SystemDesignReviewPolicyView"];
             testingState?: components["schemas"]["SystemDesignTestingStateView"];
         };
@@ -3274,6 +3292,97 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SystemDesignSessionRef"];
+                };
+            };
+            /** @description contract misuse */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description failed precondition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+            /** @description infrastructure unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignErrorResponse"];
+                };
+            };
+        };
+    };
+    SetOperatingModel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectID: components["schemas"]["SystemDesignProjectID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    model: components["schemas"]["SystemDesignOperatingModel"];
+                };
+            };
+        };
+        responses: {
+            /** @description success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDesignVersion"];
                 };
             };
             /** @description contract misuse */

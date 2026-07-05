@@ -65,6 +65,7 @@ type GitProjectStateAccess interface {
 	WithdrawArtifact(ctx context.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, notes string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	AdvancePhase(ctx context.Context, projectID ProjectID, expectedVersion Version, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	SetResearchInput(ctx context.Context, projectID ProjectID, expectedVersion Version, research ResearchInput, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	SetOperatingModel(ctx context.Context, projectID ProjectID, expectedVersion Version, model OperatingModel, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	ReadProject(ctx context.Context, projectID ProjectID, cred RepoCredential) (Project, error)
 }
 
@@ -379,6 +380,21 @@ func (s *GitStore) SetReviewCommentStatusOnBranch(ctx context.Context, projectID
 	})
 }
 
+// SetOperatingModel records the project-level WHO-OPERATES choice (founder ruling
+// 2026-07-05). Like SetResearchInput it is a Method-INPUT head-state write, NOT a
+// co-authored artifact: modeRequireExisting (the project must already exist), an
+// idempotent CAS mutation, no slot transition. The value MUST be one of the two known
+// models (Valid) — an unknown wire value is a terminal ContractMisuse, never persisted.
+func (s *GitStore) SetOperatingModel(ctx context.Context, projectID ProjectID, expectedVersion Version, model OperatingModel, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	if !model.Valid() {
+		return 0, fwra.New(fwra.ContractMisuse, fmt.Sprintf("projectstate.SetOperatingModel: unknown operating model %q", string(model)))
+	}
+	return s.applyMutation(ctx, "SetOperatingModel", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
+		p.OperatingModel = model
+		return nil
+	})
+}
+
 func (s *GitStore) AdvancePhase(ctx context.Context, projectID ProjectID, expectedVersion Version, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	return s.applyMutation(ctx, "AdvancePhase", projectID, expectedVersion, cred, idempotencyKey, modeUpsert, func(p *Project) error {
 		p.Phase++
@@ -465,6 +481,12 @@ func (s *GitStore) CreateProject(ctx context.Context, projectID ProjectID, owner
 		p.Owner = owner
 		p.Name = name
 		p.Phase = PhaseSystemDesign
+		// A fresh project is born EXPLICITLY self-operated (founder ruling 2026-07-05),
+		// the back-compat operating model — the customer runs the built app in their own
+		// infra. The UI/MCP may flip it to archistrator-operated before StartSystemDesign
+		// via SetOperatingModel. Only pre-field legacy project.json documents are ever
+		// empty; those read as self-operated via OperatingModel.OrDefault.
+		p.OperatingModel = OperatingModelSelfOperated
 		return nil
 	})
 }
@@ -838,13 +860,18 @@ func (s *GitStore) applyMutationOnBranchFiles(
 // the two substrates serialize a slot identically and a model round-trips across
 // either store.
 type projectDoc struct {
-	ID       string              `json:"id"`
-	Version  int64               `json:"version"`
-	Phase    int                 `json:"phase"`
-	Owner    string              `json:"owner"`
-	Name     string              `json:"name"`
-	Research ResearchCorpus      `json:"research"`
-	Slots    map[string]slotJSON `json:"slots"`
+	ID       string         `json:"id"`
+	Version  int64          `json:"version"`
+	Phase    int            `json:"phase"`
+	Owner    string         `json:"owner"`
+	Name     string         `json:"name"`
+	Research ResearchCorpus `json:"research"`
+	// OperatingModel is the project-level WHO-OPERATES choice (selfOperated |
+	// archistratorOperated), founder ruling 2026-07-05. omitempty so a project.json
+	// that pre-dates the field decodes cleanly as the empty value — decodeProjectDoc
+	// then defaults it to selfOperated (the back-compat operating model).
+	OperatingModel OperatingModel      `json:"operatingModel,omitempty"`
+	Slots          map[string]slotJSON `json:"slots"`
 	// ActivityGit is the per-activity git-forward head-state (D-PA-GIT, GIT.1),
 	// keyed by ActivityID. Omitted entirely until the first Record* git verb
 	// populates it (the additive populated-in-Phase-3 posture). The map value's
@@ -922,12 +949,21 @@ func decodeProjectDoc(raw []byte, projectID ProjectID) (Project, bool, error) {
 		return Project{}, false, fwra.Wrap(fwra.ContractMisuse, err, "projectstate: decode project.json")
 	}
 	p := Project{
-		ID:                   projectID,
-		Version:              Version(doc.Version),
-		Phase:                Phase(doc.Phase),
-		Owner:                OwnerScope(doc.Owner),
-		Name:                 doc.Name,
-		Research:             doc.Research,
+		ID:       projectID,
+		Version:  Version(doc.Version),
+		Phase:    Phase(doc.Phase),
+		Owner:    OwnerScope(doc.Owner),
+		Name:     doc.Name,
+		Research: doc.Research,
+		// PRE-FIELD BACK-COMPAT (founder ruling 2026-07-05): a project.json committed
+		// before OperatingModel existed decodes as the EMPTY value, preserved VERBATIM
+		// here so the encode → decode → encode round-trip stays byte-identical (the
+		// ServiceContract round-trip invariant). Readers interpret an empty model as the
+		// DEFAULT (selfOperated) via OperatingModel.OrDefault — the prompts and the wire
+		// mapping do exactly that — so an existing project behaves as self-operated
+		// without a lazy on-read rewrite. Fresh projects are born explicit (CreateProject
+		// seeds selfOperated), so only pre-field legacy documents are ever empty.
+		OperatingModel:       doc.OperatingModel,
 		ActivityGit:          doc.ActivityGit,
 		ActivityConstruction: doc.ActivityConstruction,
 		ConstructionProgress: doc.ConstructionProgress,
@@ -1074,6 +1110,7 @@ func encodeProjectDoc(p *Project, updatedAt time.Time) ([]byte, error) {
 		Owner:                string(p.Owner),
 		Name:                 p.Name,
 		Research:             p.Research,
+		OperatingModel:       p.OperatingModel,
 		Slots:                slots,
 		ActivityGit:          p.ActivityGit,
 		ActivityConstruction: p.ActivityConstruction,

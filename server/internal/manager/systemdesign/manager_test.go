@@ -388,6 +388,9 @@ func (f *renderFakeProjectState) AdvancePhase(fwra.Context, projectstate.Project
 func (f *renderFakeProjectState) SetResearchInput(fwra.Context, projectstate.ProjectID, projectstate.Version, projectstate.ResearchInput) (projectstate.Version, error) {
 	panic("renderFakeProjectState.SetResearchInput must not be called by these façade-precondition tests")
 }
+func (f *renderFakeProjectState) SetOperatingModel(fwra.Context, projectstate.ProjectID, projectstate.Version, projectstate.OperatingModel) (projectstate.Version, error) {
+	panic("renderFakeProjectState.SetOperatingModel must not be called by these façade-precondition tests")
+}
 
 func (f *renderFakeProjectState) CreateProject(fwra.Context, projectstate.ProjectID, projectstate.OwnerScope, string) (projectstate.Version, error) {
 	panic("renderFakeProjectState.CreateProject must not be called by these façade-precondition tests")

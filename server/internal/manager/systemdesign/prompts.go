@@ -99,7 +99,44 @@ func architectDraftPrompt(kind projectstate.ArtifactKind, proj projectstate.Proj
 		b.WriteString("\n")
 		b.WriteString(guide)
 	}
+	// OPERATING-MODEL CONSTRAINT (founder ruling 2026-07-05): when the project is
+	// archistrator-operated the deployment topology is CONSTRAINED to the platform
+	// palette — the OperationalConcepts draft carries the deployment topology, so this
+	// is where the constraint is enforced. Self-operated emits nothing (today's open
+	// guidance is preserved verbatim).
+	if kind == projectstate.KindOperationalConcepts {
+		if c := operatingModelDeploymentConstraint(proj.OperatingModel); c != "" {
+			b.WriteString("\n")
+			b.WriteString(c)
+		}
+	}
 	return b.String()
+}
+
+// operatingModelDeploymentConstraint returns the deployment-topology infrastructure
+// constraint the OperationalConcepts draft prompt carries for the project's operating
+// model (founder ruling 2026-07-05, from live QA — the gtdapp deployment artifact
+// drafted an arbitrary AWS EKS/RDS/CloudFront topology).
+//
+//   - archistrator-operated: archistrator OPERATES the app on the shared platform, so
+//     the design is CONSTRAINED to the archistrator-platform palette ONLY (CNPG
+//     Postgres, Temporal, Keycloak, the otel stack, deployed to the platform k8s
+//     cluster via ArgoCD at software/k8s) and FORBIDDEN bespoke cloud (AWS/GCP/Azure).
+//   - self-operated (the default): the customer runs the app in their OWN infra, so
+//     today's OPEN guidance stands — emit nothing extra.
+func operatingModelDeploymentConstraint(m projectstate.OperatingModel) string {
+	if m.OrDefault() != projectstate.OperatingModelArchistratorOperated {
+		return ""
+	}
+	return "OPERATING MODEL — ARCHISTRATOR-OPERATED (platform-constrained deployment). " +
+		"This project is OPERATED BY ARCHISTRATOR on the shared platform, so the deployment topology is CONSTRAINED to the archistrator-platform infrastructure ONLY. " +
+		"Model the deployment using EXACTLY these platform building blocks and do NOT introduce any bespoke or third-party cloud infrastructure:\n" +
+		"- Data / persistence: CloudNativePG (CNPG) Postgres — the framework-go-infrastructure-postgres module. Model every relational Resource as a CNPG Postgres cluster infrastructureNode.\n" +
+		"- Workflows / durable execution: Temporal — the framework-go-infrastructure-temporal module (the SHARED platform Temporal at software/k8s/shared/temporal). Do NOT model a bespoke queue or worker pool.\n" +
+		"- Authentication / identity: Keycloak — the framework-go-infrastructure-keycloak module (the archistrator auth platform lib, software/k8s/argocd/auth).\n" +
+		"- Observability: the OpenTelemetry stack — the framework-go-infrastructure-otel module.\n" +
+		"- Deploy target: the platform Kubernetes cluster via the ArgoCD stack at software/k8s (namespaces/apps under k8s/argocd/applications). deliveryStyle MUST be cloud; every container is a Kubernetes Deployment in the platform cluster and every infrastructureNode names the exact framework-go-infrastructure-* module above.\n" +
+		"FORBIDDEN for this operating model: AWS (RDS, EKS, ECS, CloudFront, S3, Lambda), GCP, Azure, or any other bespoke / self-managed / third-party-managed cloud infrastructure — those are legitimate ONLY for self-operated projects. If a Resource needs a database it is CNPG Postgres; if it needs workflows it is Temporal; if it needs auth it is Keycloak; if it needs telemetry it is the otel stack."
 }
 
 // pmCritiquePrompt assembles the PM-role critique prompt for a drafted artifact.

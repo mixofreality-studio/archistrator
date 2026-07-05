@@ -117,6 +117,9 @@ func (f *fakeProjectStateAccess) RejectArtifact(_ fwra.Context, _ projectstate.P
 func (f *fakeProjectStateAccess) SetResearchInput(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ projectstate.ResearchInput) (projectstate.Version, error) {
 	return 0, nil
 }
+func (f *fakeProjectStateAccess) SetOperatingModel(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ projectstate.OperatingModel) (projectstate.Version, error) {
+	return 0, nil
+}
 func (f *fakeProjectStateAccess) StageArtifactForReview(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ projectstate.ArtifactModel) (projectstate.Version, error) {
 	return 0, nil
 }

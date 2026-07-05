@@ -124,6 +124,16 @@ type Project struct {
 	// CreateProject. (Task 2.3)
 	Name string
 
+	// OperatingModel declares WHO OPERATES the built app — selfOperated (the
+	// customer runs it in their own infra; the DEFAULT + back-compat value) or
+	// archistratorOperated (archistrator operates it on the platform, which
+	// CONSTRAINS the deployment design to the platform palette). A Method INPUT,
+	// NOT an ArtifactModel and NOT review-gated (founder ruling 2026-07-05). Set at
+	// creation via SetOperatingModel; read by the OperationalConcepts + Planning
+	// Assumptions draft prompts to constrain infrastructure. A pre-field project.json
+	// decodes to the DEFAULT (selfOperated) — see decodeProjectDoc.
+	OperatingModel OperatingModel
+
 	// Research is the Phase-1 research corpus the system-design sequence STARTS from
 	// (➕ 2026-05-29; F42 files-not-JSON 2026-07-05). A Method INPUT, NOT an
 	// ArtifactModel and NOT review-gated. The corpus CONTENT lives as files at

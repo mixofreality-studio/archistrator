@@ -1370,6 +1370,8 @@ components:
                 - ordinal
                 - section
             type: object
+        SystemDesignOperatingModel:
+            type: string
         SystemDesignOwnerScope:
             type: string
         SystemDesignPhase:
@@ -1481,6 +1483,8 @@ components:
                     $ref: '#/components/schemas/SystemDesignConstructionProgress'
                     type:
                         - "null"
+                operatingModel:
+                    $ref: '#/components/schemas/SystemDesignOperatingModel'
                 reviewPolicy:
                     $ref: '#/components/schemas/SystemDesignReviewPolicyView'
                 testingState:
@@ -1496,6 +1500,7 @@ components:
                 - GitRows
                 - ActivityConstruction
                 - ServiceContracts
+                - operatingModel
             type: object
         SystemDesignProjectSummary:
             additionalProperties: false
@@ -3679,6 +3684,77 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/SystemDesignSessionRef'
+                    description: success
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
+    /api/v1/system-design/set-operating-model/{projectID}:
+        post:
+            operationId: SetOperatingModel
+            parameters:
+                - in: path
+                  name: projectID
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/SystemDesignProjectID'
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            properties:
+                                model:
+                                    $ref: '#/components/schemas/SystemDesignOperatingModel'
+                            required:
+                                - model
+                            type: object
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignVersion'
                     description: success
                 "400":
                     content:

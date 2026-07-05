@@ -765,6 +765,7 @@ type ProjectStateAccess interface {
 	ReadProject(rc fwra.Context, projectID ProjectID) (Project, error)
 	ReadProjectVersion(rc fwra.Context, projectID ProjectID) (Version, error)
 	RejectArtifact(rc fwra.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, notes string) (Version, error)
+	SetOperatingModel(rc fwra.Context, projectID ProjectID, expectedVersion Version, model OperatingModel) (Version, error)
 	SetResearchInput(rc fwra.Context, projectID ProjectID, expectedVersion Version, research ResearchInput) (Version, error)
 	StageArtifactForReview(rc fwra.Context, projectID ProjectID, expectedVersion Version, model ArtifactModel) (Version, error)
 	WithdrawArtifact(rc fwra.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, notes string) (Version, error)

@@ -125,6 +125,11 @@ func (f *fakeProjectState) SetResearchInput(_ fwra.Context, _ projectstate.Proje
 	defer f.mu.Unlock()
 	return f.bump(), nil
 }
+func (f *fakeProjectState) SetOperatingModel(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ projectstate.OperatingModel) (projectstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.bump(), nil
+}
 
 func (f *fakeProjectState) CreateProject(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.OwnerScope, _ string) (projectstate.Version, error) {
 	f.mu.Lock()

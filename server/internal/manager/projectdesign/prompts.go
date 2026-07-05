@@ -38,7 +38,7 @@ const architectHeader = "You are the Architect agent drafting a typed Phase-2 (P
 // DESIGN job's design_prompt dispatch input. (The proj parameter is retained for
 // signature parity / future per-kind prior selection; priors are named by kind, not
 // embedded.)
-func architectDraftPrompt(kind projectstate.ArtifactKind, _ projectstate.Project, feedback string, reviewThread []projectstate.ReviewComment, amendment int) string {
+func architectDraftPrompt(kind projectstate.ArtifactKind, proj projectstate.Project, feedback string, reviewThread []projectstate.ReviewComment, amendment int) string {
 	var b strings.Builder
 	b.WriteString(architectHeader)
 	fmt.Fprintf(&b, "Target artifact: %s\n", kind)
@@ -94,7 +94,40 @@ func architectDraftPrompt(kind projectstate.ArtifactKind, _ projectstate.Project
 		b.WriteString("\n")
 		b.WriteString(guide)
 	}
+	// OPERATING-MODEL CONSTRAINT (founder ruling 2026-07-05): when the project is
+	// archistrator-operated the PlanningAssumptions launch infrastructure is
+	// CONSTRAINED to the platform palette (CNPG Postgres, Temporal, Keycloak, the otel
+	// stack, deployed to the platform k8s cluster via ArgoCD at software/k8s). This is
+	// the Phase-2 sibling of the systemDesign OperationalConcepts constraint — the
+	// deployment topology (Phase-1) and the launch infrastructure assumptions (Phase-2)
+	// must agree. Self-operated emits nothing (today's open guidance is preserved).
+	if kind == projectstate.KindPlanningAssumptions {
+		if c := operatingModelInfrastructureConstraint(proj.OperatingModel); c != "" {
+			b.WriteString("\n")
+			b.WriteString(c)
+		}
+	}
 	return b.String()
+}
+
+// operatingModelInfrastructureConstraint returns the launch-infrastructure constraint
+// the PlanningAssumptions draft prompt carries for the project's operating model
+// (founder ruling 2026-07-05). Archistrator-operated CONSTRAINS the launch
+// infrastructure to the archistrator-platform palette ONLY and FORBIDS bespoke cloud;
+// self-operated (the default) emits nothing (today's open guidance stands).
+func operatingModelInfrastructureConstraint(m projectstate.OperatingModel) string {
+	if m.OrDefault() != projectstate.OperatingModelArchistratorOperated {
+		return ""
+	}
+	return "OPERATING MODEL — ARCHISTRATOR-OPERATED (platform-constrained infrastructure). " +
+		"This project is OPERATED BY ARCHISTRATOR on the shared platform, so the launch-infrastructure assumption is FIXED, not a choice: the app runs on the archistrator-platform palette ONLY. " +
+		"When you capture the launch infrastructure assumption you MUST assume EXACTLY these platform building blocks and MUST NOT assume any bespoke or third-party cloud infrastructure:\n" +
+		"- Data / persistence: CloudNativePG (CNPG) Postgres — the framework-go-infrastructure-postgres module.\n" +
+		"- Workflows / durable execution: Temporal — the framework-go-infrastructure-temporal module (the SHARED platform Temporal at software/k8s/shared/temporal).\n" +
+		"- Authentication / identity: Keycloak — the framework-go-infrastructure-keycloak module (software/k8s/argocd/auth).\n" +
+		"- Observability: the OpenTelemetry stack — the framework-go-infrastructure-otel module.\n" +
+		"- Deploy target: the platform Kubernetes cluster via the ArgoCD stack at software/k8s (namespaces/apps under k8s/argocd/applications).\n" +
+		"FORBIDDEN for this operating model: AWS (RDS, EKS, ECS, CloudFront, S3, Lambda), GCP, Azure, or any other bespoke / self-managed / third-party-managed cloud infrastructure or hosting — those are legitimate ONLY for self-operated projects. The launch infrastructure is the platform cluster; there is no per-project cloud-provider decision to assume."
 }
 
 // schemaConformancePreamble is the general typed-shape discipline every drafted Phase-2

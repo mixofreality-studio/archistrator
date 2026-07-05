@@ -129,11 +129,17 @@ function GhostProjectPanel({
 
   const finishSetup = (): void => {
     if (createProject.isPending) return;
-    createProject.mutate(projectId, {
-      onSuccess: () => {
-        onFinished();
+    // Ghost-recovery re-init of an existing project: adoption is idempotent and the
+    // operating model is already set, so pass selfOperated (the no-op default that
+    // issues no set-operating-model call) rather than re-choosing it here.
+    createProject.mutate(
+      { name: projectId, operatingModel: 'selfOperated' },
+      {
+        onSuccess: () => {
+          onFinished();
+        },
       },
-    });
+    );
   };
 
   return (

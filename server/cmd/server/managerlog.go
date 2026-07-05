@@ -87,6 +87,11 @@ func (m loggingSystemDesignManager) SetResearchInput(rc fwmanager.Context, proje
 	return v, logInfraError(m.log, "SystemDesign.SetResearchInput", string(projectID), err)
 }
 
+func (m loggingSystemDesignManager) SetOperatingModel(rc fwmanager.Context, projectID systemdesign.ProjectID, model systemdesign.OperatingModel) (systemdesign.Version, error) {
+	v, err := m.inner.SetOperatingModel(rc, projectID, model)
+	return v, logInfraError(m.log, "SystemDesign.SetOperatingModel", string(projectID), err)
+}
+
 func (m loggingSystemDesignManager) StartSystemDesign(rc fwmanager.Context, projectID systemdesign.ProjectID) (systemdesign.SessionRef, error) {
 	v, err := m.inner.StartSystemDesign(rc, projectID)
 	return v, logInfraError(m.log, "SystemDesign.StartSystemDesign", string(projectID), err)

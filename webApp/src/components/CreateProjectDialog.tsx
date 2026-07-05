@@ -21,10 +21,15 @@ import DialogActions from '@mui/material/DialogActions';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import Box from '@mui/material/Box';
+import FormControl from '@mui/material/FormControl';
+import FormLabel from '@mui/material/FormLabel';
+import RadioGroup from '@mui/material/RadioGroup';
+import FormControlLabel from '@mui/material/FormControlLabel';
+import Radio from '@mui/material/Radio';
 import AddIcon from '@mui/icons-material/Add';
 import GitHubIcon from '@mui/icons-material/GitHub';
 import { useNavigate } from '@tanstack/react-router';
-import { useCreateProject } from '../hooks/useCreateProject';
+import { useCreateProject, type OperatingModel } from '../hooks/useCreateProject';
 import { useTokens } from '../utilities/theme/ThemeContext';
 import { UI_IDENTIFIERS } from '../utilities/constants/UIIdentifiers';
 import { ErrorAlert } from './shared/ErrorAlert';
@@ -40,9 +45,11 @@ export function CreateProjectDialog({
   const navigate = useNavigate();
   const createProject = useCreateProject();
   const [name, setName] = useState('');
+  const [operatingModel, setOperatingModel] = useState<OperatingModel>('selfOperated');
 
   const reset = (): void => {
     setName('');
+    setOperatingModel('selfOperated');
     createProject.reset();
   };
 
@@ -54,13 +61,16 @@ export function CreateProjectDialog({
   const submit = (): void => {
     const trimmed = name.trim();
     if (trimmed.length === 0 || createProject.isPending) return;
-    createProject.mutate(trimmed, {
-      onSuccess: (projectId) => {
-        reset();
-        onClose();
-        void navigate({ to: '/project/$projectId/home', params: { projectId } });
-      },
-    });
+    createProject.mutate(
+      { name: trimmed, operatingModel },
+      {
+        onSuccess: (projectId) => {
+          reset();
+          onClose();
+          void navigate({ to: '/project/$projectId/home', params: { projectId } });
+        },
+      }
+    );
   };
 
   return (
@@ -110,6 +120,9 @@ export function CreateProjectDialog({
             if (e.key === 'Enter') submit();
           }}
         />
+
+        <OperatingModelChoice t={t} value={operatingModel} onChange={setOperatingModel} />
+
         <ErrorAlert error={createProject.error} />
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2 }}>
@@ -131,6 +144,86 @@ export function CreateProjectDialog({
         </Button>
       </DialogActions>
     </Dialog>
+  );
+}
+
+/**
+ * The operating-model choice (founder ruling 2026-07-05). WHO operates the built
+ * app is chosen at creation and constrains the deployment design:
+ *   - self-operated: the customer runs the app in their OWN infrastructure (any
+ *     cloud/infra the design justifies). The default + back-compat behavior.
+ *   - archistrator-operated: archistrator OPERATES the app on the platform, which
+ *     CONSTRAINS the deployment design to the platform palette ONLY (CNPG Postgres,
+ *     Temporal, Keycloak, the otel stack, deployed to the platform Kubernetes cluster)
+ *     — no bespoke AWS/GCP/Azure infrastructure.
+ */
+function OperatingModelChoice({
+  t,
+  value,
+  onChange,
+}: {
+  t: ReturnType<typeof useTokens>;
+  value: OperatingModel;
+  onChange: (m: OperatingModel) => void;
+}): ReactNode {
+  const options: { value: OperatingModel; label: string; detail: string }[] = [
+    {
+      value: 'selfOperated',
+      label: 'Self-operated',
+      detail:
+        'You run the built app in your own infrastructure — any cloud or platform the design justifies.',
+    },
+    {
+      value: 'archistratorOperated',
+      label: 'Archistrator-operated',
+      detail:
+        'Archistrator operates the app on the platform. The deployment design is constrained to the platform palette only — CNPG Postgres, Temporal, Keycloak, and the OpenTelemetry stack on the platform Kubernetes cluster — with no bespoke AWS/GCP/Azure infrastructure.',
+    },
+  ];
+  return (
+    <FormControl
+      component="fieldset"
+      data-testid="create-project-operating-model"
+      sx={{ border: `1.5px solid ${t.line}`, borderRadius: t.radius / 8 + 0.5, px: 2, py: 1.25 }}
+    >
+      <FormLabel
+        component="legend"
+        sx={{
+          fontFamily: t.mono,
+          fontSize: 11.5,
+          letterSpacing: '0.12em',
+          color: t.muted,
+          px: 0.5,
+        }}
+      >
+        OPERATING MODEL
+      </FormLabel>
+      <RadioGroup
+        value={value}
+        onChange={(e) => {
+          onChange(e.target.value as OperatingModel);
+        }}
+      >
+        {options.map((o) => (
+          <FormControlLabel
+            control={<Radio data-testid={`operating-model-${o.value}`} size="small" />}
+            key={o.value}
+            label={
+              <Box sx={{ py: 0.25 }}>
+                <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: t.ink }}>
+                  {o.label}
+                </Typography>
+                <Typography sx={{ fontSize: 12.5, color: t.muted, lineHeight: 1.45 }}>
+                  {o.detail}
+                </Typography>
+              </Box>
+            }
+            sx={{ alignItems: 'flex-start', mt: 0.5 }}
+            value={o.value}
+          />
+        ))}
+      </RadioGroup>
+    </FormControl>
   );
 }
 

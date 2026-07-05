@@ -199,6 +199,15 @@ func (a *projectStateGitAdapter) SetResearchInput(rc fwra.Context, projectID pro
 	return a.store.SetResearchInput(ctx, projectID, expectedVersion, research, cred, rc.IdempotencyKey)
 }
 
+func (a *projectStateGitAdapter) SetOperatingModel(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, model projectstate.OperatingModel) (projectstate.Version, error) {
+	ctx := rc.Context
+	cred, err := a.minter.credentialFor(ctx, projectID)
+	if err != nil {
+		return 0, err
+	}
+	return a.store.SetOperatingModel(ctx, projectID, expectedVersion, model, cred, rc.IdempotencyKey)
+}
+
 func (a *projectStateGitAdapter) ReadProject(rc fwra.Context, projectID projectstate.ProjectID) (projectstate.Project, error) {
 	ctx := rc.Context
 	cred, err := a.minter.credentialFor(ctx, projectID)

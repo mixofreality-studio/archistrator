@@ -64,6 +64,10 @@ func (f *setResearchFakeState) SetResearchInput(rc fwra.Context, _ projectstate.
 	return f.headVersion, nil
 }
 
+func (f *setResearchFakeState) SetOperatingModel(fwra.Context, projectstate.ProjectID, projectstate.Version, projectstate.OperatingModel) (projectstate.Version, error) {
+	panic("setResearchFakeState.SetOperatingModel must not be called by SetResearchInput")
+}
+
 func (f *setResearchFakeState) StageArtifactForReview(fwra.Context, projectstate.ProjectID, projectstate.Version, projectstate.ArtifactModel) (projectstate.Version, error) {
 	panic("setResearchFakeState.StageArtifactForReview must not be called by SetResearchInput")
 }

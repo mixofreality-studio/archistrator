@@ -227,6 +227,8 @@ type Location struct {
 	Section string `json:"section"`
 }
 
+type OperatingModel string
+
 type OwnerScope string
 
 type Phase int
@@ -266,6 +268,7 @@ type ProjectState struct {
 	Owner                OwnerScope                            `json:"Owner"`
 	Phase                Phase                                 `json:"Phase"`
 	Version              int64                                 `json:"Version"`
+	OperatingModel       OperatingModel                        `json:"operatingModel"`
 	Research             ResearchInput                         `json:"Research"`
 	Slots                []ArtifactSlotView                    `json:"Slots"`
 	GitRows              map[string]ActivityGitStatus          `json:"GitRows"`
@@ -452,6 +455,7 @@ type SystemDesignManager interface {
 	GetSessionState(rc fwm.Context, projectID ProjectID, kind ArtifactKind) (SessionStateView, error)
 	ListProjects(rc fwm.Context, owner OwnerScope) ([]ProjectSummary, error)
 	RequestArtifactDraft(rc fwm.Context, projectID ProjectID, kind ArtifactKind, feedback *ReviewFeedback) (SessionRef, error)
+	SetOperatingModel(rc fwm.Context, projectID ProjectID, model OperatingModel) (Version, error)
 	SetResearchInput(rc fwm.Context, projectID ProjectID, research ResearchInput) (Version, error)
 	SetReviewCommentStatus(rc fwm.Context, projectID ProjectID, kind ArtifactKind, commentID string, status string) error
 	StartSystemDesign(rc fwm.Context, projectID ProjectID) (SessionRef, error)

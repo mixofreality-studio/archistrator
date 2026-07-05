@@ -31,6 +31,7 @@ func (h *Handler) Register(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{Name: "systemDesignGetSessionState", Description: "Return the current draft/review session state for one System-Design artifact (selected by kind): its stage, the latest AI draft, and any review feedback. Read-only.", InputSchema: getSessionStateInputSchema(), OutputSchema: getSessionStateOutputSchema()}, h.handleGetSessionState)
 	mcp.AddTool(srv, &mcp.Tool{Name: "systemDesignListProjects", Description: "List every project visible to the given owner scope, most-recently-updated first.", InputSchema: listProjectsInputSchema(), OutputSchema: listProjectsOutputSchema()}, h.handleListProjects)
 	mcp.AddTool(srv, &mcp.Tool{Name: "systemDesignRequestArtifactDraft", Description: "Kick off (or re-run) the AI drafting of one System-Design artifact (selected by kind, e.g. the mission, glossary, or volatilities). Pass feedback to re-draft an existing artifact against review notes. Returns a handle to the asynchronous drafting session.", InputSchema: requestArtifactDraftInputSchema(), OutputSchema: requestArtifactDraftOutputSchema()}, h.handleRequestArtifactDraft)
+	mcp.AddTool(srv, &mcp.Tool{Name: "systemDesignSetOperatingModel", Description: "Set the project's operating model — selfOperated (the customer runs the built app in their own infrastructure; the default) or archistratorOperated (archistrator operates the app on the platform, which constrains the deployment design to the platform palette: CNPG Postgres, Temporal, Keycloak, the otel stack, deployed to the platform Kubernetes cluster). Choose at creation, before starting System Design. Returns the new project state version.", InputSchema: setOperatingModelInputSchema(), OutputSchema: setOperatingModelOutputSchema()}, h.handleSetOperatingModel)
 	mcp.AddTool(srv, &mcp.Tool{Name: "systemDesignSetResearchInput", Description: "Attach or replace the raw research corpus the architect distils the mission, glossary, and volatilities from. Returns the new project state version.", InputSchema: setResearchInputInputSchema(), OutputSchema: setResearchInputOutputSchema()}, h.handleSetResearchInput)
 	mcp.AddTool(srv, &mcp.Tool{Name: "systemDesignSetReviewCommentStatus", Description: "Change the status of one durable review-ledger comment on a System-Design artifact (selected by kind): waive an open comment to dismiss it, or reopen an addressed comment to send it back. Approve is blocked while any comment is still open.", InputSchema: setReviewCommentStatusInputSchema(), OutputSchema: setReviewCommentStatusOutputSchema()}, h.handleSetReviewCommentStatus)
 	mcp.AddTool(srv, &mcp.Tool{Name: "systemDesignStartSystemDesign", Description: "Begin the System-Design phase for a project, seeding the artifact spine (mission first). Returns a handle to the kickoff session.", InputSchema: startSystemDesignInputSchema(), OutputSchema: startSystemDesignOutputSchema()}, h.handleStartSystemDesign)
@@ -87,6 +88,15 @@ type requestArtifactDraftInput struct {
 
 type requestArtifactDraftOutput struct {
 	Result mgr.SessionRef `json:"result"`
+}
+
+type setOperatingModelInput struct {
+	ProjectID mgr.ProjectID      `json:"projectID"`
+	Model     mgr.OperatingModel `json:"model"`
+}
+
+type setOperatingModelOutput struct {
+	Result mgr.Version `json:"result"`
 }
 
 type setResearchInputInput struct {
@@ -174,6 +184,14 @@ func requestArtifactDraftInputSchema() *jsonschema.Schema {
 	return s
 }
 
+// setOperatingModelInputSchema is the explicit MCP input schema for the SetOperatingModel operation.
+func setOperatingModelInputSchema() *jsonschema.Schema {
+	s := objectSchema[setOperatingModelInput]()
+	relaxRawJSON(s)
+	s.Required = []string{"projectID", "model"}
+	return s
+}
+
 // setResearchInputInputSchema is the explicit MCP input schema for the SetResearchInput operation.
 func setResearchInputInputSchema() *jsonschema.Schema {
 	s := objectSchema[setResearchInputInput]()
@@ -247,6 +265,13 @@ func listProjectsOutputSchema() *jsonschema.Schema {
 // requestArtifactDraftOutputSchema is the explicit MCP output schema for the RequestArtifactDraft operation.
 func requestArtifactDraftOutputSchema() *jsonschema.Schema {
 	s := objectSchema[requestArtifactDraftOutput]()
+	relaxRawJSON(s)
+	return s
+}
+
+// setOperatingModelOutputSchema is the explicit MCP output schema for the SetOperatingModel operation.
+func setOperatingModelOutputSchema() *jsonschema.Schema {
+	s := objectSchema[setOperatingModelOutput]()
 	relaxRawJSON(s)
 	return s
 }
@@ -368,6 +393,19 @@ func (h *Handler) handleRequestArtifactDraft(ctx context.Context, _ *mcp.CallToo
 	principal, _ := security.PrincipalFrom(ctx)
 	rc := fwmanager.Context{Context: ctx, Principal: principal}
 	result, err := h.Manager.RequestArtifactDraft(rc, in.ProjectID, in.Kind, in.Feedback)
+	if err != nil {
+		return nil, out, mapManagerError(err)
+	}
+	out.Result = result
+	return nil, out, nil
+}
+
+// handleSetOperatingModel is the MCP tool handler for the SetOperatingModel operation.
+func (h *Handler) handleSetOperatingModel(ctx context.Context, _ *mcp.CallToolRequest, in setOperatingModelInput) (*mcp.CallToolResult, setOperatingModelOutput, error) {
+	var out setOperatingModelOutput
+	principal, _ := security.PrincipalFrom(ctx)
+	rc := fwmanager.Context{Context: ctx, Principal: principal}
+	result, err := h.Manager.SetOperatingModel(rc, in.ProjectID, in.Model)
 	if err != nil {
 		return nil, out, mapManagerError(err)
 	}
