@@ -1435,6 +1435,19 @@ type coAuthorState struct {
 
 func (s *coAuthorState) view() (SessionStateView, error) {
 	findings := s.findings
+	// APP-SIDE ACTIVITY-DIAGRAM GATE (founder ruling 2026-07-05): the platform
+	// artifactValidationEngine is dropped, so shape validity is the Action's CI check;
+	// but the CI check does NOT enforce that EVERY use case carries an activity diagram
+	// (the committed gtdapp CoreUseCases shipped core use cases with "activity": null).
+	// This read-back-time check surfaces one ERROR finding per use case whose activity is
+	// null or structurally empty (no start node + action) so the review panel flags it at
+	// the human gate. Findings are advisory display — they do not auto-block Approve — so
+	// the architect sees the defect and sends the draft back rather than committing it.
+	// Appended only for the CoreUseCases kind (nil for every other kind), so the
+	// nil-when-empty wire form of Findings is preserved for all other artifacts.
+	if extra := useCaseActivityFindings(s.artifactKind, s.draft); len(extra) > 0 {
+		findings = append(append([]Finding{}, findings...), extra...)
+	}
 	if s.unresolvedCritique != "" {
 		findings = append(append([]Finding{}, findings...), Finding{
 			RuleID:   "PM-CRITIQUE-UNRESOLVED",
@@ -1456,6 +1469,81 @@ func (s *coAuthorState) view() (SessionStateView, error) {
 		FailureRunURL: strPtrOrNil(s.failureRunURL),
 		ReviewThread:  reviewThreadToView(s.reviewThread),
 	}, nil
+}
+
+// useCaseActivityFindings returns one ERROR finding per use case whose activity
+// diagram is missing or structurally empty, for the CoreUseCases artifact ONLY
+// (nil for every other kind and for a nil/absent draft). The founder ruling
+// (2026-07-05) requires EVERY use case — core AND supporting — to carry a
+// non-empty activity diagram (a start node plus at least one action step). The
+// Action's CI validate check does NOT enforce this (the committed gtdapp
+// CoreUseCases shipped core use cases with "activity": null), so this read-back
+// check is the app-side surface that flags a diagram-less use case at the review
+// panel. It classifies the defect only — full UML well-formedness stays the
+// Action's CI concern.
+func useCaseActivityFindings(kind ArtifactKind, draft projectstate.ArtifactModel) []Finding {
+	if kind != KindCoreUseCases {
+		return nil
+	}
+	cuc, ok := draft.(*projectstate.CoreUseCases)
+	if !ok || cuc == nil {
+		return nil
+	}
+	var out []Finding
+	for i, d := range cuc.Decisions {
+		uc := d.UseCase
+		reason := activityDefect(uc.Activity)
+		if reason == "" {
+			continue
+		}
+		label := uc.Name
+		if label == "" {
+			label = fmt.Sprintf("use case %d", i+1)
+		}
+		out = append(out, Finding{
+			RuleID:   "USECASE-ACTIVITY-MISSING",
+			Severity: SeverityError,
+			Message:  fmt.Sprintf("Use case %q %s; every use case (core AND supporting) must carry a non-empty activity diagram with a start node and at least one action step.", label, reason),
+			Location: &Location{Ordinal: int64(i), Section: "use case " + label},
+		})
+	}
+	return out
+}
+
+// activityDefect classifies why a use case's activity diagram fails the founder's
+// non-empty floor, or "" when it is acceptable (present, with a start node AND at
+// least one action node). It deliberately does NOT re-validate full UML
+// well-formedness (decision/merge, fork/join, guards) — that is the Action's CI
+// check; this only enforces "the diagram exists and carries the minimum
+// meaningful nodes".
+func activityDefect(a *projectstate.ActivityDiagram) string {
+	if a == nil {
+		return "has no activity diagram (activity is null)"
+	}
+	if len(a.Nodes) == 0 {
+		return "has an empty activity diagram (no nodes)"
+	}
+	var hasStart, hasAction bool
+	for _, n := range a.Nodes {
+		// Only the start + action node kinds matter to the founder's floor; every other
+		// node kind is irrelevant here (plain comparisons, not a switch, so the exhaustive
+		// linter is not drawn into the full ActivityNodeKind set).
+		if n.Kind == projectstate.NodeStart {
+			hasStart = true
+		}
+		if n.Kind == projectstate.NodeAction {
+			hasAction = true
+		}
+	}
+	switch {
+	case !hasStart && !hasAction:
+		return "has an activity diagram with no start node and no action step"
+	case !hasStart:
+		return "has an activity diagram with no start node"
+	case !hasAction:
+		return "has an activity diagram with no action step"
+	}
+	return ""
 }
 
 func stageForAttempt(attempt int) SessionStage {

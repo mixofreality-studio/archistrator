@@ -197,6 +197,45 @@ func Test_CoreUseCasesPrompt_EnumeratesClosedEnumWireNames(t *testing.T) {
 	}
 }
 
+// Founder ruling 2026-07-05: EVERY use case (core AND supporting) must carry a non-empty
+// activity diagram — a start node plus at least one action step. The CoreUseCases draft
+// prompt must state that hard requirement and must NOT carry the old "purely linear ⇒ leave
+// activity null" exemption that let the committed gtdapp draft ship diagram-less core use
+// cases.
+func Test_CoreUseCasesPrompt_RequiresActivityDiagramForEveryUseCase(t *testing.T) {
+	prompt := architectDraftPrompt(projectstate.KindCoreUseCases, projectstate.Project{}, ReviewFeedback{}, nil, 0)
+
+	// The retired exemption must be gone: no wording that a linear use case may leave
+	// "activity" null / omit the diagram.
+	for _, banned := range []string{
+		"may leave \"activity\" null",
+		"purely linear use case may leave",
+	} {
+		if strings.Contains(prompt, banned) {
+			t.Errorf("CoreUseCases prompt must not carry the retired null-activity exemption %q; got:\n%s", banned, prompt)
+		}
+	}
+
+	// The hard requirement must be present: every use case carries a non-empty activity,
+	// core AND supporting/nonCore, with at minimum a start node and an action step.
+	lower := strings.ToLower(prompt)
+	for _, required := range []string{
+		"every use case",
+		"non-empty",
+		"incomplete draft",
+		"start node",
+		"action node",
+	} {
+		if !strings.Contains(lower, required) {
+			t.Errorf("CoreUseCases prompt must state the activity-diagram requirement (missing %q); got:\n%s", required, prompt)
+		}
+	}
+	// The requirement must explicitly reach supporting/nonCore use cases, not only core.
+	if !strings.Contains(lower, "supporting") && !strings.Contains(lower, "noncore") {
+		t.Errorf("CoreUseCases prompt must extend the activity requirement to supporting (nonCore) use cases; got:\n%s", prompt)
+	}
+}
+
 // A kind whose drafted model carries NO closed enum (Mission) must NOT get the enum block —
 // the guidance is scoped so unrelated prompts stay lean.
 func Test_MissionPrompt_HasNoClosedEnumBlock(t *testing.T) {

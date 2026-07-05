@@ -141,7 +141,7 @@ func pmCritiquePrompt(kind projectstate.ArtifactKind, draft projectstate.Artifac
 // at a merge; fork is unguarded concurrency that joins; guards only on decisions).
 // No backticks appear inside — JSON examples use their natural double quotes — so
 // this stays a single raw string literal.
-const activityDiagramGuide = `ACTIVITY DIAGRAM: when a use case BRANCHES or runs steps CONCURRENTLY, populate its "activity" as a WELL-FORMED UML activity diagram — a graph of "nodes" (each {ref, kind, label, roleName, linkedActor, linkedComp}) and "edges" (each {from, to, kind, guard}). A purely linear use case may leave "activity" null. NEVER emit a bare string for "activity" — it is an object or null.
+const activityDiagramGuide = `ACTIVITY DIAGRAM: EVERY use case — CORE and SUPPORTING (nonCore) alike — MUST carry a NON-EMPTY "activity": a WELL-FORMED UML activity diagram, a graph of "nodes" (each {ref, kind, label, roleName, linkedActor, linkedComp}) and "edges" (each {from, to, kind, guard}). There is NO "purely linear, so leave it null" exemption — a use case with a null or empty "activity" (missing "nodes" or "edges") is an INCOMPLETE DRAFT and will be rejected. At an ABSOLUTE MINIMUM the diagram has a start node, at least one action node, and an end node wired start -> action -> end; a use case that branches or runs steps concurrently adds decision/merge or fork/join per the rules below. Walk the use case's real flow — do not stub a placeholder one-action diagram to satisfy the rule when the use case genuinely has steps. NEVER emit a bare string for "activity" — it is always a non-empty object with "nodes" and "edges".
 
 IDENTITY BY NAME (no ids): you NEVER emit any opaque id or uuid. Give each node a short "ref" slug of your own (e.g. "n1", "n2") UNIQUE within the diagram; edges reference nodes by that "ref" in "from"/"to". "linkedActor" (optional) is an actor's ROLE name from this use case; "linkedComp" (optional) is a System component NAME. The server resolves all of these by name.
 
@@ -160,6 +160,7 @@ Edge kinds:
 - controlFlow: no guard (set "guard" to ""); EVERY other edge, including ALL fork outgoing edges.
 
 Composition rules you MUST follow (a violation is rejected and redrafted):
+0. EVERY use case has a non-empty "activity" with EXACTLY ONE start node (0 incoming, 1 outgoing), at least ONE action node, and at least ONE end node — a diagram-less or node-less use case is an incomplete draft. This is NON-NEGOTIABLE for core use cases and equally REQUIRED for supporting (nonCore) ones; never leave "activity" null.
 1. A decision is a CHOICE: it MUST have >=2 outgoing guardedFlow edges, each with a distinct, mutually-exclusive guard; give exactly ONE edge the guard "[else]" for the remaining case. Its branches MUST reconverge at a merge node before the flow continues — a branch must not run straight into the next step or dangle.
 2. A fork is CONCURRENCY (not a choice): >=2 outgoing controlFlow (UNguarded) edges, ALL of which run; the concurrent paths MUST reconverge at a join. Never put a guard on a fork edge.
 3. guardedFlow edges originate ONLY from decision nodes; every other node's outgoing edges are controlFlow.
