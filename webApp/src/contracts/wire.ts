@@ -133,6 +133,8 @@ function mapSlot(w: Schemas['SystemDesignArtifactSlotView']): ArtifactSlotView {
     stage: w.stage,
     model: mapEnvelope(w.model),
     ...(w.notes !== undefined && w.notes !== null ? { notes: w.notes } : {}),
+    ...(w.revisions !== undefined ? { revisions: w.revisions } : {}),
+    ...(w.staleBasis === true ? { staleBasis: true } : {}),
   };
 }
 

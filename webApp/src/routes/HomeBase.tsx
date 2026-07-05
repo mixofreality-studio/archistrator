@@ -25,6 +25,7 @@ import { ArtifactPane } from '../components/ArtifactPane';
 import { StageChip } from '../components/StageChip';
 import { ErrorAlert } from '../components/shared/ErrorAlert';
 import { CommentProvider } from '../components/comments/CommentContext';
+import { StaleBasisMarker } from '../components/design/StaleBasisChip';
 import { ApiError } from '../contracts/errors';
 import { useProject } from '../hooks/useProject';
 import { useCreateProject } from '../hooks/useCreateProject';
@@ -474,10 +475,18 @@ function ArtifactNav({
                 whiteSpace: 'nowrap',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
+                minWidth: 0,
               }}
             >
               {a.title}
             </Typography>
+            {/* Non-blocking basis-drift signal on a committed row (compact form). */}
+            {a.staleBasis === true ? (
+              <>
+                <Box sx={{ flexGrow: 1 }} />
+                <StaleBasisMarker kind={a.kind} />
+              </>
+            ) : null}
           </Box>
         );
       })}

@@ -139,6 +139,18 @@ export interface ArtifactSlotView {
   stage: ArtifactStageOrdinal;
   model: ArtifactModelEnvelope;
   notes?: string;
+  /**
+   * How many times this slot has been committed. 1 on first commit; > 1 once it
+   * has been amended (each -amend-N cycle re-commits, bumping the count). Absent
+   * on never-committed slots.
+   */
+  revisions?: number;
+  /**
+   * True when an upstream basis this slot depends on has since changed, so the
+   * committed content may no longer reconcile with it. Advisory only — never
+   * blocks. Cleared by re-committing (amend / reconcile).
+   */
+  staleBasis?: boolean;
 }
 
 export type ProjectPhase = 'systemDesign' | 'projectDesign' | 'construction' | 'unknown';

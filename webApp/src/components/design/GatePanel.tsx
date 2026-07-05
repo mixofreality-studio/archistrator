@@ -149,9 +149,6 @@ export function GatePanel({
         </Box>
       ) : null}
 
-      {/* TODO(server): StaleBasis chips render here once the amendment/basis-drift
-          op lands — an approved-but-stale slot flags its downstream dependents. */}
-
       <Box
         sx={{
           px: 2.5,

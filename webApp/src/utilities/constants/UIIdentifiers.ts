@@ -77,6 +77,21 @@ export const UI_IDENTIFIERS = {
     DRAFT_FAILURE_RUN_LINK: 'draft-failure-run-link',
     RETRY_DRAFT: 'retry-draft',
     WITHDRAW_DRAFT: 'withdraw-draft',
+    // Committed-panel amendment affordances: the header Amend button, its small
+    // rationale composer, and the composer's controls.
+    AMEND: 'committed-amend',
+    RECONCILE: 'committed-reconcile',
+    AMEND_COMPOSER: 'amend-composer',
+    AMEND_RATIONALE: 'amend-rationale',
+    AMEND_INCLUDE_PENDING: 'amend-include-pending',
+    AMEND_SUBMIT: 'amend-submit',
+    AMEND_CANCEL: 'amend-cancel',
+    // 'COMMITTED · revision N' meta on the committed-panel header.
+    COMMITTED_REVISION: 'committed-revision',
+    // 'basis changed — reconcile' warning chip (committed panel + HomeBase rows).
+    STALE_CHIP: 'stale-basis-chip',
+    // Compact stale marker on a spine step, keyed by slot kind.
+    spineStale: (kind: string) => `spine-stale-${kind}`,
   },
   Architecture: {
     VIEW_SWITCH: 'arch-view-switch',

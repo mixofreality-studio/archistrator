@@ -13,6 +13,7 @@ import CheckIcon from '@mui/icons-material/Check';
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
+import { StaleBasisMarker } from './StaleBasisChip';
 
 /** One spine step: a phase artifact slot projected for the progress rail. */
 export interface SpineStep {
@@ -21,6 +22,8 @@ export interface SpineStep {
   committed: boolean;
   /** Locked = its prior step is not yet committed; not directly selectable. */
   locked: boolean;
+  /** Committed but its upstream basis has since drifted — flags a reconcile marker. */
+  stale?: boolean;
 }
 
 export function SlimSpine({
@@ -96,6 +99,7 @@ export function SlimSpine({
                 {active ? <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 12, color: t.awaitingFg, whiteSpace: 'nowrap' }}>
                     {a.title}
                   </Typography> : null}
+                {a.stale === true ? <StaleBasisMarker kind={a.kind} /> : null}
               </Box>
             </Tooltip>
           </Box>

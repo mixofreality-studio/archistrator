@@ -494,8 +494,9 @@ function ThreadEntry({
             Reopen
           </Button>
         ) : null}
-        {/* TODO(server F40+): amendment / reopen-committed control lands here once
-            the committed-slot amendment op ships (out of scope this pass). */}
+        {/* Amendment of a committed artifact is not a per-entry action — it lives on
+            the committed panel's Amend affordance (CommittedArtifactPanel), which
+            folds any pending rail comments into the amend rationale. */}
       </Box>
     </Box>
   );

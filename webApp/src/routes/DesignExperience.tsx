@@ -63,6 +63,7 @@ import { GeneratingScene } from '../components/design/GeneratingScene';
 import { DraftFailedPanel } from '../components/design/DraftFailedPanel';
 import { GatePanel } from '../components/design/GatePanel';
 import { ChatRail } from '../components/design/ChatRail';
+import { CommittedArtifactPanel } from '../components/design/CommittedArtifactPanel';
 import { ResearchInputPanel } from '../components/design/ResearchInputPanel';
 import { CommentProvider, useComments } from '../components/comments/CommentContext';
 
@@ -99,12 +100,21 @@ function buildSpine(project: ProjectState | undefined): SpineStep[] {
       .filter((s) => slotStageFromOrdinal(s.stage) === 'committed')
       .map((s) => s.kind)
   );
+  const stale = new Set(
+    (project?.slots ?? []).filter((s) => s.staleBasis === true).map((s) => s.kind)
+  );
   let priorCommitted = true;
   return PHASE1_ARTIFACTS.map((kind) => {
     const isCommitted = committed.has(kind);
     const locked = !isCommitted && !priorCommitted;
     priorCommitted = isCommitted;
-    return { kind, title: METHOD_METADATA[kind].title, committed: isCommitted, locked };
+    return {
+      kind,
+      title: METHOD_METADATA[kind].title,
+      committed: isCommitted,
+      locked,
+      stale: stale.has(kind),
+    };
   });
 }
 
@@ -171,9 +181,13 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
   const sessionMissing = session.error instanceof ApiError && session.error.status === 404;
   const view = session.data?.view;
   const stage = session.data?.stage;
-  // Committed envelope from head-state: used as read-only fallback when there is no
-  // co-author session (sessionMissing) but the slot is already committed.
-  const committedEnvelope = project?.slots.find((s) => s.kind === activeKind)?.model;
+  // Committed slot from head-state: its envelope is the read-only fallback when
+  // there is no co-author session (sessionMissing) but the slot is committed; its
+  // revisions / staleBasis drive the committed-panel header.
+  const committedSlot = project?.slots.find((s) => s.kind === activeKind);
+  const committedEnvelope = committedSlot?.model;
+  const committedRevisions = committedSlot?.revisions;
+  const committedStale = committedSlot?.staleBasis === true;
   const hasDraft = view?.draft.model !== undefined;
   const findings: Finding[] = view?.findings ?? [];
   const reviewThread: ReviewCommentView[] = view?.reviewThread ?? [];
@@ -208,6 +222,14 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
   // that the stage has left the terminal Refused — re-enables the 2s poll.
   const retryDraft = (): void => {
     requestDraft.mutate({ kind: activeKind });
+  };
+
+  // Amend a committed artifact: the same RequestArtifactDraft mutation, carrying
+  // the composed rationale as feedback. The server (Ruling B) opens an -amend-N
+  // session seeded into the review ledger; invalidation drops sessionMissing and
+  // the existing poll drives the generating/review loop from here.
+  const amend = (feedback: string): void => {
+    requestDraft.mutate({ kind: activeKind, feedback });
   };
 
   const submitResearch = (research: ResearchInput): void => {
@@ -360,12 +382,15 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
         {/* body */}
         <StepBody
           activeKind={activeKind}
+          amendPending={requestDraft.isPending}
           asyncFailed={asyncFailed}
           beginPending={startDesign.isPending || requestDraft.isPending}
           blurb={meta.blurb}
           commentCount={comments.length}
           committed={spine[safeIndex]?.committed === true}
           committedEnvelope={committedEnvelope}
+          committedRevisions={committedRevisions}
+          committedStale={committedStale}
           decisionPending={decisionPending}
           draftFailed={draftFailed}
           failureReason={failureReason}
@@ -385,6 +410,7 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
           title={meta.title}
           view={view}
           withdrawPending={decisionPending}
+          onAmend={amend}
           onApprove={approve}
           onBegin={beginOrDraft}
           onRetry={retryDraft}
@@ -402,6 +428,8 @@ function StepBody({
   activeKind,
   committed,
   committedEnvelope,
+  committedRevisions,
+  committedStale,
   loading,
   generating,
   needsResearch,
@@ -424,17 +452,21 @@ function StepBody({
   researchPending,
   retryPending,
   withdrawPending,
+  amendPending,
   onBegin,
   onRetry,
   onSubmitResearch,
   onApprove,
   onSendBack,
   onWithdraw,
+  onAmend,
 }: {
   t: Tokens;
   activeKind: ArtifactKind;
   committed: boolean;
   committedEnvelope: ArtifactModelEnvelope | undefined;
+  committedRevisions: number | undefined;
+  committedStale: boolean;
   loading: boolean;
   generating: boolean;
   needsResearch: boolean;
@@ -457,12 +489,14 @@ function StepBody({
   researchPending: boolean;
   retryPending: boolean;
   withdrawPending: boolean;
+  amendPending: boolean;
   onBegin: () => void;
   onRetry: () => void;
   onSubmitResearch: (research: ResearchInput) => void;
   onApprove: () => void;
   onSendBack: () => void;
   onWithdraw: () => void;
+  onAmend: (feedback: string) => void;
 }): ReactNode {
   if (needsResearch) {
     return <ResearchInputPanel pending={researchPending} onSubmit={onSubmitResearch} />;
@@ -496,11 +530,21 @@ function StepBody({
     return <SkeletonContentCard t={t} />;
   }
   // When the session is missing (404) but the slot is committed in the project
-  // head-state, render the committed model read-only — no co-author chrome.
+  // head-state, render the committed model read-only under the committed panel
+  // (revision meta + stale-basis reconcile + Amend affordance).
   if (sessionMissing && committed && committedEnvelope !== undefined) {
-    return proseSurface(
-      committedEnvelope.kind,
-      <ArtifactRenderer envelope={committedEnvelope} height={620} title={title} />
+    return (
+      <CommittedArtifactPanel
+        amendPending={amendPending}
+        revisions={committedRevisions}
+        staleBasis={committedStale}
+        onAmend={onAmend}
+      >
+        {proseSurface(
+          committedEnvelope.kind,
+          <ArtifactRenderer envelope={committedEnvelope} height={620} title={title} />
+        )}
+      </CommittedArtifactPanel>
     );
   }
 

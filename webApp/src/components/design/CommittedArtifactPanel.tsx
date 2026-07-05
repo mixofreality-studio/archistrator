@@ -1,0 +1,224 @@
+/**
+ * Wraps the read-only render of a COMMITTED artifact slot with a header bar that
+ * carries the commit provenance and the amendment affordance.
+ *
+ * Header:
+ *   • 'COMMITTED · revision N' — the revision suffix appears once the slot has
+ *     been amended (revisions > 1).
+ *   • a 'basis changed — reconcile' chip when the upstream basis has drifted
+ *     (staleBasis); its Reconcile button opens the composer pre-filled.
+ *   • an 'Amend' button.
+ *
+ * Amend composer (a small dialog, mirroring the rail composer: a free-form
+ * rationale plus, optionally, the pending anchored comments already accumulated
+ * in the rail). Submitting calls `onAmend(feedback)` — the caller fires the
+ * existing RequestArtifactDraft mutation, which the server turns into an
+ * -amend-N session seeded into the review ledger; the session view then flips to
+ * the normal generating/review loop. Pending comments folded into the amendment
+ * are cleared so they do not also ride a later send-back.
+ */
+import { useState, type ReactNode } from 'react';
+import Box from '@mui/material/Box';
+import Paper from '@mui/material/Paper';
+import Typography from '@mui/material/Typography';
+import Button from '@mui/material/Button';
+import Dialog from '@mui/material/Dialog';
+import DialogTitle from '@mui/material/DialogTitle';
+import DialogContent from '@mui/material/DialogContent';
+import DialogActions from '@mui/material/DialogActions';
+import TextField from '@mui/material/TextField';
+import Checkbox from '@mui/material/Checkbox';
+import FormControlLabel from '@mui/material/FormControlLabel';
+import EditNoteIcon from '@mui/icons-material/EditNote';
+import { useComments } from '../comments/CommentContext';
+import { useTokens } from '../../utilities/theme/ThemeContext';
+import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
+import { StaleBasisChip } from './StaleBasisChip';
+
+const RECONCILE_RATIONALE = 'Reconcile with amended upstream basis.';
+
+export function CommittedArtifactPanel({
+  revisions,
+  staleBasis = false,
+  amendPending,
+  onAmend,
+  children,
+}: {
+  /** Commit count; the revision suffix shows only when > 1. */
+  revisions?: number | undefined;
+  /** Upstream basis drifted since commit — surfaces the reconcile chip. */
+  staleBasis?: boolean;
+  /** An amend RequestArtifactDraft is in flight — disable the composer submit. */
+  amendPending: boolean;
+  /** Fire the amendment with the composed feedback (rationale + pending notes). */
+  onAmend: (feedback: string) => void;
+  children: ReactNode;
+}): ReactNode {
+  const t = useTokens();
+  const { comments, reset } = useComments();
+  const [open, setOpen] = useState(false);
+  const [rationale, setRationale] = useState('');
+  const [includePending, setIncludePending] = useState(true);
+
+  const pendingCount = comments.length;
+  const willIncludePending = includePending && pendingCount > 0;
+  const canSubmit = rationale.trim().length > 0 || willIncludePending;
+
+  const openComposer = (seed: string): void => {
+    setRationale(seed);
+    setIncludePending(true);
+    setOpen(true);
+  };
+
+  const close = (): void => {
+    setOpen(false);
+    setRationale('');
+  };
+
+  const submit = (): void => {
+    if (!canSubmit || amendPending) return;
+    const parts: string[] = [];
+    if (rationale.trim().length > 0) parts.push(rationale.trim());
+    if (willIncludePending) parts.push(...comments.map((c) => c.text));
+    onAmend(parts.join('\n'));
+    // Pending comments folded into the amendment are consumed — clear them so
+    // they do not double-ride the next send-back on the fresh amend session.
+    if (willIncludePending) reset();
+    close();
+  };
+
+  const revisionN = revisions ?? 0;
+
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      <Paper
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 1.5,
+          flexWrap: 'wrap',
+          px: 2,
+          py: 1.25,
+          bgcolor: t.committedBg,
+          border: `1.5px solid ${t.line}`,
+        }}
+      >
+        <Typography
+          data-testid={UI_IDENTIFIERS.DesignExperience.COMMITTED_REVISION}
+          sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 12, letterSpacing: '0.08em', color: t.committedFg }}
+        >
+          COMMITTED{revisionN > 1 ? ` · revision ${String(revisionN)}` : ''}
+        </Typography>
+        {staleBasis ? (
+          <StaleBasisChip
+            onReconcile={() => {
+              openComposer(RECONCILE_RATIONALE);
+            }}
+          />
+        ) : null}
+        <Box sx={{ flexGrow: 1 }} />
+        <Button
+          data-testid={UI_IDENTIFIERS.DesignExperience.AMEND}
+          size="small"
+          startIcon={<EditNoteIcon sx={{ fontSize: 18 }} />}
+          sx={{ color: t.ink, borderColor: t.line, textTransform: 'none' }}
+          variant="outlined"
+          onClick={() => {
+            openComposer('');
+          }}
+        >
+          Amend
+        </Button>
+      </Paper>
+
+      {children}
+
+      <Dialog fullWidth maxWidth="sm" open={open} onClose={close}>
+        <DialogTitle sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 15 }}>
+          Amend committed artifact
+        </DialogTitle>
+        <DialogContent
+          data-testid={UI_IDENTIFIERS.DesignExperience.AMEND_COMPOSER}
+          sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}
+        >
+          <Typography sx={{ color: t.muted, fontSize: 13, lineHeight: 1.5 }}>
+            Send this committed artifact back for a revision. Your rationale seeds a fresh amend
+            draft, then the normal review gate resumes.
+          </Typography>
+          <TextField
+            fullWidth
+            multiline
+            data-testid={UI_IDENTIFIERS.DesignExperience.AMEND_RATIONALE}
+            label="Amendment rationale"
+            minRows={3}
+            placeholder="What should change, and why?"
+            value={rationale}
+            onChange={(e) => {
+              setRationale(e.target.value);
+            }}
+          />
+          {pendingCount > 0 ? (
+            <Box>
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={includePending}
+                    data-testid={UI_IDENTIFIERS.DesignExperience.AMEND_INCLUDE_PENDING}
+                    size="small"
+                    onChange={(e) => {
+                      setIncludePending(e.target.checked);
+                    }}
+                  />
+                }
+                label={
+                  <Typography sx={{ fontSize: 13, color: t.ink }}>
+                    Include {pendingCount} pending comment{pendingCount === 1 ? '' : 's'} from the
+                    rail
+                  </Typography>
+                }
+              />
+              {includePending ? (
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75, mt: 0.5, pl: 1 }}>
+                  {comments.map((c, i) => (
+                    <Box
+                      key={i}
+                      sx={{
+                        borderLeft: `2px solid ${t.accent}`,
+                        pl: 1,
+                        fontSize: 12.5,
+                        color: t.muted,
+                        lineHeight: 1.45,
+                      }}
+                    >
+                      {c.text}
+                    </Box>
+                  ))}
+                </Box>
+              ) : null}
+            </Box>
+          ) : null}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button
+            data-testid={UI_IDENTIFIERS.DesignExperience.AMEND_CANCEL}
+            disabled={amendPending}
+            sx={{ color: t.muted }}
+            onClick={close}
+          >
+            Cancel
+          </Button>
+          <Button
+            color="primary"
+            data-testid={UI_IDENTIFIERS.DesignExperience.AMEND_SUBMIT}
+            disabled={!canSubmit || amendPending}
+            startIcon={<EditNoteIcon />}
+            variant="contained"
+            onClick={submit}
+          >
+            Amend
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </Box>
+  );
+}

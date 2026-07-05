@@ -60,6 +60,7 @@ import { GeneratingScene } from '../components/design/GeneratingScene';
 import { DraftFailedPanel } from '../components/design/DraftFailedPanel';
 import { GatePanel } from '../components/design/GatePanel';
 import { ChatRail } from '../components/design/ChatRail';
+import { CommittedArtifactPanel } from '../components/design/CommittedArtifactPanel';
 import { StageChip } from '../components/StageChip';
 import { ProjectArtifactRenderer } from '../components/project/ProjectArtifactRenderer';
 import { CommentProvider, useComments } from '../components/comments/CommentContext';
@@ -79,12 +80,21 @@ function buildSpine(project: ProjectState | undefined): SpineStep[] {
       .filter((s) => slotStageFromOrdinal(s.stage) === 'committed')
       .map((s) => s.kind)
   );
+  const stale = new Set(
+    (project?.slots ?? []).filter((s) => s.staleBasis === true).map((s) => s.kind)
+  );
   let priorCommitted = true;
   return PHASE2_KINDS.map((kind) => {
     const isCommitted = committed.has(kind);
     const locked = !isCommitted && !priorCommitted;
     priorCommitted = isCommitted;
-    return { kind, title: METHOD_METADATA[kind].title, committed: isCommitted, locked };
+    return {
+      kind,
+      title: METHOD_METADATA[kind].title,
+      committed: isCommitted,
+      locked,
+      stale: stale.has(kind),
+    };
   });
 }
 
@@ -183,11 +193,15 @@ function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
   const draftFailed = stage === 'refused' || asyncFailed;
   const committed = spine[safeIndex]?.committed === true;
   const failureReason = view?.failureReason;
-  // Committed envelope from head-state: used as read-only fallback when there is no
-  // co-author session (sessionMissing) but the slot is already committed.
-  const committedEnvelope = project?.slots.find((s) => s.kind === activeKind)?.model as unknown as
+  // Committed slot from head-state: its envelope is the read-only fallback when
+  // there is no co-author session (sessionMissing) but the slot is committed; its
+  // revisions / staleBasis drive the committed-panel header.
+  const committedSlot = project?.slots.find((s) => s.kind === activeKind);
+  const committedEnvelope = committedSlot?.model as unknown as
     | ProjectArtifactModelEnvelope
     | undefined;
+  const committedRevisions = committedSlot?.revisions;
+  const committedStale = committedSlot?.staleBasis === true;
 
   const selectStep = (i: number): void => {
     setActiveIndex(i);
@@ -207,6 +221,14 @@ function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
       return;
     }
     requestDraft.mutate({ kind: activeKind });
+  };
+
+  // Amend a committed artifact: the same RequestProjectArtifactDraft mutation
+  // carrying the composed rationale as feedback. The server opens an -amend-N
+  // session seeded into the review ledger; invalidation drops sessionMissing and
+  // the existing poll drives the generating/review loop from here.
+  const amend = (feedback: string): void => {
+    requestDraft.mutate({ kind: activeKind, feedback });
   };
 
   const approve = (): void => {
@@ -349,12 +371,15 @@ function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
           activityEnvelope={activityEnvelope}
           advancePending={advance.isPending}
           advanceResult={advance.data}
+          amendPending={requestDraft.isPending}
           asyncFailed={asyncFailed}
           beginPending={requestDraft.isPending || assembleSdp.isPending}
           blurb={meta.blurb}
           commentCount={comments.length}
           committed={committed}
           committedEnvelope={committedEnvelope}
+          committedRevisions={committedRevisions}
+          committedStale={committedStale}
           decisionPending={decisionPending}
           draftFailed={draftFailed}
           failureReason={failureReason}
@@ -377,6 +402,7 @@ function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
           onAdvance={() => {
             advance.mutate(undefined);
           }}
+          onAmend={amend}
           onApprove={approve}
           onBegin={beginDraft}
           onRetry={retryDraft}
@@ -400,6 +426,8 @@ function ProjectStepBody({
   asyncFailed,
   committed,
   committedEnvelope,
+  committedRevisions,
+  committedStale,
   failureReason,
   hasDraft,
   sessionMissing,
@@ -417,6 +445,7 @@ function ProjectStepBody({
   beginPending,
   retryPending,
   withdrawPending,
+  amendPending,
   sdpPending,
   advancePending,
   advanceResult,
@@ -425,6 +454,7 @@ function ProjectStepBody({
   onApprove,
   onSendBack,
   onWithdraw,
+  onAmend,
   onSdpCommit,
   onSdpRejectAll,
   onAdvance,
@@ -438,6 +468,8 @@ function ProjectStepBody({
   asyncFailed: boolean;
   committed: boolean;
   committedEnvelope: ProjectArtifactModelEnvelope | undefined;
+  committedRevisions: number | undefined;
+  committedStale: boolean;
   failureReason: string | undefined;
   hasDraft: boolean;
   sessionMissing: boolean;
@@ -455,6 +487,7 @@ function ProjectStepBody({
   beginPending: boolean;
   retryPending: boolean;
   withdrawPending: boolean;
+  amendPending: boolean;
   sdpPending: boolean;
   advancePending: boolean;
   advanceResult: ProjectPhaseAdvanceResponse | undefined;
@@ -463,6 +496,7 @@ function ProjectStepBody({
   onApprove: () => void;
   onSendBack: () => void;
   onWithdraw: () => void;
+  onAmend: (feedback: string) => void;
   onSdpCommit: (optionId: string) => void;
   onSdpRejectAll: (feedback: string) => void;
   onAdvance: () => void;
@@ -518,16 +552,24 @@ function ProjectStepBody({
   }
 
   // When the session is missing (404) but the slot is committed in the project
-  // head-state, render the committed model read-only — no co-author chrome.
+  // head-state, render the committed model read-only under the committed panel
+  // (revision meta + stale-basis reconcile + Amend affordance).
   if (sessionMissing && committed && committedEnvelope !== undefined) {
     return (
-      <ProjectArtifactRenderer
-        activityEnvelope={activityEnvelope}
-        envelope={committedEnvelope}
-        kind={activeKind}
-        networkHeight={560}
-        planningAssumptionsEnvelope={planningAssumptionsEnvelope}
-      />
+      <CommittedArtifactPanel
+        amendPending={amendPending}
+        revisions={committedRevisions}
+        staleBasis={committedStale}
+        onAmend={onAmend}
+      >
+        <ProjectArtifactRenderer
+          activityEnvelope={activityEnvelope}
+          envelope={committedEnvelope}
+          kind={activeKind}
+          networkHeight={560}
+          planningAssumptionsEnvelope={planningAssumptionsEnvelope}
+        />
+      </CommittedArtifactPanel>
     );
   }
 

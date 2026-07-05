@@ -153,6 +153,10 @@ export interface ArtifactMeta {
   stage: SlotStage;
   /** Architect rationale on Reject / Withdraw, when present. */
   notes?: string;
+  /** Commit count; > 1 once the slot has been amended. */
+  revisions?: number;
+  /** True when an upstream basis changed since this slot was committed. */
+  staleBasis?: boolean;
 }
 
 /** Maps the ArtifactStage ordinal (0..4) to a display stage. */
@@ -186,6 +190,8 @@ function toArtifactMeta(slot: ArtifactSlotView): ArtifactMeta {
     hasPmCritic: meta.hasPmCritic,
     stage: slotStageFromOrdinal(slot.stage),
     ...(slot.notes !== undefined && slot.notes.length > 0 ? { notes: slot.notes } : {}),
+    ...(slot.revisions !== undefined ? { revisions: slot.revisions } : {}),
+    ...(slot.staleBasis === true ? { staleBasis: true } : {}),
   };
 }
 
