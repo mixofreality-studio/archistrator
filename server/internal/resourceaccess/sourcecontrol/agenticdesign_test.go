@@ -203,8 +203,9 @@ func TestDesignWorkflowAllowedBots(t *testing.T) {
 }
 
 // TestManagedScaffoldFiles asserts the birth scaffold bundle: the design workflow +
-// the templated go-test gate (go.mod + aiarch_method_test.go), all on the managed-
-// file allowlist, with the repo's module path templated in.
+// the templated go-test gate (go.mod + aiarch_method_test.go) + the internal/.gitkeep
+// placeholder, all on the managed-file allowlist, with the repo's module path
+// templated in.
 func TestManagedScaffoldFiles(t *testing.T) {
 	// owner|owner/repo encoding the RA produces (makeRepoRef): account=acme,
 	// fullName=acme/widgets.
@@ -213,8 +214,8 @@ func TestManagedScaffoldFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ManagedScaffoldFiles: %v", err)
 	}
-	if len(files) != 3 {
-		t.Fatalf("want 3 managed files (workflow + go.mod + method test), got %d", len(files))
+	if len(files) != 4 {
+		t.Fatalf("want 4 managed files (workflow + go.mod + method test + internal/.gitkeep), got %d", len(files))
 	}
 
 	byPath := map[string]ManagedFile{}
@@ -268,6 +269,38 @@ func TestManagedScaffoldFiles(t *testing.T) {
 	}
 	if !strings.Contains(mts, `arch.MethodSpec(".", "github.com/acme/widgets/")`) {
 		t.Errorf("method test must template the module path into arch.MethodSpec; got:\n%s", mts)
+	}
+
+	// (4) internal/.gitkeep keeps the internal/ directory present so the method gate's
+	// arch.MethodSpec ./internal/... load pattern resolves instead of hard-erroring on a
+	// fresh repo. It is static (not templated), non-empty (CommitManagedFiles rejects
+	// empty content), and its path is on the managed-file allowlist (asserted above in
+	// the per-file loop).
+	gk, ok := byPath[InternalGitkeepPath]
+	if !ok {
+		t.Fatalf("missing %s in the scaffold bundle", InternalGitkeepPath)
+	}
+	if InternalGitkeepPath != "internal/.gitkeep" {
+		t.Errorf("InternalGitkeepPath must be the literal internal/.gitkeep; got %q", InternalGitkeepPath)
+	}
+	if string(gk.Content) != InternalGitkeepContent {
+		t.Errorf("internal/.gitkeep content = %q, want %q", gk.Content, InternalGitkeepContent)
+	}
+	if len(gk.Content) == 0 {
+		t.Error("internal/.gitkeep must be non-empty (CommitManagedFiles rejects empty content)")
+	}
+}
+
+// TestInternalGitkeepAcceptedByAllowlist proves the seeded placeholder path is on the
+// managed-file allowlist (so CommitManagedFiles accepts it), while an arbitrary file
+// under internal/ is NOT (the allowlist lists the literal internal/.gitkeep, not an
+// internal/ prefix — keeping it tight).
+func TestInternalGitkeepAcceptedByAllowlist(t *testing.T) {
+	if !isManagedFilePath(InternalGitkeepPath) {
+		t.Errorf("%q must be on the managed-file allowlist", InternalGitkeepPath)
+	}
+	if isManagedFilePath("internal/main.go") {
+		t.Error("an arbitrary file under internal/ must NOT be on the allowlist — only the literal internal/.gitkeep is")
 	}
 }
 

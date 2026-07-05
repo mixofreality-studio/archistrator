@@ -2,7 +2,7 @@ package sourcecontrol
 
 // agenticdesign.go supplies the aiarch-MANAGED project scaffold archistrator-server
 // seats into each user project repo at project birth (CommitManagedFiles). The
-// scaffold is THREE files committed in one birth seat:
+// scaffold is FOUR files committed in one birth seat:
 //
 //   1. .github/workflows/aiarch-design.yml — the claude-code-action DESIGN workflow
 //      (the DESIGN counterpart of the construction reference workflow
@@ -18,11 +18,21 @@ package sourcecontrol
 //      pinned to FrameworkGoVersion, so the seated `go test` resolves methodcheck.
 //   3. aiarch_method_test.go — the single test calling methodcheck.Check (the
 //      all-in-one Method gate). It is what `go test ./...` runs as the REQUIRED check.
+//   4. internal/.gitkeep — a placeholder that keeps the internal/ directory PRESENT
+//      in a fresh repo. The seated method test (3) runs methodcheck.Check, whose
+//      arch.MethodSpec loads the `./internal/...` package pattern; on an empty birth
+//      repo that pattern HARD-ERRORS ("lstat ./internal/: no such file or directory")
+//      and reddens the required check on every fresh project until the directory is
+//      hand-added. Seating an empty-ish internal/.gitkeep makes internal/ exist at
+//      birth so the load pattern resolves (to zero packages, a valid no-op) and the
+//      gate is green from the first commit. It is a static one-liner (not templated):
+//      git needs a non-empty tracked file, and CommitManagedFiles rejects empty
+//      content, so it carries a single explanatory comment line.
 //
-// All three are TEMPLATED at birth: (2) and (3) with the repo's module path (and the
+// (1)–(3) are TEMPLATED at birth: (2) and (3) with the repo's module path (and the
 // pinned framework-go version); (1) with the configured GitHub App slug (allowed_bots).
 // (1) uses custom Go-template delimiters [[ ]] so GitHub's own ${{ ... }} expressions
-// are left untouched.
+// are left untouched. (4) is static content.
 //
 // This asset accessor lives DIRECTLY in the sourceControlAccess package (not a
 // sub-package) on purpose: the embedded templates are consumed only by this RA's own
@@ -76,6 +86,20 @@ const (
 	GoModPath      = "go.mod"
 	MethodTestPath = "aiarch_method_test.go"
 )
+
+// InternalGitkeepPath is the repo-root placeholder that keeps the internal/ directory
+// present at project birth so the seated method test's arch.MethodSpec `./internal/...`
+// load pattern resolves (to zero packages) instead of hard-erroring on a missing dir.
+// It MUST match the sourcecontrol managed-file allowlist scaffold roots (github.go
+// scaffoldRootPaths) so CommitManagedFiles accepts it — the allowlist lists this
+// LITERAL path, not an internal/ prefix, so it stays tight.
+const InternalGitkeepPath = "internal/.gitkeep"
+
+// InternalGitkeepContent is the static, non-empty content of the internal/.gitkeep
+// placeholder. git needs a tracked file (a bare empty directory cannot be committed)
+// and CommitManagedFiles rejects empty content, so the file carries a single comment
+// line explaining why it exists.
+const InternalGitkeepContent = "# keeps internal/ present for the Method arch gate (./internal/... load pattern)\n"
 
 // GoVersion is the Go directive the seated go.mod declares. It tracks framework-go's
 // own go.mod `go` line so the user module and framework-go agree on the language
@@ -149,11 +173,14 @@ func renderScaffoldFile(name, tmplText string, data scaffoldTemplateData) ([]byt
 
 // ManagedScaffoldFiles returns the FULL aiarch-managed project scaffold bundle to
 // seat at project birth — the design workflow + the go-test gate (go.mod +
-// aiarch_method_test.go) — templated with the adopted repo's Go module path
-// (github.com/<owner>/<repo>, derived from repo via RepoRef.OwnerRepo), the pinned
-// Go + framework-go versions, and the configured GitHub App slug (the design
-// workflow's allowed_bots actor). The C-PM-Δ caller hands the returned slice to
-// CommitManagedFiles, which seats all three in one birth seat.
+// aiarch_method_test.go) + the internal/.gitkeep placeholder — templated with the
+// adopted repo's Go module path (github.com/<owner>/<repo>, derived from repo via
+// RepoRef.OwnerRepo), the pinned Go + framework-go versions, and the configured
+// GitHub App slug (the design workflow's allowed_bots actor). The internal/.gitkeep
+// file is static (the method gate's arch.MethodSpec `./internal/...` load pattern
+// hard-errors on a missing internal/ dir, so the placeholder makes it exist at birth).
+// The C-PM-Δ caller hands the returned slice to CommitManagedFiles, which seats all
+// four in one birth seat.
 //
 // appSlug is the deployment's GitHub App slug (from the composition root). The caller
 // reads it off the rail with RailAppSlug so it is never hardcoded. An EMPTY slug
@@ -190,6 +217,7 @@ func ManagedScaffoldFiles(repo RepoRef, appSlug string) ([]ManagedFile, error) {
 		workflow,
 		{Path: GoModPath, Content: goMod},
 		{Path: MethodTestPath, Content: methodTest},
+		{Path: InternalGitkeepPath, Content: []byte(InternalGitkeepContent)},
 	}, nil
 }
 

@@ -42,11 +42,18 @@ const workflowPathPrefix = ".github/workflows/"
 // is permitted to seat — the go-test gate scaffold. Together with workflowPathPrefix
 // these form the managed-file ALLOWLIST: the verb seats ONLY aiarch-managed files
 // (the design workflow + the go.mod and method-test that make `go test ./...` the
-// merge gate), never arbitrary content (§2.6, Non-goal #2). A path that is neither
-// under .github/workflows/ NOR one of these roots is a ContractMisuse.
+// merge gate + the internal/.gitkeep that keeps the method gate's `./internal/...`
+// load pattern from hard-erroring on a fresh repo), never arbitrary content (§2.6,
+// Non-goal #2). A path that is neither under .github/workflows/ NOR one of these
+// roots is a ContractMisuse.
+//
+// internal/.gitkeep is listed as a LITERAL path (not an internal/ prefix) to keep the
+// allowlist tight: only the single seeded placeholder is permitted, never arbitrary
+// files under internal/.
 var scaffoldRootPaths = map[string]bool{
 	"go.mod":                true,
 	"aiarch_method_test.go": true,
+	"internal/.gitkeep":     true,
 }
 
 // isManagedFilePath reports whether path is on the managed-file allowlist: under
@@ -472,7 +479,8 @@ func (a *access) GetInstallationToken(rc fwra.Context, repo RepoRef) (RepoCreden
 
 // CommitManagedFiles seats the aiarch-MANAGED project scaffold — the
 // claude-code-action design workflow PLUS the go-test gate (go.mod +
-// aiarch_method_test.go) — at project birth. Every file's path is enforced against
+// aiarch_method_test.go) PLUS the internal/.gitkeep placeholder — at project birth.
+// Every file's path is enforced against
 // the managed-file ALLOWLIST (under .github/workflows/, OR a known scaffold root) so
 // this verb can never become a general "commit any file" smell (§2.6, Non-goal #2);
 // a path off the allowlist is a ContractMisuse.
@@ -504,7 +512,7 @@ func (a *access) CommitManagedFiles(rc fwra.Context, repo RepoRef, files []Manag
 		}
 		if !isManagedFilePath(f.Path) {
 			return "", fwra.New(fwra.ContractMisuse,
-				"CommitManagedFiles: path "+f.Path+" is not an aiarch-managed file (must be under "+workflowPathPrefix+" or a scaffold root: go.mod / aiarch_method_test.go)")
+				"CommitManagedFiles: path "+f.Path+" is not an aiarch-managed file (must be under "+workflowPathPrefix+" or a scaffold root: go.mod / aiarch_method_test.go / internal/.gitkeep)")
 		}
 		if len(f.Content) == 0 {
 			return "", fwra.New(fwra.ContractMisuse, "CommitManagedFiles: empty content for "+f.Path)
