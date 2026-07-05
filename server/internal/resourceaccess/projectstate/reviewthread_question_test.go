@@ -69,3 +69,24 @@ func TestNormalize_QuestionStatusAndGate(t *testing.T) {
 		}
 	}
 }
+
+// A staleAck audit entry is sticky: normalization never reopens it (no Response, but it must
+// stay addressed), and appendStaleAck stamps it addressed + staleAck with a fresh id.
+func TestStaleAck_AppendAndNormalizeSticky(t *testing.T) {
+	out := appendStaleAck(nil, "architect", "diagrams only")
+	if len(out) != 1 {
+		t.Fatalf("want 1 entry, got %d", len(out))
+	}
+	e := out[0]
+	if e.Type != ReviewCommentTypeStaleAck || e.Status != ReviewCommentAddressed || e.AuthorRole != "architect" {
+		t.Fatalf("staleAck shape wrong: %+v", e)
+	}
+	// Normalize must NOT flip the staleAck (empty response) to open.
+	normalized := normalizeReviewThread(out)
+	if normalized[0].Status != ReviewCommentAddressed {
+		t.Errorf("staleAck must stay addressed after normalize, got %q", normalized[0].Status)
+	}
+	if ReviewCommentBlocksApprove(normalized[0]) {
+		t.Errorf("staleAck must never block approve")
+	}
+}

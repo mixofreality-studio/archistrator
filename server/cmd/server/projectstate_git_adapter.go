@@ -319,6 +319,19 @@ func (a *projectStateGitAdapter) SetReviewCommentStatusOnBranch(ctx context.Cont
 	return a.store.SetReviewCommentStatusOnBranch(ctx, projectID, expectedVersion, branch, kind, commentID, status, cred, idempotencyKey)
 }
 
+var _ projectstate.StaleAckProjectStateAccess = (*projectStateGitAdapter)(nil)
+
+// AcknowledgeStaleBasis clears a committed slot's StaleBasis + records the reviewer's
+// "reviewed — unaffected" audit entry on main (F45). The cred is minted just-in-time, exactly
+// like the other write verbs.
+func (a *projectStateGitAdapter) AcknowledgeStaleBasis(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, kind projectstate.ArtifactKind, note string, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
+	cred, err := a.minter.credentialFor(ctx, projectID)
+	if err != nil {
+		return 0, err
+	}
+	return a.store.AcknowledgeStaleBasis(ctx, projectID, expectedVersion, kind, note, cred, idempotencyKey)
+}
+
 // ---------------------------------------------------------------------------
 // RepoLocator — resolves a projectID to a per-project git store handle. It is the seam
 // where the composition root supplies the concrete URL scheme

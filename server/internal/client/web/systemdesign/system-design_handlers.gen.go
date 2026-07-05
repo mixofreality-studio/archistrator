@@ -31,6 +31,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/system-design/set-operating-model/{projectID}", h.handleSetOperatingModel)
 	mux.HandleFunc("POST /api/v1/system-design/set-research-input/{projectID}", h.handleSetResearchInput)
 	mux.HandleFunc("POST /api/v1/system-design/ask-questions/{projectID}", h.handleAskQuestions)
+	mux.HandleFunc("POST /api/v1/system-design/acknowledge-stale-basis/{projectID}", h.handleAcknowledgeStaleBasis)
 	mux.HandleFunc("POST /api/v1/system-design/set-review-comment-status/{projectID}", h.handleSetReviewCommentStatus)
 	mux.HandleFunc("POST /api/v1/system-design/start-system-design/{projectID}", h.handleStartSystemDesign)
 	mux.HandleFunc("POST /api/v1/system-design/submit-review-decision/{projectID}", h.handleSubmitReviewDecision)
@@ -62,6 +63,11 @@ type askQuestionsRequest struct {
 	Kind      mgr.ArtifactKind      `json:"kind"`
 	Addressee string                `json:"addressee"`
 	Questions []mgr.AnchoredComment `json:"questions"`
+}
+
+type acknowledgeStaleBasisRequest struct {
+	Kind mgr.ArtifactKind `json:"kind"`
+	Note string           `json:"note"`
 }
 
 type setReviewCommentStatusRequest struct {
@@ -314,6 +320,33 @@ func (h *Handler) handleAskQuestions(w http.ResponseWriter, r *http.Request) {
 	}
 	rc := fwmanager.Context{Context: r.Context(), Principal: principal}
 	if err := h.Manager.AskQuestions(rc, projectID, req.Kind, req.Addressee, req.Questions); err != nil {
+		writeManagerError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleAcknowledgeStaleBasis binds POST /api/v1/system-design/acknowledge-stale-basis/{projectID} -> mgr.AcknowledgeStaleBasis.
+func (h *Handler) handleAcknowledgeStaleBasis(w http.ResponseWriter, r *http.Request) {
+	projectID := mgr.ProjectID(r.PathValue("projectID"))
+	var req acknowledgeStaleBasisRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	principal, ok := security.PrincipalFrom(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthenticated", "authentication required")
+		return
+	}
+	decision, err := h.Security.Authorize(r.Context(), principal,
+		security.Action{Verb: "acknowledge-stale-basis"},
+		security.ResourceRef{Kind: "project", ID: string(projectID)})
+	if err != nil || !decision.Permit {
+		writeError(w, http.StatusForbidden, "forbidden", "not permitted")
+		return
+	}
+	rc := fwmanager.Context{Context: r.Context(), Principal: principal}
+	if err := h.Manager.AcknowledgeStaleBasis(rc, projectID, req.Kind, req.Note); err != nil {
 		writeManagerError(w, err)
 		return
 	}

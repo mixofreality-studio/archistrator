@@ -47,6 +47,7 @@ import { METHOD_METADATA } from '../contracts/methodMetadata';
 import { useProject } from '../hooks/useProject';
 import { useSessionState } from '../hooks/useSessionState';
 import {
+  useAcknowledgeStaleBasis,
   useAskQuestions,
   useRequestArtifactDraft,
   useSetReviewCommentStatus,
@@ -65,6 +66,7 @@ import { DraftFailedPanel } from '../components/design/DraftFailedPanel';
 import { GatePanel } from '../components/design/GatePanel';
 import { ChatRail } from '../components/design/ChatRail';
 import { CommittedArtifactPanel } from '../components/design/CommittedArtifactPanel';
+import { StaleBasisBanner } from '../components/design/StaleBasisChip';
 import { ResearchInputPanel } from '../components/design/ResearchInputPanel';
 import { CommentProvider, useComments } from '../components/comments/CommentContext';
 
@@ -72,6 +74,9 @@ import { CommentProvider, useComments } from '../components/comments/CommentCont
 // experience; diagram kinds (volatilities/system/coreUseCases/operationalConcepts)
 // render on their own bordered canvases, so they stay unwrapped.
 const PROSE_ARTIFACT_KINDS = new Set<string>(['mission', 'scrubbedRequirements', 'standardCheck']);
+
+/** Seed rationale for a reconcile-via-amendment fired from the stale banner (F45). */
+const RECONCILE_RATIONALE = 'Reconcile with amended upstream basis.';
 
 function proseSurface(kind: string | undefined, node: ReactNode): ReactNode {
   return kind !== undefined && PROSE_ARTIFACT_KINDS.has(kind) ? (
@@ -182,6 +187,7 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
   const submitReview = useSubmitReviewDecision(projectId);
   const setCommentStatus = useSetReviewCommentStatus(projectId);
   const askQuestionsMut = useAskQuestions(projectId);
+  const acknowledgeStale = useAcknowledgeStaleBasis(projectId);
   const startDesign = useStartSystemDesign(projectId);
   const setResearch = useSetResearchInput(projectId);
 
@@ -241,6 +247,10 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
   // the existing poll drives the generating/review loop from here.
   const amend = (feedback: string): void => {
     requestDraft.mutate({ kind: activeKind, feedback });
+  };
+
+  const onAcknowledgeStale = (note: string): void => {
+    acknowledgeStale.mutate({ kind: activeKind, note });
   };
 
   const submitResearch = (research: ResearchInput): void => {
@@ -419,6 +429,7 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
 
         {/* body */}
         <StepBody
+          acknowledgePending={acknowledgeStale.isPending}
           activeKind={activeKind}
           amendPending={requestDraft.isPending}
           asyncFailed={asyncFailed}
@@ -448,6 +459,7 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
           title={meta.title}
           view={view}
           withdrawPending={decisionPending}
+          onAcknowledgeStale={onAcknowledgeStale}
           onAmend={amend}
           onApprove={approve}
           onBegin={beginOrDraft}
@@ -491,6 +503,7 @@ function StepBody({
   retryPending,
   withdrawPending,
   amendPending,
+  acknowledgePending,
   onBegin,
   onRetry,
   onSubmitResearch,
@@ -498,6 +511,7 @@ function StepBody({
   onSendBack,
   onWithdraw,
   onAmend,
+  onAcknowledgeStale,
 }: {
   t: Tokens;
   activeKind: ArtifactKind;
@@ -528,6 +542,7 @@ function StepBody({
   retryPending: boolean;
   withdrawPending: boolean;
   amendPending: boolean;
+  acknowledgePending: boolean;
   onBegin: () => void;
   onRetry: () => void;
   onSubmitResearch: (research: ResearchInput) => void;
@@ -535,6 +550,7 @@ function StepBody({
   onSendBack: () => void;
   onWithdraw: () => void;
   onAmend: (feedback: string) => void;
+  onAcknowledgeStale: (note: string) => void;
 }): ReactNode {
   if (needsResearch) {
     return <ResearchInputPanel pending={researchPending} onSubmit={onSubmitResearch} />;
@@ -628,9 +644,11 @@ function StepBody({
   if (sessionMissing && committed && committedEnvelope !== undefined) {
     return (
       <CommittedArtifactPanel
+        acknowledgePending={acknowledgePending}
         amendPending={amendPending}
         revisions={committedRevisions}
         staleBasis={committedStale}
+        onAcknowledgeStale={onAcknowledgeStale}
         onAmend={onAmend}
       >
         {proseSurface(
@@ -667,6 +685,20 @@ function StepBody({
   return (
     <>
       <ArtifactIntro committed={committed} kind={activeKind} />
+      {/* F45/F64: a committed artifact whose upstream basis drifted shows the stale banner in
+          the pane (not just the stepper ⚠). Reconcile fires the amend directly here; "mark
+          reviewed — unaffected" clears StaleBasis with an audit note, no redraft. */}
+      {committed && committedStale ? (
+        <Box sx={{ mb: 2 }}>
+          <StaleBasisBanner
+            acknowledgePending={acknowledgePending}
+            onAcknowledge={onAcknowledgeStale}
+            onReconcile={() => {
+              onAmend(RECONCILE_RATIONALE);
+            }}
+          />
+        </Box>
+      ) : null}
       <Box sx={{ mb: gateOpen ? 3 : 0 }}>
         {proseSurface(
           view?.draft.kind ?? activeKind,

@@ -109,6 +109,10 @@ func (m loggingSystemDesignManager) AskQuestions(rc fwmanager.Context, projectID
 	return logInfraError(m.log, "SystemDesign.AskQuestions", string(projectID), m.inner.AskQuestions(rc, projectID, kind, addressee, questions))
 }
 
+func (m loggingSystemDesignManager) AcknowledgeStaleBasis(rc fwmanager.Context, projectID systemdesign.ProjectID, kind systemdesign.ArtifactKind, note string) error {
+	return logInfraError(m.log, "SystemDesign.AcknowledgeStaleBasis", string(projectID), m.inner.AcknowledgeStaleBasis(rc, projectID, kind, note))
+}
+
 // --- ProjectDesign ---------------------------------------------------------
 
 type loggingProjectDesignManager struct {
@@ -142,6 +146,10 @@ func (m loggingProjectDesignManager) SetReviewCommentStatus(rc fwmanager.Context
 
 func (m loggingProjectDesignManager) AskQuestions(rc fwmanager.Context, projectID projectdesign.ProjectID, kind projectdesign.ArtifactKind, addressee string, questions []projectdesign.AnchoredComment) error {
 	return logInfraError(m.log, "ProjectDesign.AskQuestions", string(projectID), m.inner.AskQuestions(rc, projectID, kind, addressee, questions))
+}
+
+func (m loggingProjectDesignManager) AcknowledgeStaleBasis(rc fwmanager.Context, projectID projectdesign.ProjectID, kind projectdesign.ArtifactKind, note string) error {
+	return logInfraError(m.log, "ProjectDesign.AcknowledgeStaleBasis", string(projectID), m.inner.AcknowledgeStaleBasis(rc, projectID, kind, note))
 }
 
 func (m loggingProjectDesignManager) SubmitReviewDecision(rc fwmanager.Context, projectID projectdesign.ProjectID, kind projectdesign.ArtifactKind, decision projectdesign.ReviewDecision, feedback *projectdesign.ReviewFeedback) error {

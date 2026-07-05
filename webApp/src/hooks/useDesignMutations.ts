@@ -179,6 +179,37 @@ export function useAskQuestions(
   });
 }
 
+export interface AcknowledgeStaleVars {
+  kind: ArtifactKind;
+  /** Optional audit note recorded on the staleAck ledger entry. */
+  note: string;
+}
+
+/**
+ * Mark a stale committed artifact "reviewed — unaffected" (F45): clears its StaleBasis
+ * WITHOUT a redraft, recording the note as a durable staleAck audit entry. On success it
+ * invalidates the artifact query so the pane re-reads with the flag cleared.
+ */
+export function useAcknowledgeStaleBasis(
+  projectId: string
+): UseMutationResult<undefined, Error, AcknowledgeStaleVars> {
+  const client = useQueryClient();
+  return useMutation<undefined, Error, AcknowledgeStaleVars>({
+    mutationFn: async (vars) => {
+      const { error, response } = await apiClient.POST(
+        '/api/v1/system-design/acknowledge-stale-basis/{projectID}',
+        {
+          params: { path: { projectID: projectId } },
+          body: { kind: artifactKindToOrdinal(vars.kind), note: vars.note },
+        }
+      );
+      if (error !== undefined) throw toApiError(response.status, error);
+      return undefined;
+    },
+    onSuccess: (_data, vars) => invalidateArtifact(client, projectId, vars.kind),
+  });
+}
+
 /**
  * Advance trigger — TVariables is `acknowledgeStale`. A normal advance sends
  * false; when the server blocks with a FailedPrecondition naming stale committed

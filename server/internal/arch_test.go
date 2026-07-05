@@ -358,6 +358,11 @@ var encapsulationAllowlistData = map[string][]string{
 		// design Managers type-assert during the AwaitingReview window (the BranchAware
 		// precedent above). Its methods are served by GitStore + the composition-root adapter.
 		"LedgerProjectStateAccess",
+		// STALE-ACK EXTENSION (F45): the OPTIONAL per-slot staleness-acknowledge interface a
+		// design Manager type-asserts to clear a committed slot's StaleBasis with an audit
+		// entry (same pattern as the Ledger + BranchAware extensions above). Served by
+		// GitStore + the composition-root adapter.
+		"StaleAckProjectStateAccess",
 		"LocalRepoCredential",
 		"MissionStatement",
 		"MissionStatement.Kind",
@@ -433,6 +438,7 @@ var encapsulationAllowlistData = map[string][]string{
 		// append will mint (to name each question in the answer-job prompt).
 		"ReviewCommentTypeChangeRequest",
 		"ReviewCommentTypeQuestion",
+		"ReviewCommentTypeStaleAck",
 		"ReviewAddresseePM",
 		"ReviewAddresseeArchitect",
 		"ReviewCommentIsQuestion",

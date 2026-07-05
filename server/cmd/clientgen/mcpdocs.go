@@ -16,6 +16,7 @@ package main
 // cannot silently ship boilerplate again.
 var mcpOpDocs = map[string]map[string]string{
 	"SystemDesignManager": {
+		"AcknowledgeStaleBasis":  "Mark a stale committed System-Design artifact 'reviewed — unaffected': clear its stale-basis flag WITHOUT a redraft, recording the reviewer's note as a durable audit entry in the review thread. Use when an upstream change does not actually affect this artifact (so a reconcile amendment would be a byte-identical no-op).",
 		"AdvancePhase":           "Advance the project from System Design (phase 1) to Project Design (phase 2). Requires every phase-1 artifact to be committed and reviewed; returns the resulting phase plus any reason the advance was gated.",
 		"AskQuestions":           "Ask one or more clarifying QUESTIONS about a System-Design artifact (selected by kind) addressed to a role (pm or architect), WITHOUT sending the draft back for a redraft. The questions are appended to the artifact's review ledger as question-type entries and a lightweight answer job is dispatched so the addressed role answers each in place. Works on a committed artifact too (seeds a question-only thread without opening an amendment). Unlike change-request comments, open questions do NOT block approve.",
 		"CreateProject":          "Create a new archistrator project owned by the given owner scope, with the given display name, and return its generated project ID.",
@@ -30,6 +31,7 @@ var mcpOpDocs = map[string]map[string]string{
 		"SubmitReviewDecision":   "Record a review verdict (approve / reject / withdraw) on the current draft of a System-Design artifact (selected by kind). Reject and withdraw should carry feedback; approve commits the artifact and unblocks its successors.",
 	},
 	"ProjectDesignManager": {
+		"AcknowledgeStaleBasis":  "Mark a stale committed Project-Design artifact 'reviewed — unaffected': clear its stale-basis flag WITHOUT a redraft, recording the reviewer's note as a durable audit entry in the review thread. Use when an upstream change does not actually affect this artifact (so a reconcile amendment would be a byte-identical no-op).",
 		"AdvanceToConstruction":  "Advance the project from Project Design (phase 2) to Construction (phase 3), once the SDP has been committed. Returns the resulting phase plus any reason the advance was gated.",
 		"AskQuestions":           "Ask one or more clarifying QUESTIONS about a Project-Design artifact (selected by kind) addressed to a role (pm or architect), WITHOUT sending the draft back for a redraft. The questions are appended to the artifact's review ledger as question-type entries and a lightweight answer job is dispatched so the addressed role answers each in place. Works on a committed artifact too (seeds a question-only thread without opening an amendment). Unlike change-request comments, open questions do NOT block approve.",
 		"GetSessionState":        "Return the current draft/review session state for one Project-Design artifact (selected by kind): its stage, the latest AI draft, and any review feedback. Read-only.",

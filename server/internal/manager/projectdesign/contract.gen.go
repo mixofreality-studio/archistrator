@@ -147,6 +147,7 @@ type ProjectDesignManager interface {
 	RequestArtifactDraft(rc fwm.Context, projectID ProjectID, kind ArtifactKind, feedback *ReviewFeedback) (SessionRef, error)
 	RequestSDPCommit(rc fwm.Context, projectID ProjectID) (SessionRef, error)
 	AskQuestions(rc fwm.Context, projectID ProjectID, kind ArtifactKind, addressee string, questions []AnchoredComment) error
+	AcknowledgeStaleBasis(rc fwm.Context, projectID ProjectID, kind ArtifactKind, note string) error
 	SetReviewCommentStatus(rc fwm.Context, projectID ProjectID, kind ArtifactKind, commentID string, status string) error
 	SubmitReviewDecision(rc fwm.Context, projectID ProjectID, kind ArtifactKind, decision ReviewDecision, feedback *ReviewFeedback) error
 	SubmitSDPDecision(rc fwm.Context, projectID ProjectID, decision SDPDecision, optionID *OptionID, feedback *ReviewFeedback) error

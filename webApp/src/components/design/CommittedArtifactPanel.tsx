@@ -33,7 +33,7 @@ import EditNoteIcon from '@mui/icons-material/EditNote';
 import { useComments } from '../comments/CommentContext';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
-import { StaleBasisChip } from './StaleBasisChip';
+import { StaleBasisBanner } from './StaleBasisChip';
 
 const RECONCILE_RATIONALE = 'Reconcile with amended upstream basis.';
 
@@ -41,17 +41,26 @@ export function CommittedArtifactPanel({
   revisions,
   staleBasis = false,
   amendPending,
+  acknowledgePending = false,
   onAmend,
+  onAcknowledgeStale,
   children,
 }: {
   /** Commit count; the revision suffix shows only when > 1. */
   revisions?: number | undefined;
-  /** Upstream basis drifted since commit — surfaces the reconcile chip. */
+  /** Upstream basis drifted since commit — surfaces the stale banner. */
   staleBasis?: boolean;
   /** An amend RequestArtifactDraft is in flight — disable the composer submit. */
   amendPending: boolean;
+  /** An AcknowledgeStaleBasis mutation is in flight — disable the confirm. */
+  acknowledgePending?: boolean;
   /** Fire the amendment with the composed feedback (rationale + pending notes). */
   onAmend: (feedback: string) => void;
+  /**
+   * Mark the stale artifact "reviewed — unaffected" (F45): clears StaleBasis with an
+   * audit note, WITHOUT a redraft. Omitted on surfaces that cannot acknowledge.
+   */
+  onAcknowledgeStale?: (note: string) => void;
   children: ReactNode;
 }): ReactNode {
   const t = useTokens();
@@ -109,13 +118,6 @@ export function CommittedArtifactPanel({
         >
           COMMITTED{revisionN > 1 ? ` · revision ${String(revisionN)}` : ''}
         </Typography>
-        {staleBasis ? (
-          <StaleBasisChip
-            onReconcile={() => {
-              openComposer(RECONCILE_RATIONALE);
-            }}
-          />
-        ) : null}
         <Box sx={{ flexGrow: 1 }} />
         <Button
           data-testid={UI_IDENTIFIERS.DesignExperience.AMEND}
@@ -130,6 +132,16 @@ export function CommittedArtifactPanel({
           Amend
         </Button>
       </Paper>
+
+      {staleBasis ? (
+        <StaleBasisBanner
+          acknowledgePending={acknowledgePending}
+          onReconcile={() => {
+            openComposer(RECONCILE_RATIONALE);
+          }}
+          {...(onAcknowledgeStale !== undefined ? { onAcknowledge: onAcknowledgeStale } : {})}
+        />
+      ) : null}
 
       {children}
 

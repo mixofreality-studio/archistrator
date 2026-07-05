@@ -30,6 +30,7 @@ func (h *Handler) Register(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{Name: "projectDesignRequestArtifactDraft", Description: "Kick off (or re-run) the AI drafting of one Project-Design artifact (selected by kind, e.g. the activity list, project network, or a solution option). Pass feedback to re-draft against review notes. Returns a handle to the asynchronous drafting session.", InputSchema: requestArtifactDraftInputSchema(), OutputSchema: requestArtifactDraftOutputSchema()}, h.handleRequestArtifactDraft)
 	mcp.AddTool(srv, &mcp.Tool{Name: "projectDesignRequestSDPCommit", Description: "Assemble the SDP Review (every solution option plus the risk model) for management sign-off. Returns a handle to the assembly session.", InputSchema: requestSDPCommitInputSchema(), OutputSchema: requestSDPCommitOutputSchema()}, h.handleRequestSDPCommit)
 	mcp.AddTool(srv, &mcp.Tool{Name: "projectDesignAskQuestions", Description: "Ask one or more clarifying QUESTIONS about a Project-Design artifact (selected by kind) addressed to a role (pm or architect), WITHOUT sending the draft back for a redraft. The questions are appended to the artifact's review ledger as question-type entries and a lightweight answer job is dispatched so the addressed role answers each in place. Works on a committed artifact too (seeds a question-only thread without opening an amendment). Unlike change-request comments, open questions do NOT block approve.", InputSchema: askQuestionsInputSchema(), OutputSchema: askQuestionsOutputSchema()}, h.handleAskQuestions)
+	mcp.AddTool(srv, &mcp.Tool{Name: "projectDesignAcknowledgeStaleBasis", Description: "Mark a stale committed Project-Design artifact 'reviewed — unaffected': clear its stale-basis flag WITHOUT a redraft, recording the reviewer's note as a durable audit entry in the review thread. Use when an upstream change does not actually affect this artifact (so a reconcile amendment would be a byte-identical no-op).", InputSchema: acknowledgeStaleBasisInputSchema(), OutputSchema: acknowledgeStaleBasisOutputSchema()}, h.handleAcknowledgeStaleBasis)
 	mcp.AddTool(srv, &mcp.Tool{Name: "projectDesignSetReviewCommentStatus", Description: "Change the status of one durable review-ledger comment on a Project-Design artifact (selected by kind): waive an open comment to dismiss it, or reopen an addressed comment to send it back. Approve is blocked while any comment is still open.", InputSchema: setReviewCommentStatusInputSchema(), OutputSchema: setReviewCommentStatusOutputSchema()}, h.handleSetReviewCommentStatus)
 	mcp.AddTool(srv, &mcp.Tool{Name: "projectDesignSubmitReviewDecision", Description: "Record a review verdict (approve / reject / withdraw) on the current draft of a Project-Design artifact (selected by kind). Reject and withdraw should carry feedback; approve commits the artifact.", InputSchema: submitReviewDecisionInputSchema(), OutputSchema: submitReviewDecisionOutputSchema()}, h.handleSubmitReviewDecision)
 	mcp.AddTool(srv, &mcp.Tool{Name: "projectDesignSubmitSDPDecision", Description: "Record management's decision on the SDP Review: commit one solution option (pass its optionID) or reject all options. Pass feedback to record the rationale.", InputSchema: submitSDPDecisionInputSchema(), OutputSchema: submitSDPDecisionOutputSchema()}, h.handleSubmitSDPDecision)
@@ -79,6 +80,14 @@ type askQuestionsInput struct {
 }
 
 type askQuestionsOutput struct{}
+
+type acknowledgeStaleBasisInput struct {
+	ProjectID mgr.ProjectID    `json:"projectID"`
+	Kind      mgr.ArtifactKind `json:"kind"`
+	Note      string           `json:"note"`
+}
+
+type acknowledgeStaleBasisOutput struct{}
 
 type setReviewCommentStatusInput struct {
 	ProjectID mgr.ProjectID    `json:"projectID"`
@@ -150,6 +159,15 @@ func askQuestionsInputSchema() *jsonschema.Schema {
 	return s
 }
 
+// acknowledgeStaleBasisInputSchema is the explicit MCP input schema for the AcknowledgeStaleBasis operation.
+func acknowledgeStaleBasisInputSchema() *jsonschema.Schema {
+	s := objectSchema[acknowledgeStaleBasisInput]()
+	relaxRawJSON(s)
+	s.Required = []string{"projectID", "kind", "note"}
+	s.Properties["kind"] = enumSchemaArtifactKind()
+	return s
+}
+
 // setReviewCommentStatusInputSchema is the explicit MCP input schema for the SetReviewCommentStatus operation.
 func setReviewCommentStatusInputSchema() *jsonschema.Schema {
 	s := objectSchema[setReviewCommentStatusInput]()
@@ -209,6 +227,13 @@ func requestSDPCommitOutputSchema() *jsonschema.Schema {
 // askQuestionsOutputSchema is the explicit MCP output schema for the AskQuestions operation.
 func askQuestionsOutputSchema() *jsonschema.Schema {
 	s := objectSchema[askQuestionsOutput]()
+	relaxRawJSON(s)
+	return s
+}
+
+// acknowledgeStaleBasisOutputSchema is the explicit MCP output schema for the AcknowledgeStaleBasis operation.
+func acknowledgeStaleBasisOutputSchema() *jsonschema.Schema {
+	s := objectSchema[acknowledgeStaleBasisOutput]()
 	relaxRawJSON(s)
 	return s
 }
@@ -319,6 +344,17 @@ func (h *Handler) handleAskQuestions(ctx context.Context, _ *mcp.CallToolRequest
 	principal, _ := security.PrincipalFrom(ctx)
 	rc := fwmanager.Context{Context: ctx, Principal: principal}
 	if err := h.Manager.AskQuestions(rc, in.ProjectID, in.Kind, in.Addressee, in.Questions); err != nil {
+		return nil, out, mapManagerError(err)
+	}
+	return nil, out, nil
+}
+
+// handleAcknowledgeStaleBasis is the MCP tool handler for the AcknowledgeStaleBasis operation.
+func (h *Handler) handleAcknowledgeStaleBasis(ctx context.Context, _ *mcp.CallToolRequest, in acknowledgeStaleBasisInput) (*mcp.CallToolResult, acknowledgeStaleBasisOutput, error) {
+	var out acknowledgeStaleBasisOutput
+	principal, _ := security.PrincipalFrom(ctx)
+	rc := fwmanager.Context{Context: ctx, Principal: principal}
+	if err := h.Manager.AcknowledgeStaleBasis(rc, in.ProjectID, in.Kind, in.Note); err != nil {
 		return nil, out, mapManagerError(err)
 	}
 	return nil, out, nil

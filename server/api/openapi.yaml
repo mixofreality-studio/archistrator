@@ -2878,6 +2878,76 @@ paths:
                     description: infrastructure unavailable
             security:
                 - bearerAuth: []
+    /api/v1/project-design/acknowledge-stale-basis/{projectID}:
+        post:
+            operationId: AcknowledgeStaleBasis
+            parameters:
+                - in: path
+                  name: projectID
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/ProjectDesignProjectID'
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            properties:
+                                kind:
+                                    $ref: '#/components/schemas/ProjectDesignArtifactKind'
+                                note:
+                                    type: string
+                            required:
+                                - kind
+                                - note
+                            type: object
+                required: true
+            responses:
+                "204":
+                    description: no content
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
     /api/v1/project-design/advance-to-construction/{projectID}:
         post:
             operationId: AdvanceToConstruction
@@ -3438,6 +3508,76 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/ProjectDesignErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
+    /api/v1/system-design/acknowledge-stale-basis/{projectID}:
+        post:
+            operationId: AcknowledgeStaleBasis
+            parameters:
+                - in: path
+                  name: projectID
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/SystemDesignProjectID'
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            properties:
+                                kind:
+                                    $ref: '#/components/schemas/SystemDesignArtifactKind'
+                                note:
+                                    type: string
+                            required:
+                                - kind
+                                - note
+                            type: object
+                required: true
+            responses:
+                "204":
+                    description: no content
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SystemDesignErrorResponse'
                     description: infrastructure unavailable
             security:
                 - bearerAuth: []

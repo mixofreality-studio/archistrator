@@ -7142,6 +7142,30 @@
             "error": true
           },
           {
+            "name": "AcknowledgeStaleBasis",
+            "params": [
+              {
+                "name": "projectID",
+                "schema": {
+                  "$ref": "#/$defs/ProjectID"
+                }
+              },
+              {
+                "name": "kind",
+                "schema": {
+                  "$ref": "#/$defs/ArtifactKind"
+                }
+              },
+              {
+                "name": "note",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            ],
+            "error": true
+          },
+          {
             "name": "SetReviewCommentStatus",
             "params": [
               {
@@ -12361,6 +12385,30 @@
                   "items": {
                     "$ref": "#/$defs/AnchoredComment"
                   }
+                }
+              }
+            ],
+            "error": true
+          },
+          {
+            "name": "AcknowledgeStaleBasis",
+            "params": [
+              {
+                "name": "projectID",
+                "schema": {
+                  "$ref": "#/$defs/ProjectID"
+                }
+              },
+              {
+                "name": "kind",
+                "schema": {
+                  "$ref": "#/$defs/ArtifactKind"
+                }
+              },
+              {
+                "name": "note",
+                "schema": {
+                  "type": "string"
                 }
               }
             ],

@@ -1,6 +1,7 @@
 package projectstate_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -197,5 +198,64 @@ func TestGitStore_ReviewThread_SurvivesRestage(t *testing.T) {
 	}
 	if proj.Mission.ReviewThread[0].Status != ps.ReviewCommentOpen {
 		t.Fatalf("open comment (empty response) normalized to %q, want open", proj.Mission.ReviewThread[0].Status)
+	}
+}
+
+// TestGitStore_AcknowledgeStaleBasis proves F45: acknowledging a stale committed slot clears
+// its StaleBasis and records a durable, non-blocking staleAck audit entry — and is idempotent.
+func TestGitStore_AcknowledgeStaleBasis(t *testing.T) {
+	store, cred, ctx := newLocalGitStore(t)
+	id := ps.ProjectID(uuid.NewString())
+	if _, err := store.CreateProject(ctx, id, "alice", "Demo", cred, "wf:create"); err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	stageCommit := func(v ps.Version, kind ps.ArtifactKind, model ps.ArtifactModel, tag string) ps.Version {
+		v2, err := store.StageArtifactForReview(ctx, id, v, model, cred, fwra.IdempotencyKey("wf:stage:"+tag))
+		if err != nil {
+			t.Fatalf("stage %s: %v", tag, err)
+		}
+		v3, err := store.CommitArtifact(ctx, id, v2, kind, cred, fwra.IdempotencyKey("wf:commit:"+tag))
+		if err != nil {
+			t.Fatalf("commit %s: %v", tag, err)
+		}
+		return v3
+	}
+	// Commit Mission + Glossary, then AMEND Mission → the committed downstream Glossary goes stale.
+	v := stageCommit(1, ps.KindMission, &ps.MissionStatement{Vision: "v1", Mission: "m1"}, "mission1")
+	v = stageCommit(v, ps.KindGlossary, &ps.Glossary{}, "glossary1")
+	v = stageCommit(v, ps.KindMission, &ps.MissionStatement{Vision: "v2", Mission: "m2"}, "mission2")
+	p, _ := store.ReadProject(ctx, id, cred)
+	if !p.Glossary.StaleBasis {
+		t.Fatal("precondition: Glossary must be stale after Mission amend")
+	}
+
+	// ACK the stale Glossary "reviewed — unaffected".
+	v2, err := store.AcknowledgeStaleBasis(ctx, id, p.Version, ps.KindGlossary, "diagrams only, no term changes", cred, "wf:ack1")
+	if err != nil {
+		t.Fatalf("AcknowledgeStaleBasis: %v", err)
+	}
+	p, _ = store.ReadProject(ctx, id, cred)
+	if p.Glossary.StaleBasis {
+		t.Fatal("StaleBasis must be cleared after acknowledge")
+	}
+	thread := p.Glossary.ReviewThread
+	if len(thread) != 1 {
+		t.Fatalf("want 1 staleAck audit entry, got %d", len(thread))
+	}
+	ack := thread[0]
+	if ack.Type != ps.ReviewCommentTypeStaleAck || ack.Status != ps.ReviewCommentAddressed || ack.AuthorRole != "architect" {
+		t.Errorf("audit entry shape wrong: %+v", ack)
+	}
+	if want := "diagrams only, no term changes"; !strings.Contains(ack.Text, want) {
+		t.Errorf("audit entry text %q must carry the note %q", ack.Text, want)
+	}
+
+	// IDEMPOTENT: a repeat ack on an already-un-stale slot is a no-op — no second audit entry.
+	if _, err := store.AcknowledgeStaleBasis(ctx, id, v2, ps.KindGlossary, "again", cred, "wf:ack2"); err != nil {
+		t.Fatalf("repeat AcknowledgeStaleBasis: %v", err)
+	}
+	p, _ = store.ReadProject(ctx, id, cred)
+	if len(p.Glossary.ReviewThread) != 1 {
+		t.Fatalf("repeat ack must NOT append a second entry; got %d", len(p.Glossary.ReviewThread))
 	}
 }

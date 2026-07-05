@@ -113,6 +113,19 @@ type LedgerProjectStateAccess interface {
 	SeedReviewCommentsOnBranch(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, round int64, comments []ReviewComment, idempotencyKey fwra.IdempotencyKey) (Version, error)
 }
 
+// StaleAckProjectStateAccess is the OPTIONAL per-slot staleness-acknowledge extension of the
+// no-cred projectStateAccess port (F45, founder-ratified 2026-07-05). Like the ledger
+// extension above it is a SEPARATE interface so every existing caller/adapter/test fake
+// compiles unchanged: a design Manager type-asserts its ProjectStateAccess field to it and
+// uses AcknowledgeStaleBasis only when the substrate supports it.
+type StaleAckProjectStateAccess interface {
+	// AcknowledgeStaleBasis clears a committed slot's StaleBasis flag and records the
+	// reviewer's "reviewed — unaffected" decision as a durable staleAck audit entry, in one
+	// atomic commit on main. Idempotent (an already-un-stale slot is a no-op success).
+	// Unknown kind / uncommitted slot → ContractMisuse.
+	AcknowledgeStaleBasis(ctx context.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, note string, idempotencyKey fwra.IdempotencyKey) (Version, error)
+}
+
 // Error is the shared ResourceAccess error model (framework-go), re-exported as
 // an alias so this component's contract reads in its own terms while every RA
 // component shares one fixed enum. Construct with fwra.New / fwra.Wrap using the

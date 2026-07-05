@@ -340,6 +340,37 @@ func (s *GitStore) SeedReviewCommentsOnBranch(ctx context.Context, projectID Pro
 	})
 }
 
+// AcknowledgeStaleBasis clears a committed slot's StaleBasis flag and records the reviewer's
+// "reviewed — unaffected" decision as a durable staleAck audit entry, in one atomic commit on
+// main (F45). It is the non-redraft counterpart to reconcile-via-amendment: a basis change
+// that does NOT affect the artifact would otherwise produce a byte-identical redraft that
+// dies at the no-change gate, so this lets the reviewer clear the flag with an audit trail
+// instead. Idempotent: a slot that is already un-stale (a repeat ack, or a concurrent
+// reconcile) is a no-op success — no second audit entry. Errors: unknown kind or an
+// uncommitted slot → ContractMisuse.
+func (s *GitStore) AcknowledgeStaleBasis(ctx context.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, note string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	return s.applyMutationOnBranch(ctx, "AcknowledgeStaleBasis", projectID, expectedVersion, "", cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
+		slot, ok := slotPtr(p, kind)
+		if !ok {
+			return fwra.New(fwra.ContractMisuse, fmt.Sprintf("projectstate.AcknowledgeStaleBasis: unknown kind %s", kind))
+		}
+		if slot.Status != ReviewCommitted {
+			return fwra.New(fwra.ContractMisuse, fmt.Sprintf("projectstate.AcknowledgeStaleBasis: slot %s is not committed (only a committed, stale artifact can be acknowledged)", kind))
+		}
+		if !slot.StaleBasis {
+			// Already un-stale (repeat ack / raced reconcile): a no-op success, no duplicate audit entry.
+			return nil
+		}
+		slot.StaleBasis = false
+		slot.ReviewThread = appendStaleAck(slot.ReviewThread, staleAckAuthorRole, note)
+		return nil
+	})
+}
+
+// staleAckAuthorRole is the reviewer role stamped on a staleAck audit entry. At the design
+// review gate the reviewer who acknowledges staleness is the architect.
+const staleAckAuthorRole = "architect"
+
 func (s *GitStore) RejectArtifactOnBranchWithComments(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, round int64, comments []ReviewComment, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	return s.applyMutationOnBranch(ctx, "RejectArtifact", projectID, expectedVersion, branch, cred, idempotencyKey, modeUpsert, func(p *Project) error {
 		if err := statusTransition("RejectArtifact", kind, ReviewRejected, notes)(p); err != nil {

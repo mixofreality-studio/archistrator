@@ -45,6 +45,11 @@ const (
 	// ReviewCommentTypeQuestion — a clarifying question to an addressee (pm/architect)
 	// answered in place WITHOUT a redraft; does NOT block approve.
 	ReviewCommentTypeQuestion = "question"
+	// ReviewCommentTypeStaleAck — an AUDIT entry recording that a reviewer marked a stale
+	// committed artifact "reviewed — unaffected" (F45). It carries the reviewer's note, is
+	// born addressed, and normalization never reconsiders it (like a waived entry) so it
+	// stays a permanent, non-blocking trail entry rather than flipping open on a later stage.
+	ReviewCommentTypeStaleAck = "staleAck"
 )
 
 // Review-comment addressee roles for question-type entries. Empty for change-requests.
@@ -80,6 +85,42 @@ func reviewCommentID(round int64, index int) string {
 // AskQuestions dispatch, which must name each question's id in the answer-job prompt.
 func ReviewCommentID(round int64, index int) string {
 	return reviewCommentID(round, index)
+}
+
+// appendStaleAck appends one ADDRESSED staleAck audit entry (F45) recording that a reviewer
+// marked the artifact "reviewed — unaffected", carrying the reviewer's note. It mints a fresh
+// round (past the highest present) so its id never collides, and is born addressed so it is a
+// permanent non-blocking trail entry (normalization skips it). The authorRole is the reviewer.
+func appendStaleAck(thread []ReviewComment, authorRole, note string) []ReviewComment {
+	round := nextThreadRound(thread)
+	return append(thread, ReviewComment{
+		ID:         reviewCommentID(round, 0),
+		Text:       staleAckText(note),
+		AuthorRole: authorRole,
+		Round:      round,
+		Status:     ReviewCommentAddressed,
+		Type:       ReviewCommentTypeStaleAck,
+	})
+}
+
+// nextThreadRound returns one past the highest round present in the thread (min 1), so a
+// fresh append mints collision-free ids regardless of prior reject/question rounds.
+func nextThreadRound(thread []ReviewComment) int64 {
+	var max int64
+	for _, c := range thread {
+		if c.Round > max {
+			max = c.Round
+		}
+	}
+	return max + 1
+}
+
+// staleAckText renders the audit entry body: the reviewer's note when given, else a default.
+func staleAckText(note string) string {
+	if note == "" {
+		return "Reviewed the upstream basis change — it does not affect this artifact."
+	}
+	return "Reviewed — unaffected: " + note
 }
 
 // appendReviewComments appends the given round's comments to thread as OPEN entries,
@@ -129,7 +170,9 @@ func appendReviewComments(thread []ReviewComment, round int64, comments []Review
 // slot with no thread (the common case).
 func normalizeReviewThread(thread []ReviewComment) []ReviewComment {
 	for i := range thread {
-		if thread[i].Status == ReviewCommentWaived {
+		// Waived (a human dismissal) and staleAck (an audit record) are sticky — normalization
+		// never reconsiders them, so a staleAck stays addressed rather than flipping open.
+		if thread[i].Status == ReviewCommentWaived || thread[i].Type == ReviewCommentTypeStaleAck {
 			continue
 		}
 		if thread[i].Response != "" {

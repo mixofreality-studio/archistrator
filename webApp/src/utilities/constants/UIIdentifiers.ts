@@ -94,6 +94,14 @@ export const UI_IDENTIFIERS = {
     AMEND_CURRENT_LABEL: 'amend-current-label',
     // 'basis changed — reconcile' warning chip (committed panel + HomeBase rows).
     STALE_CHIP: 'stale-basis-chip',
+    // F45 stale banner (committed pane) + its two actions and the "mark reviewed —
+    // unaffected" confirm-strip (note field + confirm/cancel).
+    STALE_BANNER: 'stale-basis-banner',
+    STALE_RECONCILE: 'stale-reconcile',
+    STALE_MARK_REVIEWED: 'stale-mark-reviewed',
+    STALE_ACK_NOTE: 'stale-ack-note',
+    STALE_ACK_CONFIRM: 'stale-ack-confirm',
+    STALE_ACK_CANCEL: 'stale-ack-cancel',
     // Compact stale marker on a spine step, keyed by slot kind.
     spineStale: (kind: string) => `spine-stale-${kind}`,
   },
