@@ -698,10 +698,11 @@ func Test_CoAuthorPhase2_Rail_RejectWriteFaults_RecoversAtFailedGate_RetainsFeed
 // proven.
 type f29BranchFake struct {
 	*fakeProjectState
-	mu             sync.Mutex
-	mainVer        projectstate.Version
-	branchVer      projectstate.Version
-	stageExpecteds []projectstate.Version
+	mu                  sync.Mutex
+	mainVer             projectstate.Version
+	branchVer           projectstate.Version
+	stageExpecteds      []projectstate.Version
+	stageFailsRemaining int
 }
 
 var _ projectstate.BranchAwareProjectStateAccess = (*f29BranchFake)(nil)
@@ -732,6 +733,10 @@ func (f *f29BranchFake) StageArtifactForReviewOnBranch(_ context.Context, _ proj
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.stageExpecteds = append(f.stageExpecteds, expected)
+	if f.stageFailsRemaining > 0 {
+		f.stageFailsRemaining--
+		return 0, fwra.New(fwra.ContractMisuse, "projectstate.StageArtifactForReview: simulated terminal stage fault")
+	}
 	if expected != f.branchVer {
 		return 0, fwra.New(fwra.Conflict, fmt.Sprintf("projectstate.StageArtifactForReview: stale version: have %d, expected %d", f.branchVer, expected))
 	}
@@ -826,5 +831,53 @@ func Test_CoAuthorPhase2_Rail_Withdraw_RecordsOnSessionBranch_NoCrash(t *testing
 	}
 	if len(base.withdrawn) != 1 || base.withdrawn[0] != projectstate.KindPlanningAssumptions {
 		t.Fatalf("want one WithdrawArtifact(KindPlanningAssumptions) on the session branch, got %v", base.withdrawn)
+	}
+}
+
+// THE QA F32 REGRESSION (Phase-2 twin) — a Retry at the StageDraftFailed gate must open a
+// FRESH session branch (attempt+1), not reuse the failed attempt's stale branch. Drives a
+// stage fault → retry-via-reject (with feedback) and asserts the redraft dispatch targets a
+// NEW branch AND carries the retained feedback.
+func Test_CoAuthorPhase2_Rail_RetryAtFailedGate_FreshBranch_RetainsFeedback(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: planningAssumptionsReadBack(projectstate.ProjectID(id))}
+	ps := &f29BranchFake{fakeProjectState: base, mainVer: 2, branchVer: 4, stageFailsRemaining: 1}
+	pipe := newFakePipeline()
+	rail := newScriptedRail(true, &seqLog{})
+	wf := newRailWorkflows(ps, pipe, rail)
+	registerRailCoAuthor(env, wf)
+
+	const retryNotes = "fix the staffing assumptions before redrafting"
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewReject, Feedback: &ReviewFeedback{Notes: retryNotes}})
+	}, 30*time.Second)
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 80*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindPlanningAssumptions})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a failed-gate retry must not crash the workflow: %v", err)
+	}
+	if len(pipe.submits) < 2 {
+		t.Fatalf("the retry must issue a SECOND draft dispatch, got %d submits", len(pipe.submits))
+	}
+	b0 := pipe.submits[0].dispatchInputs[dispatchInputTargetBranch]
+	b1 := pipe.submits[len(pipe.submits)-1].dispatchInputs[dispatchInputTargetBranch]
+	if b0 == "" || b1 == "" {
+		t.Fatalf("both dispatches must carry a target_branch, got %q / %q", b0, b1)
+	}
+	if b1 == b0 {
+		t.Fatalf("a failed-gate retry must redraft on a NEW session branch, both were %q", b0)
+	}
+	if !strings.HasSuffix(b1, "-a1") {
+		t.Fatalf("the retry branch must be attempt+1 (\"-a1\" suffix), got %q", b1)
+	}
+	if p := pipe.submits[len(pipe.submits)-1].dispatchInputs[dispatchInputDesignPrompt]; !strings.Contains(p, retryNotes) {
+		t.Fatalf("the retained feedback %q must drive the redraft; prompt:\n%s", retryNotes, p)
 	}
 }

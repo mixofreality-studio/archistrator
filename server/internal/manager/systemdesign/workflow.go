@@ -501,7 +501,7 @@ func (wf *workflows) CoAuthorArtifactWorkflow(ctx workflow.Context, in coAuthorI
 	// architect's decision. The per-step control flow (proceed / redraft / return) is
 	// carried out of the phase helpers as a coAuthorStep so the loop body stays flat.
 	for {
-		gf, draft, readBackVersion, step := wf.produceReviewableDraft(ctx, in, proj, &feedback, &redraftCount, branchAttempt, headVersion, state)
+		gf, draft, readBackVersion, step := wf.produceReviewableDraft(ctx, in, proj, &feedback, &redraftCount, &branchAttempt, headVersion, state)
 		switch step.action {
 		case actionReturn:
 			return step.outcome, step.err
@@ -532,7 +532,7 @@ func (wf *workflows) CoAuthorArtifactWorkflow(ctx workflow.Context, in coAuthorI
 			if temporal.IsCanceledError(err) {
 				return coAuthorUnknown, err
 			}
-			stageStep := wf.recoverAtFailedGate(ctx, in, headVersion, stageFailedReason(err), "", state, &feedback, &redraftCount)
+			stageStep := wf.recoverAtFailedGate(ctx, in, headVersion, stageFailedReason(err), "", state, &feedback, &redraftCount, &branchAttempt)
 			switch stageStep.action {
 			case actionReturn:
 				return stageStep.outcome, stageStep.err
@@ -605,7 +605,7 @@ func (wf *workflows) produceReviewableDraft(
 	proj projectstate.Project,
 	feedback *ReviewFeedback,
 	redraftCount *int,
-	branchAttempt int,
+	branchAttempt *int,
 	headVersion projectstate.Version,
 	state *coAuthorState,
 ) (gitSession, projectstate.ArtifactModel, projectstate.Version, coAuthorStep) {
@@ -631,7 +631,7 @@ func (wf *workflows) runDraftRoundTrip(
 	feedback *ReviewFeedback,
 	headVersion projectstate.Version,
 	redraftCount *int,
-	branchAttempt int,
+	branchAttempt *int,
 	state *coAuthorState,
 ) (projectstate.ArtifactModel, gitSession, projectstate.Version, coAuthorStep) {
 	logger := workflow.GetLogger(ctx)
@@ -641,7 +641,7 @@ func (wf *workflows) runDraftRoundTrip(
 	// The per-attempt SESSION BRANCH the Action drafts + commits + opens its PR on
 	// (I-DESIGN-DISPATCH §2b). Deterministic from project+kind+attempt; bumped only on
 	// a fresh REJECT. Inert (just a string) when the rail is dormant.
-	sessionBranch := designBranch(in.ProjectID, in.ArtifactKind, dispatchTargetDraft, branchAttempt)
+	sessionBranch := designBranch(in.ProjectID, in.ArtifactKind, dispatchTargetDraft, *branchAttempt)
 
 	// Rail (dispatch-time half): mint the credential + ensure the session branch exists
 	// BEFORE the Action drafts on it. A dormant rail returns a disabled session and the
@@ -674,7 +674,7 @@ func (wf *workflows) runDraftRoundTrip(
 		// (Retry / Withdraw), never an invisible crash. A workflow-cancellation error still
 		// propagates (recoverDispatchFailed guards it).
 		logger.Warn("design draft dispatch failed terminally; entering StageDraftFailed", "error", derr.Error())
-		return draft, gf, 0, wf.recoverDispatchFailed(ctx, in, headVersion, derr, state, feedback, redraftCount)
+		return draft, gf, 0, wf.recoverDispatchFailed(ctx, in, headVersion, derr, state, feedback, redraftCount, branchAttempt)
 	}
 	if draftObs.Phase != pipelineSucceeded {
 		// The job RAN and FAILED (drafting failed or CI validation went red) — a
@@ -682,7 +682,7 @@ func (wf *workflows) runDraftRoundTrip(
 		// land the session in the human-visible StageDraftFailed and suspend on the gate
 		// awaiting Retry (redraft) or Withdraw (§0d.4 — the anti-wedge rule).
 		logger.Warn("design draft job reached a terminal failure phase; entering StageDraftFailed", "diagnostic", draftObs.Diagnostic)
-		return draft, gf, 0, wf.recoverDraftFailed(ctx, in, headVersion, draftObs.Diagnostic, draftObs.RunURL, state, feedback, redraftCount)
+		return draft, gf, 0, wf.recoverDraftFailed(ctx, in, headVersion, draftObs.Diagnostic, draftObs.RunURL, state, feedback, redraftCount, branchAttempt)
 	}
 	// Rail: open the PR (head=sessionBranch, base=main) now the draft is green.
 	// Idempotent on head — if the Action already opened it the rail returns the existing
@@ -713,7 +713,7 @@ func (wf *workflows) runPMCritique(
 	in coAuthorInput,
 	draft projectstate.ArtifactModel,
 	gf gitSession,
-	branchAttempt int,
+	branchAttempt *int,
 	headVersion projectstate.Version,
 	feedback *ReviewFeedback,
 	redraftCount *int,
@@ -727,7 +727,7 @@ func (wf *workflows) runPMCritique(
 	// The critique session branch (per-attempt). The PM-critique Action commits its
 	// verdict carrier here; no PR/merge happens for critique (only the draft path gets
 	// the rail). Inert when the rail is dormant.
-	critiqueBranch := designBranch(in.ProjectID, in.ArtifactKind, dispatchTargetCritique, branchAttempt)
+	critiqueBranch := designBranch(in.ProjectID, in.ArtifactKind, dispatchTargetCritique, *branchAttempt)
 	critPrompt := pmCritiquePrompt(toPSKind(in.ArtifactKind), draft)
 	critObs, cerr := wf.dispatchAndObserve(ctx, dispatchDesignJobArgs{
 		ProjectID:     in.ProjectID,
@@ -743,13 +743,13 @@ func (wf *workflows) runPMCritique(
 		// The critique DISPATCH itself failed terminally — route to the human-visible
 		// StageDraftFailed gate (same anti-wedge rule as the draft dispatch), never crash.
 		logger.Warn("PM-critique dispatch failed terminally; entering StageDraftFailed", "error", cerr.Error())
-		return wf.recoverDispatchFailed(ctx, in, headVersion, cerr, state, feedback, redraftCount)
+		return wf.recoverDispatchFailed(ctx, in, headVersion, cerr, state, feedback, redraftCount, branchAttempt)
 	}
 	if critObs.Phase != pipelineSucceeded {
 		// A terminal PM-critique job failure routes to the same StageDraftFailed human
 		// gate as a terminal draft failure — never crash the workflow.
 		logger.Warn("PM-critique job reached a terminal failure phase; entering StageDraftFailed", "diagnostic", critObs.Diagnostic)
-		return wf.recoverDraftFailed(ctx, in, headVersion, critObs.Diagnostic, critObs.RunURL, state, feedback, redraftCount)
+		return wf.recoverDraftFailed(ctx, in, headVersion, critObs.Diagnostic, critObs.RunURL, state, feedback, redraftCount, branchAttempt)
 	}
 	critiqueReadBranch := ""
 	if gf.enabled {
@@ -764,7 +764,7 @@ func (wf *workflows) runPMCritique(
 			// failure (NOT a silent approve, NOT a workflow crash — the anti-wedge rule),
 			// awaiting human Retry-via-Reject / Withdraw.
 			logger.Warn("PM-critique read-back found no verdict (missing-verdict safe default); entering StageDraftFailed")
-			return wf.recoverDraftFailed(ctx, in, headVersion, critiqueMissingVerdictDiagnostic, "", state, feedback, redraftCount)
+			return wf.recoverDraftFailed(ctx, in, headVersion, critiqueMissingVerdictDiagnostic, "", state, feedback, redraftCount, branchAttempt)
 		}
 		return stepErr(crbErr)
 	}
@@ -800,8 +800,9 @@ func (wf *workflows) recoverDraftFailed(
 	state *coAuthorState,
 	feedback *ReviewFeedback,
 	redraftCount *int,
+	branchAttempt *int,
 ) coAuthorStep {
-	return wf.recoverAtFailedGate(ctx, in, headVersion, draftFailedReason(diagnostic), runURL, state, feedback, redraftCount)
+	return wf.recoverAtFailedGate(ctx, in, headVersion, draftFailedReason(diagnostic), runURL, state, feedback, redraftCount, branchAttempt)
 }
 
 // recoverDispatchFailed lands a terminal DISPATCH/observe fault (the round-trip itself
@@ -818,17 +819,19 @@ func (wf *workflows) recoverDispatchFailed(
 	state *coAuthorState,
 	feedback *ReviewFeedback,
 	redraftCount *int,
+	branchAttempt *int,
 ) coAuthorStep {
 	if temporal.IsCanceledError(err) {
 		return stepErr(err)
 	}
-	return wf.recoverAtFailedGate(ctx, in, headVersion, dispatchFailedReason(err), "", state, feedback, redraftCount)
+	return wf.recoverAtFailedGate(ctx, in, headVersion, dispatchFailedReason(err), "", state, feedback, redraftCount, branchAttempt)
 }
 
 // recoverAtFailedGate suspends at the StageDraftFailed human gate carrying the human
 // reason + optional failed-run URL, and maps the recovery outcome to a coAuthorStep: a
-// Retry bumps the redraft counter and asks the spine to redraft; a Withdraw returns the
-// terminal outcome.
+// Retry bumps BOTH the redraft counter AND the session-branch attempt (so the next draft
+// opens a FRESH branch cut from CURRENT main — QA F32), asks the spine to redraft, and
+// keeps the retained feedback; a Withdraw returns the terminal outcome.
 func (wf *workflows) recoverAtFailedGate(
 	ctx workflow.Context,
 	in coAuthorInput,
@@ -838,6 +841,7 @@ func (wf *workflows) recoverAtFailedGate(
 	state *coAuthorState,
 	feedback *ReviewFeedback,
 	redraftCount *int,
+	branchAttempt *int,
 ) coAuthorStep {
 	outcome, retry, recErr := wf.awaitDraftFailedRecovery(ctx, in.ProjectID, in.ArtifactKind, headVersion, reason, runURL, state, feedback)
 	if recErr != nil {
@@ -846,6 +850,11 @@ func (wf *workflows) recoverAtFailedGate(
 	if !retry {
 		return stepReturn(outcome)
 	}
+	// QA F32: a human Retry at the StageDraftFailed gate must open a NEW session branch cut
+	// from current main — not reuse the failed attempt's branch, which was cut BEFORE a
+	// main-side fix landed and whose CI fails forever. Bumping the attempt exactly mirrors
+	// the reject path; the retained feedback in *feedback rides into the redraft unchanged.
+	*branchAttempt++
 	*redraftCount++
 	return stepRedraft()
 }
@@ -924,7 +933,7 @@ func (wf *workflows) handleReviewDecision(
 			if temporal.IsCanceledError(err) {
 				return stepErr(err)
 			}
-			return wf.recoverAtFailedGate(ctx, in, *headVersion, rejectFailedReason(err), "", state, feedback, redraftCount)
+			return wf.recoverAtFailedGate(ctx, in, *headVersion, rejectFailedReason(err), "", state, feedback, redraftCount, branchAttempt)
 		}
 		*headVersion = newVersion
 		// A fresh REJECT needs a NEW session branch + PR next attempt (the rejected PR

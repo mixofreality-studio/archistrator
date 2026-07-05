@@ -276,15 +276,15 @@ func TestManagedScaffoldFiles(t *testing.T) {
 	// fresh repo. It is static (not templated), non-empty (CommitManagedFiles rejects
 	// empty content), and its path is on the managed-file allowlist (asserted above in
 	// the per-file loop).
-	gk, ok := byPath[InternalGitkeepPath]
+	gk, ok := byPath[internalGitkeepPath]
 	if !ok {
-		t.Fatalf("missing %s in the scaffold bundle", InternalGitkeepPath)
+		t.Fatalf("missing %s in the scaffold bundle", internalGitkeepPath)
 	}
-	if InternalGitkeepPath != "internal/.gitkeep" {
-		t.Errorf("InternalGitkeepPath must be the literal internal/.gitkeep; got %q", InternalGitkeepPath)
+	if internalGitkeepPath != "internal/.gitkeep" {
+		t.Errorf("internalGitkeepPath must be the literal internal/.gitkeep; got %q", internalGitkeepPath)
 	}
-	if string(gk.Content) != InternalGitkeepContent {
-		t.Errorf("internal/.gitkeep content = %q, want %q", gk.Content, InternalGitkeepContent)
+	if string(gk.Content) != internalGitkeepContent {
+		t.Errorf("internal/.gitkeep content = %q, want %q", gk.Content, internalGitkeepContent)
 	}
 	if len(gk.Content) == 0 {
 		t.Error("internal/.gitkeep must be non-empty (CommitManagedFiles rejects empty content)")
@@ -296,8 +296,8 @@ func TestManagedScaffoldFiles(t *testing.T) {
 // under internal/ is NOT (the allowlist lists the literal internal/.gitkeep, not an
 // internal/ prefix — keeping it tight).
 func TestInternalGitkeepAcceptedByAllowlist(t *testing.T) {
-	if !isManagedFilePath(InternalGitkeepPath) {
-		t.Errorf("%q must be on the managed-file allowlist", InternalGitkeepPath)
+	if !isManagedFilePath(internalGitkeepPath) {
+		t.Errorf("%q must be on the managed-file allowlist", internalGitkeepPath)
 	}
 	if isManagedFilePath("internal/main.go") {
 		t.Error("an arbitrary file under internal/ must NOT be on the allowlist — only the literal internal/.gitkeep is")

@@ -673,3 +673,58 @@ func Test_CoAuthor_RailEnabled_Withdraw_RecordsOnSessionBranch_NoCrash(t *testin
 		t.Fatalf("want one WithdrawArtifact(KindSystem) on the session branch, got %v", base.withdrawn)
 	}
 }
+
+// THE QA F32 REGRESSION — a Retry at the StageDraftFailed gate must open a FRESH session
+// branch (attempt+1), not reuse the failed attempt's branch. The stale branch was cut from
+// main BEFORE a main-side fix landed and its CI fails forever; only bumping the attempt
+// picks up main. This drives a stage fault → retry-via-reject (with feedback) and asserts
+// the redraft dispatch targets a NEW branch AND carries the retained feedback.
+func Test_CoAuthor_RailEnabled_RetryAtFailedGate_FreshBranch_RetainsFeedback(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	// The FIRST stage faults terminally → StageDraftFailed; the retry's stage converges.
+	ps := &f29BranchFake{fakeProjectState: base, mainVer: 2, branchVer: 4, stageFailsRemaining: 1}
+	pipe := newFakePipeline() // every dispatch Succeeds (the fault is at STAGE, not the job)
+	rail := &fakeRail{checkGreen: true}
+	wf := newRailWorkflows(ps, pipe, rail)
+	registerRailCoAuthor(env, wf)
+
+	const retryNotes = "fix the layering violation before redrafting"
+	// At the StageDraftFailed gate, Retry-via-Reject carrying feedback.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewReject, Feedback: &ReviewFeedback{Notes: retryNotes}})
+	}, 30*time.Second)
+	// After the recovered redraft reaches AwaitingReview, Withdraw to end.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 80*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a failed-gate retry must not crash the workflow: %v", err)
+	}
+	if len(pipe.submits) < 2 {
+		t.Fatalf("the retry must issue a SECOND draft dispatch, got %d submits", len(pipe.submits))
+	}
+	b0 := pipe.submits[0].dispatchInputs[dispatchInputTargetBranch]
+	b1 := pipe.submits[len(pipe.submits)-1].dispatchInputs[dispatchInputTargetBranch]
+	if b0 == "" || b1 == "" {
+		t.Fatalf("both dispatches must carry a target_branch, got %q / %q", b0, b1)
+	}
+	// F32: the retry drafts on a NEW attempt branch (attempt+1 ⇒ the "-a1" suffix), cut
+	// fresh from current main — NOT the stale failed branch.
+	if b1 == b0 {
+		t.Fatalf("a failed-gate retry must redraft on a NEW session branch, both were %q", b0)
+	}
+	if !strings.HasSuffix(b1, "-a1") {
+		t.Fatalf("the retry branch must be attempt+1 (\"-a1\" suffix), got %q", b1)
+	}
+	// Retained feedback rides into the redraft prompt.
+	if p := pipe.submits[len(pipe.submits)-1].dispatchInputs[dispatchInputDesignPrompt]; !strings.Contains(p, retryNotes) {
+		t.Fatalf("the retained feedback %q must drive the redraft; prompt:\n%s", retryNotes, p)
+	}
+}

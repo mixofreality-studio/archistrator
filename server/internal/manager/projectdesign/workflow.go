@@ -409,7 +409,7 @@ func (wf *workflows) CoAuthorPhase2ArtifactWorkflow(ctx workflow.Context, in coA
 		// and suspends at the human gate (the anti-wedge rule, §0.5.4) — never a perpetual
 		// Drafting. The begun git session is written through &gf for the approve/merge step.
 		var gf gitSession
-		step, outcome, err := wf.coAuthorDraftRound(ctx, in, proj, &feedback, &headVersion, &redraftCount, branchAttempt, state, &gf)
+		step, outcome, err := wf.coAuthorDraftRound(ctx, in, proj, &feedback, &headVersion, &redraftCount, &branchAttempt, state, &gf)
 		if err != nil {
 			return coAuthorUnknown, err
 		}
@@ -452,7 +452,7 @@ func (wf *workflows) coAuthorDraftRound(
 	feedback *string,
 	headVersion *projectstate.Version,
 	redraftCount *int,
-	branchAttempt int,
+	branchAttempt *int,
 	state *coAuthorState,
 	gf *gitSession,
 ) (coAuthorStep, coAuthorOutcome, error) {
@@ -463,7 +463,7 @@ func (wf *workflows) coAuthorDraftRound(
 
 	// The per-attempt SESSION BRANCH the Action drafts + commits + opens its PR on
 	// (I-DESIGN-DISPATCH §2b). Inert (just a string) when the rail is dormant.
-	sessionBranch := designBranch(in.ProjectID, in.ArtifactKind, branchAttempt)
+	sessionBranch := designBranch(in.ProjectID, in.ArtifactKind, *branchAttempt)
 
 	// Rail (dispatch-time half): mint the credential + ensure the session branch
 	// exists BEFORE the Action drafts on it. A dormant rail returns a disabled session
@@ -504,6 +504,11 @@ func (wf *workflows) coAuthorDraftRound(
 		if !retry {
 			return coAuthorReturn, outcome, nil
 		}
+		// QA F32: a human Retry at the StageDraftFailed gate must open a NEW session branch
+		// cut from current main — not reuse the failed attempt's branch, which was cut BEFORE
+		// a main-side fix landed and whose CI fails forever. Bump the attempt exactly like the
+		// reject path; the retained feedback rides into the redraft unchanged.
+		*branchAttempt++
 		*redraftCount++
 		return coAuthorContinue, coAuthorUnknown, nil
 	}
@@ -565,6 +570,9 @@ func (wf *workflows) coAuthorDraftRound(
 		if !retry {
 			return coAuthorReturn, outcome, nil
 		}
+		// QA F32: a Retry after a stage fault opens a NEW session branch cut from current
+		// main (mirrors the reject path); the retained feedback rides the redraft unchanged.
+		*branchAttempt++
 		*redraftCount++
 		return coAuthorContinue, coAuthorUnknown, nil
 	}
@@ -629,6 +637,9 @@ func (wf *workflows) coAuthorApplyDecision(
 			if !retry {
 				return coAuthorReturn, outcome, nil
 			}
+			// QA F32: a Retry after a faulted reject opens a NEW session branch cut from current
+			// main (mirrors the reject-success path below); the retained feedback rides unchanged.
+			*branchAttempt++
 			*redraftCount++
 			return coAuthorContinue, coAuthorUnknown, nil
 		}

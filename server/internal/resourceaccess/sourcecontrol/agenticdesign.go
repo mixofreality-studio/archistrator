@@ -87,19 +87,19 @@ const (
 	MethodTestPath = "aiarch_method_test.go"
 )
 
-// InternalGitkeepPath is the repo-root placeholder that keeps the internal/ directory
+// internalGitkeepPath is the repo-root placeholder that keeps the internal/ directory
 // present at project birth so the seated method test's arch.MethodSpec `./internal/...`
 // load pattern resolves (to zero packages) instead of hard-erroring on a missing dir.
 // It MUST match the sourcecontrol managed-file allowlist scaffold roots (github.go
 // scaffoldRootPaths) so CommitManagedFiles accepts it — the allowlist lists this
 // LITERAL path, not an internal/ prefix, so it stays tight.
-const InternalGitkeepPath = "internal/.gitkeep"
+const internalGitkeepPath = "internal/.gitkeep"
 
-// InternalGitkeepContent is the static, non-empty content of the internal/.gitkeep
+// internalGitkeepContent is the static, non-empty content of the internal/.gitkeep
 // placeholder. git needs a tracked file (a bare empty directory cannot be committed)
 // and CommitManagedFiles rejects empty content, so the file carries a single comment
 // line explaining why it exists.
-const InternalGitkeepContent = "# keeps internal/ present for the Method arch gate (./internal/... load pattern)\n"
+const internalGitkeepContent = "# keeps internal/ present for the Method arch gate (./internal/... load pattern)\n"
 
 // GoVersion is the Go directive the seated go.mod declares. It tracks framework-go's
 // own go.mod `go` line so the user module and framework-go agree on the language
@@ -217,7 +217,7 @@ func ManagedScaffoldFiles(repo RepoRef, appSlug string) ([]ManagedFile, error) {
 		workflow,
 		{Path: GoModPath, Content: goMod},
 		{Path: MethodTestPath, Content: methodTest},
-		{Path: InternalGitkeepPath, Content: []byte(InternalGitkeepContent)},
+		{Path: internalGitkeepPath, Content: []byte(internalGitkeepContent)},
 	}, nil
 }
 
