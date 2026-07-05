@@ -7,9 +7,15 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/mock"
+	enumspb "go.temporal.io/api/enums/v1"
+	workflowpb "go.temporal.io/api/workflow/v1"
+	"go.temporal.io/api/workflowservice/v1"
+	"go.temporal.io/sdk/client"
+	temporalmocks "go.temporal.io/sdk/mocks"
+
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
-	"go.temporal.io/sdk/client"
 )
 
 // These tests cover the façade-boundary pre-condition checks the contract puts on
@@ -81,6 +87,104 @@ func committedPhase2Project(pid ProjectID, committed ...ArtifactKind) projectsta
 		}
 	}
 	return p
+}
+
+// P0-2 (closed-COMPLETED, committed — Phase-2 twin). A CoAuthor run that committed its
+// Phase-2 artifact and then completed still answers the replayed sessionState Query with a
+// STALE mid-flight stage. GetSessionState must Describe the run, see COMPLETED, and rebuild the
+// COMMITTED view from the durable slot on main — StageCommitted carrying the committed model —
+// WITHOUT trusting (or calling) the replayed Query.
+func Test_GetSessionState_CompletedCommitted_ReturnsCommittedView(t *testing.T) {
+	id := ProjectID(uuid.NewString())
+	wfID := coAuthorWorkflowID(id, KindPlanningAssumptions)
+
+	mc := &temporalmocks.Client{}
+	resp := &workflowservice.DescribeWorkflowExecutionResponse{
+		WorkflowExecutionInfo: &workflowpb.WorkflowExecutionInfo{
+			Status: enumspb.WORKFLOW_EXECUTION_STATUS_COMPLETED,
+		},
+	}
+	mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "").Return(resp, nil)
+	// NO QueryWorkflow expectation: a COMPLETED run's replayed query is stale and must be
+	// bypassed. If GetSessionState fell through to it, the mock would panic.
+
+	proj := committedPhase2Project(id, KindPlanningAssumptions)
+	proj.PlanningAssumptions.Model = &projectstate.PlanningAssumptions{Notes: "the-notes"}
+	ps := &fakeProjectState{project: proj}
+
+	m := &projectDesignManager{client: mc, projectState: ps}
+	view, err := m.GetSessionState(fwmanager.Context{Context: context.Background()}, id, KindPlanningAssumptions)
+	if err != nil {
+		t.Fatalf("GetSessionState on a completed+committed session must return the committed view, got err: %v", err)
+	}
+	if view.Stage != StageCommitted {
+		t.Fatalf("completed+committed must surface StageCommitted (not the replayed StageDrafting), got %d", view.Stage)
+	}
+	if view.Draft.Model == nil || !strings.Contains(string(*view.Draft.Model), "the-notes") {
+		t.Fatalf("committed view model must be the committed slot content, got %v", view.Draft.Model)
+	}
+	mc.AssertExpectations(t)
+}
+
+// P0-2 (closed-COMPLETED, uncommitted — Phase-2 twin). A run that completed WITHOUT landing a
+// commit must NOT surface the stale replayed StageDrafting either — it renders an honest
+// terminal derived from the slot (here a withdrawn slot → StageWithdrawn), never Drafting.
+func Test_GetSessionState_CompletedUncommitted_ReturnsHonestTerminal(t *testing.T) {
+	id := ProjectID(uuid.NewString())
+	wfID := coAuthorWorkflowID(id, KindPlanningAssumptions)
+
+	mc := &temporalmocks.Client{}
+	resp := &workflowservice.DescribeWorkflowExecutionResponse{
+		WorkflowExecutionInfo: &workflowpb.WorkflowExecutionInfo{
+			Status: enumspb.WORKFLOW_EXECUTION_STATUS_COMPLETED,
+		},
+	}
+	mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "").Return(resp, nil)
+
+	proj := projectstate.Project{ID: projectstate.ProjectID(id)}
+	proj.PlanningAssumptions.Status = projectstate.ReviewWithdrawn
+	ps := &fakeProjectState{project: proj}
+
+	m := &projectDesignManager{client: mc, projectState: ps}
+	view, err := m.GetSessionState(fwmanager.Context{Context: context.Background()}, id, KindPlanningAssumptions)
+	if err != nil {
+		t.Fatalf("GetSessionState on a completed+uncommitted session must synthesize a terminal view, got err: %v", err)
+	}
+	if view.Stage == StageDrafting {
+		t.Fatal("a completed+uncommitted session must NOT surface the stale StageDrafting")
+	}
+	if view.Stage != StageWithdrawn {
+		t.Fatalf("a withdrawn completed slot must surface StageWithdrawn, got %d", view.Stage)
+	}
+	mc.AssertExpectations(t)
+}
+
+// An ABNORMALLY-closed run (FAILED) still synthesizes the honest StageDraftFailed view (F15/F28
+// parity with systemdesign), bypassing the lying replayed Query.
+func Test_GetSessionState_DeadWorkflow_SynthesizesFailedView(t *testing.T) {
+	id := ProjectID(uuid.NewString())
+	wfID := coAuthorWorkflowID(id, KindPlanningAssumptions)
+
+	mc := &temporalmocks.Client{}
+	resp := &workflowservice.DescribeWorkflowExecutionResponse{
+		WorkflowExecutionInfo: &workflowpb.WorkflowExecutionInfo{
+			Status: enumspb.WORKFLOW_EXECUTION_STATUS_FAILED,
+		},
+	}
+	mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "").Return(resp, nil)
+
+	m := &projectDesignManager{client: mc}
+	view, err := m.GetSessionState(fwmanager.Context{Context: context.Background()}, id, KindPlanningAssumptions)
+	if err != nil {
+		t.Fatalf("GetSessionState on a dead workflow must synthesize a view, got err: %v", err)
+	}
+	if view.Stage != StageDraftFailed {
+		t.Fatalf("a dead workflow must surface StageDraftFailed, got %d", view.Stage)
+	}
+	if view.FailureReason == nil || *view.FailureReason == "" {
+		t.Fatal("a synthesized dead-workflow view must carry a human FailureReason")
+	}
+	mc.AssertExpectations(t)
 }
 
 // A Phase-2 draft whose immediate predecessor slot is uncommitted is refused with

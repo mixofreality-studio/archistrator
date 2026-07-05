@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/converter"
 
@@ -91,6 +92,14 @@ func (f *fakeQueryClient) QueryWorkflow(_ context.Context, _ string, _ string, _
 func (f *fakeQueryClient) SignalWorkflow(_ context.Context, _ string, _ string, _ string, _ interface{}) error {
 	f.signalCalled = true
 	return nil
+}
+
+// DescribeWorkflowExecution reports the session workflow as ABSENT so GetSessionState's
+// Describe-first defense (F15/F28 + P0-2) falls through: a not-found execution maps to the
+// clean "project design has not started" NotFound (F20), and the SubmitReviewDecision tests
+// (which drive reviewGateView, not GetSessionState) never reach this method.
+func (f *fakeQueryClient) DescribeWorkflowExecution(_ context.Context, _ string, _ string) (*workflowservice.DescribeWorkflowExecutionResponse, error) {
+	return nil, fmt.Errorf("workflow not found")
 }
 
 func Test_checkReviewPrecondition_Matrix(t *testing.T) {

@@ -519,6 +519,29 @@ func (m *projectDesignManager) GetSessionState(rc fwmanager.Context, projectID P
 		wfID = coAuthorWorkflowID(projectID, kind)
 	}
 
+	// F15/F28 + P0-2 (query-side defense, Phase-2 twin). A CoAuthor/SDP workflow answers the
+	// sessionState Query by HISTORY-REPLAY even after it has CLOSED, returning its last in-
+	// memory stage. For a run that died ABNORMALLY that replayed value lies "drafting in
+	// progress" and wedges the SPA on an infinite "GENERATING" screen; for a run that closed
+	// NORMALLY (COMPLETED) after committing (or withdrawing) it can ALSO be a stale mid-flight
+	// StageDrafting — the same wedge on a SUCCESSFUL, long-committed artifact. Describe the
+	// execution first: an abnormal-closed run synthesizes an honest StageDraftFailed view; a
+	// COMPLETED run is rebuilt from the durable slot on main (committed slot → StageCommitted +
+	// the committed model; any other terminal → honest terminal, never Drafting). A RUNNING /
+	// CONTINUED_AS_NEW run (incl. an amendment's fresh run) falls through to the live query,
+	// which is authoritative for those. A Describe error other than NotFound is best-effort:
+	// fall through to the query rather than masking a transient Describe blip as a failure.
+	if desc, derr := m.client.DescribeWorkflowExecution(ctx, wfID, ""); derr == nil {
+		switch status := desc.GetWorkflowExecutionInfo().GetStatus(); {
+		case isAbnormalClosedStatus(status):
+			return failedSessionView(projectID, kind, status), nil
+		case status == enumspb.WORKFLOW_EXECUTION_STATUS_COMPLETED:
+			return m.completedSessionView(ctx, projectID, kind)
+		}
+	} else if isNotFound(derr) {
+		return SessionStateView{}, newError(fwmanager.NotFound, "project design has not started for this project")
+	}
+
 	enc, err := m.client.QueryWorkflow(ctx, wfID, "", querySessionState)
 	if err != nil {
 		// F20 (error altitude): before Phase 2 the co-author/SDP workflow does not
@@ -535,6 +558,109 @@ func (m *projectDesignManager) GetSessionState(rc fwmanager.Context, projectID P
 		return SessionStateView{}, newError(fwmanager.Infrastructure, err.Error())
 	}
 	return view, nil
+}
+
+// isAbnormalClosedStatus reports whether a workflow-execution status is a CLOSED-ABNORMAL
+// terminal state — the session died without a clean commit/withdraw. A normally COMPLETED
+// or still-RUNNING (or CONTINUED_AS_NEW) execution is NOT abnormal.
+func isAbnormalClosedStatus(s enumspb.WorkflowExecutionStatus) bool {
+	switch s {
+	case enumspb.WORKFLOW_EXECUTION_STATUS_FAILED,
+		enumspb.WORKFLOW_EXECUTION_STATUS_TERMINATED,
+		enumspb.WORKFLOW_EXECUTION_STATUS_TIMED_OUT,
+		enumspb.WORKFLOW_EXECUTION_STATUS_CANCELED:
+		return true
+	default:
+		return false
+	}
+}
+
+// failedSessionView synthesizes the human-visible failed view for a session whose workflow
+// died abnormally. It reuses StageDraftFailed — the SAME terminal-failure stage the live
+// anti-wedge gate uses — so the SPA renders its existing "design job failed → retry / withdraw"
+// card. Carries a neutral human FailureReason.
+func failedSessionView(projectID ProjectID, kind ArtifactKind, status enumspb.WorkflowExecutionStatus) SessionStateView {
+	reason := terminatedSessionReason(status)
+	return SessionStateView{
+		ProjectID:     projectID,
+		ArtifactKind:  kind,
+		Stage:         StageDraftFailed,
+		Draft:         DraftModel{Kind: artifactKindWireName(kind)},
+		FailureReason: &reason,
+	}
+}
+
+// completedSessionView derives the honest session view for a CoAuthor/SDP run that closed
+// NORMALLY (COMPLETED). The replayed sessionState query is NOT trusted for such a run (it can
+// return a stale mid-flight stage — the P0-2 "GENERATING forever" wedge on an already-committed
+// artifact), so the view is rebuilt from the DURABLE slot on main.
+func (m *projectDesignManager) completedSessionView(ctx context.Context, projectID ProjectID, kind ArtifactKind) (SessionStateView, error) {
+	proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID))
+	if err != nil {
+		return SessionStateView{}, mapReadProjectError(err)
+	}
+	return committedSessionView(projectID, kind, slotFor(proj, toPSKind(kind)))
+}
+
+// committedSessionView projects the durable slot of a COMPLETED session onto a
+// SessionStateView. A committed slot renders the committed view (StageCommitted + the committed
+// model + the durable review thread). A withdrawn slot renders StageWithdrawn. Any other
+// terminal-but-uncommitted state renders an honest StageDraftFailed terminal carrying a neutral
+// reason — NEVER StageDrafting, so the SPA never wedges on an infinite "GENERATING" spinner.
+func committedSessionView(projectID ProjectID, kind ArtifactKind, slot projectstate.ArtifactSlot) (SessionStateView, error) {
+	switch slot.Status {
+	case projectstate.ReviewCommitted:
+		draft, err := draftModelFor(kind, slot.Model)
+		if err != nil {
+			return SessionStateView{}, newError(fwmanager.Infrastructure, err.Error())
+		}
+		return SessionStateView{
+			ProjectID:    projectID,
+			ArtifactKind: kind,
+			Stage:        StageCommitted,
+			Draft:        draft,
+			ReviewThread: reviewThreadToView(slot.ReviewThread),
+		}, nil
+	case projectstate.ReviewWithdrawn:
+		return SessionStateView{
+			ProjectID:    projectID,
+			ArtifactKind: kind,
+			Stage:        StageWithdrawn,
+			Draft:        DraftModel{Kind: artifactKindWireName(kind)},
+		}, nil
+	default:
+		reason := "the design session ended without committing an artifact. Retry to start a fresh draft."
+		return SessionStateView{
+			ProjectID:     projectID,
+			ArtifactKind:  kind,
+			Stage:         StageDraftFailed,
+			Draft:         DraftModel{Kind: artifactKindWireName(kind)},
+			FailureReason: &reason,
+		}, nil
+	}
+}
+
+// terminatedSessionReason renders the neutral human "why" for a session whose workflow died
+// abnormally.
+func terminatedSessionReason(status enumspb.WorkflowExecutionStatus) string {
+	return "the design session ended unexpectedly and is no longer running (" + workflowStatusLabel(status) + "). Retry to start a fresh draft."
+}
+
+// workflowStatusLabel maps an abnormal-closed status to a short, infrastructure-neutral label
+// for the failed card.
+func workflowStatusLabel(s enumspb.WorkflowExecutionStatus) string {
+	switch s {
+	case enumspb.WORKFLOW_EXECUTION_STATUS_FAILED:
+		return "the job failed"
+	case enumspb.WORKFLOW_EXECUTION_STATUS_TIMED_OUT:
+		return "the job timed out"
+	case enumspb.WORKFLOW_EXECUTION_STATUS_TERMINATED:
+		return "the job was terminated"
+	case enumspb.WORKFLOW_EXECUTION_STATUS_CANCELED:
+		return "the job was canceled"
+	default:
+		return "the job stopped"
+	}
 }
 
 // --- error mapping at the façade boundary -----------------------------------

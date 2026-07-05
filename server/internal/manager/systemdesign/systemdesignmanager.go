@@ -524,13 +524,26 @@ func (m *systemDesignManager) GetSessionState(rc fwmanager.Context, projectID Pr
 	// stage (typically StageDrafting). That LIES that drafting is in progress and wedges the
 	// SPA on an infinite "GENERATING" screen with no recovery. Describe the execution first;
 	// when it is closed-ABNORMAL, synthesize an explicit StageDraftFailed view instead of
-	// trusting the replayed query — supervision must reflect the real state. A RUNNING or
-	// normally-COMPLETED (approved/withdrawn) execution falls through to the live query,
-	// which is authoritative for those. A Describe error other than NotFound is best-effort:
-	// fall through to the query rather than masking a transient Describe blip as a failure.
+	// trusting the replayed query — supervision must reflect the real state.
+	//
+	// P0-2 (closed-COMPLETED case): a run that closed NORMALLY (COMPLETED) ALSO answers the
+	// sessionState Query by history-replay, returning its LAST in-memory stage. For a session
+	// that committed (or withdrew) and then completed, that replayed value can be a stale
+	// mid-flight StageDrafting — the SAME "GENERATING · MISSION forever" wedge, but for a
+	// SUCCESSFUL session whose artifact is long since committed on main. So a COMPLETED run is
+	// ALSO not trusted for its stage: derive the honest view from the durable slot on main —
+	// a committed slot renders the committed view (StageCommitted + the committed model), any
+	// other terminal-but-uncommitted slot renders an honest terminal (never Drafting).
+	//
+	// A RUNNING (or CONTINUED_AS_NEW / an amendment's fresh run) execution falls through to the
+	// live query, which is authoritative for those. A Describe error other than NotFound is
+	// best-effort: fall through to the query rather than masking a transient Describe blip.
 	if desc, derr := m.client.DescribeWorkflowExecution(ctx, wfID, ""); derr == nil {
-		if status := desc.GetWorkflowExecutionInfo().GetStatus(); isAbnormalClosedStatus(status) {
+		switch status := desc.GetWorkflowExecutionInfo().GetStatus(); {
+		case isAbnormalClosedStatus(status):
 			return failedSessionView(projectID, kind, status), nil
+		case status == enumspb.WORKFLOW_EXECUTION_STATUS_COMPLETED:
+			return m.completedSessionView(ctx, projectID, kind)
 		}
 	} else if isNotFound(derr) {
 		return SessionStateView{}, newError(fwmanager.NotFound, derr.Error())
@@ -582,6 +595,58 @@ func failedSessionView(projectID ProjectID, kind ArtifactKind, status enumspb.Wo
 		Stage:         StageDraftFailed,
 		Draft:         DraftModel{Kind: artifactKindWireName(kind)},
 		FailureReason: &reason,
+	}
+}
+
+// completedSessionView derives the honest session view for a CoAuthor run that closed
+// NORMALLY (COMPLETED). The replayed sessionState query is NOT trusted for such a run
+// (it can return a stale mid-flight stage — the P0-2 "GENERATING forever" wedge on an
+// already-committed artifact), so the view is rebuilt from the DURABLE slot on main.
+func (m *systemDesignManager) completedSessionView(ctx context.Context, projectID ProjectID, kind ArtifactKind) (SessionStateView, error) {
+	proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID))
+	if err != nil {
+		return SessionStateView{}, mapReadProjectError(err)
+	}
+	return committedSessionView(projectID, kind, slotFor(proj, kind))
+}
+
+// committedSessionView projects the durable slot of a COMPLETED session onto a
+// SessionStateView. A committed slot renders the committed view (StageCommitted + the
+// committed model + the durable review thread) — the same {kind, model} shape the SPA
+// consumes for a live session. A withdrawn slot renders StageWithdrawn. Any other
+// terminal-but-uncommitted state (the run completed without landing a commit) renders an
+// honest StageDraftFailed terminal carrying a neutral reason — NEVER StageDrafting, so
+// the SPA never wedges on an infinite "GENERATING" spinner for a dead session.
+func committedSessionView(projectID ProjectID, kind ArtifactKind, slot projectstate.ArtifactSlot) (SessionStateView, error) {
+	switch slot.Status {
+	case projectstate.ReviewCommitted:
+		draft, err := draftModelFor(kind, slot.Model)
+		if err != nil {
+			return SessionStateView{}, newError(fwmanager.Infrastructure, err.Error())
+		}
+		return SessionStateView{
+			ProjectID:    projectID,
+			ArtifactKind: kind,
+			Stage:        StageCommitted,
+			Draft:        draft,
+			ReviewThread: reviewThreadToView(slot.ReviewThread),
+		}, nil
+	case projectstate.ReviewWithdrawn:
+		return SessionStateView{
+			ProjectID:    projectID,
+			ArtifactKind: kind,
+			Stage:        StageWithdrawn,
+			Draft:        DraftModel{Kind: artifactKindWireName(kind)},
+		}, nil
+	default:
+		reason := "the design session ended without committing an artifact. Retry to start a fresh draft."
+		return SessionStateView{
+			ProjectID:     projectID,
+			ArtifactKind:  kind,
+			Stage:         StageDraftFailed,
+			Draft:         DraftModel{Kind: artifactKindWireName(kind)},
+			FailureReason: &reason,
+		}, nil
 	}
 }
 
