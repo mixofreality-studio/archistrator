@@ -16,41 +16,41 @@ import (
 
 // projWithResearch builds a minimal Project carrying a research corpus whose Content is a
 // distinctive, book-sized sentinel we can assert never leaks into the composed prompt.
-func projWithResearch(sources ...projectstate.ResearchSource) projectstate.Project {
+func projWithResearch(sources ...projectstate.ResearchSourceRef) projectstate.Project {
 	return projectstate.Project{
-		ID:            projectstate.ProjectID("11111111-1111-1111-1111-111111111111"),
-		ResearchInput: projectstate.ResearchInput{Sources: sources},
+		ID:       projectstate.ProjectID("11111111-1111-1111-1111-111111111111"),
+		Research: projectstate.ResearchCorpus{Sources: sources},
 	}
 }
 
-// The mission-draft prompt POINTS at the corpus by JSON path and lists each source TITLE,
-// but the source CONTENT must not appear inline (the F11 regression guard).
-func Test_MissionPrompt_PointsAtResearch_NeverInlinesContent(t *testing.T) {
-	const bigContent = "CORPUS-CONTENT-SENTINEL-should-never-appear-inline " +
-		"pretend this is a 600KB book chapter that would blow the 64KB dispatch cap"
+// The mission-draft prompt POINTS at each corpus source's FILE PATH and lists each source
+// TITLE, but the source CONTENT must not appear inline (F42 files-not-JSON; F11 guard). The
+// persisted corpus carries only {Title, Path} pointers — content lives in the repo files.
+func Test_MissionPrompt_PointsAtResearchFiles_NeverInlinesContent(t *testing.T) {
 	prompt := architectDraftPrompt(
 		projectstate.KindMission,
 		projWithResearch(
-			projectstate.ResearchSource{Title: "Founder brief", Content: bigContent},
-			projectstate.ResearchSource{Title: "Competitor analysis", Content: bigContent + " (source 2)"},
+			projectstate.ResearchSourceRef{Title: "Founder brief", Path: ".aiarch/state/research/00-founder-brief.txt", ContentBytes: 620000},
+			projectstate.ResearchSourceRef{Title: "Competitor analysis", Path: ".aiarch/state/research/01-competitor-analysis.txt", ContentBytes: 42000},
 		),
 		ReviewFeedback{},
 		nil,
 	)
 
-	// The corpus CONTENT must never be inlined into the composed prompt.
-	if strings.Contains(prompt, "CORPUS-CONTENT-SENTINEL") {
-		t.Fatalf("research content leaked into the composed prompt (F11 regression):\n%s", prompt)
+	// The prompt must POINT at each source's FILE PATH (the file-path pointer form).
+	if !strings.Contains(prompt, ".aiarch/state/research/00-founder-brief.txt") ||
+		!strings.Contains(prompt, ".aiarch/state/research/01-competitor-analysis.txt") {
+		t.Errorf("prompt must point at each source's research file path; got:\n%s", prompt)
 	}
-	// The prompt must POINT at the committed state by its JSON path.
-	if !strings.Contains(prompt, ".aiarch/state/project.json") {
-		t.Errorf("prompt must point at .aiarch/state/project.json; got:\n%s", prompt)
+	// It must direct the agent to read each source from its FILE (not a project.json path).
+	if !strings.Contains(prompt, "FILE") {
+		t.Errorf("prompt must instruct reading each source from its file; got:\n%s", prompt)
 	}
-	if !strings.Contains(prompt, ".research.Sources") {
-		t.Errorf("prompt must name the .research.Sources JSON path; got:\n%s", prompt)
+	// The old JSON-path pointer form is gone (F42).
+	if strings.Contains(prompt, ".research.Sources") {
+		t.Errorf("prompt must not use the old .research.Sources JSON-path form (F42); got:\n%s", prompt)
 	}
-	// The prompt must list each source TITLE (titles are short) so the agent knows what
-	// is available to read.
+	// The prompt must list each source TITLE so the agent knows what is available to read.
 	if !strings.Contains(prompt, "Founder brief") || !strings.Contains(prompt, "Competitor analysis") {
 		t.Errorf("prompt must list each source title; got:\n%s", prompt)
 	}
@@ -63,7 +63,7 @@ func Test_MissionPrompt_PointsAtResearch_NeverInlinesContent(t *testing.T) {
 // doctrine and made the draft<->critique loop non-convergent. Guard against regressing to it.
 func Test_MissionPrompt_ForbidsComponentLanguage(t *testing.T) {
 	prompt := architectDraftPrompt(projectstate.KindMission, projWithResearch(
-		projectstate.ResearchSource{Title: "Founder brief", Content: "x"},
+		projectstate.ResearchSourceRef{Title: "Founder brief", Path: ".aiarch/state/research/00-founder-brief.txt"},
 	), ReviewFeedback{}, nil)
 
 	// The prompt must NOT tell the architect to express the mission in component terms.
@@ -115,22 +115,23 @@ func Test_MissionPrompt_EmptyCorpus_EmitsNoResearchBlock(t *testing.T) {
 // mission-prompt wrapper.
 func Test_writeResearch_PointerForm(t *testing.T) {
 	var b strings.Builder
-	writeResearch(&b, projectstate.ResearchInput{Sources: []projectstate.ResearchSource{
-		{Title: "Customer interviews", Content: "INLINE-SENTINEL long transcript body"},
+	writeResearch(&b, projectstate.ResearchCorpus{Sources: []projectstate.ResearchSourceRef{
+		{Title: "Customer interviews", Path: ".aiarch/state/research/00-customer-interviews.txt", ContentBytes: 12345},
 	}})
 	out := b.String()
-	if strings.Contains(out, "INLINE-SENTINEL") {
-		t.Fatalf("writeResearch inlined source content; got:\n%s", out)
-	}
 	if !strings.Contains(out, "Customer interviews") {
 		t.Errorf("writeResearch must list the source title; got:\n%s", out)
 	}
-	if !strings.Contains(out, ".research.Sources") {
-		t.Errorf("writeResearch must point at the .research.Sources JSON path; got:\n%s", out)
+	// F42 file-path pointer form: title → file path, and NOT the old JSON-path form.
+	if !strings.Contains(out, ".aiarch/state/research/00-customer-interviews.txt") {
+		t.Errorf("writeResearch must point at the source's research file path; got:\n%s", out)
+	}
+	if strings.Contains(out, ".research.Sources") {
+		t.Errorf("writeResearch must not use the old .research.Sources JSON-path form (F42); got:\n%s", out)
 	}
 
 	var empty strings.Builder
-	writeResearch(&empty, projectstate.ResearchInput{})
+	writeResearch(&empty, projectstate.ResearchCorpus{})
 	if empty.Len() != 0 {
 		t.Errorf("IsZero guard broken: empty corpus wrote %q", empty.String())
 	}

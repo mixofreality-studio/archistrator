@@ -306,7 +306,7 @@ func (m *systemDesignManager) projectStateToContract(p projectstate.Project) Pro
 		Owner:                OwnerScope(p.Owner),
 		Phase:                Phase(int(p.Phase)),
 		Version:              int64(p.Version),
-		Research:             researchToContract(p.ResearchInput),
+		Research:             researchToContract(p.Research),
 		Slots:                slotsToContract(p),
 		GitRows:              m.gitRowsToContract(p.ActivityGit),
 		ActivityConstruction: constructionRowsToContract(p.ActivityConstruction, activityMetaByID(p)),
@@ -394,10 +394,12 @@ func reviewPolicyToContract(p projectstate.ReviewPolicy) *ReviewPolicyView {
 // and surface each source's byte-size as ContentBytes so the UI can still show "N KB
 // loaded". The full corpus is read from git by the design Action, not through this
 // endpoint — see setResearchInput (write path) which is unchanged.
-func researchToContract(r projectstate.ResearchInput) ResearchInput {
+func researchToContract(r projectstate.ResearchCorpus) ResearchInput {
 	sources := make([]ResearchSource, 0, len(r.Sources))
 	for _, s := range r.Sources {
-		n := int64(len(s.Content))
+		// F42: the corpus is persisted as pointers now — ContentBytes comes straight off the
+		// stored pointer (no Content to measure); Content stays empty on the read model.
+		n := s.ContentBytes
 		sources = append(sources, ResearchSource{Title: s.Title, Content: "", ContentBytes: &n})
 	}
 	return ResearchInput{Sources: sources}

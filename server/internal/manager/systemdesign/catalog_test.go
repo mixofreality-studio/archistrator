@@ -450,8 +450,8 @@ func sampleProject(id projectstate.ProjectID) projectstate.Project {
 		Phase:   projectstate.PhaseSystemDesign,
 		Owner:   "alice",
 		Name:    "Sample",
-		ResearchInput: projectstate.ResearchInput{
-			Sources: []projectstate.ResearchSource{{Title: "Brief", Content: "founder brief"}},
+		Research: projectstate.ResearchCorpus{
+			Sources: []projectstate.ResearchSourceRef{{Title: "Brief", Path: ".aiarch/state/research/00-brief.txt", ContentBytes: 13}},
 		},
 		Mission: projectstate.ArtifactSlot{
 			Status: projectstate.ReviewCommitted,

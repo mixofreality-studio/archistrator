@@ -24,10 +24,11 @@ import (
 // a whole 660KB book and the SPA never renders it. researchToContract is the single
 // mapping seam; prove it empties Content and surfaces ContentBytes.
 func Test_researchToContract_SlimsContentKeepsTitleAndBytes(t *testing.T) {
-	book := strings.Repeat("x", 660_000)
-	in := projectstate.ResearchInput{Sources: []projectstate.ResearchSource{
-		{Title: "The Founder Brief", Content: book},
-		{Title: "Competitor Analysis", Content: "short note"},
+	// F42: the persisted corpus is already pointers ({Title, Path, ContentBytes}) — the read
+	// model carries Title + ContentBytes (off the pointer) and never any Content.
+	in := projectstate.ResearchCorpus{Sources: []projectstate.ResearchSourceRef{
+		{Title: "The Founder Brief", Path: ".aiarch/state/research/00-the-founder-brief.txt", ContentBytes: 660_000},
+		{Title: "Competitor Analysis", Path: ".aiarch/state/research/01-competitor-analysis.txt", ContentBytes: 10},
 	}}
 
 	out := researchToContract(in)
@@ -40,17 +41,17 @@ func Test_researchToContract_SlimsContentKeepsTitleAndBytes(t *testing.T) {
 	}
 	for i, s := range out.Sources {
 		if s.Content != "" {
-			t.Fatalf("source %d content must be emptied on the read model, got %d bytes", i, len(s.Content))
+			t.Fatalf("source %d content must be empty on the read model, got %d bytes", i, len(s.Content))
 		}
 		if s.ContentBytes == nil {
 			t.Fatalf("source %d must carry ContentBytes so the UI can show what is loaded", i)
 		}
 	}
-	if got := *out.Sources[0].ContentBytes; got != int64(len(book)) {
-		t.Fatalf("ContentBytes must equal the source content size, want %d got %d", len(book), got)
+	if got := *out.Sources[0].ContentBytes; got != 660_000 {
+		t.Fatalf("ContentBytes must equal the pointer's byte size, want 660000 got %d", got)
 	}
-	if got := *out.Sources[1].ContentBytes; got != int64(len("short note")) {
-		t.Fatalf("ContentBytes[1] want %d got %d", len("short note"), got)
+	if got := *out.Sources[1].ContentBytes; got != 10 {
+		t.Fatalf("ContentBytes[1] want 10 got %d", got)
 	}
 }
 
@@ -64,13 +65,14 @@ func Test_researchToContract_SlimsContentKeepsTitleAndBytes(t *testing.T) {
 // strips Content, keeps Titles, preserves IsZero (so writeResearch still lists sources),
 // and that the corpus content never crosses the boundary.
 func Test_encodeProject_SlimsResearchContentAcrossActivityBoundary(t *testing.T) {
-	book := strings.Repeat("x", 660_000)
+	// F42: the persisted corpus is pointers, so the Temporal envelope carries {Title, Path,
+	// ContentBytes} — inherently tiny, no book-sized Content ever crosses the boundary.
 	p := projectstate.Project{
 		ID:      projectstate.ProjectID("gtdapp"),
 		Version: 3,
-		ResearchInput: projectstate.ResearchInput{Sources: []projectstate.ResearchSource{
-			{Title: "The Founder Brief", Content: book},
-			{Title: "Competitor Analysis", Content: "short note"},
+		Research: projectstate.ResearchCorpus{Sources: []projectstate.ResearchSourceRef{
+			{Title: "The Founder Brief", Path: ".aiarch/state/research/00-the-founder-brief.txt", ContentBytes: 660_000},
+			{Title: "Competitor Analysis", Path: ".aiarch/state/research/01-competitor-analysis.txt", ContentBytes: 10},
 		}},
 	}
 
@@ -79,38 +81,33 @@ func Test_encodeProject_SlimsResearchContentAcrossActivityBoundary(t *testing.T)
 		t.Fatalf("encodeProject: %v", err)
 	}
 
-	// Titles cross the boundary; content does NOT.
+	// Titles + paths cross the boundary; the corpus type has no Content field at all.
 	if len(env.Research.Sources) != 2 {
-		t.Fatalf("want 2 source titles preserved in the envelope, got %d", len(env.Research.Sources))
+		t.Fatalf("want 2 source pointers preserved in the envelope, got %d", len(env.Research.Sources))
 	}
 	if env.Research.Sources[0].Title != "The Founder Brief" || env.Research.Sources[1].Title != "Competitor Analysis" {
 		t.Fatalf("titles must survive encoding, got %q / %q", env.Research.Sources[0].Title, env.Research.Sources[1].Title)
 	}
-	for i, s := range env.Research.Sources {
-		if s.Content != "" {
-			t.Fatalf("source %d Content must NOT cross the activity boundary, got %d bytes", i, len(s.Content))
-		}
+	if env.Research.Sources[0].Path == "" || env.Research.Sources[1].Path == "" {
+		t.Fatalf("source file paths must survive encoding, got %+v", env.Research.Sources)
 	}
 
 	// The decoded head-state still lists the corpus (IsZero preserved) and writeResearch
-	// still emits every title so the mission-draft prompt names the sources.
+	// still emits every title + file path so the mission-draft prompt names the sources.
 	dec, err := env.decode()
 	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if dec.ResearchInput.IsZero() {
-		t.Fatal("decoded research must not be zero — the titles-only carrier preserves IsZero")
+	if dec.Research.IsZero() {
+		t.Fatal("decoded research must not be zero — the pointer carrier preserves IsZero")
 	}
 	var b strings.Builder
-	writeResearch(&b, dec.ResearchInput)
+	writeResearch(&b, dec.Research)
 	prompt := b.String()
-	for _, title := range []string{"The Founder Brief", "Competitor Analysis"} {
-		if !strings.Contains(prompt, title) {
-			t.Fatalf("writeResearch must still list source title %q; prompt:\n%s", title, prompt)
+	for _, want := range []string{"The Founder Brief", "Competitor Analysis", ".aiarch/state/research/00-the-founder-brief.txt"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("writeResearch must list source %q; prompt:\n%s", want, prompt)
 		}
-	}
-	if strings.Contains(prompt, book) {
-		t.Fatal("writeResearch must NOT inline the corpus content")
 	}
 }
 

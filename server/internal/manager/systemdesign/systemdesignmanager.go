@@ -111,7 +111,7 @@ func (m *systemDesignManager) StartSystemDesign(rc fwmanager.Context, projectID 
 		}
 		return "", mapReadProjectError(err)
 	}
-	if proj.ResearchInput.IsZero() {
+	if proj.Research.IsZero() {
 		return "", newError(fwmanager.FailedPrecondition, "research not populated")
 	}
 

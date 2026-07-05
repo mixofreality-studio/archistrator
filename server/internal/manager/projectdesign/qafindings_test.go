@@ -23,13 +23,12 @@ import (
 // NOT ride along toward Temporal's 2MB kill threshold. Prove the corpus neither appears
 // in the encoded payload nor survives a round-trip.
 func Test_encodeProject_DropsResearchCorpus(t *testing.T) {
-	corpus := strings.Repeat("x", 660_000)
 	p := projectstate.Project{
 		ID:      "gtdapp",
 		Version: 3,
 		Phase:   1,
-		ResearchInput: projectstate.ResearchInput{Sources: []projectstate.ResearchSource{
-			{Title: "The Founder Brief", Content: corpus},
+		Research: projectstate.ResearchCorpus{Sources: []projectstate.ResearchSourceRef{
+			{Title: "RESEARCH-SENTINEL Founder Brief", Path: ".aiarch/state/research/00-founder-brief.txt", ContentBytes: 660_000},
 		}},
 	}
 
@@ -41,7 +40,7 @@ func Test_encodeProject_DropsResearchCorpus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal envelope: %v", err)
 	}
-	if strings.Contains(string(raw), "xxxxx") {
+	if strings.Contains(string(raw), "RESEARCH-SENTINEL") {
 		t.Fatalf("research corpus leaked into the Temporal envelope (%d bytes)", len(raw))
 	}
 	if strings.Contains(string(raw), "\"research\"") {
@@ -52,7 +51,7 @@ func Test_encodeProject_DropsResearchCorpus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode envelope: %v", err)
 	}
-	if !back.ResearchInput.IsZero() {
+	if !back.Research.IsZero() {
 		t.Fatal("research must not survive the projectdesign envelope round-trip")
 	}
 }

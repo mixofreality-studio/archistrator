@@ -365,12 +365,34 @@ func (s *GitStore) AdvancePhase(ctx context.Context, projectID ProjectID, expect
 	})
 }
 
+// SetResearchInput takes the wire {Title, Content} corpus (unchanged) but persists it as
+// FILES (F42, founder ruling 2026-07-05): each source's Content is written to
+// .aiarch/state/research/<NN>-<slug>.txt and project.json stores only the {Title, Path,
+// ContentBytes} pointer (content structurally absent). The corpus files and the project.json
+// pointer land in ONE atomic commit sharing the same idempotency ledger — no CommitManagedFiles
+// allowlist, no platform change. A re-run with the same key dedups to the prior version.
 func (s *GitStore) SetResearchInput(ctx context.Context, projectID ProjectID, expectedVersion Version, research ResearchInput, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	if research.IsZero() {
 		return 0, fwra.New(fwra.ContractMisuse, "projectstate.SetResearchInput: empty research (no sources)")
 	}
-	return s.applyMutation(ctx, "SetResearchInput", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
-		p.ResearchInput = research
+	// Compute the corpus files (keyed RELATIVE to statePathPrefix) + the persisted pointers
+	// deterministically from the input, up-front. Both ride the same atomic commit.
+	files := map[string][]byte{}
+	corpus := ResearchCorpus{Sources: make([]ResearchSourceRef, len(research.Sources))}
+	for i, src := range research.Sources {
+		files[researchFileRel(i, src.Title)] = []byte(src.Content)
+		corpus.Sources[i] = ResearchSourceRef{
+			Title:        src.Title,
+			Path:         researchPath(i, src.Title),
+			ContentBytes: int64(len(src.Content)),
+		}
+	}
+	return s.applyMutationOnBranchFiles(ctx, "SetResearchInput", projectID, expectedVersion, "", cred, idempotencyKey, modeRequireExisting, files, func(p *Project) error {
+		// Replace the whole corpus pointer set. Stale corpus files from a prior
+		// SetResearchInput at other indices/slugs are dropped implicitly: buildStateFiles
+		// carries forward research/* from the snapshot, but the pointer set is authoritative
+		// for what the drafting Action reads, and a fresh full set supersedes the old.
+		p.Research = corpus
 		return nil
 	})
 }
@@ -664,7 +686,7 @@ func (s *GitStore) applyMutation(
 	mode mutationMode,
 	mutate func(p *Project) error,
 ) (Version, error) {
-	return s.applyMutationOnBranch(ctx, op, projectID, expectedVersion, "", cred, idempotencyKey, mode, mutate)
+	return s.applyMutationOnBranchFiles(ctx, op, projectID, expectedVersion, "", cred, idempotencyKey, mode, nil, mutate)
 }
 
 // applyMutationOnBranch is applyMutation parameterized by an OPTIONAL session-branch
@@ -682,6 +704,27 @@ func (s *GitStore) applyMutationOnBranch(
 	cred RepoCredential,
 	idempotencyKey fwra.IdempotencyKey,
 	mode mutationMode,
+	mutate func(p *Project) error,
+) (Version, error) {
+	return s.applyMutationOnBranchFiles(ctx, op, projectID, expectedVersion, branch, cred, idempotencyKey, mode, nil, mutate)
+}
+
+// applyMutationOnBranchFiles is applyMutationOnBranch that ALSO writes extraFiles (each
+// keyed RELATIVE to statePathPrefix, e.g. "research/00-brief.txt") atomically in the SAME
+// commit as project.json + the dedup record (F42). Only SetResearchInput passes non-nil
+// extraFiles — the corpus files; every other verb passes nil and behaves identically to
+// before. On a dedup hit (retry) the write short-circuits BEFORE any file is written, so
+// the atomic first-write's files are what persist.
+func (s *GitStore) applyMutationOnBranchFiles(
+	ctx context.Context,
+	op string,
+	projectID ProjectID,
+	expectedVersion Version,
+	branch string,
+	cred RepoCredential,
+	idempotencyKey fwra.IdempotencyKey,
+	mode mutationMode,
+	extraFiles map[string][]byte,
 	mutate func(p *Project) error,
 ) (Version, error) {
 	if projectID == "" {
@@ -751,7 +794,7 @@ func (s *GitStore) applyMutationOnBranch(
 	// STEP 5 — build the new subtree (whole project.json + ALL dedup records,
 	// carrying forward the existing ones) and write the new dedup record in the SAME
 	// commit (REWORK.3 same-commit coupling — atomic per git ref update).
-	files, err := buildStateFiles(snap, &p, idempotencyKey, p.Version, op, s.now())
+	files, err := buildStateFiles(snap, &p, idempotencyKey, p.Version, op, s.now(), extraFiles)
 	if err != nil {
 		return 0, err
 	}
@@ -779,7 +822,7 @@ type projectDoc struct {
 	Phase    int                 `json:"phase"`
 	Owner    string              `json:"owner"`
 	Name     string              `json:"name"`
-	Research ResearchInput       `json:"research"`
+	Research ResearchCorpus      `json:"research"`
 	Slots    map[string]slotJSON `json:"slots"`
 	// ActivityGit is the per-activity git-forward head-state (D-PA-GIT, GIT.1),
 	// keyed by ActivityID. Omitted entirely until the first Record* git verb
@@ -863,7 +906,7 @@ func decodeProjectDoc(raw []byte, projectID ProjectID) (Project, bool, error) {
 		Phase:                Phase(doc.Phase),
 		Owner:                OwnerScope(doc.Owner),
 		Name:                 doc.Name,
-		ResearchInput:        doc.Research,
+		Research:             doc.Research,
 		ActivityGit:          doc.ActivityGit,
 		ActivityConstruction: doc.ActivityConstruction,
 		ConstructionProgress: doc.ConstructionProgress,
@@ -936,13 +979,22 @@ func lookupAppliedInSnapshot(snap fwgithub.GitSnapshot, key fwra.IdempotencyKey)
 // whole-subtree write does not drop history), and the NEW dedup record for this
 // mutation — all in one file set the satellite commits atomically.
 // now is the server-resolved mutation timestamp stamped into projectDoc.UpdatedAt.
-func buildStateFiles(snap fwgithub.GitSnapshot, p *Project, key fwra.IdempotencyKey, resultVersion Version, op string, now time.Time) (map[string][]byte, error) {
+func buildStateFiles(snap fwgithub.GitSnapshot, p *Project, key fwra.IdempotencyKey, resultVersion Version, op string, now time.Time, extraFiles map[string][]byte) (map[string][]byte, error) {
 	files := map[string][]byte{}
-	// Carry forward existing dedup records (whole-subtree write semantics).
+	// Carry forward existing dedup records AND corpus files (whole-subtree write semantics:
+	// CommitSubtree removeDirAll's the prefix, so anything not in `files` is deleted). The
+	// research/ corpus files (F42) must survive EVERY unrelated mutation — like the dedup
+	// ledger — so a stage/commit/reject never wipes the corpus a prior SetResearchInput wrote.
 	for path, b := range snap.Files {
-		if strings.HasPrefix(path, appliedMutationsDir+"/") {
+		if strings.HasPrefix(path, appliedMutationsDir+"/") || strings.HasPrefix(path, researchDir+"/") {
 			files[path] = b
 		}
+	}
+	// Merge the mutation's own extra files (F42: SetResearchInput's fresh corpus). These
+	// OVERWRITE any carried-forward file at the same key (a re-provisioned corpus supersedes
+	// the old), keeping the corpus files + project.json pointer coherent in ONE commit.
+	for path, b := range extraFiles {
+		files[path] = b
 	}
 	// Encode the rewritten aggregate, stamping the mutation time into the doc.
 	pj, err := encodeProjectDoc(p, now)
@@ -1000,7 +1052,7 @@ func encodeProjectDoc(p *Project, updatedAt time.Time) ([]byte, error) {
 		Phase:                int(p.Phase),
 		Owner:                string(p.Owner),
 		Name:                 p.Name,
-		Research:             p.ResearchInput,
+		Research:             p.Research,
 		Slots:                slots,
 		ActivityGit:          p.ActivityGit,
 		ActivityConstruction: p.ActivityConstruction,

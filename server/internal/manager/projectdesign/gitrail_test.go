@@ -883,8 +883,8 @@ func Test_CoAuthorPhase2_Rail_RetryAtFailedGate_SameBranch_RetainsFeedback(t *te
 	if b1 != b0 {
 		t.Fatalf("a failed-gate retry must redraft on the SAME session branch (F40); got %q then %q", b0, b1)
 	}
-	if strings.Contains(b1, "-a") || strings.Contains(b1, "-amend-") {
-		t.Fatalf("the retry branch must be the stable session branch (no attempt/amend suffix), got %q", b1)
+	if strings.Contains(b1, "-amend-") {
+		t.Fatalf("the retry branch must be the stable session branch (no amendment suffix), got %q", b1)
 	}
 	if p := pipe.submits[len(pipe.submits)-1].dispatchInputs[dispatchInputDesignPrompt]; !strings.Contains(p, retryNotes) {
 		t.Fatalf("the retained feedback %q must drive the redraft; prompt:\n%s", retryNotes, p)

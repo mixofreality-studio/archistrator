@@ -51,7 +51,7 @@ func architectDraftPrompt(kind projectstate.ArtifactKind, proj projectstate.Proj
 	// by kind (the Action reads them from .aiarch/state/project.json in the repo).
 	switch kind {
 	case projectstate.KindMission:
-		writeResearch(&b, proj.ResearchInput)
+		writeResearch(&b, proj.Research)
 	case projectstate.KindGlossary:
 		writePriorsPointer(&b, "Mission")
 	case projectstate.KindScrubbedRequirements:
@@ -314,13 +314,16 @@ func writePriorsPointer(b *strings.Builder, kinds ...string) {
 // UNIFORMLY point — never inline, no size cliff — listing only each source's short TITLE
 // so the drafting agent knows what is there and can read the full text by title. An empty
 // corpus is skipped (IsZero guard preserved).
-func writeResearch(b *strings.Builder, research projectstate.ResearchInput) {
+func writeResearch(b *strings.Builder, research projectstate.ResearchCorpus) {
 	if research.IsZero() {
 		return
 	}
-	b.WriteString("\nResearch corpus (the raw material for the mission): read the full text of each source from .aiarch/state/project.json at the JSON path .research.Sources[] in the checked-out repository — each entry has a \"Title\" and its full \"Content\". Do NOT expect the content inline here; it lives in the committed project state. The sources present, by title, are:\n")
+	// F42: the corpus content lives as FILES in the checked-out repo (not inlined in
+	// project.json). Point the drafting Action straight at each source's file path — simpler
+	// for the agent than a JSON path, and the content never rides this prompt.
+	b.WriteString("\nResearch corpus (the raw material for the mission): read the full text of each source from its FILE in the checked-out repository. Do NOT expect the content inline here. The sources present (title → file path) are:\n")
 	for _, s := range research.Sources {
-		fmt.Fprintf(b, "- %s\n", s.Title)
+		fmt.Fprintf(b, "- %s → %s\n", s.Title, s.Path)
 	}
 }
 

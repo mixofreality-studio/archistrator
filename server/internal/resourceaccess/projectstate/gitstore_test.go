@@ -17,6 +17,7 @@ package projectstate_test
 //       FIRST, returns the prior resultVersion, and produces NO second state commit.
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -225,6 +226,84 @@ func TestGitStore_ListProjects_NoRegistry_MultipleProjects(t *testing.T) {
 
 // TestGitStore_StageCommitRoundTrip — stage a typed model, commit it, read it back
 // with its review status (a model round-trips through git JSON).
+// TestGitStore_SetResearchInput_WritesFilesAndPointer proves the F42 files-not-JSON model
+// (founder ruling 2026-07-05): SetResearchInput takes the wire {Title, Content} but writes
+// each source's CONTENT to .aiarch/state/research/<slug>.txt and persists only the
+// {Title, Path, ContentBytes} pointer in project.json (content structurally absent) — all in
+// ONE atomic commit. The corpus files survive UNRELATED mutations (carry-forward), and a
+// re-run with the same idempotency key is a no-op (dedup).
+func TestGitStore_SetResearchInput_WritesFilesAndPointer(t *testing.T) {
+	store, raw, cred, ctx := newLocalGitStoreWithRepo(t)
+	id := ps.ProjectID(uuid.NewString())
+	if _, err := store.CreateProject(ctx, id, "alice", "Demo", cred, "wf:create"); err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+
+	const body = "the founder brief corpus body — pretend this is a whole book"
+	research := ps.ResearchInput{Sources: []ps.ResearchSource{{Title: "Founder Brief", Content: body}}}
+	v2, err := store.SetResearchInput(ctx, id, 1, research, cred, "wf:research")
+	if err != nil {
+		t.Fatalf("SetResearchInput: %v", err)
+	}
+
+	// The persisted head-state carries ONLY the pointer — content structurally absent.
+	proj, err := store.ReadProject(ctx, id, cred)
+	if err != nil {
+		t.Fatalf("ReadProject: %v", err)
+	}
+	if len(proj.Research.Sources) != 1 {
+		t.Fatalf("want one research pointer, got %+v", proj.Research)
+	}
+	ref := proj.Research.Sources[0]
+	wantPath := ".aiarch/state/research/00-founder-brief.txt"
+	if ref.Title != "Founder Brief" || ref.Path != wantPath || ref.ContentBytes != int64(len(body)) {
+		t.Fatalf("research pointer = %+v, want {Founder Brief, %s, %d}", ref, wantPath, len(body))
+	}
+
+	// The corpus CONTENT lives as a file at .aiarch/state/research/<slug>.txt.
+	snap, err := raw.ReadSubtree(ctx, ".aiarch/state", fwgithub.GitAuth{Local: true})
+	if err != nil {
+		t.Fatalf("raw ReadSubtree: %v", err)
+	}
+	fileBytes, ok := snap.Files["research/00-founder-brief.txt"]
+	if !ok {
+		t.Fatalf("corpus file not written; %d files present in the subtree", len(snap.Files))
+	}
+	if string(fileBytes) != body {
+		t.Fatalf("corpus file content = %q, want %q", string(fileBytes), body)
+	}
+	// The content must NOT appear in project.json (structurally gone from persisted state).
+	if pj, ok := snap.Files["project.json"]; ok && bytes.Contains(pj, []byte(body)) {
+		t.Fatal("corpus content leaked into project.json — F42 requires it live only in the file")
+	}
+
+	// CARRY-FORWARD: an unrelated mutation (stage a mission) must NOT wipe the corpus file.
+	if _, err := store.StageArtifactForReview(ctx, id, v2, &ps.MissionStatement{Vision: "v", Mission: "m"}, cred, "wf:stage"); err != nil {
+		t.Fatalf("StageArtifactForReview: %v", err)
+	}
+	snap2, err := raw.ReadSubtree(ctx, ".aiarch/state", fwgithub.GitAuth{Local: true})
+	if err != nil {
+		t.Fatalf("raw ReadSubtree after stage: %v", err)
+	}
+	if fb, ok := snap2.Files["research/00-founder-brief.txt"]; !ok || string(fb) != body {
+		t.Fatalf("an unrelated mutation wiped/changed the corpus file (carry-forward broken); present=%v", ok)
+	}
+	after, _ := store.ReadProject(ctx, id, cred)
+	if len(after.Research.Sources) != 1 || after.Research.Sources[0].Path != wantPath {
+		t.Fatalf("the research pointer must survive an unrelated mutation, got %+v", after.Research)
+	}
+
+	// IDEMPOTENT RETRY: re-running with the SAME key dedups to the original result version
+	// (the ledger probe wins, ignoring the now-stale expectedVersion) — no double-write.
+	vAgain, err := store.SetResearchInput(ctx, id, 999, research, cred, "wf:research")
+	if err != nil {
+		t.Fatalf("idempotent retry SetResearchInput: %v", err)
+	}
+	if vAgain != v2 {
+		t.Fatalf("idempotent retry must dedup to the original result version %d, got %d", v2, vAgain)
+	}
+}
+
 func TestGitStore_StageCommitRoundTrip(t *testing.T) {
 	store, cred, ctx := newLocalGitStore(t)
 	id := ps.ProjectID(uuid.NewString())
@@ -671,8 +750,8 @@ func TestGitStore_CreateProject_ResumesExistingState(t *testing.T) {
 		Phase:   ps.PhaseProjectDesign,
 		Owner:   "alice",
 		Name:    "Resumed System",
-		ResearchInput: ps.ResearchInput{
-			Sources: []ps.ResearchSource{{Title: "Brief", Content: "prior founder brief"}},
+		Research: ps.ResearchCorpus{
+			Sources: []ps.ResearchSourceRef{{Title: "Brief", Path: ".aiarch/state/research/00-brief.txt", ContentBytes: 19}},
 		},
 		Mission: ps.ArtifactSlot{
 			Status: ps.ReviewCommitted,
@@ -725,8 +804,8 @@ func TestGitStore_CreateProject_ResumesExistingState(t *testing.T) {
 	if !ok || gotMission.Vision != "prior-vision" || gotMission.Mission != "prior-mission" {
 		t.Fatalf("resume lost the typed Mission model: %+v", got.Mission.Model)
 	}
-	if len(got.ResearchInput.Sources) != 1 || got.ResearchInput.Sources[0].Content != "prior founder brief" {
-		t.Fatalf("resume lost the research input: %+v", got.ResearchInput)
+	if len(got.Research.Sources) != 1 || got.Research.Sources[0].Path != ".aiarch/state/research/00-brief.txt" {
+		t.Fatalf("resume lost the research pointer: %+v", got.Research)
 	}
 }
 

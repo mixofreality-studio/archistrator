@@ -114,35 +114,17 @@ type projectEnvelope struct {
 	ID       projectstate.ProjectID                     `json:"id"`
 	Version  projectstate.Version                       `json:"version"`
 	Phase    projectstate.Phase                         `json:"phase"`
-	Research projectstate.ResearchInput                 `json:"research,omitempty"`
+	Research projectstate.ResearchCorpus                `json:"research,omitempty"`
 	Slots    map[projectstate.ArtifactKind]slotEnvelope `json:"slots,omitempty"`
 }
 
-// researchTitlesOnly returns a copy of the research corpus with each source's Content
-// STRIPPED — keeping only the Titles (and the Sources length, so IsZero is preserved).
-// The Manager workflow only ever reads source TITLES (writeResearch points the drafting
-// Action at .research.Sources[] in the checked-out repo and lists titles; it never inlines
-// Content) plus IsZero. Carrying the full book-sized corpus across the ReadProjectActivity
-// Temporal boundary blew the payload budget (TMPRL1103 warnings) for no benefit — the
-// Action reads the full Content from the committed project.json, not from this envelope
-// (QA F29 bonus).
-func researchTitlesOnly(r projectstate.ResearchInput) projectstate.ResearchInput {
-	if len(r.Sources) == 0 {
-		return projectstate.ResearchInput{}
-	}
-	slim := projectstate.ResearchInput{Sources: make([]projectstate.ResearchSource, len(r.Sources))}
-	for i, s := range r.Sources {
-		slim.Sources[i] = projectstate.ResearchSource{Title: s.Title} // Content intentionally dropped
-	}
-	return slim
-}
-
-// encodeProject wraps the head-state aggregate for the Temporal boundary. The
-// ResearchInput field round-trips (TITLES ONLY — see researchTitlesOnly) so the
-// mission-draft step can list the corpus sources by title (rework-2026-05-29 §2.6 / §8;
-// QA F29 bonus payload-slimming).
+// encodeProject wraps the head-state aggregate for the Temporal boundary. The persisted
+// research corpus (F42) is now a set of {Title, Path, ContentBytes} POINTERS — the
+// book-sized Content lives as files at .aiarch/state/research/, NOT in this envelope — so
+// it round-trips whole and stays inherently tiny (the QA F29 titles-only slimming is now
+// structural, not a special case). The mission-draft step reads Title + Path off it.
 func encodeProject(p projectstate.Project) (projectEnvelope, error) {
-	out := projectEnvelope{ID: p.ID, Version: p.Version, Phase: p.Phase, Research: researchTitlesOnly(p.ResearchInput), Slots: map[projectstate.ArtifactKind]slotEnvelope{}}
+	out := projectEnvelope{ID: p.ID, Version: p.Version, Phase: p.Phase, Research: p.Research, Slots: map[projectstate.ArtifactKind]slotEnvelope{}}
 	for _, kind := range allSlotKinds() {
 		slot := slotFor(p, ArtifactKind(kind))
 		if slot.Status == projectstate.ReviewNone && slot.Model == nil {
@@ -165,7 +147,7 @@ func encodeProject(p projectstate.Project) (projectEnvelope, error) {
 
 // decode reconstructs the head-state aggregate from its envelope.
 func (e projectEnvelope) decode() (projectstate.Project, error) {
-	p := projectstate.Project{ID: e.ID, Version: e.Version, Phase: e.Phase, ResearchInput: e.Research}
+	p := projectstate.Project{ID: e.ID, Version: e.Version, Phase: e.Phase, Research: e.Research}
 	for kind, se := range e.Slots {
 		model, err := se.Model.decode()
 		if err != nil {

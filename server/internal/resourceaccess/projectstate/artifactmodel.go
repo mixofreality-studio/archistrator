@@ -124,12 +124,14 @@ type Project struct {
 	// CreateProject. (Task 2.3)
 	Name string
 
-	// ResearchInput is the Phase-1 research corpus the system-design sequence
-	// STARTS from (➕ 2026-05-29, projectStateAccess.md §3.2/§3.8). A Method INPUT,
-	// NOT an ArtifactModel and NOT review-gated: set whole via setResearchInput,
-	// read back by systemDesignManager to seed the mission-draft worker call. Zero
-	// value (no Sources) == not yet provided.
-	ResearchInput ResearchInput
+	// Research is the Phase-1 research corpus the system-design sequence STARTS from
+	// (➕ 2026-05-29; F42 files-not-JSON 2026-07-05). A Method INPUT, NOT an
+	// ArtifactModel and NOT review-gated. The corpus CONTENT lives as files at
+	// .aiarch/state/research/<slug>.txt in the project repo (F42): SetResearchInput
+	// takes the wire {title,content} but persists ONLY the {Title, Path, ContentBytes}
+	// POINTER here (content structurally absent from project.json), writing the file +
+	// pointer in ONE atomic commit. Zero value (no Sources) == not yet provided.
+	Research ResearchCorpus
 
 	// ActivityGit is the per-activity git-forward head-state, keyed by ActivityID
 	// (➕ 2026-06-12, D-PA-GIT, projectStateAccess.md §GIT-HEAD-STATE). Additive,
