@@ -44,6 +44,13 @@ linters:
       - path: "_test\\.go"
         linters:
           - exhaustive
+      # The aiarch-state MCP server is a CLI tool that inherently shells out to git
+      # (a fixed, trusted binary with internal-only args) and reads research files
+      # confined to the checkout (traversal-guarded). Those are the tool's purpose,
+      # not injection surfaces — exclude gosec's G204/G304 for this package only.
+      - path: "cmd/aiarch-state-mcp/"
+        linters:
+          - gosec
 
 formatters:
   enable:

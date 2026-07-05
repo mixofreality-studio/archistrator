@@ -14,11 +14,13 @@ import (
 // runGit executes git in the given repo root and returns trimmed combined output. It is
 // the production git runner injected into Session.git (tests inject a fake).
 func runGit(root string, args ...string) (string, error) {
+	// git is a fixed, trusted binary; args are internal verbs + the managed state path,
+	// never untrusted user input (gosec G204 excluded for this tool in .golangci.yml).
 	cmd := exec.Command("git", args...)
 	cmd.Dir = root
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return string(out), fmt.Errorf("git %s: %v: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+		return string(out), fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
 	}
 	return strings.TrimSpace(string(out)), nil
 }

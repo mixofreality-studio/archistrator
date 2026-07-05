@@ -45,7 +45,10 @@ func (s *Session) getResearchSource(path string) (string, error) {
 		return "", fmt.Errorf("path %q is outside the project repository", path)
 	}
 	full := filepath.Join(s.StateRoot, clean)
+	// The path is confined to the checkout — traversal/absolute escape is rejected above
+	// (gosec G304 excluded for this tool in .golangci.yml).
 	b, err := os.ReadFile(full)
+
 	if err != nil {
 		return "", fmt.Errorf("read research source %q: %w", path, err)
 	}

@@ -171,7 +171,7 @@ func (s *Session) readProject() (projectstate.Project, []byte, error) {
 
 // writeProjectBytes writes the (already-encoded) canonical project.json to disk.
 func (s *Session) writeProjectBytes(b []byte) error {
-	return os.WriteFile(s.projectFilePath(), b, 0o644)
+	return os.WriteFile(s.projectFilePath(), b, 0o600)
 }
 
 // slotFor returns the ArtifactSlot pointer for kind on the decoded aggregate. It is the

@@ -53,8 +53,8 @@ func (s *Session) putDraftModel(modelJSON []byte) error {
 		return fmt.Errorf("no model type for artifact kind %s", s.Kind)
 	}
 	if err := json.Unmarshal(modelJSON, model); err != nil {
-		return fmt.Errorf("the %s model does not conform to its schema (the server would reject this on read-back): %v\n"+
-			"Common cause: a closed-enum field carrying a free-text sentence instead of an exact wire value. Fix the field and call putDraftModel again.",
+		return fmt.Errorf("the %s model does not conform to its schema (the server would reject this on read-back): %v"+
+			" — a common cause is a closed-enum field carrying a free-text sentence instead of an exact wire value; fix the field and call putDraftModel again",
 			s.Kind.WireName(), err)
 	}
 
@@ -68,20 +68,20 @@ func (s *Session) putDraftModel(modelJSON []byte) error {
 	// bytes we validate (and write) are byte-identical to what the server would produce.
 	newBytes, err := projectstate.EncodeProjectJSON(proj)
 	if err != nil {
-		return fmt.Errorf("encode project state: %v", err)
+		return fmt.Errorf("encode project state: %w", err)
 	}
 
 	// GATE 1 (parity re-decode): confirm the full document round-trips through the strict
 	// server codec. This catches any cross-slot decode fault the single-model decode above
 	// could miss and is exactly the read-back the server performs.
 	if _, _, derr := projectstate.DecodeProjectJSON(newBytes, s.ProjectID); derr != nil {
-		return fmt.Errorf("the drafted project state would be rejected by the server on read-back: %v", derr)
+		return fmt.Errorf("the drafted project state would be rejected by the server on read-back: %w", derr)
 	}
 
 	// GATE 2 — methodcheck (the required CI gate) over the whole re-encoded document.
 	findings, ferr := methodcheck.ValidateProjectJSON(newBytes)
 	if ferr != nil {
-		return fmt.Errorf("Method coherence check failed: %v", ferr)
+		return fmt.Errorf("the Method coherence check failed: %w", ferr)
 	}
 	if errs := filterErrorFindings(findings); len(errs) > 0 {
 		return fmt.Errorf("the %s draft violates %d Method rule(s) that the required CI check enforces — fix them and call putDraftModel again:\n%s",
@@ -90,7 +90,7 @@ func (s *Session) putDraftModel(modelJSON []byte) error {
 
 	// Both gates passed — write the validated draft to the checkout.
 	if err := s.writeProjectBytes(newBytes); err != nil {
-		return fmt.Errorf("write project state: %v", err)
+		return fmt.Errorf("write project state: %w", err)
 	}
 	s.wroteState = true
 	return nil
@@ -133,10 +133,10 @@ func (s *Session) respondToReviewComment(id, response string) error {
 	}
 	newBytes, err := projectstate.EncodeProjectJSON(proj)
 	if err != nil {
-		return fmt.Errorf("encode project state: %v", err)
+		return fmt.Errorf("encode project state: %w", err)
 	}
 	if err := s.writeProjectBytes(newBytes); err != nil {
-		return fmt.Errorf("write project state: %v", err)
+		return fmt.Errorf("write project state: %w", err)
 	}
 	s.wroteState = true
 	return nil
@@ -173,10 +173,10 @@ func (s *Session) setCritiqueVerdict(verdict, notes string) error {
 	}
 	newBytes, err := projectstate.EncodeProjectJSON(proj)
 	if err != nil {
-		return fmt.Errorf("encode project state: %v", err)
+		return fmt.Errorf("encode project state: %w", err)
 	}
 	if err := s.writeProjectBytes(newBytes); err != nil {
-		return fmt.Errorf("write project state: %v", err)
+		return fmt.Errorf("write project state: %w", err)
 	}
 	s.wroteState = true
 	return nil

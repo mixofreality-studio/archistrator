@@ -43,7 +43,7 @@ func TestRig_FullDraftCycleOverStdio(t *testing.T) {
 	if err != nil {
 		t.Fatalf("connect to MCP server: %v", err)
 	}
-	defer session.Close()
+	defer func() { _ = session.Close() }()
 
 	// tools/list — the draft-mode set must include putDraftModel and NOT setCritiqueVerdict.
 	tools, err := session.ListTools(ctx, nil)
@@ -127,7 +127,7 @@ func TestRig_CritiqueModeToolSet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("connect: %v", err)
 	}
-	defer session.Close()
+	defer func() { _ = session.Close() }()
 
 	tools, err := session.ListTools(ctx, nil)
 	if err != nil {
