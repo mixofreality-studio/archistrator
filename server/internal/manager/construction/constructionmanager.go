@@ -304,6 +304,14 @@ func (m *constructionManager) GetSessionState(rc fwm.Context, projectID ProjectI
 
 	enc, err := m.client.QueryWorkflow(ctx, wfID, "", querySessionState)
 	if err != nil {
+		// F20 (error altitude): before construction starts the pump/per-activity
+		// workflow does not exist, and Temporal's raw "workflow not found for ID:
+		// <proj>:construction" leaks the internal execution id to the client. Map that
+		// to a clean, user-altitude NotFound; other query faults keep their generic
+		// mapping.
+		if isNotFound(err) {
+			return ConstructionSessionView{}, newError(fwm.NotFound, "construction has not started for this project")
+		}
 		return ConstructionSessionView{}, mapQueryError(err)
 	}
 	var view ConstructionSessionView

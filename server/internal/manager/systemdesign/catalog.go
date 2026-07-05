@@ -385,11 +385,20 @@ func reviewPolicyToContract(p projectstate.ReviewPolicy) *ReviewPolicyView {
 	return &ReviewPolicyView{GatedPhasesByType: byType}
 }
 
-// researchToContract maps the Phase-1 research corpus.
+// researchToContract maps the Phase-1 research corpus onto the read view. F22
+// (read-model slimming): the corpus Content — a source can be a whole 660KB book —
+// is deliberately NOT shipped on the project read. GetProject is polled at 1.5s by
+// the construction console and paid on every HomeBase/design load, yet the SPA never
+// renders corpus content; carrying it made a single read ~686KB. We keep the sources
+// array shape (title stays, so the UI can list what is loaded) but EMPTY the content
+// and surface each source's byte-size as ContentBytes so the UI can still show "N KB
+// loaded". The full corpus is read from git by the design Action, not through this
+// endpoint — see setResearchInput (write path) which is unchanged.
 func researchToContract(r projectstate.ResearchInput) ResearchInput {
 	sources := make([]ResearchSource, 0, len(r.Sources))
 	for _, s := range r.Sources {
-		sources = append(sources, ResearchSource{Title: s.Title, Content: s.Content})
+		n := int64(len(s.Content))
+		sources = append(sources, ResearchSource{Title: s.Title, Content: "", ContentBytes: &n})
 	}
 	return ResearchInput{Sources: sources}
 }

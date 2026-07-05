@@ -288,8 +288,9 @@ type ResearchInput struct {
 }
 
 type ResearchSource struct {
-	Title   string `json:"title"`
-	Content string `json:"content"`
+	Title        string `json:"title"`
+	Content      string `json:"content"`
+	ContentBytes *int64 `json:"contentBytes,omitempty"`
 }
 
 type ReviewDecision int

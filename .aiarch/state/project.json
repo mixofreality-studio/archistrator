@@ -11316,6 +11316,9 @@
             },
             "content": {
               "type": "string"
+            },
+            "contentBytes": {
+              "type": "integer"
             }
           },
           "required": [

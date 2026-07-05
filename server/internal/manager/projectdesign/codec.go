@@ -104,17 +104,23 @@ type slotEnvelope struct {
 // projectEnvelope is the wire form of the head-state Project across the
 // ReadProjectActivity boundary: the identity/version/phase plus every populated
 // slot keyed by kind ordinal. Empty slots are omitted.
+//
+// F16 (payload slimming): the Phase-1 ResearchInput corpus is DELIBERATELY NOT
+// carried here. A research source can be a whole book (660KB observed), and every
+// projectdesign Activity payload crosses the Temporal boundary — dead weight that
+// pushes toward Temporal's 2MB kill threshold. Phase-2 project design never reads
+// the corpus (unlike systemdesign, whose mission-draft step legitimately weaves it
+// in — that envelope keeps it), so dropping the field costs nothing here.
 type projectEnvelope struct {
-	ID       projectstate.ProjectID                     `json:"id"`
-	Version  projectstate.Version                       `json:"version"`
-	Phase    projectstate.Phase                         `json:"phase"`
-	Research projectstate.ResearchInput                 `json:"research,omitempty"`
-	Slots    map[projectstate.ArtifactKind]slotEnvelope `json:"slots,omitempty"`
+	ID      projectstate.ProjectID                     `json:"id"`
+	Version projectstate.Version                       `json:"version"`
+	Phase   projectstate.Phase                         `json:"phase"`
+	Slots   map[projectstate.ArtifactKind]slotEnvelope `json:"slots,omitempty"`
 }
 
 // encodeProject wraps the head-state aggregate for the Temporal boundary.
 func encodeProject(p projectstate.Project) (projectEnvelope, error) {
-	out := projectEnvelope{ID: p.ID, Version: p.Version, Phase: p.Phase, Research: p.ResearchInput, Slots: map[projectstate.ArtifactKind]slotEnvelope{}}
+	out := projectEnvelope{ID: p.ID, Version: p.Version, Phase: p.Phase, Slots: map[projectstate.ArtifactKind]slotEnvelope{}}
 	for _, kind := range allSlotKinds() {
 		slot := slotFor(p, kind)
 		if slot.Status == projectstate.ReviewNone && slot.Model == nil {
@@ -131,7 +137,7 @@ func encodeProject(p projectstate.Project) (projectEnvelope, error) {
 
 // decode reconstructs the head-state aggregate from its envelope.
 func (e projectEnvelope) decode() (projectstate.Project, error) {
-	p := projectstate.Project{ID: e.ID, Version: e.Version, Phase: e.Phase, ResearchInput: e.Research}
+	p := projectstate.Project{ID: e.ID, Version: e.Version, Phase: e.Phase}
 	for kind, se := range e.Slots {
 		model, err := se.Model.decode()
 		if err != nil {

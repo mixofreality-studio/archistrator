@@ -258,11 +258,102 @@ func (m *projectDesignManager) SubmitReviewDecision(rc fwmanager.Context, projec
 	}
 
 	wfID := coAuthorWorkflowID(projectID, kind)
+
+	// F19: precondition — inspect the live session stage BEFORE signaling. A bare
+	// SignalWorkflow is fire-and-forget: an approve/reject delivered while the session
+	// is drafting, already committed, or was never started is silently BUFFERED or
+	// dropped by the workflow (at the failed-recovery gate ReviewApprove is explicitly
+	// ignored), yet the op returns success {} — a no-op masquerading as a decision.
+	// Query the stage first and refuse a decision the current gate cannot honor with a
+	// FailedPrecondition naming the actual stage. (Mirrors systemdesign's F19 fix.)
+	stage, err := m.reviewGateStage(ctx, wfID)
+	if err != nil {
+		return err
+	}
+	if perr := checkReviewPrecondition(decision, stage); perr != nil {
+		return perr
+	}
+
 	sig := reviewDecisionSignal{Decision: decision, Feedback: feedback}
 	if err := m.client.SignalWorkflow(ctx, wfID, "", signalReviewDecision, sig); err != nil {
 		return mapSignalError(err)
 	}
 	return nil
+}
+
+// reviewGateStage returns the co-author session's current gate stage for the F19
+// review precondition. A missing execution reports SessionStageUnknown (nothing to
+// review); a live run is read from its authoritative sessionState query.
+func (m *projectDesignManager) reviewGateStage(ctx context.Context, wfID string) (SessionStage, error) {
+	enc, err := m.client.QueryWorkflow(ctx, wfID, "", querySessionState)
+	if err != nil {
+		if isNotFound(err) {
+			return SessionStageUnknown, nil
+		}
+		return SessionStageUnknown, mapQueryError(err)
+	}
+	var view SessionStateView
+	if err := enc.Get(&view); err != nil {
+		return SessionStageUnknown, newError(fwmanager.Infrastructure, err.Error())
+	}
+	return view.Stage, nil
+}
+
+// checkReviewPrecondition enforces that the submitted decision is meaningful at the
+// session's current stage (F19): approve is honored only at StageAwaitingReview;
+// reject and withdraw are honored at StageAwaitingReview OR the StageDraftFailed
+// recovery gate (where reject means retry-with-feedback — see awaitDraftFailedRecovery).
+// Any other stage yields a FailedPrecondition naming the actual stage.
+func checkReviewPrecondition(decision ReviewDecision, stage SessionStage) error {
+	switch decision {
+	case ReviewApprove:
+		if stage != StageAwaitingReview {
+			return newError(fwmanager.FailedPrecondition,
+				"cannot approve: the design is not awaiting review (current stage: "+sessionStageLabel(stage)+")")
+		}
+	case ReviewReject:
+		if stage != StageAwaitingReview && stage != StageDraftFailed {
+			return newError(fwmanager.FailedPrecondition,
+				"cannot send back: the design is not at a review or recovery gate (current stage: "+sessionStageLabel(stage)+")")
+		}
+	case ReviewWithdraw:
+		if stage != StageAwaitingReview && stage != StageDraftFailed {
+			return newError(fwmanager.FailedPrecondition,
+				"cannot withdraw: no review or recovery gate is open (current stage: "+sessionStageLabel(stage)+")")
+		}
+	case ReviewDecisionUnknown:
+		// Unreachable: SubmitReviewDecision rejects the zero value as ContractMisuse
+		// before reaching the precondition. Guarded for switch-exhaustiveness.
+		return newError(fwmanager.ContractMisuse, "unknown review decision")
+	}
+	return nil
+}
+
+// sessionStageLabel renders a SessionStage as a short human label for the precondition
+// messages.
+func sessionStageLabel(s SessionStage) string {
+	switch s {
+	case SessionStageUnknown:
+		return "not started"
+	case StageDrafting:
+		return "drafting"
+	case StageAssemblingSDP:
+		return "assembling SDP"
+	case StageAwaitingReview:
+		return "awaiting review"
+	case StageRedrafting:
+		return "redrafting"
+	case StageCommitted:
+		return "committed"
+	case StageWithdrawn:
+		return "withdrawn"
+	case StageRefused:
+		return "refused"
+	case StageDraftFailed:
+		return "draft failed"
+	default:
+		return "unknown"
+	}
 }
 
 // AdvanceToConstruction — op 2.4. Temporal Workflow (entry; StartWorkflow,
@@ -309,6 +400,13 @@ func (m *projectDesignManager) GetSessionState(rc fwmanager.Context, projectID P
 
 	enc, err := m.client.QueryWorkflow(ctx, wfID, "", querySessionState)
 	if err != nil {
+		// F20 (error altitude): before Phase 2 the co-author/SDP workflow does not
+		// exist, and Temporal's raw "workflow not found for ID: <proj>:<n>" leaks the
+		// internal execution id to the client. Map that to a clean, user-altitude
+		// NotFound; other query faults keep their generic mapping.
+		if isNotFound(err) {
+			return SessionStateView{}, newError(fwmanager.NotFound, "project design has not started for this project")
+		}
 		return SessionStateView{}, mapQueryError(err)
 	}
 	var view SessionStateView
