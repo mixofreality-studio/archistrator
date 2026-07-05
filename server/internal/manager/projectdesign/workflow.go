@@ -169,6 +169,23 @@ func mutateOpts(ctx workflow.Context) workflow.Context {
 // surfaces when the optimistic-concurrency token (expectedVersion) is stale.
 var raConflictErrType = fwmanager.RAErrType(fwra.Conflict)
 
+// raAuthErrType is the canonical Temporal Type() a rail Activity surfaces for an Auth
+// fault. The platform github ClassifyStatus conflates GitHub secondary RATE-LIMIT 403s
+// with real permission denials (both → fwra.Auth), and marks it NON-RETRYABLE — so the
+// approve-window bounded retry (QA F35) must run WORKFLOW-SIDE (isApproveAuthFault), since
+// the Activity RetryPolicy cannot retry a non-retryable ApplicationError.
+var raAuthErrType = fwmanager.RAErrType(fwra.Auth)
+
+// isApproveAuthFault reports whether err is a rail Auth fault (the rate-limit-403-as-Auth
+// the approve-window bounded retry absorbs).
+func isApproveAuthFault(err error) bool {
+	var appErr *temporal.ApplicationError
+	if errors.As(err, &appErr) {
+		return appErr.Type() == raAuthErrType
+	}
+	return false
+}
+
 // raNotFoundErrType is the canonical Temporal Type() the ReadProject Activity
 // surfaces when the addressed aggregate has NO row yet.
 var raNotFoundErrType = fwmanager.RAErrType(fwra.NotFound)
@@ -328,12 +345,16 @@ const (
 //   - coAuthorProceed  → fall through to the next block this iteration
 //   - coAuthorContinue → restart the loop (redraft)
 //   - coAuthorReturn   → terminate the workflow with the returned outcome
+//   - coAuthorReAwait  → re-suspend at the SAME AwaitingReview gate WITHOUT redrafting
+//     (QA F35): a transient approve/merge-window fault is contained; the staged draft is
+//     intact, so the human re-approves. A redraft would discard an approved-quality draft.
 type coAuthorStep int
 
 const (
 	coAuthorProceed coAuthorStep = iota
 	coAuthorContinue
 	coAuthorReturn
+	coAuthorReAwait
 )
 
 // reviewDecisionSignal is the reviewDecision signal payload (contract §6.5).
@@ -420,20 +441,31 @@ func (wf *workflows) CoAuthorPhase2ArtifactWorkflow(ctx workflow.Context, in coA
 			continue
 		}
 
-		// Step 6: awaitSignal("reviewDecision") — in-workflow primitive; suspend.
-		var sig reviewDecisionSignal
-		workflow.GetSignalChannel(ctx, signalReviewDecision).Receive(ctx, &sig)
+		// Step 6/7: the review gate. Await a decision and act on it. An approve/merge-window
+		// fault is CONTAINED as coAuthorReAwait (QA F35): the staged draft is intact, so we
+		// re-suspend at THIS gate (carrying a queryable notice) and await the next decision —
+		// the human re-approves — WITHOUT redrafting. Reject/withdraw exit this inner loop
+		// (reject → break to the outer loop which redrafts; withdraw → return).
+	gate:
+		for {
+			var sig reviewDecisionSignal
+			workflow.GetSignalChannel(ctx, signalReviewDecision).Receive(ctx, &sig)
 
-		// Step 7: branch on the architect's decision (the commit authority).
-		step, outcome, err = wf.coAuthorApplyDecision(ctx, in, sig, &gf, &headVersion, &redraftCount, &branchAttempt, &feedback, state)
-		if err != nil {
-			return coAuthorUnknown, err
+			step, outcome, err = wf.coAuthorApplyDecision(ctx, in, sig, &gf, &headVersion, &redraftCount, &branchAttempt, &feedback, state)
+			if err != nil {
+				return coAuthorUnknown, err
+			}
+			switch step {
+			case coAuthorReturn:
+				return outcome, nil
+			case coAuthorReAwait:
+				continue gate
+			case coAuthorContinue, coAuthorProceed:
+				// coAuthorContinue (reject) — break to the outer loop which redrafts.
+				// coAuthorProceed cannot arise from the decision phase; grouped defensively.
+				break gate
+			}
 		}
-		if step == coAuthorReturn {
-			return outcome, nil
-		}
-		// coAuthorApplyDecision only ever returns coAuthorReturn or coAuthorContinue;
-		// either way the loop restarts here.
 	}
 }
 
@@ -704,7 +736,16 @@ func (wf *workflows) coAuthorApprove(
 	// merged=true with no rail ops (the non-git spine).
 	merged, mErr := wf.mergeOnApprove(ctx, gf, in.ArtifactKind)
 	if mErr != nil {
-		return coAuthorProceed, coAuthorUnknown, mErr
+		// QA F35: a merge-window fault (PR-status read / +1 relay / merge) must NOT kill the
+		// workflow. The staged draft is intact on the session branch and main is untouched,
+		// so contain it — return to AwaitingReview with a queryable notice so the human can
+		// simply RE-APPROVE (never a redraft, which would discard an approved-quality draft).
+		// Cancellation still propagates.
+		if temporal.IsCanceledError(mErr) {
+			return coAuthorProceed, coAuthorUnknown, mErr
+		}
+		logger.Warn("approve merge-window fault; returning to AwaitingReview for re-approve", "error", mErr.Error())
+		return wf.reAwaitAfterApproveFault(state, approveFailedReason(mErr)), coAuthorUnknown, nil
 	}
 	if !merged {
 		// The merge guard was NOT green (the required CI check is red on the PR): do
@@ -729,7 +770,14 @@ func (wf *workflows) coAuthorApprove(
 		if mp, rerr := wf.readProject(ctx, in.ProjectID); rerr == nil {
 			*headVersion = mp.Version
 		} else if !isReadNotFound(rerr) {
-			return coAuthorProceed, coAuthorUnknown, rerr
+			// QA F35: a post-merge re-seed read fault is contained too. The merge already
+			// landed on main, so a re-approve re-runs mergeOnApprove idempotently (a merged PR
+			// re-merges to a no-op) and re-reads/commits — no redraft, no crash.
+			if temporal.IsCanceledError(rerr) {
+				return coAuthorProceed, coAuthorUnknown, rerr
+			}
+			logger.Warn("approve post-merge re-seed fault; returning to AwaitingReview for re-approve", "error", rerr.Error())
+			return wf.reAwaitAfterApproveFault(state, approveFailedReason(rerr)), coAuthorUnknown, nil
 		}
 	}
 	// Commit lands on MAIN after the merge (the re-seed above set headVersion to main's
@@ -742,10 +790,38 @@ func (wf *workflows) coAuthorApprove(
 		}).Get(ctx, &v)
 		return v, e
 	}); err != nil {
-		return coAuthorProceed, coAuthorUnknown, err
+		// QA F35: contain a post-merge commit fault too (same idempotent re-approve recovery).
+		if temporal.IsCanceledError(err) {
+			return coAuthorProceed, coAuthorUnknown, err
+		}
+		logger.Warn("approve post-merge commit fault; returning to AwaitingReview for re-approve", "error", err.Error())
+		return wf.reAwaitAfterApproveFault(state, approveFailedReason(err)), coAuthorUnknown, nil
 	}
 	state.stage = StageCommitted
 	return coAuthorReturn, coAuthorApproved, nil
+}
+
+// reAwaitAfterApproveFault contains a transient approve/merge-window fault (QA F35): it
+// returns the session to AwaitingReview carrying a queryable notice (surfaced as the
+// sessionState FailureReason — no schema change; the STAGE disambiguates it from a
+// StageDraftFailed reason) and asks the driver to re-await the gate so the human can simply
+// re-approve. The staged draft is untouched.
+func (wf *workflows) reAwaitAfterApproveFault(state *coAuthorState, reason string) coAuthorStep {
+	state.stage = StageAwaitingReview
+	state.failureReason = reason
+	return coAuthorReAwait
+}
+
+// approveFailedReason renders the human "why" for the AwaitingReview re-approve notice when
+// an approve/merge-window activity faulted transiently (QA F35 — e.g. a GitHub secondary
+// rate-limit 403 the platform classifier reports as Auth). It frames a re-approve, NOT a
+// redraft.
+func approveFailedReason(err error) string {
+	summary := dispatchErrSummary(err)
+	if summary == "" {
+		return "approving your draft did not complete (a transient repository/API error) — please approve again"
+	}
+	return "approving your draft did not complete: " + summary + " — please approve again"
 }
 
 // ===========================================================================

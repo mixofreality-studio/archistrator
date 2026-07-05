@@ -44,6 +44,10 @@ type fakeRail struct {
 	calls      []railCall
 	checkGreen bool
 	openedPRs  int
+	// statusAuthFailsRemaining, when >0, makes GetPullRequestStatus return an fwra.Auth
+	// error (the platform's rate-limit-403-as-Auth) and decrement — used to exercise the
+	// QA F35 bounded-retry + approve-window containment.
+	statusAuthFailsRemaining int
 }
 
 func (r *fakeRail) record(c railCall) {
@@ -87,6 +91,17 @@ func (r *fakeRail) OpenPullRequest(_ context.Context, repo sourcecontrol.RepoRef
 
 func (r *fakeRail) GetPullRequestStatus(_ context.Context, repo sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, _ sourcecontrol.RepoCredential) (sourcecontrol.PullRequestStatus, error) {
 	r.record(railCall{verb: "GetPullRequestStatus", repo: sourcecontrol.RepoRefString(repo), prRef: sourcecontrol.PullRequestRefString(pr)})
+	r.mu.Lock()
+	fail := r.statusAuthFailsRemaining > 0
+	if fail {
+		r.statusAuthFailsRemaining--
+	}
+	r.mu.Unlock()
+	if fail {
+		// The observed F35 fault: GitHub secondary rate-limit 403 the platform classifier
+		// reports as Auth. railApproveOpts retries it within a bounded budget.
+		return sourcecontrol.PullRequestStatus{}, fwra.New(fwra.Auth, "getPullRequest: github auth/permission denied")
+	}
 	rollup := sourcecontrol.CheckFailure
 	if r.checkGreen {
 		rollup = sourcecontrol.CheckSuccess
@@ -726,5 +741,111 @@ func Test_CoAuthor_RailEnabled_RetryAtFailedGate_FreshBranch_RetainsFeedback(t *
 	// Retained feedback rides into the redraft prompt.
 	if p := pipe.submits[len(pipe.submits)-1].dispatchInputs[dispatchInputDesignPrompt]; !strings.Contains(p, retryNotes) {
 		t.Fatalf("the retained feedback %q must drive the redraft; prompt:\n%s", retryNotes, p)
+	}
+}
+
+// THE QA F35 REGRESSION — an approve-window fault (GetPullRequestStatus 403 → Auth kind)
+// must NOT kill the workflow. After the bounded retry budget is exhausted, the session
+// RETURNS to AwaitingReview carrying a queryable notice (FailureReason), and a re-approve
+// succeeds and merges. NOT a redraft (which would discard the approved-quality draft).
+func Test_CoAuthor_RailEnabled_ApproveStatusFault_ReturnsToAwaitingReview_ReapproveMerges(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	ps := &branchAwareFakeProjectState{fakeProjectState: base}
+	pipe := newFakePipeline()
+	// The first approve's GetPullRequestStatus 403s on all 3 bounded attempts → contained;
+	// after that the counter is 0 so the re-approve reads green and merges.
+	rail := &fakeRail{checkGreen: true, statusAuthFailsRemaining: 3}
+	wf := newRailWorkflows(ps, pipe, rail)
+	registerRailCoAuthor(env, wf)
+
+	// First approve → status 403s → contained → back to AwaitingReview with a notice.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
+	}, 30*time.Second)
+	// Assert the session returned to AwaitingReview with a queryable re-approve notice.
+	env.RegisterDelayedCallback(func() {
+		enc, err := env.QueryWorkflow(querySessionState)
+		if err != nil {
+			t.Fatalf("QueryWorkflow after approve fault: %v", err)
+		}
+		var view SessionStateView
+		if derr := enc.Get(&view); derr != nil {
+			t.Fatalf("decode SessionStateView: %v", derr)
+		}
+		if view.Stage != StageAwaitingReview {
+			t.Fatalf("an approve fault must return to AwaitingReview, got stage %v", view.Stage)
+		}
+		if view.FailureReason == nil || !strings.Contains(*view.FailureReason, "approve") {
+			t.Fatalf("the returned session must carry a re-approve notice, got %v", view.FailureReason)
+		}
+	}, 70*time.Second)
+	// Re-approve → now the status reads green → merge + commit.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
+	}, 90*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("an approve-window fault must not crash the workflow: %v", err)
+	}
+	var outcome coAuthorOutcome
+	if err := env.GetWorkflowResult(&outcome); err != nil {
+		t.Fatalf("decode outcome: %v", err)
+	}
+	if outcome != coAuthorApproved {
+		t.Fatalf("the re-approve must commit, got outcome %d", outcome)
+	}
+	if rail.verbCount("MergePullRequest") != 1 {
+		t.Fatalf("exactly one merge (on the successful re-approve), got %d", rail.verbCount("MergePullRequest"))
+	}
+	if len(base.committed) != 1 || base.committed[0] != projectstate.KindSystem {
+		t.Fatalf("want one commit after re-approve, got %v", base.committed)
+	}
+}
+
+// BOUNDED RESILIENCE (QA F35). Two transient 403s then success: the bounded retry absorbs
+// them and the merge completes on the FIRST approve — no return-to-review, no crash.
+func Test_CoAuthor_RailEnabled_ApproveStatusTransient_RetriesThenMerges(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	ps := &branchAwareFakeProjectState{fakeProjectState: base}
+	pipe := newFakePipeline()
+	rail := &fakeRail{checkGreen: true, statusAuthFailsRemaining: 2} // fail twice, 3rd succeeds
+	wf := newRailWorkflows(ps, pipe, rail)
+	registerRailCoAuthor(env, wf)
+
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
+	}, 30*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("bounded retry must absorb the transient 403s: %v", err)
+	}
+	var outcome coAuthorOutcome
+	if err := env.GetWorkflowResult(&outcome); err != nil {
+		t.Fatalf("decode outcome: %v", err)
+	}
+	if outcome != coAuthorApproved {
+		t.Fatalf("the first approve must commit after the retries, got %d", outcome)
+	}
+	// GetPullRequestStatus was attempted 3 times (2 faults + 1 success) within the budget.
+	if n := rail.verbCount("GetPullRequestStatus"); n != 3 {
+		t.Fatalf("want 3 bounded GetPullRequestStatus attempts (2 fault + 1 success), got %d", n)
+	}
+	if rail.verbCount("MergePullRequest") != 1 {
+		t.Fatalf("the merge must complete on the first approve, got %d merges", rail.verbCount("MergePullRequest"))
+	}
+	if len(base.committed) != 1 {
+		t.Fatalf("want one commit on the first approve, got %v", base.committed)
 	}
 }

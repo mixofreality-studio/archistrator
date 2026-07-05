@@ -1,6 +1,8 @@
 package projectdesign
 
 import (
+	"time"
+
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
@@ -126,11 +128,13 @@ func (wf *workflows) mergeOnApprove(ctx workflow.Context, gf *gitSession, kind A
 
 	// Merge guard: the required CI check must be green before the App merges (the
 	// "blocks merge" trust boundary). A non-green PR is NOT merged — the caller routes
-	// to recovery.
+	// to recovery. execApproveRailActivity absorbs a transient (rate-limit) 403 within a
+	// bounded WORKFLOW-SIDE budget (QA F35) so a single secondary-rate-limit blip no longer
+	// kills the approve.
 	var st pullRequestStatusView
-	if err := workflow.ExecuteActivity(railOpts(ctx), wf.GetPullRequestStatusActivity, getPullRequestStatusArgs{
+	if err := wf.execApproveRailActivity(ctx, wf.GetPullRequestStatusActivity, getPullRequestStatusArgs{
 		RepoRef: sourcecontrol.RepoRefString(gf.repoRef), PRRef: gf.prRef, Cred: gf.cred,
-	}).Get(ctx, &st); err != nil {
+	}, &st); err != nil {
 		return false, err
 	}
 	if !st.CheckGreen {
@@ -138,17 +142,17 @@ func (wf *workflows) mergeOnApprove(ctx workflow.Context, gf *gitSession, kind A
 	}
 
 	// Relay the architecture +1 (the counted approval + audit).
-	if err := workflow.ExecuteActivity(railOpts(ctx), wf.PostReviewActivity, postReviewArgs{
+	if err := wf.execApproveRailActivity(ctx, wf.PostReviewActivity, postReviewArgs{
 		RepoRef: sourcecontrol.RepoRefString(gf.repoRef), PRRef: gf.prRef, Body: designArchApprovalBody(kind), Cred: gf.cred,
-	}).Get(ctx, nil); err != nil {
+	}, nil); err != nil {
 		return false, err
 	}
 
 	// App-mediated merge of sessionBranch → main.
 	var merged bool
-	if err := workflow.ExecuteActivity(railOpts(ctx), wf.MergePullRequestActivity, mergePullRequestArgs{
+	if err := wf.execApproveRailActivity(ctx, wf.MergePullRequestActivity, mergePullRequestArgs{
 		RepoRef: sourcecontrol.RepoRefString(gf.repoRef), PRRef: gf.prRef, Cred: gf.cred,
-	}).Get(ctx, &merged); err != nil {
+	}, &merged); err != nil {
 		return false, err
 	}
 	if !merged {
@@ -158,6 +162,41 @@ func (wf *workflows) mergeOnApprove(ctx workflow.Context, gf *gitSession, kind A
 			"design PR merge did not complete (not mergeable)", "DesignMergeNotCompleted", nil)
 	}
 	return true, nil
+}
+
+// approveRail* bound the workflow-side approve-window retry (QA F35).
+const (
+	approveRailMaxAttempts = 3
+	approveRailBaseBackoff = 5 * time.Second
+	approveRailMaxBackoff  = 15 * time.Second
+)
+
+// execApproveRailActivity runs an approve-window rail Activity (GetPullRequestStatus /
+// PostReview / MergePullRequest) with a bounded WORKFLOW-SIDE retry on a transient-403-as-
+// Auth fault (QA F35). The platform github ClassifyStatus conflates GitHub secondary
+// rate-limit 403s with real permission denials — both become a NON-RETRYABLE Auth
+// ApplicationError the Activity RetryPolicy cannot retry — so the workflow retries here:
+// up to approveRailMaxAttempts over ~30s (5s → 10s → cap 15s), with workflow.Sleep for
+// deterministic backoff. A GENUINE permission denial exhausts the budget and the error
+// propagates to coAuthorApprove, which CONTAINS it (return to AwaitingReview for re-approve
+// — never a redraft, never a crash). Transport blips (Transient) are still retried INSIDE
+// the Activity by railOpts. Cancellation propagates immediately.
+func (wf *workflows) execApproveRailActivity(ctx workflow.Context, act interface{}, args interface{}, result interface{}) error {
+	backoff := approveRailBaseBackoff
+	for attempt := 1; ; attempt++ {
+		err := workflow.ExecuteActivity(railOpts(ctx), act, args).Get(ctx, result)
+		if err == nil {
+			return nil
+		}
+		if temporal.IsCanceledError(err) || !isApproveAuthFault(err) || attempt >= approveRailMaxAttempts {
+			return err
+		}
+		workflow.GetLogger(ctx).Warn("approve-window rail 403 (auth/rate-limit); bounded workflow-side retry", "attempt", attempt)
+		_ = workflow.Sleep(ctx, backoff)
+		if backoff *= 2; backoff > approveRailMaxBackoff {
+			backoff = approveRailMaxBackoff
+		}
+	}
 }
 
 // mintCred runs MintRepoCredentialActivity → the short-lived credential threaded into
