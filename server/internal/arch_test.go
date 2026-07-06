@@ -384,6 +384,15 @@ var encapsulationAllowlistData = map[string][]string{
 		"InternalToolCatalog",
 		"AgentExposableTools",
 		"InternalToolByName",
+		// PER-TASK TOOL-PALETTE RESOLVER (agentic-managers spec item 5): pure functions
+		// over projectstate's OWN System model (dynamic-view step palettes vs static
+		// edges) — resolve a task's allowed internal-tool list + the palette-⊆-edges lint.
+		// Same derivation-helper category as CommandFor/DeriveKind above; consumed by the
+		// design/construction dispatch and the app-side design-review finding.
+		"Resolution",
+		"ResolveToolPalette",
+		"PaletteViolation",
+		"LintPalettesWithinEdges",
 		"LocalRepoCredential",
 		"MissionStatement",
 		"MissionStatement.Kind",
