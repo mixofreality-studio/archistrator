@@ -152,7 +152,7 @@ function mapSlot(w: Schemas['SystemDesignArtifactSlotView']): ArtifactSlotView {
   const staleCause =
     rawCause && typeof rawCause.upstreamKind === 'string' && rawCause.upstreamKind.length > 0
       ? typeof rawCause.upstreamRevision === 'number'
-        ? `${rawCause.upstreamKind} (rev ${rawCause.upstreamRevision})`
+        ? `${rawCause.upstreamKind} (rev ${String(rawCause.upstreamRevision)})`
         : rawCause.upstreamKind
       : undefined;
   return {

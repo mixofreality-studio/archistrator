@@ -12,7 +12,7 @@
  * drafts carried over from a previous visit collapse behind a disclosure instead
  * of sitting front-and-centre (R9/F78).
  */
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
@@ -143,8 +143,14 @@ export function ChatRail({
   onAsk?: () => void;
 }): ReactNode {
   const t = useTokens();
-  const { comments, anchor, setAnchor, post, remove, pendingQuestions } = useComments();
+  const { comments, anchor, setAnchor, post, remove, pendingQuestions, setDraftPending } =
+    useComments();
   const [draft, setDraft] = useState('');
+  // UX-P1-3: the re-anchor guard in CommentContext only engages while the composer
+  // holds unsent text — keep it in sync with the draft field.
+  useEffect(() => {
+    setDraftPending(draft.length > 0);
+  }, [draft, setDraftPending]);
   // R9/F78: unsent notes persisted from a PREVIOUS visit load into `comments` on
   // mount and used to sit front-and-centre as chat bubbles — easy to mistake for
   // live activity. Collapse the pending group by default; posting a note this
