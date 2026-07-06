@@ -48,19 +48,26 @@ export function SubprojectFlowScreen(): ReactNode {
         sx={{ p: 4, maxWidth: 560, textAlign: 'center', borderStyle: 'dashed' }}
       >
         <LockOutlinedIcon sx={{ fontSize: 34, color: t.muted, mb: 1 }} />
-        <Typography sx={{ fontFamily: t.display, fontWeight: 700, fontSize: 18, color: t.ink, mb: 1 }}>
+        <Typography
+          sx={{ fontFamily: t.display, fontWeight: 700, fontSize: 18, color: t.ink, mb: 1 }}
+        >
           Subproject “{subprojectId}” is not available yet
         </Typography>
-        <Typography sx={{ fontFamily: t.body, fontSize: 13, color: t.muted, mb: 2, lineHeight: 1.5 }}>
-          A change request becomes a subproject — a fresh, scaled System-Design → Project-Design → Construction → Redeploy cycle — only after triage
-          sets its disposition. The subproject registry is not carried by the project read projection yet, so its journey cannot be loaded. The full
-          triage-dependent spine lands once the subproject read is provisioned.
+        <Typography
+          sx={{ fontFamily: t.body, fontSize: 13, color: t.muted, mb: 2, lineHeight: 1.5 }}
+        >
+          A change request becomes a subproject — a fresh, scaled System-Design → Project-Design →
+          Construction → Redeploy cycle — only after triage sets its disposition. The subproject
+          registry is not carried by the project read projection yet, so its journey cannot be
+          loaded. The full triage-dependent spine lands once the subproject read is provisioned.
         </Typography>
         <Button
           color="primary"
           data-testid={UI_IDENTIFIERS.Subproject.BACK}
           variant="contained"
-          onClick={() => void navigate({ to: '/project/$projectId/changes', params: { projectId } })}
+          onClick={() =>
+            void navigate({ to: '/project/$projectId/changes', params: { projectId } })
+          }
         >
           Back to Change requests
         </Button>

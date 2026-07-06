@@ -52,3 +52,12 @@ execFileSync('npx', ['openapi-typescript', tmp, '-o', outPath], {
   stdio: 'inherit',
   cwd: join(here, '..'),
 });
+
+// openapi-typescript emits its own layout, which does not match the repo's
+// Prettier style. Format the generated file in place so `format:check` stays
+// green after every build (prebuild runs this generator) and the committed
+// schema.ts is byte-identical to a fresh regen.
+execFileSync('npx', ['prettier', '--write', outPath], {
+  stdio: 'inherit',
+  cwd: join(here, '..'),
+});

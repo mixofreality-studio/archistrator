@@ -12,13 +12,7 @@ import type { Money, OperationsView } from './operationsTypes';
  * (operatedRuntimeAccess §3). Unknown is the NORMAL just-published transient
  * (converging), visually distinct from Degraded.
  */
-export type RuntimePhase =
-  | 'Unknown'
-  | 'Pending'
-  | 'Running'
-  | 'Degraded'
-  | 'Paused'
-  | 'Withdrawn';
+export type RuntimePhase = 'Unknown' | 'Pending' | 'Running' | 'Degraded' | 'Paused' | 'Withdrawn';
 
 const KNOWN_PHASES: ReadonlySet<string> = new Set<RuntimePhase>([
   'Unknown',

@@ -46,7 +46,10 @@ export function useSetResearchInput(
     mutationFn: async (research) => {
       const { error, response } = await apiClient.POST(
         '/api/v1/system-design/set-research-input/{projectID}',
-        { params: { path: { projectID: projectId } }, body: { research: toResearchInputWire(research) } }
+        {
+          params: { path: { projectID: projectId } },
+          body: { research: toResearchInputWire(research) },
+        }
       );
       if (error !== undefined) throw toApiError(response.status, error);
       return undefined;

@@ -33,7 +33,13 @@ import { activityNodeAnchor } from '../comments/CommentContext';
 import { laneColors, laneBand } from './laneColors';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import type { Tokens } from '../../utilities/theme/themes';
-import { layoutActivity, isBackEdge, edgeHandles, nodeCenter, HEADER_HEIGHT } from './activityLayout';
+import {
+  layoutActivity,
+  isBackEdge,
+  edgeHandles,
+  nodeCenter,
+  HEADER_HEIGHT,
+} from './activityLayout';
 
 const nodeTypes = { activity: ActivityNode, swimlane: SwimlaneBackground };
 const edgeTypes = { activity: ActivityEdge };

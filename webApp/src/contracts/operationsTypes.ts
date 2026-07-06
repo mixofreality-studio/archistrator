@@ -10,13 +10,7 @@ import type { Money } from './models';
 export type { Money };
 
 /** The operated RuntimePhase palette the console renders. */
-export type RuntimePhase =
-  | 'Unknown'
-  | 'Pending'
-  | 'Running'
-  | 'Degraded'
-  | 'Paused'
-  | 'Withdrawn';
+export type RuntimePhase = 'Unknown' | 'Pending' | 'Running' | 'Degraded' | 'Paused' | 'Withdrawn';
 
 /** One SLO posture row. */
 export interface OperationsSlo {

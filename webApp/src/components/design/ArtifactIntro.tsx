@@ -28,16 +28,22 @@ import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 /** The framing copy per rich-canvas kind, by stage. Pure presentation data. */
 const INTRO: Partial<Record<ArtifactKind, { draft: string; committed: string }>> = {
   volatilities: {
-    draft: 'DRAFT — the two-axis decomposition. Up = evolves for one customer over time; right = differs across customers at one moment. Click a chip to inspect or comment.',
-    committed: 'COMMITTED — the two-axis decomposition is sealed and in context for Core Use Cases.',
+    draft:
+      'DRAFT — the two-axis decomposition. Up = evolves for one customer over time; right = differs across customers at one moment. Click a chip to inspect or comment.',
+    committed:
+      'COMMITTED — the two-axis decomposition is sealed and in context for Core Use Cases.',
   },
   coreUseCases: {
-    draft: 'DRAFT — flip through each use case’s activity diagram, then gate below. Tip: click a step or highlight text to comment.',
-    committed: 'COMMITTED — the core use cases are sealed and drive the architecture decomposition.',
+    draft:
+      'DRAFT — flip through each use case’s activity diagram, then gate below. Tip: click a step or highlight text to comment.',
+    committed:
+      'COMMITTED — the core use cases are sealed and drive the architecture decomposition.',
   },
   system: {
-    draft: 'DRAFT — a navigable C4 family. Switch lenses: the Static decomposition, a Dynamic call chain per use case, or a single Component’s perspective. Pan / zoom; click any node to comment.',
-    committed: 'COMMITTED — the layered architecture is sealed, with a dynamic view for every use case.',
+    draft:
+      'DRAFT — a navigable C4 family. Switch lenses: the Static decomposition, a Dynamic call chain per use case, or a single Component’s perspective. Pan / zoom; click any node to comment.',
+    committed:
+      'COMMITTED — the layered architecture is sealed, with a dynamic view for every use case.',
   },
 };
 

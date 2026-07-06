@@ -140,7 +140,9 @@ export function CommentableList<T>({
         // 'Comment on Other Party (term)' — noun trails the value so the phrase stays
         // grammatical regardless of the item kind (P3-14).
         const commentLabel =
-          kind !== undefined && kind !== '' ? `Comment on ${value} (${kind})` : `Comment on ${value}`;
+          kind !== undefined && kind !== ''
+            ? `Comment on ${value} (${kind})`
+            : `Comment on ${value}`;
         return (
           <Box
             aria-selected={isFocused}

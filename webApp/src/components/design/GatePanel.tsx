@@ -88,7 +88,9 @@ export function GatePanel({
           setShowFindings((v) => !v);
         }}
       >
-        <Typography sx={{ fontFamily: t.mono, fontWeight: 700, letterSpacing: '0.1em', fontSize: 12 }}>
+        <Typography
+          sx={{ fontFamily: t.mono, fontWeight: 700, letterSpacing: '0.1em', fontSize: 12 }}
+        >
           MACHINE VALIDATION
         </Typography>
         <Typography
@@ -104,7 +106,9 @@ export function GatePanel({
           {errors} ERR · {warnings} WARN · {oks} INFO
         </Typography>
         <Box sx={{ flexGrow: 1 }} />
-        <ExpandMoreIcon sx={{ transform: showFindings ? 'rotate(180deg)' : 'none', transition: '120ms' }} />
+        <ExpandMoreIcon
+          sx={{ transform: showFindings ? 'rotate(180deg)' : 'none', transition: '120ms' }}
+        />
       </Box>
 
       <Collapse in={showFindings}>
@@ -118,10 +122,18 @@ export function GatePanel({
             </Alert>
           ) : (
             findings.map((f, i) => (
-              <Alert key={`${f.ruleId}-${String(i)}`} severity={f.severity} sx={{ alignItems: 'flex-start' }}>
-                <AlertTitle sx={{ fontFamily: t.mono, fontSize: 12, letterSpacing: '0.06em', mb: 0.25 }}>
+              <Alert
+                key={`${f.ruleId}-${String(i)}`}
+                severity={f.severity}
+                sx={{ alignItems: 'flex-start' }}
+              >
+                <AlertTitle
+                  sx={{ fontFamily: t.mono, fontSize: 12, letterSpacing: '0.06em', mb: 0.25 }}
+                >
                   {f.ruleId}
-                  {f.location != null && f.location.section.length > 0 ? ` · ${f.location.section}` : ''}
+                  {f.location != null && f.location.section.length > 0
+                    ? ` · ${f.location.section}`
+                    : ''}
                 </AlertTitle>
                 {f.message}
               </Alert>
@@ -162,7 +174,9 @@ export function GatePanel({
         }}
       >
         <Box sx={{ minWidth: 0 }}>
-          <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 13, color: t.awaitingFg }}>
+          <Typography
+            sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 13, color: t.awaitingFg }}
+          >
             You are the commit authority
           </Typography>
           <Typography sx={{ color: t.awaitingFg, opacity: 0.85 }} variant="caption">

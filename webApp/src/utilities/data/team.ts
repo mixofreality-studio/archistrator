@@ -265,9 +265,11 @@ export const TEAM: TeamRole[] = [
     name: 'Architect',
     agentFile: 'system-architect.md',
     group: 'design',
-    oneLiner: 'Drives the whole design — volatility analysis, decomposition, and the call chains; sees it through build.',
+    oneLiner:
+      'Drives the whole design — volatility analysis, decomposition, and the call chains; sees it through build.',
     chapterRef: 'ch. 2/3/4/5 · 14 §5',
-    pullQuote: '"The architect is the technical manager — the design lead, the process lead, and the technical lead of the project."',
+    pullQuote:
+      '"The architect is the technical manager — the design lead, the process lead, and the technical lead of the project."',
     charter: {
       owns: [
         'Drives every Phase-1 artifact: vision → objectives → mission, the glossary, scrubbing, and the architecture.dsl',
@@ -281,7 +283,8 @@ export const TEAM: TeamRole[] = [
         'Write the detailed contracts in a senior-hand-off project (delegates to Senior Developer)',
         'Assign developers or track weekly progress (Project Manager’s job)',
       ],
-      reviewedBy: 'Ratified by the Product Manager (customer-facing aspects) and the founder/architect-of-record gate. Drives others’ reviews.',
+      reviewedBy:
+        'Ratified by the Product Manager (customer-facing aspects) and the founder/architect-of-record gate. Drives others’ reviews.',
     },
     prompt: PROMPT['system-architect'],
   },
@@ -290,9 +293,11 @@ export const TEAM: TeamRole[] = [
     name: 'Product Manager',
     agentFile: 'product-manager.md',
     group: 'design',
-    oneLiner: 'Customer proxy: supplies raw business input and ratifies the architect’s drafts — never designs the architecture.',
+    oneLiner:
+      'Customer proxy: supplies raw business input and ratifies the architect’s drafts — never designs the architecture.',
     chapterRef: 'ch. 5/7 · App A',
-    pullQuote: '"Customers are a constant source of noise. The product manager acts as a proxy for the customers."',
+    pullQuote:
+      '"Customers are a constant source of noise. The product manager acts as a proxy for the customers."',
     charter: {
       owns: [
         'Customer voice — speaks for the customer in any review',
@@ -306,7 +311,8 @@ export const TEAM: TeamRole[] = [
         'Design the architecture, write the DSL, or specify components/APIs',
         'Estimate activities, assign work, or write code',
       ],
-      reviewedBy: 'A reviewer/ratifier itself — its input is gated by the architect, who may override customer feedback that conflicts with sound decomposition (resolved explicitly).',
+      reviewedBy:
+        'A reviewer/ratifier itself — its input is gated by the architect, who may override customer feedback that conflicts with sound decomposition (resolved explicitly).',
     },
     prompt: PROMPT['product-manager'],
   },
@@ -315,9 +321,11 @@ export const TEAM: TeamRole[] = [
     name: 'Project Manager',
     agentFile: 'project-manager.md',
     group: 'design',
-    oneLiner: 'The firewall: draws the network, computes floats, assigns developers by float, and tracks earned value weekly.',
+    oneLiner:
+      'The firewall: draws the network, computes floats, assigns developers by float, and tracks earned value weekly.',
     chapterRef: 'ch. 7/8/10 · App A',
-    pullQuote: '"A good project manager is like a firewall — blocking the noise, allowing only sanctioned communication through."',
+    pullQuote:
+      '"A good project manager is like a firewall — blocking the noise, allowing only sanctioned communication through."',
     charter: {
       owns: [
         'network.yaml — the network, floats, critical path, and weekly tracking',
@@ -331,7 +339,8 @@ export const TEAM: TeamRole[] = [
         'Add people to a late project to recover (Brooks’s Law)',
         'Track progress by features (only by integration points)',
       ],
-      reviewedBy: 'Closes the loop with the architect on every change; the architect designs, the PjM executes and tracks.',
+      reviewedBy:
+        'Closes the loop with the architect on every change; the architect designs, the PjM executes and tracks.',
     },
     prompt: PROMPT['project-manager'],
   },
@@ -342,9 +351,11 @@ export const TEAM: TeamRole[] = [
     agentFile: 'senior-developer.md',
     group: 'construction',
     subgroup: 'build',
-    oneLiner: 'Designs the service contract, then builds the hard parts — the "junior architect" per component.',
+    oneLiner:
+      'Designs the service contract, then builds the hard parts — the "junior architect" per component.',
     chapterRef: 'ch. 14 §5 · App B/C',
-    pullQuote: '"Senior developers are those capable of designing the details of the services, whereas junior developers cannot."',
+    pullQuote:
+      '"Senior developers are those capable of designing the details of the services, whereas junior developers cannot."',
     charter: {
       owns: [
         'Designs the public contract(s) for one component: 3–5 ops each (max 12; reject ≥20)',
@@ -358,7 +369,8 @@ export const TEAM: TeamRole[] = [
         'Inflate a contract beyond 12 operations or design property-like ops',
         'Design contracts for multiple components in parallel without architect oversight',
       ],
-      reviewedBy: 'The System Architect reviews and amends every detailed contract before construction begins.',
+      reviewedBy:
+        'The System Architect reviews and amends every detailed contract before construction begins.',
     },
     prompt: PROMPT['senior-developer'],
   },
@@ -368,7 +380,8 @@ export const TEAM: TeamRole[] = [
     agentFile: 'junior-developer.md',
     group: 'construction',
     subgroup: 'build',
-    oneLiner: 'Builds one service at a time against a frozen contract — never designs it; escalates gaps instead of widening them.',
+    oneLiner:
+      'Builds one service at a time against a frozen contract — never designs it; escalates gaps instead of widening them.',
     chapterRef: 'ch. 14 §4–5 · App A',
     pullQuote: '"Developers should never code more than one service at a time."',
     charter: {
@@ -384,7 +397,8 @@ export const TEAM: TeamRole[] = [
         'Work on more than one component at a time',
         'Mark done without a passing build and senior review ("it’s almost done" is not done)',
       ],
-      reviewedBy: 'Code-reviewed by the Senior Developer who designed the contract (not by peer juniors).',
+      reviewedBy:
+        'Code-reviewed by the Senior Developer who designed the contract (not by peer juniors).',
     },
     prompt: PROMPT['junior-developer'],
   },
@@ -394,7 +408,8 @@ export const TEAM: TeamRole[] = [
     agentFile: 'ui-designer.md',
     group: 'construction',
     subgroup: 'build',
-    oneLiner: 'Produces the UI concepts construction builds against — flows, layout, states — one per core use case + persona.',
+    oneLiner:
+      'Produces the UI concepts construction builds against — flows, layout, states — one per core use case + persona.',
     chapterRef: 'UI-Design step',
     pullQuote: '"Concepts must trace to a core use case + persona."',
     charter: {
@@ -410,7 +425,8 @@ export const TEAM: TeamRole[] = [
         'Design past the use cases',
         'Skip review',
       ],
-      reviewedBy: 'Routed dynamically: founder/architect-user approval + UX Reviewer + Product Manager + System Architect.',
+      reviewedBy:
+        'Routed dynamically: founder/architect-user approval + UX Reviewer + Product Manager + System Architect.',
     },
     prompt: PROMPT['ui-designer'],
   },
@@ -421,9 +437,11 @@ export const TEAM: TeamRole[] = [
     agentFile: 'ux-reviewer.md',
     group: 'construction',
     subgroup: 'review',
-    oneLiner: 'The UX/UI expert in the review graph — checks concepts and validates rendered UI against the approved design.',
+    oneLiner:
+      'The UX/UI expert in the review graph — checks concepts and validates rendered UI against the approved design.',
     chapterRef: 'review routing',
-    pullQuote: '"A pass must reflect an actual check against the design + accessibility/convention criteria."',
+    pullQuote:
+      '"A pass must reflect an actual check against the design + accessibility/convention criteria."',
     charter: {
       owns: [
         'Reviews ui-design concepts for usability, accessibility, platform-convention fit, persona coherence',
@@ -437,7 +455,8 @@ export const TEAM: TeamRole[] = [
         'Amend the UI design without the engineer’s agreement',
         'Rubber-stamp, or pass silent design drift',
       ],
-      reviewedBy: 'A reviewer node itself — dispatched by review routing alongside the founder, PM, and architect.',
+      reviewedBy:
+        'A reviewer node itself — dispatched by review routing alongside the founder, PM, and architect.',
     },
     prompt: PROMPT['ux-reviewer'],
   },
@@ -447,9 +466,11 @@ export const TEAM: TeamRole[] = [
     agentFile: 'qa-engineer.md',
     group: 'construction',
     subgroup: 'review',
-    oneLiner: 'Tunes the process that decides whether we’re allowed to ship. QA ≠ testing — process, not execution.',
+    oneLiner:
+      'Tunes the process that decides whether we’re allowed to ship. QA ≠ testing — process, not execution.',
     chapterRef: 'ch. 9/12/14',
-    pullQuote: '"True QA has little to do with testing… The presence of a QA person is a sign of organizational maturity."',
+    pullQuote:
+      '"True QA has little to do with testing… The presence of a QA person is a sign of organizational maturity."',
     charter: {
       owns: [
         'Quality gates (N-QA): binary exit criteria, the review process, the defect taxonomy',
@@ -463,7 +484,8 @@ export const TEAM: TeamRole[] = [
         'Change architecture.dsl or design contracts',
         'Gate theater — gates must be binary and meaningful',
       ],
-      reviewedBy: 'A senior process reviewer; contributes to review routing rather than being gated by it.',
+      reviewedBy:
+        'A senior process reviewer; contributes to review routing rather than being gated by it.',
     },
     prompt: PROMPT['qa-engineer'],
   },
@@ -473,9 +495,11 @@ export const TEAM: TeamRole[] = [
     agentFile: 'test-engineer.md',
     group: 'construction',
     subgroup: 'review',
-    oneLiner: 'Writes the machine that tries to break the system — the System Test Plan, harness, and perf rig. Not a tester.',
+    oneLiner:
+      'Writes the machine that tries to break the system — the System Test Plan, harness, and perf rig. Not a tester.',
     chapterRef: 'ch. 9/11/14',
-    pullQuote: '"Test engineers are not testers, but full-fledged software engineers… whose objective is to break the system’s code."',
+    pullQuote:
+      '"Test engineers are not testers, but full-fledged software engineers… whose objective is to break the system’s code."',
     charter: {
       owns: [
         'System Test Plan (N-STP): every way to demonstrate the integrated system fails, traced to core use cases',
@@ -489,7 +513,8 @@ export const TEAM: TeamRole[] = [
         'Run the terminal system-testing pass (the Software Tester’s job)',
         'Write BDD/Gherkin, or build the harness late',
       ],
-      reviewedBy: 'The plan is reviewed by the System Architect + Product Manager + QA Engineer before it passes.',
+      reviewedBy:
+        'The plan is reviewed by the System Architect + Product Manager + QA Engineer before it passes.',
     },
     prompt: PROMPT['test-engineer'],
   },
@@ -499,9 +524,11 @@ export const TEAM: TeamRole[] = [
     agentFile: 'software-tester.md',
     group: 'construction',
     subgroup: 'review',
-    oneLiner: 'Runs that machine against the integrated system and files defects. Distinct from Test Engineer and QA.',
+    oneLiner:
+      'Runs that machine against the integrated system and files defects. Distinct from Test Engineer and QA.',
     chapterRef: 'ch. 9/11/13',
-    pullQuote: '"A 1:1 or even 2:1 ratio of testers to developers lets developers spend more time adding direct value."',
+    pullQuote:
+      '"A 1:1 or even 2:1 ratio of testers to developers lets developers spend more time adding direct value."',
     charter: {
       owns: [
         'System Testing (N-IT): drives every core use case end-to-end via the harness',
@@ -515,7 +542,8 @@ export const TEAM: TeamRole[] = [
         'Own the regression harness or fix product code — files defects instead',
         'Test through internal/service calls, or silently pass a flake',
       ],
-      reviewedBy: 'Gates activity exit on a clean run; routes defects to the Senior/Junior Developer for fix.',
+      reviewedBy:
+        'Gates activity exit on a clean run; routes defects to the Senior/Junior Developer for fix.',
     },
     prompt: PROMPT['software-tester'],
   },
@@ -537,8 +565,16 @@ export const TEAM_SECTIONS: TeamSection[] = [
     blurb:
       'The supervised build. Contracts are designed, frozen, and built; the rendered system is broken on purpose, run against, and gated on a process that decides whether it ships.',
     subgroups: [
-      { key: 'build', label: 'Build', roleIds: ['senior-developer', 'junior-developer', 'ui-designer'] },
-      { key: 'review', label: 'Review & Quality', roleIds: ['ux-reviewer', 'qa-engineer', 'test-engineer', 'software-tester'] },
+      {
+        key: 'build',
+        label: 'Build',
+        roleIds: ['senior-developer', 'junior-developer', 'ui-designer'],
+      },
+      {
+        key: 'review',
+        label: 'Review & Quality',
+        roleIds: ['ux-reviewer', 'qa-engineer', 'test-engineer', 'software-tester'],
+      },
     ],
   },
 ];

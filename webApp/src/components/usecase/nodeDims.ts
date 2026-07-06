@@ -5,7 +5,6 @@
  */
 import type { ActivityNodeKind } from '../../contracts/models';
 
-
 export const NODE_DIMS: Record<ActivityNodeKind, { w: number; h: number }> = {
   start: { w: 26, h: 26 },
   end: { w: 30, h: 30 },

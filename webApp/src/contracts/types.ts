@@ -427,12 +427,7 @@ export interface ProducedArtifactRow {
   note: string;
 }
 
-export type TestingVariantName =
-  | 'plan'
-  | 'harness'
-  | 'perf'
-  | 'systemTest'
-  | 'qaProcess';
+export type TestingVariantName = 'plan' | 'harness' | 'perf' | 'systemTest' | 'qaProcess';
 
 export interface ConstructionRow {
   activityId: string;

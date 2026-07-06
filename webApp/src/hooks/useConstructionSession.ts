@@ -17,10 +17,7 @@ const POLL_INTERVAL_MS = 3000;
 /** Stages at which no further pump activity occurs for the session. */
 const TERMINAL_STAGES = new Set(['exited', 'paused']);
 
-export function constructionSessionKey(
-  projectId: string,
-  activityId?: string
-): readonly unknown[] {
+export function constructionSessionKey(projectId: string, activityId?: string): readonly unknown[] {
   return ['constructionSession', projectId, activityId ?? null];
 }
 

@@ -91,11 +91,13 @@ export function PhaseCard({
       )}
       {/* Phases with no authored-artifact slots (Construction) still need an entry
           affordance once they are reachable (active / current phase). */}
-      {phase.total === 0 && phase.active && !phase.locked ? <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 0.5 }}>
+      {phase.total === 0 && phase.active && !phase.locked ? (
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 0.5 }}>
           <Button size="small" sx={{ minWidth: 0, px: 1 }} onClick={onResume}>
             open console →
           </Button>
-        </Box> : null}
+        </Box>
+      ) : null}
     </Paper>
   );
 }

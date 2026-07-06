@@ -226,10 +226,10 @@ export function ArchitectureFlow({
         <Alert severity="warning" sx={{ mb: 1.5, alignItems: 'flex-start' }}>
           <AlertTitle>Layer data looks degenerate</AlertTitle>
           All {model.components.length} components claim layer &ldquo;
-          {LAYER_LABEL[model.degenerateLayer]}&rdquo; — a healthy Method system spans
-          Managers, Engines, ResourceAccess and Resources. This usually means the draft
-          omitted each component&rsquo;s layer (which silently defaults to
-          &ldquo;client&rdquo;); send it back rather than committing a flat architecture.
+          {LAYER_LABEL[model.degenerateLayer]}&rdquo; — a healthy Method system spans Managers,
+          Engines, ResourceAccess and Resources. This usually means the draft omitted each
+          component&rsquo;s layer (which silently defaults to &ldquo;client&rdquo;); send it back
+          rather than committing a flat architecture.
         </Alert>
       )}
       <Autocomplete
@@ -273,7 +273,12 @@ export function ArchitectureFlow({
           leaveNode();
         }}
       >
-        <LayerLegend colors={model.colors} counts={layerCounts} t={t} usedLayers={model.usedLayers} />
+        <LayerLegend
+          colors={model.colors}
+          counts={layerCounts}
+          t={t}
+          usedLayers={model.usedLayers}
+        />
         {selectedId !== null && <FocusNodes dep={selectedId} nodeIds={[selectedId]} />}
       </FlowCanvas>
     </Box>

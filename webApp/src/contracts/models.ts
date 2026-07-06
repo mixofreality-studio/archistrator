@@ -147,13 +147,7 @@ export type ComponentKind =
   | 'utility';
 
 /** projectstate.Layer (layer set). */
-export type Layer =
-  | 'client'
-  | 'manager'
-  | 'engine'
-  | 'resourceAccess'
-  | 'resource'
-  | 'utility';
+export type Layer = 'client' | 'manager' | 'engine' | 'resourceAccess' | 'resource' | 'utility';
 
 export interface Component {
   id: string;

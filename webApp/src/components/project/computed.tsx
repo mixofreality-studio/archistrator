@@ -75,7 +75,9 @@ export function AuthoredBadge({ t, label = 'authored' }: { t: Tokens; label?: st
 export function ComputedLegend({ t }: { t: Tokens }): ReactNode {
   return (
     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
-      <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted }}>This artifact is mostly</Typography>
+      <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted }}>
+        This artifact is mostly
+      </Typography>
       <ComputedBadge t={t} />
       <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted }}>
         — floats, the critical path &amp; risk are derived, not typed. Inputs are

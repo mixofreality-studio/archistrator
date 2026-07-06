@@ -138,7 +138,7 @@ function GhostProjectPanel({
         onSuccess: () => {
           onFinished();
         },
-      },
+      }
     );
   };
 
@@ -164,8 +164,8 @@ function GhostProjectPanel({
       </Box>
       <Typography sx={{ color: t.muted, fontSize: 14.5, lineHeight: 1.6 }}>
         The repository for <strong>{projectId}</strong> was adopted, but its initial project state
-        was never written — so there&rsquo;s nothing to show yet. This usually means the first
-        setup step didn&rsquo;t complete. You can finish it now; it&rsquo;s safe to run again.
+        was never written — so there&rsquo;s nothing to show yet. This usually means the first setup
+        step didn&rsquo;t complete. You can finish it now; it&rsquo;s safe to run again.
       </Typography>
       <ErrorAlert error={createProject.error} />
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>

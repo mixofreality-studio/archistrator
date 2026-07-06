@@ -46,20 +46,28 @@ export function ResearchInputPanel({
       <TextField
         fullWidth
         label="Source title"
-        slotProps={{ htmlInput: { 'data-testid': UI_IDENTIFIERS.DesignExperience.RESEARCH_INPUT_TITLE } }}
+        slotProps={{
+          htmlInput: { 'data-testid': UI_IDENTIFIERS.DesignExperience.RESEARCH_INPUT_TITLE },
+        }}
         sx={{ mb: 2 }}
         value={title}
-        onChange={(e) => { setTitle(e.target.value); }}
+        onChange={(e) => {
+          setTitle(e.target.value);
+        }}
       />
       <TextField
         fullWidth
         multiline
         label="Source content"
         minRows={5}
-        slotProps={{ htmlInput: { 'data-testid': UI_IDENTIFIERS.DesignExperience.RESEARCH_INPUT_TEXT } }}
+        slotProps={{
+          htmlInput: { 'data-testid': UI_IDENTIFIERS.DesignExperience.RESEARCH_INPUT_TEXT },
+        }}
         sx={{ mb: 3 }}
         value={content}
-        onChange={(e) => { setContent(e.target.value); }}
+        onChange={(e) => {
+          setContent(e.target.value);
+        }}
       />
       <Button
         color="primary"

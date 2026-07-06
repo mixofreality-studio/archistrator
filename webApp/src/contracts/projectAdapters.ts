@@ -334,7 +334,9 @@ function computeCpm(
     if (id === undefined) continue;
     const outs = succs.get(id) ?? [];
     const finish =
-      outs.length === 0 ? projectEnd : outs.reduce((m, s) => Math.min(m, ls.get(s) ?? projectEnd), Infinity);
+      outs.length === 0
+        ? projectEnd
+        : outs.reduce((m, s) => Math.min(m, ls.get(s) ?? projectEnd), Infinity);
     lf.set(id, finish);
     ls.set(id, finish - durationOf(id));
   }
@@ -442,7 +444,8 @@ export function toNetworkView(
   // one predecessor is itself critical. Authored onCriticalPath/eventTime win when
   // present; otherwise both are resolved from the CPM.
   const milestoneEventTime = (m: NetworkMilestone): number =>
-    m.eventTime ?? (m.dependsOn ?? []).reduce((mx, p) => Math.max(mx, cpmOf(p)?.earliestFinish ?? 0), 0);
+    m.eventTime ??
+    (m.dependsOn ?? []).reduce((mx, p) => Math.max(mx, cpmOf(p)?.earliestFinish ?? 0), 0);
   const milestoneOnCp = (m: NetworkMilestone): boolean => {
     if (m.onCriticalPath !== undefined) return m.onCriticalPath;
     const preds = m.dependsOn ?? [];
@@ -567,7 +570,11 @@ export interface RiskModelView {
   overSafeThreshold: number;
 }
 
-const EMPTY_RISK_MODEL_VIEW: RiskModelView = { rows: [], tooRiskyThreshold: 0, overSafeThreshold: 0 };
+const EMPTY_RISK_MODEL_VIEW: RiskModelView = {
+  rows: [],
+  tooRiskyThreshold: 0,
+  overSafeThreshold: 0,
+};
 
 /** Maps the typed RiskModel into per-option rows. */
 export function toRiskRows(envelope: ProjectArtifactModelEnvelope | undefined): RiskRowView[] {

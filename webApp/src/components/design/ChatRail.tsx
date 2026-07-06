@@ -230,7 +230,13 @@ export function ChatRail({
         {sortedThread.length > 0 ? (
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
             <Typography
-              sx={{ fontFamily: t.mono, fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', color: t.muted }}
+              sx={{
+                fontFamily: t.mono,
+                fontSize: 10,
+                fontWeight: 700,
+                letterSpacing: '0.1em',
+                color: t.muted,
+              }}
             >
               REVIEW THREAD
             </Typography>
@@ -561,7 +567,13 @@ function ThreadEntry({
         <Chip
           label={`round ${String(entry.round)}`}
           size="small"
-          sx={{ height: 17, fontSize: 9.5, fontFamily: t.mono, bgcolor: t.paperAlt, color: t.muted }}
+          sx={{
+            height: 17,
+            fontSize: 9.5,
+            fontFamily: t.mono,
+            bgcolor: t.paperAlt,
+            color: t.muted,
+          }}
           variant="outlined"
         />
         <Chip
@@ -575,7 +587,13 @@ function ThreadEntry({
             icon={<QuestionAnswerOutlinedIcon sx={{ fontSize: 11 }} />}
             label={entry.addressee.length > 0 ? `question → ${entry.addressee}` : 'question'}
             size="small"
-            sx={{ height: 17, fontSize: 9.5, fontFamily: t.mono, bgcolor: t.chatArchitectBg, color: t.chatArchitectFg }}
+            sx={{
+              height: 17,
+              fontSize: 9.5,
+              fontFamily: t.mono,
+              bgcolor: t.chatArchitectBg,
+              color: t.chatArchitectFg,
+            }}
             variant="outlined"
           />
         ) : null}
@@ -715,7 +733,13 @@ function CommentBubble({
             icon={<QuestionAnswerOutlinedIcon sx={{ fontSize: 11 }} />}
             label={`question → ${c.addressee ?? 'pm'}`}
             size="small"
-            sx={{ height: 17, fontSize: 9.5, fontFamily: t.mono, bgcolor: t.chatArchitectBg, color: t.chatArchitectFg }}
+            sx={{
+              height: 17,
+              fontSize: 9.5,
+              fontFamily: t.mono,
+              bgcolor: t.chatArchitectBg,
+              color: t.chatArchitectFg,
+            }}
             variant="outlined"
           />
         ) : null}

@@ -52,11 +52,18 @@ function ciColor(t: Tokens, s: CiStatus): string {
 }
 
 /** The build-status icon — in-progress (hourglass, pulsing) / failed / success. */
-export function CiStatusIcon({ status, size = 17 }: { status: CiStatus; size?: number }): ReactNode {
+export function CiStatusIcon({
+  status,
+  size = 17,
+}: {
+  status: CiStatus;
+  size?: number;
+}): ReactNode {
   const t = useTokens();
   const color = ciColor(t, status);
   const verb = CI_STATUS_VERB[status];
-  const Icon = status === 'success' ? CheckCircleIcon : status === 'failed' ? ErrorIcon : HourglassTopIcon;
+  const Icon =
+    status === 'success' ? CheckCircleIcon : status === 'failed' ? ErrorIcon : HourglassTopIcon;
   return (
     <Tooltip title={`PR build · ${verb}`}>
       <Box
@@ -92,7 +99,9 @@ export function PrLink({ git, dense = false }: { git: GitRow; dense?: boolean })
   const t = useTokens();
   if (git.prUrl === undefined || git.prNumber === undefined) return null;
   return (
-    <Tooltip title={`Open PR #${String(git.prNumber)} · ${git.branchName}${git.isRevert === true ? ' · revert' : ''}`}>
+    <Tooltip
+      title={`Open PR #${String(git.prNumber)} · ${git.branchName}${git.isRevert === true ? ' · revert' : ''}`}
+    >
       <Link
         data-testid={UI_IDENTIFIERS.Git.PR_LINK}
         href={git.prUrl}
@@ -109,9 +118,15 @@ export function PrLink({ git, dense = false }: { git: GitRow; dense?: boolean })
         }}
         target="_blank"
         underline="hover"
-        onClick={(e) => { e.stopPropagation(); }}
+        onClick={(e) => {
+          e.stopPropagation();
+        }}
       >
-        {git.isRevert === true ? <UndoIcon sx={{ fontSize: dense ? 11 : 13 }} /> : <CallMergeIcon sx={{ fontSize: dense ? 11 : 13 }} />}
+        {git.isRevert === true ? (
+          <UndoIcon sx={{ fontSize: dense ? 11 : 13 }} />
+        ) : (
+          <CallMergeIcon sx={{ fontSize: dense ? 11 : 13 }} />
+        )}
         PR #{String(git.prNumber)}
       </Link>
     </Tooltip>
@@ -170,7 +185,12 @@ export function GitRowMeta({
   return (
     <Box
       data-testid={UI_IDENTIFIERS.Git.ROW_META}
-      sx={{ display: 'inline-flex', alignItems: 'center', gap: dense ? 0.6 : 0.9, flexWrap: 'wrap' }}
+      sx={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: dense ? 0.6 : 0.9,
+        flexWrap: 'wrap',
+      }}
     >
       <PrLink dense={dense} git={git} />
       {git.merged ? (

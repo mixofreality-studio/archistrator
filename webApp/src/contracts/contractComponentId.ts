@@ -18,9 +18,7 @@ import type { C4Component } from './adapters';
  * "artifactValidationEngine" → "artifact-validation-engine"
  */
 export function camelToKebab(s: string): string {
-  return s
-    .replace(/([A-Z])/g, (c) => `-${c.toLowerCase()}`)
-    .replace(/^-/, '');
+  return s.replace(/([A-Z])/g, (c) => `-${c.toLowerCase()}`).replace(/^-/, '');
 }
 
 /**
@@ -43,9 +41,7 @@ export function resolveContractComponentId(
   if (byId !== undefined) return byId.id;
 
   // 3. Case-insensitive match on name converted to kebab.
-  const nameMatch = components.find(
-    (c) => camelToKebab(c.name).toLowerCase() === lower
-  );
+  const nameMatch = components.find((c) => camelToKebab(c.name).toLowerCase() === lower);
   if (nameMatch !== undefined) return nameMatch.id;
 
   return undefined;

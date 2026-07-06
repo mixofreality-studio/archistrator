@@ -147,8 +147,9 @@ function mapSlot(w: Schemas['SystemDesignArtifactSlotView']): ArtifactSlotView {
   // not stale or when the slot went stale before cause recording existed).
   // Compose the operator-facing string here; absent cause falls back to the
   // popover's generic copy.
-  const rawCause = (w as { staleBasisCause?: { upstreamKind?: unknown; upstreamRevision?: unknown } })
-    .staleBasisCause;
+  const rawCause = (
+    w as { staleBasisCause?: { upstreamKind?: unknown; upstreamRevision?: unknown } }
+  ).staleBasisCause;
   const staleCause =
     rawCause && typeof rawCause.upstreamKind === 'string' && rawCause.upstreamKind.length > 0
       ? typeof rawCause.upstreamRevision === 'number'
@@ -245,7 +246,11 @@ function mapServiceContract(w: Schemas['SystemDesignServiceContract']): ServiceC
               ? {
                   inputs: o.Inputs.map((s) => ({
                     name: s.Name,
-                    fields: (s.Fields ?? []).map((f) => ({ name: f.Name, type: f.Type, note: f.Note })),
+                    fields: (s.Fields ?? []).map((f) => ({
+                      name: f.Name,
+                      type: f.Type,
+                      note: f.Note,
+                    })),
                   })),
                 }
               : {}),
@@ -253,7 +258,11 @@ function mapServiceContract(w: Schemas['SystemDesignServiceContract']): ServiceC
               ? {
                   outputs: o.Outputs.map((s) => ({
                     name: s.Name,
-                    fields: (s.Fields ?? []).map((f) => ({ name: f.Name, type: f.Type, note: f.Note })),
+                    fields: (s.Fields ?? []).map((f) => ({
+                      name: f.Name,
+                      type: f.Type,
+                      note: f.Note,
+                    })),
                   })),
                 }
               : {}),
@@ -300,9 +309,7 @@ function mapConstructionProgress(
       planned: w.EV.planned ?? [],
       spi: w.EV.spi,
     },
-    ...(points !== undefined && points.length > 0
-      ? { points: points.map(mapEvPoint) }
-      : {}),
+    ...(points !== undefined && points.length > 0 ? { points: points.map(mapEvPoint) } : {}),
   };
 }
 
@@ -330,9 +337,10 @@ export function mapProjectState(w: Schemas['SystemDesignProjectState']): Project
     research: mapResearchInput(w.Research),
     slots: (w.Slots ?? []).map(mapSlot),
   };
-  const gitRows = mapRecord<Schemas['SystemDesignActivityGitStatus'], GitRow>(w.GitRows, mapGitRow) as
-    | GitRows
-    | undefined;
+  const gitRows = mapRecord<Schemas['SystemDesignActivityGitStatus'], GitRow>(
+    w.GitRows,
+    mapGitRow
+  ) as GitRows | undefined;
   const constructionRows = mapRecord<
     Schemas['SystemDesignActivityConstructionStatus'],
     ConstructionRow
@@ -461,9 +469,7 @@ export function mapConstructionSession(
 
 // --- operations ------------------------------------------------------------
 
-export function mapOperationsView(
-  w: Schemas['OperationsOperatedSystemView']
-): OperationsView {
+export function mapOperationsView(w: Schemas['OperationsOperatedSystemView']): OperationsView {
   return {
     operatedAppId: w.OperatedAppID,
     phase: runtimePhaseFromOrdinal(w.Phase),

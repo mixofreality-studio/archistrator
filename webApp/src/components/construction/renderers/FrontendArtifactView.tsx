@@ -47,10 +47,20 @@ function ConceptSection({ art, t }: { art: ProducedArtifactRow; t: Tokens }): Re
   const paras = paragraphs(art.note);
   return (
     <Paper sx={{ p: 1.5, borderLeft: `4px solid ${art.produced ? t.committedDot : t.line}` }}>
-      <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 11, letterSpacing: '0.06em', color: t.ink }}>
+      <Typography
+        sx={{
+          fontFamily: t.mono,
+          fontWeight: 700,
+          fontSize: 11,
+          letterSpacing: '0.06em',
+          color: t.ink,
+        }}
+      >
         UI DESIGN CONCEPT
       </Typography>
-      <Typography sx={{ fontFamily: t.body, fontWeight: 700, fontSize: 13.5, color: t.ink, mt: 0.4 }}>
+      <Typography
+        sx={{ fontFamily: t.body, fontWeight: 700, fontSize: 13.5, color: t.ink, mt: 0.4 }}
+      >
         {art.title}
       </Typography>
       {paras.length > 0 ? (
@@ -79,7 +89,15 @@ function PreviewSection({ art, t }: { art: ProducedArtifactRow; t: Tokens }): Re
   return (
     <Paper sx={{ p: 1.5, borderLeft: `4px solid ${art.produced ? t.committedDot : t.line}` }}>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-        <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 11, letterSpacing: '0.06em', color: t.ink }}>
+        <Typography
+          sx={{
+            fontFamily: t.mono,
+            fontWeight: 700,
+            fontSize: 11,
+            letterSpacing: '0.06em',
+            color: t.ink,
+          }}
+        >
           UI PREVIEW
         </Typography>
         <Typography sx={{ fontFamily: t.body, fontWeight: 700, fontSize: 13, color: t.ink }}>
@@ -93,7 +111,13 @@ function PreviewSection({ art, t }: { art: ProducedArtifactRow; t: Tokens }): Re
             href={source}
             rel="noreferrer"
             size="small"
-            sx={{ py: 0.25, fontFamily: t.mono, fontSize: 11, textTransform: 'none', color: t.accent }}
+            sx={{
+              py: 0.25,
+              fontFamily: t.mono,
+              fontSize: 11,
+              textTransform: 'none',
+              color: t.accent,
+            }}
             target="_blank"
           >
             Open {source}
@@ -130,9 +154,11 @@ function PreviewSection({ art, t }: { art: ProducedArtifactRow; t: Tokens }): Re
           />
         </Box>
       ) : (
-        <Typography sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.muted, mt: 0.75, fontStyle: 'italic' }}>
-          No preview route recorded yet — the ui-code artifact carries a &quot;/project/…&quot; SPA route (or
-          a screenshot path) that frames here once backfilled.
+        <Typography
+          sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.muted, mt: 0.75, fontStyle: 'italic' }}
+        >
+          No preview route recorded yet — the ui-code artifact carries a &quot;/project/…&quot; SPA
+          route (or a screenshot path) that frames here once backfilled.
         </Typography>
       )}
     </Paper>
@@ -161,9 +187,9 @@ export function FrontendArtifactView({ vm, t }: ArtifactRendererProps): ReactNod
       {!hasUiArtifacts ? (
         <Paper sx={{ p: 1.5 }}>
           <Typography sx={{ fontFamily: t.body, fontSize: 12.5, color: t.muted, lineHeight: 1.5 }}>
-            No UI artifacts recorded yet for this surface. A frontend activity records a ui-design concept
-            and a ui-code preview (a live SPA route) once construction produces them; this legacy entry
-            predates that shape.
+            No UI artifacts recorded yet for this surface. A frontend activity records a ui-design
+            concept and a ui-code preview (a live SPA route) once construction produces them; this
+            legacy entry predates that shape.
           </Typography>
         </Paper>
       ) : null}

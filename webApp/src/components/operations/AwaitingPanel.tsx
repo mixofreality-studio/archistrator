@@ -11,13 +11,7 @@ import CloudOffOutlinedIcon from '@mui/icons-material/CloudOffOutlined';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 
-export function AwaitingPanel({
-  title,
-  detail,
-}: {
-  title: string;
-  detail: string;
-}): ReactNode {
+export function AwaitingPanel({ title, detail }: { title: string; detail: string }): ReactNode {
   const t = useTokens();
   return (
     <Paper
@@ -25,11 +19,15 @@ export function AwaitingPanel({
       sx={{ p: 4, textAlign: 'center', borderStyle: 'dashed', maxWidth: 720 }}
     >
       <CloudOffOutlinedIcon sx={{ fontSize: 32, color: t.muted, opacity: 0.6 }} />
-      <Typography sx={{ fontFamily: t.display, fontWeight: 700, fontSize: 18, color: t.ink, mt: 1 }}>
+      <Typography
+        sx={{ fontFamily: t.display, fontWeight: 700, fontSize: 18, color: t.ink, mt: 1 }}
+      >
         {title}
       </Typography>
       <Box sx={{ maxWidth: 520, mx: 'auto' }}>
-        <Typography sx={{ fontFamily: t.body, fontSize: 13, color: t.muted, mt: 0.5, lineHeight: 1.5 }}>
+        <Typography
+          sx={{ fontFamily: t.body, fontSize: 13, color: t.muted, mt: 0.5, lineHeight: 1.5 }}
+        >
           {detail}
         </Typography>
       </Box>

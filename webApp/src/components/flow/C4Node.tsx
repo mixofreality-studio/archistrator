@@ -81,10 +81,26 @@ export function C4Node({ data, selected }: NodeProps): ReactNode {
         boxShadow: isSelected ? `0 0 0 2px ${t.accent}` : 'none',
       }}
     >
-      <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 12.5, lineHeight: 1.2, wordBreak: 'break-word' }}>
+      <Typography
+        sx={{
+          fontFamily: t.mono,
+          fontWeight: 700,
+          fontSize: 12.5,
+          lineHeight: 1.2,
+          wordBreak: 'break-word',
+        }}
+      >
         {d.name}
       </Typography>
-      <Typography sx={{ fontFamily: t.mono, fontSize: 9, color: d.color, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+      <Typography
+        sx={{
+          fontFamily: t.mono,
+          fontSize: 9,
+          color: d.color,
+          letterSpacing: '0.08em',
+          textTransform: 'uppercase',
+        }}
+      >
         {d.layer}
       </Typography>
       {showPreview ? (
@@ -117,7 +133,13 @@ export function C4Node({ data, selected }: NodeProps): ReactNode {
           <Button
             size="small"
             startIcon={<ChatBubbleOutlineIcon sx={{ fontSize: 14 }} />}
-            sx={{ py: 0.25, color: t.accentText, bgcolor: t.accent, border: `1.5px solid ${t.line}`, '&:hover': { bgcolor: t.accent2 } }}
+            sx={{
+              py: 0.25,
+              color: t.accentText,
+              bgcolor: t.accent,
+              border: `1.5px solid ${t.line}`,
+              '&:hover': { bgcolor: t.accent2 },
+            }}
             onClick={() => {
               setAnchor({
                 kind: 'node',
@@ -136,7 +158,11 @@ export function C4Node({ data, selected }: NodeProps): ReactNode {
           Enter/'c' comment shortcut. Comment arming is gated on `enabled`; focus and
           label are always on (read-only home base still keyboard-navigable). */}
       <Box
-        aria-label={enabled ? `${d.name}, ${d.layer} layer. Press C to comment.` : `${d.name}, ${d.layer} layer`}
+        aria-label={
+          enabled
+            ? `${d.name}, ${d.layer} layer. Press C to comment.`
+            : `${d.name}, ${d.layer} layer`
+        }
         role="button"
         sx={{
           borderRadius: 4,
@@ -167,17 +193,32 @@ export function C4Node({ data, selected }: NodeProps): ReactNode {
                   py: 1,
                 },
               },
-              arrow: { sx: { color: t.paperAlt, '&::before': { border: `1.5px solid ${t.line}` } } },
+              arrow: {
+                sx: { color: t.paperAlt, '&::before': { border: `1.5px solid ${t.line}` } },
+              },
             }}
             title={
               <>
-                <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 11.5, color: t.ink }}>
+                <Typography
+                  sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 11.5, color: t.ink }}
+                >
                   {d.name}
                 </Typography>
-                <Typography sx={{ fontFamily: t.mono, fontSize: 8.5, color: d.color, letterSpacing: '0.08em', textTransform: 'uppercase', mb: 0.5 }}>
+                <Typography
+                  sx={{
+                    fontFamily: t.mono,
+                    fontSize: 8.5,
+                    color: d.color,
+                    letterSpacing: '0.08em',
+                    textTransform: 'uppercase',
+                    mb: 0.5,
+                  }}
+                >
                   {d.layer}
                 </Typography>
-                <Typography sx={{ fontFamily: t.body, fontSize: 11.5, color: t.muted, lineHeight: 1.4 }}>
+                <Typography
+                  sx={{ fontFamily: t.body, fontSize: 11.5, color: t.muted, lineHeight: 1.4 }}
+                >
                   {d.encapsulates}
                 </Typography>
               </>

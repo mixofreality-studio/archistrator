@@ -131,7 +131,11 @@ export function UseCaseCarousel({
             {variationItems.map(({ u, idx }) => {
               const pName = parentNameOf(u);
               return (
-                <MenuItem key={u.id} sx={{ fontFamily: t.mono, fontSize: 13, display: 'block' }} value={idx}>
+                <MenuItem
+                  key={u.id}
+                  sx={{ fontFamily: t.mono, fontSize: 13, display: 'block' }}
+                  value={idx}
+                >
                   <Box>{u.name}</Box>
                   {pName !== undefined ? (
                     <Box

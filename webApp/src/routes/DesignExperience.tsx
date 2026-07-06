@@ -659,7 +659,13 @@ function StepBody({
               }}
             >
               <Typography
-                sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 12, letterSpacing: '0.08em', color: t.committedFg }}
+                sx={{
+                  fontFamily: t.mono,
+                  fontWeight: 700,
+                  fontSize: 12,
+                  letterSpacing: '0.08em',
+                  color: t.committedFg,
+                }}
               >
                 COMMITTED{revN > 1 ? ` · revision ${String(revN)}` : ''} — current
               </Typography>

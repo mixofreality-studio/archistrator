@@ -122,16 +122,37 @@ export function ExperienceChrome({
         </Tooltip>
 
         <Box sx={{ minWidth: 0 }}>
-          <Typography sx={{ fontFamily: t.mono, fontSize: 10.5, letterSpacing: '0.22em', color: t.accent, lineHeight: 1 }}>
+          <Typography
+            sx={{
+              fontFamily: t.mono,
+              fontSize: 10.5,
+              letterSpacing: '0.22em',
+              color: t.accent,
+              lineHeight: 1,
+            }}
+          >
             {`PHASE ${String(phaseNum)} · EXPERIENCE`}
           </Typography>
-          <Typography sx={{ fontFamily: t.display, fontWeight: 700, fontSize: 20, color: t.ink, lineHeight: 1.15 }}>
+          <Typography
+            sx={{
+              fontFamily: t.display,
+              fontWeight: 700,
+              fontSize: 20,
+              color: t.ink,
+              lineHeight: 1.15,
+            }}
+          >
             {phaseTitle}
           </Typography>
         </Box>
 
         {projectName !== undefined && (
-          <Chip label={projectName} size="small" sx={{ bgcolor: t.paperAlt, color: t.ink, display: { xs: 'none', md: 'flex' } }} variant="outlined" />
+          <Chip
+            label={projectName}
+            size="small"
+            sx={{ bgcolor: t.paperAlt, color: t.ink, display: { xs: 'none', md: 'flex' } }}
+            variant="outlined"
+          />
         )}
 
         <Box sx={{ flexGrow: 1 }} />
@@ -153,16 +174,32 @@ export function ExperienceChrome({
 
       {/* spine bar */}
       {spine !== undefined && (
-        <Box sx={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 2, px: 2.5, py: 1, bgcolor: t.paperAlt, borderBottom: `1.5px solid ${t.line}` }}>
+        <Box
+          sx={{
+            flexShrink: 0,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 2,
+            px: 2.5,
+            py: 1,
+            bgcolor: t.paperAlt,
+            borderBottom: `1.5px solid ${t.line}`,
+          }}
+        >
           <Box sx={{ flexGrow: 1, minWidth: 0, overflowX: 'auto' }}>{spine}</Box>
         </Box>
       )}
 
       {/* content row */}
-      <Box component="main" sx={{ flexGrow: 1, minHeight: 0, display: 'flex', alignItems: 'stretch' }}>
+      <Box
+        component="main"
+        sx={{ flexGrow: 1, minHeight: 0, display: 'flex', alignItems: 'stretch' }}
+      >
         {children}
         {chat !== undefined && (
-          <Box sx={{ width: 380, flexShrink: 0, height: '100%', borderLeft: `1.5px solid ${t.line}` }}>
+          <Box
+            sx={{ width: 380, flexShrink: 0, height: '100%', borderLeft: `1.5px solid ${t.line}` }}
+          >
             {chat}
           </Box>
         )}

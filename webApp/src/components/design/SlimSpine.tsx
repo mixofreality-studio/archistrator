@@ -47,11 +47,19 @@ export function SlimSpine({
         const locked = a.locked && !active;
         return (
           <Box key={a.kind} sx={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
-            {i > 0 && <Box sx={{ width: 18, height: 2, bgcolor: i <= activeIndex && done ? t.accent : t.line }} />}
+            {i > 0 && (
+              <Box
+                sx={{ width: 18, height: 2, bgcolor: i <= activeIndex && done ? t.accent : t.line }}
+              />
+            )}
             {/* UX-P1-6/F61: key the Tooltip by the active step so a navigation
                 (activeIndex change) REMOUNTS every tooltip, dismissing one left
                 hanging open from the hover that preceded the click. */}
-            <Tooltip disableHoverListener={active} key={`tt-${a.kind}-${String(activeIndex)}`} title={a.title}>
+            <Tooltip
+              disableHoverListener={active}
+              key={`tt-${a.kind}-${String(activeIndex)}`}
+              title={a.title}
+            >
               <Box
                 aria-label={a.title}
                 data-testid={UI_IDENTIFIERS.DesignExperience.spineStep(a.kind)}
@@ -110,7 +118,13 @@ export function SlimSpine({
                       opacity: locked ? 0.6 : 1,
                     }}
                   >
-                    {done ? <CheckIcon sx={{ fontSize: 13 }} /> : locked ? <LockOutlinedIcon sx={{ fontSize: 11 }} /> : i + 1}
+                    {done ? (
+                      <CheckIcon sx={{ fontSize: 13 }} />
+                    ) : locked ? (
+                      <LockOutlinedIcon sx={{ fontSize: 11 }} />
+                    ) : (
+                      i + 1
+                    )}
                   </Box>
                   {a.stale === true ? (
                     <Box
@@ -127,9 +141,19 @@ export function SlimSpine({
                     </Box>
                   ) : null}
                 </Box>
-                {active ? <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 12, color: t.awaitingFg, whiteSpace: 'nowrap' }}>
+                {active ? (
+                  <Typography
+                    sx={{
+                      fontFamily: t.mono,
+                      fontWeight: 700,
+                      fontSize: 12,
+                      color: t.awaitingFg,
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
                     {a.title}
-                  </Typography> : null}
+                  </Typography>
+                ) : null}
               </Box>
             </Tooltip>
           </Box>

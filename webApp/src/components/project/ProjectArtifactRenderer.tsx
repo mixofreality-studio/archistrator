@@ -60,8 +60,21 @@ export function ProjectArtifactRenderer({
   onSdpRejectAll?: (feedback: string) => void;
 }): ReactNode {
   return (
-    <Box data-artifact-kind={envelope?.kind ?? kind} data-testid={UI_IDENTIFIERS.DesignExperience.ARTIFACT_RENDER}>
-      {renderBody({ envelope, kind, activityEnvelope, planningAssumptionsEnvelope, networkHeight, sdpPending, readOnly, onSdpCommit, onSdpRejectAll })}
+    <Box
+      data-artifact-kind={envelope?.kind ?? kind}
+      data-testid={UI_IDENTIFIERS.DesignExperience.ARTIFACT_RENDER}
+    >
+      {renderBody({
+        envelope,
+        kind,
+        activityEnvelope,
+        planningAssumptionsEnvelope,
+        networkHeight,
+        sdpPending,
+        readOnly,
+        onSdpCommit,
+        onSdpRejectAll,
+      })}
     </Box>
   );
 }
@@ -98,7 +111,14 @@ function renderBody({
       />
     );
   }
-  if (isSolutionKind(kind)) return <SolutionView envelope={envelope} kind={kind} planningAssumptionsEnvelope={planningAssumptionsEnvelope} />;
+  if (isSolutionKind(kind))
+    return (
+      <SolutionView
+        envelope={envelope}
+        kind={kind}
+        planningAssumptionsEnvelope={planningAssumptionsEnvelope}
+      />
+    );
   if (kind === 'riskModel') return <RiskModelView envelope={envelope} />;
   if (kind === 'sdpReview') {
     return (

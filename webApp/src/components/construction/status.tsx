@@ -104,7 +104,9 @@ export function StatusLegend({ t }: { t: Tokens }): ReactNode {
   ];
   return (
     <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 1.25 }}>
-      <Typography sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.muted, letterSpacing: '0.08em' }}>
+      <Typography
+        sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.muted, letterSpacing: '0.08em' }}
+      >
         BUILD STATUS
       </Typography>
       {order.map((s) => (

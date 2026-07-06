@@ -134,7 +134,13 @@ export function CommittedArtifactPanel({
       >
         <Typography
           data-testid={UI_IDENTIFIERS.DesignExperience.COMMITTED_REVISION}
-          sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 12, letterSpacing: '0.08em', color: t.committedFg }}
+          sx={{
+            fontFamily: t.mono,
+            fontWeight: 700,
+            fontSize: 12,
+            letterSpacing: '0.08em',
+            color: t.committedFg,
+          }}
         >
           COMMITTED{revisionN > 1 ? ` · revision ${String(revisionN)}` : ''}
         </Typography>

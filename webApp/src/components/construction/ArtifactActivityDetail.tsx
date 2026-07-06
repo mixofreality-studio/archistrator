@@ -17,7 +17,12 @@ import Typography from '@mui/material/Typography';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked';
 import type { Tokens } from '../../utilities/theme/themes';
-import type { ArtifactModelEnvelope, ConstructionRow, ProducedArtifactRow, ProjectStateWithGit } from '../../contracts/types';
+import type {
+  ArtifactModelEnvelope,
+  ConstructionRow,
+  ProducedArtifactRow,
+  ProjectStateWithGit,
+} from '../../contracts/types';
 import type { BuildStatus } from '../../contracts/constructionAdapters';
 import { contractForActivity } from '../../contracts/serviceContracts';
 import { StatusChip } from './status';
@@ -37,12 +42,21 @@ function ActivityHeader({ t, vm }: { t: Tokens; vm: ArtifactActivityVM }): React
     <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5, flexWrap: 'wrap' }}>
       <Box sx={{ minWidth: 0 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
-          <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: t.accent }}>{vm.activityId}</Typography>
+          <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: t.accent }}>
+            {vm.activityId}
+          </Typography>
           <KindBadge kind={vm.row.kind} t={t} />
           <StatusChip size="xs" status={status} t={t} />
         </Box>
         <Typography
-          sx={{ fontFamily: t.display, fontWeight: 800, fontSize: 24, color: t.ink, lineHeight: 1.15, mt: 0.25 }}
+          sx={{
+            fontFamily: t.display,
+            fontWeight: 800,
+            fontSize: 24,
+            color: t.ink,
+            lineHeight: 1.15,
+            mt: 0.25,
+          }}
         >
           {vm.name}
         </Typography>
@@ -73,8 +87,7 @@ function lifecyclePhases(row: ConstructionRow): { name: string; done: boolean }[
   const prefix = kindLabel[0] ?? '?';
 
   // Status ordinal: in-construction(0) < in-review(1) < integrated(2).
-  const ord =
-    row.status === 'integrated' ? 2 : row.status === 'in-review' ? 1 : 0;
+  const ord = row.status === 'integrated' ? 2 : row.status === 'in-review' ? 1 : 0;
 
   return [
     // Designed: any construction status implies design is done; artifacts enrich.
@@ -138,8 +151,17 @@ function LifecycleStrip({ t, vm }: { t: Tokens; vm: ArtifactActivityVM }): React
 
   return (
     <Paper sx={{ p: 1.5 }}>
-      <Typography sx={{ fontFamily: t.mono, fontSize: 9.5, letterSpacing: '0.08em', color: t.muted, mb: 0.75 }}>
-        {KIND_META[vm.row.kind].label.toUpperCase()} LIFE CYCLE · {doneCount}/{totalCount} artifacts produced
+      <Typography
+        sx={{
+          fontFamily: t.mono,
+          fontSize: 9.5,
+          letterSpacing: '0.08em',
+          color: t.muted,
+          mb: 0.75,
+        }}
+      >
+        {KIND_META[vm.row.kind].label.toUpperCase()} LIFE CYCLE · {doneCount}/{totalCount} artifacts
+        produced
       </Typography>
       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, alignItems: 'center' }}>
         {phases.map((p, i) => (
@@ -150,7 +172,9 @@ function LifecycleStrip({ t, vm }: { t: Tokens; vm: ArtifactActivityVM }): React
               name={p.name}
               t={t}
             />
-            {i < phases.length - 1 ? <Typography sx={{ color: t.muted, fontSize: 10 }}>›</Typography> : null}
+            {i < phases.length - 1 ? (
+              <Typography sx={{ color: t.muted, fontSize: 10 }}>›</Typography>
+            ) : null}
           </Box>
         ))}
       </Box>
@@ -195,7 +219,9 @@ function ArtifactCard({ art, t }: { art: ProducedArtifactRow; t: Tokens }): Reac
       ) : null}
       {/* note */}
       {art.note.length > 0 ? (
-        <Typography sx={{ fontFamily: t.body, fontSize: 12, color: t.ink, lineHeight: 1.45, mt: 0.4 }}>
+        <Typography
+          sx={{ fontFamily: t.body, fontSize: 12, color: t.ink, lineHeight: 1.45, mt: 0.4 }}
+        >
           {art.note}
         </Typography>
       ) : null}
@@ -233,9 +259,8 @@ export function ArtifactActivityDetail({
   // For the artifact card list: when a contract resolved, skip the service-contract
   // artifact (ServiceContractView renders it richly above). Split code artifacts
   // from the rest so we can group them under a distinct heading.
-  const nonContractArtifacts = contract !== undefined
-    ? artifacts.filter((a) => a.kind !== 'service-contract')
-    : artifacts;
+  const nonContractArtifacts =
+    contract !== undefined ? artifacts.filter((a) => a.kind !== 'service-contract') : artifacts;
 
   const codeArtifacts = nonContractArtifacts.filter((a) => a.kind === 'code');
   const otherArtifacts = nonContractArtifacts.filter((a) => a.kind !== 'code');
@@ -254,56 +279,76 @@ export function ArtifactActivityDetail({
         <Renderer project={project} systemEnvelope={systemEnvelope} t={t} vm={vm} />
       ) : (
         <>
-      {/* Primary artifact: the rich ServiceContractView for any contract-bearing activity */}
-      {contract !== undefined ? (
-        <>
-          <Typography
-            sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 11, letterSpacing: '0.06em', color: t.ink }}
-          >
-            SERVICE CONTRACT
-          </Typography>
-          <ServiceContractView contract={contract} systemEnvelope={systemEnvelope} />
-        </>
-      ) : null}
+          {/* Primary artifact: the rich ServiceContractView for any contract-bearing activity */}
+          {contract !== undefined ? (
+            <>
+              <Typography
+                sx={{
+                  fontFamily: t.mono,
+                  fontWeight: 700,
+                  fontSize: 11,
+                  letterSpacing: '0.06em',
+                  color: t.ink,
+                }}
+              >
+                SERVICE CONTRACT
+              </Typography>
+              <ServiceContractView contract={contract} systemEnvelope={systemEnvelope} />
+            </>
+          ) : null}
 
-      {/* CODE & INTEGRATION STATUS — code artifacts grouped under their own heading */}
-      {codeArtifacts.length > 0 ? (
-        <>
-          <Typography
-            sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 11, letterSpacing: '0.06em', color: t.ink }}
-          >
-            {`CODE & INTEGRATION STATUS · ${String(codeArtifacts.filter((a) => a.produced).length)} of ${String(codeArtifacts.length)}`}
-          </Typography>
-          {codeArtifacts.map((art, i) => (
-            <ArtifactCard art={art} key={`${art.title}-${String(i)}`} t={t} />
-          ))}
-        </>
-      ) : contract !== undefined ? (
-        <Typography sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.muted, fontStyle: 'italic' }}>
-          No code artifacts recorded for this activity yet.
-        </Typography>
-      ) : null}
+          {/* CODE & INTEGRATION STATUS — code artifacts grouped under their own heading */}
+          {codeArtifacts.length > 0 ? (
+            <>
+              <Typography
+                sx={{
+                  fontFamily: t.mono,
+                  fontWeight: 700,
+                  fontSize: 11,
+                  letterSpacing: '0.06em',
+                  color: t.ink,
+                }}
+              >
+                {`CODE & INTEGRATION STATUS · ${String(codeArtifacts.filter((a) => a.produced).length)} of ${String(codeArtifacts.length)}`}
+              </Typography>
+              {codeArtifacts.map((art, i) => (
+                <ArtifactCard art={art} key={`${art.title}-${String(i)}`} t={t} />
+              ))}
+            </>
+          ) : contract !== undefined ? (
+            <Typography
+              sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.muted, fontStyle: 'italic' }}
+            >
+              No code artifacts recorded for this activity yet.
+            </Typography>
+          ) : null}
 
-      {/* Remaining produced artifact cards (non-code, non-service-contract) */}
-      {otherArtifacts.length > 0 ? (
-        <>
-          <Typography
-            sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 11, letterSpacing: '0.06em', color: t.ink }}
-          >
-            {`PRODUCED ARTIFACTS · ${String(otherArtifacts.filter((a) => a.produced).length)} of ${String(otherArtifacts.length)}`}
-          </Typography>
-          {otherArtifacts.map((art, i) => (
-            <ArtifactCard art={art} key={`${art.title}-${String(i)}`} t={t} />
-          ))}
-        </>
-      ) : null}
+          {/* Remaining produced artifact cards (non-code, non-service-contract) */}
+          {otherArtifacts.length > 0 ? (
+            <>
+              <Typography
+                sx={{
+                  fontFamily: t.mono,
+                  fontWeight: 700,
+                  fontSize: 11,
+                  letterSpacing: '0.06em',
+                  color: t.ink,
+                }}
+              >
+                {`PRODUCED ARTIFACTS · ${String(otherArtifacts.filter((a) => a.produced).length)} of ${String(otherArtifacts.length)}`}
+              </Typography>
+              {otherArtifacts.map((art, i) => (
+                <ArtifactCard art={art} key={`${art.title}-${String(i)}`} t={t} />
+              ))}
+            </>
+          ) : null}
 
-      {/* No-artifact state only when there's no contract view and nothing else */}
-      {nonContractArtifacts.length === 0 && contract === undefined ? (
-        <Typography sx={{ color: t.muted, fontSize: 12.5 }}>
-          No artifacts recorded yet for this activity.
-        </Typography>
-      ) : null}
+          {/* No-artifact state only when there's no contract view and nothing else */}
+          {nonContractArtifacts.length === 0 && contract === undefined ? (
+            <Typography sx={{ color: t.muted, fontSize: 12.5 }}>
+              No artifacts recorded yet for this activity.
+            </Typography>
+          ) : null}
         </>
       )}
     </Box>

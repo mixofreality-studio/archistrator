@@ -18,7 +18,6 @@ import type { Tokens } from '../../utilities/theme/themes';
 import { useComments } from '../comments/CommentContext';
 import { NODE_DIMS } from './nodeDims';
 
-
 export interface ActivityNodeData {
   label: string;
   lane: string;
@@ -32,7 +31,14 @@ export interface ActivityNodeData {
   [key: string]: unknown;
 }
 
-const hiddenHandle = { opacity: 0, width: 1, height: 1, minWidth: 0, minHeight: 0, border: 'none' } as const;
+const hiddenHandle = {
+  opacity: 0,
+  width: 1,
+  height: 1,
+  minWidth: 0,
+  minHeight: 0,
+  border: 'none',
+} as const;
 
 /**
  * Invisible connection points at each vertex. Every side carries both a target
@@ -90,7 +96,9 @@ function Bar(t: Tokens, d: ActivityNodeData, selected: boolean): ReactNode {
         }}
       />
       {d.label.length > 0 ? (
-        <Typography sx={{ fontFamily: t.mono, fontSize: 9.5, color: t.muted, whiteSpace: 'nowrap' }}>
+        <Typography
+          sx={{ fontFamily: t.mono, fontSize: 9.5, color: t.muted, whiteSpace: 'nowrap' }}
+        >
           {d.label}
         </Typography>
       ) : null}
@@ -265,7 +273,13 @@ export function ActivityNode({ data, selected }: NodeProps): ReactNode {
           <Button
             size="small"
             startIcon={<ChatBubbleOutlineIcon sx={{ fontSize: 14 }} />}
-            sx={{ py: 0.25, color: t.accentText, bgcolor: t.accent, border: `1.5px solid ${t.line}`, '&:hover': { bgcolor: t.accent2 } }}
+            sx={{
+              py: 0.25,
+              color: t.accentText,
+              bgcolor: t.accent,
+              border: `1.5px solid ${t.line}`,
+              '&:hover': { bgcolor: t.accent2 },
+            }}
             onClick={armComment}
           >
             Comment

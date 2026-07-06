@@ -61,10 +61,34 @@ interface TabMeta {
 }
 
 const TABS: readonly [TabMeta, ...TabMeta[]] = [
-  { id: 'status', title: 'Status / Health', subtitle: 'readRuntimeStatus — SloMet / Phase + the health timeline', icon: <MonitorHeartOutlinedIcon sx={{ fontSize: 16 }} />, testid: UI_IDENTIFIERS.Operations.TAB_STATUS },
-  { id: 'deployments', title: 'Deployments', subtitle: 'desired-state publish → GitOps-observed Phase', icon: <RocketLaunchOutlinedIcon sx={{ fontSize: 16 }} />, testid: UI_IDENTIFIERS.Operations.TAB_DEPLOYMENTS },
-  { id: 'scaling', title: 'Scaling & Cost', subtitle: 'run-rate + what-if curve · autoscaler decision history', icon: <TrendingUpOutlinedIcon sx={{ fontSize: 16 }} />, testid: UI_IDENTIFIERS.Operations.TAB_SCALING },
-  { id: 'interventions', title: 'Interventions', subtitle: 'interventionEngine escalations · human steer', icon: <BoltOutlinedIcon sx={{ fontSize: 16 }} />, testid: UI_IDENTIFIERS.Operations.TAB_INTERVENTIONS },
+  {
+    id: 'status',
+    title: 'Status / Health',
+    subtitle: 'readRuntimeStatus — SloMet / Phase + the health timeline',
+    icon: <MonitorHeartOutlinedIcon sx={{ fontSize: 16 }} />,
+    testid: UI_IDENTIFIERS.Operations.TAB_STATUS,
+  },
+  {
+    id: 'deployments',
+    title: 'Deployments',
+    subtitle: 'desired-state publish → GitOps-observed Phase',
+    icon: <RocketLaunchOutlinedIcon sx={{ fontSize: 16 }} />,
+    testid: UI_IDENTIFIERS.Operations.TAB_DEPLOYMENTS,
+  },
+  {
+    id: 'scaling',
+    title: 'Scaling & Cost',
+    subtitle: 'run-rate + what-if curve · autoscaler decision history',
+    icon: <TrendingUpOutlinedIcon sx={{ fontSize: 16 }} />,
+    testid: UI_IDENTIFIERS.Operations.TAB_SCALING,
+  },
+  {
+    id: 'interventions',
+    title: 'Interventions',
+    subtitle: 'interventionEngine escalations · human steer',
+    icon: <BoltOutlinedIcon sx={{ fontSize: 16 }} />,
+    testid: UI_IDENTIFIERS.Operations.TAB_INTERVENTIONS,
+  },
 ];
 
 export function OperationsConsoleScreen(): ReactNode {
@@ -99,7 +123,16 @@ function OperationsConsoleBody({ operatedAppId }: { operatedAppId: string }): Re
         sx={{ flexGrow: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}
       >
         {/* tab bar */}
-        <Box sx={{ flexShrink: 0, display: 'flex', alignItems: 'stretch', px: 2.5, bgcolor: t.paperAlt, borderBottom: `1.5px solid ${t.line}` }}>
+        <Box
+          sx={{
+            flexShrink: 0,
+            display: 'flex',
+            alignItems: 'stretch',
+            px: 2.5,
+            bgcolor: t.paperAlt,
+            borderBottom: `1.5px solid ${t.line}`,
+          }}
+        >
           <Tabs
             aria-label="Operations console sections"
             scrollButtons={false}
@@ -110,7 +143,9 @@ function OperationsConsoleBody({ operatedAppId }: { operatedAppId: string }): Re
             }}
             value={tab}
             variant="scrollable"
-            onChange={(_e, value: TabId) => { setTab(value); }}
+            onChange={(_e, value: TabId) => {
+              setTab(value);
+            }}
           >
             {TABS.map((x) => (
               <Tab
@@ -168,7 +203,13 @@ function OperationsConsoleBody({ operatedAppId }: { operatedAppId: string }): Re
                 data-testid={UI_IDENTIFIERS.Operations.BILLING_LINK}
                 label="Billing →"
                 size="small"
-                sx={{ color: t.ink, borderColor: t.line, fontFamily: t.mono, fontWeight: 700, textDecoration: 'none' }}
+                sx={{
+                  color: t.ink,
+                  borderColor: t.line,
+                  fontFamily: t.mono,
+                  fontWeight: 700,
+                  textDecoration: 'none',
+                }}
                 to="/billing"
                 variant="outlined"
               />
@@ -201,12 +242,24 @@ function OperationsConsoleBody({ operatedAppId }: { operatedAppId: string }): Re
   );
 }
 
-function ConsoleHeader({ t, title, subtitle }: { t: Tokens; title: string; subtitle: string }): ReactNode {
+function ConsoleHeader({
+  t,
+  title,
+  subtitle,
+}: {
+  t: Tokens;
+  title: string;
+  subtitle: string;
+}): ReactNode {
   return (
     <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5, mb: 2 }}>
       <Box>
-        <Typography component="h1" sx={{ color: t.ink }} variant="h4">{title}</Typography>
-        <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.muted, mt: 0.5 }}>{subtitle}</Typography>
+        <Typography component="h1" sx={{ color: t.ink }} variant="h4">
+          {title}
+        </Typography>
+        <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.muted, mt: 0.5 }}>
+          {subtitle}
+        </Typography>
       </Box>
     </Box>
   );

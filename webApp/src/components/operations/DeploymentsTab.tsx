@@ -46,18 +46,24 @@ export function DeploymentsTab({
 
   const run = (kind: 'deploy' | 'scale' | 'autoscaler-policy'): void => {
     action.mutate(kind, {
-      onSuccess: (r) =>
-        { setLastResult(
+      onSuccess: (r) => {
+        setLastResult(
           r.published
             ? `Published${r.revision !== undefined && r.revision.length > 0 ? ` · ${r.revision}` : ''}`
             : 'Accepted (no republish needed)'
-        ); },
+        );
+      },
     });
   };
   const doWithdraw = (): void => {
-    withdraw.mutate({ reason: 'operator withdraw from console' }, {
-      onSuccess: (r) => { setLastResult(r.withdrawn ? 'Withdrawn' : 'Already withdrawn'); },
-    });
+    withdraw.mutate(
+      { reason: 'operator withdraw from console' },
+      {
+        onSuccess: (r) => {
+          setLastResult(r.withdrawn ? 'Withdrawn' : 'Already withdrawn');
+        },
+      }
+    );
   };
 
   if (view === undefined) {
@@ -76,26 +82,68 @@ export function DeploymentsTab({
       data-testid={UI_IDENTIFIERS.Operations.DEPLOYMENTS_TAB}
       sx={{ display: 'flex', flexDirection: 'column', gap: 2, maxWidth: 1080 }}
     >
-      <Box sx={{ p: 1.25, bgcolor: t.chatPmBg, border: `1.5px solid ${t.line}`, borderRadius: t.radius / 8 + 0.5 }}>
+      <Box
+        sx={{
+          p: 1.25,
+          bgcolor: t.chatPmBg,
+          border: `1.5px solid ${t.line}`,
+          borderRadius: t.radius / 8 + 0.5,
+        }}
+      >
         <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: t.chatPmFg, lineHeight: 1.5 }}>
-          🔭 aiarch <b>publishes desired state</b> (a git commit to the manifests repo); the GitOps runtime <b>drives convergence</b>. There is no aiarch
-          progress bar — only the observed rollup Phase. Phase=Unknown is the normal just-published transient (converging).
+          🔭 aiarch <b>publishes desired state</b> (a git commit to the manifests repo); the GitOps
+          runtime <b>drives convergence</b>. There is no aiarch progress bar — only the observed
+          rollup Phase. Phase=Unknown is the normal just-published transient (converging).
         </Typography>
       </Box>
 
       {/* rollup + in-flight */}
       <Paper sx={{ p: 0, overflow: 'hidden' }}>
-        <Box sx={{ px: 2, py: 1.25, bgcolor: t.paperAlt, borderBottom: `1.5px solid ${t.line}`, display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
-          <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 11, letterSpacing: '0.06em', color: t.ink }}>DESIRED-STATE ROLLUP</Typography>
+        <Box
+          sx={{
+            px: 2,
+            py: 1.25,
+            bgcolor: t.paperAlt,
+            borderBottom: `1.5px solid ${t.line}`,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1.5,
+            flexWrap: 'wrap',
+          }}
+        >
+          <Typography
+            sx={{
+              fontFamily: t.mono,
+              fontWeight: 700,
+              fontSize: 11,
+              letterSpacing: '0.06em',
+              color: t.ink,
+            }}
+          >
+            DESIRED-STATE ROLLUP
+          </Typography>
           <PhaseChip phase={rollup} t={t} />
-          {view.inFlight ? <Chip label="republish in flight" size="small" sx={{ height: 18, fontSize: 8.5, bgcolor: t.chatPmBg, color: t.chatPmFg }} /> : null}
+          {view.inFlight ? (
+            <Chip
+              label="republish in flight"
+              size="small"
+              sx={{ height: 18, fontSize: 8.5, bgcolor: t.chatPmBg, color: t.chatPmFg }}
+            />
+          ) : null}
           <Box sx={{ flexGrow: 1 }} />
           {lastResult !== null && (
-            <Chip label={lastResult} size="small" sx={{ height: 18, fontSize: 9, fontFamily: t.mono, color: t.committedFg }} variant="outlined" />
+            <Chip
+              label={lastResult}
+              size="small"
+              sx={{ height: 18, fontSize: 9, fontFamily: t.mono, color: t.committedFg }}
+              variant="outlined"
+            />
           )}
         </Box>
         <Box sx={{ px: 2, py: 1.75 }}>
-          <Typography sx={{ fontFamily: t.body, fontSize: 12, color: t.muted, lineHeight: 1.5, mb: 1.5 }}>
+          <Typography
+            sx={{ fontFamily: t.body, fontSize: 12, color: t.muted, lineHeight: 1.5, mb: 1.5 }}
+          >
             {view.health.detail.length > 0
               ? view.health.detail
               : 'Per-component revision detail is not carried by the read projection yet. Publish a desired state below; convergence is observed on the reconcile tick.'}
@@ -109,7 +157,9 @@ export function DeploymentsTab({
               startIcon={<RocketLaunchOutlinedIcon sx={{ fontSize: 15 }} />}
               sx={{ py: 0.25, fontSize: 11 }}
               variant="contained"
-              onClick={() => { run('deploy'); }}
+              onClick={() => {
+                run('deploy');
+              }}
             >
               Deploy / publish revision
             </Button>
@@ -121,7 +171,9 @@ export function DeploymentsTab({
               startIcon={<TrendingUpOutlinedIcon sx={{ fontSize: 15 }} />}
               sx={{ py: 0.25, fontSize: 11, color: t.ink, borderColor: t.line }}
               variant="outlined"
-              onClick={() => { run('scale'); }}
+              onClick={() => {
+                run('scale');
+              }}
             >
               Scale
             </Button>
@@ -140,7 +192,9 @@ export function DeploymentsTab({
             </Button>
           </Box>
           {error !== undefined && (
-            <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: t.awaitingFg, mt: 1 }}>{error}</Typography>
+            <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: t.awaitingFg, mt: 1 }}>
+              {error}
+            </Typography>
           )}
         </Box>
       </Paper>

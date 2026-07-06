@@ -29,16 +29,38 @@ import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 import { GitRowMeta } from '../GitStatus';
 
 const OVERRIDE_KINDS: { kind: OverrideKind; label: string; detail: string; icon: ReactNode }[] = [
-  { kind: 'takeover', label: 'Take over', detail: 'Platform re-dispatches under a changed arrangement / resets the durable execution.', icon: <OpenWithIcon sx={{ fontSize: 16 }} /> },
-  { kind: 'retry', label: 'Retry', detail: 'Re-enter the dispatch path for this activity.', icon: <ReplayIcon sx={{ fontSize: 16 }} /> },
-  { kind: 'reassign', label: 'Reassign', detail: 'Re-cast the worker class (operator-chosen).', icon: <SwapHorizIcon sx={{ fontSize: 16 }} /> },
-  { kind: 'skip', label: 'Skip', detail: 'Record the activity exited with an operator-skip outcome.', icon: <SkipNextIcon sx={{ fontSize: 16 }} /> },
+  {
+    kind: 'takeover',
+    label: 'Take over',
+    detail: 'Platform re-dispatches under a changed arrangement / resets the durable execution.',
+    icon: <OpenWithIcon sx={{ fontSize: 16 }} />,
+  },
+  {
+    kind: 'retry',
+    label: 'Retry',
+    detail: 'Re-enter the dispatch path for this activity.',
+    icon: <ReplayIcon sx={{ fontSize: 16 }} />,
+  },
+  {
+    kind: 'reassign',
+    label: 'Reassign',
+    detail: 'Re-cast the worker class (operator-chosen).',
+    icon: <SwapHorizIcon sx={{ fontSize: 16 }} />,
+  },
+  {
+    kind: 'skip',
+    label: 'Skip',
+    detail: 'Record the activity exited with an operator-skip outcome.',
+    icon: <SkipNextIcon sx={{ fontSize: 16 }} />,
+  },
 ];
 
 function Field({ t, label, value }: { t: Tokens; label: string; value: string }): ReactNode {
   return (
     <Box>
-      <Typography sx={{ fontFamily: t.mono, fontSize: 9.5, letterSpacing: '0.12em', color: t.muted }}>
+      <Typography
+        sx={{ fontFamily: t.mono, fontSize: 9.5, letterSpacing: '0.12em', color: t.muted }}
+      >
         {label}
       </Typography>
       <Typography sx={{ fontFamily: t.mono, fontSize: 13, color: t.ink, fontWeight: 700 }}>
@@ -72,7 +94,13 @@ export function ActivityTrackingDetail({
   return (
     <Paper
       data-testid={UI_IDENTIFIERS.Construction.ACTIVE_DETAIL}
-      sx={{ p: 2.5, display: 'flex', flexDirection: 'column', gap: 2, border: `1.5px solid ${t.accent}` }}
+      sx={{
+        p: 2.5,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 2,
+        border: `1.5px solid ${t.accent}`,
+      }}
     >
       <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1.5, flexWrap: 'wrap' }}>
         <Typography sx={{ fontFamily: t.display, fontWeight: 800, fontSize: 18, color: t.ink }}>
@@ -93,12 +121,12 @@ export function ActivityTrackingDetail({
 
       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
         <Field label="STAGE" t={t} value={STAGE_LABEL[session.stage]} />
+        <Field label="PIPELINE" t={t} value={pipelinePhase ?? 'no pipeline in flight'} />
         <Field
-          label="PIPELINE"
+          label="REVIEWERS"
           t={t}
-          value={pipelinePhase ?? 'no pipeline in flight'}
+          value={reviewers.length > 0 ? String(reviewers.length) : '—'}
         />
-        <Field label="REVIEWERS" t={t} value={reviewers.length > 0 ? String(reviewers.length) : '—'} />
       </Box>
 
       {variance !== undefined && (
@@ -109,13 +137,24 @@ export function ActivityTrackingDetail({
 
       {reviewers.length > 0 && (
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-          <Typography sx={{ fontFamily: t.mono, fontSize: 10.5, letterSpacing: '0.08em', color: t.muted }}>
+          <Typography
+            sx={{ fontFamily: t.mono, fontSize: 10.5, letterSpacing: '0.08em', color: t.muted }}
+          >
             COMPUTED REVIEWER SET · reviewEngine
           </Typography>
           {reviewers.map((r, i) => (
             <Box
               key={`${r.role}-${String(i)}`}
-              sx={{ display: 'flex', alignItems: 'center', gap: 1, p: 1, bgcolor: t.paperAlt, border: `1px solid ${t.line}`, borderRadius: 1, flexWrap: 'wrap' }}
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1,
+                p: 1,
+                bgcolor: t.paperAlt,
+                border: `1px solid ${t.line}`,
+                borderRadius: 1,
+                flexWrap: 'wrap',
+              }}
             >
               <Typography sx={{ fontFamily: t.mono, fontSize: 12, fontWeight: 700, color: t.ink }}>
                 {r.role}
@@ -129,9 +168,22 @@ export function ActivityTrackingDetail({
                 </Typography>
               )}
               <Box sx={{ flexGrow: 1 }} />
-              {r.mayAmend ? <Box sx={{ fontFamily: t.mono, fontSize: 9, fontWeight: 700, color: t.chatArchitectFg, bgcolor: t.chatArchitectBg, borderRadius: 99, px: 0.6, py: 0.1 }}>
+              {r.mayAmend ? (
+                <Box
+                  sx={{
+                    fontFamily: t.mono,
+                    fontSize: 9,
+                    fontWeight: 700,
+                    color: t.chatArchitectFg,
+                    bgcolor: t.chatArchitectBg,
+                    borderRadius: 99,
+                    px: 0.6,
+                    py: 0.1,
+                  }}
+                >
                   MAY AMEND
-                </Box> : null}
+                </Box>
+              ) : null}
             </Box>
           ))}
         </Box>
@@ -139,7 +191,9 @@ export function ActivityTrackingDetail({
 
       {/* operator override — the SAME decide→execute machinery as the automatic path */}
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-        <Typography sx={{ fontFamily: t.mono, fontSize: 10.5, letterSpacing: '0.08em', color: t.muted }}>
+        <Typography
+          sx={{ fontFamily: t.mono, fontSize: 10.5, letterSpacing: '0.08em', color: t.muted }}
+        >
           OPERATOR OVERRIDE · constructionManager.OverrideActivity
         </Typography>
         <TextField
@@ -150,10 +204,14 @@ export function ActivityTrackingDetail({
           placeholder="Notes (optional) — your steer is fed into the same decide→execute machinery as the automatic variance path."
           size="small"
           value={notes}
-          onChange={(e) => { setNotes(e.target.value); }}
+          onChange={(e) => {
+            setNotes(e.target.value);
+          }}
         />
         {overrideError !== undefined && (
-          <Alert severity="error" sx={{ fontFamily: t.mono, fontSize: 12 }}>{overrideError}</Alert>
+          <Alert severity="error" sx={{ fontFamily: t.mono, fontSize: 12 }}>
+            {overrideError}
+          </Alert>
         )}
         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
           {OVERRIDE_KINDS.map((o) => (
@@ -165,7 +223,9 @@ export function ActivityTrackingDetail({
               startIcon={o.icon}
               title={o.detail}
               variant="outlined"
-              onClick={() => { onOverride(activityId, o.kind, notes); }}
+              onClick={() => {
+                onOverride(activityId, o.kind, notes);
+              }}
             >
               {o.label}
             </Button>

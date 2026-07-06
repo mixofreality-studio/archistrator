@@ -89,12 +89,24 @@ export function DraftFailedPanel({
           borderBottom: `1.5px solid ${t.line}`,
         }}
       >
-        <Typography sx={{ fontFamily: t.mono, fontSize: 12, letterSpacing: '0.16em', color: 'error.main' }}>
+        <Typography
+          sx={{ fontFamily: t.mono, fontSize: 12, letterSpacing: '0.16em', color: 'error.main' }}
+        >
           {heading.toUpperCase()} · {artifact.toUpperCase()}
         </Typography>
       </Box>
 
-      <Box sx={{ px: 3, py: 4, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1.5, textAlign: 'center' }}>
+      <Box
+        sx={{
+          px: 3,
+          py: 4,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: 1.5,
+          textAlign: 'center',
+        }}
+      >
         <ReportProblemOutlinedIcon sx={{ fontSize: 38, color: 'error.main' }} />
         <Typography sx={{ fontFamily: t.display, fontWeight: 700, fontSize: 22, color: t.ink }}>
           {heading}
@@ -110,7 +122,13 @@ export function DraftFailedPanel({
             data-testid={UI_IDENTIFIERS.DesignExperience.DRAFT_FAILURE_RUN_LINK}
             href={runUrl}
             rel="noopener"
-            sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, fontSize: 13, fontFamily: t.mono }}
+            sx={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 0.5,
+              fontSize: 13,
+              fontFamily: t.mono,
+            }}
             target="_blank"
           >
             View the failed run

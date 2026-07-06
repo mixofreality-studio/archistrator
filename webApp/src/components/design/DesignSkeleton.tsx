@@ -54,16 +54,42 @@ export function SkeletonSpine({ steps }: { steps: number }): ReactNode {
 export function SkeletonContentCard({ t }: { t: Tokens }): ReactNode {
   return (
     <Paper sx={{ p: { xs: 2.5, md: 4 } }}>
-      <Skeleton animation="wave" height={30} sx={{ bgcolor: t.line, opacity: 0.5 }} variant="rectangular" width="45%" />
+      <Skeleton
+        animation="wave"
+        height={30}
+        sx={{ bgcolor: t.line, opacity: 0.5 }}
+        variant="rectangular"
+        width="45%"
+      />
       <Box sx={{ mt: 3, display: 'flex', flexDirection: 'column', gap: 1.25 }}>
         {['92%', '86%', '96%', '70%'].map((w, i) => (
-          <Skeleton animation="wave" height={14} key={i} sx={{ bgcolor: t.line, opacity: 0.35 }} variant="rectangular" width={w} />
+          <Skeleton
+            animation="wave"
+            height={14}
+            key={i}
+            sx={{ bgcolor: t.line, opacity: 0.35 }}
+            variant="rectangular"
+            width={w}
+          />
         ))}
       </Box>
-      <Skeleton animation="wave" height={160} sx={{ bgcolor: t.line, opacity: 0.28, mt: 3 }} variant="rectangular" width="100%" />
+      <Skeleton
+        animation="wave"
+        height={160}
+        sx={{ bgcolor: t.line, opacity: 0.28, mt: 3 }}
+        variant="rectangular"
+        width="100%"
+      />
       <Box sx={{ mt: 3, display: 'flex', flexDirection: 'column', gap: 1.25 }}>
         {['88%', '94%', '60%'].map((w, i) => (
-          <Skeleton animation="wave" height={14} key={i} sx={{ bgcolor: t.line, opacity: 0.35 }} variant="rectangular" width={w} />
+          <Skeleton
+            animation="wave"
+            height={14}
+            key={i}
+            sx={{ bgcolor: t.line, opacity: 0.35 }}
+            variant="rectangular"
+            width={w}
+          />
         ))}
       </Box>
     </Paper>
@@ -103,10 +129,28 @@ export function DesignExperienceSkeleton({
         {/* artifact header placeholder — title + a neutral chip-shaped block (NOT a
             definitive StageChip) + the mono sub-line */}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 0.5 }}>
-          <Skeleton animation="wave" height={40} sx={{ bgcolor: t.line, opacity: 0.5 }} variant="rectangular" width={300} />
-          <Skeleton animation="wave" height={26} sx={{ bgcolor: t.line, opacity: 0.4, borderRadius: `${String(t.radius)}px` }} variant="rectangular" width={128} />
+          <Skeleton
+            animation="wave"
+            height={40}
+            sx={{ bgcolor: t.line, opacity: 0.5 }}
+            variant="rectangular"
+            width={300}
+          />
+          <Skeleton
+            animation="wave"
+            height={26}
+            sx={{ bgcolor: t.line, opacity: 0.4, borderRadius: `${String(t.radius)}px` }}
+            variant="rectangular"
+            width={128}
+          />
         </Box>
-        <Skeleton animation="wave" height={14} sx={{ bgcolor: t.line, opacity: 0.35, mb: 2 }} variant="rectangular" width={200} />
+        <Skeleton
+          animation="wave"
+          height={14}
+          sx={{ bgcolor: t.line, opacity: 0.35, mb: 2 }}
+          variant="rectangular"
+          width={200}
+        />
 
         <SkeletonContentCard t={t} />
       </Box>

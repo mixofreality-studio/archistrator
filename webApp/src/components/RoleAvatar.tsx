@@ -53,7 +53,13 @@ function parseColor(c: string): [number, number, number] {
   const s = c.trim();
   if (s.startsWith('#')) {
     const h = s.slice(1);
-    const n = h.length === 3 ? h.split('').map((x) => x + x).join('') : h;
+    const n =
+      h.length === 3
+        ? h
+            .split('')
+            .map((x) => x + x)
+            .join('')
+        : h;
     return [parseInt(n.slice(0, 2), 16), parseInt(n.slice(2, 4), 16), parseInt(n.slice(4, 6), 16)];
   }
   const m = /rgba?\(([^)]+)\)/.exec(s);
@@ -66,7 +72,9 @@ function parseColor(c: string): [number, number, number] {
 
 function toHex([r, g, b]: [number, number, number]): string {
   const h = (v: number): string =>
-    Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0');
+    Math.max(0, Math.min(255, Math.round(v)))
+      .toString(16)
+      .padStart(2, '0');
   return `#${h(r)}${h(g)}${h(b)}`;
 }
 
@@ -234,7 +242,7 @@ function px(
   w: number,
   h: number,
   fill: string,
-  rx = 0,
+  rx = 0
 ): ReactNode {
   return <rect fill={fill} height={h + 0.3} key={key} rx={rx} width={w + 0.3} x={x} y={y} />;
 }
@@ -271,7 +279,7 @@ function drawProp(kind: PropKind, t: Tokens): ReactNode[] {
           points={`${String(px0 + 8)},${String(py0 + 24)} ${String(px0 + 30)},${String(py0 + 24)} ${String(px0 + 30)},${String(py0 + 6)}`}
           stroke={ac}
           strokeWidth={2.4}
-        />,
+        />
       );
       n.push(px('bp-pen', px0 + 28, py0 + 2, 2.4, 10, ink));
       break;
@@ -291,13 +299,11 @@ function drawProp(kind: PropKind, t: Tokens): ReactNode[] {
           points="74,58 92,52 92,72 74,66"
           stroke={ink}
           strokeWidth={1.6}
-        />,
+        />
       );
       n.push(px('mp-handle', 72, 60, 4, 4, ink));
       // sound waves
-      n.push(
-        <path d="M93 56 q4 6 0 12" fill="none" key="mp-w1" stroke={ac} strokeWidth={1.8} />,
-      );
+      n.push(<path d="M93 56 q4 6 0 12" fill="none" key="mp-w1" stroke={ac} strokeWidth={1.8} />);
       break;
     }
     case 'gantt': {
@@ -325,7 +331,17 @@ function drawProp(kind: PropKind, t: Tokens): ReactNode[] {
       n.push(px('ct-l2', 62, 67, 18, 1.6, line));
       n.push(px('ct-l3', 62, 72, 12, 1.6, line));
       // wax seal
-      n.push(<circle cx={71} cy={82} fill={danger} key="ct-seal" r={5} stroke={darken(danger, 0.3)} strokeWidth={1.2} />);
+      n.push(
+        <circle
+          cx={71}
+          cy={82}
+          fill={danger}
+          key="ct-seal"
+          r={5}
+          stroke={darken(danger, 0.3)}
+          strokeWidth={1.2}
+        />
+      );
       n.push(px('ct-seal-x', 69, 81, 4, 2, lighten(danger, 0.3)));
       break;
     }
@@ -335,9 +351,18 @@ function drawProp(kind: PropKind, t: Tokens): ReactNode[] {
       n.push(px('lp-screen2', 56, 60, 32, 22, mix(t.bg, ink, 0.2)));
       // code brackets { }
       n.push(
-        <text fill={ac} fontFamily="monospace" fontSize={15} fontWeight="700" key="lp-code" textAnchor="middle" x={72} y={75}>
+        <text
+          fill={ac}
+          fontFamily="monospace"
+          fontSize={15}
+          fontWeight="700"
+          key="lp-code"
+          textAnchor="middle"
+          x={72}
+          y={75}
+        >
           {'{ }'}
-        </text>,
+        </text>
       );
       // base
       n.push(px('lp-base', 50, 84, 44, 5, mix(ink, paper, 0.2)));
@@ -347,7 +372,16 @@ function drawProp(kind: PropKind, t: Tokens): ReactNode[] {
     case 'palette': {
       // a paint palette + stylus — UI design
       n.push(
-        <ellipse cx={70} cy={76} fill={paper} key="pl-base" rx={20} ry={15} stroke={ink} strokeWidth={1.6} />,
+        <ellipse
+          cx={70}
+          cy={76}
+          fill={paper}
+          key="pl-base"
+          rx={20}
+          ry={15}
+          stroke={ink}
+          strokeWidth={1.6}
+        />
       );
       n.push(<ellipse cx={78} cy={80} fill={t.bg} key="pl-hole" rx={4} ry={3} />);
       const dots: [number, number, string][] = [
@@ -372,10 +406,29 @@ function drawProp(kind: PropKind, t: Tokens): ReactNode[] {
       n.push(px('lo-wbox', 58, 69, 12, 8, line));
       n.push(px('lo-wbox2', 72, 69, 6, 8, line));
       // magnifier
-      n.push(<circle cx={78} cy={80} fill={mix(ac, paper, 0.7)} fillOpacity={0.5} key="lo-glass" r={10} stroke={ink} strokeWidth={2.4} />);
+      n.push(
+        <circle
+          cx={78}
+          cy={80}
+          fill={mix(ac, paper, 0.7)}
+          fillOpacity={0.5}
+          key="lo-glass"
+          r={10}
+          stroke={ink}
+          strokeWidth={2.4}
+        />
+      );
       n.push(px('lo-handle', 85, 87, 3, 9, ink, 1));
       // check mark inside
-      n.push(<path d="M74 80 l3 3 l5 -6" fill="none" key="lo-check" stroke={t.committedDot} strokeWidth={2.2} />);
+      n.push(
+        <path
+          d="M74 80 l3 3 l5 -6"
+          fill="none"
+          key="lo-check"
+          stroke={t.committedDot}
+          strokeWidth={2.2}
+        />
+      );
       break;
     }
     case 'gauge': {
@@ -387,12 +440,22 @@ function drawProp(kind: PropKind, t: Tokens): ReactNode[] {
           key="ga-shield"
           stroke={ink}
           strokeWidth={1.8}
-        />,
+        />
       );
       // gauge arc
-      n.push(<path d="M60 78 A12 12 0 0 1 80 78" fill="none" key="ga-arc" stroke={line} strokeWidth={2.4} />);
+      n.push(
+        <path
+          d="M60 78 A12 12 0 0 1 80 78"
+          fill="none"
+          key="ga-arc"
+          stroke={line}
+          strokeWidth={2.4}
+        />
+      );
       // needle to "pass" zone
-      n.push(<line key="ga-needle" stroke={ac} strokeWidth={2.4} x1={70} x2={78} y1={78} y2={70} />);
+      n.push(
+        <line key="ga-needle" stroke={ac} strokeWidth={2.4} x1={70} x2={78} y1={78} y2={70} />
+      );
       n.push(<circle cx={70} cy={78} fill={ink} key="ga-hub" r={2.4} />);
       n.push(px('ga-tickL', 59, 77, 2.4, 2.4, t.dangerFg));
       n.push(px('ga-tickR', 79, 77, 2.4, 2.4, t.committedDot));
@@ -401,7 +464,17 @@ function drawProp(kind: PropKind, t: Tokens): ReactNode[] {
     case 'wrench': {
       // the breaking-MACHINE: a gear rig + a wrench. A tool that builds the
       // harness to break the system (distinct from the tester who runs it).
-      n.push(<circle cx={66} cy={72} fill={mix(ink, paper, 0.18)} key="we-gear" r={13} stroke={ink} strokeWidth={1.6} />);
+      n.push(
+        <circle
+          cx={66}
+          cy={72}
+          fill={mix(ink, paper, 0.18)}
+          key="we-gear"
+          r={13}
+          stroke={ink}
+          strokeWidth={1.6}
+        />
+      );
       // gear teeth
       for (let i = 0; i < 8; i++) {
         const ang = (i / 8) * Math.PI * 2;
@@ -409,13 +482,15 @@ function drawProp(kind: PropKind, t: Tokens): ReactNode[] {
         const gy = 72 + Math.sin(ang) * 13;
         n.push(px(`we-t${String(i)}`, gx - 1.6, gy - 1.6, 3.2, 3.2, ink));
       }
-      n.push(<circle cx={66} cy={72} fill={t.bg} key="we-hub" r={4} stroke={ink} strokeWidth={1.4} />);
+      n.push(
+        <circle cx={66} cy={72} fill={t.bg} key="we-hub" r={4} stroke={ink} strokeWidth={1.4} />
+      );
       // wrench laid across
       n.push(
         <g key="we-wrench" transform="rotate(40 80 64)">
           <rect fill={ac} height={22} rx={1} width={4} x={78} y={52} />
           <path d="M76 50 a5 5 0 1 0 8 0 l-2 3 a3 3 0 1 1 -4 0 Z" fill={ac} />
-        </g>,
+        </g>
       );
       break;
     }
@@ -423,13 +498,28 @@ function drawProp(kind: PropKind, t: Tokens): ReactNode[] {
       // RUNS the machine: a bug net catching a bug + a red defect ticket.
       // net handle + hoop
       n.push(px('bn-handle', 54, 70, 3, 24, mix(ink, paper, 0.1)));
-      n.push(<circle cx={64} cy={64} fill="none" key="bn-hoop" r={11} stroke={ink} strokeWidth={2.2} />);
-      n.push(<circle cx={64} cy={64} fill={mix(ac2, paper, 0.6)} fillOpacity={0.4} key="bn-mesh" r={9} />);
+      n.push(
+        <circle cx={64} cy={64} fill="none" key="bn-hoop" r={11} stroke={ink} strokeWidth={2.2} />
+      );
+      n.push(
+        <circle cx={64} cy={64} fill={mix(ac2, paper, 0.6)} fillOpacity={0.4} key="bn-mesh" r={9} />
+      );
       // mesh hatch
       n.push(<line key="bn-m1" stroke={line} strokeWidth={0.8} x1={57} x2={71} y1={60} y2={68} />);
       n.push(<line key="bn-m2" stroke={line} strokeWidth={0.8} x1={57} x2={71} y1={68} y2={60} />);
       // the bug
-      n.push(<ellipse cx={64} cy={63} fill={danger} key="bn-bug" rx={4} ry={5} stroke={darken(danger, 0.3)} strokeWidth={0.8} />);
+      n.push(
+        <ellipse
+          cx={64}
+          cy={63}
+          fill={danger}
+          key="bn-bug"
+          rx={4}
+          ry={5}
+          stroke={darken(danger, 0.3)}
+          strokeWidth={0.8}
+        />
+      );
       n.push(<line key="bn-leg1" stroke={ink} strokeWidth={1} x1={60} x2={57} y1={62} y2={60} />);
       n.push(<line key="bn-leg2" stroke={ink} strokeWidth={1} x1={68} x2={71} y1={62} y2={60} />);
       n.push(<line key="bn-leg3" stroke={ink} strokeWidth={1} x1={60} x2={57} y1={65} y2={67} />);
@@ -460,26 +550,60 @@ function drawHairBack(f: FigurePlan): ReactNode[] {
   const dark = darken(f.hair, 0.2);
   switch (f.hairStyle) {
     case 4: // long hair down past the shoulders — back curtain
-      n.push(<path d="M13 40 Q12 22 34 22 Q56 22 55 40 L55 80 Q51 64 51 46 L17 46 Q17 64 13 80 Z" fill={hair} key="fg-hair-back" />);
+      n.push(
+        <path
+          d="M13 40 Q12 22 34 22 Q56 22 55 40 L55 80 Q51 64 51 46 L17 46 Q17 64 13 80 Z"
+          fill={hair}
+          key="fg-hair-back"
+        />
+      );
       break;
     case 5: // bob — chin-length back layer framing the jaw
-      n.push(<path d="M14 40 Q14 22 34 22 Q54 22 54 40 L54 60 Q49 54 49 44 L19 44 Q19 54 14 60 Z" fill={hair} key="fg-hair-back" />);
+      n.push(
+        <path
+          d="M14 40 Q14 22 34 22 Q54 22 54 40 L54 60 Q49 54 49 44 L19 44 Q19 54 14 60 Z"
+          fill={hair}
+          key="fg-hair-back"
+        />
+      );
       break;
     case 6: // ponytail — gathered tail trailing behind one side
-      n.push(<path d="M48 34 Q62 38 60 56 Q58 72 50 76 Q56 60 50 44 Z" fill={hair} key="fg-tail" />);
+      n.push(
+        <path d="M48 34 Q62 38 60 56 Q58 72 50 76 Q56 60 50 44 Z" fill={hair} key="fg-tail" />
+      );
       break;
     case 7: // bun — top/back knot
-      n.push(<circle cx={34} cy={19} fill={hair} key="fg-bun" r={7.5} stroke={dark} strokeWidth={1} />);
+      n.push(
+        <circle cx={34} cy={19} fill={hair} key="fg-bun" r={7.5} stroke={dark} strokeWidth={1} />
+      );
       break;
     case 10: // half-up — shoulder-length back fall, gathered at the crown
-      n.push(<path d="M15 40 Q15 23 34 23 Q53 23 53 40 L53 66 Q48 56 48 45 L20 45 Q20 56 15 66 Z" fill={hair} key="fg-hair-back" />);
+      n.push(
+        <path
+          d="M15 40 Q15 23 34 23 Q53 23 53 40 L53 66 Q48 56 48 45 L20 45 Q20 56 15 66 Z"
+          fill={hair}
+          key="fg-hair-back"
+        />
+      );
       break;
     case 11: // side braid — single plaited rope falling over one shoulder
-      n.push(<path d="M16 40 Q16 23 34 23 Q52 23 52 40 L52 54 Q47 48 47 44 L21 44 Q21 50 18 54 Z" fill={hair} key="fg-hair-back" />);
+      n.push(
+        <path
+          d="M16 40 Q16 23 34 23 Q52 23 52 40 L52 54 Q47 48 47 44 L21 44 Q21 50 18 54 Z"
+          fill={hair}
+          key="fg-hair-back"
+        />
+      );
       // braid segments down the left side
-      n.push(<circle cx={20} cy={58} fill={hair} key="fg-br1" r={3.6} stroke={dark} strokeWidth={0.8} />);
-      n.push(<circle cx={20} cy={65} fill={hair} key="fg-br2" r={3.2} stroke={dark} strokeWidth={0.8} />);
-      n.push(<circle cx={20} cy={71} fill={hair} key="fg-br3" r={2.6} stroke={dark} strokeWidth={0.8} />);
+      n.push(
+        <circle cx={20} cy={58} fill={hair} key="fg-br1" r={3.6} stroke={dark} strokeWidth={0.8} />
+      );
+      n.push(
+        <circle cx={20} cy={65} fill={hair} key="fg-br2" r={3.2} stroke={dark} strokeWidth={0.8} />
+      );
+      n.push(
+        <circle cx={20} cy={71} fill={hair} key="fg-br3" r={2.6} stroke={dark} strokeWidth={0.8} />
+      );
       break;
     default:
       break;
@@ -493,51 +617,123 @@ function drawHairFront(f: FigurePlan): ReactNode[] {
   const dark = darken(f.hair, 0.2);
   switch (f.hairStyle) {
     case 0: // short crop
-      n.push(<path d="M18 40 Q18 24 34 24 Q50 24 50 40 L50 33 Q44 30 34 30 Q24 30 24 35 Z" fill={hair} key="fg-hair" />);
+      n.push(
+        <path
+          d="M18 40 Q18 24 34 24 Q50 24 50 40 L50 33 Q44 30 34 30 Q24 30 24 35 Z"
+          fill={hair}
+          key="fg-hair"
+        />
+      );
       break;
     case 1: // tall / volume
-      n.push(<path d="M17 38 Q16 20 34 20 Q52 20 51 38 Q46 28 34 28 Q22 28 17 38 Z" fill={hair} key="fg-hair" />);
+      n.push(
+        <path
+          d="M17 38 Q16 20 34 20 Q52 20 51 38 Q46 28 34 28 Q22 28 17 38 Z"
+          fill={hair}
+          key="fg-hair"
+        />
+      );
       break;
     case 2: // side part
-      n.push(<path d="M18 40 Q18 24 34 24 Q52 24 50 40 Q48 28 30 29 Q24 30 22 40 Z" fill={hair} key="fg-hair" />);
+      n.push(
+        <path
+          d="M18 40 Q18 24 34 24 Q52 24 50 40 Q48 28 30 29 Q24 30 22 40 Z"
+          fill={hair}
+          key="fg-hair"
+        />
+      );
       n.push(px('fg-part', 30, 25, 3, 10, dark));
       break;
     case 3: // cap of hair + locks at ears
-      n.push(<path d="M18 41 Q18 24 34 24 Q50 24 50 41 L50 36 Q34 31 18 36 Z" fill={hair} key="fg-hair" />);
+      n.push(
+        <path
+          d="M18 41 Q18 24 34 24 Q50 24 50 41 L50 36 Q34 31 18 36 Z"
+          fill={hair}
+          key="fg-hair"
+        />
+      );
       n.push(px('fg-lockL', 18, 38, 4, 9, hair));
       n.push(px('fg-lockR', 46, 38, 4, 9, hair));
       break;
     case 4: // long — crown + fringe over the forehead, side strands by the cheeks
-      n.push(<path d="M17 41 Q17 23 34 23 Q51 23 51 41 Q48 30 34 30 Q20 30 17 41 Z" fill={hair} key="fg-hair" />);
+      n.push(
+        <path
+          d="M17 41 Q17 23 34 23 Q51 23 51 41 Q48 30 34 30 Q20 30 17 41 Z"
+          fill={hair}
+          key="fg-hair"
+        />
+      );
       n.push(px('fg-sideL', 18, 40, 3.5, 16, hair, 1));
       n.push(px('fg-sideR', 46.5, 40, 3.5, 16, hair, 1));
       break;
     case 5: // bob — crown + side strands to the jaw
-      n.push(<path d="M17 41 Q17 24 34 24 Q51 24 51 41 Q47 30 34 30 Q21 30 17 41 Z" fill={hair} key="fg-hair" />);
+      n.push(
+        <path
+          d="M17 41 Q17 24 34 24 Q51 24 51 41 Q47 30 34 30 Q21 30 17 41 Z"
+          fill={hair}
+          key="fg-hair"
+        />
+      );
       n.push(px('fg-sideL', 18, 40, 3.5, 11, hair, 1));
       n.push(px('fg-sideR', 46.5, 40, 3.5, 11, hair, 1));
       break;
     case 6: // ponytail — pulled-back crown + tie
-      n.push(<path d="M17 40 Q17 23 34 23 Q51 23 51 40 Q47 29 34 29 Q21 29 17 40 Z" fill={hair} key="fg-hair" />);
+      n.push(
+        <path
+          d="M17 40 Q17 23 34 23 Q51 23 51 40 Q47 29 34 29 Q21 29 17 40 Z"
+          fill={hair}
+          key="fg-hair"
+        />
+      );
       n.push(<circle cx={49} cy={37} fill={dark} key="fg-tie" r={2.4} />);
       break;
     case 7: // bun — sleek pulled-back crown
-      n.push(<path d="M17 41 Q17 23 34 23 Q51 23 51 41 Q47 30 34 30 Q21 30 17 41 Z" fill={hair} key="fg-hair" />);
+      n.push(
+        <path
+          d="M17 41 Q17 23 34 23 Q51 23 51 41 Q47 30 34 30 Q21 30 17 41 Z"
+          fill={hair}
+          key="fg-hair"
+        />
+      );
       break;
     case 10: // half-up — crown + short side strands by the cheeks
-      n.push(<path d="M17 41 Q17 23 34 23 Q51 23 51 41 Q48 30 34 30 Q20 30 17 41 Z" fill={hair} key="fg-hair" />);
+      n.push(
+        <path
+          d="M17 41 Q17 23 34 23 Q51 23 51 41 Q48 30 34 30 Q20 30 17 41 Z"
+          fill={hair}
+          key="fg-hair"
+        />
+      );
       n.push(px('fg-sideL', 18, 40, 3, 10, hair, 1));
       n.push(px('fg-sideR', 47, 40, 3, 10, hair, 1));
       break;
     case 11: // side braid — crown swept to one side over the forehead
-      n.push(<path d="M17 41 Q17 23 34 23 Q51 23 51 41 Q48 29 28 30 Q22 31 17 41 Z" fill={hair} key="fg-hair" />);
+      n.push(
+        <path
+          d="M17 41 Q17 23 34 23 Q51 23 51 41 Q48 29 28 30 Q22 31 17 41 Z"
+          fill={hair}
+          key="fg-hair"
+        />
+      );
       n.push(px('fg-sweep', 24, 26, 18, 3, dark, 1));
       break;
     case 8: // tousled medium (androgynous)
-      n.push(<path d="M16 41 Q16 22 34 22 Q52 22 52 41 Q49 30 44 31 Q40 26 34 30 Q28 26 24 31 Q19 30 16 41 Z" fill={hair} key="fg-hair" />);
+      n.push(
+        <path
+          d="M16 41 Q16 22 34 22 Q52 22 52 41 Q49 30 44 31 Q40 26 34 30 Q28 26 24 31 Q19 30 16 41 Z"
+          fill={hair}
+          key="fg-hair"
+        />
+      );
       break;
     default: // 9 — undercut: volume on top, shaved sides
-      n.push(<path d="M22 40 Q21 22 34 22 Q47 22 46 40 Q44 29 34 29 Q24 29 22 40 Z" fill={hair} key="fg-hair" />);
+      n.push(
+        <path
+          d="M22 40 Q21 22 34 22 Q47 22 46 40 Q44 29 34 29 Q24 29 22 40 Z"
+          fill={hair}
+          key="fg-hair"
+        />
+      );
       n.push(px('fg-uc-l', 19, 36, 3, 8, darken(f.skin, 0.12)));
       n.push(px('fg-uc-r', 46, 36, 3, 8, darken(f.skin, 0.12)));
   }
@@ -557,22 +753,57 @@ function drawFigure(f: FigurePlan, t: Tokens): ReactNode[] {
       key="fg-torso"
       stroke={darken(f.clothes, 0.25)}
       strokeWidth={1.2}
-    />,
+    />
   );
   // collar — shape varies (crew / V-neck / band) as a quiet presentation cue
   if (f.collar === 'vee') {
-    n.push(<path d="M26 73 L34 86 L42 73" fill="none" key="fg-collar" stroke={darken(f.clothes, 0.32)} strokeWidth={1.8} />);
+    n.push(
+      <path
+        d="M26 73 L34 86 L42 73"
+        fill="none"
+        key="fg-collar"
+        stroke={darken(f.clothes, 0.32)}
+        strokeWidth={1.8}
+      />
+    );
   } else if (f.collar === 'band') {
-    n.push(<path d="M26 76 Q34 80 42 76" fill="none" key="fg-collar" stroke={darken(f.clothes, 0.3)} strokeWidth={2} />);
+    n.push(
+      <path
+        d="M26 76 Q34 80 42 76"
+        fill="none"
+        key="fg-collar"
+        stroke={darken(f.clothes, 0.3)}
+        strokeWidth={2}
+      />
+    );
   } else {
-    n.push(<path d="M28 74 L34 82 L40 74" fill="none" key="fg-collar" stroke={darken(f.clothes, 0.3)} strokeWidth={1.6} />);
+    n.push(
+      <path
+        d="M28 74 L34 82 L40 74"
+        fill="none"
+        key="fg-collar"
+        stroke={darken(f.clothes, 0.3)}
+        strokeWidth={1.6}
+      />
+    );
   }
   // neck
   n.push(px('fg-neck', 29, 60, 10, 12, f.skinShade));
   // head
   n.push(<rect fill={f.skin} height={34} key="fg-head" rx={9} width={28} x={20} y={28} />);
   // jaw shade
-  n.push(<rect fill={f.skinShade} fillOpacity={0.35} height={12} key="fg-jaw" rx={9} width={28} x={20} y={50} />);
+  n.push(
+    <rect
+      fill={f.skinShade}
+      fillOpacity={0.35}
+      height={12}
+      key="fg-jaw"
+      rx={9}
+      width={28}
+      x={20}
+      y={50}
+    />
+  );
   // ears
   n.push(<rect fill={f.skin} height={8} key="fg-earL" rx={2.5} width={5} x={17} y={42} />);
   n.push(<rect fill={f.skin} height={8} key="fg-earR" rx={2.5} width={5} x={46} y={42} />);
@@ -585,8 +816,26 @@ function drawFigure(f: FigurePlan, t: Tokens): ReactNode[] {
   n.push(px('fg-eyeR', 38, 44, 4, 4, ink, 1));
   // lashes — a soft feminine cue (tiny outward flicks at the outer eye corners)
   if (f.lashes) {
-    n.push(<path d="M26 44 l-2 -1.4" fill="none" key="fg-lashL" stroke={ink} strokeLinecap="round" strokeWidth={1.2} />);
-    n.push(<path d="M43 44 l2 -1.4" fill="none" key="fg-lashR" stroke={ink} strokeLinecap="round" strokeWidth={1.2} />);
+    n.push(
+      <path
+        d="M26 44 l-2 -1.4"
+        fill="none"
+        key="fg-lashL"
+        stroke={ink}
+        strokeLinecap="round"
+        strokeWidth={1.2}
+      />
+    );
+    n.push(
+      <path
+        d="M43 44 l2 -1.4"
+        fill="none"
+        key="fg-lashR"
+        stroke={ink}
+        strokeLinecap="round"
+        strokeWidth={1.2}
+      />
+    );
   }
   // brows — feminine presentations get a thinner/higher brow, masc a heavier one
   const browH = f.presentation === 'fem' ? 1.2 : f.presentation === 'masc' ? 2.1 : 1.6;
@@ -595,21 +844,85 @@ function drawFigure(f: FigurePlan, t: Tokens): ReactNode[] {
   n.push(px('fg-browR', 37, browY, 6, browH, darken(f.hair, 0.1)));
   // stubble — faint shading along the jaw for some masc figures
   if (f.hasStubble) {
-    n.push(<rect fill={darken(f.skin, 0.45)} fillOpacity={0.28} height={9} key="fg-stubble" rx={6} width={24} x={22} y={52} />);
+    n.push(
+      <rect
+        fill={darken(f.skin, 0.45)}
+        fillOpacity={0.28}
+        height={9}
+        key="fg-stubble"
+        rx={6}
+        width={24}
+        x={22}
+        y={52}
+      />
+    );
   }
   // smile
-  n.push(<path d="M29 54 Q34 58 39 54" fill="none" key="fg-mouth" stroke={darken(f.skin, 0.35)} strokeLinecap="round" strokeWidth={1.6} />);
+  n.push(
+    <path
+      d="M29 54 Q34 58 39 54"
+      fill="none"
+      key="fg-mouth"
+      stroke={darken(f.skin, 0.35)}
+      strokeLinecap="round"
+      strokeWidth={1.6}
+    />
+  );
 
   // earrings — small studs/drops at the earlobes
   if (f.hasEarrings) {
-    n.push(<circle cx={19} cy={50} fill={t.accent} key="fg-earrL" r={1.7} stroke={darken(t.accent, 0.25)} strokeWidth={0.5} />);
-    n.push(<circle cx={49} cy={50} fill={t.accent} key="fg-earrR" r={1.7} stroke={darken(t.accent, 0.25)} strokeWidth={0.5} />);
+    n.push(
+      <circle
+        cx={19}
+        cy={50}
+        fill={t.accent}
+        key="fg-earrL"
+        r={1.7}
+        stroke={darken(t.accent, 0.25)}
+        strokeWidth={0.5}
+      />
+    );
+    n.push(
+      <circle
+        cx={49}
+        cy={50}
+        fill={t.accent}
+        key="fg-earrR"
+        r={1.7}
+        stroke={darken(t.accent, 0.25)}
+        strokeWidth={0.5}
+      />
+    );
   }
 
   // optional glasses
   if (f.hasGlasses) {
-    n.push(<rect fill="none" height={7} key="fg-glL" rx={2} stroke={ink} strokeWidth={1.4} width={8} x={25} y={42} />);
-    n.push(<rect fill="none" height={7} key="fg-glR" rx={2} stroke={ink} strokeWidth={1.4} width={8} x={36} y={42} />);
+    n.push(
+      <rect
+        fill="none"
+        height={7}
+        key="fg-glL"
+        rx={2}
+        stroke={ink}
+        strokeWidth={1.4}
+        width={8}
+        x={25}
+        y={42}
+      />
+    );
+    n.push(
+      <rect
+        fill="none"
+        height={7}
+        key="fg-glR"
+        rx={2}
+        stroke={ink}
+        strokeWidth={1.4}
+        width={8}
+        x={36}
+        y={42}
+      />
+    );
     n.push(px('fg-glBridge', 33, 45, 3, 1.4, ink));
   }
   return n;
@@ -658,13 +971,22 @@ export function RoleAvatar({
         {/* faint "screen" wash */}
         <rect fill={t.bg} height="100" opacity={0.55} width="100" x="0" y="0" />
         {/* subtle vignette panel behind the figure */}
-        <rect fill={t.paper} height="88" opacity={0.35} rx={t.radius > 4 ? 6 : 0} width="88" x="6" y="6" />
+        <rect
+          fill={t.paper}
+          height="88"
+          opacity={0.35}
+          rx={t.radius > 4 ? 6 : 0}
+          width="88"
+          x="6"
+          y="6"
+        />
         {figureNodes}
         {propNodes}
       </Box>
 
       {/* CRT scanlines on hard-shadow themes */}
-      {t.hardShadow ? <Box
+      {t.hardShadow ? (
+        <Box
           sx={{
             position: 'absolute',
             inset: 0,
@@ -673,7 +995,8 @@ export function RoleAvatar({
               'repeating-linear-gradient(0deg, rgba(0,0,0,0.10) 0 1px, transparent 1px 3px)',
             mixBlendMode: 'multiply',
           }}
-        /> : null}
+        />
+      ) : null}
       {/* power LED */}
       <Box
         sx={{
