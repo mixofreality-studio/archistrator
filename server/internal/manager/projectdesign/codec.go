@@ -95,7 +95,7 @@ func (e modelEnvelope) decode() (projectstate.ArtifactModel, error) {
 		// and codec.go's projectEnvelope.decode) — a typed sentinel error would
 		// force every caller to unwrap-and-ignore it, which is exactly what
 		// returning a plain nil model already achieves.
-		return nil, nil //nolint:nilnil
+		return nil, nil //nolint:nilnil // (nil model, nil err) is the documented "no model yet" value; see the block comment above.
 	}
 	model, ok := projectstate.NewModelForKind(e.Kind)
 	if !ok {

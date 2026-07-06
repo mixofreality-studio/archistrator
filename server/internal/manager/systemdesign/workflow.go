@@ -641,47 +641,66 @@ func (wf *workflows) CoAuthorArtifactWorkflow(ctx workflow.Context, in coAuthorI
 			state.reviewThread = thread
 		}
 
-		// Step 6/7: the review gate. Await a decision and act on it. An approve/merge-window
-		// fault is CONTAINED as actionReAwait (QA F35): the staged draft is intact, so we
-		// re-suspend at THIS gate (carrying a queryable notice) and await the next decision —
-		// the human re-approves — WITHOUT redrafting. Reject/withdraw exit this inner loop
-		// (reject → break to the outer loop which redrafts; withdraw → return).
-	gate:
-		for {
-			// REVIEW LEDGER: the gate now multiplexes the review decision with the
-			// SetReviewCommentStatus signal (waive / reopen). A status signal mutates the
-			// durable ledger on the branch and re-suspends at THIS gate WITHOUT redrafting; a
-			// review decision proceeds exactly as before.
-			var sig reviewDecisionSignal
-			var stSig setCommentStatusSignal
-			var gotDecision, gotStatus bool
-			sel := workflow.NewSelector(ctx)
-			sel.AddReceive(workflow.GetSignalChannel(ctx, signalReviewDecision), func(c workflow.ReceiveChannel, _ bool) {
-				c.Receive(ctx, &sig)
-				gotDecision = true
-			})
-			sel.AddReceive(workflow.GetSignalChannel(ctx, signalSetCommentStatus), func(c workflow.ReceiveChannel, _ bool) {
-				c.Receive(ctx, &stSig)
-				gotStatus = true
-			})
-			sel.Select(ctx)
-
-			if gotStatus {
-				wf.applyCommentStatus(ctx, in, gf, &headVersion, stSig, state)
-				continue gate
-			}
-			_ = gotDecision
-
-			decision := wf.handleReviewDecision(ctx, in, sig, &headVersion, &reviewRound, &redraftCount, &feedback, &gf, state)
-			switch decision.action {
-			case actionReturn:
-				return decision.outcome, decision.err
-			case actionReAwait:
-				continue gate
-			case actionRedraft, actionProceed:
-				break gate
-			}
+		// Step 6/7: the review gate. Await a decision and act on it (see awaitReviewGate).
+		// An approve/merge-window fault is CONTAINED as actionReAwait (QA F35) INSIDE the gate
+		// helper — it re-suspends there WITHOUT redrafting, so the helper only ever hands back
+		// return (withdraw) or redraft/proceed (reject → the outer loop redrafts; approve →
+		// the outer loop re-derives the next draft).
+		gateStep := wf.awaitReviewGate(ctx, in, gf, &headVersion, &reviewRound, &redraftCount, &feedback, state)
+		switch gateStep.action {
+		case actionReturn:
+			return gateStep.outcome, gateStep.err
+		case actionRedraft, actionProceed, actionReAwait:
+			continue
 		}
+	}
+}
+
+// awaitReviewGate suspends at the AwaitingReview gate, multiplexing the review DECISION
+// signal with the SetReviewCommentStatus (waive / reopen) signal. A status signal mutates
+// the durable review ledger on the session branch and re-suspends at THIS gate WITHOUT
+// redrafting; an approve/merge-window fault is contained as actionReAwait and likewise
+// re-suspends here (the staged draft is intact — QA F35). Only a review DECISION that the
+// gate cannot recover in place returns: withdraw → actionReturn; reject → actionRedraft;
+// approve+merge → actionProceed. gf is the per-iteration git session; it is loop-local in
+// the spine (re-derived every outer iteration), so passing it by value is safe.
+func (wf *workflows) awaitReviewGate(
+	ctx workflow.Context,
+	in coAuthorInput,
+	gf gitSession,
+	headVersion *projectstate.Version,
+	reviewRound *int,
+	redraftCount *int,
+	feedback *ReviewFeedback,
+	state *coAuthorState,
+) coAuthorStep {
+	for {
+		// REVIEW LEDGER: multiplex the review decision with the SetReviewCommentStatus
+		// signal. A status signal mutates the durable ledger on the branch and re-suspends
+		// at THIS gate WITHOUT redrafting; a review decision proceeds exactly as before.
+		var sig reviewDecisionSignal
+		var stSig setCommentStatusSignal
+		var gotStatus bool
+		sel := workflow.NewSelector(ctx)
+		sel.AddReceive(workflow.GetSignalChannel(ctx, signalReviewDecision), func(c workflow.ReceiveChannel, _ bool) {
+			c.Receive(ctx, &sig)
+		})
+		sel.AddReceive(workflow.GetSignalChannel(ctx, signalSetCommentStatus), func(c workflow.ReceiveChannel, _ bool) {
+			c.Receive(ctx, &stSig)
+			gotStatus = true
+		})
+		sel.Select(ctx)
+
+		if gotStatus {
+			wf.applyCommentStatus(ctx, in, gf, headVersion, stSig, state)
+			continue
+		}
+
+		decision := wf.handleReviewDecision(ctx, in, sig, headVersion, reviewRound, redraftCount, feedback, &gf, state)
+		if decision.action == actionReAwait {
+			continue
+		}
+		return decision
 	}
 }
 
@@ -1650,6 +1669,8 @@ func systemLayerDegenerateFindings(kind ArtifactKind, draft projectstate.Artifac
 			managers++
 		case projectstate.CompResourceAccess:
 			resourceAccess++
+		case projectstate.CompClient, projectstate.CompEngine, projectstate.CompResource, projectstate.CompUtility:
+			// Not counted — only Managers and ResourceAccess gate the degenerate-layer check.
 		}
 	}
 	if managers == 0 {

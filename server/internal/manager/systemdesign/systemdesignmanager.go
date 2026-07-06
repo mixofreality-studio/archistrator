@@ -674,6 +674,10 @@ func committedSessionView(projectID ProjectID, kind ArtifactKind, slot projectst
 			Stage:        StageWithdrawn,
 			Draft:        DraftModel{Kind: artifactKindWireName(kind)},
 		}, nil
+	case projectstate.ReviewNone, projectstate.ReviewAwaitingReview, projectstate.ReviewRejected:
+		// Any non-committed / non-withdrawn terminal status renders the honest
+		// StageDraftFailed view (never StageDrafting — the anti-wedge rule).
+		fallthrough
 	default:
 		reason := "the design session ended without committing an artifact. Retry to start a fresh draft."
 		return SessionStateView{

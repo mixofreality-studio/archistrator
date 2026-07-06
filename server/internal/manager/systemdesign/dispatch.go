@@ -271,6 +271,8 @@ const (
 // jobModeFor maps a DispatchTarget to its job_mode dispatch value.
 func jobModeFor(target dispatchTarget) string {
 	switch target {
+	case dispatchTargetDraft:
+		return jobModeDraft
 	case dispatchTargetCritique:
 		return jobModeCritique
 	case dispatchTargetAnswer:
