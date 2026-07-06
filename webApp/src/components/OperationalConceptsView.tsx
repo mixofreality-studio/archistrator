@@ -11,11 +11,16 @@
  */
 import { useMemo, useState, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
+import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import { useParams } from '@tanstack/react-router';
-import { listDeploymentProfiles, toOperationalDecisionsView } from '../contracts/adapters';
+import {
+  listDeploymentProfiles,
+  toMissionView,
+  toOperationalDecisionsView,
+} from '../contracts/adapters';
 import type { ArtifactModelEnvelope } from '../contracts/types';
 import type { DeploymentProfile } from '../contracts/models';
 import { useProject } from '../hooks/useProject';
@@ -30,6 +35,47 @@ const PROFILE_LABEL: Record<DeploymentProfile, string> = {
   local: 'Local',
   test: 'Test',
 };
+
+/** Truncation length for the inline objective statement (full text lives in the tooltip). */
+const OBJECTIVE_CLAMP = 90;
+
+/**
+ * "justifies objective 2 — <statement>" for a decision. The bare number is
+ * meaningless on its own, so the joined objective statement is shown inline
+ * (truncated) with the full text on hover. When the mission join can't resolve the
+ * number (mission not committed / out of range) it degrades to just the number.
+ */
+function ObjectiveJustification({
+  number,
+  statement,
+  t,
+}: {
+  number: number;
+  statement: string | undefined;
+  t: ReturnType<typeof useTokens>;
+}): ReactNode {
+  const label = (
+    <Typography sx={{ color: t.muted, fontFamily: t.mono, fontSize: 11, mt: 0.25 }}>
+      justifies objective {number}
+      {statement !== undefined && statement.length > 0 ? (
+        <>
+          {' — '}
+          <Box component="span" sx={{ fontStyle: 'italic', color: t.ink, opacity: 0.85 }}>
+            {statement.length > OBJECTIVE_CLAMP
+              ? `${statement.slice(0, OBJECTIVE_CLAMP).trimEnd()}…`
+              : statement}
+          </Box>
+        </>
+      ) : null}
+    </Typography>
+  );
+  if (statement === undefined || statement.length <= OBJECTIVE_CLAMP) return label;
+  return (
+    <Tooltip arrow placement="top-start" title={statement}>
+      {label}
+    </Tooltip>
+  );
+}
 
 export function OperationalConceptsView({
   envelope,
@@ -48,6 +94,15 @@ export function OperationalConceptsView({
     () => project?.slots.find((s) => s.kind === 'system')?.model,
     [project]
   );
+
+  // The committed Mission, joined so each decision can name the business objective
+  // it justifies (a bare "objective 2" is meaningless without the statement).
+  const objectiveByNumber = useMemo(() => {
+    const missionEnvelope = project?.slots.find((s) => s.kind === 'mission')?.model;
+    const m = new Map<number, string>();
+    for (const o of toMissionView(missionEnvelope).objectives ?? []) m.set(o.number, o.statement);
+    return m;
+  }, [project]);
 
   const profiles = useMemo(() => listDeploymentProfiles(envelope), [envelope]);
   const [profile, setProfile] = useState<DeploymentProfile | undefined>(undefined);
@@ -95,9 +150,11 @@ export function OperationalConceptsView({
               >
                 {d.decision}
               </Typography>
-              <Typography sx={{ color: t.muted, fontFamily: t.mono, fontSize: 11, mt: 0.25 }}>
-                justifies objective {d.justifyingObjective}
-              </Typography>
+              <ObjectiveJustification
+                number={d.justifyingObjective}
+                statement={objectiveByNumber.get(d.justifyingObjective)}
+                t={t}
+              />
             </Box>
           )}
         />

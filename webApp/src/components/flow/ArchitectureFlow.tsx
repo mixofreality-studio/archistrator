@@ -39,13 +39,7 @@ import {
   type Layout,
 } from './flowLayout';
 import { LayerLegend, FlowCanvas, FlowEmpty, FocusNodes } from './flowShared';
-import {
-  componentAnchor,
-  relationshipAnchor,
-  useComments,
-  type Anchor,
-} from '../comments/CommentContext';
-import type { C4NodeData } from './C4Node';
+import { relationshipAnchor, useComments, type Anchor } from '../comments/CommentContext';
 
 interface Model {
   components: C4Component[];
@@ -118,6 +112,7 @@ function edgeAnchor(r: C4Relationship, nameOf: Map<string, string>): Anchor {
 function derive(
   model: Model,
   hoveredId: string | null,
+  selectedId: string | null,
   t: Tokens
 ): { nodes: Node[]; edges: Edge[] } {
   const { components, relationships, layout, layerOf, colors } = model;
@@ -128,7 +123,10 @@ function derive(
     const pos = layout.pos.get(c.id) ?? { x: 0, y: 0 };
     // Utilities are shared infrastructure (the side bar just exists) — never dimmed.
     const dimmed = near !== null && !near.has(c.id) && c.layer !== 'utility';
-    return c4Node(c, pos, colors, { dimmed });
+    // Controlled selection (no onNodesChange): mark the pinned node via data so its
+    // NodeToolbar Comment button shows — the explicit comment affordance now that a
+    // plain click only selects/highlights and no longer silently arms an anchor.
+    return c4Node(c, pos, colors, { dimmed, selected: c.id === selectedId });
   });
   nodes.push(...decorativeNodes(layout));
 
@@ -169,7 +167,10 @@ export function ArchitectureFlow({
   // neighbourhood highlight this way, not only mouse hover). Hover wins while active.
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const activeId = hoveredId ?? selectedId;
-  const { nodes, edges } = useMemo(() => derive(model, activeId, t), [model, activeId, t]);
+  const { nodes, edges } = useMemo(
+    () => derive(model, activeId, selectedId, t),
+    [model, activeId, selectedId, t]
+  );
 
   // Finder options: all components, grouped by Method layer, alpha within layer.
   const finderOptions = useMemo(
@@ -182,6 +183,13 @@ export function ArchitectureFlow({
     [model.components]
   );
   const selectedOption = finderOptions.find((c) => c.id === selectedId) ?? null;
+
+  // Per-layer component counts, surfaced as cardinality chips in the legend.
+  const layerCounts = useMemo(() => {
+    const counts = Object.fromEntries(LAYER_ORDER.map((l) => [l, 0])) as Record<Layer, number>;
+    for (const c of model.components) counts[c.layer] += 1;
+    return counts;
+  }, [model.components]);
 
   // Hover focus, debounced: moving the cursor between two nodes briefly crosses
   // empty canvas (firing mouse-leave then mouse-enter). Clearing immediately would
@@ -252,17 +260,11 @@ export function ArchitectureFlow({
         }}
         onNodeClick={(_e, n) => {
           if (n.type !== 'c4') return;
-          // Highlight the call-chain neighbourhood AND arm a component comment
-          // anchor (the rail auto-opens on arm, giving visible feedback) — clicking
-          // a component is the primary way to comment on it in Static view.
+          // Click SELECTS/highlights the component (its call-chain neighbourhood lights
+          // up and its Comment toolbar appears) — it no longer arms a comment directly.
+          // Commenting is an explicit action: the toolbar button (mouse) or Enter/'c'
+          // on the focused node (keyboard). Toggle the pin off on re-click.
           setSelectedId((s) => (s === n.id ? null : n.id));
-          const d = n.data as C4NodeData;
-          setAnchor({
-            kind: 'node',
-            label: d.name,
-            source: `Architecture · ${d.name}`,
-            jsonPath: componentAnchor(d.componentId),
-          });
         }}
         onNodeMouseEnter={(_e, n) => {
           enterNode(n);
@@ -271,7 +273,7 @@ export function ArchitectureFlow({
           leaveNode();
         }}
       >
-        <LayerLegend colors={model.colors} t={t} usedLayers={model.usedLayers} />
+        <LayerLegend colors={model.colors} counts={layerCounts} t={t} usedLayers={model.usedLayers} />
         {selectedId !== null && <FocusNodes dep={selectedId} nodeIds={[selectedId]} />}
       </FlowCanvas>
     </Box>

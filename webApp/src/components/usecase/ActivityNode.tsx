@@ -6,7 +6,7 @@
  * a toolbar that arms an activity-node comment anchor
  * (`$.decisions[uc].useCase.activity.nodes[id=…]`).
  */
-import type { ReactNode } from 'react';
+import { useState, type FocusEvent, type KeyboardEvent, type ReactNode } from 'react';
 import { Handle, Position, NodeToolbar, type NodeProps } from '@xyflow/react';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -26,6 +26,9 @@ export interface ActivityNodeData {
   color: string;
   source: string;
   jsonPath: string;
+  /** Selection carried through data (xyflow's controlled selection is inert here) —
+   *  drives the Comment toolbar + accent ring. */
+  isSelected?: boolean;
   [key: string]: unknown;
 }
 
@@ -197,28 +200,53 @@ export function ActivityNode({ data, selected }: NodeProps): ReactNode {
   const t = useTokens();
   const { setAnchor, enabled } = useComments();
   const d = data as ActivityNodeData;
+  // Selecting a step = focusing it (click focuses the Box; keyboard Tab does too).
+  // xyflow captures node pointer events, so onNodeClick is unreliable — driving the
+  // Comment toolbar + ring off the Box's own focus is robust for mouse AND keyboard.
+  const [focused, setFocused] = useState(false);
+  const isSelected = focused || d.isSelected === true || selected;
+  // Keep the toolbar up while focus moves INTO its (portaled) Comment button.
+  const onBlur = (e: FocusEvent): void => {
+    const to = e.relatedTarget as HTMLElement | null;
+    if (to?.closest('.react-flow__node-toolbar') != null) return;
+    setFocused(false);
+  };
+
+  const armComment = (): void => {
+    setAnchor({ kind: 'node', label: d.label, source: d.source, jsonPath: d.jsonPath });
+  };
+  // Enter / 'c' arms a comment on a keyboard-focused step (CommentableList convention),
+  // so the activity diagram is operable without a mouse. Gated on `enabled`.
+  const onKeyDown = (e: KeyboardEvent): void => {
+    if (enabled && (e.key === 'Enter' || e.key === 'c' || e.key === 'C')) {
+      e.preventDefault();
+      armComment();
+    }
+  };
+  // A concise accessible name: the step label, its UML kind, and its lane/role.
+  const ariaLabel = `${d.label.length > 0 ? d.label : d.kind}, ${d.kind} in ${d.lane}`;
 
   let shape: ReactNode;
   switch (d.kind) {
     case 'start':
-      shape = Dot(t, d, selected, false);
+      shape = Dot(t, d, isSelected, false);
       break;
     case 'end':
-      shape = Dot(t, d, selected, true);
+      shape = Dot(t, d, isSelected, true);
       break;
     case 'decision':
     case 'switch':
-      shape = Diamond(t, d, selected, false);
+      shape = Diamond(t, d, isSelected, false);
       break;
     case 'merge':
-      shape = Diamond(t, d, selected, true);
+      shape = Diamond(t, d, isSelected, true);
       break;
     case 'fork':
     case 'join':
-      shape = Bar(t, d, selected);
+      shape = Bar(t, d, isSelected);
       break;
     case 'note':
-      shape = Note(t, d, selected);
+      shape = Note(t, d, isSelected);
       break;
     case 'action':
     case 'loop':
@@ -226,28 +254,46 @@ export function ActivityNode({ data, selected }: NodeProps): ReactNode {
     case 'interruptEdge':
     case 'swimLane':
     default:
-      shape = Card(t, d, selected);
+      shape = Card(t, d, isSelected);
       break;
   }
 
   return (
     <>
       {enabled ? (
-        <NodeToolbar isVisible={selected} offset={8} position={Position.Right}>
+        <NodeToolbar isVisible={isSelected} offset={8} position={Position.Right}>
           <Button
             size="small"
             startIcon={<ChatBubbleOutlineIcon sx={{ fontSize: 14 }} />}
             sx={{ py: 0.25, color: t.accentText, bgcolor: t.accent, border: `1.5px solid ${t.line}`, '&:hover': { bgcolor: t.accent2 } }}
-            onClick={() => {
-              setAnchor({ kind: 'node', label: d.label, source: d.source, jsonPath: d.jsonPath });
-            }}
+            onClick={armComment}
           >
             Comment
           </Button>
         </NodeToolbar>
       ) : null}
       <Handles />
-      {shape}
+      {/* Focusable, labeled wrapper: keyboard/AT reach the step with a visible focus
+          ring + accessible name, and Enter/'c' arms its comment. Focus + label are
+          always on; comment action only where commenting is enabled. */}
+      <Box
+        aria-label={enabled ? `${ariaLabel}. Press C to comment.` : ariaLabel}
+        role="button"
+        sx={{
+          display: 'inline-flex',
+          borderRadius: 1.5,
+          outline: 'none',
+          '&:focus-visible': { outline: `2px solid ${t.accent}`, outlineOffset: 3 },
+        }}
+        tabIndex={0}
+        onBlur={onBlur}
+        onFocus={() => {
+          setFocused(true);
+        }}
+        onKeyDown={onKeyDown}
+      >
+        {shape}
+      </Box>
     </>
   );
 }

@@ -218,7 +218,7 @@ export function c4Node(
   c: C4Component,
   position: { x: number; y: number },
   colors: Record<Layer, string>,
-  opts: { dimmed?: boolean; showEncapsulates?: boolean } = {}
+  opts: { dimmed?: boolean; showEncapsulates?: boolean; selected?: boolean } = {}
 ): Node {
   return {
     id: c.id,
@@ -231,6 +231,10 @@ export function c4Node(
       encapsulates: c.encapsulates,
       showEncapsulates: opts.showEncapsulates !== false,
       color: colors[c.layer],
+      // Selection travels through `data` (not the Node.selected field): with the
+      // controlled-node flow having no onNodesChange, xyflow's built-in selection is
+      // inert, so a data flag is the reliable way to drive the Comment toolbar + ring.
+      isSelected: opts.selected === true,
     },
     draggable: false,
     ...(opts.dimmed === true ? { style: { opacity: 0.12 } } : {}),

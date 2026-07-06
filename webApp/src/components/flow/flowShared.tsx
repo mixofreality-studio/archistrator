@@ -29,10 +29,15 @@ import { edgeTypes, nodeTypes } from './flowNodeTypes';
 export function LayerLegend({
   usedLayers,
   colors,
+  counts,
   t,
 }: {
   usedLayers: Layer[];
   colors: Record<Layer, string>;
+  /** Optional per-layer component count, rendered as a small "· N" cardinality chip
+   *  beside each legend row — surfaces The Method's per-layer cardinality guidance
+   *  where the eye already is (Static architecture view). */
+  counts?: Record<Layer, number>;
   t: Tokens;
 }): ReactNode {
   return (
@@ -54,6 +59,21 @@ export function LayerLegend({
             <Typography sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.ink }}>
               {LAYER_LABEL[l]}
             </Typography>
+            {counts !== undefined ? (
+              <Box
+                component="span"
+                sx={{
+                  ml: 'auto',
+                  pl: 1,
+                  fontFamily: t.mono,
+                  fontSize: 10,
+                  fontWeight: 700,
+                  color: colors[l],
+                }}
+              >
+                {counts[l]}
+              </Box>
+            ) : null}
           </Box>
         ))}
       </Box>
@@ -115,6 +135,10 @@ export function FlowCanvas({
         nodes={nodes}
         nodesConnectable={false}
         nodesDraggable={false}
+        // Each node owns its own focusable, labeled inner element (C4Node) that carries
+        // the accessible name + keyboard comment shortcut — xyflow's wrapper focus is
+        // off so there is a single, well-labeled tab stop per node.
+        nodesFocusable={false}
         proOptions={{ hideAttribution: true }}
         {...(onNodeMouseEnter ? { onNodeMouseEnter } : {})}
         {...(onNodeMouseLeave ? { onNodeMouseLeave } : {})}

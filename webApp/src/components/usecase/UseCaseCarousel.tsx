@@ -17,6 +17,7 @@ import FormControl from '@mui/material/FormControl';
 import InputLabel from '@mui/material/InputLabel';
 import Select from '@mui/material/Select';
 import MenuItem from '@mui/material/MenuItem';
+import ListSubheader from '@mui/material/ListSubheader';
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
@@ -67,12 +68,29 @@ export function UseCaseCarousel({
     setI((p) => (p + d + useCases.length) % useCases.length);
   };
   const isCore = uc.classification === 'core';
-  // A variation shares its parent's activity diagram; resolve the parent (by id) so
-  // the no-diagram surface can name it and offer a jump instead of a generic blank.
+  // A variation shares its parent's activity diagram; resolve the parent so the
+  // no-diagram surface can name it and offer a jump instead of a generic blank.
+  // Committed data carries the parent NAME (not the slug id), so match id OR exact
+  // name — both survive until the data is normalized (A5).
   const parentIndex =
-    uc.variationOf.length > 0 ? useCases.findIndex((u) => u.id === uc.variationOf) : -1;
+    uc.variationOf.length > 0
+      ? useCases.findIndex((u) => u.id === uc.variationOf || u.name === uc.variationOf)
+      : -1;
   const parent = parentIndex >= 0 ? useCases[parentIndex] : undefined;
   const hasDiagram = uc.nodes.length > 0;
+
+  // Core / variation partition for the grouped picker + the summary line. Each entry
+  // keeps its ORIGINAL index (the Select value) so grouping never breaks navigation.
+  const coreItems = useCases
+    .map((u, idx) => ({ u, idx }))
+    .filter(({ u }) => u.classification === 'core');
+  const variationItems = useCases
+    .map((u, idx) => ({ u, idx }))
+    .filter(({ u }) => u.classification !== 'core');
+  const parentNameOf = (u: (typeof useCases)[number]): string | undefined => {
+    if (u.variationOf.length === 0) return undefined;
+    return useCases.find((p) => p.id === u.variationOf || p.name === u.variationOf)?.name;
+  };
 
   return (
     <Box>
@@ -85,17 +103,46 @@ export function UseCaseCarousel({
           <Select
             label="Use case"
             labelId="use-case-picker-label"
+            renderValue={(idx) => useCases[idx]?.name ?? ''}
             sx={{ fontFamily: t.mono, fontSize: 13 }}
             value={active}
             onChange={(e) => {
               setI(e.target.value);
             }}
           >
-            {useCases.map((u, idx) => (
+            {/* Grouped so the core/variation distinction (lost in a 28-item flat list)
+                is visible; variations name the core they derive from (A6). */}
+            {coreItems.length > 0 && (
+              <ListSubheader sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted }}>
+                Core · {coreItems.length}
+              </ListSubheader>
+            )}
+            {coreItems.map(({ u, idx }) => (
               <MenuItem key={u.id} sx={{ fontFamily: t.mono, fontSize: 13 }} value={idx}>
                 {u.name}
               </MenuItem>
             ))}
+            {variationItems.length > 0 && (
+              <ListSubheader sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted }}>
+                Variations · {variationItems.length}
+              </ListSubheader>
+            )}
+            {variationItems.map(({ u, idx }) => {
+              const pName = parentNameOf(u);
+              return (
+                <MenuItem key={u.id} sx={{ fontFamily: t.mono, fontSize: 13, display: 'block' }} value={idx}>
+                  <Box>{u.name}</Box>
+                  {pName !== undefined ? (
+                    <Box
+                      component="span"
+                      sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.muted }}
+                    >
+                      variation of {pName}
+                    </Box>
+                  ) : null}
+                </MenuItem>
+              );
+            })}
           </Select>
         </FormControl>
         <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.muted, flexShrink: 0 }}>
@@ -147,6 +194,13 @@ export function UseCaseCarousel({
           </IconButton>
         ) : null}
       </Box>
+
+      {/* Summary of the corpus makeup — surfaces the core/variation split the flat
+          count alone hides (A6). */}
+      <Typography sx={{ fontFamily: t.mono, fontSize: 11.5, color: t.muted, mb: 1.5 }}>
+        {coreItems.length} core of {useCases.length} use case{useCases.length === 1 ? '' : 's'}
+        {variationItems.length > 0 ? ` · ${String(variationItems.length)} variations` : ''}
+      </Typography>
 
       <Paper
         sx={{
@@ -289,11 +343,15 @@ function NoDiagram({
   onJumpToParent?: (() => void) | undefined;
 }): ReactNode {
   const hasParent = parentName !== undefined && parentName.length > 0;
-  const message = hasParent
-    ? `This variation shares ${parentName}'s activity diagram.`
+  // Honest copy: an absent activity diagram is a not-yet state that validation flags,
+  // NOT a normal "variations reuse the parent" resting state (A7). Every use case is
+  // expected to get its own diagram; a variation may additionally link its parent's.
+  const message = 'No activity diagram yet for this use case.';
+  const secondary = hasParent
+    ? `As a variation of ${parentName}, it’s expected to get its own diagram — until then, walk ${parentName}’s.`
     : isVariation
-      ? 'This variation reuses a core use case’s activity diagram.'
-      : 'No activity diagram yet for this use case.';
+      ? 'This variation is expected to get its own activity diagram.'
+      : 'It’s expected to get one.';
   return (
     <Box
       sx={{
@@ -313,13 +371,9 @@ function NoDiagram({
       <Typography sx={{ fontFamily: t.mono, fontSize: 13, color: t.ink, lineHeight: 1.6 }}>
         {message}
       </Typography>
-      {isVariation ? (
-        <Typography sx={{ fontFamily: t.body, fontSize: 12.5, color: t.muted, maxWidth: 380 }}>
-          {hasParent
-            ? 'Variations reuse the parent use case’s flow; open the parent to walk its diagram.'
-            : 'Variations reuse a core use case’s flow rather than defining their own.'}
-        </Typography>
-      ) : null}
+      <Typography sx={{ fontFamily: t.body, fontSize: 12.5, color: t.muted, maxWidth: 380 }}>
+        {secondary}
+      </Typography>
       {onJumpToParent !== undefined ? (
         <Button
           size="small"

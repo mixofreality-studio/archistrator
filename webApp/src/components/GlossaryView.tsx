@@ -25,15 +25,37 @@ import { glossaryItemAnchor } from './comments/CommentContext';
 // The Four Questions, in canonical order; anything else sinks to the end.
 const CATEGORY_ORDER = ['Who', 'What', 'How', 'Where', 'Uncategorized'];
 
-/** Fold legacy tags (e.g. "How-activity", blank) onto the canonical four. */
+/**
+ * Normalize a raw category tag to its display label. The "How" question is refined
+ * by The Method into distinct sub-kinds (How-activity vs How-resource-access); we
+ * KEEP that distinction as "How · Activity" / "How · Resource Access" rather than
+ * collapsing every How-* onto one bucket, while still tolerating a plain "How".
+ * Blank/absent sinks to "Uncategorized".
+ */
 function normalizeCategory(c: string | undefined): string {
   if (c === undefined || c.trim() === '') return 'Uncategorized';
-  if (c.startsWith('How')) return 'How';
-  return c;
+  const trimmed = c.trim();
+  if (trimmed === 'How') return 'How';
+  // How-activity / How resource access / How-resource-access → "How · <Sub>".
+  const howMatch = /^How[\s-]+(.+)$/i.exec(trimmed);
+  if (howMatch?.[1] !== undefined) {
+    const sub = howMatch[1]
+      .split(/[\s-]+/)
+      .map((w) => (w.length > 0 ? w.charAt(0).toUpperCase() + w.slice(1) : w))
+      .join(' ');
+    return `How · ${sub}`;
+  }
+  return trimmed;
+}
+
+/** The Four-Questions bucket a (possibly refined) label ranks under. */
+function categoryBase(c: string): string {
+  return c.startsWith('How') ? 'How' : c;
 }
 
 function categoryRank(c: string): number {
-  const i = CATEGORY_ORDER.indexOf(c);
+  const i = CATEGORY_ORDER.indexOf(categoryBase(c));
+  // Refined How sub-labels share the "How" rank but sort after the plain bucket.
   return i === -1 ? CATEGORY_ORDER.length : i;
 }
 
@@ -63,7 +85,9 @@ export function GlossaryView({
       const c = normalizeCategory(it.category);
       counts.set(c, (counts.get(c) ?? 0) + 1);
     }
-    return [...counts.entries()].sort((a, b) => categoryRank(a[0]) - categoryRank(b[0]));
+    return [...counts.entries()].sort(
+      (a, b) => categoryRank(a[0]) - categoryRank(b[0]) || a[0].localeCompare(b[0])
+    );
   }, [items]);
 
   const grouped = useMemo(() => {
@@ -83,7 +107,9 @@ export function GlossaryView({
     for (const arr of g.values()) arr.sort((a, b) => a.term.localeCompare(b.term));
     return {
       total: matches.length,
-      sections: [...g.entries()].sort((a, b) => categoryRank(a[0]) - categoryRank(b[0])),
+      sections: [...g.entries()].sort(
+        (a, b) => categoryRank(a[0]) - categoryRank(b[0]) || a[0].localeCompare(b[0])
+      ),
     };
   }, [items, query, activeCat]);
 
@@ -176,7 +202,8 @@ export function GlossaryView({
                   jsonPath: glossaryItemAnchor(originalIndex.get(it.term) ?? 0),
                 })}
                 getKey={(it) => it.term}
-                getLabel={(it) => `term ${it.term}`}
+                getLabel={(it) => it.term}
+                getLabelKind={() => 'term'}
                 items={entries}
                 renderItem={(it) => (
                   <Box sx={{ maxWidth: 760 }}>

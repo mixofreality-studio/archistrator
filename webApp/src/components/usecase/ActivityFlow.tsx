@@ -12,7 +12,7 @@
  * detected back-edge / loop) render dashed in the accent color. Selecting a node
  * arms a comment anchor. Derivation is memoized on (use case, theme).
  */
-import { useEffect, useMemo, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   ReactFlow,
   Background,
@@ -29,7 +29,7 @@ import type { UseCaseView } from '../../contracts/adapters';
 import { ActivityNode } from './ActivityNode';
 import { ActivityEdge } from './ActivityEdge';
 import { SwimlaneBackground } from './SwimlaneBackground';
-import { activityNodeAnchor, useComments } from '../comments/CommentContext';
+import { activityNodeAnchor } from '../comments/CommentContext';
 import { laneColors, laneBand } from './laneColors';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import type { Tokens } from '../../utilities/theme/themes';
@@ -56,7 +56,8 @@ function build(
   uc: UseCaseView,
   useCaseIndex: number,
   t: Tokens,
-  hl: ActivityHighlight | undefined
+  hl: ActivityHighlight | undefined,
+  selectedId: string | null
 ): { nodes: Node[]; edges: Edge[] } {
   const colors = laneColors(t, uc.lanes);
   const layout = layoutActivity(uc);
@@ -98,6 +99,9 @@ function build(
         color: colors[n.lane] ?? t.muted,
         source: `${uc.name} · activity diagram`,
         jsonPath: activityNodeAnchor(useCaseIndex, n.id),
+        // Selection travels through data (controlled flow → xyflow selection is inert):
+        // drives the NodeToolbar Comment button + accent ring. Click arms nothing now.
+        isSelected: n.id === selectedId,
       },
       draggable: false,
       zIndex: isCurrent ? 3 : 1,
@@ -181,10 +185,10 @@ export function ActivityFlow({
   highlight?: ActivityHighlight;
 }): ReactNode {
   const t = useTokens();
-  const { setAnchor } = useComments();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const { nodes, edges } = useMemo(
-    () => build(uc, useCaseIndex, t, highlight),
-    [uc, useCaseIndex, t, highlight]
+    () => build(uc, useCaseIndex, t, highlight, selectedId),
+    [uc, useCaseIndex, t, highlight, selectedId]
   );
 
   if (uc.nodes.length === 0) {
@@ -218,18 +222,15 @@ export function ActivityFlow({
         nodes={nodes}
         nodesConnectable={false}
         nodesDraggable={false}
+        // Nodes carry their own focusable, labeled inner element (ActivityNode);
+        // xyflow wrapper focus is off so there is a single well-labeled tab stop.
+        nodesFocusable={false}
         proOptions={{ hideAttribution: true }}
         onNodeClick={(_e, n) => {
-          // Arm a per-step comment anchor (the rail auto-opens on arm) so an
-          // activity node in the full diagram is individually commentable.
-          const d = n.data as { label?: string; source?: string; jsonPath?: string };
-          if (d.jsonPath === undefined) return;
-          setAnchor({
-            kind: 'node',
-            label: d.label ?? n.id,
-            source: d.source ?? 'activity diagram',
-            jsonPath: d.jsonPath,
-          });
+          // Click SELECTS the step (reveals its Comment toolbar) — it no longer arms a
+          // comment directly. Commenting is an explicit action: the toolbar button
+          // (mouse) or Enter/'c' on the focused node (keyboard). Toggle off on re-click.
+          setSelectedId((s) => (s === n.id ? null : n.id));
         }}
       >
         <Background color={t.line} gap={22} size={1} />

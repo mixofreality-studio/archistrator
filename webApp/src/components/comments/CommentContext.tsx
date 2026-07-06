@@ -148,8 +148,20 @@ interface CommentCtx {
   comments: PostedComment[];
   /** The currently-armed selection (drives the chat composer affordance). */
   anchor: Anchor | null;
-  /** Arm/disarm a selection. Arming bumps `requestId` so the rail can open. */
+  /** Arm/disarm a selection. Arming bumps `requestId` so the rail can open.
+   *  Guarded: while an unsent composer draft is pending (see {@link setDraftPending}),
+   *  re-arming to a DIFFERENT anchor is refused so the draft stays paired with the
+   *  location it was written against (no silent re-target). Disarming (null) and
+   *  re-arming the same anchor always pass. */
   setAnchor: (a: Anchor | null) => void;
+  /**
+   * Signal from the composer that it holds unsent draft text (true) or is empty
+   * (false). Drives {@link setAnchor}'s re-anchor guard so a half-typed comment
+   * cannot be silently retargeted onto a different node by a later arm. The
+   * composer (ChatRail) is expected to call this as its draft text changes; until
+   * it does, this stays false and arming behaves exactly as before.
+   */
+  setDraftPending: (pending: boolean) => void;
   /**
    * Commit `text` as a posted entry. With an armed anchor it becomes an anchored
    * comment (clears the anchor); with no anchor a non-empty `text` becomes a
@@ -199,6 +211,14 @@ export function CommentProvider({
   const [comments, setComments] = useState<PostedComment[]>([]);
   const [armedAnchor, setArmedAnchor] = useState<Anchor | null>(null);
   const [requestId, setRequestId] = useState(0);
+  // Whether the composer currently holds unsent draft text. A ref (not state) so the
+  // setAnchor guard reads it synchronously without re-subscribing on every keystroke.
+  const draftPendingRef = useRef(false);
+  // Mirror of the armed anchor, read by the setAnchor guard. Kept in a ref so setAnchor
+  // stays referentially STABLE (deps: [enabled] only) — consumers depend on setAnchor's
+  // identity in effects (e.g. DesignExperience disarms on `[activeKind, setAnchor]`), so
+  // rebuilding it on every arm would retrigger those effects and instantly disarm.
+  const armedAnchorRef = useRef<Anchor | null>(null);
   // The (projectId, kind) localStorage slot the pending entries persist to. A ref
   // (not state) so post/remove/reset persist to the current slot synchronously
   // without re-subscribing every mutator on each key change.
@@ -218,6 +238,7 @@ export function CommentProvider({
       if (!enabled || activeKeyRef.current === key) return;
       activeKeyRef.current = key;
       setComments(loadPending(key));
+      armedAnchorRef.current = null;
       setArmedAnchor(null);
     },
     [enabled]
@@ -228,11 +249,25 @@ export function CommentProvider({
       // Read-only surface: nothing may arm an anchor (belt-and-suspenders with the
       // affordances that don't render when disabled, e.g. a silent node-click arm).
       if (!enabled) return;
+      // Re-anchor guard: while the composer holds an unsent draft, refuse to move an
+      // existing armed anchor to a DIFFERENT location — that silent re-target would
+      // strand the half-typed comment on the wrong node. Disarm and same-anchor
+      // re-arm always pass through. (Reads the armed anchor from a ref so setAnchor
+      // stays stable — see armedAnchorRef.)
+      const prev = armedAnchorRef.current;
+      if (a !== null && prev !== null && draftPendingRef.current && a.jsonPath !== prev.jsonPath) {
+        return;
+      }
+      armedAnchorRef.current = a;
       setArmedAnchor(a);
       if (a !== null) setRequestId((n) => n + 1);
     },
     [enabled]
   );
+
+  const setDraftPending = useCallback((pending: boolean): void => {
+    draftPendingRef.current = pending;
+  }, []);
 
   const post = useCallback(
     (text: string, opts?: PostOptions): void => {
@@ -249,6 +284,7 @@ export function CommentProvider({
       } else {
         const body = trimmed.length > 0 ? trimmed : `(comment on ${armedAnchor.label})`;
         next = [...comments, { text: body, anchor: armedAnchor, ...meta }];
+        armedAnchorRef.current = null;
         setArmedAnchor(null);
       }
       setComments(next);
@@ -268,6 +304,7 @@ export function CommentProvider({
 
   const reset = useCallback((): void => {
     setComments([]);
+    armedAnchorRef.current = null;
     setArmedAnchor(null);
     persist([]);
   }, [persist]);
@@ -323,6 +360,7 @@ export function CommentProvider({
       comments,
       anchor: armedAnchor,
       setAnchor,
+      setDraftPending,
       post,
       remove,
       reset,
@@ -338,6 +376,7 @@ export function CommentProvider({
       comments,
       armedAnchor,
       setAnchor,
+      setDraftPending,
       post,
       remove,
       reset,

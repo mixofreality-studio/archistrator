@@ -36,6 +36,7 @@ export function CommentableList<T>({
   renderItem,
   ariaLabel,
   getLabel,
+  getLabelKind,
   gap = 0,
 }: {
   items: readonly T[];
@@ -47,8 +48,14 @@ export function CommentableList<T>({
   renderItem: (item: T, index: number) => ReactNode;
   /** Accessible name for the whole list (e.g. "Business objectives"). */
   ariaLabel: string;
-  /** Optional short accessible name per row; falls back to the row content. */
+  /** Optional short accessible name per row (the VALUE, e.g. the term / topic);
+   *  falls back to the row content. Composed with {@link getLabelKind} into the
+   *  comment button's accessible name. */
   getLabel?: (item: T, index: number) => string;
+  /** Optional noun classifying the item (e.g. "term", "decision"), rendered AFTER
+   *  the value so the button reads 'Comment on Other Party (term)' rather than the
+   *  ungrammatical 'Comment on term Other Party'. */
+  getLabelKind?: (item: T, index: number) => string;
   /** Vertical gap between rows, in theme spacing units. */
   gap?: number;
 }): ReactNode {
@@ -128,7 +135,12 @@ export function CommentableList<T>({
       {items.map((item, index) => {
         const key = getKey(item, index);
         const isFocused = index === focused;
-        const label = getLabel?.(item, index) ?? `item ${String(index + 1)}`;
+        const value = getLabel?.(item, index) ?? `item ${String(index + 1)}`;
+        const kind = getLabelKind?.(item, index);
+        // 'Comment on Other Party (term)' — noun trails the value so the phrase stays
+        // grammatical regardless of the item kind (P3-14).
+        const commentLabel =
+          kind !== undefined && kind !== '' ? `Comment on ${value} (${kind})` : `Comment on ${value}`;
         return (
           <Box
             aria-selected={isFocused}
@@ -146,8 +158,10 @@ export function CommentableList<T>({
               py: 0.75,
               borderRadius: 1,
               cursor: 'default',
-              // The comment button is revealed on row hover / keyboard focus.
-              '& .commentable-row-action': { opacity: 0, transition: 'opacity 120ms' },
+              // The comment button carries a FAINT persistent presence (so it is
+              // discoverable without hovering — no hover-only affordance), then rises
+              // to full on row hover / keyboard focus.
+              '& .commentable-row-action': { opacity: 0.4, transition: 'opacity 120ms' },
               '&:hover .commentable-row-action, &:focus-visible .commentable-row-action': {
                 opacity: 1,
               },
@@ -170,7 +184,7 @@ export function CommentableList<T>({
             <Box sx={{ flexGrow: 1, minWidth: 0 }}>{renderItem(item, index)}</Box>
             <Tooltip title="Comment on this item">
               <IconButton
-                aria-label={`Comment on ${label}`}
+                aria-label={commentLabel}
                 className="commentable-row-action"
                 data-testid={UI_IDENTIFIERS.Comments.listItemComment(key)}
                 size="small"
