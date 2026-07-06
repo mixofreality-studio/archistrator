@@ -224,6 +224,32 @@ func TestGitStore_ListProjects_NoRegistry_MultipleProjects(t *testing.T) {
 	}
 }
 
+// TestGitStore_ListProjects_ReturnsStoredOwner (PM-P2-6) — ListProjects must report each
+// project's CANONICAL STORED owner, not echo the caller's requested enumeration scope. A
+// caller passing a placeholder/wildcard scope (here "{}") must still see the real stored
+// owner ("alice") on every summary — the same value get-project returns.
+func TestGitStore_ListProjects_ReturnsStoredOwner(t *testing.T) {
+	store, cred, ctx := newLocalGitStore(t)
+	id := ps.ProjectID(uuid.NewString())
+
+	if _, err := store.CreateProject(ctx, id, "alice", "Demo", cred, "wf:create"); err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+
+	// Enumerate with a placeholder scope that is NOT the stored owner. The
+	// single-repo catalog ignores the scope arg, so enumeration still finds the repo.
+	summaries, err := store.ListProjects(ctx, "{}", cred)
+	if err != nil {
+		t.Fatalf("ListProjects: %v", err)
+	}
+	if len(summaries) != 1 {
+		t.Fatalf("ListProjects = %+v, want one row", summaries)
+	}
+	if summaries[0].Owner != "alice" {
+		t.Fatalf("summary Owner = %q, want the stored owner \"alice\" (not the requested scope)", summaries[0].Owner)
+	}
+}
+
 // TestGitStore_StageCommitRoundTrip — stage a typed model, commit it, read it back
 // with its review status (a model round-trips through git JSON).
 // TestGitStore_SetResearchInput_WritesFilesAndPointer proves the F42 files-not-JSON model

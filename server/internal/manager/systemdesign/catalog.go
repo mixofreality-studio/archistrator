@@ -171,6 +171,14 @@ func (m *systemDesignManager) GetProject(rc fwm.Context, projectID ProjectID) (P
 	}
 	proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID))
 	if err != nil {
+		// A NotFound for an unknown project must NOT leak the internal git call chain
+		// (e.g. "resourceaccess: github.GitStore.clone: repository not found: repository
+		// not found: Repository not found." — the message stutters as each layer re-wraps
+		// its own "not found" text). Map it to a single, clean, project-scoped Detail;
+		// the full cause chain is preserved on Cause for the server-side log.
+		if raErr := (*fwra.Error)(nil); errors.As(err, &raErr) && raErr.Kind == fwra.NotFound {
+			return ProjectState{}, fwm.Wrap(fwm.NotFound, err, fmt.Sprintf("project %q not found", projectID))
+		}
 		return ProjectState{}, mapRAError(err, "projectStateAccess.ReadProject")
 	}
 	m.computeNetworkAtRead(&proj)

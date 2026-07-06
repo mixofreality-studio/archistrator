@@ -638,6 +638,14 @@ func (s *GitStore) ListProjects(ctx context.Context, owner OwnerScope, cred Repo
 			if summary.Name == "" {
 				summary.Name = p.Name
 			}
+			// Report the project's CANONICAL STORED owner, not the caller's requested
+			// owner scope (the enumeration key). The two normally coincide, but a caller
+			// may pass a wildcard/placeholder scope (e.g. "{}") and must still see each
+			// project's real owner — the same value get-project returns. Fall back to the
+			// enumeration scope only when the head-state carries no owner yet.
+			if p.Owner != "" {
+				summary.Owner = p.Owner
+			}
 			summary.Phase = p.Phase
 			// projectUpdatedAt checks ActivityGit entries; docUpdatedAt is the
 			// doc-level stamp written on every mutation (the fallback for construction-

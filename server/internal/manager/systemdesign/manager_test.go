@@ -360,6 +360,94 @@ func Test_GetSessionState_DeadWorkflow_SynthesizesFailedView(t *testing.T) {
 	mc.AssertExpectations(t)
 }
 
+// R3 (error altitude). When no design session exists, Temporal's Describe reports the
+// execution NotFound with a raw "workflow not found for ID: <proj>:<kind>" message that
+// leaks the internal execution-id format. GetSessionState must map that at the manager
+// boundary to a clean, project-scoped NotFound — never surfacing "workflow not found"
+// or the internal id to the client.
+func Test_GetSessionState_NoSession_CleanNotFound(t *testing.T) {
+	id := ProjectID("gtdapp")
+	wfID := coAuthorWorkflowID(id, KindMission)
+
+	mc := &temporalmocks.Client{}
+	mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "").
+		Return((*workflowservice.DescribeWorkflowExecutionResponse)(nil), errors.New("workflow not found for ID: gtdapp:0"))
+	// No QueryWorkflow expectation: the NotFound Describe short-circuits to the clean error.
+
+	m := &systemDesignManager{client: mc}
+	_, err := m.GetSessionState(bgRC(), id, KindMission)
+	sde := asSystemDesignError(t, err)
+	if sde.Kind != fwmanager.NotFound {
+		t.Fatalf("want NotFound, got %d", sde.Kind)
+	}
+	if !strings.Contains(sde.Detail, "no active design session for project") {
+		t.Fatalf("Detail must be the clean no-session message, got %q", sde.Detail)
+	}
+	if strings.Contains(sde.Detail, "workflow not found") || strings.Contains(sde.Detail, "gtdapp:0") {
+		t.Fatalf("Detail must not leak Temporal internals, got %q", sde.Detail)
+	}
+	mc.AssertExpectations(t)
+}
+
+// R3 twin: when Describe returns a non-NotFound blip (best-effort fall-through), the live
+// QueryWorkflow may itself report the workflow NotFound. That path must ALSO map to the
+// clean no-session error rather than leaking the raw Temporal message via mapQueryError.
+func Test_GetSessionState_QueryNotFound_CleanNotFound(t *testing.T) {
+	id := ProjectID("gtdapp")
+	wfID := coAuthorWorkflowID(id, KindMission)
+
+	mc := &temporalmocks.Client{}
+	// Describe errors non-NotFound → best-effort fall-through to the query.
+	mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "").
+		Return((*workflowservice.DescribeWorkflowExecutionResponse)(nil), errors.New("transient describe blip"))
+	mc.On("QueryWorkflow", mock.Anything, wfID, "", querySessionState).
+		Return(nil, errors.New("workflow not found for ID: gtdapp:0"))
+
+	m := &systemDesignManager{client: mc}
+	_, err := m.GetSessionState(bgRC(), id, KindMission)
+	sde := asSystemDesignError(t, err)
+	if sde.Kind != fwmanager.NotFound {
+		t.Fatalf("want NotFound, got %d", sde.Kind)
+	}
+	if strings.Contains(sde.Detail, "workflow not found") || strings.Contains(sde.Detail, "gtdapp:0") {
+		t.Fatalf("Detail must not leak Temporal internals, got %q", sde.Detail)
+	}
+	mc.AssertExpectations(t)
+}
+
+// R4 (error altitude). getProject for an unknown project surfaces a stuttered, chain-leaking
+// git error ("resourceaccess: github.GitStore.clone: repository not found: repository not
+// found: Repository not found."). GetProject must map the RA NotFound to a single clean,
+// project-scoped Detail while preserving the full chain on Cause for the server log.
+func Test_GetProject_UnknownProject_CleanNotFound(t *testing.T) {
+	id := ProjectID("gtdapp")
+	// The exact shape the infra-github ClassifyGitError + fwra.Wrap chain produces.
+	chain := fwra.Wrap(fwra.NotFound,
+		errors.New("github.GitStore.clone: repository not found: repository not found: Repository not found."),
+		"projectstate.ReadProject")
+	ps := &renderFakeProjectState{readErr: chain}
+
+	m := &systemDesignManager{projectState: ps}
+	_, err := m.GetProject(bgRC(), id)
+	sde := asSystemDesignError(t, err)
+	if sde.Kind != fwmanager.NotFound {
+		t.Fatalf("want NotFound, got %d", sde.Kind)
+	}
+	if sde.Detail != `project "gtdapp" not found` {
+		t.Fatalf("Detail must be the single clean project-scoped message, got %q", sde.Detail)
+	}
+	if strings.Contains(sde.Detail, "GitStore") || strings.Contains(sde.Detail, "repository not found") {
+		t.Fatalf("Detail must not leak the internal git chain, got %q", sde.Detail)
+	}
+	if sde.Cause == nil {
+		t.Fatal("the full cause chain must be preserved on Cause for the server log")
+	}
+	mc := sde.Cause.Error()
+	if !strings.Contains(mc, "repository not found") {
+		t.Fatalf("Cause must retain the detailed chain, got %q", mc)
+	}
+}
+
 // A RUNNING execution falls through to the live Query (Describe reports RUNNING) — the
 // synthesis path must NOT hijack a healthy session. Here the Query is left unmocked and
 // the mock is asserted to have been asked to Describe; a RUNNING status must not short-

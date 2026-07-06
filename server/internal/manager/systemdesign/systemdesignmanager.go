@@ -582,11 +582,18 @@ func (m *systemDesignManager) GetSessionState(rc fwmanager.Context, projectID Pr
 			return m.completedSessionView(ctx, projectID, kind)
 		}
 	} else if isNotFound(derr) {
-		return SessionStateView{}, newError(fwmanager.NotFound, derr.Error())
+		return SessionStateView{}, noActiveSessionError(projectID)
 	}
 
 	enc, err := m.client.QueryWorkflow(ctx, wfID, "", querySessionState)
 	if err != nil {
+		// F20 (error altitude): before a design session exists the CoAuthor workflow
+		// does not exist, and Temporal's raw "workflow not found for ID: <proj>:<n>"
+		// leaks the internal execution id to the client. Map that to a clean,
+		// user-altitude NotFound; other query faults keep their generic mapping.
+		if isNotFound(err) {
+			return SessionStateView{}, noActiveSessionError(projectID)
+		}
 		return SessionStateView{}, mapQueryError(err)
 	}
 	var view SessionStateView
@@ -861,6 +868,14 @@ func mapReadProjectError(err error) error {
 }
 
 // --- error mapping at the façade boundary -----------------------------------
+
+// noActiveSessionError is the clean, user-altitude NotFound returned when no
+// design session (CoAuthor workflow) exists for the project — the no-active-session
+// read. It replaces Temporal's raw "workflow not found for ID: <proj>:<kind>" leak
+// (which exposed the internal execution-id format) with a client-appropriate message.
+func noActiveSessionError(projectID ProjectID) error {
+	return newError(fwmanager.NotFound, fmt.Sprintf("no active design session for project %q", projectID))
+}
 
 func mapStartError(err error) error {
 	// A "workflow already started" race under UseExisting policy is benign; the
