@@ -97,6 +97,7 @@ type updateReviewPolicyOutput struct{}
 func executeNextActivityInputSchema() *jsonschema.Schema {
 	s := objectSchema[executeNextActivityInput]()
 	relaxRawJSON(s)
+	allowNullMaps(s)
 	s.Required = []string{"projectID", "tickID"}
 	return s
 }
@@ -105,6 +106,7 @@ func executeNextActivityInputSchema() *jsonschema.Schema {
 func getSessionStateInputSchema() *jsonschema.Schema {
 	s := objectSchema[getSessionStateInput]()
 	relaxRawJSON(s)
+	allowNullMaps(s)
 	s.Required = []string{"projectID"}
 	return s
 }
@@ -113,6 +115,7 @@ func getSessionStateInputSchema() *jsonschema.Schema {
 func overrideActivityInputSchema() *jsonschema.Schema {
 	s := objectSchema[overrideActivityInput]()
 	relaxRawJSON(s)
+	allowNullMaps(s)
 	s.Required = []string{"projectID", "activityID", "override"}
 	return s
 }
@@ -121,6 +124,7 @@ func overrideActivityInputSchema() *jsonschema.Schema {
 func pauseProjectInputSchema() *jsonschema.Schema {
 	s := objectSchema[pauseProjectInput]()
 	relaxRawJSON(s)
+	allowNullMaps(s)
 	s.Required = []string{"projectID", "reason"}
 	return s
 }
@@ -129,6 +133,7 @@ func pauseProjectInputSchema() *jsonschema.Schema {
 func runReplanSweepInputSchema() *jsonschema.Schema {
 	s := objectSchema[runReplanSweepInput]()
 	relaxRawJSON(s)
+	allowNullMaps(s)
 	s.Required = []string{"tickID"}
 	return s
 }
@@ -137,6 +142,7 @@ func runReplanSweepInputSchema() *jsonschema.Schema {
 func submitPhaseDecisionInputSchema() *jsonschema.Schema {
 	s := objectSchema[submitPhaseDecisionInput]()
 	relaxRawJSON(s)
+	allowNullMaps(s)
 	s.Required = []string{"projectID", "activityID", "phase", "decision"}
 	s.Properties["decision"] = enumSchemaPhaseDecision()
 	return s
@@ -146,6 +152,7 @@ func submitPhaseDecisionInputSchema() *jsonschema.Schema {
 func updateReviewPolicyInputSchema() *jsonschema.Schema {
 	s := objectSchema[updateReviewPolicyInput]()
 	relaxRawJSON(s)
+	allowNullMaps(s)
 	s.Required = []string{"projectID", "policy"}
 	return s
 }
@@ -154,6 +161,7 @@ func updateReviewPolicyInputSchema() *jsonschema.Schema {
 func executeNextActivityOutputSchema() *jsonschema.Schema {
 	s := objectSchema[executeNextActivityOutput]()
 	relaxRawJSON(s)
+	allowNullMaps(s)
 	return s
 }
 
@@ -161,6 +169,7 @@ func executeNextActivityOutputSchema() *jsonschema.Schema {
 func getSessionStateOutputSchema() *jsonschema.Schema {
 	s := objectSchema[getSessionStateOutput]()
 	relaxRawJSON(s)
+	allowNullMaps(s)
 	return s
 }
 
@@ -168,6 +177,7 @@ func getSessionStateOutputSchema() *jsonschema.Schema {
 func overrideActivityOutputSchema() *jsonschema.Schema {
 	s := objectSchema[overrideActivityOutput]()
 	relaxRawJSON(s)
+	allowNullMaps(s)
 	return s
 }
 
@@ -175,6 +185,7 @@ func overrideActivityOutputSchema() *jsonschema.Schema {
 func pauseProjectOutputSchema() *jsonschema.Schema {
 	s := objectSchema[pauseProjectOutput]()
 	relaxRawJSON(s)
+	allowNullMaps(s)
 	return s
 }
 
@@ -182,6 +193,7 @@ func pauseProjectOutputSchema() *jsonschema.Schema {
 func runReplanSweepOutputSchema() *jsonschema.Schema {
 	s := objectSchema[runReplanSweepOutput]()
 	relaxRawJSON(s)
+	allowNullMaps(s)
 	return s
 }
 
@@ -189,6 +201,7 @@ func runReplanSweepOutputSchema() *jsonschema.Schema {
 func submitPhaseDecisionOutputSchema() *jsonschema.Schema {
 	s := objectSchema[submitPhaseDecisionOutput]()
 	relaxRawJSON(s)
+	allowNullMaps(s)
 	return s
 }
 
@@ -196,6 +209,7 @@ func submitPhaseDecisionOutputSchema() *jsonschema.Schema {
 func updateReviewPolicyOutputSchema() *jsonschema.Schema {
 	s := objectSchema[updateReviewPolicyOutput]()
 	relaxRawJSON(s)
+	allowNullMaps(s)
 	return s
 }
 
@@ -350,6 +364,46 @@ func isRawByteArray(s *jsonschema.Schema) bool {
 		return false
 	}
 	return it.Minimum != nil && *it.Minimum == 0 && it.Maximum != nil && *it.Maximum == 255
+}
+
+// allowNullMaps walks an inferred schema and unions "null" into every Go-map
+// node's type. jsonschema-go infers a Go map as a bare {type:"object"}, but a
+// nil map marshals to JSON null (unlike a nil slice, which the library already
+// types as ["null","array"]). Read models legitimately emit nil maps in early
+// project phases (e.g. ProjectState.ActivityConstruction before construction),
+// so the honest schema must accept null there — otherwise the SDK's output
+// validation rejects a payload the HTTP surface serves fine (QA finding F29).
+func allowNullMaps(s *jsonschema.Schema) {
+	if s == nil {
+		return
+	}
+	if isMapNode(s) {
+		s.Types = []string{"null", "object"}
+		s.Type = ""
+	}
+	for _, p := range s.Properties {
+		allowNullMaps(p)
+	}
+	allowNullMaps(s.Items)
+	allowNullMaps(s.AdditionalProperties)
+	for _, p := range s.PrefixItems {
+		allowNullMaps(p)
+	}
+}
+
+// isMapNode reports whether a schema node is jsonschema-go's inference of a Go
+// map: an object node carrying an additionalProperties element schema. A struct
+// is also typed "object" but sets additionalProperties to the false schema
+// (Not set), which this distinguishes so struct nodes are never made nullable.
+func isMapNode(s *jsonschema.Schema) bool {
+	isObject := s.Type == "object"
+	for _, t := range s.Types {
+		if t == "object" {
+			isObject = true
+		}
+	}
+	ap := s.AdditionalProperties
+	return isObject && ap != nil && ap.Not == nil
 }
 
 func mapManagerError(err error) error {

@@ -255,6 +255,7 @@ func writeInputSchema(b *strings.Builder, op contract.Operation, enums map[strin
 	fmt.Fprintf(b, "func %sInputSchema() *jsonschema.Schema {\n", lower)
 	fmt.Fprintf(b, "\ts := objectSchema[%sInput]()\n", lower)
 	b.WriteString("\trelaxRawJSON(s)\n")
+	b.WriteString("\tallowNullMaps(s)\n")
 
 	// required = non-pointer params, in declaration order.
 	var required []string
@@ -295,6 +296,7 @@ func writeOutputSchema(b *strings.Builder, op contract.Operation) {
 	fmt.Fprintf(b, "func %sOutputSchema() *jsonschema.Schema {\n", lower)
 	fmt.Fprintf(b, "\ts := objectSchema[%sOutput]()\n", lower)
 	b.WriteString("\trelaxRawJSON(s)\n")
+	b.WriteString("\tallowNullMaps(s)\n")
 	b.WriteString("\treturn s\n}\n\n")
 }
 
@@ -390,6 +392,36 @@ func writeHelpers(b *strings.Builder) {
 	b.WriteString("\tit := s.Items\n")
 	b.WriteString("\tif it.Type != \"integer\" {\n\t\treturn false\n\t}\n")
 	b.WriteString("\treturn it.Minimum != nil && *it.Minimum == 0 && it.Maximum != nil && *it.Maximum == 255\n")
+	b.WriteString("}\n\n")
+
+	b.WriteString("// allowNullMaps walks an inferred schema and unions \"null\" into every Go-map\n")
+	b.WriteString("// node's type. jsonschema-go infers a Go map as a bare {type:\"object\"}, but a\n")
+	b.WriteString("// nil map marshals to JSON null (unlike a nil slice, which the library already\n")
+	b.WriteString("// types as [\"null\",\"array\"]). Read models legitimately emit nil maps in early\n")
+	b.WriteString("// project phases (e.g. ProjectState.ActivityConstruction before construction),\n")
+	b.WriteString("// so the honest schema must accept null there — otherwise the SDK's output\n")
+	b.WriteString("// validation rejects a payload the HTTP surface serves fine (QA finding F29).\n")
+	b.WriteString("func allowNullMaps(s *jsonschema.Schema) {\n")
+	b.WriteString("\tif s == nil {\n\t\treturn\n\t}\n")
+	b.WriteString("\tif isMapNode(s) {\n")
+	b.WriteString("\t\ts.Types = []string{\"null\", \"object\"}\n")
+	b.WriteString("\t\ts.Type = \"\"\n")
+	b.WriteString("\t}\n")
+	b.WriteString("\tfor _, p := range s.Properties {\n\t\tallowNullMaps(p)\n\t}\n")
+	b.WriteString("\tallowNullMaps(s.Items)\n")
+	b.WriteString("\tallowNullMaps(s.AdditionalProperties)\n")
+	b.WriteString("\tfor _, p := range s.PrefixItems {\n\t\tallowNullMaps(p)\n\t}\n")
+	b.WriteString("}\n\n")
+
+	b.WriteString("// isMapNode reports whether a schema node is jsonschema-go's inference of a Go\n")
+	b.WriteString("// map: an object node carrying an additionalProperties element schema. A struct\n")
+	b.WriteString("// is also typed \"object\" but sets additionalProperties to the false schema\n")
+	b.WriteString("// (Not set), which this distinguishes so struct nodes are never made nullable.\n")
+	b.WriteString("func isMapNode(s *jsonschema.Schema) bool {\n")
+	b.WriteString("\tisObject := s.Type == \"object\"\n")
+	b.WriteString("\tfor _, t := range s.Types {\n\t\tif t == \"object\" {\n\t\t\tisObject = true\n\t\t}\n\t}\n")
+	b.WriteString("\tap := s.AdditionalProperties\n")
+	b.WriteString("\treturn isObject && ap != nil && ap.Not == nil\n")
 	b.WriteString("}\n\n")
 
 	b.WriteString("func mapManagerError(err error) error {\n")

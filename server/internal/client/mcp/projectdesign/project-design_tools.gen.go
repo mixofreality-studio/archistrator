@@ -120,6 +120,7 @@ type submitSDPDecisionOutput struct{}
 func advanceToConstructionInputSchema() *jsonschema.Schema {
 	s := objectSchema[advanceToConstructionInput]()
 	relaxRawJSON(s)
+	allowNullMaps(s)
 	s.Required = []string{"projectID", "acknowledgeStale"}
 	return s
 }
@@ -128,6 +129,7 @@ func advanceToConstructionInputSchema() *jsonschema.Schema {
 func getSessionStateInputSchema() *jsonschema.Schema {
 	s := objectSchema[getSessionStateInput]()
 	relaxRawJSON(s)
+	allowNullMaps(s)
 	s.Required = []string{"projectID", "kind"}
 	s.Properties["kind"] = enumSchemaArtifactKind()
 	return s
@@ -137,6 +139,7 @@ func getSessionStateInputSchema() *jsonschema.Schema {
 func requestArtifactDraftInputSchema() *jsonschema.Schema {
 	s := objectSchema[requestArtifactDraftInput]()
 	relaxRawJSON(s)
+	allowNullMaps(s)
 	s.Required = []string{"projectID", "kind"}
 	s.Properties["kind"] = enumSchemaArtifactKind()
 	return s
@@ -146,6 +149,7 @@ func requestArtifactDraftInputSchema() *jsonschema.Schema {
 func requestSDPCommitInputSchema() *jsonschema.Schema {
 	s := objectSchema[requestSDPCommitInput]()
 	relaxRawJSON(s)
+	allowNullMaps(s)
 	s.Required = []string{"projectID"}
 	return s
 }
@@ -154,6 +158,7 @@ func requestSDPCommitInputSchema() *jsonschema.Schema {
 func askQuestionsInputSchema() *jsonschema.Schema {
 	s := objectSchema[askQuestionsInput]()
 	relaxRawJSON(s)
+	allowNullMaps(s)
 	s.Required = []string{"projectID", "kind", "addressee", "questions"}
 	s.Properties["kind"] = enumSchemaArtifactKind()
 	return s
@@ -163,6 +168,7 @@ func askQuestionsInputSchema() *jsonschema.Schema {
 func acknowledgeStaleBasisInputSchema() *jsonschema.Schema {
 	s := objectSchema[acknowledgeStaleBasisInput]()
 	relaxRawJSON(s)
+	allowNullMaps(s)
 	s.Required = []string{"projectID", "kind", "note"}
 	s.Properties["kind"] = enumSchemaArtifactKind()
 	return s
@@ -172,6 +178,7 @@ func acknowledgeStaleBasisInputSchema() *jsonschema.Schema {
 func setReviewCommentStatusInputSchema() *jsonschema.Schema {
 	s := objectSchema[setReviewCommentStatusInput]()
 	relaxRawJSON(s)
+	allowNullMaps(s)
 	s.Required = []string{"projectID", "kind", "commentID", "status"}
 	s.Properties["kind"] = enumSchemaArtifactKind()
 	return s
@@ -181,6 +188,7 @@ func setReviewCommentStatusInputSchema() *jsonschema.Schema {
 func submitReviewDecisionInputSchema() *jsonschema.Schema {
 	s := objectSchema[submitReviewDecisionInput]()
 	relaxRawJSON(s)
+	allowNullMaps(s)
 	s.Required = []string{"projectID", "kind", "decision"}
 	s.Properties["kind"] = enumSchemaArtifactKind()
 	s.Properties["decision"] = enumSchemaReviewDecision()
@@ -191,6 +199,7 @@ func submitReviewDecisionInputSchema() *jsonschema.Schema {
 func submitSDPDecisionInputSchema() *jsonschema.Schema {
 	s := objectSchema[submitSDPDecisionInput]()
 	relaxRawJSON(s)
+	allowNullMaps(s)
 	s.Required = []string{"projectID", "decision"}
 	s.Properties["decision"] = enumSchemaSDPDecision()
 	return s
@@ -200,6 +209,7 @@ func submitSDPDecisionInputSchema() *jsonschema.Schema {
 func advanceToConstructionOutputSchema() *jsonschema.Schema {
 	s := objectSchema[advanceToConstructionOutput]()
 	relaxRawJSON(s)
+	allowNullMaps(s)
 	return s
 }
 
@@ -207,6 +217,7 @@ func advanceToConstructionOutputSchema() *jsonschema.Schema {
 func getSessionStateOutputSchema() *jsonschema.Schema {
 	s := objectSchema[getSessionStateOutput]()
 	relaxRawJSON(s)
+	allowNullMaps(s)
 	return s
 }
 
@@ -214,6 +225,7 @@ func getSessionStateOutputSchema() *jsonschema.Schema {
 func requestArtifactDraftOutputSchema() *jsonschema.Schema {
 	s := objectSchema[requestArtifactDraftOutput]()
 	relaxRawJSON(s)
+	allowNullMaps(s)
 	return s
 }
 
@@ -221,6 +233,7 @@ func requestArtifactDraftOutputSchema() *jsonschema.Schema {
 func requestSDPCommitOutputSchema() *jsonschema.Schema {
 	s := objectSchema[requestSDPCommitOutput]()
 	relaxRawJSON(s)
+	allowNullMaps(s)
 	return s
 }
 
@@ -228,6 +241,7 @@ func requestSDPCommitOutputSchema() *jsonschema.Schema {
 func askQuestionsOutputSchema() *jsonschema.Schema {
 	s := objectSchema[askQuestionsOutput]()
 	relaxRawJSON(s)
+	allowNullMaps(s)
 	return s
 }
 
@@ -235,6 +249,7 @@ func askQuestionsOutputSchema() *jsonschema.Schema {
 func acknowledgeStaleBasisOutputSchema() *jsonschema.Schema {
 	s := objectSchema[acknowledgeStaleBasisOutput]()
 	relaxRawJSON(s)
+	allowNullMaps(s)
 	return s
 }
 
@@ -242,6 +257,7 @@ func acknowledgeStaleBasisOutputSchema() *jsonschema.Schema {
 func setReviewCommentStatusOutputSchema() *jsonschema.Schema {
 	s := objectSchema[setReviewCommentStatusOutput]()
 	relaxRawJSON(s)
+	allowNullMaps(s)
 	return s
 }
 
@@ -249,6 +265,7 @@ func setReviewCommentStatusOutputSchema() *jsonschema.Schema {
 func submitReviewDecisionOutputSchema() *jsonschema.Schema {
 	s := objectSchema[submitReviewDecisionOutput]()
 	relaxRawJSON(s)
+	allowNullMaps(s)
 	return s
 }
 
@@ -256,6 +273,7 @@ func submitReviewDecisionOutputSchema() *jsonschema.Schema {
 func submitSDPDecisionOutputSchema() *jsonschema.Schema {
 	s := objectSchema[submitSDPDecisionOutput]()
 	relaxRawJSON(s)
+	allowNullMaps(s)
 	return s
 }
 
@@ -452,6 +470,46 @@ func isRawByteArray(s *jsonschema.Schema) bool {
 		return false
 	}
 	return it.Minimum != nil && *it.Minimum == 0 && it.Maximum != nil && *it.Maximum == 255
+}
+
+// allowNullMaps walks an inferred schema and unions "null" into every Go-map
+// node's type. jsonschema-go infers a Go map as a bare {type:"object"}, but a
+// nil map marshals to JSON null (unlike a nil slice, which the library already
+// types as ["null","array"]). Read models legitimately emit nil maps in early
+// project phases (e.g. ProjectState.ActivityConstruction before construction),
+// so the honest schema must accept null there — otherwise the SDK's output
+// validation rejects a payload the HTTP surface serves fine (QA finding F29).
+func allowNullMaps(s *jsonschema.Schema) {
+	if s == nil {
+		return
+	}
+	if isMapNode(s) {
+		s.Types = []string{"null", "object"}
+		s.Type = ""
+	}
+	for _, p := range s.Properties {
+		allowNullMaps(p)
+	}
+	allowNullMaps(s.Items)
+	allowNullMaps(s.AdditionalProperties)
+	for _, p := range s.PrefixItems {
+		allowNullMaps(p)
+	}
+}
+
+// isMapNode reports whether a schema node is jsonschema-go's inference of a Go
+// map: an object node carrying an additionalProperties element schema. A struct
+// is also typed "object" but sets additionalProperties to the false schema
+// (Not set), which this distinguishes so struct nodes are never made nullable.
+func isMapNode(s *jsonschema.Schema) bool {
+	isObject := s.Type == "object"
+	for _, t := range s.Types {
+		if t == "object" {
+			isObject = true
+		}
+	}
+	ap := s.AdditionalProperties
+	return isObject && ap != nil && ap.Not == nil
 }
 
 func mapManagerError(err error) error {
