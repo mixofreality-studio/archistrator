@@ -113,7 +113,7 @@ func registerFromAllowlist(srv *mcp.Server, s *Session, verbs []composedVerb) {
 				warnf("tool allowlist names agent-hidden op %q; refusing to register it (its authority stays on the server rail / a composed verb replaces it)", name)
 				continue
 			}
-			registerRawTool(srv, tool)
+			registerRawTool(srv, s, tool)
 			continue
 		}
 		warnf("tool allowlist names unknown tool %q; skipping", name)
@@ -225,27 +225,37 @@ func composedVerbs(s *Session) []composedVerb {
 type rawToolInput map[string]any
 
 // registerRawTool registers a raw generated internal RA/Engine tool from its catalog
-// descriptor: the generated JSON Schemas (self-contained) and the readOnlyHint. Its
-// handler is a BOOTSTRAP stub — the internal surface EXISTS and is scopable now; the
-// construction rail (the next priority) wires the executing handler. This keeps the
-// design job honest: a raw tool only ever appears when a palette explicitly names it.
-func registerRawTool(srv *mcp.Server, t projectstate.InternalTool) {
+// descriptor (the generated self-contained InputSchema + readOnlyHint) and binds it to
+// the EXECUTION rail (rawexec.go): an in-substrate operation (an Engine, or a
+// projectStateAccess read) runs for real inside the job; an external-RA operation
+// returns a typed unavailable-in-substrate error. A raw tool only ever appears when a
+// palette (or the rig's explicit allowlist) names it, so registering the executing
+// handler cannot surprise a design job that documents no palette.
+func registerRawTool(srv *mcp.Server, s *Session, t projectstate.InternalTool) {
 	tool := &mcp.Tool{
 		Name:        t.Name,
-		Description: t.Description + " NOTE: catalog-registered from the generated internal surface; not executable in a design job (the construction rail wires the handler).",
+		Description: t.Description,
 	}
 	if in := parseSchema(t.InputSchema); in != nil {
 		tool.InputSchema = in
 	}
-	// OutputSchema is intentionally left unset: the SDK requires an object-typed
-	// output schema, but a raw result is often a bare $ref/scalar, and this bootstrap
-	// stub returns no structured output. The generated catalog still carries the full
-	// OutputSchema for documentation + the construction rail's executing handler.
+	// OutputSchema is intentionally left unset: the SDK requires an object-typed output
+	// schema, but a raw result is frequently a bare $ref/scalar/array. The executing
+	// handler returns the result as JSON TEXT content instead of structured output, so
+	// no object-typed OutputSchema is needed (the P1a object-typed-output constraint).
 	if t.ReadOnly {
 		tool.Annotations = &mcp.ToolAnnotations{ReadOnlyHint: true}
 	}
-	mcp.AddTool(srv, tool, func(context.Context, *mcp.CallToolRequest, rawToolInput) (*mcp.CallToolResult, any, error) {
-		return nil, nil, fmt.Errorf("raw internal tool %q (%s.%s) is catalog-registered but not executable in this design job; it becomes executable when the construction rail wires the handler", t.Name, t.Component, t.Operation)
+	mcp.AddTool(srv, tool, func(ctx context.Context, _ *mcp.CallToolRequest, in rawToolInput) (*mcp.CallToolResult, any, error) {
+		result, err := executeRawTool(ctx, s, t, in)
+		if err != nil {
+			return nil, nil, err
+		}
+		text, merr := json.MarshalIndent(result, "", "  ")
+		if merr != nil {
+			return nil, nil, fmt.Errorf("encode result of %s: %w", t.Name, merr)
+		}
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(text)}}}, nil, nil
 	})
 }
 

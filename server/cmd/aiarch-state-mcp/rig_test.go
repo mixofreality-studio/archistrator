@@ -263,6 +263,94 @@ func TestRig_AllowlistScopingOverStdio(t *testing.T) {
 	}
 }
 
+// TestRig_RawReadToolExecutesOverStdio proves the EXECUTION rail end to end: an
+// allowlisted raw projectStateAccess READ tool, driven over a real stdio MCP
+// connection against a throwaway checkout, RUNS and returns the committed project as
+// JSON text — no longer the bootstrap "not executable" error.
+func TestRig_RawReadToolExecutesOverStdio(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	bin := buildBinary(t)
+	repo := initGitRepoWithProject(t, minimalProject(), "aiarch-design/rigproj/3")
+
+	cmd := exec.Command(bin)
+	cmd.Dir = repo
+	cmd.Env = append(os.Environ(),
+		envArtifactKind+"=Volatilities",
+		envJobMode+"=draft",
+		envProjectID+"=rigproj",
+		envStateRoot+"="+repo,
+		envToolAllowlist+"=projectStateReadProject",
+	)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "rig", Version: "0"}, nil)
+	session, err := client.Connect(ctx, &mcp.CommandTransport{Command: cmd}, nil)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer func() { _ = session.Close() }()
+
+	res := callTool(t, ctx, session, "projectStateReadProject", map[string]any{"projectID": "rigproj"})
+	if res.IsError {
+		t.Fatalf("raw read tool returned an error result: %s", contentText(res))
+	}
+	body := contentText(res)
+	if !strings.Contains(body, "rigproj") {
+		t.Fatalf("expected the read project JSON to name the project id; got: %s", body)
+	}
+	if strings.Contains(body, "not executable") {
+		t.Fatalf("raw read tool still returns the bootstrap stub: %s", body)
+	}
+}
+
+// TestRig_RawUnavailableToolOverStdio proves an allowlisted external-RA raw tool
+// registers but returns the honest unavailable-in-substrate error when called.
+func TestRig_RawUnavailableToolOverStdio(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	bin := buildBinary(t)
+	repo := initGitRepoWithProject(t, minimalProject(), "aiarch-design/rigproj/3")
+
+	// operatedRuntimeGetApplicationHealth is an external-RA op with a single simple
+	// required arg (appID) — it needs an operated runtime the job does not provision.
+	const raName = "operatedRuntimeGetApplicationHealth"
+	if _, ok := projectstate.InternalToolByName(raName); !ok {
+		t.Skipf("%s not in catalog", raName)
+	}
+
+	cmd := exec.Command(bin)
+	cmd.Dir = repo
+	cmd.Env = append(os.Environ(),
+		envArtifactKind+"=Volatilities",
+		envJobMode+"=draft",
+		envProjectID+"=rigproj",
+		envStateRoot+"="+repo,
+		envToolAllowlist+"="+raName,
+	)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "rig", Version: "0"}, nil)
+	session, err := client.Connect(ctx, &mcp.CommandTransport{Command: cmd}, nil)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer func() { _ = session.Close() }()
+
+	res := callTool(t, ctx, session, raName, map[string]any{"appID": "x"})
+	if !res.IsError {
+		t.Fatalf("expected an unavailable-in-substrate error result for %s", raName)
+	}
+	if !strings.Contains(contentText(res), "unavailable in this substrate") {
+		t.Fatalf("expected unavailable-in-substrate text, got: %s", contentText(res))
+	}
+}
+
 func keysOfTools(m map[string]*mcp.Tool) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {

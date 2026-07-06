@@ -94,6 +94,7 @@ func main() {
 				Component:    sc.Component,
 				Layer:        sc.Layer,
 				Operation:    op.Name,
+				Params:       paramNames(op),
 				ReadOnly:     ro,
 				AgentHidden:  agentHidden(sc.Component, ro),
 				Description:  describe(sc.Component, sc.Layer, op.Name, ro),
@@ -124,6 +125,21 @@ func toolBase(component string) string {
 		}
 	}
 	return component
+}
+
+// paramNames returns the operation's business parameter names in declaration
+// order (the leading ambient call Context is not a contract parameter, so it does
+// not appear in op.Params). The execution rail binds a call's named args to the
+// live method's positional params using this order.
+func paramNames(op projectstate.ContractOperation) []string {
+	if len(op.Params) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(op.Params))
+	for _, p := range op.Params {
+		out = append(out, p.Name)
+	}
+	return out
 }
 
 // readOnly derives the MCP readOnlyHint. Every Engine op is read-only (Engines
@@ -237,6 +253,19 @@ func reachableDefs(roots []json.RawMessage, defs map[string]json.RawMessage) map
 	return out
 }
 
+// goStringSlice renders a []string as a Go composite literal (nil ⇒ "nil") for the
+// generated catalog source.
+func goStringSlice(xs []string) string {
+	if len(xs) == 0 {
+		return "nil"
+	}
+	parts := make([]string, len(xs))
+	for i, x := range xs {
+		parts[i] = strconv.Quote(x)
+	}
+	return "[]string{" + strings.Join(parts, ", ") + "}"
+}
+
 func mustMarshal(v any) json.RawMessage {
 	b, err := json.Marshal(v)
 	if err != nil {
@@ -263,6 +292,7 @@ func emit(tools []projectstate.InternalTool) ([]byte, error) {
 		fmt.Fprintf(&b, "\t\t\tComponent:   %q,\n", t.Component)
 		fmt.Fprintf(&b, "\t\t\tLayer:       %q,\n", t.Layer)
 		fmt.Fprintf(&b, "\t\t\tOperation:   %q,\n", t.Operation)
+		fmt.Fprintf(&b, "\t\t\tParams:      %s,\n", goStringSlice(t.Params))
 		fmt.Fprintf(&b, "\t\t\tReadOnly:    %t,\n", t.ReadOnly)
 		fmt.Fprintf(&b, "\t\t\tAgentHidden: %t,\n", t.AgentHidden)
 		fmt.Fprintf(&b, "\t\t\tDescription: %q,\n", t.Description)

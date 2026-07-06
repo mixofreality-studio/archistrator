@@ -50,6 +50,15 @@ type InternalTool struct {
 	Layer string `json:"layer"`
 	// Operation is the contract operation's Go method name (e.g. "ReadProject").
 	Operation string `json:"operation"`
+	// Params is the operation's business parameter names IN DECLARATION ORDER —
+	// the ambient leading call Context (fwra.Context / fweng.Context) is NOT
+	// included (it is not a business parameter and never appears in InputSchema).
+	// The execution rail (cmd/aiarch-state-mcp) uses this ordered list to bind a
+	// tool call's named arguments to the live Go method's positional parameters;
+	// the order mirrors the schema-first Go signature the contract was generated
+	// from, so args[Params[i]] decodes into method parameter i+1 (i+1 skips the
+	// bound receiver's leading Context).
+	Params []string `json:"params"`
 	// ReadOnly is the MCP readOnlyHint. Every Engine operation is read-only
 	// (Engines are pure, side-effect-free computation); a ResourceAccess
 	// operation is read-only iff its name carries a read verb (Get/Read/List/
