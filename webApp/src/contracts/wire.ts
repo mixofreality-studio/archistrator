@@ -142,10 +142,19 @@ function mapResearchInput(w: Schemas['SystemDesignResearchInput']): ResearchInpu
 }
 
 function mapSlot(w: Schemas['SystemDesignArtifactSlotView']): ArtifactSlotView {
-  // PM-P1-2: forward-compatible read of an optional `staleCause` the generated
-  // schema does not (yet) declare — read it defensively so it flows through the
-  // day the server adds it, and is simply absent until then.
-  const staleCause = (w as { staleCause?: unknown }).staleCause;
+  // PM-P1-2: the server records why a committed slot went stale as
+  // `staleBasisCause: {upstreamKind, upstreamRevision}` (omitempty — absent when
+  // not stale or when the slot went stale before cause recording existed).
+  // Compose the operator-facing string here; absent cause falls back to the
+  // popover's generic copy.
+  const rawCause = (w as { staleBasisCause?: { upstreamKind?: unknown; upstreamRevision?: unknown } })
+    .staleBasisCause;
+  const staleCause =
+    rawCause && typeof rawCause.upstreamKind === 'string' && rawCause.upstreamKind.length > 0
+      ? typeof rawCause.upstreamRevision === 'number'
+        ? `${rawCause.upstreamKind} (rev ${rawCause.upstreamRevision})`
+        : rawCause.upstreamKind
+      : undefined;
   return {
     kind: w.kind as ArtifactKindFull,
     stage: w.stage,
