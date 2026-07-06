@@ -52,6 +52,18 @@ on:
         description: "assigned worker class (ignored by this single-shot workflow)"
         required: false
         type: string
+      # The server-resolved per-task TOOL ALLOWLIST (a compact comma-separated list of
+      # tool names) the aiarch-state MCP server registers, REPLACING job-mode scoping with
+      # manifest-scoping (agentic-managers spec item 5) — the SAME channel the design
+      # workflow uses. The construction Manager resolves it from archistrator's OWN
+      # `execute-a-construction-activity` dynamics (constructionManager resolvedToolAllowlist).
+      # EMPTY (the bootstrap value, until those dynamics document a palette) ⇒ the MCP
+      # server falls back to the construct-mode composed-verb set and logs a WARN.
+      tool_allowlist:
+        description: "comma-separated tool allowlist for the aiarch-state MCP server (empty ⇒ construct-mode fallback)"
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: write
@@ -90,6 +102,62 @@ jobs:
         with:
           go-version-file: server/go.mod
 
+      # -----------------------------------------------------------------------
+      # aiarch-state MCP server (agentic-managers spec §Construction application) — the
+      # SAME rail the DESIGN workflow wires (aiarch-design.yml.tmpl). It runs in the
+      # CONSTRUCT job mode (component/activity ambient context), exposing the composed
+      # construction verbs (recordServiceContract/recordPhaseArtifact/recordTestingState +
+      # publishDraft) and any raw generated RA/Engine tools the resolved tool_allowlist
+      # names — so a construction agent records its phase artifact through validated tools
+      # instead of hand-editing project.json.
+      #
+      # DELIVERY differs from the design TEMPLATE on purpose: the design template targets
+      # USER repos that lack the server source, so it `go install <module>@<pin>` from
+      # GOPROXY. This is archistrator's OWN construct workflow running INSIDE the server
+      # checkout, so it BUILDS the MCP binary from the checked-out source (GOWORK=off) —
+      # deterministic and always matching the code under construction, never a stale @main.
+      #
+      # ADDITIVE: this wires the tools but the construction prompt is UNCHANGED (Step 4
+      # rescopes it), so nothing breaks — the tools are available; the existing command
+      # flow still drives the PR.
+      # -----------------------------------------------------------------------
+      - name: Build the aiarch-state MCP server
+        id: statemcp
+        env:
+          GOBIN: ${{ runner.temp }}/aiarch-bin
+          GOWORK: "off"
+        run: |
+          mkdir -p "${GOBIN}"
+          go build -o "${GOBIN}/aiarch-state-mcp" ./cmd/aiarch-state-mcp
+          echo "bin=${GOBIN}/aiarch-state-mcp" >> "$GITHUB_OUTPUT"
+
+      # The MCP config claude-code-action passes to the Claude CLI (--mcp-config). The
+      # ambient CONSTRUCTION context (project id, job mode, component id, activity id,
+      # target branch, tool allowlist, state root) is baked in as env on the MCP server
+      # process from the dispatch inputs + the repo name. The agent supplies NONE of these.
+      - name: Write the aiarch-state MCP config
+        env:
+          MCP_BIN: ${{ steps.statemcp.outputs.bin }}
+        run: |
+          cat > "${RUNNER_TEMP}/aiarch-mcp.json" <<EOF
+          {
+            "mcpServers": {
+              "aiarch-state": {
+                "command": "${MCP_BIN}",
+                "env": {
+                  "AIARCH_PROJECT_ID": "${{ github.event.repository.name }}",
+                  "AIARCH_JOB_MODE": "construct",
+                  "AIARCH_COMPONENT_ID": "${{ inputs.component_id }}",
+                  "AIARCH_ACTIVITY_ID": "${{ inputs.activity_id }}",
+                  "AIARCH_TARGET_BRANCH": "activity/${{ inputs.activity_id }}",
+                  "AIARCH_TOOL_ALLOWLIST": "${{ inputs.tool_allowlist }}",
+                  "AIARCH_STATE_ROOT": "${{ github.workspace }}"
+                }
+              }
+            }
+          }
+          EOF
+
       - name: Run construction step (claude-code-action)
         uses: anthropics/claude-code-action@v1
         with:
@@ -105,7 +173,10 @@ jobs:
           # Autonomous CI: the ephemeral runner is scoped to this one construction
           # task, so skip the interactive permission gates (founder-authorized) — claude
           # writes files, runs git/go/gh, and opens the PR without an approver.
-          claude_args: "--dangerously-skip-permissions"
+          # --mcp-config wires the local aiarch-state MCP server (built above) into the
+          # Claude CLI; --dangerously-skip-permissions auto-allows tool calls (incl. the
+          # MCP tools) in the unattended runner.
+          claude_args: "--dangerously-skip-permissions --mcp-config ${{ runner.temp }}/aiarch-mcp.json"
           # Thin prompt: NO construction logic here. The intent lives entirely in the
           # per-(type,variant,phase) command under .claude/commands/, which pulls its
           # role agent + Method skill + the-method-project-state. The Manager computed
