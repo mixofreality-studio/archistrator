@@ -1,5 +1,42 @@
 # later.md — deferred work (written off 2026-07-05, qa-gtd-pass wrap)
 
+> ## Session-3 addendum (2026-07-06, qa-gtd-pass_rearch — system-design prod pass)
+> 19 commits: pm/ux/architect reviews → activity-diagram overhaul, design-experience
+> declutter (banners→chips/popovers) + keyboard a11y (incl. diagram-node commenting),
+> 14 app-side validation rules + staleBasisCause recording + AdvancePhase gates, clean
+> client-facing errors (Temporal/GitStore leaks removed), MCP map-null schema P0 fix
+> (early-phase projects were unreadable over MCP), PhaseName on the contract, stored-owner
+> list-projects, research-input validation, dogfood slot-5 amendment (17 dynamics, edge
+> dedupe, all encapsulates filled, 6-16 acked), rail-template self-heal for dead session
+> branches, uitests 14-pass/0-fail rig + new specs, systemtests MCP transport + R4
+> cross-surface equivalence unskipped + wire coverage for the new contracts.
+>
+> **gtdapp amendment RESUME POINT (founder action needed):** close PR #27 + delete stale
+> branch aiarch-design/gtdapp/5-amend-2 (`gh pr close 27 -R mixofreality-studio/gtdapp
+> --delete-branch`), then Retry the failed Architecture amendment in the UI (session sits
+> at DraftFailed with the run link). Round-1 reconciles the basis; the 4 staged
+> change-request comments (orphan RAs, dynamics for all 24 variations, variationOf slug
+> ids, guard labels) ride the round-2 Send back. Then an OpConcepts amendment
+> (layering-style + state-handling topics; de-vendor "Temporal" in prose), then Standard
+> Check refresh/ack. Plan: session scratchpad gtdapp-amendment-plan.md.
+>
+> New earmarks from session 3 (beyond existing entries below):
+> - Artifact provenance on committed slots (PM-P2-4: timestamp/revision/model/approver) —
+>   model + rail change, founder decision.
+> - ScrubbedRequirements scrub-provenance (P1-A2: original → volatility → requirement
+>   trail) — artifact contract change + migration, founder decision.
+> - In-progress Actions run URL on the session view (GeneratingScene "view the run" link;
+>   only failure-run URL exists today).
+> - Platform methodcheck twins for the 14 new app-side rules (release-gated as usual).
+> - Scaffold re-seat (SyncManagedScaffold) so seated repos get the self-healing branch
+>   refresh + a current aiarch-state binary pin.
+> - Retired per-component contract.schema.json seed files: delete or keep decision
+>   (stale-comment cleanup done; the files themselves remain).
+> - STP-UC2-B1 asserts a synchronous SubmitSDPDecision refusal but the verb is a
+>   fire-and-forget signal — reconcile the system test plan with the async contract.
+> - systemtests share one persistent Temporal dev server → observed cross-run workflow
+>   cross-talk (one flake); consider per-run namespaces in the harness.
+
 > Wrap addendum: the agentic-sub-workflow representation (schema marker, diagram
 > rendering, dynamics-as-manifest palettes) was built, founder-reviewed, REJECTED, and
 > fully reverted (ae8646a/b3080ce/91dd5de) — do not resurrect without fresh direction.
