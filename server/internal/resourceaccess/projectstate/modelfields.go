@@ -97,11 +97,6 @@ func requireSystemFields(raw []byte) error {
 			return fmt.Errorf("%s declares layer %q but its kind %q requires layer %q — the layer is 100%% derivable from the kind; set them to match (a missing layer field silently defaults to \"client\", which is the F81 corruption this rejects)",
 				label, enumName(layerNames, layer), enumName(componentKindNames, kind), enumName(layerNames, want))
 		}
-		// NOTE: "implementation" (coded|hybrid|agentic) is deliberately NOT required here.
-		// Unlike layer/kind, its zero value (coded) is the semantically-safe default — an
-		// omitted field correctly means "ordinary code" — so there is no silent-corruption
-		// hole to close. The real hazard (an agentic component that forgot to declare
-		// itself) is caught by the DV-AGENTIC-STEP-OWNER-NOT-AGENTIC lint, not by presence.
 	}
 	for i, rRaw := range top.Relationships {
 		if err := requireRelationshipFields(rRaw, fmt.Sprintf("relationship %d", i+1)); err != nil {

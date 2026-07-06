@@ -400,16 +400,6 @@ var encapsulationAllowlistData = map[string][]string{
 		"ResolveToolPalette",
 		"PaletteViolation",
 		"LintPalettesWithinEdges",
-		// AGENTIC SUB-WORKFLOW consistency lint (agentic-managers doctrine): pure functions
-		// over projectstate's OWN System model keeping Component.Implementation and the
-		// dynamic-view steps' agentic flag / palette consistent. Same derivation-helper
-		// category as the palette resolver above; consumed by the app-side design-review
-		// finding (manager/systemdesign) and the release-gated methodcheck twins.
-		"AgenticViolation",
-		"LintAgenticWorkflows",
-		"RuleAgenticStepOwnerNotAgentic",
-		"RulePaletteRequiresAgentic",
-		"RuleAgenticComponentNoPalette",
 		"LocalRepoCredential",
 		"MissionStatement",
 		"MissionStatement.Kind",

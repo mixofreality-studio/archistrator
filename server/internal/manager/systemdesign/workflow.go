@@ -1488,14 +1488,6 @@ func (s *coAuthorState) view() (SessionStateView, error) {
 	if extra := paletteWithinEdgesFindings(s.artifactKind, s.draft); len(extra) > 0 {
 		findings = append(append([]Finding{}, findings...), extra...)
 	}
-	// AGENTIC-MANAGERS (2026-07-05): keep Component.Implementation (coded|hybrid|agentic)
-	// and the dynamic-view steps' agentic flag / tool palette consistent — an agentic step
-	// requires an agentic|hybrid owner, a palette requires the agentic flag, and an agentic
-	// component with no documented palette is flagged (warning). App-side review-panel twin
-	// of projectstate.LintAgenticWorkflows / its release-gated methodcheck rules.
-	if extra := agenticWorkflowFindings(s.artifactKind, s.draft); len(extra) > 0 {
-		findings = append(append([]Finding{}, findings...), extra...)
-	}
 	if s.unresolvedCritique != "" {
 		findings = append(append([]Finding{}, findings...), Finding{
 			RuleID:   "PM-CRITIQUE-UNRESOLVED",
@@ -1726,43 +1718,6 @@ func paletteWithinEdgesFindings(kind ArtifactKind, draft projectstate.ArtifactMo
 			Message: fmt.Sprintf("dynamic view %q step %s→%s: tool palette %s %s.",
 				v.UseCaseID, v.From, v.To, v.Tool, v.Reason),
 			Location: &Location{Ordinal: int64(i), Section: "dynamic view " + v.UseCaseID},
-		})
-	}
-	return out
-}
-
-// agenticWorkflowFindings returns one finding per agentic/implementation consistency
-// violation, for the KindSystem artifact ONLY (nil for every other kind and for a
-// nil/absent draft). App-side review-panel twin of projectstate.LintAgenticWorkflows:
-// DV-AGENTIC-STEP-OWNER-NOT-AGENTIC and DV-PALETTE-REQUIRES-AGENTIC are ERRORs;
-// COMPONENT-AGENTIC-NO-PALETTE is an advisory warning.
-func agenticWorkflowFindings(kind ArtifactKind, draft projectstate.ArtifactModel) []Finding {
-	if kind != KindSystem {
-		return nil
-	}
-	sys, ok := draft.(*projectstate.System)
-	if !ok || sys == nil {
-		return nil
-	}
-	var out []Finding
-	for i, v := range projectstate.LintAgenticWorkflows(*sys) {
-		severity := SeverityError
-		if v.Warning {
-			severity = SeverityWarning
-		}
-		var msg, section string
-		if v.UseCaseID != "" {
-			msg = fmt.Sprintf("dynamic view %q step %s→%s: %s.", v.UseCaseID, v.From, v.To, v.Reason)
-			section = "dynamic view " + v.UseCaseID
-		} else {
-			msg = fmt.Sprintf("component %q %s.", v.Component, v.Reason)
-			section = "component " + v.Component
-		}
-		out = append(out, Finding{
-			RuleID:   RuleID(v.RuleID),
-			Severity: severity,
-			Message:  msg,
-			Location: &Location{Ordinal: int64(i), Section: section},
 		})
 	}
 	return out

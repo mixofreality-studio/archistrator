@@ -72,20 +72,19 @@ type ActivityNetwork struct {
 type ActivityNodeKind int
 
 const (
-	NodeStart              ActivityNodeKind = 0
-	NodeAction             ActivityNodeKind = 1
-	NodeDecision           ActivityNodeKind = 2
-	NodeMerge              ActivityNodeKind = 3
-	NodeFork               ActivityNodeKind = 4
-	NodeJoin               ActivityNodeKind = 5
-	NodeEnd                ActivityNodeKind = 6
-	NodeSwimLane           ActivityNodeKind = 7
-	NodeNote               ActivityNodeKind = 8
-	NodeLoop               ActivityNodeKind = 9
-	NodeSwitch             ActivityNodeKind = 10
-	NodeGoto               ActivityNodeKind = 11
-	NodeInterruptEdge      ActivityNodeKind = 12
-	NodeAgenticSubWorkflow ActivityNodeKind = 13
+	NodeStart         ActivityNodeKind = 0
+	NodeAction        ActivityNodeKind = 1
+	NodeDecision      ActivityNodeKind = 2
+	NodeMerge         ActivityNodeKind = 3
+	NodeFork          ActivityNodeKind = 4
+	NodeJoin          ActivityNodeKind = 5
+	NodeEnd           ActivityNodeKind = 6
+	NodeSwimLane      ActivityNodeKind = 7
+	NodeNote          ActivityNodeKind = 8
+	NodeLoop          ActivityNodeKind = 9
+	NodeSwitch        ActivityNodeKind = 10
+	NodeGoto          ActivityNodeKind = 11
+	NodeInterruptEdge ActivityNodeKind = 12
 )
 
 type ActivityOutcome int
@@ -201,14 +200,13 @@ const (
 )
 
 type Component struct {
-	ID                  string          `json:"id"`
-	Name                string          `json:"name"`
-	Kind                ComponentKind   `json:"kind"`
-	Layer               Layer           `json:"layer"`
-	Encapsulates        string          `json:"encapsulates"`
-	AtomicBusinessVerbs []string        `json:"atomicBusinessVerbs"`
-	BuildStatus         *string         `json:"buildStatus,omitempty"`
-	Implementation      *Implementation `json:"implementation,omitempty"`
+	ID                  string        `json:"id"`
+	Name                string        `json:"name"`
+	Kind                ComponentKind `json:"kind"`
+	Layer               Layer         `json:"layer"`
+	Encapsulates        string        `json:"encapsulates"`
+	AtomicBusinessVerbs []string      `json:"atomicBusinessVerbs"`
+	BuildStatus         *string       `json:"buildStatus,omitempty"`
 }
 
 type ComponentKind int
@@ -358,14 +356,6 @@ type GlossaryItem struct {
 	Definition string `json:"definition"`
 	Category   string `json:"category"`
 }
-
-type Implementation int
-
-const (
-	ImplCoded   Implementation = 0
-	ImplHybrid  Implementation = 1
-	ImplAgentic Implementation = 2
-)
 
 type InfrastructureKind int
 
@@ -564,7 +554,6 @@ type Relationship struct {
 	Mode    CallMode `json:"mode"`
 	Label   string   `json:"label"`
 	Palette []string `json:"palette,omitempty"`
-	Agentic *bool    `json:"agentic,omitempty"`
 }
 
 type RepoCredential struct {
