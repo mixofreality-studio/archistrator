@@ -142,6 +142,10 @@ function mapResearchInput(w: Schemas['SystemDesignResearchInput']): ResearchInpu
 }
 
 function mapSlot(w: Schemas['SystemDesignArtifactSlotView']): ArtifactSlotView {
+  // PM-P1-2: forward-compatible read of an optional `staleCause` the generated
+  // schema does not (yet) declare — read it defensively so it flows through the
+  // day the server adds it, and is simply absent until then.
+  const staleCause = (w as { staleCause?: unknown }).staleCause;
   return {
     kind: w.kind as ArtifactKindFull,
     stage: w.stage,
@@ -149,6 +153,7 @@ function mapSlot(w: Schemas['SystemDesignArtifactSlotView']): ArtifactSlotView {
     ...(w.notes !== undefined && w.notes !== null ? { notes: w.notes } : {}),
     ...(w.revisions !== undefined ? { revisions: w.revisions } : {}),
     ...(w.staleBasis === true ? { staleBasis: true } : {}),
+    ...(typeof staleCause === 'string' && staleCause.length > 0 ? { staleCause } : {}),
   };
 }
 

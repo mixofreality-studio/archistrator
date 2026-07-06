@@ -72,6 +72,11 @@ export const UI_IDENTIFIERS = {
     CI_JOB_NOTICE: 'ci-job-notice',
     CI_JOB_LINK: 'ci-job-link',
     ARTIFACT_INTRO: 'artifact-intro',
+    // Header (?) info button that carries the committed artifact's framing copy
+    // (replaces the full-width committed intro banner).
+    ARTIFACT_INFO: 'artifact-info',
+    // Compact caveat chip on the Standard Check header when upstream slots drifted.
+    STANDARD_CHECK_CAVEAT: 'standard-check-caveat',
     ARTIFACT_RENDER: 'artifact-render',
     DRAFT_FAILED: 'draft-failed',
     DRAFT_FAILURE_REASON: 'draft-failure-reason',
@@ -140,6 +145,8 @@ export const UI_IDENTIFIERS = {
     ADDRESSEE_PM: 'chat-addressee-pm',
     ADDRESSEE_ARCHITECT: 'chat-addressee-architect',
     ASK: 'chat-ask',
+    // Toggle that reveals/collapses the carried-over PENDING · NOT SENT drafts.
+    PENDING_DISCLOSURE: 'chat-pending-disclosure',
     commentAnchor: (n: number) => `comment-anchor-${String(n)}`,
     // A durable review-ledger thread entry (server), keyed by its ledger id.
     threadEntry: (id: string) => `thread-entry-${id}`,

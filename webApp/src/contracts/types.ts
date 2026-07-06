@@ -166,6 +166,13 @@ export interface ArtifactSlotView {
    * blocks. Cleared by re-committing (amend / reconcile).
    */
   staleBasis?: boolean;
+  /**
+   * Optional human name of the upstream slot whose amendment made this one stale
+   * (e.g. "Architecture"). Forward-compatible: the server may not populate it yet
+   * (omitempty). When present the stale popover names the cause; when absent the
+   * generic copy is shown. (PM-P1-2.)
+   */
+  staleCause?: string;
 }
 
 export type ProjectPhase = 'systemDesign' | 'projectDesign' | 'construction' | 'unknown';

@@ -12,11 +12,15 @@
  * prose artifacts already read as documents and need no framing. Returns null for
  * any other kind so the dispatcher can call it unconditionally.
  */
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
+import IconButton from '@mui/material/IconButton';
+import Popover from '@mui/material/Popover';
+import Tooltip from '@mui/material/Tooltip';
 import FlagOutlinedIcon from '@mui/icons-material/FlagOutlined';
 import CheckIcon from '@mui/icons-material/Check';
+import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import type { ArtifactKind } from '../../contracts/types';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
@@ -36,6 +40,53 @@ const INTRO: Partial<Record<ArtifactKind, { draft: string; committed: string }>>
     committed: 'COMMITTED — the layered architecture is sealed, with a dynamic view for every use case.',
   },
 };
+
+/**
+ * The committed-state "how to read this" copy, moved off the full-width banner into
+ * a small (?) info icon-button + popover next to the header title (UX-P1-4/P2-10).
+ * Renders nothing for kinds without framing copy, so the header can call it
+ * unconditionally.
+ */
+export function ArtifactInfoButton({ kind }: { kind: ArtifactKind | undefined }): ReactNode {
+  const t = useTokens();
+  const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
+  if (kind === undefined) return null;
+  const copy = INTRO[kind];
+  if (copy === undefined) return null;
+  const open = anchorEl !== null;
+  return (
+    <>
+      <Tooltip title="What is this artifact?">
+        <IconButton
+          aria-label="about this artifact"
+          data-testid={UI_IDENTIFIERS.DesignExperience.ARTIFACT_INFO}
+          size="small"
+          sx={{ color: t.muted }}
+          onClick={(e) => {
+            setAnchorEl(e.currentTarget);
+          }}
+        >
+          <HelpOutlineIcon sx={{ fontSize: 18 }} />
+        </IconButton>
+      </Tooltip>
+      <Popover
+        anchorEl={anchorEl}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+        open={open}
+        transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+        onClose={() => {
+          setAnchorEl(null);
+        }}
+      >
+        <Box sx={{ p: 2, maxWidth: 360, bgcolor: t.paper }}>
+          <Typography sx={{ fontFamily: t.mono, fontSize: 12.5, color: t.ink, lineHeight: 1.5 }}>
+            {copy.committed}
+          </Typography>
+        </Box>
+      </Popover>
+    </>
+  );
+}
 
 export function ArtifactIntro({
   kind,

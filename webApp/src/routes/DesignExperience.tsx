@@ -19,7 +19,8 @@
  *   • stage awaitingReview → GatePanel (Approve → auto-advance / Send back with
  *     the accumulated anchored comments / Withdraw).
  *
- * Phase-2 (`/design/project`) reuses this shell with a "coming soon" stub body.
+ * Phase-2 (`/design/project`) reuses this same shell (ExperienceChrome) through
+ * ProjectDesignExperience, wired to the real Phase-2 session/gate loop.
  */
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
@@ -28,6 +29,7 @@ import Typography from '@mui/material/Typography';
 import Chip from '@mui/material/Chip';
 import Button from '@mui/material/Button';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
+import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import { getRouteApi, useNavigate } from '@tanstack/react-router';
 
 import { ApiError } from '../contracts/errors';
@@ -56,7 +58,7 @@ import {
 import { useSetResearchInput, useStartSystemDesign } from '../hooks/useStartDesign';
 
 import { ArtifactRenderer } from '../components/ArtifactRenderer';
-import { ArtifactIntro } from '../components/design/ArtifactIntro';
+import { ArtifactIntro, ArtifactInfoButton } from '../components/design/ArtifactIntro';
 import { StageChip } from '../components/StageChip';
 import { ExperienceChrome } from '../components/design/ExperienceChrome';
 import { SlimSpine, type SpineStep } from '../components/design/SlimSpine';
@@ -66,7 +68,7 @@ import { DraftFailedPanel } from '../components/design/DraftFailedPanel';
 import { GatePanel } from '../components/design/GatePanel';
 import { ChatRail } from '../components/design/ChatRail';
 import { CommittedArtifactPanel } from '../components/design/CommittedArtifactPanel';
-import { StaleBasisBanner } from '../components/design/StaleBasisChip';
+import { StaleBasisHeaderChip } from '../components/design/StaleBasisChip';
 import { ResearchInputPanel } from '../components/design/ResearchInputPanel';
 import { CommentProvider, useComments } from '../components/comments/CommentContext';
 
@@ -345,6 +347,14 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
 
   const meta = METHOD_METADATA[activeKind];
   const decisionPending = submitReview.isPending;
+  const activeCommitted = spine[safeIndex]?.committed === true;
+  // PM-P1-2: the upstream slot that made this one stale, when the read model
+  // exposes it (forward-compatible; absent until the server populates it).
+  const committedStaleCause = committedSlot?.staleCause;
+  // PM-P1-3: how many upstream Phase-1 steps have drifted since this step. Used to
+  // caveat the Standard Check (its verdict may be invalidated by upstream changes).
+  const upstreamStaleCount = spine.slice(0, safeIndex).filter((s) => s.stale === true).length;
+  const showStandardCheckCaveat = activeKind === 'standardCheck' && upstreamStaleCount > 0;
 
   // While the project head-state is in flight we cannot yet know any step's
   // committed/locked status, the active artifact, or its stage — render the themed
@@ -391,24 +401,56 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
       <Box sx={{ flexGrow: 1, minWidth: 0, overflowY: 'auto', px: { xs: 2, md: 4 }, py: 3 }}>
         {/* artifact header */}
         <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5, mb: 2 }}>
-          <Box>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+          <Box sx={{ minWidth: 0 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
               <Typography component="h1" sx={{ color: t.ink }} variant="h4">
                 {meta.title}
               </Typography>
               <StageChip
                 stage={
-                  spine[safeIndex]?.committed === true
+                  activeCommitted
                     ? 'committed'
                     : stage === 'awaitingReview'
                       ? 'awaitingReview'
                       : 'empty'
                 }
               />
+              {/* Committed framing copy moved off the full-width banner into a (?) info
+                  popover; staleness moved off the amber banner into a compact chip —
+                  so the first paint of a committed step is content, not banners. */}
+              {activeCommitted ? <ArtifactInfoButton kind={activeKind} /> : null}
+              {activeCommitted && committedStale ? (
+                <StaleBasisHeaderChip
+                  acknowledgePending={acknowledgeStale.isPending}
+                  cause={committedStaleCause}
+                  onAcknowledge={onAcknowledgeStale}
+                  onReconcile={() => {
+                    amend(RECONCILE_RATIONALE);
+                  }}
+                />
+              ) : null}
             </Box>
             <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.muted, mt: 0.5 }}>
               {meta.file} · step {safeIndex + 1} of {PHASE1_ARTIFACTS.length}
             </Typography>
+            {/* PM-P1-3: a compact caveat (not a full-width banner) when the Standard
+                Check renders over drifted upstream artifacts. */}
+            {showStandardCheckCaveat ? (
+              <Chip
+                data-testid={UI_IDENTIFIERS.DesignExperience.STANDARD_CHECK_CAVEAT}
+                icon={<WarningAmberIcon sx={{ fontSize: 14 }} />}
+                label={`may be invalidated — ${String(upstreamStaleCount)} upstream artifact${upstreamStaleCount === 1 ? '' : 's'} changed since this check`}
+                size="small"
+                sx={{
+                  mt: 1,
+                  bgcolor: t.paperAlt,
+                  color: t.ink,
+                  fontWeight: 700,
+                  border: `1.5px solid ${t.bandYellow}`,
+                  '& .MuiChip-icon': { color: t.bandYellow },
+                }}
+              />
+            ) : null}
           </Box>
           <Box sx={{ flexGrow: 1 }} />
           <Chip
@@ -429,17 +471,15 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
 
         {/* body */}
         <StepBody
-          acknowledgePending={acknowledgeStale.isPending}
           activeKind={activeKind}
           amendPending={requestDraft.isPending}
           asyncFailed={asyncFailed}
           beginPending={startDesign.isPending || requestDraft.isPending}
           blurb={meta.blurb}
           commentCount={comments.length}
-          committed={spine[safeIndex]?.committed === true}
+          committed={activeCommitted}
           committedEnvelope={committedEnvelope}
           committedRevisions={committedRevisions}
-          committedStale={committedStale}
           decisionPending={decisionPending}
           draftFailed={draftFailed}
           failureReason={failureReason}
@@ -459,7 +499,6 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
           title={meta.title}
           view={view}
           withdrawPending={decisionPending}
-          onAcknowledgeStale={onAcknowledgeStale}
           onAmend={amend}
           onApprove={approve}
           onBegin={beginOrDraft}
@@ -479,7 +518,6 @@ function StepBody({
   committed,
   committedEnvelope,
   committedRevisions,
-  committedStale,
   loading,
   generating,
   needsResearch,
@@ -503,7 +541,6 @@ function StepBody({
   retryPending,
   withdrawPending,
   amendPending,
-  acknowledgePending,
   onBegin,
   onRetry,
   onSubmitResearch,
@@ -511,14 +548,12 @@ function StepBody({
   onSendBack,
   onWithdraw,
   onAmend,
-  onAcknowledgeStale,
 }: {
   t: Tokens;
   activeKind: ArtifactKind;
   committed: boolean;
   committedEnvelope: ArtifactModelEnvelope | undefined;
   committedRevisions: number | undefined;
-  committedStale: boolean;
   loading: boolean;
   generating: boolean;
   needsResearch: boolean;
@@ -542,7 +577,6 @@ function StepBody({
   retryPending: boolean;
   withdrawPending: boolean;
   amendPending: boolean;
-  acknowledgePending: boolean;
   onBegin: () => void;
   onRetry: () => void;
   onSubmitResearch: (research: ResearchInput) => void;
@@ -550,7 +584,6 @@ function StepBody({
   onSendBack: () => void;
   onWithdraw: () => void;
   onAmend: (feedback: string) => void;
-  onAcknowledgeStale: (note: string) => void;
 }): ReactNode {
   if (needsResearch) {
     return <ResearchInputPanel pending={researchPending} onSubmit={onSubmitResearch} />;
@@ -644,11 +677,8 @@ function StepBody({
   if (sessionMissing && committed && committedEnvelope !== undefined) {
     return (
       <CommittedArtifactPanel
-        acknowledgePending={acknowledgePending}
         amendPending={amendPending}
         revisions={committedRevisions}
-        staleBasis={committedStale}
-        onAcknowledgeStale={onAcknowledgeStale}
         onAmend={onAmend}
       >
         {proseSurface(
@@ -684,21 +714,10 @@ function StepBody({
   const gateOpen = stage === 'awaitingReview';
   return (
     <>
-      <ArtifactIntro committed={committed} kind={activeKind} />
-      {/* F45/F64: a committed artifact whose upstream basis drifted shows the stale banner in
-          the pane (not just the stepper ⚠). Reconcile fires the amend directly here; "mark
-          reviewed — unaffected" clears StaleBasis with an audit note, no redraft. */}
-      {committed && committedStale ? (
-        <Box sx={{ mb: 2 }}>
-          <StaleBasisBanner
-            acknowledgePending={acknowledgePending}
-            onAcknowledge={onAcknowledgeStale}
-            onReconcile={() => {
-              onAmend(RECONCILE_RATIONALE);
-            }}
-          />
-        </Box>
-      ) : null}
+      {/* Draft framing stays as an inline note; the committed framing moved to the
+          header (?) info popover and staleness to the header chip, so a committed
+          step's first paint is content, not banners (UX-P1-4/P2-10/R7). */}
+      {committed ? null : <ArtifactIntro committed={false} kind={activeKind} />}
       <Box sx={{ mb: gateOpen ? 3 : 0 }}>
         {proseSurface(
           view?.draft.kind ?? activeKind,

@@ -61,6 +61,7 @@ import { DraftFailedPanel } from '../components/design/DraftFailedPanel';
 import { GatePanel } from '../components/design/GatePanel';
 import { ChatRail } from '../components/design/ChatRail';
 import { CommittedArtifactPanel } from '../components/design/CommittedArtifactPanel';
+import { StaleBasisHeaderChip } from '../components/design/StaleBasisChip';
 import { StageChip } from '../components/StageChip';
 import { ProjectArtifactRenderer } from '../components/project/ProjectArtifactRenderer';
 import { CommentProvider, useComments } from '../components/comments/CommentContext';
@@ -231,6 +232,9 @@ function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
     requestDraft.mutate({ kind: activeKind, feedback });
   };
 
+  // Seed rationale for a reconcile-via-amendment fired from the header stale chip.
+  const reconcileRationale = 'Reconcile with amended upstream basis.';
+
   const approve = (): void => {
     setGateError(undefined);
     submitReview.mutate(
@@ -342,8 +346,8 @@ function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
       <Box sx={{ flexGrow: 1, minWidth: 0, overflowY: 'auto', px: { xs: 2, md: 4 }, py: 3 }}>
         {/* artifact header */}
         <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5, mb: 2 }}>
-          <Box>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+          <Box sx={{ minWidth: 0 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
               <Typography component="h1" sx={{ color: t.ink }} variant="h4">
                 {meta.title}
               </Typography>
@@ -352,6 +356,16 @@ function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
                   committed ? 'committed' : stage === 'awaitingReview' ? 'awaitingReview' : 'empty'
                 }
               />
+              {/* Staleness moved off the full-width amber banner into a compact
+                  header chip + popover (parity with the System Design shell). */}
+              {committed && committedStale ? (
+                <StaleBasisHeaderChip
+                  cause={committedSlot.staleCause}
+                  onReconcile={() => {
+                    amend(reconcileRationale);
+                  }}
+                />
+              ) : null}
             </Box>
             <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.muted, mt: 0.5 }}>
               {meta.file} · step {safeIndex + 1} of {PHASE2_KINDS.length}
@@ -384,7 +398,6 @@ function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
           committed={committed}
           committedEnvelope={committedEnvelope}
           committedRevisions={committedRevisions}
-          committedStale={committedStale}
           decisionPending={decisionPending}
           draftFailed={draftFailed}
           failureReason={failureReason}
@@ -435,7 +448,6 @@ function ProjectStepBody({
   committed,
   committedEnvelope,
   committedRevisions,
-  committedStale,
   failureReason,
   hasDraft,
   sessionMissing,
@@ -479,7 +491,6 @@ function ProjectStepBody({
   committed: boolean;
   committedEnvelope: ProjectArtifactModelEnvelope | undefined;
   committedRevisions: number | undefined;
-  committedStale: boolean;
   failureReason: string | undefined;
   hasDraft: boolean;
   sessionMissing: boolean;
@@ -585,7 +596,6 @@ function ProjectStepBody({
       <CommittedArtifactPanel
         amendPending={amendPending}
         revisions={committedRevisions}
-        staleBasis={committedStale}
         onAmend={onAmend}
       >
         <ProjectArtifactRenderer

@@ -96,12 +96,26 @@ export function ExperienceChrome({
               borderRadius: t.radius / 8 + 0.5,
               boxShadow: t.hardShadow ? `2px 2px 0 ${t.shadowColor}` : 'none',
               transition: 'all 90ms ease',
+              outline: 'none',
               '&:hover': {
                 boxShadow: t.hardShadow ? `1px 1px 0 ${t.shadowColor}` : 'none',
                 transform: t.hardShadow ? 'translate(1px,1px)' : 'scale(1.05)',
               },
+              // Keyboard reachability (UX-P0-1): a role=button Box is inert to the
+              // keyboard without a tabIndex + key handler + a visible focus ring.
+              // Pattern mirrors comments/SelectionPopover's focus-visible treatment.
+              '&:focus-visible': {
+                boxShadow: `0 0 0 2px ${t.bg}, 0 0 0 4px ${t.accent}`,
+              },
             }}
+            tabIndex={0}
             onClick={onClose}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onClose();
+              }
+            }}
           >
             <CloseIcon sx={{ fontSize: 22 }} />
           </Box>

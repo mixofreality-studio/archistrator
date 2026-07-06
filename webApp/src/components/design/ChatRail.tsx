@@ -6,9 +6,11 @@
  * composer attaches to it; pressing send posts the comment into the accumulator.
  * The architect later submits the whole set via the gate's "Send back".
  *
- * STUB: "reflect the CLI / agent conversation" is intentionally not wired — there
- * is no conversation backend in this build. The rail shows only the user's own
- * anchored comments; the footer documents the embedded-mode stub.
+ * The rail shows the user's own anchored comments plus the durable server review
+ * ledger; it does not mirror a separate agent-side conversation, so it simply
+ * shows nothing rather than surfacing internal "stub" jargon (PM-P1-1). Unsent
+ * drafts carried over from a previous visit collapse behind a disclosure instead
+ * of sitting front-and-centre (R9/F78).
  */
 import { useState, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
@@ -143,6 +145,11 @@ export function ChatRail({
   const t = useTokens();
   const { comments, anchor, setAnchor, post, remove, pendingQuestions } = useComments();
   const [draft, setDraft] = useState('');
+  // R9/F78: unsent notes persisted from a PREVIOUS visit load into `comments` on
+  // mount and used to sit front-and-centre as chat bubbles — easy to mistake for
+  // live activity. Collapse the pending group by default; posting a note this
+  // session expands it so the fresh note is visible where it landed.
+  const [pendingExpanded, setPendingExpanded] = useState(false);
   // Composer type + addressee (question-comments): a comment is a change-request by default;
   // marking it a question routes it to an addressee and off the redraft path.
   const [commentType, setCommentType] = useState<ReviewCommentType>('changeRequest');
@@ -160,6 +167,9 @@ export function ChatRail({
       ...(commentType === 'question' ? { addressee } : {}),
     });
     setDraft('');
+    // A note the architect just staged should be visible where it lands, so
+    // reveal the pending group even if it was collapsed on load.
+    setPendingExpanded(true);
   };
 
   return (
@@ -255,30 +265,53 @@ export function ChatRail({
             {/* Always label the pending group so a staged (not-yet-sent) note is
                 never mistaken for a sent thread entry — even on a surface with no
                 prior server thread (this composer is reused across the design,
-                project-design, and construction rails). */}
-            <Typography
+                project-design, and construction rails). Collapsed by default so
+                carried-over drafts aren't mistaken for live activity (R9/F78). */}
+            <Box
               sx={{
-                fontFamily: t.mono,
-                fontSize: 10,
-                fontWeight: 700,
-                letterSpacing: '0.1em',
-                color: t.muted,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1,
                 mt: sortedThread.length > 0 ? 1 : 0,
               }}
             >
-              PENDING · NOT SENT
-            </Typography>
-            {comments.map((c, i) => (
-              <CommentBubble
-                c={c}
-                index={i}
-                key={i}
-                t={t}
-                onRemove={() => {
-                  remove(i);
+              <Typography
+                sx={{
+                  fontFamily: t.mono,
+                  fontSize: 10,
+                  fontWeight: 700,
+                  letterSpacing: '0.1em',
+                  color: t.muted,
                 }}
-              />
-            ))}
+              >
+                {`PENDING · NOT SENT · ${String(comments.length)}`}
+              </Typography>
+              <Box sx={{ flexGrow: 1 }} />
+              <Button
+                data-testid={UI_IDENTIFIERS.Chat.PENDING_DISCLOSURE}
+                size="small"
+                sx={{ color: t.muted, fontSize: 10.5, minWidth: 0, textTransform: 'none', py: 0 }}
+                variant="text"
+                onClick={() => {
+                  setPendingExpanded((v) => !v);
+                }}
+              >
+                {pendingExpanded ? 'Hide' : 'Review'}
+              </Button>
+            </Box>
+            {pendingExpanded
+              ? comments.map((c, i) => (
+                  <CommentBubble
+                    c={c}
+                    index={i}
+                    key={i}
+                    t={t}
+                    onRemove={() => {
+                      remove(i);
+                    }}
+                  />
+                ))
+              : null}
           </>
         )}
       </Box>
@@ -450,9 +483,6 @@ export function ChatRail({
             {`Ask ${String(pendingQuestionCount)} question${pendingQuestionCount === 1 ? '' : 's'} (no redraft)`}
           </Button>
         ) : null}
-        <Typography sx={{ fontFamily: t.mono, fontSize: 10, color: t.muted, mt: 0.75 }}>
-          Embedded mode · agent conversation mirroring is stubbed in this build
-        </Typography>
       </Box>
     </Paper>
   );
