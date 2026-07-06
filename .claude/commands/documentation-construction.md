@@ -10,6 +10,8 @@
 
 ## Steps
 
+> **State changes go through the `aiarch-state` MCP tools, not hand-edits.** Where a step below says to record a service contract, phase artifact, or testing artifact and "commit onto branch", do it with the matching tool — `recordServiceContract` / `recordPhaseArtifact` / `recordTestingState` — and finish with `publishDraft`. Do **not** hand-edit `.aiarch/state/project.json` or run `git` for state; only source/doc **files** (code, docs) are git-committed by you. See [[the-method-project-state]].
+
 1. **Read what you need** from `.aiarch/state/project.json` per [[the-method-project-state]]: this activity's documentation outline (from the Outline phase), and the committed system design entries and dynamic views/call chains it cites.
 2. **Produce** the phase artifact: write the document files (prose plus diagrams, matching the outline's list and locations) as files under this repo's `docs/` conventions. Reuse the committed dynamic views/call chains and naming exactly where the outline says to; author new content only where the outline flagged a gap. Commit onto branch `activity/<activity_id>`. These are repository files, not a `project.json` slot.
 3. **Verify** (only your own output; fast checks): every name, component, and relationship the docs mention exists in the committed system design; every document in the outline has a corresponding file; any nested-condition use case documented here includes an activity diagram, not prose alone.
