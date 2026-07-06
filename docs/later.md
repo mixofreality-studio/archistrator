@@ -65,6 +65,14 @@ log (session scratchpads; summarized in the final QA report).
 - F82 follow-through: answer-job status surfaced on question entries in the UI.
 - archistrator STP scenarios missing required acknowledgeStale arg (5 STP-ARG-NAME
   ERRORs in the methoddesign gate — amend the committed systemTestPlan slot).
+- dogfood slot-5 rev-2 earmark: work-item-tracker + work-item-access are planned-only
+  (no server/internal/resourceaccess/workitem package) yet the UC2/UC3 call chains
+  traverse them — decide at the NEXT slot-5 redraft: build the RA or re-route the
+  work-item steps (earmark also carried on the work-item-tracker encapsulates).
+- dogfood DV-REL-COVERAGE residue (warnings, accepted): ProjectDesignManager→
+  {ConstructionPipelineAccess, SourceControlAccess} appear in no call chain (Phase-2
+  draft dispatch has no dedicated use case — fold into a uc2 preamble edge or accept),
+  plus the 13 utility edges (convention: utilities carry no dynamic-view lines).
 
 ## Platform (release-coordination gated)
 - ClassifyStatus: split rate-limit 403 from permission 403 (bit approve twice today);

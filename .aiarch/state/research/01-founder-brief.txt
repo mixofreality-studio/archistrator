@@ -1,0 +1,26 @@
+# Founder Brief — aiarch
+
+Verbatim founder input that seeded this product. Captured 2026-05-13.
+
+## The pitch
+
+"I want to get meta and create an app for creating apps. My real business will be a cloud computing platform like GCP/Azure/AWS, but the draw is a killer app for building quality software predictably with The Method and AI agents with easy deployment. Mixofreality will run the k8s cluster, manage CI (Argo Workflows), manage deployments (Argo CD), and host a UI portal & MCP server for building your app. We will pay to host and charge you $$$ over for it. As mentioned before, the app is essentially just The Method. You use MCP or the UI to walk through all the steps of The Method, chatting with an AI expert on The Method as an architectural sidekick. It then plans projects for you and estimates time & cost based on AI agent costs to implement the project. Really we're just swapping out senior/jr engineers from The Method for AI agents. All the same philosophy applies."
+
+## Key implications
+
+- Two intertwined offerings, one product surface: (a) a guided 'build your app via The Method' experience, (b) a managed cloud where the resulting app runs. The guided experience is the wedge; hosting is the recurring revenue.
+- The Method is the differentiator. Competing IDE/agent products (Cursor, Devin, v0, Lovable, Replit Agent) skip directly to code. aiarch enforces Phase 1 → Phase 2 → Phase 3 discipline: business alignment, requirements scrubbing, volatility-based decomposition, project design with options, then construction.
+- AI agents replace senior/junior engineers. The Method's hand-off model (architect + senior + junior) maps 1:1 onto agent roles. Tasks are scoped the same way; the human's role shifts to architect/PM.
+- Cost estimation is now agent-cost estimation. Project design produces duration + cost estimates; cost is denominated in agent-call $$, not engineer-salary $$.
+- Deployment is push-button. Output of construction = deployable artifacts + helm charts. Argo CD picks them up. The user doesn't manage k8s; aiarch does.
+- Margin is on hosting, not on the build experience.
+
+## Known customer archetypes
+
+- Solo technical founders who want to build a SaaS without hiring a team.
+- Small product/eng leaders inside larger orgs who want a sanctioned path to ship a new internal tool quickly with quality.
+- Consultancies that already practice The Method and want leverage over their per-engagement cost.
+
+## Competitive landscape
+
+aiarch's bet: opinionated, Method-driven build experience + managed hosting is a niche neither agent IDEs (Cursor/Devin/Aider — no architecture discipline, no hosting) nor vibe-coding tools (v0/Bolt/Lovable — fast but not maintainable) nor pure managed hosting (Vercel/Render/Fly.io — no build experience) currently serves.
