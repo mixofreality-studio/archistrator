@@ -126,6 +126,17 @@ log (session scratchpads; summarized in the final QA report).
   founder to keep or drop).
 - gtdapp branch debris from pre-F40 sessions (0-draft/0-critique/1-draft…): deletable
   once rail cleanup verbs exist, or manually.
+  - F82 (2026-07-06): the design-workflow TEMPLATE now self-heals a conflicting session-
+    branch refresh — a conflict reconcile cannot resolve (a withdrawn/dead branch that
+    survived, or a conflict beyond the owned state slot) hard-resets the scratch branch to
+    origin/main + force-push (with lease) instead of dead-ending every future amendment of
+    the slot. The active-draft reconcile path (F80b) is unchanged. This does NOT retire the
+    debris earmark or the ClosePullRequest/DeleteBranch rail verbs above — the stale
+    BRANCHES still linger until real cleanup exists; self-heal only stops them BRICKING new
+    amendments. Also: existing product repos (gtdapp) keep the OLD refresh behavior until
+    re-seated — the seated copy is a committed snapshot and only refreshes via the
+    SyncManagedScaffold re-seat verb (see Construction earmark), so their brick persists
+    until re-seat.
 - webApp prettier drift (~71 files, pre-existing on main, not enforced).
 - Onboarding copy: recommend org-level CLAUDE_CODE_OAUTH_TOKEN + `gh secret list`
   verification (F18); F8 zero UpdatedAt renders "12/31/1"; F9 ghost card for

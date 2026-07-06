@@ -242,8 +242,17 @@ jobs:
       # in-flight draft on that one file. Rather than dead-ending RED, a conflict is
       # resolved DETERMINISTICALLY by `aiarch-state-mcp reconcile` — main's document with
       # THIS session's own slot overlaid — and the resolution is committed to complete the
-      # merge. A conflict on ANY OTHER file (there should be none — the branch only writes
-      # state) is still an honest RED failure. The push uses the run's own GITHUB_TOKEN.
+      # merge. The push uses the run's own GITHUB_TOKEN.
+      #
+      # F82: a conflict the reconcile CANNOT resolve does not dead-end the refresh either. A
+      # design session branch is machine-generated scratch; the durable committed state lives
+      # on main. A conflict that reconcile rejects (e.g. a WITHDRAWN draft whose session
+      # branch survived — rail branch cleanup is platform-gated future work) or a conflict on
+      # ANY file OTHER than the owned state slot means the branch carries DEAD content that
+      # would otherwise brick every future amendment of the slot. So the refresh self-heals:
+      # abort the merge, hard-reset the session branch to origin/main, force-push (with lease),
+      # and emit a ::notice. The active-draft reconcile path (F80b) is unchanged and still
+      # wins whenever the branch's own slot is recoverable, so live reviews are never reset.
       - name: Refresh the session branch from main
         env:
           JOB_MODE: ${{ inputs.job_mode }}
@@ -265,25 +274,45 @@ jobs:
             git push origin "HEAD:${TARGET_BRANCH}"
             exit 0
           fi
-          # Conflict: only the server-owned state document may conflict; anything else is
-          # an honest failure that a human must resolve.
+          # F82: self-heal a conflicting refresh. The session branch is machine-generated
+          # scratch; the durable committed state lives on main. When the branch carries dead
+          # content that cannot be reconciled (a withdrawn/abandoned draft whose branch
+          # survived, or a conflict on any file beyond the owned state slot), abort the merge,
+          # hard-reset the branch to origin/main, and force-push so this amendment builds on
+          # the committed state instead of dead-ending every future amendment of the slot.
+          self_heal_reset() {
+            git merge --abort || true
+            git reset --hard origin/main
+            git push --force-with-lease origin "HEAD:${TARGET_BRANCH}"
+            echo "::notice::conflicting refresh — the session branch carried dead draft content (${1:-diverged from main}); hard-reset ${TARGET_BRANCH} to origin/main so this amendment builds on the committed state. A withdrawn/abandoned draft on the old branch is discarded (rail branch cleanup is platform-gated future work)."
+          }
+          # A conflict on ANY file OTHER than the owned state slot means the branch is corrupt
+          # scratch (it should only ever write state) — self-heal rather than dead-end.
           conflicts="$(git diff --name-only --diff-filter=U)"
           if [ "${conflicts}" != "${STATE_FILE}" ]; then
-            echo "::error::merge conflict on files other than ${STATE_FILE} (${conflicts}); refusing to auto-resolve — resolve on the branch and retry."
-            git merge --abort
-            exit 1
+            self_heal_reset "conflict on files beyond the owned state slot (${conflicts})"
+            exit 0
           fi
+          # F80(b) ACTIVE-draft path: main advanced another slot while this draft is
+          # AwaitingReview. Overlay THIS session's own slot onto main deterministically; the
+          # in-flight draft + its review ledger survive. This wins whenever the branch's own
+          # slot is recoverable, so a live review is never reset.
           echo "reconciling ${STATE_FILE}: main + this session's own slot (${ARTIFACT_KIND})"
           git show ":3:${STATE_FILE}" > "${RUNNER_TEMP}/main-project.json"   # theirs = origin/main
           git show ":2:${STATE_FILE}" > "${RUNNER_TEMP}/ours-project.json"   # ours   = session branch
-          AIARCH_PROJECT_ID="${PROJECT_ID}" AIARCH_ARTIFACT_KIND="${ARTIFACT_KIND}" \
+          if AIARCH_PROJECT_ID="${PROJECT_ID}" AIARCH_ARTIFACT_KIND="${ARTIFACT_KIND}" \
             "${STATE_MCP}" reconcile \
               --base "${RUNNER_TEMP}/main-project.json" \
               --ours "${RUNNER_TEMP}/ours-project.json" \
-              --out "${STATE_FILE}"
-          git add "${STATE_FILE}"
-          git commit --no-edit
-          git push origin "HEAD:${TARGET_BRANCH}"
+              --out "${STATE_FILE}"; then
+            git add "${STATE_FILE}"
+            git commit --no-edit
+            git push origin "HEAD:${TARGET_BRANCH}"
+            exit 0
+          fi
+          # F82: reconcile rejected the branch's own slot (unrecoverable — e.g. a withdrawn
+          # draft that fails the required-field gate). Treat the branch as dead scratch.
+          self_heal_reset "state slot could not be reconciled (stale/withdrawn draft)"
 
       # Record the base commit the draft is built on — the REFRESHED session-branch tip (so
       # the post-claude guard measures whether CLAUDE advanced the branch beyond the refresh,

@@ -254,7 +254,9 @@ func TestDesignWorkflowWiresStateMcp(t *testing.T) {
 // TestDesignWorkflowReconcilesStateConflict asserts the F80 refresh-step wiring: answer
 // jobs skip the merge-from-main, and a draft/critique conflict on the state document is
 // resolved DETERMINISTICALLY via the aiarch-state-mcp `reconcile` subcommand rather than
-// dead-ending RED.
+// dead-ending RED. It also asserts the F82 self-heal: a conflict reconcile cannot resolve
+// (a withdrawn/dead branch, or a conflict beyond the owned slot) hard-resets the scratch
+// session branch to origin/main instead of dead-ending every future amendment of the slot.
 func TestDesignWorkflowReconcilesStateConflict(t *testing.T) {
 	body := string(renderedDesignWorkflow(t, testAppSlug))
 
@@ -272,6 +274,25 @@ func TestDesignWorkflowReconcilesStateConflict(t *testing.T) {
 	// It reads BOTH merge stages of the state file (ours = :2, theirs/main = :3).
 	if !strings.Contains(body, `:2:${STATE_FILE}`) || !strings.Contains(body, `:3:${STATE_FILE}`) {
 		t.Error("reconcile must read both merge stages of the state document")
+	}
+	// F82: a conflict the reconcile CANNOT resolve (or a conflict on any file beyond the
+	// owned state slot) self-heals to main rather than dead-ending — the branch is scratch,
+	// the durable state lives on main. It must hard-reset to origin/main and force-push (with
+	// lease), never `exit 1` on the conflict.
+	if !strings.Contains(body, "reset --hard origin/main") {
+		t.Error("refresh step must self-heal a non-reconcilable conflict by hard-resetting to origin/main (F82)")
+	}
+	if !strings.Contains(body, "push --force-with-lease") {
+		t.Error("refresh step must force-push (with lease) the self-heal reset (F82)")
+	}
+	// The reconcile is GUARDED (its failure routes to self-heal, not a RED step) — the
+	// self-heal function must be invoked from both the non-state-conflict and the
+	// reconcile-failure paths.
+	if strings.Count(body, "self_heal_reset ") < 2 {
+		t.Error("refresh step must route BOTH the non-state conflict and the reconcile-failure paths to the self-heal reset (F82)")
+	}
+	if strings.Contains(body, "refusing to auto-resolve") {
+		t.Error("refresh step must no longer dead-end a conflicting refresh with an honest RED failure (F82 replaces it with self-heal)")
 	}
 	// The MCP binary is installed BEFORE the refresh step needs it (reconcile).
 	iInstall := strings.Index(body, "go install "+StateMcpModulePath)
