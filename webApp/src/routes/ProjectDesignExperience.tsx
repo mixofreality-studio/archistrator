@@ -177,6 +177,7 @@ function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
 
   // Graceful FailedPrecondition surface: an approve that races an open thread
   // entry fails; we refetch the thread and name the message rather than wedge.
+  // Any failed gate decision (approve / send back / withdraw) names its error here.
   const [gateError, setGateError] = useState<string | undefined>(undefined);
 
   const sessionMissing = session.error instanceof ApiError && session.error.status === 404;
@@ -205,6 +206,9 @@ function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
   const committedStale = committedSlot?.staleBasis === true;
 
   const selectStep = (i: number): void => {
+    // Clear any held gate error so a prior step's failed decision never bleeds
+    // onto the next step's gate (F79).
+    setGateError(undefined);
     setActiveIndex(i);
   };
 
@@ -253,6 +257,7 @@ function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
   };
 
   const sendBack = (): void => {
+    setGateError(undefined);
     const wireComments = toWire();
     const notes = freeformNotes();
     const feedback = notes.length > 0 ? notes : wireComments.map((c) => c.text).join('\n');
@@ -261,6 +266,11 @@ function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
       {
         onSuccess: () => {
           reset();
+        },
+        onError: (err) => {
+          // A failed send-back must not be invisible (F79): keep the accumulated
+          // notes (no reset), stay on the gate, and name the error inline.
+          setGateError(err.message);
         },
       }
     );
@@ -275,11 +285,16 @@ function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
   };
 
   const withdraw = (): void => {
+    setGateError(undefined);
     submitReview.mutate(
       { kind: activeKind, decision: 'withdraw' },
       {
         onSuccess: () => {
           reset();
+        },
+        onError: (err) => {
+          // A failed withdraw stays on the gate with the error named inline (F79).
+          setGateError(err.message);
         },
       }
     );
