@@ -16253,6 +16253,9 @@
             },
             "StaleBasis": {
               "type": "boolean"
+            },
+            "StaleBasisCause": {
+              "x-go-type": "StaleCause"
             }
           },
           "required": [
@@ -19616,6 +19619,10 @@
             "staleBasis": {
               "type": "boolean",
               "x-go-name": "StaleBasis"
+            },
+            "staleBasisCause": {
+              "x-go-type": "StaleCauseView",
+              "x-go-name": "StaleBasisCause"
             },
             "revisions": {
               "type": "integer",

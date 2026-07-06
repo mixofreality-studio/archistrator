@@ -1092,6 +1092,9 @@ components:
                 staleBasis:
                     type: boolean
                     x-go-name: StaleBasis
+                staleBasisCause:
+                    x-go-name: StaleBasisCause
+                    x-go-type: StaleCauseView
             required:
                 - kind
                 - stage
