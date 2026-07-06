@@ -37,6 +37,7 @@ import { PHASE1_ARTIFACTS } from '../contracts/types';
 import type {
   ArtifactKind,
   ArtifactModelEnvelope,
+  ArtifactProvenance,
   Finding,
   ProjectState,
   ResearchInput,
@@ -207,6 +208,7 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
   const committedSlot = project?.slots.find((s) => s.kind === activeKind);
   const committedEnvelope = committedSlot?.model;
   const committedRevisions = committedSlot?.revisions;
+  const committedProvenance = committedSlot?.provenance;
   const committedStale = committedSlot?.staleBasis === true;
   const hasDraft = view?.draft.model !== undefined;
   const findings: Finding[] = view?.findings ?? [];
@@ -495,6 +497,7 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
           commentCount={comments.length}
           committed={activeCommitted}
           committedEnvelope={committedEnvelope}
+          committedProvenance={committedProvenance}
           committedRevisions={committedRevisions}
           decisionPending={decisionPending}
           draftFailed={draftFailed}
@@ -534,6 +537,7 @@ function StepBody({
   committed,
   committedEnvelope,
   committedRevisions,
+  committedProvenance,
   loading,
   generating,
   needsResearch,
@@ -570,6 +574,7 @@ function StepBody({
   committed: boolean;
   committedEnvelope: ArtifactModelEnvelope | undefined;
   committedRevisions: number | undefined;
+  committedProvenance: ArtifactProvenance | undefined;
   loading: boolean;
   generating: boolean;
   needsResearch: boolean;
@@ -694,6 +699,7 @@ function StepBody({
     return (
       <CommittedArtifactPanel
         amendPending={amendPending}
+        provenance={committedProvenance}
         revisions={committedRevisions}
         onAmend={onAmend}
       >
