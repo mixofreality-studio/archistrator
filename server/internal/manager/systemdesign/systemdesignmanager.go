@@ -498,8 +498,20 @@ func (m *systemDesignManager) AdvancePhase(rc fwmanager.Context, projectID Proje
 		return PhaseAdvanceResult{}, newError(fwmanager.ContractMisuse, "empty projectId")
 	}
 
-	if !acknowledgeStale {
-		if proj, rerr := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID)); rerr == nil {
+	// Pre-seal gates over the committed head-state (read once).
+	if proj, rerr := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID)); rerr == nil {
+		// STD-FAIL-OPEN: a committed standard check that still carries a FAIL item means the
+		// Phase-1 design gate is red; sealing over it would advance on an unmet standard. A
+		// fail is NOT a staleness the caller can wave through, so this gate ignores
+		// acknowledgeStale.
+		if fails := standardCheckFailItems(proj); len(fails) > 0 {
+			return PhaseAdvanceResult{}, newError(fwmanager.FailedPrecondition,
+				fmt.Sprintf("cannot advance phase: the system-design standard check has %d failing item(s) (%s); resolve or waive them before sealing Phase 1.",
+					len(fails), strings.Join(fails, "; ")))
+		}
+		// STALE-UNACKED (F55): refuse to seal over a stale committed slot unless the caller
+		// explicitly acknowledges the staleness.
+		if !acknowledgeStale {
 			if stale := staleCommittedPhase1Kinds(proj); len(stale) > 0 {
 				return PhaseAdvanceResult{}, newError(fwmanager.FailedPrecondition,
 					fmt.Sprintf("cannot advance phase: %d committed artifact(s) are stale and must be reconciled first (%s). Re-run the design for each, or advance anyway by acknowledging the staleness.",
@@ -537,10 +549,45 @@ func staleCommittedPhase1Kinds(proj projectstate.Project) []string {
 	for _, kind := range phase1RequiredKinds() {
 		slot := slotFor(proj, kind)
 		if slot.Status == projectstate.ReviewCommitted && slot.StaleBasis {
-			stale = append(stale, artifactKindWireName(kind))
+			label := artifactKindWireName(kind)
+			// STALE-UNACKED cause thread: name WHAT shifted the basis when the amendment
+			// recorded it (absent for slots that went stale before the cause field existed).
+			if c := slot.StaleBasisCause; c != nil {
+				label = fmt.Sprintf("%s (basis changed by %s rev %d)", label, c.UpstreamKind, c.UpstreamRevision)
+			}
+			stale = append(stale, label)
 		}
 	}
 	return stale
+}
+
+// standardCheckFailItems returns a human label for every FAIL item in the COMMITTED
+// standard-check slot (STD-FAIL-OPEN). Empty when the standard check is not committed or
+// carries no fail item — Phase 1 may seal only when the gate is fail-free.
+func standardCheckFailItems(proj projectstate.Project) []string {
+	slot := slotFor(proj, KindStandardCheck)
+	if slot.Status != projectstate.ReviewCommitted {
+		return nil
+	}
+	sc, ok := slot.Model.(*projectstate.StandardCheck)
+	if !ok || sc == nil {
+		return nil
+	}
+	var fails []string
+	for i, it := range sc.Items {
+		if it.Status != projectstate.CheckFail {
+			continue
+		}
+		label := strings.TrimSpace(it.Guideline)
+		if label == "" {
+			label = strings.TrimSpace(it.Section)
+		}
+		if label == "" {
+			label = fmt.Sprintf("item %d", i+1)
+		}
+		fails = append(fails, label)
+	}
+	return fails
 }
 
 // getSessionState — op 2.4. Temporal Query (QueryWorkflow, query sessionState,

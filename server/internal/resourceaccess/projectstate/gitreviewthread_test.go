@@ -223,7 +223,8 @@ func TestGitStore_AcknowledgeStaleBasis(t *testing.T) {
 	// Commit Mission + Glossary, then AMEND Mission → the committed downstream Glossary goes stale.
 	v := stageCommit(1, ps.KindMission, &ps.MissionStatement{Vision: "v1", Mission: "m1"}, "mission1")
 	v = stageCommit(v, ps.KindGlossary, &ps.Glossary{}, "glossary1")
-	v = stageCommit(v, ps.KindMission, &ps.MissionStatement{Vision: "v2", Mission: "m2"}, "mission2")
+	// AMEND Mission (final commit in this chain; its returned version is not read again).
+	stageCommit(v, ps.KindMission, &ps.MissionStatement{Vision: "v2", Mission: "m2"}, "mission2")
 	p, _ := store.ReadProject(ctx, id, cred)
 	if !p.Glossary.StaleBasis {
 		t.Fatal("precondition: Glossary must be stale after Mission amend")

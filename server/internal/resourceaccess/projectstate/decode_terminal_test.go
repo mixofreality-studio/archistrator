@@ -29,6 +29,18 @@ func TestDecodeProjectJSON_MalformedClosedEnum_IsTerminal(t *testing.T) {
 			Name:           "Capture a commitment",
 			Trigger:        ps.TriggerBusMessage,
 			Classification: ps.ClassCore,
+			// UC-ACT-PRESENT: every use case must now carry a non-empty activity diagram
+			// (start + action) to decode; this keeps the fixture valid so only the poisoned
+			// trigger below fails the decode.
+			Activity: &ps.ActivityDiagram{
+				Nodes: []ps.ActivityNode{
+					{ID: "start", Kind: ps.NodeStart},
+					{ID: "capture", Kind: ps.NodeAction, Label: "capture"},
+				},
+				Edges: []ps.ActivityEdge{
+					{From: "start", To: "capture", Kind: ps.EdgeControlFlow},
+				},
+			},
 		},
 		RejectionReason: "",
 	}}}

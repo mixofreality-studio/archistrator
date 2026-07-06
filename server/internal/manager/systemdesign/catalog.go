@@ -473,8 +473,9 @@ func slotsToContract(p projectstate.Project) []ArtifactSlotView {
 			Notes: notesPtr(slot.Notes),
 			// F38: surface the staleness chip + the amendment (commit) count so the SPA can
 			// flag "basis shifted — reconcile" and show the revision. Both omitempty on the wire.
-			StaleBasis: staleBasisPtr(slot.StaleBasis),
-			Revisions:  revisionsPtr(slot.Revisions),
+			StaleBasis:      staleBasisPtr(slot.StaleBasis),
+			StaleBasisCause: staleBasisCauseView(slot.StaleBasisCause),
+			Revisions:       revisionsPtr(slot.Revisions),
 		})
 	}
 	return slots
@@ -510,6 +511,24 @@ func staleBasisPtr(stale bool) *bool {
 	}
 	b := true
 	return &b
+}
+
+// StaleCauseView is the read-model projection of projectstate.StaleCause: WHY a committed
+// slot went stale (the upstream slot kind + its new revision), so the SPA can say
+// "Volatilities rev 2 changed after this was committed". Absent when the slot is not stale
+// or went stale before the cause was recorded (no back-fill).
+type StaleCauseView struct {
+	UpstreamKind     string `json:"upstreamKind"`
+	UpstreamRevision int64  `json:"upstreamRevision"`
+}
+
+// staleBasisCauseView projects the stored stale-cause onto the read model, nil-safe
+// (omitempty on the wire: absent ⇒ not stale or cause unknown).
+func staleBasisCauseView(c *projectstate.StaleCause) *StaleCauseView {
+	if c == nil {
+		return nil
+	}
+	return &StaleCauseView{UpstreamKind: c.UpstreamKind, UpstreamRevision: c.UpstreamRevision}
 }
 
 // revisionsPtr surfaces the F38 commit/amendment count only once the slot has been

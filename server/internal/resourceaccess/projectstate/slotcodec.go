@@ -56,6 +56,13 @@ type slotJSON struct {
 	// re-commits (its own amendment is the reconcile). omitempty keeps the on-disk shape
 	// byte-identical for slots that are not stale.
 	StaleBasis bool `json:"staleBasis,omitempty"`
+	// StaleBasisCause is the ADDITIVE record of WHY this slot went stale (the upstream slot
+	// kind + its new revision after the amendment). Set alongside StaleBasis in
+	// commitTransition, cleared alongside it when THIS slot re-commits. nil (omitempty) for
+	// non-stale slots AND for slots that went stale before this field existed (no
+	// migration — absent cause is allowed). Keeps the on-disk shape byte-identical for
+	// every untouched slot.
+	StaleBasisCause *StaleCause `json:"staleBasisCause,omitempty"`
 }
 
 // slotEntry pairs a named-slot accessor with the kind that selects it. The
@@ -120,6 +127,7 @@ func encodeSlotsMap(p *Project) (map[string]slotJSON, error) {
 			ReviewThread:    slot.ReviewThread,
 			Revisions:       slot.Revisions,
 			StaleBasis:      slot.StaleBasis,
+			StaleBasisCause: slot.StaleBasisCause,
 		}
 		if slot.Model != nil {
 			mb, err := json.Marshal(slot.Model)
@@ -160,6 +168,7 @@ func decodeSlotsMap(w map[string]slotJSON, p *Project) error {
 			slot.Revisions = 1
 		}
 		slot.StaleBasis = entry.StaleBasis
+		slot.StaleBasisCause = entry.StaleBasisCause
 		if len(entry.Model) > 0 {
 			model, ok := NewModelForKind(kind)
 			if !ok {
@@ -231,10 +240,17 @@ func commitTransition(kind ArtifactKind) func(*Project) error {
 		// (decodeSlotsMap / ArtifactSlot.Revisions doc), so a pre-field slot's first
 		// re-commit lands at 2 — keeping successive -amend-N branch names unique.
 		slot.Revisions++
+		// Re-committing IS the reconcile: clear this slot's own staleness AND its cause.
 		slot.StaleBasis = false
+		slot.StaleBasisCause = nil
+		// Flag every already-committed downstream slot stale, and RECORD THE CAUSE (this
+		// upstream kind + its new revision) so the read model can name what shifted. On a
+		// FIRST commit no downstream slot is committed yet, so this is a no-op.
+		cause := &StaleCause{UpstreamKind: kind.WireName(), UpstreamRevision: slot.Revisions}
 		for _, dk := range downstreamKinds(kind) {
 			if ds, ok := slotPtr(p, dk); ok && ds.Status == ReviewCommitted {
 				ds.StaleBasis = true
+				ds.StaleBasisCause = cause
 			}
 		}
 		return nil

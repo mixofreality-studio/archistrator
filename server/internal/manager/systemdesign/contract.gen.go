@@ -109,12 +109,13 @@ type ArtifactSlotModel struct {
 }
 
 type ArtifactSlotView struct {
-	Kind       string            `json:"kind"`
-	Stage      ArtifactStage     `json:"stage"`
-	Model      ArtifactSlotModel `json:"model"`
-	Notes      *string           `json:"notes,omitempty"`
-	StaleBasis *bool             `json:"staleBasis,omitempty"`
-	Revisions  *int64            `json:"revisions,omitempty"`
+	Kind            string            `json:"kind"`
+	Stage           ArtifactStage     `json:"stage"`
+	Model           ArtifactSlotModel `json:"model"`
+	Notes           *string           `json:"notes,omitempty"`
+	StaleBasis      *bool             `json:"staleBasis,omitempty"`
+	StaleBasisCause *StaleCauseView   `json:"staleBasisCause,omitempty"`
+	Revisions       *int64            `json:"revisions,omitempty"`
 }
 
 type ArtifactStage int

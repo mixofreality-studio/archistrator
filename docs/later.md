@@ -76,6 +76,28 @@ log (session scratchpads; summarized in the final QA report).
   until released, only the app-side mirrors enforce. NOTE: that branch also carries
   an unpushed leftover commit a364acd9 (agentic sub-workflow methodcheck rules) for a
   feature the founder REVERTED — drop it when cutting the release.
+- methodcheck PLATFORM TWINS PENDING for the state-validation rules shipped app-side
+  2026-07-05 (server: statevalidationfindings.go read-back findings + RequireModelFields
+  presence twins). The app enforces them only as read-back findings (and, for the
+  presence/consistency subset, in projectstate.RequireModelFields on the write+read-back
+  codec); the authoritative cross-artifact WRITE gate belongs in methodcheck:
+    - SYS-RA-ORPHAN, SYS-ENCAPSULATES (client non-empty), SYS-REL-DUP,
+      DV-CHAIN-CONNECTED   → System rules (app: findings only)
+    - UC-VARIATION-REF, UC-ACT-PRESENT, UC-GUARD-LABEL → CoreUseCases (app:
+      UC-ACT-PRESENT + UC-GUARD-LABEL already hard-blocked in RequireModelFields;
+      UC-VARIATION-REF is a finding)
+    - GLOSS-FOURQ (Glossary), SR-ID-UNIQUE (ScrubbedRequirements),
+      OPC-TOPIC-COVERAGE (OperationalConcepts) → findings only
+    - STD-STATUS-EXPLICIT, STD-FAIL-OPEN (StandardCheck), VOL-AXIS-EXPLICIT
+      (Volatilities) → app hard-blocks status/axis PRESENCE in RequireModelFields;
+      STD-FAIL-OPEN is gated at AdvancePhase (systemdesign manager).
+  APP-SIDE DEVIATION recorded for the architect: SYS-ENCAPSULATES non-empty is enforced
+  in RequireModelFields ONLY for the volatility-owning kinds (manager/engine/
+  resourceAccess); CLIENT non-empty is a read-back FINDING, not a hard codec block,
+  because committed state (gtdapp) carries empty-encapsulates clients and reads must
+  never hard-fail (the critical read-safety invariant). Resource/utility empties are
+  warnings. The methodcheck twin should decide whether client non-empty becomes a hard
+  write gate.
 - mcpgen upstream of the in-repo emitter; methodcheck enum-strictness asymmetry (F36).
 - Platform release plan generally (v0.4.x line; scaffold pin 2 releases stale).
 

@@ -40,12 +40,20 @@ func RequireModelFields(kind ArtifactKind, raw []byte) error {
 		return requireSystemFields(raw)
 	case KindCoreUseCases:
 		return requireCoreUseCasesFields(raw)
-	default:
+	case KindStandardCheck:
+		return requireStandardCheckFields(raw)
+	case KindVolatilities:
+		return requireVolatilitiesFields(raw)
+	case KindMission, KindGlossary, KindScrubbedRequirements, KindOperationalConcepts,
+		KindPlanningAssumptions, KindActivityList, KindNetwork, KindNormalSolution,
+		KindSubcriticalSolution, KindCompressedSolution, KindDecompressedSolution,
+		KindRiskModel, KindSdpReview:
 		// Every other artifact's required-enum surface either has no zero-value hole that
 		// silently corrupts a Method rule, or is fully guarded by methodcheck; add a case
-		// here as new enum-bearing models acquire a hole.
+		// above as new enum-bearing models acquire a hole.
 		return nil
 	}
+	return nil
 }
 
 // requireSystemFields enforces the presence + consistency of the System model's
@@ -55,6 +63,60 @@ func RequireModelFields(kind ArtifactKind, raw []byte) error {
 // live F81 case (kind present, layer omitted→client) as a mismatch. The both-omitted
 // case (kind AND layer absent → both client → self-consistent) is caught by the presence
 // checks below and, at the whole-system level, by the SYSTEM-LAYER-DEGENERATE rule.
+// requireComponentFields enforces one component's identity + closed-enum + encapsulates
+// surface (extracted from requireSystemFields to keep each function's cognitive
+// complexity within the linter's floor).
+func requireComponentFields(cRaw json.RawMessage, i int) error {
+	obj, err := rawObject(cRaw)
+	if err != nil {
+		return fmt.Errorf("component %d is not a JSON object: %w", i+1, err)
+	}
+	label := componentLabel(obj, i)
+	if err := requireNonEmptyString(obj, "id", label); err != nil {
+		return err
+	}
+	if err := requireNonEmptyString(obj, "name", label); err != nil {
+		return err
+	}
+	if err := requirePresent(obj, "kind", label); err != nil {
+		return err
+	}
+	if err := requirePresent(obj, "layer", label); err != nil {
+		return err
+	}
+	var kind ComponentKind
+	if err := json.Unmarshal(obj["kind"], &kind); err != nil {
+		return fmt.Errorf("%s has an unrecognized kind: %w — use one of client|manager|engine|resourceAccess|resource|utility", label, err)
+	}
+	var layer Layer
+	if err := json.Unmarshal(obj["layer"], &layer); err != nil {
+		return fmt.Errorf("%s has an unrecognized layer: %w — use one of client|manager|engine|resourceAccess|resource|utility", label, err)
+	}
+	if want := canonicalLayer(kind); layer != want {
+		return fmt.Errorf("%s declares layer %q but its kind %q requires layer %q — the layer is 100%% derivable from the kind; set them to match (a missing layer field silently defaults to \"client\", which is the F81 corruption this rejects)",
+			label, enumName(layerNames, layer), enumName(componentKindNames, kind), enumName(layerNames, want))
+	}
+	// SYS-ENCAPSULATES (raw twin). encapsulates is a plain string whose zero value is "" —
+	// an omitted field is a silent hole (the component claims to encapsulate nothing).
+	// Require the field PRESENT on every component, and NON-EMPTY on the three
+	// volatility-owning kinds (Manager/Engine/ResourceAccess), which by definition each name
+	// the volatility they own. Client/Resource/Utility legitimately carry "" (a transport
+	// entry point, a physical store, a cappuccino-machine utility own no volatility), so
+	// their emptiness is surfaced as a read-back FINDING (SYS-ENCAPSULATES) rather than
+	// hard-failed here: a committed system may carry empty-encapsulates clients and its
+	// reads must never break.
+	if err := requirePresent(obj, "encapsulates", label); err != nil {
+		return err
+	}
+	if kind == CompManager || kind == CompEngine || kind == CompResourceAccess {
+		if err := requireNonEmptyString(obj, "encapsulates", label); err != nil {
+			return fmt.Errorf("%s is a %s and must name the volatility it encapsulates: %w",
+				label, enumName(componentKindNames, kind), err)
+		}
+	}
+	return nil
+}
+
 func requireSystemFields(raw []byte) error {
 	var top struct {
 		Components    []json.RawMessage `json:"components"`
@@ -68,34 +130,8 @@ func requireSystemFields(raw []byte) error {
 		return fmt.Errorf("the system model declares no components; a System must decompose into at least one component")
 	}
 	for i, cRaw := range top.Components {
-		obj, err := rawObject(cRaw)
-		if err != nil {
-			return fmt.Errorf("component %d is not a JSON object: %w", i+1, err)
-		}
-		label := componentLabel(obj, i)
-		if err := requireNonEmptyString(obj, "id", label); err != nil {
+		if err := requireComponentFields(cRaw, i); err != nil {
 			return err
-		}
-		if err := requireNonEmptyString(obj, "name", label); err != nil {
-			return err
-		}
-		if err := requirePresent(obj, "kind", label); err != nil {
-			return err
-		}
-		if err := requirePresent(obj, "layer", label); err != nil {
-			return err
-		}
-		var kind ComponentKind
-		if err := json.Unmarshal(obj["kind"], &kind); err != nil {
-			return fmt.Errorf("%s has an unrecognized kind: %w — use one of client|manager|engine|resourceAccess|resource|utility", label, err)
-		}
-		var layer Layer
-		if err := json.Unmarshal(obj["layer"], &layer); err != nil {
-			return fmt.Errorf("%s has an unrecognized layer: %w — use one of client|manager|engine|resourceAccess|resource|utility", label, err)
-		}
-		if want := canonicalLayer(kind); layer != want {
-			return fmt.Errorf("%s declares layer %q but its kind %q requires layer %q — the layer is 100%% derivable from the kind; set them to match (a missing layer field silently defaults to \"client\", which is the F81 corruption this rejects)",
-				label, enumName(layerNames, layer), enumName(componentKindNames, kind), enumName(layerNames, want))
 		}
 	}
 	for i, rRaw := range top.Relationships {
@@ -189,10 +225,17 @@ func requireCoreUseCasesFields(raw []byte) error {
 		if err := json.Unmarshal(uc["classification"], &class); err != nil {
 			return fmt.Errorf("%s has an unrecognized classification: %w — use one of core|nonCore", label, err)
 		}
-		if act, ok := uc["activity"]; ok && !isJSONNull(act) {
-			if err := requireActivityFields(act, label); err != nil {
-				return err
-			}
+		// UC-ACT-PRESENT (promoted 2026-07-05 from the advisory USECASE-ACTIVITY-MISSING
+		// read-back finding to a WRITE-PATH block). The strict codec previously SKIPPED a
+		// null activity here, letting a diagram-less use case commit. Every use case — core
+		// AND nonCore variation — must now carry a non-null activity diagram with at least
+		// one start node and one action step; requireActivityFields enforces the floor.
+		act, ok := uc["activity"]
+		if !ok || isJSONNull(act) {
+			return fmt.Errorf("%s is missing its required activity diagram (activity is null); every use case must carry a non-empty activity diagram with a start node and at least one action step", label)
+		}
+		if err := requireActivityFields(act, label); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -206,44 +249,139 @@ func requireActivityFields(raw json.RawMessage, ucLabel string) error {
 	if err != nil {
 		return fmt.Errorf("%s activity is not a JSON object: %w", ucLabel, err)
 	}
+	hasStart, hasAction, err := requireActivityNodes(act, ucLabel)
+	if err != nil {
+		return err
+	}
+	// UC-ACT-PRESENT floor: a non-empty activity diagram carries at least a start node
+	// and one action step (App C 1c). The write-path twin of the read-back activityDefect
+	// classifier in the systemdesign Manager.
+	if !hasStart || !hasAction {
+		return fmt.Errorf("%s activity diagram is structurally empty: it must contain at least one start node and at least one action step", ucLabel)
+	}
+	return requireActivityEdges(act, ucLabel)
+}
+
+// requireActivityNodes validates every node's kind enum and reports whether the diagram
+// carries a start node and an action node (the UC-ACT-PRESENT floor inputs).
+func requireActivityNodes(act map[string]json.RawMessage, ucLabel string) (hasStart, hasAction bool, err error) {
+	var nodeRaws []json.RawMessage
 	if nodes, ok := act["nodes"]; ok && !isJSONNull(nodes) {
-		var nodeRaws []json.RawMessage
-		if err := json.Unmarshal(nodes, &nodeRaws); err != nil {
-			return fmt.Errorf("%s activity nodes is not a JSON array: %w", ucLabel, err)
+		if e := json.Unmarshal(nodes, &nodeRaws); e != nil {
+			return false, false, fmt.Errorf("%s activity nodes is not a JSON array: %w", ucLabel, e)
 		}
-		for i, nRaw := range nodeRaws {
-			obj, err := rawObject(nRaw)
-			if err != nil {
-				return fmt.Errorf("%s activity node %d is not a JSON object: %w", ucLabel, i+1, err)
-			}
-			label := fmt.Sprintf("%s activity node %d", ucLabel, i+1)
-			if err := requirePresent(obj, "kind", label); err != nil {
-				return err
-			}
-			var nk ActivityNodeKind
-			if err := json.Unmarshal(obj["kind"], &nk); err != nil {
-				return fmt.Errorf("%s has an unrecognized kind: %w", label, err)
+	}
+	for i, nRaw := range nodeRaws {
+		obj, e := rawObject(nRaw)
+		if e != nil {
+			return false, false, fmt.Errorf("%s activity node %d is not a JSON object: %w", ucLabel, i+1, e)
+		}
+		label := fmt.Sprintf("%s activity node %d", ucLabel, i+1)
+		if e := requirePresent(obj, "kind", label); e != nil {
+			return false, false, e
+		}
+		var nk ActivityNodeKind
+		if e := json.Unmarshal(obj["kind"], &nk); e != nil {
+			return false, false, fmt.Errorf("%s has an unrecognized kind: %w", label, e)
+		}
+		if nk == NodeStart {
+			hasStart = true
+		}
+		if nk == NodeAction {
+			hasAction = true
+		}
+	}
+	return hasStart, hasAction, nil
+}
+
+// requireActivityEdges validates every edge's kind enum and enforces UC-GUARD-LABEL (a
+// guardedFlow edge must carry non-empty guard text).
+func requireActivityEdges(act map[string]json.RawMessage, ucLabel string) error {
+	edges, ok := act["edges"]
+	if !ok || isJSONNull(edges) {
+		return nil
+	}
+	var edgeRaws []json.RawMessage
+	if err := json.Unmarshal(edges, &edgeRaws); err != nil {
+		return fmt.Errorf("%s activity edges is not a JSON array: %w", ucLabel, err)
+	}
+	for i, eRaw := range edgeRaws {
+		obj, err := rawObject(eRaw)
+		if err != nil {
+			return fmt.Errorf("%s activity edge %d is not a JSON object: %w", ucLabel, i+1, err)
+		}
+		label := fmt.Sprintf("%s activity edge %d", ucLabel, i+1)
+		if err := requirePresent(obj, "kind", label); err != nil {
+			return err
+		}
+		var ek EdgeKind
+		if err := json.Unmarshal(obj["kind"], &ek); err != nil {
+			return fmt.Errorf("%s has an unrecognized kind: %w", label, err)
+		}
+		// UC-GUARD-LABEL: a guardedFlow edge (the outgoing edge of a decision) must carry
+		// non-empty guard text — an unlabeled guard makes the branch condition unreadable.
+		// Plain controlFlow edges carry no guard.
+		if ek == EdgeGuardedFlow {
+			if err := requireNonEmptyString(obj, "guard", label); err != nil {
+				return fmt.Errorf("%s is a guardedFlow edge and must carry non-empty guard text: %w", label, err)
 			}
 		}
 	}
-	if edges, ok := act["edges"]; ok && !isJSONNull(edges) {
-		var edgeRaws []json.RawMessage
-		if err := json.Unmarshal(edges, &edgeRaws); err != nil {
-			return fmt.Errorf("%s activity edges is not a JSON array: %w", ucLabel, err)
+	return nil
+}
+
+// requireStandardCheckFields enforces STD-STATUS-EXPLICIT: every standard-check item
+// must emit its status EXPLICITLY. CheckStatus's zero value is CheckPass, so an omitted
+// "status" silently reads as PASS (the F81 class) — a failing or waived guideline would
+// masquerade as satisfied. Demand the field present and a recognized enum on every item.
+func requireStandardCheckFields(raw []byte) error {
+	var top struct {
+		Items []json.RawMessage `json:"items"`
+	}
+	if err := json.Unmarshal(raw, &top); err != nil {
+		return fmt.Errorf("the standard-check model is not a JSON object: %w", err)
+	}
+	for i, iRaw := range top.Items {
+		obj, err := rawObject(iRaw)
+		if err != nil {
+			return fmt.Errorf("standard-check item %d is not a JSON object: %w", i+1, err)
 		}
-		for i, eRaw := range edgeRaws {
-			obj, err := rawObject(eRaw)
-			if err != nil {
-				return fmt.Errorf("%s activity edge %d is not a JSON object: %w", ucLabel, i+1, err)
-			}
-			label := fmt.Sprintf("%s activity edge %d", ucLabel, i+1)
-			if err := requirePresent(obj, "kind", label); err != nil {
-				return err
-			}
-			var ek EdgeKind
-			if err := json.Unmarshal(obj["kind"], &ek); err != nil {
-				return fmt.Errorf("%s has an unrecognized kind: %w", label, err)
-			}
+		label := checkItemLabel(obj, i)
+		if err := requirePresent(obj, "status", label); err != nil {
+			return err
+		}
+		var st CheckStatus
+		if err := json.Unmarshal(obj["status"], &st); err != nil {
+			return fmt.Errorf("%s has an unrecognized status: %w — use one of pass|waived|fail", label, err)
+		}
+	}
+	return nil
+}
+
+// requireVolatilitiesFields enforces VOL-AXIS-EXPLICIT: every volatility must emit its
+// axis EXPLICITLY. Axis's zero value is AxisSameCustomerOverTime, so an omitted "axis"
+// silently reads as that axis (the F81 class) — a volatility placed on the wrong axis
+// masquerades as deliberately placed. Demand the field present and a recognized enum on
+// every item.
+func requireVolatilitiesFields(raw []byte) error {
+	var top struct {
+		Items []json.RawMessage `json:"items"`
+	}
+	if err := json.Unmarshal(raw, &top); err != nil {
+		return fmt.Errorf("the volatilities model is not a JSON object: %w", err)
+	}
+	for i, iRaw := range top.Items {
+		obj, err := rawObject(iRaw)
+		if err != nil {
+			return fmt.Errorf("volatility %d is not a JSON object: %w", i+1, err)
+		}
+		label := volatilityLabel(obj, i)
+		if err := requirePresent(obj, "axis", label); err != nil {
+			return err
+		}
+		var ax Axis
+		if err := json.Unmarshal(obj["axis"], &ax); err != nil {
+			return fmt.Errorf("%s has an unrecognized axis: %w — use one of sameCustomerOverTime|allCustomersAtOneTime", label, err)
 		}
 	}
 	return nil
@@ -298,6 +436,31 @@ func componentLabel(obj map[string]json.RawMessage, i int) string {
 		}
 	}
 	return fmt.Sprintf("component %d", i+1)
+}
+
+// checkItemLabel builds a human label for a standard-check item, preferring its
+// guideline text then its section.
+func checkItemLabel(obj map[string]json.RawMessage, i int) string {
+	for _, key := range []string{"guideline", "section"} {
+		if v, ok := obj[key]; ok {
+			var s string
+			if json.Unmarshal(v, &s) == nil && strings.TrimSpace(s) != "" {
+				return fmt.Sprintf("standard-check item %d (%q)", i+1, s)
+			}
+		}
+	}
+	return fmt.Sprintf("standard-check item %d", i+1)
+}
+
+// volatilityLabel builds a human label for a volatility, preferring its name.
+func volatilityLabel(obj map[string]json.RawMessage, i int) string {
+	if v, ok := obj["name"]; ok {
+		var s string
+		if json.Unmarshal(v, &s) == nil && strings.TrimSpace(s) != "" {
+			return fmt.Sprintf("volatility %d (%q)", i+1, s)
+		}
+	}
+	return fmt.Sprintf("volatility %d", i+1)
 }
 
 func useCaseLabel(obj map[string]json.RawMessage, i int) string {

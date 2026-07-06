@@ -1497,6 +1497,15 @@ func (s *coAuthorState) view() (SessionStateView, error) {
 	if extra := systemLayerDegenerateFindings(s.artifactKind, s.draft); len(extra) > 0 {
 		findings = append(append([]Finding{}, findings...), extra...)
 	}
+	// State-validation read-back findings (architect ratification 2026-07-05). Each
+	// early-returns for a non-matching kind, so appending them all is safe and only the
+	// generators for s.artifactKind produce anything. They are advisory display — the
+	// authoritative write-path gate is the platform methodcheck twin (docs/later.md).
+	for _, gen := range stateValidationFindingGenerators {
+		if extra := gen(s.artifactKind, s.draft); len(extra) > 0 {
+			findings = append(append([]Finding{}, findings...), extra...)
+		}
+	}
 	if s.unresolvedCritique != "" {
 		findings = append(append([]Finding{}, findings...), Finding{
 			RuleID:   "PM-CRITIQUE-UNRESOLVED",
