@@ -87,7 +87,8 @@ import (
 // durableexecution): it embeds context.Context and carries the caller's
 // SecurityPrincipal + IdempotencyKey. The generator prepends it; the schema
 // captures only the data params. The interface is generated into contract.gen.go
-// from contract.schema.json — DO NOT hand-edit the generated copy.
+// from this component's `.serviceContracts` entry in .aiarch/state/project.json —
+// DO NOT hand-edit the generated copy.
 
 // ---------------------------------------------------------------------------
 // §3 Data contracts (contract #1 §3) — provider-opaque value types.

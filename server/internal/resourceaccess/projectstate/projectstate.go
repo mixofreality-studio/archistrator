@@ -33,8 +33,9 @@ import (
 
 // ProjectStateAccess — the Temporal-free port over the project head-state
 // aggregate (projectStateAccess.md §2) — is now GENERATED into contract.gen.go
-// from contract.schema.json (schema-first, interface-only mode: the PORT is
-// regenerated, but the domain types + persistence codec stay HAND-WRITTEN here,
+// from the projectStateAccess `.serviceContracts` entry in .aiarch/state/project.json
+// (schema-first: the PORT + domain model types are
+// regenerated, but the persistence codec stays HAND-WRITTEN here,
 // the canonical source of truth). Its 8 atomic verbs take rc fwra.Context first
 // (carrying ctx + idempotency key). Every write verb honours optimistic
 // concurrency (expectedVersion → fwra.Conflict on a stale value) AND idempotency

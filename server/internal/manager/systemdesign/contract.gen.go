@@ -268,6 +268,7 @@ type ProjectState struct {
 	Name                 string                                `json:"Name"`
 	Owner                OwnerScope                            `json:"Owner"`
 	Phase                Phase                                 `json:"Phase"`
+	PhaseName            string                                `json:"PhaseName"`
 	Version              int64                                 `json:"Version"`
 	OperatingModel       OperatingModel                        `json:"operatingModel"`
 	Research             ResearchInput                         `json:"Research"`
@@ -285,6 +286,7 @@ type ProjectSummary struct {
 	Name           string     `json:"Name"`
 	Owner          OwnerScope `json:"Owner"`
 	Phase          Phase      `json:"Phase"`
+	PhaseName      string     `json:"PhaseName"`
 	CommittedCount int64      `json:"CommittedCount"`
 	TotalCount     int64      `json:"TotalCount"`
 	UpdatedAt      time.Time  `json:"UpdatedAt"`

@@ -20125,6 +20125,14 @@
             "Phase": {
               "$ref": "#/$defs/Phase"
             },
+            "PhaseName": {
+              "type": "string",
+              "enum": [
+                "system-design",
+                "project-design",
+                "construction"
+              ]
+            },
             "Version": {
               "type": "integer"
             },
@@ -20179,6 +20187,7 @@
             "Name",
             "Owner",
             "Phase",
+            "PhaseName",
             "Version",
             "Research",
             "Slots",
@@ -20204,6 +20213,14 @@
             "Phase": {
               "$ref": "#/$defs/Phase"
             },
+            "PhaseName": {
+              "type": "string",
+              "enum": [
+                "system-design",
+                "project-design",
+                "construction"
+              ]
+            },
             "CommittedCount": {
               "type": "integer"
             },
@@ -20222,6 +20239,7 @@
             "Name",
             "Owner",
             "Phase",
+            "PhaseName",
             "CommittedCount",
             "TotalCount",
             "UpdatedAt"

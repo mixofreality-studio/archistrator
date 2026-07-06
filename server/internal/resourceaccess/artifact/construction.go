@@ -1,8 +1,9 @@
 package artifact
 
 // This file documents the shared Phase-3 construction-output value types. They are
-// now GENERATED from contract.schema.json into contract.gen.go (schema-first; edit
-// the schema and run `make gen`). They live HERE in artifactAccess (the RA that
+// now GENERATED from the artifactAccess `.serviceContracts` entry in
+// .aiarch/state/project.json into contract.gen.go (schema-first; edit
+// that entry and run `make gen`). They live HERE in artifactAccess (the RA that
 // STORES them); workerAccess — which PRODUCES a ConstructionOutput — references them
 // directly. The shared value vocabulary is owned by the RA that fronts the resource
 // it describes (per The Method's layer model: ResourceAccess owns its value types

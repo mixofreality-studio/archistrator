@@ -842,3 +842,32 @@ func TestProjectState_SlotWireShape(t *testing.T) {
 		t.Fatal("wire: empty slot should omit notes")
 	}
 }
+
+// TestPhaseNameLabels pins the PM-P2-5 fix: the human-readable PhaseName label is
+// projected alongside the 0-indexed Phase int in BOTH read models
+// (summaryToContract + projectStateToContract), 0/1/2 → the three lifecycle
+// labels, and an out-of-range Phase yields "" rather than a fabricated label.
+func TestPhaseNameLabels(t *testing.T) {
+	cases := []struct {
+		phase projectstate.Phase
+		want  string
+	}{
+		{projectstate.PhaseSystemDesign, "system-design"},
+		{projectstate.PhaseProjectDesign, "project-design"},
+		{projectstate.PhaseConstruction, "construction"},
+		{projectstate.Phase(9), ""}, // out of range → empty, never fabricated
+	}
+	m := &systemDesignManager{}
+	for _, tc := range cases {
+		if got := summaryToContract(projectstate.ProjectSummary{Phase: tc.phase}).PhaseName; got != tc.want {
+			t.Errorf("summaryToContract(Phase=%d).PhaseName = %q, want %q", tc.phase, got, tc.want)
+		}
+		if got := m.projectStateToContract(projectstate.Project{Phase: tc.phase}).PhaseName; got != tc.want {
+			t.Errorf("projectStateToContract(Phase=%d).PhaseName = %q, want %q", tc.phase, got, tc.want)
+		}
+		// The int Phase must still be carried unchanged next to the new label.
+		if got := summaryToContract(projectstate.ProjectSummary{Phase: tc.phase}).Phase; int(got) != int(tc.phase) {
+			t.Errorf("summaryToContract(Phase=%d).Phase = %d, want %d", tc.phase, got, tc.phase)
+		}
+	}
+}

@@ -20,7 +20,8 @@ package artifact
 
 // The ArtifactAccess port interface and its I/O value types (ConstructionOutput,
 // OutputTree, and the named scalar OutputPath) are now GENERATED from
-// contract.schema.json into contract.gen.go (schema-first; edit the schema and run
+// this component's `.serviceContracts` entry in .aiarch/state/project.json into
+// contract.gen.go (schema-first; edit that entry and run
 // `make gen`). Each method takes the ResourceAccess call Context `rc fwra.Context`
 // first — it embeds context.Context and carries the Principal + IdempotencyKey, so
 // the cross-cutting ctx/idempotencyKey that the hand-written surface passed

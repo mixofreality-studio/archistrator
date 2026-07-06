@@ -1470,6 +1470,12 @@ components:
                     $ref: '#/components/schemas/SystemDesignOwnerScope'
                 Phase:
                     $ref: '#/components/schemas/SystemDesignPhase'
+                PhaseName:
+                    enum:
+                        - system-design
+                        - project-design
+                        - construction
+                    type: string
                 ProjectID:
                     $ref: '#/components/schemas/SystemDesignProjectID'
                 Research:
@@ -1501,6 +1507,7 @@ components:
                 - Name
                 - Owner
                 - Phase
+                - PhaseName
                 - Version
                 - Research
                 - Slots
@@ -1520,6 +1527,12 @@ components:
                     $ref: '#/components/schemas/SystemDesignOwnerScope'
                 Phase:
                     $ref: '#/components/schemas/SystemDesignPhase'
+                PhaseName:
+                    enum:
+                        - system-design
+                        - project-design
+                        - construction
+                    type: string
                 ProjectID:
                     $ref: '#/components/schemas/SystemDesignProjectID'
                 TotalCount:
@@ -1534,6 +1547,7 @@ components:
                 - Name
                 - Owner
                 - Phase
+                - PhaseName
                 - CommittedCount
                 - TotalCount
                 - UpdatedAt

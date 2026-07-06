@@ -24,7 +24,8 @@ import (
 // ctx := rc.Context inside.
 //
 // SCHEMA-FIRST: this interface (and the port I/O types) are GENERATED into
-// contract.gen.go from contract.schema.json (edit the schema + `make gen`; do NOT
+// contract.gen.go from this component's `.serviceContracts` entry in
+// .aiarch/state/project.json (edit that entry + `make gen`; do NOT
 // hand-edit the generated surface). The concrete *Manager below satisfies it; the
 // consumer-side dependency interfaces (deps.go) and the Temporal Workflows struct
 // (workflow.go) stay hand-written and are NOT part of this contract.

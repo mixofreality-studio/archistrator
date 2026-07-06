@@ -332,13 +332,31 @@ func toEstimationNetwork(net projectstate.Network) estimation.Network {
 // projectstate → contract conversions (the Manager boundary).
 // ---------------------------------------------------------------------------
 
+// phaseLabels is the SINGLE SOURCE OF TRUTH mapping the 0-indexed project
+// lifecycle Phase to its human-readable label (PM-P2-5: clients kept misreading
+// the bare int). Kept aligned with the Phase enum in contract.gen.go — 0/1/2.
+var phaseLabels = map[Phase]string{
+	PhaseSystemDesign:  "system-design",
+	PhaseProjectDesign: "project-design",
+	PhaseConstruction:  "construction",
+}
+
+// phaseName returns the human-readable label for a Phase, or "" when the phase
+// is outside the known 0/1/2 range — a map miss yields the zero value, so an
+// out-of-range Phase reads as empty rather than a fabricated label.
+func phaseName(p Phase) string {
+	return phaseLabels[p]
+}
+
 // summaryToContract maps a projectstate.ProjectSummary onto the contract ProjectSummary.
 func summaryToContract(s projectstate.ProjectSummary) ProjectSummary {
+	phase := Phase(int(s.Phase))
 	return ProjectSummary{
 		ProjectID:      ProjectID(s.ProjectID),
 		Name:           s.Name,
 		Owner:          OwnerScope(s.Owner),
-		Phase:          Phase(int(s.Phase)),
+		Phase:          phase,
+		PhaseName:      phaseName(phase),
 		CommittedCount: int64(s.CommittedCount),
 		TotalCount:     int64(s.TotalCount),
 		UpdatedAt:      s.UpdatedAt,
@@ -350,11 +368,13 @@ func summaryToContract(s projectstate.ProjectSummary) ProjectSummary {
 // composed from m.repoBase + the opaque ref, and the EV/SPI earned-value curve from
 // m.estimator) are sourced server-side here rather than re-derived by the webClient.
 func (m *systemDesignManager) projectStateToContract(p projectstate.Project) ProjectState {
+	phase := Phase(int(p.Phase))
 	return ProjectState{
 		ProjectID: ProjectID(p.ID),
 		Name:      p.Name,
 		Owner:     OwnerScope(p.Owner),
-		Phase:     Phase(int(p.Phase)),
+		Phase:     phase,
+		PhaseName: phaseName(phase),
 		Version:   int64(p.Version),
 		// OrDefault: a pre-field project (empty model) reads as self-operated on the
 		// wire — the back-compat default — so the SPA never sees an empty operating model.

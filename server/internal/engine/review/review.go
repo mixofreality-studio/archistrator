@@ -117,9 +117,10 @@ var artifactKindByName = map[string]reviewKind{
 }
 
 // GENERATED CONTRACT SURFACE — the I/O models (ReviewChange, Reviewer, ReviewSet)
-// AND the ReviewEngine interface are generated from contract.schema.json into
-// contract.gen.go. Schema-first: edit the schema and run `make gen` (or
-// gen-schemas/gen-models); do not hand-edit the generated surface.
+// AND the ReviewEngine interface are generated from this component's
+// `.serviceContracts` entry in .aiarch/state/project.json into
+// contract.gen.go. Schema-first: edit that entry and run `make gen`
+// (or `make gen-models`); do not hand-edit the generated surface.
 //
 // Design rationale (the part not captured by the generated signature):
 //   - ReviewEngine is the pure, deterministic review-routing port — the hand-run
