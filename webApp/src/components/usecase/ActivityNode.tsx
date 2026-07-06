@@ -29,15 +29,29 @@ export interface ActivityNodeData {
   [key: string]: unknown;
 }
 
-const hiddenHandle = { opacity: 0 } as const;
+const hiddenHandle = { opacity: 0, width: 1, height: 1, minWidth: 0, minHeight: 0, border: 'none' } as const;
 
+/**
+ * Invisible connection points at each vertex. Every side carries both a target
+ * and a source handle (co-located, so which one is used is chosen per-edge in
+ * ActivityFlow by geometry): forward flow enters the top and leaves the bottom;
+ * a decision's side branches leave left/right; loop-back edges enter/leave a side.
+ * Stable ids let ActivityFlow pin each edge to a specific vertex so connection
+ * points stay consistent across every diagram.
+ */
 function Handles(): ReactNode {
   return (
     <>
-      <Handle position={Position.Top} style={hiddenHandle} type="target" />
-      <Handle id="l" position={Position.Left} style={hiddenHandle} type="target" />
-      <Handle position={Position.Bottom} style={hiddenHandle} type="source" />
-      <Handle id="r" position={Position.Right} style={hiddenHandle} type="source" />
+      {/* targets */}
+      <Handle id="t" position={Position.Top} style={hiddenHandle} type="target" />
+      <Handle id="lt" position={Position.Left} style={hiddenHandle} type="target" />
+      <Handle id="rt" position={Position.Right} style={hiddenHandle} type="target" />
+      <Handle id="bt" position={Position.Bottom} style={hiddenHandle} type="target" />
+      {/* sources */}
+      <Handle id="b" position={Position.Bottom} style={hiddenHandle} type="source" />
+      <Handle id="ls" position={Position.Left} style={hiddenHandle} type="source" />
+      <Handle id="rs" position={Position.Right} style={hiddenHandle} type="source" />
+      <Handle id="ts" position={Position.Top} style={hiddenHandle} type="source" />
     </>
   );
 }

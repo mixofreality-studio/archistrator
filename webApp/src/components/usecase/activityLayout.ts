@@ -10,10 +10,10 @@
 import type { UseCaseView } from '../../contracts/adapters';
 import { NODE_DIMS } from './nodeDims';
 
-export const SLOT_WIDTH = 280;
-export const ROW_HEIGHT = 168;
+export const SLOT_WIDTH = 244;
+export const ROW_HEIGHT = 176;
 export const HEADER_HEIGHT = 36;
-export const TOP_PAD = 20;
+export const TOP_PAD = 24;
 
 export interface PlacedNode {
   /** Top-left x of the node box. */
@@ -197,4 +197,43 @@ export function layoutActivity(uc: UseCaseView): ActivityLayout {
 /** True if `from->to` was classified a back-edge (loop). */
 export function isBackEdge(layout: ActivityLayout, from: string, to: string): boolean {
   return layout.backEdges.has(backEdgeKey(from, to));
+}
+
+/** Center point of a placed node, given its kind (for its on-canvas size). */
+export function nodeCenter(
+  layout: ActivityLayout,
+  id: string,
+  kind: string
+): { x: number; y: number } {
+  const p = layout.positions.get(id) ?? { x: 0, y: 0 };
+  const dim = (NODE_DIMS as Record<string, { w: number; h: number }>)[kind] ?? { w: 0, h: 0 };
+  return { x: p.x + dim.w / 2, y: p.y + dim.h / 2 };
+}
+
+/**
+ * Which vertex handles an edge should attach to, chosen by the relative geometry
+ * of source and target centers. Forward flow enters the target's top and leaves
+ * the source's bottom (consistent, UML-style vertices); a detected loop-back
+ * edge routes out one side and back into the same side so it never crosses the
+ * forward column. Handle ids match ActivityNode's <Handles/>.
+ */
+export function edgeHandles(
+  s: { x: number; y: number },
+  target: { x: number; y: number },
+  back: boolean
+): { sourceHandle: string; targetHandle: string } {
+  if (back) {
+    // Loop back up: hug whichever side the target sits on (default right).
+    return target.x <= s.x
+      ? { sourceHandle: 'ls', targetHandle: 'lt' }
+      : { sourceHandle: 'rs', targetHandle: 'rt' };
+  }
+  if (target.y > s.y + 1) {
+    // Normal downward flow: bottom vertex out, top vertex in.
+    return { sourceHandle: 'b', targetHandle: 't' };
+  }
+  // Same row (or slightly upward, non-loop): route across via sides.
+  return target.x >= s.x
+    ? { sourceHandle: 'rs', targetHandle: 'lt' }
+    : { sourceHandle: 'ls', targetHandle: 'rt' };
 }

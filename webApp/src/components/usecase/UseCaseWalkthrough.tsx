@@ -8,7 +8,7 @@
  * diagram beside it as a "you-are-here" map (current node ringed, path
  * emphasized, rest dimmed). Bound to a UseCaseView (adapters.toCoreUseCasesView).
  */
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
@@ -77,6 +77,26 @@ export function UseCaseWalkthrough({
 
   const [path, setPath] = useState<string[]>(startId.length > 0 ? [startId] : []);
 
+  // Container-aware layout: MUI viewport breakpoints can't see that this widget
+  // lives inside a narrow hero (a 300px meta sidebar already eats the row), which
+  // is what squeezed the you-are-here map down to a ~100px strip with clipped
+  // text. Measure our *own* width and, when the row can't give the map a usable
+  // share, stack the map full-width beneath the controls instead.
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [wide, setWide] = useState(true);
+  useEffect(() => {
+    const el = rootRef.current;
+    if (el === null) return undefined;
+    const ro = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry !== undefined) setWide(entry.contentRect.width >= 780);
+    });
+    ro.observe(el);
+    return (): void => {
+      ro.disconnect();
+    };
+  }, []);
+
   const highlight: ActivityHighlight = useMemo(() => {
     const visitedEdges = new Set<string>();
     for (let k = 0; k < path.length - 1; k++) {
@@ -109,11 +129,11 @@ export function UseCaseWalkthrough({
   };
 
   return (
-    <Box sx={{ display: 'flex', gap: 2, flexDirection: { xs: 'column', md: 'row' } }}>
+    <Box ref={rootRef} sx={{ display: 'flex', gap: 2, flexDirection: wide ? 'row' : 'column' }}>
       {/* focused current step + controls */}
       <Box
         sx={{
-          width: { xs: '100%', md: 400 },
+          width: wide ? 380 : '100%',
           flexShrink: 0,
           display: 'flex',
           flexDirection: 'column',

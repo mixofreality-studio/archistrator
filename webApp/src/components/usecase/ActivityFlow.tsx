@@ -19,6 +19,7 @@ import {
   Controls,
   MarkerType,
   useReactFlow,
+  useNodesInitialized,
   type Edge,
   type Node,
 } from '@xyflow/react';
@@ -26,14 +27,18 @@ import '@xyflow/react/dist/style.css';
 import Box from '@mui/material/Box';
 import type { UseCaseView } from '../../contracts/adapters';
 import { ActivityNode } from './ActivityNode';
+import { ActivityEdge } from './ActivityEdge';
 import { SwimlaneBackground } from './SwimlaneBackground';
 import { activityNodeAnchor, useComments } from '../comments/CommentContext';
 import { laneColors, laneBand } from './laneColors';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import type { Tokens } from '../../utilities/theme/themes';
-import { layoutActivity, isBackEdge, HEADER_HEIGHT } from './activityLayout';
+import { layoutActivity, isBackEdge, edgeHandles, nodeCenter, HEADER_HEIGHT } from './activityLayout';
 
 const nodeTypes = { activity: ActivityNode, swimlane: SwimlaneBackground };
+const edgeTypes = { activity: ActivityEdge };
+
+const FIT_PADDING = 0.14;
 
 /**
  * Walkthrough highlight state: the current node, the set of visited node ids, and
@@ -105,17 +110,25 @@ function build(
     };
   });
 
+  const kindOf = new Map(uc.nodes.map((n) => [n.id, n.kind]));
+
   const edges: Edge[] = uc.edges.map((e) => {
-    const dashed = e.kind === 'guardedFlow' || isBackEdge(layout, e.from, e.to);
+    const back = isBackEdge(layout, e.from, e.to);
+    const dashed = e.kind === 'guardedFlow' || back;
     const onPath = hl?.visitedEdges.has(`${e.from}-${e.to}`) ?? false;
     const dim = hl !== undefined && !onPath;
     const stroke = onPath ? t.accent : dashed ? t.accent2 : t.muted;
+    const s = nodeCenter(layout, e.from, kindOf.get(e.from) ?? 'action');
+    const tgt = nodeCenter(layout, e.to, kindOf.get(e.to) ?? 'action');
+    const { sourceHandle, targetHandle } = edgeHandles(s, tgt, back);
     return {
       id: `${e.from}-${e.to}`,
       source: e.from,
       target: e.to,
-      ...(e.guard.length > 0 ? { label: e.guard } : {}),
-      type: 'smoothstep',
+      sourceHandle,
+      targetHandle,
+      type: 'activity',
+      data: { label: e.guard, dim, onPath },
       zIndex: onPath ? 3 : 2,
       style: {
         stroke,
@@ -123,10 +136,7 @@ function build(
         strokeDasharray: dashed && !onPath ? '5 4' : undefined,
         opacity: dim ? 0.2 : 1,
       },
-      labelStyle: { fontFamily: t.mono, fontSize: 10, fontWeight: 700, fill: t.ink },
-      labelBgStyle: { fill: t.paper, fillOpacity: 0.95 },
-      labelBgPadding: [5, 3] as [number, number],
-      markerEnd: { type: MarkerType.ArrowClosed, color: stroke },
+      markerEnd: { type: MarkerType.ArrowClosed, color: stroke, width: 16, height: 16 },
     };
   });
 
@@ -134,33 +144,27 @@ function build(
 }
 
 /**
- * Pans + zooms the canvas to center the current walkthrough node whenever it
- * changes (mirrors the contracts view centering on a clicked method). Lives as a
- * child of <ReactFlow> so it can use the flow hooks; a double-rAF waits for the
- * node to be measured before centering, else its dimensions read stale.
+ * Fits the whole diagram into view once the nodes have actually been measured
+ * (React-Flow's own `fitView` prop fires on first paint, before the async-
+ * measured node sizes are known — which is what let the start node/first lane
+ * get clipped at the left edge on initial render). By waiting on
+ * `useNodesInitialized` and re-fitting on `refitKey`, the entire graph — every
+ * lane, the start node, the terminal — is always framed with padding. In
+ * walkthrough mode the map stays fully framed (never clipped); the ring + dim
+ * carry "you are here" instead of a zoom that would push nodes off-canvas.
  */
-function FocusNode({ nodeId }: { nodeId: string }): null {
-  const { setCenter, getNode } = useReactFlow();
+function AutoFit({ refitKey }: { refitKey: string }): null {
+  const initialized = useNodesInitialized();
+  const { fitView } = useReactFlow();
   useEffect(() => {
-    if (nodeId === '') return undefined;
-    let raf2 = 0;
-    const raf1 = requestAnimationFrame(() => {
-      raf2 = requestAnimationFrame(() => {
-        const n = getNode(nodeId);
-        if (n === undefined) return;
-        const w = n.measured?.width ?? 0;
-        const h = n.measured?.height ?? 0;
-        void setCenter(n.position.x + w / 2, n.position.y + h / 2, {
-          zoom: 1,
-          duration: 400,
-        });
-      });
+    if (!initialized) return undefined;
+    const raf = requestAnimationFrame(() => {
+      void fitView({ padding: FIT_PADDING, duration: 220 });
     });
     return (): void => {
-      cancelAnimationFrame(raf1);
-      cancelAnimationFrame(raf2);
+      cancelAnimationFrame(raf);
     };
-  }, [nodeId, setCenter, getNode]);
+  }, [initialized, refitKey, fitView]);
   return null;
 }
 
@@ -203,12 +207,13 @@ export function ActivityFlow({
     >
       <ReactFlow
         elementsSelectable
+        fitView
+        edgeTypes={edgeTypes}
         edges={edges}
-        fitView={highlight === undefined}
-        fitViewOptions={{ padding: 0.18 }}
+        fitViewOptions={{ padding: FIT_PADDING }}
         key={uc.id}
         maxZoom={1.4}
-        minZoom={0.3}
+        minZoom={0.2}
         nodeTypes={nodeTypes}
         nodes={nodes}
         nodesConnectable={false}
@@ -229,7 +234,7 @@ export function ActivityFlow({
       >
         <Background color={t.line} gap={22} size={1} />
         <Controls showInteractive={false} />
-        {highlight !== undefined && <FocusNode nodeId={highlight.current} />}
+        <AutoFit refitKey={highlight === undefined ? uc.id : `${uc.id}:${highlight.current}`} />
       </ReactFlow>
     </Box>
   );
