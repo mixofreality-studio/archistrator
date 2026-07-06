@@ -1,6 +1,6 @@
 {
   "id": "archistrator",
-  "version": 579,
+  "version": 580,
   "phase": 2,
   "owner": "dev-architect",
   "name": "Archistrator",
@@ -21547,13 +21547,17 @@
                       "name": "projectID",
                       "value": "proj-aiarch-01",
                       "schemaRef": "#/$defs/ProjectID"
+                    },
+                    {
+                      "name": "acknowledgeStale",
+                      "value": "false"
                     }
                   ],
                   "expect": {
                     "result": "{\"advanced\":true,\"missingArtifacts\":[]}",
                     "errorExpected": false
                   },
-                  "assertion": "PRECONDITION: kinds 0-7 all committed. advanced=true and missingArtifacts is empty - the phase seals."
+                  "assertion": "PRECONDITION: kinds 0-7 all committed. advanced=true and missingArtifacts is empty - the phase seals. acknowledgeStale=false — no stale basis is in play in this scenario."
                 }
               ]
             },
@@ -21604,13 +21608,17 @@
                       "name": "projectID",
                       "value": "proj-aiarch-01",
                       "schemaRef": "#/$defs/ProjectID"
+                    },
+                    {
+                      "name": "acknowledgeStale",
+                      "value": "false"
                     }
                   ],
                   "expect": {
                     "result": "{\"advanced\":false,\"missingArtifacts\":[1,2,3,4,5,6,7]}",
                     "errorExpected": false
                   },
-                  "assertion": "advanced=false; missingArtifacts=[Glossary,ScrubbedRequirements,Volatilities,CoreUseCases,System,OperationalConcepts,StandardCheck]. The system must NOT advance."
+                  "assertion": "advanced=false; missingArtifacts=[Glossary,ScrubbedRequirements,Volatilities,CoreUseCases,System,OperationalConcepts,StandardCheck]. The system must NOT advance. acknowledgeStale=false — no stale basis is in play in this scenario."
                 }
               ]
             },
@@ -21828,13 +21836,17 @@
                       "name": "projectID",
                       "value": "proj-aiarch-01",
                       "schemaRef": "#/$defs/ProjectID"
+                    },
+                    {
+                      "name": "acknowledgeStale",
+                      "value": "false"
                     }
                   ],
                   "expect": {
                     "result": "{\"advanced\":true,\"missingArtifacts\":[]}",
                     "errorExpected": false
                   },
-                  "assertion": "advanced=true; the project enters Phase 3."
+                  "assertion": "advanced=true; the project enters Phase 3. acknowledgeStale=false — no stale basis is in play in this scenario."
                 }
               ]
             },
@@ -21871,13 +21883,17 @@
                       "name": "projectID",
                       "value": "proj-aiarch-01",
                       "schemaRef": "#/$defs/ProjectID"
+                    },
+                    {
+                      "name": "acknowledgeStale",
+                      "value": "false"
                     }
                   ],
                   "expect": {
                     "result": "{\"advanced\":false,\"missingArtifacts\":[16]}",
                     "errorExpected": false
                   },
-                  "assertion": "advanced=false; missingArtifacts contains 16 (KindSdpReview). No work items opened."
+                  "assertion": "advanced=false; missingArtifacts contains 16 (KindSdpReview). No work items opened. acknowledgeStale=false — no stale basis is in play in this scenario."
                 }
               ]
             },
@@ -21928,25 +21944,46 @@
                       "name": "projectID",
                       "value": "proj-aiarch-01",
                       "schemaRef": "#/$defs/ProjectID"
+                    },
+                    {
+                      "name": "acknowledgeStale",
+                      "value": "false"
                     }
                   ],
                   "expect": {
                     "result": "{\"advanced\":false,\"missingArtifacts\":[16]}",
                     "errorExpected": false
                   },
-                  "assertion": "advanced=false - reject-all does not open construction."
+                  "assertion": "advanced=false - reject-all does not open construction. acknowledgeStale=false — no stale basis is in play in this scenario."
                 }
               ]
             },
             {
               "id": "STP-UC2-B1",
               "kind": "boundary",
-              "title": "SDPCommit references an option id that is not in the SDP review",
-              "proves": "The commit validates optionID against the assembled option set - exposes any path that commits a garbage/typo option.",
-              "expectedOutcome": "SubmitSDPDecision is refused with an invalid-argument/not-found error; no option committed.",
+              "title": "SDPCommit references an option id that is not in the SDP review — refused asynchronously by the workflow",
+              "proves": "Option-set validation happens INSIDE the SDP-review workflow, not at the Manager edge: SubmitSDPDecision is a fire-and-forget Temporal signal, so a garbage/typo optionID is ACCEPTED at the surface but must never commit an option. Exposes any path that commits a garbage option — and any client that mis-models the async refusal as a synchronous error.",
+              "expectedOutcome": "SubmitSDPDecision(commit, unknown option) is accepted (signal enqueued, no error). The SDP workflow terminates with UnknownOption before any commit transition: the session-state read still shows stage=3 (StageAwaitingReview, never StageCommitted), no chosenOption is recorded, and AdvanceToConstruction still gates with missingArtifacts=[16].",
               "steps": [
                 {
                   "seq": 1,
+                  "component": "projectDesignManager",
+                  "operation": "RequestSDPCommit",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": "proj-aiarch-01",
+                      "schemaRef": "#/$defs/ProjectID"
+                    }
+                  ],
+                  "expect": {
+                    "result": "sess-sdp-01",
+                    "errorExpected": false
+                  },
+                  "assertion": "The SDP session is live and the option set is assembled (stage reaches AwaitingReview) — the signal in the next step has a running workflow to land on."
+                },
+                {
+                  "seq": 2,
                   "component": "projectDesignManager",
                   "operation": "SubmitSDPDecision",
                   "inputs": [
@@ -21967,15 +22004,57 @@
                     },
                     {
                       "name": "feedback",
-                      "value": "{\"notes\":\"\",\"comments\":null}",
+                      "value": "{\"notes\":\"Commit audit: deliberately unknown option id.\",\"comments\":null}",
                       "schemaRef": "#/$defs/ReviewFeedback"
                     }
                   ],
                   "expect": {
-                    "errorExpected": true,
-                    "errorCode": "InvalidArgument"
+                    "errorExpected": false
                   },
-                  "assertion": "decision=1 (SDPCommit) with an unknown optionID -\u003e refused. chosenOption stays unset."
+                  "assertion": "decision=1 (SDPCommit) with an unknown optionID is ACCEPTED — the Manager validates shape only (non-empty optionID) and enqueues the sdpDecision signal; option-set membership is validated asynchronously inside the workflow."
+                },
+                {
+                  "seq": 3,
+                  "component": "projectDesignManager",
+                  "operation": "GetSessionState",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": "proj-aiarch-01",
+                      "schemaRef": "#/$defs/ProjectID"
+                    },
+                    {
+                      "name": "kind",
+                      "value": "16",
+                      "schemaRef": "#/$defs/ArtifactKind"
+                    }
+                  ],
+                  "expect": {
+                    "result": "{\"artifactKind\":16,\"stage\":3,\"draft\":{\"kind\":\"sdpReview\"}}",
+                    "errorExpected": false
+                  },
+                  "assertion": "The async validation refused the commit: the workflow terminated with UnknownOption BEFORE any stage transition, so the session-state read (poll until the signal is consumed) still shows stage=3 (StageAwaitingReview) — never StageCommitted. No chosenOption recorded."
+                },
+                {
+                  "seq": 4,
+                  "component": "projectDesignManager",
+                  "operation": "AdvanceToConstruction",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": "proj-aiarch-01",
+                      "schemaRef": "#/$defs/ProjectID"
+                    },
+                    {
+                      "name": "acknowledgeStale",
+                      "value": "false"
+                    }
+                  ],
+                  "expect": {
+                    "result": "{\"advanced\":false,\"missingArtifacts\":[16]}",
+                    "errorExpected": false
+                  },
+                  "assertion": "The construction gate is still closed: the garbage option never committed the SdpReview slot (16), so advanced=false with missingArtifacts=[16]. acknowledgeStale=false — no stale basis is in play in this scenario."
                 }
               ]
             }
@@ -22609,5 +22688,5 @@
     }
   },
   "reviewPolicy": {},
-  "updatedAt": "2026-07-06T06:36:28.024326Z"
+  "updatedAt": "2026-07-06T15:13:08.718167Z"
 }
