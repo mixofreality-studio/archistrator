@@ -138,6 +138,8 @@ func isLiveSessionStage(stage SessionStage) bool {
 	switch stage {
 	case StageDrafting, StageAwaitingReview, StageRedrafting, StageRefused:
 		return true
+	case SessionStageUnknown, StageAssemblingSDP, StageCommitted, StageWithdrawn, StageDraftFailed:
+		return false
 	default:
 		return false
 	}

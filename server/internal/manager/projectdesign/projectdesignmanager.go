@@ -604,6 +604,12 @@ func isAbnormalClosedStatus(s enumspb.WorkflowExecutionStatus) bool {
 		enumspb.WORKFLOW_EXECUTION_STATUS_TIMED_OUT,
 		enumspb.WORKFLOW_EXECUTION_STATUS_CANCELED:
 		return true
+	case enumspb.WORKFLOW_EXECUTION_STATUS_UNSPECIFIED,
+		enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING,
+		enumspb.WORKFLOW_EXECUTION_STATUS_COMPLETED,
+		enumspb.WORKFLOW_EXECUTION_STATUS_CONTINUED_AS_NEW,
+		enumspb.WORKFLOW_EXECUTION_STATUS_PAUSED:
+		return false
 	default:
 		return false
 	}
@@ -662,6 +668,10 @@ func committedSessionView(projectID ProjectID, kind ArtifactKind, slot projectst
 			Stage:        StageWithdrawn,
 			Draft:        DraftModel{Kind: artifactKindWireName(kind)},
 		}, nil
+	case projectstate.ReviewNone, projectstate.ReviewAwaitingReview, projectstate.ReviewRejected:
+		// Any non-committed / non-withdrawn terminal status renders the honest
+		// StageDraftFailed view (never StageDrafting — the anti-wedge rule).
+		fallthrough
 	default:
 		reason := "the design session ended without committing an artifact. Retry to start a fresh draft."
 		return SessionStateView{
@@ -692,6 +702,12 @@ func workflowStatusLabel(s enumspb.WorkflowExecutionStatus) string {
 		return "the job was terminated"
 	case enumspb.WORKFLOW_EXECUTION_STATUS_CANCELED:
 		return "the job was canceled"
+	case enumspb.WORKFLOW_EXECUTION_STATUS_UNSPECIFIED,
+		enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING,
+		enumspb.WORKFLOW_EXECUTION_STATUS_COMPLETED,
+		enumspb.WORKFLOW_EXECUTION_STATUS_CONTINUED_AS_NEW,
+		enumspb.WORKFLOW_EXECUTION_STATUS_PAUSED:
+		return "the job stopped"
 	default:
 		return "the job stopped"
 	}

@@ -68,6 +68,10 @@ func mapStaleAckError(err error) error {
 			return newError(fwmanager.ContractMisuse, err.Error())
 		case fwra.NotFound:
 			return newError(fwmanager.NotFound, err.Error())
+		case fwra.Unknown, fwra.Transient, fwra.RateLimited, fwra.Infrastructure,
+			fwra.Auth, fwra.Conflict, fwra.QuotaExhausted, fwra.ContentPolicy:
+			// "everything else is Infrastructure" per the doc comment above.
+			return newError(fwmanager.Infrastructure, err.Error())
 		default:
 			return newError(fwmanager.Infrastructure, err.Error())
 		}
