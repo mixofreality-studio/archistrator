@@ -1,5 +1,13 @@
 # later.md — deferred work (written off 2026-07-05, qa-gtd-pass wrap)
 
+> Wrap addendum: the agentic-sub-workflow representation (schema marker, diagram
+> rendering, dynamics-as-manifest palettes) was built, founder-reviewed, REJECTED, and
+> fully reverted (ae8646a/b3080ce/91dd5de) — do not resurrect without fresh direction.
+> What shipped and STAYS: generated RA/Engine tool catalog (71 tools; state writes
+> agent-hidden), in-substrate raw tool execution, composed verbs for design AND
+> construction, construct session mode, prompt cutover to tools-only state writes,
+> per-mode tool sets (composed verbs + all non-hidden read-only/Engine raw tools).
+
 Founder ruling: after the four agentic-workflow priorities (generated tools in GH
 Actions → agentic sub-workflows in use cases/dynamics → both project.jsons document
 all use cases + agentic sub-workflows → glossary/method skills), STOP. Everything
@@ -64,8 +72,10 @@ log (session scratchpads; summarized in the final QA report).
 - Rail verbs ClosePullRequest / DeleteBranch (branch debris cleanup; spec preserved in
   session transcript; onboarding should also recommend delete_branch_on_merge).
 - methodcheck release + pin bump: USECASE-DYNAMIC-MISSING + SYSTEM-LAYER-DEGENERATE
-  twins live on archistrator-platform branch(es); until released, only the app-side
-  mirrors enforce.
+  twins live on archistrator-platform branch methodcheck-usecase-dynamic-missing;
+  until released, only the app-side mirrors enforce. NOTE: that branch also carries
+  an unpushed leftover commit a364acd9 (agentic sub-workflow methodcheck rules) for a
+  feature the founder REVERTED — drop it when cutting the release.
 - mcpgen upstream of the in-repo emitter; methodcheck enum-strictness asymmetry (F36).
 - Platform release plan generally (v0.4.x line; scaffold pin 2 releases stale).
 
