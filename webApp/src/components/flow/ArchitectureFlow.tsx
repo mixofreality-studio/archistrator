@@ -72,7 +72,7 @@ function buildModel(envelope: ArtifactModelEnvelope | undefined, t: Tokens): Mod
   const present = new Set(view.components.map((c) => c.layer));
   const usedLayers = LAYER_ORDER.filter((l) => present.has(l));
   const degenerateLayer =
-    view.components.length > 1 && usedLayers.length === 1 ? usedLayers[0] : null;
+    view.components.length > 1 && usedLayers.length === 1 ? (usedLayers[0] ?? null) : null;
   return {
     components: view.components,
     relationships: view.relationships,
