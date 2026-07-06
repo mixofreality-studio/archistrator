@@ -25,19 +25,15 @@ import type { Tokens } from '../../utilities/theme/themes';
 import { type Layer, LAYER_LABEL } from './flowLayout';
 import { edgeTypes, nodeTypes } from './flowNodeTypes';
 
-/** The shared layer-colour legend Panel (only the layers actually present). When
- *  `showAgentic` is set (the view contains an agent-driven component), a "✳
- *  agent-driven" row is appended. */
+/** The shared layer-colour legend Panel (only the layers actually present). */
 export function LayerLegend({
   usedLayers,
   colors,
   t,
-  showAgentic = false,
 }: {
   usedLayers: Layer[];
   colors: Record<Layer, string>;
   t: Tokens;
-  showAgentic?: boolean;
 }): ReactNode {
   return (
     <Panel position="top-left">
@@ -60,18 +56,6 @@ export function LayerLegend({
             </Typography>
           </Box>
         ))}
-        {showAgentic ? (
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-            <Box
-              sx={{ width: 12, textAlign: 'center', fontSize: 11, fontWeight: 700, color: t.ink }}
-            >
-              ✳
-            </Box>
-            <Typography sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.ink }}>
-              agent-driven
-            </Typography>
-          </Box>
-        ) : null}
       </Box>
     </Panel>
   );

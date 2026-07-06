@@ -18,6 +18,7 @@ import type { Tokens } from '../../utilities/theme/themes';
 import { useComments } from '../comments/CommentContext';
 import { NODE_DIMS } from './nodeDims';
 
+
 export interface ActivityNodeData {
   label: string;
   lane: string;
@@ -72,9 +73,7 @@ function Bar(t: Tokens, d: ActivityNodeData, selected: boolean): ReactNode {
         }}
       />
       {d.label.length > 0 ? (
-        <Typography
-          sx={{ fontFamily: t.mono, fontSize: 9.5, color: t.muted, whiteSpace: 'nowrap' }}
-        >
+        <Typography sx={{ fontFamily: t.mono, fontSize: 9.5, color: t.muted, whiteSpace: 'nowrap' }}>
           {d.label}
         </Typography>
       ) : null}
@@ -156,55 +155,6 @@ function Card(t: Tokens, d: ActivityNodeData, selected: boolean): ReactNode {
   );
 }
 
-function AgenticCard(t: Tokens, d: ActivityNodeData, selected: boolean): ReactNode {
-  // An agentic sub-workflow step: same card footprint as an action, but dashed with a
-  // ✳ badge — its orchestration is decided by an agent at run time (matches the
-  // dashed + ✳ treatment of agentic components in the C4 diagrams).
-  return (
-    <Box
-      sx={{
-        position: 'relative',
-        width: NODE_DIMS.action.w,
-        minHeight: NODE_DIMS.action.h,
-        px: 1.75,
-        py: 1.1,
-        display: 'flex',
-        alignItems: 'center',
-        bgcolor: t.paperAlt,
-        color: t.ink,
-        border: `1.5px dashed ${selected ? t.accent : t.line}`,
-        borderLeft: `5px solid ${d.color}`,
-        borderRadius: 4,
-        boxShadow: selected ? `0 0 0 2px ${t.accent}` : 'none',
-      }}
-    >
-      <Box
-        aria-label="agentic sub-workflow"
-        component="span"
-        sx={{
-          position: 'absolute',
-          top: 3,
-          right: 6,
-          fontSize: 12,
-          lineHeight: 1,
-          color: d.color,
-          fontWeight: 700,
-        }}
-      >
-        ✳
-      </Box>
-      <Box sx={{ minWidth: 0, pr: 1 }}>
-        <Typography sx={{ fontFamily: t.body, fontWeight: 600, fontSize: 13, lineHeight: 1.25 }}>
-          {d.label}
-        </Typography>
-        <Typography sx={{ fontFamily: t.mono, fontSize: 9.5, color: t.muted, opacity: 0.85 }}>
-          agentic sub-workflow
-        </Typography>
-      </Box>
-    </Box>
-  );
-}
-
 function Note(t: Tokens, d: ActivityNodeData, selected: boolean): ReactNode {
   return (
     <Box
@@ -256,9 +206,6 @@ export function ActivityNode({ data, selected }: NodeProps): ReactNode {
     case 'note':
       shape = Note(t, d, selected);
       break;
-    case 'agenticSubWorkflow':
-      shape = AgenticCard(t, d, selected);
-      break;
     case 'action':
     case 'loop':
     case 'goto':
@@ -276,13 +223,7 @@ export function ActivityNode({ data, selected }: NodeProps): ReactNode {
           <Button
             size="small"
             startIcon={<ChatBubbleOutlineIcon sx={{ fontSize: 14 }} />}
-            sx={{
-              py: 0.25,
-              color: t.accentText,
-              bgcolor: t.accent,
-              border: `1.5px solid ${t.line}`,
-              '&:hover': { bgcolor: t.accent2 },
-            }}
+            sx={{ py: 0.25, color: t.accentText, bgcolor: t.accent, border: `1.5px solid ${t.line}`, '&:hover': { bgcolor: t.accent2 } }}
             onClick={() => {
               setAnchor({ kind: 'node', label: d.label, source: d.source, jsonPath: d.jsonPath });
             }}

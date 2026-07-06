@@ -18,14 +18,11 @@ import { useMemo, useState, type ReactNode } from 'react';
 import type { Edge, Node } from '@xyflow/react';
 import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
-import Collapse from '@mui/material/Collapse';
 import IconButton from '@mui/material/IconButton';
-import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
 import type { DynamicViewModel, SequencedRelationship } from '../../contracts/adapters';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
@@ -41,28 +38,9 @@ import {
   flowEdge,
 } from './flowLayout';
 import { LayerLegend, FlowCanvas, FlowEmpty, FocusNodes } from './flowShared';
-import { resolvePaletteTarget, paletteToolReadOnly } from './palette';
 
 /** Per-call status for the test views: 'red' = target/failing, 'green' = passing. */
 export type StepStatus = 'red' | 'green';
-
-/** The distinct participant components a step's palette fans out to (owner excluded,
- *  unresolved tools dropped). Order follows first appearance in the palette. */
-function paletteFanTargets(
-  palette: readonly string[],
-  participants: readonly { id: string }[],
-  ownerId: string | undefined
-): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const tool of palette) {
-    const target = resolvePaletteTarget(tool, participants);
-    if (target === undefined || target === ownerId || seen.has(target)) continue;
-    seen.add(target);
-    out.push(target);
-  }
-  return out;
-}
 
 function statusColor(status: StepStatus | undefined, t: Tokens): string | undefined {
   if (status === undefined) return undefined;
@@ -81,18 +59,6 @@ function build(
   const layerOf = new Map(dv.participants.map((c) => [c.id, c.layer]));
   const current = dv.edges[stepIndex];
 
-  // An AGENTIC SUB-WORKFLOW step renders as one bloom: a dashed halo around the owner
-  // (edge.from) with dashed UNNUMBERED edges fanning to the palette's target components
-  // ("may call any of these, any order, zero or more times"); the numbered sequence
-  // edges dim. Numbered sequencing NEVER appears for these steps (dashed+unnumbered =
-  // "may"; solid+numbered = "did").
-  const isAgenticStep = current?.agentic === true;
-  const ownerId = current?.from;
-  const fanTargets = isAgenticStep
-    ? paletteFanTargets(current.palette ?? [], dv.participants, ownerId)
-    : [];
-  const fanSet = new Set(fanTargets);
-
   const nodes: Node[] = dv.participants.map((c) => {
     // Dynamic lens: names + layer tags only. The current call's detail lives in the
     // step caption rail, so the node bodies stay compact (no volatility prose) — this
@@ -100,22 +66,8 @@ function build(
     const base = c4Node(c, layout.pos.get(c.id) ?? { x: 0, y: 0 }, colors, {
       showEncapsulates: false,
     });
-    const isFocal = focalComponentId !== undefined && c.id === focalComponentId;
-    if (isAgenticStep) {
-      // The owner blooms brightest; the fan targets glow; everything else quiets down.
-      if (c.id === ownerId) {
-        return {
-          ...base,
-          data: { ...base.data },
-          style: { filter: `drop-shadow(0 0 12px ${t.accent}) drop-shadow(0 0 4px ${t.accent})` },
-        };
-      }
-      if (fanSet.has(c.id)) {
-        return { ...base, style: { filter: `drop-shadow(0 0 6px ${t.accent})` } };
-      }
-      return { ...base, style: { opacity: 0.4 } };
-    }
     const isEndpoint = c.id === current?.from || c.id === current?.to;
+    const isFocal = focalComponentId !== undefined && c.id === focalComponentId;
     if (isEndpoint || isFocal) {
       return {
         ...base,
@@ -131,38 +83,17 @@ function build(
   // current step, which is highlighted — its text lives in the caption bar. When a
   // status map is supplied (test views) each call is tinted red (target) / green
   // (passing) so the whole pass/fail picture reads at a glance while you step.
-  let edges: Edge[];
-  if (isAgenticStep && ownerId !== undefined) {
-    // Dim the ordinary numbered edges, then fan dashed UNNUMBERED edges from the owner
-    // to each distinct palette target (bypassing the utility filter deliberately — an
-    // agentic call to a utility is still worth showing as "may call").
-    const dimmed = dv.edges
-      .filter((r) => layerOf.get(r.to) !== 'utility')
-      .map((r) =>
-        flowEdge(`seq-${String(r.seq)}-${r.from}-${r.to}`, r.from, r.to, r.label, t, {
-          variant: 'muted',
-        })
-      );
-    const fan = fanTargets.map((targetId) =>
-      flowEdge(`agentic-${ownerId}-${targetId}`, ownerId, targetId, '', t, {
-        variant: 'focus',
-        dashed: true,
-      })
-    );
-    edges = [...dimmed, ...fan];
-  } else {
-    edges = dv.edges
-      .filter((r) => layerOf.get(r.to) !== 'utility')
-      .map((r) => {
-        const isCurrent = r.seq === current?.seq;
-        const stroke = statusColor(statusBySeq?.get(r.seq), t);
-        return flowEdge(`${String(r.seq)}-${r.from}-${r.to}`, r.from, r.to, r.label, t, {
-          variant: isCurrent ? 'focus' : 'muted',
-          dashed: r.mode !== 'sync', // queued / pub-sub calls render dashed
-          ...(stroke !== undefined ? { stroke, opacity: isCurrent ? 1 : 0.4 } : {}),
-        });
+  const edges: Edge[] = dv.edges
+    .filter((r) => layerOf.get(r.to) !== 'utility')
+    .map((r) => {
+      const isCurrent = r.seq === current?.seq;
+      const stroke = statusColor(statusBySeq?.get(r.seq), t);
+      return flowEdge(`${String(r.seq)}-${r.from}-${r.to}`, r.from, r.to, r.label, t, {
+        variant: isCurrent ? 'focus' : 'muted',
+        dashed: r.mode !== 'sync', // queued / pub-sub calls render dashed
+        ...(stroke !== undefined ? { stroke, opacity: isCurrent ? 1 : 0.4 } : {}),
       });
-  }
+    });
 
   const present = new Set(dv.participants.map((c) => c.layer));
   const usedLayers = LAYER_ORDER.filter((l) => present.has(l));
@@ -186,8 +117,6 @@ function StepBar({
   statusBySeq,
   detailBySeq,
   onCommentStep,
-  onCommentTool,
-  paletteFindings,
   t,
 }: {
   dv: DynamicViewModel;
@@ -197,23 +126,15 @@ function StepBar({
   detailBySeq: Map<number, StepDetail> | undefined;
   /** When provided, the caption bar shows a Comment button that anchors this step. */
   onCommentStep: ((edge: SequencedRelationship) => void) | undefined;
-  /** When provided, each agentic palette chip is commentable (arms a per-tool anchor). */
-  onCommentTool: ((edge: SequencedRelationship, tool: string) => void) | undefined;
-  /** Machine-validation findings for the current step's palette (rendered in the panel). */
-  paletteFindings: string[] | undefined;
   t: Tokens;
 }): ReactNode {
   const total = dv.edges.length;
   const current = dv.edges[stepIndex];
-  const [paletteOpen, setPaletteOpen] = useState(false);
   const nameOf = useMemo(
     () => new Map(dv.participants.map((c) => [c.id, c.name])),
     [dv.participants]
   );
   if (total === 0 || current === undefined) return null;
-  const isAgentic = current.agentic === true;
-  const ownerName = nameOf.get(current.from) ?? current.from;
-  const palette = current.palette ?? [];
 
   const btnSx = {
     color: t.ink,
@@ -319,43 +240,11 @@ function StepBar({
             wordBreak: 'break-word',
           }}
         >
-          {isAgentic ? (
-            <>
-              <Box component="span" sx={{ color: t.accent }}>
-                ⟨agentic sub-workflow⟩{' '}
-              </Box>
-              {ownerName} — {current.label}
-            </>
-          ) : (
-            <>
-              {current.seq}. {current.label}
-            </>
-          )}
+          {current.seq}. {current.label}
         </Typography>
-        {isAgentic ? (
-          <Typography
-            sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted, mt: 0.25, fontStyle: 'italic' }}
-          >
-            may call any of these tools, any order, zero or more times
-          </Typography>
-        ) : (
-          <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted, mt: 0.25 }}>
-            {nameOf.get(current.from) ?? current.from} → {nameOf.get(current.to) ?? current.to}
-          </Typography>
-        )}
-        {isAgentic ? (
-          <PalettePanel
-            edge={current}
-            findings={paletteFindings}
-            nameOf={nameOf}
-            open={paletteOpen}
-            palette={palette}
-            participants={dv.participants}
-            setOpen={setPaletteOpen}
-            t={t}
-            onCommentTool={onCommentTool}
-          />
-        ) : null}
+        <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted, mt: 0.25 }}>
+          {nameOf.get(current.from) ?? current.from} → {nameOf.get(current.to) ?? current.to}
+        </Typography>
         {detail !== undefined ? (
           <Box sx={{ mt: 0.75, display: 'flex', flexDirection: 'column', gap: 0.35 }}>
             {detail.inputs.length > 0 ? (
@@ -422,147 +311,6 @@ function CaptionRow({
   );
 }
 
-/** The click-to-expand tool-palette panel shown under an agentic step's caption. Lists
- *  the bounded palette as chips (verb · target component · read/write badge); each chip
- *  is commentable when `onCommentTool` is supplied. Surfaces any machine-validation
- *  findings for the step's palette. */
-function PalettePanel({
-  edge,
-  palette,
-  participants,
-  nameOf,
-  open,
-  setOpen,
-  onCommentTool,
-  findings,
-  t,
-}: {
-  edge: SequencedRelationship;
-  palette: string[];
-  participants: DynamicViewModel['participants'];
-  nameOf: Map<string, string>;
-  open: boolean;
-  setOpen: (v: boolean) => void;
-  onCommentTool: ((edge: SequencedRelationship, tool: string) => void) | undefined;
-  findings: string[] | undefined;
-  t: Tokens;
-}): ReactNode {
-  const commentable = onCommentTool !== undefined;
-  return (
-    <Box sx={{ mt: 0.75 }}>
-      <Button
-        aria-expanded={open}
-        data-testid="agentic-palette-toggle"
-        endIcon={
-          <ExpandMoreIcon
-            sx={{
-              fontSize: 16,
-              transform: open ? 'rotate(180deg)' : 'none',
-              transition: 'transform 120ms',
-            }}
-          />
-        }
-        size="small"
-        sx={{
-          py: 0,
-          px: 0.5,
-          color: t.accent,
-          fontFamily: t.mono,
-          fontSize: 11,
-          fontWeight: 700,
-          textTransform: 'none',
-        }}
-        onClick={() => {
-          setOpen(!open);
-        }}
-      >
-        tool palette · {palette.length}
-      </Button>
-      <Collapse in={open}>
-        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mt: 0.75 }}>
-          {palette.map((tool) => {
-            const targetId = resolvePaletteTarget(tool, participants);
-            const targetName =
-              targetId !== undefined ? (nameOf.get(targetId) ?? targetId) : undefined;
-            const readOnly = paletteToolReadOnly(tool, targetId);
-            const sub = targetName !== undefined ? `→ ${targetName}` : 'unresolved target';
-            return (
-              <Tooltip
-                arrow
-                key={tool}
-                placement="top"
-                title={commentable ? 'Comment on this tool' : sub}
-              >
-                <Chip
-                  clickable={commentable}
-                  data-testid={`palette-tool-${tool}`}
-                  label={
-                    <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.6 }}>
-                      <Box component="span" sx={{ fontWeight: 700 }}>
-                        {tool}
-                      </Box>
-                      <Box component="span" sx={{ fontSize: 9, color: t.muted }}>
-                        {sub}
-                      </Box>
-                      <Box
-                        component="span"
-                        sx={{
-                          fontSize: 8,
-                          fontWeight: 700,
-                          letterSpacing: '0.06em',
-                          textTransform: 'uppercase',
-                          color: readOnly ? t.committedDot : t.dangerFg,
-                        }}
-                      >
-                        {readOnly ? 'read' : 'write'}
-                      </Box>
-                    </Box>
-                  }
-                  size="small"
-                  sx={{
-                    height: 'auto',
-                    py: 0.35,
-                    fontFamily: t.mono,
-                    fontSize: 10.5,
-                    bgcolor: 'transparent',
-                    color: t.ink,
-                    border: `1.5px dashed ${t.line}`,
-                    '& .MuiChip-label': { px: 0.9, display: 'block' },
-                  }}
-                  onClick={
-                    commentable
-                      ? (): void => {
-                          onCommentTool(edge, tool);
-                        }
-                      : undefined
-                  }
-                />
-              </Tooltip>
-            );
-          })}
-        </Box>
-        {findings !== undefined && findings.length > 0 ? (
-          <Box sx={{ mt: 0.75, display: 'flex', flexDirection: 'column', gap: 0.35 }}>
-            {findings.map((f, i) => (
-              <Typography
-                key={i}
-                sx={{
-                  fontFamily: t.mono,
-                  fontSize: 10.5,
-                  color: t.dangerFg,
-                  wordBreak: 'break-word',
-                }}
-              >
-                ⚠ {f}
-              </Typography>
-            ))}
-          </Box>
-        ) : null}
-      </Collapse>
-    </Box>
-  );
-}
-
 export function DynamicViewFlow({
   dv,
   resetKey,
@@ -571,8 +319,6 @@ export function DynamicViewFlow({
   statusBySeq,
   detailBySeq,
   onCommentStep,
-  onCommentTool,
-  paletteFindingsBySeq,
 }: {
   /** The ordered call chain to render (system use case or test scenario). */
   dv: DynamicViewModel;
@@ -589,11 +335,6 @@ export function DynamicViewFlow({
    *  that arms an anchor for the current call (system-design use only; omitted for
    *  the read-only test-scenario views). */
   onCommentStep?: ((edge: SequencedRelationship) => void) | undefined;
-  /** Optional per-tool comment handler: makes each agentic palette chip commentable. */
-  onCommentTool?: ((edge: SequencedRelationship, tool: string) => void) | undefined;
-  /** Optional machine-validation findings per step (seq → messages), surfaced in the
-   *  agentic step's palette panel. */
-  paletteFindingsBySeq?: Map<number, string[]>;
 }): ReactNode {
   const t = useTokens();
   const [stepIndex, setStepIndex] = useState(0);
@@ -617,12 +358,6 @@ export function DynamicViewFlow({
     return c !== undefined ? [c.from, c.to] : [];
   }, [dv, safeStep]);
 
-  // Show the ✳ legend entry when the view contains an agent-driven component.
-  const hasAgentic = dv.participants.some(
-    (c) => c.implementation === 'agentic' || c.implementation === 'hybrid'
-  );
-  const currentSeq = dv.edges[safeStep]?.seq;
-
   if (dv.participants.length === 0) {
     return <FlowEmpty label="No call chain to render yet." t={t} />;
   }
@@ -632,18 +367,14 @@ export function DynamicViewFlow({
       <StepBar
         detailBySeq={detailBySeq}
         dv={dv}
-        paletteFindings={
-          currentSeq !== undefined ? paletteFindingsBySeq?.get(currentSeq) : undefined
-        }
         setStepIndex={setStepIndex}
         statusBySeq={statusBySeq}
         stepIndex={safeStep}
         t={t}
         onCommentStep={onCommentStep}
-        onCommentTool={onCommentTool}
       />
       <FlowCanvas edges={edges} height={height} nodes={nodes} t={t}>
-        <LayerLegend colors={colors} showAgentic={hasAgentic} t={t} usedLayers={usedLayers} />
+        <LayerLegend colors={colors} t={t} usedLayers={usedLayers} />
         <FocusNodes dep={String(safeStep)} nodeIds={focusIds} />
       </FlowCanvas>
     </Box>

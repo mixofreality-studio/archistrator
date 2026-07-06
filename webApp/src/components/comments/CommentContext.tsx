@@ -401,12 +401,6 @@ export function dynamicEdgeAnchor(viewKey: string, seq: number): string {
   return `$.dynamicViews[key=${viewKey}].edges[seq=${String(seq)}]`;
 }
 
-/** A single agentic-sub-workflow tool-palette entry anchor: a view's step by seq,
- *  then the named palette tool. Lets a reviewer comment on one tool of the palette. */
-export function dynamicEdgePaletteAnchor(viewKey: string, seq: number, tool: string): string {
-  return `$.dynamicViews[key=${viewKey}].edges[seq=${String(seq)}].palette[${tool}]`;
-}
-
 /** A deployment-topology node anchor by profile + node/instance name. */
 export function deploymentAnchor(profile: string, name: string): string {
   const safe = name.replace(/"/g, '\\"');

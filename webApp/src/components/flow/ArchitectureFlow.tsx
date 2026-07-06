@@ -62,8 +62,6 @@ interface Model {
    * null when the layer data is healthy (>1 distinct layer, or a single component).
    */
   degenerateLayer: Layer | null;
-  /** The view contains at least one agent-driven (agentic|hybrid) component. */
-  hasAgentic: boolean;
 }
 
 function buildModel(envelope: ArtifactModelEnvelope | undefined, t: Tokens): Model {
@@ -74,10 +72,7 @@ function buildModel(envelope: ArtifactModelEnvelope | undefined, t: Tokens): Mod
   const present = new Set(view.components.map((c) => c.layer));
   const usedLayers = LAYER_ORDER.filter((l) => present.has(l));
   const degenerateLayer =
-    view.components.length > 1 && usedLayers.length === 1 ? (usedLayers[0] ?? null) : null;
-  const hasAgentic = view.components.some(
-    (c) => c.implementation === 'agentic' || c.implementation === 'hybrid'
-  );
+    view.components.length > 1 && usedLayers.length === 1 ? usedLayers[0] : null;
   return {
     components: view.components,
     relationships: view.relationships,
@@ -86,7 +81,6 @@ function buildModel(envelope: ArtifactModelEnvelope | undefined, t: Tokens): Mod
     colors,
     usedLayers,
     degenerateLayer,
-    hasAgentic,
   };
 }
 
@@ -224,10 +218,10 @@ export function ArchitectureFlow({
         <Alert severity="warning" sx={{ mb: 1.5, alignItems: 'flex-start' }}>
           <AlertTitle>Layer data looks degenerate</AlertTitle>
           All {model.components.length} components claim layer &ldquo;
-          {LAYER_LABEL[model.degenerateLayer]}&rdquo; — a healthy Method system spans Managers,
-          Engines, ResourceAccess and Resources. This usually means the draft omitted each
-          component&rsquo;s layer (which silently defaults to &ldquo;client&rdquo;); send it back
-          rather than committing a flat architecture.
+          {LAYER_LABEL[model.degenerateLayer]}&rdquo; — a healthy Method system spans
+          Managers, Engines, ResourceAccess and Resources. This usually means the draft
+          omitted each component&rsquo;s layer (which silently defaults to
+          &ldquo;client&rdquo;); send it back rather than committing a flat architecture.
         </Alert>
       )}
       <Autocomplete
@@ -277,12 +271,7 @@ export function ArchitectureFlow({
           leaveNode();
         }}
       >
-        <LayerLegend
-          colors={model.colors}
-          showAgentic={model.hasAgentic}
-          t={t}
-          usedLayers={model.usedLayers}
-        />
+        <LayerLegend colors={model.colors} t={t} usedLayers={model.usedLayers} />
         {selectedId !== null && <FocusNodes dep={selectedId} nodeIds={[selectedId]} />}
       </FlowCanvas>
     </Box>

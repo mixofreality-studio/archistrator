@@ -5,6 +5,7 @@
  */
 import type { ActivityNodeKind } from '../../contracts/models';
 
+
 export const NODE_DIMS: Record<ActivityNodeKind, { w: number; h: number }> = {
   start: { w: 26, h: 26 },
   end: { w: 30, h: 30 },
@@ -19,5 +20,4 @@ export const NODE_DIMS: Record<ActivityNodeKind, { w: number; h: number }> = {
   join: { w: 176, h: 14 },
   note: { w: 200, h: 72 },
   swimLane: { w: 200, h: 60 },
-  agenticSubWorkflow: { w: 200, h: 60 },
 };

@@ -231,9 +231,6 @@ export function c4Node(
       encapsulates: c.encapsulates,
       showEncapsulates: opts.showEncapsulates !== false,
       color: colors[c.layer],
-      // Implementation strategy drives the agentic markers (C4Node): 'agentic' ⇒
-      // dashed border + ✳ badge; 'hybrid' ⇒ ✳ badge only; 'coded' ⇒ plain.
-      implementation: c.implementation,
     },
     draggable: false,
     ...(opts.dimmed === true ? { style: { opacity: 0.12 } } : {}),
