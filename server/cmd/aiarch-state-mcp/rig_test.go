@@ -351,6 +351,77 @@ func TestRig_RawUnavailableToolOverStdio(t *testing.T) {
 	}
 }
 
+// TestRig_ConstructModeFullCycleOverStdio drives a full CONSTRUCTION cycle over a real
+// stdio MCP connection: the construct job mode (no artifact kind — ambient component +
+// activity), tools/list (the record verbs present, the design verbs absent),
+// recordServiceContract for the ambient component, then publishDraft — asserting the
+// committed contract on the pushed activity branch.
+func TestRig_ConstructModeFullCycleOverStdio(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	bin := buildBinary(t)
+	repo := initGitRepoWithProject(t, minimalProject(), "activity/C-BE")
+
+	cmd := exec.Command(bin)
+	cmd.Dir = repo
+	cmd.Env = append(os.Environ(),
+		envJobMode+"="+jobModeConstruct,
+		envComponentID+"=billingEngine",
+		envActivityID+"=C-BE",
+		envTargetBranch+"=activity/C-BE",
+		envProjectID+"=rigproj",
+		envStateRoot+"="+repo,
+	)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "rig", Version: "0"}, nil)
+	session, err := client.Connect(ctx, &mcp.CommandTransport{Command: cmd}, nil)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer func() { _ = session.Close() }()
+
+	tools, err := session.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+	names := map[string]bool{}
+	for _, tl := range tools.Tools {
+		names[tl.Name] = true
+	}
+	for _, want := range []string{"recordServiceContract", "recordPhaseArtifact", "recordTestingState", "getCommittedSlot", "publishDraft"} {
+		if !names[want] {
+			t.Fatalf("construct-mode tool %q missing: %v", want, names)
+		}
+	}
+	if names["putDraftModel"] || names["setCritiqueVerdict"] {
+		t.Fatal("construct mode must not expose the design verbs")
+	}
+
+	res := callTool(t, ctx, session, "recordServiceContract", map[string]any{
+		"contract": map[string]any{"component": "billingEngine", "layer": "Engine", "title": "Billing Engine"},
+	})
+	if res.IsError {
+		t.Fatalf("recordServiceContract failed: %s", contentText(res))
+	}
+	res = callTool(t, ctx, session, "publishDraft", map[string]any{"message": "record billingEngine contract"})
+	if res.IsError {
+		t.Fatalf("publishDraft failed: %s", contentText(res))
+	}
+
+	raw := gitShow(t, repo, "activity/C-BE", ".aiarch/state/project.json")
+	proj, ok, derr := projectstate.DecodeProjectJSON(raw, "rigproj")
+	if derr != nil || !ok {
+		t.Fatalf("committed project.json does not decode: %v", derr)
+	}
+	if proj.ServiceContracts["billingEngine"].Component != "billingEngine" {
+		t.Fatalf("committed contract not present for the ambient component: %+v", proj.ServiceContracts)
+	}
+}
+
 func keysOfTools(m map[string]*mcp.Tool) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {

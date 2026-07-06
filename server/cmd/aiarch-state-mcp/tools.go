@@ -125,8 +125,14 @@ func registerFromAllowlist(srv *mcp.Server, s *Session, verbs []composedVerb) {
 // the agent's prompt surface, so each stands on its own.
 func composedVerbs(s *Session) []composedVerb {
 	all := []string{jobModeDraft, jobModeCritique, jobModeAnswer}
+	// shared are the reads that are ambient-kind-INDEPENDENT (they take their target
+	// explicitly or take none), so they are safe in the construct mode too — where the
+	// session carries no artifact Kind. getDraftSlot / getReviewThread are NOT here: they
+	// read the ambient Kind slot, which the construct mode does not set.
+	shared := append(append([]string{}, all...), jobModeConstruct)
+	construct := []string{jobModeConstruct}
 	return []composedVerb{
-		{name: "listResearchSources", modes: all, register: func(srv *mcp.Server) {
+		{name: "listResearchSources", modes: shared, register: func(srv *mcp.Server) {
 			mcp.AddTool(srv, &mcp.Tool{
 				Name: "listResearchSources",
 				Description: "List the committed research corpus for this project (each source's title and repo-relative path). " +
@@ -134,7 +140,7 @@ func composedVerbs(s *Session) []composedVerb {
 				Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 			}, textHandler(func(context.Context, emptyInput) (string, error) { return s.listResearchSources() }))
 		}},
-		{name: "getResearchSource", modes: all, register: func(srv *mcp.Server) {
+		{name: "getResearchSource", modes: shared, register: func(srv *mcp.Server) {
 			mcp.AddTool(srv, &mcp.Tool{
 				Name: "getResearchSource",
 				Description: "Return the full text of one research source, addressed by the repo-relative path listResearchSources reports. " +
@@ -144,7 +150,7 @@ func composedVerbs(s *Session) []composedVerb {
 				return s.getResearchSource(in.Path)
 			}))
 		}},
-		{name: "getCommittedSlot", modes: all, register: func(srv *mcp.Server) {
+		{name: "getCommittedSlot", modes: shared, register: func(srv *mcp.Server) {
 			mcp.AddTool(srv, &mcp.Tool{
 				Name: "getCommittedSlot",
 				Description: "Return the committed typed model for ANY Method artifact kind — your read-only basis access to the predecessors this artifact builds on " +
@@ -210,12 +216,54 @@ func composedVerbs(s *Session) []composedVerb {
 				return "Recorded your response on the review thread.", nil
 			}))
 		}},
-		{name: "publishDraft", modes: all, register: func(srv *mcp.Server) {
+		{name: "publishDraft", modes: shared, register: func(srv *mcp.Server) {
 			mcp.AddTool(srv, &mcp.Tool{
 				Name: "publishDraft",
-				Description: "Stage, commit, and push your changes to the project state onto this design job's session branch — the LAST thing you do. " +
+				Description: "Stage, commit, and push your changes to the project state onto this job's session/activity branch — the LAST thing you do. " +
 					"It is exactly-once (a second call is a no-op) and it refuses to publish when you have recorded nothing this session.",
 			}, textHandler(func(_ context.Context, in publishDraftInput) (string, error) { return s.publishDraft(in.Message) }))
+		}},
+
+		// --- CONSTRUCTION composed verbs (job mode "construct"). The Phase-3 write
+		// surface: record the phase's typed artifact into its flat construction target,
+		// validated in-loop through the codec + methodcheck. The ambient component/activity
+		// fix the target, so the agent never chooses a slot. ---
+		{name: "recordServiceContract", modes: construct, register: func(srv *mcp.Server) {
+			mcp.AddTool(srv, &mcp.Tool{
+				Name: "recordServiceContract",
+				Description: "Record the frozen, typed service contract for THIS activity's component into the project state (the detailed-design phase artifact). " +
+					"It is validated through the FULL server codec AND the Method CI rules before it is accepted: if it fails, this returns the exact, actionable errors and writes NOTHING — fix them and call it again. " +
+					"You never choose the component; the ambient construction job fixes it. When it succeeds, finish with publishDraft.",
+			}, textHandler(func(_ context.Context, in recordServiceContractInput) (string, error) {
+				if err := s.recordServiceContract(in.Contract); err != nil {
+					return "", err
+				}
+				return "The service contract passed the server codec and the Method CI rules and was written. Call publishDraft to commit it.", nil
+			}))
+		}},
+		{name: "recordPhaseArtifact", modes: construct, register: func(srv *mcp.Server) {
+			mcp.AddTool(srv, &mcp.Tool{
+				Name: "recordPhaseArtifact",
+				Description: "Record a non-contract phase artifact (SRS, UI design, integration note, provisioning spec, deploy note, doc outline/note) into the project state under the given mapKey (the component/surface/resource/doc name). " +
+					"Set EXACTLY ONE field of the payload. Validated through the server codec + the Method CI rules before it is accepted; on failure it writes nothing and returns the errors. Finish with publishDraft.",
+			}, textHandler(func(_ context.Context, in recordPhaseArtifactInput) (string, error) {
+				if err := s.recordPhaseArtifact(in.MapKey, in.Payload); err != nil {
+					return "", err
+				}
+				return "The phase artifact passed validation and was written. Call publishDraft to commit it.", nil
+			}))
+		}},
+		{name: "recordTestingState", modes: construct, register: func(srv *mcp.Server) {
+			mcp.AddTool(srv, &mcp.Tool{
+				Name: "recordTestingState",
+				Description: "Record a project-level testing artifact (system test plan, harness module, perf harness, quality gate, test run, defect, or quality-audit report) into the project state's testing state. " +
+					"Set EXACTLY ONE field of the payload. Validated through the server codec + the Method CI rules before it is accepted; on failure it writes nothing and returns the errors. Finish with publishDraft.",
+			}, textHandler(func(_ context.Context, in recordTestingStateInput) (string, error) {
+				if err := s.recordTestingState(in.Payload); err != nil {
+					return "", err
+				}
+				return "The testing artifact passed validation and was written. Call publishDraft to commit it.", nil
+			}))
 		}},
 	}
 }
