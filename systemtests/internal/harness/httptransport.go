@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 )
 
 // httpTransport drives the webClient HTTP surface. It is the reference black-box
@@ -100,6 +101,14 @@ func stageName(table []string, ordinal int) string {
 	return table[ordinal]
 }
 
+// strPtrVal dereferences an optional wire string pointer, defaulting to "".
+func strPtrVal(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
 // reviewDecisionToOrdinal mirrors ReviewDecision (0 unknown,1 approve,2 reject,3 withdraw).
 var reviewDecisionToOrdinal = map[string]int{
 	"approve":  1,
@@ -182,12 +191,16 @@ type operatedSystemViewWire struct {
 	InFlight      bool   `json:"InFlight"`
 }
 
-// testOwner is the fixed OwnerScope the harness mints every project under. Owner
+// TestOwner is the fixed OwnerScope the harness mints every project under. Owner
 // is a required, non-empty CreateProject arg but is NOT consulted by
 // authenticatedOnlyPDP (any authenticated principal may act on any resource — see
 // server/cmd/server/authz.go) and the Transport interface's CreateProject has no
 // owner parameter, so a single constant value is sufficient for a black-box test.
-const testOwner = "systemtest"
+// Exported so a test can pass the SAME scope to ListProjects.
+const TestOwner = "systemtest"
+
+// testOwner is the unexported alias every existing call site in this package uses.
+const testOwner = TestOwner
 
 // reviewFeedbackBody is the wire shape of ReviewFeedback for a request body
 // (systemdesign.ReviewFeedback additionally carries anchored Comments, which the
@@ -203,9 +216,10 @@ type reviewFeedbackBody struct {
 // decoded generically (the nested "draft"/"findings" are intentionally left
 // undecoded — the wiring test does not assert on them).
 type sessionStateWire struct {
-	ProjectID    string `json:"projectId"`
-	ArtifactKind int    `json:"artifactKind"`
-	Stage        int    `json:"stage"`
+	ProjectID     string  `json:"projectId"`
+	ArtifactKind  int     `json:"artifactKind"`
+	Stage         int     `json:"stage"`
+	FailureReason *string `json:"failureReason,omitempty"`
 }
 
 // phaseAdvanceWire is the wire shape of PhaseAdvanceResult (shared shape between
@@ -228,6 +242,28 @@ func (t *httpTransport) CreateProject(ctx context.Context, name string) (string,
 	_, err := t.do(ctx, http.MethodPost, "/api/v1/system-design/create-project",
 		map[string]any{"owner": testOwner, "name": name}, http.StatusOK, &out)
 	return out, err
+}
+
+// projectSummaryWire is the wire shape of one ListProjects row (contract
+// ProjectSummary) — only the fields the harness projects onto ProjectSummary.
+type projectSummaryWire struct {
+	ProjectID string `json:"ProjectID"`
+	Name      string `json:"Name"`
+	Owner     string `json:"Owner"`
+	PhaseName string `json:"PhaseName"`
+}
+
+func (t *httpTransport) ListProjects(ctx context.Context, owner string) ([]ProjectSummary, error) {
+	path := fmt.Sprintf("/api/v1/system-design/list-projects?owner=%s", owner)
+	var out []projectSummaryWire
+	if _, err := t.do(ctx, http.MethodGet, path, nil, http.StatusOK, &out); err != nil {
+		return nil, err
+	}
+	summaries := make([]ProjectSummary, 0, len(out))
+	for _, s := range out {
+		summaries = append(summaries, ProjectSummary(s))
+	}
+	return summaries, nil
 }
 
 // All phase routes are PROJECT-SCOPED: projectId is a path segment, never a body
@@ -270,9 +306,10 @@ func (t *httpTransport) GetSessionState(ctx context.Context, projectID, kind str
 		return SessionState{}, false, err
 	}
 	return SessionState{
-		ProjectID:    out.ProjectID,
-		ArtifactKind: artifactKindName(out.ArtifactKind),
-		Stage:        stageName(systemSessionStageByOrdinal, out.Stage),
+		ProjectID:     out.ProjectID,
+		ArtifactKind:  artifactKindName(out.ArtifactKind),
+		Stage:         stageName(systemSessionStageByOrdinal, out.Stage),
+		FailureReason: strPtrVal(out.FailureReason),
 	}, true, nil
 }
 
@@ -292,7 +329,11 @@ func (t *httpTransport) SubmitReview(ctx context.Context, projectID, kind, decis
 func (t *httpTransport) AdvancePhase(ctx context.Context, projectID string) (bool, []string, error) {
 	var out phaseAdvanceWire
 	path := fmt.Sprintf("/api/v1/system-design/advance-phase/%s", projectID)
-	_, err := t.do(ctx, http.MethodPost, path, nil, http.StatusOK, &out)
+	// The handler always decodes a JSON request body (advancePhaseRequest{AcknowledgeStale
+	// bool}); a nil/empty body makes json.Decoder.Decode return io.EOF, which the handler
+	// maps to 400 bad_request BEFORE it ever reaches the Manager. Send an explicit empty
+	// object so the (optional, defaulting false) field decodes cleanly.
+	_, err := t.do(ctx, http.MethodPost, path, map[string]any{}, http.StatusOK, &out)
 	return out.Advanced, decodeMissingArtifacts(out.MissingArtifacts), err
 }
 
@@ -319,9 +360,10 @@ func (t *httpTransport) GetProjectSessionState(ctx context.Context, projectID, k
 		return SessionState{}, false, err
 	}
 	return SessionState{
-		ProjectID:    out.ProjectID,
-		ArtifactKind: artifactKindName(out.ArtifactKind),
-		Stage:        stageName(projectSessionStageByOrdinal, out.Stage),
+		ProjectID:     out.ProjectID,
+		ArtifactKind:  artifactKindName(out.ArtifactKind),
+		Stage:         stageName(projectSessionStageByOrdinal, out.Stage),
+		FailureReason: strPtrVal(out.FailureReason),
 	}, true, nil
 }
 
@@ -366,7 +408,9 @@ func (t *httpTransport) SubmitSDPDecision(ctx context.Context, projectID, decisi
 func (t *httpTransport) AdvanceToConstruction(ctx context.Context, projectID string) (bool, []string, error) {
 	var out phaseAdvanceWire
 	path := fmt.Sprintf("/api/v1/project-design/advance-to-construction/%s", projectID)
-	_, err := t.do(ctx, http.MethodPost, path, nil, http.StatusOK, &out)
+	// Same nil-body pitfall as AdvancePhase above: the handler always decodes a JSON
+	// body, so send an explicit empty object rather than nil.
+	_, err := t.do(ctx, http.MethodPost, path, map[string]any{}, http.StatusOK, &out)
 	return out.Advanced, decodeMissingArtifacts(out.MissingArtifacts), err
 }
 
@@ -516,7 +560,8 @@ func (t *httpTransport) do(ctx context.Context, method, path string, body any, w
 	defer func() { _, _ = io.Copy(io.Discard, resp.Body); _ = resp.Body.Close() }()
 
 	if resp.StatusCode != want {
-		return resp.StatusCode, statusError(resp.StatusCode)
+		errBody, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, fmt.Errorf("%w: %s", statusError(resp.StatusCode), errorBodyDetail(errBody))
 	}
 	if out != nil {
 		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
@@ -524,6 +569,25 @@ func (t *httpTransport) do(ctx context.Context, method, path string, body any, w
 		}
 	}
 	return resp.StatusCode, nil
+}
+
+// errorResponseWire is the wire shape writeError/writeManagerError emit on
+// every non-2xx response: {"error":"<detail>","code":"<code>"}.
+type errorResponseWire struct {
+	Error string `json:"error"`
+	Code  string `json:"code"`
+}
+
+// errorBodyDetail extracts the human-readable Detail from an error response body
+// so a caller can assert on the ACTUAL message (e.g. a clean, project-scoped
+// NotFound versus a leaked internal), not just the status-derived sentinel. Falls
+// back to the raw body when it is not the expected {error,code} shape.
+func errorBodyDetail(body []byte) string {
+	var er errorResponseWire
+	if err := json.Unmarshal(body, &er); err == nil && er.Error != "" {
+		return er.Error
+	}
+	return strings.TrimSpace(string(body))
 }
 
 // statusError maps an HTTP status to a transport-agnostic sentinel so tests
