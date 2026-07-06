@@ -7472,7 +7472,8 @@
             9,
             10,
             11,
-            12
+            12,
+            13
           ],
           "x-enum-varnames": [
             "NodeStart",
@@ -7487,7 +7488,8 @@
             "NodeLoop",
             "NodeSwitch",
             "NodeGoto",
-            "NodeInterruptEdge"
+            "NodeInterruptEdge",
+            "NodeAgenticSubWorkflow"
           ],
           "x-go-base": "int"
         },
@@ -7771,6 +7773,9 @@
                 "null",
                 "string"
               ]
+            },
+            "implementation": {
+              "$ref": "#/$defs/Implementation"
             }
           },
           "required": [
@@ -8283,6 +8288,20 @@
             "category"
           ],
           "additionalProperties": false
+        },
+        "Implementation": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2
+          ],
+          "x-enum-varnames": [
+            "ImplCoded",
+            "ImplHybrid",
+            "ImplAgentic"
+          ],
+          "x-go-base": "int"
         },
         "InfrastructureKind": {
           "type": "integer",
@@ -9005,6 +9024,9 @@
               "items": {
                 "type": "string"
               }
+            },
+            "agentic": {
+              "type": "boolean"
             }
           },
           "required": [

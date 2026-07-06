@@ -215,22 +215,57 @@ func (c *Classification) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// ---- Implementation ----
+
+// implementationNames is the wire encoding for a Component's implementation
+// strategy — how the component's behavior is realized (agentic-managers doctrine:
+// implementation is a STRATEGY axis orthogonal to the Method layer). The zero value
+// ImplCoded is the semantically-safe default: an omitted "implementation" field
+// decodes to ImplCoded ("coded"), which is exactly right — a component with no
+// declared strategy is ordinary hand/generated code. Because the default is SAFE
+// (unlike layer/kind, whose zero value silently corrupts), the field is deliberately
+// OPTIONAL and is NOT required by RequireModelFields (see modelfields.go). The real
+// hazard — an agentic component that forgot to declare itself — is caught precisely
+// by the DV-AGENTIC-STEP-OWNER-NOT-AGENTIC lint, not by blanket presence.
+var implementationNames = map[Implementation]string{
+	ImplCoded:   "coded",
+	ImplHybrid:  "hybrid",
+	ImplAgentic: "agentic",
+}
+var implementationByName = invert(implementationNames)
+
+// MarshalJSON encodes the Implementation as its canonical wire name.
+func (i Implementation) MarshalJSON() ([]byte, error) {
+	return marshalEnum(i, implementationNames, "Implementation")
+}
+
+// UnmarshalJSON decodes a wire name (or legacy ordinal) into an Implementation.
+func (i *Implementation) UnmarshalJSON(data []byte) error {
+	v, err := unmarshalEnum(data, implementationByName, "Implementation")
+	if err != nil {
+		return err
+	}
+	*i = v
+	return nil
+}
+
 // ---- ActivityNodeKind ----
 
 var activityNodeKindNames = map[ActivityNodeKind]string{
-	NodeStart:         "start",
-	NodeAction:        "action",
-	NodeDecision:      "decision",
-	NodeMerge:         "merge",
-	NodeFork:          "fork",
-	NodeJoin:          "join",
-	NodeEnd:           "end",
-	NodeSwimLane:      "swimLane",
-	NodeNote:          "note",
-	NodeLoop:          "loop",
-	NodeSwitch:        "switch",
-	NodeGoto:          "goto",
-	NodeInterruptEdge: "interruptEdge",
+	NodeStart:              "start",
+	NodeAction:             "action",
+	NodeDecision:           "decision",
+	NodeMerge:              "merge",
+	NodeFork:               "fork",
+	NodeJoin:               "join",
+	NodeEnd:                "end",
+	NodeSwimLane:           "swimLane",
+	NodeNote:               "note",
+	NodeLoop:               "loop",
+	NodeSwitch:             "switch",
+	NodeGoto:               "goto",
+	NodeInterruptEdge:      "interruptEdge",
+	NodeAgenticSubWorkflow: "agenticSubWorkflow",
 }
 var activityNodeKindByName = invert(activityNodeKindNames)
 
