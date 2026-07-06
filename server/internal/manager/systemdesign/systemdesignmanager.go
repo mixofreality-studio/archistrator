@@ -9,6 +9,7 @@ import (
 
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	"github.com/mixofreality-studio/archistrator-platform/framework-go/utilities/security"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/estimation"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/constructionpipeline"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
@@ -311,7 +312,10 @@ func (m *systemDesignManager) SubmitReviewDecision(rc fwmanager.Context, project
 		}
 	}
 
-	sig := reviewDecisionSignal{Decision: decision, Feedback: feedback}
+	// PM-P2-4: capture the acting reviewer identity here (the one place a SecurityPrincipal
+	// reaches the review flow) and thread it through the signal so the eventual approve→commit
+	// records it as the commit's approvedBy provenance.
+	sig := reviewDecisionSignal{Decision: decision, Feedback: feedback, Approver: principalLabel(rc.Principal)}
 	if err := m.client.SignalWorkflow(ctx, wfID, "", signalReviewDecision, sig); err != nil {
 		return mapSignalError(err)
 	}
@@ -453,6 +457,23 @@ func checkReviewPrecondition(decision ReviewDecision, stage SessionStage) error 
 		return newError(fwmanager.ContractMisuse, "unknown review decision")
 	}
 	return nil
+}
+
+// principalLabel renders a SecurityPrincipal as a short human-facing label for PM-P2-4
+// provenance (approvedBy): the username (GitHub login / preferred_username), else email,
+// else display name, else the opaque subject (dev-mode identity). Empty when no identity was
+// resolved — the commit then records no approvedBy (absent provenance is allowed).
+func principalLabel(p security.SecurityPrincipal) string {
+	switch {
+	case p.Username != "":
+		return p.Username
+	case p.Email != "":
+		return p.Email
+	case p.Name != "":
+		return p.Name
+	default:
+		return p.Subject
+	}
 }
 
 // sessionStageLabel renders a SessionStage as a short human label for the precondition

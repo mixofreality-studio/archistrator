@@ -408,6 +408,20 @@ const (
 type reviewDecisionSignal struct {
 	Decision ReviewDecision
 	Feedback *ReviewFeedback
+	// Approver is the human-facing label for the acting identity that submitted this decision
+	// (PM-P2-4), derived from the SubmitReviewDecision caller's SecurityPrincipal. Consulted on
+	// Approve → recorded as the commit's approvedBy provenance. Empty when no identity reached
+	// the manager op. Additive — an older buffered signal decodes it as "".
+	Approver string
+}
+
+// railDraftedBy renders the PM-P2-4 draftedBy provenance: the agentic design rail identity,
+// plus the amendment-session marker when this run is a reopening (Amendment > 0).
+func railDraftedBy(amendment int) string {
+	if amendment > 0 {
+		return fmt.Sprintf("agentic-design-rail (amend-%d)", amendment)
+	}
+	return "agentic-design-rail"
 }
 
 // redraftSignal is the redraft signal payload — the "Retry draft" lever delivered to
@@ -868,7 +882,7 @@ func (wf *workflows) coAuthorApplyDecision(
 		if open := openReviewCommentIDs(state.reviewThread); len(open) > 0 {
 			return coAuthorReAwait, coAuthorUnknown, nil
 		}
-		return wf.coAuthorApprove(ctx, in, gf, headVersion, redraftCount, feedback, state)
+		return wf.coAuthorApprove(ctx, in, gf, headVersion, redraftCount, feedback, state, sig.Approver)
 
 	case ReviewReject:
 		notes := signalNotes(sig.Feedback)
@@ -978,6 +992,7 @@ func (wf *workflows) coAuthorApprove(
 	redraftCount *int,
 	feedback *string,
 	state *coAuthorState,
+	approver string,
 ) (coAuthorStep, coAuthorOutcome, error) {
 	logger := workflow.GetLogger(ctx)
 
@@ -1038,6 +1053,8 @@ func (wf *workflows) coAuthorApprove(
 		var v projectstate.Version
 		e := workflow.ExecuteActivity(c, wf.CommitArtifactActivity, mutateArtifactArgs{
 			ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, Kind: toPSKind(in.ArtifactKind),
+			// PM-P2-4 commit provenance: the approving identity + the drafting rail identity.
+			ApprovedBy: approver, DraftedBy: railDraftedBy(in.Amendment),
 		}).Get(ctx, &v)
 		return v, e
 	}); err != nil {
@@ -1106,6 +1123,9 @@ type sdpDecisionSignal struct {
 	Decision SDPDecision
 	OptionID *OptionID
 	Feedback *ReviewFeedback
+	// Approver is the acting identity that made the SDP decision (PM-P2-4), recorded as the
+	// SdpReview commit's approvedBy provenance on an Approve. Additive to the signal payload.
+	Approver string
 }
 
 func (wf *workflows) AssembleSDPReviewWorkflow(ctx workflow.Context, in sdpReviewInput) error {
@@ -1225,7 +1245,7 @@ func (wf *workflows) sdpCommit(
 	if err := wf.stageReview(ctx, in.ProjectID, confirmed, &state.headVersion); err != nil {
 		return err
 	}
-	if err := wf.commitReview(ctx, in.ProjectID, &state.headVersion); err != nil {
+	if err := wf.commitReview(ctx, in.ProjectID, &state.headVersion, sig.Approver); err != nil {
 		return err
 	}
 	state.stage = StageCommitted
@@ -1257,13 +1277,16 @@ func (wf *workflows) stageReview(ctx workflow.Context, projectID ProjectID, revi
 	return nil
 }
 
-// commitReview commits the SdpReview slot.
-func (wf *workflows) commitReview(ctx workflow.Context, projectID ProjectID, headVersion *projectstate.Version) error {
+// commitReview commits the SdpReview slot. approver is the acting SDP-decision identity,
+// recorded as the commit's approvedBy provenance (PM-P2-4); the SDP review is assembled by
+// the design manager, so draftedBy is the rail identity.
+func (wf *workflows) commitReview(ctx workflow.Context, projectID ProjectID, headVersion *projectstate.Version, approver string) error {
 	v, err := wf.applyRecovering(ctx, projectID, "", *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
 		c := mutateOpts(ctx)
 		var got projectstate.Version
 		e := workflow.ExecuteActivity(c, wf.CommitArtifactActivity, mutateArtifactArgs{
 			ProjectID: projectstate.ProjectID(projectID), ExpectedVersion: expected, Kind: projectstate.KindSdpReview,
+			ApprovedBy: approver, DraftedBy: railDraftedBy(0),
 		}).Get(ctx, &got)
 		return got, e
 	})

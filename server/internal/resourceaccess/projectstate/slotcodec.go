@@ -63,6 +63,13 @@ type slotJSON struct {
 	// migration — absent cause is allowed). Keeps the on-disk shape byte-identical for
 	// every untouched slot.
 	StaleBasisCause *StaleCause `json:"staleBasisCause,omitempty"`
+	// Provenance is the ADDITIVE commit-provenance record (PM-P2-4): who committed / when /
+	// which rail drafted it, captured at the approve→commit transition. Set in
+	// commitTransition when the commit path supplied it (the provenance extension), refreshed
+	// on every commit. nil (omitempty) for uncommitted slots AND for slots committed before
+	// this field existed (no back-fill — absent provenance is allowed). Keeps the on-disk
+	// shape byte-identical for every untouched slot.
+	Provenance *Provenance `json:"provenance,omitempty"`
 }
 
 // slotEntry pairs a named-slot accessor with the kind that selects it. The
@@ -128,6 +135,7 @@ func encodeSlotsMap(p *Project) (map[string]slotJSON, error) {
 			Revisions:       slot.Revisions,
 			StaleBasis:      slot.StaleBasis,
 			StaleBasisCause: slot.StaleBasisCause,
+			Provenance:      slot.Provenance,
 		}
 		if slot.Model != nil {
 			mb, err := json.Marshal(slot.Model)
@@ -169,6 +177,7 @@ func decodeSlotsMap(w map[string]slotJSON, p *Project) error {
 		}
 		slot.StaleBasis = entry.StaleBasis
 		slot.StaleBasisCause = entry.StaleBasisCause
+		slot.Provenance = entry.Provenance
 		if len(entry.Model) > 0 {
 			model, ok := NewModelForKind(kind)
 			if !ok {
@@ -228,13 +237,22 @@ func statusTransition(op string, kind ArtifactKind, to ArtifactReviewStatus, not
 //
 // On a FIRST commit no downstream slot is committed yet, so the downstream marking is a
 // no-op; only a re-commit (amendment) actually flags anything.
-func commitTransition(kind ArtifactKind) func(*Project) error {
+//
+// prov carries the ADDITIVE commit-provenance record (PM-P2-4). When non-nil it is stamped
+// onto the committed slot (refreshing any prior provenance on a re-commit); a nil prov (the
+// plain CommitArtifact path / a substrate that records no provenance) leaves the slot's
+// provenance untouched — absent provenance is allowed.
+func commitTransition(kind ArtifactKind, prov *Provenance) func(*Project) error {
 	flip := statusTransition("CommitArtifact", kind, ReviewCommitted, "")
 	return func(p *Project) error {
 		if err := flip(p); err != nil {
 			return err
 		}
 		slot, _ := slotPtr(p, kind)
+		// Stamp the commit provenance (PM-P2-4) when the commit path supplied it.
+		if prov != nil {
+			slot.Provenance = prov
+		}
 		// Bump the commit count. First commit: 0 → 1. A re-commit (amendment) bumps from
 		// the prior count; pre-field committed bases are grandfathered to 1 on read
 		// (decodeSlotsMap / ArtifactSlot.Revisions doc), so a pre-field slot's first

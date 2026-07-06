@@ -61,6 +61,7 @@ type GitProjectStateAccess interface {
 	ListProjects(ctx context.Context, owner OwnerScope, cred RepoCredential) ([]ProjectSummary, error)
 	StageArtifactForReview(ctx context.Context, projectID ProjectID, expectedVersion Version, model ArtifactModel, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	CommitArtifact(ctx context.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	CommitArtifactWithProvenance(ctx context.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, approvedBy, draftedBy string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	RejectArtifact(ctx context.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, notes string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	WithdrawArtifact(ctx context.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, notes string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	AdvancePhase(ctx context.Context, projectID ProjectID, expectedVersion Version, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
@@ -296,7 +297,22 @@ func (s *GitStore) ReconcileBranchFromMain(ctx context.Context, projectID Projec
 func (s *GitStore) CommitArtifact(ctx context.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	// commitTransition (F38) flips to Committed AND bumps Revisions + clears this slot's
 	// StaleBasis + flags downstream committed slots stale — all in one atomic commit on main.
-	return s.applyMutation(ctx, "CommitArtifact", projectID, expectedVersion, cred, idempotencyKey, modeUpsert, commitTransition(kind))
+	// nil prov: this plain path records no PM-P2-4 provenance.
+	return s.applyMutation(ctx, "CommitArtifact", projectID, expectedVersion, cred, idempotencyKey, modeUpsert, commitTransition(kind, nil))
+}
+
+// CommitArtifactWithProvenance is the provenance-recording Commit (PM-P2-4): the SAME atomic
+// commit-on-main as CommitArtifact, plus it stamps a Provenance record onto the committed
+// slot — committedAt server-resolved from the store clock (RA code, time.Now() is fine),
+// approvedBy/draftedBy threaded from the manager's approve→commit path. Satisfies
+// ProvenanceCommitProjectStateAccess (the dormant commit extension).
+func (s *GitStore) CommitArtifactWithProvenance(ctx context.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, approvedBy, draftedBy string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	prov := &Provenance{
+		CommittedAt: s.now().UTC().Format(time.RFC3339),
+		ApprovedBy:  approvedBy,
+		DraftedBy:   draftedBy,
+	}
+	return s.applyMutation(ctx, "CommitArtifact", projectID, expectedVersion, cred, idempotencyKey, modeUpsert, commitTransition(kind, prov))
 }
 
 func (s *GitStore) RejectArtifact(ctx context.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, notes string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {

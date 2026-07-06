@@ -53,7 +53,7 @@ func Test_commitTransition_PreFieldReCommitLandsAtTwo(t *testing.T) {
 		t.Fatalf("grandfathered base must be Revisions 1, got %d", p.Mission.Revisions)
 	}
 	// A re-commit (the amendment merge → CommitArtifact) bumps to 2.
-	if err := commitTransition(KindMission)(&p); err != nil {
+	if err := commitTransition(KindMission, nil)(&p); err != nil {
 		t.Fatalf("commitTransition: %v", err)
 	}
 	if p.Mission.Revisions != 2 {
@@ -77,7 +77,7 @@ func Test_commitTransition_FirstCommitLandsAtOne(t *testing.T) {
 	if p.Mission.Revisions != 0 {
 		t.Fatalf("a never-committed slot must decode at Revisions 0, got %d", p.Mission.Revisions)
 	}
-	if err := commitTransition(KindMission)(&p); err != nil {
+	if err := commitTransition(KindMission, nil)(&p); err != nil {
 		t.Fatalf("commitTransition: %v", err)
 	}
 	if p.Mission.Revisions != 1 {

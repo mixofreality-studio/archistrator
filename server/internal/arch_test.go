@@ -370,6 +370,11 @@ var encapsulationAllowlistData = map[string][]string{
 		"ReconcilingProjectStateAccess",
 		"ReconcileSlotOntoBase",
 		"OverlaySlotFromBranchOntoMain",
+		// PROVENANCE-COMMIT EXTENSION (PM-P2-4): the OPTIONAL commit-provenance interface a
+		// design Manager type-asserts to record committedAt/approvedBy/draftedBy atomically
+		// with the commit (same pattern as the Ledger/StaleAck/Reconcile extensions above).
+		// Served by GitStore + the composition-root adapter.
+		"ProvenanceCommitProjectStateAccess",
 		// F81 GATE 0: the raw-JSON required-field presence pass demanding every closed-enum /
 		// identity field on a drafted model (component id/name/kind/layer, relationship
 		// from/to/mode, dynamic-view useCaseId, …). Consumed by cmd/aiarch-state-mcp

@@ -116,6 +116,7 @@ type ArtifactSlotView struct {
 	StaleBasis      *bool             `json:"staleBasis,omitempty"`
 	StaleBasisCause *StaleCauseView   `json:"staleBasisCause,omitempty"`
 	Revisions       *int64            `json:"revisions,omitempty"`
+	Provenance      *ProvenanceView   `json:"provenance,omitempty"`
 }
 
 type ArtifactStage int

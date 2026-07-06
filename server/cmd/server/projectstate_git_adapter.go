@@ -163,6 +163,22 @@ func (a *projectStateGitAdapter) CommitArtifact(rc fwra.Context, projectID proje
 	return a.store.CommitArtifact(ctx, projectID, expectedVersion, kind, cred, rc.IdempotencyKey)
 }
 
+// Compile-time proof the git adapter also serves the commit-provenance extension (PM-P2-4):
+// the design Managers record committedAt/approvedBy/draftedBy atomically with the commit.
+var _ projectstate.ProvenanceCommitProjectStateAccess = (*projectStateGitAdapter)(nil)
+
+// CommitArtifactWithProvenance is the provenance-recording Commit (PM-P2-4): the cred is
+// minted just-in-time, exactly like the no-cred CommitArtifact, and the acting/rail identity
+// threaded from the manager approve→commit path is stamped onto the committed slot.
+func (a *projectStateGitAdapter) CommitArtifactWithProvenance(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, kind projectstate.ArtifactKind, approvedBy, draftedBy string) (projectstate.Version, error) {
+	ctx := rc.Context
+	cred, err := a.minter.credentialFor(ctx, projectID)
+	if err != nil {
+		return 0, err
+	}
+	return a.store.CommitArtifactWithProvenance(ctx, projectID, expectedVersion, kind, approvedBy, draftedBy, cred, rc.IdempotencyKey)
+}
+
 func (a *projectStateGitAdapter) RejectArtifact(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, kind projectstate.ArtifactKind, notes string) (projectstate.Version, error) {
 	ctx := rc.Context
 	cred, err := a.minter.credentialFor(ctx, projectID)

@@ -852,6 +852,7 @@ export interface components {
             kind: string;
             model: components["schemas"]["SystemDesignArtifactSlotModel"];
             notes?: null | string;
+            provenance?: unknown;
             revisions?: number;
             stage: components["schemas"]["SystemDesignArtifactStage"];
             staleBasis?: boolean;

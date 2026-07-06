@@ -20,7 +20,7 @@ func TestCommitTransition_RecordsStaleCauseOnDownstream(t *testing.T) {
 	p.CoreUseCases = committedSlot(&CoreUseCases{}, 1)
 
 	// Re-commit (amend) Volatilities.
-	if err := commitTransition(KindVolatilities)(p); err != nil {
+	if err := commitTransition(KindVolatilities, nil)(p); err != nil {
 		t.Fatalf("commitTransition: %v", err)
 	}
 
@@ -50,7 +50,7 @@ func TestCommitTransition_ClearsStaleCauseOnReconcile(t *testing.T) {
 	p.CoreUseCases.StaleBasisCause = &StaleCause{UpstreamKind: "volatilities", UpstreamRevision: 2}
 
 	// Re-committing CoreUseCases itself IS the reconcile.
-	if err := commitTransition(KindCoreUseCases)(p); err != nil {
+	if err := commitTransition(KindCoreUseCases, nil)(p); err != nil {
 		t.Fatalf("commitTransition: %v", err)
 	}
 	if p.CoreUseCases.StaleBasis || p.CoreUseCases.StaleBasisCause != nil {

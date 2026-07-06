@@ -8,6 +8,7 @@ import (
 
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	"github.com/mixofreality-studio/archistrator-platform/framework-go/utilities/security"
 	billing "github.com/mixofreality-studio/archistrator/server/internal/engine/billing"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/estimation"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/operationestimation"
@@ -261,7 +262,8 @@ func (m *projectDesignManager) SubmitSDPDecision(rc fwmanager.Context, projectID
 	}
 
 	wfID := sdpReviewWorkflowID(projectID)
-	sig := sdpDecisionSignal{Decision: decision, OptionID: optionID, Feedback: feedback}
+	// PM-P2-4: capture the acting identity for the SdpReview commit's approvedBy provenance.
+	sig := sdpDecisionSignal{Decision: decision, OptionID: optionID, Feedback: feedback, Approver: principalLabel(rc.Principal)}
 	if err := m.client.SignalWorkflow(ctx, wfID, "", signalSDPDecision, sig); err != nil {
 		return mapSignalError(err)
 	}
@@ -320,7 +322,8 @@ func (m *projectDesignManager) SubmitReviewDecision(rc fwmanager.Context, projec
 		}
 	}
 
-	sig := reviewDecisionSignal{Decision: decision, Feedback: feedback}
+	// PM-P2-4: capture the acting reviewer identity for the commit's approvedBy provenance.
+	sig := reviewDecisionSignal{Decision: decision, Feedback: feedback, Approver: principalLabel(rc.Principal)}
 	if err := m.client.SignalWorkflow(ctx, wfID, "", signalReviewDecision, sig); err != nil {
 		return mapSignalError(err)
 	}
@@ -577,6 +580,23 @@ func (m *projectDesignManager) GetSessionState(rc fwmanager.Context, projectID P
 		return SessionStateView{}, newError(fwmanager.Infrastructure, err.Error())
 	}
 	return view, nil
+}
+
+// principalLabel renders a SecurityPrincipal as a short human-facing label for PM-P2-4
+// provenance (approvedBy): username (GitHub login / preferred_username), else email, else
+// display name, else the opaque subject (dev-mode identity). Empty when no identity was
+// resolved — the commit then records no approvedBy (absent provenance is allowed).
+func principalLabel(p security.SecurityPrincipal) string {
+	switch {
+	case p.Username != "":
+		return p.Username
+	case p.Email != "":
+		return p.Email
+	case p.Name != "":
+		return p.Name
+	default:
+		return p.Subject
+	}
 }
 
 // staleCommittedPhase2Kinds returns the wire names of every COMMITTED Phase-2 slot that carries

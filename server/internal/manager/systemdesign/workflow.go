@@ -507,6 +507,22 @@ const (
 type reviewDecisionSignal struct {
 	Decision ReviewDecision
 	Feedback *ReviewFeedback
+	// Approver is the human-facing label for the acting identity that submitted this
+	// decision (PM-P2-4), derived from the SubmitReviewDecision caller's SecurityPrincipal.
+	// Consulted only on Approve → recorded as the commit's approvedBy provenance. Empty when
+	// no identity reached the manager op (absent provenance allowed). Additive to the signal
+	// payload — an older buffered signal decodes it as "".
+	Approver string
+}
+
+// railDraftedBy renders the PM-P2-4 draftedBy provenance: the agentic design rail identity,
+// plus the amendment-session marker when this run is a reopening (Amendment > 0). v1 does
+// not carry a PR number here (the rail branch is deterministic from project+kind+amendment).
+func railDraftedBy(amendment int) string {
+	if amendment > 0 {
+		return fmt.Sprintf("agentic-design-rail (amend-%d)", amendment)
+	}
+	return "agentic-design-rail"
 }
 
 // redraftSignal is the redraft signal payload — the "Retry draft" lever delivered
@@ -1159,7 +1175,7 @@ func (wf *workflows) handleReviewDecision(
 		if open := openReviewCommentIDs(state.reviewThread); len(open) > 0 {
 			return stepReAwait()
 		}
-		return wf.commitOnApprove(ctx, in, headVersion, redraftCount, feedback, gf, state)
+		return wf.commitOnApprove(ctx, in, headVersion, redraftCount, feedback, gf, state, sig.Approver)
 
 	case ReviewReject:
 		rejectFeedback := reviewFeedbackOrZero(sig.Feedback)
@@ -1263,6 +1279,7 @@ func (wf *workflows) commitOnApprove(
 	feedback *ReviewFeedback,
 	gf *gitSession,
 	state *coAuthorState,
+	approver string,
 ) coAuthorStep {
 	logger := workflow.GetLogger(ctx)
 	merged, mErr := wf.mergeOnApprove(ctx, in.ProjectID, gf, in.ArtifactKind)
@@ -1320,6 +1337,8 @@ func (wf *workflows) commitOnApprove(
 		var v projectstate.Version
 		e := workflow.ExecuteActivity(c, wf.CommitArtifactActivity, mutateArtifactArgs{
 			ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, Kind: toPSKind(in.ArtifactKind),
+			// PM-P2-4 commit provenance: the approving identity + the drafting rail identity.
+			ApprovedBy: approver, DraftedBy: railDraftedBy(in.Amendment),
 		}).Get(ctx, &v)
 		return v, e
 	}); err != nil {

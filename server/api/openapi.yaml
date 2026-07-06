@@ -1084,6 +1084,9 @@ components:
                     type:
                         - "null"
                         - string
+                provenance:
+                    x-go-name: Provenance
+                    x-go-type: ProvenanceView
                 revisions:
                     type: integer
                     x-go-name: Revisions

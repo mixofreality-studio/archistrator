@@ -155,6 +155,25 @@ function mapSlot(w: Schemas['SystemDesignArtifactSlotView']): ArtifactSlotView {
         ? `${rawCause.upstreamKind} (rev ${String(rawCause.upstreamRevision)})`
         : rawCause.upstreamKind
       : undefined;
+  // PM-P2-4: the server records commit provenance as
+  // `provenance: {committedAt, approvedBy, draftedBy}` (each field omitempty; the whole
+  // object absent on never-committed / pre-provenance slots).
+  const rawProv = (
+    w as { provenance?: { committedAt?: unknown; approvedBy?: unknown; draftedBy?: unknown } }
+  ).provenance;
+  const provenance = rawProv
+    ? {
+        ...(typeof rawProv.committedAt === 'string' && rawProv.committedAt.length > 0
+          ? { committedAt: rawProv.committedAt }
+          : {}),
+        ...(typeof rawProv.approvedBy === 'string' && rawProv.approvedBy.length > 0
+          ? { approvedBy: rawProv.approvedBy }
+          : {}),
+        ...(typeof rawProv.draftedBy === 'string' && rawProv.draftedBy.length > 0
+          ? { draftedBy: rawProv.draftedBy }
+          : {}),
+      }
+    : undefined;
   return {
     kind: w.kind as ArtifactKindFull,
     stage: w.stage,
@@ -163,6 +182,7 @@ function mapSlot(w: Schemas['SystemDesignArtifactSlotView']): ArtifactSlotView {
     ...(w.revisions !== undefined ? { revisions: w.revisions } : {}),
     ...(w.staleBasis === true ? { staleBasis: true } : {}),
     ...(typeof staleCause === 'string' && staleCause.length > 0 ? { staleCause } : {}),
+    ...(provenance && Object.keys(provenance).length > 0 ? { provenance } : {}),
   };
 }
 

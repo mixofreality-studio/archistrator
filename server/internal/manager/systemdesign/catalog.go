@@ -496,6 +496,9 @@ func slotsToContract(p projectstate.Project) []ArtifactSlotView {
 			StaleBasis:      staleBasisPtr(slot.StaleBasis),
 			StaleBasisCause: staleBasisCauseView(slot.StaleBasisCause),
 			Revisions:       revisionsPtr(slot.Revisions),
+			// PM-P2-4: surface the committed-slot provenance (who/when/rail) under the
+			// committed strip. nil (omitempty) for uncommitted / pre-provenance slots.
+			Provenance: provenanceView(slot.Provenance),
 		})
 	}
 	return slots
@@ -559,6 +562,26 @@ func revisionsPtr(n int64) *int64 {
 	}
 	v := n
 	return &v
+}
+
+// ProvenanceView is the read-model projection of projectstate.Provenance (PM-P2-4): WHO
+// committed a slot / WHEN / which rail drafted it, so the SPA can render a muted
+// "committed <date> · approved by X · drafted by Y" line under the committed strip. Absent
+// (nil, omitempty on the wire) for an uncommitted slot or one committed before provenance
+// was recorded (no back-fill). Each field is independently optional.
+type ProvenanceView struct {
+	CommittedAt string `json:"committedAt,omitempty"`
+	ApprovedBy  string `json:"approvedBy,omitempty"`
+	DraftedBy   string `json:"draftedBy,omitempty"`
+}
+
+// provenanceView projects the stored commit provenance onto the read model, nil-safe
+// (omitempty on the wire: absent ⇒ not committed or provenance unknown).
+func provenanceView(p *projectstate.Provenance) *ProvenanceView {
+	if p == nil {
+		return nil
+	}
+	return &ProvenanceView{CommittedAt: p.CommittedAt, ApprovedBy: p.ApprovedBy, DraftedBy: p.DraftedBy}
 }
 
 // stageForStatus maps the stored per-slot ArtifactReviewStatus to the contract stage.

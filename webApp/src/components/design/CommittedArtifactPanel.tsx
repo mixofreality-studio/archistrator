@@ -33,15 +33,49 @@ import EditNoteIcon from '@mui/icons-material/EditNote';
 import { useComments } from '../comments/CommentContext';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
+import type { ArtifactProvenance } from '../../contracts/types';
+
+/**
+ * Compose the quiet one-line provenance summary (PM-P2-4) from the optional record —
+ * 'committed <date> · rev N · approved by X · drafted by Y' — omitting any absent field.
+ * committedAt (RFC3339) is rendered as a locale date; an unparseable value falls back to the
+ * raw string. Returns '' when nothing is worth showing.
+ */
+function provenanceSummary(
+  provenance: ArtifactProvenance | undefined,
+  revisions: number | undefined
+): string {
+  const parts: string[] = [];
+  const committedAt = provenance?.committedAt;
+  if (committedAt !== undefined && committedAt.length > 0) {
+    const d = new Date(committedAt);
+    parts.push(`committed ${Number.isNaN(d.getTime()) ? committedAt : d.toLocaleDateString()}`);
+  }
+  if (revisions !== undefined && revisions > 1) parts.push(`rev ${String(revisions)}`);
+  if (provenance?.approvedBy !== undefined && provenance.approvedBy.length > 0) {
+    parts.push(`approved by ${provenance.approvedBy}`);
+  }
+  if (provenance?.draftedBy !== undefined && provenance.draftedBy.length > 0) {
+    parts.push(`drafted by ${provenance.draftedBy}`);
+  }
+  return parts.join(' · ');
+}
 
 export function CommittedArtifactPanel({
   revisions,
+  provenance,
   amendPending,
   onAmend,
   children,
 }: {
   /** Commit count; the revision suffix shows only when > 1. */
   revisions?: number | undefined;
+  /**
+   * Commit provenance (PM-P2-4): who committed / when / which rail drafted it. Absent on
+   * pre-provenance commits; a quiet muted one-line summary renders under the strip when
+   * present.
+   */
+  provenance?: ArtifactProvenance | undefined;
   /** An amend RequestArtifactDraft is in flight — disable the composer submit. */
   amendPending: boolean;
   /** Fire the amendment with the composed feedback (rationale + pending notes). */
@@ -82,6 +116,7 @@ export function CommittedArtifactPanel({
   };
 
   const revisionN = revisions ?? 0;
+  const provLine = provenanceSummary(provenance, revisions);
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -117,6 +152,12 @@ export function CommittedArtifactPanel({
           Amend
         </Button>
       </Paper>
+
+      {provLine.length > 0 ? (
+        <Typography sx={{ mt: -1.25, fontSize: 12, color: t.muted, lineHeight: 1.4 }}>
+          {provLine}
+        </Typography>
+      ) : null}
 
       {children}
 

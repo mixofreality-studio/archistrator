@@ -173,6 +173,22 @@ export interface ArtifactSlotView {
    * generic copy is shown. (PM-P1-2.)
    */
   staleCause?: string;
+  /**
+   * Commit provenance for a committed slot (PM-P2-4): who committed / when / which rail
+   * drafted it. Absent on never-committed slots and on slots committed before provenance
+   * was recorded (no back-fill). Each field is independently optional.
+   */
+  provenance?: ArtifactProvenance;
+}
+
+/** Commit provenance for a committed artifact slot (PM-P2-4). */
+export interface ArtifactProvenance {
+  /** RFC3339 instant the commit landed. */
+  committedAt?: string;
+  /** Human label for the identity that approved the commit. */
+  approvedBy?: string;
+  /** Human label for the drafting agent/rail. */
+  draftedBy?: string;
 }
 
 export type ProjectPhase = 'systemDesign' | 'projectDesign' | 'construction' | 'unknown';

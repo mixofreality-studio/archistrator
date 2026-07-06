@@ -153,6 +153,7 @@ type ArtifactSlot struct {
 	Revisions       int64                `json:"Revisions"`
 	StaleBasis      bool                 `json:"StaleBasis"`
 	StaleBasisCause *StaleCause          `json:"StaleBasisCause,omitempty"`
+	Provenance      *Provenance          `json:"Provenance,omitempty"`
 }
 
 type Axis int

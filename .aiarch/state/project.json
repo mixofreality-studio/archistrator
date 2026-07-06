@@ -16256,6 +16256,9 @@
             },
             "StaleBasisCause": {
               "x-go-type": "StaleCause"
+            },
+            "Provenance": {
+              "x-go-type": "Provenance"
             }
           },
           "required": [
@@ -19627,6 +19630,10 @@
             "revisions": {
               "type": "integer",
               "x-go-name": "Revisions"
+            },
+            "provenance": {
+              "x-go-type": "ProvenanceView",
+              "x-go-name": "Provenance"
             }
           },
           "required": [

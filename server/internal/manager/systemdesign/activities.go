@@ -183,10 +183,23 @@ type mutateArtifactArgs struct {
 	// ⇒ a plain reject (Commit/Withdraw ignore both fields).
 	Round    int64
 	Comments []projectstate.ReviewComment
+	// ApprovedBy / DraftedBy carry the PM-P2-4 commit provenance to CommitArtifactActivity:
+	// the acting reviewer identity (from the approve caller's SecurityPrincipal, threaded via
+	// the reviewDecision signal) and the drafting rail identity. Both optional — an empty
+	// value simply records no such provenance field. Ignored by every non-commit verb.
+	ApprovedBy string
+	DraftedBy  string
 }
 
 func (wf *workflows) CommitArtifactActivity(ctx context.Context, a mutateArtifactArgs) (projectstate.Version, error) {
-	return mapErr(wf.ProjectState.CommitArtifact(fwra.Context{Context: ctx, IdempotencyKey: activityIdempotencyKey(ctx)}, a.ProjectID, a.ExpectedVersion, a.Kind))
+	rc := fwra.Context{Context: ctx, IdempotencyKey: activityIdempotencyKey(ctx)}
+	// PM-P2-4: record commit provenance (committedAt/approvedBy/draftedBy) atomically with
+	// the commit when the substrate supports the extension; otherwise fall back to the plain
+	// commit (provenance simply not recorded — absent provenance is allowed).
+	if pc, ok := wf.ProjectState.(projectstate.ProvenanceCommitProjectStateAccess); ok {
+		return mapErr(pc.CommitArtifactWithProvenance(rc, a.ProjectID, a.ExpectedVersion, a.Kind, a.ApprovedBy, a.DraftedBy))
+	}
+	return mapErr(wf.ProjectState.CommitArtifact(rc, a.ProjectID, a.ExpectedVersion, a.Kind))
 }
 
 func (wf *workflows) RejectArtifactActivity(ctx context.Context, a mutateArtifactArgs) (projectstate.Version, error) {
