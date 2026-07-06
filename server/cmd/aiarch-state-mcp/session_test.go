@@ -70,6 +70,30 @@ func TestNewSessionFromEnv_MissingKind(t *testing.T) {
 	}
 }
 
+// TestNewSessionFromEnv_ConstructMode proves construct mode does NOT require an
+// artifact kind and instead binds the component + activity ambient context.
+func TestNewSessionFromEnv_ConstructMode(t *testing.T) {
+	env := map[string]string{
+		envJobMode:     jobModeConstruct,
+		envComponentID: "billingManager",
+		envActivityID:  "C-BM",
+		envProjectID:   "proj",
+	}
+	s, err := newSessionFromEnv(func(k string) string { return env[k] }, "/tmp/checkout")
+	if err != nil {
+		t.Fatalf("construct-mode session must not require an artifact kind: %v", err)
+	}
+	if s.Mode != jobModeConstruct {
+		t.Fatalf("mode = %q, want construct", s.Mode)
+	}
+	if s.ComponentID != "billingManager" || s.ActivityID != "C-BM" {
+		t.Fatalf("construct ambient context not bound: component=%q activity=%q", s.ComponentID, s.ActivityID)
+	}
+	if s.Kind != 0 {
+		t.Fatalf("construct mode should leave Kind unset, got %v", s.Kind)
+	}
+}
+
 func TestNewSessionFromEnv_BadMode(t *testing.T) {
 	env := map[string]string{envArtifactKind: "Mission", envJobMode: "bogus"}
 	if _, err := newSessionFromEnv(func(k string) string { return env[k] }, "/tmp/x"); err == nil {

@@ -33,6 +33,13 @@ const (
 	jobModeDraft    = "draft"
 	jobModeCritique = "critique"
 	jobModeAnswer   = "answer"
+	// jobModeConstruct is the Phase-3 CONSTRUCTION job mode. Unlike the design modes it
+	// is NOT keyed to a Phase-1/2 artifact kind + slot: a construction task works on a
+	// COMPONENT + ACTIVITY (AIARCH_COMPONENT_ID / AIARCH_ACTIVITY_ID), writing the flat
+	// construction targets (.serviceContracts / .phaseArtifacts / .testingState) through
+	// the composed construction verbs (constructverbs.go). AIARCH_ARTIFACT_KIND is
+	// therefore OPTIONAL under this mode.
+	jobModeConstruct = "construct"
 )
 
 // Ambient-context env var names. The workflow template stamps these onto the MCP
@@ -45,6 +52,13 @@ const (
 	envJobMode      = "AIARCH_JOB_MODE"
 	envTargetBranch = "AIARCH_TARGET_BRANCH"
 	envStateRoot    = "AIARCH_STATE_ROOT"
+	// envComponentID / envActivityID are the CONSTRUCTION ambient context (job mode
+	// "construct"), the analogue of AIARCH_ARTIFACT_KIND for the design modes: a
+	// construction task works on a component + activity, not a Phase-1/2 artifact slot.
+	// The construct workflow stamps them from its component_id / activity_id dispatch
+	// inputs. The agent supplies neither.
+	envComponentID = "AIARCH_COMPONENT_ID"
+	envActivityID  = "AIARCH_ACTIVITY_ID"
 	// envToolAllowlist carries the server-resolved per-task tool allowlist (a compact
 	// comma-separated list of tool names) the manager resolves from archistrator's OWN
 	// committed System dynamics (projectstate.ResolveToolPalette) and stamps onto the MCP
@@ -75,6 +89,13 @@ type Session struct {
 	StateRoot    string
 	TargetBranch string
 
+	// ComponentID / ActivityID are the CONSTRUCTION ambient context (Mode == construct).
+	// They fix which component's contract / which activity's phase artifact the composed
+	// construction verbs write, so the agent never chooses a target. Empty in the design
+	// modes (which are keyed by Kind instead).
+	ComponentID string
+	ActivityID  string
+
 	// wroteState is set by any state-mutating verb (putDraftModel / setCritiqueVerdict /
 	// respondToReviewComment) so publishDraft can refuse a no-op publish (nothing drafted
 	// AND a clean tree) — the F17c "job went green having committed nothing" guard.
@@ -101,17 +122,24 @@ func newSessionFromEnv(getenv func(string) string, wd string) (*Session, error) 
 	if mode == "" {
 		mode = jobModeDraft
 	}
-	if mode != jobModeDraft && mode != jobModeCritique && mode != jobModeAnswer {
-		return nil, fmt.Errorf("%s=%q is not a known job mode (want %q, %q, or %q)", envJobMode, mode, jobModeDraft, jobModeCritique, jobModeAnswer)
+	if mode != jobModeDraft && mode != jobModeCritique && mode != jobModeAnswer && mode != jobModeConstruct {
+		return nil, fmt.Errorf("%s=%q is not a known job mode (want %q, %q, %q, or %q)", envJobMode, mode, jobModeDraft, jobModeCritique, jobModeAnswer, jobModeConstruct)
 	}
 
+	// Artifact kind is the design modes' ambient slot selector; the CONSTRUCT mode is
+	// keyed by component + activity instead, so kind is OPTIONAL there.
+	var kind projectstate.ArtifactKind
 	kindStr := strings.TrimSpace(getenv(envArtifactKind))
 	if kindStr == "" {
-		return nil, fmt.Errorf("%s is required (the ambient artifact kind for this design job) but was empty", envArtifactKind)
-	}
-	kind, err := parseArtifactKind(kindStr)
-	if err != nil {
-		return nil, err
+		if mode != jobModeConstruct {
+			return nil, fmt.Errorf("%s is required (the ambient artifact kind for this design job) but was empty", envArtifactKind)
+		}
+	} else {
+		k, err := parseArtifactKind(kindStr)
+		if err != nil {
+			return nil, err
+		}
+		kind = k
 	}
 
 	root := strings.TrimSpace(getenv(envStateRoot))
@@ -124,6 +152,8 @@ func newSessionFromEnv(getenv func(string) string, wd string) (*Session, error) 
 		Mode:         mode,
 		StateRoot:    root,
 		TargetBranch: strings.TrimSpace(getenv(envTargetBranch)),
+		ComponentID:  strings.TrimSpace(getenv(envComponentID)),
+		ActivityID:   strings.TrimSpace(getenv(envActivityID)),
 		Allowlist:    parseAllowlist(getenv(envToolAllowlist)),
 		git:          runGit,
 	}
