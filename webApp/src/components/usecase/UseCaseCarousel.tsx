@@ -101,6 +101,7 @@ export function UseCaseCarousel({
             Use case
           </InputLabel>
           <Select
+            data-testid={UI_IDENTIFIERS.UseCaseCarousel.PICKER}
             label="Use case"
             labelId="use-case-picker-label"
             renderValue={(idx) => useCases[idx]?.name ?? ''}

@@ -56,6 +56,12 @@ export const UI_IDENTIFIERS = {
     SCREEN: 'design-wizard-screen',
     artifactStep: (kind: string) => `artifact-step-${kind}`,
   },
+  UseCaseCarousel: {
+    // The Core Use Cases artifact's grouped use-case picker (Core / Variations
+    // ListSubheader sections — A6). Selectable black-box via testid rather than
+    // its "Use case" label text.
+    PICKER: 'usecase-picker',
+  },
   DesignExperience: {
     ROOT: 'design-experience',
     CLOSE: 'design-close',

@@ -855,6 +855,7 @@ export interface components {
             revisions?: number;
             stage: components["schemas"]["SystemDesignArtifactStage"];
             staleBasis?: boolean;
+            staleBasisCause?: unknown;
         };
         /** @enum {integer} */
         SystemDesignArtifactStage: 0 | 1 | 2 | 3 | 4;
@@ -969,6 +970,8 @@ export interface components {
             Name: string;
             Owner: components["schemas"]["SystemDesignOwnerScope"];
             Phase: components["schemas"]["SystemDesignPhase"];
+            /** @enum {string} */
+            PhaseName: "system-design" | "project-design" | "construction";
             ProjectID: components["schemas"]["SystemDesignProjectID"];
             Research: components["schemas"]["SystemDesignResearchInput"];
             ServiceContracts: {
@@ -986,6 +989,8 @@ export interface components {
             Name: string;
             Owner: components["schemas"]["SystemDesignOwnerScope"];
             Phase: components["schemas"]["SystemDesignPhase"];
+            /** @enum {string} */
+            PhaseName: "system-design" | "project-design" | "construction";
             ProjectID: components["schemas"]["SystemDesignProjectID"];
             TotalCount: number;
             /** Format: date-time */
