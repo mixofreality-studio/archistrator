@@ -45,6 +45,15 @@ const (
 	envJobMode      = "AIARCH_JOB_MODE"
 	envTargetBranch = "AIARCH_TARGET_BRANCH"
 	envStateRoot    = "AIARCH_STATE_ROOT"
+	// envToolAllowlist carries the server-resolved per-task tool allowlist (a compact
+	// comma-separated list of tool names) the manager resolves from archistrator's OWN
+	// committed System dynamics (projectstate.ResolveToolPalette) and stamps onto the MCP
+	// server process. When SET, it REPLACES job-mode scoping: the server registers exactly
+	// these tools (mode-scoping becomes manifest-scoping). When EMPTY (the bootstrap case,
+	// until archistrator's dynamics document palettes), the server falls back to the
+	// hand-curated per-mode composed-verb set and logs a WARN. Kept compact (names only) to
+	// stay well under the 64KB workflow_dispatch inputs cap.
+	envToolAllowlist = "AIARCH_TOOL_ALLOWLIST"
 )
 
 // statePathPrefix + projectFile mirror the projectstate git substrate's reserved
@@ -73,6 +82,11 @@ type Session struct {
 	// published latches after the first successful publishDraft so a second call is a
 	// clear no-op rather than a duplicate commit (exactly-once semantics).
 	published bool
+
+	// Allowlist is the server-resolved per-task tool allowlist (from AIARCH_TOOL_ALLOWLIST).
+	// Non-nil/non-empty ⇒ manifest-scoping: register exactly these tool names. Nil/empty ⇒
+	// fall back to job-mode scoping. See buildServer.
+	Allowlist []string
 
 	// git is the git runner (injected in tests). Defaults to runGit over the real binary.
 	git func(root string, args ...string) (string, error)
@@ -110,6 +124,7 @@ func newSessionFromEnv(getenv func(string) string, wd string) (*Session, error) 
 		Mode:         mode,
 		StateRoot:    root,
 		TargetBranch: strings.TrimSpace(getenv(envTargetBranch)),
+		Allowlist:    parseAllowlist(getenv(envToolAllowlist)),
 		git:          runGit,
 	}
 
@@ -124,6 +139,19 @@ func newSessionFromEnv(getenv func(string) string, wd string) (*Session, error) 
 		s.ProjectID = projectstate.ProjectID(filepath.Base(root))
 	}
 	return s, nil
+}
+
+// parseAllowlist splits the compact comma-separated tool allowlist env value into
+// trimmed, non-empty tool names. An unset/empty/whitespace value yields nil (⇒ the
+// caller falls back to job-mode scoping).
+func parseAllowlist(v string) []string {
+	var out []string
+	for _, part := range strings.Split(v, ",") {
+		if name := strings.TrimSpace(part); name != "" {
+			out = append(out, name)
+		}
+	}
+	return out
 }
 
 // parseArtifactKind maps the env value (the dispatch stamps artifactKindString(kind) =

@@ -197,6 +197,80 @@ func TestRig_AnswerModeToolSet(t *testing.T) {
 	}
 }
 
+// TestRig_AllowlistScopingOverStdio proves manifest-scoping: with
+// AIARCH_TOOL_ALLOWLIST set, the binary registers EXACTLY the allowlisted tools —
+// composed verbs by name (mode no longer gates), a raw generated internal RA tool
+// from the catalog (carrying its readOnlyHint), and NOT an agent-hidden raw op even
+// when it is named.
+func TestRig_AllowlistScopingOverStdio(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	bin := buildBinary(t)
+	repo := initGitRepoWithProject(t, minimalProject(), "aiarch-design/rigproj/3")
+
+	cmd := exec.Command(bin)
+	cmd.Dir = repo
+	cmd.Env = append(os.Environ(),
+		envArtifactKind+"=Volatilities",
+		envJobMode+"=draft",
+		envProjectID+"=rigproj",
+		envStateRoot+"="+repo,
+		// A subset: two composed verbs, one raw exposable RA tool, one agent-hidden raw op.
+		envToolAllowlist+"=getCommittedSlot,publishDraft,projectStateReadProject,projectStateCommitArtifact",
+	)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "rig", Version: "0"}, nil)
+	session, err := client.Connect(ctx, &mcp.CommandTransport{Command: cmd}, nil)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer func() { _ = session.Close() }()
+
+	tools, err := session.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+	got := map[string]*mcp.Tool{}
+	for _, tl := range tools.Tools {
+		got[tl.Name] = tl
+	}
+
+	// Exactly the three exposable names — no more (agent-hidden refused, others absent).
+	want := []string{"getCommittedSlot", "publishDraft", "projectStateReadProject"}
+	if len(got) != len(want) {
+		t.Fatalf("allowlist registered %d tools, want %d: %v", len(got), len(want), keysOfTools(got))
+	}
+	for _, w := range want {
+		if got[w] == nil {
+			t.Fatalf("allowlisted tool %q missing: %v", w, keysOfTools(got))
+		}
+	}
+	// Agent-hidden op refused even though named.
+	if got["projectStateCommitArtifact"] != nil {
+		t.Fatal("agent-hidden projectStateCommitArtifact must NOT register even when allowlisted")
+	}
+	// putDraftModel is a draft-mode composed verb but was NOT allowlisted → absent.
+	if got["putDraftModel"] != nil {
+		t.Fatal("manifest-scoping must not register a composed verb absent from the allowlist")
+	}
+	// The raw RA tool carries its generated readOnlyHint.
+	if a := got["projectStateReadProject"].Annotations; a == nil || !a.ReadOnlyHint {
+		t.Fatalf("raw projectStateReadProject must carry readOnlyHint: %+v", got["projectStateReadProject"].Annotations)
+	}
+}
+
+func keysOfTools(m map[string]*mcp.Tool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
+
 // ---- rig helpers ----
 
 func buildBinary(t *testing.T) string {
