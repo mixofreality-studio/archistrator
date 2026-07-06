@@ -375,6 +375,13 @@ var encapsulationAllowlistData = map[string][]string{
 		// from/to/mode, dynamic-view useCaseId, …). Consumed by cmd/aiarch-state-mcp
 		// (putDraftModel) AND the server read-back (decodeSlotsMap) so write ≡ read-back.
 		"RequireModelFields",
+		// CONSTRUCTION-VERB ROUTING CORE: the pure, I/O-free router of a phase-artifact /
+		// testing-state payload into the Project aggregate — the shared core of the RA's
+		// RecordPhaseArtifactProduced, exported so the cmd/aiarch-state-mcp construction verbs
+		// (recordPhaseArtifact/recordTestingState) reuse the SAME routing (one source of truth
+		// for which payload field lands in which slot). Same category as RequireModelFields
+		// above (a pure helper the MCP binary shares with the server read/write path).
+		"ApplyPhaseArtifactPayload",
 		// INTERNAL MCP TOOL SURFACE (agentic-managers spec item 3): the generated
 		// ResourceAccess/Engine tool catalog (toolcatalog.gen.go — NOT port-reachable, so it
 		// needs an explicit entry like the System model types) + its hand-written accessors.
