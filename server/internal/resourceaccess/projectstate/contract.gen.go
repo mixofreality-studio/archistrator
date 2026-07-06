@@ -549,11 +549,10 @@ type QualityGate struct {
 }
 
 type Relationship struct {
-	From    string   `json:"from"`
-	To      string   `json:"to"`
-	Mode    CallMode `json:"mode"`
-	Label   string   `json:"label"`
-	Palette []string `json:"palette,omitempty"`
+	From  string   `json:"from"`
+	To    string   `json:"to"`
+	Mode  CallMode `json:"mode"`
+	Label string   `json:"label"`
 }
 
 type RepoCredential struct {

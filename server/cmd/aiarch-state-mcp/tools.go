@@ -10,7 +10,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -50,7 +49,7 @@ type publishDraftInput struct {
 
 // composedVerb is one hand-written agent-facing tool — a COMPOSED VERB (doctrine
 // rule 3: invariants compile into composed verbs). modes lists the job modes that
-// include it under FALLBACK (job-mode) scoping; register adds it to the server.
+// include it; register adds it to the server.
 type composedVerb struct {
 	name     string
 	modes    []string
@@ -60,18 +59,14 @@ type composedVerb struct {
 // buildServer constructs the MCP server and registers the effective tool set. It is
 // the single wiring point exercised by the rig test over stdio.
 //
-// SCOPING (agentic-managers spec item 5). When the session carries a resolved tool
-// allowlist (AIARCH_TOOL_ALLOWLIST — the manager resolved it from archistrator's OWN
-// System dynamics), the server registers EXACTLY those tools: manifest-scoping. When
-// it does not (the BOOTSTRAP case, until the dynamics document palettes), the server
-// falls back to the hand-curated per-mode composed-verb set and logs a WARN — strict
-// manifest-scoping flips on automatically once a palette (hence an allowlist) exists.
-//
-// The composed verbs always sit ON TOP of the raw generated internal surface
-// (projectstate.InternalToolCatalog): an allowlisted raw RA/Engine tool with no
-// composed shadow is registered from the generated catalog; an agent-hidden raw op
-// (e.g. raw CommitArtifact — merge authority stays with the server rail) is NEVER
-// registered even when named.
+// SCOPING. Two layers register together, in EVERY job mode:
+//  1. the hand-curated per-mode composed verbs whose modes include s.Mode; and
+//  2. ON TOP of them, every non-hidden READ-ONLY + Engine raw generated tool from
+//     projectstate.InternalToolCatalog — the eligible raw surface (generated tools
+//     ARE the eligible surface). Engine ops are pure/read-only, and RA reads are
+//     side-effect-free, so they are safe to expose in every mode. Raw WRITES and
+//     AgentHidden ops (e.g. raw CommitArtifact — merge authority stays with the
+//     server rail) are NEVER registered here; a composed verb is the write surface.
 func buildServer(s *Session) *mcp.Server {
 	srv := mcp.NewServer(&mcp.Implementation{
 		Name:    "aiarch-state",
@@ -79,50 +74,32 @@ func buildServer(s *Session) *mcp.Server {
 		Version: "0.1.0",
 	}, nil)
 
-	verbs := composedVerbs(s)
-
-	if len(s.Allowlist) > 0 {
-		registerFromAllowlist(srv, s, verbs)
-	} else {
-		warnf("no tool allowlist provided (AIARCH_TOOL_ALLOWLIST empty); falling back to the job-mode %q composed-verb set", s.Mode)
-		for _, v := range verbs {
-			if containsStr(v.modes, s.Mode) {
-				v.register(srv)
-			}
+	for _, v := range composedVerbs(s) {
+		if containsStr(v.modes, s.Mode) {
+			v.register(srv)
 		}
 	}
+	registerRawReadTools(srv, s)
 	return srv
 }
 
-// registerFromAllowlist registers exactly the tools named in the session allowlist:
-// a composed verb by name (mode no longer gates — the palette is the authority), or a
-// raw generated internal tool from the catalog (refusing agent-hidden ops), or a WARN
-// for an unknown name.
-func registerFromAllowlist(srv *mcp.Server, s *Session, verbs []composedVerb) {
-	composed := make(map[string]composedVerb, len(verbs))
-	for _, v := range verbs {
-		composed[v.name] = v
-	}
-	for _, name := range s.Allowlist {
-		if v, ok := composed[name]; ok {
-			v.register(srv)
+// registerRawReadTools registers the non-hidden READ-ONLY + Engine raw generated
+// tools from the internal catalog — the eligible raw surface every mode carries on
+// top of its composed verbs. AgentHidden ops and raw writes are skipped (the composed
+// verbs are the only write surface). Names never collide with the composed verbs
+// (raw tools are <component><Operation>, composed verbs are the hand-named verbs).
+func registerRawReadTools(srv *mcp.Server, s *Session) {
+	for _, tool := range projectstate.InternalToolCatalog() {
+		if tool.AgentHidden || !tool.ReadOnly {
 			continue
 		}
-		if tool, ok := projectstate.InternalToolByName(name); ok {
-			if tool.AgentHidden {
-				warnf("tool allowlist names agent-hidden op %q; refusing to register it (its authority stays on the server rail / a composed verb replaces it)", name)
-				continue
-			}
-			registerRawTool(srv, s, tool)
-			continue
-		}
-		warnf("tool allowlist names unknown tool %q; skipping", name)
+		registerRawTool(srv, s, tool)
 	}
 }
 
 // composedVerbs returns the composed-verb registry bound to this session, each with
-// its FALLBACK job-mode membership and its register thunk. The tool DESCRIPTIONS are
-// the agent's prompt surface, so each stands on its own.
+// its job-mode membership and its register thunk. The tool DESCRIPTIONS are the
+// agent's prompt surface, so each stands on its own.
 func composedVerbs(s *Session) []composedVerb {
 	all := []string{jobModeDraft, jobModeCritique, jobModeAnswer}
 	// shared are the reads that are ambient-kind-INDEPENDENT (they take their target
@@ -276,9 +253,9 @@ type rawToolInput map[string]any
 // descriptor (the generated self-contained InputSchema + readOnlyHint) and binds it to
 // the EXECUTION rail (rawexec.go): an in-substrate operation (an Engine, or a
 // projectStateAccess read) runs for real inside the job; an external-RA operation
-// returns a typed unavailable-in-substrate error. A raw tool only ever appears when a
-// palette (or the rig's explicit allowlist) names it, so registering the executing
-// handler cannot surprise a design job that documents no palette.
+// returns a typed unavailable-in-substrate error. Only the non-hidden read-only +
+// Engine raw tools are registered (registerRawReadTools), so the executing handler
+// only ever runs a side-effect-free read/compute.
 func registerRawTool(srv *mcp.Server, s *Session, t projectstate.InternalTool) {
 	tool := &mcp.Tool{
 		Name:        t.Name,
@@ -318,12 +295,6 @@ func parseSchema(raw json.RawMessage) *jsonschema.Schema {
 		return nil
 	}
 	return &s
-}
-
-// warnf writes a WARN line to STDERR. stdout is the MCP stdio transport, so diagnostics
-// must never go there.
-func warnf(format string, args ...any) {
-	fmt.Fprintf(os.Stderr, "aiarch-state-mcp: WARN "+format+"\n", args...)
 }
 
 func containsStr(xs []string, x string) bool {

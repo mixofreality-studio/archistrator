@@ -255,27 +255,7 @@ const (
 	// to "draft" in the template so a job dispatched without it (e.g. a UC2 draft)
 	// behaves exactly as before.
 	dispatchInputJobMode = "job_mode"
-	// dispatchInputToolAllowlist carries the server-resolved per-task tool allowlist (a
-	// compact comma-separated list of tool names) the design agent's aiarch-state MCP
-	// server registers, REPLACING job-mode scoping with manifest-scoping (agentic-managers
-	// spec item 5). The template stamps it onto the MCP server process as
-	// AIARCH_TOOL_ALLOWLIST. EMPTY (the bootstrap value) ⇒ the MCP server falls back to the
-	// job-mode composed-verb set; see resolvedToolAllowlist.
-	dispatchInputToolAllowlist = "tool_allowlist"
 )
-
-// resolvedToolAllowlist resolves the per-task tool allowlist for a design job from
-// archistrator's OWN committed System dynamics (projectstate.ResolveToolPalette), joined
-// as the compact comma list the dispatch input carries.
-//
-// BOOTSTRAP: archistrator's dynamics do not document agentic-sub-workflow tool palettes
-// yet, so resolution is always the fallback (UsedFallback) and this returns "" — the MCP
-// server then applies its own per-mode composed-verb fallback and logs a WARN. This is the
-// single seam where ResolveToolPalette plugs in once (a) archistrator's own System model is
-// loadable at dispatch and (b) its dynamics carry palettes; strictness flips automatically
-// then. Construction dispatch (aiarch-construct.yml — the next priority) resolves the
-// construction use case's palette through this same channel.
-func resolvedToolAllowlist() string { return "" }
 
 // Job-mode dispatch values. These exact strings are a contract with the
 // aiarch-design.yml template's job_mode input.
@@ -379,7 +359,6 @@ func (wf *workflows) DispatchDesignJobActivity(ctx context.Context, a dispatchDe
 		dispatchInputTargetBranch:  a.TargetBranch,
 		dispatchInputPriorStateRef: a.PriorStateRef,
 		dispatchInputJobMode:       jobModeFor(a.Target),
-		dispatchInputToolAllowlist: resolvedToolAllowlist(),
 	}
 	// Per-project-design-dispatch: target the per-project repo + aiarch-design.yml when
 	// the rail resolved a repo (TargetRepo non-empty), else leave both empty so the RA

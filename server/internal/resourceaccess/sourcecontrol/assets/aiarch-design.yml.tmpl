@@ -144,19 +144,6 @@ on:
         required: false
         type: string
         default: "draft"
-      # The server-resolved per-task TOOL ALLOWLIST (a compact comma-separated
-      # list of tool names) the aiarch-state MCP server registers, REPLACING
-      # job-mode scoping with manifest-scoping (agentic-managers spec item 5): the
-      # design agent may use ONLY the tools its agentic sub-workflow palette
-      # documents. EMPTY (the default, and the current bootstrap value until
-      # archistrator's dynamics document palettes) ⇒ the MCP server falls back to
-      # the job-mode composed-verb set and logs a WARN. Kept compact (names only)
-      # to stay well under the 64KB workflow_dispatch inputs cap.
-      tool_allowlist:
-        description: "comma-separated tool allowlist for the aiarch-state MCP server (empty ⇒ job-mode fallback)"
-        required: false
-        type: string
-        default: ""
 
 # The action drafts and commits the typed JSON and opens a PR, so it needs to
 # write repo contents and pull requests. The LLM call is authenticated by the
@@ -324,7 +311,6 @@ jobs:
                   "AIARCH_ARTIFACT_KIND": "${{ inputs.artifact_kind }}",
                   "AIARCH_JOB_MODE": "${{ inputs.job_mode }}",
                   "AIARCH_TARGET_BRANCH": "${{ inputs.target_branch }}",
-                  "AIARCH_TOOL_ALLOWLIST": "${{ inputs.tool_allowlist }}",
                   "AIARCH_STATE_ROOT": "${{ github.workspace }}"
                 }
               }

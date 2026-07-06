@@ -55,14 +55,6 @@ func TestDispatchInputsForIncludesCommand(t *testing.T) {
 	if in["phase"] != "construction" {
 		t.Errorf("phase = %q, want construction", in["phase"])
 	}
-	// The manifest-scoping channel is always present (empty in bootstrap, resolved once
-	// the construction dynamics document a palette) — the SAME channel design dispatch uses.
-	if _, ok := in["tool_allowlist"]; !ok {
-		t.Errorf("dispatch inputs must carry the tool_allowlist manifest-scoping key: %+v", in)
-	}
-	if in["tool_allowlist"] != resolvedToolAllowlist() {
-		t.Errorf("tool_allowlist = %q, want the resolved allowlist %q", in["tool_allowlist"], resolvedToolAllowlist())
-	}
 
 	// A testing harness detailed-design phase -> testing-harness-detailed-design.
 	in2 := dispatchInputsFor(pipelineSpec{

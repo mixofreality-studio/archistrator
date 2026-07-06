@@ -1478,16 +1478,6 @@ func (s *coAuthorState) view() (SessionStateView, error) {
 	if extra := systemLayerDegenerateFindings(s.artifactKind, s.draft); len(extra) > 0 {
 		findings = append(append([]Finding{}, findings...), extra...)
 	}
-	// AGENTIC-MANAGERS spec item 5 (2026-07-05): a dynamic-view step's tool palette must
-	// be ⊆ the step owner's static dependency edges — a dynamic can never document a tool
-	// the architecture forbids. This read-back surface flags each palette-⊄-edges (or
-	// agent-hidden-op) violation as an ERROR at the review panel — the app-side twin of
-	// the resolver's dispatch-time ERROR (projectstate.ResolveToolPalette) and of the
-	// pending methodcheck DV-PALETTE-NOT-IN-EDGES rule (platform-release-gated, like the
-	// SYSTEM-LAYER-DEGENERATE twin).
-	if extra := paletteWithinEdgesFindings(s.artifactKind, s.draft); len(extra) > 0 {
-		findings = append(append([]Finding{}, findings...), extra...)
-	}
 	if s.unresolvedCritique != "" {
 		findings = append(append([]Finding{}, findings...), Finding{
 			RuleID:   "PM-CRITIQUE-UNRESOLVED",
@@ -1691,34 +1681,6 @@ func systemLayerDegenerateFindings(kind ArtifactKind, draft projectstate.Artifac
 				Location: &Location{Ordinal: int64(i), Section: "component " + label},
 			})
 		}
-	}
-	return out
-}
-
-// paletteWithinEdgesFindings returns one ERROR finding per dynamic-view step whose
-// tool palette names a tool the static architecture forbids, for the KindSystem
-// artifact ONLY (nil for every other kind and for a nil/absent draft). It is the
-// app-side review-panel twin of the resolver's palette-⊆-edges lint
-// (projectstate.LintPalettesWithinEdges): a palette may only name a raw internal
-// tool whose target component is a static dependency of the step owner, and never
-// an agent-hidden op.
-func paletteWithinEdgesFindings(kind ArtifactKind, draft projectstate.ArtifactModel) []Finding {
-	if kind != KindSystem {
-		return nil
-	}
-	sys, ok := draft.(*projectstate.System)
-	if !ok || sys == nil {
-		return nil
-	}
-	var out []Finding
-	for i, v := range projectstate.LintPalettesWithinEdges(*sys) {
-		out = append(out, Finding{
-			RuleID:   "DV-PALETTE-NOT-IN-EDGES",
-			Severity: SeverityError,
-			Message: fmt.Sprintf("dynamic view %q step %s→%s: tool palette %s %s.",
-				v.UseCaseID, v.From, v.To, v.Tool, v.Reason),
-			Location: &Location{Ordinal: int64(i), Section: "dynamic view " + v.UseCaseID},
-		})
 	}
 	return out
 }

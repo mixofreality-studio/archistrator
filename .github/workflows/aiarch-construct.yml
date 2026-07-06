@@ -52,18 +52,6 @@ on:
         description: "assigned worker class (ignored by this single-shot workflow)"
         required: false
         type: string
-      # The server-resolved per-task TOOL ALLOWLIST (a compact comma-separated list of
-      # tool names) the aiarch-state MCP server registers, REPLACING job-mode scoping with
-      # manifest-scoping (agentic-managers spec item 5) — the SAME channel the design
-      # workflow uses. The construction Manager resolves it from archistrator's OWN
-      # `execute-a-construction-activity` dynamics (constructionManager resolvedToolAllowlist).
-      # EMPTY (the bootstrap value, until those dynamics document a palette) ⇒ the MCP
-      # server falls back to the construct-mode composed-verb set and logs a WARN.
-      tool_allowlist:
-        description: "comma-separated tool allowlist for the aiarch-state MCP server (empty ⇒ construct-mode fallback)"
-        required: false
-        type: string
-        default: ""
 
 permissions:
   contents: write
@@ -107,9 +95,9 @@ jobs:
       # SAME rail the DESIGN workflow wires (aiarch-design.yml.tmpl). It runs in the
       # CONSTRUCT job mode (component/activity ambient context), exposing the composed
       # construction verbs (recordServiceContract/recordPhaseArtifact/recordTestingState +
-      # publishDraft) and any raw generated RA/Engine tools the resolved tool_allowlist
-      # names — so a construction agent records its phase artifact through validated tools
-      # instead of hand-editing project.json.
+      # publishDraft) plus the non-hidden read-only + Engine raw generated tools the
+      # per-mode set exposes — so a construction agent records its phase artifact through
+      # validated tools instead of hand-editing project.json.
       #
       # DELIVERY differs from the design TEMPLATE on purpose: the design template targets
       # USER repos that lack the server source, so it `go install <module>@<pin>` from
@@ -133,8 +121,8 @@ jobs:
 
       # The MCP config claude-code-action passes to the Claude CLI (--mcp-config). The
       # ambient CONSTRUCTION context (project id, job mode, component id, activity id,
-      # target branch, tool allowlist, state root) is baked in as env on the MCP server
-      # process from the dispatch inputs + the repo name. The agent supplies NONE of these.
+      # target branch, state root) is baked in as env on the MCP server process from the
+      # dispatch inputs + the repo name. The agent supplies NONE of these.
       - name: Write the aiarch-state MCP config
         env:
           MCP_BIN: ${{ steps.statemcp.outputs.bin }}
@@ -150,7 +138,6 @@ jobs:
                   "AIARCH_COMPONENT_ID": "${{ inputs.component_id }}",
                   "AIARCH_ACTIVITY_ID": "${{ inputs.activity_id }}",
                   "AIARCH_TARGET_BRANCH": "activity/${{ inputs.activity_id }}",
-                  "AIARCH_TOOL_ALLOWLIST": "${{ inputs.tool_allowlist }}",
                   "AIARCH_STATE_ROOT": "${{ github.workspace }}"
                 }
               }

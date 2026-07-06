@@ -13,7 +13,7 @@
 //
 // This surface is INTERNAL: it is NEVER merged into api/openapi.yaml (that is
 // cmd/clientgen's public Manager surface). It is the catalog aiarch-state-mcp
-// registers, scoped per task by projectstate.ResolveToolPalette.
+// registers — the non-hidden read-only + Engine tools in every per-mode set.
 //
 // Output is deterministic (contracts + operations visited in sorted order,
 // schema map keys sorted by encoding/json) so re-running is byte-idempotent, and

@@ -8996,15 +8996,6 @@
             },
             "label": {
               "type": "string"
-            },
-            "palette": {
-              "type": [
-                "null",
-                "array"
-              ],
-              "items": {
-                "type": "string"
-              }
             }
           },
           "required": [

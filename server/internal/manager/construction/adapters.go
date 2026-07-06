@@ -428,43 +428,14 @@ var _ constructionPipelineAccess = pipelineAdapter{}
 // pipelineSpec implies (the image map resolves it to a concrete image).
 const pipelineDefaultToolchain = "go-1.23"
 
-// dispatchInputToolAllowlist is the aiarch-construct.yml workflow_dispatch input the
-// server-resolved per-task tool allowlist rides on — the SAME manifest-scoping channel
-// the design workflow uses (agentic-managers spec item 5). The construct workflow stamps
-// it onto the aiarch-state MCP server process as AIARCH_TOOL_ALLOWLIST; empty ⇒ the MCP
-// server falls back to its per-mode composed-verb set. This exact key is the binding
-// contract with aiarch-construct.yml.
-const dispatchInputToolAllowlist = "tool_allowlist"
-
-// constructionUseCaseID is archistrator's OWN core use case for a construction activity
-// — the dynamic view whose agentic-sub-workflow tool palette scopes a construction
-// task's internal-tool allowlist (projectstate.ResolveToolPalette).
-const constructionUseCaseID = "execute-a-construction-activity"
-
-// resolvedToolAllowlist resolves the per-task tool allowlist for a construction job from
-// archistrator's OWN committed System dynamics (projectstate.ResolveToolPalette over the
-// constructionUseCaseID dynamic view), joined as the compact comma list the dispatch
-// input carries — the SAME channel and BOOTSTRAP behavior as the design managers'
-// resolvedToolAllowlist (systemdesign/dispatch.go).
-//
-// BOOTSTRAP: archistrator's dynamics do not document agentic-sub-workflow tool palettes
-// yet, so resolution is always the fallback (UsedFallback) and this returns "" — the MCP
-// server then applies its own per-mode composed-verb fallback and logs a WARN. This is
-// the single seam where ResolveToolPalette plugs in once (a) archistrator's own System
-// model is loadable at dispatch and (b) its construction dynamics carry palettes;
-// strictness flips automatically then.
-func resolvedToolAllowlist() string { return "" }
-
 // dispatchInputsFor builds the DispatchInputs bag for a construction pipeline dispatch.
 // The `command` input is the thin slash-command the workflow runs; it is computed here
 // from the activity's derived type/variant and the current phase so the workflow itself
-// holds no routing logic. component_id is a Manager-resolved passthrough. tool_allowlist
-// carries the manifest-scoping allowlist through the same channel design uses.
+// holds no routing logic. component_id is a Manager-resolved passthrough.
 func dispatchInputsFor(spec pipelineSpec) map[string]string {
 	m := map[string]string{
-		"activity_id":              spec.ActivityID,
-		"component_id":             spec.ComponentID,
-		dispatchInputToolAllowlist: resolvedToolAllowlist(),
+		"activity_id":  spec.ActivityID,
+		"component_id": spec.ComponentID,
 	}
 	if spec.Phase != "" {
 		m["phase"] = spec.Phase

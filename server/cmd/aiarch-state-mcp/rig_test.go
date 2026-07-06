@@ -197,12 +197,12 @@ func TestRig_AnswerModeToolSet(t *testing.T) {
 	}
 }
 
-// TestRig_AllowlistScopingOverStdio proves manifest-scoping: with
-// AIARCH_TOOL_ALLOWLIST set, the binary registers EXACTLY the allowlisted tools —
-// composed verbs by name (mode no longer gates), a raw generated internal RA tool
-// from the catalog (carrying its readOnlyHint), and NOT an agent-hidden raw op even
-// when it is named.
-func TestRig_AllowlistScopingOverStdio(t *testing.T) {
+// TestRig_RawReadToolsInEveryModeOverStdio proves the per-mode registration model:
+// on TOP of the draft-mode composed verbs, the binary registers the non-hidden
+// READ-ONLY + Engine raw generated tools from the catalog (each carrying its
+// readOnlyHint), and NEVER an agent-hidden op nor a raw WRITE tool — the composed
+// verbs stay the only write surface.
+func TestRig_RawReadToolsInEveryModeOverStdio(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
 	}
@@ -216,8 +216,6 @@ func TestRig_AllowlistScopingOverStdio(t *testing.T) {
 		envJobMode+"=draft",
 		envProjectID+"=rigproj",
 		envStateRoot+"="+repo,
-		// A subset: two composed verbs, one raw exposable RA tool, one agent-hidden raw op.
-		envToolAllowlist+"=getCommittedSlot,publishDraft,projectStateReadProject,projectStateCommitArtifact",
 	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -239,34 +237,41 @@ func TestRig_AllowlistScopingOverStdio(t *testing.T) {
 		got[tl.Name] = tl
 	}
 
-	// Exactly the three exposable names — no more (agent-hidden refused, others absent).
-	want := []string{"getCommittedSlot", "publishDraft", "projectStateReadProject"}
-	if len(got) != len(want) {
-		t.Fatalf("allowlist registered %d tools, want %d: %v", len(got), len(want), keysOfTools(got))
-	}
-	for _, w := range want {
+	// The draft-mode composed verbs are present.
+	for _, w := range []string{"putDraftModel", "getCommittedSlot", "publishDraft"} {
 		if got[w] == nil {
-			t.Fatalf("allowlisted tool %q missing: %v", w, keysOfTools(got))
+			t.Fatalf("draft composed verb %q missing: %v", w, keysOfTools(got))
 		}
 	}
-	// Agent-hidden op refused even though named.
-	if got["projectStateCommitArtifact"] != nil {
-		t.Fatal("agent-hidden projectStateCommitArtifact must NOT register even when allowlisted")
+	// A non-hidden read-only raw RA tool is registered and carries its readOnlyHint.
+	if got["projectStateReadProject"] == nil {
+		t.Fatalf("non-hidden read-only raw tool projectStateReadProject must register in every mode: %v", keysOfTools(got))
 	}
-	// putDraftModel is a draft-mode composed verb but was NOT allowlisted → absent.
-	if got["putDraftModel"] != nil {
-		t.Fatal("manifest-scoping must not register a composed verb absent from the allowlist")
-	}
-	// The raw RA tool carries its generated readOnlyHint.
 	if a := got["projectStateReadProject"].Annotations; a == nil || !a.ReadOnlyHint {
 		t.Fatalf("raw projectStateReadProject must carry readOnlyHint: %+v", got["projectStateReadProject"].Annotations)
 	}
+	// An agent-hidden raw op is NEVER registered.
+	if got["projectStateCommitArtifact"] != nil {
+		t.Fatal("agent-hidden projectStateCommitArtifact must NOT register")
+	}
+	// A non-hidden raw WRITE op is NOT registered — writes stay composed-only.
+	if got["artifactStoreConstructionOutput"] != nil {
+		t.Fatal("a raw write op must NOT register (the composed verbs are the write surface)")
+	}
+	// Every registered tool that IS a raw catalog tool must be non-hidden & read-only.
+	for name := range got {
+		if tl, ok := projectstate.InternalToolByName(name); ok {
+			if tl.AgentHidden || !tl.ReadOnly {
+				t.Fatalf("registered raw tool %q must be non-hidden & read-only (hidden=%v readOnly=%v)", name, tl.AgentHidden, tl.ReadOnly)
+			}
+		}
+	}
 }
 
-// TestRig_RawReadToolExecutesOverStdio proves the EXECUTION rail end to end: an
-// allowlisted raw projectStateAccess READ tool, driven over a real stdio MCP
-// connection against a throwaway checkout, RUNS and returns the committed project as
-// JSON text — no longer the bootstrap "not executable" error.
+// TestRig_RawReadToolExecutesOverStdio proves the EXECUTION rail end to end: the raw
+// projectStateAccess READ tool (registered in every mode's set), driven over a real
+// stdio MCP connection against a throwaway checkout, RUNS and returns the committed
+// project as JSON text — no longer the bootstrap "not executable" error.
 func TestRig_RawReadToolExecutesOverStdio(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
@@ -281,7 +286,6 @@ func TestRig_RawReadToolExecutesOverStdio(t *testing.T) {
 		envJobMode+"=draft",
 		envProjectID+"=rigproj",
 		envStateRoot+"="+repo,
-		envToolAllowlist+"=projectStateReadProject",
 	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -307,8 +311,8 @@ func TestRig_RawReadToolExecutesOverStdio(t *testing.T) {
 	}
 }
 
-// TestRig_RawUnavailableToolOverStdio proves an allowlisted external-RA raw tool
-// registers but returns the honest unavailable-in-substrate error when called.
+// TestRig_RawUnavailableToolOverStdio proves an external-RA raw READ tool (registered
+// in every mode's set) returns the honest unavailable-in-substrate error when called.
 func TestRig_RawUnavailableToolOverStdio(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
@@ -316,7 +320,7 @@ func TestRig_RawUnavailableToolOverStdio(t *testing.T) {
 	bin := buildBinary(t)
 	repo := initGitRepoWithProject(t, minimalProject(), "aiarch-design/rigproj/3")
 
-	// operatedRuntimeGetApplicationHealth is an external-RA op with a single simple
+	// operatedRuntimeGetApplicationHealth is an external-RA read op with a single simple
 	// required arg (appID) — it needs an operated runtime the job does not provision.
 	const raName = "operatedRuntimeGetApplicationHealth"
 	if _, ok := projectstate.InternalToolByName(raName); !ok {
@@ -330,7 +334,6 @@ func TestRig_RawUnavailableToolOverStdio(t *testing.T) {
 		envJobMode+"=draft",
 		envProjectID+"=rigproj",
 		envStateRoot+"="+repo,
-		envToolAllowlist+"="+raName,
 	)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()

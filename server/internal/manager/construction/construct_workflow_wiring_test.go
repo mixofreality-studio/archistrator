@@ -27,10 +27,9 @@ func constructWorkflowBody(t *testing.T) string {
 }
 
 // TestConstructWorkflowWiresStateMcp asserts aiarch-construct.yml wires the aiarch-state
-// MCP server on the SAME manifest-scoping channel the design workflow uses (the twin of
-// sourcecontrol.TestDesignWorkflowWiresStateMcp): it obtains the binary, bakes the
-// construction ambient session context (incl. AIARCH_TOOL_ALLOWLIST) as env on the MCP
-// process, and passes --mcp-config to claude-code-action.
+// MCP server (the twin of sourcecontrol.TestDesignWorkflowWiresStateMcp): it obtains the
+// binary, bakes the construction ambient session context as env on the MCP process, and
+// passes --mcp-config to claude-code-action.
 func TestConstructWorkflowWiresStateMcp(t *testing.T) {
 	body := constructWorkflowBody(t)
 
@@ -40,11 +39,10 @@ func TestConstructWorkflowWiresStateMcp(t *testing.T) {
 		t.Errorf("construct workflow must build the aiarch-state MCP server from ./cmd/aiarch-state-mcp; got:\n%s", body)
 	}
 
-	// The MCP config bakes the CONSTRUCTION ambient context, including the manifest-scoping
-	// AIARCH_TOOL_ALLOWLIST channel (agentic-managers item 5).
+	// The MCP config bakes the CONSTRUCTION ambient context.
 	for _, key := range []string{
 		"AIARCH_PROJECT_ID", "AIARCH_JOB_MODE", "AIARCH_COMPONENT_ID",
-		"AIARCH_ACTIVITY_ID", "AIARCH_TARGET_BRANCH", "AIARCH_TOOL_ALLOWLIST", "AIARCH_STATE_ROOT",
+		"AIARCH_ACTIVITY_ID", "AIARCH_TARGET_BRANCH", "AIARCH_STATE_ROOT",
 	} {
 		if !strings.Contains(body, key) {
 			t.Errorf("MCP config must set %s on the aiarch-state server process", key)
@@ -55,21 +53,6 @@ func TestConstructWorkflowWiresStateMcp(t *testing.T) {
 	// not an artifact kind).
 	if !strings.Contains(body, `"AIARCH_JOB_MODE": "construct"`) {
 		t.Error("MCP config must set AIARCH_JOB_MODE to construct")
-	}
-
-	// The allowlist is sourced from the tool_allowlist dispatch input — the same channel the
-	// construction Manager resolves through resolvedToolAllowlist / dispatchInputsFor.
-	if !strings.Contains(body, "${{ inputs.tool_allowlist }}") {
-		t.Error("MCP config must source AIARCH_TOOL_ALLOWLIST from the tool_allowlist dispatch input")
-	}
-
-	// The workflow declares the tool_allowlist workflow_dispatch input (the binding contract
-	// with dispatchInputsFor's dispatchInputToolAllowlist key).
-	if !strings.Contains(body, "tool_allowlist:") {
-		t.Error("construct workflow must declare the tool_allowlist workflow_dispatch input")
-	}
-	if dispatchInputToolAllowlist != "tool_allowlist" {
-		t.Errorf("dispatchInputToolAllowlist = %q; the workflow input is named tool_allowlist", dispatchInputToolAllowlist)
 	}
 
 	// --mcp-config wires the server into the Claude CLI.
