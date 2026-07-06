@@ -37,6 +37,7 @@ import type {
   EdgeKind,
   Glossary,
   GlossaryItem,
+  Implementation,
   Layer,
   MissionStatement,
   OperationalConcepts,
@@ -269,6 +270,12 @@ export interface C4Component {
   layer: Layer;
   /** The volatility this component encapsulates (empty for Resource / Utility). */
   encapsulates: string;
+  /**
+   * HOW the component's behavior is realized (absent ⇒ 'coded'). 'agentic' and
+   * 'hybrid' components carry the ✳ agent-driven marker in every view; 'agentic'
+   * additionally gets a dashed border.
+   */
+  implementation?: Implementation;
 }
 
 export interface C4Relationship {
@@ -276,6 +283,10 @@ export interface C4Relationship {
   to: string;
   mode: CallMode;
   label: string;
+  /** The agentic sub-workflow's tool palette (dynamic-view steps only). */
+  palette?: string[];
+  /** The step is an agentic sub-workflow (dashed + unnumbered). Absent ⇒ false. */
+  agentic?: boolean;
 }
 
 export interface C4View {
@@ -296,6 +307,7 @@ export function toC4View(envelope: ArtifactModelEnvelope | undefined): C4View {
       kind: c.kind,
       layer: c.layer,
       encapsulates: c.encapsulates,
+      implementation: c.implementation ?? 'coded',
     })
   );
   const relationships = (model.relationships ?? []).map(
@@ -372,6 +384,7 @@ export function toDynamicView(
       kind: c.kind,
       layer: c.layer,
       encapsulates: c.encapsulates,
+      implementation: c.implementation ?? 'coded',
     });
   }
 
@@ -386,6 +399,8 @@ export function toDynamicView(
       mode: r.mode,
       label: r.label,
       seq: i + 1,
+      agentic: r.agentic ?? false,
+      ...(r.palette != null ? { palette: r.palette } : {}),
     })
   );
 

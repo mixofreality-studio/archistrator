@@ -21,7 +21,11 @@ import ListSubheader from '@mui/material/ListSubheader';
 import FormControl from '@mui/material/FormControl';
 import Typography from '@mui/material/Typography';
 import { listDynamicViews, toC4View, toDynamicView } from '../../contracts/adapters';
-import type { ArtifactModelEnvelope, ServiceContract, ServiceContracts } from '../../contracts/types';
+import type {
+  ArtifactModelEnvelope,
+  ServiceContract,
+  ServiceContracts,
+} from '../../contracts/types';
 import { resolveContractComponentId } from '../../contracts/contractComponentId';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
@@ -30,7 +34,11 @@ import { DynamicViewFlow } from './DynamicViewFlow';
 import { PerspectiveFlow } from './PerspectiveFlow';
 import { ServiceContractView } from '../construction/ServiceContractView';
 import { type Layer, LAYER_ORDER, LAYER_LABEL } from './flowLayout';
-import { useComments, dynamicEdgeAnchor } from '../comments/CommentContext';
+import {
+  useComments,
+  dynamicEdgeAnchor,
+  dynamicEdgePaletteAnchor,
+} from '../comments/CommentContext';
 
 type ViewMode = 'static' | 'dynamic' | 'perspective';
 
@@ -82,8 +90,12 @@ export function ArchitectureView({
   // Initialise from module memory (survives remounts) and mirror every change back
   // into it, so a remount restores the last lens + selection instead of Static.
   const [storedMode, setStoredMode] = useState<ViewMode>(viewMemory.mode);
-  const [storedDynamicKey, setStoredDynamicKey] = useState(viewMemory.dynamicKey || defaultDynamicKey);
-  const [storedComponentId, setStoredComponentId] = useState(viewMemory.componentId || defaultComponentId);
+  const [storedDynamicKey, setStoredDynamicKey] = useState(
+    viewMemory.dynamicKey || defaultDynamicKey
+  );
+  const [storedComponentId, setStoredComponentId] = useState(
+    viewMemory.componentId || defaultComponentId
+  );
   const mode = storedMode;
   const dynamicKey = storedDynamicKey;
   const componentId = storedComponentId;
@@ -218,6 +230,20 @@ export function ArchitectureView({
                     label: `${String(edge.seq)}. ${edge.label} (${from} → ${to})`,
                     source: `${dynamicModel.title} · step`,
                     jsonPath: dynamicEdgeAnchor(activeDynamicKey, edge.seq),
+                  });
+                }
+              : undefined
+          }
+          onCommentTool={
+            enabled
+              ? (edge, tool): void => {
+                  const nameOf = new Map(dynamicModel.participants.map((c) => [c.id, c.name]));
+                  const from = nameOf.get(edge.from) ?? edge.from;
+                  setAnchor({
+                    kind: 'node',
+                    label: `${tool} (${from} agentic sub-workflow)`,
+                    source: `${dynamicModel.title} · tool palette`,
+                    jsonPath: dynamicEdgePaletteAnchor(activeDynamicKey, edge.seq, tool),
                   });
                 }
               : undefined

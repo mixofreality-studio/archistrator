@@ -21,6 +21,9 @@ export interface C4NodeData {
    *  Off for the Dynamic step-through. Undefined is treated as on. */
   showEncapsulates?: boolean;
   color: string;
+  /** HOW the component's behavior is realized. 'agentic' ⇒ dashed border + ✳ badge;
+   *  'hybrid' ⇒ ✳ badge only; 'coded'/undefined ⇒ plain. */
+  implementation?: 'coded' | 'hybrid' | 'agentic';
   [key: string]: unknown;
 }
 
@@ -30,6 +33,10 @@ export function C4Node({ data, selected }: NodeProps): ReactNode {
   const d = data as C4NodeData;
   const hasDetail = d.encapsulates.length > 0;
   const showPreview = d.showEncapsulates !== false && hasDetail;
+  // Agentic markers: an agent decides this component's orchestration at run time.
+  // 'agentic' earns the dashed border AND the ✳ badge; 'hybrid' the badge only.
+  const isAgentic = d.implementation === 'agentic';
+  const agentDriven = isAgentic || d.implementation === 'hybrid';
 
   // The compact card: name + layer tag, and (Static / focus lenses only) a 2-line
   // clamped volatility preview. Full prose is never rendered inside the node — it is
@@ -37,21 +44,62 @@ export function C4Node({ data, selected }: NodeProps): ReactNode {
   const card = (
     <Box
       sx={{
+        position: 'relative',
         width: 188,
         px: 1.5,
         py: 1,
         bgcolor: t.paperAlt,
         color: t.ink,
-        border: `1.5px solid ${selected ? t.accent : t.line}`,
+        border: `1.5px ${isAgentic ? 'dashed' : 'solid'} ${selected ? t.accent : t.line}`,
         borderTop: `4px solid ${d.color}`,
         borderRadius: 4,
         boxShadow: selected ? `0 0 0 2px ${t.accent}` : 'none',
       }}
     >
-      <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 12.5, lineHeight: 1.2, wordBreak: 'break-word' }}>
+      {agentDriven ? (
+        <Tooltip
+          arrow
+          placement="top"
+          title={isAgentic ? 'Agent-driven (agentic sub-workflow)' : 'Hybrid: partly agent-driven'}
+        >
+          <Box
+            aria-label={isAgentic ? 'agent-driven component' : 'hybrid component'}
+            component="span"
+            sx={{
+              position: 'absolute',
+              top: 3,
+              right: 5,
+              fontSize: 12,
+              lineHeight: 1,
+              color: d.color,
+              fontWeight: 700,
+            }}
+          >
+            ✳
+          </Box>
+        </Tooltip>
+      ) : null}
+      <Typography
+        sx={{
+          fontFamily: t.mono,
+          fontWeight: 700,
+          fontSize: 12.5,
+          lineHeight: 1.2,
+          wordBreak: 'break-word',
+          pr: agentDriven ? 1.5 : 0,
+        }}
+      >
         {d.name}
       </Typography>
-      <Typography sx={{ fontFamily: t.mono, fontSize: 9, color: d.color, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+      <Typography
+        sx={{
+          fontFamily: t.mono,
+          fontSize: 9,
+          color: d.color,
+          letterSpacing: '0.08em',
+          textTransform: 'uppercase',
+        }}
+      >
         {d.layer}
       </Typography>
       {showPreview ? (
@@ -84,7 +132,13 @@ export function C4Node({ data, selected }: NodeProps): ReactNode {
           <Button
             size="small"
             startIcon={<ChatBubbleOutlineIcon sx={{ fontSize: 14 }} />}
-            sx={{ py: 0.25, color: t.accentText, bgcolor: t.accent, border: `1.5px solid ${t.line}`, '&:hover': { bgcolor: t.accent2 } }}
+            sx={{
+              py: 0.25,
+              color: t.accentText,
+              bgcolor: t.accent,
+              border: `1.5px solid ${t.line}`,
+              '&:hover': { bgcolor: t.accent2 },
+            }}
             onClick={() => {
               setAnchor({
                 kind: 'node',
@@ -119,13 +173,26 @@ export function C4Node({ data, selected }: NodeProps): ReactNode {
           }}
           title={
             <>
-              <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 11.5, color: t.ink }}>
+              <Typography
+                sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 11.5, color: t.ink }}
+              >
                 {d.name}
               </Typography>
-              <Typography sx={{ fontFamily: t.mono, fontSize: 8.5, color: d.color, letterSpacing: '0.08em', textTransform: 'uppercase', mb: 0.5 }}>
+              <Typography
+                sx={{
+                  fontFamily: t.mono,
+                  fontSize: 8.5,
+                  color: d.color,
+                  letterSpacing: '0.08em',
+                  textTransform: 'uppercase',
+                  mb: 0.5,
+                }}
+              >
                 {d.layer}
               </Typography>
-              <Typography sx={{ fontFamily: t.body, fontSize: 11.5, color: t.muted, lineHeight: 1.4 }}>
+              <Typography
+                sx={{ fontFamily: t.body, fontSize: 11.5, color: t.muted, lineHeight: 1.4 }}
+              >
                 {d.encapsulates}
               </Typography>
             </>

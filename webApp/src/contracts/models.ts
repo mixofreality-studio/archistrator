@@ -79,7 +79,8 @@ export type ActivityNodeKind =
   | 'loop'
   | 'switch'
   | 'goto'
-  | 'interruptEdge';
+  | 'interruptEdge'
+  | 'agenticSubWorkflow';
 
 export interface ActivityNode {
   id: string;
@@ -147,13 +148,16 @@ export type ComponentKind =
   | 'utility';
 
 /** projectstate.Layer (layer set). */
-export type Layer =
-  | 'client'
-  | 'manager'
-  | 'engine'
-  | 'resourceAccess'
-  | 'resource'
-  | 'utility';
+export type Layer = 'client' | 'manager' | 'engine' | 'resourceAccess' | 'resource' | 'utility';
+
+/**
+ * projectstate.Implementation — HOW a component's behavior is realized. A strategy
+ * axis orthogonal to the Method layer. Absent ⇒ 'coded' (the safe default).
+ *   coded   — ordinary hand/generated code.
+ *   hybrid  — mixes coded orchestration with an agentic sub-workflow.
+ *   agentic — an agent decides the orchestration at run time over a tool palette.
+ */
+export type Implementation = 'coded' | 'hybrid' | 'agentic';
 
 export interface Component {
   id: string;
@@ -162,6 +166,8 @@ export interface Component {
   layer: Layer;
   encapsulates: string;
   atomicBusinessVerbs?: string[] | null;
+  /** Absent ⇒ 'coded'. */
+  implementation?: Implementation;
 }
 
 /** projectstate.CallMode (edge-mode set). */
@@ -172,6 +178,17 @@ export interface Relationship {
   to: string;
   mode: CallMode;
   label: string;
+  /**
+   * The bounded tool palette an agentic sub-workflow step MAY call (any order, zero
+   * or more times). Present on dynamic-view steps only. See `agentic`.
+   */
+  palette?: string[] | null;
+  /**
+   * The dynamic-view step is an agentic sub-workflow: its owning component's agent
+   * decides which palette tools to call at run time. Rendered dashed + unnumbered
+   * ("may"), never a numbered sequence ("did"). Absent ⇒ false.
+   */
+  agentic?: boolean;
 }
 
 /** projectstate.DynamicView (one call chain per use case). */
