@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"hash/fnv"
+	"log/slog"
 	"strings"
+	"sync/atomic"
 
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
@@ -31,6 +33,16 @@ const (
 
 // AskQuestions — the Project-Design question-comments op. See the systemdesign twin for the
 // full contract; the only differences are the Phase-2 kind gate and the Phase-2 slotFor.
+//
+// DISPATCH RECOVERY (F82): the answer job is BEST-EFFORT — the questions are seeded durably
+// first, then a lightweight answer job is dispatched. A dispatch MISS (pipeline/repo not
+// configured, repo unresolved, or a workflow_dispatch fault) is now LOGGED LOUDLY server-side
+// (it was previously discarded, and the construction-pipeline RA has no logger, so a miss
+// vanished — an open question that would never be answered with zero operator signal). To
+// RECOVER a dropped dispatch, simply CALL AskQuestions AGAIN with the same questions: the seed
+// is idempotent on its content key, so NO ledger entry is duplicated (the existing entries'
+// round is reused so the minted ids still match), while the answer-job dispatch RE-FIRES via a
+// per-call-unique key.
 func (m *projectDesignManager) AskQuestions(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind, addressee string, questions []AnchoredComment) error {
 	ctx := rc.Context
 	if projectID == "" {
@@ -66,7 +78,14 @@ func (m *projectDesignManager) AskQuestions(rc fwmanager.Context, projectID Proj
 		if err != nil {
 			return mapReadProjectError(err)
 		}
-		round := nextQuestionRound(slotFor(proj, psKind).ReviewThread)
+		thread := slotFor(proj, psKind).ReviewThread
+		round := nextQuestionRound(thread)
+		if r, ok := existingQuestionRound(thread, qs); ok {
+			// A prior ask already seeded these exact questions (its answer-job dispatch may
+			// have been dropped — F82). Reuse their round so the minted ids match the EXISTING
+			// ledger entries, and the re-fired answer job answers the right comments.
+			round = r
+		}
 		_, err = led.SeedReviewCommentsOnBranch(ctx, psID, proj.Version, branch, psKind, round, qs, key)
 		if err == nil {
 			minted := make([]projectstate.ReviewComment, len(qs))
@@ -167,12 +186,38 @@ func askQuestionsIdempotencyKey(projectID ProjectID, kind ArtifactKind, branch s
 	return fwra.IdempotencyKey(fmt.Sprintf("%s:%d:askQuestions:%x", projectID, int(kind), h.Sum64()))
 }
 
+// answerJobDispatchSeq makes each explicit AskQuestions call produce a UNIQUE answer-job
+// dispatch key, so a re-ask RE-FIRES the answer job (the RA dedups on the whole key, so a
+// content-only key would swallow the re-fire — F82). AskQuestions is a direct, non-retried
+// manager op (exactly one dispatch per successful call), so a per-call nonce cannot
+// double-fire a single logical ask; it only enables the re-ask recovery.
+var answerJobDispatchSeq atomic.Uint64
+
+// answerJobDispatchKey derives a per-call-unique answer-job idempotency key from the
+// content base plus a monotonic nonce (see answerJobDispatchSeq).
+func answerJobDispatchKey(projectID ProjectID, kind ArtifactKind, branch string, qs []projectstate.ReviewComment) fwra.IdempotencyKey {
+	base := askQuestionsIdempotencyKey(projectID, kind, branch, qs)
+	return fwra.IdempotencyKey(fmt.Sprintf("%s:answerJob:%d", base, answerJobDispatchSeq.Add(1)))
+}
+
+// dispatchAnswerJob fires the BEST-EFFORT answer job for the freshly-seeded questions and
+// LOGS the outcome loudly (F82). A dispatch miss previously vanished (the error was discarded
+// and the construction-pipeline RA has no logger); now every failure mode is logged at ERROR
+// (or WARN when the rail is simply not configured) with the projectID/kind/addressee/branch,
+// and a success at INFO. The questions are already recorded, so a miss is recoverable by
+// re-calling AskQuestions (see the op doc) — never silent.
 func (m *projectDesignManager) dispatchAnswerJob(ctx context.Context, projectID ProjectID, kind ArtifactKind, branch, addressee string, qs []projectstate.ReviewComment) {
+	log := slog.Default().With(
+		"op", "projectdesign.AskQuestions.dispatchAnswerJob",
+		"projectID", string(projectID), "artifactKind", artifactKindString(kind),
+		"addressee", addressee, "branch", branch)
 	if m.pipeline == nil || m.repo == nil {
+		log.Warn("answer job NOT dispatched: design pipeline/repo not configured (rail dormant) — the question is recorded but will not be auto-answered")
 		return
 	}
 	repoRef, ok := m.repo(projectID)
 	if !ok {
+		log.Error("answer job NOT dispatched: could not resolve the project repo — the question is recorded but will not be auto-answered; re-run AskQuestions to retry")
 		return
 	}
 	adapter := pipelineDispatchAdapter{inner: m.pipeline}
@@ -189,8 +234,31 @@ func (m *projectDesignManager) dispatchAnswerJob(ctx context.Context, projectID 
 		TargetRepo:     sourcecontrol.RepoRefString(repoRef),
 		WorkflowFile:   designWorkflowFileName,
 	}
-	key := askQuestionsIdempotencyKey(projectID, kind, branch, qs) + ":answerJob"
-	_, _ = adapter.SubmitConstructionPipeline(ctx, spec, key)
+	key := answerJobDispatchKey(projectID, kind, branch, qs)
+	if _, err := adapter.SubmitConstructionPipeline(ctx, spec, key); err != nil {
+		log.Error("answer job dispatch FAILED — the question is recorded but not auto-answered; re-run AskQuestions with the same question to retry",
+			"err", err.Error(), "key", string(key))
+		return
+	}
+	log.Info("answer job dispatched", "key", string(key))
+}
+
+// existingQuestionRound returns the round of an EARLIER identical seeding of qs (matched by
+// addressee + anchor + text of the first question), so a re-ask reuses that round rather than
+// minting a fresh one — keeping the minted ids aligned with the already-seeded ledger entries
+// (F82 re-dispatch correctness). ok=false when these questions were never seeded.
+func existingQuestionRound(thread []projectstate.ReviewComment, qs []projectstate.ReviewComment) (int64, bool) {
+	if len(qs) == 0 {
+		return 0, false
+	}
+	first := qs[0]
+	for _, c := range thread {
+		if c.Type == projectstate.ReviewCommentTypeQuestion &&
+			c.Addressee == first.Addressee && c.Anchor == first.Anchor && c.Text == first.Text {
+			return c.Round, true
+		}
+	}
+	return 0, false
 }
 
 func answerPrompt(kind projectstate.ArtifactKind, addressee string, qs []projectstate.ReviewComment) string {

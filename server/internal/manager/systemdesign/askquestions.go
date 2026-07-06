@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"hash/fnv"
+	"log/slog"
 	"strings"
+	"sync/atomic"
 
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
@@ -29,6 +31,13 @@ const askQuestionsMaxAttempts = 5
 // dispatches an answer job. Synchronous (no Temporal workflow): the append is the durable,
 // user-visible effect; the answer job is best-effort (a dispatch miss leaves the questions
 // recorded and unanswered, exactly as if the addressee has not answered yet).
+//
+// DISPATCH RECOVERY (F82): a dispatch MISS is now LOGGED LOUDLY server-side (it was
+// previously discarded, and the construction-pipeline RA has no logger, so a miss vanished
+// with zero operator signal). To RECOVER a dropped dispatch, simply CALL AskQuestions AGAIN
+// with the same questions: the seed is idempotent on its content key, so NO ledger entry is
+// duplicated (the existing entries' round is reused so the minted ids still match), while the
+// answer-job dispatch RE-FIRES via a per-call-unique key.
 func (m *systemDesignManager) AskQuestions(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind, addressee string, questions []AnchoredComment) error {
 	ctx := rc.Context
 	if projectID == "" {
@@ -69,7 +78,14 @@ func (m *systemDesignManager) AskQuestions(rc fwmanager.Context, projectID Proje
 		if err != nil {
 			return mapReadProjectError(err)
 		}
-		round := nextQuestionRound(slotFor(proj, kind).ReviewThread)
+		thread := slotFor(proj, kind).ReviewThread
+		round := nextQuestionRound(thread)
+		if r, ok := existingQuestionRound(thread, qs); ok {
+			// A prior ask already seeded these exact questions (its answer-job dispatch may
+			// have been dropped — F82). Reuse their round so the minted ids match the EXISTING
+			// ledger entries, and the re-fired answer job answers the right comments.
+			round = r
+		}
 		_, err = led.SeedReviewCommentsOnBranch(ctx, psID, proj.Version, branch, psKind, round, qs, key)
 		if err == nil {
 			// Best-effort dispatch of the answer job. A dispatch failure is logged by the
@@ -199,17 +215,57 @@ func askQuestionsIdempotencyKey(projectID ProjectID, kind ArtifactKind, branch s
 	return fwra.IdempotencyKey(fmt.Sprintf("%s:%d:askQuestions:%x", projectID, int(kind), h.Sum64()))
 }
 
+// answerJobDispatchSeq makes each explicit AskQuestions call produce a UNIQUE answer-job
+// dispatch key, so a re-ask RE-FIRES the answer job (the RA dedups on the whole key, so a
+// content-only key would swallow the re-fire — F82). AskQuestions is a direct, non-retried
+// manager op (exactly one dispatch per successful call), so a per-call nonce cannot
+// double-fire a single logical ask; it only enables the re-ask recovery.
+var answerJobDispatchSeq atomic.Uint64
+
+// answerJobDispatchKey derives a per-call-unique answer-job idempotency key from the content
+// base plus a monotonic nonce (see answerJobDispatchSeq).
+func answerJobDispatchKey(projectID ProjectID, kind ArtifactKind, branch string, qs []projectstate.ReviewComment) fwra.IdempotencyKey {
+	base := askQuestionsIdempotencyKey(projectID, kind, branch, qs)
+	return fwra.IdempotencyKey(fmt.Sprintf("%s:answerJob:%d", base, answerJobDispatchSeq.Add(1)))
+}
+
+// existingQuestionRound returns the round of an EARLIER identical seeding of qs (matched by
+// addressee + anchor + text of the first question), so a re-ask reuses that round rather than
+// minting a fresh one — keeping the minted ids aligned with the already-seeded ledger entries
+// (F82 re-dispatch correctness). ok=false when these questions were never seeded.
+func existingQuestionRound(thread []projectstate.ReviewComment, qs []projectstate.ReviewComment) (int64, bool) {
+	if len(qs) == 0 {
+		return 0, false
+	}
+	first := qs[0]
+	for _, c := range thread {
+		if c.Type == projectstate.ReviewCommentTypeQuestion &&
+			c.Addressee == first.Addressee && c.Anchor == first.Anchor && c.Text == first.Text {
+			return c.Round, true
+		}
+	}
+	return 0, false
+}
+
 // dispatchAnswerJob dispatches ONE lightweight agentic ANSWER job (job_mode=answer) to the
 // per-project design repo so the addressed role answers each question in place via the
-// aiarch-state MCP. Best-effort and fire-and-forget: it does NOT wait for the job (unlike the
-// draft/critique observe loop) — questions are auxiliary and never gate anything, so a
-// dispatch miss is logged and swallowed. Repo-less dev servers (no rail) skip dispatch.
+// aiarch-state MCP. Best-effort and fire-and-forget (it does NOT wait for the job — questions
+// are auxiliary and never gate anything). F82: every outcome is LOGGED LOUDLY server-side — a
+// miss (rail not configured, repo unresolved, or a submit fault) was previously discarded and
+// the construction-pipeline RA has no logger, so it vanished with zero operator signal. A miss
+// is recoverable by re-calling AskQuestions (see the op doc) — never silent.
 func (m *systemDesignManager) dispatchAnswerJob(ctx context.Context, projectID ProjectID, kind ArtifactKind, branch, addressee string, qs []projectstate.ReviewComment) {
+	log := slog.Default().With(
+		"op", "systemdesign.AskQuestions.dispatchAnswerJob",
+		"projectID", string(projectID), "artifactKind", artifactKindString(kind),
+		"addressee", addressee, "branch", branch)
 	if m.pipeline == nil || m.repo == nil {
+		log.Warn("answer job NOT dispatched: design pipeline/repo not configured (rail dormant) — the question is recorded but will not be auto-answered")
 		return
 	}
 	repoRef, ok := m.repo(projectID)
 	if !ok {
+		log.Error("answer job NOT dispatched: could not resolve the project repo — the question is recorded but will not be auto-answered; re-run AskQuestions to retry")
 		return
 	}
 	adapter := pipelineDispatchAdapter{inner: m.pipeline}
@@ -226,10 +282,13 @@ func (m *systemDesignManager) dispatchAnswerJob(ctx context.Context, projectID P
 		TargetRepo:     sourcecontrol.RepoRefString(repoRef),
 		WorkflowFile:   designWorkflowFileName,
 	}
-	key := askQuestionsIdempotencyKey(projectID, kind, branch, qs) + ":answerJob"
-	// Ignore the handle + error: the questions are recorded regardless; the pipeline access
-	// logs a dispatch failure. Answering is not gated on this call succeeding.
-	_, _ = adapter.SubmitConstructionPipeline(ctx, spec, key)
+	key := answerJobDispatchKey(projectID, kind, branch, qs)
+	if _, err := adapter.SubmitConstructionPipeline(ctx, spec, key); err != nil {
+		log.Error("answer job dispatch FAILED — the question is recorded but not auto-answered; re-run AskQuestions with the same question to retry",
+			"err", err.Error(), "key", string(key))
+		return
+	}
+	log.Info("answer job dispatched", "key", string(key))
 }
 
 // answerPrompt builds the agentic ANSWER job prompt: it puts the agent in the ADDRESSEE's
