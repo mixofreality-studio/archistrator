@@ -26,17 +26,30 @@ func Test_UC1_CoauthorGlossary_WiringHappyPath(t *testing.T) {
 	requireStack(t)
 	ctx := context.Background()
 
-	srv := startServer(t, true /* devAuth */)
+	// glossary's Phase-1 predecessor (mission) must already be Committed — the
+	// wire surface enforces the spine ordering (systemdesignmanager.go
+	// checkPhase1Predecessor, STP-UC1-B1). Seed it directly in the project's
+	// on-disk head-state (black-box JSON, mirroring uc1_agentic_test.go's
+	// SeedCommittedDesignSlots use) rather than driving mission through its own
+	// co-author round trip — this test proves GLOSSARY's wiring (chosen because its
+	// cassettes exercise both the architect draft AND the PM-critique round-trip),
+	// not the whole Phase-1 sequence.
+	repo := harness.StartLocalGitRepo(t, "main")
+	srv := startServerWithEnv(t, true /* devAuth */, harness.GitLocalEnv(repo.URL()))
 	tr := harness.NewHTTPTransport(srv.BaseURL())
 	t.Cleanup(func() { _ = tr.Close() })
 
-	runUC1(ctx, t, tr)
+	runUC1(ctx, t, tr, repo)
 }
 
 // runUC1 is the transport-agnostic UC1 flow. It runs against ANY Transport, so
 // once mcpClient is built the MCP transport reuses it verbatim for the R4
 // cross-surface equivalence test (see Test_UC1_CrossSurfaceEquivalence below).
-func runUC1(ctx context.Context, t *testing.T, tr harness.Transport) {
+// repo is the LOCAL project-state git substrate the caller's server was booted
+// against — used ONLY to seed glossary's uncommitted Phase-1 predecessor
+// (mission) directly after CreateProject, never to bypass the wire surface for
+// anything this flow actually asserts on.
+func runUC1(ctx context.Context, t *testing.T, tr harness.Transport, repo harness.LocalGitRepo) {
 	t.Helper()
 	const kind = "glossary"
 
@@ -50,6 +63,11 @@ func runUC1(ctx context.Context, t *testing.T, tr harness.Transport) {
 	if projectID == "" {
 		t.Fatalf("[%s] createProject: empty projectId", tr.Name())
 	}
+
+	// 0b) Seed glossary's predecessor (mission) as Committed — the spine-ordering
+	// gate (checkPhase1Predecessor) refuses an out-of-order draft with a 409
+	// FailedPrecondition otherwise.
+	repo.SeedCommittedDesignSlots("mission")
 
 	// 1) Start a co-authoring draft for the glossary kind.
 	sessionRef, err := tr.RequestArtifactDraft(ctx, projectID, kind)
@@ -145,11 +163,34 @@ func Test_UC1_AuthRejectsWithoutClaims(t *testing.T) {
 }
 
 // Test_UC1_CrossSurfaceEquivalence is the R4 headline test: drive UC1 through
-// webClient (HTTP) AND mcpClient (MCP) and assert identical committed state. It
-// is SKIPPED until mcpClient is built (no MCP SDK in the server module yet — see
-// architecture.dsl mcpClient + the C-MC construction activity). When that lands,
-// add harness.NewMCPTransport and run runUC1 against both, asserting equality —
-// the guard that keeps "mcpClient mirrors webClient method-for-method" honest.
+// webClient (HTTP) AND mcpClient (MCP) — the server's full MCP surface
+// (server/internal/client/mcp/*, mounted at /mcp via streamable HTTP; the
+// official modelcontextprotocol/go-sdk on the server side) — and assert
+// EQUIVALENT observable state. runUC1 is transport-agnostic (identical steps,
+// identical assertions) — reusing it verbatim against harness.NewHTTPTransport
+// and harness.NewMCPTransport IS the equivalence proof: any divergence in
+// wiring behavior between the two surfaces (a route the MCP tool handles
+// differently, a stage the MCP read decodes differently, ...) surfaces as one
+// sub-test failing while the other passes, catching exactly the "mcpClient
+// mirrors webClient method-for-method" regression this test guards against.
+// Each surface gets its OWN server + repo (UC1 wiring is per-project, not
+// shared state) — the equivalence asserted is BEHAVIORAL (the same verb
+// sequence produces the same wire-observable outcomes), not a literal shared
+// aggregate.
 func Test_UC1_CrossSurfaceEquivalence(t *testing.T) {
-	t.Skip("R4 cross-surface equivalence: pending mcpClient construction (C-MC) — see architecture.dsl mcpClient")
+	requireStack(t)
+	ctx := context.Background()
+
+	httpRepo := harness.StartLocalGitRepo(t, "main")
+	httpSrv := startServerWithEnv(t, true /* devAuth */, harness.GitLocalEnv(httpRepo.URL()))
+	httpTr := harness.NewHTTPTransport(httpSrv.BaseURL())
+	t.Cleanup(func() { _ = httpTr.Close() })
+
+	mcpRepo := harness.StartLocalGitRepo(t, "main")
+	mcpSrv := startServerWithEnv(t, true /* devAuth */, harness.GitLocalEnv(mcpRepo.URL()))
+	mcpTr := harness.NewMCPTransport(mcpSrv.BaseURL())
+	t.Cleanup(func() { _ = mcpTr.Close() })
+
+	t.Run("http", func(t *testing.T) { runUC1(ctx, t, httpTr, httpRepo) })
+	t.Run("mcp", func(t *testing.T) { runUC1(ctx, t, mcpTr, mcpRepo) })
 }

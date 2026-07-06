@@ -570,10 +570,39 @@ func (f *AgenticGitHub) commitAgenticDraft(branch, wireKind, jobMode string) err
 	if err := git(clone, "add", "-A"); err != nil {
 		return err
 	}
+	// IDEMPOTENCY: a RETRIED dispatch (Temporal activity retry after the FIRST
+	// attempt's commit+push actually succeeded but its HTTP response was lost/
+	// raced, or a within-attempt redraft that resolves to the identical scripted
+	// draft — SetDraft is deterministic) lands on a branch that ALREADY carries
+	// this exact content. `git commit` then fails ("nothing to commit"), which
+	// this handler would otherwise surface as a dispatch 500 — the satellite
+	// classifies 500 as transient and retries, and EVERY subsequent attempt hits
+	// the identical "nothing to commit" failure, so the retry budget exhausts and
+	// the whole dispatch fails (a fake-side non-idempotency bug, not a server
+	// finding). Treat "nothing staged" as the already-applied no-op it is: push
+	// is also a no-op then (the branch is already at the desired content upstream).
+	if clean, cerr := isCleanWorkingTree(clone); cerr == nil && clean {
+		return nil
+	}
 	if err := git(clone, "commit", "-m", "aiarch: agentic draft "+wireKind+" ("+jobMode+")"); err != nil {
 		return err
 	}
 	return git(clone, "push", "origin", branch)
+}
+
+// isCleanWorkingTree reports whether a git worktree has nothing staged or
+// unstaged relative to HEAD (i.e. `git commit` would fail with "nothing to
+// commit"). Best-effort: a command error reports "not clean" so the caller
+// falls through to the normal (possibly failing) commit path rather than
+// silently skipping a real change.
+func isCleanWorkingTree(dir string) (bool, error) {
+	cmd := exec.CommandContext(context.Background(), "git", "status", "--porcelain")
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		return false, err
+	}
+	return len(strings.TrimSpace(string(out))) == 0, nil
 }
 
 // applyDraftToProjectJSON mutates the published .aiarch/state/project.json: it sets
