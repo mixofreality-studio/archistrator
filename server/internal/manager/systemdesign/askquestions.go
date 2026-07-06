@@ -275,6 +275,7 @@ func (m *systemDesignManager) dispatchAnswerJob(ctx context.Context, projectID P
 		dispatchInputTargetBranch:  branch,
 		dispatchInputPriorStateRef: "",
 		dispatchInputJobMode:       jobModeAnswer,
+		dispatchInputToolAllowlist: resolvedToolAllowlist(),
 	}
 	spec := pipelineSpec{
 		ProjectID:      projectID,

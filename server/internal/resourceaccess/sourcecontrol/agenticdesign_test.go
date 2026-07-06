@@ -51,6 +51,9 @@ var expectedDispatchInputs = []string{
 	"design_prompt",
 	"target_branch",
 	"prior_state_ref",
+	// tool_allowlist carries the server-resolved per-task tool allowlist that scopes the
+	// aiarch-state MCP server (manifest-scoping); optional (empty ⇒ job-mode fallback).
+	"tool_allowlist",
 }
 
 // requiredDispatchInputs are the inputs that MUST be required:true. prior_state_ref
@@ -234,15 +237,19 @@ func TestDesignWorkflowWiresStateMcp(t *testing.T) {
 	if !strings.Contains(body, "go install "+StateMcpModulePath+"@"+StateMcpModulePin) {
 		t.Errorf("workflow must `go install %s@%s`; got:\n%s", StateMcpModulePath, StateMcpModulePin, body)
 	}
-	// The MCP config bakes in the ambient env keys the binary reads (never agent-supplied).
-	for _, key := range []string{"AIARCH_PROJECT_ID", "AIARCH_ARTIFACT_KIND", "AIARCH_JOB_MODE", "AIARCH_TARGET_BRANCH", "AIARCH_STATE_ROOT"} {
+	// The MCP config bakes in the ambient env keys the binary reads (never agent-supplied),
+	// including AIARCH_TOOL_ALLOWLIST — the manifest-scoping channel (agentic-managers item 5).
+	for _, key := range []string{"AIARCH_PROJECT_ID", "AIARCH_ARTIFACT_KIND", "AIARCH_JOB_MODE", "AIARCH_TARGET_BRANCH", "AIARCH_TOOL_ALLOWLIST", "AIARCH_STATE_ROOT"} {
 		if !strings.Contains(body, key) {
 			t.Errorf("MCP config must set ambient env %q", key)
 		}
 	}
-	// The ambient kind + job mode come from the dispatch inputs, not the agent.
+	// The ambient kind + job mode + tool allowlist come from the dispatch inputs, not the agent.
 	if !strings.Contains(body, "${{ inputs.artifact_kind }}") || !strings.Contains(body, "${{ inputs.job_mode }}") {
 		t.Error("MCP config must source artifact_kind + job_mode from the dispatch inputs")
+	}
+	if !strings.Contains(body, "${{ inputs.tool_allowlist }}") {
+		t.Error("MCP config must source the tool allowlist (AIARCH_TOOL_ALLOWLIST) from the tool_allowlist dispatch input")
 	}
 	// The rendered workflow must still be valid YAML after the MCP steps.
 	var doc workflowDoc

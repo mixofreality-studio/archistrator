@@ -235,7 +235,25 @@ const (
 	dispatchInputDesignPrompt  = "design_prompt"
 	dispatchInputTargetBranch  = "target_branch"
 	dispatchInputPriorStateRef = "prior_state_ref"
+	// dispatchInputToolAllowlist carries the server-resolved per-task tool allowlist (a
+	// compact comma-separated list of tool names) the design agent's aiarch-state MCP
+	// server registers, REPLACING job-mode scoping with manifest-scoping (agentic-managers
+	// spec item 5). The template stamps it as AIARCH_TOOL_ALLOWLIST. EMPTY (the bootstrap
+	// value) ⇒ the MCP server falls back to its job-mode composed-verb set; see
+	// resolvedToolAllowlist.
+	dispatchInputToolAllowlist = "tool_allowlist"
 )
+
+// resolvedToolAllowlist resolves the per-task tool allowlist for a Phase-2 design job from
+// archistrator's OWN committed System dynamics (projectstate.ResolveToolPalette), joined as
+// the compact comma list the dispatch input carries.
+//
+// BOOTSTRAP: archistrator's dynamics do not document agentic-sub-workflow tool palettes yet,
+// so resolution is always the fallback and this returns "" — the MCP server then applies its
+// own per-mode composed-verb fallback and logs a WARN. This is the single seam where
+// ResolveToolPalette plugs in once archistrator's own System is loadable at dispatch and its
+// dynamics carry palettes; strictness flips automatically then.
+func resolvedToolAllowlist() string { return "" }
 
 // observePollInterval spaces the observe-poll loop's durable timer waits. A design
 // job runs minutes in the user's CI; this is the in-workflow timer the contract
@@ -295,6 +313,7 @@ func (wf *workflows) DispatchDesignJobActivity(ctx context.Context, a dispatchDe
 		dispatchInputDesignPrompt:  a.Prompt,
 		dispatchInputTargetBranch:  a.TargetBranch,
 		dispatchInputPriorStateRef: a.PriorStateRef,
+		dispatchInputToolAllowlist: resolvedToolAllowlist(),
 	}
 	// Per-project-design-dispatch: target the per-project repo + aiarch-design.yml when
 	// the rail resolved a repo (TargetRepo non-empty), else leave both empty so the RA

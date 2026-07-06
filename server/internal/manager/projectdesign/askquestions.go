@@ -227,6 +227,7 @@ func (m *projectDesignManager) dispatchAnswerJob(ctx context.Context, projectID 
 		dispatchInputTargetBranch:  branch,
 		dispatchInputPriorStateRef: "",
 		dispatchInputJobMode:       jobModeAnswer,
+		dispatchInputToolAllowlist: resolvedToolAllowlist(),
 	}
 	spec := pipelineSpec{
 		ProjectID:      projectID,
