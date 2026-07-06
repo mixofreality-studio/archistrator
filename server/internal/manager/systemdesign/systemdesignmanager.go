@@ -796,6 +796,9 @@ func (m *systemDesignManager) SetResearchInput(rc fwmanager.Context, projectID P
 	if researchIsZero(research) {
 		return 0, newError(fwmanager.ContractMisuse, "empty research (no sources)")
 	}
+	if problem := researchSourceProblem(research); problem != "" {
+		return 0, newError(fwmanager.ContractMisuse, problem)
+	}
 
 	key := researchInputIdempotencyKey(projectID, research)
 	psID := projectstate.ProjectID(projectID)
