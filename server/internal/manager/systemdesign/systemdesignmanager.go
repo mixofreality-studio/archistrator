@@ -645,9 +645,13 @@ func (m *systemDesignManager) GetSessionState(rc fwmanager.Context, projectID Pr
 	if desc, derr := m.client.DescribeWorkflowExecution(ctx, wfID, ""); derr == nil {
 		switch status := desc.GetWorkflowExecutionInfo().GetStatus(); {
 		case isAbnormalClosedStatus(status):
-			return failedSessionView(projectID, kind, status), nil
+			return withStageName(failedSessionView(projectID, kind, status)), nil
 		case status == enumspb.WORKFLOW_EXECUTION_STATUS_COMPLETED:
-			return m.completedSessionView(ctx, projectID, kind)
+			view, err := m.completedSessionView(ctx, projectID, kind)
+			if err != nil {
+				return SessionStateView{}, err
+			}
+			return withStageName(view), nil
 		}
 	} else if isNotFound(derr) {
 		return SessionStateView{}, noActiveSessionError(projectID)
@@ -668,7 +672,17 @@ func (m *systemDesignManager) GetSessionState(rc fwmanager.Context, projectID Pr
 	if err := enc.Get(&view); err != nil {
 		return SessionStateView{}, newError(fwmanager.Infrastructure, err.Error())
 	}
-	return view, nil
+	return withStageName(view), nil
+}
+
+// withStageName stamps the F72 human-readable StageName label alongside the bare Stage int
+// on the public SessionStateView, using sessionStageLabel as the single authoritative map.
+// Applied at the GetSessionState boundary so every wire consumer (web + MCP) sees the label
+// regardless of which internal path built the view. The Stage int (whose enum values DIFFER
+// across managers) is unchanged; StageName is purely additive.
+func withStageName(v SessionStateView) SessionStateView {
+	v.StageName = sessionStageLabel(v.Stage)
+	return v
 }
 
 // isAbnormalClosedStatus reports whether a workflow-execution status is a CLOSED-ABNORMAL

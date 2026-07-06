@@ -842,10 +842,14 @@ components:
                         - array
                 stage:
                     $ref: '#/components/schemas/ProjectDesignSessionStage'
+                stageName:
+                    type: string
+                    x-go-name: StageName
             required:
                 - projectId
                 - artifactKind
                 - stage
+                - stageName
                 - draft
             type: object
         ProjectDesignSeverity:
@@ -1778,10 +1782,14 @@ components:
                         - array
                 stage:
                     $ref: '#/components/schemas/SystemDesignSessionStage'
+                stageName:
+                    type: string
+                    x-go-name: StageName
             required:
                 - projectId
                 - artifactKind
                 - stage
+                - stageName
                 - draft
             type: object
         SystemDesignSeverity:

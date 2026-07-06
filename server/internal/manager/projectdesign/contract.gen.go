@@ -129,6 +129,7 @@ type SessionStateView struct {
 	Draft         DraftModel          `json:"draft"`
 	Findings      []Finding           `json:"findings,omitempty"`
 	FailureReason *string             `json:"failureReason,omitempty"`
+	StageName     string              `json:"stageName"`
 	ReviewThread  []ReviewCommentView `json:"reviewThread,omitempty"`
 }
 

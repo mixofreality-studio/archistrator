@@ -15605,6 +15605,10 @@
                 "string"
               ]
             },
+            "stageName": {
+              "type": "string",
+              "x-go-name": "StageName"
+            },
             "reviewThread": {
               "type": [
                 "null",
@@ -15619,6 +15623,7 @@
             "projectId",
             "artifactKind",
             "stage",
+            "stageName",
             "draft"
           ],
           "additionalProperties": false
@@ -20556,6 +20561,10 @@
               ],
               "x-go-name": "FailureRunURL"
             },
+            "stageName": {
+              "type": "string",
+              "x-go-name": "StageName"
+            },
             "reviewThread": {
               "type": [
                 "null",
@@ -20570,6 +20579,7 @@
             "projectId",
             "artifactKind",
             "stage",
+            "stageName",
             "draft"
           ],
           "additionalProperties": false

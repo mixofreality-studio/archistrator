@@ -795,6 +795,7 @@ export interface components {
             projectId: components["schemas"]["ProjectDesignProjectID"];
             reviewThread?: null | components["schemas"]["ProjectDesignReviewCommentView"][];
             stage: components["schemas"]["ProjectDesignSessionStage"];
+            stageName: string;
         };
         /** @enum {string} */
         ProjectDesignSeverity: "info" | "warning" | "error";
@@ -1055,6 +1056,7 @@ export interface components {
             projectId: components["schemas"]["SystemDesignProjectID"];
             reviewThread?: null | components["schemas"]["SystemDesignReviewCommentView"][];
             stage: components["schemas"]["SystemDesignSessionStage"];
+            stageName: string;
         };
         /** @enum {string} */
         SystemDesignSeverity: "info" | "warning" | "error";

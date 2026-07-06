@@ -556,9 +556,13 @@ func (m *projectDesignManager) GetSessionState(rc fwmanager.Context, projectID P
 	if desc, derr := m.client.DescribeWorkflowExecution(ctx, wfID, ""); derr == nil {
 		switch status := desc.GetWorkflowExecutionInfo().GetStatus(); {
 		case isAbnormalClosedStatus(status):
-			return failedSessionView(projectID, kind, status), nil
+			return withStageName(failedSessionView(projectID, kind, status)), nil
 		case status == enumspb.WORKFLOW_EXECUTION_STATUS_COMPLETED:
-			return m.completedSessionView(ctx, projectID, kind)
+			view, err := m.completedSessionView(ctx, projectID, kind)
+			if err != nil {
+				return SessionStateView{}, err
+			}
+			return withStageName(view), nil
 		}
 	} else if isNotFound(derr) {
 		return SessionStateView{}, newError(fwmanager.NotFound, "project design has not started for this project")
@@ -579,7 +583,16 @@ func (m *projectDesignManager) GetSessionState(rc fwmanager.Context, projectID P
 	if err := enc.Get(&view); err != nil {
 		return SessionStateView{}, newError(fwmanager.Infrastructure, err.Error())
 	}
-	return view, nil
+	return withStageName(view), nil
+}
+
+// withStageName stamps the F72 human-readable StageName label alongside the bare Stage int
+// on the public SessionStateView, using sessionStageLabel as the single authoritative map
+// (the Phase-2 stage enum values DIFFER from Phase-1's, so the label removes the ambiguity).
+// Applied at the GetSessionState boundary; StageName is purely additive to the wire shape.
+func withStageName(v SessionStateView) SessionStateView {
+	v.StageName = sessionStageLabel(v.Stage)
+	return v
 }
 
 // principalLabel renders a SecurityPrincipal as a short human-facing label for PM-P2-4

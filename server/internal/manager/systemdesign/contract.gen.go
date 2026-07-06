@@ -374,6 +374,7 @@ type SessionStateView struct {
 	Findings      []Finding           `json:"findings,omitempty"`
 	FailureReason *string             `json:"failureReason,omitempty"`
 	FailureRunURL *string             `json:"failureRunUrl,omitempty"`
+	StageName     string              `json:"stageName"`
 	ReviewThread  []ReviewCommentView `json:"reviewThread,omitempty"`
 }
 
