@@ -363,6 +363,27 @@ var encapsulationAllowlistData = map[string][]string{
 		// entry (same pattern as the Ledger + BranchAware extensions above). Served by
 		// GitStore + the composition-root adapter.
 		"StaleAckProjectStateAccess",
+		// RECONCILE EXTENSION (F80): the OPTIONAL branch-reconcile capability port + its two
+		// deterministic single-writer-per-slot resolver free-funcs (a diverged session branch
+		// vs main). Same category as the Ledger/StaleAck extensions above; consumed by the
+		// cmd/aiarch-state-mcp `reconcile` subcommand and the server git adapter.
+		"ReconcilingProjectStateAccess",
+		"ReconcileSlotOntoBase",
+		"OverlaySlotFromBranchOntoMain",
+		// F81 GATE 0: the raw-JSON required-field presence pass demanding every closed-enum /
+		// identity field on a drafted model (component id/name/kind/layer, relationship
+		// from/to/mode, dynamic-view useCaseId, …). Consumed by cmd/aiarch-state-mcp
+		// (putDraftModel) AND the server read-back (decodeSlotsMap) so write ≡ read-back.
+		"RequireModelFields",
+		// INTERNAL MCP TOOL SURFACE (agentic-managers spec item 3): the generated
+		// ResourceAccess/Engine tool catalog (toolcatalog.gen.go — NOT port-reachable, so it
+		// needs an explicit entry like the System model types) + its hand-written accessors.
+		// projectstate OWNS the contract corpus + System model this surface derives from, the
+		// same category as the CommandFor/DeriveKind derivation helpers above.
+		"InternalTool",
+		"InternalToolCatalog",
+		"AgentExposableTools",
+		"InternalToolByName",
 		"LocalRepoCredential",
 		"MissionStatement",
 		"MissionStatement.Kind",

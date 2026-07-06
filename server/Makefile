@@ -1,6 +1,6 @@
 # aiarch server — developer make targets.
 
-.PHONY: test test-short fmt vet lint sumtype-check method-check encapsulation-check gen-schemas gen-models gen gen-client bootstrap
+.PHONY: test test-short fmt vet lint sumtype-check method-check encapsulation-check gen-schemas gen-models gen gen-client gen-internal-tools bootstrap
 
 # Contract codegen pipeline, all-Go (jsonschema-go). project.json
 # (.serviceContracts) is the OWNER of every built component's contract; modelgen
@@ -36,7 +36,15 @@ gen-models:
 gen-client:
 	GOWORK=off go run ./cmd/clientgen
 
-gen: gen-models gen-client
+# gen-internal-tools — generate the INTERNAL MCP tool surface (one tool per
+# ResourceAccess/Engine contract operation) from project.json .serviceContracts
+# into internal/resourceaccess/projectstate/toolcatalog.gen.go (cmd/internaltoolsgen).
+# NEVER merged into api/openapi.yaml — this is the internal surface aiarch-state-mcp
+# registers, scoped per task by the agentic sub-workflow's tool palette.
+gen-internal-tools:
+	GOWORK=off go run ./cmd/internaltoolsgen
+
+gen: gen-models gen-client gen-internal-tools
 
 gen-schemas:
 	GOWORK=off go run ./cmd/schemagen
