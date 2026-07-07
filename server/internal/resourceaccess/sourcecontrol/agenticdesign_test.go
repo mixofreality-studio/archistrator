@@ -146,14 +146,24 @@ func TestIdempotencyAnchorMatchesDispatchConstants(t *testing.T) {
 func TestReferencesGoTestGateAndStatePath(t *testing.T) {
 	body := string(renderedDesignWorkflow(t, testAppSlug))
 
-	// The required check is `aiarch-state-mcp validate` — the staleness-aware Method
-	// gate shipped in the pinned state-MCP binary (2026-07-06; the cross-artifact
-	// amendment deadlock fix). The old seated `go mod tidy` + `go test ./...` steps
-	// must be gone from the DESIGN workflow (the seated go.mod/aiarch_method_test.go
-	// scaffold remains for the product repo's own CI), and the long-removed
-	// aiarch-validate container must stay gone.
+	// The required check is `aiarch-state-mcp validate` — the policy-aware Method gate
+	// shipped in the pinned state-MCP binary (2026-07-06; the amendment deadlock
+	// fixes). The old seated `go mod tidy` + `go test ./...` steps must be gone from
+	// the DESIGN workflow (the seated go.mod/aiarch_method_test.go scaffold remains
+	// for the product repo's own CI), and the long-removed aiarch-validate container
+	// must stay gone.
 	if !strings.Contains(body, "${{ steps.statemcp.outputs.bin }} validate") {
 		t.Error("workflow's required check must run the pinned binary's `validate` subcommand")
+	}
+	// SLOT-SCOPED severity: the validate step threads the job's ambient artifact —
+	// the SAME dispatch input that fixes the drafting agent's slot — as --slot, via an
+	// env var (never shell-interpolated), so the CI verdict scopes exactly as the
+	// in-loop putDraftModel verdict does.
+	if !strings.Contains(body, `validate --slot "${ARTIFACT_KIND}"`) {
+		t.Error("the validate step must pass the ambient artifact as --slot (via the ARTIFACT_KIND env)")
+	}
+	if !strings.Contains(body, "ARTIFACT_KIND: ${{ inputs.artifact_kind }}") {
+		t.Error("the validate step must source ARTIFACT_KIND from the artifact_kind dispatch input")
 	}
 	if strings.Contains(body, "go test ./...") {
 		t.Error("the design workflow must no longer run the seated `go test ./...` gate (replaced by `aiarch-state-mcp validate`)")

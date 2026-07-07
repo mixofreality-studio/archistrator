@@ -92,15 +92,18 @@ func (s *Session) putDraftModel(modelJSON []byte) error {
 	}
 
 	// GATE 2 — methodcheck (the required CI gate) over the whole re-encoded document,
-	// under the SAME staleness-aware cross-artifact severity policy the CI `validate`
-	// subcommand applies (staleness.go) — so a System amendment whose deployment
-	// reconciliation is pending by design (OperationalConcepts flagged stale-basis) is
-	// not deadlocked in-loop by the System×OperationalConcepts join rules.
+	// under the SAME gate severity policies the CI `validate` subcommand applies
+	// (staleness.go): the staleness-aware cross-artifact downgrade (a System amendment
+	// whose deployment reconciliation is pending by design is not deadlocked in-loop by
+	// the System×OperationalConcepts join rules) plus the SLOT-SCOPED downgrade keyed to
+	// the AMBIENT kind (pre-existing errors on slots this session cannot write —
+	// grandfathered committed data — do not block; only ambient-slot and structural
+	// findings reject the draft).
 	findings, ferr := methodcheck.ValidateProjectJSON(newBytes)
 	if ferr != nil {
 		return fmt.Errorf("the Method coherence check failed: %w", ferr)
 	}
-	findings = applyStaleBasisDowngrades(proj, findings)
+	findings = applyGateSeverityPolicies(proj, s.Kind, true, findings)
 	if errs := filterErrorFindings(findings); len(errs) > 0 {
 		return fmt.Errorf("the %s draft violates %d Method rule(s) that the required CI check enforces — fix them and call putDraftModel again:\n%s",
 			s.Kind.WireName(), len(errs), formatFindings(errs))

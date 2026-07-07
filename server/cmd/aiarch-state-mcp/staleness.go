@@ -1,9 +1,29 @@
 package main
 
-// staleness.go — the STALENESS-AWARE severity policy for CROSS-ARTIFACT Method rules
-// (founder-ratified 2026-07-06; the cross-artifact validation deadlock fix).
+// staleness.go — the GATE SEVERITY POLICY seam: the two founder-ratified downgrades
+// (2026-07-06) that keep the single-writer-per-slot design rail from deadlocking on
+// whole-document validation. applyGateSeverityPolicies composes them:
 //
-// THE DEADLOCK: the System slot carries components/relationships/dynamicViews only; the
+//  1. STALENESS-AWARE severity for the CROSS-ARTIFACT System×OperationalConcepts join
+//     rules (applyStaleBasisDowngrades — the first half of the deadlock class; below).
+//  2. SLOT-SCOPED severity (applySlotScopeDowngrades — the second half): findings
+//     attributable to a specific artifact slot are Errors ONLY when that slot is the
+//     one the session is amending (the AMBIENT slot). Findings on OTHER slots are
+//     pre-existing committed data this session cannot write — GRANDFATHERED defects
+//     (committed under an older gate generation) would otherwise keep every sibling
+//     amendment PR red, pairwise-deadlocking amendments on newly-strengthened rules
+//     (observed live on gtdapp 5-amend-2: 24 UC-VARIATION-REF errors in the committed
+//     CoreUseCases slot blocked the System amendment, which cannot write slot 4 — and
+//     a slot-4 session could not fix slot-5 defects either).
+//
+// Structural failures are NEVER downgraded: decode failures and RequireModelFields
+// reject before findings exist, a rule id with no slot attribution keeps full severity
+// by construction, and every rule ATTRIBUTED TO THE AMBIENT SLOT keeps full severity —
+// including the ambient slot's name-resolution integrity INTO other slots (those rules
+// are attributed to the referencing slot, e.g. USECASE-DYNAMIC-MISSING and the DV-*
+// family are System-attributed even though they read CoreUseCases).
+//
+// THE ORIGINAL (STALENESS) DEADLOCK: the System slot carries components/relationships/dynamicViews only; the
 // deployment topology (containers + environments) is carried by OperationalConcepts. The
 // DEP-* deployment-consistency rules JOIN the two artifacts (every environment must
 // instance every container-eligible System component). But the design rail amends ONE
@@ -23,15 +43,32 @@ package main
 // amendment TRAFFIC, never the phase seal. Single-artifact and same-artifact rules keep
 // full severity: a draft must always be internally coherent.
 //
-// This policy is applied at EVERY app-side enforcement point of the methodcheck rules —
-// putDraftModel's in-loop gate, applyConstructionMutation's gate, and the `validate`
-// one-shot subcommand the seated design workflow runs as the REQUIRED PR check — so the
-// in-loop and CI verdicts can never disagree about staleness.
+// These policies are applied at EVERY app-side enforcement point of the methodcheck
+// rules — putDraftModel's in-loop gate (which knows its ambient slot from the job env),
+// applyConstructionMutation's gate (whole-document: a construct session has no design
+// ambient slot), and the `validate` one-shot subcommand the seated design workflow runs
+// as the REQUIRED PR check (`--slot` threads the job's ambient artifact; absent flag =
+// whole-document) — so the in-loop and CI verdicts can never disagree.
 
 import (
+	"strings"
+
 	"github.com/mixofreality-studio/archistrator-platform/framework-go/methodcheck"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
+
+// applyGateSeverityPolicies is the single composition every enforcement point calls:
+// the staleness downgrade first (its annotation is the more specific), then — when the
+// caller has an ambient artifact slot (a design session / a --slot CI run) — the
+// slot-scoped downgrade as the general fallback beneath it. hasAmbient=false is the
+// whole-document mode: staleness only, exactly the pre-slot-scoping behavior.
+func applyGateSeverityPolicies(proj projectstate.Project, ambient projectstate.ArtifactKind, hasAmbient bool, findings []methodcheck.Finding) []methodcheck.Finding {
+	findings = applyStaleBasisDowngrades(proj, findings)
+	if hasAmbient {
+		findings = applySlotScopeDowngrades(ambient, findings)
+	}
+	return findings
+}
 
 // systemOpConceptsJoinRules is the closed set of methodcheck rules that JOIN
 // System × OperationalConcepts — the deployment-consistency predicates whose subject is
@@ -86,4 +123,101 @@ func applyStaleBasisDowngrades(proj projectstate.Project, findings []methodcheck
 		out[i] = f
 	}
 	return out
+}
+
+// ---------------------------------------------------------------------------------
+// SLOT-SCOPED severity (policy 2) — the general fallback beneath the staleness case.
+// ---------------------------------------------------------------------------------
+
+// ruleAttribution classifies where a methodcheck rule's findings are FIXED.
+type ruleAttribution int
+
+const (
+	// attribNone — structural / whole-document / unknown rule id. NEVER downgraded:
+	// a rule this table does not know is treated at full severity by construction.
+	attribNone ruleAttribution = iota
+	// attribSlot — the finding is owned by one Phase-1/2 artifact slot (the kind
+	// returned alongside): only that slot's own amendment can fix it.
+	attribSlot
+	// attribTesting — the finding is owned by .testingState (the STP-* System-Test-Plan
+	// family), written by Phase-3 construction jobs, never by a design-slot session. For
+	// any design ambient slot it is therefore always an OTHER-slot finding.
+	attribTesting
+)
+
+// ruleSlotAttributionPrefixes maps a RuleID prefix to the artifact slot whose own
+// amendment fixes the finding. Attribution follows the rule's SUBJECT (the slot whose
+// content must change), which is also the slot the emitting validator is registered
+// for — so a rule that READS other slots still attributes to the referencing slot
+// (VOL-GLOSS→Volatilities, USECASE-DYNAMIC-MISSING/DV-*→System, DEP-*→
+// OperationalConcepts). Prefixes are disjoint (each ends in a dash; SYSTEM-/USECASE-
+// cannot collide with SYS-/UC- because the dash position differs). Rule families with
+// no entry (ALIGN-*, CODE-/MODEL-EDGE — the code-walk rules ValidateProjectJSON never
+// emits) fall through to attribNone and keep full severity.
+var ruleSlotAttributionPrefixes = []struct {
+	prefix string
+	kind   projectstate.ArtifactKind
+	class  ruleAttribution
+}{
+	{"GLOSS-", projectstate.KindGlossary, attribSlot},
+	{"SR-", projectstate.KindScrubbedRequirements, attribSlot},
+	{"VOL-", projectstate.KindVolatilities, attribSlot},
+	{"CUC-", projectstate.KindCoreUseCases, attribSlot},
+	{"UC-", projectstate.KindCoreUseCases, attribSlot},
+	{"USECASE-", projectstate.KindSystem, attribSlot},
+	{"SYSTEM-", projectstate.KindSystem, attribSlot},
+	{"SYS-", projectstate.KindSystem, attribSlot},
+	{"DV-", projectstate.KindSystem, attribSlot},
+	{"ARCH-", projectstate.KindSystem, attribSlot},
+	{"APPC-", projectstate.KindSystem, attribSlot},
+	{"OPC-", projectstate.KindOperationalConcepts, attribSlot},
+	{"DEP-", projectstate.KindOperationalConcepts, attribSlot},
+	{"STD-", projectstate.KindStandardCheck, attribSlot},
+	{"STP-", 0, attribTesting},
+}
+
+// attributeRule resolves a rule id to its owning slot (attribSlot + kind), the testing
+// state (attribTesting), or no attribution (attribNone — full severity always).
+func attributeRule(id methodcheck.RuleID) (projectstate.ArtifactKind, ruleAttribution) {
+	for _, e := range ruleSlotAttributionPrefixes {
+		if strings.HasPrefix(string(id), e.prefix) {
+			return e.kind, e.class
+		}
+	}
+	return 0, attribNone
+}
+
+// applySlotScopeDowngrades applies the slot-scoped severity policy for a session whose
+// AMBIENT slot is ambient: an Error finding attributed to a DIFFERENT artifact slot (or
+// to the construction-owned testing state) is pre-existing committed data this session
+// cannot write — downgraded to Warning with the owning slot named, so the reviewer sees
+// exactly which slot's own amendment must fix it. Ambient-slot findings and
+// unattributed findings keep full severity.
+func applySlotScopeDowngrades(ambient projectstate.ArtifactKind, findings []methodcheck.Finding) []methodcheck.Finding {
+	out := make([]methodcheck.Finding, len(findings))
+	for i, f := range findings {
+		out[i] = f
+		if f.Severity != methodcheck.SeverityError {
+			continue
+		}
+		kind, class := attributeRule(f.RuleID)
+		switch class {
+		case attribSlot:
+			if kind != ambient {
+				out[i].Severity = methodcheck.SeverityWarning
+				out[i].Message += slotScopeDowngradeNote(kind.WireName())
+			}
+		case attribTesting:
+			out[i].Severity = methodcheck.SeverityWarning
+			out[i].Message += slotScopeDowngradeNote("testingState")
+		case attribNone:
+			// structural / unknown — full severity.
+		}
+	}
+	return out
+}
+
+// slotScopeDowngradeNote names the slot that owns fixing a downgraded finding.
+func slotScopeDowngradeNote(owner string) string {
+	return " [downgraded to warning: pre-existing on the " + owner + " slot, which this session cannot write — fix via that slot's own amendment]"
 }

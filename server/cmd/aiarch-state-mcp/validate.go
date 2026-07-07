@@ -6,8 +6,12 @@ package main
 // THIN CLI seam over ProjectStateAccess code: it reads the checkout's committed
 // .aiarch/state/project.json, decodes it through the STRICT server codec (read-back
 // parity), runs the identical methodcheck design rules putDraftModel enforces in-loop,
-// and applies the STALENESS-AWARE severity policy (staleness.go) so a cross-artifact
-// amendment is judged by the rail's own staleness semantics instead of deadlocking.
+// and applies the GATE SEVERITY POLICIES (staleness.go): the staleness-aware
+// cross-artifact downgrade plus — when `--slot` names the job's ambient artifact — the
+// SLOT-SCOPED downgrade, so an amendment is judged only on its own slot's coherence and
+// the structural rules, never deadlocked by pre-existing defects on sibling slots it
+// cannot write. Without `--slot` the gate runs in whole-document mode (staleness only)
+// for standalone use.
 //
 // WHY A SUBCOMMAND AND NOT THE SEATED go test: the enforcement stack must be
 // SELF-UPDATING. The seated aiarch_method_test.go resolves methodcheck through the
@@ -30,23 +34,40 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/mixofreality-studio/archistrator-platform/framework-go/methodcheck"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
-// runValidate parses the validate flags, runs the staleness-aware Method gate over the
+// runValidate parses the validate flags, runs the policy-aware Method gate over the
 // checkout at --root (default "."), writes the gate log to out, and returns a non-nil
 // error iff the gate fails (surviving Error findings, or a broken state document).
 //
 // Flags:
 //
-//	--root <dir>  the checked-out repo root containing .aiarch/state/project.json
+//	--root <dir>       the checked-out repo root containing .aiarch/state/project.json
+//	--slot <artifact>  the session's AMBIENT artifact slot (e.g. "System" or
+//	                   "systemDesign"; any form parseArtifactKind accepts). When set,
+//	                   the slot-scoped severity policy applies: errors attributed to
+//	                   OTHER slots are pre-existing committed data this session cannot
+//	                   write and downgrade to annotated warnings. Empty/absent = the
+//	                   whole-document gate (staleness policy only).
 func runValidate(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("validate", flag.ContinueOnError)
 	root := fs.String("root", ".", "repo root containing "+filepath.Join(statePathPrefix, projectFile))
+	slot := fs.String("slot", "", "ambient artifact slot for slot-scoped severity (empty = whole-document)")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	var ambient projectstate.ArtifactKind
+	hasAmbient := false
+	if s := strings.TrimSpace(*slot); s != "" {
+		k, kerr := parseArtifactKind(s)
+		if kerr != nil {
+			return fmt.Errorf("--slot: %w", kerr)
+		}
+		ambient, hasAmbient = k, true
 	}
 
 	path := filepath.Join(*root, statePathPrefix, projectFile)
@@ -77,14 +98,14 @@ func runValidate(args []string, out io.Writer) error {
 	}
 
 	// The identical Method-invariant rule set the seated go-test gate ran
-	// (methodcheck.ValidateProjectJSON), then the staleness-aware severity policy: a
-	// System×OperationalConcepts join rule is advisory while the OperationalConcepts
-	// slot is flagged stale-basis (reconciliation pending by design — staleness.go).
+	// (methodcheck.ValidateProjectJSON), then the gate severity policies (staleness.go):
+	// the staleness-aware cross-artifact downgrade always; the slot-scoped downgrade
+	// when --slot supplied the session's ambient artifact.
 	findings, ferr := methodcheck.ValidateProjectJSON(raw)
 	if ferr != nil {
 		return fmt.Errorf("the committed state is not a coherent artifact set: %w", ferr)
 	}
-	findings = applyStaleBasisDowngrades(proj, findings)
+	findings = applyGateSeverityPolicies(proj, ambient, hasAmbient, findings)
 
 	errCount := 0
 	for _, f := range findings {

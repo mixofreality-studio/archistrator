@@ -79,9 +79,13 @@ func (s *Session) applyConstructionMutation(what string, mutate func(*projectsta
 	if ferr != nil {
 		return fmt.Errorf("the Method coherence check failed: %w", ferr)
 	}
-	// Same staleness-aware cross-artifact severity policy as putDraftModel and the CI
-	// `validate` subcommand (staleness.go): the in-loop and CI verdicts never disagree.
-	findings = applyStaleBasisDowngrades(proj, findings)
+	// Same gate severity policy seam as putDraftModel and the CI `validate` subcommand
+	// (staleness.go), in WHOLE-DOCUMENT mode: a construct session works on a component +
+	// activity, not a Phase-1/2 artifact slot, so there is no ambient slot to scope to —
+	// staleness applies, slot-scoping does not (earmark: if construction ever meets
+	// grandfathered design-slot defects the way the design rail did, extending the
+	// ambient concept to the construction targets is a founder decision).
+	findings = applyGateSeverityPolicies(proj, 0, false, findings)
 	if errs := filterErrorFindings(findings); len(errs) > 0 {
 		return fmt.Errorf("the %s change violates %d Method rule(s) that the required CI check enforces — fix them and record again:\n%s",
 			what, len(errs), formatFindings(errs))

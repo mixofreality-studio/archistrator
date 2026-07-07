@@ -453,11 +453,15 @@ jobs:
   # do not rename). Installs the SAME pinned aiarch-state-mcp binary the draft job
   # uses and runs `aiarch-state-mcp validate` over the checked-out branch: the strict
   # server-codec decode of .aiarch/state/project.json (read-back parity) + the
-  # identical methodcheck design rules putDraftModel enforces in-loop, under the
-  # STALENESS-AWARE cross-artifact severity policy (System×OperationalConcepts join
-  # rules are advisory while the OperationalConcepts slot is flagged StaleBasis —
-  # reconciliation pending by design; the cross-artifact-amendment deadlock fix,
-  # 2026-07-06). A non-zero exit (surviving Error findings) BLOCKS merge — the trust
+  # identical methodcheck design rules putDraftModel enforces in-loop, under the GATE
+  # SEVERITY POLICIES (the amendment-deadlock fixes, 2026-07-06): STALENESS-AWARE
+  # cross-artifact severity (System×OperationalConcepts join rules are advisory while
+  # the OperationalConcepts slot is flagged StaleBasis — reconciliation pending by
+  # design) and SLOT-SCOPED severity (`--slot` threads this job's ambient artifact —
+  # the same dispatch input that fixes the drafting agent's slot — so errors
+  # attributed to OTHER slots, pre-existing committed data this session cannot write,
+  # downgrade to annotated warnings; only ambient-slot and structural findings
+  # block). A non-zero exit (surviving Error findings) BLOCKS merge — the trust
   # boundary. This REPLACED the seated go-test steps (tidy + test over the seated
   # scaffold) so the gate self-updates with the state-MCP pin (managed-scaffold sync)
   # instead of requiring a platform release + product go.mod bump per rule change;
@@ -498,9 +502,14 @@ jobs:
           echo "bin=${GOBIN}/aiarch-state-mcp" >> "$GITHUB_OUTPUT"
 
       - name: aiarch-state validate (Method-invariant required check)
-        # Runs the staleness-aware Method gate over ./.aiarch/state/project.json. A
+        # Runs the policy-aware Method gate over ./.aiarch/state/project.json. A
         # non-zero exit (surviving Error-severity findings, or a state document the
         # strict server codec rejects) BLOCKS PR merge. The gate log carries every
         # finding (rule id, severity, message) including the downgraded-to-warning
-        # cross-artifact findings with their staleness rationale.
-        run: ${{ steps.statemcp.outputs.bin }} validate
+        # findings with their staleness / slot-scope rationale. --slot receives the
+        # job's ambient artifact from the SAME dispatch input the draft job's MCP env
+        # fixes the agent's slot with (threaded via env, never shell-interpolated), so
+        # the in-loop putDraftModel verdict and this CI verdict scope identically.
+        env:
+          ARTIFACT_KIND: ${{ inputs.artifact_kind }}
+        run: ${{ steps.statemcp.outputs.bin }} validate --slot "${ARTIFACT_KIND}"

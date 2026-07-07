@@ -249,10 +249,11 @@ func equalFindings(a, b []methodcheck.Finding) bool {
 }
 
 // TestPutDraftModel_SystemAmendmentUnblockedByStaleOpConcepts proves the IN-LOOP gate
-// applies the same policy — the deadlock would otherwise hit putDraftModel before CI
-// ever ran. With opconcepts stale, the System draft that ADDS a component the topology
-// does not yet package is accepted; with opconcepts fresh, it is rejected with the
-// join-rule id visible.
+// applies the same policies — the deadlock would otherwise hit putDraftModel before CI
+// ever ran. The System draft that ADDS a component the topology does not yet package is
+// accepted in BOTH cases: stale opconcepts (the staleness policy) and fresh opconcepts
+// (the slot-scoped fallback — DEP is OperationalConcepts-attributed, a slot the ambient
+// System session cannot write).
 func TestPutDraftModel_SystemAmendmentUnblockedByStaleOpConcepts(t *testing.T) {
 	draft := []byte(`{
 		"components": [
@@ -272,7 +273,7 @@ func TestPutDraftModel_SystemAmendmentUnblockedByStaleOpConcepts(t *testing.T) {
 		"dynamicViews": []
 	}`)
 
-	// Stale counterpart → the amendment goes through (the deadlock fix).
+	// Stale counterpart → the amendment goes through (the staleness policy).
 	stale := deadlockFixtureProject(true)
 	s, _ := seedProject(t, stale, jobModeDraft, projectstate.KindSystem)
 	if err := s.putDraftModel(draft); err != nil {
@@ -283,17 +284,186 @@ func TestPutDraftModel_SystemAmendmentUnblockedByStaleOpConcepts(t *testing.T) {
 		t.Fatalf("amended System not written: %+v", slot)
 	}
 
-	// Fresh counterpart → the same draft is rejected with the join rule named.
+	// Fresh counterpart → the amendment STILL goes through, via the slot-scoped
+	// fallback: putDraftModel's ambient slot is System, and the DEP join rules are
+	// OperationalConcepts-attributed — a slot this session cannot write. (Before
+	// slot-scoping this case was rejected; the staleness policy alone left the
+	// direct-amendment-on-a-fresh-base residual, which slot-scoping closes.)
 	fresh := deadlockFixtureProject(false)
 	s2, _ := seedProject(t, fresh, jobModeDraft, projectstate.KindSystem)
-	err := s2.putDraftModel(draft)
+	if err := s2.putDraftModel(draft); err != nil {
+		t.Fatalf("System amendment must be accepted under slot-scoping even with fresh opconcepts, got: %v", err)
+	}
+}
+
+// TestPutDraftModel_AmbientSlotErrorStillRejects — the matrix row that must NOT relax:
+// an error attributed to the AMBIENT slot itself (a Glossary draft carrying a
+// non-canonical Four-Questions category, GLOSS-FOURQ) rejects the draft at full
+// severity, staleness elsewhere notwithstanding. (The sibling case — an ambient
+// CoreUseCases draft rejected on its own CUC-CARD — is pinned by
+// TestPutDraftModel_MethodRuleRejected.)
+func TestPutDraftModel_AmbientSlotErrorStillRejects(t *testing.T) {
+	draft := []byte(`{"items":[{"term":"Inbox","definition":"where captured items land","category":"Bogus"}]}`)
+	s, _ := seedProject(t, deadlockFixtureProject(true), jobModeDraft, projectstate.KindGlossary)
+	err := s.putDraftModel(draft)
 	if err == nil {
-		t.Fatalf("System amendment must be rejected when opconcepts is NOT stale")
+		t.Fatalf("a Glossary draft with a non-canonical category must be rejected (ambient-slot error)")
 	}
-	if !strings.Contains(err.Error(), "DEP-COVERAGE") {
-		t.Fatalf("rejection must name the DEP join rule, got: %v", err)
+	if !strings.Contains(err.Error(), "GLOSS-FOURQ") {
+		t.Fatalf("rejection must name the ambient-slot rule, got: %v", err)
 	}
-	if s2.wroteState {
-		t.Fatalf("wroteState set despite a methodcheck rejection")
+	if s.wroteState {
+		t.Fatalf("wroteState set despite an ambient-slot rejection")
+	}
+}
+
+// ---------------------------------------------------------------------------------
+// SLOT-SCOPED severity (policy 2) — the grandfathered-committed-data deadlock fix.
+// ---------------------------------------------------------------------------------
+
+// withGlossaryDefect adds a committed Glossary slot carrying a GLOSS-FOURQ error (a
+// non-canonical category) to the fixture — the grandfathered sibling-slot defect shape
+// (gtdapp live: UC-VARIATION-REF errors in the committed CoreUseCases slot).
+func withGlossaryDefect(p projectstate.Project) projectstate.Project {
+	p.Glossary = projectstate.ArtifactSlot{
+		Status: projectstate.ReviewCommitted,
+		Model: &projectstate.Glossary{Items: []projectstate.GlossaryItem{
+			{Term: "Inbox", Definition: "where captured items land", Category: "Bogus"},
+		}},
+	}
+	return p
+}
+
+// TestAttributeRule_Table pins the rule→slot attribution: the subject slot owns the
+// finding (including rules that READ other slots), STP-* belongs to the construction-
+// owned testing state, and an unknown rule id has no attribution (full severity).
+func TestAttributeRule_Table(t *testing.T) {
+	cases := []struct {
+		rule  methodcheck.RuleID
+		kind  projectstate.ArtifactKind
+		class ruleAttribution
+	}{
+		{"GLOSS-FOURQ", projectstate.KindGlossary, attribSlot},
+		{"SR-ID-UNIQUE", projectstate.KindScrubbedRequirements, attribSlot},
+		{"VOL-GLOSS", projectstate.KindVolatilities, attribSlot},
+		{"CUC-CARD", projectstate.KindCoreUseCases, attribSlot},
+		{"UC-VARIATION-REF", projectstate.KindCoreUseCases, attribSlot},
+		{"USECASE-DYNAMIC-MISSING", projectstate.KindSystem, attribSlot},
+		{"SYSTEM-LAYER-DEGENERATE", projectstate.KindSystem, attribSlot},
+		{"SYS-NAME-UNIQUE", projectstate.KindSystem, attribSlot},
+		{"DV-STATIC-COVERAGE", projectstate.KindSystem, attribSlot},
+		{"ARCH-CHAINCOV", projectstate.KindSystem, attribSlot},
+		{"APPC-CARD-SUB-MGR", projectstate.KindSystem, attribSlot},
+		{"OPC-OBJREF", projectstate.KindOperationalConcepts, attribSlot},
+		{"DEP-COVERAGE", projectstate.KindOperationalConcepts, attribSlot},
+		{"STD-WAIVE", projectstate.KindStandardCheck, attribSlot},
+		{"STP-OP-EXISTS", 0, attribTesting},
+		{"TOTALLY-UNKNOWN", 0, attribNone},
+	}
+	for _, c := range cases {
+		kind, class := attributeRule(c.rule)
+		if class != c.class || (class == attribSlot && kind != c.kind) {
+			t.Errorf("attributeRule(%s) = (%v, %v), want (%v, %v)", c.rule, kind, class, c.kind, c.class)
+		}
+	}
+}
+
+// TestApplySlotScopeDowngrades_Unit pins the pure policy matrix for one ambient slot:
+// other-slot error → annotated warning naming the owning slot; ambient-slot error stays
+// error; unattributed error stays error; testing-state error → warning; sub-Error
+// findings pass through.
+func TestApplySlotScopeDowngrades_Unit(t *testing.T) {
+	findings := []methodcheck.Finding{
+		{RuleID: "UC-VARIATION-REF", Severity: methodcheck.SeverityError, Message: "dangling variationOf"},
+		{RuleID: "SYS-NAME-UNIQUE", Severity: methodcheck.SeverityError, Message: "duplicate name"},
+		{RuleID: "TOTALLY-UNKNOWN", Severity: methodcheck.SeverityError, Message: "structural"},
+		{RuleID: "STP-OP-EXISTS", Severity: methodcheck.SeverityError, Message: "plan step names no op"},
+		{RuleID: "DEP-RESOURCE-PRESENT", Severity: methodcheck.SeverityWarning, Message: "resource absent"},
+	}
+	got := applySlotScopeDowngrades(projectstate.KindSystem, findings)
+	if got[0].Severity != methodcheck.SeverityWarning || !strings.Contains(got[0].Message, "coreUseCases") {
+		t.Fatalf("other-slot error must downgrade naming the owning slot, got: %+v", got[0])
+	}
+	if got[1].Severity != methodcheck.SeverityError {
+		t.Fatalf("ambient-slot error must keep Error severity, got: %+v", got[1])
+	}
+	if got[2].Severity != methodcheck.SeverityError {
+		t.Fatalf("an unattributed (structural/unknown) error must never downgrade, got: %+v", got[2])
+	}
+	if got[3].Severity != methodcheck.SeverityWarning || !strings.Contains(got[3].Message, "testingState") {
+		t.Fatalf("a testing-state error must downgrade for a design session, got: %+v", got[3])
+	}
+	if got[4] != findings[4] {
+		t.Fatalf("sub-Error findings must pass through untouched, got: %+v", got[4])
+	}
+	if findings[0].Severity != methodcheck.SeverityError {
+		t.Fatalf("applySlotScopeDowngrades must not mutate its input")
+	}
+}
+
+// TestValidate_SlotScoping is the CLI matrix over one committed state carrying BOTH a
+// sibling-slot defect (GLOSS-FOURQ in the committed Glossary) AND the DEP drift with
+// FRESH opconcepts (no staleness help):
+//
+//   - --slot System        → both are other-slot → downgrade → PASS
+//   - --slot Glossary      → the glossary defect is the AMBIENT slot → FAIL
+//   - no --slot            → whole-document mode → FAIL (pre-slot-scoping behavior)
+func TestValidate_SlotScoping(t *testing.T) {
+	root := seedValidateRoot(t, withGlossaryDefect(deadlockFixtureProject(false)))
+
+	var out bytes.Buffer
+	if err := runValidate([]string{"--root", root, "--slot", "System"}, &out); err != nil {
+		t.Fatalf("--slot System must PASS (all errors are other-slot), got: %v\n%s", err, out.String())
+	}
+	log := out.String()
+	if !strings.Contains(log, "GLOSS-FOURQ") || !strings.Contains(log, "DEP-COVERAGE") {
+		t.Fatalf("gate log must still SURFACE the downgraded findings, got:\n%s", log)
+	}
+	if !strings.Contains(log, "pre-existing on the glossary slot") {
+		t.Fatalf("the slot-scope downgrade must name the owning slot, got:\n%s", log)
+	}
+
+	out.Reset()
+	if err := runValidate([]string{"--root", root, "--slot", "Glossary"}, &out); err == nil {
+		t.Fatalf("--slot Glossary must FAIL on its own slot's GLOSS-FOURQ error, log:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "ERROR") || !strings.Contains(out.String(), "GLOSS-FOURQ") {
+		t.Fatalf("ambient-slot error must stay an ERROR in the log, got:\n%s", out.String())
+	}
+
+	out.Reset()
+	if err := runValidate([]string{"--root", root}, &out); err == nil {
+		t.Fatalf("whole-document mode (no --slot) must keep failing, log:\n%s", out.String())
+	}
+}
+
+// TestValidate_SlotScopingCombinesWithStaleness — both policies together on the live
+// gtdapp shape: stale opconcepts + DEP drift + a sibling-slot glossary defect, ambient
+// System. The DEP errors take the staleness downgrade (first, more specific), the
+// glossary error takes the slot-scope downgrade, and the gate passes.
+func TestValidate_SlotScopingCombinesWithStaleness(t *testing.T) {
+	root := seedValidateRoot(t, withGlossaryDefect(deadlockFixtureProject(true)))
+	var out bytes.Buffer
+	if err := runValidate([]string{"--root", root, "--slot", "System"}, &out); err != nil {
+		t.Fatalf("combined policies must PASS, got: %v\n%s", err, out.String())
+	}
+	log := out.String()
+	if !strings.Contains(log, "stale-basis") {
+		t.Fatalf("DEP findings must carry the staleness rationale, got:\n%s", log)
+	}
+	if !strings.Contains(log, "pre-existing on the glossary slot") {
+		t.Fatalf("the glossary finding must carry the slot-scope rationale, got:\n%s", log)
+	}
+	if strings.Contains(log, "ERROR") {
+		t.Fatalf("no ERROR may survive the combined policies, got:\n%s", log)
+	}
+}
+
+// TestValidate_BadSlotFlagRejected — a --slot value that is not a Method artifact kind
+// is a usage error, never a silent whole-document run.
+func TestValidate_BadSlotFlagRejected(t *testing.T) {
+	root := seedValidateRoot(t, deadlockFixtureProject(true))
+	if err := runValidate([]string{"--root", root, "--slot", "NotAKind"}, &bytes.Buffer{}); err == nil {
+		t.Fatal("an unrecognized --slot value must be rejected")
 	}
 }
