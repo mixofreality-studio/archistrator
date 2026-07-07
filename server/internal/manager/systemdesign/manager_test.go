@@ -705,3 +705,33 @@ func Test_ArtifactKind_IsPhase1(t *testing.T) {
 		}
 	}
 }
+
+// Failing-workflow-task hygiene (gtdapp:5 versioning incident): a session whose
+// workflow task is in FAILED state (e.g. a deploy-time non-determinism fault being
+// retried) rejects queries with the raw Temporal internals "Unable to query workflow
+// due to Workflow Task in failed state". mapQueryError must surface a clean,
+// actionable Infrastructure Detail instead of leaking that message to clients.
+func Test_GetSessionState_QueryFailedTaskState_CleanInfrastructure(t *testing.T) {
+	id := ProjectID("gtdapp")
+	wfID := coAuthorWorkflowID(id, KindMission)
+
+	mc := &temporalmocks.Client{}
+	mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "").
+		Return((*workflowservice.DescribeWorkflowExecutionResponse)(nil), errors.New("transient describe blip"))
+	mc.On("QueryWorkflow", mock.Anything, wfID, "", querySessionState).
+		Return(nil, errors.New("Unable to query workflow due to Workflow Task in failed state"))
+
+	m := &systemDesignManager{client: mc}
+	_, err := m.GetSessionState(bgRC(), id, KindMission)
+	sde := asSystemDesignError(t, err)
+	if sde.Kind != fwmanager.Infrastructure {
+		t.Fatalf("want Infrastructure, got %d", sde.Kind)
+	}
+	if strings.Contains(sde.Detail, "Workflow Task in failed state") || strings.Contains(sde.Detail, "Unable to query workflow") {
+		t.Fatalf("Detail must not leak Temporal internals, got %q", sde.Detail)
+	}
+	if !strings.Contains(sde.Detail, "temporarily unavailable") {
+		t.Fatalf("Detail must carry the clean retry guidance, got %q", sde.Detail)
+	}
+	mc.AssertExpectations(t)
+}

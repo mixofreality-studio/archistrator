@@ -787,6 +787,15 @@ func mapQueryError(err error) error {
 	if isNotFound(err) {
 		return newError(fwmanager.NotFound, err.Error())
 	}
+	// A session whose workflow task is FAILING (e.g. a deploy-time non-determinism
+	// fault being retried) rejects queries with the raw Temporal internals
+	// "Unable to query workflow due to Workflow Task in failed state" (observed on
+	// the systemdesign twin, gtdapp:5). Same error-hygiene rule as the 065a9e7
+	// not-found cleanup: clients get a clean, actionable Detail.
+	if strings.Contains(err.Error(), "Workflow Task in failed state") {
+		return newError(fwmanager.Infrastructure,
+			"design session state is temporarily unavailable — the session hit an internal fault and is being retried by the server; try again shortly")
+	}
 	return newError(fwmanager.Infrastructure, err.Error())
 }
 

@@ -1453,3 +1453,50 @@ func Test_CoAuthorPhase2_Rail_ScaffoldSyncFailure_BlocksDispatch_LandsAtFailedGa
 		t.Fatalf("withdraw from the failed gate must call WithdrawArtifact once, got %d", len(base.withdrawn))
 	}
 }
+
+// THE VERSION GATE (UC2 twin of the systemdesign proof; live regression gtdapp:5).
+// A Phase-2 design execution already in flight when the managed-scaffold sync
+// deployed has no history event for the sync activity — GetVersion pins it
+// (DefaultVersion) to the OLD command sequence, so it must complete its full happy
+// path with ZERO SyncManagedScaffold calls even with syncErr armed.
+func Test_CoAuthorPhase2_Rail_ScaffoldSync_VersionGate_PreFeatureExecutionSkipsSync(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	log := &seqLog{}
+	base := &fakeProjectState{project: planningAssumptionsReadBack(projectstate.ProjectID(id))}
+	ps := &seqProjectState{fakeProjectState: base, log: log}
+	pipe := newFakePipeline()
+	rail := newScriptedRail(true, log)
+	// syncErr armed: an UN-GATED sync would derail the pre-feature run at the failed gate.
+	rail.syncErr = fwra.New(fwra.ContractMisuse, "sync must not run for a pre-feature execution")
+	wf := newRailWorkflows(ps, pipe, rail)
+	registerRailCoAuthor(env, wf)
+
+	// Simulate a PRE-FEATURE in-flight execution: GetVersion resolves DefaultVersion.
+	env.OnGetVersion("managed-scaffold-sync", workflow.DefaultVersion, 1).Return(workflow.DefaultVersion)
+
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
+	}, 30*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindPlanningAssumptions})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a pre-feature execution must run the OLD command sequence cleanly: %v", err)
+	}
+	var outcome coAuthorOutcome
+	if err := env.GetWorkflowResult(&outcome); err != nil {
+		t.Fatalf("decode outcome: %v", err)
+	}
+	if outcome != coAuthorApproved {
+		t.Fatalf("want coAuthorApproved on the pre-feature path, got %d", outcome)
+	}
+	if got := rail.count("SyncManagedScaffold"); got != 0 {
+		t.Fatalf("a pre-feature (DefaultVersion) execution must NEVER call SyncManagedScaffold, got %d", got)
+	}
+	if len(pipe.submits) != 1 || len(base.committed) != 1 {
+		t.Fatalf("the pre-feature spine must dispatch and commit exactly once, got submits=%d committed=%v", len(pipe.submits), base.committed)
+	}
+}

@@ -92,15 +92,30 @@ func (wf *workflows) beginSession(ctx workflow.Context, projectID ProjectID, ses
 	// the dispatch — never run a design job against a scaffold we could not prove
 	// current — and is CONTAINED by the caller at the failed gate like every other
 	// dispatch-time rail fault.
-	var scaffoldChanged bool
-	if serr := wf.execRailActivityWithAuthRetry(ctx, wf.SyncManagedScaffoldActivity, syncScaffoldArgs{
-		RepoRef: sourcecontrol.RepoRefString(repoRef), Cred: cred,
-	}, &scaffoldChanged); serr != nil {
-		return gitSession{}, fmt.Errorf("managed-scaffold sync failed — the seated %s could not be refreshed to this server's current template, so the design job was NOT dispatched (a stale scaffold pins an aiarch-state-mcp binary this server's validators reject); Retry re-runs the sync: %w", designWorkflowFileName, serr)
-	}
-	if scaffoldChanged {
-		workflow.GetLogger(ctx).Info("managed scaffold drifted; refreshed the seated design workflow to the current template before dispatch",
-			"file", designWorkflowFileName)
+	//
+	// Temporal versioning guard (replay safety; mirrors construction-review-policy-
+	// snapshot): this activity was ADDED to beginSession AFTER the CoAuthor workflow
+	// first shipped, so a design session already in flight at deploy time has NO history
+	// event for it — replaying such a history against unguarded new code fails the
+	// workflow task with a non-determinism error (observed live: gtdapp:5 amendment
+	// session — queries dead with "Workflow Task in failed state", the Retry signal
+	// unprocessable). GetVersion pins pre-feature executions (DefaultVersion) to the OLD
+	// command sequence: they skip the sync for their WHOLE run — including post-recovery
+	// redrafts, because the version resolved at first replay is cached per execution —
+	// while every execution STARTED after this deploy resolves v1 and syncs before each
+	// dispatch. A pre-feature session that keeps failing on a stale scaffold heals via
+	// Withdraw + a fresh amendment session (a new execution → v1 → sync).
+	if workflow.GetVersion(ctx, "managed-scaffold-sync", workflow.DefaultVersion, 1) >= 1 {
+		var scaffoldChanged bool
+		if serr := wf.execRailActivityWithAuthRetry(ctx, wf.SyncManagedScaffoldActivity, syncScaffoldArgs{
+			RepoRef: sourcecontrol.RepoRefString(repoRef), Cred: cred,
+		}, &scaffoldChanged); serr != nil {
+			return gitSession{}, fmt.Errorf("managed-scaffold sync failed — the seated %s could not be refreshed to this server's current template, so the design job was NOT dispatched (a stale scaffold pins an aiarch-state-mcp binary this server's validators reject); Retry re-runs the sync: %w", designWorkflowFileName, serr)
+		}
+		if scaffoldChanged {
+			workflow.GetLogger(ctx).Info("managed scaffold drifted; refreshed the seated design workflow to the current template before dispatch",
+				"file", designWorkflowFileName)
+		}
 	}
 
 	// OpenBranch through the shared bounded Auth retry: a secondary-rate-limit 403 here no
