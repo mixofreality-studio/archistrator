@@ -84,6 +84,43 @@ archistrator-platform/
   project.json schema evolution versions with the platform; the scaffold pin
   decides which generator version a delivered repo runs.
 
+## Schema ownership & evolution
+
+**Dependency direction is fixed:** platform never imports archistrator, and
+delivered apps consume only the platform. So shared shape lives in the platform
+as code — but ownership of the document splits:
+
+- **Archistrator owns the full project.json** — it is product state; most
+  slots are irrelevant to codegen.
+- **`projectmodel` owns the codegen-relevant subset** (`serviceContracts`,
+  `systemDesign` components/relationships, `operationalConcepts.deployment`)
+  and parses it **tolerantly**: unknown fields are ignored, absent fields get
+  a defined default (the `OperatingModel.OrDefault` precedent, made a hard
+  rule). Every old document parses under every newer projectmodel.
+
+**Adding a property — two cases:**
+
+1. **App-only** (generators don't read it): change archistrator only. No
+   platform release, no pin bumps — tolerant parse means projectmodel never
+   notices. This is the common case.
+2. **Codegen-relevant**: platform-first, then consume:
+   - Platform PR: field + default + validation + fixture in `projectmodel`
+     (+ the consuming emitter). Tag release. The new generator still parses
+     every old document (default applies), so this never blocks on writers.
+   - Archistrator: bump the platform dep; writers (state MCP tools, draft
+     prompts, slot schema) start producing the field; regenerate via
+     `cmd/appgen`. Review-gated slots pick it up through the amendment rail.
+   - Delivered apps: scaffold pin bump (`appgen` + `aiarch-state`),
+     version-gated for in-flight workflow compatibility (StateMcpModulePin
+     rail).
+
+**Drift guard:** a contract test in archistrator CI feeds the documents
+archistrator's writers produce (the live project.json + writer-output
+fixtures) through `projectmodel.Load`. An overlapping-shape change made
+app-side without the platform step fails archistrator's own PR, not a
+delivered repo weeks later. Non-additive (breaking) changes are the exception
+and gate on the existing top-level `version` field.
+
 ## Temporal codegen (`temporalgen`)
 
 **Inputs:** the manager's dependency edges from `.relationships` + each
