@@ -708,6 +708,28 @@ func (a *access) GetPullRequestStatus(rc fwra.Context, repo RepoRef, pr PullRequ
 }
 
 // PostReview relays the in-app human architecture approval as a real PR review.
+//
+// SELF-APPROVAL DEGRADE (2026-07-06): when the session PR is authored by the App
+// itself (every AMENDMENT PR — the App opens it via OpenPullRequest under its own
+// installation token, unlike an initial-phase PR opened by the in-job claude[bot]
+// action), GitHub structurally forbids the App from approving its own PR and returns
+// 422 → fwra.ContractMisuse. That +1 is pure rail ceremony: the human architecture
+// decision already came through the product-gate approval, so a forbidden self-approval
+// must NOT be an error — it is a no-op success, mirroring the AdoptProjectRepo
+// Auth-degrade above (degrade on ONE terminal kind, hard-error on every other).
+//
+// The check is deliberately narrowed to the SATELLITE call's ContractMisuse: the local
+// requireRepoCred / prNumber validation returns its own ContractMisuse ABOVE this, so a
+// genuine bad-argument programmer error still errors; only the wire 422 degrades. Within
+// PostReview(APPROVE) with an aiarch-controlled request body, the reviews endpoint's only
+// reachable 422 is the self-approval rejection.
+//
+// DETECTION — why kind, not author or body text: the pinned satellite (fwgithub v0.1.3)
+// surfaces no PR author on any read seam (pullRequestDTO / PullStatus carry no user
+// login), so an AppSlug()-vs-author comparison is impossible without a coordinated
+// platform release; and ClassifyStatus maps the 422 to a bare ContractMisuse, DROPPING
+// the GitHub "Can not approve your own pull request" body — so body-text matching is
+// impossible too. The ContractMisuse kind is the only signal that reaches the RA.
 func (a *access) PostReview(rc fwra.Context, repo RepoRef, pr PullRequestRef, review ReviewSubmission, cred RepoCredential) error {
 	ctx := rc.Context
 	_, fullName, err := a.requireRepoCred(repo, cred)
@@ -718,7 +740,15 @@ func (a *access) PostReview(rc fwra.Context, repo RepoRef, pr PullRequestRef, re
 	if err != nil {
 		return err
 	}
-	return a.client.PostReview(ctx, fullName, number, reviewEvent(review.Verdict), review.Body, credStr(cred))
+	if err := a.client.PostReview(ctx, fullName, number, reviewEvent(review.Verdict), review.Body, credStr(cred)); err != nil {
+		if kindOfErr(err) != fwra.ContractMisuse {
+			return err
+		}
+		slog.WarnContext(ctx,
+			"PostReview: session PR is App-authored — GitHub forbids self-approval; skipping ceremonial +1, product-gate approval stands",
+			"repo", fullName, "pr", number, "appSlug", a.appSlug, "cause", err.Error())
+	}
+	return nil
 }
 
 // MergePullRequest performs the gated merge. The when-to-merge authority is

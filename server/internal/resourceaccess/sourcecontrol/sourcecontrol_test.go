@@ -872,6 +872,38 @@ func TestU23_PostReviewApprove(t *testing.T) {
 	}
 }
 
+// TestU23b_PostReviewSelfApprovalDegrades proves the self-+1 skip: an App-authored
+// session PR (every amendment PR) makes GitHub reject the App's own approval with a
+// 422; that is ceremonial, not fatal, so PostReview returns a no-op success — the
+// amendment approve path no longer dead-loops. The request IS attempted (the skip is
+// a degrade on the wire rejection, not a pre-emptive suppression).
+func TestU23b_PostReviewSelfApprovalDegrades(t *testing.T) {
+	fake, a, repo, cred := railFixture(t)
+	defer fake.Close()
+	fake.On("POST", "/repos/acme/my-project/pulls/42/reviews",
+		gh.Response{Status: 422, Body: `{"message":"Unprocessable Entity","errors":["Can not approve your own pull request"]}`})
+
+	if err := a.PostReview(rc(context.Background()), repo, sc.PullRequestRefFromString("42"), sc.ReviewSubmission{Verdict: sc.ReviewApprove, Body: "+1"}, cred); err != nil {
+		t.Fatalf("self-approval 422 must degrade to a no-op success, got: %v", err)
+	}
+	if countRequests(fake, "POST", "/repos/acme/my-project/pulls/42/reviews") != 1 {
+		t.Fatalf("expected exactly one review POST attempt before the degrade")
+	}
+}
+
+// TestU23c_PostReviewNonSelfRejectionStillErrors proves the skip is narrow: a
+// non-ContractMisuse rejection from the reviews endpoint (e.g. a 403 permission
+// fault → fwra.Auth) is NOT the self-approval case and must still surface as an error.
+func TestU23c_PostReviewNonSelfRejectionStillErrors(t *testing.T) {
+	fake, a, repo, cred := railFixture(t)
+	defer fake.Close()
+	fake.On("POST", "/repos/acme/my-project/pulls/42/reviews",
+		gh.Response{Status: 403, Body: `{"message":"Resource not accessible by integration"}`})
+
+	err := a.PostReview(rc(context.Background()), repo, sc.PullRequestRefFromString("42"), sc.ReviewSubmission{Verdict: sc.ReviewApprove, Body: "+1"}, cred)
+	requireKind(t, err, fwra.Auth)
+}
+
 func TestU24_MergePullRequestHappy(t *testing.T) {
 	fake, a, repo, cred := railFixture(t)
 	defer fake.Close()
