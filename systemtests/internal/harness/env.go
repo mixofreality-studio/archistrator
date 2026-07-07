@@ -24,9 +24,13 @@ func (in Infra) needsOllama() bool {
 // only for the WHEN_REQUIRED / live drafting modes.
 func InfraFromEnv() (Infra, bool) {
 	in := Infra{
-		PostgresURL:       os.Getenv("ARCHISTRATOR_POSTGRES_URL"),
-		TemporalHostPort:  os.Getenv("ARCHISTRATOR_TEMPORAL_HOSTPORT"),
-		TemporalNamespace: getenvDefault("ARCHISTRATOR_TEMPORAL_NAMESPACE", "aiarch-test"),
+		PostgresURL:      os.Getenv("ARCHISTRATOR_POSTGRES_URL"),
+		TemporalHostPort: os.Getenv("ARCHISTRATOR_TEMPORAL_HOSTPORT"),
+		// An explicit env value is honored (CI pinning); otherwise every test
+		// process gets its OWN registered namespace — see namespace.go for why
+		// sharing one namespace across concurrent harness servers loses tasks
+		// to foreign pollers.
+		TemporalNamespace: os.Getenv("ARCHISTRATOR_TEMPORAL_NAMESPACE"),
 		OllamaBaseURL:     os.Getenv("ARCHISTRATOR_OLLAMA_BASEURL"),
 		OllamaModel:       getenvDefault("ARCHISTRATOR_OLLAMA_MODEL", "qwen2.5:3b"),
 		Drafting:          getenvDefault("ARCHISTRATOR_SYSTEMTESTS_DRAFTING", "replay"),
@@ -36,6 +40,9 @@ func InfraFromEnv() (Infra, bool) {
 	}
 	if in.needsOllama() && in.OllamaBaseURL == "" {
 		return Infra{}, false
+	}
+	if in.TemporalNamespace == "" {
+		in.TemporalNamespace = processNamespace(in.TemporalHostPort)
 	}
 	return in, true
 }
