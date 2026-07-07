@@ -146,14 +146,28 @@ func TestIdempotencyAnchorMatchesDispatchConstants(t *testing.T) {
 func TestReferencesGoTestGateAndStatePath(t *testing.T) {
 	body := string(renderedDesignWorkflow(t, testAppSlug))
 
-	// The required check is now `go test ./...` (the seated aiarch_method_test.go →
-	// methodcheck.Check), NOT a pinned aiarch-validate container. The container/CLI
-	// must be fully gone.
-	if !strings.Contains(body, "go test ./...") {
-		t.Error("workflow's required check must run `go test ./...` (the seated methodcheck gate)")
+	// The required check is `aiarch-state-mcp validate` — the staleness-aware Method
+	// gate shipped in the pinned state-MCP binary (2026-07-06; the cross-artifact
+	// amendment deadlock fix). The old seated `go mod tidy` + `go test ./...` steps
+	// must be gone from the DESIGN workflow (the seated go.mod/aiarch_method_test.go
+	// scaffold remains for the product repo's own CI), and the long-removed
+	// aiarch-validate container must stay gone.
+	if !strings.Contains(body, "${{ steps.statemcp.outputs.bin }} validate") {
+		t.Error("workflow's required check must run the pinned binary's `validate` subcommand")
+	}
+	if strings.Contains(body, "go test ./...") {
+		t.Error("the design workflow must no longer run the seated `go test ./...` gate (replaced by `aiarch-state-mcp validate`)")
+	}
+	if strings.Contains(body, "go mod tidy") {
+		t.Error("the design workflow must no longer materialize go.sum (the seated go test is not run here)")
 	}
 	if !strings.Contains(body, "actions/setup-go") {
-		t.Error("workflow must set up Go before running the go-test gate")
+		t.Error("workflow must set up Go before installing the pinned validator binary")
+	}
+	// The validate JOB installs the pinned binary itself (jobs share no filesystem):
+	// the `go install <path>@pin` line must appear in BOTH the draft and validate jobs.
+	if strings.Count(body, "go install "+StateMcpModulePath) < 2 {
+		t.Error("both the draft and validate jobs must install the pinned aiarch-state-mcp binary")
 	}
 	if strings.Contains(body, "aiarch-validate") {
 		t.Error("workflow must no longer reference the removed aiarch-validate CLI/container")

@@ -31,6 +31,16 @@ func main() {
 		}
 		return
 	}
+	// `validate` is the Method-invariant REQUIRED CI check the seated design workflow
+	// runs on every design PR (validate.go): the same methodcheck rules putDraftModel
+	// enforces in-loop, with the staleness-aware cross-artifact severity policy
+	// (staleness.go), over the checkout's committed .aiarch/state/project.json.
+	if len(os.Args) > 1 && os.Args[1] == "validate" {
+		if err := runValidate(os.Args[2:], os.Stdout); err != nil {
+			fatalf("validate: %v", err)
+		}
+		return
+	}
 
 	wd, err := os.Getwd()
 	if err != nil {

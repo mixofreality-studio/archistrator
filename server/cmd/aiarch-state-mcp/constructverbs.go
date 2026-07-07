@@ -79,6 +79,9 @@ func (s *Session) applyConstructionMutation(what string, mutate func(*projectsta
 	if ferr != nil {
 		return fmt.Errorf("the Method coherence check failed: %w", ferr)
 	}
+	// Same staleness-aware cross-artifact severity policy as putDraftModel and the CI
+	// `validate` subcommand (staleness.go): the in-loop and CI verdicts never disagree.
+	findings = applyStaleBasisDowngrades(proj, findings)
 	if errs := filterErrorFindings(findings); len(errs) > 0 {
 		return fmt.Errorf("the %s change violates %d Method rule(s) that the required CI check enforces — fix them and record again:\n%s",
 			what, len(errs), formatFindings(errs))

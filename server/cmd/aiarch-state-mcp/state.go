@@ -91,11 +91,16 @@ func (s *Session) putDraftModel(modelJSON []byte) error {
 		return fmt.Errorf("the drafted project state would be rejected by the server on read-back: %w", derr)
 	}
 
-	// GATE 2 — methodcheck (the required CI gate) over the whole re-encoded document.
+	// GATE 2 — methodcheck (the required CI gate) over the whole re-encoded document,
+	// under the SAME staleness-aware cross-artifact severity policy the CI `validate`
+	// subcommand applies (staleness.go) — so a System amendment whose deployment
+	// reconciliation is pending by design (OperationalConcepts flagged stale-basis) is
+	// not deadlocked in-loop by the System×OperationalConcepts join rules.
 	findings, ferr := methodcheck.ValidateProjectJSON(newBytes)
 	if ferr != nil {
 		return fmt.Errorf("the Method coherence check failed: %w", ferr)
 	}
+	findings = applyStaleBasisDowngrades(proj, findings)
 	if errs := filterErrorFindings(findings); len(errs) > 0 {
 		return fmt.Errorf("the %s draft violates %d Method rule(s) that the required CI check enforces — fix them and call putDraftModel again:\n%s",
 			s.Kind.WireName(), len(errs), formatFindings(errs))

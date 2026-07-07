@@ -15,9 +15,15 @@ package sourcecontrol
 //      unless allow-listed. The slug varies per deployment, so it is not hardcoded.
 //   2. go.mod — `module <REPO_MODULE>` (github.com/<owner>/<repo>, derived from the
 //      adopted RepoRef) + a go directive + `require github.com/mixofreality-studio/archistrator-platform/framework-go`
-//      pinned to FrameworkGoVersion, so the seated `go test` resolves methodcheck.
+//      pinned to FrameworkGoVersion, so a `go test` in the repo resolves methodcheck.
 //   3. aiarch_method_test.go — the single test calling methodcheck.Check (the
-//      all-in-one Method gate). It is what `go test ./...` runs as the REQUIRED check.
+//      all-in-one Method gate). Since 2026-07-06 the DESIGN workflow's REQUIRED
+//      `validate` job runs `aiarch-state-mcp validate` (the pinned, self-updating
+//      binary carrying the same design rules + the staleness-aware cross-artifact
+//      severity policy) INSTEAD of this test; the scaffold remains seated for the
+//      product repo's OWN CI once it has Go code (arch layer rules + design↔code
+//      alignment need go/packages over the product module, which an installed
+//      binary cannot run).
 //   4. internal/.gitkeep — a placeholder that keeps the internal/ directory PRESENT
 //      in a fresh repo. The seated method test (3) runs methodcheck.Check, whose
 //      arch.MethodSpec loads the `./internal/...` package pattern; on an empty birth
@@ -126,8 +132,12 @@ const FrameworkGoVersion = "v0.4.4"
 // SAME projectstate codec + methodcheck the server uses on read-back. It lives in the
 // archistrator SERVER module (not framework-go) because it must reuse the strict codec in
 // server/internal — a package only that module can import. The workflow obtains it the
-// SAME way the seated `go test` obtains framework-go: `go install <path>@<pin>` resolved
-// via GOPROXY (a published module), so it carries the identical trust/access profile.
+// SAME way the seated go.mod scaffold obtains framework-go: `go install <path>@<pin>`
+// resolved via GOPROXY (a published module), so it carries the identical trust/access
+// profile. Since 2026-07-06 the workflow's REQUIRED `validate` job also runs this
+// binary's `validate` subcommand as the Method-invariant PR gate (staleness-aware
+// cross-artifact severity — the amendment-deadlock fix), so the gate's rule stack
+// self-updates with this pin via the managed-scaffold sync.
 const StateMcpModulePath = "github.com/mixofreality-studio/archistrator/server/cmd/aiarch-state-mcp"
 
 // StateMcpModulePin is the version the workflow installs the state-MCP binary at. It must
