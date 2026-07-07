@@ -231,8 +231,17 @@ func TestDesignWorkflowCritiqueDoesNotOpenPR(t *testing.T) {
 func TestDesignWorkflowWiresStateMcp(t *testing.T) {
 	body := string(renderedDesignWorkflow(t, testAppSlug))
 
-	if !strings.Contains(body, "go install "+StateMcpModulePath+"@"+StateMcpModulePin) {
-		t.Errorf("workflow must `go install %s@%s`; got:\n%s", StateMcpModulePath, StateMcpModulePin, body)
+	// VERSION HANDSHAKE (managed-scaffold sync): the pin is stamped as a step env the job
+	// echoes (so any run's log states which binary generation the seated scaffold carries)
+	// and the install resolves through that same env — one rendered value, two uses.
+	if !strings.Contains(body, `AIARCH_STATE_MCP_PIN: "`+StateMcpModulePin+`"`) {
+		t.Errorf("workflow must stamp the state-MCP pin as the AIARCH_STATE_MCP_PIN env (%s); got:\n%s", StateMcpModulePin, body)
+	}
+	if !strings.Contains(body, "go install "+StateMcpModulePath+`@"${AIARCH_STATE_MCP_PIN}"`) {
+		t.Errorf("workflow must `go install %s@\"${AIARCH_STATE_MCP_PIN}\"`; got:\n%s", StateMcpModulePath, body)
+	}
+	if !strings.Contains(body, "echo \"aiarch-state-mcp pin: "+StateMcpModulePath+"@${AIARCH_STATE_MCP_PIN}\"") {
+		t.Error("workflow must echo the stamped state-MCP pin (the version-handshake log line)")
 	}
 	// The MCP config bakes in the ambient env keys the binary reads (never agent-supplied).
 	for _, key := range []string{"AIARCH_PROJECT_ID", "AIARCH_ARTIFACT_KIND", "AIARCH_JOB_MODE", "AIARCH_TARGET_BRANCH", "AIARCH_STATE_ROOT"} {
@@ -500,3 +509,61 @@ func (railWithoutSlug) PostReview(fwra.Context, RepoRef, PullRequestRef, ReviewS
 }
 
 var _ SourceControlAccess = railWithoutSlug{}
+
+// TestStateMcpPinIsNotABranch guards the managed-scaffold sync's premise: the pin the
+// template renders (and the sync converges seated copies onto) must be a FIXED ref —
+// a commit SHA or a tag the release process moves deliberately — never a branch name.
+// GOPROXY caches branch→pseudo-version resolutions, so a branch pin can silently serve
+// a stale binary (the drift class the sync exists to eliminate); with a branch pin the
+// seated bytes also never change, so the sync could not even detect the drift.
+func TestStateMcpPinIsNotABranch(t *testing.T) {
+	if strings.TrimSpace(StateMcpModulePin) == "" {
+		t.Fatal("StateMcpModulePin must not be empty")
+	}
+	for _, branch := range []string{"main", "master", "HEAD"} {
+		if StateMcpModulePin == branch {
+			t.Fatalf("StateMcpModulePin must be a fixed ref (commit SHA or tag), not the branch %q", branch)
+		}
+	}
+}
+
+// TestDesignWorkflowFileIsTheSeatRendering proves the sync and the birth seat share
+// ONE rendering: DesignWorkflowFile equals the DesignWorkflowPath entry of the
+// ManagedScaffoldFiles birth bundle byte-for-byte, so sync-on-dispatch converges the
+// seated copy onto exactly what a fresh seat would commit today.
+func TestDesignWorkflowFileIsTheSeatRendering(t *testing.T) {
+	single, err := DesignWorkflowFile(testAppSlug)
+	if err != nil {
+		t.Fatalf("DesignWorkflowFile: %v", err)
+	}
+	if single.Path != DesignWorkflowPath {
+		t.Fatalf("DesignWorkflowFile path = %q, want %q", single.Path, DesignWorkflowPath)
+	}
+	bundle, err := ManagedScaffoldFiles(RepoRef("acct|acme/proj"), testAppSlug)
+	if err != nil {
+		t.Fatalf("ManagedScaffoldFiles: %v", err)
+	}
+	var seat []byte
+	for _, f := range bundle {
+		if f.Path == DesignWorkflowPath {
+			seat = f.Content
+		}
+	}
+	if seat == nil {
+		t.Fatalf("seat bundle is missing %s", DesignWorkflowPath)
+	}
+	if !bytes.Equal(single.Content, seat) {
+		t.Fatal("DesignWorkflowFile and the ManagedScaffoldFiles seat entry must be the SAME rendering (seat and sync can never disagree)")
+	}
+}
+
+// TestSyncManagedScaffoldMessageNamesFileAndPin pins the sync commit-message contract:
+// it names the refreshed file and the state-MCP pin it refreshed to, so the repo
+// history records when and to which binary generation the scaffold was synced.
+func TestSyncManagedScaffoldMessageNamesFileAndPin(t *testing.T) {
+	msg := syncManagedScaffoldMessage()
+	want := "aiarch: sync managed scaffold (aiarch-design.yml) to aiarch-state-mcp@" + StateMcpModulePin
+	if msg != want {
+		t.Fatalf("syncManagedScaffoldMessage() = %q, want %q", msg, want)
+	}
+}

@@ -536,6 +536,10 @@ var encapsulationAllowlistData = map[string][]string{
 		"CheckStateString",
 		"CommitRefIsZero",
 		"CommitRefString",
+		// The managed-scaffold SYNC surface (sync-on-dispatch, 2026-07-06): the single
+		// seat/sync rendering of the design workflow + the drift-converge helper the
+		// design Managers run before every design-job dispatch.
+		"DesignWorkflowFile",
 		"DesignWorkflowPath",
 		"Error",
 		"FrameworkGoVersion",
@@ -564,6 +568,10 @@ var encapsulationAllowlistData = map[string][]string{
 		// workflow `go install`s (agentic-managers spec §Construction application).
 		"StateMcpModulePath",
 		"StateMcpModulePin",
+		// SyncManagedScaffold: the managed-scaffold sync entry point (see
+		// DesignWorkflowFile above) — converge the seated design workflow onto the
+		// current template rendering before a design-job dispatch.
+		"SyncManagedScaffold",
 	},
 	// Cross-package identity value types (CustomerID, OperatedAppID) consumed by downstream
 	// Managers, + Error alias.

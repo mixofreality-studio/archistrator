@@ -78,6 +78,7 @@ package sourcecontrol_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -972,4 +973,120 @@ func countRequests(fake *gh.FakeGitHub, method, path string) int {
 		}
 	}
 	return n
+}
+
+// ---------------------------------------------------------------------------
+// U43–U45  managed-scaffold sync (sync-on-dispatch, 2026-07-06). The design
+// Managers converge the seated aiarch-design.yml onto the CURRENT template
+// rendering before every design-job dispatch: drift → ONE commit with the sync
+// message naming the refreshed pin; byte-identical → NO commit.
+// ---------------------------------------------------------------------------
+
+// putMessage extracts the commit "message" from the recorded contents-PUT body at path.
+func putMessage(t *testing.T, fake *gh.FakeGitHub, path string) string {
+	t.Helper()
+	for _, r := range fake.Requests() {
+		if r.Method == "PUT" && r.Path == path {
+			var body struct {
+				Message string `json:"message"`
+			}
+			if err := json.Unmarshal([]byte(r.Body), &body); err != nil {
+				t.Fatalf("decode contents PUT body: %v", err)
+			}
+			return body.Message
+		}
+	}
+	t.Fatalf("no contents PUT recorded for %s", path)
+	return ""
+}
+
+// U43: DRIFT → COMMIT. A stale seated design workflow (e.g. an old aiarch-state-mcp
+// pin) is refreshed by exactly ONE contents PUT to the default branch, the stored
+// bytes equal the CURRENT template rendering, the commit message is the SYNC message
+// (file + new pin — not the birth-seat message), and changed=true is reported. The
+// sync touches ONLY the workflow file — never go.mod (user-evolved after birth).
+func TestU43_SyncManagedScaffoldDriftCommitsRefresh(t *testing.T) {
+	fake, a, repo, cred := adoptedFixture(t, "alpha")
+	defer fake.Close()
+	fake.SeedRepoFile(testAccount, "alpha", sc.DesignWorkflowPath, []byte("stale seated workflow (old pin)"))
+
+	changed, err := sc.SyncManagedScaffold(context.Background(), a, repo, cred)
+	if err != nil {
+		t.Fatalf("SyncManagedScaffold: %v", err)
+	}
+	if !changed {
+		t.Fatal("a drifted seated workflow must report changed=true")
+	}
+	if got := countRequests(fake, "PUT", "/repos/acme/alpha/contents/"+sc.DesignWorkflowPath); got != 1 {
+		t.Fatalf("a drifted workflow must issue exactly one contents PUT, got %d", got)
+	}
+	want, err := sc.DesignWorkflowFile(testAppSlug)
+	if err != nil {
+		t.Fatalf("DesignWorkflowFile: %v", err)
+	}
+	stored, ok := fake.RepoFile(testAccount, "alpha", sc.DesignWorkflowPath)
+	if !ok || string(stored) != string(want.Content) {
+		t.Fatal("the refreshed seated workflow must equal the CURRENT template rendering")
+	}
+	msg := putMessage(t, fake, "/repos/acme/alpha/contents/"+sc.DesignWorkflowPath)
+	wantMsg := "aiarch: sync managed scaffold (aiarch-design.yml) to aiarch-state-mcp@" + sc.StateMcpModulePin
+	if msg != wantMsg {
+		t.Fatalf("sync commit message = %q, want %q", msg, wantMsg)
+	}
+	// The sync scope is the design workflow ONLY — go.mod and the method test are
+	// user-territory after birth and must never be re-seated by the sync.
+	if countRequests(fake, "PUT", "/repos/acme/alpha/contents/go.mod") != 0 ||
+		countRequests(fake, "PUT", "/repos/acme/alpha/contents/aiarch_method_test.go") != 0 {
+		t.Fatal("the sync must touch ONLY the design workflow file")
+	}
+}
+
+// U44: MATCH → NO COMMIT. A seated workflow already at the current rendering is a
+// no-op: zero contents PUTs (no empty commit), changed=false.
+func TestU44_SyncManagedScaffoldByteIdenticalNoCommit(t *testing.T) {
+	fake, a, repo, cred := adoptedFixture(t, "alpha")
+	defer fake.Close()
+	current, err := sc.DesignWorkflowFile(testAppSlug)
+	if err != nil {
+		t.Fatalf("DesignWorkflowFile: %v", err)
+	}
+	fake.SeedRepoFile(testAccount, "alpha", sc.DesignWorkflowPath, current.Content)
+
+	changed, err := sc.SyncManagedScaffold(context.Background(), a, repo, cred)
+	if err != nil {
+		t.Fatalf("SyncManagedScaffold: %v", err)
+	}
+	if changed {
+		t.Fatal("a byte-identical seated workflow must report changed=false")
+	}
+	if got := countRequests(fake, "PUT", "/repos/acme/alpha/contents/"+sc.DesignWorkflowPath); got != 0 {
+		t.Fatalf("a byte-identical seated workflow must issue NO contents PUT, got %d", got)
+	}
+}
+
+// U45: FALLBACK. A rail that lacks the auxiliary sync surface (here: the real access
+// hidden behind an interface-embedding wrapper, so the type assertion misses) still
+// CONVERGES through the frozen CommitManagedFiles verb — the refreshed bytes land —
+// but reports changed=false (the frozen verb does not report drift).
+func TestU45_SyncManagedScaffoldFallsBackToFrozenVerb(t *testing.T) {
+	fake, a, repo, cred := adoptedFixture(t, "alpha")
+	defer fake.Close()
+	fake.SeedRepoFile(testAccount, "alpha", sc.DesignWorkflowPath, []byte("stale seated workflow"))
+	wrapped := struct{ sc.SourceControlAccess }{a} // hides the auxiliary SyncManagedFiles
+
+	changed, err := sc.SyncManagedScaffold(context.Background(), wrapped, repo, cred)
+	if err != nil {
+		t.Fatalf("SyncManagedScaffold (fallback): %v", err)
+	}
+	if changed {
+		t.Fatal("the frozen-verb fallback cannot report drift; changed must be false")
+	}
+	want, err := sc.DesignWorkflowFile("") // wrapper hides AppSlug too → empty slug rendering
+	if err != nil {
+		t.Fatalf("DesignWorkflowFile: %v", err)
+	}
+	stored, ok := fake.RepoFile(testAccount, "alpha", sc.DesignWorkflowPath)
+	if !ok || string(stored) != string(want.Content) {
+		t.Fatal("the fallback must still converge the seated workflow onto the current rendering")
+	}
 }

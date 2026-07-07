@@ -492,13 +492,34 @@ func (a *access) GetInstallationToken(rc fwra.Context, repo RepoRef) (RepoCreden
 // file. Files are committed in a STABLE order (sorted by path) for deterministic
 // commit history. The returned CommitRef is the LAST file's resulting commit.
 func (a *access) CommitManagedFiles(rc fwra.Context, repo RepoRef, files []ManagedFile, cred RepoCredential) (CommitRef, error) {
-	ctx := rc.Context
+	ref, _, err := a.putManagedFiles(rc.Context, repo, files, ManagedCommitMessage, cred)
+	return ref, err
+}
+
+// SyncManagedFiles is the hand-written auxiliary MANAGED-SCAFFOLD SYNC surface
+// (2026-07-06), OFF the frozen contract like AppSlug / GetInstallationTokenForProject:
+// the same allowlist-guarded, fetch-compare-put converge as CommitManagedFiles, but
+// with a CALLER-SUPPLIED commit message (a sync commit names the file + the pin it
+// refreshed to, not the birth-seat message) and an explicit changed report (true ⇔ at
+// least one file drifted and a commit was written; false ⇔ byte-identical, no commit).
+// Reached via the sourcecontrol.SyncManagedScaffold package helper (managedFileSyncer).
+func (a *access) SyncManagedFiles(ctx context.Context, repo RepoRef, files []ManagedFile, message string, cred RepoCredential) (CommitRef, bool, error) {
+	if strings.TrimSpace(message) == "" {
+		return "", false, fwra.New(fwra.ContractMisuse, "SyncManagedFiles: empty commit message")
+	}
+	return a.putManagedFiles(ctx, repo, files, message, cred)
+}
+
+// putManagedFiles is the SHARED seat/sync write behind CommitManagedFiles (the frozen
+// birth-seat verb, fixed ManagedCommitMessage) and SyncManagedFiles (the auxiliary
+// sync, caller message + drift report). One implementation, one allowlist gatekeeper.
+func (a *access) putManagedFiles(ctx context.Context, repo RepoRef, files []ManagedFile, message string, cred RepoCredential) (CommitRef, bool, error) {
 	_, fullName, err := a.requireRepoCred(repo, cred)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	if len(files) == 0 {
-		return "", fwra.New(fwra.ContractMisuse, "CommitManagedFiles: empty fileset")
+		return "", false, fwra.New(fwra.ContractMisuse, "CommitManagedFiles: empty fileset")
 	}
 
 	// Validate the whole set BEFORE any write, so an off-allowlist or empty-content
@@ -508,33 +529,35 @@ func (a *access) CommitManagedFiles(rc fwra.Context, repo RepoRef, files []Manag
 	copy(ordered, files)
 	for _, f := range ordered {
 		if strings.TrimSpace(f.Path) == "" {
-			return "", fwra.New(fwra.ContractMisuse, "CommitManagedFiles: empty path")
+			return "", false, fwra.New(fwra.ContractMisuse, "CommitManagedFiles: empty path")
 		}
 		if !isManagedFilePath(f.Path) {
-			return "", fwra.New(fwra.ContractMisuse,
+			return "", false, fwra.New(fwra.ContractMisuse,
 				"CommitManagedFiles: path "+f.Path+" is not an aiarch-managed file (must be under "+workflowPathPrefix+" or a scaffold root: go.mod / aiarch_method_test.go / internal/.gitkeep)")
 		}
 		if len(f.Content) == 0 {
-			return "", fwra.New(fwra.ContractMisuse, "CommitManagedFiles: empty content for "+f.Path)
+			return "", false, fwra.New(fwra.ContractMisuse, "CommitManagedFiles: empty content for "+f.Path)
 		}
 	}
 	sort.Slice(ordered, func(i, j int) bool { return ordered[i].Path < ordered[j].Path })
 
 	var last CommitRef
+	var anyChanged bool
 	for _, f := range ordered {
-		commitSHA, _, perr := a.client.PutRepoContentsFile(ctx, fullName, f.Path, f.Content, ManagedCommitMessage, credStr(cred))
+		commitSHA, changed, perr := a.client.PutRepoContentsFile(ctx, fullName, f.Path, f.Content, message, credStr(cred))
 		if perr != nil {
 			// A concurrent-write race surfaces as Conflict; per §3 this is the ONE
 			// retryable Conflict on this seam (retry-by-re-read). Override Retryable=true.
 			if fe := asFwraError(perr); fe != nil && fe.Kind == fwra.Conflict {
 				fe.Retryable = true
-				return "", fe
+				return "", anyChanged, fe
 			}
-			return "", perr
+			return "", anyChanged, perr
 		}
+		anyChanged = anyChanged || changed
 		last = CommitRef(commitSHA)
 	}
-	return last, nil
+	return last, anyChanged, nil
 }
 
 // asFwraError returns the underlying *fwra.Error or nil.

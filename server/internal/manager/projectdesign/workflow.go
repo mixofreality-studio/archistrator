@@ -131,6 +131,7 @@ const (
 
 	// PR-rail Activity names (I-DESIGN-DISPATCH §2b).
 	actMintRepoCredential   = "MintRepoCredentialActivity" // #nosec G101 -- Temporal activity NAME constant, not a credential
+	actSyncManagedScaffold  = "SyncManagedScaffoldActivity"
 	actOpenBranch           = "OpenBranchActivity"
 	actOpenPullRequest      = "OpenPullRequestActivity"
 	actGetPullRequestStatus = "GetPullRequestStatusActivity"

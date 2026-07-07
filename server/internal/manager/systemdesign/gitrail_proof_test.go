@@ -119,6 +119,13 @@ func (r *scriptedRail) count(verb string) int {
 	return r.calls[verb]
 }
 
+func (r *scriptedRail) SyncManagedScaffold(_ context.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.RepoCredential) (bool, error) {
+	r.mu.Lock()
+	r.calls["SyncManagedScaffold"]++
+	r.mu.Unlock()
+	return false, nil
+}
+
 func (r *scriptedRail) GetInstallationToken(_ context.Context, _ sourcecontrol.RepoRef) (sourcecontrol.RepoCredential, error) {
 	r.mu.Lock()
 	r.calls["GetInstallationToken"]++

@@ -91,6 +91,9 @@ type scriptedRail struct {
 	// statusAuthFailsRemaining, when >0, makes GetPullRequestStatus return an fwra.Auth
 	// error (the platform's rate-limit-403-as-Auth) and decrement — exercises QA F35.
 	statusAuthFailsRemaining int
+	// syncErr, when non-nil, makes SyncManagedScaffold fail terminally — exercises the
+	// managed-scaffold-sync containment (dispatch BLOCKED, session at the failed gate).
+	syncErr error
 
 	openedBranches []string
 	openedPRHeads  []string
@@ -107,6 +110,17 @@ func (r *scriptedRail) count(verb string) int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.calls[verb]
+}
+
+func (r *scriptedRail) SyncManagedScaffold(_ context.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.RepoCredential) (bool, error) {
+	r.mu.Lock()
+	r.calls["SyncManagedScaffold"]++
+	err := r.syncErr
+	r.mu.Unlock()
+	if err != nil {
+		return false, err
+	}
+	return false, nil
 }
 
 func (r *scriptedRail) GetInstallationToken(_ context.Context, _ sourcecontrol.RepoRef) (sourcecontrol.RepoCredential, error) {
@@ -263,6 +277,7 @@ func registerRailCoAuthor(env *testsuite.TestWorkflowEnvironment, wf *workflows)
 	env.RegisterActivity(wf.RejectArtifactActivity)
 	env.RegisterActivity(wf.WithdrawArtifactActivity)
 	env.RegisterActivity(wf.MintRepoCredentialActivity)
+	env.RegisterActivity(wf.SyncManagedScaffoldActivity)
 	env.RegisterActivity(wf.OpenBranchActivity)
 	env.RegisterActivity(wf.OpenPullRequestActivity)
 	env.RegisterActivity(wf.GetPullRequestStatusActivity)
@@ -1380,5 +1395,61 @@ func Test_CoAuthorPhase2_RejectWithComments_ThreadRefreshes_QueryPromptAndApprov
 	}
 	if p := pipe.submits[1].dispatchInputs[dispatchInputDesignPrompt]; !strings.Contains(p, commentText) {
 		t.Fatalf("(b) the redraft prompt must carry the open review-ledger comment; prompt:\n%s", p)
+	}
+}
+
+// MANAGED-SCAFFOLD SYNC GATE (sync-on-dispatch, 2026-07-06; UC2 twin of the
+// systemdesign proof). A managed-scaffold sync failure BLOCKS the Phase-2 design
+// dispatch: NO design job is submitted, NO session branch is opened, and the session
+// lands at the human-visible StageDraftFailed gate (contained, never a crash).
+func Test_CoAuthorPhase2_Rail_ScaffoldSyncFailure_BlocksDispatch_LandsAtFailedGate(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	log := &seqLog{}
+	base := &fakeProjectState{project: planningAssumptionsReadBack(projectstate.ProjectID(id))}
+	ps := &seqProjectState{fakeProjectState: base, log: log}
+	pipe := newFakePipeline()
+	rail := newScriptedRail(true, log)
+	rail.syncErr = fwra.New(fwra.ContractMisuse, "seated workflow could not be refreshed")
+	wf := newRailWorkflows(ps, pipe, rail)
+	registerRailCoAuthor(env, wf)
+
+	env.RegisterDelayedCallback(func() {
+		enc, err := env.QueryWorkflow(querySessionState)
+		if err != nil {
+			t.Fatalf("QueryWorkflow: %v", err)
+		}
+		var view SessionStateView
+		if err := enc.Get(&view); err != nil {
+			t.Fatalf("decode SessionStateView: %v", err)
+		}
+		if view.Stage != StageDraftFailed {
+			t.Fatalf("a failed managed-scaffold sync must land at StageDraftFailed (dispatch blocked), got %d", view.Stage)
+		}
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 30*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindPlanningAssumptions})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a failed managed-scaffold sync must be CONTAINED at the failed gate, not crash: %v", err)
+	}
+	if rail.count("SyncManagedScaffold") == 0 {
+		t.Fatal("the managed-scaffold sync must have been attempted")
+	}
+	if len(pipe.submits) != 0 {
+		t.Fatalf("a failed sync must BLOCK the design-job dispatch, got %d submits", len(pipe.submits))
+	}
+	if rail.count("OpenBranch") != 0 || rail.count("OpenPullRequest") != 0 {
+		t.Fatalf("a failed sync must not open a branch/PR, got openBranch=%d openPR=%d",
+			rail.count("OpenBranch"), rail.count("OpenPullRequest"))
+	}
+	if len(base.staged) != 0 || len(base.committed) != 0 {
+		t.Fatalf("a blocked dispatch must stage/commit nothing, got staged=%d committed=%v", len(base.staged), base.committed)
+	}
+	if len(base.withdrawn) != 1 {
+		t.Fatalf("withdraw from the failed gate must call WithdrawArtifact once, got %d", len(base.withdrawn))
 	}
 }

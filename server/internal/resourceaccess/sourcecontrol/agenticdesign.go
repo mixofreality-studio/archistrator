@@ -52,9 +52,13 @@ package sourcecontrol
 
 import (
 	"bytes"
+	"context"
 	_ "embed"
 	"fmt"
+	"path"
 	"text/template"
+
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
 // designWorkflowTmplText is the embedded DESIGN workflow text/template source. It is
@@ -127,15 +131,26 @@ const FrameworkGoVersion = "v0.4.4"
 const StateMcpModulePath = "github.com/mixofreality-studio/archistrator/server/cmd/aiarch-state-mcp"
 
 // StateMcpModulePin is the version the workflow installs the state-MCP binary at. It must
-// be a git ref GOPROXY can resolve for the archistrator repo — a tag (server/vX.Y.Z → the
-// @vX.Y.Z form here) or a branch (@main, resolved to its pseudo-version).
+// be a git ref GOPROXY can resolve for the PUBLIC archistrator repo — a full commit SHA
+// (resolved to its pseudo-version), a tag (server/vX.Y.Z → the @vX.Y.Z form here), or a
+// branch name.
 //
-// FOUNDER-GATED: the archistrator app repo must be PUBLIC for GOPROXY to resolve this
-// (run PUSH-APP.sh), exactly as archistrator-platform is public for the framework-go pin.
-// Until then the design workflow's MCP install step fails RED (the correct signal — a
-// visible failed gate, never a silent skip). For reproducibility the founder may move this
-// to a tagged `server/vX.Y.Z` release once cut; `main` works the moment the repo is public.
-const StateMcpModulePin = "main"
+// SOURCE OF TRUTH (managed-scaffold sync, 2026-07-06): this SOURCE CONSTANT is the single
+// place the control plane declares which state-MCP binary generation its validators and
+// prompts are compatible with. The RELEASE PROCESS updates it when the binary's codec /
+// methodcheck rules change, in the same commit that changes them — the two can never
+// version independently because they live in one module. It is a `var` (not `const`) so a
+// release pipeline may also stamp it at build time via
+// `-ldflags "-X .../sourcecontrol.StateMcpModulePin=<sha>"`; the in-source default below
+// is what an unstamped build seats and syncs.
+//
+// A full SHA is pinned (NOT `@main`): GOPROXY caches branch→pseudo-version resolutions,
+// so `@main` can silently serve a stale binary for hours — the exact drift class the
+// managed-scaffold sync exists to eliminate. Seated workflow copies rendered with an
+// older pin are refreshed by the design Managers' sync-on-dispatch (SyncManagedScaffold)
+// before every design job, so a seated repo can no longer run against a pin this server's
+// validators do not understand.
+var StateMcpModulePin = "67b685705826088e1546a8f726b593d21b38b09b"
 
 // NOTE (2026-06-15 correction): the embedded DESIGN workflow reads
 // ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }} to authenticate claude-code-action, but that
@@ -164,9 +179,13 @@ func renderDesignWorkflow(appSlug string) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// designWorkflowManagedFile returns the claude-code-action DESIGN workflow rendered
-// with the configured App slug as a provider-neutral ManagedFile.
-func designWorkflowManagedFile(appSlug string) (ManagedFile, error) {
+// DesignWorkflowFile returns the claude-code-action DESIGN workflow rendered with
+// the configured App slug as a provider-neutral ManagedFile — EXACTLY the file the
+// birth seat commits. Exported (2026-07-06 managed-scaffold sync) so the design
+// Managers' sync-on-dispatch can re-render the CURRENT template and converge the
+// seated copy against it; the seat path (ManagedScaffoldFiles) and the sync path
+// share this single rendering, so they can never disagree about the target bytes.
+func DesignWorkflowFile(appSlug string) (ManagedFile, error) {
 	content, err := renderDesignWorkflow(appSlug)
 	if err != nil {
 		return ManagedFile{}, err
@@ -231,7 +250,7 @@ func ManagedScaffoldFiles(repo RepoRef, appSlug string) ([]ManagedFile, error) {
 		FrameworkGoVersion: FrameworkGoVersion,
 	}
 
-	workflow, err := designWorkflowManagedFile(appSlug)
+	workflow, err := DesignWorkflowFile(appSlug)
 	if err != nil {
 		return nil, err
 	}
@@ -250,6 +269,63 @@ func ManagedScaffoldFiles(repo RepoRef, appSlug string) ([]ManagedFile, error) {
 		{Path: MethodTestPath, Content: methodTest},
 		{Path: internalGitkeepPath, Content: []byte(internalGitkeepContent)},
 	}, nil
+}
+
+// syncManagedScaffoldMessage is the commit message a managed-scaffold SYNC commit
+// carries (distinct from the birth-seat ManagedCommitMessage): it names the refreshed
+// file AND the state-MCP pin the refreshed rendering installs, so the repo history
+// records exactly when the scaffold was brought current and to which binary generation.
+func syncManagedScaffoldMessage() string {
+	return fmt.Sprintf("aiarch: sync managed scaffold (%s) to aiarch-state-mcp@%s",
+		path.Base(DesignWorkflowPath), StateMcpModulePin)
+}
+
+// managedFileSyncer is the OPTIONAL hand-written auxiliary sync surface a concrete
+// SourceControlAccess may expose (the GitHub-backed access does — see
+// (*access).SyncManagedFiles): the seat write with a caller-supplied commit message
+// and an explicit drifted/converged report. Same discovery pattern as RailAppSlug.
+type managedFileSyncer interface {
+	SyncManagedFiles(ctx context.Context, repo RepoRef, files []ManagedFile, message string, cred RepoCredential) (CommitRef, bool, error)
+}
+
+// SyncManagedScaffold ensures the SEATED design workflow (aiarch-design.yml on the
+// repo's DEFAULT branch) matches the CURRENT template rendering — the managed-scaffold
+// sync the design Managers run BEFORE every design-job dispatch (2026-07-06; closes
+// the CreateProject-seats-once drift: the birth seat's constant idempotency key means
+// a seated copy was otherwise never refreshed, so server upgrades stranded live repos
+// on a stale aiarch-state-mcp pin whose binary the new validators reject).
+//
+// It re-renders the workflow exactly as seat-time would TODAY (DesignWorkflowFile with
+// the rail's own App slug) and converges the seated copy through the rail:
+//   - drifted   → ONE commit to the default branch (sync message naming the new pin),
+//     changed=true
+//   - identical → NO commit (the contents write is fetch-compare-put, byte-identical
+//     short-circuits), changed=false
+//
+// SCOPE: the design workflow file ONLY. The rest of the birth scaffold (go.mod /
+// aiarch_method_test.go / internal/.gitkeep) is deliberately NOT synced — go.mod is
+// user-evolved after birth (their requires) and re-seating it would destroy user
+// content; see docs/later.md for the earmarked follow-ups.
+//
+// When the concrete rail lacks the auxiliary sync surface (a test fake), it falls back
+// to the FROZEN CommitManagedFiles verb — the identical converge semantics under the
+// seat message — reporting changed=false (the frozen verb does not report drift).
+// A sync error means the seated scaffold could not be proven current; the caller MUST
+// fail the dispatch (never dispatch against a known-stale scaffold).
+func SyncManagedScaffold(ctx context.Context, rail SourceControlAccess, repo RepoRef, cred RepoCredential) (bool, error) {
+	if rail == nil {
+		return false, fmt.Errorf("sourcecontrol: SyncManagedScaffold: nil rail")
+	}
+	file, err := DesignWorkflowFile(RailAppSlug(rail))
+	if err != nil {
+		return false, err
+	}
+	if s, ok := rail.(managedFileSyncer); ok {
+		_, changed, serr := s.SyncManagedFiles(ctx, repo, []ManagedFile{file}, syncManagedScaffoldMessage(), cred)
+		return changed, serr
+	}
+	_, err = rail.CommitManagedFiles(fwra.Context{Context: ctx}, repo, []ManagedFile{file}, cred)
+	return false, err
 }
 
 // RailAppSlug reads the configured GitHub App slug off a SourceControlAccess when the

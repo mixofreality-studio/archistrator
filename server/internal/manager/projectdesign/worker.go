@@ -80,6 +80,7 @@ func RegisterWorker(w worker.Worker, m ProjectDesignManager) {
 	// PR-rail Activities (I-DESIGN-DISPATCH §2b). Registered unconditionally; an unwired
 	// rail (rail/repo nil) never invokes them.
 	w.RegisterActivityWithOptions(wf.MintRepoCredentialActivity, activity.RegisterOptions{Name: actMintRepoCredential})
+	w.RegisterActivityWithOptions(wf.SyncManagedScaffoldActivity, activity.RegisterOptions{Name: actSyncManagedScaffold})
 	w.RegisterActivityWithOptions(wf.OpenBranchActivity, activity.RegisterOptions{Name: actOpenBranch})
 	w.RegisterActivityWithOptions(wf.OpenPullRequestActivity, activity.RegisterOptions{Name: actOpenPullRequest})
 	w.RegisterActivityWithOptions(wf.GetPullRequestStatusActivity, activity.RegisterOptions{Name: actGetPullRequestStatus})

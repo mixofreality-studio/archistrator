@@ -1,6 +1,7 @@
 package systemdesign
 
 import (
+	"fmt"
 	"time"
 
 	"go.temporal.io/sdk/temporal"
@@ -81,6 +82,26 @@ func (wf *workflows) beginSession(ctx workflow.Context, projectID ProjectID, ses
 		return gitSession{}, err
 	}
 	gf.cred = cred
+
+	// MANAGED-SCAFFOLD SYNC (sync-on-dispatch, 2026-07-06): before ANY design job is
+	// dispatched, converge the seated aiarch-design.yml onto the CURRENT template
+	// rendering (drift → one refresh commit on the default branch; identical → no-op).
+	// The birth seat runs ONCE under a constant idempotency key, so without this a
+	// server release that moves the aiarch-state-mcp pin strands every live repo on a
+	// binary the new validators reject (the gtdapp F81 incident). A sync failure BLOCKS
+	// the dispatch — never run a design job against a scaffold we could not prove
+	// current — and is CONTAINED by the caller at the failed gate like every other
+	// dispatch-time rail fault.
+	var scaffoldChanged bool
+	if serr := wf.execRailActivityWithAuthRetry(ctx, wf.SyncManagedScaffoldActivity, syncScaffoldArgs{
+		RepoRef: sourcecontrol.RepoRefString(repoRef), Cred: cred,
+	}, &scaffoldChanged); serr != nil {
+		return gitSession{}, fmt.Errorf("managed-scaffold sync failed — the seated %s could not be refreshed to this server's current template, so the design job was NOT dispatched (a stale scaffold pins an aiarch-state-mcp binary this server's validators reject); Retry re-runs the sync: %w", designWorkflowFileName, serr)
+	}
+	if scaffoldChanged {
+		workflow.GetLogger(ctx).Info("managed scaffold drifted; refreshed the seated design workflow to the current template before dispatch",
+			"file", designWorkflowFileName)
+	}
 
 	// OpenBranch through the shared bounded Auth retry: a secondary-rate-limit 403 here no
 	// longer kills the session (QA F35 twin). A genuine denial exhausts the budget and the

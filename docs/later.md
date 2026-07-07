@@ -29,7 +29,8 @@
 >   only failure-run URL exists today).
 > - Platform methodcheck twins for the 14 new app-side rules (release-gated as usual).
 > - Scaffold re-seat (SyncManagedScaffold) so seated repos get the self-healing branch
->   refresh + a current aiarch-state binary pin.
+>   refresh + a current aiarch-state binary pin. — SHIPPED 2026-07-06 as SYNC-ON-DISPATCH
+>   (see the Construction section entry for the verdicts + residual earmarks).
 > - Retired per-component contract.schema.json seed files: delete or keep decision
 >   (stale-comment cleanup done; the files themselves remain).
 > - STP-UC2-B1 asserts a synchronous SubmitSDPDecision refusal but the verb is a
@@ -150,9 +151,37 @@ log (session scratchpads; summarized in the final QA report).
 - F4 generic construction scaffold seated at advance-to-construction (aiarch-construct
   + .claude tree; archistrator-operated infra constraint) — note P1b covers the MCP
   wiring inside the template; the seating flow itself is this item.
-- Scaffold re-seat verb (CreateProject's constant idempotency key means seated workflow
+- ~~Scaffold re-seat verb (CreateProject's constant idempotency key means seated workflow
   files never refresh; today's re-seat was a manual commit — needs a real
-  SyncManagedScaffold verb).
+  SyncManagedScaffold verb).~~ SHIPPED 2026-07-06: MANAGED-SCAFFOLD SYNC-ON-DISPATCH.
+  Both design Managers converge the seated aiarch-design.yml onto the CURRENT template
+  rendering before EVERY design-job dispatch (beginSession, pre-OpenBranch; plus the
+  best-effort answer-job path): `sourcecontrol.SyncManagedScaffold` → the RA's
+  hand-written auxiliary `SyncManagedFiles` (fetch-compare-put; drift → one default-
+  branch commit "aiarch: sync managed scaffold (aiarch-design.yml) to
+  aiarch-state-mcp@<pin>"; byte-identical → no commit). Sync failure BLOCKS the
+  dispatch (StageDraftFailed, actionable reason). `StateMcpModulePin` is now a full
+  commit SHA source constant (release-process-owned; ldflags-stampable var) — dependabot
+  was considered and REJECTED: the pin is archistrator-managed scaffold and only the
+  control plane knows the compatible version. ARCHITECTURE VERDICT (dogfood
+  project.json): NO slot-5 model change — the sync rides the EXISTING
+  system/project-design-manager → source-control-access relationship and the FROZEN
+  commitManagedFiles contract semantics (the auxiliary is off-contract like AppSlug);
+  no new component, relationship, or contract op. NOTE the pre-existing label
+  understatement on those two edges ("getInstallationToken(repo) → RepoCredential"
+  vs the adopt/seat/rail verbs the managers actually call) — fold a full label
+  reconciliation into the next slot-5 amendment rather than churning revision/staleAcks
+  for one behavior. Residual earmarks: (a) aiarch-construct.yml is NOT covered — it is
+  not per-project-seated today (operator-installed in the central construction repo);
+  when F4 seats a construction scaffold per-project, extend the sync set to it; (b)
+  VERSION HANDSHAKE is stamp-only: the template carries AIARCH_STATE_MCP_PIN as a step
+  env + echo (run logs prove the generation), but there is no server-side read-back
+  check of a binary-written version stamp — design note: have aiarch-state-mcp
+  `publishDraft` write its own module pseudo-version into the commit (e.g. a trailer),
+  and the Manager read-back reject a mismatch; (c) sync scope is the design workflow
+  file ONLY — go.mod / aiarch_method_test.go / internal/.gitkeep are user-territory
+  after birth and are never re-seated; (d) the frozen-verb fallback (a rail without the
+  auxiliary) converges but reports changed=false and uses the birth-seat message.
 - UC4 archistrator-operated actual deploy (k8s manifests, CNPG, Keycloak realm,
   Temporal namespace); operations RA still stub-only (503s).
 - Construction dispatch QA: preview experience per activity type, InterventionDrawer,
@@ -171,9 +200,9 @@ log (session scratchpads; summarized in the final QA report).
     debris earmark or the ClosePullRequest/DeleteBranch rail verbs above — the stale
     BRANCHES still linger until real cleanup exists; self-heal only stops them BRICKING new
     amendments. Also: existing product repos (gtdapp) keep the OLD refresh behavior until
-    re-seated — the seated copy is a committed snapshot and only refreshes via the
-    SyncManagedScaffold re-seat verb (see Construction earmark), so their brick persists
-    until re-seat.
+    re-seated — RESOLVED 2026-07-06 by sync-on-dispatch (see Construction earmark): the
+    next design dispatch against any repo refreshes its seated aiarch-design.yml to the
+    current template before the job runs, so the stale snapshot self-heals on first use.
 - webApp prettier drift (~71 files, pre-existing on main, not enforced).
 - Onboarding copy: recommend org-level CLAUDE_CODE_OAUTH_TOKEN + `gh secret list`
   verification (F18); F8 zero UpdatedAt renders "12/31/1"; F9 ghost card for

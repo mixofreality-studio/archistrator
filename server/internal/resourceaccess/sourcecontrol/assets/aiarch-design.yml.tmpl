@@ -14,7 +14,12 @@
 # project repo at project birth, bundled with the go-test gate scaffold (go.mod +
 # aiarch_method_test.go), via
 #   sourceControlAccess.CommitManagedFiles(repo, ManagedScaffoldFiles(repo, slug), ...)
-# (the C-PM-Δ caller threads the accessor). It then DISPATCHES it for every
+# (the C-PM-Δ caller threads the accessor), and KEEPS IT CURRENT after birth via the
+# design Managers' MANAGED-SCAFFOLD SYNC: before every design-job dispatch the server
+# re-renders this template and, when the seated copy drifted (e.g. the aiarch-state-mcp
+# pin moved with a server release), commits the refreshed file to the default branch
+# (sourcecontrol.SyncManagedScaffold — no drift, no commit). Hand-edits to the seated
+# copy are therefore overwritten on the next dispatch. It then DISPATCHES it for every
 # LLM-needing DESIGN activity (UC1 system-design + UC2 project-design drafting,
 # PM-critique, redraft) via the SAME frozen verb construction uses —
 # constructionPipelineAccess.SubmitConstructionPipeline (workflow_dispatch).
@@ -217,9 +222,16 @@ jobs:
         id: statemcp
         env:
           GOBIN: ${{ runner.temp }}/aiarch-bin
+          # VERSION HANDSHAKE (managed-scaffold sync): the control plane stamps the
+          # state-MCP pin it rendered this seated file with; the job echoes it so any
+          # run's log states which binary generation this scaffold carries. The server's
+          # sync-on-dispatch refreshes this whole file whenever its own pin moves, so a
+          # run can never install a binary the dispatching server's validators reject.
+          AIARCH_STATE_MCP_PIN: "[[ .StateMcpModulePin ]]"
         run: |
+          echo "aiarch-state-mcp pin: [[ .StateMcpModulePath ]]@${AIARCH_STATE_MCP_PIN}"
           mkdir -p "${GOBIN}"
-          go install [[ .StateMcpModulePath ]]@[[ .StateMcpModulePin ]]
+          go install [[ .StateMcpModulePath ]]@"${AIARCH_STATE_MCP_PIN}"
           echo "bin=${GOBIN}/aiarch-state-mcp" >> "$GITHUB_OUTPUT"
 
       # REFRESH-FROM-MAIN (F40 founder ruling 2026-07-05; F80 reconcile 2026-07-05). One

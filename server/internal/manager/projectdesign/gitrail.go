@@ -60,6 +60,13 @@ var designWorkflowFileName = path.Base(sourcecontrol.DesignWorkflowPath)
 // strings. The former EXPORTED consumer-mirror interface is RETIRED.
 type sourceControlRail interface {
 	GetInstallationToken(ctx context.Context, repo sourcecontrol.RepoRef) (sourcecontrol.RepoCredential, error)
+	// SyncManagedScaffold converges the SEATED design workflow (aiarch-design.yml on the
+	// default branch) onto the CURRENT template rendering — the managed-scaffold sync run
+	// BEFORE every design-job dispatch. changed=true ⇔ the seated copy drifted and a
+	// refresh commit was written; byte-identical is a no-op. An error means the scaffold
+	// could not be proven current — the caller MUST fail the dispatch (never dispatch a
+	// design job against a known-stale scaffold).
+	SyncManagedScaffold(ctx context.Context, repo sourcecontrol.RepoRef, cred sourcecontrol.RepoCredential) (bool, error)
 	OpenBranch(ctx context.Context, repo sourcecontrol.RepoRef, branch sourcecontrol.BranchName, cred sourcecontrol.RepoCredential, key fwra.IdempotencyKey) (sourcecontrol.BranchRef, error)
 	OpenPullRequest(ctx context.Context, repo sourcecontrol.RepoRef, spec sourcecontrol.PullRequestSpec, cred sourcecontrol.RepoCredential, key fwra.IdempotencyKey) (sourcecontrol.PullRequestRef, error)
 	GetPullRequestStatus(ctx context.Context, repo sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, cred sourcecontrol.RepoCredential) (sourcecontrol.PullRequestStatus, error)
@@ -80,6 +87,10 @@ var _ sourceControlRail = railAdapterImpl{}
 
 func (r railAdapterImpl) GetInstallationToken(ctx context.Context, repo sourcecontrol.RepoRef) (sourcecontrol.RepoCredential, error) {
 	return r.inner.GetInstallationToken(fwra.Context{Context: ctx}, repo)
+}
+
+func (r railAdapterImpl) SyncManagedScaffold(ctx context.Context, repo sourcecontrol.RepoRef, cred sourcecontrol.RepoCredential) (bool, error) {
+	return sourcecontrol.SyncManagedScaffold(ctx, r.inner, repo, cred)
 }
 
 func (r railAdapterImpl) OpenBranch(ctx context.Context, repo sourcecontrol.RepoRef, branch sourcecontrol.BranchName, cred sourcecontrol.RepoCredential, key fwra.IdempotencyKey) (sourcecontrol.BranchRef, error) {
@@ -139,6 +150,26 @@ func (wf *workflows) MintRepoCredentialActivity(ctx context.Context, repoRef str
 		return railCredEnvelope{}, fwmanager.MapError(err)
 	}
 	return railCredEnvelope{Bytes: cred.Bytes, ExpiresAt: cred.ExpiresAt}, nil
+}
+
+// syncScaffoldArgs bundles the managed-scaffold sync inputs across the Activity boundary.
+type syncScaffoldArgs struct {
+	RepoRef string
+	Cred    railCredEnvelope
+}
+
+// SyncManagedScaffoldActivity wraps sourceControlRail.SyncManagedScaffold — the
+// MANAGED-SCAFFOLD SYNC that runs before every design-job dispatch (beginSession):
+// the seated aiarch-design.yml is converged onto the CURRENT template rendering on the
+// default branch (drift → one refresh commit; identical → no-op). Returns whether the
+// seated copy drifted. A failure here BLOCKS the dispatch: the caller must never run a
+// design job against a scaffold it could not prove current (mirrors systemdesign).
+func (wf *workflows) SyncManagedScaffoldActivity(ctx context.Context, a syncScaffoldArgs) (bool, error) {
+	changed, err := wf.Rail.SyncManagedScaffold(ctx, sourcecontrol.RepoRefFromString(a.RepoRef), a.Cred.toRail())
+	if err != nil {
+		return false, fwmanager.MapError(err)
+	}
+	return changed, nil
 }
 
 // openBranchArgs bundles the OpenBranch inputs across the Activity boundary.

@@ -53,6 +53,13 @@ type fakeRail struct {
 	// round-trip. Set to railAuthRetryMaxAttempts (3) to exhaust the bounded retry so the
 	// FIRST openPR faults and lands at the failed gate; the resume openPR then succeeds.
 	openPRAuthFailsRemaining int
+	// syncErr, when non-nil, makes SyncManagedScaffold fail terminally — exercises the
+	// managed-scaffold-sync containment (dispatch BLOCKED, session lands at the failed
+	// gate, NO design job submitted).
+	syncErr error
+	// syncChanged scripts the drift report (true ⇔ the seated scaffold drifted and the
+	// sync "committed" a refresh).
+	syncChanged bool
 }
 
 func (r *fakeRail) record(c railCall) {
@@ -76,6 +83,18 @@ func (r *fakeRail) verbCount(verb string) int {
 func (r *fakeRail) GetInstallationToken(_ context.Context, repo sourcecontrol.RepoRef) (sourcecontrol.RepoCredential, error) {
 	r.record(railCall{verb: "GetInstallationToken", repo: sourcecontrol.RepoRefString(repo)})
 	return sourcecontrol.RepoCredential{Bytes: []byte("tok"), ExpiresAt: time.Now().Add(time.Hour)}, nil
+}
+
+func (r *fakeRail) SyncManagedScaffold(_ context.Context, repo sourcecontrol.RepoRef, _ sourcecontrol.RepoCredential) (bool, error) {
+	r.record(railCall{verb: "SyncManagedScaffold", repo: sourcecontrol.RepoRefString(repo)})
+	r.mu.Lock()
+	err := r.syncErr
+	changed := r.syncChanged
+	r.mu.Unlock()
+	if err != nil {
+		return false, err
+	}
+	return changed, nil
 }
 
 func (r *fakeRail) OpenBranch(_ context.Context, repo sourcecontrol.RepoRef, branch sourcecontrol.BranchName, _ sourcecontrol.RepoCredential, _ fwra.IdempotencyKey) (sourcecontrol.BranchRef, error) {
@@ -285,6 +304,7 @@ func registerRailCoAuthor(env *testsuite.TestWorkflowEnvironment, wf *workflows)
 	env.RegisterActivity(wf.WithdrawArtifactActivity)
 	env.RegisterActivity(wf.SeedReviewCommentsActivity)
 	env.RegisterActivity(wf.MintRepoCredentialActivity)
+	env.RegisterActivity(wf.SyncManagedScaffoldActivity)
 	env.RegisterActivity(wf.OpenBranchActivity)
 	env.RegisterActivity(wf.OpenPullRequestActivity)
 	env.RegisterActivity(wf.GetPullRequestStatusActivity)
@@ -1456,5 +1476,118 @@ func Test_projectEnvelope_PreservesReviewThread(t *testing.T) {
 	}
 	if thread[0].ID != "r0c1" || thread[0].Status != projectstate.ReviewCommentOpen || thread[0].Text == "" {
 		t.Fatalf("the codec must preserve the comment's id/status/text, got %+v", thread[0])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// MANAGED-SCAFFOLD SYNC (sync-on-dispatch, 2026-07-06). The seated aiarch-design.yml
+// is converged onto the CURRENT template rendering BEFORE any design job is
+// dispatched; a sync failure BLOCKS the dispatch (never run a design job against a
+// scaffold the server could not prove current — the gtdapp stale-pin / F81 incident).
+// ---------------------------------------------------------------------------
+
+// firstCallIndex returns the index of the first recorded rail call with verb, or -1.
+func (r *fakeRail) firstCallIndex(verb string) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for i, c := range r.calls {
+		if c.verb == verb {
+			return i
+		}
+	}
+	return -1
+}
+
+// THE SYNC ORDER. The managed-scaffold sync runs in the dispatch-time rail half,
+// BEFORE OpenBranch and therefore before any design job is dispatched; a drifted
+// scaffold (syncChanged=true) refreshes and the spine proceeds normally to Approve.
+func Test_CoAuthor_Rail_ScaffoldSync_RunsBeforeDispatch(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	ps := &branchAwareFakeProjectState{fakeProjectState: base}
+	pipe := newFakePipeline()
+	rail := &fakeRail{checkGreen: true, syncChanged: true} // the seated scaffold DRIFTED
+	wf := newRailWorkflows(ps, pipe, rail)
+	registerRailCoAuthor(env, wf)
+
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
+	}, 30*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a drifted-then-refreshed scaffold must not perturb the spine: %v", err)
+	}
+	if rail.verbCount("SyncManagedScaffold") != 1 {
+		t.Fatalf("want exactly one managed-scaffold sync per dispatch-time session begin, got %d", rail.verbCount("SyncManagedScaffold"))
+	}
+	iSync, iBranch := rail.firstCallIndex("SyncManagedScaffold"), rail.firstCallIndex("OpenBranch")
+	if iSync < 0 || iBranch < 0 || iSync > iBranch {
+		t.Fatalf("the managed-scaffold sync must run BEFORE OpenBranch (pre-dispatch), got sync=%d openBranch=%d (calls: %+v)", iSync, iBranch, rail.calls)
+	}
+	if len(pipe.submits) != 1 {
+		t.Fatalf("the design job must still dispatch exactly once after a successful sync, got %d", len(pipe.submits))
+	}
+	if len(base.committed) != 1 {
+		t.Fatalf("the approved spine must commit once, got %v", base.committed)
+	}
+}
+
+// THE SYNC GATE. A managed-scaffold sync failure BLOCKS the dispatch: NO design job is
+// submitted, NO session branch is opened, and the session lands at the human-visible
+// StageDraftFailed gate (contained, never a crash). Withdraw ends clean.
+func Test_CoAuthor_Rail_ScaffoldSyncFailure_BlocksDispatch_LandsAtFailedGate(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	ps := &branchAwareFakeProjectState{fakeProjectState: base}
+	pipe := newFakePipeline()
+	rail := &fakeRail{checkGreen: true, syncErr: fwra.New(fwra.ContractMisuse, "seated workflow could not be refreshed")}
+	wf := newRailWorkflows(ps, pipe, rail)
+	registerRailCoAuthor(env, wf)
+
+	env.RegisterDelayedCallback(func() {
+		enc, err := env.QueryWorkflow(querySessionState)
+		if err != nil {
+			t.Fatalf("QueryWorkflow: %v", err)
+		}
+		var view SessionStateView
+		if err := enc.Get(&view); err != nil {
+			t.Fatalf("decode SessionStateView: %v", err)
+		}
+		if view.Stage != StageDraftFailed {
+			t.Fatalf("a failed managed-scaffold sync must land at StageDraftFailed (dispatch blocked), got %d", view.Stage)
+		}
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 30*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a failed managed-scaffold sync must be CONTAINED at the failed gate, not crash: %v", err)
+	}
+	if got := rail.verbCount("SyncManagedScaffold"); got == 0 {
+		t.Fatal("the managed-scaffold sync must have been attempted")
+	}
+	// The dispatch was BLOCKED: no design job submitted, no session branch, no PR.
+	if len(pipe.submits) != 0 {
+		t.Fatalf("a failed sync must BLOCK the design-job dispatch, got %d submits", len(pipe.submits))
+	}
+	if rail.verbCount("OpenBranch") != 0 || rail.verbCount("OpenPullRequest") != 0 {
+		t.Fatalf("a failed sync must not open a branch/PR, got openBranch=%d openPR=%d",
+			rail.verbCount("OpenBranch"), rail.verbCount("OpenPullRequest"))
+	}
+	// Nothing staged/committed; withdraw from the failed gate recorded once.
+	if len(base.staged) != 0 || len(base.committed) != 0 {
+		t.Fatalf("a blocked dispatch must stage/commit nothing, got staged=%d committed=%v", len(base.staged), base.committed)
+	}
+	if len(base.withdrawn) != 1 {
+		t.Fatalf("withdraw from the failed gate must call WithdrawArtifact once, got %d", len(base.withdrawn))
 	}
 }

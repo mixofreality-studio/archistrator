@@ -270,6 +270,21 @@ func (m *systemDesignManager) dispatchAnswerJob(ctx context.Context, projectID P
 		log.Error("answer job NOT dispatched: could not resolve the project repo — the question is recorded but will not be auto-answered; re-run AskQuestions to retry")
 		return
 	}
+	// MANAGED-SCAFFOLD SYNC (sync-on-dispatch): an answer job runs the same seated
+	// aiarch-design.yml (and installs the same aiarch-state-mcp binary) as a draft, so it
+	// too must never run against a stale scaffold. Failure keeps the answer-job miss
+	// semantics: recorded question, loud log, no dispatch — re-run AskQuestions to retry.
+	if m.rail != nil {
+		cred, cerr := m.rail.GetInstallationToken(fwra.Context{Context: ctx}, repoRef)
+		if cerr != nil {
+			log.Error("answer job NOT dispatched: could not mint the repo credential for the managed-scaffold sync; re-run AskQuestions to retry", "err", cerr.Error())
+			return
+		}
+		if _, serr := sourcecontrol.SyncManagedScaffold(ctx, m.rail, repoRef, cred); serr != nil {
+			log.Error("answer job NOT dispatched: managed-scaffold sync failed — the seated design workflow could not be proven current; re-run AskQuestions to retry", "err", serr.Error())
+			return
+		}
+	}
 	adapter := pipelineDispatchAdapter{inner: m.pipeline}
 	inputs := map[string]string{
 		dispatchInputArtifactKind:  artifactKindString(kind),
