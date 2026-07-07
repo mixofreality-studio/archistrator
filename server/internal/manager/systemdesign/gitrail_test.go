@@ -80,31 +80,34 @@ func (r *fakeRail) verbCount(verb string) int {
 	return n
 }
 
-func (r *fakeRail) GetInstallationToken(_ context.Context, repo sourcecontrol.RepoRef) (sourcecontrol.RepoCredential, error) {
+func (r *fakeRail) GetInstallationToken(_ fwra.Context, repo sourcecontrol.RepoRef) (sourcecontrol.RepoCredential, error) {
 	r.record(railCall{verb: "GetInstallationToken", repo: sourcecontrol.RepoRefString(repo)})
 	return sourcecontrol.RepoCredential{Bytes: []byte("tok"), ExpiresAt: time.Now().Add(time.Hour)}, nil
 }
 
-func (r *fakeRail) SyncManagedScaffold(_ context.Context, repo sourcecontrol.RepoRef, _ sourcecontrol.RepoCredential) (bool, error) {
+// CommitManagedFiles backs the managed-scaffold sync: sourcecontrol.SyncManagedScaffold
+// (the free-function composition helper the custom SyncManagedScaffoldActivity wraps)
+// reaches the rail through this verb for a non-managedFileSyncer fake. It records the sync
+// call under the "SyncManagedScaffold" counter and honors the scripted syncErr.
+func (r *fakeRail) CommitManagedFiles(_ fwra.Context, repo sourcecontrol.RepoRef, _ []sourcecontrol.ManagedFile, _ sourcecontrol.RepoCredential) (sourcecontrol.CommitRef, error) {
 	r.record(railCall{verb: "SyncManagedScaffold", repo: sourcecontrol.RepoRefString(repo)})
 	r.mu.Lock()
 	err := r.syncErr
-	changed := r.syncChanged
 	r.mu.Unlock()
 	if err != nil {
-		return false, err
+		return sourcecontrol.CommitRef(""), err
 	}
-	return changed, nil
+	return sourcecontrol.CommitRef("scaffold-sync"), nil
 }
 
-func (r *fakeRail) OpenBranch(_ context.Context, repo sourcecontrol.RepoRef, branch sourcecontrol.BranchName, _ sourcecontrol.RepoCredential, _ fwra.IdempotencyKey) (sourcecontrol.BranchRef, error) {
+func (r *fakeRail) OpenBranch(_ fwra.Context, repo sourcecontrol.RepoRef, branch sourcecontrol.BranchName, _ sourcecontrol.RepoCredential) (sourcecontrol.BranchRef, error) {
 	r.record(railCall{verb: "OpenBranch", repo: sourcecontrol.RepoRefString(repo), branch: string(branch)})
 	// The Manager discards the BranchRef (it only ensures the branch exists); a zero
 	// ref is fine — the workflow never re-materializes a branch handle.
 	return sourcecontrol.BranchRef(""), nil
 }
 
-func (r *fakeRail) OpenPullRequest(_ context.Context, repo sourcecontrol.RepoRef, spec sourcecontrol.PullRequestSpec, _ sourcecontrol.RepoCredential, _ fwra.IdempotencyKey) (sourcecontrol.PullRequestRef, error) {
+func (r *fakeRail) OpenPullRequest(_ fwra.Context, repo sourcecontrol.RepoRef, spec sourcecontrol.PullRequestSpec, _ sourcecontrol.RepoCredential) (sourcecontrol.PullRequestRef, error) {
 	r.record(railCall{verb: "OpenPullRequest", repo: sourcecontrol.RepoRefString(repo), branch: string(spec.Head), prRef: "pr/" + string(spec.Head)})
 	r.mu.Lock()
 	fail := r.openPRAuthFailsRemaining > 0
@@ -125,7 +128,7 @@ func (r *fakeRail) OpenPullRequest(_ context.Context, repo sourcecontrol.RepoRef
 	return sourcecontrol.PullRequestRefFromString(prRef), nil
 }
 
-func (r *fakeRail) GetPullRequestStatus(_ context.Context, repo sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, _ sourcecontrol.RepoCredential) (sourcecontrol.PullRequestStatus, error) {
+func (r *fakeRail) GetPullRequestStatus(_ fwra.Context, repo sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, _ sourcecontrol.RepoCredential) (sourcecontrol.PullRequestStatus, error) {
 	r.record(railCall{verb: "GetPullRequestStatus", repo: sourcecontrol.RepoRefString(repo), prRef: sourcecontrol.PullRequestRefString(pr)})
 	r.mu.Lock()
 	fail := r.statusAuthFailsRemaining > 0
@@ -145,17 +148,32 @@ func (r *fakeRail) GetPullRequestStatus(_ context.Context, repo sourcecontrol.Re
 	return sourcecontrol.PullRequestStatus{CheckRollup: rollup, Mergeable: r.checkGreen}, nil
 }
 
-func (r *fakeRail) PostReview(_ context.Context, repo sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, _ sourcecontrol.ReviewSubmission, _ sourcecontrol.RepoCredential, _ fwra.IdempotencyKey) error {
+func (r *fakeRail) PostReview(_ fwra.Context, repo sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, _ sourcecontrol.ReviewSubmission, _ sourcecontrol.RepoCredential) error {
 	r.record(railCall{verb: "PostReview", repo: sourcecontrol.RepoRefString(repo), prRef: sourcecontrol.PullRequestRefString(pr)})
 	return nil
 }
 
-func (r *fakeRail) MergePullRequest(_ context.Context, repo sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, _ sourcecontrol.RepoCredential, _ fwra.IdempotencyKey) (sourcecontrol.MergeResult, error) {
+func (r *fakeRail) MergePullRequest(_ fwra.Context, repo sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, _ sourcecontrol.RepoCredential) (sourcecontrol.MergeResult, error) {
 	r.record(railCall{verb: "MergePullRequest", repo: sourcecontrol.RepoRefString(repo), prRef: sourcecontrol.PullRequestRefString(pr)})
 	return sourcecontrol.MergeResult{Merged: true, Commit: "merged"}, nil
 }
 
-var _ sourceControlRail = (*fakeRail)(nil)
+// The remaining SourceControlAccess ops are outside the design PR-rail lifecycle; the stub
+// satisfies the full contract with inert implementations so it can back the GENERATED rail
+// Activities registered via genActivities.
+func (r *fakeRail) AdoptProjectRepo(_ fwra.Context, _ sourcecontrol.RepoAdoptionSpec) (sourcecontrol.RepoRef, error) {
+	return sourcecontrol.RepoRef(""), nil
+}
+
+func (r *fakeRail) ConfigureBranchProtection(_ fwra.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.RepoCredential) error {
+	return nil
+}
+
+func (r *fakeRail) InstallAuthorizeApp(_ fwra.Context, _ sourcecontrol.AccountRef) (sourcecontrol.Installation, error) {
+	return sourcecontrol.Installation(""), nil
+}
+
+var _ sourcecontrol.SourceControlAccess = (*fakeRail)(nil)
 
 // ---- branchAwareFakeProjectState: read-back/stage capture by branch ----------
 
@@ -280,10 +298,11 @@ func (f *branchAwareFakeProjectState) WithdrawArtifact(rc fwra.Context, projectI
 	return f.fakeProjectState.WithdrawArtifact(rc, projectID, expectedVersion, kind, notes)
 }
 
-func newRailWorkflows(ps projectstate.ProjectStateAccess, pipe *fakePipeline, rail sourceControlRail) *workflows {
+func newRailWorkflows(ps projectstate.ProjectStateAccess, pipe *fakePipeline, rail sourcecontrol.SourceControlAccess) *workflows {
+	_ = pipe // threaded to registerGenActivities, not stored on the struct.
 	return &workflows{
 		ProjectState: ps,
-		Pipeline:     pipe,
+		Acts:         genInvokers{Opts: activityOptions()},
 		Rail:         rail,
 		Repo: func(ProjectID) (sourcecontrol.RepoRef, bool) {
 			return sourcecontrol.RepoRefFromString("acct|owner/repo"), true
@@ -291,25 +310,17 @@ func newRailWorkflows(ps projectstate.ProjectStateAccess, pipe *fakePipeline, ra
 	}
 }
 
-func registerRailCoAuthor(env *testsuite.TestWorkflowEnvironment, wf *workflows) {
+func registerRailCoAuthor(env *testsuite.TestWorkflowEnvironment, wf *workflows, pipe *fakePipeline) {
 	env.RegisterWorkflowWithOptions(wf.CoAuthorArtifactWorkflow, workflow.RegisterOptions{Name: executionKindCoAuthor})
 	env.RegisterActivity(wf.ReadProjectActivity)
-	env.RegisterActivity(wf.ReadProjectVersionActivity)
 	env.RegisterActivity(wf.ReadProjectOnBranchActivity)
-	env.RegisterActivity(wf.DispatchDesignJobActivity)
-	env.RegisterActivity(wf.ObserveDesignJobActivity)
 	env.RegisterActivity(wf.StageArtifactForReviewActivity)
 	env.RegisterActivity(wf.CommitArtifactActivity)
 	env.RegisterActivity(wf.RejectArtifactActivity)
 	env.RegisterActivity(wf.WithdrawArtifactActivity)
 	env.RegisterActivity(wf.SeedReviewCommentsActivity)
-	env.RegisterActivity(wf.MintRepoCredentialActivity)
 	env.RegisterActivity(wf.SyncManagedScaffoldActivity)
-	env.RegisterActivity(wf.OpenBranchActivity)
-	env.RegisterActivity(wf.OpenPullRequestActivity)
-	env.RegisterActivity(wf.GetPullRequestStatusActivity)
-	env.RegisterActivity(wf.PostReviewActivity)
-	env.RegisterActivity(wf.MergePullRequestActivity)
+	registerGenActivities(env, wf.ProjectState, pipe, wf.Rail)
 }
 
 // THE RAIL HAPPY PATH (§2b/§2c). With the rail wired, the System draft (architect-
@@ -327,7 +338,7 @@ func Test_CoAuthor_RailEnabled_BranchPRReadBackPlusOneMerge_HappyPath(t *testing
 	pipe := newFakePipeline() // dispatch observed Succeeded
 	rail := &fakeRail{checkGreen: true}
 	wf := newRailWorkflows(ps, pipe, rail)
-	registerRailCoAuthor(env, wf)
+	registerRailCoAuthor(env, wf, pipe)
 
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
@@ -377,7 +388,7 @@ func Test_CoAuthor_RailEnabled_ApproveButPRNotGreen_DoesNotMerge_Recovers(t *tes
 	pipe := newFakePipeline()
 	rail := &fakeRail{checkGreen: false} // the merge guard is RED
 	wf := newRailWorkflows(ps, pipe, rail)
-	registerRailCoAuthor(env, wf)
+	registerRailCoAuthor(env, wf, pipe)
 
 	// First Approve hits the not-green guard → StageDraftFailed; then Withdraw ends it.
 	env.RegisterDelayedCallback(func() {
@@ -418,7 +429,7 @@ func Test_CoAuthor_RailEnabled_MalformedReadBack_LandsInStageDraftFailed_WithDec
 	pipe := newFakePipeline() // dispatch observed Succeeded; CI validate is green
 	rail := &fakeRail{checkGreen: true}
 	wf := newRailWorkflows(ps, pipe, rail)
-	registerRailCoAuthor(env, wf)
+	registerRailCoAuthor(env, wf, pipe)
 
 	env.RegisterDelayedCallback(func() {
 		enc, err := env.QueryWorkflow(querySessionState)
@@ -483,7 +494,7 @@ func Test_CoAuthor_RailEnabled_Reject_RecordsOnSessionBranch_RedraftCarriesFeedb
 	pipe := newFakePipeline() // every dispatch Succeeds
 	rail := &fakeRail{checkGreen: true}
 	wf := newRailWorkflows(ps, pipe, rail)
-	registerRailCoAuthor(env, wf)
+	registerRailCoAuthor(env, wf, pipe)
 
 	const (
 		rejectNotes = "rework the decomposition"
@@ -546,7 +557,7 @@ func Test_CoAuthor_RailEnabled_RejectWriteFaults_RecoversAtFailedGate_RetainsFee
 	pipe := newFakePipeline() // every dispatch Succeeds
 	rail := &fakeRail{checkGreen: true}
 	wf := newRailWorkflows(ps, pipe, rail)
-	registerRailCoAuthor(env, wf)
+	registerRailCoAuthor(env, wf, pipe)
 
 	const (
 		rejectNotes = "rework the decomposition"
@@ -698,7 +709,7 @@ func Test_CoAuthor_RailEnabled_StageAgainstDirtyBranch_Converges_NoCrash(t *test
 	pipe := newFakePipeline()
 	rail := &fakeRail{checkGreen: true}
 	wf := newRailWorkflows(ps, pipe, rail)
-	registerRailCoAuthor(env, wf)
+	registerRailCoAuthor(env, wf, pipe)
 
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
@@ -739,7 +750,7 @@ func Test_CoAuthor_RailEnabled_StageFaults_RecoversAtFailedGate(t *testing.T) {
 	pipe := newFakePipeline()
 	rail := &fakeRail{checkGreen: true}
 	wf := newRailWorkflows(ps, pipe, rail)
-	registerRailCoAuthor(env, wf)
+	registerRailCoAuthor(env, wf, pipe)
 
 	// After the stage fault the session is at StageDraftFailed — assert the recoverable
 	// gate (not a crash), then Retry.
@@ -793,7 +804,7 @@ func Test_CoAuthor_RailEnabled_Withdraw_RecordsOnSessionBranch_NoCrash(t *testin
 	pipe := newFakePipeline()
 	rail := &fakeRail{checkGreen: true}
 	wf := newRailWorkflows(ps, pipe, rail)
-	registerRailCoAuthor(env, wf)
+	registerRailCoAuthor(env, wf, pipe)
 
 	// At the AwaitingReview gate, WITHDRAW the not-yet-merged draft.
 	env.RegisterDelayedCallback(func() {
@@ -839,7 +850,7 @@ func Test_CoAuthor_RailEnabled_RetryAtFailedGate_SameBranch_RetainsFeedback(t *t
 	pipe := newFakePipeline() // every dispatch Succeeds (the fault is at STAGE, not the job)
 	rail := &fakeRail{checkGreen: true}
 	wf := newRailWorkflows(ps, pipe, rail)
-	registerRailCoAuthor(env, wf)
+	registerRailCoAuthor(env, wf, pipe)
 
 	const retryNotes = "fix the layering violation before redrafting"
 	// At the StageDraftFailed gate, Retry-via-Reject carrying feedback.
@@ -894,7 +905,7 @@ func Test_CoAuthor_RailEnabled_ApproveStatusFault_ReturnsToAwaitingReview_Reappr
 	// after that the counter is 0 so the re-approve reads green and merges.
 	rail := &fakeRail{checkGreen: true, statusAuthFailsRemaining: 3}
 	wf := newRailWorkflows(ps, pipe, rail)
-	registerRailCoAuthor(env, wf)
+	registerRailCoAuthor(env, wf, pipe)
 
 	// First approve → status 403s → contained → back to AwaitingReview with a notice.
 	env.RegisterDelayedCallback(func() {
@@ -954,7 +965,7 @@ func Test_CoAuthor_RailEnabled_ApproveStatusTransient_RetriesThenMerges(t *testi
 	pipe := newFakePipeline()
 	rail := &fakeRail{checkGreen: true, statusAuthFailsRemaining: 2} // fail twice, 3rd succeeds
 	wf := newRailWorkflows(ps, pipe, rail)
-	registerRailCoAuthor(env, wf)
+	registerRailCoAuthor(env, wf, pipe)
 
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
@@ -998,7 +1009,7 @@ func Test_CoAuthor_RailEnabled_Amendment_UsesAmendBranchAndPrompt(t *testing.T) 
 	pipe := newFakePipeline()
 	rail := &fakeRail{checkGreen: true}
 	wf := newRailWorkflows(ps, pipe, rail)
-	registerRailCoAuthor(env, wf)
+	registerRailCoAuthor(env, wf, pipe)
 
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
@@ -1067,7 +1078,7 @@ func Test_CoAuthor_DispatchKey_CarriesRunID(t *testing.T) {
 	pipe := newFakePipeline(pipelineFailed) // fail after the first dispatch so it lands quickly
 	rail := &fakeRail{checkGreen: true}
 	wf := newRailWorkflows(ps, pipe, rail)
-	registerRailCoAuthor(env, wf)
+	registerRailCoAuthor(env, wf, pipe)
 
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
@@ -1102,7 +1113,7 @@ func Test_CoAuthor_Rail_Amendment_NoChange_LandsFailedGate_NoPR(t *testing.T) {
 	pipe := newFakePipeline() // the design job "succeeds"
 	rail := &fakeRail{checkGreen: true}
 	wf := newRailWorkflows(ps, pipe, rail)
-	registerRailCoAuthor(env, wf)
+	registerRailCoAuthor(env, wf, pipe)
 
 	env.RegisterDelayedCallback(func() {
 		enc, err := env.QueryWorkflow(querySessionState)
@@ -1168,7 +1179,7 @@ func Test_CoAuthor_Rail_Amendment_Advanced_OpensPR_Merges(t *testing.T) {
 	pipe := newFakePipeline()
 	rail := &fakeRail{checkGreen: true}
 	wf := newRailWorkflows(ps, pipe, rail)
-	registerRailCoAuthor(env, wf)
+	registerRailCoAuthor(env, wf, pipe)
 
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
@@ -1282,7 +1293,7 @@ func Test_CoAuthor_Rail_Amendment_PreFieldCommittedSlot_AmendBranch_Prompt_SeedF
 	pipe := newFakePipeline()
 	rail := &fakeRail{checkGreen: true}
 	wf := newRailWorkflows(ps, pipe, rail)
-	registerRailCoAuthor(env, wf)
+	registerRailCoAuthor(env, wf, pipe)
 
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
@@ -1341,7 +1352,7 @@ func Test_CoAuthor_Rail_OpenPRAuthFault_ContainsAtGate_RetryResumesNoRedispatch_
 	// bounded retry exhausts and the round-trip lands at the failed gate; the resume openPR succeeds.
 	rail := &fakeRail{checkGreen: true, openPRAuthFailsRemaining: railAuthRetryMaxAttempts}
 	wf := newRailWorkflows(ps, pipe, rail)
-	registerRailCoAuthor(env, wf)
+	registerRailCoAuthor(env, wf, pipe)
 
 	// At the failed gate: assert StageDraftFailed with the honest openPR reason, then RETRY.
 	env.RegisterDelayedCallback(func() {
@@ -1423,7 +1434,7 @@ func Test_CoAuthor_RailEnabled_RedraftSignalFeedbackReachesPrompt(t *testing.T) 
 	pipe := newFakePipeline(pipelineFailed) // the draft job fails → the StageDraftFailed gate
 	rail := &fakeRail{checkGreen: true}
 	wf := newRailWorkflows(ps, pipe, rail)
-	registerRailCoAuthor(env, wf)
+	registerRailCoAuthor(env, wf, pipe)
 
 	const notes = "resources must be plain strings, not objects"
 	// At the failed gate, deliver the REDRAFT signal (the RequestArtifactDraft path) with notes.
@@ -1511,7 +1522,7 @@ func Test_CoAuthor_Rail_ScaffoldSync_RunsBeforeDispatch(t *testing.T) {
 	pipe := newFakePipeline()
 	rail := &fakeRail{checkGreen: true, syncChanged: true} // the seated scaffold DRIFTED
 	wf := newRailWorkflows(ps, pipe, rail)
-	registerRailCoAuthor(env, wf)
+	registerRailCoAuthor(env, wf, pipe)
 
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
@@ -1550,7 +1561,7 @@ func Test_CoAuthor_Rail_ScaffoldSyncFailure_BlocksDispatch_LandsAtFailedGate(t *
 	pipe := newFakePipeline()
 	rail := &fakeRail{checkGreen: true, syncErr: fwra.New(fwra.ContractMisuse, "seated workflow could not be refreshed")}
 	wf := newRailWorkflows(ps, pipe, rail)
-	registerRailCoAuthor(env, wf)
+	registerRailCoAuthor(env, wf, pipe)
 
 	env.RegisterDelayedCallback(func() {
 		enc, err := env.QueryWorkflow(querySessionState)
@@ -1613,7 +1624,7 @@ func Test_CoAuthor_Rail_ScaffoldSync_VersionGate_PreFeatureExecutionSkipsSync(t 
 	// the failed gate and the approve below would never commit — a loud failure.
 	rail := &fakeRail{checkGreen: true, syncErr: fwra.New(fwra.ContractMisuse, "sync must not run for a pre-feature execution")}
 	wf := newRailWorkflows(ps, pipe, rail)
-	registerRailCoAuthor(env, wf)
+	registerRailCoAuthor(env, wf, pipe)
 
 	// Simulate a PRE-FEATURE in-flight execution: GetVersion resolves DefaultVersion
 	// (no version marker in the replayed history).

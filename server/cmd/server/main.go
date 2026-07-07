@@ -443,7 +443,7 @@ func run(logger *slog.Logger) error {
 	// Phase-1 (system-design) Worker. The Manager registers its own workflows/activities
 	// from its stored deps (it folds the design-dispatch + PR-rail mapping internally).
 	w := worker.New(tc, systemdesign.TaskQueue, worker.Options{})
-	systemdesign.RegisterWorker(w, manager)
+	systemdesign.RegisterManagerWorker(w, manager)
 	if err := w.Start(); err != nil {
 		return err
 	}

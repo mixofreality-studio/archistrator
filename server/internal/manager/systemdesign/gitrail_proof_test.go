@@ -119,21 +119,24 @@ func (r *scriptedRail) count(verb string) int {
 	return r.calls[verb]
 }
 
-func (r *scriptedRail) SyncManagedScaffold(_ context.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.RepoCredential) (bool, error) {
+// CommitManagedFiles backs the managed-scaffold sync (the free-function composition helper
+// reaches the rail through this verb for a non-managedFileSyncer fake). Recorded under the
+// "SyncManagedScaffold" counter.
+func (r *scriptedRail) CommitManagedFiles(_ fwra.Context, _ sourcecontrol.RepoRef, _ []sourcecontrol.ManagedFile, _ sourcecontrol.RepoCredential) (sourcecontrol.CommitRef, error) {
 	r.mu.Lock()
 	r.calls["SyncManagedScaffold"]++
 	r.mu.Unlock()
-	return false, nil
+	return sourcecontrol.CommitRef("scaffold-sync"), nil
 }
 
-func (r *scriptedRail) GetInstallationToken(_ context.Context, _ sourcecontrol.RepoRef) (sourcecontrol.RepoCredential, error) {
+func (r *scriptedRail) GetInstallationToken(_ fwra.Context, _ sourcecontrol.RepoRef) (sourcecontrol.RepoCredential, error) {
 	r.mu.Lock()
 	r.calls["GetInstallationToken"]++
 	r.mu.Unlock()
 	return sourcecontrol.RepoCredential{Bytes: []byte("tok"), ExpiresAt: time.Now().Add(time.Hour)}, nil
 }
 
-func (r *scriptedRail) OpenBranch(_ context.Context, _ sourcecontrol.RepoRef, branch sourcecontrol.BranchName, _ sourcecontrol.RepoCredential, _ fwra.IdempotencyKey) (sourcecontrol.BranchRef, error) {
+func (r *scriptedRail) OpenBranch(_ fwra.Context, _ sourcecontrol.RepoRef, branch sourcecontrol.BranchName, _ sourcecontrol.RepoCredential) (sourcecontrol.BranchRef, error) {
 	r.mu.Lock()
 	r.calls["OpenBranch"]++
 	r.openedBranches = append(r.openedBranches, string(branch))
@@ -141,7 +144,7 @@ func (r *scriptedRail) OpenBranch(_ context.Context, _ sourcecontrol.RepoRef, br
 	return sourcecontrol.BranchRef(""), nil
 }
 
-func (r *scriptedRail) OpenPullRequest(_ context.Context, _ sourcecontrol.RepoRef, spec sourcecontrol.PullRequestSpec, _ sourcecontrol.RepoCredential, _ fwra.IdempotencyKey) (sourcecontrol.PullRequestRef, error) {
+func (r *scriptedRail) OpenPullRequest(_ fwra.Context, _ sourcecontrol.RepoRef, spec sourcecontrol.PullRequestSpec, _ sourcecontrol.RepoCredential) (sourcecontrol.PullRequestRef, error) {
 	r.mu.Lock()
 	r.calls["OpenPullRequest"]++
 	head := string(spec.Head)
@@ -162,7 +165,7 @@ func (r *scriptedRail) OpenPullRequest(_ context.Context, _ sourcecontrol.RepoRe
 	return sourcecontrol.PullRequestRefFromString(pr), nil
 }
 
-func (r *scriptedRail) GetPullRequestStatus(_ context.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.PullRequestRef, _ sourcecontrol.RepoCredential) (sourcecontrol.PullRequestStatus, error) {
+func (r *scriptedRail) GetPullRequestStatus(_ fwra.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.PullRequestRef, _ sourcecontrol.RepoCredential) (sourcecontrol.PullRequestStatus, error) {
 	r.mu.Lock()
 	r.calls["GetPullRequestStatus"]++
 	green := r.checkGreen
@@ -174,14 +177,14 @@ func (r *scriptedRail) GetPullRequestStatus(_ context.Context, _ sourcecontrol.R
 	return sourcecontrol.PullRequestStatus{CheckRollup: rollup, Mergeable: green}, nil
 }
 
-func (r *scriptedRail) PostReview(_ context.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.PullRequestRef, _ sourcecontrol.ReviewSubmission, _ sourcecontrol.RepoCredential, _ fwra.IdempotencyKey) error {
+func (r *scriptedRail) PostReview(_ fwra.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.PullRequestRef, _ sourcecontrol.ReviewSubmission, _ sourcecontrol.RepoCredential) error {
 	r.mu.Lock()
 	r.calls["PostReview"]++
 	r.mu.Unlock()
 	return nil
 }
 
-func (r *scriptedRail) MergePullRequest(_ context.Context, _ sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, _ sourcecontrol.RepoCredential, _ fwra.IdempotencyKey) (sourcecontrol.MergeResult, error) {
+func (r *scriptedRail) MergePullRequest(_ fwra.Context, _ sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, _ sourcecontrol.RepoCredential) (sourcecontrol.MergeResult, error) {
 	r.mu.Lock()
 	r.calls["MergePullRequest"]++
 	r.mergedPRs = append(r.mergedPRs, sourcecontrol.PullRequestRefString(pr))
@@ -194,7 +197,20 @@ func (r *scriptedRail) MergePullRequest(_ context.Context, _ sourcecontrol.RepoR
 	return sourcecontrol.MergeResult{Merged: true, Commit: "merged-" + sourcecontrol.PullRequestRefString(pr)}, nil
 }
 
-var _ sourceControlRail = (*scriptedRail)(nil)
+// The remaining SourceControlAccess ops are outside the design PR-rail lifecycle; inert.
+func (r *scriptedRail) AdoptProjectRepo(_ fwra.Context, _ sourcecontrol.RepoAdoptionSpec) (sourcecontrol.RepoRef, error) {
+	return sourcecontrol.RepoRef(""), nil
+}
+
+func (r *scriptedRail) ConfigureBranchProtection(_ fwra.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.RepoCredential) error {
+	return nil
+}
+
+func (r *scriptedRail) InstallAuthorizeApp(_ fwra.Context, _ sourcecontrol.AccountRef) (sourcecontrol.Installation, error) {
+	return sourcecontrol.Installation(""), nil
+}
+
+var _ sourcecontrol.SourceControlAccess = (*scriptedRail)(nil)
 
 // ---- seqProjectState: branch-aware read-back + ordered commit/read events ------
 
@@ -254,10 +270,11 @@ func (f *seqProjectState) WithdrawArtifactOnBranch(ctx context.Context, projectI
 	return f.WithdrawArtifact(fwra.Context{Context: ctx, IdempotencyKey: key}, projectID, expectedVersion, kind, notes)
 }
 
-func newSeqRailWorkflows(ps projectstate.ProjectStateAccess, pipe *fakePipeline, rail sourceControlRail) *workflows {
+func newSeqRailWorkflows(ps projectstate.ProjectStateAccess, pipe *fakePipeline, rail sourcecontrol.SourceControlAccess) *workflows {
+	_ = pipe // threaded to registerGenActivities, not stored on the struct.
 	return &workflows{
 		ProjectState: ps,
-		Pipeline:     pipe,
+		Acts:         genInvokers{Opts: activityOptions()},
 		Rail:         rail,
 		Repo: func(ProjectID) (sourcecontrol.RepoRef, bool) {
 			return sourcecontrol.RepoRefFromString("acct|owner/repo"), true
@@ -283,7 +300,7 @@ func Test_CoAuthor_Rail_BranchReconciliation_MergeBeforeCommit_PostMergeReadOnMa
 	pipe := newFakePipeline() // dispatch observed Succeeded
 	rail := newScriptedRail(true, log)
 	wf := newSeqRailWorkflows(ps, pipe, rail)
-	registerRailCoAuthor(env, wf)
+	registerRailCoAuthor(env, wf, pipe)
 
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
@@ -315,9 +332,11 @@ func Test_CoAuthor_Rail_BranchReconciliation_MergeBeforeCommit_PostMergeReadOnMa
 	// rail WIRED, the dispatch must target the PER-PROJECT repo (the rail's repoRef) +
 	// aiarch-design.yml — NOT the central construction repo + aiarch-construct.yml. This
 	// is exactly what the systemtests fake could not catch (it intercepted all GitHub
-	// REST regardless of repo).
-	if pipe.submits[0].targetRepo != "acct|owner/repo" {
-		t.Fatalf("design dispatch must target the per-project repo %q, got %q", "acct|owner/repo", pipe.submits[0].targetRepo)
+	// REST regardless of repo). The workflow-side dispatchDesignJob decodes the opaque
+	// RepoRef ("acct|owner/repo") to the RA's RepoTarget{Owner:"owner", Name:"repo"} BEFORE
+	// the generated submit invoker, so the fake records the decoded "owner/repo".
+	if pipe.submits[0].targetRepo != "owner/repo" {
+		t.Fatalf("design dispatch must target the per-project repo %q, got %q", "owner/repo", pipe.submits[0].targetRepo)
 	}
 	if pipe.submits[0].workflowFile != "aiarch-design.yml" {
 		t.Fatalf("design dispatch must target aiarch-design.yml (NOT aiarch-construct.yml), got %q", pipe.submits[0].workflowFile)
@@ -400,7 +419,7 @@ func Test_CoAuthor_Rail_RejectRedraftsOnSameSessionBranchAndSamePR(t *testing.T)
 	pipe := newFakePipeline() // every dispatch Succeeds
 	rail := newScriptedRail(true, log)
 	wf := newSeqRailWorkflows(ps, pipe, rail)
-	registerRailCoAuthor(env, wf)
+	registerRailCoAuthor(env, wf, pipe)
 
 	// First gate: REJECT → redraft on the SAME branch/PR. Second gate: APPROVE → merge.
 	env.RegisterDelayedCallback(func() {
@@ -458,7 +477,7 @@ func Test_CoAuthor_Rail_PhaseFailed_LandsInStageDraftFailed_NoApproveRailNoCommi
 	pipe.diagnostic = "aiarch-validate found 2 violations"
 	rail := newScriptedRail(true, log)
 	wf := newSeqRailWorkflows(ps, pipe, rail)
-	registerRailCoAuthor(env, wf)
+	registerRailCoAuthor(env, wf, pipe)
 
 	env.RegisterDelayedCallback(func() {
 		enc, err := env.QueryWorkflow(querySessionState)
@@ -520,7 +539,7 @@ func Test_CoAuthor_Rail_RequiredCheckRed_BlocksMerge_NoCommit_Recovers(t *testin
 	pipe := newFakePipeline()           // draft Succeeds (the run was green) ...
 	rail := newScriptedRail(false, log) // ... but the PR's required check is RED at merge time
 	wf := newSeqRailWorkflows(ps, pipe, rail)
-	registerRailCoAuthor(env, wf)
+	registerRailCoAuthor(env, wf, pipe)
 
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
@@ -578,7 +597,7 @@ func Test_CoAuthor_Rail_OpenPR_OnlyAfterReadBack_ReuseThenMerge(t *testing.T) {
 	pipe := newFakePipeline() // every dispatch Succeeds
 	rail := newScriptedRail(true, log)
 	wf := newSeqRailWorkflows(ps, pipe, rail)
-	registerRailCoAuthor(env, wf)
+	registerRailCoAuthor(env, wf, pipe)
 
 	// First gate: REJECT → redraft on the SAME branch/PR. Second gate: APPROVE → merge.
 	env.RegisterDelayedCallback(func() {

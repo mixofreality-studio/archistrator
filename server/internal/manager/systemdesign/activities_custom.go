@@ -12,16 +12,19 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
-// This file holds the Manager-owned Temporal Activity wrappers — one per
-// ResourceAccess call the workflow makes (systemDesignManager.md §6.4). They are
-// METHODS ON THE Workflows STRUCT: there is no separate Activities type. The RA
-// interface dependencies (ProjectState / Workers) live as fields on Workflows
-// (see workflow.go) and are reached "on the struct", but the calls run inside
-// Temporal Activities because those RA operations are I/O / non-deterministic and
-// would break replay determinism if invoked on the workflow goroutine. The Engine
-// (artifactValidationEngine) is deliberately NOT an Activity: it is a pure
-// deterministic function the workflow body calls directly via wf.Validator
-// (systemDesignManager.md §6.4 "Not Activities").
+// activities_custom.go holds the CUSTOM Manager-owned Temporal Activity wrappers the
+// generated temporalgen layer cannot emit — the projectEnvelope-codec reads and the
+// head-state mutation writes whose bodies carry the BranchAware / Ledger / Provenance /
+// Reconciling capability type-assertions + the modelEnvelope decode (codec.go). They are
+// METHODS ON the workflows STRUCT and are registered under their stable names via the
+// manifest's CustomActivities (workermanifest.go). The contract-backed RA ops
+// (readProjectVersion / advancePhase, the constructionPipelineAccess submit/observe pair,
+// the six rail verbs) are GENERATED (activities.gen.go) and reached through wf.Acts
+// (invokers.gen.go); these custom bodies have no frozen contract behind them (the
+// interface-typed slot Models the default JSON converter cannot decode, and the optional
+// capability extensions), so temporalgen has nothing to generate and they stay hand-written
+// here. The Engine dependencies remain deliberately NON-Activities: pure deterministic
+// functions the workflow body calls directly.
 //
 // 2026-05-29 re-cut (systemDesignManager.md §0b / rework §6): the engine-dispatch
 // GenerateMethodArtifactActivity is GONE (systemDesignEngine deleted). Drafting
@@ -81,18 +84,6 @@ func (wf *workflows) ReadProjectActivity(ctx context.Context, projectID projects
 		return projectEnvelope{}, fwmanager.MapError(err)
 	}
 	return encodeProject(proj)
-}
-
-// ---- ReadProjectVersionActivity (wraps projectStateAccess.ReadProjectVersion) ----
-// Cheap version-only read; no idempotency key. Returns just the head-state Version
-// across the Temporal boundary instead of the whole encoded aggregate — the
-// applyRecovering Conflict loop needs only the token to re-seed its next attempt.
-func (wf *workflows) ReadProjectVersionActivity(ctx context.Context, projectID projectstate.ProjectID) (projectstate.Version, error) {
-	v, err := wf.ProjectState.ReadProjectVersion(fwra.Context{Context: ctx}, projectID)
-	if err != nil {
-		return 0, fwmanager.MapError(err)
-	}
-	return v, nil
 }
 
 // ---- ReadProjectOnBranchActivity (branch-aware read-back, I-DESIGN-DISPATCH §2a) ----
@@ -256,14 +247,4 @@ func (wf *workflows) WithdrawArtifactActivity(ctx context.Context, a mutateArtif
 		return mapErr(ba.WithdrawArtifactOnBranch(ctx, a.ProjectID, a.ExpectedVersion, a.Branch, a.Kind, a.Notes, activityIdempotencyKey(ctx)))
 	}
 	return mapErr(wf.ProjectState.WithdrawArtifact(fwra.Context{Context: ctx, IdempotencyKey: activityIdempotencyKey(ctx)}, a.ProjectID, a.ExpectedVersion, a.Kind, a.Notes))
-}
-
-// advancePhaseArgs bundles the seal verb's inputs for the Activity boundary.
-type advancePhaseArgs struct {
-	ProjectID       projectstate.ProjectID
-	ExpectedVersion projectstate.Version
-}
-
-func (wf *workflows) AdvancePhaseActivity(ctx context.Context, a advancePhaseArgs) (projectstate.Version, error) {
-	return mapErr(wf.ProjectState.AdvancePhase(fwra.Context{Context: ctx, IdempotencyKey: activityIdempotencyKey(ctx)}, a.ProjectID, a.ExpectedVersion))
 }

@@ -167,6 +167,7 @@ var encapsulationAllowlistData = map[string][]string{
 	},
 	// Temporal registration entrypoints (see construction).
 	"internal/manager/systemdesign": {
+		"RegisterManagerWorker",
 		"RegisterWorker",
 		"TaskQueue",
 	},

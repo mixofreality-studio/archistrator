@@ -17,11 +17,8 @@ import (
 
 // ---------------------------------------------------------------------------
 // Shared Temporal identity constants (systemDesignManager.md §6.1/§6.2/§6.5).
+// TaskQueue is defined in the generated worker.gen.go.
 // ---------------------------------------------------------------------------
-
-// TaskQueue is the one queue per Manager that the in-process Temporal Worker in
-// the server polls (systemDesignManager.md §6.1).
-const TaskQueue = "system-design"
 
 // Signal and query names (systemDesignManager.md §6.5).
 const (
@@ -96,7 +93,14 @@ const (
 // Rendering field here.
 type workflows struct {
 	ProjectState projectstate.ProjectStateAccess
-	Pipeline     constructionPipelineAccess
+
+	// Acts is the GENERATED typed invoker surface (invokers.gen.go) — the workflow's call
+	// surface for the contract-backed RA ops the temporalgen migration routes through the
+	// generated activities: projectStateAccess readProjectVersion / advancePhase, the
+	// constructionPipelineAccess submit/observe design-job pair, and the six
+	// sourceControlAccess PR-rail verbs. Each invoker consults the manager's per-op preset
+	// hook (workermanifest.go activityOptions), keyed by the generated activity name.
+	Acts genInvokers
 
 	// Rail + Repo are the OPTIONAL git-forward PR rail (I-DESIGN-DISPATCH §2b). When
 	// both are non-nil AND a repo resolves for the project, the CoAuthor spine wraps
@@ -107,40 +111,42 @@ type workflows struct {
 	// existing test) the spine runs UNCHANGED — read-back/stage on main, no branch/PR
 	// ops — so the branch-aware path is purely additive and dormant-when-unwired,
 	// exactly like the construction Manager's git-forward slice.
-	Rail sourceControlRail
+	//
+	// Rail is the PUBLISHED sourceControlAccess RA. The six rail verbs are reached through
+	// the generated invoker surface (wf.Acts.Rail*); this field is held directly ONLY for
+	// the nil/dormant gate (gitEnabled) and for the CUSTOM SyncManagedScaffold Activity (a
+	// free-function composition helper the generated layer has no single contract op for).
+	Rail sourcecontrol.SourceControlAccess
 	// Repo resolves the per-project RepoRef the rail verbs address. nil ⇒ the rail is
 	// dormant. Injected so the repo-resolution policy is swappable without a new RA edge.
 	Repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool)
 }
 
 // Activity name constants. The Activity methods are registered under these stable
-// names (worker.go / the test suite), and the workflow bodies invoke them by the
-// method value on wf, so the registered name and the call stay in lockstep.
+// names via the manifest's CustomActivities (workermanifest.go / the test suite), and the
+// workflow bodies invoke them by the method value on wf, so the registered name and the
+// call stay in lockstep. These are the CUSTOM Activities the generated temporalgen layer
+// has no contract for (envelope codec, capability type-assertions incl. the Reconciling
+// extension, the free-function scaffold sync). The contract-backed RA ops
+// (readProjectVersion / advancePhase / submit / observe / the six rail verbs) are GENERATED
+// and reached through wf.Acts — their names live in the generated worker.gen.go, not here.
 const (
 	actReadProject         = "ReadProjectActivity"
-	actReadProjectVersion  = "ReadProjectVersionActivity"
 	actReadProjectOnBranch = "ReadProjectOnBranchActivity"
-	actDispatchDesignJob   = "DispatchDesignJobActivity"
-	actObserveDesignJob    = "ObserveDesignJobActivity"
 	actStageForReview      = "StageArtifactForReviewActivity"
 	actCommitArtifact      = "CommitArtifactActivity"
 	actRejectArtifact      = "RejectArtifactActivity"
 	actWithdrawArtifact    = "WithdrawArtifactActivity"
-	actAdvancePhase        = "AdvancePhaseActivity"
 	// F80c: the server-side diverged-branch reconcile at the approve/merge window.
 	actReconcileBranch = "ReconcileBranchActivity"
 	// review-ledger: the human waive/reopen branch mutation.
 	actSetReviewCommentStatus = "SetReviewCommentStatusActivity"
 	actSeedReviewComments     = "SeedReviewCommentsActivity"
 
-	// PR-rail Activity names (I-DESIGN-DISPATCH §2b).
-	actMintRepoCredential   = "MintRepoCredentialActivity" // #nosec G101 -- Temporal activity NAME constant, not a credential
-	actSyncManagedScaffold  = "SyncManagedScaffoldActivity"
-	actOpenBranch           = "OpenBranchActivity"
-	actOpenPullRequest      = "OpenPullRequestActivity"
-	actGetPullRequestStatus = "GetPullRequestStatusActivity"
-	actPostReview           = "PostReviewActivity"
-	actMergePullRequest     = "MergePullRequestActivity"
+	// SyncManagedScaffold is CUSTOM: it wraps sourcecontrol.SyncManagedScaffold, a
+	// free-function composition helper (NOT a single SourceControlAccess contract op), so
+	// temporalgen has nothing to generate for it.
+	actSyncManagedScaffold = "SyncManagedScaffoldActivity"
 )
 
 // maxRedraftAttempts bounds the PM-revise / draft-failure redraft loop before the
@@ -156,10 +162,16 @@ const maxRedraftAttempts = 5
 // pathology. A pure in-workflow guard.
 const maxMutateConflictAttempts = 20
 
-// Activity option presets (systemDesignManager.md §6.4). Concrete RetryPolicy /
-// timeout choices live here, in the Manager.
-func readProjectOpts(ctx workflow.Context) workflow.Context {
-	return workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+// Activity option presets (systemDesignManager.md §6.4). Concrete RetryPolicy / timeout
+// choices live here, in the Manager. Each preset is exposed as an ActivityOptions VALUE
+// (consumed by the generated-invoker option hook in workermanifest.go, keyed by the
+// generated activity name) AND as a ctx-wrapper the CUSTOM Activity call sites apply
+// directly.
+
+// readProjectActivityOptions is the preset for the read Activities (custom ReadProject /
+// ReadProjectOnBranch) and the generated projectStateAccess.readProjectVersion.
+func readProjectActivityOptions() workflow.ActivityOptions {
+	return workflow.ActivityOptions{
 		StartToCloseTimeout: 10 * time.Second,
 		RetryPolicy: &temporal.RetryPolicy{
 			// BOUND the read retries. A read that faults RETRYABLY (Transient / Infrastructure /
@@ -174,20 +186,31 @@ func readProjectOpts(ctx workflow.Context) workflow.Context {
 				fwmanager.RAErrType(fwra.ContractMisuse),
 			},
 		},
-	})
+	}
 }
 
-func mutateOpts(ctx workflow.Context) workflow.Context {
-	// Retry Transient via Activity RetryPolicy; Conflict is handled by the
-	// workflow-level re-read→re-apply loop (D-PA §6/§7). Terminal on ContractMisuse.
-	return workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+func readProjectOpts(ctx workflow.Context) workflow.Context {
+	return workflow.WithActivityOptions(ctx, readProjectActivityOptions())
+}
+
+// mutateActivityOptions is the preset for the head-state mutation Activities (custom
+// Stage / Commit / Reject / Withdraw / Reconcile / review-ledger) and the generated
+// projectStateAccess.advancePhase. Retry Transient via the Activity RetryPolicy; Conflict
+// is handled by the workflow-level re-read→re-apply loop (D-PA §6/§7). Terminal on
+// ContractMisuse.
+func mutateActivityOptions() workflow.ActivityOptions {
+	return workflow.ActivityOptions{
 		StartToCloseTimeout: 15 * time.Second,
 		RetryPolicy: &temporal.RetryPolicy{
 			NonRetryableErrorTypes: []string{
 				fwmanager.RAErrType(fwra.ContractMisuse),
 			},
 		},
-	})
+	}
+}
+
+func mutateOpts(ctx workflow.Context) workflow.Context {
+	return workflow.WithActivityOptions(ctx, mutateActivityOptions())
 }
 
 // raConflictErrType is the canonical Temporal Type() a head-state mutation
@@ -257,12 +280,7 @@ func (wf *workflows) readProject(ctx workflow.Context, projectID ProjectID) (pro
 // wasteful whole-aggregate read that shipped the entire encoded Project across the
 // Temporal Activity boundary for a uint64.
 func (wf *workflows) readVersion(ctx workflow.Context, projectID ProjectID) (projectstate.Version, error) {
-	c := readProjectOpts(ctx)
-	var v projectstate.Version
-	if err := workflow.ExecuteActivity(c, wf.ReadProjectVersionActivity, projectID).Get(ctx, &v); err != nil {
-		return 0, err
-	}
-	return v, nil
+	return wf.Acts.ProjectStateReadProjectVersion(ctx, projectstate.ProjectID(projectID))
 }
 
 // readVersionOnBranch returns the optimistic-concurrency token of the substrate the
@@ -1432,12 +1450,7 @@ func (wf *workflows) runPhaseAdvance(ctx workflow.Context, projectID ProjectID) 
 
 	// Seal Phase 1. AdvancePhase is a MAIN write (Conflict re-read targets main, branch=="").
 	if _, err := wf.applyRecovering(ctx, projectID, "", proj.Version, func(expected projectstate.Version) (projectstate.Version, error) {
-		c := mutateOpts(ctx)
-		var v projectstate.Version
-		e := workflow.ExecuteActivity(c, wf.AdvancePhaseActivity, advancePhaseArgs{
-			ProjectID: projectstate.ProjectID(projectID), ExpectedVersion: expected,
-		}).Get(ctx, &v)
-		return v, e
+		return wf.Acts.ProjectStateAdvancePhase(ctx, projectstate.ProjectID(projectID), expected)
 	}); err != nil {
 		return PhaseAdvanceResult{}, err
 	}
