@@ -64,6 +64,12 @@ export function GeneratingScene({
         gap: 3,
         overflow: 'hidden',
         position: 'relative',
+        // Same centered-card treatment as DraftFailedPanel: a capped width centered in
+        // the content area, so the loader is a tidy centered card at wide viewports
+        // rather than a full-bleed band with its content adrift in whitespace.
+        width: '100%',
+        maxWidth: 720,
+        mx: 'auto',
       }}
     >
       <Typography

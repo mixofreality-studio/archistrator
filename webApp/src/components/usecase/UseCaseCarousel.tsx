@@ -286,12 +286,14 @@ export function UseCaseCarousel({
                   }}
                 >
                   <ToggleButton
+                    data-testid={UI_IDENTIFIERS.UseCaseCarousel.VIEW_WALKTHROUGH}
                     sx={{ fontFamily: t.mono, fontSize: 11, textTransform: 'none' }}
                     value="walkthrough"
                   >
                     Walkthrough
                   </ToggleButton>
                   <ToggleButton
+                    data-testid={UI_IDENTIFIERS.UseCaseCarousel.VIEW_DIAGRAM}
                     sx={{ fontFamily: t.mono, fontSize: 11, textTransform: 'none' }}
                     value="diagram"
                   >

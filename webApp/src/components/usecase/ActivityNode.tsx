@@ -16,6 +16,7 @@ import type { ActivityNodeKind } from '../../contracts/models';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import type { Tokens } from '../../utilities/theme/themes';
 import { useComments } from '../comments/CommentContext';
+import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 import { NODE_DIMS } from './nodeDims';
 
 export interface ActivityNodeData {
@@ -28,6 +29,9 @@ export interface ActivityNodeData {
   /** Selection carried through data (xyflow's controlled selection is inert here) —
    *  drives the Comment toolbar + accent ring. */
   isSelected?: boolean;
+  /** Walkthrough "you-are-here" current step — exactly one node per map carries it.
+   *  Publishes a stable testid so the per-step camera focus is black-box assertable. */
+  isCurrent?: boolean;
   [key: string]: unknown;
 }
 
@@ -292,6 +296,9 @@ export function ActivityNode({ data, selected }: NodeProps): ReactNode {
           always on; comment action only where commenting is enabled. */}
       <Box
         aria-label={enabled ? `${ariaLabel}. Press C to comment.` : ariaLabel}
+        data-testid={
+          d.isCurrent === true ? UI_IDENTIFIERS.UseCaseCarousel.WALKTHROUGH_CURRENT_NODE : undefined
+        }
         role="button"
         sx={{
           display: 'inline-flex',

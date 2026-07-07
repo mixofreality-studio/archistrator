@@ -12,7 +12,7 @@
  * detected back-edge / loop) render dashed in the accent color. Selecting a node
  * arms a comment anchor. Derivation is memoized on (use case, theme).
  */
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   ReactFlow,
   Background,
@@ -40,11 +40,21 @@ import {
   nodeCenter,
   HEADER_HEIGHT,
 } from './activityLayout';
+import { NODE_DIMS } from './nodeDims';
+import type { ActivityNodeKind } from '../../contracts/models';
 
 const nodeTypes = { activity: ActivityNode, swimlane: SwimlaneBackground };
 const edgeTypes = { activity: ActivityEdge };
 
 const FIT_PADDING = 0.14;
+
+// Per-step walkthrough focus: how tightly the camera zooms onto the current node
+// and how long the glide takes. FOCUS_ZOOM sits below ReactFlow's maxZoom (1.4) so
+// the ringed node reads large while its immediate neighborhood (the steps it flows
+// from / to, and the adjacent lanes) stays on-canvas and legible — a "zoom to this
+// step" move, not a claustrophobic crop.
+const FOCUS_ZOOM = 0.95;
+const FOCUS_DURATION = 500;
 
 /**
  * Walkthrough highlight state: the current node, the set of visited node ids, and
@@ -108,6 +118,9 @@ function build(
         // Selection travels through data (controlled flow → xyflow selection is inert):
         // drives the NodeToolbar Comment button + accent ring. Click arms nothing now.
         isSelected: n.id === selectedId,
+        // Walkthrough "you-are-here" current step — carries the ring AND a black-box
+        // testid so the per-step camera move is assertable. Exactly one node has it.
+        isCurrent,
       },
       draggable: false,
       zIndex: isCurrent ? 3 : 1,
@@ -154,27 +167,90 @@ function build(
 }
 
 /**
- * Fits the whole diagram into view once the nodes have actually been measured
- * (React-Flow's own `fitView` prop fires on first paint, before the async-
- * measured node sizes are known — which is what let the start node/first lane
- * get clipped at the left edge on initial render). By waiting on
- * `useNodesInitialized` and re-fitting on `refitKey`, the entire graph — every
- * lane, the start node, the terminal — is always framed with padding. In
- * walkthrough mode the map stays fully framed (never clipped); the ring + dim
- * carry "you are here" instead of a zoom that would push nodes off-canvas.
+ * Camera controller for the diagram. Two behaviors, keyed off whether the diagram
+ * is a walkthrough "you-are-here" map (`focusId` set) or the plain static view:
+ *
+ *  • Whole-graph fit — on mount and whenever the use case (`fitToken`) changes, once
+ *    the nodes have actually been measured (React-Flow's own `fitView` prop fires on
+ *    first paint, before the async-measured node sizes are known — which clipped the
+ *    start node/first lane at the left edge). Waiting on `useNodesInitialized`
+ *    guarantees the entire graph — every lane, start, terminal — is framed. This is
+ *    the initial frame in BOTH modes and the ONLY camera move in the static view.
+ *
+ *  • Per-step focus (walkthrough only) — when the current step's node (`focusId`)
+ *    changes, glide the camera to center on it at FOCUS_ZOOM (the founder-loved
+ *    "zoom to next item"). The first step of a freshly-mounted graph is skipped so
+ *    the initial whole-graph fit stands; every advance/back/rewind after that
+ *    re-centers on the new current node. The ring + dim still carry "you are here";
+ *    the camera move makes the current step readable without hunting for the ring.
  */
-function AutoFit({ refitKey }: { refitKey: string }): null {
+function AutoFit({ fitToken, focusId }: { fitToken: string; focusId: string | undefined }): null {
   const initialized = useNodesInitialized();
-  const { fitView } = useReactFlow();
+  const { fitView, getNode, setCenter } = useReactFlow();
+  // The fitToken whose whole-graph fit has run — re-fit once per use case.
+  const fittedToken = useRef<string | null>(null);
+  // The focusId that was current when this use case first mounted. Compared BY VALUE
+  // (not a consume-once flag) so the initial step is skipped robustly across effect
+  // re-runs, while every later step still focuses.
+  const initialFocus = useRef<{ token: string; id: string | undefined } | null>(null);
+
+  // Whole-graph fit, once per use case, after the nodes are measured. React-Flow's
+  // built-in `fitView` prop frames the graph on first paint (before async
+  // measurement); this re-fit — gated on `useNodesInitialized` when it resolves —
+  // corrects the start-node/first-lane clipping. It is the ONLY camera move in the
+  // static (non-walkthrough) view.
   useEffect(() => {
     if (!initialized) return undefined;
+    if (fittedToken.current === fitToken) return undefined;
+    fittedToken.current = fitToken;
     const raf = requestAnimationFrame(() => {
       void fitView({ padding: FIT_PADDING, duration: 220 });
     });
     return (): void => {
       cancelAnimationFrame(raf);
     };
-  }, [initialized, refitKey, fitView]);
+  }, [initialized, fitToken, fitView]);
+
+  // Per-step focus in walkthrough mode: glide the camera onto the current step's
+  // node. Driven purely off `focusId` (NOT `useNodesInitialized`, which does not
+  // reliably resolve for the you-are-here map) — the retry loop waits for the target
+  // node's measured rect instead.
+  useEffect(() => {
+    if (focusId === undefined || focusId.length === 0) return undefined;
+    // Record and skip the initial step (already framed by the whole-graph fit) so the
+    // overview stands on mount; re-runs on the same step are skipped by value too.
+    if (initialFocus.current?.token !== fitToken) {
+      initialFocus.current = { token: fitToken, id: focusId };
+      return undefined;
+    }
+    if (initialFocus.current.id === focusId) return undefined;
+    // The nodes array is rebuilt every step; the target node may not be in the store
+    // in the first frame after the click, so retry across a few frames. The you-are-
+    // here map's nodes are not always MEASURED (useNodesInitialized never resolves),
+    // so the rect comes from the known per-kind NODE_DIMS at the node's laid-out
+    // position rather than an (often-absent) measured rect.
+    let raf = 0;
+    let tries = 0;
+    const focus = (): void => {
+      const node = getNode(focusId);
+      if (node === undefined) {
+        if (tries++ < 20) raf = requestAnimationFrame(focus);
+        return;
+      }
+      const dim = NODE_DIMS[(node.data as { kind?: ActivityNodeKind }).kind ?? 'action'];
+      const w = node.measured?.width ?? node.width ?? dim.w;
+      const h = node.measured?.height ?? node.height ?? dim.h;
+      void setCenter(node.position.x + w / 2, node.position.y + h / 2, {
+        zoom: FOCUS_ZOOM,
+        duration: FOCUS_DURATION,
+      });
+    };
+    raf = requestAnimationFrame(focus);
+    return (): void => {
+      cancelAnimationFrame(raf);
+    };
+  }, [fitToken, focusId, getNode, setCenter]);
+
   return null;
 }
 
@@ -241,7 +317,7 @@ export function ActivityFlow({
       >
         <Background color={t.line} gap={22} size={1} />
         <Controls showInteractive={false} />
-        <AutoFit refitKey={highlight === undefined ? uc.id : `${uc.id}:${highlight.current}`} />
+        <AutoFit fitToken={uc.id} focusId={highlight?.current} />
       </ReactFlow>
     </Box>
   );

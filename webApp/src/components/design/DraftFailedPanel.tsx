@@ -76,6 +76,14 @@ export function DraftFailedPanel({
         overflow: 'hidden',
         border: `1.5px solid ${t.line}`,
         borderRadius: t.radius / 8 + 0.5,
+        // Render as a centered, max-width CARD rather than a full-bleed band: at wide
+        // viewports a full-width panel left its icon/title/text/buttons adrift in a
+        // sea of whitespace (read as "broken / pushed to one side"). A capped width
+        // centered in the content area keeps the failed state a tidy, centered card at
+        // every width (1300 / 1600 / 2000).
+        width: '100%',
+        maxWidth: 720,
+        mx: 'auto',
       }}
     >
       <Box

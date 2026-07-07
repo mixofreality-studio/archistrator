@@ -22,6 +22,7 @@ import type { UseCaseView } from '../../contracts/adapters';
 import { ActivityFlow, type ActivityHighlight } from './ActivityFlow';
 import { laneColors } from './laneColors';
 import { useTokens } from '../../utilities/theme/ThemeContext';
+import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 
 type NodeView = UseCaseView['nodes'][number];
 type EdgeView = UseCaseView['edges'][number];
@@ -227,6 +228,7 @@ export function UseCaseWalkthrough({
             </Box>
           ) : (
             <Button
+              data-testid={UI_IDENTIFIERS.UseCaseCarousel.WALKTHROUGH_NEXT}
               endIcon={<ArrowForwardIcon />}
               sx={{ mt: 'auto', alignSelf: 'flex-start', textTransform: 'none' }}
               variant="contained"

@@ -61,6 +61,15 @@ export const UI_IDENTIFIERS = {
     // ListSubheader sections — A6). Selectable black-box via testid rather than
     // its "Use case" label text.
     PICKER: 'usecase-picker',
+    // View-mode toggle (walkthrough choose-your-path vs. full activity diagram).
+    VIEW_WALKTHROUGH: 'usecase-view-walkthrough',
+    VIEW_DIAGRAM: 'usecase-view-diagram',
+    // The walkthrough's "Next" advance control (single-successor step). Black-box
+    // hook for asserting the per-step camera move on the you-are-here map.
+    WALKTHROUGH_NEXT: 'walkthrough-next',
+    // The you-are-here map's CURRENT step node (the ringed node). Exactly one is
+    // present in walkthrough mode; its identity changes as the reader advances.
+    WALKTHROUGH_CURRENT_NODE: 'walkthrough-current-node',
   },
   DesignExperience: {
     ROOT: 'design-experience',

@@ -88,6 +88,14 @@ export const TESTID = {
   // Core Use Cases artifact — the grouped (Core / Variations) use-case picker.
   // Mirrors UIIdentifiers.UseCaseCarousel.PICKER.
   useCasePicker: 'usecase-picker',
+  // Core Use Cases view-mode toggle + walkthrough controls. Mirrors
+  // UIIdentifiers.UseCaseCarousel.{VIEW_WALKTHROUGH,VIEW_DIAGRAM,WALKTHROUGH_NEXT,
+  // WALKTHROUGH_CURRENT_NODE}. The current-node id is a stable hook for asserting
+  // the per-step "you-are-here" camera focus black-box.
+  useCaseViewWalkthrough: 'usecase-view-walkthrough',
+  useCaseViewDiagram: 'usecase-view-diagram',
+  walkthroughNext: 'walkthrough-next',
+  walkthroughCurrentNode: 'walkthrough-current-node',
 
   // Deployment (operationalConcepts artifact) profile switcher — values are the
   // bare DeploymentProfile strings 'cloud' | 'local' | 'test'.
