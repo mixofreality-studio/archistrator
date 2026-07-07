@@ -547,7 +547,7 @@ func run(logger *slog.Logger) error {
 	// deps. The console's deploy/withdraw/cost ops are durable workflow starts the Worker
 	// drives; the operatedStateReconcile Schedule remains a scheduler concern.
 	wo := worker.New(tc, operations.TaskQueue, worker.Options{})
-	operations.RegisterWorker(wo, operationsManager)
+	operations.RegisterManagerWorker(wo, operationsManager)
 	if err := wo.Start(); err != nil {
 		return err
 	}

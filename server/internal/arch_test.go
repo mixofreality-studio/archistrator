@@ -145,6 +145,7 @@ var encapsulationAllowlistData = map[string][]string{
 	// Temporal registration entrypoints (see construction). RegisterSchedules registers the
 	// operatedStateReconcile Schedule at startup.
 	"internal/manager/operations": {
+		"RegisterManagerWorker",
 		"RegisterSchedules",
 		"RegisterWorker",
 		"TaskQueue",

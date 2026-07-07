@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
 )
 
@@ -50,27 +49,11 @@ import (
 // drives the §6.5 re-read→re-apply loop.
 // ===========================================================================
 
-// operatedSystemStateAccess mirrors operatedSystemStateAccess.md §2 — the
-// operated-system head-state RA. Reads are pure; writes carry the version guard +
-// dedup-first idempotency key. UNEXPORTED downstream seam (founder DI model
-// 2026-06-28): the GENERATED NewOperationsManager takes the dep's PUBLISHED
-// operatedsystemstate.OperatedSystemStateAccess; the folded adapter (adapters.go)
-// bridges it to this seam.
-type operatedSystemStateAccess interface {
-	// ReadOperatedSystem returns the whole head-state (NotFound if no row).
-	ReadOperatedSystem(ctx context.Context, operatedAppID operatedAppID) (operatedSystem, error)
-	// ReadInFlightOperatedApps returns the in-flight operated apps for a scope
-	// (empty AppIDs ⇒ all; a customer scope for the delinquency sweep).
-	ReadInFlightOperatedApps(ctx context.Context, scope inFlightScope) ([]operatedSystemSummary, error)
-	// PublishDesiredState records the head-state desired-state transition (additive).
-	PublishDesiredState(ctx context.Context, operatedAppID operatedAppID, expectedVersion version, reason DesiredStateReason, decision *autoscaleDecisionSeam, idempotencyKey fwra.IdempotencyKey) (version, error)
-	// RecordRuntimeStatusChange records an observed runtime-status transition.
-	RecordRuntimeStatusChange(ctx context.Context, operatedAppID operatedAppID, expectedVersion version, status RuntimeStatusSeam, idempotencyKey fwra.IdempotencyKey) (version, error)
-	// WithdrawSystem marks the operated system withdrawn (head-state terminal).
-	WithdrawSystem(ctx context.Context, operatedAppID operatedAppID, expectedVersion version, idempotencyKey fwra.IdempotencyKey) (version, error)
-	// RecordDelinquencyAction records a delinquency-handling action.
-	RecordDelinquencyAction(ctx context.Context, operatedAppID operatedAppID, expectedVersion version, action delinquencyAction, idempotencyKey fwra.IdempotencyKey) (version, error)
-}
+// NOTE: the operatedSystemStateAccess consumer-seam interface is retired — the
+// workflow reaches this RA through the generated typed invokers (invokers.gen.go),
+// which carry the contract types directly. The Manager-local data mirrors below
+// remain: the workflow folds the invokers' contract values into them (adapters.go
+// converters) so the workflow body + Engines keep speaking one unified vocabulary.
 
 // version is the operated-system optimistic-concurrency version
 // (operatedSystemStateAccess.md §3). Mirrors the owning RA's version type.
@@ -138,23 +121,9 @@ type inFlightScope struct {
 // table commits to: getApplicationHealth / getSloStatus / readComputeAttribution).
 // ===========================================================================
 
-// operatedRuntimeAccess mirrors operatedRuntimeAccess.md §2 — the GitOps/cluster/
-// observability fronting. Writes return at durable acceptance (NOT convergence);
-// reads observe infrastructure-driven convergence. UNEXPORTED seam; the folded
-// adapter bridges the published operatedruntime.OperatedRuntimeAccess to it.
-type operatedRuntimeAccess interface {
-	// PublishDesiredState commits the rendered desired state (git commit). Idempotent
-	// on content; the caller-supplied key lands in the commit message.
-	PublishDesiredState(ctx context.Context, appID operatedAppID, desired runtimeDesiredState, idempotencyKey fwra.IdempotencyKey) error
-	// Withdraw removes the desired state (ArgoCD prunes). NotFound ⇒ success.
-	Withdraw(ctx context.Context, appID operatedAppID, idempotencyKey fwra.IdempotencyKey) error
-	// GetApplicationHealth reads the observed health snapshot (pure).
-	GetApplicationHealth(ctx context.Context, appID operatedAppID) (RuntimeStatusSeam, error)
-	// GetSloStatus reads the observed SLO posture (pure).
-	GetSloStatus(ctx context.Context, appID operatedAppID) (sloStatusSeam, error)
-	// ReadComputeAttribution reads observed compute consumption over a window (pure).
-	ReadComputeAttribution(ctx context.Context, appID operatedAppID, window attributionWindow) (computeAttribution, error)
-}
+// NOTE: the operatedRuntimeAccess consumer-seam interface is retired (see the
+// operatedSystemStateAccess note above) — reached through the generated invokers. The
+// Manager-local data mirrors below remain for the workflow/Engine vocabulary.
 
 // runtimeDesiredState mirrors operatedRuntimeAccess.md §3 DesiredState — the
 // infrastructure-neutral rendered desired-state the Manager publishes. The bytes are
@@ -170,13 +139,6 @@ type runtimeDesiredState struct {
 type sloStatusSeam struct {
 	SloMet bool
 	Detail string
-}
-
-// attributionWindow mirrors operatedRuntimeAccess.md §3 — the closed time range to
-// attribute consumption over (the reconcile-tick interval for Path B).
-type attributionWindow struct {
-	From time.Time
-	To   time.Time
 }
 
 // computeAttribution mirrors operatedRuntimeAccess.md §3 — per-app infrastructure-
@@ -200,19 +162,10 @@ type computeUnitsSeam struct {
 // idempotent — NO Conflict, NO version guard) + one range-read.
 // ===========================================================================
 
-// usageAccess mirrors usageAccess.md §2 — the append-only compute-usage ledger.
-// Writes are idempotent on event.RuntimeEventID (a duplicate is success, not an
-// error); reads are pure. UNEXPORTED seam; the folded adapter bridges the published
-// usage.UsageAccess to it (dropping the published []EntryRef return).
-type usageAccess interface {
-	// RecordComputeUsage appends observed compute-usage facts (per reconcile tick).
-	RecordComputeUsage(ctx context.Context, events []usageEventSeam) error
-	// RecordFinalUsage appends the final usage batch at withdraw.
-	RecordFinalUsage(ctx context.Context, events []usageEventSeam) error
-	// ReadRange replays the cycle's usage facts (the cost-projection read keys on
-	// OperatedAppID + lastCycle).
-	ReadRange(ctx context.Context, query usageRangeQuerySeam) ([]usageEventSeam, error)
-}
+// NOTE: the usageAccess consumer-seam interface is retired (see the
+// operatedSystemStateAccess note above) — reached through the generated invokers. The
+// Manager-local data mirrors below remain: usageEventSeam is the estimation Engine's
+// input shape, and the workflow folds contract usage.UsageEvent into it (workflow.go).
 
 // usageEventSeam mirrors usageAccess.md §3 UsageEvent — one observed compute-usage
 // fact carrying its runtime-supplied dedup id.
@@ -242,14 +195,11 @@ type usageRangeQuerySeam struct {
 // address (a string), matching the package's content-address discipline.
 // ===========================================================================
 
-// artifactAccess is the Manager's consumer view of artifactAccess for the deploy
-// path: retrieve the deployable bundle for a constructed app
-// (operationsManager.md §6.4 RetrieveDeployableBundleActivity). UNEXPORTED seam; the
-// folded adapter bridges the published artifact.ArtifactAccess (escalation E-1: over
-// RetrieveConstructionOutput until the frozen retrieveDeployableBundle verb lands).
-type artifactAccess interface {
-	RetrieveDeployableBundle(ctx context.Context, deployableBundleRef string) (deployableBundle, error)
-}
+// NOTE: the artifactAccess consumer-seam interface is retired (see the
+// operatedSystemStateAccess note above) — reached through the generated invoker
+// ArtifactRetrieveConstructionOutput (escalation E-1: the deployable bundle IS a
+// construction output until the frozen retrieveDeployableBundle verb lands). The
+// deployableBundle mirror below remains as the workflow's retrieve-bundle result.
 
 // deployableBundle mirrors the constructed-output bundle retrieved for a first
 // deploy. Re-uses the existing artifact.ConstructionOutput shape as the bundle body

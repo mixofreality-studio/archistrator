@@ -2,13 +2,15 @@ package operations
 
 import (
 	"errors"
-	"time"
 
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
 	fwmgr "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedruntime"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedsystemstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
 )
 
 // This file holds the Workflows struct (the Manager's downstream dependency set),
@@ -24,19 +26,20 @@ import (
 //     methods on this same struct via workflow.ExecuteActivity (activities.go).
 
 // wfDeps bundles every downstream dependency the operationsManager orchestrates,
-// passed to RegisterWorker (worker.go) and held on the Workflows struct. Each field
-// is a CONSUMER-DEFINED interface (deps.go): the existing concrete RA types are
-// adapted at the composition root; the not-yet-built Engines/RA are unit-tested with
-// fakes.
+// passed to newWorkflows (from WorkerManifest, workermanifest.go) and held on the
+// Workflows struct. The three Engines are consumer-defined seam interfaces (deps.go),
+// called DIRECTLY in-workflow. The ResourceAccess layer is reached ONLY through the
+// generated typed invoker surface (Acts, invokers.gen.go) — the former RA consumer
+// seams + composition-root adapters are retired.
 type wfDeps struct {
 	Intervention interventionEngine
 	Autoscaler   autoscalerEngine
 	Estimation   operationEstimationEngine
 
-	OperatedSystemState operatedSystemStateAccess
-	OperatedRuntime     operatedRuntimeAccess
-	Usage               usageAccess
-	Artifacts           artifactAccess
+	// Acts is the generated workflow-side invoker surface (invokers.gen.go): one
+	// method per ResourceAccess activity, carrying contract types. Its Opts hook
+	// supplies the per-activity option presets (workermanifest.go).
+	Acts genInvokers
 
 	// Policy snapshots fed to the Engines by value. In production the Manager reads
 	// them from head-state; held here as the construction-time seam values.
@@ -51,18 +54,15 @@ type wfDeps struct {
 	CustomerID     customerID
 }
 
-// workflows is the single operationsManager component struct — BOTH the workflow
-// receiver and the activity receiver (no separate Activities type, mirroring
-// construction).
+// workflows is the single operationsManager component struct — the workflow receiver.
+// The RA activities are the generated genActivities (activities.gen.go); this struct
+// reaches them through the typed invokers (Acts).
 type workflows struct {
 	Intervention interventionEngine
 	Autoscaler   autoscalerEngine
 	Estimation   operationEstimationEngine
 
-	OperatedSystemState operatedSystemStateAccess
-	OperatedRuntime     operatedRuntimeAccess
-	Usage               usageAccess
-	Artifacts           artifactAccess
+	Acts genInvokers
 
 	InterventionPolicy interventionPolicy
 	AutoscalerPolicy   autoscalerPolicy
@@ -74,18 +74,15 @@ type workflows struct {
 // newWorkflows builds the Workflows receiver from the injected wfDeps.
 func newWorkflows(d wfDeps) *workflows {
 	return &workflows{
-		Intervention:        d.Intervention,
-		Autoscaler:          d.Autoscaler,
-		Estimation:          d.Estimation,
-		OperatedSystemState: d.OperatedSystemState,
-		OperatedRuntime:     d.OperatedRuntime,
-		Usage:               d.Usage,
-		Artifacts:           d.Artifacts,
-		InterventionPolicy:  d.InterventionPolicy,
-		AutoscalerPolicy:    d.AutoscalerPolicy,
-		InfrastructureKind:  d.InfrastructureKind,
-		CurrentCycleID:      d.CurrentCycleID,
-		CustomerID:          d.CustomerID,
+		Intervention:       d.Intervention,
+		Autoscaler:         d.Autoscaler,
+		Estimation:         d.Estimation,
+		Acts:               d.Acts,
+		InterventionPolicy: d.InterventionPolicy,
+		AutoscalerPolicy:   d.AutoscalerPolicy,
+		InfrastructureKind: d.InfrastructureKind,
+		CurrentCycleID:     d.CurrentCycleID,
+		CustomerID:         d.CustomerID,
 	}
 }
 
@@ -95,96 +92,6 @@ const (
 	// loop (§6.5).
 	maxMutateConflictAttempts = 20
 )
-
-// ---------------------------------------------------------------------------
-// Activity option presets (operationsManager.md §6.4). Concrete RetryPolicy /
-// timeout choices live here, in the Manager. FU-MOP-1 (named RetryPolicy library) is
-// not yet landed; the inline §6.4 parameters are used (C-MOP-4).
-// ---------------------------------------------------------------------------
-
-// readHeadOpts — pure head-state reads (default policy; terminal NotFound).
-func readHeadOpts(ctx workflow.Context) workflow.Context {
-	return workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 15 * time.Second,
-		RetryPolicy: &temporal.RetryPolicy{
-			NonRetryableErrorTypes: []string{
-				fwmgr.RAErrType(fwra.NotFound),
-				fwmgr.RAErrType(fwra.ContractMisuse),
-			},
-		},
-	})
-}
-
-// recordHeadOpts — head-state write transitions (terminal NotFound; Conflict is
-// surfaced for the workflow-level re-read loop, so it is NOT non-retryable here — the
-// workflow body recovers it rather than the RetryPolicy).
-func recordHeadOpts(ctx workflow.Context) workflow.Context {
-	return workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 10 * time.Second,
-		RetryPolicy: &temporal.RetryPolicy{
-			NonRetryableErrorTypes: []string{
-				fwmgr.RAErrType(fwra.NotFound),
-				fwmgr.RAErrType(fwra.ContractMisuse),
-				fwmgr.RAErrType(fwra.Conflict),
-			},
-		},
-	})
-}
-
-// publishOpts — operatedRuntimeAccess writes (git commit + push; externalGateway-
-// style; terminal Auth/ContractMisuse). Git-content-idempotent — no version guard.
-func publishOpts(ctx workflow.Context) workflow.Context {
-	return workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 60 * time.Second,
-		RetryPolicy: &temporal.RetryPolicy{
-			NonRetryableErrorTypes: []string{
-				fwmgr.RAErrType(fwra.Auth),
-				fwmgr.RAErrType(fwra.ContractMisuse),
-			},
-		},
-	})
-}
-
-// runtimeReadOpts — operatedRuntimeAccess pure reads (~30s; terminal Auth/NotFound).
-func runtimeReadOpts(ctx workflow.Context) workflow.Context {
-	return workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 30 * time.Second,
-		RetryPolicy: &temporal.RetryPolicy{
-			NonRetryableErrorTypes: []string{
-				fwmgr.RAErrType(fwra.Auth),
-				fwmgr.RAErrType(fwra.NotFound),
-			},
-		},
-	})
-}
-
-// artifactReadOpts — artifactAccess.retrieveDeployableBundle (~30s; terminal
-// NotFound/Auth).
-func artifactReadOpts(ctx workflow.Context) workflow.Context {
-	return workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 30 * time.Second,
-		RetryPolicy: &temporal.RetryPolicy{
-			NonRetryableErrorTypes: []string{
-				fwmgr.RAErrType(fwra.NotFound),
-				fwmgr.RAErrType(fwra.Auth),
-			},
-		},
-	})
-}
-
-// usageOpts — usageAccess appends + reads (~20s; terminal ContractMisuse/NotFound).
-// Append-only ledger: NO Conflict (dedup-id idempotent).
-func usageOpts(ctx workflow.Context) workflow.Context {
-	return workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 20 * time.Second,
-		RetryPolicy: &temporal.RetryPolicy{
-			NonRetryableErrorTypes: []string{
-				fwmgr.RAErrType(fwra.ContractMisuse),
-				fwmgr.RAErrType(fwra.NotFound),
-			},
-		},
-	})
-}
 
 // raConflictErrType is the canonical Temporal Type() a head-state mutation Activity
 // surfaces when expectedVersion is stale; the workflow recovers with the bounded
@@ -574,103 +481,148 @@ func (wf *workflows) ViewWorkflow(ctx workflow.Context, in viewInput) (OperatedS
 // Head-state read + recovering write helpers (§6.5).
 // ---------------------------------------------------------------------------
 
-// readOperatedSystem runs the ReadOperatedSystemActivity.
+// readOperatedSystem invokes operatedSystemStateAccess.readOperatedSystem and folds
+// the contract head-state into the Manager-local seam.
 func (wf *workflows) readOperatedSystem(ctx workflow.Context, operatedAppID operatedAppID) (operatedSystem, error) {
-	c := readHeadOpts(ctx)
-	var op operatedSystem
-	if err := workflow.ExecuteActivity(c, wf.ReadOperatedSystemActivity, operatedAppID).Get(ctx, &op); err != nil {
+	op, err := wf.Acts.OperatedSystemStateReadOperatedSystem(ctx, operatedAppID)
+	if err != nil {
 		return operatedSystem{}, err
 	}
-	return op, nil
+	return operatedSystem{
+		ID:                  op.ID,
+		Version:             version(op.Version),
+		Status:              runtimeStatusFromState(op.Status),
+		InFlight:            op.InFlight,
+		DeployableBundleRef: op.DeployableBundleRef,
+	}, nil
 }
 
-// readInFlightOperatedApps runs the ReadInFlightOperatedAppsActivity.
+// readInFlightOperatedApps invokes operatedSystemStateAccess.readInFlightOperatedApps.
 func (wf *workflows) readInFlightOperatedApps(ctx workflow.Context, scope inFlightScope) ([]operatedSystemSummary, error) {
-	c := readHeadOpts(ctx)
-	var apps []operatedSystemSummary
-	if err := workflow.ExecuteActivity(c, wf.ReadInFlightOperatedAppsActivity, scope).Get(ctx, &apps); err != nil {
+	apps, err := wf.Acts.OperatedSystemStateReadInFlightOperatedApps(ctx, operatedsystemstate.InFlightScope{
+		AppIDs:     scope.AppIDs,
+		CustomerID: scope.CustomerID,
+	})
+	if err != nil {
 		return nil, err
 	}
-	return apps, nil
+	out := make([]operatedSystemSummary, 0, len(apps))
+	for _, s := range apps {
+		out = append(out, operatedSystemSummary{
+			ID:      s.ID,
+			Version: version(s.Version),
+			Status:  runtimeStatusFromState(s.Status),
+		})
+	}
+	return out, nil
 }
 
-// retrieveBundle runs the RetrieveDeployableBundleActivity.
+// retrieveBundle invokes artifactAccess.retrieveConstructionOutput (escalation E-1:
+// the deployable bundle IS a construction output until the frozen
+// retrieveDeployableBundle verb lands).
 func (wf *workflows) retrieveBundle(ctx workflow.Context, ref string) (deployableBundle, error) {
-	c := artifactReadOpts(ctx)
-	var b deployableBundle
-	err := workflow.ExecuteActivity(c, wf.RetrieveDeployableBundleActivity, ref).Get(ctx, &b)
-	return b, err
+	out, err := wf.Acts.ArtifactRetrieveConstructionOutput(ctx, ref)
+	if err != nil {
+		return deployableBundle{}, err
+	}
+	return deployableBundle{Output: out}, nil
 }
 
-// publishDesiredState runs the PublishDesiredStateActivity (git commit; content-idempotent).
+// publishDesiredState invokes operatedRuntimeAccess.publishDesiredState (git commit;
+// content-idempotent).
 func (wf *workflows) publishDesiredState(ctx workflow.Context, appID operatedAppID, desired runtimeDesiredState) error {
-	c := publishOpts(ctx)
-	return workflow.ExecuteActivity(c, wf.PublishDesiredStateActivity, publishDesiredStateArgs{
-		AppID: appID, Desired: desired,
-	}).Get(ctx, nil)
+	return wf.Acts.OperatedRuntimePublishDesiredState(ctx, appID, operatedruntime.RuntimeDesiredState{
+		Bytes:       desired.Bytes,
+		ContentType: desired.ContentType,
+	})
 }
 
-// withdrawRuntime runs the WithdrawRuntimeActivity (NotFound ⇒ success in the RA).
+// withdrawRuntime invokes operatedRuntimeAccess.withdraw (NotFound ⇒ success in the RA).
 func (wf *workflows) withdrawRuntime(ctx workflow.Context, appID operatedAppID) error {
-	c := publishOpts(ctx)
-	return workflow.ExecuteActivity(c, wf.WithdrawRuntimeActivity, appID).Get(ctx, nil)
+	return wf.Acts.OperatedRuntimeWithdraw(ctx, appID)
 }
 
-// getApplicationHealth runs the GetApplicationHealthActivity (pure read).
+// getApplicationHealth invokes operatedRuntimeAccess.getApplicationHealth (pure read).
 func (wf *workflows) getApplicationHealth(ctx workflow.Context, appID operatedAppID) (RuntimeStatusSeam, error) {
-	c := runtimeReadOpts(ctx)
-	var s RuntimeStatusSeam
-	err := workflow.ExecuteActivity(c, wf.GetApplicationHealthActivity, appID).Get(ctx, &s)
-	return s, err
+	s, err := wf.Acts.OperatedRuntimeGetApplicationHealth(ctx, appID)
+	if err != nil {
+		return RuntimeStatusUnknown, err
+	}
+	return runtimeStatusFromRuntime(s), nil
 }
 
-// getSloStatus runs the GetSloStatusActivity (pure read).
+// getSloStatus invokes operatedRuntimeAccess.getSloStatus (pure read).
 func (wf *workflows) getSloStatus(ctx workflow.Context, appID operatedAppID) (sloStatusSeam, error) {
-	c := runtimeReadOpts(ctx)
-	var s sloStatusSeam
-	err := workflow.ExecuteActivity(c, wf.GetSloStatusActivity, appID).Get(ctx, &s)
-	return s, err
+	s, err := wf.Acts.OperatedRuntimeGetSloStatus(ctx, appID)
+	if err != nil {
+		return sloStatusSeam{}, err
+	}
+	return sloStatusSeam{SloMet: s.SloMet, Detail: s.Detail}, nil
 }
 
-// readComputeAttribution runs the ReadComputeAttributionActivity (pure read).
+// readComputeAttribution invokes operatedRuntimeAccess.readComputeAttribution (pure
+// read). The Manager pins the window to a default (open) window here; the RA attributes
+// since last observation.
 func (wf *workflows) readComputeAttribution(ctx workflow.Context, appID operatedAppID) (computeAttribution, error) {
-	c := runtimeReadOpts(ctx)
-	var a computeAttribution
-	err := workflow.ExecuteActivity(c, wf.ReadComputeAttributionActivity, appID).Get(ctx, &a)
-	return a, err
+	a, err := wf.Acts.OperatedRuntimeReadComputeAttribution(ctx, appID, operatedruntime.AttributionWindow{})
+	if err != nil {
+		return computeAttribution{}, err
+	}
+	return computeAttribution{
+		Units:          computeUnitsSeam{Amount: a.Units.Amount, Unit: a.Units.Unit},
+		RuntimeEventID: a.RuntimeEventID,
+	}, nil
 }
 
-// recordComputeUsage runs the RecordComputeUsageActivity (append; dedup-id idempotent).
+// recordComputeUsage invokes usageAccess.recordComputeUsage (append; dedup-id
+// idempotent). The single-event slice-wrap lives here now (was in the retired activity).
 func (wf *workflows) recordComputeUsage(ctx workflow.Context, appID operatedAppID, attribution computeAttribution) error {
-	c := usageOpts(ctx)
-	return workflow.ExecuteActivity(c, wf.RecordComputeUsageActivity, wf.usageEvent(ctx, appID, attribution)).Get(ctx, nil)
+	_, err := wf.Acts.UsageRecordComputeUsage(ctx, []usage.UsageEvent{wf.usageEvent(ctx, appID, attribution)})
+	return err
 }
 
-// recordFinalUsage runs the RecordFinalUsageActivity (append; dedup-id idempotent).
+// recordFinalUsage invokes usageAccess.recordFinalUsage (append; dedup-id idempotent).
 func (wf *workflows) recordFinalUsage(ctx workflow.Context, appID operatedAppID, attribution computeAttribution) error {
-	c := usageOpts(ctx)
-	return workflow.ExecuteActivity(c, wf.RecordFinalUsageActivity, wf.usageEvent(ctx, appID, attribution)).Get(ctx, nil)
+	_, err := wf.Acts.UsageRecordFinalUsage(ctx, []usage.UsageEvent{wf.usageEvent(ctx, appID, attribution)})
+	return err
 }
 
-// readUsageRange runs the ReadUsageRangeActivity (pure read).
+// readUsageRange invokes usageAccess.readRange (pure read) and folds the contract
+// events into the Manager-local seam the estimation Engine consumes.
 func (wf *workflows) readUsageRange(ctx workflow.Context, query usageRangeQuerySeam) ([]usageEventSeam, error) {
-	c := usageOpts(ctx)
-	var events []usageEventSeam
-	err := workflow.ExecuteActivity(c, wf.ReadUsageRangeActivity, query).Get(ctx, &events)
-	return events, err
+	events, err := wf.Acts.UsageReadRange(ctx, usage.UsageRangeQuery{
+		CustomerID:    query.CustomerID,
+		CycleID:       usage.CycleID(query.CycleID),
+		OperatedAppID: query.OperatedAppID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]usageEventSeam, 0, len(events))
+	for _, e := range events {
+		out = append(out, usageEventSeam{
+			OperatedAppID:  e.OperatedAppID,
+			CustomerID:     e.CustomerID,
+			CycleID:        string(e.CycleID),
+			Units:          computeUnitsSeam{Amount: e.Units.Amount, Unit: e.Units.Unit},
+			RuntimeEventID: string(e.RuntimeEventID),
+			ObservedAt:     e.OccurredAt,
+		})
+	}
+	return out, nil
 }
 
-// usageEvent assembles one UsageEvent from an observed attribution. The
+// usageEvent assembles one contract UsageEvent from an observed attribution. The
 // RuntimeEventID is the append-only ledger's dedup token (usageAccess.md §2/§3).
-// ObservedAt is read from the deterministic workflow clock (replay-safe).
-func (wf *workflows) usageEvent(ctx workflow.Context, appID operatedAppID, attribution computeAttribution) usageEventSeam {
-	return usageEventSeam{
+// OccurredAt is read from the deterministic workflow clock (replay-safe).
+func (wf *workflows) usageEvent(ctx workflow.Context, appID operatedAppID, attribution computeAttribution) usage.UsageEvent {
+	return usage.UsageEvent{
 		OperatedAppID:  appID,
 		CustomerID:     wf.CustomerID,
-		CycleID:        wf.CurrentCycleID,
-		Units:          attribution.Units,
-		RuntimeEventID: attribution.RuntimeEventID,
-		ObservedAt:     workflow.Now(ctx),
+		CycleID:        usage.CycleID(wf.CurrentCycleID),
+		Units:          usage.ComputeUnits{Amount: attribution.Units.Amount, Unit: attribution.Units.Unit},
+		RuntimeEventID: usage.RuntimeEventID(attribution.RuntimeEventID),
+		OccurredAt:     workflow.Now(ctx),
 	}
 }
 
@@ -678,48 +630,40 @@ func (wf *workflows) usageEvent(ctx workflow.Context, appID operatedAppID, attri
 // Conflict loop (§6.5). decision is carried only for reason=autoscale.
 func (wf *workflows) recordPublishDesiredState(ctx workflow.Context, appID operatedAppID, seed version, reason DesiredStateReason, decision *autoscaleDecisionSeam) (version, error) {
 	return wf.applyRecovering(ctx, appID, seed, func(expected version) (version, error) {
-		c := recordHeadOpts(ctx)
-		var v version
-		e := workflow.ExecuteActivity(c, wf.RecordPublishDesiredStateActivity, recordPublishDesiredStateArgs{
-			AppID: appID, ExpectedVersion: expected, Reason: reason, Decision: decision,
-		}).Get(ctx, &v)
-		return v, e
+		v, e := wf.Acts.OperatedSystemStatePublishDesiredState(ctx, appID,
+			operatedsystemstate.Version(expected),
+			desiredStateReasonToState(reason),
+			autoscaleDecisionToState(decision))
+		return version(v), e
 	})
 }
 
 // recordRuntimeStatusChange applies the observed-status head-state transition.
 func (wf *workflows) recordRuntimeStatusChange(ctx workflow.Context, appID operatedAppID, seed version, status RuntimeStatusSeam) (version, error) {
 	return wf.applyRecovering(ctx, appID, seed, func(expected version) (version, error) {
-		c := recordHeadOpts(ctx)
-		var v version
-		e := workflow.ExecuteActivity(c, wf.RecordRuntimeStatusChangeActivity, recordRuntimeStatusChangeArgs{
-			AppID: appID, ExpectedVersion: expected, Status: status,
-		}).Get(ctx, &v)
-		return v, e
+		v, e := wf.Acts.OperatedSystemStateRecordRuntimeStatusChange(ctx, appID,
+			operatedsystemstate.Version(expected),
+			runtimeStatusToState(status))
+		return version(v), e
 	})
 }
 
 // withdrawHeadState applies the withdraw head-state transition.
 func (wf *workflows) withdrawHeadState(ctx workflow.Context, appID operatedAppID, seed version) (version, error) {
 	return wf.applyRecovering(ctx, appID, seed, func(expected version) (version, error) {
-		c := recordHeadOpts(ctx)
-		var v version
-		e := workflow.ExecuteActivity(c, wf.WithdrawHeadStateActivity, withdrawHeadStateArgs{
-			AppID: appID, ExpectedVersion: expected,
-		}).Get(ctx, &v)
-		return v, e
+		v, e := wf.Acts.OperatedSystemStateWithdrawSystem(ctx, appID,
+			operatedsystemstate.Version(expected))
+		return version(v), e
 	})
 }
 
 // recordDelinquencyAction applies the delinquency-action head-state transition.
 func (wf *workflows) recordDelinquencyAction(ctx workflow.Context, appID operatedAppID, seed version, action delinquencyAction) (version, error) {
 	return wf.applyRecovering(ctx, appID, seed, func(expected version) (version, error) {
-		c := recordHeadOpts(ctx)
-		var v version
-		e := workflow.ExecuteActivity(c, wf.RecordDelinquencyActionActivity, recordDelinquencyActionArgs{
-			AppID: appID, ExpectedVersion: expected, Action: action,
-		}).Get(ctx, &v)
-		return v, e
+		v, e := wf.Acts.OperatedSystemStateRecordDelinquencyAction(ctx, appID,
+			operatedsystemstate.Version(expected),
+			delinquencyActionToState(action))
+		return version(v), e
 	})
 }
 
