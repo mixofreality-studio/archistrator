@@ -294,6 +294,56 @@ Emit alongside the handwritten root → diff-review → boot all three profiles 
 systemtests green → delete `cmd/server/*.go` hand files. gtdapp never sees the
 handwritten era.
 
+## Holistic codegen targets (2026-07-07 sweep, founder-ratified)
+
+A full sweep of server, systemtests, uitests, and webApp found ~5,000 lines of
+hand-written mirrors of project.json / its derived artifacts, explained by
+three root causes:
+
+**RC1 — opaque OAS models.** The OAS types every artifact `model` as `null`;
+slot-model schemas exist nowhere (the Go structs are the authority). Every
+consumer re-types them by hand: webApp `models.ts` (468 L) + most of `wire.ts`
+(526 L), uitests `designStubs.ts` envelopes, systemtests wire DTOs.
+**Fix:** reflect Go slot models → JSON Schema at gen time (schemagen
+machinery) and emit them into the OAS `$defs`; webApp's existing
+`openapi-typescript` step then produces the TS types for free.
+
+**RC2 — iota ordinals cross the wire as bare ints.** Hand-kept ordinal↔name
+tables in webApp `enums.ts` (318 L), systemtests transports (~120 L), uitests
+stubs, plus ~5 parallel artifact-kind lists — a server enum reorder breaks all
+of them silently. **Fix:** emit enum descriptors (`x-enum-varnames` + ordinal
+maps) into the OAS from the contract `$defs`; generate every table from that
+one source.
+
+**RC3 — no generated Go client SDK.** systemtests hand-writes per-op HTTP
+(612 L) and MCP (595 L) transports + a Transport interface + opTable glue
+(~470 L) — two full hand-copies of the contract surface. **Fix:** a
+`transportgen` emitter in app-generator producing typed Go HTTP+MCP clients
+per contract — also a product artifact (delivered apps' consumers get an SDK).
+
+**Server-residual mechanical code** (unblocked by RC1's reflected schemas):
+`projectstate/modelfields.go` (483 L validation walks — highest drift risk),
+`enumjson.go` (375 L closed-enum codecs), `registry.go` (78 L kind→model
+switch) — all modelgen-emittable.
+
+**Deployment-model consumers beyond main.go:** the systemtests harness
+duplicates the server env contract (~130 L) — the substrate catalog also emits
+a test-harness env helper.
+
+**Cleanups (small, ratified):** shared stable component id between
+serviceContracts and systemDesign (deletes the webApp `contractComponentId.ts`
+heuristic AND projectmodel's join heuristic); `activityprofile.go` → JSON
+emission (kills webApp `lifecycleTemplates.ts`, 388 L); snapshot-generate the
+uitests `coreUseCasesProject.json` fixture; uitests `testids.ts` fixed by
+importing webApp's `UIIdentifiers.ts` (sharing beats generating).
+
+**Deliberate non-targets:** eslint-boundaries config (SPA's own layering,
+correctly independent of the Method model), router (10 stable routes),
+slash-command prose + MCP verb descriptions (bespoke prompt surfaces; only the
+file-set × `CommandFor` matrix gets a consistency check), team/role charter
+prose (doctrine), postgres DDL/scan (judgment-laden; revisit later), the
+aiarch-state MCP tools (already generic over slot kinds).
+
 ## Enforcement gates (CI, all projects)
 
 1. **`appgen validate`** — `projectmodel.Load` as a standalone gate:
@@ -323,20 +373,35 @@ handwritten era.
 - **Release mechanics:** platform tagged releases + scaffold pin bump,
   version-gated for in-flight workflow compatibility (the state-MCP-pin rail).
 
-## Delivery order (each step independently shippable)
+## Delivery order (each step independently shippable; revised 2026-07-07)
 
 1. Extract `framework-go-projectmodel` (contracts + relationships parsing);
-   ship `temporalgen`; migrate all 5 archistrator managers; delete
-   `activities.go` / `worker.go` / `codec.go`. No project.json schema changes.
+   ship `temporalgen`; migrate all 5 archistrator managers. No project.json
+   schema changes. (Plan:
+   `docs/superpowers/plans/2026-07-07-projectmodel-temporalgen.md`.)
 2. Migrate `framework-go-http-generator` + `framework-go-mcp-generator` onto
    `projectmodel`; delete both embedded `contract/` copies; re-pin
    `clientgen`.
 3. Move the modelgen emitter into `app-generator/modelgen` (in-repo
    `server/cmd/modelgen` becomes a shim) → closes the gtdapp
    `contract.gen.go` gap.
-4. Deployment-model schema extension (via archistrator's amendment rail —
-   dogfooding the design process) + `config.gen.go`.
-5. `composegen` + policy-variant folding → delete handwritten `cmd/server`
+4. **Typed OAS** (RC1+RC2): reflect slot-model schemas into OAS `$defs` +
+   enum descriptors (clientgen change) → webApp deletes
+   `models.ts`/`enums.ts`/most of `wire.ts`; uitests stubs re-derive.
+5. **`transportgen`** (RC3): generated Go HTTP+MCP client SDK → systemtests
+   transports + opTable deleted; SDK becomes a delivered-app artifact.
+6. **projectstate validation codegen**: `modelfields`/`enumjson`/`registry`
+   emitted by modelgen from the reflected schemas.
+7. Deployment-model schema extension (via archistrator's amendment rail —
+   dogfooding the design process) + `config.gen.go` + systemtests harness env
+   helper.
+8. `composegen` + policy-variant folding → delete handwritten `cmd/server`
    main.
-6. **Earmarked follow-ups (out of scope):** typed signal/query/update
-   generation, replay-determinism harness, op-level operation allowlists.
+9. **Cleanups**: shared component id (kills both join heuristics),
+   activity-profile JSON emission, uitests fixture snapshotting,
+   testids-by-import.
+10. **Earmarked follow-ups (out of scope):** typed signal/query/update
+    generation, replay-determinism harness, op-level operation allowlists,
+    postgres DDL/scan generation, `x-go-sumtype` promotion of `ArtifactModel`
+    + branch-aware/ledger/transition/git-status contract promotion (retires
+    the migration-surviving `codec.go` + hybrid custom activities).
