@@ -2,25 +2,32 @@ package billing
 
 import (
 	"context"
+	"encoding/json"
 	"sync"
 	"testing"
 	"time"
 
+	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/testsuite"
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/google/uuid"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/billingstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/durableexecution"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/merchantgateway"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
 )
 
 // =============================================================================
 // billingManager workflow unit tests over the Temporal in-memory test environment
-// (testsuite.WorkflowTestSuite). The two Engines (billingEngine, interventionEngine)
-// and the six ResourceAccess ports (billingStateAccess, revenueLedgerAccess,
-// usageAccess, merchantGatewayAccess, operatedRuntimeAccess, durableExecutionAccess) are
-// constructed as interface test doubles (fakes) — the not-yet-built deps are driven
-// against their FROZEN CONTRACTS as the Manager-declared consumer interfaces (deps.go).
-// These run with no Docker and no dev server.
+// (testsuite.WorkflowTestSuite). Post-temporalgen migration: the ResourceAccess layer is
+// reached through the GENERATED activities (activities.gen.go) + invokers
+// (invokers.gen.go). The contract-backed RA ports (billingState/usage/merchantGateway/
+// durableExecution) are constructed as CONTRACT-interface test doubles, wired into
+// genActivities and registered under the generated activity names; the revenue-ledger
+// no-op is a seam fake registered under the custom Activity names. The two Engines stay
+// direct-in-workflow seam fakes. No Docker, no dev server.
 //
 // They assert the money spine (compute → route → record), exact-money invariants, the
 // OQ-4 charge-failure decide→execute branch, the forward-only chargeback recompute saga
@@ -30,15 +37,15 @@ import (
 // recorded side effects). STP map in manager_test.go.
 // =============================================================================
 
-// ---- Fakes (interface test doubles for the downstream deps) -----------------
+// ---- Fakes: CONTRACT-interface test doubles for the RA ports ----------------
 
 // fakeBillingState records the head-state transition calls + serves scripted state.
-// Satisfies BillingStateAccess (deps.go).
+// Satisfies billingstate.BillingStateAccess.
 type fakeBillingState struct {
 	mu sync.Mutex
 
-	billing    billingHead
-	delinquent []customerSummary
+	billing    billingstate.Billing
+	delinquent []billingstate.CustomerSummary
 	notFound   bool
 
 	// settleConflictFirst, when >0, returns fwra.Conflict on the first N settleCycle
@@ -46,51 +53,51 @@ type fakeBillingState struct {
 	// money-affecting write.
 	settleConflictFirst int
 
-	registered []customerID
-	bound      []customerID
-	settled    []billingOutcomeSeam
-	resettled  []billingOutcomeSeam
+	registered []uuid.UUID
+	bound      []uuid.UUID
+	settled    []billingstate.BillingOutcome
+	resettled  []billingstate.BillingOutcome
 	readN      int
-	version    version
+	version    billingstate.Version
 }
 
-func (f *fakeBillingState) ReadBilling(_ context.Context, _ customerID) (billingHead, error) {
+func (f *fakeBillingState) ReadBilling(_ fwra.Context, _ uuid.UUID) (billingstate.Billing, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.readN++
 	if f.notFound {
-		return billingHead{}, fwra.New(fwra.NotFound, "no row")
+		return billingstate.Billing{}, fwra.New(fwra.NotFound, "no row")
 	}
 	return f.billing, nil
 }
 
-func (f *fakeBillingState) ReadPersistentlyDelinquentCustomers(_ context.Context, _ delinquencyScope) ([]customerSummary, error) {
+func (f *fakeBillingState) ReadPersistentlyDelinquentCustomers(_ fwra.Context, _ billingstate.DelinquencyScope) ([]billingstate.CustomerSummary, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.delinquent, nil
 }
 
-func (f *fakeBillingState) bump() version {
+func (f *fakeBillingState) bump() billingstate.Version {
 	f.version++
 	f.billing.Version = f.version
 	return f.version
 }
 
-func (f *fakeBillingState) RegisterCustomer(_ context.Context, c customerID, _ version, _ customerProfileSeam, _ fwra.IdempotencyKey) (version, error) {
+func (f *fakeBillingState) RegisterCustomer(_ fwra.Context, c uuid.UUID, _ billingstate.Version, _ billingstate.CustomerProfile, _ fwra.IdempotencyKey) (billingstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.registered = append(f.registered, c)
 	return f.bump(), nil
 }
 
-func (f *fakeBillingState) BindGatewayLive(_ context.Context, c customerID, _ version, _ gatewayBindingSeam, _ fwra.IdempotencyKey) (version, error) {
+func (f *fakeBillingState) BindGatewayLive(_ fwra.Context, c uuid.UUID, _ billingstate.Version, _ billingstate.GatewayBinding, _ fwra.IdempotencyKey) (billingstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.bound = append(f.bound, c)
 	return f.bump(), nil
 }
 
-func (f *fakeBillingState) SettleCycle(_ context.Context, _ customerID, _ version, _ cycleID, outcome billingOutcomeSeam, _ fwra.IdempotencyKey) (version, error) {
+func (f *fakeBillingState) SettleCycle(_ fwra.Context, _ uuid.UUID, _ billingstate.Version, _ string, outcome billingstate.BillingOutcome, _ fwra.IdempotencyKey) (billingstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.settleConflictFirst > 0 {
@@ -103,16 +110,17 @@ func (f *fakeBillingState) SettleCycle(_ context.Context, _ customerID, _ versio
 	return f.bump(), nil
 }
 
-func (f *fakeBillingState) ResettleCycle(_ context.Context, _ customerID, _ version, _ cycleID, correction billingOutcomeSeam, _ fwra.IdempotencyKey) (version, error) {
+func (f *fakeBillingState) ResettleCycle(_ fwra.Context, _ uuid.UUID, _ billingstate.Version, _ string, correction billingstate.BillingOutcome, _ fwra.IdempotencyKey) (billingstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.resettled = append(f.resettled, correction)
 	return f.bump(), nil
 }
 
-var _ billingStateAccess = (*fakeBillingState)(nil)
+var _ billingstate.BillingStateAccess = (*fakeBillingState)(nil)
 
-// fakeRevenueLedger records appends + serves a scripted range.
+// fakeRevenueLedger records appends + serves a scripted range. Satisfies the manager-
+// local revenueLedgerAccess seam (the custom revenue Activities' no-op contract).
 type fakeRevenueLedger struct {
 	mu sync.Mutex
 
@@ -151,38 +159,46 @@ func (r *fakeRevenueLedger) ReadRange(_ context.Context, _ customerID, _ cycleID
 
 var _ revenueLedgerAccess = (*fakeRevenueLedger)(nil)
 
-// fakeUsage serves a scripted usage range.
+// fakeUsage serves a scripted usage range. Satisfies usage.UsageAccess.
 type fakeUsage struct {
-	rangeEvents []usageEventSeam
+	rangeEvents []usage.UsageEvent
 }
 
-func (u *fakeUsage) ReadRange(_ context.Context, _ usageRangeQuerySeam) ([]usageEventSeam, error) {
+func (u *fakeUsage) ReadRange(_ fwra.Context, _ usage.UsageRangeQuery) ([]usage.UsageEvent, error) {
 	return u.rangeEvents, nil
 }
 
-var _ usageAccess = (*fakeUsage)(nil)
+func (u *fakeUsage) RecordComputeUsage(_ fwra.Context, _ []usage.UsageEvent) ([]usage.EntryRef, error) {
+	return nil, nil
+}
+
+func (u *fakeUsage) RecordFinalUsage(_ fwra.Context, _ []usage.UsageEvent) ([]usage.EntryRef, error) {
+	return nil, nil
+}
+
+var _ usage.UsageAccess = (*fakeUsage)(nil)
 
 // fakeGateway records money moves; declineCharge makes ChargeCustomer fail terminally
-// (RA Auth) the first declineChargeFirst times.
+// (RA Auth) the first declineChargeFirst times. Satisfies merchantgateway.MerchantGatewayAccess.
 type fakeGateway struct {
 	mu sync.Mutex
 
 	declineChargeFirst int
 
-	payouts   []Money
-	charges   []Money
+	payouts   []merchantgateway.Money
+	charges   []merchantgateway.Money
 	created   int
 	validated int
 }
 
-func (g *fakeGateway) PayoutCustomer(_ context.Context, _ customerID, amount Money, _ string) error {
+func (g *fakeGateway) PayoutCustomer(_ fwra.Context, _ uuid.UUID, amount merchantgateway.Money, _ string) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.payouts = append(g.payouts, amount)
 	return nil
 }
 
-func (g *fakeGateway) ChargeCustomer(_ context.Context, _ customerID, amount Money, _ string) error {
+func (g *fakeGateway) ChargeCustomer(_ fwra.Context, _ uuid.UUID, amount merchantgateway.Money, _ string) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if g.declineChargeFirst > 0 {
@@ -193,23 +209,24 @@ func (g *fakeGateway) ChargeCustomer(_ context.Context, _ customerID, amount Mon
 	return nil
 }
 
-func (g *fakeGateway) CreateConnectedAccount(_ context.Context, _ customerID, _ string) (gatewayBindingSeam, error) {
+func (g *fakeGateway) CreateConnectedAccount(_ fwra.Context, _ uuid.UUID, _ string) (merchantgateway.GatewayBinding, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.created++
-	return gatewayBindingSeam{ConnectedAccountID: "acct-1"}, nil
+	return merchantgateway.GatewayBinding{ConnectedAccountID: "acct-1"}, nil
 }
 
-func (g *fakeGateway) ValidateStoredInstrument(_ context.Context, _ customerID, _ string) error {
+func (g *fakeGateway) ValidateStoredInstrument(_ fwra.Context, _ uuid.UUID, _ string) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.validated++
 	return nil
 }
 
-var _ merchantGatewayAccess = (*fakeGateway)(nil)
+var _ merchantgateway.MerchantGatewayAccess = (*fakeGateway)(nil)
 
-// fakeDurable records delivered signals + registered schedules.
+// fakeDurable records delivered signals (decoded from the JSON payload) + registered
+// schedules. Satisfies durableexecution.DurableExecutionAccess.
 type fakeDurable struct {
 	mu sync.Mutex
 
@@ -217,21 +234,31 @@ type fakeDurable struct {
 	schedules []string
 }
 
-func (d *fakeDurable) DeliverSignal(_ context.Context, _ string, _ string, payload deliverSignalPayload) error {
+func (d *fakeDurable) DeliverSignal(_ fwra.Context, _ durableexecution.ExecutionID, _ durableexecution.SignalName, payload durableexecution.ExecutionPayload) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.signals = append(d.signals, payload)
+	var p deliverSignalPayload
+	_ = json.Unmarshal(payload.Bytes, &p)
+	d.signals = append(d.signals, p)
 	return nil
 }
 
-func (d *fakeDurable) RegisterSchedule(_ context.Context, spec scheduleSpec) error {
+func (d *fakeDurable) RegisterSchedule(_ fwra.Context, scheduleID durableexecution.ScheduleID, _ durableexecution.ScheduleSpec) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.schedules = append(d.schedules, spec.ID)
+	d.schedules = append(d.schedules, string(scheduleID))
 	return nil
 }
 
-var _ durableExecutionAccess = (*fakeDurable)(nil)
+func (d *fakeDurable) QueryExecutionState(_ fwra.Context, _ durableexecution.ExecutionID, _ durableexecution.QueryName, _ durableexecution.ExecutionPayload) (durableexecution.ExecutionStateView, error) {
+	return durableexecution.ExecutionStateView{}, nil
+}
+
+func (d *fakeDurable) StartOrSignalExecution(_ fwra.Context, _ durableexecution.ExecutionKind, _ durableexecution.ExecutionID, _ durableexecution.SignalName, _ durableexecution.ExecutionPayload) (durableexecution.ExecutionHandle, error) {
+	return durableexecution.ExecutionHandle(""), nil
+}
+
+var _ durableexecution.DurableExecutionAccess = (*fakeDurable)(nil)
 
 // fakeBillingEngine returns a scripted BillingResult for compute + recompute.
 type fakeBillingEngine struct {
@@ -287,52 +314,70 @@ func baseDeps() (wfDeps, *fakes) {
 		interv:  &fakeIntervention{directive: billingRetry},
 	}
 	return wfDeps{
-		Billing:       f.engine,
-		Intervention:  f.interv,
-		BillingState:  f.state,
-		RevenueLedger: f.ledger,
-		Usage:         f.usage,
-		Gateway:       f.gateway,
-		Durable:       f.durable,
+		Billing:      f.engine,
+		Intervention: f.interv,
+		Acts:         genInvokers{Opts: activityOptions()},
 	}, f
 }
 
-func registerOnboard(env *testsuite.TestWorkflowEnvironment, wf *workflows) {
+// registerActs wires the contract-backed RA fakes into genActivities and registers each
+// generated activity under its stable registered name — the names the workflow's Acts
+// invokers call by — plus the three custom revenue Activities (over the revenue-ledger
+// seam fake) under their custom names. Registering the full set each test is harmless
+// (unused ones are never dispatched) and keeps the per-workflow register helpers uniform.
+func registerActs(env *testsuite.TestWorkflowEnvironment, f *fakes) {
+	acts := &genActivities{
+		BillingState:     f.state,
+		Usage:            f.usage,
+		MerchantGateway:  f.gateway,
+		DurableExecution: f.durable,
+	}
+	reg := func(fn any, name string) {
+		env.RegisterActivityWithOptions(fn, activity.RegisterOptions{Name: name})
+	}
+	reg(acts.BillingStateReadBilling, "billingStateAccess.readBilling")
+	reg(acts.BillingStateReadPersistentlyDelinquentCustomers, "billingStateAccess.readPersistentlyDelinquentCustomers")
+	reg(acts.BillingStateRegisterCustomer, "billingStateAccess.registerCustomer")
+	reg(acts.BillingStateBindGatewayLive, "billingStateAccess.bindGatewayLive")
+	reg(acts.BillingStateSettleCycle, "billingStateAccess.settleCycle")
+	reg(acts.BillingStateResettleCycle, "billingStateAccess.resettleCycle")
+	reg(acts.UsageReadRange, "usageAccess.readRange")
+	reg(acts.MerchantGatewayPayoutCustomer, "merchantGatewayAccess.payoutCustomer")
+	reg(acts.MerchantGatewayChargeCustomer, "merchantGatewayAccess.chargeCustomer")
+	reg(acts.MerchantGatewayCreateConnectedAccount, "merchantGatewayAccess.createConnectedAccount")
+	reg(acts.MerchantGatewayValidateStoredInstrument, "merchantGatewayAccess.validateStoredInstrument")
+	reg(acts.DurableExecutionDeliverSignal, "durableExecutionAccess.deliverSignal")
+	reg(acts.DurableExecutionRegisterSchedule, "durableExecutionAccess.registerSchedule")
+
+	custom := &customActivities{revenueLedger: f.ledger}
+	reg(custom.RecordInboundRevenueActivity, actRecordInboundRevenue)
+	reg(custom.RecordReversalActivity, actRecordReversal)
+	reg(custom.ReadRevenueRangeActivity, actReadRevenueRange)
+}
+
+func registerOnboard(env *testsuite.TestWorkflowEnvironment, wf *workflows, f *fakes) {
 	env.RegisterWorkflowWithOptions(wf.OnboardWorkflow, workflow.RegisterOptions{Name: executionKindOnboard})
-	env.RegisterActivity(wf.ReadBillingActivity)
-	env.RegisterActivity(wf.CreateConnectedAccountActivity)
-	env.RegisterActivity(wf.BindGatewayLiveActivity)
-	env.RegisterActivity(wf.RegisterScheduleActivity)
+	registerActs(env, f)
 }
 
-func registerRegister(env *testsuite.TestWorkflowEnvironment, wf *workflows) {
+func registerRegister(env *testsuite.TestWorkflowEnvironment, wf *workflows, f *fakes) {
 	env.RegisterWorkflowWithOptions(wf.RegisterCustomerWorkflow, workflow.RegisterOptions{Name: executionKindRegister})
-	env.RegisterActivity(wf.ValidateStoredInstrumentActivity)
-	env.RegisterActivity(wf.RegisterCustomerActivity)
+	registerActs(env, f)
 }
 
-func registerClose(env *testsuite.TestWorkflowEnvironment, wf *workflows) {
+func registerClose(env *testsuite.TestWorkflowEnvironment, wf *workflows, f *fakes) {
 	env.RegisterWorkflowWithOptions(wf.CloseCycleWorkflow, workflow.RegisterOptions{Name: executionKindClose})
-	env.RegisterActivity(wf.ReadBillingActivity)
-	env.RegisterActivity(wf.ReadRevenueRangeActivity)
-	env.RegisterActivity(wf.ReadUsageRangeActivity)
-	env.RegisterActivity(wf.PayoutCustomerActivity)
-	env.RegisterActivity(wf.ChargeCustomerActivity)
-	env.RegisterActivity(wf.SettleCycleActivity)
-	env.RegisterActivity(wf.ResettleCycleActivity)
-	env.RegisterActivity(wf.RecordInboundRevenueActivity)
-	env.RegisterActivity(wf.RecordReversalActivity)
+	registerActs(env, f)
 }
 
-func registerSweep(env *testsuite.TestWorkflowEnvironment, wf *workflows) {
+func registerSweep(env *testsuite.TestWorkflowEnvironment, wf *workflows, f *fakes) {
 	env.RegisterWorkflowWithOptions(wf.ShortfallSweepWorkflow, workflow.RegisterOptions{Name: executionKindShortfallSweep})
-	env.RegisterActivity(wf.ReadDelinquentActivity)
-	env.RegisterActivity(wf.DeliverDelinquencySignalActivity)
+	registerActs(env, f)
 }
 
 // boundBilling returns a registered + gateway-bound billing at the given version.
-func boundBilling(id customerID, version version) billingHead {
-	return billingHead{ID: id, Version: version, Registered: true, GatewayBound: true}
+func boundBilling(id uuid.UUID, version billingstate.Version) billingstate.Billing {
+	return billingstate.Billing{ID: id, Version: version, Registered: true, GatewayBound: true}
 }
 
 func usd(minor int64) Money { return Money{MinorUnits: minor, Currency: "USD"} }
@@ -347,9 +392,9 @@ func Test_Onboard_HappyPath(t *testing.T) {
 
 	deps, f := baseDeps()
 	cid := uuid.New()
-	f.state.billing = billingHead{ID: cid, Version: 2}
+	f.state.billing = billingstate.Billing{ID: cid, Version: 2}
 	wf := newWorkflows(deps)
-	registerOnboard(env, wf)
+	registerOnboard(env, wf, f)
 
 	env.ExecuteWorkflow(executionKindOnboard, onboardInput{DeployedAppID: uuid.New()})
 
@@ -383,7 +428,7 @@ func Test_Onboard_NoAggregate_FailedPrecondition(t *testing.T) {
 	deps, f := baseDeps()
 	f.state.notFound = true
 	wf := newWorkflows(deps)
-	registerOnboard(env, wf)
+	registerOnboard(env, wf, f)
 
 	env.ExecuteWorkflow(executionKindOnboard, onboardInput{DeployedAppID: uuid.New()})
 
@@ -405,7 +450,7 @@ func Test_Register_HappyPath(t *testing.T) {
 	deps, f := baseDeps()
 	cid := uuid.New()
 	wf := newWorkflows(deps)
-	registerRegister(env, wf)
+	registerRegister(env, wf, f)
 
 	env.ExecuteWorkflow(executionKindRegister, registerInput{CustomerID: cid})
 
@@ -432,7 +477,7 @@ func Test_Close_Payout(t *testing.T) {
 	f.state.billing = boundBilling(cid, 3)
 	f.engine.computeResult = billingResultSeam{SignedNet: usd(5000), RoutingDirective: routingPayout}
 	wf := newWorkflows(deps)
-	registerClose(env, wf)
+	registerClose(env, wf, f)
 
 	env.ExecuteWorkflow(executionKindClose, closeInput{CustomerID: cid, CycleID: "cycle-1"})
 
@@ -450,7 +495,7 @@ func Test_Close_Payout(t *testing.T) {
 	if len(f.gateway.charges) != 0 {
 		t.Fatalf("payout must not charge, got %v", f.gateway.charges)
 	}
-	if len(f.state.settled) != 1 || f.state.settled[0].Directive != routingPayout {
+	if len(f.state.settled) != 1 || f.state.settled[0].Directive != billingstate.RoutingPayout {
 		t.Fatalf("want one settleCycle(Payout), got %v", f.state.settled)
 	}
 }
@@ -466,7 +511,7 @@ func Test_Close_Charge_ExactMagnitude(t *testing.T) {
 	f.state.billing = boundBilling(cid, 1)
 	f.engine.computeResult = billingResultSeam{SignedNet: usd(-1299), RoutingDirective: routingCharge}
 	wf := newWorkflows(deps)
-	registerClose(env, wf)
+	registerClose(env, wf, f)
 
 	env.ExecuteWorkflow(executionKindClose, closeInput{CustomerID: cid, CycleID: "cycle-1"})
 
@@ -498,7 +543,7 @@ func Test_Close_NoAction(t *testing.T) {
 	f.state.billing = boundBilling(cid, 1)
 	f.engine.computeResult = billingResultSeam{SignedNet: usd(0), RoutingDirective: routingNoAction}
 	wf := newWorkflows(deps)
-	registerClose(env, wf)
+	registerClose(env, wf, f)
 
 	env.ExecuteWorkflow(executionKindClose, closeInput{CustomerID: cid, CycleID: "cycle-1"})
 
@@ -508,7 +553,7 @@ func Test_Close_NoAction(t *testing.T) {
 	if len(f.gateway.payouts) != 0 || len(f.gateway.charges) != 0 {
 		t.Fatalf("NoAction must move no money; payouts=%v charges=%v", f.gateway.payouts, f.gateway.charges)
 	}
-	if len(f.state.settled) != 1 || f.state.settled[0].Directive != routingNoAction {
+	if len(f.state.settled) != 1 || f.state.settled[0].Directive != billingstate.RoutingNoAction {
 		t.Fatalf("want one settleCycle(NoAction), got %v", f.state.settled)
 	}
 }
@@ -521,9 +566,9 @@ func Test_Close_NotBound_FailedPrecondition(t *testing.T) {
 
 	deps, f := baseDeps()
 	cid := uuid.New()
-	f.state.billing = billingHead{ID: cid, Version: 1, Registered: true, GatewayBound: false}
+	f.state.billing = billingstate.Billing{ID: cid, Version: 1, Registered: true, GatewayBound: false}
 	wf := newWorkflows(deps)
-	registerClose(env, wf)
+	registerClose(env, wf, f)
 
 	env.ExecuteWorkflow(executionKindClose, closeInput{CustomerID: cid, CycleID: "cycle-1"})
 
@@ -546,7 +591,7 @@ func Test_Close_DrainsInboundRevenueSignals(t *testing.T) {
 	f.state.billing = boundBilling(cid, 1)
 	f.engine.computeResult = billingResultSeam{SignedNet: usd(100), RoutingDirective: routingPayout}
 	wf := newWorkflows(deps)
-	registerClose(env, wf)
+	registerClose(env, wf, f)
 
 	// Deliver an inbound-revenue signal at start (drained before close).
 	env.RegisterDelayedCallback(func() {
@@ -579,7 +624,7 @@ func Test_Close_ChargeDecline_Retry_Recharges(t *testing.T) {
 	f.gateway.declineChargeFirst = 1 // first charge declines, retry succeeds
 	f.interv.directive = billingRetry
 	wf := newWorkflows(deps)
-	registerClose(env, wf)
+	registerClose(env, wf, f)
 
 	env.ExecuteWorkflow(executionKindClose, closeInput{CustomerID: cid, CycleID: "cycle-1"})
 
@@ -611,7 +656,7 @@ func Test_Close_ChargeDecline_Escalate_FlagsDelinquency(t *testing.T) {
 	f.gateway.declineChargeFirst = 99 // never succeeds
 	f.interv.directive = billingEscalate
 	wf := newWorkflows(deps)
-	registerClose(env, wf)
+	registerClose(env, wf, f)
 
 	env.ExecuteWorkflow(executionKindClose, closeInput{CustomerID: cid, CycleID: "cycle-1"})
 
@@ -643,7 +688,7 @@ func Test_Close_ChargeDecline_Delay_NoEscalation(t *testing.T) {
 	f.gateway.declineChargeFirst = 99
 	f.interv.directive = billingDelay
 	wf := newWorkflows(deps)
-	registerClose(env, wf)
+	registerClose(env, wf, f)
 
 	env.ExecuteWorkflow(executionKindClose, closeInput{CustomerID: cid, CycleID: "cycle-1"})
 
@@ -675,7 +720,7 @@ func Test_Close_Chargeback_ForwardOnlyRecompute(t *testing.T) {
 	// After the reversal, the corrected net is a charge of 1500 (delta to claw back).
 	f.engine.recomputeResult = billingResultSeam{SignedNet: usd(-1500), RoutingDirective: routingCharge}
 	wf := newWorkflows(deps)
-	registerClose(env, wf)
+	registerClose(env, wf, f)
 
 	// Deliver a chargeback after the initial settle (drained by awaitChargeback).
 	env.RegisterDelayedCallback(func() {
@@ -713,12 +758,12 @@ func Test_Sweep_SignalsEachDelinquentCustomer(t *testing.T) {
 
 	deps, f := baseDeps()
 	c1, c2 := uuid.New(), uuid.New()
-	f.state.delinquent = []customerSummary{
+	f.state.delinquent = []billingstate.CustomerSummary{
 		{ID: c1, PauseNotWithdraw: true},
 		{ID: c2, PauseNotWithdraw: false},
 	}
 	wf := newWorkflows(deps)
-	registerSweep(env, wf)
+	registerSweep(env, wf, f)
 
 	env.ExecuteWorkflow(executionKindShortfallSweep, shortfallSweepInput{})
 
@@ -747,7 +792,7 @@ func Test_Sweep_QuietSweep_NoSignals(t *testing.T) {
 	deps, f := baseDeps()
 	f.state.delinquent = nil
 	wf := newWorkflows(deps)
-	registerSweep(env, wf)
+	registerSweep(env, wf, f)
 
 	env.ExecuteWorkflow(executionKindShortfallSweep, shortfallSweepInput{})
 
@@ -779,7 +824,7 @@ func Test_Close_SettleConflict_ReReadReApply_ConvergesToOne(t *testing.T) {
 	f.state.settleConflictFirst = 2 // first two settleCycle calls Conflict, then succeed
 	f.engine.computeResult = billingResultSeam{SignedNet: usd(0), RoutingDirective: routingNoAction}
 	wf := newWorkflows(deps)
-	registerClose(env, wf)
+	registerClose(env, wf, f)
 
 	env.ExecuteWorkflow(executionKindClose, closeInput{CustomerID: cid, CycleID: "cycle-1"})
 

@@ -158,6 +158,7 @@ var encapsulationAllowlistData = map[string][]string{
 	// Temporal registration entrypoints (see construction). RegisterSchedules registers the
 	// shortfallSweep Schedule.
 	"internal/manager/billing": {
+		"RegisterManagerWorker",
 		"RegisterSchedules",
 		"RegisterWorker",
 		"TaskQueue",

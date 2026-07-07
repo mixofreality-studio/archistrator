@@ -18,7 +18,6 @@ package billing
 
 import (
 	"context"
-	"encoding/json"
 	"time"
 
 	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
@@ -27,25 +26,19 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/billingstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/durableexecution"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/merchantgateway"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
 )
 
 // ===========================================================================
-// billingStateAccess adapter — over billingstate.BillingStateAccess.
+// billingStateAccess contract <-> Manager-local seam converters. The former
+// billingStateAdapter struct is retired — the workflow reaches the RA through the
+// generated invokers (invokers.gen.go); these pure converters fold the contract types
+// the invokers exchange into the Manager-local seams the workflow + Engines use.
 // ===========================================================================
 
-type billingStateAdapter struct {
-	inner billingstate.BillingStateAccess
-}
-
-var _ billingStateAccess = billingStateAdapter{}
-
-func (a billingStateAdapter) ReadBilling(ctx context.Context, customerID customerID) (billingHead, error) {
-	s, err := a.inner.ReadBilling(fwra.Context{Context: ctx}, customerID)
-	if err != nil {
-		return billingHead{}, err
-	}
+// billingHeadFromState folds the contract billingstate.Billing into the Manager-local
+// billingHead the workflow reads (carrying expectedVersion forward + the Engine-fed
+// terms snapshot).
+func billingHeadFromState(s billingstate.Billing) billingHead {
 	return billingHead{
 		ID:            s.ID,
 		Version:       version(s.Version),
@@ -53,67 +46,7 @@ func (a billingStateAdapter) ReadBilling(ctx context.Context, customerID custome
 		Registered:    s.Registered,
 		Terms:         billingTermsFromState(s.Terms),
 		PayoutAccount: s.PayoutAccount,
-	}, nil
-}
-
-func (a billingStateAdapter) ReadPersistentlyDelinquentCustomers(ctx context.Context, scope delinquencyScope) ([]customerSummary, error) {
-	rows, err := a.inner.ReadPersistentlyDelinquentCustomers(fwra.Context{Context: ctx}, billingstate.DelinquencyScope{
-		ProjectID: scope.ProjectID,
-	})
-	if err != nil {
-		return nil, err
 	}
-	out := make([]customerSummary, 0, len(rows))
-	for _, r := range rows {
-		out = append(out, customerSummary{ID: r.ID, PauseNotWithdraw: r.PauseNotWithdraw})
-	}
-	return out, nil
-}
-
-func (a billingStateAdapter) RegisterCustomer(ctx context.Context, customerID customerID, expectedVersion version, profile customerProfileSeam, idempotencyKey fwra.IdempotencyKey) (version, error) {
-	v, err := a.inner.RegisterCustomer(
-		fwra.Context{Context: ctx, IdempotencyKey: idempotencyKey},
-		customerID,
-		billingstate.Version(expectedVersion),
-		billingstate.CustomerProfile{PayoutAccountRef: profile.PayoutAccountRef},
-		idempotencyKey,
-	)
-	return version(v), err
-}
-
-func (a billingStateAdapter) BindGatewayLive(ctx context.Context, customerID customerID, expectedVersion version, binding gatewayBindingSeam, idempotencyKey fwra.IdempotencyKey) (version, error) {
-	v, err := a.inner.BindGatewayLive(
-		fwra.Context{Context: ctx, IdempotencyKey: idempotencyKey},
-		customerID,
-		billingstate.Version(expectedVersion),
-		billingstate.GatewayBinding{ConnectedAccountID: binding.ConnectedAccountID},
-		idempotencyKey,
-	)
-	return version(v), err
-}
-
-func (a billingStateAdapter) SettleCycle(ctx context.Context, customerID customerID, expectedVersion version, cycle cycleID, outcome billingOutcomeSeam, idempotencyKey fwra.IdempotencyKey) (version, error) {
-	v, err := a.inner.SettleCycle(
-		fwra.Context{Context: ctx, IdempotencyKey: idempotencyKey},
-		customerID,
-		billingstate.Version(expectedVersion),
-		string(cycle),
-		billingOutcomeToState(outcome),
-		idempotencyKey,
-	)
-	return version(v), err
-}
-
-func (a billingStateAdapter) ResettleCycle(ctx context.Context, customerID customerID, expectedVersion version, cycle cycleID, correction billingOutcomeSeam, idempotencyKey fwra.IdempotencyKey) (version, error) {
-	v, err := a.inner.ResettleCycle(
-		fwra.Context{Context: ctx, IdempotencyKey: idempotencyKey},
-		customerID,
-		billingstate.Version(expectedVersion),
-		string(cycle),
-		billingOutcomeToState(correction),
-		idempotencyKey,
-	)
-	return version(v), err
 }
 
 func billingTermsFromState(t billingstate.BillingTerms) billingTermsSeam {
@@ -179,91 +112,11 @@ func (noopRevenueLedger) ReadRange(_ context.Context, _ customerID, _ cycleID) (
 }
 
 // ===========================================================================
-// usageAccess adapter — over usage.UsageAccess (billing reads the whole cycle).
-// ===========================================================================
-
-type usageAdapter struct {
-	inner usage.UsageAccess
-}
-
-var _ usageAccess = usageAdapter{}
-
-func (a usageAdapter) ReadRange(ctx context.Context, query usageRangeQuerySeam) ([]usageEventSeam, error) {
-	events, err := a.inner.ReadRange(fwra.Context{Context: ctx}, usage.UsageRangeQuery{
-		CustomerID:    query.CustomerID,
-		CycleID:       usage.CycleID(query.CycleID),
-		OperatedAppID: query.OperatedAppID,
-	})
-	if err != nil {
-		return nil, err
-	}
-	out := make([]usageEventSeam, 0, len(events))
-	for _, e := range events {
-		out = append(out, usageEventSeam{
-			CustomerID:    e.CustomerID,
-			OperatedAppID: e.OperatedAppID,
-			CycleID:       cycleID(e.CycleID),
-			Units:         computeUnitsSeam{Amount: e.Units.Amount, Unit: e.Units.Unit},
-			OccurredAt:    e.OccurredAt,
-		})
-	}
-	return out, nil
-}
-
-// ===========================================================================
-// merchantGatewayAccess adapter — over merchantgateway.MerchantGatewayAccess. The
-// idempotency key is a plain string (Stripe-native dedup), not an fwra.IdempotencyKey.
-// ===========================================================================
-
-type merchantGatewayAdapter struct {
-	inner merchantgateway.MerchantGatewayAccess
-}
-
-var _ merchantGatewayAccess = merchantGatewayAdapter{}
-
-func (a merchantGatewayAdapter) PayoutCustomer(ctx context.Context, customerID customerID, amount Money, idempotencyKey string) error {
-	return a.inner.PayoutCustomer(
-		fwra.Context{Context: ctx, IdempotencyKey: fwra.IdempotencyKey(idempotencyKey)},
-		customerID,
-		merchantgateway.Money{MinorUnits: amount.MinorUnits, Currency: amount.Currency},
-		idempotencyKey,
-	)
-}
-
-func (a merchantGatewayAdapter) ChargeCustomer(ctx context.Context, customerID customerID, amount Money, idempotencyKey string) error {
-	return a.inner.ChargeCustomer(
-		fwra.Context{Context: ctx, IdempotencyKey: fwra.IdempotencyKey(idempotencyKey)},
-		customerID,
-		merchantgateway.Money{MinorUnits: amount.MinorUnits, Currency: amount.Currency},
-		idempotencyKey,
-	)
-}
-
-func (a merchantGatewayAdapter) CreateConnectedAccount(ctx context.Context, customerID customerID, idempotencyKey string) (gatewayBindingSeam, error) {
-	b, err := a.inner.CreateConnectedAccount(
-		fwra.Context{Context: ctx, IdempotencyKey: fwra.IdempotencyKey(idempotencyKey)},
-		customerID,
-		idempotencyKey,
-	)
-	if err != nil {
-		return gatewayBindingSeam{}, err
-	}
-	return gatewayBindingSeam{ConnectedAccountID: b.ConnectedAccountID}, nil
-}
-
-func (a merchantGatewayAdapter) ValidateStoredInstrument(ctx context.Context, customerID customerID, idempotencyKey string) error {
-	return a.inner.ValidateStoredInstrument(
-		fwra.Context{Context: ctx, IdempotencyKey: fwra.IdempotencyKey(idempotencyKey)},
-		customerID,
-		idempotencyKey,
-	)
-}
-
-// ===========================================================================
-// durableExecutionAccess adapter — over durableexecution.DurableExecutionAccess (the two
-// category-B control-plane verbs). The seam's deliverSignalPayload is JSON-encoded into
-// the published ExecutionPayload; the published ScheduleSpec resolves the task queue via
-// its KindBinding table, so the seam's TaskQueue is not threaded.
+// durableExecutionAccess adapter — over durableexecution.DurableExecutionAccess. Only
+// the startup RegisterSchedule verb is consumed (the platform-wide shortfallSweep; the
+// workflow-invoked deliverSignal + per-customer registerSchedule now go through the
+// generated invokers). The published ScheduleSpec resolves the task queue via its
+// KindBinding table, so the seam's TaskQueue is not threaded.
 // ===========================================================================
 
 type durableAdapter struct {
@@ -271,19 +124,6 @@ type durableAdapter struct {
 }
 
 var _ durableExecutionAccess = durableAdapter{}
-
-func (a durableAdapter) DeliverSignal(ctx context.Context, targetWorkflowID string, signalName string, payload deliverSignalPayload) error {
-	bytes, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-	return a.inner.DeliverSignal(
-		fwra.Context{Context: ctx},
-		durableexecution.ExecutionID(targetWorkflowID),
-		durableexecution.SignalName(signalName),
-		durableexecution.ExecutionPayload{Bytes: bytes, ContentType: "application/json"},
-	)
-}
 
 func (a durableAdapter) RegisterSchedule(ctx context.Context, spec scheduleSpec) error {
 	return a.inner.RegisterSchedule(

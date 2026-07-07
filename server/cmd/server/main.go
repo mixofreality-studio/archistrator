@@ -577,7 +577,7 @@ func run(logger *slog.Logger) error {
 	// workflows/activities (incl. the two Engines) from its stored deps via
 	// RegisterWorker(ws, m).
 	ws := worker.New(tc, billing.TaskQueue, worker.Options{})
-	billing.RegisterWorker(ws, billingManager)
+	billing.RegisterManagerWorker(ws, billingManager)
 	if err := ws.Start(); err != nil {
 		return err
 	}
