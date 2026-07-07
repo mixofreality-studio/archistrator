@@ -1,6 +1,6 @@
 # aiarch server — developer make targets.
 
-.PHONY: test test-short fmt vet lint sumtype-check method-check encapsulation-check gen-schemas gen-models gen gen-client gen-internal-tools bootstrap
+.PHONY: test test-short fmt vet lint sumtype-check method-check encapsulation-check gen-schemas gen-models gen gen-client gen-internal-tools gen-temporal bootstrap
 
 # Contract codegen pipeline, all-Go (jsonschema-go). project.json
 # (.serviceContracts) is the OWNER of every built component's contract; modelgen
@@ -45,6 +45,20 @@ gen-internal-tools:
 	GOWORK=off go run ./cmd/internaltoolsgen
 
 gen: gen-models gen-client gen-internal-tools
+
+# gen-temporal — generate the per-manager Temporal layer (activities/invokers/
+# worker .gen.go) for the 5 managers from project.json .serviceContracts
+# (cmd/appgen, driving framework-go-app-generator/temporalgen).
+# WORKSPACE-ONLY, NOT GOWORK=off: framework-go-app-generator has no published
+# version yet, so cmd/appgen is gated behind the `appgen` build tag and
+# resolved via go.work rather than server/go.mod. NOT folded into the `gen`
+# aggregate for the same reason — `make gen` must keep working under
+# GOWORK=off CI, which has no ../archistrator-platform checkout.
+# Task-14 followup: once framework-go-app-generator is released, pin real
+# versions in go.mod, drop the appgen tag, flip this to GOWORK=off like the
+# other gen targets, and fold it into `gen`.
+gen-temporal:
+	go run -tags appgen ./cmd/appgen
 
 gen-schemas:
 	GOWORK=off go run ./cmd/schemagen
