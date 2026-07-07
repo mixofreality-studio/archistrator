@@ -139,6 +139,7 @@ var encapsulationAllowlistData = map[string][]string{
 	// seam/enum types, the workflow/signal name consts) was UNEXPORTED — only these registration
 	// entrypoints cross the package boundary.
 	"internal/manager/construction": {
+		"RegisterManagerWorker",
 		"RegisterWorker",
 		"TaskQueue",
 	},

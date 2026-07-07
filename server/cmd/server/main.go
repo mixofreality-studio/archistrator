@@ -508,7 +508,7 @@ func run(logger *slog.Logger) error {
 
 	if registerConstruction {
 		wc := worker.New(tc, construction.TaskQueue, worker.Options{})
-		construction.RegisterWorker(wc, constructionManager)
+		construction.RegisterManagerWorker(wc, constructionManager)
 		if err := wc.Start(); err != nil {
 			return err
 		}

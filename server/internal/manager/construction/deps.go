@@ -4,9 +4,7 @@ import (
 	"context"
 
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 )
 
 // deps.go declares the Manager's INTERNAL downstream seams (unexported) plus the
@@ -70,20 +68,12 @@ type constructionTransitionAccess interface {
 // touching both the PR rail (sourceControlAccess) and the per-activity git
 // head-state mirror. Both are Manager→RA downward edges; the cred is Manager-minted
 // via GetInstallationToken and threaded IN.
+//
+// The PR-rail consumer seam (the former sourceControlRail) is RETIRED — the rail ops
+// are GENERATED (activities.gen.go) and reached through the generated invoker surface
+// (genInvokers.Rail*); the workflow-side value mapping lives in gitforward.go. The git
+// head-state mirror below stays a CUSTOM (plain-goType) seam.
 // ===========================================================================
-
-// sourceControlRail is the Manager's consumer view of the FROZEN IPullRequestRail
-// face of sourceControlAccess plus GetInstallationToken (mint). The folded
-// railAdapter (adapters.go) bridges the published sourcecontrol.SourceControlAccess
-// to it.
-type sourceControlRail interface {
-	GetInstallationToken(ctx context.Context, repo sourcecontrol.RepoRef) (sourcecontrol.RepoCredential, error)
-	OpenBranch(ctx context.Context, repo sourcecontrol.RepoRef, branch sourcecontrol.BranchName, cred sourcecontrol.RepoCredential, key fwra.IdempotencyKey) (sourcecontrol.BranchRef, error)
-	OpenPullRequest(ctx context.Context, repo sourcecontrol.RepoRef, spec sourcecontrol.PullRequestSpec, cred sourcecontrol.RepoCredential, key fwra.IdempotencyKey) (sourcecontrol.PullRequestRef, error)
-	GetPullRequestStatus(ctx context.Context, repo sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, cred sourcecontrol.RepoCredential) (sourcecontrol.PullRequestStatus, error)
-	PostReview(ctx context.Context, repo sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, review sourcecontrol.ReviewSubmission, cred sourcecontrol.RepoCredential, key fwra.IdempotencyKey) error
-	MergePullRequest(ctx context.Context, repo sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, cred sourcecontrol.RepoCredential, key fwra.IdempotencyKey) (sourcecontrol.MergeResult, error)
-}
 
 // gitActivityStatusAccess composes the two published per-activity git head-state
 // facets — projectstate.GitActivityStatusAccess (branch/CI/+1/merge) and
@@ -97,17 +87,6 @@ type gitActivityStatusAccess interface {
 	RecordActivityMerged(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
 	RecordActivityStarted(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
 	RecordActivityCompleted(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-}
-
-// ===========================================================================
-// artifactAccess seam — the frozen content-addressable store for Phase-3
-// construction outputs. The folded artifactAdapter (adapters.go) bridges the
-// published artifact.ArtifactAccess to it.
-// ===========================================================================
-
-type artifactAccess interface {
-	StoreConstructionOutput(ctx context.Context, output artifact.ConstructionOutput, idempotencyKey fwra.IdempotencyKey) (contentAddress string, err error)
-	RetrieveConstructionOutput(ctx context.Context, contentAddress string) (artifact.ConstructionOutput, error)
 }
 
 // ===========================================================================
@@ -302,16 +281,12 @@ type reviewChange struct {
 }
 
 // ===========================================================================
-// constructionPipelineAccess seam — each verb is Activity-wrapped. The folded
-// pipelineAdapter bridges the published constructionpipeline.ConstructionPipelineAccess
-// to it.
+// constructionPipeline value vocabulary — the Manager's infrastructure-neutral
+// dispatch spec / handle / observation. The pipeline ops are GENERATED and reached
+// through the generated invoker surface (genInvokers.Pipeline*); these neutral types
+// feed the workflow-side composition/mapping helpers (workflow.go) that bridge to the
+// contract constructionpipeline.PipelineSpec / PipelineHandle / PipelineObservation.
 // ===========================================================================
-
-type constructionPipelineAccess interface {
-	SubmitConstructionPipeline(ctx context.Context, spec pipelineSpec, idempotencyKey fwra.IdempotencyKey) (pipelineHandle, error)
-	ObserveConstructionPipeline(ctx context.Context, handle pipelineHandle) (pipelineObservation, error)
-	CancelConstructionPipeline(ctx context.Context, handle pipelineHandle) error
-}
 
 // pipelineSpec is the Manager's infrastructure-neutral dispatch spec.
 type pipelineSpec struct {

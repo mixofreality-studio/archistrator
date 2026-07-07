@@ -71,10 +71,9 @@ func (wf *workflows) runPauseBranch(ctx workflow.Context, projectID ProjectID, r
 		return fwmanager.MapError(perr)
 	}
 
-	// EXECUTE: cancel each in-flight pipeline the plan names.
+	// EXECUTE: cancel each in-flight pipeline the plan names (GENERATED cancel invoker).
 	for _, pid := range plan.PipelinesToCancel {
-		cc := observePipelineOpts(ctx)
-		if err := workflow.ExecuteActivity(cc, wf.CancelPipelineActivity, pipelineHandle{Name: pid}).Get(ctx, nil); err != nil {
+		if err := wf.cancelPipeline(ctx, pipelineHandle{Name: pid}); err != nil {
 			return err
 		}
 	}

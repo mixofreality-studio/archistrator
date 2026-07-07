@@ -8,20 +8,27 @@ import (
 
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
-// This file holds the Manager-owned Temporal Activity wrappers — one per
-// ResourceAccess call the workflow makes (constructionManager.md §6.4). They are
-// METHODS ON THE workflows STRUCT: there is no separate Activities type. The RA
-// dependencies live as fields on workflows (workflow.go) and are reached on the
-// struct, but the calls run inside Temporal Activities because those RA operations
-// are I/O / non-deterministic and would break replay determinism if invoked on the
-// workflow goroutine. The three Engines (handOffEngine, interventionEngine,
-// reviewEngine) are deliberately NOT Activities: they are pure deterministic
-// functions the workflow body calls directly (constructionManager.md §6.4 "Not
-// Activities").
+// activities_custom.go holds the CUSTOM Manager-owned Temporal Activity wrappers the
+// generated temporalgen layer cannot emit — the two projectEnvelope-codec reads and the
+// six constructionTransitionAccess head-state transition writes. (The six git head-state
+// RecordActivity* writes are the other CUSTOM Activities; they live with their value
+// carriers in gitactivities.go.) The contract-backed RA ops (pipeline / artifact / rail)
+// are GENERATED (activities.gen.go) and reached through the generated invoker surface
+// (genInvokers); these have no frozen contract behind them (the projectEnvelope
+// concrete-projection codec and the plain-goType constructionTransition / gitActivityStatus
+// deps), so temporalgen has nothing to generate and they are registered via the manifest's
+// CustomActivities under their existing stable names (workermanifest.go).
+//
+// They are METHODS ON THE workflows STRUCT (construction's Activity receiver has always
+// been the workflows struct). The RA dependencies live as fields on workflows (workflow.go)
+// and are reached on the struct, but the calls run inside Temporal Activities because those
+// RA operations are I/O / non-deterministic and would break replay determinism if invoked
+// on the workflow goroutine. The three Engines (handOffEngine, interventionEngine,
+// reviewEngine) are deliberately NOT Activities: they are pure deterministic functions the
+// workflow body calls directly (constructionManager.md §6.4 "Not Activities").
 //
 // Each WRITE Activity body derives the idempotency key "${workflowId}:${activityId}"
 // from the Temporal activity context (so the RA layer never reads Temporal context —
@@ -57,33 +64,6 @@ func (wf *workflows) ReadProjectVersionActivity(ctx context.Context, projectID p
 		return 0, fwmanager.MapError(err)
 	}
 	return v, nil
-}
-
-// ---- constructionPipelineAccess Activities ----------------------------------
-
-// SubmitPipelineActivity wraps submitConstructionPipeline (UC3 543). Deterministic
-// Argo name from the caller-supplied key.
-func (wf *workflows) SubmitPipelineActivity(ctx context.Context, spec pipelineSpec) (pipelineHandle, error) {
-	return mapErr(wf.Pipeline.SubmitConstructionPipeline(ctx, spec, activityIdempotencyKey(ctx)))
-}
-
-// ObservePipelineActivity wraps observeConstructionPipeline (UC3 545). Pure read.
-func (wf *workflows) ObservePipelineActivity(ctx context.Context, handle pipelineHandle) (pipelineObservation, error) {
-	return mapErr(wf.Pipeline.ObserveConstructionPipeline(ctx, handle))
-}
-
-// CancelPipelineActivity wraps cancelConstructionPipeline (NCUC2 656). Idempotent
-// on intent (ErrNotFound ⇒ success in the RA).
-func (wf *workflows) CancelPipelineActivity(ctx context.Context, handle pipelineHandle) (struct{}, error) {
-	return struct{}{}, fwmanager.MapError(wf.Pipeline.CancelConstructionPipeline(ctx, handle))
-}
-
-// ---- artifactAccess Activity ------------------------------------------------
-
-// StoreConstructionOutputActivity wraps storeConstructionOutput (UC3 546/549).
-// Content-addressable; caller-supplied key.
-func (wf *workflows) StoreConstructionOutputActivity(ctx context.Context, output artifact.ConstructionOutput) (string, error) {
-	return mapErr(wf.Artifacts.StoreConstructionOutput(ctx, output, activityIdempotencyKey(ctx)))
 }
 
 // ---- projectStateAccess construction-transition Activities ------------------
