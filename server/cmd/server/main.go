@@ -454,7 +454,7 @@ func run(logger *slog.Logger) error {
 	// registers its own workflows/activities (incl. the three estimate Engines) from its
 	// stored deps.
 	wpd := worker.New(tc, projectdesign.TaskQueue, worker.Options{})
-	projectdesign.RegisterWorker(wpd, projectDesignManager)
+	projectdesign.RegisterManagerWorker(wpd, projectDesignManager)
 	if err := wpd.Start(); err != nil {
 		return err
 	}

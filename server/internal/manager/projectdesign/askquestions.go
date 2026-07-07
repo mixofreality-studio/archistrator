@@ -11,6 +11,7 @@ import (
 
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/constructionpipeline"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 )
@@ -237,7 +238,16 @@ func (m *projectDesignManager) dispatchAnswerJob(ctx context.Context, projectID 
 			return
 		}
 	}
-	adapter := pipelineDispatchAdapter{inner: m.pipeline}
+	// Direct manager-side dispatch (NOT a Temporal workflow): the answer job is a
+	// fire-and-forget submit over the PUBLISHED constructionPipelineAccess RA. The
+	// RepoRef→RepoTarget decode + the placeholder step graph that the retired
+	// pipelineDispatchAdapter added are inlined here (the workflow-side twin is
+	// dispatchDesignJob in dispatch.go).
+	target, terr := designRepoTarget(sourcecontrol.RepoRefString(repoRef))
+	if terr != nil {
+		log.Error("answer job NOT dispatched: could not resolve the target repo for the answer job; re-run AskQuestions to retry", "err", terr.Error())
+		return
+	}
 	inputs := map[string]string{
 		dispatchInputArtifactKind:  artifactKindString(kind),
 		dispatchInputDesignPrompt:  answerPrompt(toPSKind(kind), addressee, qs),
@@ -245,14 +255,19 @@ func (m *projectDesignManager) dispatchAnswerJob(ctx context.Context, projectID 
 		dispatchInputPriorStateRef: "",
 		dispatchInputJobMode:       jobModeAnswer,
 	}
-	spec := pipelineSpec{
-		ProjectID:      projectID,
+	spec := constructionpipeline.PipelineSpec{
+		ProjectID: constructionpipeline.ProjectID(projectID),
+		Steps: []constructionpipeline.PipelineStep{{
+			Name:      "design",
+			Toolchain: constructionpipeline.ToolchainRef(pipelineDefaultToolchain),
+			Command:   []string{"sh", "-c", "true"},
+		}},
 		DispatchInputs: inputs,
-		TargetRepo:     sourcecontrol.RepoRefString(repoRef),
+		TargetRepo:     target,
 		WorkflowFile:   designWorkflowFileName,
 	}
 	key := answerJobDispatchKey(projectID, kind, branch, qs)
-	if _, err := adapter.SubmitConstructionPipeline(ctx, spec, key); err != nil {
+	if _, err := m.pipeline.SubmitConstructionPipeline(fwra.Context{Context: ctx, IdempotencyKey: key}, spec); err != nil {
 		log.Error("answer job dispatch FAILED — the question is recorded but not auto-answered; re-run AskQuestions with the same question to retry",
 			"err", err.Error(), "key", string(key))
 		return

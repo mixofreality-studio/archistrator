@@ -1,11 +1,11 @@
 package projectdesign
 
 import (
-	"context"
 	"sync"
 	"testing"
 	"time"
 
+	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/testsuite"
 	"go.temporal.io/sdk/workflow"
 
@@ -14,7 +14,9 @@ import (
 	billing "github.com/mixofreality-studio/archistrator/server/internal/engine/billing"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/estimation"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/operationestimation"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/constructionpipeline"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 )
 
 // =============================================================================
@@ -178,15 +180,24 @@ func newFakePipeline(phases ...pipelinePhase) *fakePipeline {
 	return &fakePipeline{phases: phases, handlePhase: map[string]pipelinePhase{}}
 }
 
-func (p *fakePipeline) SubmitConstructionPipeline(_ context.Context, spec pipelineSpec, key fwra.IdempotencyKey) (pipelineHandle, error) {
+// SubmitConstructionPipeline implements the GENERATED constructionpipeline contract seam
+// (the submit invoker reaches it via the registered genActivities). The idempotency key is
+// now stamped INSIDE the generated activity (genActivityIdempotencyKey) and arrives on the
+// fwra call Context; the RepoRef→RepoTarget decode happens workflow-side (dispatchDesignJob),
+// so spec.TargetRepo is the DECODED {Owner,Name} — recorded here as "owner/name".
+func (p *fakePipeline) SubmitConstructionPipeline(rc fwra.Context, spec constructionpipeline.PipelineSpec) (constructionpipeline.PipelineHandle, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	idx := len(p.submits)
+	targetRepo := ""
+	if !constructionpipeline.RepoTargetIsZero(spec.TargetRepo) {
+		targetRepo = spec.TargetRepo.Owner + "/" + spec.TargetRepo.Name
+	}
 	p.submits = append(p.submits, submitRecord{
-		projectID:      spec.ProjectID,
-		idempotencyKey: key,
+		projectID:      ProjectID(spec.ProjectID),
+		idempotencyKey: rc.IdempotencyKey,
 		dispatchInputs: spec.DispatchInputs,
-		targetRepo:     spec.TargetRepo,
+		targetRepo:     targetRepo,
 		workflowFile:   spec.WorkflowFile,
 	})
 	phase := pipelineSucceeded
@@ -200,22 +211,46 @@ func (p *fakePipeline) SubmitConstructionPipeline(_ context.Context, spec pipeli
 	p.nextID++
 	name := "design-run/" + uuid.NewString()
 	p.handlePhase[name] = phase
-	return pipelineHandle{Name: name}, nil
+	return constructionpipeline.PipelineHandle(name), nil
 }
 
-func (p *fakePipeline) ObserveConstructionPipeline(_ context.Context, handle pipelineHandle) (pipelineObservation, error) {
+func (p *fakePipeline) ObserveConstructionPipeline(_ fwra.Context, handle constructionpipeline.PipelineHandle) (constructionpipeline.PipelineObservation, error) {
 	p.mu.Lock()
-	phase := p.handlePhase[handle.Name]
+	phase := p.handlePhase[constructionpipeline.PipelineHandleString(handle)]
 	diag := p.diagnostic
 	p.mu.Unlock()
-	obs := pipelineObservation{Phase: phase}
+	obs := constructionpipeline.PipelineObservation{Phase: neutralToRAPhase(phase)}
 	if phase == pipelineFailed || phase == pipelineCancelled {
 		obs.Diagnostic = diag
 	}
 	return obs, nil
 }
 
-var _ constructionPipelineAccess = (*fakePipeline)(nil)
+// CancelConstructionPipeline satisfies the contract; the Phase-2 draft path never cancels.
+func (p *fakePipeline) CancelConstructionPipeline(_ fwra.Context, _ constructionpipeline.PipelineHandle) error {
+	return nil
+}
+
+// neutralToRAPhase maps this Manager's neutral scripted phase onto the RA phase the
+// generated observe activity returns (the inverse of designPipelinePhase).
+func neutralToRAPhase(p pipelinePhase) constructionpipeline.PipelinePhase {
+	switch p {
+	case pipelinePending:
+		return constructionpipeline.PhasePending
+	case pipelineRunning:
+		return constructionpipeline.PhaseRunning
+	case pipelineSucceeded:
+		return constructionpipeline.PhaseSucceeded
+	case pipelineFailed:
+		return constructionpipeline.PhaseFailed
+	case pipelineCancelled:
+		return constructionpipeline.PhaseCancelled
+	default:
+		return constructionpipeline.PhasePending
+	}
+}
+
+var _ constructionpipeline.ConstructionPipelineAccess = (*fakePipeline)(nil)
 
 // ---- Test fixtures ----------------------------------------------------------
 
@@ -308,15 +343,41 @@ func newWorkflows(ps projectstate.ProjectStateAccess) *workflows {
 		OperationEst: operationestimation.NewOperationEstimationEngine(),
 		Settlement:   billing.NewBillingEngine(),
 		ProjectState: ps,
+		// The generated invoker surface consults the manager's real preset hook; the
+		// generated RA activities are registered on the env via registerGenActivities.
+		Acts: genInvokers{Opts: activityOptions()},
 	}
 }
 
-// newCoAuthorWorkflows builds a workflows wired with a fake pipeline for the agentic
-// co-author draft path.
+// newCoAuthorWorkflows builds a workflows for the agentic co-author draft path. The fake
+// pipeline is threaded to registerGenActivities (which registers the generated submit/
+// observe activities), not stored on the workflows struct.
 func newCoAuthorWorkflows(ps projectstate.ProjectStateAccess, pipe *fakePipeline) *workflows {
-	wf := newWorkflows(ps)
-	wf.Pipeline = pipe
-	return wf
+	return newWorkflows(ps)
+}
+
+// registerGenActivities registers the GENERATED RA activities (projectState read-version /
+// advance-phase, pipeline submit/observe/cancel, the six rail verbs) under their contract
+// names — mirrors what RegisterWorker threads via genActivities (worker.gen.go). Pipeline /
+// rail may be nil for tests that never dispatch; the registered method values are only
+// invoked when the workflow reaches them.
+func registerGenActivities(env *testsuite.TestWorkflowEnvironment, ps projectstate.ProjectStateAccess, pipe *fakePipeline, rail sourcecontrol.SourceControlAccess) {
+	var pipeAcc constructionpipeline.ConstructionPipelineAccess
+	if pipe != nil {
+		pipeAcc = pipe
+	}
+	acts := &genActivities{ProjectState: ps, Pipeline: pipeAcc, Rail: rail}
+	env.RegisterActivityWithOptions(acts.ProjectStateReadProjectVersion, activity.RegisterOptions{Name: "projectStateAccess.readProjectVersion"})
+	env.RegisterActivityWithOptions(acts.ProjectStateAdvancePhase, activity.RegisterOptions{Name: "projectStateAccess.advancePhase"})
+	env.RegisterActivityWithOptions(acts.PipelineSubmitConstructionPipeline, activity.RegisterOptions{Name: "constructionPipelineAccess.submitConstructionPipeline"})
+	env.RegisterActivityWithOptions(acts.PipelineObserveConstructionPipeline, activity.RegisterOptions{Name: "constructionPipelineAccess.observeConstructionPipeline"})
+	env.RegisterActivityWithOptions(acts.PipelineCancelConstructionPipeline, activity.RegisterOptions{Name: "constructionPipelineAccess.cancelConstructionPipeline"})
+	env.RegisterActivityWithOptions(acts.RailGetInstallationToken, activity.RegisterOptions{Name: "sourceControlAccess.getInstallationToken"})
+	env.RegisterActivityWithOptions(acts.RailOpenBranch, activity.RegisterOptions{Name: "sourceControlAccess.openBranch"})
+	env.RegisterActivityWithOptions(acts.RailOpenPullRequest, activity.RegisterOptions{Name: "sourceControlAccess.openPullRequest"})
+	env.RegisterActivityWithOptions(acts.RailGetPullRequestStatus, activity.RegisterOptions{Name: "sourceControlAccess.getPullRequestStatus"})
+	env.RegisterActivityWithOptions(acts.RailPostReview, activity.RegisterOptions{Name: "sourceControlAccess.postReview"})
+	env.RegisterActivityWithOptions(acts.RailMergePullRequest, activity.RegisterOptions{Name: "sourceControlAccess.mergePullRequest"})
 }
 
 // registerName builds the workflow.RegisterOptions naming a registered workflow.
@@ -326,16 +387,14 @@ func registerName(name string) workflow.RegisterOptions {
 
 // registerCoAuthor registers the per-artifact gate workflow + its activities on the
 // test env, exactly as RegisterWorker does in production (same stable names).
-func registerCoAuthor(env *testsuite.TestWorkflowEnvironment, wf *workflows) {
+func registerCoAuthor(env *testsuite.TestWorkflowEnvironment, wf *workflows, pipe *fakePipeline) {
 	env.RegisterWorkflowWithOptions(wf.CoAuthorPhase2ArtifactWorkflow, registerName(executionKindCoAuthor))
 	env.RegisterActivity(wf.ReadProjectActivity)
-	env.RegisterActivity(wf.ReadProjectVersionActivity)
-	env.RegisterActivity(wf.DispatchDesignJobActivity)
-	env.RegisterActivity(wf.ObserveDesignJobActivity)
 	env.RegisterActivity(wf.StageArtifactForReviewActivity)
 	env.RegisterActivity(wf.CommitArtifactActivity)
 	env.RegisterActivity(wf.RejectArtifactActivity)
 	env.RegisterActivity(wf.WithdrawArtifactActivity)
+	registerGenActivities(env, wf.ProjectState, pipe, nil)
 }
 
 // ---- Pure unit test of the deterministic assembly + engine-join helper ------
@@ -407,7 +466,7 @@ func Test_CoAuthor_PlanDraftRoundTrip_DispatchObserveReadBack_AwaitsReview(t *te
 	ps := &fakeProjectState{project: planningAssumptionsReadBack(projectstate.ProjectID(id))}
 	pipe := newFakePipeline() // default: dispatch observed Succeeded
 	wf := newCoAuthorWorkflows(ps, pipe)
-	registerCoAuthor(env, wf)
+	registerCoAuthor(env, wf, pipe)
 
 	env.RegisterDelayedCallback(func() {
 		enc, err := env.QueryWorkflow(querySessionState)
@@ -482,7 +541,7 @@ func Test_CoAuthor_PhaseFailed_LandsInStageDraftFailed_NotPerpetualDrafting(t *t
 	pipe := newFakePipeline(pipelineFailed)
 	pipe.diagnostic = "aiarch-validate found 2 violations"
 	wf := newCoAuthorWorkflows(ps, pipe)
-	registerCoAuthor(env, wf)
+	registerCoAuthor(env, wf, pipe)
 
 	env.RegisterDelayedCallback(func() {
 		enc, err := env.QueryWorkflow(querySessionState)
@@ -534,7 +593,7 @@ func Test_CoAuthor_PhaseCancelled_LandsInStageDraftFailed(t *testing.T) {
 	ps := &fakeProjectState{project: planningAssumptionsReadBack(projectstate.ProjectID(id))}
 	pipe := newFakePipeline(pipelineCancelled)
 	wf := newCoAuthorWorkflows(ps, pipe)
-	registerCoAuthor(env, wf)
+	registerCoAuthor(env, wf, pipe)
 
 	env.RegisterDelayedCallback(func() {
 		enc, _ := env.QueryWorkflow(querySessionState)
@@ -567,7 +626,7 @@ func Test_CoAuthor_DraftFailedThenRetry_DistinctIdempotencyKey(t *testing.T) {
 	pipe := newFakePipeline(pipelineFailed, pipelineSucceeded)
 	pipe.diagnostic = "transient CI flake"
 	wf := newCoAuthorWorkflows(ps, pipe)
-	registerCoAuthor(env, wf)
+	registerCoAuthor(env, wf, pipe)
 
 	// Reject at the draft-failed gate → Retry-via-Reject → re-dispatch.
 	env.RegisterDelayedCallback(func() {
@@ -607,7 +666,7 @@ func Test_CoAuthor_Reject_LoopsToFreshDispatch(t *testing.T) {
 	ps := &fakeProjectState{project: planningAssumptionsReadBack(projectstate.ProjectID(id))}
 	pipe := newFakePipeline() // every dispatch Succeeds
 	wf := newCoAuthorWorkflows(ps, pipe)
-	registerCoAuthor(env, wf)
+	registerCoAuthor(env, wf, pipe)
 
 	const rejectNotes = "rework the staffing assumptions"
 	env.RegisterDelayedCallback(func() {
@@ -650,10 +709,10 @@ func Test_AssembleSDPReviewWorkflow_Commit_HappyPath_EnginesRunInProcess(t *test
 	env := ts.NewTestWorkflowEnvironment()
 	env.RegisterWorkflowWithOptions(wf.AssembleSDPReviewWorkflow, registerName(executionKindSDPReview))
 	env.RegisterActivity(wf.ReadProjectActivity)
-	env.RegisterActivity(wf.ReadProjectVersionActivity)
 	env.RegisterActivity(wf.StageArtifactForReviewActivity)
 	env.RegisterActivity(wf.CommitArtifactActivity)
 	env.RegisterActivity(wf.RejectArtifactActivity)
+	registerGenActivities(env, ps, nil, nil)
 
 	pre, err := wf.assembleSdpReview(ps.project, "")
 	if err != nil {
@@ -708,10 +767,10 @@ func Test_AssembleSDPReviewWorkflow_RejectAll_ReassemblesThenCommits(t *testing.
 	env := ts.NewTestWorkflowEnvironment()
 	env.RegisterWorkflowWithOptions(wf.AssembleSDPReviewWorkflow, registerName(executionKindSDPReview))
 	env.RegisterActivity(wf.ReadProjectActivity)
-	env.RegisterActivity(wf.ReadProjectVersionActivity)
 	env.RegisterActivity(wf.StageArtifactForReviewActivity)
 	env.RegisterActivity(wf.CommitArtifactActivity)
 	env.RegisterActivity(wf.RejectArtifactActivity)
+	registerGenActivities(env, ps, nil, nil)
 
 	pre, _ := wf.assembleSdpReview(ps.project, "")
 	chosen := OptionID(pre.Recommendation)
@@ -749,8 +808,7 @@ func Test_Phase2AdvanceWorkflow_MissingArtifacts_NotAdvanced(t *testing.T) {
 	env := ts.NewTestWorkflowEnvironment()
 	env.RegisterWorkflowWithOptions(wf.Phase2AdvanceWorkflow, registerName(executionKindPhaseAdvance))
 	env.RegisterActivity(wf.ReadProjectActivity)
-	env.RegisterActivity(wf.ReadProjectVersionActivity)
-	env.RegisterActivity(wf.AdvancePhaseActivity)
+	registerGenActivities(env, ps, nil, nil)
 
 	env.ExecuteWorkflow(executionKindPhaseAdvance, phaseAdvanceInput{ProjectID: id})
 	if err := env.GetWorkflowError(); err != nil {
@@ -786,8 +844,7 @@ func Test_Phase2AdvanceWorkflow_AllCommittedWithOption_Advances(t *testing.T) {
 	env := ts.NewTestWorkflowEnvironment()
 	env.RegisterWorkflowWithOptions(wf.Phase2AdvanceWorkflow, registerName(executionKindPhaseAdvance))
 	env.RegisterActivity(wf.ReadProjectActivity)
-	env.RegisterActivity(wf.ReadProjectVersionActivity)
-	env.RegisterActivity(wf.AdvancePhaseActivity)
+	registerGenActivities(env, ps, nil, nil)
 
 	env.ExecuteWorkflow(executionKindPhaseAdvance, phaseAdvanceInput{ProjectID: id})
 	if err := env.GetWorkflowError(); err != nil {
