@@ -1,6 +1,6 @@
 # aiarch server — developer make targets.
 
-.PHONY: test test-short fmt vet lint sumtype-check method-check encapsulation-check gen-schemas gen-models gen gen-client gen-internal-tools gen-temporal bootstrap
+.PHONY: test test-short fmt vet lint sumtype-check method-check encapsulation-check gen-schemas gen-models gen gen-client gen-internal-tools gen-temporal gen-temporal-check bootstrap
 
 # Contract codegen pipeline, all-Go (jsonschema-go). project.json
 # (.serviceContracts) is the OWNER of every built component's contract; modelgen
@@ -59,6 +59,21 @@ gen: gen-models gen-client gen-internal-tools
 # other gen targets, and fold it into `gen`.
 gen-temporal:
 	go run -tags appgen ./cmd/appgen
+
+# gen-temporal-check — drift gate for the generated Temporal layer, same shape
+# as systemtests' `gen-check` (regenerate, then fail on any diff). WORKSPACE-ONLY
+# like gen-temporal above: requires go.work + a sibling ../archistrator-platform
+# checkout, so it is NOT wired into server-checks.yml yet — CI checks out only
+# this repo, and there is no in-repo precedent for a workspace-dependent gate
+# (methoddesign is ALSO local-only for the same published-version reason, see
+# method-check above). Run this locally (or from a local workspace checkout in
+# a future CI job that also checks out archistrator-platform) before landing a
+# .serviceContracts change that touches the 5 migrated managers.
+# Task-14 followup: once framework-go-app-generator is released and gen-temporal
+# flips to GOWORK=off (see the note above), fold this into a CI step the same
+# way systemtests/Makefile's gen-check is wired into systemtests.yml.
+gen-temporal-check: gen-temporal
+	git diff --exit-code -- 'internal/manager/**/*.gen.go'
 
 gen-schemas:
 	GOWORK=off go run ./cmd/schemagen

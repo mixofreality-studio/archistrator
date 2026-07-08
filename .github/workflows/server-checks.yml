@@ -54,3 +54,12 @@ jobs:
 
       - name: Test (container-free)
         run: GOWORK=off make test-short
+
+      # TODO(appgen release follow-up): enable after published pins make
+      # gen-temporal GOWORK=off-safe. Today `make gen-temporal` (cmd/appgen,
+      # driving framework-go-app-generator/temporalgen) requires go.work + a
+      # sibling ../archistrator-platform checkout — this job checks out only
+      # this repo, so the drift gate cannot run here yet. Local equivalent:
+      # `make gen-temporal-check` (server/Makefile) from a workspace checkout.
+      # - name: Generated Temporal layer drift check
+      #   run: make gen-temporal-check

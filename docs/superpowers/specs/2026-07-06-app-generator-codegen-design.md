@@ -181,6 +181,72 @@ handwritten per-manager `codec.go`.
 (sequences), prompts, signals, the workflow-func manifest. Deleted across all
 five managers: `activities.go`, `worker.go`, `codec.go`.
 
+### Step-1 outcomes (2026-07-07)
+
+Recorded once all 5 managers (systemdesign/projectdesign/construction/
+operations/billing) were migrated and Task 14's gates landed.
+
+**Deviations from this section as designed:**
+
+- **No alias table.** The registered-name alias table above assumed a 1:1
+  rename of existing handwritten names. The migration's payload arity changed
+  (the generated `Activities` methods thread `fwra.Context`/idempotency args
+  the handwritten activities did not take — see the emitter rule below), which
+  defeats a name-only alias: an in-flight workflow replaying against an
+  aliased-but-reshaped activity would still fail to deterministically decode
+  history. The precondition is **drain-before-deploy** instead: no in-flight
+  executions on a task queue at migration-cut time. This lands hardest on
+  design CoAuthor sessions, which commonly dwell at `AwaitingReview` for days
+  (a human review window, not a processing wait) — those are the executions
+  most likely to be in-flight across a deploy, so quiescing/draining the
+  design task queues needs the most lead time of the five managers.
+- **No `codec.gen.go`.** The emitter was never invoked because there is
+  nothing for it to consume: zero `x-go-sumtype` definitions are committed in
+  `.serviceContracts` today. The handwritten per-manager `codec.go` survives
+  unchanged in `systemdesign`, `projectdesign`, and `construction` (see the
+  earmark below to retire it via contract promotion).
+- **No engine wrappers.** All five managers' Engine deps have zero RA edges,
+  so every one resolved to the "Engine dep with zero RA edges → direct
+  in-workflow typed wrapper" branch — there was no case exercising the
+  activity-hosted (RA-injected) engine path. The generated worker layer
+  carries no engine-hosted activity methods.
+
+**Emitter rules added during the migration** (not anticipated by the design
+above, needed to make the generated surface match hand-call-site behavior):
+
+- Contract params typed `fwra.IdempotencyKey` are **hidden from the generated
+  invoker/activity signatures** and auto-filled by the emitted code itself
+  (derived via the run-scoped `workflowID:runID:activityID` rule for
+  activity-originated calls, or threaded from the caller-supplied key where
+  one already exists) — callers never pass an idempotency key explicitly.
+- RA contract types using a **bare, dot-free `x-go-type`** (a type name with
+  no package-qualifying dot, e.g. a type meant to resolve in the RA's own
+  package) are now emitted **alias-qualified** to the owning RA package,
+  rather than assumed to be in scope unqualified — the earlier assumption
+  broke as soon as a generated file outside that RA's package needed the
+  type.
+
+**Earmarks confirmed** (unchanged targets, now validated against the real
+5-manager migration rather than projected):
+
+- Contract promotion for the branch-aware / ledger / provenance / reconciling
+  extension ports plus the `constructionTransition`/`gitActivityStatus`
+  surfaces — this is what retires the survivor `codec.go` (above) and most of
+  the remaining hand-written custom activities.
+- `noopRevenueLedger` excision (billing's `adapters.go`/`activities_custom.go`/
+  `workermanifest.go`) once a real ledger implementation lands.
+- Vestigial `genWorkerManifest.ActivityOptions` field cleanup — every migrated
+  manager still carries the per-activity option-preset hook field even where
+  a manager's preset map covers all contract-backed ops uniformly; worth
+  revisiting once the presets stabilize across all five.
+- **Release/pins follow-up** (deferred out of Task 14 by the controller scope
+  ruling — tags must point at merged commits): tag
+  `framework-go-projectmodel`/`framework-go-app-generator`, pin them in
+  `server/go.mod`, drop the `appgen` build tag, flip `gen-temporal` to
+  `GOWORK=off`, fold it into the `gen` aggregate, and enable the commented-out
+  CI drift step in `server-checks.yml` (today's local equivalent: `make
+  gen-temporal-check`).
+
 ## Deployment model + `config.gen.go`
 
 `operationalConcepts.deployment` already carries `containers`
@@ -378,7 +444,11 @@ aiarch-state MCP tools (already generic over slot kinds).
 1. Extract `framework-go-projectmodel` (contracts + relationships parsing);
    ship `temporalgen`; migrate all 5 archistrator managers. No project.json
    schema changes. (Plan:
-   `docs/superpowers/plans/2026-07-07-projectmodel-temporalgen.md`.)
+   `docs/superpowers/plans/2026-07-07-projectmodel-temporalgen.md`.) **Done
+   2026-07-07** — see "Step-1 outcomes (2026-07-07)" under Temporal codegen
+   above for the deviations (no alias table, no `codec.gen.go`, no engine
+   wrappers), the two emitter rules added during migration, and the confirmed
+   earmarks including the deferred release/pins follow-up.
 2. Migrate `framework-go-http-generator` + `framework-go-mcp-generator` onto
    `projectmodel`; delete both embedded `contract/` copies; re-pin
    `clientgen`.
