@@ -44,34 +44,22 @@ gen-client:
 gen-internal-tools:
 	GOWORK=off go run ./cmd/internaltoolsgen
 
-gen: gen-models gen-client gen-internal-tools
+gen: gen-models gen-client gen-internal-tools gen-temporal
 
 # gen-temporal — generate the per-manager Temporal layer (activities/invokers/
 # worker .gen.go) for the 5 managers from project.json .serviceContracts
 # (cmd/appgen, driving framework-go-app-generator/temporalgen).
-# WORKSPACE-ONLY, NOT GOWORK=off: framework-go-app-generator has no published
-# version yet, so cmd/appgen is gated behind the `appgen` build tag and
-# resolved via go.work rather than server/go.mod. NOT folded into the `gen`
-# aggregate for the same reason — `make gen` must keep working under
-# GOWORK=off CI, which has no ../archistrator-platform checkout.
-# Task-14 followup: once framework-go-app-generator is released, pin real
-# versions in go.mod, drop the appgen tag, flip this to GOWORK=off like the
-# other gen targets, and fold it into `gen`.
+# Release-backed and GOWORK=off like the other gen targets:
+# framework-go-app-generator + framework-go-projectmodel are published platform
+# tags pinned in go.mod, so cmd/appgen builds from the module cache with no
+# build tag and no ../archistrator-platform workspace checkout. Folded into the
+# `gen` aggregate so `make gen` regenerates the whole codegen surface.
 gen-temporal:
-	go run -tags appgen ./cmd/appgen
+	GOWORK=off go run ./cmd/appgen
 
 # gen-temporal-check — drift gate for the generated Temporal layer, same shape
-# as systemtests' `gen-check` (regenerate, then fail on any diff). WORKSPACE-ONLY
-# like gen-temporal above: requires go.work + a sibling ../archistrator-platform
-# checkout, so it is NOT wired into server-checks.yml yet — CI checks out only
-# this repo, and there is no in-repo precedent for a workspace-dependent gate
-# (methoddesign is ALSO local-only for the same published-version reason, see
-# method-check above). Run this locally (or from a local workspace checkout in
-# a future CI job that also checks out archistrator-platform) before landing a
-# .serviceContracts change that touches the 5 migrated managers.
-# Task-14 followup: once framework-go-app-generator is released and gen-temporal
-# flips to GOWORK=off (see the note above), fold this into a CI step the same
-# way systemtests/Makefile's gen-check is wired into systemtests.yml.
+# as systemtests' `gen-check` (regenerate, then fail on any diff). Now
+# GOWORK=off-safe (see gen-temporal above), so it runs in CI (server-checks.yml).
 gen-temporal-check: gen-temporal
 	git diff --exit-code -- 'internal/manager/**/*.gen.go'
 

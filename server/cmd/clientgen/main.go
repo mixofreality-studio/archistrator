@@ -35,8 +35,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	httpcontract "github.com/mixofreality-studio/archistrator-platform/framework-go-http-generator/contract"
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-http-generator/httpgen"
+	projectmodel "github.com/mixofreality-studio/archistrator-platform/framework-go-projectmodel"
 
 	"github.com/mixofreality-studio/archistrator/server/cmd/clientgen/internal/mcpemit"
 )
@@ -114,7 +114,7 @@ func main() {
 		managerImport := serverModule + "/" + meta.GoPackage
 
 		// --- REST handlers + OpenAPI (http generator) ---
-		hdoc, err := httpcontract.Parse(entry)
+		hdoc, err := projectmodel.Parse(entry)
 		if err != nil {
 			fatal("contract %q: http parse: %v", key, err)
 		}
@@ -125,7 +125,7 @@ func main() {
 		if err != nil {
 			fatal("contract %q: httpgen: %v", key, err)
 		}
-		base := httpcontract.Kebab(hdoc.ManagerBase())
+		base := projectmodel.Kebab(hdoc.ManagerBase())
 		webDir := filepath.Join(webRoot, pkg)
 		mustMkdir(webDir)
 		mustWrite(filepath.Join(webDir, base+"_handlers.gen.go"), hres.HandlersGo)

@@ -29,7 +29,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/mixofreality-studio/archistrator-platform/framework-go-mcp-generator/contract"
+	projectmodel "github.com/mixofreality-studio/archistrator-platform/framework-go-projectmodel"
 )
 
 // Options configures a generation run.
@@ -71,7 +71,7 @@ type enumDef struct {
 // Generate produces the enriched MCP tool registration source for a contract
 // document (the raw .serviceContracts entry).
 func Generate(entry json.RawMessage, opts Options) (Result, error) {
-	doc, err := contract.Parse(entry)
+	doc, err := projectmodel.Parse(entry)
 	if err != nil {
 		return Result{}, fmt.Errorf("mcpemit: parse: %w", err)
 	}
@@ -120,12 +120,12 @@ func parseEnumDefs(entry json.RawMessage) (map[string]enumDef, error) {
 	return out, nil
 }
 
-func genTools(doc *contract.Doc, enums map[string]enumDef, opts Options) ([]byte, error) {
+func genTools(doc *projectmodel.Doc, enums map[string]enumDef, opts Options) ([]byte, error) {
 	if opts.OpDoc == nil {
 		return nil, fmt.Errorf("mcpemit: Options.OpDoc is required")
 	}
 	var b strings.Builder
-	mgrPrefix := contract.LowerFirst(doc.ManagerBase())
+	mgrPrefix := projectmodel.LowerFirst(doc.ManagerBase())
 	iface := doc.Interface.Name
 
 	// Which enum $defs are actually referenced by a param — emit a schema helper
@@ -185,13 +185,13 @@ func genTools(doc *contract.Doc, enums map[string]enumDef, opts Options) ([]byte
 			return nil, fmt.Errorf("mcpemit: no documentation for operation %q on %s (add it to clientgen's op-doc table)", op.Name, iface)
 		}
 		fmt.Fprintf(&b, "\tmcp.AddTool(srv, &mcp.Tool{Name: %q, Description: %q, InputSchema: %sInputSchema(), OutputSchema: %sOutputSchema()}, h.handle%s)\n",
-			toolName, desc, contract.LowerFirst(op.Name), contract.LowerFirst(op.Name), op.Name)
+			toolName, desc, projectmodel.LowerFirst(op.Name), projectmodel.LowerFirst(op.Name), op.Name)
 	}
 	b.WriteString("}\n\n")
 
 	// --- input / output types ---
 	for _, op := range doc.Interface.Operations {
-		lower := contract.LowerFirst(op.Name)
+		lower := projectmodel.LowerFirst(op.Name)
 		fmt.Fprintf(&b, "type %sInput struct {\n", lower)
 		for _, p := range op.Params {
 			tag := p.Name
@@ -202,13 +202,13 @@ func genTools(doc *contract.Doc, enums map[string]enumDef, opts Options) ([]byte
 				tag += ",omitempty"
 			}
 			fmt.Fprintf(&b, "\t%s %s `json:%q`\n",
-				upperFirst(p.Name), contract.GoType(p.Schema, p.Pointer, managerAlias), tag)
+				upperFirst(p.Name), projectmodel.GoType(p.Schema, p.Pointer, managerAlias), tag)
 		}
 		b.WriteString("}\n\n")
 
 		if op.Result != nil {
 			fmt.Fprintf(&b, "type %sOutput struct {\n", lower)
-			fmt.Fprintf(&b, "\tResult %s `json:\"result\"`\n", contract.GoType(op.Result, false, managerAlias))
+			fmt.Fprintf(&b, "\tResult %s `json:\"result\"`\n", projectmodel.GoType(op.Result, false, managerAlias))
 			b.WriteString("}\n\n")
 		} else {
 			fmt.Fprintf(&b, "type %sOutput struct{}\n\n", lower)
@@ -249,8 +249,8 @@ func genTools(doc *contract.Doc, enums map[string]enumDef, opts Options) ([]byte
 // SDK's structural inference of the input struct (so nested object/array params
 // keep their inferred shape) and then OVERRIDES the required list (non-pointer
 // params) and replaces each enum param's property with an enriched enum schema.
-func writeInputSchema(b *strings.Builder, op contract.Operation, enums map[string]enumDef) {
-	lower := contract.LowerFirst(op.Name)
+func writeInputSchema(b *strings.Builder, op projectmodel.Operation, enums map[string]enumDef) {
+	lower := projectmodel.LowerFirst(op.Name)
 	fmt.Fprintf(b, "// %sInputSchema is the explicit MCP input schema for the %s operation.\n", lower, op.Name)
 	fmt.Fprintf(b, "func %sInputSchema() *jsonschema.Schema {\n", lower)
 	fmt.Fprintf(b, "\ts := objectSchema[%sInput]()\n", lower)
@@ -290,8 +290,8 @@ func writeInputSchema(b *strings.Builder, op contract.Operation, enums map[strin
 // of 0-255 bytes — so a REAL object payload fails the SDK's output validation
 // (QA finding F26). relaxRawJSON relaxes exactly those nodes to a permissive
 // schema while keeping the rest of the inferred output shape intact.
-func writeOutputSchema(b *strings.Builder, op contract.Operation) {
-	lower := contract.LowerFirst(op.Name)
+func writeOutputSchema(b *strings.Builder, op projectmodel.Operation) {
+	lower := projectmodel.LowerFirst(op.Name)
 	fmt.Fprintf(b, "// %sOutputSchema is the explicit MCP output schema for the %s operation.\n", lower, op.Name)
 	fmt.Fprintf(b, "func %sOutputSchema() *jsonschema.Schema {\n", lower)
 	fmt.Fprintf(b, "\ts := objectSchema[%sOutput]()\n", lower)
@@ -327,8 +327,8 @@ func enumDescription(name string, e enumDef) string {
 	return fmt.Sprintf("%s. Allowed values: %s.", name, strings.Join(pairs, ", "))
 }
 
-func writeToolHandler(b *strings.Builder, op contract.Operation) {
-	lower := contract.LowerFirst(op.Name)
+func writeToolHandler(b *strings.Builder, op projectmodel.Operation) {
+	lower := projectmodel.LowerFirst(op.Name)
 	fmt.Fprintf(b, "// handle%s is the MCP tool handler for the %s operation.\n", op.Name, op.Name)
 	fmt.Fprintf(b, "func (h *Handler) handle%s(ctx context.Context, _ *mcp.CallToolRequest, in %sInput) (*mcp.CallToolResult, %sOutput, error) {\n",
 		op.Name, lower, lower)
@@ -435,10 +435,10 @@ func writeHelpers(b *strings.Builder) {
 // toolExtraImports collects the sorted, de-duplicated x-go-import paths the
 // generated input/output structs reference, so the tool types compile against
 // the real manager signatures.
-func toolExtraImports(doc *contract.Doc) []string {
+func toolExtraImports(doc *projectmodel.Doc) []string {
 	set := map[string]bool{}
-	add := func(n *contract.SchemaNode) {
-		for _, imp := range contract.GoImports(n) {
+	add := func(n *projectmodel.SchemaNode) {
+		for _, imp := range projectmodel.GoImports(n) {
 			set[imp] = true
 		}
 		if kind, ok := doc.ScalarKind(n); ok && kind == "uuid" {

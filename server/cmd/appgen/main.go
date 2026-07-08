@@ -1,16 +1,11 @@
-//go:build appgen
-
 // Command appgen generates the per-manager Temporal layer (activities/
 // invokers/worker) from project.json via framework-go-projectmodel +
 // framework-go-app-generator/temporalgen. Byte-idempotent; run via
 // `make gen-temporal`.
 //
-// Gated behind the appgen build tag: framework-go-app-generator is an
-// unpublished platform module (no tagged version yet), so this command only
-// builds in Go workspace mode (`go run -tags appgen ./cmd/appgen`, per the
-// gen-temporal Makefile target) and is excluded from ordinary
-// GOWORK=off server builds/tests. Task 14 drops the tag once the platform
-// module is released and pinned in go.mod.
+// Release-backed: framework-go-app-generator + framework-go-projectmodel are
+// published platform modules pinned in server/go.mod, so this command builds
+// under ordinary GOWORK=off server builds/tests — no build tag, no workspace.
 package main
 
 import (
@@ -57,7 +52,8 @@ func main() {
 		}
 		dir := m.Contracts[key].GoPackage
 		for name, content := range files {
-			if err := os.WriteFile(filepath.Join(dir, name), content, 0o644); err != nil {
+			// #nosec G703 -- dir is a goPackage path from the committed project.json, name is a fixed generator filename; developer-run codegen, no trust boundary
+			if err := os.WriteFile(filepath.Join(dir, name), content, 0o600); err != nil {
 				fatal(err)
 			}
 		}
