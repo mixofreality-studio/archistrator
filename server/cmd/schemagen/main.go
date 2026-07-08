@@ -62,7 +62,8 @@ import (
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"github.com/mixofreality-studio/archistrator-platform/framework-go/utilities/security"
 
-	"github.com/mixofreality-studio/archistrator/server/cmd/internal/codegen"
+	codegen "github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator/modelgen"
+
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/autoscaler"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/billing"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/estimation"

@@ -60,3 +60,8 @@ jobs:
       # GOWORK=off-safe — no go.work or ../archistrator-platform checkout needed.
       - name: Generated Temporal layer drift check
         run: make gen-temporal-check
+
+      # Drift gate for the generated model/interface layer (cmd/modelgen,
+      # driving framework-go-app-generator/modelgen). Same GOWORK=off-safe shape.
+      - name: Generated model layer drift check
+        run: make gen-models-check
