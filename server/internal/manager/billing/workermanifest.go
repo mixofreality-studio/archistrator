@@ -189,6 +189,7 @@ func (m *billingManager) WorkerManifest() genWorkerManifest {
 		Billing:      billingEngineAdapter{inner: m.billing},
 		Intervention: interventionAdapter{inner: m.intervention},
 		Acts:         genInvokers{Opts: optsHook},
+		Custom:       custom,
 	})
 
 	return genWorkerManifest{
@@ -198,10 +199,13 @@ func (m *billingManager) WorkerManifest() genWorkerManifest {
 			{Name: executionKindClose, Fn: wf.CloseCycleWorkflow},
 			{Name: executionKindShortfallSweep, Fn: wf.ShortfallSweepWorkflow},
 		},
+		// The custom Activities are registered under their stable names by the same
+		// method value the workflow invokes (wf.Custom.XActivity) — Temporal maps the
+		// function reference to the explicit Name, so invoke-by-reference resolves here.
 		CustomActivities: []genRegisteredActivity{
-			{Name: actRecordInboundRevenue, Fn: custom.RecordInboundRevenueActivity},
-			{Name: actRecordReversal, Fn: custom.RecordReversalActivity},
-			{Name: actReadRevenueRange, Fn: custom.ReadRevenueRangeActivity},
+			{Name: actRecordInboundRevenue, Fn: wf.Custom.RecordInboundRevenueActivity},
+			{Name: actRecordReversal, Fn: wf.Custom.RecordReversalActivity},
+			{Name: actReadRevenueRange, Fn: wf.Custom.ReadRevenueRangeActivity},
 		},
 		ActivityOptions: optsHook,
 		Activities: genActivities{

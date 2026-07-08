@@ -8,8 +8,11 @@ import (
 // layer cannot emit — the three revenue-ledger operations wired to the manager-local
 // noopRevenueLedger. They have NO frozen contract behind them (revenueLedgerAccess was
 // REMOVED under the charge-only model), so temporalgen has nothing to generate; they are
-// registered via the manifest's CustomActivities under their existing stable names and
-// invoked from the workflow by those name constants (not the generated invoker surface).
+// registered via the manifest's CustomActivities under their existing stable names (the
+// actRecord*/actRead* constants below) and invoked from the workflow BY METHOD VALUE off
+// the workflows.Custom receiver (workflow.ExecuteActivity(ctx, wf.Custom.XActivity, ...)),
+// so Temporal resolves the function reference to that registered name — the same
+// invoke-by-reference discipline the generated invoker surface uses.
 //
 // TODO(charge-only): the append-only inbound-revenue ledger (revenueLedgerAccess) was
 // REMOVED under the charge-only model (slot 5 has no revenue-ledger component; inbound
@@ -21,9 +24,9 @@ import (
 // share, only the hosting-cost charge). A follow-up should EXCISE the revenue-fold spine
 // from the workflow entirely rather than keep the dormant seam.
 
-// Custom Activity registered names — stable across the temporalgen migration (the
-// workflow invokes them by these name constants via workflow.ExecuteActivity, and the
-// manifest registers them under the same names).
+// Custom Activity registered names — stable across the temporalgen migration. The manifest
+// registers each Activity under these names; the workflow invokes them by method value
+// (wf.Custom.XActivity), and Temporal maps that function reference back to the name here.
 const (
 	actRecordInboundRevenue = "RecordInboundRevenueActivity"
 	actRecordReversal       = "RecordReversalActivity"

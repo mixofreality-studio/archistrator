@@ -29,13 +29,17 @@ import (
 //     ONLY through the generated typed invoker surface (Acts, invokers.gen.go) — the
 //     former RA consumer seams + composition-root adapters are retired. The three
 //     revenue-ledger operations have no contract, so they stay hand-written custom
-//     Activities (activities_custom.go), invoked by name.
+//     Activities (activities_custom.go), invoked by METHOD VALUE off the Custom field
+//     (workflow.ExecuteActivity(ctx, wf.Custom.XActivity, ...)) — the same
+//     invoke-by-function-reference discipline the generated invokers use and the four
+//     other migrated managers follow, so the arch checker
+//     (arch_activitynames_test.go) can prove no hand file names an activity by string.
 
 // wfDeps bundles every downstream dependency the billingManager orchestrates, passed to
 // newWorkflows (from WorkerManifest, workermanifest.go) and held on the Workflows struct.
 // The two Engines are consumer-defined seam interfaces (deps.go), called DIRECTLY
 // in-workflow. The ResourceAccess layer is reached through the generated typed invokers
-// (Acts).
+// (Acts); the contract-less revenue-ledger Activities through the Custom receiver.
 type wfDeps struct {
 	Billing      billingEngine
 	Intervention interventionEngine
@@ -44,17 +48,24 @@ type wfDeps struct {
 	// per ResourceAccess activity, carrying contract types. Its Opts hook supplies the
 	// per-activity option presets (workermanifest.go).
 	Acts genInvokers
+
+	// Custom holds the three hand-written revenue-ledger Activities (activities_custom.go)
+	// that have no frozen contract for temporalgen to generate. The workflow invokes them
+	// by method value (wf.Custom.XActivity) so Temporal resolves them via the same
+	// function-reference → registered-name mapping the manifest registers them under.
+	Custom *customActivities
 }
 
 // workflows is the single billingManager component struct — the workflow receiver. The
 // RA activities are the generated genActivities (activities.gen.go); this struct reaches
-// them through the typed invokers (Acts). The custom revenue Activities are invoked by
-// name (activities_custom.go).
+// them through the typed invokers (Acts). The contract-less custom revenue Activities are
+// invoked by method value off Custom (activities_custom.go).
 type workflows struct {
 	Billing      billingEngine
 	Intervention interventionEngine
 
-	Acts genInvokers
+	Acts   genInvokers
+	Custom *customActivities
 }
 
 // newWorkflows builds the Workflows receiver from the injected wfDeps.
@@ -63,6 +74,7 @@ func newWorkflows(d wfDeps) *workflows {
 		Billing:      d.Billing,
 		Intervention: d.Intervention,
 		Acts:         d.Acts,
+		Custom:       d.Custom,
 	}
 }
 
@@ -520,7 +532,7 @@ func (wf *workflows) readBillingByDeployedApp(ctx workflow.Context, deployedAppI
 func (wf *workflows) foldRevenue(ctx workflow.Context, customerID customerID, cycleID cycleID) (cycleRevenueSeam, error) {
 	c := workflow.WithActivityOptions(ctx, ledgerActivityOptions())
 	var entries []revenueEntrySeam
-	if err := workflow.ExecuteActivity(c, actReadRevenueRange, readRevenueRangeArgs{
+	if err := workflow.ExecuteActivity(c, wf.Custom.ReadRevenueRangeActivity, readRevenueRangeArgs{
 		CustomerID: customerID, CycleID: cycleID,
 	}).Get(ctx, &entries); err != nil {
 		return cycleRevenueSeam{}, err
@@ -622,13 +634,13 @@ func (wf *workflows) chargeCustomer(ctx workflow.Context, customerID customerID,
 // recordInboundRevenue runs the custom RecordInboundRevenueActivity (revenue-ledger no-op).
 func (wf *workflows) recordInboundRevenue(ctx workflow.Context, entry revenueEntrySeam) error {
 	c := workflow.WithActivityOptions(ctx, ledgerActivityOptions())
-	return workflow.ExecuteActivity(c, actRecordInboundRevenue, entry).Get(ctx, nil)
+	return workflow.ExecuteActivity(c, wf.Custom.RecordInboundRevenueActivity, entry).Get(ctx, nil)
 }
 
 // recordReversal runs the custom RecordReversalActivity (revenue-ledger no-op).
 func (wf *workflows) recordReversal(ctx workflow.Context, reversal reversalEntrySeam) error {
 	c := workflow.WithActivityOptions(ctx, ledgerActivityOptions())
-	return workflow.ExecuteActivity(c, actRecordReversal, reversal).Get(ctx, nil)
+	return workflow.ExecuteActivity(c, wf.Custom.RecordReversalActivity, reversal).Get(ctx, nil)
 }
 
 // deliverDelinquencySignal invokes durableExecutionAccess.deliverSignal — the one

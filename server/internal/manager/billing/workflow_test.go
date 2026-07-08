@@ -317,6 +317,11 @@ func baseDeps() (wfDeps, *fakes) {
 		Billing:      f.engine,
 		Intervention: f.interv,
 		Acts:         genInvokers{Opts: activityOptions()},
+		// Custom holds the revenue-ledger Activities the workflow now invokes by method
+		// value (wf.Custom.XActivity). The instance the test env actually dispatches is
+		// the one registered in registerActs (also over f.ledger); this field only has to
+		// supply the method-value function reference the workflow resolves the name from.
+		Custom: &customActivities{revenueLedger: f.ledger},
 	}, f
 }
 
