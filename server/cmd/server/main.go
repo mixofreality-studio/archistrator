@@ -331,9 +331,28 @@ func run(logger *slog.Logger) error {
 	// observes/cancels the runs. Constructed only when the construction repo is
 	// configured; nil otherwise (the pump then never submits a pipeline — acceptable
 	// empty-session state, and the pump is unwired anyway pending the schedulerClient).
-	pipeline, err := buildConstructionPipeline(cfg, logger)
-	if err != nil {
-		return err
+	// The composition root builds the shared *fwgithub.AppClient satellite and passes it
+	// into the generated DI constructor (the GitHub-Actions variant); AppClient stays out
+	// of the variant so it can be shared with sourceControl/artifact.
+	var pipeline constructionpipeline.ConstructionPipelineAccess
+	if cfg.ConstructionRepoOwner != "" && cfg.ConstructionRepoName != "" {
+		appClient, acErr := githubinfra.NewAppClient(cfg.GitHubAppID, cfg.GitHubAppPrivateKeyPEM, cfg.GitHubAPIBaseURL)
+		if acErr != nil {
+			return acErr
+		}
+		pipeline, err = constructionpipeline.NewGitHubActionsConstructionPipelineAccess(
+			appClient,
+			cfg.ConstructionRepoOwner,
+			cfg.ConstructionRepoName,
+			cfg.ConstructionWorkflowFile,
+			cfg.ConstructionRef,
+			cfg.GitHubInstallationID,
+		)
+		if err != nil {
+			return err
+		}
+		logger.Info("constructionPipelineAccess (github-actions) ready",
+			"owner", cfg.ConstructionRepoOwner, "repo", cfg.ConstructionRepoName, "workflow", cfg.ConstructionWorkflowFile)
 	}
 
 	// sourceControlAccess (project-birth repo ADOPT + managed-scaffold seating + the PR-merge
@@ -707,37 +726,6 @@ func constructionRepoBase(apiBaseURL, owner, repo string) string {
 	return host + "/" + owner + "/" + repo
 }
 
-// buildConstructionPipeline constructs the constructionPipelineAccess (UC3) — it fronts
-// the USER'S GitHub Actions: dispatches the aiarch construction workflow in the user's
-// repo via the GitHub App identity and observes/cancels the runs. Returns nil when the
-// construction repo is unconfigured (the pump then never submits a pipeline).
-func buildConstructionPipeline(cfg config, logger *slog.Logger) (constructionpipeline.ConstructionPipelineAccess, error) {
-	if cfg.ConstructionRepoOwner == "" || cfg.ConstructionRepoName == "" {
-		return nil, nil //nolint:nilnil // optional dependency absent (construction repo unconfigured) → (nil, nil) is intentional; the caller nil-checks and never submits a pipeline.
-	}
-	// option-1 generated-DI: the composition root builds the framework GitHub App
-	// client, then the generated NewGitHubActionsConstructionPipelineAccess wires the
-	// token-caching seam + the (unexported) impl behind the interface.
-	appClient, acErr := githubinfra.NewAppClient(cfg.GitHubAppID, cfg.GitHubAppPrivateKeyPEM, cfg.GitHubAPIBaseURL)
-	if acErr != nil {
-		return nil, acErr
-	}
-	pipeline, err := constructionpipeline.NewGitHubActionsConstructionPipelineAccess(
-		appClient,
-		cfg.ConstructionRepoOwner,
-		cfg.ConstructionRepoName,
-		cfg.ConstructionWorkflowFile,
-		cfg.ConstructionRef,
-		cfg.GitHubInstallationID,
-	)
-	if err != nil {
-		return nil, err
-	}
-	logger.Info("constructionPipelineAccess (github-actions) ready",
-		"owner", cfg.ConstructionRepoOwner, "repo", cfg.ConstructionRepoName, "workflow", cfg.ConstructionWorkflowFile)
-	return pipeline, nil
-}
-
 // buildSourceControl constructs the sourceControlAccess (project-birth repo ADOPT +
 // managed-scaffold seating + the PR-merge rail; C-SC). scConcrete is the catalog/locator/
 // token surface retained for the projectStateAccess git cred minter + catalog (CLOUD
@@ -822,7 +810,7 @@ func selectConstructionDeps(cfg config, pipeline constructionpipeline.Constructi
 	switch {
 	case cfg.ConstructionDryRun:
 		logger.Warn("construction Worker DRY-RUN mode — pipeline/artifact effects are STUBBED (no GitHub Actions run); the real pump + per-activity lifecycle + head-state cascade run end-to-end")
-		return dryRunPipeline{}, artifact.NewDryRunArtifactAccess(), true
+		return constructionpipeline.NewDryRunConstructionPipelineAccess(), artifact.NewDryRunArtifactAccess(), true
 	case pipeline != nil && artifacts != nil:
 		return pipeline, artifacts, true
 	default:

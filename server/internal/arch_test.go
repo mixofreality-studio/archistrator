@@ -186,6 +186,10 @@ var encapsulationAllowlistData = map[string][]string{
 	// String/Parse/Equal/IsZero/IsTerminal behaviour lives as free funcs. Plus the package Error
 	// alias (= fwra.Error).
 	"internal/resourceaccess/constructionpipeline": {
+		// DRY-RUN VARIANT CONSTRUCTOR (step-8 fold): the in-memory dogfood/demo stub
+		// folded out of cmd/server (construction_dryrun.go). The REAL GitHub-Actions
+		// variant is the generated NewGitHubActionsConstructionPipelineAccess.
+		"NewDryRunConstructionPipelineAccess",
 		"Error",
 		"ParsePipelineHandle",
 		"PipelineHandleEqual",
