@@ -71,6 +71,15 @@ type appHooks struct {
 	// scCatalog is the sourcecontrol catalog surface backing the projectstate CLOUD
 	// ports + the design PR-rail repo resolvers; nil when repo-less.
 	scCatalog sourcecontrol.SourceControlCatalogAccess
+	// scAccess + realPipeline are the github-creds-gated RAs the LOCAL profile's
+	// binding arms do NOT construct (sourceControlAccess + constructionPipelineAccess
+	// are cloud-arm-only in the deployment model, but their real presence is gated on
+	// the GitHub App creds — ORTHOGONAL to the projectstate substrate profile). The
+	// Finalize hooks select them in the local profile so a local-projectstate boot
+	// WITH github creds (the agentic systemtests) still drives the design-dispatch +
+	// PR rail, exactly as the hand run() did. nil when repo-less (rail dormant).
+	scAccess     sourcecontrol.SourceControlAccess
+	realPipeline constructionpipeline.ConstructionPipelineAccess
 
 	// construction-transition + git-activity-status ports, extracted from a
 	// composition-root-owned projectStateAccess (residual #2). nil for a non-git
@@ -97,12 +106,25 @@ func newAppHooks(cfg *Config, logger *slog.Logger) (*appHooks, error) {
 			return nil, err
 		}
 		h.appClient = app
-		scCatalog, _, err := sourcecontrol.NewGitHubSourceControl(app, cfg.GithubAppAccount, cfg.GithubAppAppSlug, true /* repoPrivate */)
+		scCatalog, scAccess, err := sourcecontrol.NewGitHubSourceControl(app, cfg.GithubAppAccount, cfg.GithubAppAppSlug, true /* repoPrivate */)
 		if err != nil {
 			return nil, err
 		}
-		h.scCatalog = scCatalog
+		h.scCatalog, h.scAccess = scCatalog, scAccess
 		logger.Info("sourceControlAccess (github) ready", "account", cfg.GithubAppAccount, "apiBaseURL", cfg.GithubAppAPIBaseURL)
+
+		// The github-creds-gated constructionPipelineAccess the LOCAL profile's binding
+		// arm does not build (FinalizeConstructionPipelineAccess selects it in local
+		// profile). Built ONCE here so a construction-error fails fast; the CLOUD arm
+		// builds its own via the hook-args, so this is unused in cloud.
+		if cfg.ConstructionRepoOwner != "" && cfg.ConstructionRepoName != "" {
+			pipeline, err := constructionpipeline.NewGitHubActionsConstructionPipelineAccess(
+				app, cfg.ConstructionRepoOwner, cfg.ConstructionRepoName, cfg.ConstructionWorkflowFile, cfg.ConstructionRef, parseInt64(cfg.GithubAppInstallationID))
+			if err != nil {
+				return nil, err
+			}
+			h.realPipeline = pipeline
+		}
 	} else {
 		logger.Warn("sourceControlAccess NOT configured — projects are created repo-less (set ARCHISTRATOR_GITHUB_APP_ID + ARCHISTRATOR_GITHUB_APP_PRIVATE_KEY_PEM + ARCHISTRATOR_GITHUB_ACCOUNT for live GitHub repo provisioning)")
 	}
@@ -262,20 +284,33 @@ func (h *appHooks) FinalizeArtifactAccess(cfg *Config, v artifact.ArtifactAccess
 	return v
 }
 
-// FinalizeConstructionPipelineAccess swaps the pipeline for the in-memory dry-run
-// stub when CONSTRUCTION_DRYRUN=true (the stubbed pump runs end-to-end with no real
-// GitHub Actions run). Identity for cloud.
+// FinalizeConstructionPipelineAccess resolves the construction pipeline:
+//   - CONSTRUCTION_DRYRUN=true → the in-memory dry-run stub (the stubbed pump runs
+//     end-to-end with no real GitHub Actions run);
+//   - otherwise v when the profile arm built it (cloud);
+//   - otherwise the github-creds-gated real pipeline (local profile WITH creds —
+//     the constructionPipelineAccess binding is cloud-arm-only, but its real
+//     presence is gated on the App creds, orthogonal to the projectstate profile),
+//     or nil (local, no creds — the pump stays dormant).
 func (h *appHooks) FinalizeConstructionPipelineAccess(cfg *Config, v constructionpipeline.ConstructionPipelineAccess) constructionpipeline.ConstructionPipelineAccess {
 	if cfg.ConstructionDryRun {
 		return constructionpipeline.NewDryRunConstructionPipelineAccess()
 	}
-	return v
+	if v != nil {
+		return v
+	}
+	return h.realPipeline
 }
 
-// FinalizeSourceControlAccess is identity — sourceControlAccess has no dry-run stub
-// (the PR rail just goes dormant when the RA is nil).
+// FinalizeSourceControlAccess resolves sourceControlAccess: v when the profile arm
+// built it (cloud), else the github-creds-gated real RA (local profile WITH creds —
+// same orthogonal-presence reason as the pipeline above), else nil (rail dormant).
+// No dry-run stub — the PR rail simply goes dormant when the RA is nil.
 func (h *appHooks) FinalizeSourceControlAccess(cfg *Config, v sourcecontrol.SourceControlAccess) sourcecontrol.SourceControlAccess {
-	return v
+	if v != nil {
+		return v
+	}
+	return h.scAccess
 }
 
 // registerConstruction is the construction Worker gate (run()'s selectConstructionDeps):
