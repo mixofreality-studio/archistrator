@@ -541,6 +541,28 @@ aiarch-state MCP tools (already generic over slot kinds).
    three appgen runs in CI drift steps foldable to one.
 8. `composegen` + policy-variant folding → delete handwritten `cmd/server`
    main.
+   **DONE 2026-07-10** (app-generator/v0.5.0+v0.5.1). Fold-first: run()'s
+   policy relocated into package variant constructors (NoSideways forced
+   port-taking projectstate cloud variants + composition-root glue). The
+   emitter went through THREE consumer-driven fix waves (G1-G7: alias
+   collisions, nil-goPackage, VariantHookArgs typed seam, zero-arm stubs,
+   per-manager func-dep qualification, setting guards + derived
+   conditional-worker gate hooks, temporal-as-infrastructure; B1 driver
+   web-exposure override — exposing a REAL model-vs-code inconsistency:
+   committed systemDesign says billing is web-exposed, clientgen says not
+   (earmark: reconcile); B3→Finalize hooks for EVERY binding — the general
+   seam for orthogonal per-component toggles like OPERATIONS_DRYRUN).
+   cmd/server now: main.go (thin) + main.gen.go (generated root) + hooks.go
+   (typed policy seam) + seam files; run() and all build*/select* helpers
+   DELETED. gen-main-check drift gate live in CI. Verified: boot-log parity,
+   config parity test, UC1 slice 253s + UC4 live green on the generated
+   root. Honest residuals documented in hooks.go: dev-profile-only dry-run
+   stub sharing (artifact contaminates operations; pipeline stub visible to
+   design managers — benign, never dispatched); separate construction-ports
+   store instance (same repo). Earmarks: profile model is single-dimension
+   (orthogonal creds/dryrun toggles live in Finalize/presence hooks);
+   billing web-exposure reconciliation; 3 stale dev-Temporal workflows need
+   founder termination (wedge 3 fixed-ID systemtests).
 9. **Cleanups**: shared component id (kills both join heuristics),
    activity-profile JSON emission, uitests fixture snapshotting,
    testids-by-import.
