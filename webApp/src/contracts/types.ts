@@ -13,8 +13,20 @@
  * `models.ts` mirror is deleted. Consumers keep importing model types from here.
  */
 import type { components } from './schema';
+import type { ARTIFACT_STAGE_GO_VARNAMES } from './enums.gen';
 
 type S = components['schemas'];
+
+/** The literal-number union of a const tuple's valid indices (0..N-1). Used to
+ *  re-derive an ordinal type from a generated `as const` table's length instead
+ *  of hand-pinning the count, so a Go enum member add/remove changes the union
+ *  here too rather than silently going stale. */
+type TupleIndices<T extends readonly unknown[]> =
+  Exclude<keyof T, keyof unknown[]> extends infer K
+    ? K extends `${infer N extends number}`
+      ? N
+      : never
+    : never;
 
 // ---------------------------------------------------------------------------
 // Artifact MODEL payload types — derived from the generated typed OAS.
@@ -257,8 +269,10 @@ export interface ResearchInput {
   sources: ResearchSource[];
 }
 
-/** ArtifactStage ordinal (head-state slot stage): 0..4. */
-export type ArtifactStageOrdinal = 0 | 1 | 2 | 3 | 4;
+/** ArtifactStage ordinal (head-state slot stage): re-derived from the generated
+ *  ARTIFACT_STAGE_GO_VARNAMES table's index range (currently 0..4) rather than
+ *  hand-pinned, so a Go ArtifactStage member add/remove changes this union too. */
+export type ArtifactStageOrdinal = TupleIndices<typeof ARTIFACT_STAGE_GO_VARNAMES>;
 
 /** One artifact slot of the head-state. */
 export interface ArtifactSlotView {
@@ -370,30 +384,10 @@ export interface ReviewDecisionDetail {
   comments?: AnchoredComment[];
 }
 
-/**
- * The seven (eight slots incl. standardCheck) Phase-1 Method artifacts, in order.
- */
-export const PHASE1_ARTIFACTS: readonly ArtifactKind[] = [
-  'mission',
-  'glossary',
-  'scrubbedRequirements',
-  'volatilities',
-  'coreUseCases',
-  'system',
-  'operationalConcepts',
-  'standardCheck',
-] as const;
-
-export const ARTIFACT_LABELS: Record<ArtifactKind, string> = {
-  mission: 'Mission',
-  glossary: 'Glossary',
-  scrubbedRequirements: 'Scrubbed Requirements',
-  volatilities: 'Volatilities',
-  coreUseCases: 'Core Use Cases',
-  system: 'System (Architecture)',
-  operationalConcepts: 'Operational Concepts',
-  standardCheck: 'Standard Check',
-};
+// The Phase-1 ordered kind list + per-kind title used to live here as
+// PHASE1_ARTIFACTS/ARTIFACT_LABELS. Consolidated (appgen step4-task5) into
+// methodMetadata.ts's PHASE1_ORDER + METHOD_METADATA[kind].title — the single
+// hand-authored source for artifact display metadata across both phases.
 
 export const REVIEWABLE_STAGE: SessionStage = 'awaitingReview';
 
@@ -463,30 +457,12 @@ export interface ProjectPhaseAdvanceResponse {
   missingArtifacts: ProjectArtifactKind[];
 }
 
-export const PHASE2_DRAFTABLE_ARTIFACTS: readonly ProjectArtifactKind[] = [
-  'planningAssumptions',
-  'activityList',
-  'network',
-  'normalSolution',
-  'decompressedSolution',
-  'subcriticalSolution',
-  'compressedSolution',
-  'riskModel',
-] as const;
+// PHASE2_DRAFTABLE_ARTIFACTS/PROJECT_ARTIFACT_LABELS used to live here.
+// Consolidated (appgen step4-task5) into methodMetadata.ts's PHASE2_ORDER +
+// METHOD_METADATA[kind].title; the sdpReview-is-assembled-not-drafted distinction
+// is handled inline where it matters (ProjectDesignExperience's `isSdpStep`).
 
 export const SDP_REVIEW_KIND: ProjectArtifactKind = 'sdpReview';
-
-export const PROJECT_ARTIFACT_LABELS: Record<ProjectArtifactKind, string> = {
-  planningAssumptions: 'Planning Assumptions',
-  activityList: 'Activity List',
-  network: 'Network',
-  normalSolution: 'Normal Solution',
-  decompressedSolution: 'Decompressed Solution',
-  subcriticalSolution: 'Subcritical Solution',
-  compressedSolution: 'Compressed Solution',
-  riskModel: 'Risk Model',
-  sdpReview: 'SDP Review',
-};
 
 export const PROJECT_REVIEWABLE_STAGE: ProjectSessionStage = 'awaitingReview';
 

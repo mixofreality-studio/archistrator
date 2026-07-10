@@ -47,6 +47,7 @@ import type {
   Volatilities,
 } from './types';
 import { METHOD_METADATA, PHASE1_ORDER, PHASE2_ORDER } from './methodMetadata';
+import { ARTIFACT_STAGE_APP_STRINGS } from './enums.gen';
 
 // ---------------------------------------------------------------------------
 // Phase spine — the three Method phases as locked/active/done cards.
@@ -157,20 +158,20 @@ export interface ArtifactMeta {
   staleBasis?: boolean;
 }
 
-/** Maps the ArtifactStage ordinal (0..4) to a display stage. */
+/**
+ * Maps the ArtifactStage ordinal (0..4) to a display stage, sourced from the
+ * generated enums.gen.ts — mirrors how the other …FromOrdinal reads in wire.ts
+ * work, so a Go ArtifactStage member add/remove/reorder breaks tsc here instead
+ * of drifting silently (the hand switch this replaced had no such guard).
+ * SlotStage is structurally identical to the generated ArtifactStage union.
+ * Reads ARTIFACT_STAGE_APP_STRINGS (the `as const` tuple ARTIFACT_STAGE_ORDINAL_TO_APP
+ * is itself built from) rather than that wider `readonly ArtifactStage[]` typing:
+ * indexing a literal-length tuple with the literal ArtifactStageOrdinal domain
+ * type-checks to a definite ArtifactStage under noUncheckedIndexedAccess, so no
+ * cast/non-null-assertion is needed — same generated data either way.
+ */
 export function slotStageFromOrdinal(ordinal: ArtifactStageOrdinal): SlotStage {
-  switch (ordinal) {
-    case 0:
-      return 'empty';
-    case 1:
-      return 'awaitingReview';
-    case 2:
-      return 'committed';
-    case 3:
-      return 'rejected';
-    case 4:
-      return 'withdrawn';
-  }
+  return ARTIFACT_STAGE_APP_STRINGS[ordinal];
 }
 
 /** Builds the table-of-contents rows from a project's head-state slots. */

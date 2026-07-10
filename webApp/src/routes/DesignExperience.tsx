@@ -33,7 +33,6 @@ import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import { getRouteApi, useNavigate } from '@tanstack/react-router';
 
 import { ApiError } from '../contracts/errors';
-import { PHASE1_ARTIFACTS } from '../contracts/types';
 import type {
   ArtifactKind,
   ArtifactModelEnvelope,
@@ -45,7 +44,7 @@ import type {
   SessionStateResponse,
 } from '../contracts/types';
 import { slotStageFromOrdinal } from '../contracts/adapters';
-import { METHOD_METADATA } from '../contracts/methodMetadata';
+import { METHOD_METADATA, PHASE1_ORDER } from '../contracts/methodMetadata';
 
 import { useProject } from '../hooks/useProject';
 import { useSessionState } from '../hooks/useSessionState';
@@ -97,6 +96,8 @@ export { ProjectDesignScreen } from './ProjectDesignExperience';
 
 const systemRouteApi = getRouteApi('/project/$projectId/design/system');
 
+const PHASE1_KINDS = PHASE1_ORDER as readonly ArtifactKind[];
+
 /** Did this request fail because a precondition (research input) is unmet? */
 function isPreconditionError(error: Error | null): boolean {
   return error instanceof ApiError && error.status === 409;
@@ -113,7 +114,7 @@ function buildSpine(project: ProjectState | undefined): SpineStep[] {
     (project?.slots ?? []).filter((s) => s.staleBasis === true).map((s) => s.kind)
   );
   let priorCommitted = true;
-  return PHASE1_ARTIFACTS.map((kind) => {
+  return PHASE1_KINDS.map((kind) => {
     const isCommitted = committed.has(kind);
     const locked = !isCommitted && !priorCommitted;
     priorCommitted = isCommitted;
@@ -159,8 +160,8 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
   // Default active step: first non-committed, else last.
   const firstOpen = spine.findIndex((s) => !s.committed);
   const [activeIndex, setActiveIndex] = useState(firstOpen < 0 ? spine.length - 1 : firstOpen);
-  const safeIndex = Math.min(activeIndex, PHASE1_ARTIFACTS.length - 1);
-  const activeKind: ArtifactKind = PHASE1_ARTIFACTS[safeIndex] ?? 'mission';
+  const safeIndex = Math.min(activeIndex, PHASE1_KINDS.length - 1);
+  const activeKind: ArtifactKind = PHASE1_KINDS[safeIndex] ?? 'mission';
 
   // Disarm any pending anchor when the active artifact changes, so an anchor
   // armed on one step never bleeds onto the next (it would attach a comment to a
@@ -277,7 +278,7 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
         onSuccess: () => {
           reset();
           // Auto-advance to the next non-committed step.
-          const next = Math.min(safeIndex + 1, PHASE1_ARTIFACTS.length - 1);
+          const next = Math.min(safeIndex + 1, PHASE1_KINDS.length - 1);
           setActiveIndex(next);
         },
         onError: (err) => {
@@ -383,7 +384,7 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
       <DesignExperienceSkeleton
         phaseNum={1}
         phaseTitle="System Design"
-        steps={PHASE1_ARTIFACTS.length}
+        steps={PHASE1_KINDS.length}
         onClose={() => void navigate({ to: '/project/$projectId/home', params: { projectId } })}
       />
     );
@@ -449,7 +450,7 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
               ) : null}
             </Box>
             <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.muted, mt: 0.5 }}>
-              {meta.file} · step {safeIndex + 1} of {PHASE1_ARTIFACTS.length}
+              {meta.file} · step {safeIndex + 1} of {PHASE1_KINDS.length}
             </Typography>
             {/* PM-P1-3: a compact caveat (not a full-width banner) when the Standard
                 Check renders over drifted upstream artifacts. */}

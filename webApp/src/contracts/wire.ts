@@ -4,10 +4,16 @@
  * The openapi-fetch client returns the generated (per-manager namespaced,
  * PascalCase, integer-enum) wire types. Every API hook funnels its decoded `data`
  * through the "wire → app" mappers below to produce the SPA's stable app view
- * types (camelCase, lowerCamel string enums). Opaque `model` payloads are decoded
- * through `unknown` into the ./models decode types — the OAS leaves them untyped
- * by design. The "app → wire" section at the bottom holds the reverse ordinal
- * encoders write-path hooks use to build request bodies.
+ * types (camelCase, lowerCamel string enums). The `{kind, model}` draft envelope
+ * IS now typed on the wire (schema.ts's oneOf over the generated `Model*` shapes,
+ * appgen step-4 RC1) — mapEnvelope/mapProjectEnvelope still take it in through a
+ * structural `{kind: string; model?: unknown}` shape rather than the exact
+ * generated union because the SAME two mappers serve several distinct generated
+ * envelope schemas (session draft, slot view, …) whose `model` oneOf members
+ * differ slightly; the single `as` cast at the end is the one place that trusts
+ * the server's kind/model pairing (see the mapper bodies for why a kind-keyed
+ * switch there wouldn't add real safety). The "app → wire" section at the bottom
+ * holds the reverse ordinal encoders write-path hooks use to build request bodies.
  *
  * Every ordinal ↔ app-string table below is sourced from the generated
  * enums.gen.ts (derived from the OAS's x-enum-varnames) for the enums where that
@@ -172,7 +178,22 @@ function mapReviewComment(
   };
 }
 
-/** Decode the opaque {kind, model} envelope into the typed Phase-1+2 envelope. */
+/**
+ * Decode the {kind, model} envelope into the typed Phase-1+2 envelope.
+ *
+ * Both casts here are the honest boundary casts, kept deliberately (step4-task4
+ * review): `kind` is a plain wire string the server derives from the closed
+ * ArtifactKind enum, and `model` is already the generated oneOf union of every
+ * `Model*` shape (schema.ts) — but neither is narrowable to the EXACT pairing
+ * (kind='mission' implies model:MissionStatement) without a runtime validator,
+ * because the wire type only says "one of the 14", not "this one because of
+ * that". A 14-branch kind-keyed switch here would just re-state the same
+ * trust-the-server assumption one level down (each branch would still need its
+ * own cast) without adding a real runtime check, so it was rejected as churn.
+ * Every real consumer narrows again on `kind` at the point of use (see
+ * adapters.ts `narrow`), which is where a mismatched pairing would actually
+ * surface as a wrong-shaped read.
+ */
 function mapEnvelope(w: { kind: string; model?: unknown }): ArtifactModelEnvelope {
   const env: ArtifactModelEnvelope = { kind: w.kind as ArtifactKindFull };
   if (w.model !== undefined && w.model !== null) {
@@ -181,7 +202,8 @@ function mapEnvelope(w: { kind: string; model?: unknown }): ArtifactModelEnvelop
   return env;
 }
 
-/** Decode the opaque {kind, model} envelope into the typed Phase-2 envelope. */
+/** Decode the {kind, model} envelope into the typed Phase-2 envelope — same honest
+ *  boundary casts as {@link mapEnvelope}, narrowed to the Phase-2 kind/model unions. */
 function mapProjectEnvelope(w: { kind: string; model?: unknown }): ProjectArtifactModelEnvelope {
   const env: ProjectArtifactModelEnvelope = { kind: w.kind as ProjectArtifactKind };
   if (w.model !== undefined && w.model !== null) {
@@ -243,6 +265,7 @@ function mapSlot(w: Schemas['SystemDesignArtifactSlotView']): ArtifactSlotView {
       }
     : undefined;
   return {
+    // Same honest boundary cast as mapEnvelope's `kind` — see its doc comment.
     kind: w.kind as ArtifactKindFull,
     stage: w.stage,
     model: mapEnvelope(w.model),
