@@ -22,12 +22,18 @@ import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { generateEnumsModule } from './gen-enums.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const oasPath = join(here, '..', '..', 'server', 'api', 'openapi.yaml');
 const outPath = join(here, '..', 'src', 'contracts', 'schema.ts');
+const enumsOutPath = join(here, '..', 'src', 'contracts', 'enums.gen.ts');
 
 const source = readFileSync(oasPath, 'utf8');
+
+// Generated enum tables from the OAS's x-enum-varnames — independent of the
+// operationId-uniquify rewrite below, so it reads the untouched source.
+writeFileSync(enumsOutPath, generateEnumsModule(source));
 
 // Uniquify duplicate `operationId:` values. Each operationId line belongs to
 // exactly one path+method block, so renaming the value in place keeps the path's
@@ -54,10 +60,10 @@ execFileSync('npx', ['openapi-typescript', tmp, '-o', outPath], {
 });
 
 // openapi-typescript emits its own layout, which does not match the repo's
-// Prettier style. Format the generated file in place so `format:check` stays
+// Prettier style. Format the generated files in place so `format:check` stays
 // green after every build (prebuild runs this generator) and the committed
-// schema.ts is byte-identical to a fresh regen.
-execFileSync('npx', ['prettier', '--write', outPath], {
+// schema.ts / enums.gen.ts are byte-identical to a fresh regen.
+execFileSync('npx', ['prettier', '--write', outPath, enumsOutPath], {
   stdio: 'inherit',
   cwd: join(here, '..'),
 });

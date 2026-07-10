@@ -629,6 +629,292 @@ export interface components {
       referenceArtifact?: null | string;
       role: string;
     };
+    ModelActivityDiagram: {
+      edges: null | components['schemas']['ModelActivityEdge'][];
+      nodes: null | components['schemas']['ModelActivityNode'][];
+    };
+    ModelActivityEdge: {
+      from: string;
+      guard: string;
+      kind: number;
+      to: string;
+    };
+    ModelActivityItem: {
+      coding: boolean;
+      effortDays: number;
+      name: string;
+      riskBucket: number;
+      title?: string;
+      workerClass: string;
+    };
+    ModelActivityList: {
+      activities: null | components['schemas']['ModelActivityItem'][];
+    };
+    ModelActivityNode: {
+      id: string;
+      kind: number;
+      label: string;
+      linkedActorId: null | string;
+      linkedCompId: null | string;
+      roleName: string;
+    };
+    ModelActor: {
+      id: string;
+      role: string;
+    };
+    ModelCheckItem: {
+      guideline: string;
+      justification: string;
+      section: string;
+      status: number;
+    };
+    ModelComponent: {
+      atomicBusinessVerbs: null | string[];
+      buildStatus?: null | string;
+      encapsulates: string;
+      id: string;
+      kind: number;
+      layer: number;
+      name: string;
+    };
+    ModelContainerInstance: {
+      containerKey: string;
+      note: string;
+      tags: null | string[];
+    };
+    ModelCoreUseCases: {
+      decisions: null | components['schemas']['ModelUseCaseDecision'][];
+    };
+    ModelDeployContainer: {
+      components: null | string[];
+      description: string;
+      key: string;
+      name: string;
+      technology: string;
+    };
+    ModelDeploymentEnvironment: {
+      nodes: null | components['schemas']['ModelDeploymentNode'][];
+      profile: number;
+      title: string;
+    };
+    ModelDeploymentNode: {
+      children: null | components['schemas']['ModelDeploymentNode'][];
+      containerInstances: null | components['schemas']['ModelContainerInstance'][];
+      description: string;
+      infrastructureNodes: null | components['schemas']['ModelInfrastructureNode'][];
+      instances: number;
+      name: string;
+      softwareSystemInstances: null | components['schemas']['ModelSoftwareSystemInstance'][];
+      tags: null | string[];
+      technology: string;
+    };
+    ModelDeploymentTopology: {
+      containers: null | components['schemas']['ModelDeployContainer'][];
+      deliveryStyle: number;
+      environments: null | components['schemas']['ModelDeploymentEnvironment'][];
+    };
+    ModelDynamicView: {
+      edges: null | components['schemas']['ModelRelationship'][];
+      key: string;
+      participants: null | string[];
+      title: string;
+      useCaseId: string;
+    };
+    ModelGlossary: {
+      items: null | components['schemas']['ModelGlossaryItem'][];
+    };
+    ModelGlossaryItem: {
+      category: string;
+      definition: string;
+      term: string;
+    };
+    ModelInfrastructureNode: {
+      description: string;
+      name: string;
+      tags: null | string[];
+      technology: string;
+    };
+    ModelMissionStatement: {
+      mission: string;
+      objectives: null | components['schemas']['ModelObjective'][];
+      vision: string;
+    };
+    ModelMoney: {
+      currency: string;
+      minorUnits: number;
+    };
+    ModelNetwork: {
+      computed?: {
+        [key: string]: components['schemas']['ModelNetworkNodeCompute'];
+      };
+      criticalPath: null | string[];
+      dependencies: null | components['schemas']['ModelNetworkDependency'][];
+      milestones?: null | components['schemas']['ModelNetworkMilestone'][];
+      summary?: components['schemas']['ModelNetworkSummary'];
+    };
+    ModelNetworkDependency: {
+      activity: string;
+      dependsOn: null | string[];
+    };
+    ModelNetworkMilestone: {
+      dependsOn?: null | string[];
+      eventTime?: null | number;
+      id: string;
+      name: string;
+      onCriticalPath?: null | boolean;
+      public: boolean;
+    };
+    ModelNetworkNodeCompute: {
+      band: string;
+      column: number;
+      earliestFinish: number;
+      earliestStart: number;
+      freeFloat: number;
+      latestFinish: number;
+      latestStart: number;
+      nearCritical: boolean;
+      onCriticalPath: boolean;
+      totalFloat: number;
+    };
+    ModelNetworkSummary: {
+      criticalPathActivityCount: number;
+      criticalPathDays: number;
+      maxFloat: number;
+      nearCriticalCount: number;
+      totalDurationDays: number;
+    };
+    ModelObjective: {
+      number: number;
+      statement: string;
+    };
+    ModelOperationalConcepts: {
+      decisions: null | components['schemas']['ModelOperationalDecision'][];
+      deployment: components['schemas']['ModelDeploymentTopology'];
+    };
+    ModelOperationalDecision: {
+      decision: string;
+      justifyingObjective: number;
+      topic: string;
+    };
+    ModelPlanningAssumptions: {
+      calendarDaysPerWeek: number;
+      declaredUsage: components['schemas']['ModelUsageAssumption'];
+      indirectDailyRate: components['schemas']['ModelMoney'];
+      infrastructureKind: number;
+      notes: string;
+      rateCard?: {
+        [key: string]: components['schemas']['ModelWorkerRateSpec'];
+      };
+      resources: null | string[];
+      terms: components['schemas']['ModelSettlementTerms'];
+    };
+    ModelRelationship: {
+      from: string;
+      label: string;
+      mode: number;
+      to: string;
+    };
+    ModelRequirement: {
+      id: string;
+      statement: string;
+    };
+    ModelRiskModel: {
+      maxCompressionPct: number;
+      overSafeThreshold: number;
+      recommendation: number;
+      rows: null | components['schemas']['ModelRiskRow'][];
+      tooRiskyThreshold: number;
+    };
+    ModelRiskRow: {
+      activityRisk: number;
+      composite: number;
+      criticalityRisk: number;
+      durationDays: number;
+      exclusionReason: string;
+      included: boolean;
+      solutionKind: number;
+      totalCost: components['schemas']['ModelMoney'];
+    };
+    ModelScrubbedRequirements: {
+      items: null | components['schemas']['ModelRequirement'][];
+    };
+    ModelSdpOptionRow: {
+      buildCost: components['schemas']['ModelMoney'];
+      compositeRisk: number;
+      durationDays: number;
+      expectedPerCycleNet: components['schemas']['ModelMoney'];
+      optionId: string;
+      projectedMonthlyCost: components['schemas']['ModelMoney'];
+      revenueSharePercent: number;
+      solutionKind: number;
+    };
+    ModelSdpReview: {
+      options: null | components['schemas']['ModelSdpOptionRow'][];
+      rationale: string;
+      recommendation: string;
+    };
+    ModelSettlementTerms: {
+      computeCost: number;
+      computeMarkupPercent: number;
+      revenueShare: number;
+      revenueSharePercent: number;
+      schedule: number;
+    };
+    ModelSoftwareSystemInstance: {
+      description: string;
+      name: string;
+      tags: null | string[];
+      technology: string;
+    };
+    ModelSolution: {
+      bufferDays: number;
+      calendarDaysPerWeek: number;
+      classRates: {
+        [key: string]: components['schemas']['ModelMoney'];
+      };
+      criticalSpeedup: number;
+      slotKind: number;
+      staffingCap: number;
+    };
+    ModelStandardCheck: {
+      items: null | components['schemas']['ModelCheckItem'][];
+    };
+    ModelSystem: {
+      components: null | components['schemas']['ModelComponent'][];
+      dynamicViews: null | components['schemas']['ModelDynamicView'][];
+      relationships: null | components['schemas']['ModelRelationship'][];
+    };
+    ModelUsageAssumption: {
+      avgPayloadBytes: number;
+      expectedDailyActiveUsers: number;
+      requestsPerMinute: number;
+    };
+    ModelUseCase: {
+      activity: components['schemas']['ModelActivityDiagram'];
+      actors: null | components['schemas']['ModelActor'][];
+      classification: number;
+      id: string;
+      name: string;
+      trigger: number;
+      variationOf: null | string;
+    };
+    ModelUseCaseDecision: {
+      rejectionReason: string;
+      useCase: components['schemas']['ModelUseCase'];
+    };
+    ModelVolatilities: {
+      items: null | components['schemas']['ModelVolatility'][];
+    };
+    ModelVolatility: {
+      axis: number;
+      name: string;
+      rationale: string;
+    };
+    ModelWorkerRateSpec: {
+      megatokensInPerDay: number;
+      megatokensOutPerDay: number;
+      modelId: string;
+    };
     /** @enum {integer} */
     OperationsAutoscaleAction: 0 | 1 | 2 | 3 | 4;
     OperationsAutoscaleDecisionView: {
@@ -758,7 +1044,21 @@ export interface components {
       | 16;
     ProjectDesignDraftModel: {
       kind: string;
-      model?: null;
+      model?:
+        | components['schemas']['ModelActivityList']
+        | components['schemas']['ModelCoreUseCases']
+        | components['schemas']['ModelGlossary']
+        | components['schemas']['ModelMissionStatement']
+        | components['schemas']['ModelNetwork']
+        | components['schemas']['ModelOperationalConcepts']
+        | components['schemas']['ModelPlanningAssumptions']
+        | components['schemas']['ModelRiskModel']
+        | components['schemas']['ModelScrubbedRequirements']
+        | components['schemas']['ModelSdpReview']
+        | components['schemas']['ModelSolution']
+        | components['schemas']['ModelStandardCheck']
+        | components['schemas']['ModelSystem']
+        | components['schemas']['ModelVolatilities'];
     };
     ProjectDesignErrorResponse: {
       code: string;
@@ -881,7 +1181,21 @@ export interface components {
       | 16;
     SystemDesignArtifactSlotModel: {
       kind: string;
-      model?: null;
+      model?:
+        | components['schemas']['ModelActivityList']
+        | components['schemas']['ModelCoreUseCases']
+        | components['schemas']['ModelGlossary']
+        | components['schemas']['ModelMissionStatement']
+        | components['schemas']['ModelNetwork']
+        | components['schemas']['ModelOperationalConcepts']
+        | components['schemas']['ModelPlanningAssumptions']
+        | components['schemas']['ModelRiskModel']
+        | components['schemas']['ModelScrubbedRequirements']
+        | components['schemas']['ModelSdpReview']
+        | components['schemas']['ModelSolution']
+        | components['schemas']['ModelStandardCheck']
+        | components['schemas']['ModelSystem']
+        | components['schemas']['ModelVolatilities'];
     };
     SystemDesignArtifactSlotView: {
       kind: string;
@@ -936,7 +1250,21 @@ export interface components {
     };
     SystemDesignDraftModel: {
       kind: string;
-      model?: null;
+      model?:
+        | components['schemas']['ModelActivityList']
+        | components['schemas']['ModelCoreUseCases']
+        | components['schemas']['ModelGlossary']
+        | components['schemas']['ModelMissionStatement']
+        | components['schemas']['ModelNetwork']
+        | components['schemas']['ModelOperationalConcepts']
+        | components['schemas']['ModelPlanningAssumptions']
+        | components['schemas']['ModelRiskModel']
+        | components['schemas']['ModelScrubbedRequirements']
+        | components['schemas']['ModelSdpReview']
+        | components['schemas']['ModelSolution']
+        | components['schemas']['ModelStandardCheck']
+        | components['schemas']['ModelSystem']
+        | components['schemas']['ModelVolatilities'];
     };
     SystemDesignEVCurve: {
       earned: null | number[];
