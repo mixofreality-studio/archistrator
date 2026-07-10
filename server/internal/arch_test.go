@@ -171,6 +171,16 @@ var encapsulationAllowlistData = map[string][]string{
 		"RegisterWorker",
 		"TaskQueue",
 	},
+	// DEPLOYMENT-PROFILE VARIANT CONSTRUCTORS (step-8 fold): the composition-root policy
+	// that used to live in cmd/server (buildArtifactAccess + artifact_auth.go + the dry-run
+	// stub) folded into the owning package. Each assembles the generated GitArtifactAccess
+	// over the satellite blob store + a profile-specific auth resolver; NewDryRunArtifactAccess
+	// is the in-memory dogfood/demo stub. The auth-resolver glue itself stays unexported.
+	"internal/resourceaccess/artifact": {
+		"NewDryRunArtifactAccess",
+		"NewGitHubArtifactAccess",
+		"NewLocalGitArtifactAccess",
+	},
 	// FREE-FUNCTION BEHAVIOUR over the contract's named-scalar handle/enum value types: the
 	// schema-first rule keeps generated contract types method-free, so
 	// String/Parse/Equal/IsZero/IsTerminal behaviour lives as free funcs. Plus the package Error

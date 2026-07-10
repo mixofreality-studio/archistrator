@@ -23,7 +23,6 @@ package main
 
 import (
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/constructionpipeline"
 )
 
@@ -47,25 +46,4 @@ func (dryRunPipeline) ObserveConstructionPipeline(_ fwra.Context, handle constru
 
 func (dryRunPipeline) CancelConstructionPipeline(_ fwra.Context, _ constructionpipeline.PipelineHandle) error {
 	return nil
-}
-
-// ---------------------------------------------------------------------------
-// dryRunArtifacts — artifact.ArtifactAccess stub. Store returns a deterministic fake
-// content address; Retrieve returns a minimal valid output. Nothing is committed.
-// ---------------------------------------------------------------------------
-
-type dryRunArtifacts struct{}
-
-var _ artifact.ArtifactAccess = dryRunArtifacts{}
-
-func (dryRunArtifacts) StoreConstructionOutput(rc fwra.Context, _ artifact.ConstructionOutput) (string, error) {
-	return "dryrun-addr:" + string(rc.IdempotencyKey), nil
-}
-
-func (dryRunArtifacts) RetrieveConstructionOutput(_ fwra.Context, _ string) (artifact.ConstructionOutput, error) {
-	return artifact.ConstructionOutput{Bytes: []byte("dry-run construction output"), MIMEType: "text/plain"}, nil
-}
-
-func (dryRunArtifacts) RetrieveOutputTree(_ fwra.Context, contentAddress string) (artifact.OutputTree, error) {
-	return artifact.OutputTree{Root: contentAddress, Entries: map[string]string{}}, nil
 }

@@ -304,9 +304,25 @@ func run(logger *slog.Logger) error {
 	// (from the contract's infra:["Git"] binding). The composition root supplies the
 	// satellite *GitBlobStore + the profile-specific auth resolver (artifact_auth.go):
 	// LOCAL needs no credential; CLOUD mints the installation token internally.
-	artifacts, err := buildArtifactAccess(cfg, logger)
-	if err != nil {
-		return err
+	// Profile selection (presence + LOCAL/CLOUD): constructed only when a repo URL is
+	// configured; nil otherwise (the construction slice then stages no outputs). The two
+	// live profiles are folded into the artifact package's variant constructors.
+	var artifacts artifact.ArtifactAccess
+	switch {
+	case cfg.ArtifactRepoURL == "":
+		// optional dependency absent — no repo configured, stage no outputs.
+	case cfg.ArtifactRepoLocal:
+		artifacts, err = artifact.NewLocalGitArtifactAccess(cfg.ArtifactRepoURL)
+		if err != nil {
+			return err
+		}
+		logger.Info("artifactAccess (local git) ready", "repoURL", cfg.ArtifactRepoURL)
+	default:
+		artifacts, err = artifact.NewGitHubArtifactAccess(cfg.ArtifactRepoURL, cfg.ArtifactRepoOwner, cfg.GitHubAppID, cfg.GitHubAppPrivateKeyPEM, cfg.GitHubAPIBaseURL, cfg.GitHubInstallationID)
+		if err != nil {
+			return err
+		}
+		logger.Info("artifactAccess (github) ready", "repoURL", cfg.ArtifactRepoURL)
 	}
 
 	// constructionPipelineAccess (UC3) — fronts the USER'S GitHub Actions (C-CP-R
@@ -691,39 +707,6 @@ func constructionRepoBase(apiBaseURL, owner, repo string) string {
 	return host + "/" + owner + "/" + repo
 }
 
-// buildArtifactAccess constructs the git-backed artifactAccess (content-addressable
-// store for Phase-3 construction outputs; C-AA-R). Two profiles behind the unchanged
-// contract surface: LOCAL (file:// on-disk repo, no credential) and CLOUD (the user's
-// GitHub repo; the installation token is minted INTERNALLY from the GitHubApp* identity).
-// Returns nil when no repo URL is configured (the construction slice then stages no
-// outputs — acceptable for the empty-session runtime state).
-func buildArtifactAccess(cfg config, logger *slog.Logger) (artifact.ArtifactAccess, error) {
-	if cfg.ArtifactRepoURL == "" {
-		return nil, nil //nolint:nilnil // optional dependency absent (no repo configured) → (nil, nil) is intentional; the caller nil-checks and stages no outputs.
-	}
-	if cfg.ArtifactRepoLocal {
-		blob, blobErr := githubinfra.NewGitBlobStore(cfg.ArtifactRepoURL)
-		if blobErr != nil {
-			return nil, blobErr
-		}
-		logger.Info("artifactAccess (local git) ready", "repoURL", cfg.ArtifactRepoURL)
-		return artifact.NewGitArtifactAccess(blob, localGitAuth()), nil
-	}
-	blob, authResolver, csErr := newCloudArtifactStore(
-		cfg.ArtifactRepoURL,
-		cfg.ArtifactRepoOwner,
-		cfg.GitHubAppID,
-		cfg.GitHubAppPrivateKeyPEM,
-		cfg.GitHubAPIBaseURL,
-		cfg.GitHubInstallationID,
-	)
-	if csErr != nil {
-		return nil, csErr
-	}
-	logger.Info("artifactAccess (github) ready", "repoURL", cfg.ArtifactRepoURL)
-	return artifact.NewGitArtifactAccess(blob, authResolver), nil
-}
-
 // buildConstructionPipeline constructs the constructionPipelineAccess (UC3) — it fronts
 // the USER'S GitHub Actions: dispatches the aiarch construction workflow in the user's
 // repo via the GitHub App identity and observes/cancels the runs. Returns nil when the
@@ -839,7 +822,7 @@ func selectConstructionDeps(cfg config, pipeline constructionpipeline.Constructi
 	switch {
 	case cfg.ConstructionDryRun:
 		logger.Warn("construction Worker DRY-RUN mode — pipeline/artifact effects are STUBBED (no GitHub Actions run); the real pump + per-activity lifecycle + head-state cascade run end-to-end")
-		return dryRunPipeline{}, dryRunArtifacts{}, true
+		return dryRunPipeline{}, artifact.NewDryRunArtifactAccess(), true
 	case pipeline != nil && artifacts != nil:
 		return pipeline, artifacts, true
 	default:
