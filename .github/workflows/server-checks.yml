@@ -65,3 +65,9 @@ jobs:
       # driving framework-go-app-generator/modelgen). Same GOWORK=off-safe shape.
       - name: Generated model layer drift check
         run: make gen-models-check
+
+      # Drift gate for the generated CLIENT layer + merged OAS (cmd/clientgen,
+      # driving framework-go-http-generator + framework-go-mcp-generator). Same
+      # GOWORK=off-safe shape.
+      - name: Generated client layer drift check
+        run: make gen-client-check

@@ -20,7 +20,8 @@
 import { readFileSync } from 'node:fs';
 import { type Page } from '@playwright/test';
 
-/** Phase-1 ArtifactKind ordinals (openapi enum order — mirrors PHASE1_ARTIFACTS). */
+/** Phase-1 ArtifactKind ordinals (openapi enum order — mirrors PHASE1_ORDER in
+ * webApp/src/contracts/methodMetadata.ts). */
 const KIND_ORDINAL: Record<string, number> = {
   mission: 0,
   glossary: 1,

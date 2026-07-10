@@ -1,6 +1,6 @@
 # aiarch server — developer make targets.
 
-.PHONY: test test-short fmt vet lint sumtype-check method-check encapsulation-check gen-schemas gen-models gen-models-check gen gen-client gen-internal-tools gen-temporal gen-temporal-check bootstrap
+.PHONY: test test-short fmt vet lint sumtype-check method-check encapsulation-check gen-schemas gen-models gen-models-check gen gen-client gen-client-check gen-internal-tools gen-temporal gen-temporal-check bootstrap
 
 # Contract codegen pipeline, all-Go (jsonschema-go). project.json
 # (.serviceContracts) is the OWNER of every built component's contract; modelgen
@@ -42,6 +42,13 @@ gen-models-check: gen-models
 # Reproducible + idempotent; internal/client carries ZERO hand-written Go.
 gen-client:
 	GOWORK=off go run ./cmd/clientgen
+
+# gen-client-check — drift gate for the generated CLIENT layer + merged OAS
+# (cmd/clientgen, driving framework-go-http-generator + framework-go-mcp-generator),
+# same shape as gen-models-check/gen-temporal-check: regenerate, then fail on any
+# diff. GOWORK=off-safe (see gen-client above), so it runs in CI (server-checks.yml).
+gen-client-check: gen-client
+	git diff --exit-code -- api/openapi.yaml internal/client
 
 # gen-internal-tools — generate the INTERNAL MCP tool surface (one tool per
 # ResourceAccess/Engine contract operation) from project.json .serviceContracts
