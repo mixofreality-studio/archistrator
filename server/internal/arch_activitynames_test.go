@@ -85,39 +85,60 @@ func findNoStringActivityViolations(files map[string]string) []string {
 			if !ok {
 				return true
 			}
-			switch sel.Sel.Name {
-			case "ExecuteActivity":
-				// Callee must be the workflow package's ExecuteActivity, not a
-				// method named ExecuteActivity on some other receiver.
-				pkg, ok := sel.X.(*ast.Ident)
-				if !ok || pkg.Name != "workflow" {
-					return true
-				}
-				// Args: [ctx, activity, args...]. The activity argument (index
-				// 1) MUST be a method value — a selector expression. Anything
-				// else is a violation.
-				if len(call.Args) < 2 {
-					return true
-				}
-				arg := call.Args[1]
-				if _, ok := arg.(*ast.SelectorExpr); ok {
-					return true // method value — the one legal shape
-				}
-				pos := fset.Position(arg.Pos())
-				violations = append(violations, fmt.Sprintf(executeActivityMsg,
-					path, pos.Line, describeActivityArg(arg), snippet(files[path], fset, call)))
-			case "RegisterActivityWithOptions", "RegisterWorkflowWithOptions":
-				if isManifest {
-					return true
-				}
-				pos := fset.Position(sel.Sel.Pos())
-				violations = append(violations, fmt.Sprintf(registerWithOptionsMsg,
-					path, pos.Line, sel.Sel.Name, snippet(files[path], fset, call)))
+			if v := checkExecuteActivityCall(sel, call, files[path], fset, path); v != "" {
+				violations = append(violations, v)
+				return true
+			}
+			if v := checkRegisterCall(sel, call, isManifest, files[path], fset, path); v != "" {
+				violations = append(violations, v)
+				return true
 			}
 			return true
 		})
 	}
 	return violations
+}
+
+// checkExecuteActivityCall examines an ExecuteActivity call expression and
+// returns a violation message if the activity argument is not a method value.
+func checkExecuteActivityCall(sel *ast.SelectorExpr, call *ast.CallExpr, src string, fset *token.FileSet, path string) string {
+	if sel.Sel.Name != "ExecuteActivity" {
+		return ""
+	}
+	// Callee must be the workflow package's ExecuteActivity, not a
+	// method named ExecuteActivity on some other receiver.
+	pkg, ok := sel.X.(*ast.Ident)
+	if !ok || pkg.Name != "workflow" {
+		return ""
+	}
+	// Args: [ctx, activity, args...]. The activity argument (index
+	// 1) MUST be a method value — a selector expression. Anything
+	// else is a violation.
+	if len(call.Args) < 2 {
+		return ""
+	}
+	arg := call.Args[1]
+	if _, ok := arg.(*ast.SelectorExpr); ok {
+		return "" // method value — the one legal shape
+	}
+	pos := fset.Position(arg.Pos())
+	return fmt.Sprintf(executeActivityMsg,
+		path, pos.Line, describeActivityArg(arg), snippet(src, fset, call))
+}
+
+// checkRegisterCall examines a Register*WithOptions call and returns a
+// violation message if it's called outside generated files or the manifest.
+func checkRegisterCall(sel *ast.SelectorExpr, call *ast.CallExpr, isManifest bool, src string, fset *token.FileSet, path string) string {
+	switch sel.Sel.Name {
+	case "RegisterActivityWithOptions", "RegisterWorkflowWithOptions":
+		if isManifest {
+			return ""
+		}
+		pos := fset.Position(sel.Sel.Pos())
+		return fmt.Sprintf(registerWithOptionsMsg,
+			path, pos.Line, sel.Sel.Name, snippet(src, fset, call))
+	}
+	return ""
 }
 
 // describeActivityArg names the offending node kind for a clear message.
