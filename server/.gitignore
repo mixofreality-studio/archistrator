@@ -9,6 +9,8 @@ test-artifacts/
 # Compiled server binary (build artifact, ~50MB). Build locally; never commit.
 /server
 /seed-construction
+/gen-uiprofiles
+/gen-uitests-fixtures
 
 # cmd/schemagen's bootstrap-only re-seed output. Transient: cmd/contractfold
 # folds it straight into .aiarch/state/project.json (the source of truth), so

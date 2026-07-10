@@ -98,6 +98,13 @@ async function stubGetProject(page: Page, projectId: string, state: unknown): Pr
  * dogfood project.json (testdata/coreUseCasesProject.json). Its session probes 404
  * (no live co-author session), so the step renders the committed artifact through
  * the CommittedArtifactPanel → UseCaseCarousel → walkthrough. Returns the project id.
+ *
+ * The fixture's coreUseCases SLOT (stage/revisions/model) is mechanically kept in
+ * sync with the repo's actual committed `.aiarch/state/project.json` via
+ * `npm run regen:core-use-cases-fixture` (server/cmd/gen-uitests-fixtures) — see
+ * `npm run check:core-use-cases-fixture` for the drift check. The fixture's outer
+ * envelope (ProjectID/Name/Owner/Phase/Version/Research) is a deliberately
+ * synthetic test identity, untouched by the regen.
  */
 export async function stubCommittedCoreUseCases(page: Page): Promise<string> {
   const fixture = JSON.parse(

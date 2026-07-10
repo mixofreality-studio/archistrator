@@ -10,7 +10,9 @@
     "test:report": "playwright show-report",
     "list": "playwright test --list",
     "install:browsers": "playwright install --with-deps chromium",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "regen:core-use-cases-fixture": "cd ../server && GOWORK=off go run ./cmd/gen-uitests-fixtures -repo .. -fixture ../uitests/testdata/coreUseCasesProject.json -project archistrator",
+    "check:core-use-cases-fixture": "npm run regen:core-use-cases-fixture && git diff --exit-code -- testdata/coreUseCasesProject.json"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
