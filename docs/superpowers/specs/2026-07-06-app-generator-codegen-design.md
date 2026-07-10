@@ -455,6 +455,16 @@ aiarch-state MCP tools (already generic over slot kinds).
 3. Move the modelgen emitter into `app-generator/modelgen` (in-repo
    `server/cmd/modelgen` becomes a shim) → closes the gtdapp
    `contract.gen.go` gap.
+   **DONE 2026-07-09** (app-generator/v0.2.0): faithful port with
+   `Config{ModulePath, EngineImplAllowlist}`; descriptor types moved (schemagen
+   re-imports them; `cmd/internal/codegen` deleted); byte-identity proven by
+   platform goldens against two real outputs + archistrator's full 22-file
+   zero-diff regen; new `gen-models-check` drift gate in Make + CI.
+   Earmarks added: consolidate modelgen onto projectmodel types (needs
+   projectmodel to expose structured $defs), extensible infra-bindings
+   registry, emitter-state struct (pendingImports global is not
+   concurrent-Generate-safe), header-string modernization, Ollama/Replay
+   binding fixture coverage.
 4. **Typed OAS** (RC1+RC2): reflect slot-model schemas into OAS `$defs` +
    enum descriptors (clientgen change) → webApp deletes
    `models.ts`/`enums.ts`/most of `wire.ts`; uitests stubs re-derive.
