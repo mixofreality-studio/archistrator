@@ -18,7 +18,7 @@ import {
   reviewDecisionToOrdinal,
   sdpDecisionToOrdinal,
   projectArtifactKindFromOrdinal,
-} from '../contracts/enums';
+} from '../contracts/wire';
 import type {
   AnchoredComment,
   ProjectArtifactKind,

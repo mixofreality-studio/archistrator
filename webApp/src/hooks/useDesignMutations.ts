@@ -15,7 +15,7 @@ import {
   artifactKindToOrdinal,
   reviewDecisionToOrdinal,
   systemArtifactKindFromOrdinal,
-} from '../contracts/enums';
+} from '../contracts/wire';
 import type {
   AnchoredComment,
   ArtifactKind,

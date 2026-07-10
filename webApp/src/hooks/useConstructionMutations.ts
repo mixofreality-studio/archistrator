@@ -10,7 +10,7 @@
 import { useMutation, useQueryClient, type UseMutationResult } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 import { toApiError } from '../contracts/errors';
-import { overrideKindToOrdinal, phaseDecisionToOrdinal } from '../contracts/enums';
+import { overrideKindToOrdinal, phaseDecisionToOrdinal } from '../contracts/wire';
 import type { OverrideKind, PhaseDecision } from '../contracts/types';
 import type { components } from '../contracts/schema';
 import { constructionSessionKey } from './useConstructionSession';

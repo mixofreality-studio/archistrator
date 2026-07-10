@@ -1,41 +1,64 @@
 /**
- * Wire → app mapping at the generated-client boundary.
+ * Wire ↔ app mapping at the generated-client boundary.
  *
  * The openapi-fetch client returns the generated (per-manager namespaced,
  * PascalCase, integer-enum) wire types. Every API hook funnels its decoded `data`
- * through these pure mappers to produce the SPA's stable app view types (camelCase,
- * lowerCamel string enums). Opaque `model` payloads are decoded through `unknown`
- * into the ./models decode types — the OAS leaves them untyped by design.
+ * through the "wire → app" mappers below to produce the SPA's stable app view
+ * types (camelCase, lowerCamel string enums). Opaque `model` payloads are decoded
+ * through `unknown` into the ./models decode types — the OAS leaves them untyped
+ * by design. The "app → wire" section at the bottom holds the reverse ordinal
+ * encoders write-path hooks use to build request bodies.
+ *
+ * Every ordinal ↔ app-string table below is sourced from the generated
+ * enums.gen.ts (derived from the OAS's x-enum-varnames) for the enums where that
+ * derivation is mechanical. The 7 enums where it is NOT mechanical (a casing
+ * convention or a deliberate product-decision collapse — see the per-block
+ * comments there) instead come from src/contracts/enumMappings.ts, a thin hand
+ * mapping layer keyed by the SAME generated varname union, so a Go const rename
+ * still breaks tsc here rather than drifting silently.
  */
 import type { components } from './schema';
 import {
-  systemArtifactKindFromOrdinal,
-  projectArtifactKindFromOrdinal,
-  sessionStageFromOrdinal,
-  projectSessionStageFromOrdinal,
-  projectPhaseFromOrdinal,
-  constructionStageFromOrdinal,
-  pipelinePhaseFromOrdinal,
-  ciStatusFromOrdinal,
-  activityRowKindFromOrdinal,
-  testingVariantFromOrdinal,
+  ACTIVITY_TYPE_ORDINAL_TO_APP,
+  ARTIFACT_KIND_APP_TO_ORDINAL,
+  ARTIFACT_KIND_ORDINAL_TO_APP,
+  AUTOSCALE_ACTION_ORDINAL_TO_APP,
+  CONSTRUCTION_STAGE_ORDINAL_TO_APP,
+  DESIRED_STATE_REASON_APP_TO_ORDINAL,
+  OVERRIDE_KIND_APP_TO_ORDINAL,
+  PATCH_KIND_APP_TO_ORDINAL,
+  PHASE_DECISION_APP_TO_ORDINAL,
+  PROJECT_PHASE_ORDINAL_TO_APP,
+  REVIEW_DECISION_APP_TO_ORDINAL,
+  SDP_DECISION_APP_TO_ORDINAL,
+  SESSION_STAGE_ORDINAL_TO_APP,
+} from './enums.gen';
+import {
   buildStatusRowFromOrdinal,
+  ciStatusFromOrdinal,
+  pipelinePhaseFromOrdinal,
+  projectSessionStageFromOrdinal,
   runtimePhaseFromOrdinal,
   autoscalerModeFromOrdinal,
-  autoscaleActionFromOrdinal,
-} from './enums';
+  testingVariantFromOrdinal,
+} from './enumMappings';
 import type {
+  ArtifactKind,
   ArtifactKindFull,
   ArtifactSlotView,
   ConstructionProgress,
   ConstructionRow,
   ConstructionSessionState,
+  ConstructionStage,
   EvPoint,
   Finding,
   GitRow,
   GitRows,
+  OverrideKind,
+  PhaseDecision,
   ProducedArtifactRow,
   ProjectArtifactKind,
+  ProjectPhase,
   ProjectSessionState,
   ProjectState,
   ProjectStateWithGit,
@@ -45,6 +68,9 @@ import type {
   ReviewCommentStatus,
   ReviewCommentType,
   ReviewCommentView,
+  ReviewDecision,
+  SDPDecision,
+  SessionStage,
   ServiceContract,
   ServiceContracts,
   SessionStateResponse,
@@ -54,6 +80,47 @@ import type { ArtifactModelEnvelope, Money, ProjectArtifactModelEnvelope } from 
 import type { CostProjection, OperationsView } from './operationsTypes';
 
 type Schemas = components['schemas'];
+
+// --- wire → app: ordinal readers (mechanical — sourced from enums.gen.ts) ---
+
+/** ArtifactKind ordinal (0..16), shared Phase-1 + Phase-2 ordering. */
+function artifactKindFullFromOrdinal(ordinal: number): ArtifactKindFull {
+  return ARTIFACT_KIND_ORDINAL_TO_APP[ordinal] ?? 'mission';
+}
+
+/** Phase-1 narrowing — the same table, typed back to the Phase-1 union. */
+export function systemArtifactKindFromOrdinal(ordinal: number): ArtifactKind {
+  return artifactKindFullFromOrdinal(ordinal) as ArtifactKind;
+}
+
+/** Phase-2 narrowing — the same table, typed back to the Phase-2 union. */
+export function projectArtifactKindFromOrdinal(ordinal: number): ProjectArtifactKind {
+  return artifactKindFullFromOrdinal(ordinal) as ProjectArtifactKind;
+}
+
+function sessionStageFromOrdinal(ordinal: number): SessionStage {
+  return SESSION_STAGE_ORDINAL_TO_APP[ordinal] ?? 'unknown';
+}
+
+function projectPhaseFromOrdinal(ordinal: number): ProjectPhase {
+  return PROJECT_PHASE_ORDINAL_TO_APP[ordinal] ?? 'unknown';
+}
+
+function constructionStageFromOrdinal(ordinal: number): ConstructionStage {
+  return CONSTRUCTION_STAGE_ORDINAL_TO_APP[ordinal] ?? 'unknown';
+}
+
+/** ProjectActivityType (0 service,1 frontend,2 testing,3 deployment,4 documentation). */
+function activityRowKindFromOrdinal(
+  ordinal: number
+): 'service' | 'frontend' | 'testing' | 'deployment' | 'documentation' {
+  return ACTIVITY_TYPE_ORDINAL_TO_APP[ordinal] ?? 'service';
+}
+
+/** OperationsAutoscaleAction (0 noChange,1 scaleUp,2 scaleDown,3 pause,4 resume). */
+function autoscaleActionFromOrdinal(ordinal: number): string {
+  return AUTOSCALE_ACTION_ORDINAL_TO_APP[ordinal] ?? 'noChange';
+}
 
 // --- shared -----------------------------------------------------------------
 
@@ -524,3 +591,41 @@ export function mapCostProjection(
 export function toResearchInputWire(app: ResearchInput): Schemas['SystemDesignResearchInput'] {
   return { sources: app.sources.map((s) => ({ title: s.title, content: s.content })) };
 }
+
+// --- app → wire: ordinal encoders (mechanical — sourced from enums.gen.ts) --
+
+export function artifactKindToOrdinal(kind: ArtifactKindFull): Schemas['SystemDesignArtifactKind'] {
+  return ARTIFACT_KIND_APP_TO_ORDINAL[kind] as Schemas['SystemDesignArtifactKind'];
+}
+
+export function reviewDecisionToOrdinal(
+  decision: ReviewDecision
+): Schemas['SystemDesignReviewDecision'] {
+  return REVIEW_DECISION_APP_TO_ORDINAL[decision] as Schemas['SystemDesignReviewDecision'];
+}
+
+export function sdpDecisionToOrdinal(decision: SDPDecision): Schemas['ProjectDesignSDPDecision'] {
+  return SDP_DECISION_APP_TO_ORDINAL[decision] as Schemas['ProjectDesignSDPDecision'];
+}
+
+export function overrideKindToOrdinal(kind: OverrideKind): Schemas['ConstructionOverrideKind'] {
+  return OVERRIDE_KIND_APP_TO_ORDINAL[kind] as Schemas['ConstructionOverrideKind'];
+}
+
+export function phaseDecisionToOrdinal(
+  decision: PhaseDecision
+): Schemas['ConstructionPhaseDecision'] {
+  return PHASE_DECISION_APP_TO_ORDINAL[decision] as Schemas['ConstructionPhaseDecision'];
+}
+
+/** OperationsDesiredStateReason ordinals. */
+export const REASON_DEPLOY_AFTER_CONSTRUCTION =
+  DESIRED_STATE_REASON_APP_TO_ORDINAL.deployAfterConstruction as Schemas['OperationsDesiredStateReason'];
+export const REASON_OPERATOR =
+  DESIRED_STATE_REASON_APP_TO_ORDINAL.operator as Schemas['OperationsDesiredStateReason'];
+
+/** OperationsPatchKind ordinals. */
+export const PATCH_FULL_BUNDLE =
+  PATCH_KIND_APP_TO_ORDINAL.fullBundle as Schemas['OperationsPatchKind'];
+export const PATCH_SCALE = PATCH_KIND_APP_TO_ORDINAL.scale as Schemas['OperationsPatchKind'];
+export const PATCH_POLICY = PATCH_KIND_APP_TO_ORDINAL.policy as Schemas['OperationsPatchKind'];
