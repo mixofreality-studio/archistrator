@@ -1,6 +1,6 @@
-package main
+package projectstate
 
-// projectstate_git_adapter_test.go is the I-GIT-DESIGN PROOF: it drives the UC1/UC2
+// gitadapter_test.go is the I-GIT-DESIGN PROOF: it drives the UC1/UC2
 // design-artifact write path through the SAME no-cred projectstate.ProjectStateAccess
 // surface the design Managers' Activities consume, bound over a real on-disk LOCAL git
 // store (testinfra.StartLocalGitRepo over go-git's file transport — no real GitHub),
@@ -22,7 +22,6 @@ import (
 	fwgithub "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github"
 	gh "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github/testinfra"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
-	ps "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
 // localProjectStateOverGit spins a real throwaway on-disk git repo (per-project) and
@@ -31,7 +30,7 @@ import (
 // types main.go wires for the LOCAL profile. It returns the no-cred ProjectStateAccess
 // the Managers consume. (The cross-project registry repo is GONE — founder ruling
 // 2026-06-14; the catalog is discovered by scanning the on-disk project repo.)
-func localProjectStateOverGit(t *testing.T) ps.ProjectStateAccess {
+func localProjectStateOverGit(t *testing.T) ProjectStateAccess {
 	t.Helper()
 	projRepo := gh.StartLocalGitRepo(t, "main")
 
@@ -41,10 +40,10 @@ func localProjectStateOverGit(t *testing.T) ps.ProjectStateAccess {
 	// so this drives the SAME construction path main.go's LOCAL profile uses.
 	locator := gitRepoLocator{
 		branch:            "main",
-		perProjectRepoURL: func(ps.ProjectID) string { return projRepo.URL },
+		perProjectRepoURL: func(ProjectID) string { return projRepo.URL },
 	}
 
-	store, err := ps.NewGitStore(locator, true /* local */)
+	store, err := NewGitStore(locator, true /* local */)
 	if err != nil {
 		t.Fatalf("NewGitStore(RA): %v", err)
 	}
@@ -59,7 +58,7 @@ func localProjectStateOverGit(t *testing.T) ps.ProjectStateAccess {
 func TestProjectStateGitAdapter_UC1ArtifactLandsInGit(t *testing.T) {
 	state := localProjectStateOverGit(t)
 	ctx := context.Background()
-	id := ps.ProjectID(uuid.NewString())
+	id := ProjectID(uuid.NewString())
 
 	// CreateProject — births the aggregate at version 1 (no registry index — the repo's
 	// existence + project.json IS the catalog entry, founder ruling 2026-06-14).
@@ -72,14 +71,14 @@ func TestProjectStateGitAdapter_UC1ArtifactLandsInGit(t *testing.T) {
 	}
 
 	// Stage the mission typed model (UC1 step 1 — systemDesignManager stages the draft).
-	mission := &ps.MissionStatement{Vision: "vision-text", Mission: "mission-text"}
+	mission := &MissionStatement{Vision: "vision-text", Mission: "mission-text"}
 	v2, err := state.StageArtifactForReview(fwra.Context{Context: ctx, IdempotencyKey: "wf:stage-mission"}, id, v1, mission)
 	if err != nil {
 		t.Fatalf("StageArtifactForReview: %v", err)
 	}
 
 	// Commit the mission (architect approved at the review gate).
-	v3, err := state.CommitArtifact(fwra.Context{Context: ctx, IdempotencyKey: "wf:commit-mission"}, id, v2, ps.KindMission)
+	v3, err := state.CommitArtifact(fwra.Context{Context: ctx, IdempotencyKey: "wf:commit-mission"}, id, v2, KindMission)
 	if err != nil {
 		t.Fatalf("CommitArtifact: %v", err)
 	}
@@ -92,10 +91,10 @@ func TestProjectStateGitAdapter_UC1ArtifactLandsInGit(t *testing.T) {
 	if proj.Version != v3 {
 		t.Fatalf("ReadProject version = %d, want %d", proj.Version, v3)
 	}
-	if proj.Mission.Status != ps.ReviewCommitted {
+	if proj.Mission.Status != ReviewCommitted {
 		t.Fatalf("mission status = %v, want Committed", proj.Mission.Status)
 	}
-	got, ok := proj.Mission.Model.(*ps.MissionStatement)
+	got, ok := proj.Mission.Model.(*MissionStatement)
 	if !ok || got.Vision != "vision-text" || got.Mission != "mission-text" {
 		t.Fatalf("mission model round-trip through git failed: %+v", proj.Mission.Model)
 	}
@@ -117,14 +116,14 @@ func TestProjectStateGitAdapter_UC1ArtifactLandsInGit(t *testing.T) {
 func TestProjectStateGitAdapter_UC2AdvanceAndResearchLandsInGit(t *testing.T) {
 	state := localProjectStateOverGit(t)
 	ctx := context.Background()
-	id := ps.ProjectID(uuid.NewString())
+	id := ProjectID(uuid.NewString())
 
 	v1, err := state.CreateProject(fwra.Context{Context: ctx, IdempotencyKey: "wf:create"}, id, "bob", "Proj2")
 	if err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
 
-	research := ps.ResearchInput{Sources: []ps.ResearchSource{{Title: "src", Content: "research-corpus"}}}
+	research := ResearchInput{Sources: []ResearchSource{{Title: "src", Content: "research-corpus"}}}
 	v2, err := state.SetResearchInput(fwra.Context{Context: ctx, IdempotencyKey: "wf:research"}, id, v1, research)
 	if err != nil {
 		t.Fatalf("SetResearchInput: %v", err)
@@ -142,7 +141,7 @@ func TestProjectStateGitAdapter_UC2AdvanceAndResearchLandsInGit(t *testing.T) {
 	if proj.Version != v3 {
 		t.Fatalf("version = %d, want %d", proj.Version, v3)
 	}
-	if proj.Phase == ps.PhaseSystemDesign {
+	if proj.Phase == PhaseSystemDesign {
 		t.Fatalf("phase did not advance past SystemDesign: %v", proj.Phase)
 	}
 	// F42: research is persisted as files + pointers ({Title, Path, ContentBytes}), so the
@@ -198,9 +197,9 @@ func TestProjectStateGitAdapter_CreateReadList_IdentityVerbatim(t *testing.T) {
 	projRepo := gh.StartLocalGitRepo(t, "main")
 	locator := gitRepoLocator{
 		branch:            "main",
-		perProjectRepoURL: func(ps.ProjectID) string { return projRepo.URL },
+		perProjectRepoURL: func(ProjectID) string { return projRepo.URL },
 	}
-	store, err := ps.NewGitStore(locator, true /* local */)
+	store, err := NewGitStore(locator, true /* local */)
 	if err != nil {
 		t.Fatalf("NewGitStore(RA): %v", err)
 	}
@@ -208,7 +207,7 @@ func TestProjectStateGitAdapter_CreateReadList_IdentityVerbatim(t *testing.T) {
 	state := &projectStateGitAdapter{store: store, minter: localCredentialMinter{}}
 	ctx := context.Background()
 
-	id := ps.ProjectID("my-cool-system") // a USER-supplied repo name == the project identity
+	id := ProjectID("my-cool-system") // a USER-supplied repo name == the project identity
 	identity := id.String()              // the verbatim identity string that must persist unrewritten
 
 	// createProject — expectedVersion discipline: births at version 1.

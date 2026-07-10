@@ -222,6 +222,16 @@ var encapsulationAllowlistData = map[string][]string{
 	// (New*, Derive*, Coarse*, ...). Error = fwra.Error. This is the one package with a large
 	// legitimate non-generated public surface.
 	"internal/resourceaccess/projectstate": {
+		// STEP-8 FOLD — deployment VARIANT CONSTRUCTORS + their ports (buildDesignProjectState
+		// + projectstate_git_adapter.go folded in). NewGitLocal/GitHubProjectStateAccess build
+		// the cred-binding adapter over *GitStore; CredentialMinter is the port the CLOUD
+		// sourcecontrol-backed minter (kept at the composition root — NoSideways) satisfies;
+		// GitConstructionPorts encapsulates the former composition-root private-field
+		// type-assert to the git construction-transition + git-activity-status ports.
+		"NewGitLocalProjectStateAccess",
+		"NewGitHubProjectStateAccess",
+		"CredentialMinter",
+		"GitConstructionPorts",
 		"ActivityDiagram",
 		"ActivityEdge",
 		"ActivityItem",

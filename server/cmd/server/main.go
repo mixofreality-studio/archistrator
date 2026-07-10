@@ -87,97 +87,6 @@ func main() {
 	}
 }
 
-// buildDesignProjectState selects the projectStateAccess substrate the UC1/UC2 design
-// managers consume (I-GIT-DESIGN). It always returns the no-cred
-// projectstate.ProjectStateAccess interface; the credential threading is hidden behind
-// the composition-root projectStateGitAdapter (projectstate_git_adapter.go).
-//
-// Selection (in order):
-//  1. LOCAL git  — ProjectStateGitLocal=true: file:// on-disk repo, no credential.
-//     The per-project repo URL is taken verbatim from config (the embedded profile and
-//     the I-GIT-DESIGN local-git proof point this at a throwaway on-disk repo). The
-//     catalog is discovered by scanning the on-disk repo (no registry index).
-//  2. CLOUD git  — a wired sourceControlAccess (GitHub App + account): the per-project
-//     repos live under the account as <account>/<name>.git, where <name> IS the project
-//     identity (name-as-identity, C-PA-AD 2026-06-15 — the "aiarch-<id>" prefix is
-//     dropped); the catalog is discovered by enumerating the App installation's
-//     aiarch-project repos (founder ruling 2026-06-14 — no registry index repo); the
-//     installation token is minted in-seam.
-//  3. Postgres   — neither git profile applies: the legacy head-state store, so a
-//     credential-less dev server still boots and serves.
-func buildDesignProjectState(cfg config, sc sourcecontrol.SourceControlCatalogAccess, logger *slog.Logger) (projectstate.ProjectStateAccess, error) {
-	switch {
-	case cfg.ProjectStateGitLocal:
-		if cfg.ProjectStateGitRepoURL == "" {
-			return nil, fmt.Errorf("ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL is required when ARCHISTRATOR_PROJECT_STATE_GIT_LOCAL=true")
-		}
-		locator := gitRepoLocator{
-			branch:            "main",
-			perProjectRepoURL: func(projectstate.ProjectID) string { return cfg.ProjectStateGitRepoURL },
-		}
-		store, err := projectstate.NewGitStore(locator, true /* local */)
-		if err != nil {
-			return nil, err
-		}
-		// Discover-by-enumeration over the single on-disk project repo (no GitHub
-		// installation API in local mode — founder ruling 2026-06-14).
-		store = store.WithCatalog(localProjectCatalog{repoURL: cfg.ProjectStateGitRepoURL, branch: "main"})
-		logger.Info("projectStateAccess (local git) ready", "repoURL", cfg.ProjectStateGitRepoURL)
-		return &projectStateGitAdapter{store: store, minter: localCredentialMinter{}}, nil
-
-	case sc != nil:
-		webHost := gitWebHost(cfg.GitHubAPIBaseURL)
-		account := cfg.GitHubAccount
-		locator := gitRepoLocator{
-			branch: "main",
-			perProjectRepoURL: func(projectID projectstate.ProjectID) string {
-				return cloudPerProjectRepoURL(webHost, account, projectID.String())
-			},
-		}
-		store, err := projectstate.NewGitStore(locator, false /* cloud */)
-		if err != nil {
-			return nil, err
-		}
-		// Discover-by-enumeration: list the GitHub App installation's aiarch-project
-		// repos (founder ruling 2026-06-14 — the registry index repo is removed).
-		store = store.WithCatalog(cloudProjectCatalog{sc: sc, account: sourcecontrol.AccountRef(account)})
-		logger.Info("projectStateAccess (github) ready", "account", account, "webHost", webHost)
-		return &projectStateGitAdapter{
-			store:  store,
-			minter: cloudCredentialMinter{sc: sc, account: sourcecontrol.AccountRef(account)},
-		}, nil
-
-	default:
-		// The Postgres projectStateAccess store was retired: projectStateAccess is
-		// git-only now. A server with neither git profile cannot serve head-state.
-		return nil, fmt.Errorf("projectStateAccess requires a git substrate: set ARCHISTRATOR_PROJECT_STATE_GIT_LOCAL=true (on-disk git) or the GitHub App config (ARCHISTRATOR_GITHUB_APP_ID + ARCHISTRATOR_GITHUB_APP_PRIVATE_KEY_PEM + ARCHISTRATOR_GITHUB_ACCOUNT)")
-	}
-}
-
-// cloudPerProjectRepoURL composes the clone URL of a project's per-project repo in the
-// CLOUD profile. Under NAME-AS-IDENTITY (C-PA-AD, 2026-06-15) the project identity IS
-// the (user-supplied) repo name, so the URL is <webHost>/<account>/<name>.git — the
-// old "aiarch-<id>" prefix is DROPPED. This MUST agree with the repo-name re-derivation
-// the per-project credential is scoped to: sourceControlAccess.deterministicRepoName
-// collapsed to the identity map in C-SC-AD/A1, so the credential minter scopes the
-// installation token to <account>/<name>.git. The locator (this URL) and the credential
-// scope therefore address the SAME adopted repo verbatim — no "aiarch-" disagreement.
-func cloudPerProjectRepoURL(webHost, account, name string) string {
-	return fmt.Sprintf("%s/%s/%s.git", webHost, account, name)
-}
-
-// gitWebHost derives the GitHub WEB host (https://github.com, or a GHES web host) the
-// per-project repo clone URLs are composed from. Mirrors constructionRepoBase's host
-// derivation: github.com by default; for GHES strip the /api/v3 REST suffix off the
-// configured API base URL to recover the web host.
-func gitWebHost(apiBaseURL string) string {
-	host := "https://github.com"
-	if base := strings.TrimRight(strings.TrimSpace(apiBaseURL), "/"); base != "" {
-		host = strings.TrimSuffix(base, "/api/v3")
-	}
-	return host
-}
-
 func run(logger *slog.Logger) error {
 	cfg, err := loadConfig()
 	if err != nil {
@@ -403,17 +312,42 @@ func run(logger *slog.Logger) error {
 		logger.Info("sourceControlAccess (github) ready", "account", cfg.GitHubAccount, "apiBaseURL", cfg.GitHubAPIBaseURL)
 	}
 
-	// projectStateAccess SUBSTRATE SELECTION (I-GIT-DESIGN). The UC1/UC2 design
-	// managers persist head-state to the per-project GIT repo when a git profile
-	// applies, else fall back to the Postgres store (kept above as the credential-less
-	// dev fallback). The selection presents the SAME no-cred projectstate.ProjectStateAccess:
+	// projectStateAccess SUBSTRATE SELECTION (I-GIT-DESIGN). The UC1/UC2 design managers
+	// persist head-state to the per-project GIT repo. The two live profiles are folded into
+	// the projectstate package's variant constructors; this selection presents the SAME
+	// no-cred projectstate.ProjectStateAccess:
 	//   - LOCAL  (ProjectStateGitLocal=true): file:// on-disk repos, no credential.
 	//   - CLOUD  (GitHub App + account configured): the user's GitHub repos, with the
-	//            installation token minted in-seam by sourceControlAccess.
-	//   - else   the Postgres store (a dev server with neither git profile still runs).
-	designProjectState, err := buildDesignProjectState(cfg, scConcrete, logger)
-	if err != nil {
-		return err
+	//            installation token minted in-seam by the sourcecontrol-backed cred minter.
+	//   - else   fatal: projectStateAccess is git-only now (the Postgres store was retired).
+	// The CLOUD sourcecontrol-backed ports (cloudProjectCatalog/cloudCredentialMinter) stay
+	// here (projectstate_cloud.go) — importing sourcecontrol INTO projectstate would be a
+	// forbidden RA→RA sideways edge; the ports are passed into the variant.
+	var designProjectState projectstate.ProjectStateAccess
+	switch {
+	case cfg.ProjectStateGitLocal:
+		if cfg.ProjectStateGitRepoURL == "" {
+			return fmt.Errorf("ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL is required when ARCHISTRATOR_PROJECT_STATE_GIT_LOCAL=true")
+		}
+		designProjectState, err = projectstate.NewGitLocalProjectStateAccess(cfg.ProjectStateGitRepoURL)
+		if err != nil {
+			return err
+		}
+		logger.Info("projectStateAccess (local git) ready", "repoURL", cfg.ProjectStateGitRepoURL)
+	case scConcrete != nil:
+		webHost := gitWebHost(cfg.GitHubAPIBaseURL)
+		account := cfg.GitHubAccount
+		catalog := cloudProjectCatalog{sc: scConcrete, account: sourcecontrol.AccountRef(account)}
+		minter := cloudCredentialMinter{sc: scConcrete, account: sourcecontrol.AccountRef(account)}
+		designProjectState, err = projectstate.NewGitHubProjectStateAccess(webHost, account, catalog, minter)
+		if err != nil {
+			return err
+		}
+		logger.Info("projectStateAccess (github) ready", "account", account, "webHost", webHost)
+	default:
+		// The Postgres projectStateAccess store was retired: projectStateAccess is git-only
+		// now. A server with neither git profile cannot serve head-state.
+		return fmt.Errorf("projectStateAccess requires a git substrate: set ARCHISTRATOR_PROJECT_STATE_GIT_LOCAL=true (on-disk git) or the GitHub App config (ARCHISTRATOR_GITHUB_APP_ID + ARCHISTRATOR_GITHUB_APP_PRIVATE_KEY_PEM + ARCHISTRATOR_GITHUB_ACCOUNT)")
 	}
 
 	// --- Engines ---------------------------------------------------------------
@@ -530,11 +464,8 @@ func run(logger *slog.Logger) error {
 	// store is retired); the concrete *GitStore satisfies both cred-threaded ports.
 	// The Manager threads the (rail-minted, empty in dev/dry-run) credential into the
 	// writes itself; the local git store ignores an empty credential.
-	var constructionTransition projectstate.ConstructionTransitionAccess
-	var constructionGitStatus projectstate.GitActivityStatusAccess
-	if gitAdapter, ok := designProjectState.(*projectStateGitAdapter); ok {
-		constructionTransition = gitAdapter.store
-		constructionGitStatus = gitAdapter.store
+	constructionTransition, constructionGitStatus, sharesGitSubstrate := projectstate.GitConstructionPorts(designProjectState)
+	if sharesGitSubstrate {
 		logger.Info("constructionManager → git substrate (shares the design head-state store; status cascade live)")
 	}
 

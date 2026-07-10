@@ -78,16 +78,10 @@ func newIRADeltaHarness(t *testing.T) *iraDeltaHarness {
 	if err != nil {
 		t.Fatalf("NewGitStore(project): %v", err)
 	}
-	locator := gitRepoLocator{
-		branch:            "main",
-		perProjectRepoURL: func(ps.ProjectID) string { return projRepo.URL },
-	}
-	store, err := ps.NewGitStore(locator, true /* local */)
+	stateAdapter, err := ps.NewGitLocalProjectStateAccess(projRepo.URL)
 	if err != nil {
-		t.Fatalf("NewGitStore(RA): %v", err)
+		t.Fatalf("NewGitLocalProjectStateAccess: %v", err)
 	}
-	store = store.WithCatalog(localProjectCatalog{repoURL: projRepo.URL, branch: "main"})
-	stateAdapter := &projectStateGitAdapter{store: store, minter: localCredentialMinter{}}
 
 	// --- REAL Manager over both real RAs. nil estimator: this harness exercises
 	// project birth (CreateProject), not the GetProject compute-at-read path. ---
