@@ -487,6 +487,22 @@ aiarch-state MCP tools (already generic over slot kinds).
    bodies if client decode tightens.
 5. **`transportgen`** (RC3): generated Go HTTP+MCP client SDK → systemtests
    transports + opTable deleted; SDK becomes a delivered-app artifact.
+   **DONE 2026-07-10** (http-generator/v0.3.0 exports the op planner —
+   single route truth; app-generator/v0.3.0+v0.3.1 ship transportgen reusing
+   modelgen.EmitTypes). Self-contained stdlib-only SDK generated into
+   systemtests/internal/sdk (18 files, uuid-as-string, prune-stale,
+   gen-sdk-check drift gate in Make+CI); harness transports are thin
+   delegates (Transport seam + sentinels preserved); hand wire structs, the
+   MCP JSON-RPC/SSE loop, and all 11 ordinal tables deleted. Proof: 23-op
+   route-fidelity golden vs the retired hand transport, vet-ing compile
+   sandbox, FULL live systemtests suite green (usecases 530s) incl. the R4
+   HTTP/MCP cross-surface equivalence property. One emitter defect found by
+   the consumer and root-fixed pre-release (pointer path params → value
+   scalars, v0.3.1). Earmarks: MCP protocol-level errors no longer map to
+   ErrBadRequest (unreachable via typed harness calls; platform follow-up);
+   agentic_github.go's two pre-existing hand ArtifactKind maps fold onto
+   enums.go later. Note: opTable itself survives (it maps plan steps →
+   Transport methods — orchestration, not transport duplication).
 6. **projectstate validation codegen**: `modelfields`/`enumjson`/`registry`
    emitted by modelgen from the reflected schemas.
 7. Deployment-model schema extension (via archistrator's amendment rail —
