@@ -381,9 +381,26 @@ func run(logger *slog.Logger) error {
 	// for the projectStateAccess git cred minter + catalog (CLOUD profile). scAccess is the
 	// generated SourceControlAccess interface the adapters/PR-rail consume; the unexported
 	// impl satisfies both, so scConcrete is a type-assertion of scAccess.
-	scConcrete, scAccess, err := buildSourceControl(cfg, logger)
-	if err != nil {
-		return err
+	// Constructed only when the GitHub App identity + account are configured; nil otherwise
+	// (a dev server then runs repo-less). The composition root builds the shared
+	// *fwgithub.AppClient satellite and passes it into the sourcecontrol variant, which
+	// returns both published surfaces.
+	var (
+		scConcrete sourcecontrol.SourceControlCatalogAccess
+		scAccess   sourcecontrol.SourceControlAccess
+	)
+	if cfg.GitHubAppID == "" || cfg.GitHubAppPrivateKeyPEM == "" || cfg.GitHubAccount == "" {
+		logger.Warn("sourceControlAccess NOT configured — projects are created repo-less (set ARCHISTRATOR_GITHUB_APP_ID + ARCHISTRATOR_GITHUB_APP_PRIVATE_KEY_PEM + ARCHISTRATOR_GITHUB_ACCOUNT for live GitHub repo provisioning)")
+	} else {
+		ghClient, scErr := githubinfra.NewAppClient(cfg.GitHubAppID, cfg.GitHubAppPrivateKeyPEM, cfg.GitHubAPIBaseURL)
+		if scErr != nil {
+			return scErr
+		}
+		scConcrete, scAccess, err = sourcecontrol.NewGitHubSourceControl(ghClient, cfg.GitHubAccount, cfg.GitHubAppSlug, true /* repoPrivate */)
+		if err != nil {
+			return err
+		}
+		logger.Info("sourceControlAccess (github) ready", "account", cfg.GitHubAccount, "apiBaseURL", cfg.GitHubAPIBaseURL)
 	}
 
 	// projectStateAccess SUBSTRATE SELECTION (I-GIT-DESIGN). The UC1/UC2 design
@@ -724,30 +741,6 @@ func constructionRepoBase(apiBaseURL, owner, repo string) string {
 		host = strings.TrimSuffix(base, "/api/v3")
 	}
 	return host + "/" + owner + "/" + repo
-}
-
-// buildSourceControl constructs the sourceControlAccess (project-birth repo ADOPT +
-// managed-scaffold seating + the PR-merge rail; C-SC). scConcrete is the catalog/locator/
-// token surface retained for the projectStateAccess git cred minter + catalog (CLOUD
-// profile); scAccess is the generated SourceControlAccess interface the adapters/PR-rail
-// consume. Both are nil when the GitHub App identity + account are unconfigured — a dev
-// server then runs repo-less.
-func buildSourceControl(cfg config, logger *slog.Logger) (sourcecontrol.SourceControlCatalogAccess, sourcecontrol.SourceControlAccess, error) {
-	if cfg.GitHubAppID == "" || cfg.GitHubAppPrivateKeyPEM == "" || cfg.GitHubAccount == "" {
-		logger.Warn("sourceControlAccess NOT configured — projects are created repo-less (set ARCHISTRATOR_GITHUB_APP_ID + ARCHISTRATOR_GITHUB_APP_PRIVATE_KEY_PEM + ARCHISTRATOR_GITHUB_ACCOUNT for live GitHub repo provisioning)")
-		return nil, nil, nil
-	}
-	ghClient, scErr := githubinfra.NewAppClient(cfg.GitHubAppID, cfg.GitHubAppPrivateKeyPEM, cfg.GitHubAPIBaseURL)
-	if scErr != nil {
-		return nil, nil, scErr
-	}
-	scAccess, scErr := sourcecontrol.NewGitHubSourceControlAccess(ghClient, cfg.GitHubAccount, cfg.GitHubAppSlug, true /* repoPrivate */)
-	if scErr != nil {
-		return nil, nil, scErr
-	}
-	scConcrete := scAccess.(sourcecontrol.SourceControlCatalogAccess)
-	logger.Info("sourceControlAccess (github) ready", "account", cfg.GitHubAccount, "apiBaseURL", cfg.GitHubAPIBaseURL)
-	return scConcrete, scAccess, nil
 }
 
 // buildTokenValidator constructs the access-token validator (authN). Returns nil in dev

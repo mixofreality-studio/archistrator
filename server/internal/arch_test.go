@@ -550,6 +550,10 @@ var encapsulationAllowlistData = map[string][]string{
 	// (paths/versions/template files) + the FLAGGED HAND-WRITTEN SourceControlCatalogAccess port
 	// and ProjectRepoRef seam + Error alias.
 	"internal/resourceaccess/sourcecontrol": {
+		// VARIANT CONSTRUCTOR (step-8 fold): buildSourceControl folded out of cmd/server.
+		// Returns both published surfaces (catalog + generated interface) over the shared
+		// *fwgithub.AppClient satellite, folding the catalog type-assertion into the package.
+		"NewGitHubSourceControl",
 		"BranchRefIsZero",
 		"BranchRefString",
 		"CheckStateString",
