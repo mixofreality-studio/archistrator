@@ -208,7 +208,7 @@ func TestProjectStateGitAdapter_CreateReadList_IdentityVerbatim(t *testing.T) {
 	ctx := context.Background()
 
 	id := ProjectID("my-cool-system") // a USER-supplied repo name == the project identity
-	identity := id.String()              // the verbatim identity string that must persist unrewritten
+	identity := id.String()           // the verbatim identity string that must persist unrewritten
 
 	// createProject — expectedVersion discipline: births at version 1.
 	v1, err := state.CreateProject(fwra.Context{Context: ctx, IdempotencyKey: "wf:create"}, id, "alice", "My Cool System")

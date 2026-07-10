@@ -216,22 +216,9 @@ func run(logger *slog.Logger) error {
 	// Profile selection (presence + LOCAL/CLOUD): constructed only when a repo URL is
 	// configured; nil otherwise (the construction slice then stages no outputs). The two
 	// live profiles are folded into the artifact package's variant constructors.
-	var artifacts artifact.ArtifactAccess
-	switch {
-	case cfg.ArtifactRepoURL == "":
-		// optional dependency absent — no repo configured, stage no outputs.
-	case cfg.ArtifactRepoLocal:
-		artifacts, err = artifact.NewLocalGitArtifactAccess(cfg.ArtifactRepoURL)
-		if err != nil {
-			return err
-		}
-		logger.Info("artifactAccess (local git) ready", "repoURL", cfg.ArtifactRepoURL)
-	default:
-		artifacts, err = artifact.NewGitHubArtifactAccess(cfg.ArtifactRepoURL, cfg.ArtifactRepoOwner, cfg.GitHubAppID, cfg.GitHubAppPrivateKeyPEM, cfg.GitHubAPIBaseURL, cfg.GitHubInstallationID)
-		if err != nil {
-			return err
-		}
-		logger.Info("artifactAccess (github) ready", "repoURL", cfg.ArtifactRepoURL)
+	artifacts, err := selectArtifactAccess(cfg, logger)
+	if err != nil {
+		return err
 	}
 
 	// constructionPipelineAccess (UC3) — fronts the USER'S GitHub Actions (C-CP-R
@@ -243,25 +230,9 @@ func run(logger *slog.Logger) error {
 	// The composition root builds the shared *fwgithub.AppClient satellite and passes it
 	// into the generated DI constructor (the GitHub-Actions variant); AppClient stays out
 	// of the variant so it can be shared with sourceControl/artifact.
-	var pipeline constructionpipeline.ConstructionPipelineAccess
-	if cfg.ConstructionRepoOwner != "" && cfg.ConstructionRepoName != "" {
-		appClient, acErr := githubinfra.NewAppClient(cfg.GitHubAppID, cfg.GitHubAppPrivateKeyPEM, cfg.GitHubAPIBaseURL)
-		if acErr != nil {
-			return acErr
-		}
-		pipeline, err = constructionpipeline.NewGitHubActionsConstructionPipelineAccess(
-			appClient,
-			cfg.ConstructionRepoOwner,
-			cfg.ConstructionRepoName,
-			cfg.ConstructionWorkflowFile,
-			cfg.ConstructionRef,
-			cfg.GitHubInstallationID,
-		)
-		if err != nil {
-			return err
-		}
-		logger.Info("constructionPipelineAccess (github-actions) ready",
-			"owner", cfg.ConstructionRepoOwner, "repo", cfg.ConstructionRepoName, "workflow", cfg.ConstructionWorkflowFile)
+	pipeline, err := selectConstructionPipeline(cfg, logger)
+	if err != nil {
+		return err
 	}
 
 	// sourceControlAccess (project-birth repo ADOPT + managed-scaffold seating + the PR-merge
@@ -294,22 +265,9 @@ func run(logger *slog.Logger) error {
 	// (a dev server then runs repo-less). The composition root builds the shared
 	// *fwgithub.AppClient satellite and passes it into the sourcecontrol variant, which
 	// returns both published surfaces.
-	var (
-		scConcrete sourcecontrol.SourceControlCatalogAccess
-		scAccess   sourcecontrol.SourceControlAccess
-	)
-	if cfg.GitHubAppID == "" || cfg.GitHubAppPrivateKeyPEM == "" || cfg.GitHubAccount == "" {
-		logger.Warn("sourceControlAccess NOT configured — projects are created repo-less (set ARCHISTRATOR_GITHUB_APP_ID + ARCHISTRATOR_GITHUB_APP_PRIVATE_KEY_PEM + ARCHISTRATOR_GITHUB_ACCOUNT for live GitHub repo provisioning)")
-	} else {
-		ghClient, scErr := githubinfra.NewAppClient(cfg.GitHubAppID, cfg.GitHubAppPrivateKeyPEM, cfg.GitHubAPIBaseURL)
-		if scErr != nil {
-			return scErr
-		}
-		scConcrete, scAccess, err = sourcecontrol.NewGitHubSourceControl(ghClient, cfg.GitHubAccount, cfg.GitHubAppSlug, true /* repoPrivate */)
-		if err != nil {
-			return err
-		}
-		logger.Info("sourceControlAccess (github) ready", "account", cfg.GitHubAccount, "apiBaseURL", cfg.GitHubAPIBaseURL)
+	scConcrete, scAccess, err := selectSourceControl(cfg, logger)
+	if err != nil {
+		return err
 	}
 
 	// projectStateAccess SUBSTRATE SELECTION (I-GIT-DESIGN). The UC1/UC2 design managers
@@ -323,31 +281,9 @@ func run(logger *slog.Logger) error {
 	// The CLOUD sourcecontrol-backed ports (cloudProjectCatalog/cloudCredentialMinter) stay
 	// here (projectstate_cloud.go) — importing sourcecontrol INTO projectstate would be a
 	// forbidden RA→RA sideways edge; the ports are passed into the variant.
-	var designProjectState projectstate.ProjectStateAccess
-	switch {
-	case cfg.ProjectStateGitLocal:
-		if cfg.ProjectStateGitRepoURL == "" {
-			return fmt.Errorf("ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL is required when ARCHISTRATOR_PROJECT_STATE_GIT_LOCAL=true")
-		}
-		designProjectState, err = projectstate.NewGitLocalProjectStateAccess(cfg.ProjectStateGitRepoURL)
-		if err != nil {
-			return err
-		}
-		logger.Info("projectStateAccess (local git) ready", "repoURL", cfg.ProjectStateGitRepoURL)
-	case scConcrete != nil:
-		webHost := gitWebHost(cfg.GitHubAPIBaseURL)
-		account := cfg.GitHubAccount
-		catalog := cloudProjectCatalog{sc: scConcrete, account: sourcecontrol.AccountRef(account)}
-		minter := cloudCredentialMinter{sc: scConcrete, account: sourcecontrol.AccountRef(account)}
-		designProjectState, err = projectstate.NewGitHubProjectStateAccess(webHost, account, catalog, minter)
-		if err != nil {
-			return err
-		}
-		logger.Info("projectStateAccess (github) ready", "account", account, "webHost", webHost)
-	default:
-		// The Postgres projectStateAccess store was retired: projectStateAccess is git-only
-		// now. A server with neither git profile cannot serve head-state.
-		return fmt.Errorf("projectStateAccess requires a git substrate: set ARCHISTRATOR_PROJECT_STATE_GIT_LOCAL=true (on-disk git) or the GitHub App config (ARCHISTRATOR_GITHUB_APP_ID + ARCHISTRATOR_GITHUB_APP_PRIVATE_KEY_PEM + ARCHISTRATOR_GITHUB_ACCOUNT)")
+	designProjectState, err := selectDesignProjectState(cfg, scConcrete, logger)
+	if err != nil {
+		return err
 	}
 
 	// --- Engines ---------------------------------------------------------------
@@ -649,6 +585,118 @@ func run(logger *slog.Logger) error {
 	}
 	logger.Info("http server stopped cleanly")
 	return nil
+}
+
+// selectArtifactAccess picks the artifactAccess deployment variant from config (presence +
+// LOCAL/CLOUD). The RA-construction bodies are folded into the artifact package's variant
+// constructors; this is the composition-root presence/profile SELECTION (destined for
+// emitted wiring + hooks in step-8 A2). Nil when no repo URL is configured — the
+// construction slice then stages no outputs.
+func selectArtifactAccess(cfg config, logger *slog.Logger) (artifact.ArtifactAccess, error) {
+	switch {
+	case cfg.ArtifactRepoURL == "":
+		return nil, nil //nolint:nilnil // optional dependency absent → (nil, nil) is intentional; the caller nil-checks and stages no outputs.
+	case cfg.ArtifactRepoLocal:
+		a, err := artifact.NewLocalGitArtifactAccess(cfg.ArtifactRepoURL)
+		if err != nil {
+			return nil, err
+		}
+		logger.Info("artifactAccess (local git) ready", "repoURL", cfg.ArtifactRepoURL)
+		return a, nil
+	default:
+		a, err := artifact.NewGitHubArtifactAccess(cfg.ArtifactRepoURL, cfg.ArtifactRepoOwner, cfg.GitHubAppID, cfg.GitHubAppPrivateKeyPEM, cfg.GitHubAPIBaseURL, cfg.GitHubInstallationID)
+		if err != nil {
+			return nil, err
+		}
+		logger.Info("artifactAccess (github) ready", "repoURL", cfg.ArtifactRepoURL)
+		return a, nil
+	}
+}
+
+// selectConstructionPipeline picks the constructionPipelineAccess variant from config. The
+// composition root builds the shared *fwgithub.AppClient satellite and passes it into the
+// generated GitHub-Actions DI constructor (the real variant). Nil when the construction
+// repo is unconfigured (the pump then never submits a pipeline).
+func selectConstructionPipeline(cfg config, logger *slog.Logger) (constructionpipeline.ConstructionPipelineAccess, error) {
+	if cfg.ConstructionRepoOwner == "" || cfg.ConstructionRepoName == "" {
+		return nil, nil //nolint:nilnil // optional dependency absent (construction repo unconfigured) → (nil, nil) is intentional; the caller nil-checks and never submits a pipeline.
+	}
+	appClient, err := githubinfra.NewAppClient(cfg.GitHubAppID, cfg.GitHubAppPrivateKeyPEM, cfg.GitHubAPIBaseURL)
+	if err != nil {
+		return nil, err
+	}
+	pipeline, err := constructionpipeline.NewGitHubActionsConstructionPipelineAccess(
+		appClient,
+		cfg.ConstructionRepoOwner,
+		cfg.ConstructionRepoName,
+		cfg.ConstructionWorkflowFile,
+		cfg.ConstructionRef,
+		cfg.GitHubInstallationID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	logger.Info("constructionPipelineAccess (github-actions) ready",
+		"owner", cfg.ConstructionRepoOwner, "repo", cfg.ConstructionRepoName, "workflow", cfg.ConstructionWorkflowFile)
+	return pipeline, nil
+}
+
+// selectSourceControl picks the sourceControlAccess variant from config. The composition
+// root builds the shared *fwgithub.AppClient satellite and passes it into the sourcecontrol
+// variant, which returns both published surfaces (catalog + generated interface). Both are
+// nil when the GitHub App identity + account are unconfigured — a dev server runs repo-less.
+func selectSourceControl(cfg config, logger *slog.Logger) (sourcecontrol.SourceControlCatalogAccess, sourcecontrol.SourceControlAccess, error) {
+	if cfg.GitHubAppID == "" || cfg.GitHubAppPrivateKeyPEM == "" || cfg.GitHubAccount == "" {
+		logger.Warn("sourceControlAccess NOT configured — projects are created repo-less (set ARCHISTRATOR_GITHUB_APP_ID + ARCHISTRATOR_GITHUB_APP_PRIVATE_KEY_PEM + ARCHISTRATOR_GITHUB_ACCOUNT for live GitHub repo provisioning)")
+		return nil, nil, nil
+	}
+	ghClient, err := githubinfra.NewAppClient(cfg.GitHubAppID, cfg.GitHubAppPrivateKeyPEM, cfg.GitHubAPIBaseURL)
+	if err != nil {
+		return nil, nil, err
+	}
+	scConcrete, scAccess, err := sourcecontrol.NewGitHubSourceControl(ghClient, cfg.GitHubAccount, cfg.GitHubAppSlug, true /* repoPrivate */)
+	if err != nil {
+		return nil, nil, err
+	}
+	logger.Info("sourceControlAccess (github) ready", "account", cfg.GitHubAccount, "apiBaseURL", cfg.GitHubAPIBaseURL)
+	return scConcrete, scAccess, nil
+}
+
+// selectDesignProjectState picks the projectStateAccess git substrate from config
+// (I-GIT-DESIGN). The two live profiles are folded into the projectstate package's variant
+// constructors; the CLOUD sourcecontrol-backed ports (cloudProjectCatalog /
+// cloudCredentialMinter, projectstate_cloud.go) are supplied here because importing
+// sourcecontrol into projectstate would be a forbidden RA→RA sideways edge. Neither git
+// profile is a fatal error (projectStateAccess is git-only now — the Postgres store was
+// retired).
+func selectDesignProjectState(cfg config, scConcrete sourcecontrol.SourceControlCatalogAccess, logger *slog.Logger) (projectstate.ProjectStateAccess, error) {
+	switch {
+	case cfg.ProjectStateGitLocal:
+		if cfg.ProjectStateGitRepoURL == "" {
+			return nil, fmt.Errorf("ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL is required when ARCHISTRATOR_PROJECT_STATE_GIT_LOCAL=true")
+		}
+		psa, err := projectstate.NewGitLocalProjectStateAccess(cfg.ProjectStateGitRepoURL)
+		if err != nil {
+			return nil, err
+		}
+		logger.Info("projectStateAccess (local git) ready", "repoURL", cfg.ProjectStateGitRepoURL)
+		return psa, nil
+	case scConcrete != nil:
+		webHost := gitWebHost(cfg.GitHubAPIBaseURL)
+		account := cfg.GitHubAccount
+		catalog := cloudProjectCatalog{sc: scConcrete, account: sourcecontrol.AccountRef(account)}
+		minter := cloudCredentialMinter{sc: scConcrete, account: sourcecontrol.AccountRef(account)}
+		psa, err := projectstate.NewGitHubProjectStateAccess(webHost, account, catalog, minter)
+		if err != nil {
+			return nil, err
+		}
+		logger.Info("projectStateAccess (github) ready", "account", account, "webHost", webHost)
+		return psa, nil
+	default:
+		// The Postgres projectStateAccess store was retired: projectStateAccess is git-only
+		// now. A server with neither git profile cannot serve head-state.
+		return nil, fmt.Errorf("projectStateAccess requires a git substrate: set ARCHISTRATOR_PROJECT_STATE_GIT_LOCAL=true (on-disk git) or the GitHub App config (ARCHISTRATOR_GITHUB_APP_ID + ARCHISTRATOR_GITHUB_APP_PRIVATE_KEY_PEM + ARCHISTRATOR_GITHUB_ACCOUNT)")
+	}
 }
 
 // constructionRepoBase composes the project-wide construction-repo WEB base
