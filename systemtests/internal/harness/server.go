@@ -67,17 +67,17 @@ func StartServer(ctx context.Context, bin string, cfg ServerConfig) (*Server, er
 
 	cmd := exec.CommandContext(ctx, bin)
 	cmd.Env = append(os.Environ(),
-		"ARCHISTRATOR_LISTEN_ADDR="+addr,
-		"ARCHISTRATOR_POSTGRES_URL="+cfg.Infra.PostgresURL,
-		"ARCHISTRATOR_TEMPORAL_HOSTPORT="+cfg.Infra.TemporalHostPort,
-		"ARCHISTRATOR_TEMPORAL_NAMESPACE="+cfg.Infra.TemporalNamespace,
-		fmt.Sprintf("ARCHISTRATOR_AUTH_DEV_MODE=%t", cfg.DevAuth),
+		EnvListenAddr+"="+addr,
+		EnvPostgresURL+"="+cfg.Infra.PostgresURL,
+		EnvTemporalHostPort+"="+cfg.Infra.TemporalHostPort,
+		EnvTemporalNamespace+"="+cfg.Infra.TemporalNamespace,
+		fmt.Sprintf("%s=%t", EnvAuthDevMode, cfg.DevAuth),
 		// Default the harness base env to the dry-run construction profile so a
 		// server boots without the real construction creds (GitHub App id/key,
 		// ARCHISTRATOR_ARTIFACT_REPO_URL, etc.) validateConstructionCreds hard-requires
 		// when DRYRUN=false. Tests that exercise the real construction path override
 		// this via their ExtraEnv (e.g. AgenticGitHub.Env sets it back to false).
-		"ARCHISTRATOR_CONSTRUCTION_DRYRUN=true",
+		EnvConstructionDryRun+"=true",
 	)
 	cmd.Env = append(cmd.Env, workerEnv(cfg.Infra.Drafting, cfg.Infra, cassetteDir())...)
 	// Per-test profile overrides (e.g. the LOCAL project-state-git substrate) go

@@ -226,7 +226,7 @@ func gitOut(ctx context.Context, t *testing.T, bare string, args ...string) stri
 // on-disk project repo, so there is no second repo URL to wire.
 func GitLocalEnv(projectRepoURL string) []string {
 	return []string{
-		"ARCHISTRATOR_PROJECT_STATE_GIT_LOCAL=true",
-		"ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL=" + projectRepoURL,
+		EnvProjectStateGitLocal + "=true",
+		EnvProjectStateGitRepoURL + "=" + projectRepoURL,
 	}
 }
