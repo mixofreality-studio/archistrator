@@ -983,7 +983,7 @@ export interface components {
       requestsPerMinute: number;
     };
     ModelUseCase: {
-      activity: components['schemas']['ModelActivityDiagram'];
+      activity: components['schemas']['ModelActivityDiagram'] | null;
       actors: null | components['schemas']['ModelActor'][];
       /** @enum {string} */
       classification: 'core' | 'nonCore';

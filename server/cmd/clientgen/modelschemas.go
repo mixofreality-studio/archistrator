@@ -391,6 +391,21 @@ func modelStructBody(t reflect.Type, typeSchemas map[reflect.Type]*jsonschema.Sc
 				}
 			}
 		}
+		// A non-omitempty pointer to a struct serializes its nil as JSON `null` (the
+		// key is always emitted), but ForType reflects such a field as a bare `$ref`
+		// that cannot carry null — so the reflected schema wrongly forbids null (e.g.
+		// UseCase.Activity `*ActivityDiagram json:"activity"`). Wrap it in
+		// `anyOf:[<$ref>, {type:null}]` so the schema admits the wire's null. (Scalar
+		// pointers are already reflected as nullable inline types by ForType; omitempty
+		// struct pointers are omitted-when-nil — optional, not null — and are excluded
+		// from `required` below, so neither is wrapped here.)
+		if f.Type.Kind() == reflect.Pointer && !info.omitempty {
+			if gm, gok := generic.(map[string]any); gok {
+				if _, hasRef := gm["$ref"]; hasRef {
+					generic = map[string]any{"anyOf": []any{gm, map[string]any{"type": "null"}}}
+				}
+			}
+		}
 		props[info.name] = generic
 		if !info.omitempty {
 			required = append(required, info.name)

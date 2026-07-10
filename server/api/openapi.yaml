@@ -1222,9 +1222,11 @@ components:
             additionalProperties: false
             properties:
                 activity:
-                    $ref: '#/components/schemas/ModelActivityDiagram'
-                    type:
-                        - "null"
+                    anyOf:
+                        - $ref: '#/components/schemas/ModelActivityDiagram'
+                          type:
+                            - "null"
+                        - type: "null"
                 actors:
                     items:
                         $ref: '#/components/schemas/ModelActor'
