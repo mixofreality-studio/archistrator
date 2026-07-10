@@ -19,7 +19,12 @@ import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import type { ConstructionSessionState } from '../../contracts/types';
 import { sessionIsLive } from '../../contracts/constructionAdapters';
-import type { ArtifactModelEnvelope, ConstructionRows, ProjectArtifactModelEnvelope, ProjectStateWithGit } from '../../contracts/types';
+import type {
+  ArtifactModelEnvelope,
+  ConstructionRows,
+  ProjectArtifactModelEnvelope,
+  ProjectStateWithGit,
+} from '../../contracts/types';
 import { narrowProject } from '../../contracts/projectAdapters';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import type { Tokens } from '../../utilities/theme/themes';
@@ -194,11 +199,20 @@ export function ArtifactsTab({
   }
 
   return (
-    <Box data-testid={UI_IDENTIFIERS.Construction.ARTIFACTS} sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+    <Box
+      data-testid={UI_IDENTIFIERS.Construction.ARTIFACTS}
+      sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}
+    >
       {/* filter bar */}
       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, alignItems: 'center' }}>
         <Typography
-          sx={{ fontFamily: t.mono, fontSize: 10, letterSpacing: '0.08em', color: t.muted, mr: 0.5 }}
+          sx={{
+            fontFamily: t.mono,
+            fontSize: 10,
+            letterSpacing: '0.08em',
+            color: t.muted,
+            mr: 0.5,
+          }}
         >
           FILTER BY KIND
         </Typography>
@@ -206,18 +220,24 @@ export function ArtifactsTab({
           active={kindFilter === 'all'}
           label={`All · ${activities.length.toString()}`}
           t={t}
-          onClick={() => { setKindFilter('all'); }}
+          onClick={() => {
+            setKindFilter('all');
+          }}
         />
-        {(['service', 'frontend', 'testing', 'deployment', 'documentation'] as ActivityKind[]).map((k) => (
-          <FilterChip
-            active={kindFilter === k}
-            color={kindColor(t, k).fg}
-            key={k}
-            label={`${KIND_META[k].label} · ${kindCounts[k].toString()}`}
-            t={t}
-            onClick={() => { setKindFilter(k); }}
-          />
-        ))}
+        {(['service', 'frontend', 'testing', 'deployment', 'documentation'] as ActivityKind[]).map(
+          (k) => (
+            <FilterChip
+              active={kindFilter === k}
+              color={kindColor(t, k).fg}
+              key={k}
+              label={`${KIND_META[k].label} · ${kindCounts[k].toString()}`}
+              t={t}
+              onClick={() => {
+                setKindFilter(k);
+              }}
+            />
+          )
+        )}
       </Box>
 
       {/* two-column layout */}
@@ -234,12 +254,19 @@ export function ArtifactsTab({
           activities={filteredActivities}
           selectedId={resolvedSelectedId}
           t={t}
-          onSelect={(id) => { setSelectedId(id); }}
+          onSelect={(id) => {
+            setSelectedId(id);
+          }}
         />
 
         {/* right: selected activity detail */}
         {selectedVm !== undefined ? (
-          <ArtifactActivityDetail project={project} systemEnvelope={systemEnvelope} t={t} vm={selectedVm} />
+          <ArtifactActivityDetail
+            project={project}
+            systemEnvelope={systemEnvelope}
+            t={t}
+            vm={selectedVm}
+          />
         ) : (
           <Typography sx={{ color: t.muted, fontSize: 12.5, p: 2 }}>
             Select an activity to view its artifacts.

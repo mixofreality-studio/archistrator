@@ -1,6 +1,7 @@
 package systemdesign
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 
@@ -52,6 +53,26 @@ func draftModelFor(kind ArtifactKind, model projectstate.ArtifactModel) (DraftMo
 	return env, nil
 }
 
+// sameArtifactModel reports whether two typed models are byte-identical in their
+// canonical JSON form. Go marshals a given concrete struct deterministically (field
+// order is declaration order; map keys are sorted), so this is a stable, replay-safe
+// value comparison the workflow goroutine may call directly (no I/O). Used by the
+// amendment no-change guard: when an amendment session's branch read-back is identical
+// to the committed main model, the draft advanced the branch by nothing, so there is
+// no change to review or merge and the session must land at the failed gate rather than
+// 422 on an effectively-empty PR.
+func sameArtifactModel(a, b projectstate.ArtifactModel) (bool, error) {
+	ea, err := encodeModel(a)
+	if err != nil {
+		return false, err
+	}
+	eb, err := encodeModel(b)
+	if err != nil {
+		return false, err
+	}
+	return bytes.Equal(ea.Model, eb.Model), nil
+}
+
 // encodeModel wraps a (possibly nil) typed model into its envelope.
 func encodeModel(model projectstate.ArtifactModel) (modelEnvelope, error) {
 	if model == nil {
@@ -74,7 +95,7 @@ func (e modelEnvelope) decode() (projectstate.ArtifactModel, error) {
 		// StageArtifactForReviewActivity, codec.go projectEnvelope.decode) — a
 		// typed sentinel error would force every caller to unwrap-and-ignore it,
 		// which is exactly what returning a plain nil model already achieves.
-		return nil, nil //nolint:nilnil
+		return nil, nil //nolint:nilnil // (nil model, nil err) is the documented "no model yet" value; see the block comment above.
 	}
 	model, ok := projectstate.NewModelForKind(e.Kind)
 	if !ok {
@@ -105,6 +126,13 @@ type slotEnvelope struct {
 	// slot a critique never touched.
 	CritiqueVerdict string `json:"critiqueVerdict,omitempty"`
 	CritiqueNotes   string `json:"critiqueNotes,omitempty"`
+	// ReviewThread carries the DURABLE review ledger across the ReadProjectOnBranchActivity
+	// Temporal boundary (F48). Without it, loadReviewThread — which reads the session branch
+	// through this envelope — silently returned [] even though the reject-with-comments append
+	// lives in the branch git, so the redraft prompt lost its writeReviewLedger block, the
+	// session-state query showed no comments, and the approve gate did not block. omitempty
+	// keeps the payload byte-identical for any slot the ledger never touched.
+	ReviewThread []projectstate.ReviewComment `json:"reviewThread,omitempty"`
 }
 
 // projectEnvelope is the wire form of the head-state Project across the
@@ -114,15 +142,17 @@ type projectEnvelope struct {
 	ID       projectstate.ProjectID                     `json:"id"`
 	Version  projectstate.Version                       `json:"version"`
 	Phase    projectstate.Phase                         `json:"phase"`
-	Research projectstate.ResearchInput                 `json:"research,omitempty"`
+	Research projectstate.ResearchCorpus                `json:"research,omitempty"`
 	Slots    map[projectstate.ArtifactKind]slotEnvelope `json:"slots,omitempty"`
 }
 
-// encodeProject wraps the head-state aggregate for the Temporal boundary. The
-// ResearchInput field round-trips so the mission-draft step can weave it in
-// (rework-2026-05-29 §2.6 / §8).
+// encodeProject wraps the head-state aggregate for the Temporal boundary. The persisted
+// research corpus (F42) is now a set of {Title, Path, ContentBytes} POINTERS — the
+// book-sized Content lives as files at .aiarch/state/research/, NOT in this envelope — so
+// it round-trips whole and stays inherently tiny (the QA F29 titles-only slimming is now
+// structural, not a special case). The mission-draft step reads Title + Path off it.
 func encodeProject(p projectstate.Project) (projectEnvelope, error) {
-	out := projectEnvelope{ID: p.ID, Version: p.Version, Phase: p.Phase, Research: p.ResearchInput, Slots: map[projectstate.ArtifactKind]slotEnvelope{}}
+	out := projectEnvelope{ID: p.ID, Version: p.Version, Phase: p.Phase, Research: p.Research, Slots: map[projectstate.ArtifactKind]slotEnvelope{}}
 	for _, kind := range allSlotKinds() {
 		slot := slotFor(p, ArtifactKind(kind))
 		if slot.Status == projectstate.ReviewNone && slot.Model == nil {
@@ -138,6 +168,7 @@ func encodeProject(p projectstate.Project) (projectEnvelope, error) {
 			Model:           me,
 			CritiqueVerdict: slot.CritiqueVerdict,
 			CritiqueNotes:   slot.CritiqueNotes,
+			ReviewThread:    slot.ReviewThread,
 		}
 	}
 	return out, nil
@@ -145,7 +176,7 @@ func encodeProject(p projectstate.Project) (projectEnvelope, error) {
 
 // decode reconstructs the head-state aggregate from its envelope.
 func (e projectEnvelope) decode() (projectstate.Project, error) {
-	p := projectstate.Project{ID: e.ID, Version: e.Version, Phase: e.Phase, ResearchInput: e.Research}
+	p := projectstate.Project{ID: e.ID, Version: e.Version, Phase: e.Phase, Research: e.Research}
 	for kind, se := range e.Slots {
 		model, err := se.Model.decode()
 		if err != nil {
@@ -157,6 +188,7 @@ func (e projectEnvelope) decode() (projectstate.Project, error) {
 			Notes:           se.Notes,
 			CritiqueVerdict: se.CritiqueVerdict,
 			CritiqueNotes:   se.CritiqueNotes,
+			ReviewThread:    se.ReviewThread,
 		}); err != nil {
 			return projectstate.Project{}, err
 		}

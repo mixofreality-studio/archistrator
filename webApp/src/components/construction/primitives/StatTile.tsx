@@ -19,10 +19,20 @@ export function StatTile({
   const bg = tone === 'good' ? t.committedBg : tone === 'bad' ? t.awaitingBg : t.paperAlt;
   return (
     <Paper sx={{ p: 1.25, minWidth: 96, bgcolor: bg, border: `1px solid ${t.line}` }}>
-      <Typography sx={{ fontFamily: t.display, fontWeight: 800, fontSize: 26, color: fg, lineHeight: 1 }}>
+      <Typography
+        sx={{ fontFamily: t.display, fontWeight: 800, fontSize: 26, color: fg, lineHeight: 1 }}
+      >
         {value}
       </Typography>
-      <Typography sx={{ fontFamily: t.mono, fontSize: 9.5, letterSpacing: '0.06em', color: t.muted, mt: 0.35 }}>
+      <Typography
+        sx={{
+          fontFamily: t.mono,
+          fontSize: 9.5,
+          letterSpacing: '0.06em',
+          color: t.muted,
+          mt: 0.35,
+        }}
+      >
         {label.toUpperCase()}
       </Typography>
     </Paper>

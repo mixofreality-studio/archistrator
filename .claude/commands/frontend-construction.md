@@ -10,6 +10,8 @@
 
 ## Steps
 
+> **State changes go through the `aiarch-state` MCP tools, not hand-edits.** Where a step below says to record a service contract, phase artifact, or testing artifact and "commit onto branch", do it with the matching tool — `recordServiceContract` / `recordPhaseArtifact` / `recordTestingState` — and finish with `publishDraft`. Do **not** hand-edit `.aiarch/state/project.json` or run `git` for state; only source/doc **files** (code, docs) are git-committed by you. See [[the-method-project-state]].
+
 1. **Read** from `.aiarch/state/project.json` per [[the-method-project-state]]: this surface's approved UI design concept (`.phaseArtifacts.uiDesign[surface]`) and the frozen contracts of the Manager/Engine components its flows call. Implement exactly what the design and those contracts specify. If either has a gap, do NOT widen it — flag it back to the `ui-designer` or the contract's owner.
 2. **Implement** under `webApp/src/`, matching existing conventions for that surface (components, routing, API client usage). Stay inside this surface. Do NOT edit `*/generated/`. Commit onto `activity/<activity_id>`.
 3. **Verify YOUR code** (working directory `webApp`): `npm run typecheck`; `npm run lint` scoped to the files you touched. Only your surface's code — not `npm run build`, not `npm run check`, and not the `uitests` end-to-end suite (that belongs to system testing, not this phase).

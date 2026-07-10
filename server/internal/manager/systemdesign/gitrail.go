@@ -45,63 +45,22 @@ var designWorkflowFileName = path.Base(sourcecontrol.DesignWorkflowPath)
 // are unperturbed.
 
 // ===========================================================================
-// Internal PR-rail seam — the FROZEN IPullRequestRail subset (sourceControlAccess
-// pullrequestrail.md) plus the one lifecycle op the Manager needs to mint the
-// credential (GetInstallationToken). UNEXPORTED: the manager depends on the PUBLISHED
-// sourcecontrol.SourceControlAccess via its generated constructor; this seam is the
-// plain-ctx projection the hand-written Temporal activities consume and the tests
-// fake. The production implementation is railAdapterImpl (below), which RegisterWorker
-// wraps around the published interface — folding the former composition-root
-// railAdapter into the manager. The former EXPORTED consumer-mirror interface is
-// RETIRED.
+// Rail migration to the generated invoker surface.
+//
+// The six PR-rail verbs (GetInstallationToken/mint, OpenBranch, OpenPullRequest,
+// GetPullRequestStatus, PostReview, MergePullRequest) are GENERATED (activities.gen.go)
+// and reached through the generated invoker surface (wf.Acts.Rail*) from the workflow-side
+// helpers in gitsession.go. The folded railAdapterImpl + the plain-ctx sourceControlRail
+// seam + the per-verb Activity wrappers are RETIRED; the workflow-side value mapping
+// (opaque-handle *FromString/*String marshalling, PullRequestStatus→pullRequestStatusView,
+// the ReviewApprove verdict now supplied at the call site) lives in gitsession.go. The
+// per-op ActivityOptions presets (mintCredActivityOptions / railActivityOptions, below)
+// feed the manager's option hook (workermanifest.go).
+//
+// SyncManagedScaffold STAYS a CUSTOM Activity (SyncManagedScaffoldActivity): it wraps
+// sourcecontrol.SyncManagedScaffold, a free-function composition helper the generated
+// layer has no single contract op for. It reaches the published rail directly via wf.Rail.
 // ===========================================================================
-
-// sourceControlRail is the design Manager's consumer view of the PR rail. Every
-// provider-touching verb takes a Manager-threaded RepoCredential; the returns are
-// opaque handles the Manager carries across the Activity boundary as plain strings.
-type sourceControlRail interface {
-	GetInstallationToken(ctx context.Context, repo sourcecontrol.RepoRef) (sourcecontrol.RepoCredential, error)
-	OpenBranch(ctx context.Context, repo sourcecontrol.RepoRef, branch sourcecontrol.BranchName, cred sourcecontrol.RepoCredential, key fwra.IdempotencyKey) (sourcecontrol.BranchRef, error)
-	OpenPullRequest(ctx context.Context, repo sourcecontrol.RepoRef, spec sourcecontrol.PullRequestSpec, cred sourcecontrol.RepoCredential, key fwra.IdempotencyKey) (sourcecontrol.PullRequestRef, error)
-	GetPullRequestStatus(ctx context.Context, repo sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, cred sourcecontrol.RepoCredential) (sourcecontrol.PullRequestStatus, error)
-	PostReview(ctx context.Context, repo sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, review sourcecontrol.ReviewSubmission, cred sourcecontrol.RepoCredential, key fwra.IdempotencyKey) error
-	MergePullRequest(ctx context.Context, repo sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, cred sourcecontrol.RepoCredential, key fwra.IdempotencyKey) (sourcecontrol.MergeResult, error)
-}
-
-// railAdapterImpl is the PRODUCTION sourceControlRail: the folded composition-root
-// railAdapter, now living in the manager. The concrete sourceControlAccess RA takes
-// the ResourceAccess call Context (fwra.Context) on every op, so railAdapterImpl
-// builds fwra.Context{Context, IdempotencyKey} at the boundary and delegates to the
-// PUBLISHED sourcecontrol.SourceControlAccess the generated constructor was given.
-type railAdapterImpl struct {
-	inner sourcecontrol.SourceControlAccess
-}
-
-var _ sourceControlRail = railAdapterImpl{}
-
-func (r railAdapterImpl) GetInstallationToken(ctx context.Context, repo sourcecontrol.RepoRef) (sourcecontrol.RepoCredential, error) {
-	return r.inner.GetInstallationToken(fwra.Context{Context: ctx}, repo)
-}
-
-func (r railAdapterImpl) OpenBranch(ctx context.Context, repo sourcecontrol.RepoRef, branch sourcecontrol.BranchName, cred sourcecontrol.RepoCredential, key fwra.IdempotencyKey) (sourcecontrol.BranchRef, error) {
-	return r.inner.OpenBranch(fwra.Context{Context: ctx, IdempotencyKey: key}, repo, branch, cred)
-}
-
-func (r railAdapterImpl) OpenPullRequest(ctx context.Context, repo sourcecontrol.RepoRef, spec sourcecontrol.PullRequestSpec, cred sourcecontrol.RepoCredential, key fwra.IdempotencyKey) (sourcecontrol.PullRequestRef, error) {
-	return r.inner.OpenPullRequest(fwra.Context{Context: ctx, IdempotencyKey: key}, repo, spec, cred)
-}
-
-func (r railAdapterImpl) GetPullRequestStatus(ctx context.Context, repo sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, cred sourcecontrol.RepoCredential) (sourcecontrol.PullRequestStatus, error) {
-	return r.inner.GetPullRequestStatus(fwra.Context{Context: ctx}, repo, pr, cred)
-}
-
-func (r railAdapterImpl) PostReview(ctx context.Context, repo sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, review sourcecontrol.ReviewSubmission, cred sourcecontrol.RepoCredential, key fwra.IdempotencyKey) error {
-	return r.inner.PostReview(fwra.Context{Context: ctx, IdempotencyKey: key}, repo, pr, review, cred)
-}
-
-func (r railAdapterImpl) MergePullRequest(ctx context.Context, repo sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, cred sourcecontrol.RepoCredential, key fwra.IdempotencyKey) (sourcecontrol.MergeResult, error) {
-	return r.inner.MergePullRequest(fwra.Context{Context: ctx, IdempotencyKey: key}, repo, pr, cred)
-}
 
 // ===========================================================================
 // Activity-boundary value carriers (mirrors gitactivities.go).
@@ -128,143 +87,28 @@ type pullRequestStatusView struct {
 }
 
 // ===========================================================================
-// PR-rail Activities (the FROZEN IPullRequestRail subset).
+// SyncManagedScaffold — the ONE CUSTOM rail Activity (free-function composition helper).
 // ===========================================================================
 
-// MintRepoCredentialActivity wraps GetInstallationToken — the Manager mints the short-
-// lived credential it threads into every other rail verb. Read-shaped (no idempotency
-// key); a rejected/expired identity surfaces fwra.Auth (terminal).
-func (wf *workflows) MintRepoCredentialActivity(ctx context.Context, repoRef string) (railCredEnvelope, error) {
-	cred, err := wf.Rail.GetInstallationToken(ctx, sourcecontrol.RepoRefFromString(repoRef))
-	if err != nil {
-		return railCredEnvelope{}, fwmanager.MapError(err)
-	}
-	return railCredEnvelope{Bytes: cred.Bytes, ExpiresAt: cred.ExpiresAt}, nil
-}
-
-// openBranchArgs bundles the OpenBranch inputs across the Activity boundary.
-type openBranchArgs struct {
+// syncScaffoldArgs bundles the managed-scaffold sync inputs across the Activity boundary.
+type syncScaffoldArgs struct {
 	RepoRef string
-	Branch  string
 	Cred    railCredEnvelope
 }
 
-// OpenBranchActivity wraps OpenBranch → the opaque BranchRef (its String() form).
-// Idempotent on the deterministic session-branch name (re-open is a no-op).
-func (wf *workflows) OpenBranchActivity(ctx context.Context, a openBranchArgs) (string, error) {
-	br, err := wf.Rail.OpenBranch(ctx,
-		sourcecontrol.RepoRefFromString(a.RepoRef),
-		sourcecontrol.BranchName(a.Branch),
-		a.Cred.toRail(),
-		activityIdempotencyKey(ctx),
-	)
-	if err != nil {
-		return "", fwmanager.MapError(err)
-	}
-	return sourcecontrol.BranchRefString(br), nil
-}
-
-// openPullRequestArgs bundles the OpenPullRequest inputs across the Activity boundary.
-type openPullRequestArgs struct {
-	RepoRef string
-	Head    string
-	Base    string
-	Title   string
-	Body    string
-	Cred    railCredEnvelope
-}
-
-// OpenPullRequestActivity wraps OpenPullRequest → the opaque PullRequestRef. Idempotent
-// on the head branch — if the Action already opened a PR for head, the rail returns the
-// existing handle (the server's open is the authoritative handle source for merge).
-func (wf *workflows) OpenPullRequestActivity(ctx context.Context, a openPullRequestArgs) (string, error) {
-	pr, err := wf.Rail.OpenPullRequest(ctx,
-		sourcecontrol.RepoRefFromString(a.RepoRef),
-		sourcecontrol.PullRequestSpec{
-			Head:  sourcecontrol.BranchName(a.Head),
-			Base:  sourcecontrol.BranchName(a.Base),
-			Title: a.Title,
-			Body:  a.Body,
-		},
-		a.Cred.toRail(),
-		activityIdempotencyKey(ctx),
-	)
-	if err != nil {
-		return "", fwmanager.MapError(err)
-	}
-	return sourcecontrol.PullRequestRefString(pr), nil
-}
-
-// getPullRequestStatusArgs bundles the status read inputs.
-type getPullRequestStatusArgs struct {
-	RepoRef string
-	PRRef   string
-	Cred    railCredEnvelope
-}
-
-// GetPullRequestStatusActivity wraps GetPullRequestStatus → the merge-guard reflection.
-// Pure read.
-func (wf *workflows) GetPullRequestStatusActivity(ctx context.Context, a getPullRequestStatusArgs) (pullRequestStatusView, error) {
-	st, err := wf.Rail.GetPullRequestStatus(ctx,
-		sourcecontrol.RepoRefFromString(a.RepoRef),
-		sourcecontrol.PullRequestRefFromString(a.PRRef),
-		a.Cred.toRail(),
-	)
-	if err != nil {
-		return pullRequestStatusView{}, fwmanager.MapError(err)
-	}
-	return pullRequestStatusView{
-		CheckGreen:    st.CheckRollup == sourcecontrol.CheckSuccess,
-		ApprovalCount: int(st.ApprovalCount),
-		Mergeable:     st.Mergeable,
-	}, nil
-}
-
-// postReviewArgs bundles the +1-relay inputs.
-type postReviewArgs struct {
-	RepoRef string
-	PRRef   string
-	Body    string
-	Cred    railCredEnvelope
-}
-
-// PostReviewActivity wraps PostReview — relays the architecture +1 (Approve) to the PR.
-// Idempotent on re-post.
-func (wf *workflows) PostReviewActivity(ctx context.Context, a postReviewArgs) (struct{}, error) {
-	err := wf.Rail.PostReview(ctx,
-		sourcecontrol.RepoRefFromString(a.RepoRef),
-		sourcecontrol.PullRequestRefFromString(a.PRRef),
-		sourcecontrol.ReviewSubmission{Verdict: sourcecontrol.ReviewApprove, Body: a.Body},
-		a.Cred.toRail(),
-		activityIdempotencyKey(ctx),
-	)
-	if err != nil {
-		return struct{}{}, fwmanager.MapError(err)
-	}
-	return struct{}{}, nil
-}
-
-// mergePullRequestArgs bundles the gated-merge inputs.
-type mergePullRequestArgs struct {
-	RepoRef string
-	PRRef   string
-	Cred    railCredEnvelope
-}
-
-// MergePullRequestActivity wraps MergePullRequest → whether the merge to main landed.
-// The Manager PERFORMS the merge; the merge GUARD (CheckGreen) is decided in workflow
-// code before this. Idempotent (already-merged maps to Merged=true inside the rail).
-func (wf *workflows) MergePullRequestActivity(ctx context.Context, a mergePullRequestArgs) (bool, error) {
-	mr, err := wf.Rail.MergePullRequest(ctx,
-		sourcecontrol.RepoRefFromString(a.RepoRef),
-		sourcecontrol.PullRequestRefFromString(a.PRRef),
-		a.Cred.toRail(),
-		activityIdempotencyKey(ctx),
-	)
+// SyncManagedScaffoldActivity wraps sourceControlRail.SyncManagedScaffold — the
+// MANAGED-SCAFFOLD SYNC that runs before every design-job dispatch (beginSession):
+// the seated aiarch-design.yml is converged onto the CURRENT template rendering on the
+// default branch (drift → one refresh commit; identical → no-op). Returns whether the
+// seated copy drifted. A failure here BLOCKS the dispatch: the caller must never run a
+// design job against a scaffold it could not prove current (the gtdapp stale-pin
+// incident — F81 read-back rejections from a months-stale aiarch-state-mcp binary).
+func (wf *workflows) SyncManagedScaffoldActivity(ctx context.Context, a syncScaffoldArgs) (bool, error) {
+	changed, err := sourcecontrol.SyncManagedScaffold(ctx, wf.Rail, sourcecontrol.RepoRefFromString(a.RepoRef), a.Cred.toRail())
 	if err != nil {
 		return false, fwmanager.MapError(err)
 	}
-	return mr.Merged, nil
+	return changed, nil
 }
 
 // ===========================================================================
@@ -289,9 +133,11 @@ func designArchApprovalBody(kind ArtifactKind) string {
 	return fmt.Sprintf("architecture +1 relayed for %s", artifactKindString(kind))
 }
 
-// mintCredOpts — the credential mint. A rejected/expired App identity is terminal.
-func mintCredOpts(ctx workflow.Context) workflow.Context {
-	return workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+// mintCredActivityOptions — the credential mint (generated sourceControlAccess.
+// getInstallationToken). A rejected/expired App identity is terminal. Feeds the manager's
+// option hook (workermanifest.go).
+func mintCredActivityOptions() workflow.ActivityOptions {
+	return workflow.ActivityOptions{
 		StartToCloseTimeout: 15 * time.Second,
 		RetryPolicy: &temporal.RetryPolicy{
 			NonRetryableErrorTypes: []string{
@@ -299,13 +145,15 @@ func mintCredOpts(ctx workflow.Context) workflow.Context {
 				fwmanager.RAErrType(fwra.ContractMisuse),
 			},
 		},
-	})
+	}
 }
 
-// railOpts — the PR-rail verbs. Auth + a merge Conflict (not-mergeable) + bad input are
-// terminal; transport/rate-limit retry.
-func railOpts(ctx workflow.Context) workflow.Context {
-	return workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+// railActivityOptions — the PR-rail verbs (the generated sourceControlAccess rail ops AND
+// the custom SyncManagedScaffold). Auth + a merge Conflict (not-mergeable) + bad input are
+// terminal; transport/rate-limit retry. Feeds the manager's option hook for the generated
+// verbs; the ctx-wrapper railOpts applies it at the custom SyncManagedScaffold call site.
+func railActivityOptions() workflow.ActivityOptions {
+	return workflow.ActivityOptions{
 		StartToCloseTimeout: 30 * time.Second,
 		RetryPolicy: &temporal.RetryPolicy{
 			NonRetryableErrorTypes: []string{
@@ -315,5 +163,11 @@ func railOpts(ctx workflow.Context) workflow.Context {
 				fwmanager.RAErrType(fwra.ContractMisuse),
 			},
 		},
-	})
+	}
+}
+
+// railOpts is the ctx-wrapper the CUSTOM SyncManagedScaffold Activity call site applies
+// directly (the generated rail verbs get railActivityOptions via the option hook).
+func railOpts(ctx workflow.Context) workflow.Context {
+	return workflow.WithActivityOptions(ctx, railActivityOptions())
 }

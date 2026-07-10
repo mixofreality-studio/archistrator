@@ -76,8 +76,9 @@ const (
 )
 
 type AnchoredComment struct {
-	JSONPath string `json:"jsonPath"`
-	Text     string `json:"text"`
+	JSONPath   string `json:"jsonPath"`
+	Text       string `json:"text"`
+	AnchorText string `json:"anchorText"`
 }
 
 type ArtifactKind int
@@ -108,10 +109,14 @@ type ArtifactSlotModel struct {
 }
 
 type ArtifactSlotView struct {
-	Kind  string            `json:"kind"`
-	Stage ArtifactStage     `json:"stage"`
-	Model ArtifactSlotModel `json:"model"`
-	Notes *string           `json:"notes,omitempty"`
+	Kind            string            `json:"kind"`
+	Stage           ArtifactStage     `json:"stage"`
+	Model           ArtifactSlotModel `json:"model"`
+	Notes           *string           `json:"notes,omitempty"`
+	StaleBasis      *bool             `json:"staleBasis,omitempty"`
+	StaleBasisCause *StaleCauseView   `json:"staleBasisCause,omitempty"`
+	Revisions       *int64            `json:"revisions,omitempty"`
+	Provenance      *ProvenanceView   `json:"provenance,omitempty"`
 }
 
 type ArtifactStage int
@@ -224,6 +229,8 @@ type Location struct {
 	Section string `json:"section"`
 }
 
+type OperatingModel string
+
 type OwnerScope string
 
 type Phase int
@@ -262,7 +269,9 @@ type ProjectState struct {
 	Name                 string                                `json:"Name"`
 	Owner                OwnerScope                            `json:"Owner"`
 	Phase                Phase                                 `json:"Phase"`
+	PhaseName            string                                `json:"PhaseName"`
 	Version              int64                                 `json:"Version"`
+	OperatingModel       OperatingModel                        `json:"operatingModel"`
 	Research             ResearchInput                         `json:"Research"`
 	Slots                []ArtifactSlotView                    `json:"Slots"`
 	GitRows              map[string]ActivityGitStatus          `json:"GitRows"`
@@ -278,6 +287,7 @@ type ProjectSummary struct {
 	Name           string     `json:"Name"`
 	Owner          OwnerScope `json:"Owner"`
 	Phase          Phase      `json:"Phase"`
+	PhaseName      string     `json:"PhaseName"`
 	CommittedCount int64      `json:"CommittedCount"`
 	TotalCount     int64      `json:"TotalCount"`
 	UpdatedAt      time.Time  `json:"UpdatedAt"`
@@ -288,8 +298,22 @@ type ResearchInput struct {
 }
 
 type ResearchSource struct {
-	Title   string `json:"title"`
-	Content string `json:"content"`
+	Title        string `json:"title"`
+	Content      string `json:"content"`
+	ContentBytes *int64 `json:"contentBytes,omitempty"`
+}
+
+type ReviewCommentView struct {
+	ID         string `json:"id"`
+	Anchor     string `json:"anchor"`
+	AnchorText string `json:"anchorText"`
+	Text       string `json:"text"`
+	AuthorRole string `json:"authorRole"`
+	Round      int64  `json:"round"`
+	Status     string `json:"status"`
+	Response   string `json:"response"`
+	Type       string `json:"type"`
+	Addressee  string `json:"addressee"`
 }
 
 type ReviewDecision int
@@ -343,12 +367,15 @@ const (
 )
 
 type SessionStateView struct {
-	ProjectID     ProjectID    `json:"projectId"`
-	ArtifactKind  ArtifactKind `json:"artifactKind"`
-	Stage         SessionStage `json:"stage"`
-	Draft         DraftModel   `json:"draft"`
-	Findings      []Finding    `json:"findings,omitempty"`
-	FailureReason *string      `json:"failureReason,omitempty"`
+	ProjectID     ProjectID           `json:"projectId"`
+	ArtifactKind  ArtifactKind        `json:"artifactKind"`
+	Stage         SessionStage        `json:"stage"`
+	Draft         DraftModel          `json:"draft"`
+	Findings      []Finding           `json:"findings,omitempty"`
+	FailureReason *string             `json:"failureReason,omitempty"`
+	FailureRunURL *string             `json:"failureRunUrl,omitempty"`
+	StageName     string              `json:"stageName"`
+	ReviewThread  []ReviewCommentView `json:"reviewThread,omitempty"`
 }
 
 type Severity string
@@ -429,13 +456,17 @@ type Version int64
 
 // SystemDesignManager is the generated service-contract interface for this component.
 type SystemDesignManager interface {
-	AdvancePhase(rc fwm.Context, projectID ProjectID) (PhaseAdvanceResult, error)
+	AdvancePhase(rc fwm.Context, projectID ProjectID, acknowledgeStale bool) (PhaseAdvanceResult, error)
 	CreateProject(rc fwm.Context, owner OwnerScope, name string) (ProjectID, error)
 	GetProject(rc fwm.Context, projectID ProjectID) (ProjectState, error)
 	GetSessionState(rc fwm.Context, projectID ProjectID, kind ArtifactKind) (SessionStateView, error)
 	ListProjects(rc fwm.Context, owner OwnerScope) ([]ProjectSummary, error)
 	RequestArtifactDraft(rc fwm.Context, projectID ProjectID, kind ArtifactKind, feedback *ReviewFeedback) (SessionRef, error)
+	SetOperatingModel(rc fwm.Context, projectID ProjectID, model OperatingModel) (Version, error)
 	SetResearchInput(rc fwm.Context, projectID ProjectID, research ResearchInput) (Version, error)
+	AskQuestions(rc fwm.Context, projectID ProjectID, kind ArtifactKind, addressee string, questions []AnchoredComment) error
+	AcknowledgeStaleBasis(rc fwm.Context, projectID ProjectID, kind ArtifactKind, note string) error
+	SetReviewCommentStatus(rc fwm.Context, projectID ProjectID, kind ArtifactKind, commentID string, status string) error
 	StartSystemDesign(rc fwm.Context, projectID ProjectID) (SessionRef, error)
 	SubmitReviewDecision(rc fwm.Context, projectID ProjectID, kind ArtifactKind, decision ReviewDecision, feedback *ReviewFeedback) error
 }

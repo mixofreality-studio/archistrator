@@ -69,9 +69,11 @@ import (
 //     Returned-not-recorded; mint-on-demand.
 //   - CommitManagedFiles — seat the aiarch-MANAGED project scaffold (the
 //     claude-code-action DESIGN workflow under .github/workflows/ PLUS the go-test
-//     gate scaffold: go.mod + the aiarch_method_test.go that runs methodcheck.Check)
-//     in ONE birth seat. Each file's path must be on the managed-file ALLOWLIST;
-//     each file is overwrite-if-changed (byte-identical → no-op).
+//     gate scaffold: go.mod + the aiarch_method_test.go that runs methodcheck.Check +
+//     the internal/.gitkeep that keeps that gate's ./internal/... load pattern from
+//     hard-erroring on a fresh repo) in ONE birth seat. Each file's path must be on
+//     the managed-file ALLOWLIST; each file is overwrite-if-changed (byte-identical
+//     → no-op).
 //
 // Contract #2 — PR rail (sourceControlAccess-pullrequestrail.md, FROZEN), SIX
 // verbs: OpenBranch / OpenPullRequest / GetPullRequestStatus / PostReview /
@@ -85,7 +87,8 @@ import (
 // durableexecution): it embeds context.Context and carries the caller's
 // SecurityPrincipal + IdempotencyKey. The generator prepends it; the schema
 // captures only the data params. The interface is generated into contract.gen.go
-// from contract.schema.json — DO NOT hand-edit the generated copy.
+// from this component's `.serviceContracts` entry in .aiarch/state/project.json —
+// DO NOT hand-edit the generated copy.
 
 // ---------------------------------------------------------------------------
 // §3 Data contracts (contract #1 §3) — provider-opaque value types.
@@ -117,13 +120,15 @@ import (
 // ManagedFile is the provider-NEUTRAL description of one aiarch-MANAGED project file
 // to seat at birth (CommitManagedFiles). Path MUST be on the managed-file allowlist
 // (under .github/workflows/, OR a known scaffold root — go.mod / the method test
-// file); any other path is a ContractMisuse (this verb seats ONLY aiarch-managed
-// files, never arbitrary content). 2026-06-16 generalization of WorkflowFile: the
-// single-file workflow seat became a fileset so the agentic workflow + the go-test
-// gate scaffold (go.mod + aiarch_method_test.go) land together at project birth.
+// file / internal/.gitkeep); any other path is a ContractMisuse (this verb seats ONLY
+// aiarch-managed files, never arbitrary content). 2026-06-16 generalization of
+// WorkflowFile: the single-file workflow seat became a fileset so the agentic workflow
+// + the go-test gate scaffold (go.mod + aiarch_method_test.go + internal/.gitkeep) land
+// together at project birth.
 
 // Path is the repo-relative path. Must satisfy the managed-file allowlist
-// (e.g. ".github/workflows/aiarch-design.yml", "go.mod", "aiarch_method_test.go").
+// (e.g. ".github/workflows/aiarch-design.yml", "go.mod", "aiarch_method_test.go",
+// "internal/.gitkeep").
 
 // Content is the exact file bytes to land on the default branch.
 

@@ -11,7 +11,17 @@ import type { ContractRevision } from '../../contracts/types';
 import type { Tokens } from '../../utilities/theme/themes';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 
-function RevisionRow({ r, t, isLatest, isLast }: { r: ContractRevision; t: Tokens; isLatest: boolean; isLast: boolean }): ReactNode {
+function RevisionRow({
+  r,
+  t,
+  isLatest,
+  isLast,
+}: {
+  r: ContractRevision;
+  t: Tokens;
+  isLatest: boolean;
+  isLast: boolean;
+}): ReactNode {
   const dotColor = isLatest ? t.committedDot : t.accent2;
   return (
     <Box
@@ -19,7 +29,15 @@ function RevisionRow({ r, t, isLatest, isLast }: { r: ContractRevision; t: Token
       sx={{ display: 'flex', gap: 1.5 }}
     >
       {/* timeline spine */}
-      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0, width: 16 }}>
+      <Box
+        sx={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          flexShrink: 0,
+          width: 16,
+        }}
+      >
         <Box
           sx={{
             width: 11,
@@ -37,7 +55,9 @@ function RevisionRow({ r, t, isLatest, isLast }: { r: ContractRevision; t: Token
       {/* content */}
       <Box sx={{ pb: isLast ? 0 : 1.5, minWidth: 0 }}>
         <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1, flexWrap: 'wrap' }}>
-          <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 11, color: t.ink }}>{r.rev}</Typography>
+          <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 11, color: t.ink }}>
+            {r.rev}
+          </Typography>
           <Typography sx={{ fontFamily: t.mono, fontSize: 10, color: t.muted }}>
             {r.at}
             {r.by.length > 0 ? ` · ${r.by}` : ''}
@@ -58,7 +78,9 @@ function RevisionRow({ r, t, isLatest, isLast }: { r: ContractRevision; t: Token
           ) : null}
         </Box>
         {r.summary !== undefined && r.summary.length > 0 ? (
-          <Typography sx={{ fontFamily: t.body, fontSize: 12, color: t.ink, lineHeight: 1.45, mt: 0.2 }}>
+          <Typography
+            sx={{ fontFamily: t.body, fontSize: 12, color: t.ink, lineHeight: 1.45, mt: 0.2 }}
+          >
             {r.summary}
           </Typography>
         ) : null}
@@ -67,11 +89,20 @@ function RevisionRow({ r, t, isLatest, isLast }: { r: ContractRevision; t: Token
   );
 }
 
-export function ContractRevisionHistory({ revisions, t }: { revisions: ContractRevision[]; t: Tokens }): ReactNode {
+export function ContractRevisionHistory({
+  revisions,
+  t,
+}: {
+  revisions: ContractRevision[];
+  t: Tokens;
+}): ReactNode {
   if (revisions.length === 0) return null;
 
   return (
-    <Paper data-testid={UI_IDENTIFIERS.ServiceContract.REVISION_HISTORY} sx={{ p: 0, overflow: 'hidden' }}>
+    <Paper
+      data-testid={UI_IDENTIFIERS.ServiceContract.REVISION_HISTORY}
+      sx={{ p: 0, overflow: 'hidden' }}
+    >
       <Box
         sx={{
           px: 2,
@@ -84,7 +115,15 @@ export function ContractRevisionHistory({ revisions, t }: { revisions: ContractR
         }}
       >
         <HistoryIcon sx={{ fontSize: 16, color: t.ink }} />
-        <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 12, letterSpacing: '0.06em', color: t.ink }}>
+        <Typography
+          sx={{
+            fontFamily: t.mono,
+            fontWeight: 700,
+            fontSize: 12,
+            letterSpacing: '0.06em',
+            color: t.ink,
+          }}
+        >
           REVISION HISTORY
         </Typography>
         <Typography sx={{ fontFamily: t.mono, fontSize: 9.5, color: t.muted }}>

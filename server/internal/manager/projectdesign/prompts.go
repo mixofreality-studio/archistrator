@@ -29,7 +29,7 @@ import (
 // artifact itself is ASSEMBLED deterministically by the workflow from the three Engine
 // outputs (workflow.go), not drafted by the worker — so it has no prompt.
 
-const architectHeader = "You are the Architect agent drafting a typed Phase-2 (Project Design) Method artifact for an architecture project, following Juval Lowy's The Method to the letter. You are running inside the project repository; read the prior committed Method artifacts from .aiarch/state/project.json and commit your drafted artifact back into .aiarch/state/.\n"
+const architectHeader = "You are the Architect agent drafting a typed Phase-2 (Project Design) Method artifact for an architecture project, following Juval Lowy's The Method to the letter. You author the project's Method state ONLY through the aiarch-state MCP tools — never hand-edit files and never run git. Read prior committed artifacts with getCommittedSlot, read your current draft (on an amendment) with getDraftSlot, submit your draft with putDraftModel (it validates the model and returns actionable errors if it is wrong — fix them and resubmit), and finish by calling publishDraft.\n"
 
 // architectDraftPrompt assembles the architect-role draft prompt for the given Phase-2
 // artifact kind. It points the Action at the prior committed state by path/kind (NOT
@@ -38,10 +38,17 @@ const architectHeader = "You are the Architect agent drafting a typed Phase-2 (P
 // DESIGN job's design_prompt dispatch input. (The proj parameter is retained for
 // signature parity / future per-kind prior selection; priors are named by kind, not
 // embedded.)
-func architectDraftPrompt(kind projectstate.ArtifactKind, _ projectstate.Project, feedback string) string {
+func architectDraftPrompt(kind projectstate.ArtifactKind, proj projectstate.Project, feedback string, reviewThread []projectstate.ReviewComment, amendment int) string {
 	var b strings.Builder
 	b.WriteString(architectHeader)
-	fmt.Fprintf(&b, "Target artifact: %s\n", kind)
+	fmt.Fprintf(&b, "Target artifact: %s. The design job already fixes which artifact you are drafting — putDraftModel writes it to the correct slot (even for the four solution siblings that share one model type), so you never choose a slot or a kind.\n", kind.WireName())
+
+	// F38 AMENDMENT: this session REOPENS an already-committed Phase-2 artifact. Read the
+	// committed version with getDraftSlot and REVISE it rather than drafting from scratch; the
+	// reopening reasons are the OPEN review-ledger comments below.
+	if amendment > 0 {
+		fmt.Fprintf(&b, "\nThis is an AMENDMENT (revision %d) of the already-COMMITTED %s. Read the committed version with getDraftSlot and REVISE it to address the reopening feedback — do NOT discard it and redraft from scratch. The reasons this artifact was reopened are the OPEN review-ledger comments listed below; address each and respond to it with respondToReviewComment.\n", amendment, kind.WireName())
+	}
 
 	// Per-kind priors: name the committed predecessor artifacts the Method draws on, by
 	// kind (the Action reads them from .aiarch/state/project.json in the repo). The
@@ -70,8 +77,81 @@ func architectDraftPrompt(kind projectstate.ArtifactKind, _ projectstate.Project
 	}
 
 	writeFeedback(&b, feedback)
+	// REVIEW LEDGER (review-ledger §3): on a redraft, weave in every OPEN durable ledger
+	// comment (with its stable id + anchor + anchor-text snapshot) and the response contract
+	// (respondToReviewComment). Empty on the first draft (no ledger).
+	writeReviewLedger(&b, reviewThread)
 	fmt.Fprintf(&b, "\nTask: %s\n", draftTask(kind))
+	// TYPED-SHAPE discipline is no longer taught in the prompt (QA F36 Phase-2 sibling was the
+	// wrong-shape read-back stall): putDraftModel validates the model through the FULL server
+	// codec, so a field drafted with the wrong shape (an array of objects where []string is
+	// expected, a bare number where a Money object is expected) is rejected in-loop with an
+	// actionable error the agent self-corrects — the per-kind shape dump is obsolete.
+	// OPERATING-MODEL CONSTRAINT (founder ruling 2026-07-05): when the project is
+	// archistrator-operated the PlanningAssumptions launch infrastructure is
+	// CONSTRAINED to the platform palette (CNPG Postgres, Temporal, Keycloak, the otel
+	// stack, deployed to the platform k8s cluster via ArgoCD at software/k8s). This is
+	// the Phase-2 sibling of the systemDesign OperationalConcepts constraint — the
+	// deployment topology (Phase-1) and the launch infrastructure assumptions (Phase-2)
+	// must agree. Self-operated emits nothing (today's open guidance is preserved).
+	if kind == projectstate.KindPlanningAssumptions {
+		if c := operatingModelInfrastructureConstraint(proj.OperatingModel); c != "" {
+			b.WriteString("\n")
+			b.WriteString(c)
+		}
+	}
+	b.WriteString("\nSubmit the finished artifact with putDraftModel; if it reports validation errors, fix the model and submit again. When it is accepted (and every open review comment has a response), call publishDraft.\n")
 	return b.String()
+}
+
+// operatingModelInfrastructureConstraint returns the launch-infrastructure constraint
+// the PlanningAssumptions draft prompt carries for the project's operating model
+// (founder ruling 2026-07-05). Archistrator-operated CONSTRAINS the launch
+// infrastructure to the archistrator-platform palette ONLY and FORBIDS bespoke cloud;
+// self-operated (the default) emits nothing (today's open guidance stands).
+func operatingModelInfrastructureConstraint(m projectstate.OperatingModel) string {
+	if m.OrDefault() != projectstate.OperatingModelArchistratorOperated {
+		return ""
+	}
+	return "OPERATING MODEL — ARCHISTRATOR-OPERATED (platform-constrained infrastructure). " +
+		"This project is OPERATED BY ARCHISTRATOR on the shared platform, so the launch-infrastructure assumption is FIXED, not a choice: the app runs on the archistrator-platform palette ONLY. " +
+		"When you capture the launch infrastructure assumption you MUST assume EXACTLY these platform building blocks and MUST NOT assume any bespoke or third-party cloud infrastructure:\n" +
+		"- Data / persistence: CloudNativePG (CNPG) Postgres — the framework-go-infrastructure-postgres module.\n" +
+		"- Workflows / durable execution: Temporal — the framework-go-infrastructure-temporal module (the SHARED platform Temporal at software/k8s/shared/temporal).\n" +
+		"- Authentication / identity: Keycloak — the framework-go-infrastructure-keycloak module (software/k8s/argocd/auth).\n" +
+		"- Observability: the OpenTelemetry stack — the framework-go-infrastructure-otel module.\n" +
+		"- Deploy target: the platform Kubernetes cluster via the ArgoCD stack at software/k8s (namespaces/apps under k8s/argocd/applications).\n" +
+		"FORBIDDEN for this operating model: AWS (RDS, EKS, ECS, CloudFront, S3, Lambda), GCP, Azure, or any other bespoke / self-managed / third-party-managed cloud infrastructure or hosting — those are legitimate ONLY for self-operated projects. The launch infrastructure is the platform cluster; there is no per-project cloud-provider decision to assume."
+}
+
+// writeReviewLedger weaves the OPEN durable review-ledger comments into a redraft prompt and
+// states the response-carrier contract the drafting agent must honor (review-ledger §3): the
+// agent commits a per-comment "response" (and proposed "addressed" status) back onto the SAME
+// slot's "reviewThread" array in .aiarch/state/project.json, matched by the stable comment
+// "id". The server, not the agent, decides the effective status on read-back (empty response
+// keeps a comment open). Nothing is written when no comment is open (the first-draft case).
+func writeReviewLedger(b *strings.Builder, thread []projectstate.ReviewComment) {
+	var open []projectstate.ReviewComment
+	for _, c := range thread {
+		if c.Status == projectstate.ReviewCommentOpen && strings.TrimSpace(c.Text) != "" {
+			open = append(open, c)
+		}
+	}
+	if len(open) == 0 {
+		return
+	}
+	b.WriteString("\nThis artifact has OPEN reviewer comments in its durable review ledger (read them with getReviewThread). For EACH open comment listed below you MUST: (1) revise the draft to address it; and (2) call respondToReviewComment with the matching comment id and your response — how you addressed it, or a concise reasoned pushback if you disagree. A comment whose response you leave empty STAYS OPEN and blocks approval — so respond to every one.\n")
+	for _, c := range open {
+		anchor := c.Anchor
+		if strings.TrimSpace(anchor) == "" {
+			anchor = "(whole artifact)"
+		}
+		if strings.TrimSpace(c.AnchorText) != "" {
+			fmt.Fprintf(b, "- comment %s at %s (%q): %s\n", c.ID, anchor, c.AnchorText, strings.TrimSpace(c.Text))
+		} else {
+			fmt.Fprintf(b, "- comment %s at %s: %s\n", c.ID, anchor, strings.TrimSpace(c.Text))
+		}
+	}
 }
 
 // draftTask returns the per-kind task instruction.
@@ -80,7 +160,7 @@ func draftTask(kind projectstate.ArtifactKind) string {
 	case projectstate.KindPlanningAssumptions:
 		return "capture the explicit planning assumptions — the resources, working calendar (days/week), launch infrastructure, the customer's declared usage, and the settlement terms — that the project network and the SDP-review estimates are built on."
 	case projectstate.KindActivityList:
-		return "convert the architecture into the activity list: one detailed-design + one construction activity per component, plus integration and noncoding activities, each with effort in 5-day quanta, its worker class, and a Fibonacci risk bucket."
+		return "convert the architecture into the activity list. Emit exactly ONE coding activity per component of the committed System, named after that component — detailed design and construction are internal lifecycle phases of that single activity (a per-phase role hand-off), NOT separate network nodes; do NOT split a component into a D### design activity and a C### construction activity in the base list. Integration (I-*) and noncoding (N-*) activities — test plan, test harness, environment setup, etc. — are separate activities. Give each activity its effort in 5-day quanta, its worker class, and a Fibonacci risk bucket."
 	case projectstate.KindNetwork:
 		return "convert the activity list into a project network: declare each activity's predecessor dependencies and identify the critical path (the activity names on it)."
 	case projectstate.KindNormalSolution:
@@ -110,7 +190,7 @@ func writePriorsPointer(b *strings.Builder, kinds ...string) {
 	if len(kinds) == 0 {
 		return
 	}
-	fmt.Fprintf(b, "Prior committed artifacts to read from .aiarch/state/project.json: %s\n", strings.Join(kinds, ", "))
+	fmt.Fprintf(b, "Prior committed artifacts to read as context with getCommittedSlot: %s\n", strings.Join(kinds, ", "))
 }
 
 // writeFeedback appends a revision-feedback block (architect rejection notes)

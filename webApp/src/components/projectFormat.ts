@@ -16,7 +16,11 @@ export const PHASE_LABELS: Record<ProjectPhase, string> = {
 /** Compact relative timestamp, e.g. "just now", "3h ago", "5d ago", or a date. */
 export function formatUpdatedAt(iso: string): string {
   const then = Date.parse(iso);
-  if (Number.isNaN(then)) return '';
+  // Unset/zero timestamps — Go's zero time ("0001-01-01T00:00:00Z", which parses
+  // to a hugely negative epoch and would otherwise render as a bogus "12/31/1"),
+  // empty strings, or anything unparseable — carry no meaning. Render an em dash
+  // rather than a fake date. A real project updatedAt is always after the epoch.
+  if (Number.isNaN(then) || then <= 0) return '—';
   const diffMs = Date.now() - then;
   const mins = Math.floor(diffMs / 60_000);
   if (mins < 1) return 'just now';

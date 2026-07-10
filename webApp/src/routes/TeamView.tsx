@@ -61,16 +61,20 @@ function TeamBody(): ReactNode {
             Roles on the project
           </Typography>
         </Box>
-        <Typography sx={{ color: t.muted, fontSize: 14.5, lineHeight: 1.6, maxWidth: 760, mb: 3.5 }}>
-          Every name below is a canonical role from Löwy&rsquo;s <em>The Method</em> — the book&rsquo;s team,
-          not invented seats. Each is a <strong>Worker playing a role</strong> (the agent is just the
-          implementation detail). Click a card to read its charter; the raw agent prompt is one disclosure
-          deeper.
+        <Typography
+          sx={{ color: t.muted, fontSize: 14.5, lineHeight: 1.6, maxWidth: 760, mb: 3.5 }}
+        >
+          Every name below is a canonical role from Löwy&rsquo;s <em>The Method</em> — the
+          book&rsquo;s team, not invented seats. Each is a <strong>Worker playing a role</strong>{' '}
+          (the agent is just the implementation detail). Click a card to read its charter; the raw
+          agent prompt is one disclosure deeper.
         </Typography>
 
         {TEAM_SECTIONS.map((section) => (
           <Box key={section.group} sx={{ mb: 5 }}>
-            <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1.5, mb: 0.5, flexWrap: 'wrap' }}>
+            <Box
+              sx={{ display: 'flex', alignItems: 'baseline', gap: 1.5, mb: 0.5, flexWrap: 'wrap' }}
+            >
               <Typography sx={{ color: t.ink }} variant="h5">
                 {section.title}
               </Typography>
@@ -80,7 +84,9 @@ function TeamBody(): ReactNode {
                 sx={{ bgcolor: t.chatArchitectBg, color: t.chatArchitectFg }}
               />
             </Box>
-            <Typography sx={{ color: t.muted, fontSize: 13, lineHeight: 1.55, maxWidth: 800, mb: 2 }}>
+            <Typography
+              sx={{ color: t.muted, fontSize: 13, lineHeight: 1.55, maxWidth: 800, mb: 2 }}
+            >
               {section.blurb}
             </Typography>
 
@@ -134,7 +140,11 @@ function TeamBody(): ReactNode {
         open={role !== undefined}
         slotProps={{
           paper: {
-            sx: { width: { xs: '100%', sm: 480, md: 540 }, bgcolor: t.paper, backgroundImage: 'none' },
+            sx: {
+              width: { xs: '100%', sm: 480, md: 540 },
+              bgcolor: t.paper,
+              backgroundImage: 'none',
+            },
           },
         }}
         onClose={() => {
@@ -155,7 +165,15 @@ function TeamBody(): ReactNode {
   );
 }
 
-function RoleCard({ role, t, onOpen }: { role: TeamRole; t: Tokens; onOpen: () => void }): ReactNode {
+function RoleCard({
+  role,
+  t,
+  onOpen,
+}: {
+  role: TeamRole;
+  t: Tokens;
+  onOpen: () => void;
+}): ReactNode {
   return (
     <Paper
       data-testid={UI_IDENTIFIERS.Team.roleCard(role.id)}
@@ -182,10 +200,24 @@ function RoleCard({ role, t, onOpen }: { role: TeamRole; t: Tokens; onOpen: () =
           <Chip
             label={role.chapterRef}
             size="small"
-            sx={{ height: 18, fontSize: 9, bgcolor: t.paperAlt, color: t.muted, '& .MuiChip-label': { px: 0.75 } }}
+            sx={{
+              height: 18,
+              fontSize: 9,
+              bgcolor: t.paperAlt,
+              color: t.muted,
+              '& .MuiChip-label': { px: 0.75 },
+            }}
           />
         </Box>
-        <Typography sx={{ fontFamily: t.mono, fontSize: 9.5, color: t.muted, letterSpacing: '0.04em', mb: 0.75 }}>
+        <Typography
+          sx={{
+            fontFamily: t.mono,
+            fontSize: 9.5,
+            color: t.muted,
+            letterSpacing: '0.04em',
+            mb: 0.75,
+          }}
+        >
           {role.id} · Worker
         </Typography>
         <Typography sx={{ fontFamily: t.body, fontSize: 12.5, lineHeight: 1.45, color: t.ink }}>
@@ -196,7 +228,15 @@ function RoleCard({ role, t, onOpen }: { role: TeamRole; t: Tokens; onOpen: () =
   );
 }
 
-function RoleCharter({ role, t, onClose }: { role: TeamRole; t: Tokens; onClose: () => void }): ReactNode {
+function RoleCharter({
+  role,
+  t,
+  onClose,
+}: {
+  role: TeamRole;
+  t: Tokens;
+  onClose: () => void;
+}): ReactNode {
   const [showPrompt, setShowPrompt] = useState(false);
   return (
     <Box
@@ -227,7 +267,15 @@ function RoleCharter({ role, t, onClose }: { role: TeamRole; t: Tokens; onClose:
               sx={{ bgcolor: t.chatArchitectBg, color: t.chatArchitectFg }}
             />
           </Box>
-          <Typography sx={{ fontFamily: t.mono, fontSize: 10, color: t.muted, letterSpacing: '0.04em', mt: 0.5 }}>
+          <Typography
+            sx={{
+              fontFamily: t.mono,
+              fontSize: 10,
+              color: t.muted,
+              letterSpacing: '0.04em',
+              mt: 0.5,
+            }}
+          >
             {role.id} · Worker playing a Method role
           </Typography>
         </Box>
@@ -244,12 +292,22 @@ function RoleCharter({ role, t, onClose }: { role: TeamRole; t: Tokens; onClose:
       {/* scroll body */}
       <Box sx={{ flexGrow: 1, overflowY: 'auto', p: 2.5 }}>
         <Box sx={{ borderLeft: `3px solid ${t.accent}`, pl: 1.5, py: 0.25, mb: 2.5 }}>
-          <Typography sx={{ fontFamily: t.display, fontStyle: 'italic', fontSize: 14, color: t.ink, lineHeight: 1.5 }}>
+          <Typography
+            sx={{
+              fontFamily: t.display,
+              fontStyle: 'italic',
+              fontSize: 14,
+              color: t.ink,
+              lineHeight: 1.5,
+            }}
+          >
             {role.pullQuote}
           </Typography>
         </Box>
 
-        <Typography sx={{ fontSize: 13.5, lineHeight: 1.55, color: t.ink, mb: 2.5 }}>{role.oneLiner}</Typography>
+        <Typography sx={{ fontSize: 13.5, lineHeight: 1.55, color: t.ink, mb: 2.5 }}>
+          {role.oneLiner}
+        </Typography>
 
         <CharterBlock
           icon={<CheckCircleOutlineIcon sx={{ fontSize: 16, color: t.committedDot }} />}
@@ -275,11 +333,21 @@ function RoleCharter({ role, t, onClose }: { role: TeamRole; t: Tokens; onClose:
         >
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.5 }}>
             <RuleIcon sx={{ fontSize: 16, color: t.accent2 }} />
-            <Typography sx={{ fontFamily: t.mono, fontSize: 10.5, letterSpacing: '0.12em', textTransform: 'uppercase', color: t.muted }}>
+            <Typography
+              sx={{
+                fontFamily: t.mono,
+                fontSize: 10.5,
+                letterSpacing: '0.12em',
+                textTransform: 'uppercase',
+                color: t.muted,
+              }}
+            >
               Reviewed by
             </Typography>
           </Box>
-          <Typography sx={{ fontSize: 12.5, lineHeight: 1.5, color: t.ink }}>{role.charter.reviewedBy}</Typography>
+          <Typography sx={{ fontSize: 12.5, lineHeight: 1.5, color: t.ink }}>
+            {role.charter.reviewedBy}
+          </Typography>
         </Box>
 
         {/* SECONDARY: raw prompt disclosure */}
@@ -289,7 +357,11 @@ function RoleCharter({ role, t, onClose }: { role: TeamRole; t: Tokens; onClose:
             data-testid={UI_IDENTIFIERS.Team.TOGGLE_PROMPT}
             endIcon={
               <ExpandMoreIcon
-                sx={{ fontSize: 18, transition: 'transform 150ms ease', transform: showPrompt ? 'rotate(180deg)' : 'none' }}
+                sx={{
+                  fontSize: 18,
+                  transition: 'transform 150ms ease',
+                  transform: showPrompt ? 'rotate(180deg)' : 'none',
+                }}
               />
             }
             startIcon={<TerminalIcon sx={{ fontSize: 16 }} />}
@@ -313,7 +385,15 @@ function RoleCharter({ role, t, onClose }: { role: TeamRole; t: Tokens; onClose:
                 overflowY: 'auto',
               }}
             >
-              <Typography sx={{ fontFamily: t.mono, fontSize: 9.5, letterSpacing: '0.1em', color: t.muted, mb: 1 }}>
+              <Typography
+                sx={{
+                  fontFamily: t.mono,
+                  fontSize: 9.5,
+                  letterSpacing: '0.1em',
+                  color: t.muted,
+                  mb: 1,
+                }}
+              >
                 .claude/agents/{role.agentFile} · read-only
               </Typography>
               <Box
@@ -353,18 +433,31 @@ function CharterBlock({
     <Box sx={{ mb: 2.5 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1 }}>
         {icon}
-        <Typography sx={{ fontFamily: t.mono, fontSize: 10.5, letterSpacing: '0.12em', textTransform: 'uppercase', color: t.muted }}>
+        <Typography
+          sx={{
+            fontFamily: t.mono,
+            fontSize: 10.5,
+            letterSpacing: '0.12em',
+            textTransform: 'uppercase',
+            color: t.muted,
+          }}
+        >
           {label}
         </Typography>
       </Box>
-      <Box component="ul" sx={{ listStyle: 'none', m: 0, pl: 0, display: 'flex', flexDirection: 'column', gap: 0.85 }}>
+      <Box
+        component="ul"
+        sx={{ listStyle: 'none', m: 0, pl: 0, display: 'flex', flexDirection: 'column', gap: 0.85 }}
+      >
         {items.map((it, i) => (
           <Box
             component="li"
             key={i}
             sx={{ display: 'flex', gap: 1, fontSize: 12.5, lineHeight: 1.5, color: t.ink }}
           >
-            <Box sx={{ color: t.accent, flexShrink: 0, fontFamily: t.mono, fontWeight: 700 }}>▸</Box>
+            <Box sx={{ color: t.accent, flexShrink: 0, fontFamily: t.mono, fontWeight: 700 }}>
+              ▸
+            </Box>
             <span>{it}</span>
           </Box>
         ))}

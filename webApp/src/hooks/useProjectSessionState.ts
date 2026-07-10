@@ -7,8 +7,7 @@
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 import { ApiError, toApiError } from '../contracts/errors';
-import { artifactKindToOrdinal } from '../contracts/enums';
-import { mapProjectSessionState } from '../contracts/wire';
+import { artifactKindToOrdinal, mapProjectSessionState } from '../contracts/wire';
 import { PROJECT_TERMINAL_STAGES } from '../contracts/types';
 import type { ProjectArtifactKind, ProjectSessionState } from '../contracts/types';
 

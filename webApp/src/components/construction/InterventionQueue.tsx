@@ -105,7 +105,13 @@ function QueueCard({
       {/* body */}
       <Box sx={{ px: 2, py: 1.5 }}>
         <Typography
-          sx={{ fontFamily: t.body, fontWeight: 700, fontSize: 13.5, color: t.ink, lineHeight: 1.35 }}
+          sx={{
+            fontFamily: t.body,
+            fontWeight: 700,
+            fontSize: 13.5,
+            color: t.ink,
+            lineHeight: 1.35,
+          }}
         >
           {name} reached CODE REVIEW — the computed reviewer set needs your gate.
         </Typography>
@@ -155,7 +161,7 @@ export function InterventionQueue({
 
   // Derive the queue HONESTLY: only activities whose status is 'in-review'.
   const inReview: { activityId: string; name: string; row: ConstructionRow }[] = Object.values(
-    constructionRows,
+    constructionRows
   )
     .filter((row) => row.status === 'in-review')
     .map((row) => ({
@@ -172,9 +178,7 @@ export function InterventionQueue({
       {/* queue header */}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
         <BoltIcon sx={{ fontSize: 18, color: t.accent }} />
-        <Typography
-          sx={{ fontFamily: t.display, fontWeight: 700, fontSize: 18, color: t.ink }}
-        >
+        <Typography sx={{ fontFamily: t.display, fontWeight: 700, fontSize: 18, color: t.ink }}>
           Waiting for your approval
         </Typography>
         <Chip
@@ -200,7 +204,9 @@ export function InterventionQueue({
           name={name}
           row={row}
           t={t}
-          onOpen={() => { onOpenDrawer(activityId); }}
+          onOpen={() => {
+            onOpenDrawer(activityId);
+          }}
         />
       ))}
     </Box>

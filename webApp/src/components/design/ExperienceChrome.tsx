@@ -96,28 +96,63 @@ export function ExperienceChrome({
               borderRadius: t.radius / 8 + 0.5,
               boxShadow: t.hardShadow ? `2px 2px 0 ${t.shadowColor}` : 'none',
               transition: 'all 90ms ease',
+              outline: 'none',
               '&:hover': {
                 boxShadow: t.hardShadow ? `1px 1px 0 ${t.shadowColor}` : 'none',
                 transform: t.hardShadow ? 'translate(1px,1px)' : 'scale(1.05)',
               },
+              // Keyboard reachability (UX-P0-1): a role=button Box is inert to the
+              // keyboard without a tabIndex + key handler + a visible focus ring.
+              // Pattern mirrors comments/SelectionPopover's focus-visible treatment.
+              '&:focus-visible': {
+                boxShadow: `0 0 0 2px ${t.bg}, 0 0 0 4px ${t.accent}`,
+              },
             }}
+            tabIndex={0}
             onClick={onClose}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onClose();
+              }
+            }}
           >
             <CloseIcon sx={{ fontSize: 22 }} />
           </Box>
         </Tooltip>
 
         <Box sx={{ minWidth: 0 }}>
-          <Typography sx={{ fontFamily: t.mono, fontSize: 10.5, letterSpacing: '0.22em', color: t.accent, lineHeight: 1 }}>
+          <Typography
+            sx={{
+              fontFamily: t.mono,
+              fontSize: 10.5,
+              letterSpacing: '0.22em',
+              color: t.accent,
+              lineHeight: 1,
+            }}
+          >
             {`PHASE ${String(phaseNum)} · EXPERIENCE`}
           </Typography>
-          <Typography sx={{ fontFamily: t.display, fontWeight: 700, fontSize: 20, color: t.ink, lineHeight: 1.15 }}>
+          <Typography
+            sx={{
+              fontFamily: t.display,
+              fontWeight: 700,
+              fontSize: 20,
+              color: t.ink,
+              lineHeight: 1.15,
+            }}
+          >
             {phaseTitle}
           </Typography>
         </Box>
 
         {projectName !== undefined && (
-          <Chip label={projectName} size="small" sx={{ bgcolor: t.paperAlt, color: t.ink, display: { xs: 'none', md: 'flex' } }} variant="outlined" />
+          <Chip
+            label={projectName}
+            size="small"
+            sx={{ bgcolor: t.paperAlt, color: t.ink, display: { xs: 'none', md: 'flex' } }}
+            variant="outlined"
+          />
         )}
 
         <Box sx={{ flexGrow: 1 }} />
@@ -139,16 +174,32 @@ export function ExperienceChrome({
 
       {/* spine bar */}
       {spine !== undefined && (
-        <Box sx={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 2, px: 2.5, py: 1, bgcolor: t.paperAlt, borderBottom: `1.5px solid ${t.line}` }}>
+        <Box
+          sx={{
+            flexShrink: 0,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 2,
+            px: 2.5,
+            py: 1,
+            bgcolor: t.paperAlt,
+            borderBottom: `1.5px solid ${t.line}`,
+          }}
+        >
           <Box sx={{ flexGrow: 1, minWidth: 0, overflowX: 'auto' }}>{spine}</Box>
         </Box>
       )}
 
       {/* content row */}
-      <Box component="main" sx={{ flexGrow: 1, minHeight: 0, display: 'flex', alignItems: 'stretch' }}>
+      <Box
+        component="main"
+        sx={{ flexGrow: 1, minHeight: 0, display: 'flex', alignItems: 'stretch' }}
+      >
         {children}
         {chat !== undefined && (
-          <Box sx={{ width: 380, flexShrink: 0, height: '100%', borderLeft: `1.5px solid ${t.line}` }}>
+          <Box
+            sx={{ width: 380, flexShrink: 0, height: '100%', borderLeft: `1.5px solid ${t.line}` }}
+          >
             {chat}
           </Box>
         )}

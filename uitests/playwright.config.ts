@@ -36,6 +36,18 @@ const BASE_URL = process.env.UITESTS_BASE_URL ?? SPA_URL;
 // When UITESTS_BASE_URL is set we drive an already-running SPA — do not manage one.
 const manageSpa = process.env.UITESTS_BASE_URL === undefined;
 
+// The managed webServer must bind the SAME port SPA_URL names — derive it
+// rather than hardcoding 5173, so UITESTS_SPA_URL actually controls where the
+// managed dev server listens (previously these could silently disagree: SPA_URL
+// repointed but the spawned `vite --port 5173` did not follow).
+const SPA_PORT = new URL(SPA_URL).port || '5173';
+
+// ARCHISTRATOR_API_PROXY_TARGET (passed through to the spawned Vite process,
+// see ../webApp/vite.config.ts) lets a run point the SPA's /api proxy at a
+// throwaway backend instance instead of whatever dev-mode server happens to
+// already be running on the default :8888 — needed to test against a
+// specific, known-good server without disturbing an unrelated one.
+
 export default defineConfig({
   testDir: './tests',
   fullyParallel: false,
@@ -62,16 +74,20 @@ export default defineConfig({
   ...(manageSpa
     ? {
         webServer: {
-          // Boot the real SPA. It proxies /api → the Go server on :8888, which
-          // MUST already be up in dev mode (see README "Running"). We do NOT
-          // start the Go server here — it needs provisioned Postgres.
-          command: 'npm run dev -- --port 5173 --strictPort',
+          // Boot the real SPA. It proxies /api → the Go server on :8888 (or
+          // ARCHISTRATOR_API_PROXY_TARGET, when set), which MUST already be up
+          // in dev mode (see README "Running"). We do NOT start the Go server
+          // here — it needs provisioned Postgres.
+          command: `npm run dev -- --port ${SPA_PORT} --strictPort`,
           cwd: '../webApp',
           url: SPA_URL,
           timeout: 120_000,
           reuseExistingServer: !process.env.CI,
           stdout: 'pipe',
           stderr: 'pipe',
+          env: process.env.ARCHISTRATOR_API_PROXY_TARGET
+            ? { ARCHISTRATOR_API_PROXY_TARGET: process.env.ARCHISTRATOR_API_PROXY_TARGET }
+            : {},
         },
       }
     : {}),

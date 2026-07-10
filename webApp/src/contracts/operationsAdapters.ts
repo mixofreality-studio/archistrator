@@ -12,13 +12,7 @@ import type { Money, OperationsView } from './operationsTypes';
  * (operatedRuntimeAccess §3). Unknown is the NORMAL just-published transient
  * (converging), visually distinct from Degraded.
  */
-export type RuntimePhase =
-  | 'Unknown'
-  | 'Pending'
-  | 'Running'
-  | 'Degraded'
-  | 'Paused'
-  | 'Withdrawn';
+export type RuntimePhase = 'Unknown' | 'Pending' | 'Running' | 'Degraded' | 'Paused' | 'Withdrawn';
 
 const KNOWN_PHASES: ReadonlySet<string> = new Set<RuntimePhase>([
   'Unknown',
@@ -74,7 +68,13 @@ export function formatMoney(m: Money | undefined): string {
  */
 export function formatEventTime(at: string): string {
   const d = new Date(at);
-  if (Number.isNaN(d.getTime())) return at;
+  const ms = d.getTime();
+  if (Number.isNaN(ms)) return at;
+  // Go's zero time ("0001-01-01T00:00:00Z") parses to a valid but hugely negative
+  // epoch; it carries no meaning and would otherwise render as a bogus year-1 date
+  // (the same "12/31/1" class as F8). Render an em dash instead — a real event time
+  // is always after the epoch.
+  if (ms <= 0) return '—';
   return d.toLocaleString(undefined, {
     month: 'short',
     day: 'numeric',

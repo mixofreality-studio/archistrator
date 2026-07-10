@@ -17,10 +17,20 @@ export function AwaitingPanel({ title, detail }: { title: string; detail: string
   return (
     <Paper
       data-testid={UI_IDENTIFIERS.Construction.AWAITING}
-      sx={{ p: 5, textAlign: 'center', borderStyle: 'dashed', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1.25 }}
+      sx={{
+        p: 5,
+        textAlign: 'center',
+        borderStyle: 'dashed',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: 1.25,
+      }}
     >
       <HourglassEmptyIcon sx={{ fontSize: 30, color: t.muted }} />
-      <Typography sx={{ fontFamily: t.mono, color: t.ink, fontSize: 14, fontWeight: 700 }}>{title}</Typography>
+      <Typography sx={{ fontFamily: t.mono, color: t.ink, fontSize: 14, fontWeight: 700 }}>
+        {title}
+      </Typography>
       <Box sx={{ maxWidth: 560 }}>
         <Typography sx={{ color: t.muted, fontSize: 12.5, lineHeight: 1.6 }} variant="body2">
           {detail}

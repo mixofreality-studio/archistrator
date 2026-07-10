@@ -28,9 +28,17 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/system-design/get-session-state/{projectID}", h.handleGetSessionState)
 	mux.HandleFunc("GET /api/v1/system-design/list-projects", h.handleListProjects)
 	mux.HandleFunc("POST /api/v1/system-design/request-artifact-draft/{projectID}", h.handleRequestArtifactDraft)
+	mux.HandleFunc("POST /api/v1/system-design/set-operating-model/{projectID}", h.handleSetOperatingModel)
 	mux.HandleFunc("POST /api/v1/system-design/set-research-input/{projectID}", h.handleSetResearchInput)
+	mux.HandleFunc("POST /api/v1/system-design/ask-questions/{projectID}", h.handleAskQuestions)
+	mux.HandleFunc("POST /api/v1/system-design/acknowledge-stale-basis/{projectID}", h.handleAcknowledgeStaleBasis)
+	mux.HandleFunc("POST /api/v1/system-design/set-review-comment-status/{projectID}", h.handleSetReviewCommentStatus)
 	mux.HandleFunc("POST /api/v1/system-design/start-system-design/{projectID}", h.handleStartSystemDesign)
 	mux.HandleFunc("POST /api/v1/system-design/submit-review-decision/{projectID}", h.handleSubmitReviewDecision)
+}
+
+type advancePhaseRequest struct {
+	AcknowledgeStale bool `json:"acknowledgeStale"`
 }
 
 type createProjectRequest struct {
@@ -43,8 +51,29 @@ type requestArtifactDraftRequest struct {
 	Feedback *mgr.ReviewFeedback `json:"feedback"`
 }
 
+type setOperatingModelRequest struct {
+	Model mgr.OperatingModel `json:"model"`
+}
+
 type setResearchInputRequest struct {
 	Research mgr.ResearchInput `json:"research"`
+}
+
+type askQuestionsRequest struct {
+	Kind      mgr.ArtifactKind      `json:"kind"`
+	Addressee string                `json:"addressee"`
+	Questions []mgr.AnchoredComment `json:"questions"`
+}
+
+type acknowledgeStaleBasisRequest struct {
+	Kind mgr.ArtifactKind `json:"kind"`
+	Note string           `json:"note"`
+}
+
+type setReviewCommentStatusRequest struct {
+	Kind      mgr.ArtifactKind `json:"kind"`
+	CommentID string           `json:"commentID"`
+	Status    string           `json:"status"`
 }
 
 type submitReviewDecisionRequest struct {
@@ -56,6 +85,10 @@ type submitReviewDecisionRequest struct {
 // handleAdvancePhase binds POST /api/v1/system-design/advance-phase/{projectID} -> mgr.AdvancePhase.
 func (h *Handler) handleAdvancePhase(w http.ResponseWriter, r *http.Request) {
 	projectID := mgr.ProjectID(r.PathValue("projectID"))
+	var req advancePhaseRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
 	principal, ok := security.PrincipalFrom(r.Context())
 	if !ok {
 		writeError(w, http.StatusUnauthorized, "unauthenticated", "authentication required")
@@ -69,7 +102,7 @@ func (h *Handler) handleAdvancePhase(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rc := fwmanager.Context{Context: r.Context(), Principal: principal}
-	result, err := h.Manager.AdvancePhase(rc, projectID)
+	result, err := h.Manager.AdvancePhase(rc, projectID, req.AcknowledgeStale)
 	if err != nil {
 		writeManagerError(w, err)
 		return
@@ -210,6 +243,34 @@ func (h *Handler) handleRequestArtifactDraft(w http.ResponseWriter, r *http.Requ
 	writeJSON(w, http.StatusOK, result)
 }
 
+// handleSetOperatingModel binds POST /api/v1/system-design/set-operating-model/{projectID} -> mgr.SetOperatingModel.
+func (h *Handler) handleSetOperatingModel(w http.ResponseWriter, r *http.Request) {
+	projectID := mgr.ProjectID(r.PathValue("projectID"))
+	var req setOperatingModelRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	principal, ok := security.PrincipalFrom(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthenticated", "authentication required")
+		return
+	}
+	decision, err := h.Security.Authorize(r.Context(), principal,
+		security.Action{Verb: "set-operating-model"},
+		security.ResourceRef{Kind: "project", ID: string(projectID)})
+	if err != nil || !decision.Permit {
+		writeError(w, http.StatusForbidden, "forbidden", "not permitted")
+		return
+	}
+	rc := fwmanager.Context{Context: r.Context(), Principal: principal}
+	result, err := h.Manager.SetOperatingModel(rc, projectID, req.Model)
+	if err != nil {
+		writeManagerError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
 // handleSetResearchInput binds POST /api/v1/system-design/set-research-input/{projectID} -> mgr.SetResearchInput.
 func (h *Handler) handleSetResearchInput(w http.ResponseWriter, r *http.Request) {
 	projectID := mgr.ProjectID(r.PathValue("projectID"))
@@ -236,6 +297,87 @@ func (h *Handler) handleSetResearchInput(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+// handleAskQuestions binds POST /api/v1/system-design/ask-questions/{projectID} -> mgr.AskQuestions.
+func (h *Handler) handleAskQuestions(w http.ResponseWriter, r *http.Request) {
+	projectID := mgr.ProjectID(r.PathValue("projectID"))
+	var req askQuestionsRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	principal, ok := security.PrincipalFrom(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthenticated", "authentication required")
+		return
+	}
+	decision, err := h.Security.Authorize(r.Context(), principal,
+		security.Action{Verb: "ask-questions"},
+		security.ResourceRef{Kind: "project", ID: string(projectID)})
+	if err != nil || !decision.Permit {
+		writeError(w, http.StatusForbidden, "forbidden", "not permitted")
+		return
+	}
+	rc := fwmanager.Context{Context: r.Context(), Principal: principal}
+	if err := h.Manager.AskQuestions(rc, projectID, req.Kind, req.Addressee, req.Questions); err != nil {
+		writeManagerError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleAcknowledgeStaleBasis binds POST /api/v1/system-design/acknowledge-stale-basis/{projectID} -> mgr.AcknowledgeStaleBasis.
+func (h *Handler) handleAcknowledgeStaleBasis(w http.ResponseWriter, r *http.Request) {
+	projectID := mgr.ProjectID(r.PathValue("projectID"))
+	var req acknowledgeStaleBasisRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	principal, ok := security.PrincipalFrom(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthenticated", "authentication required")
+		return
+	}
+	decision, err := h.Security.Authorize(r.Context(), principal,
+		security.Action{Verb: "acknowledge-stale-basis"},
+		security.ResourceRef{Kind: "project", ID: string(projectID)})
+	if err != nil || !decision.Permit {
+		writeError(w, http.StatusForbidden, "forbidden", "not permitted")
+		return
+	}
+	rc := fwmanager.Context{Context: r.Context(), Principal: principal}
+	if err := h.Manager.AcknowledgeStaleBasis(rc, projectID, req.Kind, req.Note); err != nil {
+		writeManagerError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleSetReviewCommentStatus binds POST /api/v1/system-design/set-review-comment-status/{projectID} -> mgr.SetReviewCommentStatus.
+func (h *Handler) handleSetReviewCommentStatus(w http.ResponseWriter, r *http.Request) {
+	projectID := mgr.ProjectID(r.PathValue("projectID"))
+	var req setReviewCommentStatusRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	principal, ok := security.PrincipalFrom(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthenticated", "authentication required")
+		return
+	}
+	decision, err := h.Security.Authorize(r.Context(), principal,
+		security.Action{Verb: "set-review-comment-status"},
+		security.ResourceRef{Kind: "project", ID: string(projectID)})
+	if err != nil || !decision.Permit {
+		writeError(w, http.StatusForbidden, "forbidden", "not permitted")
+		return
+	}
+	rc := fwmanager.Context{Context: r.Context(), Principal: principal}
+	if err := h.Manager.SetReviewCommentStatus(rc, projectID, req.Kind, req.CommentID, req.Status); err != nil {
+		writeManagerError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleStartSystemDesign binds POST /api/v1/system-design/start-system-design/{projectID} -> mgr.StartSystemDesign.

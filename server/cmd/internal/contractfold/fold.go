@@ -64,7 +64,7 @@ var canonicalEntryOrder = []string{"component", "layer", "goPackage", "infra", "
 var replacedFields = map[string]bool{"title": true, "$defs": true, "interface": true}
 
 // layerTitleCase maps a schemagen/codegen interface layer key (lowercase, as
-// written by cmd/internal/codegen and read by cmd/modelgen's layerContext) to the
+// written by framework-go-app-generator/modelgen's layerContext) to the
 // capitalized Method layer name project.json's entry-level `layer` field carries
 // (e.g. "resourceaccess" -> "ResourceAccess"). Used ONLY when Fold creates a
 // brand-new entry (an existing entry's `layer` is always preserved verbatim).

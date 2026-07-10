@@ -39,6 +39,7 @@ import type {
   ProjectPhaseAdvanceResponse,
   ProjectState,
   Finding,
+  ReviewCommentView,
 } from '../contracts/types';
 
 import { useProject } from '../hooks/useProject';
@@ -46,6 +47,7 @@ import { useProjectSessionState } from '../hooks/useProjectSessionState';
 import {
   useRequestProjectArtifactDraft,
   useSubmitProjectReviewDecision,
+  useSetProjectReviewCommentStatus,
   useRequestSDPCommit,
   useSubmitSDPDecision,
   useAdvanceToConstruction,
@@ -58,6 +60,8 @@ import { GeneratingScene } from '../components/design/GeneratingScene';
 import { DraftFailedPanel } from '../components/design/DraftFailedPanel';
 import { GatePanel } from '../components/design/GatePanel';
 import { ChatRail } from '../components/design/ChatRail';
+import { CommittedArtifactPanel } from '../components/design/CommittedArtifactPanel';
+import { StaleBasisHeaderChip } from '../components/design/StaleBasisChip';
 import { StageChip } from '../components/StageChip';
 import { ProjectArtifactRenderer } from '../components/project/ProjectArtifactRenderer';
 import { CommentProvider, useComments } from '../components/comments/CommentContext';
@@ -77,12 +81,21 @@ function buildSpine(project: ProjectState | undefined): SpineStep[] {
       .filter((s) => slotStageFromOrdinal(s.stage) === 'committed')
       .map((s) => s.kind)
   );
+  const stale = new Set(
+    (project?.slots ?? []).filter((s) => s.staleBasis === true).map((s) => s.kind)
+  );
   let priorCommitted = true;
   return PHASE2_KINDS.map((kind) => {
     const isCommitted = committed.has(kind);
     const locked = !isCommitted && !priorCommitted;
     priorCommitted = isCommitted;
-    return { kind, title: METHOD_METADATA[kind].title, committed: isCommitted, locked };
+    return {
+      kind,
+      title: METHOD_METADATA[kind].title,
+      committed: isCommitted,
+      locked,
+      stale: stale.has(kind),
+    };
   });
 }
 
@@ -117,7 +130,8 @@ export function ProjectDesignScreen(): ReactNode {
 function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
   const navigate = useNavigate();
   const t = useTokens();
-  const { comments, reset, toWire, freeformNotes, requestId, setAnchor } = useComments();
+  const { comments, reset, toWire, freeformNotes, requestId, setAnchor, setActiveKey } =
+    useComments();
 
   const { data: project, isLoading: projectLoading } = useProject(projectId);
   const spine = useMemo(() => buildSpine(project), [project]);
@@ -140,6 +154,12 @@ function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
     setAnchor(null);
   }, [activeKind, setAnchor]);
 
+  // Bind the pending-comment accumulator to this (project, kind) localStorage slot
+  // so unsent notes survive a reload and swap when the architect changes steps.
+  useEffect(() => {
+    setActiveKey(`${projectId}:${activeKind}`);
+  }, [projectId, activeKind, setActiveKey]);
+
   // Chat rail open-state mirrors the Phase-1 derivation (newer anchor re-opens it).
   const [closedAt, setClosedAt] = useState<number | null>(null);
   const chatOpen = closedAt === null || requestId > closedAt;
@@ -150,15 +170,23 @@ function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
   const session = useProjectSessionState(projectId, activeKind, true);
   const requestDraft = useRequestProjectArtifactDraft(projectId);
   const submitReview = useSubmitProjectReviewDecision(projectId);
+  const setCommentStatus = useSetProjectReviewCommentStatus(projectId);
   const assembleSdp = useRequestSDPCommit(projectId);
   const submitSdp = useSubmitSDPDecision(projectId);
   const advance = useAdvanceToConstruction(projectId);
+
+  // Graceful FailedPrecondition surface: an approve that races an open thread
+  // entry fails; we refetch the thread and name the message rather than wedge.
+  // Any failed gate decision (approve / send back / withdraw) names its error here.
+  const [gateError, setGateError] = useState<string | undefined>(undefined);
 
   const sessionMissing = session.error instanceof ApiError && session.error.status === 404;
   const view = session.data?.view;
   const stage = session.data?.stage;
   const hasDraft = view?.draft.model !== undefined;
   const findings: Finding[] = view?.findings ?? [];
+  const reviewThread: ReviewCommentView[] = view?.reviewThread ?? [];
+  const openCommentCount = reviewThread.filter((c) => c.status === 'open').length;
   const generating = stage === 'drafting' || stage === 'redrafting' || stage === 'assemblingSdp';
   // Terminal failure (anti-wedge): inline worker `refused` OR the async design job
   // landed in `draftFailed`. Both surface the DraftFailedPanel; draftFailed uses the
@@ -167,13 +195,20 @@ function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
   const draftFailed = stage === 'refused' || asyncFailed;
   const committed = spine[safeIndex]?.committed === true;
   const failureReason = view?.failureReason;
-  // Committed envelope from head-state: used as read-only fallback when there is no
-  // co-author session (sessionMissing) but the slot is already committed.
-  const committedEnvelope = project?.slots.find((s) => s.kind === activeKind)?.model as unknown as
+  // Committed slot from head-state: its envelope is the read-only fallback when
+  // there is no co-author session (sessionMissing) but the slot is committed; its
+  // revisions / staleBasis drive the committed-panel header.
+  const committedSlot = project?.slots.find((s) => s.kind === activeKind);
+  const committedEnvelope = committedSlot?.model as unknown as
     | ProjectArtifactModelEnvelope
     | undefined;
+  const committedRevisions = committedSlot?.revisions;
+  const committedStale = committedSlot?.staleBasis === true;
 
   const selectStep = (i: number): void => {
+    // Clear any held gate error so a prior step's failed decision never bleeds
+    // onto the next step's gate (F79).
+    setGateError(undefined);
     setActiveIndex(i);
   };
 
@@ -193,7 +228,19 @@ function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
     requestDraft.mutate({ kind: activeKind });
   };
 
+  // Amend a committed artifact: the same RequestProjectArtifactDraft mutation
+  // carrying the composed rationale as feedback. The server opens an -amend-N
+  // session seeded into the review ledger; invalidation drops sessionMissing and
+  // the existing poll drives the generating/review loop from here.
+  const amend = (feedback: string): void => {
+    requestDraft.mutate({ kind: activeKind, feedback });
+  };
+
+  // Seed rationale for a reconcile-via-amendment fired from the header stale chip.
+  const reconcileRationale = 'Reconcile with amended upstream basis.';
+
   const approve = (): void => {
+    setGateError(undefined);
     submitReview.mutate(
       { kind: activeKind, decision: 'approve' },
       {
@@ -201,30 +248,53 @@ function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
           reset();
           setActiveIndex(Math.min(safeIndex + 1, PHASE2_KINDS.length - 1));
         },
-      }
-    );
-  };
-
-  const sendBack = (): void => {
-    const wireComments = toWire();
-    const notes = freeformNotes();
-    const feedback = notes.length > 0 ? notes : wireComments.map((c) => c.text).join('\n');
-    submitReview.mutate(
-      { kind: activeKind, decision: 'reject', feedback },
-      {
-        onSuccess: () => {
-          reset();
+        onError: (err) => {
+          setGateError(err.message);
+          void session.refetch();
         },
       }
     );
   };
 
+  const sendBack = (): void => {
+    setGateError(undefined);
+    const wireComments = toWire();
+    const notes = freeformNotes();
+    const feedback = notes.length > 0 ? notes : wireComments.map((c) => c.text).join('\n');
+    submitReview.mutate(
+      { kind: activeKind, decision: 'reject', feedback, comments: wireComments },
+      {
+        onSuccess: () => {
+          reset();
+        },
+        onError: (err) => {
+          // A failed send-back must not be invisible (F79): keep the accumulated
+          // notes (no reset), stay on the gate, and name the error inline.
+          setGateError(err.message);
+        },
+      }
+    );
+  };
+
+  const waiveComment = (commentID: string): void => {
+    setCommentStatus.mutate({ kind: activeKind, commentID, status: 'waived' });
+  };
+
+  const reopenComment = (commentID: string): void => {
+    setCommentStatus.mutate({ kind: activeKind, commentID, status: 'open' });
+  };
+
   const withdraw = (): void => {
+    setGateError(undefined);
     submitReview.mutate(
       { kind: activeKind, decision: 'withdraw' },
       {
         onSuccess: () => {
           reset();
+        },
+        onError: (err) => {
+          // A failed withdraw stays on the gate with the error named inline (F79).
+          setGateError(err.message);
         },
       }
     );
@@ -268,9 +338,13 @@ function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
       chat={
         chatOpen ? (
           <ChatRail
+            statusPending={setCommentStatus.isPending}
+            thread={reviewThread}
             onCollapse={() => {
               setChatOpen(false);
             }}
+            onReopen={reopenComment}
+            onWaive={waiveComment}
           />
         ) : undefined
       }
@@ -287,8 +361,8 @@ function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
       <Box sx={{ flexGrow: 1, minWidth: 0, overflowY: 'auto', px: { xs: 2, md: 4 }, py: 3 }}>
         {/* artifact header */}
         <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5, mb: 2 }}>
-          <Box>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+          <Box sx={{ minWidth: 0 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
               <Typography component="h1" sx={{ color: t.ink }} variant="h4">
                 {meta.title}
               </Typography>
@@ -297,6 +371,16 @@ function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
                   committed ? 'committed' : stage === 'awaitingReview' ? 'awaitingReview' : 'empty'
                 }
               />
+              {/* Staleness moved off the full-width amber banner into a compact
+                  header chip + popover (parity with the System Design shell). */}
+              {committed && committedStale ? (
+                <StaleBasisHeaderChip
+                  cause={committedSlot.staleCause}
+                  onReconcile={() => {
+                    amend(reconcileRationale);
+                  }}
+                />
+              ) : null}
             </Box>
             <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.muted, mt: 0.5 }}>
               {meta.file} · step {safeIndex + 1} of {PHASE2_KINDS.length}
@@ -316,20 +400,29 @@ function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
           activityEnvelope={activityEnvelope}
           advancePending={advance.isPending}
           advanceResult={advance.data}
+          advanceStaleError={
+            advance.error instanceof ApiError && advance.error.code === 'failed_precondition'
+              ? advance.error.message
+              : undefined
+          }
+          amendPending={requestDraft.isPending}
           asyncFailed={asyncFailed}
           beginPending={requestDraft.isPending || assembleSdp.isPending}
           blurb={meta.blurb}
           commentCount={comments.length}
           committed={committed}
           committedEnvelope={committedEnvelope}
+          committedRevisions={committedRevisions}
           decisionPending={decisionPending}
           draftFailed={draftFailed}
           failureReason={failureReason}
           findings={findings}
+          gateError={gateError}
           generating={generating}
           hasDraft={hasDraft}
           isSdpStep={isSdpStep}
           loading={session.isLoading}
+          openCommentCount={openCommentCount}
           planningAssumptionsEnvelope={planningAssumptionsEnvelope}
           retryPending={requestDraft.isPending || assembleSdp.isPending}
           sdpPending={submitSdp.isPending}
@@ -340,8 +433,12 @@ function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
           view={view}
           withdrawPending={decisionPending}
           onAdvance={() => {
-            advance.mutate(undefined);
+            advance.mutate(false);
           }}
+          onAdvanceAnyway={() => {
+            advance.mutate(true);
+          }}
+          onAmend={amend}
           onApprove={approve}
           onBegin={beginDraft}
           onRetry={retryDraft}
@@ -365,6 +462,7 @@ function ProjectStepBody({
   asyncFailed,
   committed,
   committedEnvelope,
+  committedRevisions,
   failureReason,
   hasDraft,
   sessionMissing,
@@ -376,21 +474,27 @@ function ProjectStepBody({
   planningAssumptionsEnvelope,
   findings,
   commentCount,
+  openCommentCount,
+  gateError,
   decisionPending,
   beginPending,
   retryPending,
   withdrawPending,
+  amendPending,
   sdpPending,
   advancePending,
   advanceResult,
+  advanceStaleError,
   onBegin,
   onRetry,
   onApprove,
   onSendBack,
   onWithdraw,
+  onAmend,
   onSdpCommit,
   onSdpRejectAll,
   onAdvance,
+  onAdvanceAnyway,
 }: {
   t: Tokens;
   activeKind: ProjectArtifactKind;
@@ -401,6 +505,7 @@ function ProjectStepBody({
   asyncFailed: boolean;
   committed: boolean;
   committedEnvelope: ProjectArtifactModelEnvelope | undefined;
+  committedRevisions: number | undefined;
   failureReason: string | undefined;
   hasDraft: boolean;
   sessionMissing: boolean;
@@ -412,21 +517,27 @@ function ProjectStepBody({
   planningAssumptionsEnvelope: ProjectArtifactModelEnvelope | undefined;
   findings: Finding[];
   commentCount: number;
+  openCommentCount: number;
+  gateError: string | undefined;
   decisionPending: boolean;
   beginPending: boolean;
   retryPending: boolean;
   withdrawPending: boolean;
+  amendPending: boolean;
   sdpPending: boolean;
   advancePending: boolean;
   advanceResult: ProjectPhaseAdvanceResponse | undefined;
+  advanceStaleError: string | undefined;
   onBegin: () => void;
   onRetry: () => void;
   onApprove: () => void;
   onSendBack: () => void;
   onWithdraw: () => void;
+  onAmend: (feedback: string) => void;
   onSdpCommit: (optionId: string) => void;
   onSdpRejectAll: (feedback: string) => void;
   onAdvance: () => void;
+  onAdvanceAnyway: () => void;
 }): ReactNode {
   if (draftFailed) {
     return (
@@ -442,7 +553,14 @@ function ProjectStepBody({
     );
   }
   if (generating) {
-    return <GeneratingScene artifact={title} />;
+    // A committed slot that is generating is an amendment-in-flight: frame it so the
+    // committed header + this scene read honestly (the committed revision stays current).
+    return (
+      <GeneratingScene
+        amendingRevision={committed ? (committedRevisions ?? 0) : undefined}
+        artifact={title}
+      />
+    );
   }
   // The project head-state has resolved by now (the screen renders the full-screen
   // skeleton while it is in flight), so the surrounding header/chip/spine are already
@@ -473,22 +591,36 @@ function ProjectStepBody({
             }}
           />
         </Box>
-        <AdvancePanel pending={advancePending} result={advanceResult} t={t} onAdvance={onAdvance} />
+        <AdvancePanel
+          pending={advancePending}
+          result={advanceResult}
+          staleError={advanceStaleError}
+          t={t}
+          onAdvance={onAdvance}
+          onAdvanceAnyway={onAdvanceAnyway}
+        />
       </>
     );
   }
 
   // When the session is missing (404) but the slot is committed in the project
-  // head-state, render the committed model read-only — no co-author chrome.
+  // head-state, render the committed model read-only under the committed panel
+  // (revision meta + stale-basis reconcile + Amend affordance).
   if (sessionMissing && committed && committedEnvelope !== undefined) {
     return (
-      <ProjectArtifactRenderer
-        activityEnvelope={activityEnvelope}
-        envelope={committedEnvelope}
-        kind={activeKind}
-        networkHeight={560}
-        planningAssumptionsEnvelope={planningAssumptionsEnvelope}
-      />
+      <CommittedArtifactPanel
+        amendPending={amendPending}
+        revisions={committedRevisions}
+        onAmend={onAmend}
+      >
+        <ProjectArtifactRenderer
+          activityEnvelope={activityEnvelope}
+          envelope={committedEnvelope}
+          kind={activeKind}
+          networkHeight={560}
+          planningAssumptionsEnvelope={planningAssumptionsEnvelope}
+        />
+      </CommittedArtifactPanel>
     );
   }
 
@@ -551,6 +683,8 @@ function ProjectStepBody({
         <GatePanel
           commentCount={commentCount}
           findings={findings}
+          gateError={gateError}
+          openCommentCount={openCommentCount}
           pending={decisionPending}
           onApprove={onApprove}
           onSendBack={onSendBack}
@@ -565,12 +699,16 @@ function AdvancePanel({
   t,
   pending,
   result,
+  staleError,
   onAdvance,
+  onAdvanceAnyway,
 }: {
   t: Tokens;
   pending: boolean;
   result: ProjectPhaseAdvanceResponse | undefined;
+  staleError: string | undefined;
   onAdvance: () => void;
+  onAdvanceAnyway: () => void;
 }): ReactNode {
   return (
     <Paper
@@ -600,6 +738,29 @@ function AdvancePanel({
           sx={{ textAlign: 'left', mb: 2 }}
         >
           Advanced to Construction — Phase 3 is unlocked.
+        </Alert>
+      ) : null}
+      {staleError !== undefined ? (
+        // F55: the seal is blocked because a committed slot is stale (a back-edge amendment
+        // shifted its basis). Name the stale slots and offer an explicit "advance anyway" that
+        // acknowledges and seals over them — mirroring the approve-with-pending-note confirm.
+        <Alert
+          action={
+            <Button
+              color="inherit"
+              data-testid={UI_IDENTIFIERS.ProjectDesign.ADVANCE_ANYWAY}
+              disabled={pending}
+              size="small"
+              onClick={onAdvanceAnyway}
+            >
+              Advance anyway
+            </Button>
+          }
+          data-testid={UI_IDENTIFIERS.ProjectDesign.ADVANCE_STALE_ERROR}
+          severity="error"
+          sx={{ textAlign: 'left', mb: 2 }}
+        >
+          {staleError}
         </Alert>
       ) : null}
       <Button

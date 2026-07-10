@@ -64,6 +64,11 @@ export const TESTID = {
   generatingScene: 'generating-scene',
   ciJobNotice: 'ci-job-notice',
   ciJobLink: 'ci-job-link',
+  // The full-width framing banner shown ONLY while an artifact is drafted/
+  // awaitingReview (never on a committed first paint — UX-P1-4/P2-10) and its
+  // committed-state replacement: a compact (?) info button + popover.
+  artifactIntro: 'artifact-intro',
+  artifactInfo: 'artifact-info',
   artifactRender: 'artifact-render',
   draftFailed: 'draft-failed',
   draftFailureReason: 'draft-failure-reason',
@@ -79,6 +84,18 @@ export const TESTID = {
   archViewPerspective: 'perspective',
   archDynamicPicker: 'arch-dynamic-picker',
   archPerspectivePicker: 'arch-perspective-picker',
+
+  // Core Use Cases artifact — the grouped (Core / Variations) use-case picker.
+  // Mirrors UIIdentifiers.UseCaseCarousel.PICKER.
+  useCasePicker: 'usecase-picker',
+  // Core Use Cases view-mode toggle + walkthrough controls. Mirrors
+  // UIIdentifiers.UseCaseCarousel.{VIEW_WALKTHROUGH,VIEW_DIAGRAM,WALKTHROUGH_NEXT,
+  // WALKTHROUGH_CURRENT_NODE}. The current-node id is a stable hook for asserting
+  // the per-step "you-are-here" camera focus black-box.
+  useCaseViewWalkthrough: 'usecase-view-walkthrough',
+  useCaseViewDiagram: 'usecase-view-diagram',
+  walkthroughNext: 'walkthrough-next',
+  walkthroughCurrentNode: 'walkthrough-current-node',
 
   // Deployment (operationalConcepts artifact) profile switcher — values are the
   // bare DeploymentProfile strings 'cloud' | 'local' | 'test'.
@@ -100,6 +117,10 @@ export const TESTID = {
   chatInput: 'chat-input',
   chatSend: 'chat-send',
   commentAnchor: (n: number): string => `comment-anchor-${String(n)}`,
+  // Invisible probe reflecting the currently-armed comment anchor (data-anchor-*
+  // attrs) — how a diagram-node click OR keyboard ('c'/Enter on a focused,
+  // labeled node) arming is observed black-box. Mirrors UIIdentifiers.Comments.ARMED_ANCHOR.
+  commentArmedAnchor: 'comment-armed-anchor',
 
   // GIT-FORWARD per-activity row cluster (U-SPA-GIT). The construction tracker's
   // active-activity detail renders this when the project read carries a gitRow

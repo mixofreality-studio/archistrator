@@ -71,27 +71,69 @@ func (m *systemDesignManager) CreateProject(rc fwm.Context, owner OwnerScope, na
 			Title:    name,
 		})
 		if err != nil {
-			return "", mapRAError(err)
+			return "", mapRAError(err, "sourceControlAccess.AdoptProjectRepo")
 		}
 		cred, err := m.rail.GetInstallationToken(fwra.Context{Context: ctx}, repo)
 		if err != nil {
-			return "", mapRAError(err)
+			return "", mapRAError(err, "sourceControlAccess.GetInstallationToken")
 		}
-		files, err := sourcecontrol.ManagedScaffoldFiles(repo)
+		files, err := sourcecontrol.ManagedScaffoldFiles(repo, sourcecontrol.RailAppSlug(m.rail))
 		if err != nil {
-			return "", mapRAError(err)
+			return "", mapRAError(err, "sourceControlAccess.ManagedScaffoldFiles")
 		}
 		if _, err := m.rail.CommitManagedFiles(fwra.Context{Context: ctx, IdempotencyKey: key}, repo, files, cred); err != nil {
-			return "", mapRAError(err)
+			return "", mapRAError(err, "sourceControlAccess.CommitManagedFiles")
 		}
 	}
 
 	if _, err := m.projectState.CreateProject(fwra.Context{Context: ctx, IdempotencyKey: key},
 		projectstate.ProjectID(projectID), projectstate.OwnerScope(owner), name); err != nil {
-		return "", mapRAError(err)
+		return "", mapRAError(err, "projectStateAccess.CreateProject")
 	}
 	return projectID, nil
 }
+
+// SetOperatingModel records the project-level WHO-OPERATES choice (founder ruling
+// 2026-07-05). SYNCHRONOUS, non-Temporal, mirroring SetResearchInput: a single
+// idempotent head-state write via projectStateAccess.SetOperatingModel with a bounded
+// sync optimistic-concurrency loop (re-read the head Version, re-apply on Conflict). The
+// UI/MCP calls it at creation — after CreateProject, before StartSystemDesign — to pick
+// self-operated (the default the project is born with) or archistrator-operated (which
+// constrains the deployment design to the platform palette). Returns the head Version.
+func (m *systemDesignManager) SetOperatingModel(rc fwm.Context, projectID ProjectID, model OperatingModel) (Version, error) {
+	ctx := rc.Context
+	if projectID == "" {
+		return 0, newError(fwm.ContractMisuse, "empty projectId")
+	}
+	psModel := projectstate.OperatingModel(string(model))
+	if !psModel.Valid() {
+		return 0, newError(fwm.ContractMisuse, fmt.Sprintf("unknown operating model %q", string(model)))
+	}
+
+	key := fwra.IdempotencyKey(fmt.Sprintf("%s:setOperatingModel:%s", projectID, model))
+	psID := projectstate.ProjectID(projectID)
+
+	var lastErr error
+	for attempt := 0; attempt < setOperatingModelMaxAttempts; attempt++ {
+		proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, psID)
+		if err != nil {
+			return 0, mapRAError(err, "projectStateAccess.ReadProject")
+		}
+		newVersion, err := m.projectState.SetOperatingModel(fwra.Context{Context: ctx, IdempotencyKey: key}, psID, proj.Version, psModel)
+		if err == nil {
+			return Version(newVersion), nil
+		}
+		if isRAConflict(err) {
+			lastErr = err
+			continue // re-read head Version, re-apply (same idempotencyKey)
+		}
+		return 0, mapRAError(err, "projectStateAccess.SetOperatingModel")
+	}
+	return 0, fwm.Wrap(fwm.Infrastructure, lastErr, "projectStateAccess.SetOperatingModel: exhausted conflict retries")
+}
+
+// setOperatingModelMaxAttempts bounds the sync-path re-read/re-apply loop.
+const setOperatingModelMaxAttempts = 5
 
 // createProjectIdempotencyKey derives the stable logical idempotency key for "create
 // this project". The project id IS the user-supplied repo name and unique per
@@ -110,7 +152,7 @@ func (m *systemDesignManager) ListProjects(rc fwm.Context, owner OwnerScope) ([]
 	}
 	summaries, err := m.projectState.ListProjects(fwra.Context{Context: ctx}, projectstate.OwnerScope(owner))
 	if err != nil {
-		return nil, mapRAError(err)
+		return nil, mapRAError(err, "projectStateAccess.ListProjects")
 	}
 	out := make([]ProjectSummary, 0, len(summaries))
 	for _, s := range summaries {
@@ -129,7 +171,15 @@ func (m *systemDesignManager) GetProject(rc fwm.Context, projectID ProjectID) (P
 	}
 	proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID))
 	if err != nil {
-		return ProjectState{}, mapRAError(err)
+		// A NotFound for an unknown project must NOT leak the internal git call chain
+		// (e.g. "resourceaccess: github.GitStore.clone: repository not found: repository
+		// not found: Repository not found." — the message stutters as each layer re-wraps
+		// its own "not found" text). Map it to a single, clean, project-scoped Detail;
+		// the full cause chain is preserved on Cause for the server-side log.
+		if raErr := (*fwra.Error)(nil); errors.As(err, &raErr) && raErr.Kind == fwra.NotFound {
+			return ProjectState{}, fwm.Wrap(fwm.NotFound, err, fmt.Sprintf("project %q not found", projectID))
+		}
+		return ProjectState{}, mapRAError(err, "projectStateAccess.ReadProject")
 	}
 	m.computeNetworkAtRead(&proj)
 	return m.projectStateToContract(proj), nil
@@ -139,8 +189,12 @@ func (m *systemDesignManager) GetProject(rc fwm.Context, projectID ProjectID) (P
 // Manager façade error model. fwra.NotFound → NotFound; fwra.ContractMisuse →
 // ContractMisuse; everything else (incl. Conflict — a thin read/catalog op has no
 // optimistic-concurrency loop to recover it) → Infrastructure with the original
-// retryability preserved.
-func mapRAError(err error) error {
+// retryability preserved. label identifies the ACTUAL failing dependency+op (e.g.
+// "sourceControlAccess.AdoptProjectRepo") — CreateProject fans across two RAs, so a
+// fixed label would misattribute a source-control fault to projectStateAccess. It is
+// the opaque Detail returned to the client; the full cause chain stays server-side
+// (Cause), surfaced only in the composition-root log.
+func mapRAError(err error, label string) error {
 	if err == nil {
 		return nil
 	}
@@ -154,16 +208,18 @@ func mapRAError(err error) error {
 		case fwra.Unknown, fwra.Transient, fwra.RateLimited, fwra.Infrastructure,
 			fwra.Auth, fwra.Conflict, fwra.QuotaExhausted, fwra.ContentPolicy:
 			// "Everything else... → Infrastructure" per the doc comment above.
-			mapped := fwm.Wrap(fwm.Infrastructure, err, "projectStateAccess")
+			mapped := fwm.Wrap(fwm.Infrastructure, err, label)
 			mapped.Retryable = raErr.Retryable
 			return mapped
 		default:
-			mapped := fwm.Wrap(fwm.Infrastructure, err, "projectStateAccess")
+			mapped := fwm.Wrap(fwm.Infrastructure, err, label)
 			mapped.Retryable = raErr.Retryable
 			return mapped
 		}
 	}
-	return newError(fwm.Infrastructure, err.Error())
+	// A non-fwra error (e.g. ManagedScaffoldFiles scaffold assembly) still carries
+	// its cause for the server log while keeping the client Detail opaque (label).
+	return fwm.Wrap(fwm.Infrastructure, err, label)
 }
 
 // ---------------------------------------------------------------------------
@@ -276,13 +332,31 @@ func toEstimationNetwork(net projectstate.Network) estimation.Network {
 // projectstate → contract conversions (the Manager boundary).
 // ---------------------------------------------------------------------------
 
+// phaseLabels is the SINGLE SOURCE OF TRUTH mapping the 0-indexed project
+// lifecycle Phase to its human-readable label (PM-P2-5: clients kept misreading
+// the bare int). Kept aligned with the Phase enum in contract.gen.go — 0/1/2.
+var phaseLabels = map[Phase]string{
+	PhaseSystemDesign:  "system-design",
+	PhaseProjectDesign: "project-design",
+	PhaseConstruction:  "construction",
+}
+
+// phaseName returns the human-readable label for a Phase, or "" when the phase
+// is outside the known 0/1/2 range — a map miss yields the zero value, so an
+// out-of-range Phase reads as empty rather than a fabricated label.
+func phaseName(p Phase) string {
+	return phaseLabels[p]
+}
+
 // summaryToContract maps a projectstate.ProjectSummary onto the contract ProjectSummary.
 func summaryToContract(s projectstate.ProjectSummary) ProjectSummary {
+	phase := Phase(int(s.Phase))
 	return ProjectSummary{
 		ProjectID:      ProjectID(s.ProjectID),
 		Name:           s.Name,
 		Owner:          OwnerScope(s.Owner),
-		Phase:          Phase(int(s.Phase)),
+		Phase:          phase,
+		PhaseName:      phaseName(phase),
 		CommittedCount: int64(s.CommittedCount),
 		TotalCount:     int64(s.TotalCount),
 		UpdatedAt:      s.UpdatedAt,
@@ -294,13 +368,18 @@ func summaryToContract(s projectstate.ProjectSummary) ProjectSummary {
 // composed from m.repoBase + the opaque ref, and the EV/SPI earned-value curve from
 // m.estimator) are sourced server-side here rather than re-derived by the webClient.
 func (m *systemDesignManager) projectStateToContract(p projectstate.Project) ProjectState {
+	phase := Phase(int(p.Phase))
 	return ProjectState{
-		ProjectID:            ProjectID(p.ID),
-		Name:                 p.Name,
-		Owner:                OwnerScope(p.Owner),
-		Phase:                Phase(int(p.Phase)),
-		Version:              int64(p.Version),
-		Research:             researchToContract(p.ResearchInput),
+		ProjectID: ProjectID(p.ID),
+		Name:      p.Name,
+		Owner:     OwnerScope(p.Owner),
+		Phase:     phase,
+		PhaseName: phaseName(phase),
+		Version:   int64(p.Version),
+		// OrDefault: a pre-field project (empty model) reads as self-operated on the
+		// wire — the back-compat default — so the SPA never sees an empty operating model.
+		OperatingModel:       OperatingModel(string(p.OperatingModel.OrDefault())),
+		Research:             researchToContract(p.Research),
 		Slots:                slotsToContract(p),
 		GitRows:              m.gitRowsToContract(p.ActivityGit),
 		ActivityConstruction: constructionRowsToContract(p.ActivityConstruction, activityMetaByID(p)),
@@ -379,11 +458,22 @@ func reviewPolicyToContract(p projectstate.ReviewPolicy) *ReviewPolicyView {
 	return &ReviewPolicyView{GatedPhasesByType: byType}
 }
 
-// researchToContract maps the Phase-1 research corpus.
-func researchToContract(r projectstate.ResearchInput) ResearchInput {
+// researchToContract maps the Phase-1 research corpus onto the read view. F22
+// (read-model slimming): the corpus Content — a source can be a whole 660KB book —
+// is deliberately NOT shipped on the project read. GetProject is polled at 1.5s by
+// the construction console and paid on every HomeBase/design load, yet the SPA never
+// renders corpus content; carrying it made a single read ~686KB. We keep the sources
+// array shape (title stays, so the UI can list what is loaded) but EMPTY the content
+// and surface each source's byte-size as ContentBytes so the UI can still show "N KB
+// loaded". The full corpus is read from git by the design Action, not through this
+// endpoint — see setResearchInput (write path) which is unchanged.
+func researchToContract(r projectstate.ResearchCorpus) ResearchInput {
 	sources := make([]ResearchSource, 0, len(r.Sources))
 	for _, s := range r.Sources {
-		sources = append(sources, ResearchSource{Title: s.Title, Content: s.Content})
+		// F42: the corpus is persisted as pointers now — ContentBytes comes straight off the
+		// stored pointer (no Content to measure); Content stays empty on the read model.
+		n := s.ContentBytes
+		sources = append(sources, ResearchSource{Title: s.Title, Content: "", ContentBytes: &n})
 	}
 	return ResearchInput{Sources: sources}
 }
@@ -401,6 +491,14 @@ func slotsToContract(p projectstate.Project) []ArtifactSlotView {
 			Stage: stageForStatus(slot.Status),
 			Model: encodeSlotModel(kind, slot.Model),
 			Notes: notesPtr(slot.Notes),
+			// F38: surface the staleness chip + the amendment (commit) count so the SPA can
+			// flag "basis shifted — reconcile" and show the revision. Both omitempty on the wire.
+			StaleBasis:      staleBasisPtr(slot.StaleBasis),
+			StaleBasisCause: staleBasisCauseView(slot.StaleBasisCause),
+			Revisions:       revisionsPtr(slot.Revisions),
+			// PM-P2-4: surface the committed-slot provenance (who/when/rail) under the
+			// committed strip. nil (omitempty) for uncommitted / pre-provenance slots.
+			Provenance: provenanceView(slot.Provenance),
 		})
 	}
 	return slots
@@ -426,6 +524,64 @@ func notesPtr(notes string) *string {
 	}
 	n := notes
 	return &n
+}
+
+// staleBasisPtr surfaces the F38 staleness chip only when the slot is actually stale
+// (omitempty on the wire: absent ⇒ not stale).
+func staleBasisPtr(stale bool) *bool {
+	if !stale {
+		return nil
+	}
+	b := true
+	return &b
+}
+
+// StaleCauseView is the read-model projection of projectstate.StaleCause: WHY a committed
+// slot went stale (the upstream slot kind + its new revision), so the SPA can say
+// "Volatilities rev 2 changed after this was committed". Absent when the slot is not stale
+// or went stale before the cause was recorded (no back-fill).
+type StaleCauseView struct {
+	UpstreamKind     string `json:"upstreamKind"`
+	UpstreamRevision int64  `json:"upstreamRevision"`
+}
+
+// staleBasisCauseView projects the stored stale-cause onto the read model, nil-safe
+// (omitempty on the wire: absent ⇒ not stale or cause unknown).
+func staleBasisCauseView(c *projectstate.StaleCause) *StaleCauseView {
+	if c == nil {
+		return nil
+	}
+	return &StaleCauseView{UpstreamKind: c.UpstreamKind, UpstreamRevision: c.UpstreamRevision}
+}
+
+// revisionsPtr surfaces the F38 commit/amendment count only once the slot has been
+// committed at least once (omitempty on the wire: absent ⇒ 0).
+func revisionsPtr(n int64) *int64 {
+	if n == 0 {
+		return nil
+	}
+	v := n
+	return &v
+}
+
+// ProvenanceView is the read-model projection of projectstate.Provenance (PM-P2-4): WHO
+// committed a slot / WHEN / which rail drafted it, so the SPA can render a muted
+// "committed <date> · approved by X · drafted by Y" line under the committed strip. Absent
+// (nil, omitempty on the wire) for an uncommitted slot or one committed before provenance
+// was recorded (no back-fill). Each field is independently optional.
+type ProvenanceView struct {
+	CommittedAt string `json:"committedAt,omitempty"`
+	ApprovedBy  string `json:"approvedBy,omitempty"`
+	DraftedBy   string `json:"draftedBy,omitempty"`
+}
+
+// provenanceView projects the stored commit provenance onto the read model, nil-safe
+// (omitempty on the wire: absent ⇒ not committed or provenance unknown).
+func provenanceView(p *projectstate.Provenance) *ProvenanceView {
+	if p == nil {
+		return nil
+	}
+	return &ProvenanceView{CommittedAt: p.CommittedAt, ApprovedBy: p.ApprovedBy, DraftedBy: p.DraftedBy}
 }
 
 // stageForStatus maps the stored per-slot ArtifactReviewStatus to the contract stage.

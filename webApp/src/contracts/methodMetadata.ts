@@ -3,6 +3,23 @@
  * filename The Method produces (shown as a mono sub-label), and a one-line blurb.
  * Keyed by the string ArtifactKind wire discriminator (both phases). Pure data,
  * no logic — the screens/adapters read it to build the table-of-contents.
+ *
+ * The single hand-authored source for artifact-kind display data (appgen
+ * step4-task5 consolidation): PHASE1_ORDER/PHASE2_ORDER below are the ordered
+ * kind lists (this DISPLAY order is PRODUCT DATA — it legitimately differs from
+ * the wire's ArtifactKind ordinal order, e.g. Phase-2's wire ordinals run
+ * mission..sdpReview across both phases, not per-phase from 0) and
+ * METHOD_METADATA[kind].title is the display label. types.ts used to duplicate
+ * both (PHASE1_ARTIFACTS/PHASE2_DRAFTABLE_ARTIFACTS for order,
+ * ARTIFACT_LABELS/PROJECT_ARTIFACT_LABELS for title) — deleted, since every
+ * value was either identical to what lives here or (PHASE2_DRAFTABLE_ARTIFACTS)
+ * unused. No separate numeric `order`/`phase` fields were added to
+ * MethodArtifactMeta: a kind's position in PHASE1_ORDER/PHASE2_ORDER already IS
+ * its order, and which array it appears in already IS its phase — consumers
+ * that need an ordered, phase-scoped kind list read PHASE1_ORDER/PHASE2_ORDER
+ * directly (cast to the narrower ArtifactKind/ProjectArtifactKind union, same
+ * pattern as HomeBase.tsx/ProjectDesignExperience.tsx/DesignExperience.tsx)
+ * rather than re-deriving it from per-entry fields.
  */
 import type { ArtifactKindFull } from './types';
 
@@ -84,7 +101,7 @@ export const METHOD_METADATA: Record<ArtifactKindFull, MethodArtifactMeta> = {
     kind: 'system',
     title: 'Architecture',
     file: 'architecture.dsl',
-    blurb: 'Layered decomposition + one dynamic view per core use case.',
+    blurb: 'Layered decomposition + a dynamic view for every use case.',
     hasPmCritic: false,
   },
   operationalConcepts: {

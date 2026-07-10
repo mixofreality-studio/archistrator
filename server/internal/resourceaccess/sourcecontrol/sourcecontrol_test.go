@@ -78,6 +78,7 @@ package sourcecontrol_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -481,6 +482,59 @@ func TestU13_AdoptIdempotentReadopt(t *testing.T) {
 	}
 }
 
+// TestU41_AdoptBestEffortTopicOnPermissionDenied proves the 2026-07-04 founder ruling:
+// the App is NOT required to hold `administration`, so the topic PUT can 403
+// (→ fwra.Auth) on a contents+metadata-only installation. That permission-denied MUST
+// NOT sink the adoption — the repo is reachable, so adopt SUCCEEDS (WARN-and-proceed)
+// and returns a live RepoRef. (The live failure this fixes: a valid installation +
+// reachable repo, but SetRepoTopics 403 → the whole CreateProject 503'd.)
+func TestU41_AdoptBestEffortTopicOnPermissionDenied(t *testing.T) {
+	fake := gh.Start()
+	defer fake.Close()
+	seedInstallation(fake, testAccount)
+	fake.EnableRepoCatalog()
+	// Reachable repo (GET /repos/... served from the catalog) ...
+	fake.SeedRepo(testAccount, "no-admin", "No admin perm", nil, true)
+	// ... but the topic PUT is forbidden (App lacks administration:write). A scripted
+	// route takes precedence over the stateful catalog, so this forces the 403 → Auth.
+	fake.On("PUT", "/repos/acme/no-admin/topics", gh.Response{Status: 403, Body: `{"message":"Resource not accessible by integration"}`})
+	a := newAccess(t, fake)
+
+	ref, err := a.AdoptProjectRepo(rc(context.Background()), sc.RepoAdoptionSpec{
+		RepoName: "no-admin", Account: testAccount, Title: "No Admin",
+	})
+	if err != nil {
+		t.Fatalf("permission-denied topic tagging must NOT fail adoption (best-effort); got: %v", err)
+	}
+	if sc.RepoRefIsZero(ref) {
+		t.Fatalf("expected a non-zero RepoRef even when topic tagging was skipped")
+	}
+	// The attempt was made (and degraded), not silently skipped: the PUT was issued.
+	if countRequests(fake, "PUT", "/repos/acme/no-admin/topics") != 1 {
+		t.Fatalf("adopt should still ATTEMPT the topic PUT once before degrading")
+	}
+}
+
+// TestU42_AdoptStillFailsOnTransientTopicError proves the degrade is NARROW: a
+// transient/infra failure of the topic PUT (here a 500 → fwra.Transient) is a REAL
+// outage and stays a HARD error — it is NOT masked as a best-effort skip. Only the
+// Auth (permission) kind degrades.
+func TestU42_AdoptStillFailsOnTransientTopicError(t *testing.T) {
+	fake := gh.Start()
+	defer fake.Close()
+	seedInstallation(fake, testAccount)
+	fake.EnableRepoCatalog()
+	fake.SeedRepo(testAccount, "flaky", "Flaky", nil, true)
+	// A GitHub 5xx → fwra.Transient. This must propagate, not degrade.
+	fake.On("PUT", "/repos/acme/flaky/topics", gh.Response{Status: 500, Body: `{"message":"server error"}`})
+	a := newAccess(t, fake)
+
+	_, err := a.AdoptProjectRepo(rc(context.Background()), sc.RepoAdoptionSpec{
+		RepoName: "flaky", Account: testAccount, Title: "Flaky",
+	})
+	requireKind(t, err, fwra.Transient)
+}
+
 // TestU31_AdoptSucceedsWithPreExistingAiarchTree proves permissive adopt over the
 // RESUME shape AT THE RA SEAM: a repo that already carries a committed `.aiarch/` tree
 // (a prior run's design state) ADOPTS SUCCESSFULLY — it is NOT a RepoNotEmpty hard-fail
@@ -818,6 +872,38 @@ func TestU23_PostReviewApprove(t *testing.T) {
 	}
 }
 
+// TestU23b_PostReviewSelfApprovalDegrades proves the self-+1 skip: an App-authored
+// session PR (every amendment PR) makes GitHub reject the App's own approval with a
+// 422; that is ceremonial, not fatal, so PostReview returns a no-op success — the
+// amendment approve path no longer dead-loops. The request IS attempted (the skip is
+// a degrade on the wire rejection, not a pre-emptive suppression).
+func TestU23b_PostReviewSelfApprovalDegrades(t *testing.T) {
+	fake, a, repo, cred := railFixture(t)
+	defer fake.Close()
+	fake.On("POST", "/repos/acme/my-project/pulls/42/reviews",
+		gh.Response{Status: 422, Body: `{"message":"Unprocessable Entity","errors":["Can not approve your own pull request"]}`})
+
+	if err := a.PostReview(rc(context.Background()), repo, sc.PullRequestRefFromString("42"), sc.ReviewSubmission{Verdict: sc.ReviewApprove, Body: "+1"}, cred); err != nil {
+		t.Fatalf("self-approval 422 must degrade to a no-op success, got: %v", err)
+	}
+	if countRequests(fake, "POST", "/repos/acme/my-project/pulls/42/reviews") != 1 {
+		t.Fatalf("expected exactly one review POST attempt before the degrade")
+	}
+}
+
+// TestU23c_PostReviewNonSelfRejectionStillErrors proves the skip is narrow: a
+// non-ContractMisuse rejection from the reviews endpoint (e.g. a 403 permission
+// fault → fwra.Auth) is NOT the self-approval case and must still surface as an error.
+func TestU23c_PostReviewNonSelfRejectionStillErrors(t *testing.T) {
+	fake, a, repo, cred := railFixture(t)
+	defer fake.Close()
+	fake.On("POST", "/repos/acme/my-project/pulls/42/reviews",
+		gh.Response{Status: 403, Body: `{"message":"Resource not accessible by integration"}`})
+
+	err := a.PostReview(rc(context.Background()), repo, sc.PullRequestRefFromString("42"), sc.ReviewSubmission{Verdict: sc.ReviewApprove, Body: "+1"}, cred)
+	requireKind(t, err, fwra.Auth)
+}
+
 func TestU24_MergePullRequestHappy(t *testing.T) {
 	fake, a, repo, cred := railFixture(t)
 	defer fake.Close()
@@ -919,4 +1005,120 @@ func countRequests(fake *gh.FakeGitHub, method, path string) int {
 		}
 	}
 	return n
+}
+
+// ---------------------------------------------------------------------------
+// U43–U45  managed-scaffold sync (sync-on-dispatch, 2026-07-06). The design
+// Managers converge the seated aiarch-design.yml onto the CURRENT template
+// rendering before every design-job dispatch: drift → ONE commit with the sync
+// message naming the refreshed pin; byte-identical → NO commit.
+// ---------------------------------------------------------------------------
+
+// putMessage extracts the commit "message" from the recorded contents-PUT body at path.
+func putMessage(t *testing.T, fake *gh.FakeGitHub, path string) string {
+	t.Helper()
+	for _, r := range fake.Requests() {
+		if r.Method == "PUT" && r.Path == path {
+			var body struct {
+				Message string `json:"message"`
+			}
+			if err := json.Unmarshal([]byte(r.Body), &body); err != nil {
+				t.Fatalf("decode contents PUT body: %v", err)
+			}
+			return body.Message
+		}
+	}
+	t.Fatalf("no contents PUT recorded for %s", path)
+	return ""
+}
+
+// U43: DRIFT → COMMIT. A stale seated design workflow (e.g. an old aiarch-state-mcp
+// pin) is refreshed by exactly ONE contents PUT to the default branch, the stored
+// bytes equal the CURRENT template rendering, the commit message is the SYNC message
+// (file + new pin — not the birth-seat message), and changed=true is reported. The
+// sync touches ONLY the workflow file — never go.mod (user-evolved after birth).
+func TestU43_SyncManagedScaffoldDriftCommitsRefresh(t *testing.T) {
+	fake, a, repo, cred := adoptedFixture(t, "alpha")
+	defer fake.Close()
+	fake.SeedRepoFile(testAccount, "alpha", sc.DesignWorkflowPath, []byte("stale seated workflow (old pin)"))
+
+	changed, err := sc.SyncManagedScaffold(context.Background(), a, repo, cred)
+	if err != nil {
+		t.Fatalf("SyncManagedScaffold: %v", err)
+	}
+	if !changed {
+		t.Fatal("a drifted seated workflow must report changed=true")
+	}
+	if got := countRequests(fake, "PUT", "/repos/acme/alpha/contents/"+sc.DesignWorkflowPath); got != 1 {
+		t.Fatalf("a drifted workflow must issue exactly one contents PUT, got %d", got)
+	}
+	want, err := sc.DesignWorkflowFile(testAppSlug)
+	if err != nil {
+		t.Fatalf("DesignWorkflowFile: %v", err)
+	}
+	stored, ok := fake.RepoFile(testAccount, "alpha", sc.DesignWorkflowPath)
+	if !ok || string(stored) != string(want.Content) {
+		t.Fatal("the refreshed seated workflow must equal the CURRENT template rendering")
+	}
+	msg := putMessage(t, fake, "/repos/acme/alpha/contents/"+sc.DesignWorkflowPath)
+	wantMsg := "aiarch: sync managed scaffold (aiarch-design.yml) to aiarch-state-mcp@" + sc.StateMcpModulePin
+	if msg != wantMsg {
+		t.Fatalf("sync commit message = %q, want %q", msg, wantMsg)
+	}
+	// The sync scope is the design workflow ONLY — go.mod and the method test are
+	// user-territory after birth and must never be re-seated by the sync.
+	if countRequests(fake, "PUT", "/repos/acme/alpha/contents/go.mod") != 0 ||
+		countRequests(fake, "PUT", "/repos/acme/alpha/contents/aiarch_method_test.go") != 0 {
+		t.Fatal("the sync must touch ONLY the design workflow file")
+	}
+}
+
+// U44: MATCH → NO COMMIT. A seated workflow already at the current rendering is a
+// no-op: zero contents PUTs (no empty commit), changed=false.
+func TestU44_SyncManagedScaffoldByteIdenticalNoCommit(t *testing.T) {
+	fake, a, repo, cred := adoptedFixture(t, "alpha")
+	defer fake.Close()
+	current, err := sc.DesignWorkflowFile(testAppSlug)
+	if err != nil {
+		t.Fatalf("DesignWorkflowFile: %v", err)
+	}
+	fake.SeedRepoFile(testAccount, "alpha", sc.DesignWorkflowPath, current.Content)
+
+	changed, err := sc.SyncManagedScaffold(context.Background(), a, repo, cred)
+	if err != nil {
+		t.Fatalf("SyncManagedScaffold: %v", err)
+	}
+	if changed {
+		t.Fatal("a byte-identical seated workflow must report changed=false")
+	}
+	if got := countRequests(fake, "PUT", "/repos/acme/alpha/contents/"+sc.DesignWorkflowPath); got != 0 {
+		t.Fatalf("a byte-identical seated workflow must issue NO contents PUT, got %d", got)
+	}
+}
+
+// U45: FALLBACK. A rail that lacks the auxiliary sync surface (here: the real access
+// hidden behind an interface-embedding wrapper, so the type assertion misses) still
+// CONVERGES through the frozen CommitManagedFiles verb — the refreshed bytes land —
+// but reports changed=false (the frozen verb does not report drift).
+func TestU45_SyncManagedScaffoldFallsBackToFrozenVerb(t *testing.T) {
+	fake, a, repo, cred := adoptedFixture(t, "alpha")
+	defer fake.Close()
+	fake.SeedRepoFile(testAccount, "alpha", sc.DesignWorkflowPath, []byte("stale seated workflow"))
+	wrapped := struct{ sc.SourceControlAccess }{a} // hides the auxiliary SyncManagedFiles
+
+	changed, err := sc.SyncManagedScaffold(context.Background(), wrapped, repo, cred)
+	if err != nil {
+		t.Fatalf("SyncManagedScaffold (fallback): %v", err)
+	}
+	if changed {
+		t.Fatal("the frozen-verb fallback cannot report drift; changed must be false")
+	}
+	want, err := sc.DesignWorkflowFile("") // wrapper hides AppSlug too → empty slug rendering
+	if err != nil {
+		t.Fatalf("DesignWorkflowFile: %v", err)
+	}
+	stored, ok := fake.RepoFile(testAccount, "alpha", sc.DesignWorkflowPath)
+	if !ok || string(stored) != string(want.Content) {
+		t.Fatal("the fallback must still converge the seated workflow onto the current rendering")
+	}
 }

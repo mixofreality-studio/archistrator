@@ -25,33 +25,49 @@ import (
 // The LIVE proof (real GitHub repo + real LLM) is founder-gated and out of scope;
 // this makes the WIRING bulletproof. git not on PATH skips (StartLocalGitRepo).
 
-// Test_GitE2E_UC1_DesignArtifactCommitsToGit is the deterministic UC1 proof. The
-// committed glossary cassettes converge offline (the baseline UC1 happy-path
-// reaches "committed" under strict replay), so the approve→commit leg is HARD
-// here: after approve, the artifact MUST appear as a fresh commit in the repo, with
+// Test_GitE2E_UC1_DesignArtifactCommitsToGit is the deterministic UC1 proof.
+//
+// FORMERLY designed for the retired synchronous cassette-replay co-author path
+// (RequestArtifactDraft → workerAccess draft directly, no dispatch). Since the
+// agentic pivot (D-MSD-Δ), CoAuthorArtifactWorkflow ALWAYS calls
+// DispatchDesignJobActivity -> constructionPipelineAccess.SubmitConstructionPipeline
+// — a server booted with no GitHub App env (as this test used to do) has a nil
+// pipeline RA there, so the activity panics (see the systemtests.yml workflow's
+// former "GATED TESTS" note, which skipped this exact test for that reason).
+// Rewired onto the SAME AgenticGitHub fake uc1_agentic_test.go drives (the fake
+// commits a FIXED draft onto the session branch, faking only the external
+// claude-code-action + GitHub PR seam per the test constitution) so the deterministic
+// approve→commit-lands-in-git property this test exists to prove is HARD again:
+// after approve, the artifact MUST appear as a fresh merge commit in the repo, with
 // its JSON in the committed tree.
 func Test_GitE2E_UC1_DesignArtifactCommitsToGit(t *testing.T) {
 	requireStack(t)
 	ctx := context.Background()
 
-	// Throwaway on-disk git repo for the project. The cross-project registry index repo
-	// is GONE (founder ruling 2026-06-14): the catalog is discovered by scanning the
-	// project repo, so there is no second repo. The LOCAL profile writes per-project
-	// state here.
-	projRepo := harness.StartLocalGitRepo(t, "main")
+	const account = "aiarch-test-org"
+	const kind = "volatilities" // architect-owned: no PM-critique round-trip (matches uc1_agentic_test.go)
 
-	srv := startServerWithEnv(t, true /* devAuth */, harness.GitLocalEnv(projRepo.URL()))
+	// The on-disk file:// project repo IS the server's LOCAL project-state substrate
+	// AND the repo the agentic fake commits the draft into (one repo, two readers) —
+	// the cross-project registry index repo is GONE (founder ruling 2026-06-14): the
+	// catalog is discovered by scanning the project repo, so there is no second repo.
+	projRepo := harness.StartLocalGitRepo(t, "main")
+	artRepo := harness.StartLocalGitRepo(t, "main")
+	fake := harness.StartAgenticGitHub(t, projRepo, account)
+	appKey := harness.GenerateAppKeyPEM(t)
+
+	srv := startServerWithEnv(t, true /* devAuth */, fake.Env(projRepo, artRepo, appKey))
 	tr := harness.NewHTTPTransport(srv.BaseURL())
 	t.Cleanup(func() { _ = tr.Close() })
-
-	const kind = "glossary"
 
 	// Baseline: the seeded repo has exactly one commit before any project work.
 	beforeProj := projRepo.CommitCount(ctx)
 
 	// CreateProject — births the aggregate (the repo's project.json + its existence IS
-	// the catalog entry now; no second registry write). In LOCAL git this is a real commit.
-	projectID, err := tr.CreateProject(ctx, "UC1 git e2e")
+	// the catalog entry now; no second registry write). In LOCAL git this is a real
+	// commit; in the agentic config it also adopts the repo + seats the workflow file
+	// (fake REST).
+	projectID, err := tr.CreateProject(ctx, "uc1-git-e2e-"+harness.ShortID())
 	if err != nil {
 		t.Fatalf("createProject: %v", err)
 	}
@@ -59,37 +75,50 @@ func Test_GitE2E_UC1_DesignArtifactCommitsToGit(t *testing.T) {
 		t.Fatalf("CreateProject did not commit project birth to git: count %d -> %d", beforeProj, got)
 	}
 
-	// Drive the co-author draft → human gate → approve → commit. The glossary
-	// cassettes converge offline, so the gate is reached deterministically.
+	// volatilities' Phase-1 predecessors must already be Committed — the wire surface
+	// enforces the spine ordering (checkPhase1Predecessor, STP-UC1-B1). Seed them
+	// directly rather than driving each through its own co-author round trip — this
+	// test proves the approve→commit git leg, not the whole Phase-1 sequence.
+	projRepo.SeedCommittedDesignSlots("mission", "glossary", "scrubbedRequirements")
+
+	// Request the draft: DISPATCHES an agentic job (workflow_dispatch), which commits
+	// a FIXED, deterministic draft onto the session branch — the approve→commit leg
+	// is therefore HARD here, unlike the retired offline-cassette limitation.
 	if _, err := tr.RequestArtifactDraft(ctx, projectID, kind); err != nil {
 		t.Fatalf("draft: %v", err)
 	}
 	_ = harness.WaitForStartedSession(ctx, t, tr, projectID, kind, 90*time.Second)
 	if !harness.TryReachStage(ctx, tr, projectID, kind, "awaitingReview", 2*time.Minute) {
-		t.Fatal("glossary co-author never reached the human gate under cassette replay (the cassettes are expected to converge — see Test_UC1_CoauthorGlossary_WiringHappyPath)")
+		st, _, _ := tr.GetSessionState(ctx, projectID, kind)
+		t.Fatalf("agentic draft never reached the human gate (awaitingReview); stuck at %q (fake fault: %q)", st.Stage, fake.LastFault())
 	}
 
 	beforeCommit := projRepo.CommitCount(ctx)
 
-	// Approve at the gate → CommitArtifact → projectStateAccess git push.
+	// Approve at the gate — runs the merge guard (CI green) + the App-mediated merge
+	// (fake REST) — CommitArtifact → projectStateAccess git push lands on main.
 	if err := tr.SubmitReview(ctx, projectID, kind, "approve", ""); err != nil {
 		t.Fatalf("approve: %v", err)
 	}
-	if !harness.TryReachStage(ctx, tr, projectID, kind, "committed", 30*time.Second) {
-		t.Fatal("approved at the gate but glossary never reached committed")
+	if !harness.TryReachStage(ctx, tr, projectID, kind, "committed", 60*time.Second) {
+		t.Fatalf("approved at the gate but the artifact never reached committed (fake fault: %q)", fake.LastFault())
 	}
 
-	// HARD: the commit landed as a real git commit AND the glossary JSON is in the
-	// committed tree under .aiarch/state/ — design output really is in the repo.
+	// HARD: the PR was merged, and the commit landed as a real git commit with the
+	// artifact JSON in the committed tree under .aiarch/state/ — design output really
+	// is in the repo.
+	if fake.MergeCount() < 1 {
+		t.Fatalf("approve did not merge the design PR (MergeCount=%d)", fake.MergeCount())
+	}
 	if got := projRepo.CommitCount(ctx); got <= beforeCommit {
-		t.Fatalf("approve→commit did not produce a new git commit: count %d -> %d", beforeCommit, got)
+		t.Fatalf("approve→merge→commit did not produce a new git commit: count %d -> %d", beforeCommit, got)
 	}
 	files := projRepo.ListFiles(ctx)
 	if !hasStateFile(files) {
 		t.Fatalf("committed tree has no .aiarch/state artifact file after commit; tree=%v", files)
 	}
-	t.Logf("UC1 E2E git proof: glossary committed as git commit %q; committed tree carries %d state file(s)",
-		projRepo.LastCommitMessage(ctx), countStateFiles(files))
+	t.Logf("UC1 E2E git proof: %s committed as git commit %q; committed tree carries %d state file(s)",
+		kind, projRepo.LastCommitMessage(ctx), countStateFiles(files))
 }
 
 // Test_GitE2E_UC2_ProjectBirthCommitsToGit is the UC2-side proof of the SAME

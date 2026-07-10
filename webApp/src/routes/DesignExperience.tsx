@@ -19,7 +19,8 @@
  *   • stage awaitingReview → GatePanel (Approve → auto-advance / Send back with
  *     the accumulated anchored comments / Withdraw).
  *
- * Phase-2 (`/design/project`) reuses this shell with a "coming soon" stub body.
+ * Phase-2 (`/design/project`) reuses this same shell (ExperienceChrome) through
+ * ProjectDesignExperience, wired to the real Phase-2 session/gate loop.
  */
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
@@ -28,28 +29,36 @@ import Typography from '@mui/material/Typography';
 import Chip from '@mui/material/Chip';
 import Button from '@mui/material/Button';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
+import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import { getRouteApi, useNavigate } from '@tanstack/react-router';
 
 import { ApiError } from '../contracts/errors';
-import { PHASE1_ARTIFACTS } from '../contracts/types';
 import type {
   ArtifactKind,
   ArtifactModelEnvelope,
+  ArtifactProvenance,
   Finding,
   ProjectState,
   ResearchInput,
+  ReviewCommentView,
   SessionStateResponse,
 } from '../contracts/types';
 import { slotStageFromOrdinal } from '../contracts/adapters';
-import { METHOD_METADATA } from '../contracts/methodMetadata';
+import { METHOD_METADATA, PHASE1_ORDER } from '../contracts/methodMetadata';
 
 import { useProject } from '../hooks/useProject';
 import { useSessionState } from '../hooks/useSessionState';
-import { useRequestArtifactDraft, useSubmitReviewDecision } from '../hooks/useDesignMutations';
+import {
+  useAcknowledgeStaleBasis,
+  useAskQuestions,
+  useRequestArtifactDraft,
+  useSetReviewCommentStatus,
+  useSubmitReviewDecision,
+} from '../hooks/useDesignMutations';
 import { useSetResearchInput, useStartSystemDesign } from '../hooks/useStartDesign';
 
 import { ArtifactRenderer } from '../components/ArtifactRenderer';
-import { ArtifactIntro } from '../components/design/ArtifactIntro';
+import { ArtifactIntro, ArtifactInfoButton } from '../components/design/ArtifactIntro';
 import { StageChip } from '../components/StageChip';
 import { ExperienceChrome } from '../components/design/ExperienceChrome';
 import { SlimSpine, type SpineStep } from '../components/design/SlimSpine';
@@ -58,6 +67,8 @@ import { GeneratingScene } from '../components/design/GeneratingScene';
 import { DraftFailedPanel } from '../components/design/DraftFailedPanel';
 import { GatePanel } from '../components/design/GatePanel';
 import { ChatRail } from '../components/design/ChatRail';
+import { CommittedArtifactPanel } from '../components/design/CommittedArtifactPanel';
+import { StaleBasisHeaderChip } from '../components/design/StaleBasisChip';
 import { ResearchInputPanel } from '../components/design/ResearchInputPanel';
 import { CommentProvider, useComments } from '../components/comments/CommentContext';
 
@@ -65,6 +76,9 @@ import { CommentProvider, useComments } from '../components/comments/CommentCont
 // experience; diagram kinds (volatilities/system/coreUseCases/operationalConcepts)
 // render on their own bordered canvases, so they stay unwrapped.
 const PROSE_ARTIFACT_KINDS = new Set<string>(['mission', 'scrubbedRequirements', 'standardCheck']);
+
+/** Seed rationale for a reconcile-via-amendment fired from the stale banner (F45). */
+const RECONCILE_RATIONALE = 'Reconcile with amended upstream basis.';
 
 function proseSurface(kind: string | undefined, node: ReactNode): ReactNode {
   return kind !== undefined && PROSE_ARTIFACT_KINDS.has(kind) ? (
@@ -82,6 +96,8 @@ export { ProjectDesignScreen } from './ProjectDesignExperience';
 
 const systemRouteApi = getRouteApi('/project/$projectId/design/system');
 
+const PHASE1_KINDS = PHASE1_ORDER as readonly ArtifactKind[];
+
 /** Did this request fail because a precondition (research input) is unmet? */
 function isPreconditionError(error: Error | null): boolean {
   return error instanceof ApiError && error.status === 409;
@@ -94,12 +110,21 @@ function buildSpine(project: ProjectState | undefined): SpineStep[] {
       .filter((s) => slotStageFromOrdinal(s.stage) === 'committed')
       .map((s) => s.kind)
   );
+  const stale = new Set(
+    (project?.slots ?? []).filter((s) => s.staleBasis === true).map((s) => s.kind)
+  );
   let priorCommitted = true;
-  return PHASE1_ARTIFACTS.map((kind) => {
+  return PHASE1_KINDS.map((kind) => {
     const isCommitted = committed.has(kind);
     const locked = !isCommitted && !priorCommitted;
     priorCommitted = isCommitted;
-    return { kind, title: METHOD_METADATA[kind].title, committed: isCommitted, locked };
+    return {
+      kind,
+      title: METHOD_METADATA[kind].title,
+      committed: isCommitted,
+      locked,
+      stale: stale.has(kind),
+    };
   });
 }
 
@@ -117,7 +142,17 @@ export function SystemDesignScreen(): ReactNode {
 function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
   const navigate = useNavigate();
   const t = useTokens();
-  const { comments, reset, toWire, freeformNotes, requestId, setAnchor } = useComments();
+  const {
+    comments,
+    reset,
+    toWire,
+    freeformNotes,
+    pendingQuestions,
+    clearQuestions,
+    requestId,
+    setAnchor,
+    setActiveKey,
+  } = useComments();
 
   const { data: project, isLoading: projectLoading } = useProject(projectId);
   const spine = useMemo(() => buildSpine(project), [project]);
@@ -125,8 +160,8 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
   // Default active step: first non-committed, else last.
   const firstOpen = spine.findIndex((s) => !s.committed);
   const [activeIndex, setActiveIndex] = useState(firstOpen < 0 ? spine.length - 1 : firstOpen);
-  const safeIndex = Math.min(activeIndex, PHASE1_ARTIFACTS.length - 1);
-  const activeKind: ArtifactKind = PHASE1_ARTIFACTS[safeIndex] ?? 'mission';
+  const safeIndex = Math.min(activeIndex, PHASE1_KINDS.length - 1);
+  const activeKind: ArtifactKind = PHASE1_KINDS[safeIndex] ?? 'mission';
 
   // Disarm any pending anchor when the active artifact changes, so an anchor
   // armed on one step never bleeds onto the next (it would attach a comment to a
@@ -134,6 +169,12 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
   useEffect(() => {
     setAnchor(null);
   }, [activeKind, setAnchor]);
+
+  // Bind the pending-comment accumulator to this (project, kind) localStorage slot
+  // so unsent notes survive a reload and swap when the architect changes steps.
+  useEffect(() => {
+    setActiveKey(`${projectId}:${activeKind}`);
+  }, [projectId, activeKind, setActiveKey]);
 
   // The rail auto-opens whenever the architect arms an anchor (requestId bumps).
   // We derive open-state from (requestId, manual toggles) rather than an effect:
@@ -148,17 +189,32 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
   const session = useSessionState(projectId, activeKind, true);
   const requestDraft = useRequestArtifactDraft(projectId);
   const submitReview = useSubmitReviewDecision(projectId);
+  const setCommentStatus = useSetReviewCommentStatus(projectId);
+  const askQuestionsMut = useAskQuestions(projectId);
+  const acknowledgeStale = useAcknowledgeStaleBasis(projectId);
   const startDesign = useStartSystemDesign(projectId);
   const setResearch = useSetResearchInput(projectId);
+
+  // Graceful FailedPrecondition surface: an approve that races an open thread
+  // entry fails; we refetch the thread and name the message rather than wedge.
+  // Any failed gate decision (approve / send back / withdraw) names its error here.
+  const [gateError, setGateError] = useState<string | undefined>(undefined);
 
   const sessionMissing = session.error instanceof ApiError && session.error.status === 404;
   const view = session.data?.view;
   const stage = session.data?.stage;
-  // Committed envelope from head-state: used as read-only fallback when there is no
-  // co-author session (sessionMissing) but the slot is already committed.
-  const committedEnvelope = project?.slots.find((s) => s.kind === activeKind)?.model;
+  // Committed slot from head-state: its envelope is the read-only fallback when
+  // there is no co-author session (sessionMissing) but the slot is committed; its
+  // revisions / staleBasis drive the committed-panel header.
+  const committedSlot = project?.slots.find((s) => s.kind === activeKind);
+  const committedEnvelope = committedSlot?.model;
+  const committedRevisions = committedSlot?.revisions;
+  const committedProvenance = committedSlot?.provenance;
+  const committedStale = committedSlot?.staleBasis === true;
   const hasDraft = view?.draft.model !== undefined;
   const findings: Finding[] = view?.findings ?? [];
+  const reviewThread: ReviewCommentView[] = view?.reviewThread ?? [];
+  const openCommentCount = reviewThread.filter((c) => c.status === 'open').length;
   const isFirstStep = safeIndex === 0;
   const needsResearch = isFirstStep && isPreconditionError(startDesign.error);
   const generating = stage === 'drafting' || stage === 'redrafting';
@@ -170,8 +226,12 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
   const asyncFailed = stage === 'draftFailed';
   const draftFailed = stage === 'refused' || asyncFailed;
   const failureReason = view?.failureReason;
+  const failureRunUrl = view?.failureRunUrl;
 
   const selectStep = (i: number): void => {
+    // Clear any held gate error so a prior step's failed decision never bleeds
+    // onto the next step's gate (F79).
+    setGateError(undefined);
     setActiveIndex(i);
   };
 
@@ -190,6 +250,18 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
     requestDraft.mutate({ kind: activeKind });
   };
 
+  // Amend a committed artifact: the same RequestArtifactDraft mutation, carrying
+  // the composed rationale as feedback. The server (Ruling B) opens an -amend-N
+  // session seeded into the review ledger; invalidation drops sessionMissing and
+  // the existing poll drives the generating/review loop from here.
+  const amend = (feedback: string): void => {
+    requestDraft.mutate({ kind: activeKind, feedback });
+  };
+
+  const onAcknowledgeStale = (note: string): void => {
+    acknowledgeStale.mutate({ kind: activeKind, note });
+  };
+
   const submitResearch = (research: ResearchInput): void => {
     setResearch.mutate(research, {
       onSuccess: () => {
@@ -199,20 +271,61 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
   };
 
   const approve = (): void => {
+    setGateError(undefined);
     submitReview.mutate(
       { kind: activeKind, decision: 'approve' },
       {
         onSuccess: () => {
           reset();
           // Auto-advance to the next non-committed step.
-          const next = Math.min(safeIndex + 1, PHASE1_ARTIFACTS.length - 1);
+          const next = Math.min(safeIndex + 1, PHASE1_KINDS.length - 1);
           setActiveIndex(next);
+        },
+        onError: (err) => {
+          // A FailedPrecondition (open thread entries) or any other approve fault:
+          // surface the message and refetch the thread so the gate reflects truth.
+          setGateError(err.message);
+          void session.refetch();
         },
       }
     );
   };
 
+  const waiveComment = (commentID: string): void => {
+    setCommentStatus.mutate({ kind: activeKind, commentID, status: 'waived' });
+  };
+
+  const reopenComment = (commentID: string): void => {
+    setCommentStatus.mutate({ kind: activeKind, commentID, status: 'open' });
+  };
+
+  // "Ask" — submit ONLY the pending questions, grouped by addressee, without a redraft.
+  // Change-requests stay pending for a later Send back; a successful Ask clears the
+  // questions it sent (they now live on the server review thread).
+  const askQuestions = (): void => {
+    const pending = pendingQuestions();
+    if (pending.length === 0) return;
+    const byAddressee = new Map<'pm' | 'architect', typeof pending>();
+    for (const q of pending) {
+      const key: 'pm' | 'architect' = q.addressee === 'architect' ? 'architect' : 'pm';
+      byAddressee.set(key, [...(byAddressee.get(key) ?? []), q]);
+    }
+    for (const [addressee, group] of byAddressee) {
+      askQuestionsMut.mutate({
+        kind: activeKind,
+        addressee,
+        questions: group.map((q) => ({
+          jsonPath: q.jsonPath,
+          text: q.text,
+          anchorText: q.anchorText,
+        })),
+      });
+    }
+    clearQuestions();
+  };
+
   const sendBack = (): void => {
+    setGateError(undefined);
     const wireComments = toWire();
     const notes = freeformNotes();
     // The Manager requires non-empty reject feedback; when the architect only
@@ -225,16 +338,27 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
         onSuccess: () => {
           reset();
         },
+        onError: (err) => {
+          // A failed send-back must not be invisible (F79): keep the accumulated
+          // notes (no reset), stay on the gate, and name the error inline. The
+          // mutation settles, so the buttons re-enable for a retry.
+          setGateError(err.message);
+        },
       }
     );
   };
 
   const withdraw = (): void => {
+    setGateError(undefined);
     submitReview.mutate(
       { kind: activeKind, decision: 'withdraw' },
       {
         onSuccess: () => {
           reset();
+        },
+        onError: (err) => {
+          // A failed withdraw stays on the gate with the error named inline (F79).
+          setGateError(err.message);
         },
       }
     );
@@ -242,6 +366,14 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
 
   const meta = METHOD_METADATA[activeKind];
   const decisionPending = submitReview.isPending;
+  const activeCommitted = spine[safeIndex]?.committed === true;
+  // PM-P1-2: the upstream slot that made this one stale, when the read model
+  // exposes it (forward-compatible; absent until the server populates it).
+  const committedStaleCause = committedSlot?.staleCause;
+  // PM-P1-3: how many upstream Phase-1 steps have drifted since this step. Used to
+  // caveat the Standard Check (its verdict may be invalidated by upstream changes).
+  const upstreamStaleCount = spine.slice(0, safeIndex).filter((s) => s.stale === true).length;
+  const showStandardCheckCaveat = activeKind === 'standardCheck' && upstreamStaleCount > 0;
 
   // While the project head-state is in flight we cannot yet know any step's
   // committed/locked status, the active artifact, or its stage — render the themed
@@ -252,7 +384,7 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
       <DesignExperienceSkeleton
         phaseNum={1}
         phaseTitle="System Design"
-        steps={PHASE1_ARTIFACTS.length}
+        steps={PHASE1_KINDS.length}
         onClose={() => void navigate({ to: '/project/$projectId/home', params: { projectId } })}
       />
     );
@@ -263,9 +395,15 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
       chat={
         chatOpen ? (
           <ChatRail
+            askPending={askQuestionsMut.isPending}
+            statusPending={setCommentStatus.isPending}
+            thread={reviewThread}
+            onAsk={askQuestions}
             onCollapse={() => {
               setChatOpen(false);
             }}
+            onReopen={reopenComment}
+            onWaive={waiveComment}
           />
         ) : undefined
       }
@@ -282,24 +420,56 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
       <Box sx={{ flexGrow: 1, minWidth: 0, overflowY: 'auto', px: { xs: 2, md: 4 }, py: 3 }}>
         {/* artifact header */}
         <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5, mb: 2 }}>
-          <Box>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+          <Box sx={{ minWidth: 0 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
               <Typography component="h1" sx={{ color: t.ink }} variant="h4">
                 {meta.title}
               </Typography>
               <StageChip
                 stage={
-                  spine[safeIndex]?.committed === true
+                  activeCommitted
                     ? 'committed'
                     : stage === 'awaitingReview'
                       ? 'awaitingReview'
                       : 'empty'
                 }
               />
+              {/* Committed framing copy moved off the full-width banner into a (?) info
+                  popover; staleness moved off the amber banner into a compact chip —
+                  so the first paint of a committed step is content, not banners. */}
+              {activeCommitted ? <ArtifactInfoButton kind={activeKind} /> : null}
+              {activeCommitted && committedStale ? (
+                <StaleBasisHeaderChip
+                  acknowledgePending={acknowledgeStale.isPending}
+                  cause={committedStaleCause}
+                  onAcknowledge={onAcknowledgeStale}
+                  onReconcile={() => {
+                    amend(RECONCILE_RATIONALE);
+                  }}
+                />
+              ) : null}
             </Box>
             <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.muted, mt: 0.5 }}>
-              {meta.file} · step {safeIndex + 1} of {PHASE1_ARTIFACTS.length}
+              {meta.file} · step {safeIndex + 1} of {PHASE1_KINDS.length}
             </Typography>
+            {/* PM-P1-3: a compact caveat (not a full-width banner) when the Standard
+                Check renders over drifted upstream artifacts. */}
+            {showStandardCheckCaveat ? (
+              <Chip
+                data-testid={UI_IDENTIFIERS.DesignExperience.STANDARD_CHECK_CAVEAT}
+                icon={<WarningAmberIcon sx={{ fontSize: 14 }} />}
+                label={`may be invalidated — ${String(upstreamStaleCount)} upstream artifact${upstreamStaleCount === 1 ? '' : 's'} changed since this check`}
+                size="small"
+                sx={{
+                  mt: 1,
+                  bgcolor: t.paperAlt,
+                  color: t.ink,
+                  fontWeight: 700,
+                  border: `1.5px solid ${t.bandYellow}`,
+                  '& .MuiChip-icon': { color: t.bandYellow },
+                }}
+              />
+            ) : null}
           </Box>
           <Box sx={{ flexGrow: 1 }} />
           <Chip
@@ -321,20 +491,26 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
         {/* body */}
         <StepBody
           activeKind={activeKind}
+          amendPending={requestDraft.isPending}
           asyncFailed={asyncFailed}
           beginPending={startDesign.isPending || requestDraft.isPending}
           blurb={meta.blurb}
           commentCount={comments.length}
-          committed={spine[safeIndex]?.committed === true}
+          committed={activeCommitted}
           committedEnvelope={committedEnvelope}
+          committedProvenance={committedProvenance}
+          committedRevisions={committedRevisions}
           decisionPending={decisionPending}
           draftFailed={draftFailed}
           failureReason={failureReason}
+          failureRunUrl={failureRunUrl}
           findings={findings}
+          gateError={gateError}
           generating={generating}
           hasDraft={hasDraft}
           loading={session.isLoading}
           needsResearch={needsResearch}
+          openCommentCount={openCommentCount}
           researchPending={setResearch.isPending || startDesign.isPending}
           retryPending={requestDraft.isPending}
           sessionMissing={sessionMissing}
@@ -343,6 +519,7 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
           title={meta.title}
           view={view}
           withdrawPending={decisionPending}
+          onAmend={amend}
           onApprove={approve}
           onBegin={beginOrDraft}
           onRetry={retryDraft}
@@ -360,12 +537,15 @@ function StepBody({
   activeKind,
   committed,
   committedEnvelope,
+  committedRevisions,
+  committedProvenance,
   loading,
   generating,
   needsResearch,
   draftFailed,
   asyncFailed,
   failureReason,
+  failureRunUrl,
   hasDraft,
   sessionMissing,
   stage,
@@ -374,28 +554,35 @@ function StepBody({
   view,
   findings,
   commentCount,
+  openCommentCount,
+  gateError,
   decisionPending,
   beginPending,
   researchPending,
   retryPending,
   withdrawPending,
+  amendPending,
   onBegin,
   onRetry,
   onSubmitResearch,
   onApprove,
   onSendBack,
   onWithdraw,
+  onAmend,
 }: {
   t: Tokens;
   activeKind: ArtifactKind;
   committed: boolean;
   committedEnvelope: ArtifactModelEnvelope | undefined;
+  committedRevisions: number | undefined;
+  committedProvenance: ArtifactProvenance | undefined;
   loading: boolean;
   generating: boolean;
   needsResearch: boolean;
   draftFailed: boolean;
   asyncFailed: boolean;
   failureReason: string | undefined;
+  failureRunUrl: string | undefined;
   hasDraft: boolean;
   sessionMissing: boolean;
   stage: string | undefined;
@@ -404,17 +591,21 @@ function StepBody({
   view: SessionStateResponse['view'] | undefined;
   findings: Finding[];
   commentCount: number;
+  openCommentCount: number;
+  gateError: string | undefined;
   decisionPending: boolean;
   beginPending: boolean;
   researchPending: boolean;
   retryPending: boolean;
   withdrawPending: boolean;
+  amendPending: boolean;
   onBegin: () => void;
   onRetry: () => void;
   onSubmitResearch: (research: ResearchInput) => void;
   onApprove: () => void;
   onSendBack: () => void;
   onWithdraw: () => void;
+  onAmend: (feedback: string) => void;
 }): ReactNode {
   if (needsResearch) {
     return <ResearchInputPanel pending={researchPending} onSubmit={onSubmitResearch} />;
@@ -430,6 +621,7 @@ function StepBody({
         async={asyncFailed}
         pending={retryPending}
         reason={failureReason}
+        runUrl={failureRunUrl}
         withdrawPending={withdrawPending}
         onRetry={onRetry}
         onWithdraw={asyncFailed ? onWithdraw : undefined}
@@ -437,7 +629,68 @@ function StepBody({
     );
   }
   if (generating) {
-    return <GeneratingScene artifact={title} />;
+    // A committed slot that is generating is an amendment-in-flight: frame it so the
+    // committed header + this scene read honestly (the committed revision stays current).
+    const scene = (
+      <GeneratingScene
+        amendingRevision={committed ? (committedRevisions ?? 0) : undefined}
+        artifact={title}
+      />
+    );
+    // Reviewers must be able to READ the committed revision while its amendment
+    // drafts — don't blank the pane. Render the committed model read-only (dimmed,
+    // labeled "current") above the generating scene, in a disabled comment context
+    // so it carries zero comment affordances.
+    if (committed && committedEnvelope !== undefined) {
+      const revN = committedRevisions ?? 0;
+      return (
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <Box>
+            <Box
+              data-testid={UI_IDENTIFIERS.DesignExperience.AMEND_CURRENT_LABEL}
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1,
+                px: 2,
+                py: 1,
+                bgcolor: t.committedBg,
+                border: `1.5px solid ${t.line}`,
+                borderBottom: 'none',
+              }}
+            >
+              <Typography
+                sx={{
+                  fontFamily: t.mono,
+                  fontWeight: 700,
+                  fontSize: 12,
+                  letterSpacing: '0.08em',
+                  color: t.committedFg,
+                }}
+              >
+                COMMITTED{revN > 1 ? ` · revision ${String(revN)}` : ''} — current
+              </Typography>
+              <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted }}>
+                stays live until the amendment is approved
+              </Typography>
+            </Box>
+            <Box
+              aria-hidden
+              sx={{ opacity: 0.6, pointerEvents: 'none', border: `1.5px solid ${t.line}`, p: 1 }}
+            >
+              <CommentProvider enabled={false}>
+                {proseSurface(
+                  committedEnvelope.kind,
+                  <ArtifactRenderer envelope={committedEnvelope} height={480} title={title} />
+                )}
+              </CommentProvider>
+            </Box>
+          </Box>
+          {scene}
+        </Box>
+      );
+    }
+    return scene;
   }
   // The project head-state has resolved by now (the screen renders the full-screen
   // skeleton while it is in flight), so the surrounding header/chip/spine are already
@@ -447,11 +700,21 @@ function StepBody({
     return <SkeletonContentCard t={t} />;
   }
   // When the session is missing (404) but the slot is committed in the project
-  // head-state, render the committed model read-only — no co-author chrome.
+  // head-state, render the committed model read-only under the committed panel
+  // (revision meta + stale-basis reconcile + Amend affordance).
   if (sessionMissing && committed && committedEnvelope !== undefined) {
-    return proseSurface(
-      committedEnvelope.kind,
-      <ArtifactRenderer envelope={committedEnvelope} height={620} title={title} />
+    return (
+      <CommittedArtifactPanel
+        amendPending={amendPending}
+        provenance={committedProvenance}
+        revisions={committedRevisions}
+        onAmend={onAmend}
+      >
+        {proseSurface(
+          committedEnvelope.kind,
+          <ArtifactRenderer envelope={committedEnvelope} height={620} title={title} />
+        )}
+      </CommittedArtifactPanel>
     );
   }
 
@@ -480,7 +743,10 @@ function StepBody({
   const gateOpen = stage === 'awaitingReview';
   return (
     <>
-      <ArtifactIntro committed={committed} kind={activeKind} />
+      {/* Draft framing stays as an inline note; the committed framing moved to the
+          header (?) info popover and staleness to the header chip, so a committed
+          step's first paint is content, not banners (UX-P1-4/P2-10/R7). */}
+      {committed ? null : <ArtifactIntro committed={false} kind={activeKind} />}
       <Box sx={{ mb: gateOpen ? 3 : 0 }}>
         {proseSurface(
           view?.draft.kind ?? activeKind,
@@ -491,6 +757,8 @@ function StepBody({
         <GatePanel
           commentCount={commentCount}
           findings={findings}
+          gateError={gateError}
+          openCommentCount={openCommentCount}
           pending={decisionPending}
           onApprove={onApprove}
           onSendBack={onSendBack}

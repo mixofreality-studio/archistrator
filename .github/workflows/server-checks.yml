@@ -54,3 +54,20 @@ jobs:
 
       - name: Test (container-free)
         run: GOWORK=off make test-short
+
+      # Drift gate for the generated Temporal layer (cmd/appgen, driving
+      # framework-go-app-generator/temporalgen). Release-backed pins make this
+      # GOWORK=off-safe — no go.work or ../archistrator-platform checkout needed.
+      - name: Generated Temporal layer drift check
+        run: make gen-temporal-check
+
+      # Drift gate for the generated model/interface layer (cmd/modelgen,
+      # driving framework-go-app-generator/modelgen). Same GOWORK=off-safe shape.
+      - name: Generated model layer drift check
+        run: make gen-models-check
+
+      # Drift gate for the generated CLIENT layer + merged OAS (cmd/clientgen,
+      # driving framework-go-http-generator + framework-go-mcp-generator). Same
+      # GOWORK=off-safe shape.
+      - name: Generated client layer drift check
+        run: make gen-client-check

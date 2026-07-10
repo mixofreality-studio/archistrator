@@ -1,55 +1,132 @@
 /**
- * Wire → app mapping at the generated-client boundary.
+ * Wire ↔ app mapping at the generated-client boundary.
  *
  * The openapi-fetch client returns the generated (per-manager namespaced,
  * PascalCase, integer-enum) wire types. Every API hook funnels its decoded `data`
- * through these pure mappers to produce the SPA's stable app view types (camelCase,
- * lowerCamel string enums). Opaque `model` payloads are decoded through `unknown`
- * into the ./models decode types — the OAS leaves them untyped by design.
+ * through the "wire → app" mappers below to produce the SPA's stable app view
+ * types (camelCase, lowerCamel string enums). The `{kind, model}` draft envelope
+ * IS now typed on the wire (schema.ts's oneOf over the generated `Model*` shapes,
+ * appgen step-4 RC1) — mapEnvelope/mapProjectEnvelope still take it in through a
+ * structural `{kind: string; model?: unknown}` shape rather than the exact
+ * generated union because the SAME two mappers serve several distinct generated
+ * envelope schemas (session draft, slot view, …) whose `model` oneOf members
+ * differ slightly; the single `as` cast at the end is the one place that trusts
+ * the server's kind/model pairing (see the mapper bodies for why a kind-keyed
+ * switch there wouldn't add real safety). The "app → wire" section at the bottom
+ * holds the reverse ordinal encoders write-path hooks use to build request bodies.
+ *
+ * Every ordinal ↔ app-string table below is sourced from the generated
+ * enums.gen.ts (derived from the OAS's x-enum-varnames) for the enums where that
+ * derivation is mechanical. The 7 enums where it is NOT mechanical (a casing
+ * convention or a deliberate product-decision collapse — see the per-block
+ * comments there) instead come from src/contracts/enumMappings.ts, a thin hand
+ * mapping layer keyed by the SAME generated varname union, so a Go const rename
+ * still breaks tsc here rather than drifting silently.
  */
 import type { components } from './schema';
 import {
-  systemArtifactKindFromOrdinal,
-  projectArtifactKindFromOrdinal,
-  sessionStageFromOrdinal,
-  projectSessionStageFromOrdinal,
-  projectPhaseFromOrdinal,
-  constructionStageFromOrdinal,
-  pipelinePhaseFromOrdinal,
-  ciStatusFromOrdinal,
-  activityRowKindFromOrdinal,
-  testingVariantFromOrdinal,
+  ACTIVITY_TYPE_ORDINAL_TO_APP,
+  ARTIFACT_KIND_APP_TO_ORDINAL,
+  ARTIFACT_KIND_ORDINAL_TO_APP,
+  AUTOSCALE_ACTION_ORDINAL_TO_APP,
+  CONSTRUCTION_STAGE_ORDINAL_TO_APP,
+  DESIRED_STATE_REASON_APP_TO_ORDINAL,
+  OVERRIDE_KIND_APP_TO_ORDINAL,
+  PATCH_KIND_APP_TO_ORDINAL,
+  PHASE_DECISION_APP_TO_ORDINAL,
+  PROJECT_PHASE_ORDINAL_TO_APP,
+  REVIEW_DECISION_APP_TO_ORDINAL,
+  SDP_DECISION_APP_TO_ORDINAL,
+  SESSION_STAGE_ORDINAL_TO_APP,
+} from './enums.gen';
+import {
   buildStatusRowFromOrdinal,
+  ciStatusFromOrdinal,
+  pipelinePhaseFromOrdinal,
+  projectSessionStageFromOrdinal,
   runtimePhaseFromOrdinal,
   autoscalerModeFromOrdinal,
-  autoscaleActionFromOrdinal,
-} from './enums';
+  testingVariantFromOrdinal,
+} from './enumMappings';
 import type {
+  ArtifactKind,
   ArtifactKindFull,
   ArtifactSlotView,
   ConstructionProgress,
   ConstructionRow,
   ConstructionSessionState,
+  ConstructionStage,
   EvPoint,
   Finding,
   GitRow,
   GitRows,
+  OverrideKind,
+  PhaseDecision,
   ProducedArtifactRow,
   ProjectArtifactKind,
+  ProjectPhase,
   ProjectSessionState,
   ProjectState,
   ProjectStateWithGit,
   ProjectSummary,
   ResearchInput,
+  ReviewCommentAddressee,
+  ReviewCommentStatus,
+  ReviewCommentType,
+  ReviewCommentView,
+  ReviewDecision,
+  SDPDecision,
+  SessionStage,
   ServiceContract,
   ServiceContracts,
   SessionStateResponse,
   ConstructionRows,
 } from './types';
-import type { ArtifactModelEnvelope, Money, ProjectArtifactModelEnvelope } from './models';
+import type { ArtifactModelEnvelope, Money, ProjectArtifactModelEnvelope } from './types';
 import type { CostProjection, OperationsView } from './operationsTypes';
 
 type Schemas = components['schemas'];
+
+// --- wire → app: ordinal readers (mechanical — sourced from enums.gen.ts) ---
+
+/** ArtifactKind ordinal (0..16), shared Phase-1 + Phase-2 ordering. */
+function artifactKindFullFromOrdinal(ordinal: number): ArtifactKindFull {
+  return ARTIFACT_KIND_ORDINAL_TO_APP[ordinal] ?? 'mission';
+}
+
+/** Phase-1 narrowing — the same table, typed back to the Phase-1 union. */
+export function systemArtifactKindFromOrdinal(ordinal: number): ArtifactKind {
+  return artifactKindFullFromOrdinal(ordinal) as ArtifactKind;
+}
+
+/** Phase-2 narrowing — the same table, typed back to the Phase-2 union. */
+export function projectArtifactKindFromOrdinal(ordinal: number): ProjectArtifactKind {
+  return artifactKindFullFromOrdinal(ordinal) as ProjectArtifactKind;
+}
+
+function sessionStageFromOrdinal(ordinal: number): SessionStage {
+  return SESSION_STAGE_ORDINAL_TO_APP[ordinal] ?? 'unknown';
+}
+
+function projectPhaseFromOrdinal(ordinal: number): ProjectPhase {
+  return PROJECT_PHASE_ORDINAL_TO_APP[ordinal] ?? 'unknown';
+}
+
+function constructionStageFromOrdinal(ordinal: number): ConstructionStage {
+  return CONSTRUCTION_STAGE_ORDINAL_TO_APP[ordinal] ?? 'unknown';
+}
+
+/** ProjectActivityType (0 service,1 frontend,2 testing,3 deployment,4 documentation). */
+function activityRowKindFromOrdinal(
+  ordinal: number
+): 'service' | 'frontend' | 'testing' | 'deployment' | 'documentation' {
+  return ACTIVITY_TYPE_ORDINAL_TO_APP[ordinal] ?? 'service';
+}
+
+/** OperationsAutoscaleAction (0 noChange,1 scaleUp,2 scaleDown,3 pause,4 resume). */
+function autoscaleActionFromOrdinal(ordinal: number): string {
+  return AUTOSCALE_ACTION_ORDINAL_TO_APP[ordinal] ?? 'noChange';
+}
 
 // --- shared -----------------------------------------------------------------
 
@@ -68,7 +145,55 @@ function mapFinding(w: Schemas['SystemDesignFinding'] | Schemas['ProjectDesignFi
   };
 }
 
-/** Decode the opaque {kind, model} envelope into the typed Phase-1+2 envelope. */
+/** Normalize a wire review-status string into the app union (unknown → 'open'). */
+function reviewStatus(s: string): ReviewCommentStatus {
+  return s === 'addressed' || s === 'waived' ? s : 'open';
+}
+
+/** Normalize the wire comment type (empty/legacy → 'changeRequest'). */
+function reviewType(s: string): ReviewCommentType {
+  return s === 'question' ? 'question' : 'changeRequest';
+}
+
+/** Normalize the wire addressee (only meaningful for questions). */
+function reviewAddressee(s: string): ReviewCommentAddressee {
+  return s === 'pm' || s === 'architect' ? s : '';
+}
+
+/** One durable review-ledger entry. The two manager shapes are structurally identical. */
+function mapReviewComment(
+  w: Schemas['SystemDesignReviewCommentView'] | Schemas['ProjectDesignReviewCommentView']
+): ReviewCommentView {
+  return {
+    id: w.id,
+    anchor: w.anchor,
+    anchorText: w.anchorText,
+    text: w.text,
+    authorRole: w.authorRole,
+    round: w.round,
+    status: reviewStatus(w.status),
+    response: w.response,
+    type: reviewType(w.type),
+    addressee: reviewAddressee(w.addressee),
+  };
+}
+
+/**
+ * Decode the {kind, model} envelope into the typed Phase-1+2 envelope.
+ *
+ * Both casts here are the honest boundary casts, kept deliberately (step4-task4
+ * review): `kind` is a plain wire string the server derives from the closed
+ * ArtifactKind enum, and `model` is already the generated oneOf union of every
+ * `Model*` shape (schema.ts) — but neither is narrowable to the EXACT pairing
+ * (kind='mission' implies model:MissionStatement) without a runtime validator,
+ * because the wire type only says "one of the 14", not "this one because of
+ * that". A 14-branch kind-keyed switch here would just re-state the same
+ * trust-the-server assumption one level down (each branch would still need its
+ * own cast) without adding a real runtime check, so it was rejected as churn.
+ * Every real consumer narrows again on `kind` at the point of use (see
+ * adapters.ts `narrow`), which is where a mismatched pairing would actually
+ * surface as a wrong-shaped read.
+ */
 function mapEnvelope(w: { kind: string; model?: unknown }): ArtifactModelEnvelope {
   const env: ArtifactModelEnvelope = { kind: w.kind as ArtifactKindFull };
   if (w.model !== undefined && w.model !== null) {
@@ -77,7 +202,8 @@ function mapEnvelope(w: { kind: string; model?: unknown }): ArtifactModelEnvelop
   return env;
 }
 
-/** Decode the opaque {kind, model} envelope into the typed Phase-2 envelope. */
+/** Decode the {kind, model} envelope into the typed Phase-2 envelope — same honest
+ *  boundary casts as {@link mapEnvelope}, narrowed to the Phase-2 kind/model unions. */
 function mapProjectEnvelope(w: { kind: string; model?: unknown }): ProjectArtifactModelEnvelope {
   const env: ProjectArtifactModelEnvelope = { kind: w.kind as ProjectArtifactKind };
   if (w.model !== undefined && w.model !== null) {
@@ -105,11 +231,49 @@ function mapResearchInput(w: Schemas['SystemDesignResearchInput']): ResearchInpu
 }
 
 function mapSlot(w: Schemas['SystemDesignArtifactSlotView']): ArtifactSlotView {
+  // PM-P1-2: the server records why a committed slot went stale as
+  // `staleBasisCause: {upstreamKind, upstreamRevision}` (omitempty — absent when
+  // not stale or when the slot went stale before cause recording existed).
+  // Compose the operator-facing string here; absent cause falls back to the
+  // popover's generic copy.
+  const rawCause = (
+    w as { staleBasisCause?: { upstreamKind?: unknown; upstreamRevision?: unknown } }
+  ).staleBasisCause;
+  const staleCause =
+    rawCause && typeof rawCause.upstreamKind === 'string' && rawCause.upstreamKind.length > 0
+      ? typeof rawCause.upstreamRevision === 'number'
+        ? `${rawCause.upstreamKind} (rev ${String(rawCause.upstreamRevision)})`
+        : rawCause.upstreamKind
+      : undefined;
+  // PM-P2-4: the server records commit provenance as
+  // `provenance: {committedAt, approvedBy, draftedBy}` (each field omitempty; the whole
+  // object absent on never-committed / pre-provenance slots).
+  const rawProv = (
+    w as { provenance?: { committedAt?: unknown; approvedBy?: unknown; draftedBy?: unknown } }
+  ).provenance;
+  const provenance = rawProv
+    ? {
+        ...(typeof rawProv.committedAt === 'string' && rawProv.committedAt.length > 0
+          ? { committedAt: rawProv.committedAt }
+          : {}),
+        ...(typeof rawProv.approvedBy === 'string' && rawProv.approvedBy.length > 0
+          ? { approvedBy: rawProv.approvedBy }
+          : {}),
+        ...(typeof rawProv.draftedBy === 'string' && rawProv.draftedBy.length > 0
+          ? { draftedBy: rawProv.draftedBy }
+          : {}),
+      }
+    : undefined;
   return {
+    // Same honest boundary cast as mapEnvelope's `kind` — see its doc comment.
     kind: w.kind as ArtifactKindFull,
     stage: w.stage,
     model: mapEnvelope(w.model),
     ...(w.notes !== undefined && w.notes !== null ? { notes: w.notes } : {}),
+    ...(w.revisions !== undefined ? { revisions: w.revisions } : {}),
+    ...(w.staleBasis === true ? { staleBasis: true } : {}),
+    ...(typeof staleCause === 'string' && staleCause.length > 0 ? { staleCause } : {}),
+    ...(provenance && Object.keys(provenance).length > 0 ? { provenance } : {}),
   };
 }
 
@@ -172,7 +336,11 @@ function mapServiceContract(w: Schemas['SystemDesignServiceContract']): ServiceC
               ? {
                   inputs: o.Inputs.map((s) => ({
                     name: s.Name,
-                    fields: (s.Fields ?? []).map((f) => ({ name: f.Name, type: f.Type, note: f.Note })),
+                    fields: (s.Fields ?? []).map((f) => ({
+                      name: f.Name,
+                      type: f.Type,
+                      note: f.Note,
+                    })),
                   })),
                 }
               : {}),
@@ -180,7 +348,11 @@ function mapServiceContract(w: Schemas['SystemDesignServiceContract']): ServiceC
               ? {
                   outputs: o.Outputs.map((s) => ({
                     name: s.Name,
-                    fields: (s.Fields ?? []).map((f) => ({ name: f.Name, type: f.Type, note: f.Note })),
+                    fields: (s.Fields ?? []).map((f) => ({
+                      name: f.Name,
+                      type: f.Type,
+                      note: f.Note,
+                    })),
                   })),
                 }
               : {}),
@@ -227,9 +399,7 @@ function mapConstructionProgress(
       planned: w.EV.planned ?? [],
       spi: w.EV.spi,
     },
-    ...(points !== undefined && points.length > 0
-      ? { points: points.map(mapEvPoint) }
-      : {}),
+    ...(points !== undefined && points.length > 0 ? { points: points.map(mapEvPoint) } : {}),
   };
 }
 
@@ -257,9 +427,10 @@ export function mapProjectState(w: Schemas['SystemDesignProjectState']): Project
     research: mapResearchInput(w.Research),
     slots: (w.Slots ?? []).map(mapSlot),
   };
-  const gitRows = mapRecord<Schemas['SystemDesignActivityGitStatus'], GitRow>(w.GitRows, mapGitRow) as
-    | GitRows
-    | undefined;
+  const gitRows = mapRecord<Schemas['SystemDesignActivityGitStatus'], GitRow>(
+    w.GitRows,
+    mapGitRow
+  ) as GitRows | undefined;
   const constructionRows = mapRecord<
     Schemas['SystemDesignActivityConstructionStatus'],
     ConstructionRow
@@ -300,6 +471,12 @@ export function mapSessionState(w: Schemas['SystemDesignSessionStateView']): Ses
       ...(w.failureReason !== undefined && w.failureReason !== null
         ? { failureReason: w.failureReason }
         : {}),
+      ...(w.failureRunUrl !== undefined && w.failureRunUrl !== null
+        ? { failureRunUrl: w.failureRunUrl }
+        : {}),
+      ...(w.reviewThread !== undefined && w.reviewThread !== null
+        ? { reviewThread: w.reviewThread.map(mapReviewComment) }
+        : {}),
     },
   };
 }
@@ -324,6 +501,9 @@ export function mapProjectSessionState(
         : {}),
       ...(w.failureReason !== undefined && w.failureReason !== null
         ? { failureReason: w.failureReason }
+        : {}),
+      ...(w.reviewThread !== undefined && w.reviewThread !== null
+        ? { reviewThread: w.reviewThread.map(mapReviewComment) }
         : {}),
     },
   };
@@ -379,9 +559,7 @@ export function mapConstructionSession(
 
 // --- operations ------------------------------------------------------------
 
-export function mapOperationsView(
-  w: Schemas['OperationsOperatedSystemView']
-): OperationsView {
+export function mapOperationsView(w: Schemas['OperationsOperatedSystemView']): OperationsView {
   return {
     operatedAppId: w.OperatedAppID,
     phase: runtimePhaseFromOrdinal(w.Phase),
@@ -436,3 +614,41 @@ export function mapCostProjection(
 export function toResearchInputWire(app: ResearchInput): Schemas['SystemDesignResearchInput'] {
   return { sources: app.sources.map((s) => ({ title: s.title, content: s.content })) };
 }
+
+// --- app → wire: ordinal encoders (mechanical — sourced from enums.gen.ts) --
+
+export function artifactKindToOrdinal(kind: ArtifactKindFull): Schemas['SystemDesignArtifactKind'] {
+  return ARTIFACT_KIND_APP_TO_ORDINAL[kind] as Schemas['SystemDesignArtifactKind'];
+}
+
+export function reviewDecisionToOrdinal(
+  decision: ReviewDecision
+): Schemas['SystemDesignReviewDecision'] {
+  return REVIEW_DECISION_APP_TO_ORDINAL[decision] as Schemas['SystemDesignReviewDecision'];
+}
+
+export function sdpDecisionToOrdinal(decision: SDPDecision): Schemas['ProjectDesignSDPDecision'] {
+  return SDP_DECISION_APP_TO_ORDINAL[decision] as Schemas['ProjectDesignSDPDecision'];
+}
+
+export function overrideKindToOrdinal(kind: OverrideKind): Schemas['ConstructionOverrideKind'] {
+  return OVERRIDE_KIND_APP_TO_ORDINAL[kind] as Schemas['ConstructionOverrideKind'];
+}
+
+export function phaseDecisionToOrdinal(
+  decision: PhaseDecision
+): Schemas['ConstructionPhaseDecision'] {
+  return PHASE_DECISION_APP_TO_ORDINAL[decision] as Schemas['ConstructionPhaseDecision'];
+}
+
+/** OperationsDesiredStateReason ordinals. */
+export const REASON_DEPLOY_AFTER_CONSTRUCTION =
+  DESIRED_STATE_REASON_APP_TO_ORDINAL.deployAfterConstruction as Schemas['OperationsDesiredStateReason'];
+export const REASON_OPERATOR =
+  DESIRED_STATE_REASON_APP_TO_ORDINAL.operator as Schemas['OperationsDesiredStateReason'];
+
+/** OperationsPatchKind ordinals. */
+export const PATCH_FULL_BUNDLE =
+  PATCH_KIND_APP_TO_ORDINAL.fullBundle as Schemas['OperationsPatchKind'];
+export const PATCH_SCALE = PATCH_KIND_APP_TO_ORDINAL.scale as Schemas['OperationsPatchKind'];
+export const PATCH_POLICY = PATCH_KIND_APP_TO_ORDINAL.policy as Schemas['OperationsPatchKind'];

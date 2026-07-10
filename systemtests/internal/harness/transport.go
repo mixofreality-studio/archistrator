@@ -35,6 +35,20 @@ type SessionState struct {
 	ProjectID    string
 	ArtifactKind string
 	Stage        string
+	// FailureReason is set only when Stage == "draftFailed" — the human-readable
+	// "why" (e.g. a read-back state-validation rejection, a terminal job failure).
+	// "" otherwise.
+	FailureReason string
+}
+
+// ProjectSummary is the transport-agnostic projection of one ListProjects row —
+// only the fields the wire tests assert on (stored owner + human-readable phase
+// label, PM-P2-5/PM-P2-6).
+type ProjectSummary struct {
+	ProjectID string
+	Name      string
+	Owner     string
+	PhaseName string
 }
 
 // ConstructionSessionState is the transport-agnostic projection of constructionManager's
@@ -81,6 +95,12 @@ type Transport interface {
 	// assigned projectId. Projects are no longer born implicitly on first phase
 	// touch — a UC must create one before driving its phases.
 	CreateProject(ctx context.Context, name string) (projectID string, err error)
+
+	// ListProjects lists every project visible to owner, most-recently-updated
+	// first — each summary carries the project's CANONICAL STORED owner (not
+	// necessarily the enumeration scope echoed back — PM-P2-6) and its
+	// human-readable PhaseName ("system-design"|"project-design"|"construction").
+	ListProjects(ctx context.Context, owner string) ([]ProjectSummary, error)
 
 	SetResearchInput(ctx context.Context, projectID string, sources []ResearchSource) error
 	StartDesign(ctx context.Context, projectID string) (sessionRef string, err error)

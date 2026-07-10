@@ -11,7 +11,7 @@ import { StatTile } from '../primitives/StatTile';
 const scenarioGreen = (s: TestScenarioView): boolean =>
   (s.cases ?? []).length > 0 &&
   (s.cases ?? []).every(
-    (c) => (c.steps ?? []).length > 0 && (c.steps ?? []).every((st) => st.status === 'green'),
+    (c) => (c.steps ?? []).length > 0 && (c.steps ?? []).every((st) => st.status === 'green')
   );
 
 /**
@@ -29,8 +29,8 @@ export function SystemTestRunView({ project, t }: ArtifactRendererProps): ReactN
         data-testid={UI_IDENTIFIERS.Construction.SYSTEM_TEST_VIEW}
         sx={{ color: t.muted, fontSize: 12.5 }}
       >
-        No system-test plan to run yet. Once N-STP authors the black-box scenarios, this activity runs them
-        against the integrated system and turns each from red to green.
+        No system-test plan to run yet. Once N-STP authors the black-box scenarios, this activity
+        runs them against the integrated system and turns each from red to green.
       </Typography>
     );
   }
@@ -42,7 +42,15 @@ export function SystemTestRunView({ project, t }: ArtifactRendererProps): ReactN
       data-testid={UI_IDENTIFIERS.Construction.SYSTEM_TEST_VIEW}
       sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, minWidth: 0 }}
     >
-      <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 11, letterSpacing: '0.06em', color: t.ink }}>
+      <Typography
+        sx={{
+          fontFamily: t.mono,
+          fontWeight: 700,
+          fontSize: 11,
+          letterSpacing: '0.06em',
+          color: t.ink,
+        }}
+      >
         SYSTEM TESTING · first run against the real build
       </Typography>
       <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
@@ -61,7 +69,8 @@ export function SystemTestRunView({ project, t }: ArtifactRendererProps): ReactN
             label={scenarioGreen(s) ? 'green' : 'failing'}
             size="small"
             sx={{
-              height: 18, fontSize: 8.5,
+              height: 18,
+              fontSize: 8.5,
               bgcolor: scenarioGreen(s) ? t.committedBg : t.paperAlt,
               color: scenarioGreen(s) ? t.committedFg : t.dangerFg,
               border: `1px solid ${scenarioGreen(s) ? t.committedDot : t.dangerFg}`,

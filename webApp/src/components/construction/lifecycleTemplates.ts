@@ -40,14 +40,54 @@ export interface PhaseState extends PhaseTemplate {
 // ---------------------------------------------------------------------------
 
 export const SERVICE_PHASES: readonly PhaseTemplate[] = [
-  { id: 'svc-srs',         name: 'SRS',                  exitCriterion: 'Architect has reviewed the service requirement spec',              weight: 8  },
-  { id: 'svc-stp',         name: 'System-test-plan slice',exitCriterion: 'The service\'s slice of the System Test Plan is written',          weight: 7  },
-  { id: 'svc-dd',          name: 'Detailed design',       exitCriterion: 'Detailed design (after exploratory construction) approved',        weight: 18 },
-  { id: 'svc-contract',    name: 'Service contract',      exitCriterion: 'App-B contract FROZEN by the senior reviewer',                    weight: 12 },
-  { id: 'svc-build',       name: 'Construction',          exitCriterion: 'Code complete + white-box test client passes',                    weight: 33 },
-  { id: 'svc-review',      name: 'Code review',           exitCriterion: 'reviewEngine reviewer set all PASS',                              weight: 8  },
-  { id: 'svc-integration', name: 'Integration',           exitCriterion: 'Wired into the closed-layered call graph',                       weight: 9  },
-  { id: 'svc-blackbox',    name: 'Black-box unit test',   exitCriterion: 'Passes the service test plan as a black box',                    weight: 5  },
+  {
+    id: 'svc-srs',
+    name: 'SRS',
+    exitCriterion: 'Architect has reviewed the service requirement spec',
+    weight: 8,
+  },
+  {
+    id: 'svc-stp',
+    name: 'System-test-plan slice',
+    exitCriterion: "The service's slice of the System Test Plan is written",
+    weight: 7,
+  },
+  {
+    id: 'svc-dd',
+    name: 'Detailed design',
+    exitCriterion: 'Detailed design (after exploratory construction) approved',
+    weight: 18,
+  },
+  {
+    id: 'svc-contract',
+    name: 'Service contract',
+    exitCriterion: 'App-B contract FROZEN by the senior reviewer',
+    weight: 12,
+  },
+  {
+    id: 'svc-build',
+    name: 'Construction',
+    exitCriterion: 'Code complete + white-box test client passes',
+    weight: 33,
+  },
+  {
+    id: 'svc-review',
+    name: 'Code review',
+    exitCriterion: 'reviewEngine reviewer set all PASS',
+    weight: 8,
+  },
+  {
+    id: 'svc-integration',
+    name: 'Integration',
+    exitCriterion: 'Wired into the closed-layered call graph',
+    weight: 9,
+  },
+  {
+    id: 'svc-blackbox',
+    name: 'Black-box unit test',
+    exitCriterion: 'Passes the service test plan as a black box',
+    weight: 5,
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -57,13 +97,48 @@ export const SERVICE_PHASES: readonly PhaseTemplate[] = [
 // ---------------------------------------------------------------------------
 
 export const FRONTEND_PHASES: readonly PhaseTemplate[] = [
-  { id: 'fe-brief',       name: 'Brief / requirements',   exitCriterion: 'The surface + persona + core use case captured',                 weight: 8  },
-  { id: 'fe-concept',     name: 'Concept draft',          exitCriterion: 'First ui-design preview produced',                              weight: 14 },
-  { id: 'fe-iterate',     name: 'Iteration rounds',       exitCriterion: 'Preview converged after co-author feedback',                    weight: 20 },
-  { id: 'fe-approve',     name: 'Design-approval gate',   exitCriterion: 'Human design authority APPROVES the concept',                   weight: 12 },
-  { id: 'fe-build',       name: 'UI-code construction',   exitCriterion: 'SPA built against the approved design',                        weight: 28 },
-  { id: 'fe-conformance', name: 'Conformance review',     exitCriterion: 'ui-designer / ux-reviewer confirm conformance',                 weight: 10 },
-  { id: 'fe-integration', name: 'Integration',            exitCriterion: 'Wired into the SPA + the demonstrable E2E',                    weight: 8  },
+  {
+    id: 'fe-brief',
+    name: 'Brief / requirements',
+    exitCriterion: 'The surface + persona + core use case captured',
+    weight: 8,
+  },
+  {
+    id: 'fe-concept',
+    name: 'Concept draft',
+    exitCriterion: 'First ui-design preview produced',
+    weight: 14,
+  },
+  {
+    id: 'fe-iterate',
+    name: 'Iteration rounds',
+    exitCriterion: 'Preview converged after co-author feedback',
+    weight: 20,
+  },
+  {
+    id: 'fe-approve',
+    name: 'Design-approval gate',
+    exitCriterion: 'Human design authority APPROVES the concept',
+    weight: 12,
+  },
+  {
+    id: 'fe-build',
+    name: 'UI-code construction',
+    exitCriterion: 'SPA built against the approved design',
+    weight: 28,
+  },
+  {
+    id: 'fe-conformance',
+    name: 'Conformance review',
+    exitCriterion: 'ui-designer / ux-reviewer confirm conformance',
+    weight: 10,
+  },
+  {
+    id: 'fe-integration',
+    name: 'Integration',
+    exitCriterion: 'Wired into the SPA + the demonstrable E2E',
+    weight: 8,
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -72,10 +147,30 @@ export const FRONTEND_PHASES: readonly PhaseTemplate[] = [
 // ---------------------------------------------------------------------------
 
 export const TESTING_PHASES: readonly PhaseTemplate[] = [
-  { id: 'test-plan',       name: 'System Test Plan',  exitCriterion: 'The ways the integrated system can FAIL are enumerated + signed off', weight: 25 },
-  { id: 'test-harness',    name: 'Build harness',     exitCriterion: 'Playwright + durable-execution drivers built for the plan',           weight: 35 },
-  { id: 'test-run',        name: 'Run',               exitCriterion: 'A separate software-tester runs the plan against the integrated system', weight: 25 },
-  { id: 'test-regression', name: 'Regression',        exitCriterion: 'Regression harness guards the demonstrable set continuously',          weight: 15 },
+  {
+    id: 'test-plan',
+    name: 'System Test Plan',
+    exitCriterion: 'The ways the integrated system can FAIL are enumerated + signed off',
+    weight: 25,
+  },
+  {
+    id: 'test-harness',
+    name: 'Build harness',
+    exitCriterion: 'Playwright + durable-execution drivers built for the plan',
+    weight: 35,
+  },
+  {
+    id: 'test-run',
+    name: 'Run',
+    exitCriterion: 'A separate software-tester runs the plan against the integrated system',
+    weight: 25,
+  },
+  {
+    id: 'test-regression',
+    name: 'Regression',
+    exitCriterion: 'Regression harness guards the demonstrable set continuously',
+    weight: 15,
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -86,11 +181,36 @@ export const TESTING_PHASES: readonly PhaseTemplate[] = [
 // ---------------------------------------------------------------------------
 
 export const DEPLOYMENT_PHASES: readonly PhaseTemplate[] = [
-  { id: 'dep-spec',    name: 'Provisioning spec',       exitCriterion: 'Target environment + resources + rollback captured',              weight: 15 },
-  { id: 'dep-design',  name: 'Detailed design',         exitCriterion: 'The provisioning/IaC change is designed + reviewed',             weight: 20 },
-  { id: 'dep-apply',   name: 'Apply',                   exitCriterion: 'The change is applied to the target environment',                weight: 35 },
-  { id: 'dep-review',  name: 'Review',                  exitCriterion: 'devops / architect approve the applied change',                  weight: 15 },
-  { id: 'dep-verify',  name: 'Convergence verification',exitCriterion: 'Environment converged to the declared desired state',           weight: 15 },
+  {
+    id: 'dep-spec',
+    name: 'Provisioning spec',
+    exitCriterion: 'Target environment + resources + rollback captured',
+    weight: 15,
+  },
+  {
+    id: 'dep-design',
+    name: 'Detailed design',
+    exitCriterion: 'The provisioning/IaC change is designed + reviewed',
+    weight: 20,
+  },
+  {
+    id: 'dep-apply',
+    name: 'Apply',
+    exitCriterion: 'The change is applied to the target environment',
+    weight: 35,
+  },
+  {
+    id: 'dep-review',
+    name: 'Review',
+    exitCriterion: 'devops / architect approve the applied change',
+    weight: 15,
+  },
+  {
+    id: 'dep-verify',
+    name: 'Convergence verification',
+    exitCriterion: 'Environment converged to the declared desired state',
+    weight: 15,
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -101,11 +221,36 @@ export const DEPLOYMENT_PHASES: readonly PhaseTemplate[] = [
 // ---------------------------------------------------------------------------
 
 export const DOCUMENTATION_PHASES: readonly PhaseTemplate[] = [
-  { id: 'doc-outline', name: 'Outline',                 exitCriterion: 'Scope + audience + the sections to write are agreed',            weight: 15 },
-  { id: 'doc-design',  name: 'Structure design',        exitCriterion: 'Document structure + source references designed',                weight: 20 },
-  { id: 'doc-author',  name: 'Authoring',               exitCriterion: 'The document is drafted against the outline',                    weight: 35 },
-  { id: 'doc-review',  name: 'Review',                  exitCriterion: 'architect / co-author confirm the document is accurate',         weight: 15 },
-  { id: 'doc-publish', name: 'Publish verification',    exitCriterion: 'Document published + linked from the corpus',                    weight: 15 },
+  {
+    id: 'doc-outline',
+    name: 'Outline',
+    exitCriterion: 'Scope + audience + the sections to write are agreed',
+    weight: 15,
+  },
+  {
+    id: 'doc-design',
+    name: 'Structure design',
+    exitCriterion: 'Document structure + source references designed',
+    weight: 20,
+  },
+  {
+    id: 'doc-author',
+    name: 'Authoring',
+    exitCriterion: 'The document is drafted against the outline',
+    weight: 35,
+  },
+  {
+    id: 'doc-review',
+    name: 'Review',
+    exitCriterion: 'architect / co-author confirm the document is accurate',
+    weight: 15,
+  },
+  {
+    id: 'doc-publish',
+    name: 'Publish verification',
+    exitCriterion: 'Document published + linked from the corpus',
+    weight: 15,
+  },
 ];
 
 // The kind → template registry. Exhaustive over ActivityKind so a new kind is a
@@ -121,7 +266,12 @@ const TEMPLATES: Record<ActivityKind, readonly PhaseTemplate[]> = {
 // Neutral single-phase fallback for an unknown (bad-data) kind — never borrow
 // another kind's lifecycle silently.
 const UNKNOWN_PHASES: readonly PhaseTemplate[] = [
-  { id: 'unknown', name: 'Unknown lifecycle', exitCriterion: 'No lifecycle template registered for this activity kind', weight: 100 },
+  {
+    id: 'unknown',
+    name: 'Unknown lifecycle',
+    exitCriterion: 'No lifecycle template registered for this activity kind',
+    weight: 100,
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -158,37 +308,54 @@ const UNKNOWN_PHASES: readonly PhaseTemplate[] = [
 function activeIdxForStatus(kind: ActivityKind, status: BuildStatus): number | null {
   if (kind === 'testing') {
     switch (status) {
-      case 'integrated':         return null;
+      case 'integrated':
+        return null;
       case 'in-review':
-      case 'in-construction':    return 2;
-      case 'in-detailed-design': return 1;
-      case 'eligible':           return 0;
+      case 'in-construction':
+        return 2;
+      case 'in-detailed-design':
+        return 1;
+      case 'eligible':
+        return 0;
       case 'blocked':
-      case 'not-started':        return null;
+      case 'not-started':
+        return null;
     }
   }
   // deployment and documentation share a 5-phase (spec→design→apply→review→verify)
   // mapping. Review is the penultimate phase (idx 3); apply/authoring is idx 2.
   if (kind === 'deployment' || kind === 'documentation') {
     switch (status) {
-      case 'integrated':         return null;
-      case 'in-review':          return 3;
-      case 'in-construction':    return 2;
-      case 'in-detailed-design': return 1;
-      case 'eligible':           return 0;
+      case 'integrated':
+        return null;
+      case 'in-review':
+        return 3;
+      case 'in-construction':
+        return 2;
+      case 'in-detailed-design':
+        return 1;
+      case 'eligible':
+        return 0;
       case 'blocked':
-      case 'not-started':        return null;
+      case 'not-started':
+        return null;
     }
   }
   // service and frontend share the same phase-index mapping
   switch (status) {
-    case 'integrated':         return null; // all done sentinel: see phaseStateFor
-    case 'in-review':          return 5;
-    case 'in-construction':    return 4;
-    case 'in-detailed-design': return 2;
-    case 'eligible':           return 0;
+    case 'integrated':
+      return null; // all done sentinel: see phaseStateFor
+    case 'in-review':
+      return 5;
+    case 'in-construction':
+      return 4;
+    case 'in-detailed-design':
+      return 2;
+    case 'eligible':
+      return 0;
     case 'blocked':
-    case 'not-started':        return null;
+    case 'not-started':
+      return null;
   }
 }
 
@@ -198,10 +365,7 @@ function activeIdxForStatus(kind: ActivityKind, status: BuildStatus): number | n
  *
  * `integrated` → all phases done; `blocked`/`not-started` → none done/active.
  */
-export function phaseStateFor(
-  kind: ActivityKind,
-  status: BuildStatus,
-): PhaseState[] {
+export function phaseStateFor(kind: ActivityKind, status: BuildStatus): PhaseState[] {
   // Runtime-tolerant lookup: TS proves `kind` is an ActivityKind, but bad project
   // data could carry an unknown kind — fall back loudly to the neutral template
   // rather than silently borrowing another kind's lifecycle.

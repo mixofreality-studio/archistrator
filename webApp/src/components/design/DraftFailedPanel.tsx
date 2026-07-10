@@ -19,8 +19,10 @@ import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
+import Link from '@mui/material/Link';
 import ReplayIcon from '@mui/icons-material/Replay';
 import CloseIcon from '@mui/icons-material/Close';
+import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import ReportProblemOutlinedIcon from '@mui/icons-material/ReportProblemOutlined';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
@@ -32,6 +34,7 @@ const ASYNC_FALLBACK_REASON =
 export function DraftFailedPanel({
   artifact,
   reason,
+  runUrl,
   pending,
   onRetry,
   onWithdraw,
@@ -42,6 +45,11 @@ export function DraftFailedPanel({
   artifact: string;
   /** Server's human explanation; falls back to a generic message when empty. */
   reason: string | undefined;
+  /**
+   * URL of the failed CI run, when the failure came from a job that actually ran.
+   * Rendered as a "View the failed run" deep-link so the operator can see WHY.
+   */
+  runUrl?: string | undefined;
   /** A retry mutation is in flight — disable the button. */
   pending: boolean;
   onRetry: () => void;
@@ -68,6 +76,14 @@ export function DraftFailedPanel({
         overflow: 'hidden',
         border: `1.5px solid ${t.line}`,
         borderRadius: t.radius / 8 + 0.5,
+        // Render as a centered, max-width CARD rather than a full-bleed band: at wide
+        // viewports a full-width panel left its icon/title/text/buttons adrift in a
+        // sea of whitespace (read as "broken / pushed to one side"). A capped width
+        // centered in the content area keeps the failed state a tidy, centered card at
+        // every width (1300 / 1600 / 2000).
+        width: '100%',
+        maxWidth: 720,
+        mx: 'auto',
       }}
     >
       <Box
@@ -81,12 +97,24 @@ export function DraftFailedPanel({
           borderBottom: `1.5px solid ${t.line}`,
         }}
       >
-        <Typography sx={{ fontFamily: t.mono, fontSize: 12, letterSpacing: '0.16em', color: 'error.main' }}>
+        <Typography
+          sx={{ fontFamily: t.mono, fontSize: 12, letterSpacing: '0.16em', color: 'error.main' }}
+        >
           {heading.toUpperCase()} · {artifact.toUpperCase()}
         </Typography>
       </Box>
 
-      <Box sx={{ px: 3, py: 4, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1.5, textAlign: 'center' }}>
+      <Box
+        sx={{
+          px: 3,
+          py: 4,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: 1.5,
+          textAlign: 'center',
+        }}
+      >
         <ReportProblemOutlinedIcon sx={{ fontSize: 38, color: 'error.main' }} />
         <Typography sx={{ fontFamily: t.display, fontWeight: 700, fontSize: 22, color: t.ink }}>
           {heading}
@@ -97,6 +125,24 @@ export function DraftFailedPanel({
         >
           {message}
         </Typography>
+        {runUrl !== undefined && runUrl.length > 0 ? (
+          <Link
+            data-testid={UI_IDENTIFIERS.DesignExperience.DRAFT_FAILURE_RUN_LINK}
+            href={runUrl}
+            rel="noopener"
+            sx={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 0.5,
+              fontSize: 13,
+              fontFamily: t.mono,
+            }}
+            target="_blank"
+          >
+            View the failed run
+            <OpenInNewIcon sx={{ fontSize: 14 }} />
+          </Link>
+        ) : null}
         <Box sx={{ display: 'flex', gap: 1.5, mt: 1 }}>
           <Button
             color="primary"

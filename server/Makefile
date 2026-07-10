@@ -1,6 +1,6 @@
 # aiarch server — developer make targets.
 
-.PHONY: test test-short fmt vet lint sumtype-check method-check encapsulation-check gen-schemas gen-models gen gen-client bootstrap
+.PHONY: test test-short fmt vet lint sumtype-check method-check encapsulation-check gen-schemas gen-models gen-models-check gen gen-client gen-client-check gen-internal-tools gen-temporal gen-temporal-check bootstrap
 
 # Contract codegen pipeline, all-Go (jsonschema-go). project.json
 # (.serviceContracts) is the OWNER of every built component's contract; modelgen
@@ -29,6 +29,13 @@
 gen-models:
 	GOWORK=off go run ./cmd/modelgen
 
+# gen-models-check — drift gate for the generated model/interface layer
+# (cmd/modelgen, driving the published framework-go-app-generator/modelgen), same
+# shape as gen-temporal-check: regenerate, then fail on any diff. GOWORK=off-safe
+# (see gen-models above), so it runs in CI (server-checks.yml).
+gen-models-check: gen-models
+	git diff --exit-code -- 'internal/**/contract.gen.go'
+
 # gen-client — generate the entire CLIENT layer (internal/client/{web,mcp}) +
 # the merged api/openapi.yaml from project.json .serviceContracts (cmd/clientgen,
 # driving the published framework-go-http-generator + framework-go-mcp-generator).
@@ -36,7 +43,39 @@ gen-models:
 gen-client:
 	GOWORK=off go run ./cmd/clientgen
 
-gen: gen-models gen-client
+# gen-client-check — drift gate for the generated CLIENT layer + merged OAS
+# (cmd/clientgen, driving framework-go-http-generator + framework-go-mcp-generator),
+# same shape as gen-models-check/gen-temporal-check: regenerate, then fail on any
+# diff. GOWORK=off-safe (see gen-client above), so it runs in CI (server-checks.yml).
+gen-client-check: gen-client
+	git diff --exit-code -- api/openapi.yaml internal/client
+
+# gen-internal-tools — generate the INTERNAL MCP tool surface (one tool per
+# ResourceAccess/Engine contract operation) from project.json .serviceContracts
+# into internal/resourceaccess/projectstate/toolcatalog.gen.go (cmd/internaltoolsgen).
+# NEVER merged into api/openapi.yaml — this is the internal surface aiarch-state-mcp
+# registers, scoped per task by the agentic sub-workflow's tool palette.
+gen-internal-tools:
+	GOWORK=off go run ./cmd/internaltoolsgen
+
+gen: gen-models gen-client gen-internal-tools gen-temporal
+
+# gen-temporal — generate the per-manager Temporal layer (activities/invokers/
+# worker .gen.go) for the 5 managers from project.json .serviceContracts
+# (cmd/appgen, driving framework-go-app-generator/temporalgen).
+# Release-backed and GOWORK=off like the other gen targets:
+# framework-go-app-generator + framework-go-projectmodel are published platform
+# tags pinned in go.mod, so cmd/appgen builds from the module cache with no
+# build tag and no ../archistrator-platform workspace checkout. Folded into the
+# `gen` aggregate so `make gen` regenerates the whole codegen surface.
+gen-temporal:
+	GOWORK=off go run ./cmd/appgen
+
+# gen-temporal-check — drift gate for the generated Temporal layer, same shape
+# as systemtests' `gen-check` (regenerate, then fail on any diff). Now
+# GOWORK=off-safe (see gen-temporal above), so it runs in CI (server-checks.yml).
+gen-temporal-check: gen-temporal
+	git diff --exit-code -- 'internal/manager/**/*.gen.go'
 
 gen-schemas:
 	GOWORK=off go run ./cmd/schemagen

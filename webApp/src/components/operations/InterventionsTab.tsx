@@ -28,7 +28,9 @@ export function InterventionsTab({ view }: { view: OperationsView | undefined })
     >
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
         <BoltIcon sx={{ fontSize: 18, color: t.accent }} />
-        <Typography sx={{ fontFamily: t.display, fontWeight: 700, fontSize: 18, color: t.ink }}>Waiting for your steer</Typography>
+        <Typography sx={{ fontFamily: t.display, fontWeight: 700, fontSize: 18, color: t.ink }}>
+          Waiting for your steer
+        </Typography>
       </Box>
 
       <AwaitingPanel

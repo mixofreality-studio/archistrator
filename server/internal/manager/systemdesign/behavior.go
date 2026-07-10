@@ -12,6 +12,7 @@ package systemdesign
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
@@ -81,6 +82,27 @@ func strPtrOrNil(s string) *string {
 // researchIsZero reports whether the ResearchInput is unprovided (no Sources). The
 // SetResearchInput pre-condition rejects a zero value.
 func researchIsZero(r ResearchInput) bool { return len(r.Sources) == 0 }
+
+// researchSourceProblem reports the first per-source shape violation in a
+// non-empty ResearchInput as a clean, client-facing detail string naming the
+// offending source by its 1-based position (e.g. `research source 2: title must
+// not be empty`). It returns "" when every source carries a non-whitespace title
+// AND non-whitespace content. The empty-corpus (no sources at all) case is handled
+// separately by researchIsZero — this function assumes at least one source and
+// validates the shape of each. Whitespace-only fields are treated as empty so a
+// source cannot smuggle a blank title/content past the gate with a stray space.
+func researchSourceProblem(r ResearchInput) string {
+	for i, s := range r.Sources {
+		pos := i + 1 // 1-based, client-facing
+		if strings.TrimSpace(s.Title) == "" {
+			return fmt.Sprintf("research source %d: title must not be empty", pos)
+		}
+		if strings.TrimSpace(s.Content) == "" {
+			return fmt.Sprintf("research source %d: content must not be empty", pos)
+		}
+	}
+	return ""
+}
 
 // toPSResearch converts the contract ResearchInput to projectstate.ResearchInput at
 // the projectStateAccess boundary.

@@ -61,10 +61,12 @@ type GitProjectStateAccess interface {
 	ListProjects(ctx context.Context, owner OwnerScope, cred RepoCredential) ([]ProjectSummary, error)
 	StageArtifactForReview(ctx context.Context, projectID ProjectID, expectedVersion Version, model ArtifactModel, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	CommitArtifact(ctx context.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	CommitArtifactWithProvenance(ctx context.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, approvedBy, draftedBy string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	RejectArtifact(ctx context.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, notes string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	WithdrawArtifact(ctx context.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, notes string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	AdvancePhase(ctx context.Context, projectID ProjectID, expectedVersion Version, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	SetResearchInput(ctx context.Context, projectID ProjectID, expectedVersion Version, research ResearchInput, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	SetOperatingModel(ctx context.Context, projectID ProjectID, expectedVersion Version, model OperatingModel, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	ReadProject(ctx context.Context, projectID ProjectID, cred RepoCredential) (Project, error)
 }
 
@@ -250,20 +252,225 @@ func (s *GitStore) stageArtifactForReviewOnBranch(ctx context.Context, projectID
 		// A fresh stage supersedes any prior-round critique read-back on this slot.
 		slot.CritiqueVerdict = ""
 		slot.CritiqueNotes = ""
+		// DURABLE REVIEW LEDGER (review-ledger §3): the ReviewThread is NOT cleared on a
+		// (re)stage — unlike the critique carrier it accumulates across redraft rounds. On a
+		// redraft the drafting agent commits per-comment responses (+ a proposed status) into
+		// the thread on this branch; reconcile every non-waived entry's effective status from
+		// its response so the reviewer sees the truth the server decides, not the status the
+		// agent proposed. A no-op on the first stage (empty thread).
+		slot.ReviewThread = normalizeReviewThread(slot.ReviewThread)
+		return nil
+	})
+}
+
+// ReconcileBranchFromMain resolves a diverged session branch server-side (F80c): it reads
+// main's committed aggregate and overlays every slot EXCEPT the session's OWN one (kind)
+// onto the session-branch tip, then commits that reconciliation to the branch. project.json
+// is a SERVER-OWNED, SINGLE-WRITER-PER-SLOT document, so the branch legitimately owns only
+// `kind`; adopting main's other slots makes the branch's project.json differ from main only
+// in `kind`, so the PR's 3-way merge (over the multi-line document) no longer conflicts and
+// the approve-time merge can complete. It is the branch-write twin of the workflow's
+// aiarch-state-mcp reconcile (both call the same overlay semantics). An EMPTY branch is a
+// no-op error (reconciliation only makes sense against a real session branch).
+func (s *GitStore) ReconcileBranchFromMain(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	if branch == "" {
+		return 0, fwra.New(fwra.ContractMisuse, "projectstate.ReconcileBranchFromMain: empty branch (nothing to reconcile)")
+	}
+	// Read main's committed aggregate — the source of every OTHER slot's latest content.
+	mainProj, err := s.readProjectOnBranch(ctx, projectID, "", cred)
+	if err != nil {
+		return 0, err
+	}
+	return s.applyMutationOnBranch(ctx, "ReconcileBranchFromMain", projectID, expectedVersion, branch, cred, idempotencyKey, modeUpsert, func(p *Project) error {
+		// p is the session-branch tip; overlay main's slots for every kind but the
+		// session's own, leaving the in-flight draft (+ its review ledger) intact.
+		for _, e := range slotTable() {
+			if e.kind == kind {
+				continue
+			}
+			*e.ptr(p) = *e.ptr(&mainProj)
+		}
 		return nil
 	})
 }
 
 func (s *GitStore) CommitArtifact(ctx context.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	return s.applyMutation(ctx, "CommitArtifact", projectID, expectedVersion, cred, idempotencyKey, modeUpsert, statusTransition("CommitArtifact", kind, ReviewCommitted, ""))
+	// commitTransition (F38) flips to Committed AND bumps Revisions + clears this slot's
+	// StaleBasis + flags downstream committed slots stale — all in one atomic commit on main.
+	// nil prov: this plain path records no PM-P2-4 provenance.
+	return s.applyMutation(ctx, "CommitArtifact", projectID, expectedVersion, cred, idempotencyKey, modeUpsert, commitTransition(kind, nil))
+}
+
+// CommitArtifactWithProvenance is the provenance-recording Commit (PM-P2-4): the SAME atomic
+// commit-on-main as CommitArtifact, plus it stamps a Provenance record onto the committed
+// slot — committedAt server-resolved from the store clock (RA code, time.Now() is fine),
+// approvedBy/draftedBy threaded from the manager's approve→commit path. Satisfies
+// ProvenanceCommitProjectStateAccess (the dormant commit extension).
+func (s *GitStore) CommitArtifactWithProvenance(ctx context.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, approvedBy, draftedBy string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	prov := &Provenance{
+		CommittedAt: s.now().UTC().Format(time.RFC3339),
+		ApprovedBy:  approvedBy,
+		DraftedBy:   draftedBy,
+	}
+	return s.applyMutation(ctx, "CommitArtifact", projectID, expectedVersion, cred, idempotencyKey, modeUpsert, commitTransition(kind, prov))
 }
 
 func (s *GitStore) RejectArtifact(ctx context.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, notes string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	return s.applyMutation(ctx, "RejectArtifact", projectID, expectedVersion, cred, idempotencyKey, modeUpsert, statusTransition("RejectArtifact", kind, ReviewRejected, notes))
+	return s.rejectArtifactOnBranch(ctx, projectID, expectedVersion, "", kind, notes, cred, idempotencyKey)
+}
+
+// RejectArtifactOnBranch is the branch-aware Reject the design Managers use during the
+// AwaitingReview window (I-DESIGN-DISPATCH §2a) — the symmetric counterpart of
+// StageArtifactForReviewOnBranch. The Rejected status flip + notes ride over the SESSION
+// BRANCH the draft was staged on, where the staged model exists and the session-branch
+// version matches (main trails and carries no staged model until an approved draft
+// merges). An EMPTY branch behaves EXACTLY as RejectArtifact (the default/main) — zero
+// perturbation to every existing caller.
+func (s *GitStore) RejectArtifactOnBranch(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	return s.rejectArtifactOnBranch(ctx, projectID, expectedVersion, branch, kind, notes, cred, idempotencyKey)
+}
+
+func (s *GitStore) rejectArtifactOnBranch(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	return s.applyMutationOnBranch(ctx, "RejectArtifact", projectID, expectedVersion, branch, cred, idempotencyKey, modeUpsert, statusTransition("RejectArtifact", kind, ReviewRejected, notes))
 }
 
 func (s *GitStore) WithdrawArtifact(ctx context.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, notes string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	return s.applyMutation(ctx, "WithdrawArtifact", projectID, expectedVersion, cred, idempotencyKey, modeUpsert, statusTransition("WithdrawArtifact", kind, ReviewWithdrawn, notes))
+	return s.withdrawArtifactOnBranch(ctx, projectID, expectedVersion, "", kind, notes, cred, idempotencyKey)
+}
+
+// WithdrawArtifactOnBranch is the branch-aware Withdraw the design Managers use during the
+// AwaitingReview window (I-DESIGN-DISPATCH §2a) — the symmetric counterpart of
+// RejectArtifactOnBranch. The Withdrawn status flip + notes ride over the SESSION BRANCH
+// the draft was staged on, where the staged model exists and the session-branch version
+// matches (main trails and carries no staged model until an approved draft merges). An
+// EMPTY branch behaves EXACTLY as WithdrawArtifact (the default/main) — zero perturbation
+// to every existing caller.
+func (s *GitStore) WithdrawArtifactOnBranch(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	return s.withdrawArtifactOnBranch(ctx, projectID, expectedVersion, branch, kind, notes, cred, idempotencyKey)
+}
+
+func (s *GitStore) withdrawArtifactOnBranch(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	return s.applyMutationOnBranch(ctx, "WithdrawArtifact", projectID, expectedVersion, branch, cred, idempotencyKey, modeUpsert, statusTransition("WithdrawArtifact", kind, ReviewWithdrawn, notes))
+}
+
+// ---------------------------------------------------------------------------
+// Review-ledger verbs (review-ledger feature, founder-ratified 2026-07-05).
+// The durable comment ledger lives on the ArtifactSlot; these verbs mutate it on the
+// session branch during the AwaitingReview window (same substrate routing as Reject),
+// with the branch=="" main-path fallback every existing verb preserves.
+// ---------------------------------------------------------------------------
+
+// RejectArtifactOnBranchWithComments is the review-ledger extension of RejectArtifactOnBranch:
+// it records the architect's Reject AND appends the reviewer's comments to the slot's durable
+// ReviewThread in ONE atomic commit (review-ledger §2). Folding the status flip and the
+// ledger append into a single mutation makes the reject crash-safe (no partial state) and
+// idempotent under Temporal retry (the deterministic per-(round,index) ids dedup — see
+// appendReviewComments). Each comment supplies Anchor / AnchorText / Text / AuthorRole; the
+// id / round / open status are server-minted here. branch=="" behaves exactly as the main-path
+// reject (the dormant-rail fallback), still appending the comments.
+// SeedReviewCommentsOnBranch appends OPEN ledger comments to a slot's ReviewThread WITHOUT
+// any status change (F38 amendments). At an amendment session's start the reopening feedback
+// is seeded here as round-0 open entries — the "why" the drafting agent must address and the
+// reviewer tracks — on the SAME session branch the draft was staged on. It reuses the same
+// deterministic, idempotent append as the reject path (appendReviewComments dedups on id).
+func (s *GitStore) SeedReviewCommentsOnBranch(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, round int64, comments []ReviewComment, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	return s.applyMutationOnBranch(ctx, "SeedReviewComments", projectID, expectedVersion, branch, cred, idempotencyKey, modeUpsert, func(p *Project) error {
+		slot, ok := slotPtr(p, kind)
+		if !ok {
+			return fwra.New(fwra.ContractMisuse, fmt.Sprintf("projectstate.SeedReviewComments: unknown kind %s", kind))
+		}
+		if slot.Status == ReviewNone || slot.Model == nil {
+			return fwra.New(fwra.ContractMisuse, fmt.Sprintf("projectstate.SeedReviewComments: slot %s is unpopulated (stage a model first)", kind))
+		}
+		slot.ReviewThread = appendReviewComments(slot.ReviewThread, round, comments)
+		return nil
+	})
+}
+
+// AcknowledgeStaleBasis clears a committed slot's StaleBasis flag and records the reviewer's
+// "reviewed — unaffected" decision as a durable staleAck audit entry, in one atomic commit on
+// main (F45). It is the non-redraft counterpart to reconcile-via-amendment: a basis change
+// that does NOT affect the artifact would otherwise produce a byte-identical redraft that
+// dies at the no-change gate, so this lets the reviewer clear the flag with an audit trail
+// instead. Idempotent: a slot that is already un-stale (a repeat ack, or a concurrent
+// reconcile) is a no-op success — no second audit entry. Errors: unknown kind or an
+// uncommitted slot → ContractMisuse.
+func (s *GitStore) AcknowledgeStaleBasis(ctx context.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, note string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	return s.applyMutationOnBranch(ctx, "AcknowledgeStaleBasis", projectID, expectedVersion, "", cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
+		slot, ok := slotPtr(p, kind)
+		if !ok {
+			return fwra.New(fwra.ContractMisuse, fmt.Sprintf("projectstate.AcknowledgeStaleBasis: unknown kind %s", kind))
+		}
+		if slot.Status != ReviewCommitted {
+			return fwra.New(fwra.ContractMisuse, fmt.Sprintf("projectstate.AcknowledgeStaleBasis: slot %s is not committed (only a committed, stale artifact can be acknowledged)", kind))
+		}
+		if !slot.StaleBasis {
+			// Already un-stale (repeat ack / raced reconcile): a no-op success, no duplicate audit entry.
+			return nil
+		}
+		slot.StaleBasis = false
+		slot.ReviewThread = appendStaleAck(slot.ReviewThread, staleAckAuthorRole, note)
+		return nil
+	})
+}
+
+// staleAckAuthorRole is the reviewer role stamped on a staleAck audit entry. At the design
+// review gate the reviewer who acknowledges staleness is the architect.
+const staleAckAuthorRole = "architect"
+
+func (s *GitStore) RejectArtifactOnBranchWithComments(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, round int64, comments []ReviewComment, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	return s.applyMutationOnBranch(ctx, "RejectArtifact", projectID, expectedVersion, branch, cred, idempotencyKey, modeUpsert, func(p *Project) error {
+		if err := statusTransition("RejectArtifact", kind, ReviewRejected, notes)(p); err != nil {
+			return err
+		}
+		slot, ok := slotPtr(p, kind)
+		if !ok {
+			return fwra.New(fwra.ContractMisuse, fmt.Sprintf("projectstate.RejectArtifact: unknown kind %s", kind))
+		}
+		slot.ReviewThread = appendReviewComments(slot.ReviewThread, round, comments)
+		return nil
+	})
+}
+
+// SetReviewCommentStatusOnBranch applies a HUMAN status transition (open->waived to dismiss,
+// addressed->open to reopen) to a single ledger entry on the session branch during the
+// AwaitingReview window (review-ledger §4). The transition legality + reopen-clears-response
+// rule live in applyReviewCommentStatus (reviewthread.go). branch=="" behaves exactly as the
+// main path. An unknown id surfaces NotFound; an illegal transition surfaces ContractMisuse.
+func (s *GitStore) SetReviewCommentStatusOnBranch(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, commentID string, status string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	if !validReviewCommentStatus(status) {
+		return 0, fwra.New(fwra.ContractMisuse, fmt.Sprintf("projectstate.SetReviewCommentStatus: unknown status %q", status))
+	}
+	return s.applyMutationOnBranch(ctx, "SetReviewCommentStatus", projectID, expectedVersion, branch, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
+		slot, ok := slotPtr(p, kind)
+		if !ok {
+			return fwra.New(fwra.ContractMisuse, fmt.Sprintf("projectstate.SetReviewCommentStatus: unknown kind %s", kind))
+		}
+		if slot.Status == ReviewNone || slot.Model == nil {
+			return fwra.New(fwra.ContractMisuse, fmt.Sprintf("projectstate.SetReviewCommentStatus: slot %s is unpopulated", kind))
+		}
+		updated, err := applyReviewCommentStatus(slot.ReviewThread, commentID, status)
+		if err != nil {
+			return err
+		}
+		slot.ReviewThread = updated
+		return nil
+	})
+}
+
+// SetOperatingModel records the project-level WHO-OPERATES choice (founder ruling
+// 2026-07-05). Like SetResearchInput it is a Method-INPUT head-state write, NOT a
+// co-authored artifact: modeRequireExisting (the project must already exist), an
+// idempotent CAS mutation, no slot transition. The value MUST be one of the two known
+// models (Valid) — an unknown wire value is a terminal ContractMisuse, never persisted.
+func (s *GitStore) SetOperatingModel(ctx context.Context, projectID ProjectID, expectedVersion Version, model OperatingModel, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	if !model.Valid() {
+		return 0, fwra.New(fwra.ContractMisuse, fmt.Sprintf("projectstate.SetOperatingModel: unknown operating model %q", string(model)))
+	}
+	return s.applyMutation(ctx, "SetOperatingModel", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
+		p.OperatingModel = model
+		return nil
+	})
 }
 
 func (s *GitStore) AdvancePhase(ctx context.Context, projectID ProjectID, expectedVersion Version, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
@@ -273,12 +480,34 @@ func (s *GitStore) AdvancePhase(ctx context.Context, projectID ProjectID, expect
 	})
 }
 
+// SetResearchInput takes the wire {Title, Content} corpus (unchanged) but persists it as
+// FILES (F42, founder ruling 2026-07-05): each source's Content is written to
+// .aiarch/state/research/<NN>-<slug>.txt and project.json stores only the {Title, Path,
+// ContentBytes} pointer (content structurally absent). The corpus files and the project.json
+// pointer land in ONE atomic commit sharing the same idempotency ledger — no CommitManagedFiles
+// allowlist, no platform change. A re-run with the same key dedups to the prior version.
 func (s *GitStore) SetResearchInput(ctx context.Context, projectID ProjectID, expectedVersion Version, research ResearchInput, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	if research.IsZero() {
 		return 0, fwra.New(fwra.ContractMisuse, "projectstate.SetResearchInput: empty research (no sources)")
 	}
-	return s.applyMutation(ctx, "SetResearchInput", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
-		p.ResearchInput = research
+	// Compute the corpus files (keyed RELATIVE to statePathPrefix) + the persisted pointers
+	// deterministically from the input, up-front. Both ride the same atomic commit.
+	files := map[string][]byte{}
+	corpus := ResearchCorpus{Sources: make([]ResearchSourceRef, len(research.Sources))}
+	for i, src := range research.Sources {
+		files[researchFileRel(i, src.Title)] = []byte(src.Content)
+		corpus.Sources[i] = ResearchSourceRef{
+			Title:        src.Title,
+			Path:         researchPath(i, src.Title),
+			ContentBytes: int64(len(src.Content)),
+		}
+	}
+	return s.applyMutationOnBranchFiles(ctx, "SetResearchInput", projectID, expectedVersion, "", cred, idempotencyKey, modeRequireExisting, files, func(p *Project) error {
+		// Replace the whole corpus pointer set. Stale corpus files from a prior
+		// SetResearchInput at other indices/slugs are dropped implicitly: buildStateFiles
+		// carries forward research/* from the snapshot, but the pointer set is authoritative
+		// for what the drafting Action reads, and a fresh full set supersedes the old.
+		p.Research = corpus
 		return nil
 	})
 }
@@ -330,6 +559,12 @@ func (s *GitStore) CreateProject(ctx context.Context, projectID ProjectID, owner
 		p.Owner = owner
 		p.Name = name
 		p.Phase = PhaseSystemDesign
+		// A fresh project is born EXPLICITLY self-operated (founder ruling 2026-07-05),
+		// the back-compat operating model — the customer runs the built app in their own
+		// infra. The UI/MCP may flip it to archistrator-operated before StartSystemDesign
+		// via SetOperatingModel. Only pre-field legacy project.json documents are ever
+		// empty; those read as self-operated via OperatingModel.OrDefault.
+		p.OperatingModel = OperatingModelSelfOperated
 		return nil
 	})
 }
@@ -418,6 +653,14 @@ func (s *GitStore) ListProjects(ctx context.Context, owner OwnerScope, cred Repo
 		if p, docUpdatedAt, perr := s.readProjectForList(ctx, ref.ProjectID, cred); perr == nil {
 			if summary.Name == "" {
 				summary.Name = p.Name
+			}
+			// Report the project's CANONICAL STORED owner, not the caller's requested
+			// owner scope (the enumeration key). The two normally coincide, but a caller
+			// may pass a wildcard/placeholder scope (e.g. "{}") and must still see each
+			// project's real owner — the same value get-project returns. Fall back to the
+			// enumeration scope only when the head-state carries no owner yet.
+			if p.Owner != "" {
+				summary.Owner = p.Owner
 			}
 			summary.Phase = p.Phase
 			// projectUpdatedAt checks ActivityGit entries; docUpdatedAt is the
@@ -572,7 +815,7 @@ func (s *GitStore) applyMutation(
 	mode mutationMode,
 	mutate func(p *Project) error,
 ) (Version, error) {
-	return s.applyMutationOnBranch(ctx, op, projectID, expectedVersion, "", cred, idempotencyKey, mode, mutate)
+	return s.applyMutationOnBranchFiles(ctx, op, projectID, expectedVersion, "", cred, idempotencyKey, mode, nil, mutate)
 }
 
 // applyMutationOnBranch is applyMutation parameterized by an OPTIONAL session-branch
@@ -590,6 +833,27 @@ func (s *GitStore) applyMutationOnBranch(
 	cred RepoCredential,
 	idempotencyKey fwra.IdempotencyKey,
 	mode mutationMode,
+	mutate func(p *Project) error,
+) (Version, error) {
+	return s.applyMutationOnBranchFiles(ctx, op, projectID, expectedVersion, branch, cred, idempotencyKey, mode, nil, mutate)
+}
+
+// applyMutationOnBranchFiles is applyMutationOnBranch that ALSO writes extraFiles (each
+// keyed RELATIVE to statePathPrefix, e.g. "research/00-brief.txt") atomically in the SAME
+// commit as project.json + the dedup record (F42). Only SetResearchInput passes non-nil
+// extraFiles — the corpus files; every other verb passes nil and behaves identically to
+// before. On a dedup hit (retry) the write short-circuits BEFORE any file is written, so
+// the atomic first-write's files are what persist.
+func (s *GitStore) applyMutationOnBranchFiles(
+	ctx context.Context,
+	op string,
+	projectID ProjectID,
+	expectedVersion Version,
+	branch string,
+	cred RepoCredential,
+	idempotencyKey fwra.IdempotencyKey,
+	mode mutationMode,
+	extraFiles map[string][]byte,
 	mutate func(p *Project) error,
 ) (Version, error) {
 	if projectID == "" {
@@ -659,7 +923,7 @@ func (s *GitStore) applyMutationOnBranch(
 	// STEP 5 — build the new subtree (whole project.json + ALL dedup records,
 	// carrying forward the existing ones) and write the new dedup record in the SAME
 	// commit (REWORK.3 same-commit coupling — atomic per git ref update).
-	files, err := buildStateFiles(snap, &p, idempotencyKey, p.Version, op, s.now())
+	files, err := buildStateFiles(snap, &p, idempotencyKey, p.Version, op, s.now(), extraFiles)
 	if err != nil {
 		return 0, err
 	}
@@ -682,13 +946,18 @@ func (s *GitStore) applyMutationOnBranch(
 // the two substrates serialize a slot identically and a model round-trips across
 // either store.
 type projectDoc struct {
-	ID       string              `json:"id"`
-	Version  int64               `json:"version"`
-	Phase    int                 `json:"phase"`
-	Owner    string              `json:"owner"`
-	Name     string              `json:"name"`
-	Research ResearchInput       `json:"research"`
-	Slots    map[string]slotJSON `json:"slots"`
+	ID       string         `json:"id"`
+	Version  int64          `json:"version"`
+	Phase    int            `json:"phase"`
+	Owner    string         `json:"owner"`
+	Name     string         `json:"name"`
+	Research ResearchCorpus `json:"research"`
+	// OperatingModel is the project-level WHO-OPERATES choice (selfOperated |
+	// archistratorOperated), founder ruling 2026-07-05. omitempty so a project.json
+	// that pre-dates the field decodes cleanly as the empty value — decodeProjectDoc
+	// then defaults it to selfOperated (the back-compat operating model).
+	OperatingModel OperatingModel      `json:"operatingModel,omitempty"`
+	Slots          map[string]slotJSON `json:"slots"`
 	// ActivityGit is the per-activity git-forward head-state (D-PA-GIT, GIT.1),
 	// keyed by ActivityID. Omitted entirely until the first Record* git verb
 	// populates it (the additive populated-in-Phase-3 posture). The map value's
@@ -759,15 +1028,28 @@ func decodeProjectFromSnapshot(snap fwgithub.GitSnapshot, projectID ProjectID) (
 func decodeProjectDoc(raw []byte, projectID ProjectID) (Project, bool, error) {
 	var doc projectDoc
 	if err := json.Unmarshal(raw, &doc); err != nil {
-		return Project{}, false, fwra.Wrap(fwra.Infrastructure, err, "projectstate: decode project.json")
+		// A committed project.json that will not parse is MALFORMED COMMITTED STATE, not a
+		// transient infrastructure blip: retry cannot fix bytes already at rest on a commit
+		// (QA F36). Classify it TERMINAL (ContractMisuse) so the Manager's read-back retry
+		// policy stops looping and routes it to the human recovery gate.
+		return Project{}, false, fwra.Wrap(fwra.ContractMisuse, err, "projectstate: decode project.json")
 	}
 	p := Project{
-		ID:                   projectID,
-		Version:              Version(doc.Version),
-		Phase:                Phase(doc.Phase),
-		Owner:                OwnerScope(doc.Owner),
-		Name:                 doc.Name,
-		ResearchInput:        doc.Research,
+		ID:       projectID,
+		Version:  Version(doc.Version),
+		Phase:    Phase(doc.Phase),
+		Owner:    OwnerScope(doc.Owner),
+		Name:     doc.Name,
+		Research: doc.Research,
+		// PRE-FIELD BACK-COMPAT (founder ruling 2026-07-05): a project.json committed
+		// before OperatingModel existed decodes as the EMPTY value, preserved VERBATIM
+		// here so the encode → decode → encode round-trip stays byte-identical (the
+		// ServiceContract round-trip invariant). Readers interpret an empty model as the
+		// DEFAULT (selfOperated) via OperatingModel.OrDefault — the prompts and the wire
+		// mapping do exactly that — so an existing project behaves as self-operated
+		// without a lazy on-read rewrite. Fresh projects are born explicit (CreateProject
+		// seeds selfOperated), so only pre-field legacy documents are ever empty.
+		OperatingModel:       doc.OperatingModel,
 		ActivityGit:          doc.ActivityGit,
 		ActivityConstruction: doc.ActivityConstruction,
 		ConstructionProgress: doc.ConstructionProgress,
@@ -779,7 +1061,13 @@ func decodeProjectDoc(raw []byte, projectID ProjectID) (Project, bool, error) {
 		ReviewPolicy:         doc.ReviewPolicy,
 	}
 	if err := decodeSlotsMap(doc.Slots, &p); err != nil {
-		return Project{}, false, fwra.Wrap(fwra.Infrastructure, err, "projectstate: decode slots")
+		// A committed slot model that will not decode — e.g. free prose in a CLOSED-ENUM
+		// field (a Trigger/Axis/CallMode wire name), a type mismatch — is MALFORMED
+		// COMMITTED STATE, terminal by construction: no amount of retry decodes the same
+		// bytes differently (QA F36). Classify it TERMINAL (ContractMisuse), carrying the
+		// decode diagnostic, so the Manager read-back stops the infinite retry loop and
+		// lands the session at the human StageDraftFailed gate WITH this reason visible.
+		return Project{}, false, fwra.Wrap(fwra.ContractMisuse, err, "projectstate: decode slots")
 	}
 	return p, true, nil
 }
@@ -834,13 +1122,22 @@ func lookupAppliedInSnapshot(snap fwgithub.GitSnapshot, key fwra.IdempotencyKey)
 // whole-subtree write does not drop history), and the NEW dedup record for this
 // mutation — all in one file set the satellite commits atomically.
 // now is the server-resolved mutation timestamp stamped into projectDoc.UpdatedAt.
-func buildStateFiles(snap fwgithub.GitSnapshot, p *Project, key fwra.IdempotencyKey, resultVersion Version, op string, now time.Time) (map[string][]byte, error) {
+func buildStateFiles(snap fwgithub.GitSnapshot, p *Project, key fwra.IdempotencyKey, resultVersion Version, op string, now time.Time, extraFiles map[string][]byte) (map[string][]byte, error) {
 	files := map[string][]byte{}
-	// Carry forward existing dedup records (whole-subtree write semantics).
+	// Carry forward existing dedup records AND corpus files (whole-subtree write semantics:
+	// CommitSubtree removeDirAll's the prefix, so anything not in `files` is deleted). The
+	// research/ corpus files (F42) must survive EVERY unrelated mutation — like the dedup
+	// ledger — so a stage/commit/reject never wipes the corpus a prior SetResearchInput wrote.
 	for path, b := range snap.Files {
-		if strings.HasPrefix(path, appliedMutationsDir+"/") {
+		if strings.HasPrefix(path, appliedMutationsDir+"/") || strings.HasPrefix(path, researchDir+"/") {
 			files[path] = b
 		}
+	}
+	// Merge the mutation's own extra files (F42: SetResearchInput's fresh corpus). These
+	// OVERWRITE any carried-forward file at the same key (a re-provisioned corpus supersedes
+	// the old), keeping the corpus files + project.json pointer coherent in ONE commit.
+	for path, b := range extraFiles {
+		files[path] = b
 	}
 	// Encode the rewritten aggregate, stamping the mutation time into the doc.
 	pj, err := encodeProjectDoc(p, now)
@@ -898,7 +1195,8 @@ func encodeProjectDoc(p *Project, updatedAt time.Time) ([]byte, error) {
 		Phase:                int(p.Phase),
 		Owner:                string(p.Owner),
 		Name:                 p.Name,
-		Research:             p.ResearchInput,
+		Research:             p.Research,
+		OperatingModel:       p.OperatingModel,
 		Slots:                slots,
 		ActivityGit:          p.ActivityGit,
 		ActivityConstruction: p.ActivityConstruction,

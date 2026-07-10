@@ -5,6 +5,7 @@ import (
 	"sync"
 	"testing"
 
+	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/testsuite"
 
 	"github.com/google/uuid"
@@ -51,7 +52,7 @@ type stubRail struct {
 	credMints int
 }
 
-func (r *stubRail) GetInstallationToken(_ context.Context, _ sourcecontrol.RepoRef) (sourcecontrol.RepoCredential, error) {
+func (r *stubRail) GetInstallationToken(_ fwra.Context, _ sourcecontrol.RepoRef) (sourcecontrol.RepoCredential, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.credMints++
@@ -65,42 +66,61 @@ func (r *stubRail) GetInstallationToken(_ context.Context, _ sourcecontrol.RepoR
 // handle. Assertions therefore key on the branch NAME + the PR ref (both
 // test-constructable), NOT on BranchRef content. (Noted as a minor contract gap in
 // C-MCN-GIT.md — non-blocking; the wiring records the rail's return verbatim.)
-func (r *stubRail) OpenBranch(_ context.Context, _ sourcecontrol.RepoRef, branch sourcecontrol.BranchName, _ sourcecontrol.RepoCredential, _ fwra.IdempotencyKey) (sourcecontrol.BranchRef, error) {
+func (r *stubRail) OpenBranch(_ fwra.Context, _ sourcecontrol.RepoRef, branch sourcecontrol.BranchName, _ sourcecontrol.RepoCredential) (sourcecontrol.BranchRef, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.opened = append(r.opened, string(branch))
 	return sourcecontrol.BranchRef(""), nil
 }
 
-func (r *stubRail) OpenPullRequest(_ context.Context, _ sourcecontrol.RepoRef, spec sourcecontrol.PullRequestSpec, _ sourcecontrol.RepoCredential, _ fwra.IdempotencyKey) (sourcecontrol.PullRequestRef, error) {
+func (r *stubRail) OpenPullRequest(_ fwra.Context, _ sourcecontrol.RepoRef, spec sourcecontrol.PullRequestSpec, _ sourcecontrol.RepoCredential) (sourcecontrol.PullRequestRef, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.prOpened = append(r.prOpened, spec)
 	return sourcecontrol.PullRequestRefFromString(r.prRef), nil
 }
 
-func (r *stubRail) GetPullRequestStatus(_ context.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.PullRequestRef, _ sourcecontrol.RepoCredential) (sourcecontrol.PullRequestStatus, error) {
+func (r *stubRail) GetPullRequestStatus(_ fwra.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.PullRequestRef, _ sourcecontrol.RepoCredential) (sourcecontrol.PullRequestStatus, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.statuses++
 	return sourcecontrol.PullRequestStatus{CheckRollup: r.ciRollup, ApprovalCount: 1, Mergeable: true}, nil
 }
 
-func (r *stubRail) PostReview(_ context.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.PullRequestRef, review sourcecontrol.ReviewSubmission, _ sourcecontrol.RepoCredential, _ fwra.IdempotencyKey) error {
+func (r *stubRail) PostReview(_ fwra.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.PullRequestRef, review sourcecontrol.ReviewSubmission, _ sourcecontrol.RepoCredential) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.reviews = append(r.reviews, review)
 	return nil
 }
 
-func (r *stubRail) MergePullRequest(_ context.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.PullRequestRef, _ sourcecontrol.RepoCredential, _ fwra.IdempotencyKey) (sourcecontrol.MergeResult, error) {
+func (r *stubRail) MergePullRequest(_ fwra.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.PullRequestRef, _ sourcecontrol.RepoCredential) (sourcecontrol.MergeResult, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.merges++
 	return sourcecontrol.MergeResult{Commit: "main-sha", Merged: r.merged}, nil
 }
 
-var _ sourceControlRail = (*stubRail)(nil)
+// The remaining SourceControlAccess ops are outside the PR-rail lifecycle the git-forward
+// spine drives; the stub satisfies the full contract with inert implementations so it can
+// back the GENERATED rail Activities.
+func (r *stubRail) AdoptProjectRepo(_ fwra.Context, _ sourcecontrol.RepoAdoptionSpec) (sourcecontrol.RepoRef, error) {
+	return sourcecontrol.RepoRef(""), nil
+}
+
+func (r *stubRail) CommitManagedFiles(_ fwra.Context, _ sourcecontrol.RepoRef, _ []sourcecontrol.ManagedFile, _ sourcecontrol.RepoCredential) (sourcecontrol.CommitRef, error) {
+	return sourcecontrol.CommitRef(""), nil
+}
+
+func (r *stubRail) ConfigureBranchProtection(_ fwra.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.RepoCredential) error {
+	return nil
+}
+
+func (r *stubRail) InstallAuthorizeApp(_ fwra.Context, _ sourcecontrol.AccountRef) (sourcecontrol.Installation, error) {
+	return sourcecontrol.Installation(""), nil
+}
+
+var _ sourcecontrol.SourceControlAccess = (*stubRail)(nil)
 
 // ---- stubGitStatus: an in-memory git head-state mirror ----------------------
 
@@ -239,26 +259,35 @@ var _ gitActivityStatusAccess = (*stubGitStatus)(nil)
 
 // ---- helpers ----------------------------------------------------------------
 
-// registerConstructGit registers the per-activity workflow + ALL activities including
-// the git-forward ones.
-func registerConstructGit(env *testsuite.TestWorkflowEnvironment, wf *workflows) {
-	registerConstruct(env, wf)
-	env.RegisterActivity(wf.MintRepoCredentialActivity)
-	env.RegisterActivity(wf.OpenBranchActivity)
-	env.RegisterActivity(wf.OpenPullRequestActivity)
-	env.RegisterActivity(wf.GetPullRequestStatusActivity)
-	env.RegisterActivity(wf.PostReviewActivity)
-	env.RegisterActivity(wf.MergePullRequestActivity)
+// registerGenRail registers the GENERATED PR-rail Activities (backed by the stub rail)
+// under their generated registered names — the names the generated invoker surface
+// (wf.Acts.Rail*) dispatches by. The workflow reaches the rail only through those invokers.
+func registerGenRail(env *testsuite.TestWorkflowEnvironment, rail sourcecontrol.SourceControlAccess) {
+	acts := &genActivities{Rail: rail}
+	env.RegisterActivityWithOptions(acts.RailGetInstallationToken, activity.RegisterOptions{Name: "sourceControlAccess.getInstallationToken"})
+	env.RegisterActivityWithOptions(acts.RailOpenBranch, activity.RegisterOptions{Name: "sourceControlAccess.openBranch"})
+	env.RegisterActivityWithOptions(acts.RailOpenPullRequest, activity.RegisterOptions{Name: "sourceControlAccess.openPullRequest"})
+	env.RegisterActivityWithOptions(acts.RailGetPullRequestStatus, activity.RegisterOptions{Name: "sourceControlAccess.getPullRequestStatus"})
+	env.RegisterActivityWithOptions(acts.RailPostReview, activity.RegisterOptions{Name: "sourceControlAccess.postReview"})
+	env.RegisterActivityWithOptions(acts.RailMergePullRequest, activity.RegisterOptions{Name: "sourceControlAccess.mergePullRequest"})
+}
+
+// registerConstructGit registers the per-activity workflow + ALL activities including the
+// git-forward ones: the GENERATED pipeline + rail surfaces (via fakes) and the CUSTOM git
+// head-state RecordActivity* method-value Activities on the workflows receiver.
+func registerConstructGit(env *testsuite.TestWorkflowEnvironment, wf *workflows, rail sourcecontrol.SourceControlAccess) {
+	registerConstruct(env, wf, &fakePipeline{phase: PipelineSucceeded})
+	registerGenRail(env, rail)
 	env.RegisterActivity(wf.RecordActivityBranchOpenedActivity)
 	env.RegisterActivity(wf.RecordActivityCIObservedActivity)
 	env.RegisterActivity(wf.RecordActivityArchApprovedActivity)
 	env.RegisterActivity(wf.RecordActivityMergedActivity)
-	env.RegisterActivity(wf.RecordActivityStartedActivity)
-	env.RegisterActivity(wf.RecordActivityCompletedActivity)
 }
 
 // gitWiredWorkflows builds a workflows with the git-forward slice wired to the supplied
-// rail + git store, a fixed repo resolver, and the happy-path engine fakes.
+// rail + git store, a fixed repo resolver, and the happy-path engine fakes. The rail is
+// reached through the generated invoker surface (Acts); RailEnabled + the repo resolver +
+// the GitStatus mirror are what light up the PR-rail lifecycle.
 func gitWiredWorkflows(ps *fakeProjectState, rail *stubRail, git *stubGitStatus, mergeable bool) *workflows {
 	rail.merged = mergeable
 	d := wfDeps{
@@ -266,12 +295,10 @@ func gitWiredWorkflows(ps *fakeProjectState, rail *stubRail, git *stubGitStatus,
 		Intervention: &fakeIntervention{directive: directiveRetry},
 		Review:       &fakeReview{},
 		ProjectState: ps,
-		Pipeline:     &fakePipeline{phase: PipelineSucceeded},
-		Artifacts:    &fakeArtifacts{},
-		// git-forward slice wired directly (the former WithGitForward composition helper
-		// is retired — RegisterWorker now folds these from the manager's stored deps).
-		Rail:      rail,
-		GitStatus: git,
+		// git-forward slice wired: the rail is registered as GENERATED Activities and
+		// gated on RailEnabled; the GitStatus mirror + repo resolver light the lifecycle.
+		RailEnabled: true,
+		GitStatus:   git,
 		Repo: func(_ ProjectID) (sourcecontrol.RepoRef, bool) {
 			return sourcecontrol.RepoRefFromString("repo-1"), true
 		},
@@ -301,7 +328,7 @@ func Test_GitForward_FullLifecycle_RecordsHeadState(t *testing.T) {
 	rail := &stubRail{prRef: "pr-7", ciRollup: sourcecontrol.CheckSuccess}
 	git := newStubGitStatus(0)
 	wf := gitWiredWorkflows(ps, rail, git, true /*mergeable*/)
-	registerConstructGit(env, wf)
+	registerConstructGit(env, wf, rail)
 
 	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{
 		ProjectID: pid, ActivityID: "C-MST", Activity: gitSampleActivity(),
@@ -375,7 +402,7 @@ func Test_Construction_StartedThenCompleted_RecordedOnHeadState(t *testing.T) {
 	rail := &stubRail{prRef: "pr-1", ciRollup: sourcecontrol.CheckSuccess}
 	git := newStubGitStatus(0)
 	wf := gitWiredWorkflows(ps, rail, git, true /*mergeable*/)
-	registerConstructGit(env, wf)
+	registerConstructGit(env, wf, rail)
 
 	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{
 		ProjectID: pid, ActivityID: "C-MST", Activity: gitSampleActivity(),
@@ -405,7 +432,7 @@ func Test_GitForward_CIFailure_MirroredNotGated(t *testing.T) {
 	rail := &stubRail{prRef: "pr-1", ciRollup: sourcecontrol.CheckFailure}
 	git := newStubGitStatus(0)
 	wf := gitWiredWorkflows(ps, rail, git, true)
-	registerConstructGit(env, wf)
+	registerConstructGit(env, wf, rail)
 
 	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{
 		ProjectID: pid, ActivityID: "C-CI", Activity: constructionActivity{ActivityID: "C-CI", Kind: activityKindConstruction, ComponentID: "c"},
@@ -433,11 +460,10 @@ func Test_GitForward_Dormant_WhenUnwired(t *testing.T) {
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}, version: 1}
 	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{class: aiWorker}, Intervention: &fakeIntervention{directive: directiveRetry},
-		Review: &fakeReview{}, ProjectState: ps, Pipeline: &fakePipeline{phase: PipelineSucceeded},
-		Artifacts: &fakeArtifacts{},
-		// no WithGitForward — Rail/GitStatus/Repo nil.
+		Review: &fakeReview{}, ProjectState: ps,
+		// no git-forward slice — RailEnabled=false, GitStatus/Repo nil.
 	})
-	registerConstruct(env, wf)
+	registerConstruct(env, wf, &fakePipeline{phase: PipelineSucceeded})
 
 	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{
 		ProjectID: pid, ActivityID: "C-NO-GIT", Activity: sampleActivity(),
@@ -490,7 +516,7 @@ func Test_GitForward_RecordsConvergeMonotonically(t *testing.T) {
 	rail := &stubRail{prRef: "pr-9", ciRollup: sourcecontrol.CheckSuccess}
 	git := newStubGitStatus(0)
 	wf := gitWiredWorkflows(ps, rail, git, true)
-	registerConstructGit(env, wf)
+	registerConstructGit(env, wf, rail)
 
 	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{
 		ProjectID: pid, ActivityID: "C-MONO", Activity: constructionActivity{ActivityID: "C-MONO", Kind: activityKindConstruction, ComponentID: "c"},

@@ -44,12 +44,18 @@ interface ComponentNodeData {
 
 const LAYER_ACCENT = (t: Tokens, layer: string): string => {
   switch (layer) {
-    case 'Client': return t.chatPmFg;
-    case 'Manager': return t.accent;
-    case 'Engine': return t.chatArchitectFg;
-    case 'ResourceAccess': return t.accent2;
-    case 'Utility': return t.muted;
-    default: return t.muted;
+    case 'Client':
+      return t.chatPmFg;
+    case 'Manager':
+      return t.accent;
+    case 'Engine':
+      return t.chatArchitectFg;
+    case 'ResourceAccess':
+      return t.accent2;
+    case 'Utility':
+      return t.muted;
+    default:
+      return t.muted;
   }
 };
 
@@ -74,14 +80,32 @@ function ComponentNode({ data }: NodeProps): ReactNode {
         }}
       >
         <Box sx={{ px: 1.25, py: 0.75 }}>
-          <Typography sx={{ fontFamily: t.mono, fontSize: 7.5, color: accent, letterSpacing: '0.06em', fontWeight: 700 }}>
+          <Typography
+            sx={{
+              fontFamily: t.mono,
+              fontSize: 7.5,
+              color: accent,
+              letterSpacing: '0.06em',
+              fontWeight: 700,
+            }}
+          >
             {d.layer.toUpperCase()}
           </Typography>
-          <Typography sx={{ fontFamily: d.isFocal === true ? t.display : t.mono, fontWeight: 700, fontSize: d.isFocal === true ? 13 : 11, color: t.ink, lineHeight: 1.2 }}>
+          <Typography
+            sx={{
+              fontFamily: d.isFocal === true ? t.display : t.mono,
+              fontWeight: 700,
+              fontSize: d.isFocal === true ? 13 : 11,
+              color: t.ink,
+              lineHeight: 1.2,
+            }}
+          >
             {d.label}
           </Typography>
           {d.isFocal === true ? (
-            <Typography sx={{ fontFamily: t.mono, fontSize: 8, color: t.accent, mt: 0.2 }}>focal component</Typography>
+            <Typography sx={{ fontFamily: t.mono, fontSize: 8, color: t.accent, mt: 0.2 }}>
+              focal component
+            </Typography>
           ) : null}
         </Box>
       </Box>

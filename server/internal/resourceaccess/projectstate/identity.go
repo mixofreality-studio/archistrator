@@ -344,6 +344,36 @@ func Phase2RequiredKinds() []ArtifactKind {
 	}
 }
 
+// downstreamKinds returns the artifact kinds that DEPEND on kind — its transitive
+// successors in the Method design DAG (F38 staleness, founder ruling 2026-07-05). When an
+// artifact re-commits (an amendment), every ALREADY-committed downstream kind has its
+// basis shifted and is flagged StaleBasis. The spine is a linear chain across Phase 1 then
+// Phase 2 (Phase-2 artifacts depend on the whole Phase-1 design), so downstream = every
+// kind strictly AFTER this one in the combined ordering — EXCEPT the four Solution options,
+// which are SIBLINGS (all fed by Network, none by each other): amending one Solution does
+// not stale the others, only their shared successors (RiskModel, SdpReview).
+func downstreamKinds(kind ArtifactKind) []ArtifactKind {
+	order := append(Phase1RequiredKinds(), Phase2RequiredKinds()...)
+	idx := -1
+	for i, k := range order {
+		if k == kind {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return nil
+	}
+	out := make([]ArtifactKind, 0, len(order)-idx-1)
+	for _, k := range order[idx+1:] {
+		if kind.IsSolutionKind() && k.IsSolutionKind() {
+			continue // sibling solution options do not depend on each other
+		}
+		out = append(out, k)
+	}
+	return out
+}
+
 // SolutionKinds returns the four solution-option slot kinds in the SDP-review row
 // order (normal, decompressed-normal, subcritical, compressed).
 func SolutionKinds() []ArtifactKind {

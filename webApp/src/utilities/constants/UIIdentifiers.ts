@@ -47,10 +47,29 @@ export const UI_IDENTIFIERS = {
     tocRow: (kind: string) => `toc-row-${kind}`,
     OPEN_SYSTEM_DESIGN: 'open-system-design',
     OPEN_PROJECT_DESIGN: 'open-project-design',
+    // Ghost-project recovery affordance (repo adopted but head-state init failed).
+    GHOST_PANEL: 'home-base-ghost-panel',
+    GHOST_FINISH_SETUP: 'home-base-ghost-finish-setup',
+    GHOST_BACK: 'home-base-ghost-back',
   },
   DesignWizard: {
     SCREEN: 'design-wizard-screen',
     artifactStep: (kind: string) => `artifact-step-${kind}`,
+  },
+  UseCaseCarousel: {
+    // The Core Use Cases artifact's grouped use-case picker (Core / Variations
+    // ListSubheader sections — A6). Selectable black-box via testid rather than
+    // its "Use case" label text.
+    PICKER: 'usecase-picker',
+    // View-mode toggle (walkthrough choose-your-path vs. full activity diagram).
+    VIEW_WALKTHROUGH: 'usecase-view-walkthrough',
+    VIEW_DIAGRAM: 'usecase-view-diagram',
+    // The walkthrough's "Next" advance control (single-successor step). Black-box
+    // hook for asserting the per-step camera move on the you-are-here map.
+    WALKTHROUGH_NEXT: 'walkthrough-next',
+    // The you-are-here map's CURRENT step node (the ringed node). Exactly one is
+    // present in walkthrough mode; its identity changes as the reader advances.
+    WALKTHROUGH_CURRENT_NODE: 'walkthrough-current-node',
   },
   DesignExperience: {
     ROOT: 'design-experience',
@@ -64,14 +83,47 @@ export const UI_IDENTIFIERS = {
     RESEARCH_INPUT_TEXT: 'research-input-text',
     RESEARCH_INPUT_SUBMIT: 'research-input-submit',
     GENERATING_SCENE: 'generating-scene',
+    AMENDING_NOTICE: 'generating-amending-notice',
     CI_JOB_NOTICE: 'ci-job-notice',
     CI_JOB_LINK: 'ci-job-link',
     ARTIFACT_INTRO: 'artifact-intro',
+    // Header (?) info button that carries the committed artifact's framing copy
+    // (replaces the full-width committed intro banner).
+    ARTIFACT_INFO: 'artifact-info',
+    // Compact caveat chip on the Standard Check header when upstream slots drifted.
+    STANDARD_CHECK_CAVEAT: 'standard-check-caveat',
     ARTIFACT_RENDER: 'artifact-render',
     DRAFT_FAILED: 'draft-failed',
     DRAFT_FAILURE_REASON: 'draft-failure-reason',
+    DRAFT_FAILURE_RUN_LINK: 'draft-failure-run-link',
     RETRY_DRAFT: 'retry-draft',
     WITHDRAW_DRAFT: 'withdraw-draft',
+    // Committed-panel amendment affordances: the header Amend button, its small
+    // rationale composer, and the composer's controls.
+    AMEND: 'committed-amend',
+    RECONCILE: 'committed-reconcile',
+    AMEND_COMPOSER: 'amend-composer',
+    AMEND_RATIONALE: 'amend-rationale',
+    AMEND_INCLUDE_PENDING: 'amend-include-pending',
+    AMEND_SUBMIT: 'amend-submit',
+    AMEND_CANCEL: 'amend-cancel',
+    // 'COMMITTED · revision N' meta on the committed-panel header.
+    COMMITTED_REVISION: 'committed-revision',
+    // Read-only 'COMMITTED … — current' label shown above the generating scene while
+    // a committed artifact's amendment drafts.
+    AMEND_CURRENT_LABEL: 'amend-current-label',
+    // 'basis changed — reconcile' warning chip (committed panel + HomeBase rows).
+    STALE_CHIP: 'stale-basis-chip',
+    // F45 stale banner (committed pane) + its two actions and the "mark reviewed —
+    // unaffected" confirm-strip (note field + confirm/cancel).
+    STALE_BANNER: 'stale-basis-banner',
+    STALE_RECONCILE: 'stale-reconcile',
+    STALE_MARK_REVIEWED: 'stale-mark-reviewed',
+    STALE_ACK_NOTE: 'stale-ack-note',
+    STALE_ACK_CONFIRM: 'stale-ack-confirm',
+    STALE_ACK_CANCEL: 'stale-ack-cancel',
+    // Compact stale marker on a spine step, keyed by slot kind.
+    spineStale: (kind: string) => `spine-stale-${kind}`,
   },
   Architecture: {
     VIEW_SWITCH: 'arch-view-switch',
@@ -87,16 +139,35 @@ export const UI_IDENTIFIERS = {
   GatePanel: {
     ROOT: 'gate-panel',
     APPROVE: 'gate-approve',
+    APPROVE_CONFIRM: 'gate-approve-confirm',
+    APPROVE_CANCEL: 'gate-approve-cancel',
     SENDBACK: 'gate-sendback',
     WITHDRAW: 'gate-withdraw',
     FINDINGS: 'findings',
+    // Banner naming the open-comment count that blocks approve.
+    OPEN_BLOCK: 'gate-open-block',
+    // Graceful FailedPrecondition surface after an approve race.
+    GATE_ERROR: 'gate-error',
   },
   Chat: {
     RAIL: 'chat-rail',
     TOGGLE: 'chat-toggle',
     SEND: 'chat-send',
     INPUT: 'chat-input',
+    // Composer type/addressee pickers + the separate Ask send (question-comments).
+    TYPE_CHANGE_REQUEST: 'chat-type-change-request',
+    TYPE_QUESTION: 'chat-type-question',
+    ADDRESSEE_PM: 'chat-addressee-pm',
+    ADDRESSEE_ARCHITECT: 'chat-addressee-architect',
+    ASK: 'chat-ask',
+    // Toggle that reveals/collapses the carried-over PENDING · NOT SENT drafts.
+    PENDING_DISCLOSURE: 'chat-pending-disclosure',
     commentAnchor: (n: number) => `comment-anchor-${String(n)}`,
+    // A durable review-ledger thread entry (server), keyed by its ledger id.
+    threadEntry: (id: string) => `thread-entry-${id}`,
+    // Per-entry lifecycle actions: waive an open entry / reopen an addressed one.
+    threadWaive: (id: string) => `thread-waive-${id}`,
+    threadReopen: (id: string) => `thread-reopen-${id}`,
   },
   // Comment-anchoring affordances that arm a CommentContext anchor from a
   // diagram surface or a text selection. Diagram edges/nodes arm on CLICK (React
@@ -124,6 +195,8 @@ export const UI_IDENTIFIERS = {
     SDP_ASSEMBLE: 'sdp-assemble',
     ADVANCE_CONSTRUCTION: 'advance-construction',
     ADVANCE_RESULT: 'advance-result',
+    ADVANCE_STALE_ERROR: 'advance-stale-error',
+    ADVANCE_ANYWAY: 'advance-anyway',
   },
   Construction: {
     ROOT: 'construction-console',

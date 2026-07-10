@@ -64,6 +64,10 @@ func (f *setResearchFakeState) SetResearchInput(rc fwra.Context, _ projectstate.
 	return f.headVersion, nil
 }
 
+func (f *setResearchFakeState) SetOperatingModel(fwra.Context, projectstate.ProjectID, projectstate.Version, projectstate.OperatingModel) (projectstate.Version, error) {
+	panic("setResearchFakeState.SetOperatingModel must not be called by SetResearchInput")
+}
+
 func (f *setResearchFakeState) StageArtifactForReview(fwra.Context, projectstate.ProjectID, projectstate.Version, projectstate.ArtifactModel) (projectstate.Version, error) {
 	panic("setResearchFakeState.StageArtifactForReview must not be called by SetResearchInput")
 }
@@ -115,6 +119,74 @@ func Test_SetResearchInput_EmptyResearch(t *testing.T) {
 	_, err := m.SetResearchInput(bgRC(), ProjectID(uuid.NewString()), ResearchInput{})
 	if got := asSystemDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse for empty research, got %d", got)
+	}
+}
+
+// A corpus with the right shape (>=1 source) but a source carrying an empty or
+// whitespace-only title/content is a ContractMisuse (BadRequest-class) at the
+// façade boundary, BEFORE any projectStateAccess write — the fake's write verb
+// panics if reached, so this also proves the gate short-circuits before the RA
+// call. The client-facing detail names the offending source by 1-based position.
+func Test_SetResearchInput_PerSourceShapeViolations(t *testing.T) {
+	cases := []struct {
+		name       string
+		sources    []ResearchSource
+		wantDetail string
+	}{
+		{
+			name:       "missing title",
+			sources:    []ResearchSource{{Content: "has content, no title"}},
+			wantDetail: "research source 1: title must not be empty",
+		},
+		{
+			name:       "whitespace-only title",
+			sources:    []ResearchSource{{Title: "   ", Content: "has content"}},
+			wantDetail: "research source 1: title must not be empty",
+		},
+		{
+			name:       "missing content",
+			sources:    []ResearchSource{{Title: "has title, no content"}},
+			wantDetail: "research source 1: content must not be empty",
+		},
+		{
+			name:       "whitespace-only content",
+			sources:    []ResearchSource{{Title: "has title", Content: "\t\n "}},
+			wantDetail: "research source 1: content must not be empty",
+		},
+		{
+			// The offending index is reported (1-based) for a later source, and the
+			// first well-formed source does not mask the second's violation.
+			name: "second source missing content",
+			sources: []ResearchSource{
+				{Title: "Founder brief", Content: "We are building X."},
+				{Title: "Competitor analysis"},
+			},
+			wantDetail: "research source 2: content must not be empty",
+		},
+		{
+			name: "third source missing title",
+			sources: []ResearchSource{
+				{Title: "A", Content: "a"},
+				{Title: "B", Content: "b"},
+				{Content: "c"},
+			},
+			wantDetail: "research source 3: title must not be empty",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// A fake whose write verb panics if reached — proves the gate rejects
+			// BEFORE any projectStateAccess call.
+			m := NewSystemDesignManager(nil, &setResearchFakeState{}, nil, nil, nil, nil, "")
+			_, err := m.SetResearchInput(bgRC(), ProjectID(uuid.NewString()), ResearchInput{Sources: tc.sources})
+			e := asSystemDesignError(t, err)
+			if e.Kind != fwmanager.ContractMisuse {
+				t.Fatalf("want ContractMisuse, got %d", e.Kind)
+			}
+			if e.Detail != tc.wantDetail {
+				t.Fatalf("detail = %q, want %q", e.Detail, tc.wantDetail)
+			}
+		})
 	}
 }
 

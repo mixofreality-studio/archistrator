@@ -32,9 +32,50 @@
  * anchor: `$..[?(section="<heading>")]` carrying the quoted text in the comment,
  * which is still meaningful to a human reader of the redraft prompt.
  */
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
-import type { AnchoredComment } from '../../contracts/types';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
+import type {
+  AnchoredComment,
+  ReviewCommentAddressee,
+  ReviewCommentType,
+} from '../../contracts/types';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
+
+/** localStorage namespace for pending (client-side, unsent) send-back comments. */
+const PENDING_STORAGE_PREFIX = 'aiarch.pendingComments';
+
+function storageKeyFor(activeKey: string): string {
+  return `${PENDING_STORAGE_PREFIX}.${activeKey}`;
+}
+
+/** Best-effort load of a slot's persisted pending entries (storage may be unavailable). */
+function loadPending(activeKey: string): PostedComment[] {
+  try {
+    const raw = localStorage.getItem(storageKeyFor(activeKey));
+    if (raw === null) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? (parsed as PostedComment[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Best-effort persist (empty list removes the slot so a cleared step leaves no orphan). */
+function savePending(activeKey: string, list: PostedComment[]): void {
+  try {
+    if (list.length === 0) localStorage.removeItem(storageKeyFor(activeKey));
+    else localStorage.setItem(storageKeyFor(activeKey), JSON.stringify(list));
+  } catch {
+    /* storage unavailable (private mode / quota) — pending stays in-memory only. */
+  }
+}
 
 /** A pending selection the architect may turn into an anchored comment. */
 export interface Anchor {
@@ -46,6 +87,13 @@ export interface Anchor {
   source: string;
   /** The JSONPath into the typed model this selection refers to. */
   jsonPath: string;
+  /**
+   * The anchored item's RENDERED text snapshot, sent to the review ledger as
+   * `anchorText`. Optional at the arm sites: when omitted, `toWire` falls back to
+   * `label` (which already carries the item's content for every arm surface).
+   * SelectionPopover sets it to the full, untruncated quote.
+   */
+  anchorText?: string;
 }
 
 /**
@@ -57,29 +105,89 @@ export interface Anchor {
 export interface PostedComment {
   text: string;
   anchor: Anchor | null;
+  /**
+   * Change-request (default) or a non-blocking question (question-comments). A
+   * change-request rides the next "Send back" (reject/redraft); a question rides the
+   * separate "Ask" action and never triggers a redraft. Absent ⇒ 'changeRequest'
+   * (migration-safe for any persisted pending entry from before this field existed).
+   */
+  commentType?: ReviewCommentType;
+  /** For a question, the role it is addressed to (pm/architect). */
+  addressee?: ReviewCommentAddressee;
+}
+
+/** Options carried on {@link CommentCtx.post} for a question (vs a plain change-request). */
+export interface PostOptions {
+  commentType?: ReviewCommentType;
+  addressee?: ReviewCommentAddressee;
+}
+
+/** A pending question grouped for the "Ask" action: its addressee + anchored payload. */
+export interface PendingQuestion {
+  addressee: ReviewCommentAddressee;
+  jsonPath: string;
+  text: string;
+  anchorText: string;
+}
+
+/** True when a pending entry is a question (absent type ⇒ change-request). */
+function isQuestion(c: PostedComment): boolean {
+  return c.commentType === 'question';
 }
 
 interface CommentCtx {
+  /**
+   * Whether commenting is active in this context. `true` inside the design /
+   * construction review experiences; `false` for read-only renderings (the home
+   * base). When `false`, `setAnchor` is a no-op, no test probe is emitted, and
+   * every comment affordance renders nothing — so a read-only surface shows zero
+   * comment UI (no icons, no hover chrome, no selection popover, no tab stops).
+   */
+  enabled: boolean;
   /** Entries accumulated this gate cycle (anchored + free-form), oldest first. */
   comments: PostedComment[];
   /** The currently-armed selection (drives the chat composer affordance). */
   anchor: Anchor | null;
-  /** Arm/disarm a selection. Arming bumps `requestId` so the rail can open. */
+  /** Arm/disarm a selection. Arming bumps `requestId` so the rail can open.
+   *  Guarded: while an unsent composer draft is pending (see {@link setDraftPending}),
+   *  re-arming to a DIFFERENT anchor is refused so the draft stays paired with the
+   *  location it was written against (no silent re-target). Disarming (null) and
+   *  re-arming the same anchor always pass. */
   setAnchor: (a: Anchor | null) => void;
+  /**
+   * Signal from the composer that it holds unsent draft text (true) or is empty
+   * (false). Drives {@link setAnchor}'s re-anchor guard so a half-typed comment
+   * cannot be silently retargeted onto a different node by a later arm. The
+   * composer (ChatRail) is expected to call this as its draft text changes; until
+   * it does, this stays false and arming behaves exactly as before.
+   */
+  setDraftPending: (pending: boolean) => void;
   /**
    * Commit `text` as a posted entry. With an armed anchor it becomes an anchored
    * comment (clears the anchor); with no anchor a non-empty `text` becomes a
-   * free-form feedback note.
+   * free-form feedback note. `opts` carries the comment type (change-request/question)
+   * and, for a question, its addressee.
    */
-  post: (text: string) => void;
+  post: (text: string, opts?: PostOptions) => void;
   /** Drop a previously-posted entry by index. */
   remove: (index: number) => void;
   /** Clear all accumulated entries (after a successful send-back). */
   reset: () => void;
-  /** Maps the ANCHORED entries into the wire AnchoredComment[] shape. */
+  /** Clear only the pending QUESTION entries (after a successful "Ask"), keeping change-requests. */
+  clearQuestions: () => void;
+  /**
+   * Bind the accumulator to a (projectId, kind) localStorage slot. Loads that
+   * slot's persisted pending entries and routes subsequent post/remove/reset
+   * writes to it, so unsent notes survive a reload and switching artifact steps
+   * swaps to that step's own pending set. A no-op on read-only surfaces.
+   */
+  setActiveKey: (key: string) => void;
+  /** Maps the ANCHORED CHANGE-REQUEST entries into the wire AnchoredComment[] shape (questions excluded). */
   toWire: () => AnchoredComment[];
-  /** The FREE-FORM entries joined into the reject `feedback` notes string. */
+  /** The FREE-FORM CHANGE-REQUEST entries joined into the reject `feedback` notes string (questions excluded). */
   freeformNotes: () => string;
+  /** The pending QUESTION entries (anchored or free-form) for the "Ask" action. */
+  pendingQuestions: () => PendingQuestion[];
   /** Monotonic counter; bumps whenever an anchor is armed. */
   requestId: number;
 }
@@ -92,45 +200,136 @@ export function useComments(): CommentCtx {
   return c;
 }
 
-export function CommentProvider({ children }: { children: ReactNode }): ReactNode {
+export function CommentProvider({
+  children,
+  enabled = true,
+}: {
+  children: ReactNode;
+  /** Defaults to active; pass `false` on read-only surfaces to suppress ALL comment UI. */
+  enabled?: boolean;
+}): ReactNode {
   const [comments, setComments] = useState<PostedComment[]>([]);
   const [armedAnchor, setArmedAnchor] = useState<Anchor | null>(null);
   const [requestId, setRequestId] = useState(0);
+  // Whether the composer currently holds unsent draft text. A ref (not state) so the
+  // setAnchor guard reads it synchronously without re-subscribing on every keystroke.
+  const draftPendingRef = useRef(false);
+  // Mirror of the armed anchor, read by the setAnchor guard. Kept in a ref so setAnchor
+  // stays referentially STABLE (deps: [enabled] only) — consumers depend on setAnchor's
+  // identity in effects (e.g. DesignExperience disarms on `[activeKind, setAnchor]`), so
+  // rebuilding it on every arm would retrigger those effects and instantly disarm.
+  const armedAnchorRef = useRef<Anchor | null>(null);
+  // The (projectId, kind) localStorage slot the pending entries persist to. A ref
+  // (not state) so post/remove/reset persist to the current slot synchronously
+  // without re-subscribing every mutator on each key change.
+  const activeKeyRef = useRef<string | null>(null);
 
-  const setAnchor = useCallback((a: Anchor | null): void => {
-    setArmedAnchor(a);
-    if (a !== null) setRequestId((n) => n + 1);
+  // Persist to the bound slot (no-op on read-only surfaces / before a key is set).
+  const persist = useCallback(
+    (list: PostedComment[]): void => {
+      if (!enabled || activeKeyRef.current === null) return;
+      savePending(activeKeyRef.current, list);
+    },
+    [enabled]
+  );
+
+  const setActiveKey = useCallback(
+    (key: string): void => {
+      if (!enabled || activeKeyRef.current === key) return;
+      activeKeyRef.current = key;
+      setComments(loadPending(key));
+      armedAnchorRef.current = null;
+      setArmedAnchor(null);
+    },
+    [enabled]
+  );
+
+  const setAnchor = useCallback(
+    (a: Anchor | null): void => {
+      // Read-only surface: nothing may arm an anchor (belt-and-suspenders with the
+      // affordances that don't render when disabled, e.g. a silent node-click arm).
+      if (!enabled) return;
+      // Re-anchor guard: while the composer holds an unsent draft, refuse to move an
+      // existing armed anchor to a DIFFERENT location — that silent re-target would
+      // strand the half-typed comment on the wrong node. Disarm and same-anchor
+      // re-arm always pass through. (Reads the armed anchor from a ref so setAnchor
+      // stays stable — see armedAnchorRef.)
+      const prev = armedAnchorRef.current;
+      if (a !== null && prev !== null && draftPendingRef.current && a.jsonPath !== prev.jsonPath) {
+        return;
+      }
+      armedAnchorRef.current = a;
+      setArmedAnchor(a);
+      if (a !== null) setRequestId((n) => n + 1);
+    },
+    [enabled]
+  );
+
+  const setDraftPending = useCallback((pending: boolean): void => {
+    draftPendingRef.current = pending;
   }, []);
 
   const post = useCallback(
-    (text: string): void => {
+    (text: string, opts?: PostOptions): void => {
       const trimmed = text.trim();
+      const meta: Pick<PostedComment, 'commentType' | 'addressee'> = {
+        commentType: opts?.commentType ?? 'changeRequest',
+        ...(opts?.addressee !== undefined ? { addressee: opts.addressee } : {}),
+      };
+      let next: PostedComment[] | null = null;
       if (armedAnchor === null) {
         // Free-form feedback: only post when the architect actually typed something.
         if (trimmed.length === 0) return;
-        setComments((prev) => [...prev, { text: trimmed, anchor: null }]);
-        return;
+        next = [...comments, { text: trimmed, anchor: null, ...meta }];
+      } else {
+        const body = trimmed.length > 0 ? trimmed : `(comment on ${armedAnchor.label})`;
+        next = [...comments, { text: body, anchor: armedAnchor, ...meta }];
+        armedAnchorRef.current = null;
+        setArmedAnchor(null);
       }
-      const body = trimmed.length > 0 ? trimmed : `(comment on ${armedAnchor.label})`;
-      setComments((prev) => [...prev, { text: body, anchor: armedAnchor }]);
-      setArmedAnchor(null);
+      setComments(next);
+      persist(next);
     },
-    [armedAnchor]
+    [armedAnchor, comments, persist]
   );
 
-  const remove = useCallback((index: number): void => {
-    setComments((prev) => prev.filter((_, i) => i !== index));
-  }, []);
+  const remove = useCallback(
+    (index: number): void => {
+      const next = comments.filter((_, i) => i !== index);
+      setComments(next);
+      persist(next);
+    },
+    [comments, persist]
+  );
 
   const reset = useCallback((): void => {
     setComments([]);
+    armedAnchorRef.current = null;
     setArmedAnchor(null);
-  }, []);
+    persist([]);
+  }, [persist]);
+
+  const clearQuestions = useCallback((): void => {
+    setComments((prev) => {
+      const next = prev.filter((c) => !isQuestion(c));
+      persist(next);
+      return next;
+    });
+  }, [persist]);
 
   const toWire = useCallback((): AnchoredComment[] => {
     const out: AnchoredComment[] = [];
     for (const c of comments) {
-      if (c.anchor !== null) out.push({ jsonPath: c.anchor.jsonPath, text: c.text });
+      // Questions ride the separate "Ask" action, never a Send-back redraft.
+      if (c.anchor !== null && !isQuestion(c)) {
+        // anchorText is the item's rendered-text snapshot; the label already carries
+        // it for every arm surface, so fall back to it when no richer text was set.
+        out.push({
+          jsonPath: c.anchor.jsonPath,
+          text: c.text,
+          anchorText: c.anchor.anchorText ?? c.anchor.label,
+        });
+      }
     }
     return out;
   }, [comments]);
@@ -138,25 +337,56 @@ export function CommentProvider({ children }: { children: ReactNode }): ReactNod
   const freeformNotes = useCallback(
     (): string =>
       comments
-        .filter((c) => c.anchor === null)
+        .filter((c) => c.anchor === null && !isQuestion(c))
         .map((c) => c.text)
         .join('\n'),
     [comments]
   );
 
+  const pendingQuestions = useCallback(
+    (): PendingQuestion[] =>
+      comments.filter(isQuestion).map((c) => ({
+        addressee: c.addressee ?? 'pm',
+        jsonPath: c.anchor?.jsonPath ?? '',
+        text: c.text,
+        anchorText: c.anchor?.anchorText ?? c.anchor?.label ?? '',
+      })),
+    [comments]
+  );
+
   const value = useMemo<CommentCtx>(
     () => ({
+      enabled,
       comments,
       anchor: armedAnchor,
       setAnchor,
+      setDraftPending,
       post,
       remove,
       reset,
+      clearQuestions,
+      setActiveKey,
       toWire,
       freeformNotes,
+      pendingQuestions,
       requestId,
     }),
-    [comments, armedAnchor, setAnchor, post, remove, reset, toWire, freeformNotes, requestId]
+    [
+      enabled,
+      comments,
+      armedAnchor,
+      setAnchor,
+      setDraftPending,
+      post,
+      remove,
+      reset,
+      clearQuestions,
+      setActiveKey,
+      toWire,
+      freeformNotes,
+      pendingQuestions,
+      requestId,
+    ]
   );
 
   return (
@@ -165,14 +395,18 @@ export function CommentProvider({ children }: { children: ReactNode }): ReactNod
           uitests (and headless smokes) can assert that ANY commentable surface —
           diagram edge/node, sequence step, deployment node, use case, or a text
           selection — armed its anchor, without depending on the ChatRail (which
-          needs a live co-author session). Empty attributes when nothing is armed. */}
-      <span
-        data-anchor-label={armedAnchor?.label ?? ''}
-        data-anchor-path={armedAnchor?.jsonPath ?? ''}
-        data-anchor-source={armedAnchor?.source ?? ''}
-        data-testid={UI_IDENTIFIERS.Comments.ARMED_ANCHOR}
-        style={{ display: 'none' }}
-      />
+          needs a live co-author session). Empty attributes when nothing is armed.
+          Suppressed entirely on read-only surfaces (enabled === false) so the DOM
+          carries no comment-probe span there. */}
+      {enabled ? (
+        <span
+          data-anchor-label={armedAnchor?.label ?? ''}
+          data-anchor-path={armedAnchor?.jsonPath ?? ''}
+          data-anchor-source={armedAnchor?.source ?? ''}
+          data-testid={UI_IDENTIFIERS.Comments.ARMED_ANCHOR}
+          style={{ display: 'none' }}
+        />
+      ) : null}
       {children}
     </Ctx.Provider>
   );

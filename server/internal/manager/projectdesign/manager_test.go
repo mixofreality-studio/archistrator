@@ -7,6 +7,13 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/mock"
+	enumspb "go.temporal.io/api/enums/v1"
+	workflowpb "go.temporal.io/api/workflow/v1"
+	"go.temporal.io/api/workflowservice/v1"
+	"go.temporal.io/sdk/client"
+	temporalmocks "go.temporal.io/sdk/mocks"
+
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
@@ -80,6 +87,104 @@ func committedPhase2Project(pid ProjectID, committed ...ArtifactKind) projectsta
 		}
 	}
 	return p
+}
+
+// P0-2 (closed-COMPLETED, committed — Phase-2 twin). A CoAuthor run that committed its
+// Phase-2 artifact and then completed still answers the replayed sessionState Query with a
+// STALE mid-flight stage. GetSessionState must Describe the run, see COMPLETED, and rebuild the
+// COMMITTED view from the durable slot on main — StageCommitted carrying the committed model —
+// WITHOUT trusting (or calling) the replayed Query.
+func Test_GetSessionState_CompletedCommitted_ReturnsCommittedView(t *testing.T) {
+	id := ProjectID(uuid.NewString())
+	wfID := coAuthorWorkflowID(id, KindPlanningAssumptions)
+
+	mc := &temporalmocks.Client{}
+	resp := &workflowservice.DescribeWorkflowExecutionResponse{
+		WorkflowExecutionInfo: &workflowpb.WorkflowExecutionInfo{
+			Status: enumspb.WORKFLOW_EXECUTION_STATUS_COMPLETED,
+		},
+	}
+	mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "").Return(resp, nil)
+	// NO QueryWorkflow expectation: a COMPLETED run's replayed query is stale and must be
+	// bypassed. If GetSessionState fell through to it, the mock would panic.
+
+	proj := committedPhase2Project(id, KindPlanningAssumptions)
+	proj.PlanningAssumptions.Model = &projectstate.PlanningAssumptions{Notes: "the-notes"}
+	ps := &fakeProjectState{project: proj}
+
+	m := &projectDesignManager{client: mc, projectState: ps}
+	view, err := m.GetSessionState(fwmanager.Context{Context: context.Background()}, id, KindPlanningAssumptions)
+	if err != nil {
+		t.Fatalf("GetSessionState on a completed+committed session must return the committed view, got err: %v", err)
+	}
+	if view.Stage != StageCommitted {
+		t.Fatalf("completed+committed must surface StageCommitted (not the replayed StageDrafting), got %d", view.Stage)
+	}
+	if view.Draft.Model == nil || !strings.Contains(string(*view.Draft.Model), "the-notes") {
+		t.Fatalf("committed view model must be the committed slot content, got %v", view.Draft.Model)
+	}
+	mc.AssertExpectations(t)
+}
+
+// P0-2 (closed-COMPLETED, uncommitted — Phase-2 twin). A run that completed WITHOUT landing a
+// commit must NOT surface the stale replayed StageDrafting either — it renders an honest
+// terminal derived from the slot (here a withdrawn slot → StageWithdrawn), never Drafting.
+func Test_GetSessionState_CompletedUncommitted_ReturnsHonestTerminal(t *testing.T) {
+	id := ProjectID(uuid.NewString())
+	wfID := coAuthorWorkflowID(id, KindPlanningAssumptions)
+
+	mc := &temporalmocks.Client{}
+	resp := &workflowservice.DescribeWorkflowExecutionResponse{
+		WorkflowExecutionInfo: &workflowpb.WorkflowExecutionInfo{
+			Status: enumspb.WORKFLOW_EXECUTION_STATUS_COMPLETED,
+		},
+	}
+	mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "").Return(resp, nil)
+
+	proj := projectstate.Project{ID: projectstate.ProjectID(id)}
+	proj.PlanningAssumptions.Status = projectstate.ReviewWithdrawn
+	ps := &fakeProjectState{project: proj}
+
+	m := &projectDesignManager{client: mc, projectState: ps}
+	view, err := m.GetSessionState(fwmanager.Context{Context: context.Background()}, id, KindPlanningAssumptions)
+	if err != nil {
+		t.Fatalf("GetSessionState on a completed+uncommitted session must synthesize a terminal view, got err: %v", err)
+	}
+	if view.Stage == StageDrafting {
+		t.Fatal("a completed+uncommitted session must NOT surface the stale StageDrafting")
+	}
+	if view.Stage != StageWithdrawn {
+		t.Fatalf("a withdrawn completed slot must surface StageWithdrawn, got %d", view.Stage)
+	}
+	mc.AssertExpectations(t)
+}
+
+// An ABNORMALLY-closed run (FAILED) still synthesizes the honest StageDraftFailed view (F15/F28
+// parity with systemdesign), bypassing the lying replayed Query.
+func Test_GetSessionState_DeadWorkflow_SynthesizesFailedView(t *testing.T) {
+	id := ProjectID(uuid.NewString())
+	wfID := coAuthorWorkflowID(id, KindPlanningAssumptions)
+
+	mc := &temporalmocks.Client{}
+	resp := &workflowservice.DescribeWorkflowExecutionResponse{
+		WorkflowExecutionInfo: &workflowpb.WorkflowExecutionInfo{
+			Status: enumspb.WORKFLOW_EXECUTION_STATUS_FAILED,
+		},
+	}
+	mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "").Return(resp, nil)
+
+	m := &projectDesignManager{client: mc}
+	view, err := m.GetSessionState(fwmanager.Context{Context: context.Background()}, id, KindPlanningAssumptions)
+	if err != nil {
+		t.Fatalf("GetSessionState on a dead workflow must synthesize a view, got err: %v", err)
+	}
+	if view.Stage != StageDraftFailed {
+		t.Fatalf("a dead workflow must surface StageDraftFailed, got %d", view.Stage)
+	}
+	if view.FailureReason == nil || *view.FailureReason == "" {
+		t.Fatal("a synthesized dead-workflow view must carry a human FailureReason")
+	}
+	mc.AssertExpectations(t)
 }
 
 // A Phase-2 draft whose immediate predecessor slot is uncommitted is refused with
@@ -269,9 +374,65 @@ func Test_SubmitReviewDecision_UnknownDecision(t *testing.T) {
 
 func Test_AdvanceToConstruction_EmptyProjectID(t *testing.T) {
 	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil)
-	_, err := m.AdvanceToConstruction(fwmanager.Context{Context: context.Background()}, ProjectID(""))
+	_, err := m.AdvanceToConstruction(fwmanager.Context{Context: context.Background()}, ProjectID(""), false)
 	if got := asProjectDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %d", got)
+	}
+}
+
+// F55 (Phase-2 twin): a committed-but-stale in-scope Phase-2 slot blocks AdvanceToConstruction
+// with a FailedPrecondition that NAMES the stale slot. Synchronous head-state read that
+// short-circuits before any Temporal call.
+func Test_AdvanceToConstruction_StaleSlot_FailedPreconditionNamingSlot(t *testing.T) {
+	pid := ProjectID(uuid.NewString())
+	proj := committedPhase2Project(pid, KindPlanningAssumptions, KindActivityList, KindNetwork)
+	proj.Network.StaleBasis = true
+	ps := &fakeProjectState{project: proj}
+	m := NewProjectDesignManager(nil, ps, nil, nil, nil, nil, nil, nil)
+
+	_, err := m.AdvanceToConstruction(fwmanager.Context{Context: context.Background()}, pid, false)
+	pde := asProjectDesignError(t, err)
+	if pde.Kind != fwmanager.FailedPrecondition {
+		t.Fatalf("want FailedPrecondition for a stale committed slot, got %d", pde.Kind)
+	}
+	if !strings.Contains(err.Error(), "network") {
+		t.Fatalf("error must name the stale slot network, got %q", err.Error())
+	}
+}
+
+// F55 (Phase-2 twin): acknowledgeStale bypasses the stale gate — the seal proceeds to the
+// Temporal start (mock errors → Infrastructure, not FailedPrecondition).
+func Test_AdvanceToConstruction_StaleSlot_AcknowledgeBypassesGate(t *testing.T) {
+	pid := ProjectID(uuid.NewString())
+	proj := committedPhase2Project(pid, KindNetwork)
+	proj.Network.StaleBasis = true
+	ps := &fakeProjectState{project: proj}
+
+	mc := &temporalmocks.Client{}
+	mc.On("ExecuteWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(nil, errors.New("boom"))
+	m := &projectDesignManager{client: mc, projectState: ps}
+
+	_, err := m.AdvanceToConstruction(fwmanager.Context{Context: context.Background()}, pid, true)
+	if got := asProjectDesignError(t, err).Kind; got == fwmanager.FailedPrecondition {
+		t.Fatal("with ack the stale gate must be bypassed, not surface FailedPrecondition")
+	}
+}
+
+// F55 (Phase-2 twin): no stale slot → the gate is a no-op and the op proceeds unchanged.
+func Test_AdvanceToConstruction_NoStaleSlot_ProceedsUnchanged(t *testing.T) {
+	pid := ProjectID(uuid.NewString())
+	proj := committedPhase2Project(pid, KindPlanningAssumptions, KindNetwork)
+	ps := &fakeProjectState{project: proj}
+
+	mc := &temporalmocks.Client{}
+	mc.On("ExecuteWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(nil, errors.New("boom"))
+	m := &projectDesignManager{client: mc, projectState: ps}
+
+	_, err := m.AdvanceToConstruction(fwmanager.Context{Context: context.Background()}, pid, false)
+	if got := asProjectDesignError(t, err).Kind; got == fwmanager.FailedPrecondition {
+		t.Fatal("with no stale slot the gate must pass, not surface FailedPrecondition")
 	}
 }
 
@@ -282,5 +443,122 @@ func Test_GetSessionState_EmptyProjectID(t *testing.T) {
 	_, err := m.GetSessionState(fwmanager.Context{Context: context.Background()}, ProjectID(""), KindPlanningAssumptions)
 	if got := asProjectDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %d", got)
+	}
+}
+
+// ---- F47: RequestArtifactDraft DELIVERS the feedback via the redraft signal --------
+
+// recordingStartClient captures the SignalWithStartWorkflow call so a test can assert
+// RequestArtifactDraft delivers the redraft signal (with feedback) rather than dropping it
+// via a bare ExecuteWorkflow. Embeds client.Client so any other method panics if reached.
+type recordingStartClient struct {
+	client.Client
+	signalName string
+	signalArg  interface{}
+	execCalled bool
+}
+
+type fakeWorkflowRun struct {
+	client.WorkflowRun
+	id string
+}
+
+func (r fakeWorkflowRun) GetID() string { return r.id }
+
+func (c *recordingStartClient) SignalWithStartWorkflow(_ context.Context, workflowID, signalName string, signalArg interface{}, _ client.StartWorkflowOptions, _ interface{}, _ ...interface{}) (client.WorkflowRun, error) {
+	c.signalName = signalName
+	c.signalArg = signalArg
+	return fakeWorkflowRun{id: workflowID}, nil
+}
+
+func (c *recordingStartClient) ExecuteWorkflow(_ context.Context, _ client.StartWorkflowOptions, _ interface{}, _ ...interface{}) (client.WorkflowRun, error) {
+	// The F47 regression: a bare ExecuteWorkflow against a RUNNING session (USE_EXISTING)
+	// returns the existing handle WITHOUT delivering the new feedback. RequestArtifactDraft
+	// must NOT use this path — record it so the test fails loudly if it regresses.
+	c.execCalled = true
+	return fakeWorkflowRun{id: "exec"}, nil
+}
+
+func Test_RequestArtifactDraft_DeliversFeedbackViaRedraftSignal(t *testing.T) {
+	pid := ProjectID(uuid.NewString())
+	// planningAssumptions is the first Phase-2 kind (no predecessor gate); notFound ⇒ amendment
+	// index 0 (a normal/retry draft, not an amendment). The point under test is DELIVERY.
+	ps := &fakeProjectState{notFound: true}
+	fc := &recordingStartClient{}
+	m := newProjectDesignManager(fc, ps, nil, nil, nil, nil, nil, nil)
+
+	const notes = "resources must be plain strings, not objects"
+	if _, err := m.RequestArtifactDraft(fwmanager.Context{Context: context.Background()}, pid, KindPlanningAssumptions, &ReviewFeedback{Notes: notes}); err != nil {
+		t.Fatalf("RequestArtifactDraft: %v", err)
+	}
+
+	// THE FIX: the request must DELIVER the feedback via the redraft signal (so a running
+	// session at the failed gate receives it), NOT drop it via a bare ExecuteWorkflow.
+	if fc.execCalled {
+		t.Fatal("RequestArtifactDraft must NOT use bare ExecuteWorkflow (drops feedback on a running session)")
+	}
+	if fc.signalName != signalRedraft {
+		t.Fatalf("RequestArtifactDraft must signal %q (redraft), got %q", signalRedraft, fc.signalName)
+	}
+	sig, ok := fc.signalArg.(redraftSignal)
+	if !ok {
+		t.Fatalf("the redraft signal payload must be redraftSignal, got %T", fc.signalArg)
+	}
+	if sig.Feedback == nil || sig.Feedback.Notes != notes {
+		t.Fatalf("the redraft signal must carry the request feedback %q, got %+v", notes, sig.Feedback)
+	}
+}
+
+// F73 (part 1, Phase-2 twin). AskQuestions on a COMMITTED artifact whose co-author session is
+// CLOSED must seed on MAIN (""), not the dead session's leftover amendment branch.
+// resolveQuestionBranch keys off the P0-2 Describe-first honest view (GetSessionState), not the
+// bare sessionState Query, which REPLAYS a closed run's stale mid-flight LIVE stage.
+func Test_ResolveQuestionBranch_ClosedWorkflowLeftoverBranch_SeedsOnMain(t *testing.T) {
+	id := ProjectID(uuid.NewString())
+	wfID := coAuthorWorkflowID(id, KindPlanningAssumptions)
+
+	mc := &temporalmocks.Client{}
+	resp := &workflowservice.DescribeWorkflowExecutionResponse{
+		WorkflowExecutionInfo: &workflowpb.WorkflowExecutionInfo{
+			Status: enumspb.WORKFLOW_EXECUTION_STATUS_COMPLETED,
+		},
+	}
+	mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "").Return(resp, nil)
+	// NO QueryWorkflow expectation: trusting the replayed query for a closed run would panic.
+
+	proj := committedPhase2Project(id, KindPlanningAssumptions) // committed ⇒ amendmentIndexFor >= 1
+	ps := &fakeProjectState{project: proj}
+
+	m := &projectDesignManager{client: mc, projectState: ps}
+	if branch := m.resolveQuestionBranch(fwmanager.Context{Context: context.Background()}, id, KindPlanningAssumptions); branch != "" {
+		t.Fatalf("questions on a committed artifact whose session is closed must seed on main (\"\"), got leftover branch %q", branch)
+	}
+	mc.AssertExpectations(t)
+}
+
+// F73 (part 2, Phase-2 twin). The committed view must carry the slot's durable reviewThread so
+// questions seeded on a COMMITTED Phase-2 artifact render on it.
+func Test_CommittedSessionView_CarriesReviewThread(t *testing.T) {
+	id := ProjectID(uuid.NewString())
+	slot := projectstate.ArtifactSlot{
+		Status: projectstate.ReviewCommitted,
+		ReviewThread: []projectstate.ReviewComment{{
+			ID:         "r1c1",
+			Text:       "which resources are assumed?",
+			Type:       projectstate.ReviewCommentTypeQuestion,
+			Addressee:  projectstate.ReviewAddresseeArchitect,
+			Status:     projectstate.ReviewCommentOpen,
+			AuthorRole: reviewAuthorRole,
+		}},
+	}
+	view, err := committedSessionView(id, KindPlanningAssumptions, slot)
+	if err != nil {
+		t.Fatalf("committedSessionView on a committed slot must not error: %v", err)
+	}
+	if view.Stage != StageCommitted {
+		t.Fatalf("committed slot must render StageCommitted, got %d", view.Stage)
+	}
+	if len(view.ReviewThread) != 1 || view.ReviewThread[0].Text != "which resources are assumed?" {
+		t.Fatalf("committed view must carry the slot's reviewThread question, got %+v", view.ReviewThread)
 	}
 }

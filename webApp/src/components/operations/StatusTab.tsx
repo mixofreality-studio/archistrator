@@ -40,14 +40,37 @@ export function StatusTab({ view }: { view: OperationsView | undefined }): React
     >
       {/* the at-a-glance rollup banner */}
       <Paper sx={{ p: 0, overflow: 'hidden', borderLeft: `5px solid ${phaseColor(t, rollup)}` }}>
-        <Box sx={{ px: 2.25, py: 1.5, bgcolor: t.paperAlt, display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+        <Box
+          sx={{
+            px: 2.25,
+            py: 1.5,
+            bgcolor: t.paperAlt,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 2,
+            flexWrap: 'wrap',
+          }}
+        >
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Typography sx={{ fontFamily: t.display, fontWeight: 800, fontSize: 18, color: t.ink }}>Service health</Typography>
+            <Typography sx={{ fontFamily: t.display, fontWeight: 800, fontSize: 18, color: t.ink }}>
+              Service health
+            </Typography>
             <PhaseChip phase={rollup} t={t} />
           </Box>
           <Box sx={{ flexGrow: 1 }} />
-          <Stat label="SLOs met" n={sum.healthy} of={sum.total} t={t} tone={sum.breaching > 0 ? 'warn' : 'ok'} />
-          <Stat label="breaching" n={sum.breaching} t={t} tone={sum.breaching > 0 ? 'warn' : 'ok'} />
+          <Stat
+            label="SLOs met"
+            n={sum.healthy}
+            of={sum.total}
+            t={t}
+            tone={sum.breaching > 0 ? 'warn' : 'ok'}
+          />
+          <Stat
+            label="breaching"
+            n={sum.breaching}
+            t={t}
+            tone={sum.breaching > 0 ? 'warn' : 'ok'}
+          />
           <Tooltip title="Observed at the last reconcile tick. aiarch OBSERVES infrastructure-driven convergence; it does not command it.">
             <Typography sx={{ fontFamily: t.mono, fontSize: 10, color: t.muted }}>
               {view.health.detail.length > 0 ? view.health.detail : 'readRuntimeStatus'}
@@ -59,17 +82,28 @@ export function StatusTab({ view }: { view: OperationsView | undefined }): React
       {/* SLO listview */}
       <Box>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-          <Typography sx={{ fontFamily: t.display, fontWeight: 700, fontSize: 16, color: t.ink }}>SLO listview</Typography>
-          <Typography sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.muted }}>· per-SLO posture from readRuntimeStatus</Typography>
+          <Typography sx={{ fontFamily: t.display, fontWeight: 700, fontSize: 16, color: t.ink }}>
+            SLO listview
+          </Typography>
+          <Typography sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.muted }}>
+            · per-SLO posture from readRuntimeStatus
+          </Typography>
         </Box>
         {view.slos.length === 0 ? (
           <Paper sx={{ p: 2.5, textAlign: 'center' }}>
-            <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.muted }}>No SLOs observed yet.</Typography>
+            <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.muted }}>
+              No SLOs observed yet.
+            </Typography>
           </Paper>
         ) : (
           <Paper sx={{ p: 0, overflow: 'hidden' }}>
             {view.slos.map((s, i) => (
-              <SloListRow key={`${s.component}-${String(i)}`} last={i === view.slos.length - 1} s={s} t={t} />
+              <SloListRow
+                key={`${s.component}-${String(i)}`}
+                last={i === view.slos.length - 1}
+                s={s}
+                t={t}
+              />
             ))}
           </Paper>
         )}
@@ -78,27 +112,54 @@ export function StatusTab({ view }: { view: OperationsView | undefined }): React
       {/* health timeline */}
       <Box>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-          <Typography sx={{ fontFamily: t.display, fontWeight: 700, fontSize: 16, color: t.ink }}>Health timeline</Typography>
-          <Typography sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.muted }}>· RuntimeStatusChanged (operatedSystemStateAccess)</Typography>
+          <Typography sx={{ fontFamily: t.display, fontWeight: 700, fontSize: 16, color: t.ink }}>
+            Health timeline
+          </Typography>
+          <Typography sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.muted }}>
+            · RuntimeStatusChanged (operatedSystemStateAccess)
+          </Typography>
         </Box>
         {view.recentEvents.length === 0 ? (
           <Paper sx={{ p: 2.5, textAlign: 'center' }}>
-            <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.muted }}>No recent transitions.</Typography>
+            <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.muted }}>
+              No recent transitions.
+            </Typography>
           </Paper>
         ) : (
           <Paper sx={{ p: 0, overflow: 'hidden' }}>
             {view.recentEvents.map((e, i) => (
               <Box
                 key={`${e.at}-${String(i)}`}
-                sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5, px: 2, py: 1.1, borderBottom: i === view.recentEvents.length - 1 ? 'none' : `1px solid ${t.line}` }}
+                sx={{
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: 1.5,
+                  px: 2,
+                  py: 1.1,
+                  borderBottom: i === view.recentEvents.length - 1 ? 'none' : `1px solid ${t.line}`,
+                }}
               >
-                <Typography sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.muted, minWidth: 96, pt: 0.2 }}>{formatEventTime(e.at)}</Typography>
+                <Typography
+                  sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.muted, minWidth: 96, pt: 0.2 }}
+                >
+                  {formatEventTime(e.at)}
+                </Typography>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, pt: 0.1 }}>
                   <PhaseChip phase={normalizePhase(e.from)} size="xs" t={t} />
                   <Typography sx={{ color: t.muted, fontSize: 12 }}>→</Typography>
                   <PhaseChip phase={normalizePhase(e.to)} size="xs" t={t} />
                 </Box>
-                <Typography sx={{ fontFamily: t.body, fontSize: 12.5, color: t.ink, lineHeight: 1.4, flexGrow: 1 }}>{e.note}</Typography>
+                <Typography
+                  sx={{
+                    fontFamily: t.body,
+                    fontSize: 12.5,
+                    color: t.ink,
+                    lineHeight: 1.4,
+                    flexGrow: 1,
+                  }}
+                >
+                  {e.note}
+                </Typography>
               </Box>
             ))}
           </Paper>
@@ -108,15 +169,43 @@ export function StatusTab({ view }: { view: OperationsView | undefined }): React
   );
 }
 
-function Stat({ t, n, of, label, tone }: { t: Tokens; n: number; of?: number; label: string; tone: 'ok' | 'warn' }): ReactNode {
+function Stat({
+  t,
+  n,
+  of,
+  label,
+  tone,
+}: {
+  t: Tokens;
+  n: number;
+  of?: number;
+  label: string;
+  tone: 'ok' | 'warn';
+}): ReactNode {
   const color = tone === 'warn' ? t.awaitingFg : t.committedFg;
   return (
     <Box sx={{ textAlign: 'center' }}>
-      <Typography sx={{ fontFamily: t.display, fontWeight: 800, fontSize: 20, lineHeight: 1, color }}>
+      <Typography
+        sx={{ fontFamily: t.display, fontWeight: 800, fontSize: 20, lineHeight: 1, color }}
+      >
         {n}
-        {of !== undefined && <Box component="span" sx={{ fontSize: 12, color: t.muted }}>/{of}</Box>}
+        {of !== undefined && (
+          <Box component="span" sx={{ fontSize: 12, color: t.muted }}>
+            /{of}
+          </Box>
+        )}
       </Typography>
-      <Typography sx={{ fontFamily: t.mono, fontSize: 9, letterSpacing: '0.08em', color: t.muted, textTransform: 'uppercase' }}>{label}</Typography>
+      <Typography
+        sx={{
+          fontFamily: t.mono,
+          fontSize: 9,
+          letterSpacing: '0.08em',
+          color: t.muted,
+          textTransform: 'uppercase',
+        }}
+      >
+        {label}
+      </Typography>
     </Box>
   );
 }
@@ -137,13 +226,27 @@ function SloListRow({ s, t, last }: { s: OperationsSlo; t: Tokens; last: boolean
     >
       <Box sx={{ minWidth: 0, flexGrow: 1 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-          <Typography sx={{ fontFamily: t.body, fontWeight: 700, fontSize: 14, color: t.ink }}>{s.component}</Typography>
+          <Typography sx={{ fontFamily: t.body, fontWeight: 700, fontSize: 14, color: t.ink }}>
+            {s.component}
+          </Typography>
         </Box>
-        <Typography sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.muted, mt: 0.25 }}>{s.objective}</Typography>
+        <Typography sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.muted, mt: 0.25 }}>
+          {s.objective}
+        </Typography>
       </Box>
-      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 0.5, flexShrink: 0 }}>
+      <Box
+        sx={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'flex-end',
+          gap: 0.5,
+          flexShrink: 0,
+        }}
+      >
         <SloPill met={s.sloMet} t={t} />
-        <Typography sx={{ fontFamily: t.mono, fontSize: 9, color: s.healthy ? t.committedFg : t.awaitingFg }}>
+        <Typography
+          sx={{ fontFamily: t.mono, fontSize: 9, color: s.healthy ? t.committedFg : t.awaitingFg }}
+        >
           {s.healthy ? 'healthy' : 'unhealthy'}
         </Typography>
       </Box>

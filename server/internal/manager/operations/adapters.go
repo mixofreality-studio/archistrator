@@ -25,99 +25,17 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/autoscaler"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/operationestimation"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/durableexecution"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedruntime"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedsystemstate"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
 )
 
 // ===========================================================================
-// operatedSystemStateAccess adapter — over operatedsystemstate.OperatedSystemStateAccess.
+// operatedSystemStateAccess contract <-> Manager-local seam converters. The former
+// operatedSystemStateAdapter struct is retired — the workflow reaches the RA through
+// the generated invokers (invokers.gen.go); these pure converters fold the contract
+// types the invokers exchange into the Manager-local seams the workflow + Engines use.
 // ===========================================================================
-
-type operatedSystemStateAdapter struct {
-	inner operatedsystemstate.OperatedSystemStateAccess
-}
-
-var _ operatedSystemStateAccess = operatedSystemStateAdapter{}
-
-func (a operatedSystemStateAdapter) ReadOperatedSystem(ctx context.Context, operatedAppID operatedAppID) (operatedSystem, error) {
-	op, err := a.inner.ReadOperatedSystem(fwra.Context{Context: ctx}, operatedAppID)
-	if err != nil {
-		return operatedSystem{}, err
-	}
-	return operatedSystem{
-		ID:                  op.ID,
-		Version:             version(op.Version),
-		Status:              runtimeStatusFromState(op.Status),
-		InFlight:            op.InFlight,
-		DeployableBundleRef: op.DeployableBundleRef,
-	}, nil
-}
-
-func (a operatedSystemStateAdapter) ReadInFlightOperatedApps(ctx context.Context, scope inFlightScope) ([]operatedSystemSummary, error) {
-	apps, err := a.inner.ReadInFlightOperatedApps(fwra.Context{Context: ctx}, operatedsystemstate.InFlightScope{
-		AppIDs:     scope.AppIDs,
-		CustomerID: scope.CustomerID,
-	})
-	if err != nil {
-		return nil, err
-	}
-	out := make([]operatedSystemSummary, 0, len(apps))
-	for _, s := range apps {
-		out = append(out, operatedSystemSummary{
-			ID:      s.ID,
-			Version: version(s.Version),
-			Status:  runtimeStatusFromState(s.Status),
-		})
-	}
-	return out, nil
-}
-
-func (a operatedSystemStateAdapter) PublishDesiredState(ctx context.Context, operatedAppID operatedAppID, expectedVersion version, reason DesiredStateReason, decision *autoscaleDecisionSeam, idempotencyKey fwra.IdempotencyKey) (version, error) {
-	v, err := a.inner.PublishDesiredState(
-		fwra.Context{Context: ctx, IdempotencyKey: idempotencyKey},
-		operatedAppID,
-		operatedsystemstate.Version(expectedVersion),
-		desiredStateReasonToState(reason),
-		autoscaleDecisionToState(decision),
-		idempotencyKey,
-	)
-	return version(v), err
-}
-
-func (a operatedSystemStateAdapter) RecordRuntimeStatusChange(ctx context.Context, operatedAppID operatedAppID, expectedVersion version, status RuntimeStatusSeam, idempotencyKey fwra.IdempotencyKey) (version, error) {
-	v, err := a.inner.RecordRuntimeStatusChange(
-		fwra.Context{Context: ctx, IdempotencyKey: idempotencyKey},
-		operatedAppID,
-		operatedsystemstate.Version(expectedVersion),
-		runtimeStatusToState(status),
-		idempotencyKey,
-	)
-	return version(v), err
-}
-
-func (a operatedSystemStateAdapter) WithdrawSystem(ctx context.Context, operatedAppID operatedAppID, expectedVersion version, idempotencyKey fwra.IdempotencyKey) (version, error) {
-	v, err := a.inner.WithdrawSystem(
-		fwra.Context{Context: ctx, IdempotencyKey: idempotencyKey},
-		operatedAppID,
-		operatedsystemstate.Version(expectedVersion),
-		idempotencyKey,
-	)
-	return version(v), err
-}
-
-func (a operatedSystemStateAdapter) RecordDelinquencyAction(ctx context.Context, operatedAppID operatedAppID, expectedVersion version, action delinquencyAction, idempotencyKey fwra.IdempotencyKey) (version, error) {
-	v, err := a.inner.RecordDelinquencyAction(
-		fwra.Context{Context: ctx, IdempotencyKey: idempotencyKey},
-		operatedAppID,
-		operatedsystemstate.Version(expectedVersion),
-		delinquencyActionToState(action),
-		idempotencyKey,
-	)
-	return version(v), err
-}
 
 func runtimeStatusFromState(s operatedsystemstate.RuntimeStatus) RuntimeStatusSeam {
 	switch s {
@@ -215,57 +133,9 @@ func autoscaleDecisionToState(d *autoscaleDecisionSeam) *operatedsystemstate.Aut
 }
 
 // ===========================================================================
-// operatedRuntimeAccess adapter — over operatedruntime.OperatedRuntimeAccess.
+// operatedRuntimeAccess contract -> Manager-local seam converter (the
+// operatedRuntimeAdapter struct is retired; see the operatedSystemStateAccess note).
 // ===========================================================================
-
-type operatedRuntimeAdapter struct {
-	inner operatedruntime.OperatedRuntimeAccess
-}
-
-var _ operatedRuntimeAccess = operatedRuntimeAdapter{}
-
-func (a operatedRuntimeAdapter) PublishDesiredState(ctx context.Context, appID operatedAppID, desired runtimeDesiredState, idempotencyKey fwra.IdempotencyKey) error {
-	return a.inner.PublishDesiredState(
-		fwra.Context{Context: ctx, IdempotencyKey: idempotencyKey},
-		appID,
-		operatedruntime.RuntimeDesiredState{Bytes: desired.Bytes, ContentType: desired.ContentType},
-		idempotencyKey,
-	)
-}
-
-func (a operatedRuntimeAdapter) Withdraw(ctx context.Context, appID operatedAppID, idempotencyKey fwra.IdempotencyKey) error {
-	return a.inner.Withdraw(fwra.Context{Context: ctx, IdempotencyKey: idempotencyKey}, appID, idempotencyKey)
-}
-
-func (a operatedRuntimeAdapter) GetApplicationHealth(ctx context.Context, appID operatedAppID) (RuntimeStatusSeam, error) {
-	s, err := a.inner.GetApplicationHealth(fwra.Context{Context: ctx}, appID)
-	if err != nil {
-		return RuntimeStatusUnknown, err
-	}
-	return runtimeStatusFromRuntime(s), nil
-}
-
-func (a operatedRuntimeAdapter) GetSloStatus(ctx context.Context, appID operatedAppID) (sloStatusSeam, error) {
-	s, err := a.inner.GetSloStatus(fwra.Context{Context: ctx}, appID)
-	if err != nil {
-		return sloStatusSeam{}, err
-	}
-	return sloStatusSeam{SloMet: s.SloMet, Detail: s.Detail}, nil
-}
-
-func (a operatedRuntimeAdapter) ReadComputeAttribution(ctx context.Context, appID operatedAppID, window attributionWindow) (computeAttribution, error) {
-	att, err := a.inner.ReadComputeAttribution(fwra.Context{Context: ctx}, appID, operatedruntime.AttributionWindow{
-		From: window.From,
-		To:   window.To,
-	})
-	if err != nil {
-		return computeAttribution{}, err
-	}
-	return computeAttribution{
-		Units:          computeUnitsSeam{Amount: att.Units.Amount, Unit: att.Units.Unit},
-		RuntimeEventID: att.RuntimeEventID,
-	}, nil
-}
 
 func runtimeStatusFromRuntime(s operatedruntime.RuntimeStatus) RuntimeStatusSeam {
 	switch s {
@@ -283,85 +153,6 @@ func runtimeStatusFromRuntime(s operatedruntime.RuntimeStatus) RuntimeStatusSeam
 	default:
 		return RuntimeStatusUnknown
 	}
-}
-
-// ===========================================================================
-// usageAccess adapter — over usage.UsageAccess (dropping the published []EntryRef).
-// ===========================================================================
-
-type usageAdapter struct {
-	inner usage.UsageAccess
-}
-
-var _ usageAccess = usageAdapter{}
-
-func (a usageAdapter) RecordComputeUsage(ctx context.Context, events []usageEventSeam) error {
-	_, err := a.inner.RecordComputeUsage(fwra.Context{Context: ctx}, usageEventsToLog(events))
-	return err
-}
-
-func (a usageAdapter) RecordFinalUsage(ctx context.Context, events []usageEventSeam) error {
-	_, err := a.inner.RecordFinalUsage(fwra.Context{Context: ctx}, usageEventsToLog(events))
-	return err
-}
-
-func (a usageAdapter) ReadRange(ctx context.Context, query usageRangeQuerySeam) ([]usageEventSeam, error) {
-	events, err := a.inner.ReadRange(fwra.Context{Context: ctx}, usage.UsageRangeQuery{
-		CustomerID:    query.CustomerID,
-		CycleID:       usage.CycleID(query.CycleID),
-		OperatedAppID: query.OperatedAppID,
-	})
-	if err != nil {
-		return nil, err
-	}
-	out := make([]usageEventSeam, 0, len(events))
-	for _, e := range events {
-		out = append(out, usageEventSeam{
-			OperatedAppID:  e.OperatedAppID,
-			CustomerID:     e.CustomerID,
-			CycleID:        string(e.CycleID),
-			Units:          computeUnitsSeam{Amount: e.Units.Amount, Unit: e.Units.Unit},
-			RuntimeEventID: string(e.RuntimeEventID),
-			ObservedAt:     e.OccurredAt,
-		})
-	}
-	return out, nil
-}
-
-func usageEventsToLog(events []usageEventSeam) []usage.UsageEvent {
-	out := make([]usage.UsageEvent, 0, len(events))
-	for _, e := range events {
-		out = append(out, usage.UsageEvent{
-			CustomerID:     e.CustomerID,
-			OperatedAppID:  e.OperatedAppID,
-			CycleID:        usage.CycleID(e.CycleID),
-			Units:          usage.ComputeUnits{Amount: e.Units.Amount, Unit: e.Units.Unit},
-			RuntimeEventID: usage.RuntimeEventID(e.RuntimeEventID),
-			OccurredAt:     e.ObservedAt,
-		})
-	}
-	return out
-}
-
-// ===========================================================================
-// artifactAccess adapter — over artifact.ArtifactAccess. Escalation E-1: the frozen
-// retrieveDeployableBundle verb is not yet on the package, so the deployable bundle is
-// served by the existing RetrieveConstructionOutput (the deployable bundle IS a
-// construction output — artifactAccess.md).
-// ===========================================================================
-
-type artifactAdapter struct {
-	inner artifact.ArtifactAccess
-}
-
-var _ artifactAccess = artifactAdapter{}
-
-func (a artifactAdapter) RetrieveDeployableBundle(ctx context.Context, deployableBundleRef string) (deployableBundle, error) {
-	out, err := a.inner.RetrieveConstructionOutput(fwra.Context{Context: ctx}, deployableBundleRef)
-	if err != nil {
-		return deployableBundle{}, err
-	}
-	return deployableBundle{Output: out}, nil
 }
 
 // ===========================================================================

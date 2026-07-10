@@ -18,10 +18,12 @@ import {
   reviewDecisionToOrdinal,
   sdpDecisionToOrdinal,
   projectArtifactKindFromOrdinal,
-} from '../contracts/enums';
+} from '../contracts/wire';
 import type {
+  AnchoredComment,
   ProjectArtifactKind,
   ProjectPhaseAdvanceResponse,
+  ReviewCommentStatus,
   ReviewDecision,
   SDPDecision,
   SDPDecisionDetail,
@@ -73,6 +75,8 @@ export interface ProjectReviewDecisionVars {
   kind: ProjectArtifactKind;
   decision: ReviewDecision;
   feedback?: string;
+  /** Anchored send-back comments — appended to the ledger as open entries on reject. */
+  comments?: AnchoredComment[];
 }
 
 export function useSubmitProjectReviewDecision(
@@ -81,6 +85,7 @@ export function useSubmitProjectReviewDecision(
   const client = useQueryClient();
   return useMutation<undefined, Error, ProjectReviewDecisionVars>({
     mutationFn: async (vars) => {
+      const hasFeedback = vars.feedback !== undefined || vars.comments !== undefined;
       const { error, response } = await apiClient.POST(
         '/api/v1/project-design/submit-review-decision/{projectID}',
         {
@@ -88,7 +93,46 @@ export function useSubmitProjectReviewDecision(
           body: {
             kind: artifactKindToOrdinal(vars.kind),
             decision: reviewDecisionToOrdinal(vars.decision),
-            ...(vars.feedback !== undefined ? { feedback: { notes: vars.feedback } } : {}),
+            ...(hasFeedback
+              ? {
+                  feedback: {
+                    notes: vars.feedback ?? '',
+                    ...(vars.comments !== undefined ? { comments: vars.comments } : {}),
+                  },
+                }
+              : {}),
+          },
+        }
+      );
+      if (error !== undefined) throw toApiError(response.status, error);
+      return undefined;
+    },
+    onSuccess: (_data, vars) => invalidateArtifact(client, projectId, vars.kind),
+  });
+}
+
+export interface SetProjectReviewCommentStatusVars {
+  kind: ProjectArtifactKind;
+  commentID: string;
+  /** 'waived' dismisses an open entry; 'open' reopens an addressed one. */
+  status: Extract<ReviewCommentStatus, 'open' | 'waived'>;
+}
+
+/** Waive/reopen a Phase-2 review-ledger entry. The Phase-2 twin of the system-design op. */
+export function useSetProjectReviewCommentStatus(
+  projectId: string
+): UseMutationResult<undefined, Error, SetProjectReviewCommentStatusVars> {
+  const client = useQueryClient();
+  return useMutation<undefined, Error, SetProjectReviewCommentStatusVars>({
+    mutationFn: async (vars) => {
+      const { error, response } = await apiClient.POST(
+        '/api/v1/project-design/set-review-comment-status/{projectID}',
+        {
+          params: { path: { projectID: projectId } },
+          body: {
+            kind: artifactKindToOrdinal(vars.kind),
+            commentID: vars.commentID,
+            status: vars.status,
           },
         }
       );
@@ -154,16 +198,24 @@ export function useSubmitSDPDecision(
   });
 }
 
-/** No-arg advance trigger — TVariables is undefined to avoid an invalid void. */
+/**
+ * Advance trigger — TVariables is `acknowledgeStale`. A normal advance sends
+ * false; when the server blocks with a FailedPrecondition naming stale committed
+ * slots, the caller re-invokes with true ("advance anyway") to acknowledge and seal
+ * over them (F55).
+ */
 export function useAdvanceToConstruction(
   projectId: string
-): UseMutationResult<ProjectPhaseAdvanceResponse, Error, undefined> {
+): UseMutationResult<ProjectPhaseAdvanceResponse, Error, boolean> {
   const client = useQueryClient();
-  return useMutation<ProjectPhaseAdvanceResponse, Error, undefined>({
-    mutationFn: async () => {
+  return useMutation<ProjectPhaseAdvanceResponse, Error, boolean>({
+    mutationFn: async (acknowledgeStale: boolean) => {
       const { data, error, response } = await apiClient.POST(
         '/api/v1/project-design/advance-to-construction/{projectID}',
-        { params: { path: { projectID: projectId } } }
+        {
+          params: { path: { projectID: projectId } },
+          body: { acknowledgeStale },
+        }
       );
       if (error !== undefined) throw toApiError(response.status, error);
       return {

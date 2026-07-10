@@ -23,6 +23,7 @@ package sourcecontrol
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"sort"
 	"strconv"
 	"strings"
@@ -41,11 +42,18 @@ const workflowPathPrefix = ".github/workflows/"
 // is permitted to seat — the go-test gate scaffold. Together with workflowPathPrefix
 // these form the managed-file ALLOWLIST: the verb seats ONLY aiarch-managed files
 // (the design workflow + the go.mod and method-test that make `go test ./...` the
-// merge gate), never arbitrary content (§2.6, Non-goal #2). A path that is neither
-// under .github/workflows/ NOR one of these roots is a ContractMisuse.
+// merge gate + the internal/.gitkeep that keeps the method gate's `./internal/...`
+// load pattern from hard-erroring on a fresh repo), never arbitrary content (§2.6,
+// Non-goal #2). A path that is neither under .github/workflows/ NOR one of these
+// roots is a ContractMisuse.
+//
+// internal/.gitkeep is listed as a LITERAL path (not an internal/ prefix) to keep the
+// allowlist tight: only the single seeded placeholder is permitted, never arbitrary
+// files under internal/.
 var scaffoldRootPaths = map[string]bool{
 	"go.mod":                true,
 	"aiarch_method_test.go": true,
+	"internal/.gitkeep":     true,
 }
 
 // isManagedFilePath reports whether path is on the managed-file allowlist: under
@@ -92,7 +100,9 @@ type githubClient interface {
 	SetRepoTopics(ctx context.Context, fullName, instToken string, topics []string) error
 
 	// Adopt back-end: GetRepoMetadata is used ONLY for the reachability check
-	// (404 → NotUnderInstallation); the topic/description is applied via SetRepoTopics.
+	// (404 → NotUnderInstallation); the aiarch-project topic is applied (best-effort)
+	// via SetRepoTopics. (No description-set primitive exists on this seam — spec.Title
+	// is not written to the repo; see AdoptProjectRepo.)
 	// (The strict-empty branch-list + .aiarch path-probe primitives were removed by the
 	// 2026-06-16 permissive-resume adopt ruling — adopt no longer probes content. The
 	// satellite still implements ListRepoBranches/ProbeRepoPathExists; this seam just no
@@ -208,6 +218,17 @@ func deterministicRepoName(p ProjectID) string {
 	return string(p)
 }
 
+// AppSlug reports the configured GitHub App slug — the Bot actor the seated DESIGN
+// workflow allow-lists via allowed_bots (the design workflow is always
+// workflow_dispatch'ed by this App, a Bot actor, which claude-code-action refuses
+// unless allow-listed). It is OFF the frozen SourceControlAccess contract: a wiring
+// detail on the hand-written auxiliary surface, reached by the birth-scaffold seam via
+// the package-level RailAppSlug helper. Empty when the App slug is unconfigured (a
+// repo-less dev server) — RailAppSlug then yields "" and allowed_bots is omitted.
+func (a *access) AppSlug() string {
+	return a.appSlug
+}
+
 // ---------------------------------------------------------------------------
 // Contract #1 — ISourceControlLifecycle.
 // ---------------------------------------------------------------------------
@@ -232,10 +253,14 @@ func (a *access) InstallAuthorizeApp(rc fwra.Context, account AccountRef) (Insta
 }
 
 // AdoptProjectRepo verifies the user's EXISTING repo (spec.RepoName under
-// spec.Account) is reachable under the App installation, then tags it
-// (aiarch-project topic + spec.Title as description) and returns its RepoRef. It
-// REPLACES ProvisionProjectRepo (2026-06-15 agentic pivot): aiarch no longer
-// CREATES the repo — the user supplies the repo.
+// spec.Account) is reachable under the App installation, then BEST-EFFORT tags it
+// with the aiarch-project topic and returns its RepoRef. It REPLACES
+// ProvisionProjectRepo (2026-06-15 agentic pivot): aiarch no longer CREATES the
+// repo — the user supplies the repo. (NB: spec.Title is NOT applied as a repo
+// description here — this seam has no description-set primitive; the topic is the
+// SOLE mutation. The catalog renders the title from the committed project state,
+// not from the repo description. The old doc claim "+ spec.Title as description"
+// was aspirational and never wired.)
 //
 // PERMISSIVE-RESUME ADOPT (founder ruling 2026-06-16, REPLACES the strict-empty
 // policy). adopt succeeds REGARDLESS of repo content: a README, a claude.yml (from
@@ -243,15 +268,35 @@ func (a *access) InstallAuthorizeApp(rc fwra.Context, account AccountRef) (Insta
 // all fine. The emptiness probe and the RepoNotEmpty/Conflict hard-fail are GONE.
 // "If the repo already has .aiarch/, just re-initialize the project with that repo
 // from its current progress" — the RESUME is handled one layer up (the projectState
-// CreateProject reads the committed state and returns it). The only real error this
-// verb keeps is NotUnderInstallation (the App MUST be installed on the repo):
+// CreateProject reads the committed state and returns it).
 //
+// BEST-EFFORT TOPIC TAGGING (founder ruling 2026-07-04, SUPERSEDES part of the
+// 2026-06-16 adopt policy). Onboarding now requires the USER to create the repo and
+// install the aiarch App on it FIRST, and the App must NOT be required to hold the
+// `administration` permission "for the time being". A GitHub App needs
+// administration:write to set repo topics (PUT /repos/{repo}/topics), so on an
+// installation carrying only contents:write + metadata:read the topic PUT 403s. That
+// 403 must NOT sink the whole adoption (the live failure that motivated this: a valid
+// installation, reachable repo, but SetRepoTopics 403 → CreateProject 503'd). So:
+//
+//   - reachability (GetRepoMetadata) stays a HARD error — the App MUST be installed:
 //   - not under the installation        → NotFound  (surfaced "NotUnderInstallation")
-//   - under the installation (ANY content) → SUCCESS, apply topic + description
+//   - topic tagging is BEST-EFFORT:
+//   - SetRepoTopics fails with Auth (401/403, missing permission) → WARN + PROCEED
+//   - SetRepoTopics fails Transient/Infrastructure/other (real outage) → HARD error
+//     (a genuine outage must not be masked as a silent skip)
+//   - under the installation (ANY content) → SUCCESS (topic applied, or skipped-with-WARN)
 //   - empty RepoName / Account          → ContractMisuse (before any wire call)
 //
-// Idempotent on the repo name: re-adopting an already-tagged repo re-applies the
-// topic/description (converged → effective no-op).
+// EARMARK (temporary): best-effort tagging is a stopgap until the App permission story
+// is settled. The consequence is real — cloudProjectCatalog discovers projects BY the
+// aiarch-project topic, so a repo whose topic never applied is invisible to catalog
+// enumeration. Until the App can be granted administration (or topics move to a
+// contents-permission mechanism), onboarding tells the user to add the topic manually
+// (see webApp CreateProjectDialog "BEFORE YOU ADOPT").
+//
+// Idempotent on the repo name: re-adopting an already-tagged repo re-applies the topic
+// (converged → effective no-op); a permission-blocked re-adopt is a WARN no-op.
 func (a *access) AdoptProjectRepo(rc fwra.Context, spec RepoAdoptionSpec) (RepoRef, error) {
 	ctx := rc.Context
 	if strings.TrimSpace(spec.RepoName) == "" {
@@ -278,14 +323,25 @@ func (a *access) AdoptProjectRepo(rc fwra.Context, spec RepoAdoptionSpec) (RepoR
 		return "", err
 	}
 
-	// 2. Adopt regardless of content: apply the project-title description + the
-	//    aiarch-project topic. This is the only mutation. Idempotent: re-applying a
-	//    converged topic/description is an effective no-op. The repo's pre-existing
-	//    content (README/claude.yml/.aiarch from a prior run) is NOT probed and NOT a
-	//    blocker — RESUME (loading any committed project state) is handled by
-	//    projectStateAccess.CreateProject, not here.
+	// 2. Adopt regardless of content: BEST-EFFORT apply the aiarch-project topic. This
+	//    is the only mutation. Idempotent: re-applying a converged topic is an effective
+	//    no-op. The repo's pre-existing content (README/claude.yml/.aiarch from a prior
+	//    run) is NOT probed and NOT a blocker — RESUME (loading any committed project
+	//    state) is handled by projectStateAccess.CreateProject, not here.
+	//
+	//    Founder ruling 2026-07-04: the App is NOT required to hold `administration`
+	//    for the time being, but setting topics needs administration:write, so this PUT
+	//    can 403 (→ fwra.Auth) on a contents+metadata-only installation. Degrade ONLY on
+	//    Auth (a permission/credential terminal): WARN and proceed with adoption. Every
+	//    other failure — Transient/RateLimited/Infrastructure/Unknown — is a real outage
+	//    and stays a HARD error so a genuine failure is never masked as a silent skip.
 	if err := a.client.SetRepoTopics(ctx, fullName, instToken, []string{projectRepoTopic}); err != nil {
-		return "", err
+		if kindOfErr(err) != fwra.Auth {
+			return "", err
+		}
+		slog.WarnContext(ctx,
+			"AdoptProjectRepo: topic tagging skipped — App lacks permission to set repo topics (needs administration:write); proceeding with adoption. The user must add the topic manually for cloud catalog discovery",
+			"repo", fullName, "topic", projectRepoTopic, "cause", err.Error())
 	}
 	return makeRepoRef(acct, fullName), nil
 }
@@ -423,7 +479,8 @@ func (a *access) GetInstallationToken(rc fwra.Context, repo RepoRef) (RepoCreden
 
 // CommitManagedFiles seats the aiarch-MANAGED project scaffold — the
 // claude-code-action design workflow PLUS the go-test gate (go.mod +
-// aiarch_method_test.go) — at project birth. Every file's path is enforced against
+// aiarch_method_test.go) PLUS the internal/.gitkeep placeholder — at project birth.
+// Every file's path is enforced against
 // the managed-file ALLOWLIST (under .github/workflows/, OR a known scaffold root) so
 // this verb can never become a general "commit any file" smell (§2.6, Non-goal #2);
 // a path off the allowlist is a ContractMisuse.
@@ -435,13 +492,34 @@ func (a *access) GetInstallationToken(rc fwra.Context, repo RepoRef) (RepoCreden
 // file. Files are committed in a STABLE order (sorted by path) for deterministic
 // commit history. The returned CommitRef is the LAST file's resulting commit.
 func (a *access) CommitManagedFiles(rc fwra.Context, repo RepoRef, files []ManagedFile, cred RepoCredential) (CommitRef, error) {
-	ctx := rc.Context
+	ref, _, err := a.putManagedFiles(rc.Context, repo, files, ManagedCommitMessage, cred)
+	return ref, err
+}
+
+// SyncManagedFiles is the hand-written auxiliary MANAGED-SCAFFOLD SYNC surface
+// (2026-07-06), OFF the frozen contract like AppSlug / GetInstallationTokenForProject:
+// the same allowlist-guarded, fetch-compare-put converge as CommitManagedFiles, but
+// with a CALLER-SUPPLIED commit message (a sync commit names the file + the pin it
+// refreshed to, not the birth-seat message) and an explicit changed report (true ⇔ at
+// least one file drifted and a commit was written; false ⇔ byte-identical, no commit).
+// Reached via the sourcecontrol.SyncManagedScaffold package helper (managedFileSyncer).
+func (a *access) SyncManagedFiles(ctx context.Context, repo RepoRef, files []ManagedFile, message string, cred RepoCredential) (CommitRef, bool, error) {
+	if strings.TrimSpace(message) == "" {
+		return "", false, fwra.New(fwra.ContractMisuse, "SyncManagedFiles: empty commit message")
+	}
+	return a.putManagedFiles(ctx, repo, files, message, cred)
+}
+
+// putManagedFiles is the SHARED seat/sync write behind CommitManagedFiles (the frozen
+// birth-seat verb, fixed ManagedCommitMessage) and SyncManagedFiles (the auxiliary
+// sync, caller message + drift report). One implementation, one allowlist gatekeeper.
+func (a *access) putManagedFiles(ctx context.Context, repo RepoRef, files []ManagedFile, message string, cred RepoCredential) (CommitRef, bool, error) {
 	_, fullName, err := a.requireRepoCred(repo, cred)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	if len(files) == 0 {
-		return "", fwra.New(fwra.ContractMisuse, "CommitManagedFiles: empty fileset")
+		return "", false, fwra.New(fwra.ContractMisuse, "CommitManagedFiles: empty fileset")
 	}
 
 	// Validate the whole set BEFORE any write, so an off-allowlist or empty-content
@@ -451,33 +529,35 @@ func (a *access) CommitManagedFiles(rc fwra.Context, repo RepoRef, files []Manag
 	copy(ordered, files)
 	for _, f := range ordered {
 		if strings.TrimSpace(f.Path) == "" {
-			return "", fwra.New(fwra.ContractMisuse, "CommitManagedFiles: empty path")
+			return "", false, fwra.New(fwra.ContractMisuse, "CommitManagedFiles: empty path")
 		}
 		if !isManagedFilePath(f.Path) {
-			return "", fwra.New(fwra.ContractMisuse,
-				"CommitManagedFiles: path "+f.Path+" is not an aiarch-managed file (must be under "+workflowPathPrefix+" or a scaffold root: go.mod / aiarch_method_test.go)")
+			return "", false, fwra.New(fwra.ContractMisuse,
+				"CommitManagedFiles: path "+f.Path+" is not an aiarch-managed file (must be under "+workflowPathPrefix+" or a scaffold root: go.mod / aiarch_method_test.go / internal/.gitkeep)")
 		}
 		if len(f.Content) == 0 {
-			return "", fwra.New(fwra.ContractMisuse, "CommitManagedFiles: empty content for "+f.Path)
+			return "", false, fwra.New(fwra.ContractMisuse, "CommitManagedFiles: empty content for "+f.Path)
 		}
 	}
 	sort.Slice(ordered, func(i, j int) bool { return ordered[i].Path < ordered[j].Path })
 
 	var last CommitRef
+	var anyChanged bool
 	for _, f := range ordered {
-		commitSHA, _, perr := a.client.PutRepoContentsFile(ctx, fullName, f.Path, f.Content, ManagedCommitMessage, credStr(cred))
+		commitSHA, changed, perr := a.client.PutRepoContentsFile(ctx, fullName, f.Path, f.Content, message, credStr(cred))
 		if perr != nil {
 			// A concurrent-write race surfaces as Conflict; per §3 this is the ONE
 			// retryable Conflict on this seam (retry-by-re-read). Override Retryable=true.
 			if fe := asFwraError(perr); fe != nil && fe.Kind == fwra.Conflict {
 				fe.Retryable = true
-				return "", fe
+				return "", anyChanged, fe
 			}
-			return "", perr
+			return "", anyChanged, perr
 		}
+		anyChanged = anyChanged || changed
 		last = CommitRef(commitSHA)
 	}
-	return last, nil
+	return last, anyChanged, nil
 }
 
 // asFwraError returns the underlying *fwra.Error or nil.
@@ -628,6 +708,28 @@ func (a *access) GetPullRequestStatus(rc fwra.Context, repo RepoRef, pr PullRequ
 }
 
 // PostReview relays the in-app human architecture approval as a real PR review.
+//
+// SELF-APPROVAL DEGRADE (2026-07-06): when the session PR is authored by the App
+// itself (every AMENDMENT PR — the App opens it via OpenPullRequest under its own
+// installation token, unlike an initial-phase PR opened by the in-job claude[bot]
+// action), GitHub structurally forbids the App from approving its own PR and returns
+// 422 → fwra.ContractMisuse. That +1 is pure rail ceremony: the human architecture
+// decision already came through the product-gate approval, so a forbidden self-approval
+// must NOT be an error — it is a no-op success, mirroring the AdoptProjectRepo
+// Auth-degrade above (degrade on ONE terminal kind, hard-error on every other).
+//
+// The check is deliberately narrowed to the SATELLITE call's ContractMisuse: the local
+// requireRepoCred / prNumber validation returns its own ContractMisuse ABOVE this, so a
+// genuine bad-argument programmer error still errors; only the wire 422 degrades. Within
+// PostReview(APPROVE) with an aiarch-controlled request body, the reviews endpoint's only
+// reachable 422 is the self-approval rejection.
+//
+// DETECTION — why kind, not author or body text: the pinned satellite (fwgithub v0.1.3)
+// surfaces no PR author on any read seam (pullRequestDTO / PullStatus carry no user
+// login), so an AppSlug()-vs-author comparison is impossible without a coordinated
+// platform release; and ClassifyStatus maps the 422 to a bare ContractMisuse, DROPPING
+// the GitHub "Can not approve your own pull request" body — so body-text matching is
+// impossible too. The ContractMisuse kind is the only signal that reaches the RA.
 func (a *access) PostReview(rc fwra.Context, repo RepoRef, pr PullRequestRef, review ReviewSubmission, cred RepoCredential) error {
 	ctx := rc.Context
 	_, fullName, err := a.requireRepoCred(repo, cred)
@@ -638,7 +740,15 @@ func (a *access) PostReview(rc fwra.Context, repo RepoRef, pr PullRequestRef, re
 	if err != nil {
 		return err
 	}
-	return a.client.PostReview(ctx, fullName, number, reviewEvent(review.Verdict), review.Body, credStr(cred))
+	if err := a.client.PostReview(ctx, fullName, number, reviewEvent(review.Verdict), review.Body, credStr(cred)); err != nil {
+		if kindOfErr(err) != fwra.ContractMisuse {
+			return err
+		}
+		slog.WarnContext(ctx,
+			"PostReview: session PR is App-authored — GitHub forbids self-approval; skipping ceremonial +1, product-gate approval stands",
+			"repo", fullName, "pr", number, "appSlug", a.appSlug, "cause", err.Error())
+	}
+	return nil
 }
 
 // MergePullRequest performs the gated merge. The when-to-merge authority is

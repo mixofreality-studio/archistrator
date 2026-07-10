@@ -3,8 +3,6 @@ package billing
 import (
 	"context"
 	"time"
-
-	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
 // This file declares billingManager's CONSUMER-SIDE dependency interfaces (the Go
@@ -39,41 +37,21 @@ import (
 
 // ===========================================================================
 // billingStateAccess — DESIGN-ONLY (FU-MST-1: id-type migrated to CustomerID).
-// Narrow consumer interface: the head-state reads + the additive write verbs. Each
-// WRITE carries expectedVersion + idempotencyKey; a stale-version fwra.Conflict drives
-// the §6.5 re-read→re-apply loop. Keyed on CustomerID per §3.0.
+// The billing/customer head-state RA. Each WRITE carries expectedVersion +
+// idempotencyKey; a stale-version fwra.Conflict drives the §6.5 re-read→re-apply loop.
+// Keyed on CustomerID per §3.0.
 // ===========================================================================
 
-// BillingStateAccess mirrors billingStateAccess.md §2 (post FU-MST-1) — the
-// billing/customer head-state RA. Reads are pure; writes carry the version guard +
-// dedup-first idempotency key.
-type billingStateAccess interface {
-	// ReadBilling returns the whole head-state aggregate (NotFound if no row).
-	ReadBilling(ctx context.Context, customerID customerID) (billingHead, error)
-	// ReadPersistentlyDelinquentCustomers returns the persistently-delinquent customer
-	// set (drives the shortfall sweep). Platform/scope input; a cross-row read.
-	ReadPersistentlyDelinquentCustomers(ctx context.Context, scope delinquencyScope) ([]customerSummary, error)
-	// RegisterCustomer opens the billing aggregate (additive write).
-	RegisterCustomer(ctx context.Context, customerID customerID, expectedVersion version, profile customerProfileSeam, idempotencyKey fwra.IdempotencyKey) (version, error)
-	// BindGatewayLive records that the merchant-gateway binding is live (additive write).
-	BindGatewayLive(ctx context.Context, customerID customerID, expectedVersion version, binding gatewayBindingSeam, idempotencyKey fwra.IdempotencyKey) (version, error)
-	// SettleCycle records the billing outcome for a cycle (additive write).
-	SettleCycle(ctx context.Context, customerID customerID, expectedVersion version, cycle cycleID, outcome billingOutcomeSeam, idempotencyKey fwra.IdempotencyKey) (version, error)
-	// ResettleCycle records a correction to a previously-settled cycle (additive write).
-	ResettleCycle(ctx context.Context, customerID customerID, expectedVersion version, cycle cycleID, correction billingOutcomeSeam, idempotencyKey fwra.IdempotencyKey) (version, error)
-}
+// NOTE: the billingStateAccess consumer-seam interface is retired — the workflow reaches
+// this RA through the generated typed invokers (invokers.gen.go), which carry the
+// contract types directly. The Manager-local data mirrors below remain: the workflow
+// folds the invokers' contract values into them (adapters.go converters) so the workflow
+// body + Engines keep speaking one unified vocabulary. The empty CustomerProfile opened
+// at registration is built inline in the workflow (billingstate.CustomerProfile{}).
 
 // Version is the billing head-state optimistic-concurrency version
 // (billingStateAccess.md §3). Mirrors the owning RA's Version type.
 type version uint64
-
-// CustomerProfileSeam mirrors billingStateAccess.md §3 CustomerProfile — the
-// infrastructure-opaque customer identity/payout snapshot opened at registration.
-type customerProfileSeam struct {
-	// PayoutAccountRef is an opaque gateway/payout-account reference (the contract is
-	// "identity, payout account, …"); kept narrow at this seam.
-	PayoutAccountRef string
-}
 
 // GatewayBindingSeam mirrors billingStateAccess.md §3 GatewayBinding — the
 // connected-account / gateway identifiers recorded at onboarding.
@@ -176,69 +154,23 @@ type reversalEntrySeam struct {
 }
 
 // ===========================================================================
-// usageAccess — FROZEN, NOT YET BUILT. Narrow consumer interface (usageAccess.md §2).
-// This Manager only READS (the cycle fold at close; OperatedAppID nil = whole cycle).
-// The append-writes (recordComputeUsage / recordFinalUsage) belong to operationsManager,
-// NOT billingManager — they are not on this seam.
+// usageAccess — FROZEN. This Manager only READS (the cycle fold at close; OperatedAppID
+// nil = whole cycle). Reached through the generated invoker (UsageReadRange); the
+// workflow builds usage.UsageRangeQuery directly and sums the returned events. The
+// former consumer-seam interface + its usageEventSeam/computeUnitsSeam/usageRangeQuerySeam
+// mirrors are retired (nothing else spoke them). The append-writes
+// (recordComputeUsage / recordFinalUsage) belong to operationsManager, NOT billing.
 // ===========================================================================
 
-// UsageAccess mirrors usageAccess.md §2.3 — the cycle-scope read this Manager uses to
-// fold a whole cycle's usage at close. Pure read; no key.
-type usageAccess interface {
-	// ReadRange replays the cycle's usage facts (OperatedAppID nil ⇒ whole cycle).
-	ReadRange(ctx context.Context, query usageRangeQuerySeam) ([]usageEventSeam, error)
-}
-
-// UsageRangeQuerySeam mirrors usageAccess.md §3 UsageRangeQuery — the cycle-scope read
-// query. billingManager folds the WHOLE cycle, so OperatedAppID is nil (§5.2 / D-UA §2.3).
-type usageRangeQuerySeam struct {
-	CustomerID    customerID
-	CycleID       cycleID
-	OperatedAppID *deployedAppID // nil for billing's whole-cycle fold
-}
-
-// ComputeUnitsSeam mirrors usageAccess.md §3 ComputeUnits — an infrastructure-neutral
-// metered quantity (never priced, never a cloud lexeme).
-type computeUnitsSeam struct {
-	Amount float64
-	Unit   string
-}
-
-// UsageEventSeam mirrors usageAccess.md §3 UsageEvent — one metered usage fact (the
-// readRange element type the Manager folds into the Engine's CycleUsage snapshot).
-type usageEventSeam struct {
-	CustomerID    customerID
-	OperatedAppID deployedAppID
-	CycleID       cycleID
-	Units         computeUnitsSeam
-	OccurredAt    time.Time
-}
-
 // ===========================================================================
-// merchantGatewayAccess — D-MA NOT YET CONTRACTED (FU-MST-2 / OQ-2). The seam is
-// defined by the DSL labels (component description line 211 + caller edges) + the §6.4
-// Activity wrappers (externalGateway RetryPolicy; Stripe Idempotency-Key =
-// settle:{customerId}:{cycleId}). The narrow consumer interface below mirrors those
-// four verbs; REPLACE with the owner import when the D-MA contract lands and is built.
+// merchantGatewayAccess — D-MA. Reached through the generated CALLER-KEYED invokers
+// (merchantGatewayAccess.*): the workflow supplies the business-stable Stripe
+// Idempotency-Key EXPLICITLY (gatewayIdempotencyKey settle:{customerId}:{cycleId} for
+// money-moves; onboard:{id} / validate:{id} for the ad-hoc auths) as BOTH the caller key
+// (fwra.Context.IdempotencyKey) and the contract's own idempotencyKey param. The former
+// consumer-seam interface is retired; the Money value type is converted inline at the
+// invoker boundary (merchantgateway.Money).
 // ===========================================================================
-
-// MerchantGatewayAccess mirrors the four merchantGatewayAccess verbs this Manager
-// calls (billingManager.md §5.2/§6.4). The Manager moves money here by VALUE; the
-// gateway dedups on the Manager-supplied idempotency key. SEAM — D-MA is unbuilt
-// (FU-MST-2); replace with the owner import when it lands.
-type merchantGatewayAccess interface {
-	// PayoutCustomer pays the (positive) net to the customer. idempotencyKey =
-	// settle:{customerId}:{cycleId} (Stripe-native dedup).
-	PayoutCustomer(ctx context.Context, customerID customerID, amount Money, idempotencyKey string) error
-	// ChargeCustomer charges the (positive magnitude of the negative) shortfall net.
-	// A decline/auth/contract-misuse is terminal and drives decideOnBillingFailure.
-	ChargeCustomer(ctx context.Context, customerID customerID, amount Money, idempotencyKey string) error
-	// CreateConnectedAccount creates the merchant connected account (onboarding).
-	CreateConnectedAccount(ctx context.Context, customerID customerID, idempotencyKey string) (gatewayBindingSeam, error)
-	// ValidateStoredInstrument validates the stored instrument via a zero-amount auth
-	// (customer registration; ncuc1).
-	ValidateStoredInstrument(ctx context.Context, customerID customerID, idempotencyKey string) error
-}
 
 // ===========================================================================
 // durableExecutionAccess — EXISTS (internal/resourceaccess/durableexecution). The two
@@ -250,11 +182,13 @@ type merchantGatewayAccess interface {
 // A), NOT an RA method.
 // ===========================================================================
 
-// DurableExecutionAccess is the Manager's consumer view: the two category-B verbs.
+// DurableExecutionAccess is the Manager's consumer view for the STARTUP Schedule
+// registration only. The workflow-invoked category-B verbs — deliverSignal (the queued
+// applyDelinquencyPolicy → operationsManager edge) and the per-customer registerSchedule
+// (op 2.1) — are reached through the generated invokers now; only the startup
+// shortfallSweep registration (RegisterSchedules) still goes through this seam +
+// durableAdapter (adapters.go).
 type durableExecutionAccess interface {
-	// DeliverSignal delivers a queued signal to another Manager's workflow (the one
-	// sanctioned M→M edge: applyDelinquencyPolicy → operationsManager).
-	DeliverSignal(ctx context.Context, targetWorkflowID string, signalName string, payload deliverSignalPayload) error
 	// RegisterSchedule registers (idempotently, by id) a recurring Schedule.
 	RegisterSchedule(ctx context.Context, spec scheduleSpec) error
 }

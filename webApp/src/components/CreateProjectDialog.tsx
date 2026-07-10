@@ -21,10 +21,15 @@ import DialogActions from '@mui/material/DialogActions';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import Box from '@mui/material/Box';
+import FormControl from '@mui/material/FormControl';
+import FormLabel from '@mui/material/FormLabel';
+import RadioGroup from '@mui/material/RadioGroup';
+import FormControlLabel from '@mui/material/FormControlLabel';
+import Radio from '@mui/material/Radio';
 import AddIcon from '@mui/icons-material/Add';
 import GitHubIcon from '@mui/icons-material/GitHub';
 import { useNavigate } from '@tanstack/react-router';
-import { useCreateProject } from '../hooks/useCreateProject';
+import { useCreateProject, type OperatingModel } from '../hooks/useCreateProject';
 import { useTokens } from '../utilities/theme/ThemeContext';
 import { UI_IDENTIFIERS } from '../utilities/constants/UIIdentifiers';
 import { ErrorAlert } from './shared/ErrorAlert';
@@ -40,9 +45,11 @@ export function CreateProjectDialog({
   const navigate = useNavigate();
   const createProject = useCreateProject();
   const [name, setName] = useState('');
+  const [operatingModel, setOperatingModel] = useState<OperatingModel>('selfOperated');
 
   const reset = (): void => {
     setName('');
+    setOperatingModel('selfOperated');
     createProject.reset();
   };
 
@@ -54,13 +61,16 @@ export function CreateProjectDialog({
   const submit = (): void => {
     const trimmed = name.trim();
     if (trimmed.length === 0 || createProject.isPending) return;
-    createProject.mutate(trimmed, {
-      onSuccess: (projectId) => {
-        reset();
-        onClose();
-        void navigate({ to: '/project/$projectId/home', params: { projectId } });
-      },
-    });
+    createProject.mutate(
+      { name: trimmed, operatingModel },
+      {
+        onSuccess: (projectId) => {
+          reset();
+          onClose();
+          void navigate({ to: '/project/$projectId/home', params: { projectId } });
+        },
+      }
+    );
   };
 
   return (
@@ -110,6 +120,9 @@ export function CreateProjectDialog({
             if (e.key === 'Enter') submit();
           }}
         />
+
+        <OperatingModelChoice t={t} value={operatingModel} onChange={setOperatingModel} />
+
         <ErrorAlert error={createProject.error} />
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2 }}>
@@ -135,6 +148,86 @@ export function CreateProjectDialog({
 }
 
 /**
+ * The operating-model choice (founder ruling 2026-07-05). WHO operates the built
+ * app is chosen at creation and constrains the deployment design:
+ *   - self-operated: the customer runs the app in their OWN infrastructure (any
+ *     cloud/infra the design justifies). The default + back-compat behavior.
+ *   - archistrator-operated: archistrator OPERATES the app on the platform, which
+ *     CONSTRAINS the deployment design to the platform palette ONLY (CNPG Postgres,
+ *     Temporal, Keycloak, the otel stack, deployed to the platform Kubernetes cluster)
+ *     — no bespoke AWS/GCP/Azure infrastructure.
+ */
+function OperatingModelChoice({
+  t,
+  value,
+  onChange,
+}: {
+  t: ReturnType<typeof useTokens>;
+  value: OperatingModel;
+  onChange: (m: OperatingModel) => void;
+}): ReactNode {
+  const options: { value: OperatingModel; label: string; detail: string }[] = [
+    {
+      value: 'selfOperated',
+      label: 'Self-operated',
+      detail:
+        'You run the built app in your own infrastructure — any cloud or platform the design justifies.',
+    },
+    {
+      value: 'archistratorOperated',
+      label: 'Archistrator-operated',
+      detail:
+        'Archistrator operates the app on the platform. The deployment design is constrained to the platform palette only — CNPG Postgres, Temporal, Keycloak, and the OpenTelemetry stack on the platform Kubernetes cluster — with no bespoke AWS/GCP/Azure infrastructure.',
+    },
+  ];
+  return (
+    <FormControl
+      component="fieldset"
+      data-testid="create-project-operating-model"
+      sx={{ border: `1.5px solid ${t.line}`, borderRadius: t.radius / 8 + 0.5, px: 2, py: 1.25 }}
+    >
+      <FormLabel
+        component="legend"
+        sx={{
+          fontFamily: t.mono,
+          fontSize: 11.5,
+          letterSpacing: '0.12em',
+          color: t.muted,
+          px: 0.5,
+        }}
+      >
+        OPERATING MODEL
+      </FormLabel>
+      <RadioGroup
+        value={value}
+        onChange={(e) => {
+          onChange(e.target.value as OperatingModel);
+        }}
+      >
+        {options.map((o) => (
+          <FormControlLabel
+            control={<Radio data-testid={`operating-model-${o.value}`} size="small" />}
+            key={o.value}
+            label={
+              <Box sx={{ py: 0.25 }}>
+                <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: t.ink }}>
+                  {o.label}
+                </Typography>
+                <Typography sx={{ fontSize: 12.5, color: t.muted, lineHeight: 1.45 }}>
+                  {o.detail}
+                </Typography>
+              </Box>
+            }
+            sx={{ alignItems: 'flex-start', mt: 0.5 }}
+            value={o.value}
+          />
+        ))}
+      </RadioGroup>
+    </FormControl>
+  );
+}
+
+/**
  * The one-time onboarding prerequisites the user must complete before adopting a
  * repo as an aiarch project. aiarch is NOT in secret management: the design token
  * is provisioned by the user installing the Claude Code GitHub App on their repo
@@ -143,12 +236,13 @@ export function CreateProjectDialog({
 function PrereqPanel({ t }: { t: ReturnType<typeof useTokens> }): ReactNode {
   const items: { label: string; detail: string }[] = [
     {
-      label: 'Create an (empty) GitHub repository',
-      detail: 'Its name becomes this project’s identity.',
+      label: 'Create the GitHub repository and add the aiarch-project topic',
+      detail:
+        'Its name becomes this project’s identity. Add the repository topic aiarch-project so the cloud catalog can discover it.',
     },
     {
       label: 'Install the aiarch GitHub App on the repo',
-      detail: 'Grants contents:write + administration + metadata so aiarch can adopt and drive it.',
+      detail: 'Grants contents:write + metadata:read so aiarch can adopt and drive it.',
     },
     {
       label: 'Install the Claude Code GitHub App (run /install-github-app)',
@@ -168,11 +262,16 @@ function PrereqPanel({ t }: { t: ReturnType<typeof useTokens> }): ReactNode {
     >
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1 }}>
         <GitHubIcon sx={{ fontSize: 16, color: t.ink }} />
-        <Typography sx={{ fontFamily: t.mono, fontSize: 11.5, letterSpacing: '0.12em', color: t.muted }}>
+        <Typography
+          sx={{ fontFamily: t.mono, fontSize: 11.5, letterSpacing: '0.12em', color: t.muted }}
+        >
           BEFORE YOU ADOPT
         </Typography>
       </Box>
-      <Box component="ol" sx={{ m: 0, pl: 2.25, display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+      <Box
+        component="ol"
+        sx={{ m: 0, pl: 2.25, display: 'flex', flexDirection: 'column', gap: 0.75 }}
+      >
         {items.map((it) => (
           <Box component="li" key={it.label} sx={{ color: t.ink, fontSize: 13 }}>
             <Typography component="span" sx={{ fontSize: 13, fontWeight: 600, color: t.ink }}>

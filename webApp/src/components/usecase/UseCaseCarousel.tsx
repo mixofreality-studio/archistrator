@@ -11,11 +11,13 @@ import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 import IconButton from '@mui/material/IconButton';
+import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import FormControl from '@mui/material/FormControl';
 import InputLabel from '@mui/material/InputLabel';
 import Select from '@mui/material/Select';
 import MenuItem from '@mui/material/MenuItem';
+import ListSubheader from '@mui/material/ListSubheader';
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
@@ -37,6 +39,7 @@ const viewMemory: { mode: UcViewMode } = { mode: 'walkthrough' };
 import { useComments, useCaseAnchor as buildUseCaseAnchor } from '../comments/CommentContext';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 import { useTokens } from '../../utilities/theme/ThemeContext';
+import type { Tokens } from '../../utilities/theme/themes';
 
 export function UseCaseCarousel({
   envelope,
@@ -44,7 +47,7 @@ export function UseCaseCarousel({
   envelope: ArtifactModelEnvelope | undefined;
 }): ReactNode {
   const t = useTokens();
-  const { setAnchor } = useComments();
+  const { setAnchor, enabled } = useComments();
   const [i, setI] = useState(0);
   const [mode, setMode] = useState<UcViewMode>(viewMemory.mode);
   const useCases = toCoreUseCasesView(envelope).useCases;
@@ -65,6 +68,29 @@ export function UseCaseCarousel({
     setI((p) => (p + d + useCases.length) % useCases.length);
   };
   const isCore = uc.classification === 'core';
+  // A variation shares its parent's activity diagram; resolve the parent so the
+  // no-diagram surface can name it and offer a jump instead of a generic blank.
+  // Committed data carries the parent NAME (not the slug id), so match id OR exact
+  // name — both survive until the data is normalized (A5).
+  const parentIndex =
+    uc.variationOf.length > 0
+      ? useCases.findIndex((u) => u.id === uc.variationOf || u.name === uc.variationOf)
+      : -1;
+  const parent = parentIndex >= 0 ? useCases[parentIndex] : undefined;
+  const hasDiagram = uc.nodes.length > 0;
+
+  // Core / variation partition for the grouped picker + the summary line. Each entry
+  // keeps its ORIGINAL index (the Select value) so grouping never breaks navigation.
+  const coreItems = useCases
+    .map((u, idx) => ({ u, idx }))
+    .filter(({ u }) => u.classification === 'core');
+  const variationItems = useCases
+    .map((u, idx) => ({ u, idx }))
+    .filter(({ u }) => u.classification !== 'core');
+  const parentNameOf = (u: (typeof useCases)[number]): string | undefined => {
+    if (u.variationOf.length === 0) return undefined;
+    return useCases.find((p) => p.id === u.variationOf || p.name === u.variationOf)?.name;
+  };
 
   return (
     <Box>
@@ -75,19 +101,53 @@ export function UseCaseCarousel({
             Use case
           </InputLabel>
           <Select
+            data-testid={UI_IDENTIFIERS.UseCaseCarousel.PICKER}
             label="Use case"
             labelId="use-case-picker-label"
+            renderValue={(idx) => useCases[idx]?.name ?? ''}
             sx={{ fontFamily: t.mono, fontSize: 13 }}
             value={active}
             onChange={(e) => {
               setI(e.target.value);
             }}
           >
-            {useCases.map((u, idx) => (
+            {/* Grouped so the core/variation distinction (lost in a 28-item flat list)
+                is visible; variations name the core they derive from (A6). */}
+            {coreItems.length > 0 && (
+              <ListSubheader sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted }}>
+                Core · {coreItems.length}
+              </ListSubheader>
+            )}
+            {coreItems.map(({ u, idx }) => (
               <MenuItem key={u.id} sx={{ fontFamily: t.mono, fontSize: 13 }} value={idx}>
                 {u.name}
               </MenuItem>
             ))}
+            {variationItems.length > 0 && (
+              <ListSubheader sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted }}>
+                Variations · {variationItems.length}
+              </ListSubheader>
+            )}
+            {variationItems.map(({ u, idx }) => {
+              const pName = parentNameOf(u);
+              return (
+                <MenuItem
+                  key={u.id}
+                  sx={{ fontFamily: t.mono, fontSize: 13, display: 'block' }}
+                  value={idx}
+                >
+                  <Box>{u.name}</Box>
+                  {pName !== undefined ? (
+                    <Box
+                      component="span"
+                      sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.muted }}
+                    >
+                      variation of {pName}
+                    </Box>
+                  ) : null}
+                </MenuItem>
+              );
+            })}
           </Select>
         </FormControl>
         <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.muted, flexShrink: 0 }}>
@@ -113,30 +173,39 @@ export function UseCaseCarousel({
         >
           <ChevronRightIcon fontSize="small" />
         </IconButton>
-        <IconButton
-          aria-label={`Comment on use case ${uc.name}`}
-          data-testid={UI_IDENTIFIERS.Comments.USECASE_COMMENT}
-          size="small"
-          sx={{
-            border: `1.5px solid ${t.line}`,
-            borderRadius: 1,
-            color: t.accentText,
-            bgcolor: t.accent,
-            flexShrink: 0,
-            '&:hover': { bgcolor: t.accent2 },
-          }}
-          onClick={() => {
-            setAnchor({
-              kind: 'node',
-              label: uc.name,
-              source: `${uc.name} · use case`,
-              jsonPath: buildUseCaseAnchor(active),
-            });
-          }}
-        >
-          <ChatBubbleOutlineIcon fontSize="small" />
-        </IconButton>
+        {enabled ? (
+          <IconButton
+            aria-label={`Comment on use case ${uc.name}`}
+            data-testid={UI_IDENTIFIERS.Comments.USECASE_COMMENT}
+            size="small"
+            sx={{
+              border: `1.5px solid ${t.line}`,
+              borderRadius: 1,
+              color: t.accentText,
+              bgcolor: t.accent,
+              flexShrink: 0,
+              '&:hover': { bgcolor: t.accent2 },
+            }}
+            onClick={() => {
+              setAnchor({
+                kind: 'node',
+                label: uc.name,
+                source: `${uc.name} · use case`,
+                jsonPath: buildUseCaseAnchor(active),
+              });
+            }}
+          >
+            <ChatBubbleOutlineIcon fontSize="small" />
+          </IconButton>
+        ) : null}
       </Box>
+
+      {/* Summary of the corpus makeup — surfaces the core/variation split the flat
+          count alone hides (A6). */}
+      <Typography sx={{ fontFamily: t.mono, fontSize: 11.5, color: t.muted, mb: 1.5 }}>
+        {coreItems.length} core of {useCases.length} use case{useCases.length === 1 ? '' : 's'}
+        {variationItems.length > 0 ? ` · ${String(variationItems.length)} variations` : ''}
+      </Typography>
 
       <Paper
         sx={{
@@ -197,42 +266,131 @@ export function UseCaseCarousel({
           </Box>
         </Box>
 
-        {/* hero: walkthrough (choose-your-path) or the full diagram */}
+        {/* hero: walkthrough (choose-your-path) or the full diagram. When this use
+            case owns no diagram, both tabs would render divergent "no diagram"
+            copy — so we short-circuit to one unified, variation-aware empty state. */}
         <Box sx={{ flexGrow: 1, minWidth: 0, p: 1.5 }}>
-          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1.5 }}>
-            <ToggleButtonGroup
-              exclusive
-              aria-label="Use case view mode"
-              size="small"
-              value={mode}
-              onChange={(_e, next: UcViewMode | null) => {
-                if (next !== null) {
-                  viewMemory.mode = next;
-                  setMode(next);
-                }
-              }}
-            >
-              <ToggleButton
-                sx={{ fontFamily: t.mono, fontSize: 11, textTransform: 'none' }}
-                value="walkthrough"
-              >
-                Walkthrough
-              </ToggleButton>
-              <ToggleButton
-                sx={{ fontFamily: t.mono, fontSize: 11, textTransform: 'none' }}
-                value="diagram"
-              >
-                Full diagram
-              </ToggleButton>
-            </ToggleButtonGroup>
-          </Box>
-          {mode === 'walkthrough' ? (
-            <UseCaseWalkthrough height={560} key={uc.id} uc={uc} useCaseIndex={active} />
+          {hasDiagram ? (
+            <>
+              <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1.5 }}>
+                <ToggleButtonGroup
+                  exclusive
+                  aria-label="Use case view mode"
+                  size="small"
+                  value={mode}
+                  onChange={(_e, next: UcViewMode | null) => {
+                    if (next !== null) {
+                      viewMemory.mode = next;
+                      setMode(next);
+                    }
+                  }}
+                >
+                  <ToggleButton
+                    data-testid={UI_IDENTIFIERS.UseCaseCarousel.VIEW_WALKTHROUGH}
+                    sx={{ fontFamily: t.mono, fontSize: 11, textTransform: 'none' }}
+                    value="walkthrough"
+                  >
+                    Walkthrough
+                  </ToggleButton>
+                  <ToggleButton
+                    data-testid={UI_IDENTIFIERS.UseCaseCarousel.VIEW_DIAGRAM}
+                    sx={{ fontFamily: t.mono, fontSize: 11, textTransform: 'none' }}
+                    value="diagram"
+                  >
+                    Full diagram
+                  </ToggleButton>
+                </ToggleButtonGroup>
+              </Box>
+              {mode === 'walkthrough' ? (
+                <UseCaseWalkthrough height={560} key={uc.id} uc={uc} useCaseIndex={active} />
+              ) : (
+                <ActivityFlow height={580} uc={uc} useCaseIndex={active} />
+              )}
+            </>
           ) : (
-            <ActivityFlow height={580} uc={uc} useCaseIndex={active} />
+            <NoDiagram
+              isVariation={!isCore}
+              parentName={parent?.name}
+              t={t}
+              onJumpToParent={
+                parent !== undefined
+                  ? (): void => {
+                      setI(parentIndex);
+                    }
+                  : undefined
+              }
+            />
           )}
         </Box>
       </Paper>
+    </Box>
+  );
+}
+
+/**
+ * The single, unified no-activity-diagram surface for a use case, replacing the two
+ * divergent inner empty states (ActivityFlow / UseCaseWalkthrough). For a VARIATION
+ * it names the parent it shares a diagram with and offers a jump; otherwise it shows
+ * one neutral "no diagram yet" message.
+ */
+function NoDiagram({
+  t,
+  isVariation = false,
+  parentName,
+  onJumpToParent,
+}: {
+  t: Tokens;
+  /** This is a variation use case (non-core) — it reuses a core use case's diagram
+   *  rather than owning one, so the empty state must not read as a missing-diagram
+   *  defect. True even when the specific parent link (variationOf) is absent. */
+  isVariation?: boolean;
+  /** The named parent this variation shares a diagram with, when resolvable. */
+  parentName?: string | undefined;
+  /** Jump to the parent use case (present only when the parent is resolvable). */
+  onJumpToParent?: (() => void) | undefined;
+}): ReactNode {
+  const hasParent = parentName !== undefined && parentName.length > 0;
+  // Honest copy: an absent activity diagram is a not-yet state that validation flags,
+  // NOT a normal "variations reuse the parent" resting state (A7). Every use case is
+  // expected to get its own diagram; a variation may additionally link its parent's.
+  const message = 'No activity diagram yet for this use case.';
+  const secondary = hasParent
+    ? `As a variation of ${parentName}, it’s expected to get its own diagram — until then, walk ${parentName}’s.`
+    : isVariation
+      ? 'This variation is expected to get its own activity diagram.'
+      : 'It’s expected to get one.';
+  return (
+    <Box
+      sx={{
+        height: 560,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        textAlign: 'center',
+        gap: 1.5,
+        px: 3,
+        border: `1.5px dashed ${t.line}`,
+        borderRadius: t.radius / 8 + 0.5,
+        bgcolor: t.bg,
+      }}
+    >
+      <Typography sx={{ fontFamily: t.mono, fontSize: 13, color: t.ink, lineHeight: 1.6 }}>
+        {message}
+      </Typography>
+      <Typography sx={{ fontFamily: t.body, fontSize: 12.5, color: t.muted, maxWidth: 380 }}>
+        {secondary}
+      </Typography>
+      {onJumpToParent !== undefined ? (
+        <Button
+          size="small"
+          sx={{ color: t.ink, borderColor: t.line, textTransform: 'none' }}
+          variant="outlined"
+          onClick={onJumpToParent}
+        >
+          Go to {parentName}
+        </Button>
+      ) : null}
     </Box>
   );
 }

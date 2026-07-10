@@ -10,6 +10,8 @@
 
 ## Steps
 
+> **State changes go through the `aiarch-state` MCP tools, not hand-edits.** Where a step below says to record a service contract, phase artifact, or testing artifact and "commit onto branch", do it with the matching tool — `recordServiceContract` / `recordPhaseArtifact` / `recordTestingState` — and finish with `publishDraft`. Do **not** hand-edit `.aiarch/state/project.json` or run `git` for state; only source/doc **files** (code, docs) are git-committed by you. See [[the-method-project-state]].
+
 1. **Read the provisioning spec** for this activity from `.aiarch/state/project.json`'s phase-artifacts store per [[the-method-project-state]]. Implement exactly what it specifies — target environment(s), infrastructure kind, required resources. If it has a gap, do NOT fill it with an assumption; flag it back rather than widening the spec silently.
 2. **Implement** the infra manifests/config as files in the repository location this project already uses for infrastructure-as-code (match existing conventions; do not invent a new location or tool). Stay inside this deployment activity's scope. Do NOT edit `*/generated/`. Commit onto `activity/<activity_id>`.
 3. **Verify YOUR output** (only your own files; fast checks): the manifests/config are syntactically valid for their tool (e.g. lint/validate/plan, not apply), and every resource they declare traces back to the provisioning spec — no infra invented beyond it.

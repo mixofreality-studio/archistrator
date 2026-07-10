@@ -50,7 +50,8 @@ import (
 // ActivityOverride, ConstructionSessionView, ReviewSet, Reviewer), the enums
 // (OverrideKind, ConstructionStage, PipelinePhase), the named-string scalars
 // (ProjectID, ActivityID) AND the ConstructionManager port interface are GENERATED
-// into contract.gen.go from contract.schema.json (edit the schema + `make gen`; do
+// into contract.gen.go from this component's `.serviceContracts` entry in
+// .aiarch/state/project.json (edit that entry + `make gen`; do
 // NOT hand-edit the generated surface).
 //
 // FULL ENCAPSULATION: the generated contract carries this component's OWN

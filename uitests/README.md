@@ -41,6 +41,7 @@ playwright.config.ts        baseURL + the managed SPA webServer; HTML reporter; 
 tests/landing.spec.ts       catalog: first-login empty state → create project → home base → project listed
 tests/homebase.spec.ts      home base: phase card + artifact TOC + "Resume design" → design experience
 tests/design-experience.spec.ts  spine + steps (pure UI); request-draft → generating → render → gate (LIVE)
+tests/artifact-affordances.spec.ts  coreUseCases (LIVE): keyboard comment-arming on the review diagram; committed-paint chip not banner; Core/Variations picker grouping
 tests/close-and-no-render.spec.ts  ✕ returns home; network log has NO /render request
 tests/support/testids.ts    mirrored data-testid contract (no webApp import)
 tests/support/gating.ts     infra gating — serverReachable / liveDrafting (the UI requireStack)
@@ -55,7 +56,7 @@ without-stack" split:
 | Tier | Needs | Gate | Specs |
 |------|-------|------|-------|
 | **Pure UI / navigation** | SPA + dev-mode server with **Postgres** | self-skip when `/api/userinfo` ≠ 200 | `landing`, `homebase`, `close-and-no-render`, and the `structure` block of `design-experience` |
-| **Live drafting** | + **Temporal + worker** (replay/Ollama/Anthropic) | opt-in `UITESTS_LIVE_DRAFTING` (see below) | the `co-author drafting` block of `design-experience`, plus `architecture-views` |
+| **Live drafting** | a REAL GitHub App + repo (agentic dispatch — see the STALE NOTICE below) | opt-in `UITESTS_LIVE_DRAFTING` (see below) | the `co-author drafting` block of `design-experience`, plus `architecture-views` and `artifact-affordances` |
 
 The SPA gates its whole tree on `GET /api/userinfo` returning 200. The pure-UI
 specs probe that through the SPA proxy in `beforeEach` and **skip with a clear
@@ -65,25 +66,42 @@ unless `UITESTS_LIVE_DRAFTING` is non-`off`, the UI `requireStack`.
 
 ## Drafting modes (`UITESTS_LIVE_DRAFTING`)
 
-The live-drafting specs need Postgres + Temporal + a worker. Bring the Go server up
-yourself (this suite only drives the browser) and set the matching worker env. The
-flag here only decides whether the live specs RUN; the server's mode is set
-separately via `ARCHISTRATOR_WORKER_*` (a test-only `replay` provider).
+**STALE NOTICE (2026-07-06):** the table this section used to carry described a
+`ARCHISTRATOR_WORKER_PROVIDER` (`replay` / `ollama` / `anthropic`) knob on the Go
+server. That config was **removed** in the agentic-design pivot (see
+`server/internal/manager/systemdesign/dispatch.go`): the server holds no
+server-side LLM worker at all. Drafting a Phase-1/Phase-2 artifact now DISPATCHES
+a real `claude-code-action` GitHub Actions job (workflow_dispatch) in the
+project's own repo, OBSERVES it to a terminal phase, and READS BACK the typed
+draft the Action committed — the "generating scene" carries a `ci-job-notice`
+because it is, literally, waiting on the user's CI, not a local model call.
 
-| `UITESTS_LIVE_DRAFTING` | live specs | server worker env |
-|---|---|---|
-| `off` / unset | skipped | n/a |
-| `replay` (CI default) | run | `ARCHISTRATOR_WORKER_PROVIDER=replay`, `ARCHISTRATOR_WORKER_REPLAY_MODE=strict`, `ARCHISTRATOR_WORKER_REPLAY_DIR=<uitests>/testdata/cassettes` |
-| `WHEN_REQUIRED` | run | `…PROVIDER=replay`, `…REPLAY_MODE=record_on_miss`, `…REPLAY_DELEGATE=ollama` (or `anthropic`), plus that delegate's vars (`ARCHISTRATOR_OLLAMA_BASEURL=…` or `ARCHISTRATOR_ANTHROPIC_API_KEY=…`) |
-| `live` (or legacy `1`) | run | `ARCHISTRATOR_WORKER_PROVIDER=ollama` (or `anthropic`) |
+There is currently **no offline/replay path this package can drive**: the only
+offline simulation of that GitHub Actions + PR seam is
+`systemtests/internal/harness/agentic_github.go`, an in-process Go
+`httptest.Server` fake that exists only inside `systemtests`' `*_test.go` files
+(compiled by `go test`, not runnable as a standalone dev-mode server) — wiring
+uitests to it would mean adding new server-side test infrastructure, which this
+package (black-box, zero server code) deliberately does not do.
 
-Server replay env vars (test-only):
-- `ARCHISTRATOR_WORKER_REPLAY_DIR` — on-disk cassette directory (required for `replay`).
-- `ARCHISTRATOR_WORKER_REPLAY_MODE` — `strict` (default; a cassette miss is a loud error) or `record_on_miss`.
-- `ARCHISTRATOR_WORKER_REPLAY_DELEGATE` — `ollama` (default) or `anthropic`; serves misses in `record_on_miss`.
-
-`replay` is offline and deterministic — no Ollama needed. Record cassettes once with
-`WHEN_REQUIRED` (or `live`) and commit `testdata/cassettes/`.
+Practically: running the `co-author drafting` / `architecture-views` /
+`artifact-affordances` specs against a REAL model today means configuring a real
+GitHub App identity (`ARCHISTRATOR_GITHUB_APP_ID` /
+`ARCHISTRATOR_GITHUB_APP_PRIVATE_KEY_PEM`) and a real target repo with
+`aiarch-design.yml` wired to `claude-code-action`, and setting
+`UITESTS_LIVE_DRAFTING=live` (the *specs'* gate — the flag name is legacy but
+still the correct switch). Locally, without that repo/App configured, these
+specs are —correctly— gated off (`UITESTS_LIVE_DRAFTING` unset ⇒ `off`); this is
+an honest skip, not a broken test. `ARCHISTRATOR_CONSTRUCTION_DRYRUN=true` does
+**not** unblock this path — that flag only stubs the *construction* (UC3)
+pipeline, not the design-dispatch one the `systemdesign`/`projectdesign`
+Managers use. With no GitHub App configured, their
+`constructionPipelineAccess` dependency is a `nil` interface (see
+`cmd/server/main.go`'s `buildConstructionPipeline`), so a "Request draft" click
+fails the dispatch activity (a nil-interface call) rather than silently
+no-opping — clicking it against a dry-run-only server like the one this
+package's own smoke rig boots is a dead end, which is exactly why the pure-UI
+`structure` specs never click it.
 
 ## Environment variables
 
@@ -91,7 +109,8 @@ Server replay env vars (test-only):
 |-----|---------|---------|
 | `UITESTS_SPA_URL` | `http://localhost:5173` | Where the managed SPA dev server binds / baseURL falls back to. |
 | `UITESTS_BASE_URL` | *(unset)* | Drive an **already-running** SPA (e.g. `vite preview` or a deployed origin). When set, the managed `webServer` is **skipped**. |
-| `UITESTS_LIVE_DRAFTING` | *(unset → `off`)* | Four values — `off` / `replay` / `WHEN_REQUIRED` / `live` (legacy `1`/`true` ⇒ `live`) — decide whether the live drafting specs run. The server's matching worker mode is set separately via `ARCHISTRATOR_WORKER_*`. See [Drafting modes](#drafting-modes-uitests_live_drafting). |
+| `UITESTS_LIVE_DRAFTING` | *(unset → `off`)* | Four values — `off` / `replay` / `WHEN_REQUIRED` / `live` (legacy `1`/`true` ⇒ `live`) — decide whether the live drafting specs run. See the STALE NOTICE under [Drafting modes](#drafting-modes-uitests_live_drafting): only `live`, against a REAL GitHub App + repo, is actually wired today. |
+| `ARCHISTRATOR_API_PROXY_TARGET` | *(unset → the SPA's own `http://localhost:8888` default)* | Passed through to the MANAGED SPA dev server (see `../webApp/vite.config.ts`) so its `/api` proxy targets a specific Go server instance instead of whatever happens to already be on `:8888`. Combine with a distinct `UITESTS_SPA_URL` port so the managed SPA doesn't collide with an unrelated dev server someone else already has running on `:5173`. |
 
 ## Running
 
@@ -112,22 +131,35 @@ system tests — reuse its `docker-compose.yaml`:
 make up          # postgres (+ ollama) containers + the local Temporal dev server
 ```
 
-Then run the dev-mode server bound to `:8888` (the port the SPA proxies to),
-with Postgres and dev auth on. Pure-UI runs need only Postgres + a worker
-selection (the server requires *some* provider to boot — Ollama avoids needing
-an Anthropic key):
+Then run the dev-mode server bound to `:8888` (the port the SPA proxies to by
+default — see `ARCHISTRATOR_API_PROXY_TARGET` below to point it elsewhere),
+with Postgres and dev auth on. Pure-UI runs need only Postgres — there is no
+server-side LLM worker to select (see the "Drafting modes" STALE NOTICE above).
+The LOCAL project-state git profile below needs its bare repo seeded with ONE
+commit first (`git init --bare --initial-branch=main <path> && git clone
+<path> <tmp> && cd <tmp> && git commit --allow-empty -m seed && git push`) —
+`projectStateAccess.CreateProject` resolves against an existing `main` ref, not
+a wholly-empty repo (mirrors `systemtests/internal/harness/localgit.go`'s
+`StartLocalGitRepo`):
 
 ```bash
 # from ../server
 ARCHISTRATOR_LISTEN_ADDR=:8888 \
 ARCHISTRATOR_AUTH_DEV_MODE=true \
 ARCHISTRATOR_POSTGRES_URL=postgres://archistrator:archistrator@localhost:5432/archistrator?sslmode=disable \
-ARCHISTRATOR_WORKER_PROVIDER=ollama \
-ARCHISTRATOR_OLLAMA_BASEURL=http://localhost:11434 \
+ARCHISTRATOR_CONSTRUCTION_DRYRUN=true \
+ARCHISTRATOR_PROJECT_STATE_GIT_LOCAL=true \
+ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL=file:///path/to/a/seeded/bare/repo.git \
 ARCHISTRATOR_TEMPORAL_HOSTPORT=localhost:7233 \
 ARCHISTRATOR_TEMPORAL_NAMESPACE=aiarch-test \
 go run ./cmd/server
 ```
+
+To point the managed SPA's `/api` proxy at a server on a DIFFERENT port
+(instead of restarting/sharing whatever is already on `:8888`), set
+`ARCHISTRATOR_API_PROXY_TARGET=http://localhost:<port>` alongside
+`UITESTS_SPA_URL=http://localhost:<a-free-port>` when invoking `npm test` — see
+[Environment variables](#environment-variables).
 
 ### 2. Run the UI tests
 

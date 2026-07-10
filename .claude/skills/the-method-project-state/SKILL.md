@@ -1,13 +1,18 @@
 ---
 name: the-method-project-state
-description: The project.json git-as-DB driver. Use whenever a construction command must read from, traverse, or update the typed project state at .aiarch/state/project.json. Teaches the slot map, common read paths, the record-then-commit write discipline, and the git-as-DB invariants.
+description: The project.json git-as-DB driver. Use whenever a construction command must read from, traverse, or update the typed project state at .aiarch/state/project.json. Teaches the slot map, common read paths, the aiarch-state MCP write tools (state changes go through the tools, not hand-edits), and the git-as-DB invariants.
 ---
 
 # Project State (git-as-DB)
 
-`project.json` at `.aiarch/state/project.json` is the single source of truth for the whole project. It is a typed JSON object; the Go structs in `server/internal/resourceaccess/projectstate/` are its schema of record. This skill is how a construction agent reads and updates it. Never write a parallel markdown copy of state — markdown is render-on-read only.
+`project.json` at `.aiarch/state/project.json` is the single source of truth for the whole project. It is a typed JSON object; the Go structs in `server/internal/resourceaccess/projectstate/` are its schema of record. Never write a parallel markdown copy of state — markdown is render-on-read only.
 
-The on-disk JSON is produced by the Go codec (`EncodeProjectJSON`/`DecodeProjectJSON` in `artifactmodel.go`). When writing a slot, match the exact struct JSON shape for that artifact — read the backing Go struct in `projectstate/` if unsure.
+> **STATE CHANGES GO THROUGH THE `aiarch-state` MCP TOOLS — NOT hand-edits.**
+> A construction job runs the `aiarch-state` MCP server (job mode `construct`). Record your phase's artifact through its tools and let `publishDraft` commit it. **Do NOT hand-edit `project.json` and do NOT run `git` yourself for state.** The tools validate every write through the full server codec **and** the Method CI rules *before* it lands, so a malformed contract/artifact is rejected in-loop with an actionable error instead of committed to stall the rail. The ambient component/activity already fix your target — you never choose a slot.
+>
+> The direct `jq`/`git` editing described below is retained only for **humans and debugging** (inspecting or hand-repairing state), not for agents on the construction rail.
+
+The on-disk JSON is produced by the Go codec (`EncodeProjectJSON`/`DecodeProjectJSON` in `artifactmodel.go`). The `aiarch-state` write tools reuse that exact codec, so a write that survives them is byte-for-byte what the server accepts on read-back.
 
 ## Storage is dual: flat keys + a `.slots` map
 
@@ -63,19 +68,22 @@ There is no jq pre-extraction step in CI. You read what you need directly. Commo
 - Neighbour discovery for integration/detailed-design: read `.slots["5"].model.relationships`, find the inbound/outbound component ids for your component (kebab-case), then read each `.serviceContracts[<neighbour>]` (camelCase key).
 - Core use cases: `jq '.slots["4"].model' .aiarch/state/project.json`; Mission: `jq '.slots["0"].model' .aiarch/state/project.json`.
 
-Prefer reading the smallest slice that answers your question; you may run several `jq` reads.
+Prefer reading the smallest slice that answers your question; you may run several `jq` reads. (The `aiarch-state` `getCommittedSlot` tool returns a committed artifact's typed model directly if you'd rather read through the tool than `jq`.)
 
-## Updating (record the artifact, then commit)
+## Updating (record the artifact through the `aiarch-state` tools)
 
-When your phase produces an artifact that lives in state (e.g. a service contract, a UI-design concept, a phase-artifact note), write it into its typed target and `git commit` it onto the activity branch. Each artifact maps to a target:
+When your phase produces an artifact that lives in state, record it through the matching `aiarch-state` MCP tool, then call `publishDraft` (once, last) to commit and push it onto your activity branch. **You do not hand-edit `project.json` and you do not run `git`.** Each artifact maps to a tool + target:
 
-- service contract -> `.serviceContracts["<component>"]` (flat)
-- UI-design concept -> `.phaseArtifacts.uiDesign["<surface>"]` (flat; verb `RecordPhaseArtifactProduced`)
-- integration note -> `.phaseArtifacts.integrationNote` (flat)
-- testing plan/results -> `.testingState` (flat)
-- code artifacts are files under `server/internal/...`, not a state slot
+| artifact | tool | target |
+|---|---|---|
+| service contract (detailed-design) | `recordServiceContract` | `.serviceContracts["<ambient component>"]` |
+| UI-design concept / SRS / integration note / provisioning spec / deploy note / doc outline·note | `recordPhaseArtifact` (set exactly one payload field, pass the `mapKey`) | `.phaseArtifacts.<field>["<mapKey>"]` |
+| testing plan / results (system test plan, harness, quality gate, test run, defect, audit report) | `recordTestingState` (set exactly one payload field) | `.testingState.<field>` |
+| code | *(files, not state)* | files under `server/internal/...` |
 
-Write valid typed JSON matching the Go struct for that target (field names + shapes exactly). Do not invent fields. After writing, commit with a message naming the activity + phase.
+The tool payload is the typed Go struct for that target (field names + shapes exactly — read the backing struct in `projectstate/` if unsure); the tool rejects invented/malformed fields before writing. `recordServiceContract` uses your ambient component; `recordPhaseArtifact`/`recordTestingState` use your ambient activity. A rejected write tells you exactly what to fix — correct it and call the tool again. When every artifact is recorded, call `publishDraft`.
+
+If a specific raw ResourceAccess/Engine operation is in your task's tool allowlist, call it by its generated tool name; anything not covered by a tool is a code file, not a state edit.
 
 ## Status is NOT yours
 
@@ -83,8 +91,8 @@ Do not write phase start/exit status or earned-value fields. The Manager (orches
 
 ## Invariants
 
-- `project.json` is the source of truth; commit after every state write.
+- `project.json` is the source of truth; **state changes go through the `aiarch-state` tools** (`recordServiceContract`/`recordPhaseArtifact`/`recordTestingState`), then `publishDraft` commits — you never hand-edit the file or run `git` for state.
 - One artifact per phase, into its one target (or as code).
-- Never write `.activityConstruction`, `.constructionProgress`, or `.reviewPolicy` — those are Manager-owned.
+- Never write `.activityConstruction`, `.constructionProgress`, or `.reviewPolicy` — those are Manager-owned (there is no tool for them).
 - Never edit `*/generated/`.
-- If a slot's shape is unclear, read the backing Go struct in `projectstate/` rather than guessing.
+- If a payload's shape is unclear, read the backing Go struct in `projectstate/` rather than guessing; the tool will also reject a malformed payload with the exact fix.

@@ -21,8 +21,6 @@ import type {
   RiskModelModel,
   SdpReviewModel,
   Money,
-} from './types';
-import type {
   ActivityNodeKind,
   Axis,
   CallMode,
@@ -47,8 +45,9 @@ import type {
   System,
   UseCaseDecision,
   Volatilities,
-} from './models';
+} from './types';
 import { METHOD_METADATA, PHASE1_ORDER, PHASE2_ORDER } from './methodMetadata';
+import { ARTIFACT_STAGE_APP_STRINGS } from './enums.gen';
 
 // ---------------------------------------------------------------------------
 // Phase spine — the three Method phases as locked/active/done cards.
@@ -153,22 +152,26 @@ export interface ArtifactMeta {
   stage: SlotStage;
   /** Architect rationale on Reject / Withdraw, when present. */
   notes?: string;
+  /** Commit count; > 1 once the slot has been amended. */
+  revisions?: number;
+  /** True when an upstream basis changed since this slot was committed. */
+  staleBasis?: boolean;
 }
 
-/** Maps the ArtifactStage ordinal (0..4) to a display stage. */
+/**
+ * Maps the ArtifactStage ordinal (0..4) to a display stage, sourced from the
+ * generated enums.gen.ts — mirrors how the other …FromOrdinal reads in wire.ts
+ * work, so a Go ArtifactStage member add/remove/reorder breaks tsc here instead
+ * of drifting silently (the hand switch this replaced had no such guard).
+ * SlotStage is structurally identical to the generated ArtifactStage union.
+ * Reads ARTIFACT_STAGE_APP_STRINGS (the `as const` tuple ARTIFACT_STAGE_ORDINAL_TO_APP
+ * is itself built from) rather than that wider `readonly ArtifactStage[]` typing:
+ * indexing a literal-length tuple with the literal ArtifactStageOrdinal domain
+ * type-checks to a definite ArtifactStage under noUncheckedIndexedAccess, so no
+ * cast/non-null-assertion is needed — same generated data either way.
+ */
 export function slotStageFromOrdinal(ordinal: ArtifactStageOrdinal): SlotStage {
-  switch (ordinal) {
-    case 0:
-      return 'empty';
-    case 1:
-      return 'awaitingReview';
-    case 2:
-      return 'committed';
-    case 3:
-      return 'rejected';
-    case 4:
-      return 'withdrawn';
-  }
+  return ARTIFACT_STAGE_APP_STRINGS[ordinal];
 }
 
 /** Builds the table-of-contents rows from a project's head-state slots. */
@@ -186,6 +189,8 @@ function toArtifactMeta(slot: ArtifactSlotView): ArtifactMeta {
     hasPmCritic: meta.hasPmCritic,
     stage: slotStageFromOrdinal(slot.stage),
     ...(slot.notes !== undefined && slot.notes.length > 0 ? { notes: slot.notes } : {}),
+    ...(slot.revisions !== undefined ? { revisions: slot.revisions } : {}),
+    ...(slot.staleBasis === true ? { staleBasis: true } : {}),
   };
 }
 
@@ -467,7 +472,7 @@ export function listDeploymentProfiles(
   opEnvelope: ArtifactModelEnvelope | undefined
 ): DeploymentProfileRef[] {
   const op = narrow(opEnvelope, 'operationalConcepts');
-  return (op?.deployment?.environments ?? []).map((e) => ({ profile: e.profile, title: e.title }));
+  return (op?.deployment.environments ?? []).map((e) => ({ profile: e.profile, title: e.title }));
 }
 
 /**
@@ -556,6 +561,9 @@ export interface UseCaseView {
   name: string;
   classification: Classification;
   rejectionReason: string;
+  /** The id of the use case this one is a variation of (shares its activity
+   *  diagram), or empty when this use case owns its own diagram. */
+  variationOf: string;
   /** Distinct swim-lanes, in first-seen order. */
   lanes: string[];
   nodes: ActivityNodeView[];
@@ -578,7 +586,7 @@ export function toCoreUseCasesView(envelope: ArtifactModelEnvelope | undefined):
 
 function toUseCaseView(decision: UseCaseDecision): UseCaseView {
   const uc = decision.useCase;
-  const activity = uc.activity ?? null;
+  const activity = uc.activity;
   const rawNodes = activity?.nodes ?? [];
   const rawEdges = activity?.edges ?? [];
 
@@ -604,6 +612,7 @@ function toUseCaseView(decision: UseCaseDecision): UseCaseView {
     name: uc.name,
     classification: uc.classification,
     rejectionReason: decision.rejectionReason,
+    variationOf: uc.variationOf ?? '',
     lanes,
     nodes,
     edges,
@@ -666,8 +675,8 @@ function glossaryToMarkdown(g: Glossary): string {
   if (items.length === 0) return '';
   const rows = items
     .map((i) => {
-      const hasCategory = (i.category?.length ?? 0) > 0;
-      const category = hasCategory ? ` _(${String(i.category)})_` : '';
+      const hasCategory = i.category.length > 0;
+      const category = hasCategory ? ` _(${i.category})_` : '';
       return `- **${i.term}**${category} — ${i.definition}`;
     })
     .join('\n');
@@ -792,9 +801,10 @@ function labelFor(labels: Record<number, string>, value: number): string {
 function planningAssumptionsToMarkdown(m: PlanningAssumptionsModel): string {
   const parts: string[] = [];
 
-  // Resources
-  if (m.resources.length > 0) {
-    parts.push(`## Resources\n\n${m.resources.map((r) => `- ${r}`).join('\n')}`);
+  // Resources (generated slice is nullable — nil→null on the wire)
+  const resources = m.resources ?? [];
+  if (resources.length > 0) {
+    parts.push(`## Resources\n\n${resources.map((r) => `- ${r}`).join('\n')}`);
   }
 
   // Key settings
@@ -831,7 +841,7 @@ function planningAssumptionsToMarkdown(m: PlanningAssumptionsModel): string {
 }
 
 function activityListToMarkdown(m: ActivityListModel): string {
-  const activities = m.activities;
+  const activities = m.activities ?? [];
   if (activities.length === 0) return '';
   const header = '| Activity | Effort (d) | Worker Class | Coding | Risk |';
   const sep = '|---|---|---|---|---|';
@@ -847,16 +857,18 @@ function activityListToMarkdown(m: ActivityListModel): string {
 function networkToMarkdown(m: NetworkModel): string {
   const parts: string[] = [];
 
-  const cp = m.criticalPath;
+  const cp = m.criticalPath ?? [];
   if (cp.length > 0) {
     parts.push(`## Critical Path\n\n${cp.join(' → ')}`);
   }
 
-  const deps = m.dependencies;
+  const deps = m.dependencies ?? [];
   if (deps.length > 0) {
     const header = '| Activity | Depends On |';
     const sep = '|---|---|';
-    const rows = deps.map((d) => `| ${d.activity} | ${d.dependsOn.join(', ')} |`).join('\n');
+    const rows = deps
+      .map((d) => `| ${d.activity} | ${(d.dependsOn ?? []).join(', ')} |`)
+      .join('\n');
     parts.push(`## Dependencies\n\n${header}\n${sep}\n${rows}`);
   }
 
@@ -892,7 +904,7 @@ function solutionToMarkdown(m: SolutionModel): string {
 }
 
 function riskModelToMarkdown(m: RiskModelModel): string {
-  const rows = m.rows;
+  const rows = m.rows ?? [];
   if (rows.length === 0) return '';
   const header = '| Option | Criticality Risk | Activity Risk | Composite |';
   const sep = '|---|---|---|---|';
@@ -916,7 +928,7 @@ function sdpReviewToMarkdown(m: SdpReviewModel): string {
     parts.push(`## Rationale\n\n${m.rationale}`);
   }
 
-  const options = m.options;
+  const options = m.options ?? [];
   if (options.length > 0) {
     const header =
       '| Option | Solution | Duration (d) | Build Cost | Composite Risk | Monthly Cost | Per-Cycle Net | Rev Share % |';

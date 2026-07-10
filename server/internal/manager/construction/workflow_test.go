@@ -7,12 +7,13 @@ import (
 	"testing"
 	"time"
 
+	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/testsuite"
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/google/uuid"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/constructionpipeline"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
@@ -255,25 +256,49 @@ var _ projectStateReader = (*fakeProjectState)(nil)
 var _ constructionTransitionAccess = (*fakeProjectState)(nil)
 var _ gitActivityStatusAccess = (*fakeProjectState)(nil)
 
-// fakePipeline serves a scripted terminal observation after one running poll.
+// contractPipelinePhase maps the Manager-neutral PipelinePhase the fakes are scripted
+// with back onto the contract constructionpipeline.PipelinePhase the GENERATED observe
+// activity returns (reverse of managerPipelinePhase) — so the test literals stay written
+// in the Manager vocabulary while the fakes honor the contract interface.
+func contractPipelinePhase(p PipelinePhase) constructionpipeline.PipelinePhase {
+	switch p {
+	case PipelinePending:
+		return constructionpipeline.PhasePending
+	case PipelineRunning:
+		return constructionpipeline.PhaseRunning
+	case PipelineSucceeded:
+		return constructionpipeline.PhaseSucceeded
+	case PipelineFailed:
+		return constructionpipeline.PhaseFailed
+	case PipelineCancelled:
+		return constructionpipeline.PhaseCancelled
+	default:
+		return constructionpipeline.PhasePending
+	}
+}
+
+// fakePipeline serves a scripted terminal observation after one running poll. It honors
+// the FROZEN constructionpipeline.ConstructionPipelineAccess contract (the GENERATED
+// pipeline Activities are backed by it); the workflow reaches it through the generated
+// invoker surface.
 type fakePipeline struct {
 	mu sync.Mutex
 
 	phase     PipelinePhase // terminal phase to serve
 	diag      string
-	submitted []pipelineSpec
-	cancelled []pipelineHandle
+	submitted []constructionpipeline.PipelineSpec
+	cancelled []constructionpipeline.PipelineHandle
 	polls     int
 }
 
-func (p *fakePipeline) SubmitConstructionPipeline(_ context.Context, spec pipelineSpec, _ fwra.IdempotencyKey) (pipelineHandle, error) {
+func (p *fakePipeline) SubmitConstructionPipeline(_ fwra.Context, spec constructionpipeline.PipelineSpec) (constructionpipeline.PipelineHandle, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.submitted = append(p.submitted, spec)
-	return pipelineHandle{Name: "wf-" + spec.ActivityID}, nil
+	return constructionpipeline.PipelineHandle("wf-" + string(spec.ActivityID)), nil
 }
 
-func (p *fakePipeline) ObserveConstructionPipeline(_ context.Context, _ pipelineHandle) (pipelineObservation, error) {
+func (p *fakePipeline) ObserveConstructionPipeline(_ fwra.Context, _ constructionpipeline.PipelineHandle) (constructionpipeline.PipelineObservation, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.polls++
@@ -281,36 +306,17 @@ func (p *fakePipeline) ObserveConstructionPipeline(_ context.Context, _ pipeline
 	if ph == PipelinePhaseUnknown {
 		ph = PipelineSucceeded
 	}
-	return pipelineObservation{Phase: ph, Diagnostic: p.diag}, nil
+	return constructionpipeline.PipelineObservation{Phase: contractPipelinePhase(ph), Diagnostic: p.diag}, nil
 }
 
-func (p *fakePipeline) CancelConstructionPipeline(_ context.Context, handle pipelineHandle) error {
+func (p *fakePipeline) CancelConstructionPipeline(_ fwra.Context, handle constructionpipeline.PipelineHandle) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.cancelled = append(p.cancelled, handle)
 	return nil
 }
 
-var _ constructionPipelineAccess = (*fakePipeline)(nil)
-
-// fakeArtifacts records stored outputs and returns a deterministic address.
-type fakeArtifacts struct {
-	mu     sync.Mutex
-	stored []artifact.ConstructionOutput
-}
-
-func (a *fakeArtifacts) StoreConstructionOutput(_ context.Context, output artifact.ConstructionOutput, _ fwra.IdempotencyKey) (string, error) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.stored = append(a.stored, output)
-	return "addr-1", nil
-}
-
-func (a *fakeArtifacts) RetrieveConstructionOutput(_ context.Context, _ string) (artifact.ConstructionOutput, error) {
-	return artifact.ConstructionOutput{}, nil
-}
-
-var _ artifactAccess = (*fakeArtifacts)(nil)
+var _ constructionpipeline.ConstructionPipelineAccess = (*fakePipeline)(nil)
 
 // fakeHandOff returns a scripted worker class.
 type fakeHandOff struct {
@@ -362,15 +368,25 @@ var _ reviewEngine = (*fakeReview)(nil)
 
 // ---- helpers ----------------------------------------------------------------
 
-// registerConstruct registers the per-activity child workflow + its activities.
-func registerConstruct(env *testsuite.TestWorkflowEnvironment, wf *workflows) {
+// registerGenPipeline registers the GENERATED pipeline Activities (backed by the contract
+// pipeline fake) under their generated registered names — the names the generated invoker
+// surface (wf.Acts.Pipeline*) dispatches by. The workflow reaches the pipeline only through
+// those invokers now.
+func registerGenPipeline(env *testsuite.TestWorkflowEnvironment, pipe constructionpipeline.ConstructionPipelineAccess) {
+	acts := &genActivities{Pipeline: pipe}
+	env.RegisterActivityWithOptions(acts.PipelineSubmitConstructionPipeline, activity.RegisterOptions{Name: "constructionPipelineAccess.submitConstructionPipeline"})
+	env.RegisterActivityWithOptions(acts.PipelineObserveConstructionPipeline, activity.RegisterOptions{Name: "constructionPipelineAccess.observeConstructionPipeline"})
+	env.RegisterActivityWithOptions(acts.PipelineCancelConstructionPipeline, activity.RegisterOptions{Name: "constructionPipelineAccess.cancelConstructionPipeline"})
+}
+
+// registerConstruct registers the per-activity child workflow + its Activities: the
+// GENERATED pipeline surface (via the fake) + the CUSTOM read/record method-value
+// Activities on the workflows receiver.
+func registerConstruct(env *testsuite.TestWorkflowEnvironment, wf *workflows, pipe constructionpipeline.ConstructionPipelineAccess) {
 	env.RegisterWorkflowWithOptions(wf.ConstructActivityWorkflow, workflow.RegisterOptions{Name: executionKindConstructActivity})
+	registerGenPipeline(env, pipe)
 	env.RegisterActivity(wf.ReadProjectActivity)
 	env.RegisterActivity(wf.ReadProjectVersionActivity)
-	env.RegisterActivity(wf.SubmitPipelineActivity)
-	env.RegisterActivity(wf.ObservePipelineActivity)
-	env.RegisterActivity(wf.CancelPipelineActivity)
-	env.RegisterActivity(wf.StoreConstructionOutputActivity)
 	env.RegisterActivity(wf.RecordChangeReviewedActivity)
 	env.RegisterActivity(wf.RecordActivityExitedActivity)
 	env.RegisterActivity(wf.RecordActivityFailedActivity)
@@ -383,28 +399,25 @@ func registerConstruct(env *testsuite.TestWorkflowEnvironment, wf *workflows) {
 	env.RegisterActivity(wf.RecordPhaseCompletedActivity)
 }
 
-func registerPump(env *testsuite.TestWorkflowEnvironment, wf *workflows) {
+func registerPump(env *testsuite.TestWorkflowEnvironment, wf *workflows, pipe constructionpipeline.ConstructionPipelineAccess) {
 	env.RegisterWorkflowWithOptions(wf.PumpNextActivityWorkflow, workflow.RegisterOptions{Name: executionKindPump})
 	env.RegisterWorkflowWithOptions(wf.ConstructActivityWorkflow, workflow.RegisterOptions{Name: executionKindConstructActivity})
 	// The pump now waits for child COMPLETION (self-cascade), so the per-activity
 	// child runs end-to-end and ALL its activities must be registered.
+	registerGenPipeline(env, pipe)
 	env.RegisterActivity(wf.ReadProjectActivity)
 	env.RegisterActivity(wf.ReadProjectVersionActivity)
-	env.RegisterActivity(wf.SubmitPipelineActivity)
-	env.RegisterActivity(wf.ObservePipelineActivity)
-	env.RegisterActivity(wf.CancelPipelineActivity)
-	env.RegisterActivity(wf.StoreConstructionOutputActivity)
 	env.RegisterActivity(wf.RecordChangeReviewedActivity)
 	env.RegisterActivity(wf.RecordActivityExitedActivity)
 	env.RegisterActivity(wf.RecordActivityFailedActivity)
 	env.RegisterActivity(wf.RecordOperatorPausedActivity)
 }
 
-func registerSupervision(env *testsuite.TestWorkflowEnvironment, wf *workflows) {
+func registerSupervision(env *testsuite.TestWorkflowEnvironment, wf *workflows, pipe constructionpipeline.ConstructionPipelineAccess) {
 	env.RegisterWorkflowWithOptions(wf.ProjectSupervisionWorkflow, workflow.RegisterOptions{Name: executionKindProjectSupervision})
+	registerGenPipeline(env, pipe)
 	env.RegisterActivity(wf.ReadProjectActivity)
 	env.RegisterActivity(wf.ReadProjectVersionActivity)
-	env.RegisterActivity(wf.CancelPipelineActivity)
 	env.RegisterActivity(wf.RecordOperatorPausedActivity)
 }
 
@@ -434,12 +447,11 @@ func Test_Construct_HappyPath_RecordsReviewedAndExited(t *testing.T) {
 
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(uuid.NewString()), Version: 3, Phase: 2}}
 	pipe := &fakePipeline{phase: PipelineSucceeded}
-	art := &fakeArtifacts{}
 	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{class: aiWorker}, Intervention: &fakeIntervention{directive: directiveRetry},
-		Review: &fakeReview{}, ProjectState: ps, Pipeline: pipe, Artifacts: art,
+		Review: &fakeReview{}, ProjectState: ps,
 	})
-	registerConstruct(env, wf)
+	registerConstruct(env, wf, pipe)
 
 	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{
 		ProjectID: ProjectID(ps.project.ID), ActivityID: "C-XYZ", Activity: sampleActivity(),
@@ -474,12 +486,11 @@ func runPumpWith(t *testing.T, act constructionActivity) *fakePipeline {
 
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(uuid.NewString()), Version: 3, Phase: 2}}
 	pipe := &fakePipeline{phase: PipelineSucceeded}
-	art := &fakeArtifacts{}
 	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{class: aiWorker}, Intervention: &fakeIntervention{directive: directiveRetry},
-		Review: &fakeReview{}, ProjectState: ps, Pipeline: pipe, Artifacts: art,
+		Review: &fakeReview{}, ProjectState: ps,
 	})
-	registerConstruct(env, wf)
+	registerConstruct(env, wf, pipe)
 
 	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{
 		ProjectID: ProjectID(ps.project.ID), ActivityID: ActivityID(act.ActivityID), Activity: act,
@@ -522,9 +533,9 @@ func Test_Construct_ArchitectOnly_AwaitsOverride_SkipExits(t *testing.T) {
 	pipe := &fakePipeline{}
 	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{class: architectOnly}, Intervention: &fakeIntervention{directive: directiveRetry},
-		Review: &fakeReview{}, ProjectState: ps, Pipeline: pipe, Artifacts: &fakeArtifacts{},
+		Review: &fakeReview{}, ProjectState: ps,
 	})
-	registerConstruct(env, wf)
+	registerConstruct(env, wf, pipe)
 
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(signalOperatorOverride, operatorOverrideSignal{Override: ActivityOverride{Kind: OverrideSkip}})
@@ -558,9 +569,9 @@ func Test_Construct_PipelineFailed_Takeover_ThenCompletes(t *testing.T) {
 	pipe := &flippablePipeline{first: PipelineFailed, rest: PipelineSucceeded}
 	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{class: aiWorker}, Intervention: &fakeIntervention{directive: directiveTakeover},
-		Review: &fakeReview{}, ProjectState: ps, Pipeline: pipe, Artifacts: &fakeArtifacts{},
+		Review: &fakeReview{}, ProjectState: ps,
 	})
-	registerConstruct(env, wf)
+	registerConstruct(env, wf, pipe)
 
 	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{
 		ProjectID: ProjectID(ps.project.ID), ActivityID: "C-PF", Activity: sampleActivity(),
@@ -580,33 +591,33 @@ type flippablePipeline struct {
 	first     PipelinePhase
 	rest      PipelinePhase
 	submits   int
-	cancelled []pipelineHandle
+	cancelled []constructionpipeline.PipelineHandle
 }
 
-func (p *flippablePipeline) SubmitConstructionPipeline(_ context.Context, spec pipelineSpec, _ fwra.IdempotencyKey) (pipelineHandle, error) {
+func (p *flippablePipeline) SubmitConstructionPipeline(_ fwra.Context, _ constructionpipeline.PipelineSpec) (constructionpipeline.PipelineHandle, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.submits++
-	return pipelineHandle{Name: "wf"}, nil
+	return constructionpipeline.PipelineHandle("wf"), nil
 }
 
-func (p *flippablePipeline) ObserveConstructionPipeline(_ context.Context, _ pipelineHandle) (pipelineObservation, error) {
+func (p *flippablePipeline) ObserveConstructionPipeline(_ fwra.Context, _ constructionpipeline.PipelineHandle) (constructionpipeline.PipelineObservation, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.submits <= 1 {
-		return pipelineObservation{Phase: p.first, Diagnostic: "boom"}, nil
+		return constructionpipeline.PipelineObservation{Phase: contractPipelinePhase(p.first), Diagnostic: "boom"}, nil
 	}
-	return pipelineObservation{Phase: p.rest}, nil
+	return constructionpipeline.PipelineObservation{Phase: contractPipelinePhase(p.rest)}, nil
 }
 
-func (p *flippablePipeline) CancelConstructionPipeline(_ context.Context, handle pipelineHandle) error {
+func (p *flippablePipeline) CancelConstructionPipeline(_ fwra.Context, handle constructionpipeline.PipelineHandle) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.cancelled = append(p.cancelled, handle)
 	return nil
 }
 
-var _ constructionPipelineAccess = (*flippablePipeline)(nil)
+var _ constructionpipeline.ConstructionPipelineAccess = (*flippablePipeline)(nil)
 
 // The §6.5 Conflict discipline: a recordChangeReviewed that returns fwra.Conflict
 // twice before succeeding drives the workflow-level re-read→re-apply loop; the
@@ -618,10 +629,9 @@ func Test_Construct_ConflictOnRecord_ReReadReApply_Succeeds(t *testing.T) {
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(uuid.NewString()), Version: 1, Phase: 2}, conflictFirst: 2}
 	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{class: aiWorker}, Intervention: &fakeIntervention{directive: directiveRetry},
-		Review: &fakeReview{}, ProjectState: ps, Pipeline: &fakePipeline{phase: PipelineSucceeded},
-		Artifacts: &fakeArtifacts{},
+		Review: &fakeReview{}, ProjectState: ps,
 	})
-	registerConstruct(env, wf)
+	registerConstruct(env, wf, &fakePipeline{phase: PipelineSucceeded})
 
 	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{
 		ProjectID: ProjectID(ps.project.ID), ActivityID: "C-CONF", Activity: sampleActivity(),
@@ -649,10 +659,10 @@ func Test_Pump_NoEligibleActivity_QuietTick(t *testing.T) {
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(uuid.NewString()), Version: 1, Phase: 2}}
 	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{}, Intervention: &fakeIntervention{}, Review: &fakeReview{},
-		ProjectState: ps, Pipeline: &fakePipeline{}, Artifacts: &fakeArtifacts{},
+		ProjectState:         ps,
 		NextEligibleActivity: nil,
 	})
-	registerPump(env, wf)
+	registerPump(env, wf, &fakePipeline{phase: PipelineSucceeded})
 
 	env.ExecuteWorkflow(executionKindPump, pumpInput{ProjectID: ProjectID(ps.project.ID)})
 
@@ -676,9 +686,9 @@ func Test_Pump_ProjectNotFound_QuietTick(t *testing.T) {
 	ps := &fakeProjectState{notFound: true}
 	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{}, Intervention: &fakeIntervention{}, Review: &fakeReview{},
-		ProjectState: ps, Pipeline: &fakePipeline{}, Artifacts: &fakeArtifacts{},
+		ProjectState: ps,
 	})
-	registerPump(env, wf)
+	registerPump(env, wf, &fakePipeline{phase: PipelineSucceeded})
 
 	env.ExecuteWorkflow(executionKindPump, pumpInput{ProjectID: ProjectID(uuid.NewString())})
 
@@ -704,13 +714,12 @@ func Test_Pump_EligibleActivity_RunsChild_ThenContinueAsNew(t *testing.T) {
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
 	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{class: aiWorker}, Intervention: &fakeIntervention{directive: directiveRetry},
-		Review: &fakeReview{}, ProjectState: ps, Pipeline: &fakePipeline{phase: PipelineSucceeded},
-		Artifacts: &fakeArtifacts{},
+		Review: &fakeReview{}, ProjectState: ps,
 		NextEligibleActivity: func(_ projectstate.Project) (constructionActivity, bool) {
 			return sampleActivity(), true
 		},
 	})
-	registerPump(env, wf)
+	registerPump(env, wf, &fakePipeline{phase: PipelineSucceeded})
 
 	env.ExecuteWorkflow(executionKindPump, pumpInput{ProjectID: pid})
 
@@ -743,13 +752,12 @@ func Test_Pump_EligibleActivity_SurfacesSyncDispatchDecision(t *testing.T) {
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
 	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{class: aiWorker}, Intervention: &fakeIntervention{directive: directiveRetry},
-		Review: &fakeReview{}, ProjectState: ps, Pipeline: &fakePipeline{phase: PipelineSucceeded},
-		Artifacts: &fakeArtifacts{},
+		Review: &fakeReview{}, ProjectState: ps,
 		NextEligibleActivity: func(_ projectstate.Project) (constructionActivity, bool) {
 			return sampleActivity(), true
 		},
 	})
-	registerPump(env, wf)
+	registerPump(env, wf, &fakePipeline{phase: PipelineSucceeded})
 
 	env.ExecuteWorkflow(executionKindPump, pumpInput{ProjectID: pid})
 
@@ -780,12 +788,12 @@ func Test_Pump_DrainedNetwork_SurfacesQuiescentDecision(t *testing.T) {
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
 	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{class: aiWorker}, Intervention: &fakeIntervention{}, Review: &fakeReview{},
-		ProjectState: ps, Pipeline: &fakePipeline{}, Artifacts: &fakeArtifacts{},
+		ProjectState: ps,
 		NextEligibleActivity: func(_ projectstate.Project) (constructionActivity, bool) {
 			return constructionActivity{}, false
 		},
 	})
-	registerPump(env, wf)
+	registerPump(env, wf, &fakePipeline{phase: PipelineSucceeded})
 
 	env.ExecuteWorkflow(executionKindPump, pumpInput{ProjectID: pid})
 
@@ -815,12 +823,12 @@ func Test_Pump_DrainedNetwork_QuietNoContinueAsNew(t *testing.T) {
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
 	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{class: aiWorker}, Intervention: &fakeIntervention{}, Review: &fakeReview{},
-		ProjectState: ps, Pipeline: &fakePipeline{}, Artifacts: &fakeArtifacts{},
+		ProjectState: ps,
 		NextEligibleActivity: func(_ projectstate.Project) (constructionActivity, bool) {
 			return constructionActivity{}, false // network drained
 		},
 	})
-	registerPump(env, wf)
+	registerPump(env, wf, &fakePipeline{phase: PipelineSucceeded})
 
 	env.ExecuteWorkflow(executionKindPump, pumpInput{ProjectID: pid})
 
@@ -847,13 +855,12 @@ func Test_Pump_PauseSignal_HaltsCascade_NoDispatch(t *testing.T) {
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
 	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{class: aiWorker}, Intervention: &fakeIntervention{directive: directiveRetry},
-		Review: &fakeReview{}, ProjectState: ps, Pipeline: &fakePipeline{phase: PipelineSucceeded},
-		Artifacts: &fakeArtifacts{},
+		Review: &fakeReview{}, ProjectState: ps,
 		NextEligibleActivity: func(_ projectstate.Project) (constructionActivity, bool) {
 			return sampleActivity(), true // an activity IS eligible — but the pause wins
 		},
 	})
-	registerPump(env, wf)
+	registerPump(env, wf, &fakePipeline{phase: PipelineSucceeded})
 
 	// Deliver the pause Signal so it is already queued when the pump checks (the pump's
 	// non-blocking ReceiveAsync observes it at the top, before any dispatch).
@@ -895,9 +902,9 @@ func Test_Pause_AppliesPolicy_CancelsPipeline_RecordsPaused(t *testing.T) {
 	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{}, Review: &fakeReview{},
 		Intervention: &fakeIntervention{plan: pausePlan{PipelinesToCancel: []string{"wf-C-1"}, RecordPaused: true}},
-		ProjectState: ps, Pipeline: pipe, Artifacts: &fakeArtifacts{},
+		ProjectState: ps,
 	})
-	registerSupervision(env, wf)
+	registerSupervision(env, wf, pipe)
 
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(signalOperatorPauseRequested, operatorPauseSignal{ProjectID: pid, Reason: "operator halt"})
@@ -927,7 +934,7 @@ func Test_ReplanSweep_QuietSweep_EmptyResult(t *testing.T) {
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
 	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{}, Intervention: &fakeIntervention{}, Review: &fakeReview{},
-		ProjectState: ps, Pipeline: &fakePipeline{}, Artifacts: &fakeArtifacts{},
+		ProjectState: ps,
 	})
 	registerReplanSweep(env, wf)
 
@@ -961,15 +968,13 @@ func newFakeProjectStateWithPolicy(policy projectstate.ReviewPolicy) *fakeProjec
 // gateDeps builds a wfDeps for the gate tests: the fake project-state serves BOTH the
 // read/transition seams AND the git-status seam (wired so gitOn is true → the phase
 // records fire; the PR rail stays dormant, so branch/PR/merge are no-ops).
-func gateDeps(ps *fakeProjectState, pipe constructionPipelineAccess) wfDeps {
+func gateDeps(ps *fakeProjectState) wfDeps {
 	return wfDeps{
 		HandOff:      &fakeHandOff{class: aiWorker},
 		Intervention: &fakeIntervention{directive: directiveRetry},
 		Review:       &fakeReview{},
 		ProjectState: ps,
 		GitStatus:    ps,
-		Pipeline:     pipe,
-		Artifacts:    &fakeArtifacts{},
 	}
 }
 
@@ -984,37 +989,39 @@ type failOncePipeline struct {
 	failPhase string
 	failed    map[string]bool
 	lastPhase string
-	submitted []pipelineSpec
+	submitted []constructionpipeline.PipelineSpec
 }
 
 func newFakePipelineFailingOnce(phase string) *failOncePipeline {
 	return &failOncePipeline{failPhase: phase, failed: map[string]bool{}}
 }
 
-func (p *failOncePipeline) SubmitConstructionPipeline(_ context.Context, spec pipelineSpec, _ fwra.IdempotencyKey) (pipelineHandle, error) {
+func (p *failOncePipeline) SubmitConstructionPipeline(_ fwra.Context, spec constructionpipeline.PipelineSpec) (constructionpipeline.PipelineHandle, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.submitted = append(p.submitted, spec)
-	p.lastPhase = spec.Phase
-	return pipelineHandle{Name: "wf-" + spec.ActivityID}, nil
+	// The phase rides in DispatchInputs (the neutral pipelineSpec.Phase is composed into
+	// the contract spec's DispatchInputs["phase"] by the workflow-side helper).
+	p.lastPhase = spec.DispatchInputs["phase"]
+	return constructionpipeline.PipelineHandle("wf-" + string(spec.ActivityID)), nil
 }
 
-func (p *failOncePipeline) ObserveConstructionPipeline(_ context.Context, _ pipelineHandle) (pipelineObservation, error) {
+func (p *failOncePipeline) ObserveConstructionPipeline(_ fwra.Context, _ constructionpipeline.PipelineHandle) (constructionpipeline.PipelineObservation, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	ph := p.lastPhase
 	if ph == p.failPhase && !p.failed[ph] {
 		p.failed[ph] = true
-		return pipelineObservation{Phase: PipelineFailed, Diagnostic: "forced one-time failure"}, nil
+		return constructionpipeline.PipelineObservation{Phase: constructionpipeline.PhaseFailed, Diagnostic: "forced one-time failure"}, nil
 	}
-	return pipelineObservation{Phase: PipelineSucceeded}, nil
+	return constructionpipeline.PipelineObservation{Phase: constructionpipeline.PhaseSucceeded}, nil
 }
 
-func (p *failOncePipeline) CancelConstructionPipeline(_ context.Context, _ pipelineHandle) error {
+func (p *failOncePipeline) CancelConstructionPipeline(_ fwra.Context, _ constructionpipeline.PipelineHandle) error {
 	return nil
 }
 
-var _ constructionPipelineAccess = (*failOncePipeline)(nil)
+var _ constructionpipeline.ConstructionPipelineAccess = (*failOncePipeline)(nil)
 
 // Empty ReviewPolicy → no suspend, all phases dispatch. Byte-for-byte today's behavior.
 func Test_Construct_EmptyPolicy_NoGate_WalksAllPhases(t *testing.T) {
@@ -1032,8 +1039,9 @@ func Test_Construct_GatedPhase_ApproveRecordsCompleted(t *testing.T) {
 	ps := newFakeProjectStateWithPolicy(projectstate.ReviewPolicy{GatedPhasesByType: map[string][]projectstate.ActivityMethodPhase{
 		"service": {projectstate.MethodPhaseDetailedDesign},
 	}})
-	wf := newWorkflows(gateDeps(ps, newFakePipeline()))
-	registerConstruct(env, wf)
+	pipe := newFakePipeline()
+	wf := newWorkflows(gateDeps(ps))
+	registerConstruct(env, wf, pipe)
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(signalPhaseDecision, phaseDecisionSignal{Phase: "detailed_design", Decision: PhaseApprove})
 	}, 30*time.Second)
@@ -1054,8 +1062,9 @@ func Test_Construct_GatedPhase_StaleSignalIgnored(t *testing.T) {
 	ps := newFakeProjectStateWithPolicy(projectstate.ReviewPolicy{GatedPhasesByType: map[string][]projectstate.ActivityMethodPhase{
 		"service": {projectstate.MethodPhaseDetailedDesign},
 	}})
-	wf := newWorkflows(gateDeps(ps, newFakePipeline()))
-	registerConstruct(env, wf)
+	pipe := newFakePipeline()
+	wf := newWorkflows(gateDeps(ps))
+	registerConstruct(env, wf, pipe)
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(signalPhaseDecision, phaseDecisionSignal{Phase: "requirements", Decision: PhaseApprove}) // wrong phase
 	}, 10*time.Second)
@@ -1081,8 +1090,8 @@ func Test_Construct_VarianceRetry_DoesNotReGateApprovedPhase(t *testing.T) {
 		"service": {projectstate.MethodPhaseRequirements}, // gate phase 0
 	}})
 	pipe := newFakePipelineFailingOnce("test_plan") // phase 2 fails once, then succeeds
-	wf := newWorkflows(gateDeps(ps, pipe))
-	registerConstruct(env, wf)
+	wf := newWorkflows(gateDeps(ps))
+	registerConstruct(env, wf, pipe)
 	approvals := 0
 	env.RegisterDelayedCallback(func() {
 		approvals++
@@ -1120,10 +1129,8 @@ func Test_Construct_VarianceRetry_NonGit_DoesNotReGateApprovedPhase(t *testing.T
 		Intervention: &fakeIntervention{directive: directiveRetry},
 		Review:       &fakeReview{},
 		ProjectState: ps,
-		Pipeline:     pipe,
-		Artifacts:    &fakeArtifacts{},
 	})
-	registerConstruct(env, wf)
+	registerConstruct(env, wf, pipe)
 	approvals := 0
 	env.RegisterDelayedCallback(func() {
 		approvals++
@@ -1151,8 +1158,8 @@ func Test_Construct_GatedPhase_SendBackRedraftsThenApprove(t *testing.T) {
 		"service": {projectstate.MethodPhaseDetailedDesign}, // gate phase 1
 	}})
 	pipe := newFakePipeline()
-	wf := newWorkflows(gateDeps(ps, pipe))
-	registerConstruct(env, wf)
+	wf := newWorkflows(gateDeps(ps))
+	registerConstruct(env, wf, pipe)
 
 	// First signal: SendBack (redraft). The gate re-runs detailed_design's pipeline then
 	// loops back to StageAwaitingApproval without entering the variance path.
@@ -1213,10 +1220,8 @@ func Test_Construct_EmptyPolicy_NonGit_NoPhaseRecords(t *testing.T) {
 		Intervention: &fakeIntervention{directive: directiveRetry},
 		Review:       &fakeReview{},
 		ProjectState: ps,
-		Pipeline:     pipe,
-		Artifacts:    &fakeArtifacts{},
 	})
-	registerConstruct(env, wf)
+	registerConstruct(env, wf, pipe)
 
 	act := sampleActivity()
 	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{

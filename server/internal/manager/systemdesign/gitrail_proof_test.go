@@ -119,14 +119,24 @@ func (r *scriptedRail) count(verb string) int {
 	return r.calls[verb]
 }
 
-func (r *scriptedRail) GetInstallationToken(_ context.Context, _ sourcecontrol.RepoRef) (sourcecontrol.RepoCredential, error) {
+// CommitManagedFiles backs the managed-scaffold sync (the free-function composition helper
+// reaches the rail through this verb for a non-managedFileSyncer fake). Recorded under the
+// "SyncManagedScaffold" counter.
+func (r *scriptedRail) CommitManagedFiles(_ fwra.Context, _ sourcecontrol.RepoRef, _ []sourcecontrol.ManagedFile, _ sourcecontrol.RepoCredential) (sourcecontrol.CommitRef, error) {
+	r.mu.Lock()
+	r.calls["SyncManagedScaffold"]++
+	r.mu.Unlock()
+	return sourcecontrol.CommitRef("scaffold-sync"), nil
+}
+
+func (r *scriptedRail) GetInstallationToken(_ fwra.Context, _ sourcecontrol.RepoRef) (sourcecontrol.RepoCredential, error) {
 	r.mu.Lock()
 	r.calls["GetInstallationToken"]++
 	r.mu.Unlock()
 	return sourcecontrol.RepoCredential{Bytes: []byte("tok"), ExpiresAt: time.Now().Add(time.Hour)}, nil
 }
 
-func (r *scriptedRail) OpenBranch(_ context.Context, _ sourcecontrol.RepoRef, branch sourcecontrol.BranchName, _ sourcecontrol.RepoCredential, _ fwra.IdempotencyKey) (sourcecontrol.BranchRef, error) {
+func (r *scriptedRail) OpenBranch(_ fwra.Context, _ sourcecontrol.RepoRef, branch sourcecontrol.BranchName, _ sourcecontrol.RepoCredential) (sourcecontrol.BranchRef, error) {
 	r.mu.Lock()
 	r.calls["OpenBranch"]++
 	r.openedBranches = append(r.openedBranches, string(branch))
@@ -134,9 +144,8 @@ func (r *scriptedRail) OpenBranch(_ context.Context, _ sourcecontrol.RepoRef, br
 	return sourcecontrol.BranchRef(""), nil
 }
 
-func (r *scriptedRail) OpenPullRequest(_ context.Context, _ sourcecontrol.RepoRef, spec sourcecontrol.PullRequestSpec, _ sourcecontrol.RepoCredential, _ fwra.IdempotencyKey) (sourcecontrol.PullRequestRef, error) {
+func (r *scriptedRail) OpenPullRequest(_ fwra.Context, _ sourcecontrol.RepoRef, spec sourcecontrol.PullRequestSpec, _ sourcecontrol.RepoCredential) (sourcecontrol.PullRequestRef, error) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	r.calls["OpenPullRequest"]++
 	head := string(spec.Head)
 	pr, ok := r.prByHead[head]
@@ -146,10 +155,17 @@ func (r *scriptedRail) OpenPullRequest(_ context.Context, _ sourcecontrol.RepoRe
 		r.prByHead[head] = pr
 		r.openedPRHeads = append(r.openedPRHeads, head)
 	}
+	r.mu.Unlock()
+	// Ordered event (F40 openPR-after-read-back proof): record WHEN the PR was opened
+	// relative to the read-back so a test can assert the PR is never opened before a
+	// committed model has been confirmed on the session branch.
+	if r.log != nil {
+		r.log.add("openPR", head)
+	}
 	return sourcecontrol.PullRequestRefFromString(pr), nil
 }
 
-func (r *scriptedRail) GetPullRequestStatus(_ context.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.PullRequestRef, _ sourcecontrol.RepoCredential) (sourcecontrol.PullRequestStatus, error) {
+func (r *scriptedRail) GetPullRequestStatus(_ fwra.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.PullRequestRef, _ sourcecontrol.RepoCredential) (sourcecontrol.PullRequestStatus, error) {
 	r.mu.Lock()
 	r.calls["GetPullRequestStatus"]++
 	green := r.checkGreen
@@ -161,14 +177,14 @@ func (r *scriptedRail) GetPullRequestStatus(_ context.Context, _ sourcecontrol.R
 	return sourcecontrol.PullRequestStatus{CheckRollup: rollup, Mergeable: green}, nil
 }
 
-func (r *scriptedRail) PostReview(_ context.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.PullRequestRef, _ sourcecontrol.ReviewSubmission, _ sourcecontrol.RepoCredential, _ fwra.IdempotencyKey) error {
+func (r *scriptedRail) PostReview(_ fwra.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.PullRequestRef, _ sourcecontrol.ReviewSubmission, _ sourcecontrol.RepoCredential) error {
 	r.mu.Lock()
 	r.calls["PostReview"]++
 	r.mu.Unlock()
 	return nil
 }
 
-func (r *scriptedRail) MergePullRequest(_ context.Context, _ sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, _ sourcecontrol.RepoCredential, _ fwra.IdempotencyKey) (sourcecontrol.MergeResult, error) {
+func (r *scriptedRail) MergePullRequest(_ fwra.Context, _ sourcecontrol.RepoRef, pr sourcecontrol.PullRequestRef, _ sourcecontrol.RepoCredential) (sourcecontrol.MergeResult, error) {
 	r.mu.Lock()
 	r.calls["MergePullRequest"]++
 	r.mergedPRs = append(r.mergedPRs, sourcecontrol.PullRequestRefString(pr))
@@ -181,7 +197,20 @@ func (r *scriptedRail) MergePullRequest(_ context.Context, _ sourcecontrol.RepoR
 	return sourcecontrol.MergeResult{Merged: true, Commit: "merged-" + sourcecontrol.PullRequestRefString(pr)}, nil
 }
 
-var _ sourceControlRail = (*scriptedRail)(nil)
+// The remaining SourceControlAccess ops are outside the design PR-rail lifecycle; inert.
+func (r *scriptedRail) AdoptProjectRepo(_ fwra.Context, _ sourcecontrol.RepoAdoptionSpec) (sourcecontrol.RepoRef, error) {
+	return sourcecontrol.RepoRef(""), nil
+}
+
+func (r *scriptedRail) ConfigureBranchProtection(_ fwra.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.RepoCredential) error {
+	return nil
+}
+
+func (r *scriptedRail) InstallAuthorizeApp(_ fwra.Context, _ sourcecontrol.AccountRef) (sourcecontrol.Installation, error) {
+	return sourcecontrol.Installation(""), nil
+}
+
+var _ sourcecontrol.SourceControlAccess = (*scriptedRail)(nil)
 
 // ---- seqProjectState: branch-aware read-back + ordered commit/read events ------
 
@@ -231,10 +260,21 @@ func (f *seqProjectState) CommitArtifact(ctx fwra.Context, projectID projectstat
 	return f.fakeProjectState.CommitArtifact(ctx, projectID, expectedVersion, kind)
 }
 
-func newSeqRailWorkflows(ps projectstate.ProjectStateAccess, pipe *fakePipeline, rail sourceControlRail) *workflows {
+func (f *seqProjectState) RejectArtifactOnBranch(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, key fwra.IdempotencyKey) (projectstate.Version, error) {
+	f.log.add("rejectBranch", branch)
+	return f.RejectArtifact(fwra.Context{Context: ctx, IdempotencyKey: key}, projectID, expectedVersion, kind, notes)
+}
+
+func (f *seqProjectState) WithdrawArtifactOnBranch(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, key fwra.IdempotencyKey) (projectstate.Version, error) {
+	f.log.add("withdrawBranch", branch)
+	return f.WithdrawArtifact(fwra.Context{Context: ctx, IdempotencyKey: key}, projectID, expectedVersion, kind, notes)
+}
+
+func newSeqRailWorkflows(ps projectstate.ProjectStateAccess, pipe *fakePipeline, rail sourcecontrol.SourceControlAccess) *workflows {
+	_ = pipe // threaded to registerGenActivities, not stored on the struct.
 	return &workflows{
 		ProjectState: ps,
-		Pipeline:     pipe,
+		Acts:         genInvokers{Opts: activityOptions()},
 		Rail:         rail,
 		Repo: func(ProjectID) (sourcecontrol.RepoRef, bool) {
 			return sourcecontrol.RepoRefFromString("acct|owner/repo"), true
@@ -260,7 +300,7 @@ func Test_CoAuthor_Rail_BranchReconciliation_MergeBeforeCommit_PostMergeReadOnMa
 	pipe := newFakePipeline() // dispatch observed Succeeded
 	rail := newScriptedRail(true, log)
 	wf := newSeqRailWorkflows(ps, pipe, rail)
-	registerRailCoAuthor(env, wf)
+	registerRailCoAuthor(env, wf, pipe)
 
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
@@ -292,9 +332,11 @@ func Test_CoAuthor_Rail_BranchReconciliation_MergeBeforeCommit_PostMergeReadOnMa
 	// rail WIRED, the dispatch must target the PER-PROJECT repo (the rail's repoRef) +
 	// aiarch-design.yml — NOT the central construction repo + aiarch-construct.yml. This
 	// is exactly what the systemtests fake could not catch (it intercepted all GitHub
-	// REST regardless of repo).
-	if pipe.submits[0].targetRepo != "acct|owner/repo" {
-		t.Fatalf("design dispatch must target the per-project repo %q, got %q", "acct|owner/repo", pipe.submits[0].targetRepo)
+	// REST regardless of repo). The workflow-side dispatchDesignJob decodes the opaque
+	// RepoRef ("acct|owner/repo") to the RA's RepoTarget{Owner:"owner", Name:"repo"} BEFORE
+	// the generated submit invoker, so the fake records the decoded "owner/repo".
+	if pipe.submits[0].targetRepo != "owner/repo" {
+		t.Fatalf("design dispatch must target the per-project repo %q, got %q", "owner/repo", pipe.submits[0].targetRepo)
 	}
 	if pipe.submits[0].workflowFile != "aiarch-design.yml" {
 		t.Fatalf("design dispatch must target aiarch-design.yml (NOT aiarch-construct.yml), got %q", pipe.submits[0].workflowFile)
@@ -361,11 +403,12 @@ func Test_CoAuthor_Rail_BranchReconciliation_MergeBeforeCommit_PostMergeReadOnMa
 	}
 }
 
-// PROOF 3 — Reject → redraft on a NEW session branch (attempt+1), a NEW PR. The
-// rejected PR is never reused: the second dispatch's target_branch differs from the
-// first, the rail opened a second distinct branch + PR, and the eventual merge is of
-// the SECOND (fresh) PR.
-func Test_CoAuthor_Rail_RejectRedraftsOnNewSessionBranchAndNewPR(t *testing.T) {
+// PROOF 3 (F40) — Reject → redraft on the SAME persistent session branch, the SAME PR.
+// The founder ruling: commit to one branch and improve it until it merges (the history of
+// changes lives in git); NOT a PR per draft. So the second dispatch's target_branch EQUALS
+// the first, the rail opened exactly ONE PR (idempotent on head), and the eventual merge is
+// of that one accumulating PR.
+func Test_CoAuthor_Rail_RejectRedraftsOnSameSessionBranchAndSamePR(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
 
@@ -376,9 +419,9 @@ func Test_CoAuthor_Rail_RejectRedraftsOnNewSessionBranchAndNewPR(t *testing.T) {
 	pipe := newFakePipeline() // every dispatch Succeeds
 	rail := newScriptedRail(true, log)
 	wf := newSeqRailWorkflows(ps, pipe, rail)
-	registerRailCoAuthor(env, wf)
+	registerRailCoAuthor(env, wf, pipe)
 
-	// First gate: REJECT → fresh attempt branch + PR. Second gate: APPROVE → merge.
+	// First gate: REJECT → redraft on the SAME branch/PR. Second gate: APPROVE → merge.
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewReject, Feedback: &ReviewFeedback{Notes: "rework decomposition"}})
 	}, 30*time.Second)
@@ -400,20 +443,17 @@ func Test_CoAuthor_Rail_RejectRedraftsOnNewSessionBranchAndNewPR(t *testing.T) {
 	if b1 == "" || b2 == "" {
 		t.Fatalf("both dispatches must carry a target_branch, got %q / %q", b1, b2)
 	}
-	// THE LOAD-BEARING ASSERTION: the redraft is on a DIFFERENT (attempt+1) session branch.
-	if b1 == b2 {
-		t.Fatalf("a fresh REJECT must redraft on a NEW session branch (attempt+1); both were %q", b1)
+	// THE LOAD-BEARING ASSERTION (F40): the redraft is on the SAME persistent session branch.
+	if b1 != b2 {
+		t.Fatalf("a reject must redraft on the SAME session branch (F40 single-branch); got %q then %q", b1, b2)
 	}
-	// The rail opened two distinct branches + two distinct PRs (the prior PR not reused).
-	if len(rail.openedPRHeads) != 2 {
-		t.Fatalf("reject must open a NEW PR on the fresh branch (prior PR not reused), got PR heads %v", rail.openedPRHeads)
+	// The rail opened exactly ONE PR (idempotent on head — the persistent PR is reused).
+	if len(rail.openedPRHeads) != 1 || rail.openedPRHeads[0] != b1 {
+		t.Fatalf("reject must reuse the ONE PR on the persistent branch, got PR heads %v", rail.openedPRHeads)
 	}
-	if rail.openedPRHeads[0] != b1 || rail.openedPRHeads[1] != b2 {
-		t.Fatalf("PR heads must track the two session branches %q then %q, got %v", b1, b2, rail.openedPRHeads)
-	}
-	// The merge is of the SECOND (fresh) PR — the rejected one is never merged.
-	if len(rail.mergedPRs) != 1 || rail.mergedPRs[0] != "pr/"+b2 {
-		t.Fatalf("the merged PR must be the fresh attempt's PR pr/%s, got %v", b2, rail.mergedPRs)
+	// The merge is of that one accumulating PR.
+	if len(rail.mergedPRs) != 1 || rail.mergedPRs[0] != "pr/"+b1 {
+		t.Fatalf("the merged PR must be the persistent PR pr/%s, got %v", b1, rail.mergedPRs)
 	}
 	if len(base.committed) != 1 {
 		t.Fatalf("want one commit after redraft→approve, got %v", base.committed)
@@ -437,7 +477,7 @@ func Test_CoAuthor_Rail_PhaseFailed_LandsInStageDraftFailed_NoApproveRailNoCommi
 	pipe.diagnostic = "aiarch-validate found 2 violations"
 	rail := newScriptedRail(true, log)
 	wf := newSeqRailWorkflows(ps, pipe, rail)
-	registerRailCoAuthor(env, wf)
+	registerRailCoAuthor(env, wf, pipe)
 
 	env.RegisterDelayedCallback(func() {
 		enc, err := env.QueryWorkflow(querySessionState)
@@ -499,7 +539,7 @@ func Test_CoAuthor_Rail_RequiredCheckRed_BlocksMerge_NoCommit_Recovers(t *testin
 	pipe := newFakePipeline()           // draft Succeeds (the run was green) ...
 	rail := newScriptedRail(false, log) // ... but the PR's required check is RED at merge time
 	wf := newSeqRailWorkflows(ps, pipe, rail)
-	registerRailCoAuthor(env, wf)
+	registerRailCoAuthor(env, wf, pipe)
 
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
@@ -536,5 +576,72 @@ func Test_CoAuthor_Rail_RequiredCheckRed_BlocksMerge_NoCommit_Recovers(t *testin
 	// It RECOVERED (withdraw from the StageDraftFailed gate), it did not wedge or crash.
 	if len(base.withdrawn) != 1 {
 		t.Fatalf("a blocked merge must route to the recovery gate; withdraw expected once, got %d", len(base.withdrawn))
+	}
+}
+
+// PROOF 6 (F40 live-bug fix) — the PR is opened ONLY AFTER the read-back confirms a
+// committed model on the session branch (i.e. only once the branch has ≥1 commit beyond
+// main), never at session start. This regresses the observed gtdapp 422: a PR opened on a
+// freshly-cut, zero-commit branch is rejected by GitHub ("no commits between base and
+// head"). The load-bearing ordered assertion: the FIRST "openPR" event strictly follows
+// the FIRST "readBranch" (read-back) event. Reject → redraft reuses the SAME one PR;
+// approve merges it.
+func Test_CoAuthor_Rail_OpenPR_OnlyAfterReadBack_ReuseThenMerge(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	log := &seqLog{}
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	ps := &seqProjectState{fakeProjectState: base, log: log}
+	pipe := newFakePipeline() // every dispatch Succeeds
+	rail := newScriptedRail(true, log)
+	wf := newSeqRailWorkflows(ps, pipe, rail)
+	registerRailCoAuthor(env, wf, pipe)
+
+	// First gate: REJECT → redraft on the SAME branch/PR. Second gate: APPROVE → merge.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewReject, Feedback: &ReviewFeedback{Notes: "tighten"}})
+	}, 30*time.Second)
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
+	}, 70*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("openPR-after-read-back workflow error: %v", err)
+	}
+
+	// THE LOAD-BEARING ORDERING (the reorder fix): the branch is OpenBranch'd, then the
+	// draft lands a commit, then the read-back confirms it — and ONLY THEN is the PR opened.
+	firstReadBack := log.firstIndexOf("readBranch")
+	firstOpenPR := log.firstIndexOf("openPR")
+	if firstReadBack < 0 {
+		t.Fatalf("expected a session-branch read-back; ops=%v", log.ops())
+	}
+	if firstOpenPR < 0 {
+		t.Fatalf("a successful draft must open the PR; ops=%v", log.ops())
+	}
+	if firstOpenPR <= firstReadBack {
+		t.Fatalf("the PR must be opened AFTER the first read-back (never on a zero-commit branch at session start); ops=%v", log.ops())
+	}
+	// The branch WAS opened before the read-back (dispatch-time half), so the ordering above
+	// is 'PR after read-back', NOT 'no branch at all'.
+	if rail.count("OpenBranch") == 0 {
+		t.Fatalf("OpenBranch (dispatch-time half) must run so the Action has a branch to commit on; ops=%v", log.ops())
+	}
+
+	// Opened EXACTLY ONE PR across the reject→redraft round (idempotent on head), and it is
+	// the session-branch PR that ultimately merges.
+	b1 := pipe.submits[0].dispatchInputs[dispatchInputTargetBranch]
+	if len(rail.openedPRHeads) != 1 || rail.openedPRHeads[0] != b1 {
+		t.Fatalf("reject→redraft must reuse the ONE persistent PR, got heads %v", rail.openedPRHeads)
+	}
+	if len(rail.mergedPRs) != 1 || rail.mergedPRs[0] != "pr/"+b1 {
+		t.Fatalf("approve must merge the one persistent PR pr/%s, got %v", b1, rail.mergedPRs)
+	}
+	if len(base.committed) != 1 {
+		t.Fatalf("want one commit-on-main after redraft→approve, got %v", base.committed)
 	}
 }

@@ -12,6 +12,7 @@ import (
 
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/constructionpipeline"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 )
@@ -24,38 +25,46 @@ import (
 // How the two dependency kinds are reached differs by determinism class:
 //   - The three Engines (HandOff / Intervention / Review) are PURE, deterministic,
 //     called DIRECTLY in-workflow (no Activity wrapper — replay-safe).
-//   - The ResourceAccess ports (ProjectState / Pipeline / Artifacts) are
-//     I/O and NON-deterministic; the workflow invokes the Activity methods on this
-//     same struct via workflow.ExecuteActivity (activities.go).
+//   - The ResourceAccess ports are I/O and NON-deterministic. The contract-backed ops
+//     (pipeline / artifact / rail) are GENERATED and reached through the generated
+//     invoker surface (Acts). The CUSTOM ops (the projectEnvelope-codec reads, the
+//     constructionTransition + git head-state writes) are Activity methods on this same
+//     struct, invoked via workflow.ExecuteActivity (activities_custom.go / gitactivities.go).
 
 // wfDeps bundles every downstream seam the constructionManager orchestrates,
-// assembled by RegisterWorker (worker.go) from the Manager's stored PUBLISHED deps
-// and held on the workflows struct. Each field is an unexported consumer seam
-// (deps.go): the published engine/RA types are folded into them via the adapters
-// (adapters.go); the unit tests inject in-package fakes. It is a package-internal
-// builder input (the public Deps/WireDeps/WithGitForward were retired).
+// assembled by WorkerManifest (workermanifest.go) from the Manager's stored PUBLISHED
+// deps and held on the workflows struct. Each field is an unexported consumer seam
+// (deps.go) or the generated invoker surface; the published engine/RA types are folded
+// via the adapters (adapters.go); the unit tests inject in-package fakes. It is a
+// package-internal builder input.
 type wfDeps struct {
 	HandOff      handOffEngine
 	Intervention interventionEngine
 	Review       reviewEngine
 
-	// ProjectState serves the whole-aggregate reads; ConstructionTransition serves the
-	// cred-threaded Phase-3 head-state transition writes. When ConstructionTransition is
-	// nil, newWorkflows derives it from ProjectState if that value also satisfies the
-	// transition seam (the in-package fakes satisfy both).
+	// ProjectState serves the whole-aggregate reads (CUSTOM projectEnvelope codec);
+	// ConstructionTransition serves the cred-threaded Phase-3 head-state transition writes
+	// (CUSTOM). When ConstructionTransition is nil, newWorkflows derives it from
+	// ProjectState if that value also satisfies the transition seam (the in-package fakes
+	// satisfy both).
 	ProjectState           projectStateReader
 	ConstructionTransition constructionTransitionAccess
-	Pipeline               constructionPipelineAccess
-	Artifacts              artifactAccess
 
-	// Rail + GitStatus are the OPTIONAL git-forward slice (C-MCN-GIT). When both are
-	// non-nil the per-activity spine wraps each activity in a branch→PR→CI→+1→merge
-	// lifecycle and mirrors the rail returns onto the per-activity git head-state.
-	Rail      sourceControlRail
+	// GitStatus is the OPTIONAL per-activity git head-state mirror (C-MCN-GIT, CUSTOM).
+	// When non-nil the per-activity construction started/completed records fire and, when
+	// the PR rail resolves, the branch→PR→CI→+1→merge records mirror the rail returns.
 	GitStatus gitActivityStatusAccess
 
+	// Acts is the GENERATED workflow-side call surface for the contract-backed RA
+	// Activities (pipeline / artifact / rail); its Opts hook applies the per-op presets.
+	Acts genInvokers
+
+	// RailEnabled reports whether the PR rail dep is wired (impl.rail != nil). It gates
+	// the PR-rail lifecycle (gitEnabled) alongside GitStatus + Repo.
+	RailEnabled bool
+
 	// Repo resolves the per-project RepoRef the rail verbs address. nil ⇒ the
-	// git-forward slice is dormant (no repo to open branches/PRs in).
+	// PR-rail lifecycle is dormant (no repo to open branches/PRs in).
 	Repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool)
 
 	// NextEligibleActivity resolves the next eligible construction activity for a
@@ -73,8 +82,8 @@ type wfDeps struct {
 }
 
 // workflows is the single constructionManager component struct — BOTH the workflow
-// receiver and the activity receiver (no separate Activities type, mirroring
-// systemdesign).
+// receiver and the CUSTOM-activity receiver (mirroring systemdesign). The contract-backed
+// RA ops are reached through the generated invoker surface (Acts).
 type workflows struct {
 	HandOff      handOffEngine
 	Intervention interventionEngine
@@ -82,12 +91,12 @@ type workflows struct {
 
 	ProjectState           projectStateReader
 	ConstructionTransition constructionTransitionAccess
-	Pipeline               constructionPipelineAccess
-	Artifacts              artifactAccess
+	GitStatus              gitActivityStatusAccess
 
-	Rail      sourceControlRail
-	GitStatus gitActivityStatusAccess
-	Repo      func(projectID ProjectID) (sourcecontrol.RepoRef, bool)
+	Acts genInvokers
+
+	RailEnabled bool
+	Repo        func(projectID ProjectID) (sourcecontrol.RepoRef, bool)
 
 	NextEligibleActivity  func(proj projectstate.Project) (constructionActivity, bool)
 	HandOffPolicy         handOffPolicy
@@ -111,10 +120,9 @@ func newWorkflows(d wfDeps) *workflows {
 		Review:                 d.Review,
 		ProjectState:           d.ProjectState,
 		ConstructionTransition: ct,
-		Pipeline:               d.Pipeline,
-		Artifacts:              d.Artifacts,
-		Rail:                   d.Rail,
 		GitStatus:              d.GitStatus,
+		Acts:                   d.Acts,
+		RailEnabled:            d.RailEnabled,
 		Repo:                   d.Repo,
 		NextEligibleActivity:   d.NextEligibleActivity,
 		HandOffPolicy:          d.HandOffPolicy,
@@ -164,8 +172,12 @@ func readProjectOpts(ctx workflow.Context) workflow.Context {
 	})
 }
 
-func submitPipelineOpts(ctx workflow.Context) workflow.Context {
-	return workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+// submitPipelineActivityOptions / observePipelineActivityOptions are the pipeline preset
+// VALUES the manifest's Opts hook (workermanifest.go) applies to the GENERATED pipeline
+// invokers by registered name — reproducing the pre-migration per-call-site presets
+// exactly (submit 60s Auth/ContractMisuse-terminal; observe/cancel 30s NotFound/Auth-terminal).
+func submitPipelineActivityOptions() workflow.ActivityOptions {
+	return workflow.ActivityOptions{
 		StartToCloseTimeout: 60 * time.Second,
 		RetryPolicy: &temporal.RetryPolicy{
 			NonRetryableErrorTypes: []string{
@@ -173,11 +185,11 @@ func submitPipelineOpts(ctx workflow.Context) workflow.Context {
 				fwmanager.RAErrType(fwra.ContractMisuse),
 			},
 		},
-	})
+	}
 }
 
-func observePipelineOpts(ctx workflow.Context) workflow.Context {
-	return workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+func observePipelineActivityOptions() workflow.ActivityOptions {
+	return workflow.ActivityOptions{
 		StartToCloseTimeout: 30 * time.Second,
 		RetryPolicy: &temporal.RetryPolicy{
 			NonRetryableErrorTypes: []string{
@@ -185,7 +197,88 @@ func observePipelineOpts(ctx workflow.Context) workflow.Context {
 				fwmanager.RAErrType(fwra.Auth),
 			},
 		},
+	}
+}
+
+// pipelineDefaultToolchain is the single logical build step the Manager's neutral
+// pipelineSpec implies (the image map resolves it to a concrete image).
+const pipelineDefaultToolchain = "go-1.23"
+
+// dispatchInputsFor builds the DispatchInputs bag for a construction pipeline dispatch.
+// The `command` input is the thin slash-command the workflow runs; it is computed here
+// from the activity's derived type/variant and the current phase so the workflow itself
+// holds no routing logic. component_id is a Manager-resolved passthrough. (Moved workflow-
+// side from the retired pipelineAdapter — it only reads workflow state + projectstate.CommandFor.)
+func dispatchInputsFor(spec pipelineSpec) map[string]string {
+	m := map[string]string{
+		"activity_id":  spec.ActivityID,
+		"component_id": spec.ComponentID,
+	}
+	if spec.Phase != "" {
+		m["phase"] = spec.Phase
+		typ := projectstate.DeriveType(spec.ActivityID)
+		variant := projectstate.DeriveVariant(spec.ActivityID)
+		m["command"] = projectstate.CommandFor(typ, variant, projectstate.ActivityMethodPhase(spec.Phase))
+	}
+	if spec.Role != "" {
+		m["role"] = spec.Role
+	}
+	return m
+}
+
+// managerPipelinePhase maps the contract PipelinePhase onto the Manager-neutral
+// PipelinePhase (mapped here so a future re-order is safe). Moved workflow-side from the
+// retired pipelineAdapter.
+func managerPipelinePhase(p constructionpipeline.PipelinePhase) PipelinePhase {
+	switch p {
+	case constructionpipeline.PhasePending:
+		return PipelinePending
+	case constructionpipeline.PhaseRunning:
+		return PipelineRunning
+	case constructionpipeline.PhaseSucceeded:
+		return PipelineSucceeded
+	case constructionpipeline.PhaseFailed:
+		return PipelineFailed
+	case constructionpipeline.PhaseCancelled:
+		return PipelineCancelled
+	default:
+		return PipelinePhaseUnknown
+	}
+}
+
+// submitPipeline composes the contract PipelineSpec (default toolchain / single build step
+// / workspaceRef / dispatch inputs) from the Manager's neutral pipelineSpec and calls the
+// GENERATED submit invoker, mapping the opaque handle back to the neutral pipelineHandle.
+func (wf *workflows) submitPipeline(ctx workflow.Context, spec pipelineSpec) (pipelineHandle, error) {
+	handle, err := wf.Acts.PipelineSubmitConstructionPipeline(ctx, constructionpipeline.PipelineSpec{
+		ActivityID: constructionpipeline.ConstructionActivityID(spec.ActivityID),
+		Steps: []constructionpipeline.PipelineStep{{
+			Name:      "build",
+			Toolchain: constructionpipeline.ToolchainRef(pipelineDefaultToolchain),
+			Command:   []string{"sh", "-c", "true"},
+		}},
+		WorkspaceRef:   constructionpipeline.ArtifactRef(spec.RepoURL + "@" + spec.Ref),
+		DispatchInputs: dispatchInputsFor(spec),
 	})
+	if err != nil {
+		return pipelineHandle{}, err
+	}
+	return pipelineHandle{Name: constructionpipeline.PipelineHandleString(handle)}, nil
+}
+
+// observePipeline calls the GENERATED observe invoker and maps the contract observation
+// back to the Manager-neutral pipelineObservation.
+func (wf *workflows) observePipeline(ctx workflow.Context, handle pipelineHandle) (pipelineObservation, error) {
+	obs, err := wf.Acts.PipelineObserveConstructionPipeline(ctx, constructionpipeline.ParsePipelineHandle(handle.Name))
+	if err != nil {
+		return pipelineObservation{}, err
+	}
+	return pipelineObservation{Phase: managerPipelinePhase(obs.Phase), Diagnostic: obs.Diagnostic}, nil
+}
+
+// cancelPipeline calls the GENERATED cancel invoker (idempotent-on-intent in the RA).
+func (wf *workflows) cancelPipeline(ctx workflow.Context, handle pipelineHandle) error {
+	return wf.Acts.PipelineCancelConstructionPipeline(ctx, constructionpipeline.ParsePipelineHandle(handle.Name))
 }
 
 func recordOpts(ctx workflow.Context) workflow.Context {
@@ -743,20 +836,18 @@ func (wf *workflows) finalizeActivity(
 // ALSO reads the PR's CI rollup and mirrors it onto the head-state (the git-forward
 // poll-loop verb, C-MCN-GIT) — dormant when the git slice is unwired.
 func (wf *workflows) runPipeline(ctx workflow.Context, in constructActivityInput, phase projectstate.ActivityMethodPhase, state *constructState, gf *gitForward, headVersion *projectstate.Version) (pipelineObservation, error) {
-	sc := submitPipelineOpts(ctx)
-	var handle pipelineHandle
-	if err := workflow.ExecuteActivity(sc, wf.SubmitPipelineActivity, pipelineSpec{
+	handle, err := wf.submitPipeline(ctx, pipelineSpec{
 		ActivityID:  string(in.ActivityID),
 		ComponentID: in.Activity.ComponentID,
 		Phase:       phase.String(),
-	}).Get(ctx, &handle); err != nil {
+	})
+	if err != nil {
 		return pipelineObservation{}, err
 	}
 
-	oc := observePipelineOpts(ctx)
 	for poll := 0; poll < maxPipelinePolls; poll++ {
-		var obs pipelineObservation
-		if err := workflow.ExecuteActivity(oc, wf.ObservePipelineActivity, handle).Get(ctx, &obs); err != nil {
+		obs, err := wf.observePipeline(ctx, handle)
+		if err != nil {
 			return pipelineObservation{}, err
 		}
 		ph := obs.Phase

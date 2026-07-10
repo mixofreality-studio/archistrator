@@ -12,7 +12,8 @@
 //
 // SCHEMA-FIRST (full encapsulation): this component OWNS its contract I/O types.
 // The public surface (SystemDesignManager port + the I/O value types) is GENERATED
-// into contract.gen.go from contract.schema.json (edit the schema + `make gen`; do
+// into contract.gen.go from this component's `.serviceContracts` entry in
+// .aiarch/state/project.json (edit that entry + `make gen`; do
 // NOT hand-edit the generated surface). The generated contract imports NEITHER the
 // projectstate ResourceAccess NOR Temporal: systemdesign mirrors the head-state
 // value shapes (ProjectID / ArtifactKind / ResearchInput / Version) as its OWN

@@ -15,7 +15,9 @@ and links **zero** server code:
 
 - it boots the real `cmd/server` binary as a **subprocess** (a `go build`
   subprocess, not a Go import);
-- it speaks **HTTP** (webClient) and — once `mcpClient` is built — **MCP**;
+- it speaks **HTTP** (webClient) and **MCP** (mcpClient, mounted at `/mcp` —
+  `internal/harness/mcptransport.go` is a hand-rolled, stdlib-only streamable-HTTP
+  JSON-RPC client, not an import of the SDK's client package);
 - its import graph is **stdlib-only** (no `google/uuid`, no `testinfra`).
 
 Two enforcement layers prove it, on every `go test` (no infra needed):
@@ -34,9 +36,9 @@ constitution/       R6 structural enforcement (no infra; always runs)
 ```
 
 The `Transport` interface is the **transport-agnostic seam**: `runUC1` is written
-once and runs against any surface. When `mcpClient` lands (activity C-MC), add an
-MCP transport and the **R4 cross-surface equivalence test** runs UC1 through HTTP
-*and* MCP, asserting identical committed state.
+once and runs against any surface. The **R4 cross-surface equivalence test**
+(`Test_UC1_CrossSurfaceEquivalence`) runs it through both `harness.NewHTTPTransport`
+and `harness.NewMCPTransport`, asserting equivalent wire-observable behavior.
 
 ## Running
 

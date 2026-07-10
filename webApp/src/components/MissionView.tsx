@@ -50,38 +50,42 @@ function ProseSection({
   section: 'vision' | 'mission';
 }): ReactNode {
   const t = useTokens();
-  const { setAnchor } = useComments();
+  const { setAnchor, enabled } = useComments();
   return (
     <Box sx={{ mb: 3.5 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
         <SectionHeading>{heading}</SectionHeading>
-        <Tooltip title={`Comment on ${heading}`}>
-          <IconButton
-            aria-label={`Comment on ${heading}`}
-            size="small"
-            sx={{
-              color: t.accentText,
-              bgcolor: t.accent,
-              border: `1.5px solid ${t.line}`,
-              borderRadius: 1,
-              '&:hover': { bgcolor: t.accent2 },
-            }}
-            onClick={() => {
-              setAnchor({
-                kind: 'node',
-                label: heading,
-                source: `Mission · ${heading}`,
-                jsonPath: missionProseAnchor(section),
-              });
-            }}
-          >
-            <ChatBubbleOutlineIcon sx={{ fontSize: 15 }} />
-          </IconButton>
-        </Tooltip>
+        {enabled ? (
+          <Tooltip title={`Comment on ${heading}`}>
+            <IconButton
+              aria-label={`Comment on ${heading}`}
+              size="small"
+              sx={{
+                color: t.accentText,
+                bgcolor: t.accent,
+                border: `1.5px solid ${t.line}`,
+                borderRadius: 1,
+                '&:hover': { bgcolor: t.accent2 },
+              }}
+              onClick={() => {
+                setAnchor({
+                  kind: 'node',
+                  label: heading,
+                  source: `Mission · ${heading}`,
+                  jsonPath: missionProseAnchor(section),
+                });
+              }}
+            >
+              <ChatBubbleOutlineIcon sx={{ fontSize: 15 }} />
+            </IconButton>
+          </Tooltip>
+        ) : null}
       </Box>
       <Typography
-        data-artifact-kind="mission"
-        data-commentable={section}
+        // Comment-anchoring markers only when commenting is active — on a read-only
+        // surface the prose carries no comment scaffolding at all.
+        data-artifact-kind={enabled ? 'mission' : undefined}
+        data-commentable={enabled ? section : undefined}
         sx={{ fontSize: '0.98rem', lineHeight: 1.65, color: t.ink, fontFamily: t.body }}
       >
         {text}

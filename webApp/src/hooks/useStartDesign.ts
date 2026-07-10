@@ -11,6 +11,7 @@ import { toApiError } from '../contracts/errors';
 import { toResearchInputWire } from '../contracts/wire';
 import type { ResearchInput } from '../contracts/types';
 import { projectKey } from './useProject';
+import { sessionStateProjectKey } from './useSessionState';
 
 /** No-arg start trigger — TVariables is undefined (mirrors useAdvancePhase). */
 export function useStartSystemDesign(
@@ -26,7 +27,14 @@ export function useStartSystemDesign(
       if (error !== undefined) throw toApiError(response.status, error);
       return data;
     },
-    onSuccess: () => client.invalidateQueries({ queryKey: projectKey(projectId) }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: projectKey(projectId) });
+      // Start creates the first co-authoring session; invalidate the project's
+      // session probes so the (previously 404-cached) session query refetches and
+      // the drafting stage appears — required now the no-session answer is cached
+      // with staleTime:Infinity (R6).
+      void client.invalidateQueries({ queryKey: sessionStateProjectKey(projectId) });
+    },
   });
 }
 
@@ -38,7 +46,10 @@ export function useSetResearchInput(
     mutationFn: async (research) => {
       const { error, response } = await apiClient.POST(
         '/api/v1/system-design/set-research-input/{projectID}',
-        { params: { path: { projectID: projectId } }, body: { research: toResearchInputWire(research) } }
+        {
+          params: { path: { projectID: projectId } },
+          body: { research: toResearchInputWire(research) },
+        }
       );
       if (error !== undefined) throw toApiError(response.status, error);
       return undefined;

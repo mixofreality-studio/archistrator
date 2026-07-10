@@ -10,6 +10,8 @@
 
 ## Steps
 
+> **State changes go through the `aiarch-state` MCP tools, not hand-edits.** Where a step below says to record a service contract, phase artifact, or testing artifact and "commit onto branch", do it with the matching tool — `recordServiceContract` / `recordPhaseArtifact` / `recordTestingState` — and finish with `publishDraft`. Do **not** hand-edit `.aiarch/state/project.json` or run `git` for state; only source/doc **files** (code, docs) are git-committed by you. See [[the-method-project-state]].
+
 1. **Read what you need** from `.aiarch/state/project.json` per [[the-method-project-state]]: the activity, the Perf Scenario Design produced in the Perf Scenario Design phase, and the committed system design's Client-layer surfaces it targets — not any component's internal implementation.
 2. **Produce** the phase artifact: the rig code — implementing the design's module boundary (a Go module sibling to the server, outside its package tree, importing zero server code and no mocking libraries), with one load-generation flow per designed scenario driving the design's target Client-layer surfaces over the wire at the design's load profile and threshold — committed onto branch `activity/<activity_id>`; record the rig's reference and status into `.testingState.perfHarness` per [[the-method-project-state]].
 3. **Verify YOUR code** (working directory the rig module's own root): `gofmt -w .`; `GOWORK=off go build ./...`; `GOWORK=off go vet ./...`; the module's own no-infra structural gate (`make test-short`, or equivalent) passes, confirming no import of the server module or a mocking library and no placement inside the server's package tree; every scenario in the Perf Scenario Design has a corresponding implemented flow.

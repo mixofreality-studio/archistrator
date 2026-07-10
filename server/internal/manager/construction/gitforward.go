@@ -56,7 +56,7 @@ type gitForward struct {
 // this project. When false the spine runs unchanged (the live Postgres-store
 // composition that predates the GitStore).
 func (wf *workflows) gitEnabled(projectID ProjectID) (sourcecontrol.RepoRef, bool) {
-	if wf.Rail == nil || wf.GitStatus == nil || wf.Repo == nil {
+	if !wf.RailEnabled || wf.GitStatus == nil || wf.Repo == nil {
 		return sourcecontrol.RepoRef(""), false
 	}
 	return wf.Repo(projectID)
@@ -94,30 +94,25 @@ func (wf *workflows) openActivityBranchAndPR(
 	gf.cred = preMintedCred
 	cred := preMintedCred
 
-	// Rail: cut the per-activity branch.
-	c := railOpts(ctx)
-	var branchRef string
-	if err := workflow.ExecuteActivity(c, wf.OpenBranchActivity, openBranchArgs{
-		RepoRef: sourcecontrol.RepoRefString(repoRef), Branch: gf.branch, Cred: cred,
-	}).Get(ctx, &branchRef); err != nil {
+	// Rail: cut the per-activity branch (GENERATED invoker).
+	br, err := wf.Acts.RailOpenBranch(ctx, repoRef, sourcecontrol.BranchName(gf.branch), cred.toRail())
+	if err != nil {
 		return gitForward{}, err
 	}
-	gf.branchRef = branchRef
+	gf.branchRef = sourcecontrol.BranchRefString(br)
 
-	// Rail: open the PR (base = main; cr-NN label rides in Hints).
-	var prRef string
-	if err := workflow.ExecuteActivity(c, wf.OpenPullRequestActivity, openPullRequestArgs{
-		RepoRef: sourcecontrol.RepoRefString(repoRef),
-		Head:    gf.branch,
-		Base:    mainBranch,
-		Title:   prTitle(in.ActivityID),
-		Body:    prBody(in.Activity),
-		Hints:   crLabelHints(gf.crLabel),
-		Cred:    cred,
-	}).Get(ctx, &prRef); err != nil {
+	// Rail: open the PR (base = main; cr-NN label rides in Hints) (GENERATED invoker).
+	pr, err := wf.Acts.RailOpenPullRequest(ctx, repoRef, sourcecontrol.PullRequestSpec{
+		Head:  sourcecontrol.BranchName(gf.branch),
+		Base:  sourcecontrol.BranchName(mainBranch),
+		Title: prTitle(in.ActivityID),
+		Body:  prBody(in.Activity),
+		Hints: crLabelHints(gf.crLabel),
+	}, cred.toRail())
+	if err != nil {
 		return gitForward{}, err
 	}
-	gf.prRef = prRef
+	gf.prRef = sourcecontrol.PullRequestRefString(pr)
 
 	// Mirror: birth the per-activity git head-state row (PR-tolerant fused upsert).
 	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
@@ -151,12 +146,14 @@ func (wf *workflows) observeCIAndRecord(
 		return pullRequestStatusView{CheckRollup: projectstate.CICheckPending}, nil
 	}
 
-	c := railOpts(ctx)
-	var st pullRequestStatusView
-	if err := workflow.ExecuteActivity(c, wf.GetPullRequestStatusActivity, getPullRequestStatusArgs{
-		RepoRef: sourcecontrol.RepoRefString(gf.repoRef), PRRef: gf.prRef, Cred: gf.cred,
-	}).Get(ctx, &st); err != nil {
+	prStatus, err := wf.Acts.RailGetPullRequestStatus(ctx, gf.repoRef, sourcecontrol.PullRequestRefFromString(gf.prRef), gf.cred.toRail())
+	if err != nil {
 		return pullRequestStatusView{}, err
+	}
+	st := pullRequestStatusView{
+		CheckRollup:   mapCheckState(prStatus.CheckRollup),
+		ApprovalCount: int(prStatus.ApprovalCount),
+		Mergeable:     prStatus.Mergeable,
 	}
 
 	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
@@ -189,12 +186,9 @@ func (wf *workflows) relayArchApprovalAndRecord(
 		return nil
 	}
 
-	c := railOpts(ctx)
-	if err := workflow.ExecuteActivity(c, wf.PostReviewActivity, postReviewArgs{
-		RepoRef: sourcecontrol.RepoRefString(gf.repoRef), PRRef: gf.prRef,
-		Verdict: int(sourcecontrol.ReviewApprove), Body: archApprovalBody(in.ActivityID),
-		Cred: gf.cred,
-	}).Get(ctx, nil); err != nil {
+	if err := wf.Acts.RailPostReview(ctx, gf.repoRef, sourcecontrol.PullRequestRefFromString(gf.prRef),
+		sourcecontrol.ReviewSubmission{Verdict: sourcecontrol.ReviewApprove, Body: archApprovalBody(in.ActivityID)},
+		gf.cred.toRail()); err != nil {
 		return err
 	}
 
@@ -228,14 +222,11 @@ func (wf *workflows) mergeAndRecord(
 		return nil
 	}
 
-	c := railOpts(ctx)
-	var merged bool
-	if err := workflow.ExecuteActivity(c, wf.MergePullRequestActivity, mergePullRequestArgs{
-		RepoRef: sourcecontrol.RepoRefString(gf.repoRef), PRRef: gf.prRef, Cred: gf.cred,
-	}).Get(ctx, &merged); err != nil {
+	mr, err := wf.Acts.RailMergePullRequest(ctx, gf.repoRef, sourcecontrol.PullRequestRefFromString(gf.prRef), gf.cred.toRail())
+	if err != nil {
 		return err
 	}
-	if !merged {
+	if !mr.Merged {
 		return temporal.NewNonRetryableApplicationError(
 			"gated merge did not complete (PR not mergeable)", "MergeNotCompleted", nil)
 	}
@@ -352,11 +343,12 @@ func (wf *workflows) startedCred(ctx workflow.Context, projectID ProjectID) (rai
 	return railCredEnvelope{}, true, nil
 }
 
-// mintCred runs MintRepoCredentialActivity → the short-lived credential the Manager
-// threads into every rail + record verb for this activity's lifecycle.
+// mintCred runs the GENERATED getInstallationToken invoker → the short-lived credential
+// the Manager threads into every rail + record verb for this activity's lifecycle.
 func (wf *workflows) mintCred(ctx workflow.Context, repoRef sourcecontrol.RepoRef) (railCredEnvelope, error) {
-	c := mintCredOpts(ctx)
-	var cred railCredEnvelope
-	err := workflow.ExecuteActivity(c, wf.MintRepoCredentialActivity, sourcecontrol.RepoRefString(repoRef)).Get(ctx, &cred)
-	return cred, err
+	cred, err := wf.Acts.RailGetInstallationToken(ctx, repoRef)
+	if err != nil {
+		return railCredEnvelope{}, err
+	}
+	return railCredEnvelope{Bytes: cred.Bytes, ExpiresAt: cred.ExpiresAt}, nil
 }

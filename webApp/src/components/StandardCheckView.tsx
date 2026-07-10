@@ -6,12 +6,12 @@
  * check — with a per-item button anchoring `$.items[n]`. Bound to
  * adapters.toStandardCheckView. Safe-empty.
  */
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
+import Link from '@mui/material/Link';
 import Typography from '@mui/material/Typography';
-import type { CheckStatus } from '../contracts/models';
+import type { ArtifactModelEnvelope, CheckStatus } from '../contracts/types';
 import { toStandardCheckView } from '../contracts/adapters';
-import type { ArtifactModelEnvelope } from '../contracts/types';
 import { CommentableList } from './comments/CommentableList';
 import { standardCheckItemAnchor } from './comments/CommentContext';
 import { useTokens } from '../utilities/theme/ThemeContext';
@@ -21,6 +21,76 @@ function statusColor(t: Tokens, status: CheckStatus): { bg: string; fg: string }
   if (status === 'pass') return { bg: t.committedBg, fg: t.committedFg };
   if (status === 'fail') return { bg: t.awaitingBg, fg: t.dangerFg };
   return { bg: t.awaitingBg, fg: t.awaitingFg }; // waived
+}
+
+/** The status-appropriate lead-in for a row's justification prose. */
+function justificationPrefix(status: CheckStatus): string {
+  if (status === 'waived') return 'Waived';
+  if (status === 'fail') return 'Gap';
+  return 'Evidence'; // pass — the evidence-citing justification
+}
+
+/** Collapse threshold (chars) beyond which the justification gets a show more/less toggle. */
+const JUSTIFICATION_CLAMP = 180;
+
+/**
+ * A row's justification prose — rendered for EVERY status that carries one (not
+ * just waived): a pass cites its evidence, a fail states the gap, a waiver its
+ * reason. Long text collapses to one clamp with an inline show-more toggle.
+ */
+function Justification({
+  status,
+  text,
+  t,
+}: {
+  status: CheckStatus;
+  text: string;
+  t: Tokens;
+}): ReactNode {
+  const [expanded, setExpanded] = useState(false);
+  const long = text.length > JUSTIFICATION_CLAMP;
+  const shown = long && !expanded ? `${text.slice(0, JUSTIFICATION_CLAMP).trimEnd()}…` : text;
+  return (
+    <Typography
+      sx={{
+        mt: 0.5,
+        color: t.muted,
+        fontFamily: t.body,
+        fontSize: '0.85rem',
+        fontStyle: 'italic',
+        lineHeight: 1.5,
+      }}
+    >
+      <Box
+        component="span"
+        sx={{ fontStyle: 'normal', fontWeight: 700, color: statusColor(t, status).fg }}
+      >
+        {justificationPrefix(status)}:
+      </Box>{' '}
+      {shown}
+      {long ? (
+        <Link
+          component="button"
+          sx={{
+            ml: 0.75,
+            fontFamily: t.mono,
+            fontSize: '0.72rem',
+            fontStyle: 'normal',
+            color: t.accent2,
+            verticalAlign: 'baseline',
+          }}
+          type="button"
+          underline="hover"
+          onClick={(e) => {
+            e.stopPropagation();
+            setExpanded((v) => !v);
+          }}
+        >
+          {expanded ? 'show less' : 'show more'}
+        </Link>
+      ) : null}
+    </Typography>
+  );
 }
 
 export function StandardCheckView({
@@ -84,18 +154,8 @@ export function StandardCheckView({
             >
               {item.guideline}
             </Typography>
-            {item.status === 'waived' && item.justification.length > 0 && (
-              <Typography
-                sx={{
-                  mt: 0.5,
-                  color: t.muted,
-                  fontFamily: t.body,
-                  fontSize: '0.85rem',
-                  fontStyle: 'italic',
-                }}
-              >
-                Waived: {item.justification}
-              </Typography>
+            {item.justification.length > 0 && (
+              <Justification status={item.status} t={t} text={item.justification} />
             )}
           </Box>
         );

@@ -17,6 +17,7 @@ package projectstate_test
 //       FIRST, returns the prior resultVersion, and produces NO second state commit.
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -223,8 +224,181 @@ func TestGitStore_ListProjects_NoRegistry_MultipleProjects(t *testing.T) {
 	}
 }
 
+// TestGitStore_ListProjects_ReturnsStoredOwner (PM-P2-6) — ListProjects must report each
+// project's CANONICAL STORED owner, not echo the caller's requested enumeration scope. A
+// caller passing a placeholder/wildcard scope (here "{}") must still see the real stored
+// owner ("alice") on every summary — the same value get-project returns.
+func TestGitStore_ListProjects_ReturnsStoredOwner(t *testing.T) {
+	store, cred, ctx := newLocalGitStore(t)
+	id := ps.ProjectID(uuid.NewString())
+
+	if _, err := store.CreateProject(ctx, id, "alice", "Demo", cred, "wf:create"); err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+
+	// Enumerate with a placeholder scope that is NOT the stored owner. The
+	// single-repo catalog ignores the scope arg, so enumeration still finds the repo.
+	summaries, err := store.ListProjects(ctx, "{}", cred)
+	if err != nil {
+		t.Fatalf("ListProjects: %v", err)
+	}
+	if len(summaries) != 1 {
+		t.Fatalf("ListProjects = %+v, want one row", summaries)
+	}
+	if summaries[0].Owner != "alice" {
+		t.Fatalf("summary Owner = %q, want the stored owner \"alice\" (not the requested scope)", summaries[0].Owner)
+	}
+}
+
 // TestGitStore_StageCommitRoundTrip — stage a typed model, commit it, read it back
 // with its review status (a model round-trips through git JSON).
+// TestGitStore_SetResearchInput_WritesFilesAndPointer proves the F42 files-not-JSON model
+// (founder ruling 2026-07-05): SetResearchInput takes the wire {Title, Content} but writes
+// each source's CONTENT to .aiarch/state/research/<slug>.txt and persists only the
+// {Title, Path, ContentBytes} pointer in project.json (content structurally absent) — all in
+// ONE atomic commit. The corpus files survive UNRELATED mutations (carry-forward), and a
+// re-run with the same idempotency key is a no-op (dedup).
+func TestGitStore_SetResearchInput_WritesFilesAndPointer(t *testing.T) {
+	store, raw, cred, ctx := newLocalGitStoreWithRepo(t)
+	id := ps.ProjectID(uuid.NewString())
+	if _, err := store.CreateProject(ctx, id, "alice", "Demo", cred, "wf:create"); err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+
+	const body = "the founder brief corpus body — pretend this is a whole book"
+	research := ps.ResearchInput{Sources: []ps.ResearchSource{{Title: "Founder Brief", Content: body}}}
+	v2, err := store.SetResearchInput(ctx, id, 1, research, cred, "wf:research")
+	if err != nil {
+		t.Fatalf("SetResearchInput: %v", err)
+	}
+
+	// The persisted head-state carries ONLY the pointer — content structurally absent.
+	proj, err := store.ReadProject(ctx, id, cred)
+	if err != nil {
+		t.Fatalf("ReadProject: %v", err)
+	}
+	if len(proj.Research.Sources) != 1 {
+		t.Fatalf("want one research pointer, got %+v", proj.Research)
+	}
+	ref := proj.Research.Sources[0]
+	wantPath := ".aiarch/state/research/00-founder-brief.txt"
+	if ref.Title != "Founder Brief" || ref.Path != wantPath || ref.ContentBytes != int64(len(body)) {
+		t.Fatalf("research pointer = %+v, want {Founder Brief, %s, %d}", ref, wantPath, len(body))
+	}
+
+	// The corpus CONTENT lives as a file at .aiarch/state/research/<slug>.txt.
+	snap, err := raw.ReadSubtree(ctx, ".aiarch/state", fwgithub.GitAuth{Local: true})
+	if err != nil {
+		t.Fatalf("raw ReadSubtree: %v", err)
+	}
+	fileBytes, ok := snap.Files["research/00-founder-brief.txt"]
+	if !ok {
+		t.Fatalf("corpus file not written; %d files present in the subtree", len(snap.Files))
+	}
+	if string(fileBytes) != body {
+		t.Fatalf("corpus file content = %q, want %q", string(fileBytes), body)
+	}
+	// The content must NOT appear in project.json (structurally gone from persisted state).
+	if pj, ok := snap.Files["project.json"]; ok && bytes.Contains(pj, []byte(body)) {
+		t.Fatal("corpus content leaked into project.json — F42 requires it live only in the file")
+	}
+
+	// CARRY-FORWARD: an unrelated mutation (stage a mission) must NOT wipe the corpus file.
+	if _, err := store.StageArtifactForReview(ctx, id, v2, &ps.MissionStatement{Vision: "v", Mission: "m"}, cred, "wf:stage"); err != nil {
+		t.Fatalf("StageArtifactForReview: %v", err)
+	}
+	snap2, err := raw.ReadSubtree(ctx, ".aiarch/state", fwgithub.GitAuth{Local: true})
+	if err != nil {
+		t.Fatalf("raw ReadSubtree after stage: %v", err)
+	}
+	if fb, ok := snap2.Files["research/00-founder-brief.txt"]; !ok || string(fb) != body {
+		t.Fatalf("an unrelated mutation wiped/changed the corpus file (carry-forward broken); present=%v", ok)
+	}
+	after, _ := store.ReadProject(ctx, id, cred)
+	if len(after.Research.Sources) != 1 || after.Research.Sources[0].Path != wantPath {
+		t.Fatalf("the research pointer must survive an unrelated mutation, got %+v", after.Research)
+	}
+
+	// IDEMPOTENT RETRY: re-running with the SAME key dedups to the original result version
+	// (the ledger probe wins, ignoring the now-stale expectedVersion) — no double-write.
+	vAgain, err := store.SetResearchInput(ctx, id, 999, research, cred, "wf:research")
+	if err != nil {
+		t.Fatalf("idempotent retry SetResearchInput: %v", err)
+	}
+	if vAgain != v2 {
+		t.Fatalf("idempotent retry must dedup to the original result version %d, got %d", v2, vAgain)
+	}
+}
+
+// TestGitStore_CommitArtifact_RevisionsAndStaleBasis proves the F38 amendment/staleness
+// bookkeeping baked into CommitArtifact (founder ruling 2026-07-05): each commit bumps the
+// slot's Revisions and clears its own StaleBasis, and RE-committing an upstream artifact
+// flags every already-committed DOWNSTREAM slot StaleBasis — a non-blocking UI signal,
+// cleared when that downstream slot itself re-commits (its amendment IS the reconcile).
+func TestGitStore_CommitArtifact_RevisionsAndStaleBasis(t *testing.T) {
+	store, cred, ctx := newLocalGitStore(t)
+	id := ps.ProjectID(uuid.NewString())
+	if _, err := store.CreateProject(ctx, id, "alice", "Demo", cred, "wf:create"); err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+
+	// stageCommit stages a model for a kind then commits it, returning the new version.
+	stageCommit := func(v ps.Version, kind ps.ArtifactKind, model ps.ArtifactModel, tag string) ps.Version {
+		v2, err := store.StageArtifactForReview(ctx, id, v, model, cred, fwra.IdempotencyKey("wf:stage:"+tag))
+		if err != nil {
+			t.Fatalf("stage %s: %v", tag, err)
+		}
+		v3, err := store.CommitArtifact(ctx, id, v2, kind, cred, fwra.IdempotencyKey("wf:commit:"+tag))
+		if err != nil {
+			t.Fatalf("commit %s: %v", tag, err)
+		}
+		return v3
+	}
+	read := func() ps.Project {
+		p, err := store.ReadProject(ctx, id, cred)
+		if err != nil {
+			t.Fatalf("ReadProject: %v", err)
+		}
+		return p
+	}
+
+	// Forward flow: commit Mission (rev 1) then Glossary (rev 1). No staleness yet — Glossary
+	// is DOWNSTREAM of Mission, so committing it flags nothing upstream.
+	v := stageCommit(1, ps.KindMission, &ps.MissionStatement{Vision: "v1", Mission: "m1"}, "mission1")
+	v = stageCommit(v, ps.KindGlossary, &ps.Glossary{}, "glossary1")
+	p := read()
+	if p.Mission.Revisions != 1 || p.Glossary.Revisions != 1 {
+		t.Fatalf("forward commits: want Revisions 1/1, got %d/%d", p.Mission.Revisions, p.Glossary.Revisions)
+	}
+	if p.Mission.StaleBasis || p.Glossary.StaleBasis {
+		t.Fatalf("forward flow must set NO staleness, got mission=%v glossary=%v", p.Mission.StaleBasis, p.Glossary.StaleBasis)
+	}
+
+	// AMEND Mission (re-commit): Mission.Revisions→2, Mission.StaleBasis cleared, and the
+	// already-committed DOWNSTREAM Glossary is flagged StaleBasis.
+	v = stageCommit(v, ps.KindMission, &ps.MissionStatement{Vision: "v2", Mission: "m2"}, "mission2")
+	p = read()
+	if p.Mission.Revisions != 2 {
+		t.Fatalf("amended Mission Revisions = %d, want 2", p.Mission.Revisions)
+	}
+	if p.Mission.StaleBasis {
+		t.Fatal("the amended Mission must NOT be stale (its re-commit is the reconcile)")
+	}
+	if !p.Glossary.StaleBasis {
+		t.Fatal("committed downstream Glossary must be flagged StaleBasis after Mission is amended")
+	}
+
+	// RECONCILE: amend Glossary (re-commit) → its own StaleBasis clears, Revisions→2.
+	stageCommit(v, ps.KindGlossary, &ps.Glossary{}, "glossary2")
+	p = read()
+	if p.Glossary.StaleBasis {
+		t.Fatal("re-committing the stale Glossary must clear its StaleBasis (the reconcile)")
+	}
+	if p.Glossary.Revisions != 2 {
+		t.Fatalf("reconciled Glossary Revisions = %d, want 2", p.Glossary.Revisions)
+	}
+}
+
 func TestGitStore_StageCommitRoundTrip(t *testing.T) {
 	store, cred, ctx := newLocalGitStore(t)
 	id := ps.ProjectID(uuid.NewString())
@@ -254,6 +428,120 @@ func TestGitStore_StageCommitRoundTrip(t *testing.T) {
 	gotMission, ok := proj.Mission.Model.(*ps.MissionStatement)
 	if !ok || gotMission.Vision != "v" || gotMission.Mission != "m" {
 		t.Fatalf("mission model round-trip failed: %+v", proj.Mission.Model)
+	}
+}
+
+// TestGitStore_RejectArtifactOnBranch_EmptyBranchIsMain proves the new branch-aware
+// Reject verb (I-DESIGN-DISPATCH §2a) behaves EXACTLY as RejectArtifact when branch=="":
+// it records the Rejected status + notes over the staged slot on main. This is the
+// documented empty-branch equivalence the non-git / dormant-rail callers rely on.
+func TestGitStore_RejectArtifactOnBranch_EmptyBranchIsMain(t *testing.T) {
+	store, cred, ctx := newLocalGitStore(t)
+	id := ps.ProjectID(uuid.NewString())
+	if _, err := store.CreateProject(ctx, id, "alice", "Demo", cred, "wf:create"); err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	mission := &ps.MissionStatement{Vision: "v", Mission: "m"}
+	v2, err := store.StageArtifactForReview(ctx, id, 1, mission, cred, "wf:stage")
+	if err != nil {
+		t.Fatalf("StageArtifactForReview: %v", err)
+	}
+	const notes = "rework the vision"
+	if _, err := store.RejectArtifactOnBranch(ctx, id, v2, "", ps.KindMission, notes, cred, "wf:reject"); err != nil {
+		t.Fatalf("RejectArtifactOnBranch(branch=\"\"): %v", err)
+	}
+	proj, err := store.ReadProject(ctx, id, cred)
+	if err != nil {
+		t.Fatalf("ReadProject: %v", err)
+	}
+	if proj.Mission.Status != ps.ReviewRejected {
+		t.Fatalf("mission status = %v, want Rejected", proj.Mission.Status)
+	}
+	if proj.Mission.Notes != notes {
+		t.Fatalf("mission notes = %q, want %q", proj.Mission.Notes, notes)
+	}
+}
+
+// TestGitStore_ReconcileBranchFromMain_EmptyBranchIsMisuse proves the F80c branch
+// reconciler refuses an empty branch: reconciliation only makes sense against a real
+// session branch (main never diverges from itself), so an empty branch is a ContractMisuse
+// rather than a silent no-op that could mask a wiring bug.
+func TestGitStore_ReconcileBranchFromMain_EmptyBranchIsMisuse(t *testing.T) {
+	store, cred, ctx := newLocalGitStore(t)
+	id := ps.ProjectID(uuid.NewString())
+	if _, err := store.CreateProject(ctx, id, "alice", "Demo", cred, "wf:create"); err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	_, err := store.ReconcileBranchFromMain(ctx, id, 1, "", ps.KindMission, cred, "wf:reconcile")
+	if k := kindOf(t, err); k != fwra.ContractMisuse {
+		t.Fatalf("reconcile with empty branch kind = %v, want ContractMisuse", k)
+	}
+}
+
+// TestGitStore_RejectArtifactOnBranch_UnpopulatedSlotIsMisuse proves rejecting a slot
+// that was never staged is a ContractMisuse — the RA-level guard whose main-path
+// triggering (in the PR rail, where the draft lives on the session branch and main's slot
+// is empty) was the QA F28 crash. The Manager avoids it by rejecting ON the session
+// branch (where the model IS staged); this test pins the guard the fix routes around.
+func TestGitStore_RejectArtifactOnBranch_UnpopulatedSlotIsMisuse(t *testing.T) {
+	store, cred, ctx := newLocalGitStore(t)
+	id := ps.ProjectID(uuid.NewString())
+	if _, err := store.CreateProject(ctx, id, "alice", "Demo", cred, "wf:create"); err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	// No stage — the Mission slot is unpopulated on main.
+	_, err := store.RejectArtifactOnBranch(ctx, id, 1, "", ps.KindMission, "notes", cred, "wf:reject")
+	if k := kindOf(t, err); k != fwra.ContractMisuse {
+		t.Fatalf("reject of an unpopulated slot kind = %v, want ContractMisuse", k)
+	}
+}
+
+// TestGitStore_WithdrawArtifactOnBranch_EmptyBranchIsMain proves the new branch-aware
+// Withdraw verb (I-DESIGN-DISPATCH §2a) behaves EXACTLY as WithdrawArtifact when
+// branch=="": it records the Withdrawn status + notes over the staged slot on main. This
+// is the documented empty-branch equivalence the non-git / dormant-rail callers rely on.
+func TestGitStore_WithdrawArtifactOnBranch_EmptyBranchIsMain(t *testing.T) {
+	store, cred, ctx := newLocalGitStore(t)
+	id := ps.ProjectID(uuid.NewString())
+	if _, err := store.CreateProject(ctx, id, "alice", "Demo", cred, "wf:create"); err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	mission := &ps.MissionStatement{Vision: "v", Mission: "m"}
+	v2, err := store.StageArtifactForReview(ctx, id, 1, mission, cred, "wf:stage")
+	if err != nil {
+		t.Fatalf("StageArtifactForReview: %v", err)
+	}
+	const notes = "abandon this draft"
+	if _, err := store.WithdrawArtifactOnBranch(ctx, id, v2, "", ps.KindMission, notes, cred, "wf:withdraw"); err != nil {
+		t.Fatalf("WithdrawArtifactOnBranch(branch=\"\"): %v", err)
+	}
+	proj, err := store.ReadProject(ctx, id, cred)
+	if err != nil {
+		t.Fatalf("ReadProject: %v", err)
+	}
+	if proj.Mission.Status != ps.ReviewWithdrawn {
+		t.Fatalf("mission status = %v, want Withdrawn", proj.Mission.Status)
+	}
+	if proj.Mission.Notes != notes {
+		t.Fatalf("mission notes = %q, want %q", proj.Mission.Notes, notes)
+	}
+}
+
+// TestGitStore_WithdrawArtifactOnBranch_UnpopulatedSlotIsMisuse proves withdrawing a slot
+// that was never staged is a ContractMisuse — the RA-level guard whose main-path
+// triggering (in the PR rail, where the draft lives on the session branch and main's slot
+// is empty) was the QA F30 crash. The Manager avoids it by withdrawing ON the session
+// branch (where the model IS staged); this test pins the guard the fix routes around.
+func TestGitStore_WithdrawArtifactOnBranch_UnpopulatedSlotIsMisuse(t *testing.T) {
+	store, cred, ctx := newLocalGitStore(t)
+	id := ps.ProjectID(uuid.NewString())
+	if _, err := store.CreateProject(ctx, id, "alice", "Demo", cred, "wf:create"); err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	// No stage — the Mission slot is unpopulated on main.
+	_, err := store.WithdrawArtifactOnBranch(ctx, id, 1, "", ps.KindMission, "notes", cred, "wf:withdraw")
+	if k := kindOf(t, err); k != fwra.ContractMisuse {
+		t.Fatalf("withdraw of an unpopulated slot kind = %v, want ContractMisuse", k)
 	}
 }
 
@@ -573,8 +861,8 @@ func TestGitStore_CreateProject_ResumesExistingState(t *testing.T) {
 		Phase:   ps.PhaseProjectDesign,
 		Owner:   "alice",
 		Name:    "Resumed System",
-		ResearchInput: ps.ResearchInput{
-			Sources: []ps.ResearchSource{{Title: "Brief", Content: "prior founder brief"}},
+		Research: ps.ResearchCorpus{
+			Sources: []ps.ResearchSourceRef{{Title: "Brief", Path: ".aiarch/state/research/00-brief.txt", ContentBytes: 19}},
 		},
 		Mission: ps.ArtifactSlot{
 			Status: ps.ReviewCommitted,
@@ -627,8 +915,8 @@ func TestGitStore_CreateProject_ResumesExistingState(t *testing.T) {
 	if !ok || gotMission.Vision != "prior-vision" || gotMission.Mission != "prior-mission" {
 		t.Fatalf("resume lost the typed Mission model: %+v", got.Mission.Model)
 	}
-	if len(got.ResearchInput.Sources) != 1 || got.ResearchInput.Sources[0].Content != "prior founder brief" {
-		t.Fatalf("resume lost the research input: %+v", got.ResearchInput)
+	if len(got.Research.Sources) != 1 || got.Research.Sources[0].Path != ".aiarch/state/research/00-brief.txt" {
+		t.Fatalf("resume lost the research pointer: %+v", got.Research)
 	}
 }
 

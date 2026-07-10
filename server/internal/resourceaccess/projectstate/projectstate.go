@@ -33,8 +33,9 @@ import (
 
 // ProjectStateAccess — the Temporal-free port over the project head-state
 // aggregate (projectStateAccess.md §2) — is now GENERATED into contract.gen.go
-// from contract.schema.json (schema-first, interface-only mode: the PORT is
-// regenerated, but the domain types + persistence codec stay HAND-WRITTEN here,
+// from the projectStateAccess `.serviceContracts` entry in .aiarch/state/project.json
+// (schema-first: the PORT + domain model types are
+// regenerated, but the persistence codec stays HAND-WRITTEN here,
 // the canonical source of truth). Its 8 atomic verbs take rc fwra.Context first
 // (carrying ctx + idempotency key). Every write verb honours optimistic
 // concurrency (expectedVersion → fwra.Conflict on a stale value) AND idempotency
@@ -63,6 +64,83 @@ type BranchAwareProjectStateAccess interface {
 	// session branch the draft lives on). branch=="" behaves exactly as
 	// StageArtifactForReview (the default/main).
 	StageArtifactForReviewOnBranch(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, model ArtifactModel, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	// RejectArtifactOnBranch records the architect's Reject on branch (the session
+	// branch the draft was staged on during the AwaitingReview window). It is the
+	// symmetric counterpart of StageArtifactForReviewOnBranch: in the PR rail the draft
+	// + its AwaitingReview status live ONLY on the session branch (main is untouched
+	// until an approved draft merges), so the Rejected status flip + notes must land on
+	// that SAME branch — where the staged model exists and where the session-branch
+	// version matches. Rejecting on main would (a) mismatch the version (main trails the
+	// session branch) and (b) find the slot unpopulated (no model was ever staged on
+	// main). branch=="" behaves exactly as RejectArtifact (the default/main), so a
+	// dormant-rail / non-git caller is unperturbed.
+	RejectArtifactOnBranch(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	// WithdrawArtifactOnBranch records the architect's Withdraw on branch (the session
+	// branch the draft was staged on during the AwaitingReview window). It is the
+	// symmetric counterpart of RejectArtifactOnBranch: in the PR rail the draft + its
+	// AwaitingReview status live ONLY on the session branch (main is untouched until an
+	// approved draft merges), so the Withdrawn status flip + notes must land on that SAME
+	// branch — where the staged model exists and where the session-branch version matches.
+	// Withdrawing on main would (a) mismatch the version (main trails the session branch)
+	// and (b) find the slot unpopulated (no model was ever staged on main). branch==""
+	// behaves exactly as WithdrawArtifact (the default/main), so a dormant-rail / non-git
+	// caller is unperturbed.
+	WithdrawArtifactOnBranch(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, idempotencyKey fwra.IdempotencyKey) (Version, error)
+}
+
+// LedgerProjectStateAccess is the OPTIONAL durable review-ledger extension of the no-cred
+// projectStateAccess port the design Managers consume during the AwaitingReview window
+// (review-ledger feature, founder-ratified 2026-07-05). Like BranchAwareProjectStateAccess
+// it is a SEPARATE interface — added rather than folded into ProjectStateAccess (or into
+// BranchAwareProjectStateAccess) so every existing caller, adapter, and test fake compiles
+// unchanged: a design Manager type-asserts its ProjectStateAccess field to this extension and
+// uses the ledger verbs ONLY when the substrate supports it, falling back to the plain
+// (comment-dropping) reject when it does not. An EMPTY branch behaves EXACTLY as the
+// corresponding main-path write, so threading "" is always safe (the dormant-rail fallback).
+type LedgerProjectStateAccess interface {
+	// RejectArtifactOnBranchWithComments records the architect's Reject AND appends the
+	// reviewer's comments to the slot's durable ReviewThread in one atomic commit. Each
+	// comment carries Anchor / AnchorText / Text / AuthorRole; the id / round / open status
+	// are server-minted (deterministic per (round, index) so a Temporal retry never
+	// duplicates). branch=="" behaves exactly as the main-path reject, still appending.
+	RejectArtifactOnBranchWithComments(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, round int64, comments []ReviewComment, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	// SetReviewCommentStatusOnBranch applies a human status transition to one ledger entry
+	// (open->waived to dismiss, addressed->open to reopen). An unknown id is NotFound; an
+	// illegal transition is ContractMisuse. branch=="" behaves exactly as the main path.
+	SetReviewCommentStatusOnBranch(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, commentID string, status string, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	// SeedReviewCommentsOnBranch appends OPEN ledger comments to a slot's ReviewThread with
+	// NO status change (F38 amendments): the reopening feedback becomes the fresh session's
+	// initial open entries. Server-minted id/round/open, deterministic + idempotent.
+	SeedReviewCommentsOnBranch(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, round int64, comments []ReviewComment, idempotencyKey fwra.IdempotencyKey) (Version, error)
+}
+
+// ReconcilingProjectStateAccess is the OPTIONAL branch-reconcile extension of the no-cred
+// projectStateAccess port (F80c, 2026-07-05). Like the extensions above it is a SEPARATE
+// interface so every existing caller/adapter/test fake compiles unchanged: the design
+// Manager type-asserts its ProjectStateAccess field to it and reconciles a diverged session
+// branch server-side ONLY when the substrate supports it, falling back to the honest
+// re-await when it does not.
+type ReconcilingProjectStateAccess interface {
+	// ReconcileBranchFromMain overlays main's every slot EXCEPT the session's own (kind)
+	// onto the session-branch tip and commits it, so the branch's project.json differs from
+	// main only in the in-flight slot and the PR becomes mergeable again (a main-side advance
+	// — a staleness ack, a question seed — that diverged the branch is picked up
+	// deterministically). It is the server-side twin of the workflow refresh-step reconcile.
+	// A non-empty branch is required.
+	ReconcileBranchFromMain(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, idempotencyKey fwra.IdempotencyKey) (Version, error)
+}
+
+// StaleAckProjectStateAccess is the OPTIONAL per-slot staleness-acknowledge extension of the
+// no-cred projectStateAccess port (F45, founder-ratified 2026-07-05). Like the ledger
+// extension above it is a SEPARATE interface so every existing caller/adapter/test fake
+// compiles unchanged: a design Manager type-asserts its ProjectStateAccess field to it and
+// uses AcknowledgeStaleBasis only when the substrate supports it.
+type StaleAckProjectStateAccess interface {
+	// AcknowledgeStaleBasis clears a committed slot's StaleBasis flag and records the
+	// reviewer's "reviewed — unaffected" decision as a durable staleAck audit entry, in one
+	// atomic commit on main. Idempotent (an already-un-stale slot is a no-op success).
+	// Unknown kind / uncommitted slot → ContractMisuse.
+	AcknowledgeStaleBasis(ctx context.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, note string, idempotencyKey fwra.IdempotencyKey) (Version, error)
 }
 
 // Error is the shared ResourceAccess error model (framework-go), re-exported as

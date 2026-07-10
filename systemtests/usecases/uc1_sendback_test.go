@@ -25,7 +25,10 @@ func Test_UC1_SendBackRegenerate_Wiring(t *testing.T) {
 	requireStack(t)
 	ctx := context.Background()
 
-	srv := startServer(t, true /* devAuth */)
+	// glossary's Phase-1 predecessor (mission) must already be Committed — see
+	// the identical seeding note in uc1_coauthor_test.go's runUC1.
+	repo := harness.StartLocalGitRepo(t, "main")
+	srv := startServerWithEnv(t, true /* devAuth */, harness.GitLocalEnv(repo.URL()))
 	tr := harness.NewHTTPTransport(srv.BaseURL())
 	t.Cleanup(func() { _ = tr.Close() })
 
@@ -35,6 +38,7 @@ func Test_UC1_SendBackRegenerate_Wiring(t *testing.T) {
 	if err != nil {
 		t.Fatalf("[%s] createProject: %v", tr.Name(), err)
 	}
+	repo.SeedCommittedDesignSlots("mission")
 	if _, err := tr.RequestArtifactDraft(ctx, projectID, kind); err != nil {
 		t.Fatalf("[%s] draft: %v", tr.Name(), err)
 	}

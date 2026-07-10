@@ -1,0 +1,209 @@
+# later.md — deferred work (written off 2026-07-05, qa-gtd-pass wrap)
+
+> ## Session-3 addendum (2026-07-06, qa-gtd-pass_rearch — system-design prod pass)
+> 19 commits: pm/ux/architect reviews → activity-diagram overhaul, design-experience
+> declutter (banners→chips/popovers) + keyboard a11y (incl. diagram-node commenting),
+> 14 app-side validation rules + staleBasisCause recording + AdvancePhase gates, clean
+> client-facing errors (Temporal/GitStore leaks removed), MCP map-null schema P0 fix
+> (early-phase projects were unreadable over MCP), PhaseName on the contract, stored-owner
+> list-projects, research-input validation, dogfood slot-5 amendment (17 dynamics, edge
+> dedupe, all encapsulates filled, 6-16 acked), rail-template self-heal for dead session
+> branches, uitests 14-pass/0-fail rig + new specs, systemtests MCP transport + R4
+> cross-surface equivalence unskipped + wire coverage for the new contracts.
+>
+> **gtdapp amendment RESUME POINT (founder action needed):** close PR #27 + delete stale
+> branch aiarch-design/gtdapp/5-amend-2 (`gh pr close 27 -R mixofreality-studio/gtdapp
+> --delete-branch`), then Retry the failed Architecture amendment in the UI (session sits
+> at DraftFailed with the run link). Round-1 reconciles the basis; the 4 staged
+> change-request comments (orphan RAs, dynamics for all 24 variations, variationOf slug
+> ids, guard labels) ride the round-2 Send back. Then an OpConcepts amendment
+> (layering-style + state-handling topics; de-vendor "Temporal" in prose), then Standard
+> Check refresh/ack. Plan: session scratchpad gtdapp-amendment-plan.md.
+>
+> New earmarks from session 3 (beyond existing entries below):
+> - Artifact provenance on committed slots (PM-P2-4: timestamp/revision/model/approver) —
+>   model + rail change, founder decision.
+> - ScrubbedRequirements scrub-provenance (P1-A2: original → volatility → requirement
+>   trail) — artifact contract change + migration, founder decision.
+> - In-progress Actions run URL on the session view (GeneratingScene "view the run" link;
+>   only failure-run URL exists today).
+> - Platform methodcheck twins for the 14 new app-side rules (release-gated as usual).
+> - Scaffold re-seat (SyncManagedScaffold) so seated repos get the self-healing branch
+>   refresh + a current aiarch-state binary pin. — SHIPPED 2026-07-06 as SYNC-ON-DISPATCH
+>   (see the Construction section entry for the verdicts + residual earmarks).
+> - Retired per-component contract.schema.json seed files: delete or keep decision
+>   (stale-comment cleanup done; the files themselves remain).
+> - STP-UC2-B1 asserts a synchronous SubmitSDPDecision refusal but the verb is a
+>   fire-and-forget signal — reconcile the system test plan with the async contract.
+> - systemtests share one persistent Temporal dev server → observed cross-run workflow
+>   cross-talk (one flake); consider per-run namespaces in the harness.
+
+> Wrap addendum: the agentic-sub-workflow representation (schema marker, diagram
+> rendering, dynamics-as-manifest palettes) was built, founder-reviewed, REJECTED, and
+> fully reverted (ae8646a/b3080ce/91dd5de) — do not resurrect without fresh direction.
+> What shipped and STAYS: generated RA/Engine tool catalog (71 tools; state writes
+> agent-hidden), in-substrate raw tool execution, composed verbs for design AND
+> construction, construct session mode, prompt cutover to tools-only state writes,
+> per-mode tool sets (composed verbs + all non-hidden read-only/Engine raw tools).
+
+Founder ruling: after the four agentic-workflow priorities (generated tools in GH
+Actions → agentic sub-workflows in use cases/dynamics → both project.jsons document
+all use cases + agentic sub-workflows → glossary/method skills), STOP. Everything
+below is deferred, in rough value order. Findings reference the qa-gtd-pass findings
+log (session scratchpads; summarized in the final QA report).
+
+## gtdapp Phase-2 completion (resume point)
+- Re-fire the PM economics answer (F58/F82: question r2c1 seeded on planningAssumptions;
+  answer job never dispatched pre-fix) and the architect integrations answer (failed on
+  F80 pre-fix); founder inputs: DAU / revenue-share targets → planningAssumptions
+  amendment (economics currently all zeros).
+- Follow-up Architecture amendment: founder's two change-requests — add http + MCP
+  clients (webapp + MCP entry points, agents capture/clarify/engage under an agent
+  policy) and rename Persistence Access → Item Access. Comment texts preserved in the
+  QA log / session transcript.
+- Re-acknowledge Phase-2 slots re-flagged by architecture commits (dynamics-only
+  changes; F76 idea: basis-diff-aware propagation or bulk acknowledge).
+- Solutions chain: decompressed (retry — branch cleaned) → subcritical → compressed →
+  risk model → SDP review interactively in the UI (options, time-cost/time-risk curves,
+  commit decision) → project-design standard check → founder gate before construction.
+- OpConcepts staleness reconcile after the architecture settles.
+- F67 question to architect: normal-solution staffing cap 14 vs planning's 8 staff.
+
+## UI polish batch (run ux-reviewer pass over the batch)
+- F79 approve advances optimistically before server confirmation (approve failure
+  invisible — operator misled; highest of this batch).
+- F78 design experience resets to step 1 on background refresh; pending-comment
+  dismissals don't persist.
+- F62 amendment at AwaitingReview still framed "COMMITTED — sealed" (GENERATING case
+  fixed; review case remains).
+- F56 HomeBase lacks a Project-Design section (committed Phase-2 artifacts unreachable
+  from home).
+- F71 stepper nodes ignore synthetic/element clicks — keyboard a11y suspect.
+- F74 stale banner offers "Reconcile via amendment" while an amendment is already in
+  flight.
+- F70 Team nav button inert. F61 stepper tooltip lingers/overlaps. F57 co-author rail
+  hint wrong for not-drafted artifacts. Degenerate-layer warning banner (F81c) if not
+  landed with the F81 fix.
+- F72 stage enums differ across managers (systemdesign review=2, projectdesign=3) —
+  expose string stage names in session views.
+
+## Rail / server
+- F69 unhandled 'redraft' signals (suspect signal-with-start leaves a buffered signal
+  on every fresh session; benign but noisy — verify + drain).
+- F19 approve of a never-drafted artifact silently no-ops (should FailedPrecondition).
+- F20 pre-phase session reads leak Temporal internals to users.
+- F22 get-project ships full research corpus on every read (mostly mitigated by F42
+  pointers; verify the read model is slim now).
+- F33 design-rail systemtest against a real local-git substrate (every rail bug cost a
+  live Actions run to find; harness rig exists in aiarch-state-mcp rig test — extend to
+  the server rail). Swap the harness's applyDraftToProjectJSON mirror for the real
+  binary over stdio (recommended by the MCP build agent).
+- F5 InterventionDrawer operator-steer controls inert (verify during construction).
+- F6 UI preview iframes assume dogfood same-origin (preview strategy for external apps).
+- F82 follow-through: answer-job status surfaced on question entries in the UI.
+- archistrator STP scenarios missing required acknowledgeStale arg (5 STP-ARG-NAME
+  ERRORs in the methoddesign gate — amend the committed systemTestPlan slot).
+- dogfood slot-5 rev-2 earmark: work-item-tracker + work-item-access are planned-only
+  (no server/internal/resourceaccess/workitem package) yet the UC2/UC3 call chains
+  traverse them — decide at the NEXT slot-5 redraft: build the RA or re-route the
+  work-item steps (earmark also carried on the work-item-tracker encapsulates).
+- dogfood DV-REL-COVERAGE residue (warnings, accepted): ProjectDesignManager→
+  {ConstructionPipelineAccess, SourceControlAccess} appear in no call chain (Phase-2
+  draft dispatch has no dedicated use case — fold into a uc2 preamble edge or accept),
+  plus the 13 utility edges (convention: utilities carry no dynamic-view lines).
+
+## Platform (release-coordination gated)
+- ClassifyStatus: split rate-limit 403 from permission 403 (bit approve twice today);
+  keep response bodies (F14).
+- Rail verbs ClosePullRequest / DeleteBranch (branch debris cleanup; spec preserved in
+  session transcript; onboarding should also recommend delete_branch_on_merge).
+- methodcheck release + pin bump: USECASE-DYNAMIC-MISSING + SYSTEM-LAYER-DEGENERATE
+  twins live on archistrator-platform branch methodcheck-usecase-dynamic-missing;
+  until released, only the app-side mirrors enforce. NOTE: that branch also carries
+  an unpushed leftover commit a364acd9 (agentic sub-workflow methodcheck rules) for a
+  feature the founder REVERTED — drop it when cutting the release.
+- methodcheck PLATFORM TWINS PENDING for the state-validation rules shipped app-side
+  2026-07-05 (server: statevalidationfindings.go read-back findings + RequireModelFields
+  presence twins). The app enforces them only as read-back findings (and, for the
+  presence/consistency subset, in projectstate.RequireModelFields on the write+read-back
+  codec); the authoritative cross-artifact WRITE gate belongs in methodcheck:
+    - SYS-RA-ORPHAN, SYS-ENCAPSULATES (client non-empty), SYS-REL-DUP,
+      DV-CHAIN-CONNECTED   → System rules (app: findings only)
+    - UC-VARIATION-REF, UC-ACT-PRESENT, UC-GUARD-LABEL → CoreUseCases (app:
+      UC-ACT-PRESENT + UC-GUARD-LABEL already hard-blocked in RequireModelFields;
+      UC-VARIATION-REF is a finding)
+    - GLOSS-FOURQ (Glossary), SR-ID-UNIQUE (ScrubbedRequirements),
+      OPC-TOPIC-COVERAGE (OperationalConcepts) → findings only
+    - STD-STATUS-EXPLICIT, STD-FAIL-OPEN (StandardCheck), VOL-AXIS-EXPLICIT
+      (Volatilities) → app hard-blocks status/axis PRESENCE in RequireModelFields;
+      STD-FAIL-OPEN is gated at AdvancePhase (systemdesign manager).
+  APP-SIDE DEVIATION recorded for the architect: SYS-ENCAPSULATES non-empty is enforced
+  in RequireModelFields ONLY for the volatility-owning kinds (manager/engine/
+  resourceAccess); CLIENT non-empty is a read-back FINDING, not a hard codec block,
+  because committed state (gtdapp) carries empty-encapsulates clients and reads must
+  never hard-fail (the critical read-safety invariant). Resource/utility empties are
+  warnings. The methodcheck twin should decide whether client non-empty becomes a hard
+  write gate.
+- mcpgen upstream of the in-repo emitter; methodcheck enum-strictness asymmetry (F36).
+- Platform release plan generally (v0.4.x line; scaffold pin 2 releases stale).
+
+## Construction / Phase 3 (after the founder design sign-off gate)
+- F4 generic construction scaffold seated at advance-to-construction (aiarch-construct
+  + .claude tree; archistrator-operated infra constraint) — note P1b covers the MCP
+  wiring inside the template; the seating flow itself is this item.
+- ~~Scaffold re-seat verb (CreateProject's constant idempotency key means seated workflow
+  files never refresh; today's re-seat was a manual commit — needs a real
+  SyncManagedScaffold verb).~~ SHIPPED 2026-07-06: MANAGED-SCAFFOLD SYNC-ON-DISPATCH.
+  Both design Managers converge the seated aiarch-design.yml onto the CURRENT template
+  rendering before EVERY design-job dispatch (beginSession, pre-OpenBranch; plus the
+  best-effort answer-job path): `sourcecontrol.SyncManagedScaffold` → the RA's
+  hand-written auxiliary `SyncManagedFiles` (fetch-compare-put; drift → one default-
+  branch commit "aiarch: sync managed scaffold (aiarch-design.yml) to
+  aiarch-state-mcp@<pin>"; byte-identical → no commit). Sync failure BLOCKS the
+  dispatch (StageDraftFailed, actionable reason). `StateMcpModulePin` is now a full
+  commit SHA source constant (release-process-owned; ldflags-stampable var) — dependabot
+  was considered and REJECTED: the pin is archistrator-managed scaffold and only the
+  control plane knows the compatible version. ARCHITECTURE VERDICT (dogfood
+  project.json): NO slot-5 model change — the sync rides the EXISTING
+  system/project-design-manager → source-control-access relationship and the FROZEN
+  commitManagedFiles contract semantics (the auxiliary is off-contract like AppSlug);
+  no new component, relationship, or contract op. NOTE the pre-existing label
+  understatement on those two edges ("getInstallationToken(repo) → RepoCredential"
+  vs the adopt/seat/rail verbs the managers actually call) — fold a full label
+  reconciliation into the next slot-5 amendment rather than churning revision/staleAcks
+  for one behavior. Residual earmarks: (a) aiarch-construct.yml is NOT covered — it is
+  not per-project-seated today (operator-installed in the central construction repo);
+  when F4 seats a construction scaffold per-project, extend the sync set to it; (b)
+  VERSION HANDSHAKE is stamp-only: the template carries AIARCH_STATE_MCP_PIN as a step
+  env + echo (run logs prove the generation), but there is no server-side read-back
+  check of a binary-written version stamp — design note: have aiarch-state-mcp
+  `publishDraft` write its own module pseudo-version into the commit (e.g. a trailer),
+  and the Manager read-back reject a mismatch; (c) sync scope is the design workflow
+  file ONLY — go.mod / aiarch_method_test.go / internal/.gitkeep are user-territory
+  after birth and are never re-seated; (d) the frozen-verb fallback (a rail without the
+  auxiliary) converges but reports changed=false and uses the birth-seat message.
+- UC4 archistrator-operated actual deploy (k8s manifests, CNPG, Keycloak realm,
+  Temporal namespace); operations RA still stub-only (503s).
+- Construction dispatch QA: preview experience per activity type, InterventionDrawer,
+  weekly tracking (the-method-project-tracking).
+
+## Housekeeping
+- .claude/agents/project-manager.md pre-existing uncommitted edit (untouched all pass —
+  founder to keep or drop).
+- gtdapp branch debris from pre-F40 sessions (0-draft/0-critique/1-draft…): deletable
+  once rail cleanup verbs exist, or manually.
+  - F82 (2026-07-06): the design-workflow TEMPLATE now self-heals a conflicting session-
+    branch refresh — a conflict reconcile cannot resolve (a withdrawn/dead branch that
+    survived, or a conflict beyond the owned state slot) hard-resets the scratch branch to
+    origin/main + force-push (with lease) instead of dead-ending every future amendment of
+    the slot. The active-draft reconcile path (F80b) is unchanged. This does NOT retire the
+    debris earmark or the ClosePullRequest/DeleteBranch rail verbs above — the stale
+    BRANCHES still linger until real cleanup exists; self-heal only stops them BRICKING new
+    amendments. Also: existing product repos (gtdapp) keep the OLD refresh behavior until
+    re-seated — RESOLVED 2026-07-06 by sync-on-dispatch (see Construction earmark): the
+    next design dispatch against any repo refreshes its seated aiarch-design.yml to the
+    current template before the job runs, so the stale snapshot self-heals on first use.
+- webApp prettier drift (~71 files, pre-existing on main, not enforced).
+- Onboarding copy: recommend org-level CLAUDE_CODE_OAUTH_TOKEN + `gh secret list`
+  verification (F18); F8 zero UpdatedAt renders "12/31/1"; F9 ghost card for
+  adopted-but-uncreated projects needs a "finish creating" CTA.

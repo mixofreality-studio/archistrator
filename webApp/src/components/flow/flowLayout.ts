@@ -7,7 +7,7 @@
  * the decorative node components in ./flowDecor).
  */
 import { MarkerType, type Edge, type Node } from '@xyflow/react';
-import type { Layer } from '../../contracts/models';
+import type { Layer } from '../../contracts/types';
 import type { Tokens } from '../../utilities/theme/themes';
 import type { C4Component } from '../../contracts/adapters';
 import type { Anchor } from '../comments/CommentContext';
@@ -209,12 +209,16 @@ export function decorativeNodes(layout: Layout): Node[] {
 
 // --- node / edge factories ------------------------------------------------
 
-/** Builds a `c4`-type React-Flow node for one component at an explicit position. */
+/** Builds a `c4`-type React-Flow node for one component at an explicit position.
+ *  `showEncapsulates` (default true) governs whether the node body renders the
+ *  clamped volatility preview: on for the Static / Component-focus lenses, off for
+ *  the Dynamic step-through (where the caption rail already carries the detail), per
+ *  the house diagram convention — names + layer tags on nodes, prose off the canvas. */
 export function c4Node(
   c: C4Component,
   position: { x: number; y: number },
   colors: Record<Layer, string>,
-  opts: { dimmed?: boolean } = {}
+  opts: { dimmed?: boolean; showEncapsulates?: boolean; selected?: boolean } = {}
 ): Node {
   return {
     id: c.id,
@@ -225,7 +229,12 @@ export function c4Node(
       name: c.name,
       layer: LAYER_LABEL[c.layer],
       encapsulates: c.encapsulates,
+      showEncapsulates: opts.showEncapsulates !== false,
       color: colors[c.layer],
+      // Selection travels through `data` (not the Node.selected field): with the
+      // controlled-node flow having no onNodesChange, xyflow's built-in selection is
+      // inert, so a data flag is the reliable way to drive the Comment toolbar + ring.
+      isSelected: opts.selected === true,
     },
     draggable: false,
     ...(opts.dimmed === true ? { style: { opacity: 0.12 } } : {}),

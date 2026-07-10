@@ -304,6 +304,14 @@ func (m *constructionManager) GetSessionState(rc fwm.Context, projectID ProjectI
 
 	enc, err := m.client.QueryWorkflow(ctx, wfID, "", querySessionState)
 	if err != nil {
+		// F20 (error altitude): before construction starts the pump/per-activity
+		// workflow does not exist, and Temporal's raw "workflow not found for ID:
+		// <proj>:construction" leaks the internal execution id to the client. Map that
+		// to a clean, user-altitude NotFound; other query faults keep their generic
+		// mapping.
+		if isNotFound(err) {
+			return ConstructionSessionView{}, newError(fwm.NotFound, "construction has not started for this project")
+		}
 		return ConstructionSessionView{}, mapQueryError(err)
 	}
 	var view ConstructionSessionView
@@ -405,6 +413,14 @@ func mapSignalError(err error) error {
 func mapQueryError(err error) error {
 	if isNotFound(err) {
 		return newError(fwm.NotFound, err.Error())
+	}
+	// Failing-workflow-task hygiene (mirrors the design managers): a session being
+	// retried after a deploy-time fault rejects queries with raw Temporal internals
+	// ("Unable to query workflow due to Workflow Task in failed state") — clients
+	// get a clean, actionable Detail instead.
+	if strings.Contains(err.Error(), "Workflow Task in failed state") {
+		return newError(fwm.Infrastructure,
+			"construction session state is temporarily unavailable — the session hit an internal fault and is being retried by the server; try again shortly")
 	}
 	return newError(fwm.Infrastructure, err.Error())
 }

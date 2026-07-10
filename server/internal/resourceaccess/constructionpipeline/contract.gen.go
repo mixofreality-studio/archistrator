@@ -21,6 +21,7 @@ type PipelineObservation struct {
 	Steps      []StepObservation `json:"Steps"`
 	FailedStep string            `json:"FailedStep"`
 	Diagnostic string            `json:"Diagnostic"`
+	RunURL     string            `json:"RunURL"`
 	StartedAt  time.Time         `json:"StartedAt"`
 	FinishedAt *time.Time        `json:"FinishedAt,omitempty"`
 }

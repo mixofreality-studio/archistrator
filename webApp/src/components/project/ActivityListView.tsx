@@ -148,8 +148,8 @@ export function ActivityListView({
 
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
         <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.muted }}>
-          One detailed-design + one construction activity per component, plus integration and
-          noncoding. Inputs are
+          One coding activity per component (detailed design + construction are internal lifecycle
+          phases, not separate activities), plus integration and noncoding. Inputs are
         </Typography>
         <AuthoredBadge t={t} />
       </Box>

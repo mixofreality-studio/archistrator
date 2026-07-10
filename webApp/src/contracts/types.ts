@@ -8,33 +8,157 @@
  * camelCase view shapes, so the api layer (hooks + wire.ts) maps wire→app at the
  * boundary; everything below is that app-facing contract.
  *
- * Artifact MODEL payloads stay opaque in the OAS, so their decode types live in
- * ./models and are re-exported here for the screens that import them.
+ * Artifact MODEL payload types are now DERIVED from the generated typed OAS
+ * (schema.ts `Model*`, RC1 of appgen step-4) rather than hand-mirrored — the old
+ * `models.ts` mirror is deleted. Consumers keep importing model types from here.
  */
-import type { ArtifactModelEnvelope, ProjectArtifactModelEnvelope } from './models';
+import type { components } from './schema';
+import type { ARTIFACT_STAGE_GO_VARNAMES } from './enums.gen';
 
-// Re-export the opaque-model decode types so screens keep importing from one place.
-export type {
-  ArtifactModelEnvelope,
-  ProjectArtifactModelEnvelope,
-  Money,
-  UsageAssumption,
-  SettlementTerms,
-  PlanningAssumptionsModel,
-  ActivityItem,
-  ActivityListModel,
-  NetworkDependency,
-  FloatBand,
-  NetworkNodeCompute,
-  NetworkSummary,
-  NetworkMilestone,
-  NetworkModel,
-  SolutionModel,
-  RiskRow,
-  RiskModelModel,
-  SdpOptionRow,
-  SdpReviewModel,
-} from './models';
+type S = components['schemas'];
+
+/** The literal-number union of a const tuple's valid indices (0..N-1). Used to
+ *  re-derive an ordinal type from a generated `as const` table's length instead
+ *  of hand-pinning the count, so a Go enum member add/remove changes the union
+ *  here too rather than silently going stale. */
+type TupleIndices<T extends readonly unknown[]> =
+  Exclude<keyof T, keyof unknown[]> extends infer K
+    ? K extends `${infer N extends number}`
+      ? N
+      : never
+    : never;
+
+// ---------------------------------------------------------------------------
+// Artifact MODEL payload types — derived from the generated typed OAS.
+//
+// The OAS now reflects every slot-model shape (server Go structs → jsonschema →
+// schema.ts `Model*`), including the string-marshalled enums (live-marshal ground
+// truth, commit a84cad5). These aliases re-point the app's model contract onto the
+// generated types. Leaf string-literal unions are DERIVED from the generated field
+// that carries them (byte-exact after the enum fix).
+//
+// Two documented drifts require refinement (generated type differs from the wire's
+// true value set):
+//   - FloatBand: the server's NetworkNodeCompute.band is a plain Go string (no
+//     string-enum marshaller), so the OAS carries `string`. FloatBand is the ONE
+//     hand-pinned union; the band field is refined onto it.
+//   - slotKind / solutionKind: Go reflects the full 17-member ArtifactKind, but a
+//     Solution/RiskRow/SdpOptionRow's kind is semantically always one of the 9
+//     project-artifact kinds — refined back onto ProjectArtifactKind (matching the
+//     deleted hand types; no behavior change).
+// ---------------------------------------------------------------------------
+
+// Phase-1 (System Design) model shapes.
+export type Objective = S['ModelObjective'];
+export type MissionStatement = S['ModelMissionStatement'];
+export type GlossaryItem = S['ModelGlossaryItem'];
+export type Glossary = S['ModelGlossary'];
+export type Requirement = S['ModelRequirement'];
+export type ScrubbedRequirements = S['ModelScrubbedRequirements'];
+export type Axis = S['ModelVolatility']['axis'];
+export type Volatility = S['ModelVolatility'];
+export type Volatilities = S['ModelVolatilities'];
+export type ActivityNodeKind = S['ModelActivityNode']['kind'];
+export type ActivityNode = S['ModelActivityNode'];
+export type EdgeKind = S['ModelActivityEdge']['kind'];
+export type ActivityEdge = S['ModelActivityEdge'];
+export type ActivityDiagram = S['ModelActivityDiagram'];
+export type Actor = S['ModelActor'];
+export type Trigger = S['ModelUseCase']['trigger'];
+export type Classification = S['ModelUseCase']['classification'];
+export type UseCase = S['ModelUseCase'];
+export type UseCaseDecision = S['ModelUseCaseDecision'];
+export type CoreUseCases = S['ModelCoreUseCases'];
+export type ComponentKind = S['ModelComponent']['kind'];
+export type Layer = S['ModelComponent']['layer'];
+export type Component = S['ModelComponent'];
+export type CallMode = S['ModelRelationship']['mode'];
+export type Relationship = S['ModelRelationship'];
+export type DynamicView = S['ModelDynamicView'];
+export type System = S['ModelSystem'];
+export type DeliveryStyle = S['ModelDeploymentTopology']['deliveryStyle'];
+export type DeploymentProfile = S['ModelDeploymentEnvironment']['profile'];
+export type DeployContainer = S['ModelDeployContainer'];
+export type ContainerInstance = S['ModelContainerInstance'];
+export type InfrastructureNode = S['ModelInfrastructureNode'];
+export type SoftwareSystemInstance = S['ModelSoftwareSystemInstance'];
+export type DeploymentNode = S['ModelDeploymentNode'];
+export type DeploymentEnvironment = S['ModelDeploymentEnvironment'];
+export type DeploymentTopology = S['ModelDeploymentTopology'];
+export type OperationalDecision = S['ModelOperationalDecision'];
+export type OperationalConcepts = S['ModelOperationalConcepts'];
+export type CheckStatus = S['ModelCheckItem']['status'];
+export type CheckItem = S['ModelCheckItem'];
+export type StandardCheck = S['ModelStandardCheck'];
+
+// Phase-2 (Project Design) model shapes.
+export type Money = S['ModelMoney'];
+export type UsageAssumption = S['ModelUsageAssumption'];
+export type SettlementTerms = S['ModelSettlementTerms'];
+export type PlanningAssumptionsModel = S['ModelPlanningAssumptions'];
+export type ActivityItem = S['ModelActivityItem'];
+export type ActivityListModel = S['ModelActivityList'];
+export type NetworkDependency = S['ModelNetworkDependency'];
+/** Float-criticality band (Löwy ch.8 §2). Hand-pinned: the server's band field is a
+ *  plain Go string, so no generated union carries it. The value flows from the generated
+ *  `NetworkNodeCompute.band` (typed `string`) and is narrowed to FloatBand at the one
+ *  view-building site in projectAdapters. */
+export type FloatBand = 'critical' | 'red' | 'yellow' | 'green';
+export type NetworkNodeCompute = S['ModelNetworkNodeCompute'];
+export type NetworkSummary = S['ModelNetworkSummary'];
+export type NetworkMilestone = S['ModelNetworkMilestone'];
+export type NetworkModel = S['ModelNetwork'];
+/** drift: generated `slotKind` is the full 17-kind ArtifactKind; refined to the 9 project kinds
+ *  (a Solution's slotKind is always a solution kind — matches the deleted hand type). */
+export type SolutionModel = Omit<S['ModelSolution'], 'slotKind'> & {
+  slotKind: ProjectArtifactKind;
+};
+/** drift: generated `solutionKind` is the full 17-kind ArtifactKind; refined to the 9 project kinds. */
+export type RiskRow = Omit<S['ModelRiskRow'], 'solutionKind'> & {
+  solutionKind: ProjectArtifactKind;
+};
+/** RiskModel.rows refined so the narrowed RiskRow.solutionKind propagates through the container. */
+export type RiskModelModel = Omit<S['ModelRiskModel'], 'rows'> & { rows: null | RiskRow[] };
+/** drift: generated `solutionKind` is the full 17-kind ArtifactKind; refined to the 9 project kinds. */
+export type SdpOptionRow = Omit<S['ModelSdpOptionRow'], 'solutionKind'> & {
+  solutionKind: ProjectArtifactKind;
+};
+/** SdpReview.options refined so the narrowed SdpOptionRow.solutionKind propagates. */
+export type SdpReviewModel = Omit<S['ModelSdpReview'], 'options'> & {
+  options: null | SdpOptionRow[];
+};
+
+/** The decoded Phase-1+2 model envelope (the SPA narrows on the string `kind`). */
+export interface ArtifactModelEnvelope {
+  kind: ArtifactKindFull;
+  model?:
+    | MissionStatement
+    | Glossary
+    | ScrubbedRequirements
+    | Volatilities
+    | CoreUseCases
+    | System
+    | OperationalConcepts
+    | StandardCheck
+    | PlanningAssumptionsModel
+    | ActivityListModel
+    | NetworkModel
+    | SolutionModel
+    | RiskModelModel
+    | SdpReviewModel;
+}
+
+/** The decoded Phase-2 model envelope. */
+export interface ProjectArtifactModelEnvelope {
+  kind: ProjectArtifactKind;
+  model?:
+    | PlanningAssumptionsModel
+    | ActivityListModel
+    | NetworkModel
+    | SolutionModel
+    | RiskModelModel
+    | SdpReviewModel;
+}
 
 // ---------------------------------------------------------------------------
 // Phase-1 (System Design) wire-string enums.
@@ -84,10 +208,56 @@ export interface Finding {
   location?: { ordinal: number; section: string };
 }
 
-/** A JSONPath-anchored "send back" comment. */
+/**
+ * A JSONPath-anchored "send back" comment. `anchorText` is the client-supplied
+ * snapshot of the anchored item's RENDERED text at post time — the durable review
+ * ledger stores it so a later reader (or a redraft that moved the item) still sees
+ * what the reviewer was pointing at. Free-form (unanchored) feedback rides the
+ * reject `feedback.notes`, never this array, so anchored entries always carry both
+ * a jsonPath and a non-empty anchorText.
+ */
 export interface AnchoredComment {
   jsonPath: string;
   text: string;
+  anchorText: string;
+}
+
+/** Server review-ledger comment status: open → addressed (by an agent response) → optionally waived. */
+export type ReviewCommentStatus = 'open' | 'addressed' | 'waived';
+
+/**
+ * Review-ledger comment type (question-comments, 2026-07-05). A `changeRequest` must be
+ * addressed (redraft) or waived before approve; a `question` is a non-blocking ask routed
+ * to an `addressee` and answered in place. The wire empty string maps to `changeRequest`
+ * (migration-safe default for every legacy entry).
+ */
+export type ReviewCommentType = 'changeRequest' | 'question';
+
+/** The role a question is addressed to. Empty for change-requests. */
+export type ReviewCommentAddressee = 'pm' | 'architect' | '';
+
+/**
+ * One durable review-thread entry as the server exposes it on the session view.
+ * Distinct from the client-side pending {@link AnchoredComment}: these have been
+ * committed to the ledger, carry an author role + round, a lifecycle `status`, and
+ * (once the agent redrafts) a `response`.
+ */
+export interface ReviewCommentView {
+  id: string;
+  /** JSONPath into the typed model this entry anchors to (empty for free-form). */
+  anchor: string;
+  /** Snapshot of the anchored item's rendered text at post time (empty for free-form). */
+  anchorText: string;
+  text: string;
+  authorRole: string;
+  round: number;
+  status: ReviewCommentStatus;
+  /** The agent's per-entry response committed on redraft; empty while still open. */
+  response: string;
+  /** Change-request (default) or a non-blocking question (question-comments). */
+  type: ReviewCommentType;
+  /** For a question, the role it is addressed to; empty for change-requests. */
+  addressee: ReviewCommentAddressee;
 }
 
 export interface ResearchSource {
@@ -99,8 +269,10 @@ export interface ResearchInput {
   sources: ResearchSource[];
 }
 
-/** ArtifactStage ordinal (head-state slot stage): 0..4. */
-export type ArtifactStageOrdinal = 0 | 1 | 2 | 3 | 4;
+/** ArtifactStage ordinal (head-state slot stage): re-derived from the generated
+ *  ARTIFACT_STAGE_GO_VARNAMES table's index range (currently 0..4) rather than
+ *  hand-pinned, so a Go ArtifactStage member add/remove changes this union too. */
+export type ArtifactStageOrdinal = TupleIndices<typeof ARTIFACT_STAGE_GO_VARNAMES>;
 
 /** One artifact slot of the head-state. */
 export interface ArtifactSlotView {
@@ -108,6 +280,41 @@ export interface ArtifactSlotView {
   stage: ArtifactStageOrdinal;
   model: ArtifactModelEnvelope;
   notes?: string;
+  /**
+   * How many times this slot has been committed. 1 on first commit; > 1 once it
+   * has been amended (each -amend-N cycle re-commits, bumping the count). Absent
+   * on never-committed slots.
+   */
+  revisions?: number;
+  /**
+   * True when an upstream basis this slot depends on has since changed, so the
+   * committed content may no longer reconcile with it. Advisory only — never
+   * blocks. Cleared by re-committing (amend / reconcile).
+   */
+  staleBasis?: boolean;
+  /**
+   * Optional human name of the upstream slot whose amendment made this one stale
+   * (e.g. "Architecture"). Forward-compatible: the server may not populate it yet
+   * (omitempty). When present the stale popover names the cause; when absent the
+   * generic copy is shown. (PM-P1-2.)
+   */
+  staleCause?: string;
+  /**
+   * Commit provenance for a committed slot (PM-P2-4): who committed / when / which rail
+   * drafted it. Absent on never-committed slots and on slots committed before provenance
+   * was recorded (no back-fill). Each field is independently optional.
+   */
+  provenance?: ArtifactProvenance;
+}
+
+/** Commit provenance for a committed artifact slot (PM-P2-4). */
+export interface ArtifactProvenance {
+  /** RFC3339 instant the commit landed. */
+  committedAt?: string;
+  /** Human label for the identity that approved the commit. */
+  approvedBy?: string;
+  /** Human label for the drafting agent/rail. */
+  draftedBy?: string;
 }
 
 export type ProjectPhase = 'systemDesign' | 'projectDesign' | 'construction' | 'unknown';
@@ -143,6 +350,10 @@ export interface SessionStateView {
   draft: ArtifactModelEnvelope;
   findings?: Finding[];
   failureReason?: string;
+  /** URL of the failed CI run, when the failure came from a job that actually ran. */
+  failureRunUrl?: string;
+  /** The durable review-ledger thread for this slot (open/addressed/waived entries). */
+  reviewThread?: ReviewCommentView[];
 }
 
 /** The Phase-1 session-state poll result (outer string stage drives the machine). */
@@ -173,30 +384,10 @@ export interface ReviewDecisionDetail {
   comments?: AnchoredComment[];
 }
 
-/**
- * The seven (eight slots incl. standardCheck) Phase-1 Method artifacts, in order.
- */
-export const PHASE1_ARTIFACTS: readonly ArtifactKind[] = [
-  'mission',
-  'glossary',
-  'scrubbedRequirements',
-  'volatilities',
-  'coreUseCases',
-  'system',
-  'operationalConcepts',
-  'standardCheck',
-] as const;
-
-export const ARTIFACT_LABELS: Record<ArtifactKind, string> = {
-  mission: 'Mission',
-  glossary: 'Glossary',
-  scrubbedRequirements: 'Scrubbed Requirements',
-  volatilities: 'Volatilities',
-  coreUseCases: 'Core Use Cases',
-  system: 'System (Architecture)',
-  operationalConcepts: 'Operational Concepts',
-  standardCheck: 'Standard Check',
-};
+// The Phase-1 ordered kind list + per-kind title used to live here as
+// PHASE1_ARTIFACTS/ARTIFACT_LABELS. Consolidated (appgen step4-task5) into
+// methodMetadata.ts's PHASE1_ORDER + METHOD_METADATA[kind].title — the single
+// hand-authored source for artifact display metadata across both phases.
 
 export const REVIEWABLE_STAGE: SessionStage = 'awaitingReview';
 
@@ -249,6 +440,8 @@ export interface ProjectSessionStateView {
   draft: ProjectArtifactModelEnvelope;
   findings?: Finding[];
   failureReason?: string;
+  /** The durable review-ledger thread for this slot (open/addressed/waived entries). */
+  reviewThread?: ReviewCommentView[];
 }
 
 /** The decoded Phase-2 session-state poll result. */
@@ -264,30 +457,12 @@ export interface ProjectPhaseAdvanceResponse {
   missingArtifacts: ProjectArtifactKind[];
 }
 
-export const PHASE2_DRAFTABLE_ARTIFACTS: readonly ProjectArtifactKind[] = [
-  'planningAssumptions',
-  'activityList',
-  'network',
-  'normalSolution',
-  'decompressedSolution',
-  'subcriticalSolution',
-  'compressedSolution',
-  'riskModel',
-] as const;
+// PHASE2_DRAFTABLE_ARTIFACTS/PROJECT_ARTIFACT_LABELS used to live here.
+// Consolidated (appgen step4-task5) into methodMetadata.ts's PHASE2_ORDER +
+// METHOD_METADATA[kind].title; the sdpReview-is-assembled-not-drafted distinction
+// is handled inline where it matters (ProjectDesignExperience's `isSdpStep`).
 
 export const SDP_REVIEW_KIND: ProjectArtifactKind = 'sdpReview';
-
-export const PROJECT_ARTIFACT_LABELS: Record<ProjectArtifactKind, string> = {
-  planningAssumptions: 'Planning Assumptions',
-  activityList: 'Activity List',
-  network: 'Network',
-  normalSolution: 'Normal Solution',
-  decompressedSolution: 'Decompressed Solution',
-  subcriticalSolution: 'Subcritical Solution',
-  compressedSolution: 'Compressed Solution',
-  riskModel: 'Risk Model',
-  sdpReview: 'SDP Review',
-};
 
 export const PROJECT_REVIEWABLE_STAGE: ProjectSessionStage = 'awaitingReview';
 
@@ -340,12 +515,7 @@ export interface ProducedArtifactRow {
   note: string;
 }
 
-export type TestingVariantName =
-  | 'plan'
-  | 'harness'
-  | 'perf'
-  | 'systemTest'
-  | 'qaProcess';
+export type TestingVariantName = 'plan' | 'harness' | 'perf' | 'systemTest' | 'qaProcess';
 
 export interface ConstructionRow {
   activityId: string;

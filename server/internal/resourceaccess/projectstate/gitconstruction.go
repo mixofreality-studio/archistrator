@@ -263,6 +263,16 @@ func (s *GitStore) RecordPhaseArtifactProduced(ctx context.Context, projectID Pr
 	})
 }
 
+// ApplyPhaseArtifactPayload routes a phase-artifact / testing-state payload into the
+// Project aggregate — the pure, I/O-free core of RecordPhaseArtifactProduced, exported
+// so the aiarch-state MCP construction verbs (cmd/aiarch-state-mcp) reuse the SAME
+// routing the server RA uses. One source of truth for which payload field lands in
+// which PhaseArtifacts / TestingState slot; the caller validates the mutated aggregate
+// through the codec + methodcheck exactly as the server does.
+func ApplyPhaseArtifactPayload(p *Project, mapKey string, payload PhaseArtifactPayload) {
+	applyPhaseArtifactPayload(p, mapKey, payload)
+}
+
 // applyPhaseArtifactPayload routes the payload to the correct Project field.
 // It is a pure function (no I/O) extracted for testability.
 func applyPhaseArtifactPayload(p *Project, mapKey string, payload PhaseArtifactPayload) {

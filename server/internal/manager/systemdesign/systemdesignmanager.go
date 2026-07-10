@@ -9,6 +9,7 @@ import (
 
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	"github.com/mixofreality-studio/archistrator-platform/framework-go/utilities/security"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/estimation"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/constructionpipeline"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
@@ -111,7 +112,7 @@ func (m *systemDesignManager) StartSystemDesign(rc fwmanager.Context, projectID 
 		}
 		return "", mapReadProjectError(err)
 	}
-	if proj.ResearchInput.IsZero() {
+	if proj.Research.IsZero() {
 		return "", newError(fwmanager.FailedPrecondition, "research not populated")
 	}
 
@@ -159,6 +160,25 @@ func isResearchReadNotFound(err error) bool {
 // the existing run otherwise), preserving the §2.1 idempotent-on-id post-condition.
 //
 // RequestArtifactDraft is the exported public op.
+// amendmentIndexFor returns the AMENDMENT index for a draft request against slot: the count
+// of prior commits, used as the …-amend-N branch suffix and the "revision N" prompt framing,
+// and the signal that gates the amendment path (fresh -amend-N branch, amendment prompt, and
+// review-ledger SEED of the reopening feedback). It keys off THE AMENDMENT CONDITION — the
+// slot is COMMITTED — NOT off any Revisions magnitude. A committed slot is an amendment even
+// when its Revisions reads 0 (a slot committed BEFORE the Revisions field existed): the floor
+// of 1 guarantees every committed slot yields an index >= 1, so the workflow's Amendment>0
+// checks are a faithful proxy for "committed at request time." A non-committed slot
+// (drafting/awaiting/rejected/withdrawn/none) returns 0 — the normal (non-amendment) path.
+func amendmentIndexFor(slot projectstate.ArtifactSlot) int {
+	if slot.Status != projectstate.ReviewCommitted {
+		return 0
+	}
+	if slot.Revisions < 1 {
+		return 1 // pre-field committed slot: grandfathered to revision 1
+	}
+	return int(slot.Revisions)
+}
+
 func (m *systemDesignManager) RequestArtifactDraft(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind, feedback *ReviewFeedback) (SessionRef, error) {
 	ctx := rc.Context
 	if projectID == "" {
@@ -178,6 +198,20 @@ func (m *systemDesignManager) RequestArtifactDraft(rc fwmanager.Context, project
 		return "", err
 	}
 
+	// F38 BACK-EDGE / AMENDMENT (founder ruling 2026-07-05, fixes F37). A draft request on
+	// an already-COMMITTED artifact is the LEGAL AMENDMENT path: it reopens the artifact and
+	// starts a FRESH review session on a new …-amend-N branch (N = the slot's prior commit
+	// count) with the committed model as the draft base and the reopening feedback seeded into
+	// the new session's review ledger. On any NON-committed slot (drafting/awaiting-review/
+	// rejected/withdrawn) amendment stays 0 and the behavior is exactly as before: an active
+	// session consumes the redraft signal (USE_EXISTING); a withdrawn/failed slot starts a
+	// fresh original draft. Because a committed slot's prior workflow run is CLOSED, the
+	// SignalWithStart below starts a brand-new run (with this Amendment) rather than reusing it.
+	amendment := 0
+	if proj, rerr := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID)); rerr == nil {
+		amendment = amendmentIndexFor(slotFor(proj, kind))
+	}
+
 	wfID := coAuthorWorkflowID(projectID, kind)
 	opts := client.StartWorkflowOptions{
 		ID:        wfID,
@@ -187,7 +221,7 @@ func (m *systemDesignManager) RequestArtifactDraft(rc fwmanager.Context, project
 		// (systemDesignManager.md §2.1 post-condition). The signal rides along.
 		WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
 	}
-	in := coAuthorInput{ProjectID: projectID, ArtifactKind: kind, Feedback: feedback}
+	in := coAuthorInput{ProjectID: projectID, ArtifactKind: kind, Feedback: feedback, Amendment: amendment}
 
 	we, err := m.client.SignalWithStartWorkflow(ctx, wfID, lSignalRedraft, redraftSignal{Feedback: feedback}, opts, executionKindCoAuthor, in)
 	if err != nil {
@@ -254,21 +288,257 @@ func (m *systemDesignManager) SubmitReviewDecision(rc fwmanager.Context, project
 	}
 
 	wfID := coAuthorWorkflowID(projectID, kind)
-	sig := reviewDecisionSignal{Decision: decision, Feedback: feedback}
+
+	// F19: precondition — inspect the live session stage BEFORE signaling. A bare
+	// SignalWorkflow is fire-and-forget: an approve/reject delivered while the session
+	// is drafting, already committed, or was never started is silently BUFFERED or
+	// dropped by the workflow (at the failed-recovery gate ReviewApprove is explicitly
+	// ignored), yet the op returns success {} — a no-op masquerading as a decision that
+	// wedges the reviewer. Query the stage first and refuse a decision the current gate
+	// cannot honor with a FailedPrecondition naming the actual stage.
+	view, err := m.reviewGateView(ctx, wfID)
+	if err != nil {
+		return err
+	}
+	if perr := checkReviewPrecondition(decision, view.Stage); perr != nil {
+		return perr
+	}
+	// REVIEW LEDGER (review-ledger §4): approve is blocked while any comment is still open —
+	// the reviewer must address (redraft) or waive each one first. The message lists the open ids.
+	if decision == ReviewApprove {
+		if open := openReviewCommentViewIDs(view.ReviewThread); len(open) > 0 {
+			return newError(fwmanager.FailedPrecondition,
+				fmt.Sprintf("cannot approve: %d review comment(s) still open (%s) — address or waive them first", len(open), strings.Join(open, ", ")))
+		}
+	}
+
+	// PM-P2-4: capture the acting reviewer identity here (the one place a SecurityPrincipal
+	// reaches the review flow) and thread it through the signal so the eventual approve→commit
+	// records it as the commit's approvedBy provenance.
+	sig := reviewDecisionSignal{Decision: decision, Feedback: feedback, Approver: principalLabel(rc.Principal)}
 	if err := m.client.SignalWorkflow(ctx, wfID, "", signalReviewDecision, sig); err != nil {
 		return mapSignalError(err)
 	}
 	return nil
 }
 
+// reviewGateView returns the session's full gate view (stage + the durable review thread)
+// for the F19 review precondition AND the review-ledger approve/waive preconditions. Same
+// dead-workflow defense as GetSessionState: a CLOSED-ABNORMAL run reports StageDraftFailed,
+// a missing execution reports SessionStageUnknown, a live run is read from the authoritative
+// sessionState query.
+func (m *systemDesignManager) reviewGateView(ctx context.Context, wfID string) (SessionStateView, error) {
+	if desc, derr := m.client.DescribeWorkflowExecution(ctx, wfID, ""); derr == nil {
+		if status := desc.GetWorkflowExecutionInfo().GetStatus(); isAbnormalClosedStatus(status) {
+			return SessionStateView{Stage: StageDraftFailed}, nil
+		}
+	} else if isNotFound(derr) {
+		return SessionStateView{Stage: SessionStageUnknown}, nil
+	}
+	enc, err := m.client.QueryWorkflow(ctx, wfID, "", querySessionState)
+	if err != nil {
+		if isNotFound(err) {
+			return SessionStateView{Stage: SessionStageUnknown}, nil
+		}
+		return SessionStateView{}, mapQueryError(err)
+	}
+	var view SessionStateView
+	if err := enc.Get(&view); err != nil {
+		return SessionStateView{}, newError(fwmanager.Infrastructure, err.Error())
+	}
+	return view, nil
+}
+
+// SetReviewCommentStatus applies a human status transition to one durable review-ledger
+// comment (review-ledger §4): waive an OPEN comment to dismiss it, or reopen an ADDRESSED
+// comment to send it back for another redraft. It mirrors SubmitReviewDecision's F19 shape —
+// a synchronous precondition check via the sessionState query before signaling the (fire-and-
+// forget) branch mutation, so a bad request fails loudly rather than silently no-op'ing.
+func (m *systemDesignManager) SetReviewCommentStatus(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind, commentID string, status string) error {
+	ctx := rc.Context
+	if projectID == "" {
+		return newError(fwmanager.ContractMisuse, "empty projectId")
+	}
+	if !artifactKindIsPhase1(kind) {
+		return newError(fwmanager.FailedPrecondition, "artifactKind is not a Phase-1 kind")
+	}
+	if commentID == "" {
+		return newError(fwmanager.ContractMisuse, "empty commentId")
+	}
+	switch status {
+	case projectstate.ReviewCommentWaived, projectstate.ReviewCommentOpen:
+		// waive (open->waived) or reopen (addressed->open) — the only human-authored transitions.
+	default:
+		return newError(fwmanager.ContractMisuse, "status must be \"waived\" (to dismiss an open comment) or \"open\" (to reopen an addressed comment)")
+	}
+
+	wfID := coAuthorWorkflowID(projectID, kind)
+	view, err := m.reviewGateView(ctx, wfID)
+	if err != nil {
+		return err
+	}
+	if view.Stage != StageAwaitingReview {
+		return newError(fwmanager.FailedPrecondition,
+			"cannot change a review comment: the design is not awaiting review (current stage: "+sessionStageLabel(view.Stage)+")")
+	}
+	if perr := checkCommentTransition(view.ReviewThread, commentID, status); perr != nil {
+		return perr
+	}
+
+	sig := setCommentStatusSignal{CommentID: commentID, Status: status}
+	if err := m.client.SignalWorkflow(ctx, wfID, "", signalSetCommentStatus, sig); err != nil {
+		return mapSignalError(err)
+	}
+	return nil
+}
+
+// openReviewCommentViewIDs returns the ids of every OPEN CHANGE-REQUEST in a wire thread —
+// the approve blocker set. Open QUESTIONS are deliberately excluded: an unanswered question
+// is a soft warning at the approve gate (surfaced via the SPA confirm-strip), never a hard
+// block (question-comments §approve).
+func openReviewCommentViewIDs(thread []ReviewCommentView) []string {
+	var ids []string
+	for _, c := range thread {
+		if c.Status == projectstate.ReviewCommentOpen && c.Type != projectstate.ReviewCommentTypeQuestion {
+			ids = append(ids, c.ID)
+		}
+	}
+	return ids
+}
+
+// checkCommentTransition validates a human status transition against the live thread: the
+// comment must exist and the transition must be legal (open->waived, addressed->open). Any
+// other case is a FailedPrecondition naming the reason (the durable RA verb re-checks, but a
+// synchronous refusal is a better caller experience than a silently dropped signal).
+func checkCommentTransition(thread []ReviewCommentView, id, status string) error {
+	for _, c := range thread {
+		if c.ID != id {
+			continue
+		}
+		switch {
+		case c.Status == projectstate.ReviewCommentOpen && status == projectstate.ReviewCommentWaived:
+			return nil
+		case c.Status == projectstate.ReviewCommentAddressed && status == projectstate.ReviewCommentOpen:
+			return nil
+		default:
+			return newError(fwmanager.FailedPrecondition,
+				fmt.Sprintf("cannot change comment %s from %q to %q (allowed: open->waived, addressed->open)", id, c.Status, status))
+		}
+	}
+	return newError(fwmanager.FailedPrecondition, "review comment "+id+" not found in the thread")
+}
+
+// checkReviewPrecondition enforces that the submitted decision is meaningful at the
+// session's current stage (F19): approve is honored only at StageAwaitingReview;
+// reject and withdraw are honored at StageAwaitingReview OR the StageDraftFailed
+// recovery gate (where reject means retry-with-feedback — see awaitDraftFailedRecovery).
+// Any other stage — drafting, already committed/withdrawn/refused, or no session at all
+// — yields a FailedPrecondition naming the actual stage.
+func checkReviewPrecondition(decision ReviewDecision, stage SessionStage) error {
+	switch decision {
+	case ReviewApprove:
+		if stage != StageAwaitingReview {
+			return newError(fwmanager.FailedPrecondition,
+				"cannot approve: the design is not awaiting review (current stage: "+sessionStageLabel(stage)+")")
+		}
+	case ReviewReject:
+		if stage != StageAwaitingReview && stage != StageDraftFailed {
+			return newError(fwmanager.FailedPrecondition,
+				"cannot send back: the design is not at a review or recovery gate (current stage: "+sessionStageLabel(stage)+")")
+		}
+	case ReviewWithdraw:
+		if stage != StageAwaitingReview && stage != StageDraftFailed {
+			return newError(fwmanager.FailedPrecondition,
+				"cannot withdraw: no review or recovery gate is open (current stage: "+sessionStageLabel(stage)+")")
+		}
+	case ReviewDecisionUnknown:
+		// Unreachable: SubmitReviewDecision rejects the zero value as ContractMisuse
+		// before reaching the precondition. Guarded for switch-exhaustiveness.
+		return newError(fwmanager.ContractMisuse, "unknown review decision")
+	}
+	return nil
+}
+
+// principalLabel renders a SecurityPrincipal as a short human-facing label for PM-P2-4
+// provenance (approvedBy): the username (GitHub login / preferred_username), else email,
+// else display name, else the opaque subject (dev-mode identity). Empty when no identity was
+// resolved — the commit then records no approvedBy (absent provenance is allowed).
+func principalLabel(p security.SecurityPrincipal) string {
+	switch {
+	case p.Username != "":
+		return p.Username
+	case p.Email != "":
+		return p.Email
+	case p.Name != "":
+		return p.Name
+	default:
+		return p.Subject
+	}
+}
+
+// sessionStageLabel renders a SessionStage as a short human label for the precondition
+// messages.
+func sessionStageLabel(s SessionStage) string {
+	switch s {
+	case SessionStageUnknown:
+		return "not started"
+	case StageDrafting:
+		return "drafting"
+	case StageAwaitingReview:
+		return "awaiting review"
+	case StageRedrafting:
+		return "redrafting"
+	case StageCommitted:
+		return "committed"
+	case StageWithdrawn:
+		return "withdrawn"
+	case StageRefused:
+		return "refused"
+	case StageDraftFailed:
+		return "draft failed"
+	default:
+		return "unknown"
+	}
+}
+
 // advancePhase — op 2.3. Temporal Workflow (entry; StartWorkflow, workflow id
 // {projectId}:phaseAdvance). Returns the gating outcome.
 //
 // AdvancePhase is the exported public op.
-func (m *systemDesignManager) AdvancePhase(rc fwmanager.Context, projectID ProjectID) (PhaseAdvanceResult, error) {
+//
+// F55 STALE-SLOT GATE. A back-edge amendment (CommitArtifact staleness propagation) flags
+// every downstream committed slot StaleBasis when an earlier slot is re-committed. Sealing the
+// phase over a stale committed slot silently advances the project on a design whose basis has
+// shifted (the observed failure: advanced to Phase 2 while scrubbedRequirements was stale). So
+// before starting the seal workflow, refuse with FailedPrecondition naming the stale in-scope
+// slots — UNLESS the caller explicitly acknowledges (acknowledgeStale) that it intends to
+// advance over them. The message names the slots so a user/MCP consumer knows what to reconcile.
+func (m *systemDesignManager) AdvancePhase(rc fwmanager.Context, projectID ProjectID, acknowledgeStale bool) (PhaseAdvanceResult, error) {
 	ctx := rc.Context
 	if projectID == "" {
 		return PhaseAdvanceResult{}, newError(fwmanager.ContractMisuse, "empty projectId")
+	}
+
+	// Pre-seal gates over the committed head-state (read once).
+	if proj, rerr := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID)); rerr == nil {
+		// STD-FAIL-OPEN: a committed standard check that still carries a FAIL item means the
+		// Phase-1 design gate is red; sealing over it would advance on an unmet standard. A
+		// fail is NOT a staleness the caller can wave through, so this gate ignores
+		// acknowledgeStale.
+		if fails := standardCheckFailItems(proj); len(fails) > 0 {
+			return PhaseAdvanceResult{}, newError(fwmanager.FailedPrecondition,
+				fmt.Sprintf("cannot advance phase: the system-design standard check has %d failing item(s) (%s); resolve or waive them before sealing Phase 1.",
+					len(fails), strings.Join(fails, "; ")))
+		}
+		// STALE-UNACKED (F55): refuse to seal over a stale committed slot unless the caller
+		// explicitly acknowledges the staleness.
+		if !acknowledgeStale {
+			if stale := staleCommittedPhase1Kinds(proj); len(stale) > 0 {
+				return PhaseAdvanceResult{}, newError(fwmanager.FailedPrecondition,
+					fmt.Sprintf("cannot advance phase: %d committed artifact(s) are stale and must be reconciled first (%s). Re-run the design for each, or advance anyway by acknowledging the staleness.",
+						len(stale), strings.Join(stale, ", ")))
+			}
+		}
 	}
 
 	wfID := phaseAdvanceWorkflowID(projectID)
@@ -290,6 +560,57 @@ func (m *systemDesignManager) AdvancePhase(rc fwmanager.Context, projectID Proje
 	return result, nil
 }
 
+// staleCommittedPhase1Kinds returns the wire names of every COMMITTED Phase-1 slot that
+// carries StaleBasis (a back-edge amendment invalidated its basis) — the set AdvancePhase must
+// refuse to seal over unless the caller acknowledges. Order follows the canonical Phase-1
+// spine so the message reads deterministically. A non-committed slot is never "stale" here (it
+// isn't part of the seal), so only committed slots are inspected.
+func staleCommittedPhase1Kinds(proj projectstate.Project) []string {
+	var stale []string
+	for _, kind := range phase1RequiredKinds() {
+		slot := slotFor(proj, kind)
+		if slot.Status == projectstate.ReviewCommitted && slot.StaleBasis {
+			label := artifactKindWireName(kind)
+			// STALE-UNACKED cause thread: name WHAT shifted the basis when the amendment
+			// recorded it (absent for slots that went stale before the cause field existed).
+			if c := slot.StaleBasisCause; c != nil {
+				label = fmt.Sprintf("%s (basis changed by %s rev %d)", label, c.UpstreamKind, c.UpstreamRevision)
+			}
+			stale = append(stale, label)
+		}
+	}
+	return stale
+}
+
+// standardCheckFailItems returns a human label for every FAIL item in the COMMITTED
+// standard-check slot (STD-FAIL-OPEN). Empty when the standard check is not committed or
+// carries no fail item — Phase 1 may seal only when the gate is fail-free.
+func standardCheckFailItems(proj projectstate.Project) []string {
+	slot := slotFor(proj, KindStandardCheck)
+	if slot.Status != projectstate.ReviewCommitted {
+		return nil
+	}
+	sc, ok := slot.Model.(*projectstate.StandardCheck)
+	if !ok || sc == nil {
+		return nil
+	}
+	var fails []string
+	for i, it := range sc.Items {
+		if it.Status != projectstate.CheckFail {
+			continue
+		}
+		label := strings.TrimSpace(it.Guideline)
+		if label == "" {
+			label = strings.TrimSpace(it.Section)
+		}
+		if label == "" {
+			label = fmt.Sprintf("item %d", i+1)
+		}
+		fails = append(fails, label)
+	}
+	return fails
+}
+
 // getSessionState — op 2.4. Temporal Query (QueryWorkflow, query sessionState,
 // read-only). Returns a point-in-time technical view without mutating state.
 //
@@ -301,15 +622,190 @@ func (m *systemDesignManager) GetSessionState(rc fwmanager.Context, projectID Pr
 	}
 	wfID := coAuthorWorkflowID(projectID, kind)
 
+	// F15 gap 2a (query-side defense): a CoAuthorArtifactWorkflow that ended ABNORMALLY
+	// (FAILED / TERMINATED / TIMED_OUT / CANCELED — e.g. an activity crashed the run)
+	// STILL answers the sessionState Query by HISTORY-REPLAY, returning its last in-memory
+	// stage (typically StageDrafting). That LIES that drafting is in progress and wedges the
+	// SPA on an infinite "GENERATING" screen with no recovery. Describe the execution first;
+	// when it is closed-ABNORMAL, synthesize an explicit StageDraftFailed view instead of
+	// trusting the replayed query — supervision must reflect the real state.
+	//
+	// P0-2 (closed-COMPLETED case): a run that closed NORMALLY (COMPLETED) ALSO answers the
+	// sessionState Query by history-replay, returning its LAST in-memory stage. For a session
+	// that committed (or withdrew) and then completed, that replayed value can be a stale
+	// mid-flight StageDrafting — the SAME "GENERATING · MISSION forever" wedge, but for a
+	// SUCCESSFUL session whose artifact is long since committed on main. So a COMPLETED run is
+	// ALSO not trusted for its stage: derive the honest view from the durable slot on main —
+	// a committed slot renders the committed view (StageCommitted + the committed model), any
+	// other terminal-but-uncommitted slot renders an honest terminal (never Drafting).
+	//
+	// A RUNNING (or CONTINUED_AS_NEW / an amendment's fresh run) execution falls through to the
+	// live query, which is authoritative for those. A Describe error other than NotFound is
+	// best-effort: fall through to the query rather than masking a transient Describe blip.
+	if desc, derr := m.client.DescribeWorkflowExecution(ctx, wfID, ""); derr == nil {
+		switch status := desc.GetWorkflowExecutionInfo().GetStatus(); {
+		case isAbnormalClosedStatus(status):
+			return withStageName(failedSessionView(projectID, kind, status)), nil
+		case status == enumspb.WORKFLOW_EXECUTION_STATUS_COMPLETED:
+			view, err := m.completedSessionView(ctx, projectID, kind)
+			if err != nil {
+				return SessionStateView{}, err
+			}
+			return withStageName(view), nil
+		}
+	} else if isNotFound(derr) {
+		return SessionStateView{}, noActiveSessionError(projectID)
+	}
+
 	enc, err := m.client.QueryWorkflow(ctx, wfID, "", querySessionState)
 	if err != nil {
+		// F20 (error altitude): before a design session exists the CoAuthor workflow
+		// does not exist, and Temporal's raw "workflow not found for ID: <proj>:<n>"
+		// leaks the internal execution id to the client. Map that to a clean,
+		// user-altitude NotFound; other query faults keep their generic mapping.
+		if isNotFound(err) {
+			return SessionStateView{}, noActiveSessionError(projectID)
+		}
 		return SessionStateView{}, mapQueryError(err)
 	}
 	var view SessionStateView
 	if err := enc.Get(&view); err != nil {
 		return SessionStateView{}, newError(fwmanager.Infrastructure, err.Error())
 	}
-	return view, nil
+	return withStageName(view), nil
+}
+
+// withStageName stamps the F72 human-readable StageName label alongside the bare Stage int
+// on the public SessionStateView, using sessionStageLabel as the single authoritative map.
+// Applied at the GetSessionState boundary so every wire consumer (web + MCP) sees the label
+// regardless of which internal path built the view. The Stage int (whose enum values DIFFER
+// across managers) is unchanged; StageName is purely additive.
+func withStageName(v SessionStateView) SessionStateView {
+	v.StageName = sessionStageLabel(v.Stage)
+	return v
+}
+
+// isAbnormalClosedStatus reports whether a workflow-execution status is a CLOSED-ABNORMAL
+// terminal state — the session died without a clean commit/withdraw. A normally COMPLETED
+// or still-RUNNING (or CONTINUED_AS_NEW) execution is NOT abnormal.
+func isAbnormalClosedStatus(s enumspb.WorkflowExecutionStatus) bool {
+	switch s {
+	case enumspb.WORKFLOW_EXECUTION_STATUS_FAILED,
+		enumspb.WORKFLOW_EXECUTION_STATUS_TERMINATED,
+		enumspb.WORKFLOW_EXECUTION_STATUS_TIMED_OUT,
+		enumspb.WORKFLOW_EXECUTION_STATUS_CANCELED:
+		return true
+	case enumspb.WORKFLOW_EXECUTION_STATUS_UNSPECIFIED,
+		enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING,
+		enumspb.WORKFLOW_EXECUTION_STATUS_COMPLETED,
+		enumspb.WORKFLOW_EXECUTION_STATUS_CONTINUED_AS_NEW,
+		enumspb.WORKFLOW_EXECUTION_STATUS_PAUSED:
+		return false
+	default:
+		return false
+	}
+}
+
+// failedSessionView synthesizes the human-visible failed view for a session whose
+// workflow died abnormally (see GetSessionState). It reuses StageDraftFailed — the SAME
+// terminal-failure stage the live anti-wedge gate uses — so the SPA renders its existing
+// "design job failed → retry / withdraw" card (Retry re-dispatches via signal-with-start,
+// starting a fresh run). Carries a neutral human FailureReason; no run URL (the death was
+// not a specific CI run).
+func failedSessionView(projectID ProjectID, kind ArtifactKind, status enumspb.WorkflowExecutionStatus) SessionStateView {
+	reason := terminatedSessionReason(status)
+	return SessionStateView{
+		ProjectID:     projectID,
+		ArtifactKind:  kind,
+		Stage:         StageDraftFailed,
+		Draft:         DraftModel{Kind: artifactKindWireName(kind)},
+		FailureReason: &reason,
+	}
+}
+
+// completedSessionView derives the honest session view for a CoAuthor run that closed
+// NORMALLY (COMPLETED). The replayed sessionState query is NOT trusted for such a run
+// (it can return a stale mid-flight stage — the P0-2 "GENERATING forever" wedge on an
+// already-committed artifact), so the view is rebuilt from the DURABLE slot on main.
+func (m *systemDesignManager) completedSessionView(ctx context.Context, projectID ProjectID, kind ArtifactKind) (SessionStateView, error) {
+	proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID))
+	if err != nil {
+		return SessionStateView{}, mapReadProjectError(err)
+	}
+	return committedSessionView(projectID, kind, slotFor(proj, kind))
+}
+
+// committedSessionView projects the durable slot of a COMPLETED session onto a
+// SessionStateView. A committed slot renders the committed view (StageCommitted + the
+// committed model + the durable review thread) — the same {kind, model} shape the SPA
+// consumes for a live session. A withdrawn slot renders StageWithdrawn. Any other
+// terminal-but-uncommitted state (the run completed without landing a commit) renders an
+// honest StageDraftFailed terminal carrying a neutral reason — NEVER StageDrafting, so
+// the SPA never wedges on an infinite "GENERATING" spinner for a dead session.
+func committedSessionView(projectID ProjectID, kind ArtifactKind, slot projectstate.ArtifactSlot) (SessionStateView, error) {
+	switch slot.Status {
+	case projectstate.ReviewCommitted:
+		draft, err := draftModelFor(kind, slot.Model)
+		if err != nil {
+			return SessionStateView{}, newError(fwmanager.Infrastructure, err.Error())
+		}
+		return SessionStateView{
+			ProjectID:    projectID,
+			ArtifactKind: kind,
+			Stage:        StageCommitted,
+			Draft:        draft,
+			ReviewThread: reviewThreadToView(slot.ReviewThread),
+		}, nil
+	case projectstate.ReviewWithdrawn:
+		return SessionStateView{
+			ProjectID:    projectID,
+			ArtifactKind: kind,
+			Stage:        StageWithdrawn,
+			Draft:        DraftModel{Kind: artifactKindWireName(kind)},
+		}, nil
+	case projectstate.ReviewNone, projectstate.ReviewAwaitingReview, projectstate.ReviewRejected:
+		// Any non-committed / non-withdrawn terminal status renders the honest
+		// StageDraftFailed view (never StageDrafting — the anti-wedge rule).
+		fallthrough
+	default:
+		reason := "the design session ended without committing an artifact. Retry to start a fresh draft."
+		return SessionStateView{
+			ProjectID:     projectID,
+			ArtifactKind:  kind,
+			Stage:         StageDraftFailed,
+			Draft:         DraftModel{Kind: artifactKindWireName(kind)},
+			FailureReason: &reason,
+		}, nil
+	}
+}
+
+// terminatedSessionReason renders the neutral human "why" for a session whose workflow
+// died abnormally.
+func terminatedSessionReason(status enumspb.WorkflowExecutionStatus) string {
+	return "the design session ended unexpectedly and is no longer running (" + workflowStatusLabel(status) + "). Retry to start a fresh draft."
+}
+
+// workflowStatusLabel maps an abnormal-closed status to a short, infrastructure-neutral
+// label for the failed card.
+func workflowStatusLabel(s enumspb.WorkflowExecutionStatus) string {
+	switch s {
+	case enumspb.WORKFLOW_EXECUTION_STATUS_FAILED:
+		return "the job failed"
+	case enumspb.WORKFLOW_EXECUTION_STATUS_TIMED_OUT:
+		return "the job timed out"
+	case enumspb.WORKFLOW_EXECUTION_STATUS_TERMINATED:
+		return "the job was terminated"
+	case enumspb.WORKFLOW_EXECUTION_STATUS_CANCELED:
+		return "the job was canceled"
+	case enumspb.WORKFLOW_EXECUTION_STATUS_UNSPECIFIED,
+		enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING,
+		enumspb.WORKFLOW_EXECUTION_STATUS_COMPLETED,
+		enumspb.WORKFLOW_EXECUTION_STATUS_CONTINUED_AS_NEW,
+		enumspb.WORKFLOW_EXECUTION_STATUS_PAUSED:
+		return "the job stopped"
+	default:
+		return "the job stopped"
+	}
 }
 
 // SetResearchInput — op 2.6 (2026-05-30). SYNCHRONOUS, non-Temporal: it records
@@ -334,6 +830,9 @@ func (m *systemDesignManager) SetResearchInput(rc fwmanager.Context, projectID P
 	}
 	if researchIsZero(research) {
 		return 0, newError(fwmanager.ContractMisuse, "empty research (no sources)")
+	}
+	if problem := researchSourceProblem(research); problem != "" {
+		return 0, newError(fwmanager.ContractMisuse, problem)
 	}
 
 	key := researchInputIdempotencyKey(projectID, research)
@@ -455,6 +954,14 @@ func mapReadProjectError(err error) error {
 
 // --- error mapping at the façade boundary -----------------------------------
 
+// noActiveSessionError is the clean, user-altitude NotFound returned when no
+// design session (CoAuthor workflow) exists for the project — the no-active-session
+// read. It replaces Temporal's raw "workflow not found for ID: <proj>:<kind>" leak
+// (which exposed the internal execution-id format) with a client-appropriate message.
+func noActiveSessionError(projectID ProjectID) error {
+	return newError(fwmanager.NotFound, fmt.Sprintf("no active design session for project %q", projectID))
+}
+
 func mapStartError(err error) error {
 	// A "workflow already started" race under UseExisting policy is benign; the
 	// SDK surfaces it as *serviceerror.WorkflowExecutionAlreadyStarted, but with
@@ -473,6 +980,17 @@ func mapSignalError(err error) error {
 func mapQueryError(err error) error {
 	if isNotFound(err) {
 		return newError(fwmanager.NotFound, err.Error())
+	}
+	// A session whose workflow task is FAILING (e.g. a deploy-time non-determinism
+	// fault being retried) rejects queries with the raw Temporal internals
+	// "Unable to query workflow due to Workflow Task in failed state" — observed
+	// live on gtdapp:5 during the managed-scaffold-sync versioning incident. Same
+	// error-hygiene rule as the 065a9e7 not-found cleanup: clients get a clean,
+	// actionable Detail; the raw cause stays in the server-side log line at the
+	// call site.
+	if strings.Contains(err.Error(), "Workflow Task in failed state") {
+		return newError(fwmanager.Infrastructure,
+			"design session state is temporarily unavailable — the session hit an internal fault and is being retried by the server; try again shortly")
 	}
 	return newError(fwmanager.Infrastructure, err.Error())
 }

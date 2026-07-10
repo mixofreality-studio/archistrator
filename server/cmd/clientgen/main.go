@@ -35,10 +35,10 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	httpcontract "github.com/mixofreality-studio/archistrator-platform/framework-go-http-generator/contract"
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-http-generator/httpgen"
-	mcpcontract "github.com/mixofreality-studio/archistrator-platform/framework-go-mcp-generator/contract"
-	"github.com/mixofreality-studio/archistrator-platform/framework-go-mcp-generator/mcpgen"
+	projectmodel "github.com/mixofreality-studio/archistrator-platform/framework-go-projectmodel"
+
+	"github.com/mixofreality-studio/archistrator/server/cmd/clientgen/internal/mcpemit"
 )
 
 // projectFile is the default path (relative to the server module root, where the
@@ -114,7 +114,7 @@ func main() {
 		managerImport := serverModule + "/" + meta.GoPackage
 
 		// --- REST handlers + OpenAPI (http generator) ---
-		hdoc, err := httpcontract.Parse(entry)
+		hdoc, err := projectmodel.Parse(entry)
 		if err != nil {
 			fatal("contract %q: http parse: %v", key, err)
 		}
@@ -125,7 +125,7 @@ func main() {
 		if err != nil {
 			fatal("contract %q: httpgen: %v", key, err)
 		}
-		base := httpcontract.Kebab(hdoc.ManagerBase())
+		base := projectmodel.Kebab(hdoc.ManagerBase())
 		webDir := filepath.Join(webRoot, pkg)
 		mustMkdir(webDir)
 		mustWrite(filepath.Join(webDir, base+"_handlers.gen.go"), hres.HandlersGo)
@@ -136,17 +136,22 @@ func main() {
 		}
 		oasDocs = append(oasDocs, contractOAS{prefix: hdoc.ManagerBase(), doc: oasDoc})
 
-		// --- MCP tools (mcp generator) ---
-		mdoc, err := mcpcontract.Parse(entry)
-		if err != nil {
-			fatal("contract %q: mcp parse: %v", key, err)
+		// --- MCP tools (in-repo mcpemit generator) ---
+		var ifaceMeta struct {
+			Interface struct {
+				Name string `json:"name"`
+			} `json:"interface"`
 		}
-		mres, err := mcpgen.Generate(mdoc, mcpgen.Options{
+		if err := json.Unmarshal(entry, &ifaceMeta); err != nil {
+			fatal("contract %q: parse interface name: %v", key, err)
+		}
+		mres, err := mcpemit.Generate(entry, mcpemit.Options{
 			Package:       pkg,
 			ManagerImport: managerImport,
+			OpDoc:         opDocFor(ifaceMeta.Interface.Name),
 		})
 		if err != nil {
-			fatal("contract %q: mcpgen: %v", key, err)
+			fatal("contract %q: mcpemit: %v", key, err)
 		}
 		mcpDir := filepath.Join(mcpRoot, pkg)
 		mustMkdir(mcpDir)
@@ -238,6 +243,18 @@ func mergeOpenAPI(docs []contractOAS) (map[string]any, error) {
 			schemas[name] = def
 		}
 	}
+
+	// Splice the shared reflected slot-model block (the ONE place a $ref crosses a
+	// contract boundary — the Model* namespace) and repoint every opaque
+	// raw-message draft field onto a oneOf over the 14 variant refs.
+	repointed, err := spliceModelSchemas(schemas)
+	if err != nil {
+		return nil, fmt.Errorf("splice slot-model schemas: %w", err)
+	}
+	if len(repointed) == 0 {
+		return nil, fmt.Errorf("no opaque DraftModel.model fields found to repoint (detection pattern drift?)")
+	}
+	fmt.Printf("repointed %d opaque draft field(s) onto Model* oneOf: %s\n", len(repointed), strings.Join(repointed, ", "))
 
 	return map[string]any{
 		"openapi": "3.1.0",

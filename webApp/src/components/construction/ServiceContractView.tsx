@@ -56,12 +56,18 @@ type DiagramView = 'code' | 'component' | 'dynamic' | 'facets';
 
 function layerColor(t: Tokens, layer: string): string {
   switch (layer) {
-    case 'Client': return t.chatPmFg;
-    case 'Manager': return t.accent;
-    case 'Engine': return t.chatArchitectFg;
-    case 'ResourceAccess': return t.accent2;
-    case 'Utility': return t.muted;
-    default: return t.muted;
+    case 'Client':
+      return t.chatPmFg;
+    case 'Manager':
+      return t.accent;
+    case 'Engine':
+      return t.chatArchitectFg;
+    case 'ResourceAccess':
+      return t.accent2;
+    case 'Utility':
+      return t.muted;
+    default:
+      return t.muted;
   }
 }
 
@@ -95,17 +101,28 @@ function VolatilityCard({ c, t }: { c: ServiceContract; t: Tokens }): ReactNode 
           />
         </Box>
         <Typography
-          sx={{ fontFamily: t.display, fontWeight: 800, fontSize: 20, color: t.ink, lineHeight: 1.15, mt: 0.25 }}
+          sx={{
+            fontFamily: t.display,
+            fontWeight: 800,
+            fontSize: 20,
+            color: t.ink,
+            lineHeight: 1.15,
+            mt: 0.25,
+          }}
         >
           {c.component}
         </Typography>
       </Box>
       {c.volatility !== undefined && c.volatility.length > 0 ? (
         <Box sx={{ px: 2, py: 1.25 }}>
-          <Typography sx={{ fontFamily: t.mono, fontSize: 9, letterSpacing: '0.08em', color: t.muted }}>
+          <Typography
+            sx={{ fontFamily: t.mono, fontSize: 9, letterSpacing: '0.08em', color: t.muted }}
+          >
             ENCAPSULATED VOLATILITY
           </Typography>
-          <Typography sx={{ fontFamily: t.body, fontSize: 12.5, color: t.ink, lineHeight: 1.5, mt: 0.25 }}>
+          <Typography
+            sx={{ fontFamily: t.body, fontSize: 12.5, color: t.ink, lineHeight: 1.5, mt: 0.25 }}
+          >
             {c.volatility}
           </Typography>
         </Box>
@@ -129,9 +146,11 @@ function CodePane({ c, t }: { c: ServiceContract; t: Tokens }): ReactNode {
   }
   return (
     <Box>
-      <Typography sx={{ fontFamily: t.body, fontSize: 11.5, color: t.muted, mb: 1, lineHeight: 1.45 }}>
-        The <b>«interface»</b> surface for <b>{c.component}</b> — {ops.length} op{ops.length !== 1 ? 's' : ''}.
-        Click an op row to expand its request / response structs.
+      <Typography
+        sx={{ fontFamily: t.body, fontSize: 11.5, color: t.muted, mb: 1, lineHeight: 1.45 }}
+      >
+        The <b>«interface»</b> surface for <b>{c.component}</b> — {ops.length} op
+        {ops.length !== 1 ? 's' : ''}. Click an op row to expand its request / response structs.
       </Typography>
       <ContractCodeFlow component={c.component} height={380 + ops.length * 40} ops={ops} t={t} />
     </Box>
@@ -150,9 +169,12 @@ function ComponentPane({ c, t }: { c: ServiceContract; t: Tokens }): ReactNode {
   }
   return (
     <Box>
-      <Typography sx={{ fontFamily: t.body, fontSize: 11.5, color: t.muted, mb: 1, lineHeight: 1.45 }}>
-        Focal component centered; <b>inbound callers</b> connect from above, <b>outbound callees</b> connect below.
-        Built from the contract&apos;s own inbound/outbound fields — does not cross-reference the system-design slot.
+      <Typography
+        sx={{ fontFamily: t.body, fontSize: 11.5, color: t.muted, mb: 1, lineHeight: 1.45 }}
+      >
+        Focal component centered; <b>inbound callers</b> connect from above, <b>outbound callees</b>{' '}
+        connect below. Built from the contract&apos;s own inbound/outbound fields — does not
+        cross-reference the system-design slot.
       </Typography>
       <ContractComponentFlow
         component={c.component}
@@ -202,11 +224,21 @@ function DynamicPane({
   if (systemEnvelope === undefined || focalId === undefined || matchingViews.length === 0) {
     return (
       <Paper sx={{ p: 2 }}>
-        <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 11, letterSpacing: '0.06em', color: t.ink, mb: 1 }}>
+        <Typography
+          sx={{
+            fontFamily: t.mono,
+            fontWeight: 700,
+            fontSize: 11,
+            letterSpacing: '0.06em',
+            color: t.ink,
+            mb: 1,
+          }}
+        >
           DYNAMIC SEQUENCE VIEW
         </Typography>
         <Typography sx={{ fontFamily: t.body, fontSize: 12.5, color: t.muted, lineHeight: 1.55 }}>
-          This contract&apos;s component does not participate in any of the committed use-case dynamic views.
+          This contract&apos;s component does not participate in any of the committed use-case
+          dynamic views.
         </Typography>
       </Paper>
     );
@@ -217,7 +249,9 @@ function DynamicPane({
       {/* Use-case selector — dynamic, one entry per use case this component
           participates in, so a dropdown replaces a chip strip here too. */}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-        <Typography sx={{ fontFamily: t.mono, fontSize: 10, letterSpacing: '0.08em', color: t.muted }}>
+        <Typography
+          sx={{ fontFamily: t.mono, fontSize: 10, letterSpacing: '0.08em', color: t.muted }}
+        >
           USE CASES · {matchingViews.length.toString()}
         </Typography>
         <FormControl size="small" sx={{ minWidth: 240 }}>
@@ -225,7 +259,9 @@ function DynamicPane({
             aria-label="Use case"
             sx={{ fontFamily: t.mono, fontSize: 13 }}
             value={activeKey}
-            onChange={(e) => { setSelectedKey(e.target.value); }}
+            onChange={(e) => {
+              setSelectedKey(e.target.value);
+            }}
           >
             {matchingViews.map((v) => (
               <MenuItem key={v.key} sx={{ fontFamily: t.mono, fontSize: 13 }} value={v.key}>
@@ -261,10 +297,29 @@ function FacetsPane({ c, t }: { c: ServiceContract; t: Tokens }): ReactNode {
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2 }}>
           {hasDataContracts ? (
             <Paper sx={{ p: 2 }}>
-              <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 11, letterSpacing: '0.06em', color: t.ink, mb: 1 }}>
+              <Typography
+                sx={{
+                  fontFamily: t.mono,
+                  fontWeight: 700,
+                  fontSize: 11,
+                  letterSpacing: '0.06em',
+                  color: t.ink,
+                  mb: 1,
+                }}
+              >
                 DATA CONTRACTS
               </Typography>
-              <Box component="pre" sx={{ m: 0, fontFamily: t.mono, fontSize: 11, color: t.ink, whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>
+              <Box
+                component="pre"
+                sx={{
+                  m: 0,
+                  fontFamily: t.mono,
+                  fontSize: 11,
+                  color: t.ink,
+                  whiteSpace: 'pre-wrap',
+                  lineHeight: 1.7,
+                }}
+              >
                 {dataContracts.join('\n')}
               </Box>
             </Paper>
@@ -272,20 +327,42 @@ function FacetsPane({ c, t }: { c: ServiceContract; t: Tokens }): ReactNode {
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             {hasErrorModel ? (
               <Paper sx={{ p: 2 }}>
-                <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 11, letterSpacing: '0.06em', color: t.ink, mb: 0.5 }}>
+                <Typography
+                  sx={{
+                    fontFamily: t.mono,
+                    fontWeight: 700,
+                    fontSize: 11,
+                    letterSpacing: '0.06em',
+                    color: t.ink,
+                    mb: 0.5,
+                  }}
+                >
                   ERROR MODEL
                 </Typography>
-                <Typography sx={{ fontFamily: t.body, fontSize: 12, color: t.ink, lineHeight: 1.5 }}>
+                <Typography
+                  sx={{ fontFamily: t.body, fontSize: 12, color: t.ink, lineHeight: 1.5 }}
+                >
                   {c.errorModel}
                 </Typography>
               </Paper>
             ) : null}
             {hasIdempotency ? (
               <Paper sx={{ p: 2 }}>
-                <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 11, letterSpacing: '0.06em', color: t.ink, mb: 0.5 }}>
+                <Typography
+                  sx={{
+                    fontFamily: t.mono,
+                    fontWeight: 700,
+                    fontSize: 11,
+                    letterSpacing: '0.06em',
+                    color: t.ink,
+                    mb: 0.5,
+                  }}
+                >
                   IDEMPOTENCY
                 </Typography>
-                <Typography sx={{ fontFamily: t.body, fontSize: 12, color: t.ink, lineHeight: 1.5 }}>
+                <Typography
+                  sx={{ fontFamily: t.body, fontSize: 12, color: t.ink, lineHeight: 1.5 }}
+                >
                   {c.idempotency}
                 </Typography>
               </Paper>
@@ -302,28 +379,60 @@ function FacetsPane({ c, t }: { c: ServiceContract; t: Tokens }): ReactNode {
       {ops.length > 0 ? (
         <Paper sx={{ p: 0, overflow: 'hidden' }}>
           <Box sx={{ px: 2, py: 1.1, bgcolor: t.paperAlt, borderBottom: `1.5px solid ${t.line}` }}>
-            <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 11, letterSpacing: '0.06em', color: t.ink }}>
+            <Typography
+              sx={{
+                fontFamily: t.mono,
+                fontWeight: 700,
+                fontSize: 11,
+                letterSpacing: '0.06em',
+                color: t.ink,
+              }}
+            >
               OPERATIONS · {ops.length} · App-B §5.2 sweet spot 3–5
             </Typography>
           </Box>
           <Table size="small">
             <TableHead>
               <TableRow>
-                <TableCell sx={{ fontFamily: t.mono, fontSize: 10, fontWeight: 700, color: t.muted }}>SIGNATURE</TableCell>
-                <TableCell sx={{ fontFamily: t.mono, fontSize: 10, fontWeight: 700, color: t.muted }}>STEREOTYPE</TableCell>
-                <TableCell sx={{ fontFamily: t.mono, fontSize: 10, fontWeight: 700, color: t.muted }}>NOTE</TableCell>
+                <TableCell
+                  sx={{ fontFamily: t.mono, fontSize: 10, fontWeight: 700, color: t.muted }}
+                >
+                  SIGNATURE
+                </TableCell>
+                <TableCell
+                  sx={{ fontFamily: t.mono, fontSize: 10, fontWeight: 700, color: t.muted }}
+                >
+                  STEREOTYPE
+                </TableCell>
+                <TableCell
+                  sx={{ fontFamily: t.mono, fontSize: 10, fontWeight: 700, color: t.muted }}
+                >
+                  NOTE
+                </TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {ops.map((op, i) => (
                 <TableRow key={`${op.signature}-${String(i)}`}>
-                  <TableCell sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.ink, verticalAlign: 'top' }}>
+                  <TableCell
+                    sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.ink, verticalAlign: 'top' }}
+                  >
                     {op.signature}
                   </TableCell>
-                  <TableCell sx={{ fontFamily: t.mono, fontSize: 10, color: t.muted, verticalAlign: 'top', whiteSpace: 'nowrap' }}>
+                  <TableCell
+                    sx={{
+                      fontFamily: t.mono,
+                      fontSize: 10,
+                      color: t.muted,
+                      verticalAlign: 'top',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
                     {op.stereotype}
                   </TableCell>
-                  <TableCell sx={{ fontFamily: t.body, fontSize: 11, color: t.ink, verticalAlign: 'top' }}>
+                  <TableCell
+                    sx={{ fontFamily: t.body, fontSize: 11, color: t.ink, verticalAlign: 'top' }}
+                  >
                     {op.note ?? '—'}
                   </TableCell>
                 </TableRow>
@@ -378,15 +487,23 @@ export function ServiceContractView({
               px: 1.25,
               py: 0.4,
             },
-            '& .Mui-selected': { bgcolor: `${t.accent} !important`, color: `${t.accentText} !important` },
+            '& .Mui-selected': {
+              bgcolor: `${t.accent} !important`,
+              color: `${t.accentText} !important`,
+            },
           }}
           value={view}
-          onChange={(_e, v: DiagramView | null) => { if (v !== null) setView(v); }}
+          onChange={(_e, v: DiagramView | null) => {
+            if (v !== null) setView(v);
+          }}
         >
           <ToggleButton data-testid={UI_IDENTIFIERS.ServiceContract.TAB_CODE} value="code">
             <CodeIcon sx={{ fontSize: 15, mr: 0.6 }} /> Code / interface
           </ToggleButton>
-          <ToggleButton data-testid={UI_IDENTIFIERS.ServiceContract.TAB_COMPONENT} value="component">
+          <ToggleButton
+            data-testid={UI_IDENTIFIERS.ServiceContract.TAB_COMPONENT}
+            value="component"
+          >
             <AccountTreeIcon sx={{ fontSize: 15, mr: 0.6 }} /> Component view
           </ToggleButton>
           <ToggleButton data-testid={UI_IDENTIFIERS.ServiceContract.TAB_DYNAMIC} value="dynamic">

@@ -34,7 +34,7 @@ interface Pending {
 
 export function SelectionPopover(): ReactNode {
   const t = useTokens();
-  const { setAnchor } = useComments();
+  const { setAnchor, enabled } = useComments();
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
   const [pending, setPending] = useState<Pending | null>(null);
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -60,14 +60,42 @@ export function SelectionPopover(): ReactNode {
       const el = node?.nodeType === 1 ? (node as Element) : (node?.parentElement ?? null);
       return el?.closest('[data-commentable]') ?? null;
     };
-    const host = hostOf(sel.anchorNode);
-    const focusHost = hostOf(sel.focusNode);
-    // Both endpoints must resolve to the SAME commentable block.
-    if (host === null || focusHost !== host) {
+    // Number of addressable positions inside a node: text length for text nodes,
+    // child count for element nodes. A boundary AT this value is the node's end.
+    const endOffset = (node: Node): number =>
+      node.nodeType === 3 ? (node.textContent?.length ?? 0) : node.childNodes.length;
+
+    // Resolve the SINGLE commentable that owns the selected text, using the
+    // ordered range boundaries (start ≤ end in document order).
+    //
+    // A whole-paragraph selection — triple-click, or a keyboard shift+↓/⌘A that
+    // reaches the block edge — frequently plants the trailing boundary at offset
+    // 0 of the *next* block (Chrome's block-selection behavior). That boundary
+    // contributes no text, so the paragraph the start sits in is the true owner.
+    // Symmetric for a selection whose leading boundary is an empty tail of the
+    // prior block. When both boundaries carry real text in different commentable
+    // blocks, we still reject (the cross-item clamp that stops a drag across
+    // several items from producing one meaningless anchor).
+    const range = sel.getRangeAt(0);
+    const startHost = hostOf(range.startContainer);
+    const endHost = hostOf(range.endContainer);
+    let host: Element | null;
+    if (startHost !== null && startHost === endHost) {
+      host = startHost;
+    } else if (startHost !== null && range.endOffset === 0) {
+      // Trailing boundary is an empty block-start — owner is the start's block.
+      host = startHost;
+    } else if (endHost !== null && range.startOffset >= endOffset(range.startContainer)) {
+      // Leading boundary is an empty block-end — owner is the end's block.
+      host = endHost;
+    } else {
+      host = null;
+    }
+    if (host === null) {
       clear();
       return;
     }
-    const rect = sel.getRangeAt(0).getBoundingClientRect();
+    const rect = range.getBoundingClientRect();
     setPos({ x: rect.left + rect.width / 2, y: rect.top - 8 });
     setPending({
       text,
@@ -77,6 +105,9 @@ export function SelectionPopover(): ReactNode {
   }, [clear]);
 
   useEffect(() => {
+    // Read-only surface: attach no selection listeners at all, so highlighting
+    // prose never floats a Comment button.
+    if (!enabled) return;
     // Mouse: settle immediately on release for a snappy drag-select.
     const onUp = (): void => {
       evaluate();
@@ -102,9 +133,9 @@ export function SelectionPopover(): ReactNode {
       document.removeEventListener('keydown', onKeyDown);
       if (debounce.current !== null) clearTimeout(debounce.current);
     };
-  }, [evaluate, clear]);
+  }, [evaluate, clear, enabled]);
 
-  if (pos === null || pending === null) return null;
+  if (!enabled || pos === null || pending === null) return null;
 
   const label = pending.text.length > 60 ? `${pending.text.slice(0, 60)}…` : pending.text;
 
@@ -114,6 +145,8 @@ export function SelectionPopover(): ReactNode {
       label,
       source: pending.source,
       jsonPath: proseAnchor(pending.kind, pending.source),
+      // The chip label is truncated for display; send the FULL quote as anchorText.
+      anchorText: pending.text,
     });
     clear();
     window.getSelection()?.removeAllRanges();

@@ -58,10 +58,11 @@ func crLabelHints(crLabel string) []byte {
 // RetryPolicy / timeout choices live here, in the Manager.
 // ---------------------------------------------------------------------------
 
-// mintCredOpts — the credential mint. A rejected/expired App identity is terminal
-// (fwra.Auth); transport blips retry.
-func mintCredOpts(ctx workflow.Context) workflow.Context {
-	return workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+// mintCredActivityOptions — the credential mint preset VALUE the manifest's Opts hook
+// (workermanifest.go) applies to the GENERATED getInstallationToken invoker. A
+// rejected/expired App identity is terminal (fwra.Auth); transport blips retry.
+func mintCredActivityOptions() workflow.ActivityOptions {
+	return workflow.ActivityOptions{
 		StartToCloseTimeout: 15 * time.Second,
 		RetryPolicy: &temporal.RetryPolicy{
 			NonRetryableErrorTypes: []string{
@@ -69,14 +70,15 @@ func mintCredOpts(ctx workflow.Context) workflow.Context {
 				fwmanager.RAErrType(fwra.ContractMisuse),
 			},
 		},
-	})
+	}
 }
 
-// railOpts — the PR-rail verbs (OpenBranch / OpenPullRequest / GetPullRequestStatus /
-// PostReview / MergePullRequest). Auth + a merge Conflict (not-mergeable) + bad input
-// are terminal; transport/rate-limit retry.
-func railOpts(ctx workflow.Context) workflow.Context {
-	return workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+// railActivityOptions — the PR-rail verbs preset VALUE (OpenBranch / OpenPullRequest /
+// GetPullRequestStatus / PostReview / MergePullRequest), applied to the GENERATED rail
+// invokers via the manifest's Opts hook. Auth + a merge Conflict (not-mergeable) + bad
+// input are terminal; transport/rate-limit retry.
+func railActivityOptions() workflow.ActivityOptions {
+	return workflow.ActivityOptions{
 		StartToCloseTimeout: 30 * time.Second,
 		RetryPolicy: &temporal.RetryPolicy{
 			NonRetryableErrorTypes: []string{
@@ -86,5 +88,5 @@ func railOpts(ctx workflow.Context) workflow.Context {
 				fwmanager.RAErrType(fwra.ContractMisuse),
 			},
 		},
-	})
+	}
 }

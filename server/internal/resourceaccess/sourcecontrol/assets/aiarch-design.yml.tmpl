@@ -1,0 +1,515 @@
+# aiarch DESIGN workflow (TEMPLATE — server-committed, do not hand-edit in the user repo)
+# =============================================================================
+# This is a Go text/template. Its action delimiters are the double-square-bracket
+# pair (not the default brace pair) — chosen so GitHub Actions' own ${{ ... }}
+# expressions are left untouched. The server renders it with the
+# configured GitHub App slug before seating it (renderDesignWorkflow); the ONLY
+# templated value is the allowed_bots actor on the claude-code-action step.
+#
+# This is the DESIGN counterpart of the construction reference workflow
+# (products/archistrator/deploy/construction-workflow/aiarch-construct.yml).
+#
+# Unlike the construction file (which the operator installs by hand into the
+# construction repo), archistrator-server COMMITS THIS FILE into each user
+# project repo at project birth, bundled with the go-test gate scaffold (go.mod +
+# aiarch_method_test.go), via
+#   sourceControlAccess.CommitManagedFiles(repo, ManagedScaffoldFiles(repo, slug), ...)
+# (the C-PM-Δ caller threads the accessor), and KEEPS IT CURRENT after birth via the
+# design Managers' MANAGED-SCAFFOLD SYNC: before every design-job dispatch the server
+# re-renders this template and, when the seated copy drifted (e.g. the aiarch-state-mcp
+# pin moved with a server release), commits the refreshed file to the default branch
+# (sourcecontrol.SyncManagedScaffold — no drift, no commit). Hand-edits to the seated
+# copy are therefore overwritten on the next dispatch. It then DISPATCHES it for every
+# LLM-needing DESIGN activity (UC1 system-design + UC2 project-design drafting,
+# PM-critique, redraft) via the SAME frozen verb construction uses —
+# constructionPipelineAccess.SubmitConstructionPipeline (workflow_dispatch).
+#
+# The job runs claude-code-action on the USER'S CLAUDE_CODE_OAUTH_TOKEN + the
+# user's CI minutes. aiarch holds NO LLM key and makes NO synchronous LLM call.
+# The action drafts the typed Method artifact per the supplied PROMPT and commits
+# the resulting JSON under .aiarch/state/ (the exact path the `validate` gate and
+# projectStateAccess read).
+#
+# WHETHER A PR IS OPENED DEPENDS ON job_mode (F39 rail-debris fix):
+#   - job_mode=draft: the action ALSO opens a PR so the human review gate + the
+#     required `validate` check apply to the drafted model. A red validate check
+#     BLOCKS merge — that red check IS the trust boundary (C-VCI).
+#   - job_mode=critique: the action does NOT open a PR. The Manager reads the
+#     committed `critiqueVerdict` STRAIGHT OFF the branch; a critique PR is never
+#     merged (by design) and would accumulate as abandoned rail debris (F39). The
+#     verdict is committed to the branch and the guard below proves the branch
+#     advanced — no PR, no merge gate, is involved on the critique path.
+#
+# -----------------------------------------------------------------------------
+# LOAD-BEARING DISPATCH CONTRACT — DO NOT CHANGE THESE ANCHORS:
+#
+#   1. workflow_dispatch input named EXACTLY `idempotency_token` (string,
+#      required). Constant: framework-go-infrastructure-github
+#      DispatchInputKeyIdempotency = "idempotency_token". The
+#      constructionPipelineAccess RA fills it and finds/dedups/observes/cancels
+#      runs BY RUN NAME.
+#
+#   2. Top-level `run-name: aiarch-cp-${{ inputs.idempotency_token }}`. The
+#      prefix `aiarch-cp-` is the RA's RunNamePrefix; ListRunsByName matches
+#      RunNamePrefix+token. If this run-name is wrong, dispatch idempotency,
+#      observe, and cancel ALL silently break (the RA dispatches runs it can
+#      never see) — identical failure mode to the construction workflow.
+#
+#   3. The workflow MUST be `workflow_dispatch`-triggerable on the dispatch ref.
+#
+# The DESIGN-job inputs (`artifact_kind`, `design_prompt`, `target_branch`,
+# `prior_state_ref`, `job_mode`) are the additive DispatchInputs the design Managers
+# (C-MSD-Δ / C-MPD-Δ) set on PipelineSpec. Their NAMES are a contract between
+# this file and those Managers — see designs/aiarch/implementation/log/C-WF-DESIGN.md.
+#
+# job_mode (D-MSD-Δ amendment) discriminates a DRAFT job from a PM-CRITIQUE job:
+#   - "draft"    (default): the action drafts the typed `artifact_kind` model and
+#                commits it as the slot's `model` in .aiarch/state/project.json.
+#   - "critique": the action does NOT rewrite the model. It records its verdict into
+#                the SAME slot's first-class critique carrier — `critiqueVerdict`
+#                (exactly "approve" or "revise") and, on "revise", `critiqueNotes`
+#                (the revision guidance) — which the Manager reads back. The action
+#                MUST commit a non-empty `critiqueVerdict` and MUST NOT touch the
+#                slot's `notes` (the architect's reject/withdraw rationale). The exact
+#                JSON shape is spelled out in the composed `design_prompt`; this flag
+#                steers BOTH the template's commit-target instruction AND whether a PR
+#                is opened: a critique job commits to the branch and does NOT open a PR
+#                (the Manager reads `critiqueVerdict` off the branch; a critique PR is
+#                never merged and would pile up as abandoned rail debris — F39).
+#
+# REQUIRED CHECK — `aiarch-state-mcp validate`:
+#   The `validate` job (the job NAME is the branch-protection anchor — do not rename)
+#   installs the SAME pinned aiarch-state-mcp binary the draft job uses and runs its
+#   `validate` subcommand over the checked-out repo: the identical methodcheck
+#   design-JSON rules the old seated `go test` gate ran (and putDraftModel enforces
+#   in-loop), PLUS the STALENESS-AWARE cross-artifact severity policy — a
+#   System×OperationalConcepts join rule (DEP-COVERAGE / DEP-GRAPH-IDENTITY /
+#   DEP-MEMBER-EXIST and siblings) downgrades from Error to Warning while the
+#   OperationalConcepts slot is flagged StaleBasis (its reconciliation is pending BY
+#   DESIGN after an upstream amendment), so a cross-artifact amendment no longer
+#   deadlocks the rail. Sealing the phase unreconciled stays impossible via the
+#   server's STALE-UNACKED AdvancePhase gate. A non-zero exit (surviving
+#   Error-severity findings) BLOCKS PR merge — that red check IS the trust boundary.
+#   WHY THE BINARY AND NOT THE SEATED `go test`: the enforcement stack must be
+#   SELF-UPDATING — the binary ships the whole app-side rule stack at the pin this
+#   file installs, and the managed-scaffold sync refreshes this file whenever the pin
+#   moves; the seated go.mod route needed a platform release + a product go.mod bump
+#   per rule change (the drift class the sync exists to kill). The seated scaffold
+#   (go.mod + aiarch_method_test.go) REMAINS for the product repo's own CI once it
+#   has Go code: the arch layer rules + design↔code alignment need go/packages over
+#   the product module, which an installed binary cannot run.
+# =============================================================================
+
+name: aiarch-design
+
+# (2) Run-name is the idempotency anchor the RA resolves runs by. EXACT prefix.
+run-name: aiarch-cp-${{ inputs.idempotency_token }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      # (1) LOAD-BEARING — the dedup token the RA stamps into run-name above.
+      idempotency_token:
+        description: "aiarch dedup token (RA-supplied; stamped into run-name)"
+        required: true
+        type: string
+      # --- DESIGN-job parameters (DispatchInputs; set by C-MSD-Δ / C-MPD-Δ) ---
+      # The typed Method artifact KIND the action must draft+commit (e.g.
+      # "Mission", "Glossary", "Volatilities", "CoreUseCases", "System",
+      # "OperationalConcepts", "StandardCheck"; UC2 plan kinds analogously).
+      artifact_kind:
+        description: "typed Method artifact kind to draft (e.g. Mission, Volatilities)"
+        required: true
+        type: string
+      # The composed Method-role PROMPT the Manager built (role instructions +
+      # prior committed state context + the drafting task). The action runs
+      # claude-code-action with this as its prompt.
+      design_prompt:
+        description: "composed Method-role drafting prompt for claude-code-action"
+        required: true
+        type: string
+      # The branch the action commits the drafted JSON onto and opens the PR from.
+      # The Manager owns branch naming (branch-per-activity, +1 relay).
+      target_branch:
+        description: "branch to draft onto and open the design PR from"
+        required: true
+        type: string
+      # Pointer to the prior committed project state the draft builds on — the
+      # git ref (commit SHA or branch) whose .aiarch/state/project.json the action
+      # reads as input context. Empty on the first artifact of a fresh project.
+      prior_state_ref:
+        description: "git ref of prior committed .aiarch/state to build the draft on"
+        required: false
+        type: string
+        default: ""
+      # DRAFT vs PM-CRITIQUE vs ANSWER discriminator (D-MSD-Δ + question-comments).
+      # "draft" (default) commits the typed model; "critique" commits the slot's
+      # critiqueVerdict/critiqueNotes read-back carrier; "answer" (question-comments)
+      # commits per-question responses into the slot's reviewThread via
+      # respondToReviewComment (no model rewrite, no verdict). Only "draft" opens a PR;
+      # critique and answer commit to the branch and the Manager reads back off it.
+      # Defaulted so a dispatch that omits it behaves exactly as a draft.
+      job_mode:
+        description: "draft (commit the typed model), critique (commit critiqueVerdict/critiqueNotes), or answer (commit review-comment responses)"
+        required: false
+        type: string
+        default: "draft"
+
+# The action drafts and commits the typed JSON and opens a PR, so it needs to
+# write repo contents and pull requests. The LLM call is authenticated by the
+# CLAUDE_CODE_OAUTH_TOKEN repo Actions secret, which is provisioned by the Claude
+# Code GitHub App when the user runs /install-github-app (aiarch does no secret
+# management), NOT by this in-run GITHUB_TOKEN.
+# id-token is required by claude-code-action's OIDC exchange (it mints its
+# GitHub credential via the Claude GitHub App when no github_token input is
+# supplied) — same grant as the reference aiarch-construct.yml. Observed live
+# 2026-07-04: without it the draft job dies at "Failed to get OIDC token".
+permissions:
+  contents: write
+  pull-requests: write
+  id-token: write
+
+# One in-flight design run per dedup token — belt-and-braces alongside the RA's
+# own run-name convergence (identical to construction).
+concurrency:
+  group: aiarch-cp-${{ inputs.idempotency_token }}
+  cancel-in-progress: false
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # draft — run claude-code-action on the USER's CLAUDE_CODE_OAUTH_TOKEN to draft
+  # the typed Method artifact per design_prompt and COMMIT the resulting JSON
+  # under .aiarch/state/ on target_branch, then open a PR. The action holds the
+  # LLM credential; aiarch never does.
+  # ---------------------------------------------------------------------------
+  draft:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout prior committed state
+        uses: actions/checkout@v4
+        with:
+          # Build the draft on the prior committed state when supplied; otherwise
+          # the workflow ref (a fresh project).
+          ref: ${{ inputs.prior_state_ref != '' && inputs.prior_state_ref || github.ref }}
+          fetch-depth: 0
+
+      # -----------------------------------------------------------------------
+      # aiarch-state MCP server (agentic-managers spec §Construction application).
+      # The drafting agent NO LONGER hand-edits .aiarch/state/project.json or runs git:
+      # it authors the typed Method artifact through the "aiarch-state" MCP tools, which
+      # ARE ProjectStateAccess code operating on this checkout. putDraftModel validates
+      # every model through the FULL projectstate codec + methodcheck BEFORE writing (so a
+      # bad enum / missing id is rejected in-loop with an actionable error, not committed
+      # to stall the rail), and publishDraft is the single, exactly-once commit+push.
+      #
+      # It is installed BEFORE the refresh step because the refresh's deterministic
+      # conflict RESOLVER (F80) invokes this same binary's `reconcile` subcommand — keeping
+      # ALL state-file logic in ProjectStateAccess code rather than a bash/jq hack.
+      #
+      # DELIVERY: the binary is obtained the SAME way the seated go.mod scaffold obtains
+      # framework-go — `go install <module>@<pin>` resolved via GOPROXY (a published
+      # module) — so it carries the identical trust/access profile as today's platform
+      # module fetch. The binary lives in the archistrator SERVER module because it must
+      # reuse the STRICT projectstate codec in server/internal (a package only that module
+      # can import). Requires the archistrator repo to be resolvable by GOPROXY (public);
+      # until then this step fails RED, the correct visible signal.
+      # -----------------------------------------------------------------------
+      - name: Set up Go (for the aiarch-state MCP server)
+        uses: actions/setup-go@v5
+        with:
+          # Pin the toolchain INDEPENDENTLY of the seated go.mod (which tracks the user
+          # module / framework-go). `go install` of the archistrator SERVER module needs a
+          # Go at least as new as that module's own `go` directive, so pin the latest 1.25
+          # patch here rather than inheriting the user repo's (possibly older) go-version.
+          go-version: "1.25.x"
+
+      - name: Obtain the aiarch-state MCP server
+        id: statemcp
+        env:
+          GOBIN: ${{ runner.temp }}/aiarch-bin
+          # VERSION HANDSHAKE (managed-scaffold sync): the control plane stamps the
+          # state-MCP pin it rendered this seated file with; the job echoes it so any
+          # run's log states which binary generation this scaffold carries. The server's
+          # sync-on-dispatch refreshes this whole file whenever its own pin moves, so a
+          # run can never install a binary the dispatching server's validators reject.
+          AIARCH_STATE_MCP_PIN: "[[ .StateMcpModulePin ]]"
+        run: |
+          echo "aiarch-state-mcp pin: [[ .StateMcpModulePath ]]@${AIARCH_STATE_MCP_PIN}"
+          mkdir -p "${GOBIN}"
+          go install [[ .StateMcpModulePath ]]@"${AIARCH_STATE_MCP_PIN}"
+          echo "bin=${GOBIN}/aiarch-state-mcp" >> "$GITHUB_OUTPUT"
+
+      # REFRESH-FROM-MAIN (F40 founder ruling 2026-07-05; F80 reconcile 2026-07-05). One
+      # persistent session branch per artifact accumulates every draft/critique/redraft
+      # until it merges (not a branch-per-attempt). The stale-base problem the old
+      # branch-per-retry topology solved (a branch cut from main BEFORE a main-side fix
+      # landed — e.g. the internal/scaffold fix — whose required `validate` gate then fails
+      # forever) is handled HERE instead: before every DRAFT/CRITIQUE job we re-merge
+      # origin/main into the session branch so it (and its CI base) always picks up
+      # main-side fixes.
+      #
+      # F80(a): ANSWER jobs are EXEMPT from the merge-from-main — they only append
+      # per-question responses onto the branch tip's review ledger, never touch the model,
+      # and must not risk a merge conflict (the live failure: an answer job died refreshing
+      # from main). They STILL check out the session-branch tip (the append target) but
+      # short-circuit before the merge. Draft/critique jobs merge main as before.
+      #
+      # F80(b): project.json is a SERVER-OWNED, SINGLE-WRITER-PER-SLOT document, so a
+      # main-side advance (a staleness ack, a question seed) legitimately collides with the
+      # in-flight draft on that one file. Rather than dead-ending RED, a conflict is
+      # resolved DETERMINISTICALLY by `aiarch-state-mcp reconcile` — main's document with
+      # THIS session's own slot overlaid — and the resolution is committed to complete the
+      # merge. The push uses the run's own GITHUB_TOKEN.
+      #
+      # F82: a conflict the reconcile CANNOT resolve does not dead-end the refresh either. A
+      # design session branch is machine-generated scratch; the durable committed state lives
+      # on main. A conflict that reconcile rejects (e.g. a WITHDRAWN draft whose session
+      # branch survived — rail branch cleanup is platform-gated future work) or a conflict on
+      # ANY file OTHER than the owned state slot means the branch carries DEAD content that
+      # would otherwise brick every future amendment of the slot. So the refresh self-heals:
+      # abort the merge, hard-reset the session branch to origin/main, force-push (with lease),
+      # and emit a ::notice. The active-draft reconcile path (F80b) is unchanged and still
+      # wins whenever the branch's own slot is recoverable, so live reviews are never reset.
+      - name: Refresh the session branch from main
+        env:
+          JOB_MODE: ${{ inputs.job_mode }}
+          TARGET_BRANCH: ${{ inputs.target_branch }}
+          ARTIFACT_KIND: ${{ inputs.artifact_kind }}
+          PROJECT_ID: ${{ github.event.repository.name }}
+          STATE_MCP: ${{ steps.statemcp.outputs.bin }}
+          STATE_FILE: .aiarch/state/project.json
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch --no-tags origin main "${TARGET_BRANCH}"
+          git checkout -B "${TARGET_BRANCH}" "origin/${TARGET_BRANCH}"
+          if [ "${JOB_MODE}" = "answer" ]; then
+            echo "answer job: on the session-branch tip, skipping merge-from-main (F80a)"
+            exit 0
+          fi
+          if git merge --no-edit origin/main; then
+            git push origin "HEAD:${TARGET_BRANCH}"
+            exit 0
+          fi
+          # F82: self-heal a conflicting refresh. The session branch is machine-generated
+          # scratch; the durable committed state lives on main. When the branch carries dead
+          # content that cannot be reconciled (a withdrawn/abandoned draft whose branch
+          # survived, or a conflict on any file beyond the owned state slot), abort the merge,
+          # hard-reset the branch to origin/main, and force-push so this amendment builds on
+          # the committed state instead of dead-ending every future amendment of the slot.
+          self_heal_reset() {
+            git merge --abort || true
+            git reset --hard origin/main
+            git push --force-with-lease origin "HEAD:${TARGET_BRANCH}"
+            echo "::notice::conflicting refresh — the session branch carried dead draft content (${1:-diverged from main}); hard-reset ${TARGET_BRANCH} to origin/main so this amendment builds on the committed state. A withdrawn/abandoned draft on the old branch is discarded (rail branch cleanup is platform-gated future work)."
+          }
+          # A conflict on ANY file OTHER than the owned state slot means the branch is corrupt
+          # scratch (it should only ever write state) — self-heal rather than dead-end.
+          conflicts="$(git diff --name-only --diff-filter=U)"
+          if [ "${conflicts}" != "${STATE_FILE}" ]; then
+            self_heal_reset "conflict on files beyond the owned state slot (${conflicts})"
+            exit 0
+          fi
+          # F80(b) ACTIVE-draft path: main advanced another slot while this draft is
+          # AwaitingReview. Overlay THIS session's own slot onto main deterministically; the
+          # in-flight draft + its review ledger survive. This wins whenever the branch's own
+          # slot is recoverable, so a live review is never reset.
+          echo "reconciling ${STATE_FILE}: main + this session's own slot (${ARTIFACT_KIND})"
+          git show ":3:${STATE_FILE}" > "${RUNNER_TEMP}/main-project.json"   # theirs = origin/main
+          git show ":2:${STATE_FILE}" > "${RUNNER_TEMP}/ours-project.json"   # ours   = session branch
+          if AIARCH_PROJECT_ID="${PROJECT_ID}" AIARCH_ARTIFACT_KIND="${ARTIFACT_KIND}" \
+            "${STATE_MCP}" reconcile \
+              --base "${RUNNER_TEMP}/main-project.json" \
+              --ours "${RUNNER_TEMP}/ours-project.json" \
+              --out "${STATE_FILE}"; then
+            git add "${STATE_FILE}"
+            git commit --no-edit
+            git push origin "HEAD:${TARGET_BRANCH}"
+            exit 0
+          fi
+          # F82: reconcile rejected the branch's own slot (unrecoverable — e.g. a withdrawn
+          # draft that fails the required-field gate). Treat the branch as dead scratch.
+          self_heal_reset "state slot could not be reconciled (stale/withdrawn draft)"
+
+      # Record the base commit the draft is built on — the REFRESHED session-branch tip (so
+      # the post-claude guard measures whether CLAUDE advanced the branch beyond the refresh,
+      # not the refresh merge itself). See "Verify claude pushed a commit".
+      - name: Record base SHA
+        id: base
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      # The MCP config claude-code-action passes to the Claude CLI (--mcp-config). The
+      # ambient session context is baked in as env on the MCP server process from the
+      # dispatch inputs + the per-project repo name (project id = repo name). The agent
+      # supplies NONE of these — the ambient artifact_kind fixes the slot, so it can never
+      # infer the wrong one (the F68 fix, made structural).
+      - name: Write the aiarch-state MCP config
+        env:
+          MCP_BIN: ${{ steps.statemcp.outputs.bin }}
+        run: |
+          cat > "${RUNNER_TEMP}/aiarch-mcp.json" <<EOF
+          {
+            "mcpServers": {
+              "aiarch-state": {
+                "command": "${MCP_BIN}",
+                "env": {
+                  "AIARCH_PROJECT_ID": "${{ github.event.repository.name }}",
+                  "AIARCH_ARTIFACT_KIND": "${{ inputs.artifact_kind }}",
+                  "AIARCH_JOB_MODE": "${{ inputs.job_mode }}",
+                  "AIARCH_TARGET_BRANCH": "${{ inputs.target_branch }}",
+                  "AIARCH_STATE_ROOT": "${{ github.workspace }}"
+                }
+              }
+            }
+          }
+          EOF
+
+      - name: Draft the typed Method artifact (claude-code-action)
+        uses: anthropics/claude-code-action@v1
+        with:
+          # The user's OAuth token, provisioned as a repo Actions secret by the
+          # Claude Code GitHub App (/install-github-app). NAME-only reference —
+          # aiarch never mints or sees this value.
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          [[- if .AppSlug ]]
+          # The DESIGN workflow is ALWAYS workflow_dispatch'ed by the aiarch GitHub
+          # App (a Bot actor); claude-code-action refuses bot-initiated runs unless
+          # the bot is allow-listed (observed live: run 28723145540 failed with
+          # "Workflow initiated by non-human actor: <app> (type: Bot). Add bot to
+          # allowed_bots list"). Mirrors aiarch-construct.yml's allowed_bots. The App
+          # slug varies per deployment, so the SERVER templates it here; when it is
+          # unconfigured this line is omitted entirely, leaving human-dispatched runs
+          # working.
+          allowed_bots: [[ .AppSlug ]]
+          [[- end ]]
+          # Autonomous CI: the runner is an ephemeral container scoped to this one
+          # design task, with NO human present to approve claude-code-action's
+          # interactive permission prompts. Without this flag, every file-write / git /
+          # gh tool call defaults to prompting and is AUTO-DENIED in CI — observed live
+          # 2026-07-04 (gtdapp run 28724066929: 53 permission_denials, 70 turns, nothing
+          # committed, no PR — yet the action still exited success). Skip the prompts so
+          # claude can write the JSON, commit, and open the PR unattended. This is the
+          # SAME grant the construction reference workflow uses (aiarch-construct.yml).
+          # The trust boundary is NOT the tool prompt: it is the branch + PR human gate
+          # plus the REQUIRED `validate` (methodcheck) check that blocks merge (C-VCI).
+          # --mcp-config wires the local aiarch-state MCP server (installed above) into the
+          # Claude CLI. --dangerously-skip-permissions auto-allows tool calls (incl. the MCP
+          # tools) in the unattended runner — the trust boundary is NOT the tool prompt: it is
+          # putDraftModel's in-loop codec+methodcheck validation, the branch + PR human gate,
+          # and the REQUIRED `validate` (methodcheck) check that blocks merge (C-VCI).
+          claude_args: "--dangerously-skip-permissions --mcp-config ${{ runner.temp }}/aiarch-mcp.json"
+          # The composed Method-role prompt carries the role, task, and doctrine. All READS
+          # and WRITES of the project state go through the "aiarch-state" MCP tools — the
+          # agent does NOT hand-edit any file under .aiarch/state and does NOT run git.
+          prompt: |
+            ${{ inputs.design_prompt }}
+
+            You have the "aiarch-state" MCP tools for this project's Method state. Use them
+            for EVERY read and write — do NOT hand-edit any file under .aiarch/state and do
+            NOT run git yourself. The ambient design job already fixes which artifact you are
+            working on, so you never choose a slot or a kind.
+
+            When you finish your work, call publishDraft to commit and push it — that is the
+            last thing you do. You do NOT open a pull request: in draft mode the review pull
+            request is opened for you automatically after your publish, so the human review
+            gate and the required `validate` check apply; in critique mode no PR is opened (the
+            manager reads your verdict straight off the branch); in answer mode no PR is opened
+            either — you answer each open question via respondToReviewComment and the manager
+            reads your responses straight off the branch.
+
+      # Silent-failure guard. claude-code-action can exit SUCCESS while committing
+      # nothing (observed live 2026-07-04, run 28724066929: draft job green, zero
+      # commits, no PR — the Manager's observe loop only ever saw the validate failure).
+      # This step turns "claude did nothing" into a RED run: it fails when the target
+      # branch is missing on the remote, or when it still points at the base SHA (no new
+      # commit). Deterministic: one ref lookup + string compare, no heuristics.
+      # MUST read the ref via the REST API with the run's own github.token — NOT
+      # `git ls-remote origin`: claude-code-action rewrites origin's URL to embed its
+      # app token for the push, then REVOKES that token in its cleanup, so any later
+      # git operation against origin fails auth (observed live 2026-07-05, run
+      # 28724503360: guard false-negatived a successful draft+PR).
+      # POSIX single-bracket tests only — the bash double-bracket test would collide
+      # with the Go-template action delimiters this file is rendered through.
+      - name: Verify claude pushed a commit to the target branch
+        if: always()
+        env:
+          TARGET_BRANCH: ${{ inputs.target_branch }}
+          BASE_SHA: ${{ steps.base.outputs.sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          remote_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${TARGET_BRANCH}" --jq .object.sha 2>/dev/null || true)"
+          if [ -z "$remote_sha" ]; then
+            echo "::error::claude-code-action exited without pushing branch '${TARGET_BRANCH}' — no commit, no PR. Treating the green claude step as a failed draft."
+            exit 1
+          fi
+          if [ "$remote_sha" = "$BASE_SHA" ]; then
+            echo "::error::branch '${TARGET_BRANCH}' is unchanged from base ${BASE_SHA} — claude committed nothing. Treating the green claude step as a failed draft."
+            exit 1
+          fi
+          echo "branch '${TARGET_BRANCH}' advanced ${BASE_SHA} -> ${remote_sha}"
+
+  # ---------------------------------------------------------------------------
+  # validate — REQUIRED status check (the JOB NAME is the branch-protection anchor —
+  # do not rename). Installs the SAME pinned aiarch-state-mcp binary the draft job
+  # uses and runs `aiarch-state-mcp validate` over the checked-out branch: the strict
+  # server-codec decode of .aiarch/state/project.json (read-back parity) + the
+  # identical methodcheck design rules putDraftModel enforces in-loop, under the GATE
+  # SEVERITY POLICIES (the amendment-deadlock fixes, 2026-07-06): STALENESS-AWARE
+  # cross-artifact severity (System×OperationalConcepts join rules are advisory while
+  # the OperationalConcepts slot is flagged StaleBasis — reconciliation pending by
+  # design) and SLOT-SCOPED severity (`--slot` threads this job's ambient artifact —
+  # the same dispatch input that fixes the drafting agent's slot — so errors
+  # attributed to OTHER slots, pre-existing committed data this session cannot write,
+  # downgrade to annotated warnings; only ambient-slot and structural findings
+  # block). A non-zero exit (surviving Error findings) BLOCKS merge — the trust
+  # boundary. This REPLACED the seated go-test steps (tidy + test over the seated
+  # scaffold) so the gate self-updates with the state-MCP pin (managed-scaffold sync)
+  # instead of requiring a platform release + product go.mod bump per rule change;
+  # the seated go.mod / aiarch_method_test.go scaffold remains for the product
+  # repo's own CI (arch layer rules + design↔code alignment over product Go code,
+  # which an installed binary cannot run).
+  # ---------------------------------------------------------------------------
+  validate:
+    runs-on: ubuntu-latest
+    needs: draft
+    steps:
+      - name: Checkout drafted state
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.target_branch }}
+
+      - name: Set up Go (for the aiarch-state validator)
+        uses: actions/setup-go@v5
+        with:
+          # Pin the toolchain INDEPENDENTLY of the seated go.mod: `go install` of the
+          # archistrator SERVER module needs a Go at least as new as that module's own
+          # `go` directive — same rationale as the draft job's setup-go step.
+          go-version: "1.25.x"
+
+      - name: Obtain the aiarch-state validator
+        id: statemcp
+        env:
+          GOBIN: ${{ runner.temp }}/aiarch-bin
+          # VERSION HANDSHAKE (managed-scaffold sync): same pin as the draft job's
+          # install — the validator that gates the PR is BY CONSTRUCTION the same
+          # binary generation that authored/validated the draft in-loop, so the two
+          # verdicts can never disagree.
+          AIARCH_STATE_MCP_PIN: "[[ .StateMcpModulePin ]]"
+        run: |
+          echo "aiarch-state-mcp pin: [[ .StateMcpModulePath ]]@${AIARCH_STATE_MCP_PIN}"
+          mkdir -p "${GOBIN}"
+          go install [[ .StateMcpModulePath ]]@"${AIARCH_STATE_MCP_PIN}"
+          echo "bin=${GOBIN}/aiarch-state-mcp" >> "$GITHUB_OUTPUT"
+
+      - name: aiarch-state validate (Method-invariant required check)
+        # Runs the policy-aware Method gate over ./.aiarch/state/project.json. A
+        # non-zero exit (surviving Error-severity findings, or a state document the
+        # strict server codec rejects) BLOCKS PR merge. The gate log carries every
+        # finding (rule id, severity, message) including the downgraded-to-warning
+        # findings with their staleness / slot-scope rationale. --slot receives the
+        # job's ambient artifact from the SAME dispatch input the draft job's MCP env
+        # fixes the agent's slot with (threaded via env, never shell-interpolated), so
+        # the in-loop putDraftModel verdict and this CI verdict scope identically.
+        env:
+          ARTIFACT_KIND: ${{ inputs.artifact_kind }}
+        run: ${{ steps.statemcp.outputs.bin }} validate --slot "${ARTIFACT_KIND}"

@@ -12,13 +12,14 @@
  * detected back-edge / loop) render dashed in the accent color. Selecting a node
  * arms a comment anchor. Derivation is memoized on (use case, theme).
  */
-import { useEffect, useMemo, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   ReactFlow,
   Background,
   Controls,
   MarkerType,
   useReactFlow,
+  useNodesInitialized,
   type Edge,
   type Node,
 } from '@xyflow/react';
@@ -26,14 +27,34 @@ import '@xyflow/react/dist/style.css';
 import Box from '@mui/material/Box';
 import type { UseCaseView } from '../../contracts/adapters';
 import { ActivityNode } from './ActivityNode';
+import { ActivityEdge } from './ActivityEdge';
 import { SwimlaneBackground } from './SwimlaneBackground';
-import { activityNodeAnchor, useComments } from '../comments/CommentContext';
+import { activityNodeAnchor } from '../comments/CommentContext';
 import { laneColors, laneBand } from './laneColors';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import type { Tokens } from '../../utilities/theme/themes';
-import { layoutActivity, isBackEdge, HEADER_HEIGHT } from './activityLayout';
+import {
+  layoutActivity,
+  isBackEdge,
+  edgeHandles,
+  nodeCenter,
+  HEADER_HEIGHT,
+} from './activityLayout';
+import { NODE_DIMS } from './nodeDims';
+import type { ActivityNodeKind } from '../../contracts/types';
 
 const nodeTypes = { activity: ActivityNode, swimlane: SwimlaneBackground };
+const edgeTypes = { activity: ActivityEdge };
+
+const FIT_PADDING = 0.14;
+
+// Per-step walkthrough focus: how tightly the camera zooms onto the current node
+// and how long the glide takes. FOCUS_ZOOM sits below ReactFlow's maxZoom (1.4) so
+// the ringed node reads large while its immediate neighborhood (the steps it flows
+// from / to, and the adjacent lanes) stays on-canvas and legible — a "zoom to this
+// step" move, not a claustrophobic crop.
+const FOCUS_ZOOM = 0.95;
+const FOCUS_DURATION = 500;
 
 /**
  * Walkthrough highlight state: the current node, the set of visited node ids, and
@@ -51,7 +72,8 @@ function build(
   uc: UseCaseView,
   useCaseIndex: number,
   t: Tokens,
-  hl: ActivityHighlight | undefined
+  hl: ActivityHighlight | undefined,
+  selectedId: string | null
 ): { nodes: Node[]; edges: Edge[] } {
   const colors = laneColors(t, uc.lanes);
   const layout = layoutActivity(uc);
@@ -93,6 +115,12 @@ function build(
         color: colors[n.lane] ?? t.muted,
         source: `${uc.name} · activity diagram`,
         jsonPath: activityNodeAnchor(useCaseIndex, n.id),
+        // Selection travels through data (controlled flow → xyflow selection is inert):
+        // drives the NodeToolbar Comment button + accent ring. Click arms nothing now.
+        isSelected: n.id === selectedId,
+        // Walkthrough "you-are-here" current step — carries the ring AND a black-box
+        // testid so the per-step camera move is assertable. Exactly one node has it.
+        isCurrent,
       },
       draggable: false,
       zIndex: isCurrent ? 3 : 1,
@@ -105,17 +133,25 @@ function build(
     };
   });
 
+  const kindOf = new Map(uc.nodes.map((n) => [n.id, n.kind]));
+
   const edges: Edge[] = uc.edges.map((e) => {
-    const dashed = e.kind === 'guardedFlow' || isBackEdge(layout, e.from, e.to);
+    const back = isBackEdge(layout, e.from, e.to);
+    const dashed = e.kind === 'guardedFlow' || back;
     const onPath = hl?.visitedEdges.has(`${e.from}-${e.to}`) ?? false;
     const dim = hl !== undefined && !onPath;
     const stroke = onPath ? t.accent : dashed ? t.accent2 : t.muted;
+    const s = nodeCenter(layout, e.from, kindOf.get(e.from) ?? 'action');
+    const tgt = nodeCenter(layout, e.to, kindOf.get(e.to) ?? 'action');
+    const { sourceHandle, targetHandle } = edgeHandles(s, tgt, back);
     return {
       id: `${e.from}-${e.to}`,
       source: e.from,
       target: e.to,
-      ...(e.guard.length > 0 ? { label: e.guard } : {}),
-      type: 'smoothstep',
+      sourceHandle,
+      targetHandle,
+      type: 'activity',
+      data: { label: e.guard, dim, onPath },
       zIndex: onPath ? 3 : 2,
       style: {
         stroke,
@@ -123,10 +159,7 @@ function build(
         strokeDasharray: dashed && !onPath ? '5 4' : undefined,
         opacity: dim ? 0.2 : 1,
       },
-      labelStyle: { fontFamily: t.mono, fontSize: 10, fontWeight: 700, fill: t.ink },
-      labelBgStyle: { fill: t.paper, fillOpacity: 0.95 },
-      labelBgPadding: [5, 3] as [number, number],
-      markerEnd: { type: MarkerType.ArrowClosed, color: stroke },
+      markerEnd: { type: MarkerType.ArrowClosed, color: stroke, width: 16, height: 16 },
     };
   });
 
@@ -134,33 +167,90 @@ function build(
 }
 
 /**
- * Pans + zooms the canvas to center the current walkthrough node whenever it
- * changes (mirrors the contracts view centering on a clicked method). Lives as a
- * child of <ReactFlow> so it can use the flow hooks; a double-rAF waits for the
- * node to be measured before centering, else its dimensions read stale.
+ * Camera controller for the diagram. Two behaviors, keyed off whether the diagram
+ * is a walkthrough "you-are-here" map (`focusId` set) or the plain static view:
+ *
+ *  • Whole-graph fit — on mount and whenever the use case (`fitToken`) changes, once
+ *    the nodes have actually been measured (React-Flow's own `fitView` prop fires on
+ *    first paint, before the async-measured node sizes are known — which clipped the
+ *    start node/first lane at the left edge). Waiting on `useNodesInitialized`
+ *    guarantees the entire graph — every lane, start, terminal — is framed. This is
+ *    the initial frame in BOTH modes and the ONLY camera move in the static view.
+ *
+ *  • Per-step focus (walkthrough only) — when the current step's node (`focusId`)
+ *    changes, glide the camera to center on it at FOCUS_ZOOM (the founder-loved
+ *    "zoom to next item"). The first step of a freshly-mounted graph is skipped so
+ *    the initial whole-graph fit stands; every advance/back/rewind after that
+ *    re-centers on the new current node. The ring + dim still carry "you are here";
+ *    the camera move makes the current step readable without hunting for the ring.
  */
-function FocusNode({ nodeId }: { nodeId: string }): null {
-  const { setCenter, getNode } = useReactFlow();
+function AutoFit({ fitToken, focusId }: { fitToken: string; focusId: string | undefined }): null {
+  const initialized = useNodesInitialized();
+  const { fitView, getNode, setCenter } = useReactFlow();
+  // The fitToken whose whole-graph fit has run — re-fit once per use case.
+  const fittedToken = useRef<string | null>(null);
+  // The focusId that was current when this use case first mounted. Compared BY VALUE
+  // (not a consume-once flag) so the initial step is skipped robustly across effect
+  // re-runs, while every later step still focuses.
+  const initialFocus = useRef<{ token: string; id: string | undefined } | null>(null);
+
+  // Whole-graph fit, once per use case, after the nodes are measured. React-Flow's
+  // built-in `fitView` prop frames the graph on first paint (before async
+  // measurement); this re-fit — gated on `useNodesInitialized` when it resolves —
+  // corrects the start-node/first-lane clipping. It is the ONLY camera move in the
+  // static (non-walkthrough) view.
   useEffect(() => {
-    if (nodeId === '') return undefined;
-    let raf2 = 0;
-    const raf1 = requestAnimationFrame(() => {
-      raf2 = requestAnimationFrame(() => {
-        const n = getNode(nodeId);
-        if (n === undefined) return;
-        const w = n.measured?.width ?? 0;
-        const h = n.measured?.height ?? 0;
-        void setCenter(n.position.x + w / 2, n.position.y + h / 2, {
-          zoom: 1,
-          duration: 400,
-        });
-      });
+    if (!initialized) return undefined;
+    if (fittedToken.current === fitToken) return undefined;
+    fittedToken.current = fitToken;
+    const raf = requestAnimationFrame(() => {
+      void fitView({ padding: FIT_PADDING, duration: 220 });
     });
     return (): void => {
-      cancelAnimationFrame(raf1);
-      cancelAnimationFrame(raf2);
+      cancelAnimationFrame(raf);
     };
-  }, [nodeId, setCenter, getNode]);
+  }, [initialized, fitToken, fitView]);
+
+  // Per-step focus in walkthrough mode: glide the camera onto the current step's
+  // node. Driven purely off `focusId` (NOT `useNodesInitialized`, which does not
+  // reliably resolve for the you-are-here map) — the retry loop waits for the target
+  // node's measured rect instead.
+  useEffect(() => {
+    if (focusId === undefined || focusId.length === 0) return undefined;
+    // Record and skip the initial step (already framed by the whole-graph fit) so the
+    // overview stands on mount; re-runs on the same step are skipped by value too.
+    if (initialFocus.current?.token !== fitToken) {
+      initialFocus.current = { token: fitToken, id: focusId };
+      return undefined;
+    }
+    if (initialFocus.current.id === focusId) return undefined;
+    // The nodes array is rebuilt every step; the target node may not be in the store
+    // in the first frame after the click, so retry across a few frames. The you-are-
+    // here map's nodes are not always MEASURED (useNodesInitialized never resolves),
+    // so the rect comes from the known per-kind NODE_DIMS at the node's laid-out
+    // position rather than an (often-absent) measured rect.
+    let raf = 0;
+    let tries = 0;
+    const focus = (): void => {
+      const node = getNode(focusId);
+      if (node === undefined) {
+        if (tries++ < 20) raf = requestAnimationFrame(focus);
+        return;
+      }
+      const dim = NODE_DIMS[(node.data as { kind?: ActivityNodeKind }).kind ?? 'action'];
+      const w = node.measured?.width ?? node.width ?? dim.w;
+      const h = node.measured?.height ?? node.height ?? dim.h;
+      void setCenter(node.position.x + w / 2, node.position.y + h / 2, {
+        zoom: FOCUS_ZOOM,
+        duration: FOCUS_DURATION,
+      });
+    };
+    raf = requestAnimationFrame(focus);
+    return (): void => {
+      cancelAnimationFrame(raf);
+    };
+  }, [fitToken, focusId, getNode, setCenter]);
+
   return null;
 }
 
@@ -177,10 +267,10 @@ export function ActivityFlow({
   highlight?: ActivityHighlight;
 }): ReactNode {
   const t = useTokens();
-  const { setAnchor } = useComments();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const { nodes, edges } = useMemo(
-    () => build(uc, useCaseIndex, t, highlight),
-    [uc, useCaseIndex, t, highlight]
+    () => build(uc, useCaseIndex, t, highlight, selectedId),
+    [uc, useCaseIndex, t, highlight, selectedId]
   );
 
   if (uc.nodes.length === 0) {
@@ -203,33 +293,31 @@ export function ActivityFlow({
     >
       <ReactFlow
         elementsSelectable
+        fitView
+        edgeTypes={edgeTypes}
         edges={edges}
-        fitView={highlight === undefined}
-        fitViewOptions={{ padding: 0.18 }}
+        fitViewOptions={{ padding: FIT_PADDING }}
         key={uc.id}
         maxZoom={1.4}
-        minZoom={0.3}
+        minZoom={0.2}
         nodeTypes={nodeTypes}
         nodes={nodes}
         nodesConnectable={false}
         nodesDraggable={false}
+        // Nodes carry their own focusable, labeled inner element (ActivityNode);
+        // xyflow wrapper focus is off so there is a single well-labeled tab stop.
+        nodesFocusable={false}
         proOptions={{ hideAttribution: true }}
         onNodeClick={(_e, n) => {
-          // Arm a per-step comment anchor (the rail auto-opens on arm) so an
-          // activity node in the full diagram is individually commentable.
-          const d = n.data as { label?: string; source?: string; jsonPath?: string };
-          if (d.jsonPath === undefined) return;
-          setAnchor({
-            kind: 'node',
-            label: d.label ?? n.id,
-            source: d.source ?? 'activity diagram',
-            jsonPath: d.jsonPath,
-          });
+          // Click SELECTS the step (reveals its Comment toolbar) — it no longer arms a
+          // comment directly. Commenting is an explicit action: the toolbar button
+          // (mouse) or Enter/'c' on the focused node (keyboard). Toggle off on re-click.
+          setSelectedId((s) => (s === n.id ? null : n.id));
         }}
       >
         <Background color={t.line} gap={22} size={1} />
         <Controls showInteractive={false} />
-        {highlight !== undefined && <FocusNode nodeId={highlight.current} />}
+        <AutoFit fitToken={uc.id} focusId={highlight?.current} />
       </ReactFlow>
     </Box>
   );

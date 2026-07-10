@@ -1,7 +1,9 @@
 package billing
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"go.temporal.io/sdk/temporal"
@@ -9,60 +11,70 @@ import (
 
 	fwmgr "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/billingstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/durableexecution"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/merchantgateway"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
 )
 
 // This file holds the Workflows struct (the Manager's downstream dependency set), the
-// five workflow bodies (the encapsulated BillingWorkflow volatility —
-// billingManager.md §6.3), the workflow-level Conflict re-read→re-apply loop (§6.5),
-// the forward-only chargeback recompute saga, and the activity-option presets.
+// four workflow bodies (the encapsulated BillingWorkflow volatility — billingManager.md
+// §6.3), the workflow-level Conflict re-read→re-apply loop (§6.5), the forward-only
+// chargeback recompute saga, and the RA-boundary fold helpers.
 //
 // How the two dependency kinds are reached differs by determinism class:
 //   - The two Engines (billingEngine / interventionEngine) are PURE, deterministic,
 //     called DIRECTLY in-workflow by value (no Activity wrapper — replay-safe).
-//   - The ResourceAccess ports (billingStateAccess / revenueLedgerAccess /
-//     usageAccess / merchantGatewayAccess /
-//     durableExecutionAccess) are I/O and NON-deterministic; the workflow invokes the
-//     Activity methods on this same struct via workflow.ExecuteActivity (activities.go).
+//   - The ResourceAccess layer is I/O and NON-deterministic; the workflow reaches it
+//     ONLY through the generated typed invoker surface (Acts, invokers.gen.go) — the
+//     former RA consumer seams + composition-root adapters are retired. The three
+//     revenue-ledger operations have no contract, so they stay hand-written custom
+//     Activities (activities_custom.go), invoked by METHOD VALUE off the Custom field
+//     (workflow.ExecuteActivity(ctx, wf.Custom.XActivity, ...)) — the same
+//     invoke-by-function-reference discipline the generated invokers use and the four
+//     other migrated managers follow, so the arch checker
+//     (arch_activitynames_test.go) can prove no hand file names an activity by string.
 
-// wfDeps bundles every downstream dependency the billingManager orchestrates, passed
-// to RegisterWorker (worker.go) and held on the Workflows struct. Each field is a
-// CONSUMER-DEFINED interface (deps.go): the concrete RA types are adapted at the
-// composition root; the not-yet-built Engines/RA are unit-tested with fakes.
+// wfDeps bundles every downstream dependency the billingManager orchestrates, passed to
+// newWorkflows (from WorkerManifest, workermanifest.go) and held on the Workflows struct.
+// The two Engines are consumer-defined seam interfaces (deps.go), called DIRECTLY
+// in-workflow. The ResourceAccess layer is reached through the generated typed invokers
+// (Acts); the contract-less revenue-ledger Activities through the Custom receiver.
 type wfDeps struct {
 	Billing      billingEngine
 	Intervention interventionEngine
 
-	BillingState  billingStateAccess
-	RevenueLedger revenueLedgerAccess
-	Usage         usageAccess
-	Gateway       merchantGatewayAccess
-	Durable       durableExecutionAccess
+	// Acts is the generated workflow-side invoker surface (invokers.gen.go): one method
+	// per ResourceAccess activity, carrying contract types. Its Opts hook supplies the
+	// per-activity option presets (workermanifest.go).
+	Acts genInvokers
+
+	// Custom holds the three hand-written revenue-ledger Activities (activities_custom.go)
+	// that have no frozen contract for temporalgen to generate. The workflow invokes them
+	// by method value (wf.Custom.XActivity) so Temporal resolves them via the same
+	// function-reference → registered-name mapping the manifest registers them under.
+	Custom *customActivities
 }
 
-// Workflows is the single billingManager component struct — BOTH the workflow
-// receiver and the activity receiver (no separate Activities type, mirroring
-// operations/construction).
+// workflows is the single billingManager component struct — the workflow receiver. The
+// RA activities are the generated genActivities (activities.gen.go); this struct reaches
+// them through the typed invokers (Acts). The contract-less custom revenue Activities are
+// invoked by method value off Custom (activities_custom.go).
 type workflows struct {
 	Billing      billingEngine
 	Intervention interventionEngine
 
-	BillingState  billingStateAccess
-	RevenueLedger revenueLedgerAccess
-	Usage         usageAccess
-	Gateway       merchantGatewayAccess
-	Durable       durableExecutionAccess
+	Acts   genInvokers
+	Custom *customActivities
 }
 
 // newWorkflows builds the Workflows receiver from the injected wfDeps.
 func newWorkflows(d wfDeps) *workflows {
 	return &workflows{
-		Billing:       d.Billing,
-		Intervention:  d.Intervention,
-		BillingState:  d.BillingState,
-		RevenueLedger: d.RevenueLedger,
-		Usage:         d.Usage,
-		Gateway:       d.Gateway,
-		Durable:       d.Durable,
+		Billing:      d.Billing,
+		Intervention: d.Intervention,
+		Acts:         d.Acts,
+		Custom:       d.Custom,
 	}
 }
 
@@ -78,83 +90,13 @@ const (
 	maxChargeRetries = 5
 )
 
-// ---------------------------------------------------------------------------
-// Activity option presets (billingManager.md §6.4). Concrete RetryPolicy / timeout
-// choices live here, in the Manager. FU-MST-4 (named RetryPolicy library) is not yet
-// landed; the inline §6.4 parameters are used.
-// ---------------------------------------------------------------------------
-
-// readHeadOpts — billing head-state pure reads (terminal NotFound/ContractMisuse).
-func readHeadOpts(ctx workflow.Context) workflow.Context {
-	return workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 10 * time.Second,
-		RetryPolicy: &temporal.RetryPolicy{
-			NonRetryableErrorTypes: []string{
-				fwmgr.RAErrType(fwra.NotFound),
-				fwmgr.RAErrType(fwra.ContractMisuse),
-			},
-		},
-	})
-}
-
-// recordHeadOpts — billing head-state write transitions (terminal
-// NotFound/ContractMisuse; Conflict is surfaced for the workflow-level re-read loop, so
-// it is NOT non-retryable here — the workflow body recovers it).
-func recordHeadOpts(ctx workflow.Context) workflow.Context {
-	return workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 10 * time.Second,
-		RetryPolicy: &temporal.RetryPolicy{
-			NonRetryableErrorTypes: []string{
-				fwmgr.RAErrType(fwra.NotFound),
-				fwmgr.RAErrType(fwra.ContractMisuse),
-				fwmgr.RAErrType(fwra.Conflict),
-			},
-		},
-	})
-}
-
-// ledgerOpts — revenueLedgerAccess / usageAccess appends + reads (~30s; terminal
-// ContractMisuse). Append-only ledgers: NO Conflict (gateway/runtime-event-id idempotent).
-func ledgerOpts(ctx workflow.Context) workflow.Context {
-	return workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 30 * time.Second,
-		RetryPolicy: &temporal.RetryPolicy{
-			NonRetryableErrorTypes: []string{
-				fwmgr.RAErrType(fwra.ContractMisuse),
-			},
-		},
-	})
-}
-
-// gatewayOpts — merchantGatewayAccess money movements (externalGateway; small budget;
-// terminal Auth/NotFound/ContractMisuse → decideOnBillingFailure). Stripe-native
-// dedup on the Manager-supplied Idempotency-Key.
-func gatewayOpts(ctx workflow.Context) workflow.Context {
-	return workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 30 * time.Second,
-		RetryPolicy: &temporal.RetryPolicy{
-			MaximumAttempts: 3,
-			NonRetryableErrorTypes: []string{
-				fwmgr.RAErrType(fwra.Auth),
-				fwmgr.RAErrType(fwra.NotFound),
-				fwmgr.RAErrType(fwra.ContractMisuse),
-			},
-		},
-	})
-}
-
-// durableOpts — durableExecutionAccess deliverSignal / registerSchedule (~30s; terminal
-// NotFound/ContractMisuse).
-func durableOpts(ctx workflow.Context) workflow.Context {
-	return workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 30 * time.Second,
-		RetryPolicy: &temporal.RetryPolicy{
-			NonRetryableErrorTypes: []string{
-				fwmgr.RAErrType(fwra.NotFound),
-				fwmgr.RAErrType(fwra.ContractMisuse),
-			},
-		},
-	})
+// gatewayIdempotencyKey derives the Stripe Idempotency-Key settle:{customerId}:{cycleId}
+// for the money-moving gateway Activities (billingManager.md §6.4 line 264/706). A pure,
+// business-stable string composition — replay-safe, so it is built workflow-side and
+// supplied EXPLICITLY to the caller-keyed gateway invoker (as BOTH the caller key and the
+// contract's idempotencyKey param), preserving today's dedup token exactly.
+func gatewayIdempotencyKey(customerID customerID, cycleID cycleID) string {
+	return fmt.Sprintf("settle:%s:%s", customerID, cycleID)
 }
 
 // raConflictErrType is the canonical Temporal Type() a head-state mutation Activity
@@ -562,21 +504,21 @@ func (wf *workflows) ShortfallSweepWorkflow(ctx workflow.Context, in shortfallSw
 // Read + fold helpers.
 // ---------------------------------------------------------------------------
 
-// readBilling runs the ReadBillingActivity (whole head-state read).
+// readBilling invokes billingStateAccess.readBilling and folds the contract head-state
+// into the Manager-local seam.
 func (wf *workflows) readBilling(ctx workflow.Context, customerID customerID) (billingHead, error) {
-	c := readHeadOpts(ctx)
-	var s billingHead
-	if err := workflow.ExecuteActivity(c, wf.ReadBillingActivity, customerID).Get(ctx, &s); err != nil {
+	b, err := wf.Acts.BillingStateReadBilling(ctx, customerID)
+	if err != nil {
 		return billingHead{}, err
 	}
-	return s, nil
+	return billingHeadFromState(b), nil
 }
 
 // readBillingByDeployedApp resolves a deployedAppId to its billing aggregate
 // (UC5 onboarding). The head-state RA keys on customerId; the onboarding read carries
 // the deployedAppId so the RA resolves the owning customer. Modelled as the same
-// ReadBillingActivity over the deployedApp's resolved customer; here the deployedApp
-// id IS the resolution input the RA maps to the customer aggregate.
+// readBilling over the deployedApp's resolved customer; here the deployedApp id IS the
+// resolution input the RA maps to the customer aggregate.
 func (wf *workflows) readBillingByDeployedApp(ctx workflow.Context, deployedAppID deployedAppID) (billingHead, error) {
 	// The billing aggregate is per-customer; the onboarding RA read resolves the
 	// owning customer from the deployed app. We pass the deployedAppId as the read key;
@@ -584,12 +526,13 @@ func (wf *workflows) readBillingByDeployedApp(ctx workflow.Context, deployedAppI
 	return wf.readBilling(ctx, deployedAppID)
 }
 
-// foldRevenue reads the cycle's revenue facts and folds them into the Engine's
-// CycleRevenue value snapshot (exact minor-unit signed sum; never a float).
+// foldRevenue reads the cycle's revenue facts (custom revenue-ledger Activity) and folds
+// them into the Engine's CycleRevenue value snapshot (exact minor-unit signed sum; never
+// a float).
 func (wf *workflows) foldRevenue(ctx workflow.Context, customerID customerID, cycleID cycleID) (cycleRevenueSeam, error) {
-	c := ledgerOpts(ctx)
+	c := workflow.WithActivityOptions(ctx, ledgerActivityOptions())
 	var entries []revenueEntrySeam
-	if err := workflow.ExecuteActivity(c, wf.ReadRevenueRangeActivity, readRevenueRangeArgs{
+	if err := workflow.ExecuteActivity(c, wf.Custom.ReadRevenueRangeActivity, readRevenueRangeArgs{
 		CustomerID: customerID, CycleID: cycleID,
 	}).Get(ctx, &entries); err != nil {
 		return cycleRevenueSeam{}, err
@@ -612,14 +555,13 @@ func (wf *workflows) foldRevenue(ctx workflow.Context, customerID customerID, cy
 	}, nil
 }
 
-// foldUsage reads the cycle's usage facts (whole cycle; OperatedAppID nil) and folds
-// them into the Engine's CycleUsage value snapshot.
+// foldUsage invokes usageAccess.readRange (whole cycle; OperatedAppID nil) and folds the
+// contract events into the Engine's CycleUsage value snapshot.
 func (wf *workflows) foldUsage(ctx workflow.Context, customerID customerID, cycleID cycleID) (cycleUsageSeam, error) {
-	c := ledgerOpts(ctx)
-	var events []usageEventSeam
-	if err := workflow.ExecuteActivity(c, wf.ReadUsageRangeActivity, usageRangeQuerySeam{
-		CustomerID: customerID, CycleID: cycleID, OperatedAppID: nil,
-	}).Get(ctx, &events); err != nil {
+	events, err := wf.Acts.UsageReadRange(ctx, usage.UsageRangeQuery{
+		CustomerID: customerID, CycleID: usage.CycleID(cycleID), OperatedAppID: nil,
+	})
+	if err != nil {
 		return cycleUsageSeam{}, err
 	}
 
@@ -634,113 +576,138 @@ func (wf *workflows) foldUsage(ctx workflow.Context, customerID customerID, cycl
 	}, nil
 }
 
-// readDelinquent runs the ReadDelinquentActivity (cross-row read).
+// readDelinquent invokes billingStateAccess.readPersistentlyDelinquentCustomers and folds
+// the contract rows into the Manager-local seam (cross-row read).
 func (wf *workflows) readDelinquent(ctx workflow.Context, scope delinquencyScope) ([]customerSummary, error) {
-	c := readHeadOpts(ctx)
-	var out []customerSummary
-	if err := workflow.ExecuteActivity(c, wf.ReadDelinquentActivity, scope).Get(ctx, &out); err != nil {
+	rows, err := wf.Acts.BillingStateReadPersistentlyDelinquentCustomers(ctx, billingstate.DelinquencyScope{
+		ProjectID: scope.ProjectID,
+	})
+	if err != nil {
 		return nil, err
+	}
+	out := make([]customerSummary, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, customerSummary{ID: r.ID, PauseNotWithdraw: r.PauseNotWithdraw})
 	}
 	return out, nil
 }
 
 // ---------------------------------------------------------------------------
-// Gateway / runtime / ledger / durable write helpers.
+// Gateway / ledger / durable write helpers.
 // ---------------------------------------------------------------------------
 
+// createConnectedAccount invokes merchantGatewayAccess.createConnectedAccount (caller-
+// keyed onboard:{id}) and folds the contract binding into the Manager-local seam.
 func (wf *workflows) createConnectedAccount(ctx workflow.Context, customerID customerID) (gatewayBindingSeam, error) {
-	c := gatewayOpts(ctx)
-	var b gatewayBindingSeam
-	err := workflow.ExecuteActivity(c, wf.CreateConnectedAccountActivity, customerID).Get(ctx, &b)
-	return b, err
+	key := fmt.Sprintf("onboard:%s", customerID)
+	b, err := wf.Acts.MerchantGatewayCreateConnectedAccount(ctx, fwra.IdempotencyKey(key), customerID, key)
+	if err != nil {
+		return gatewayBindingSeam{}, err
+	}
+	return gatewayBindingSeam{ConnectedAccountID: b.ConnectedAccountID}, nil
 }
 
+// validateStoredInstrument invokes merchantGatewayAccess.validateStoredInstrument (the
+// zero-amount registration auth; caller-keyed validate:{id}).
 func (wf *workflows) validateStoredInstrument(ctx workflow.Context, customerID customerID) error {
-	c := gatewayOpts(ctx)
-	return workflow.ExecuteActivity(c, wf.ValidateStoredInstrumentActivity, customerID).Get(ctx, nil)
+	key := fmt.Sprintf("validate:%s", customerID)
+	return wf.Acts.MerchantGatewayValidateStoredInstrument(ctx, fwra.IdempotencyKey(key), customerID, key)
 }
 
+// payoutCustomer invokes merchantGatewayAccess.payoutCustomer (caller-keyed
+// settle:{customerId}:{cycleId}).
 func (wf *workflows) payoutCustomer(ctx workflow.Context, customerID customerID, cycleID cycleID, amount Money) error {
-	c := gatewayOpts(ctx)
-	return workflow.ExecuteActivity(c, wf.PayoutCustomerActivity, gatewayMoveArgs{
-		CustomerID: customerID, CycleID: cycleID, Amount: amount,
-	}).Get(ctx, nil)
+	key := gatewayIdempotencyKey(customerID, cycleID)
+	return wf.Acts.MerchantGatewayPayoutCustomer(ctx, fwra.IdempotencyKey(key), customerID,
+		merchantgateway.Money{MinorUnits: amount.MinorUnits, Currency: amount.Currency}, key)
 }
 
+// chargeCustomer invokes merchantGatewayAccess.chargeCustomer (caller-keyed
+// settle:{customerId}:{cycleId}). A terminal decline (RA Auth) surfaces to the
+// decideOnBillingFailure branch (OQ-4).
 func (wf *workflows) chargeCustomer(ctx workflow.Context, customerID customerID, cycleID cycleID, amount Money) error {
-	c := gatewayOpts(ctx)
-	return workflow.ExecuteActivity(c, wf.ChargeCustomerActivity, gatewayMoveArgs{
-		CustomerID: customerID, CycleID: cycleID, Amount: amount,
-	}).Get(ctx, nil)
+	key := gatewayIdempotencyKey(customerID, cycleID)
+	return wf.Acts.MerchantGatewayChargeCustomer(ctx, fwra.IdempotencyKey(key), customerID,
+		merchantgateway.Money{MinorUnits: amount.MinorUnits, Currency: amount.Currency}, key)
 }
 
+// recordInboundRevenue runs the custom RecordInboundRevenueActivity (revenue-ledger no-op).
 func (wf *workflows) recordInboundRevenue(ctx workflow.Context, entry revenueEntrySeam) error {
-	c := ledgerOpts(ctx)
-	return workflow.ExecuteActivity(c, wf.RecordInboundRevenueActivity, entry).Get(ctx, nil)
+	c := workflow.WithActivityOptions(ctx, ledgerActivityOptions())
+	return workflow.ExecuteActivity(c, wf.Custom.RecordInboundRevenueActivity, entry).Get(ctx, nil)
 }
 
+// recordReversal runs the custom RecordReversalActivity (revenue-ledger no-op).
 func (wf *workflows) recordReversal(ctx workflow.Context, reversal reversalEntrySeam) error {
-	c := ledgerOpts(ctx)
-	return workflow.ExecuteActivity(c, wf.RecordReversalActivity, reversal).Get(ctx, nil)
+	c := workflow.WithActivityOptions(ctx, ledgerActivityOptions())
+	return workflow.ExecuteActivity(c, wf.Custom.RecordReversalActivity, reversal).Get(ctx, nil)
 }
 
+// deliverDelinquencySignal invokes durableExecutionAccess.deliverSignal — the one
+// sanctioned queued M→M edge (applyDelinquencyPolicy → operationsManager). Fire-and-
+// forget; dedup is the receiving handler's concern (D-DA §9 OQ3). The target is the
+// customer's operations delinquency workflow ({customerId}:delinquency). The payload is
+// JSON-encoded workflow-side (deterministic; replay-safe).
 func (wf *workflows) deliverDelinquencySignal(ctx workflow.Context, customerID customerID, pauseNotWithdraw bool) error {
-	c := durableOpts(ctx)
-	return workflow.ExecuteActivity(c, wf.DeliverDelinquencySignalActivity, deliverDelinquencyArgs{
-		CustomerID: customerID, PauseNotWithdraw: pauseNotWithdraw,
-	}).Get(ctx, nil)
+	bytes, err := json.Marshal(deliverSignalPayload{CustomerID: customerID, PauseNotWithdraw: pauseNotWithdraw})
+	if err != nil {
+		return err
+	}
+	targetWorkflowID := fmt.Sprintf("%s:delinquency", customerID)
+	return wf.Acts.DurableExecutionDeliverSignal(ctx,
+		durableexecution.ExecutionID(targetWorkflowID),
+		durableexecution.SignalName(signalApplyDelinquencyPolicy),
+		durableexecution.ExecutionPayload{Bytes: bytes, ContentType: "application/json"})
 }
 
+// registerCloseSchedule invokes durableExecutionAccess.registerSchedule for the
+// per-customer closeBillingCycle:<customerId> Schedule (idempotent by id; op 2.1). The
+// KindBinding table resolves the task queue, so it is not threaded.
 func (wf *workflows) registerCloseSchedule(ctx workflow.Context, customerID customerID) error {
-	c := durableOpts(ctx)
-	return workflow.ExecuteActivity(c, wf.RegisterScheduleActivity, customerID).Get(ctx, nil)
+	return wf.Acts.DurableExecutionRegisterSchedule(ctx,
+		durableexecution.ScheduleID(fmt.Sprintf("%s:%s", scheduleIDCloseCyclePrefix, customerID)),
+		durableexecution.ScheduleSpec{
+			ExecutionKind: durableexecution.ExecutionKind(executionKindClose),
+			Cadence:       durableexecution.Cadence{Every: time.Duration(closeCycleDefaultIntervalSecs) * time.Second},
+		})
 }
 
 // ---------------------------------------------------------------------------
-// Head-state recovering write helpers (§6.5 Conflict re-read→re-apply loop).
+// Head-state recovering write helpers (§6.5 Conflict re-read→re-apply loop). Each folds
+// the Manager-local seam into the contract type at the invoker boundary; the run-scoped
+// idempotency key is supplied by the generated activity (activities.gen.go), not here.
 // ---------------------------------------------------------------------------
 
 func (wf *workflows) registerCustomer(ctx workflow.Context, customerID customerID, seed version) (version, error) {
 	return wf.applyRecovering(ctx, customerID, seed, func(expected version) (version, error) {
-		c := recordHeadOpts(ctx)
-		var v version
-		e := workflow.ExecuteActivity(c, wf.RegisterCustomerActivity, registerCustomerArgs{
-			CustomerID: customerID, ExpectedVersion: expected,
-		}).Get(ctx, &v)
-		return v, e
+		v, e := wf.Acts.BillingStateRegisterCustomer(ctx, customerID,
+			billingstate.Version(expected), billingstate.CustomerProfile{})
+		return version(v), e
 	})
 }
 
 func (wf *workflows) bindGatewayLive(ctx workflow.Context, customerID customerID, seed version, binding gatewayBindingSeam) (version, error) {
 	return wf.applyRecovering(ctx, customerID, seed, func(expected version) (version, error) {
-		c := recordHeadOpts(ctx)
-		var v version
-		e := workflow.ExecuteActivity(c, wf.BindGatewayLiveActivity, bindGatewayLiveArgs{
-			CustomerID: customerID, ExpectedVersion: expected, Binding: binding,
-		}).Get(ctx, &v)
-		return v, e
+		v, e := wf.Acts.BillingStateBindGatewayLive(ctx, customerID,
+			billingstate.Version(expected),
+			billingstate.GatewayBinding{ConnectedAccountID: binding.ConnectedAccountID})
+		return version(v), e
 	})
 }
 
 func (wf *workflows) settleCycle(ctx workflow.Context, customerID customerID, seed version, cycleID cycleID, outcome billingOutcomeSeam) (version, error) {
 	return wf.applyRecovering(ctx, customerID, seed, func(expected version) (version, error) {
-		c := recordHeadOpts(ctx)
-		var v version
-		e := workflow.ExecuteActivity(c, wf.SettleCycleActivity, settleCycleArgs{
-			CustomerID: customerID, ExpectedVersion: expected, CycleID: cycleID, Outcome: outcome,
-		}).Get(ctx, &v)
-		return v, e
+		v, e := wf.Acts.BillingStateSettleCycle(ctx, customerID,
+			billingstate.Version(expected), string(cycleID), billingOutcomeToState(outcome))
+		return version(v), e
 	})
 }
 
 func (wf *workflows) resettleCycle(ctx workflow.Context, customerID customerID, seed version, cycleID cycleID, correction billingOutcomeSeam) (version, error) {
 	return wf.applyRecovering(ctx, customerID, seed, func(expected version) (version, error) {
-		c := recordHeadOpts(ctx)
-		var v version
-		e := workflow.ExecuteActivity(c, wf.ResettleCycleActivity, resettleCycleArgs{
-			CustomerID: customerID, ExpectedVersion: expected, CycleID: cycleID, Correction: correction,
-		}).Get(ctx, &v)
-		return v, e
+		v, e := wf.Acts.BillingStateResettleCycle(ctx, customerID,
+			billingstate.Version(expected), string(cycleID), billingOutcomeToState(correction))
+		return version(v), e
 	})
 }
 

@@ -21,8 +21,8 @@ export function TestPlanView({ project, t }: ArtifactRendererProps): ReactNode {
         data-testid={UI_IDENTIFIERS.Construction.TEST_PLAN_VIEW}
         sx={{ color: t.muted, fontSize: 12.5 }}
       >
-        No system-test scenarios authored yet. The plan enumerates a black-box operation sequence per core
-        use case; each appears here as a sequence diagram once N-STP is produced.
+        No system-test scenarios authored yet. The plan enumerates a black-box operation sequence
+        per core use case; each appears here as a sequence diagram once N-STP is produced.
       </Typography>
     );
   }
@@ -32,14 +32,22 @@ export function TestPlanView({ project, t }: ArtifactRendererProps): ReactNode {
       data-testid={UI_IDENTIFIERS.Construction.TEST_PLAN_VIEW}
       sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, minWidth: 0 }}
     >
-      <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 11, letterSpacing: '0.06em', color: t.ink }}>
+      <Typography
+        sx={{
+          fontFamily: t.mono,
+          fontWeight: 700,
+          fontSize: 11,
+          letterSpacing: '0.06em',
+          color: t.ink,
+        }}
+      >
         {`SYSTEM TEST PLAN · ${String(scenarios.length)} black-box scenarios`}
       </Typography>
       <Typography sx={{ fontFamily: t.body, fontSize: 12, color: t.muted, lineHeight: 1.4 }}>
-        A test harness sequences each call along the use-case call chain — the managers never call each
-        other. Every step is a transport-agnostic manager operation (REST / MCP / gRPC are generated
-        bindings). At plan time every call is a red target; N-STH generates the test code, and N-IT runs it
-        against the real build to turn them green.
+        A test harness sequences each call along the use-case call chain — the managers never call
+        each other. Every step is a transport-agnostic manager operation (REST / MCP / gRPC are
+        generated bindings). At plan time every call is a red target; N-STH generates the test code,
+        and N-IT runs it against the real build to turn them green.
       </Typography>
       <ScenarioBrowser mode="plan" scenarios={scenarios} t={t} />
     </Box>

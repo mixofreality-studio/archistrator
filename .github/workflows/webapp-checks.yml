@@ -40,8 +40,19 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Drift gate for the generated OAS-derived contract layer (scripts/gen-api.mjs
+      # + scripts/gen-enums.mjs). Fails if the committed schema.ts/enums.gen.ts are
+      # stale relative to server/api/openapi.yaml.
+      - name: Generated contract layer drift check
+        run: |
+          npm run gen:api
+          git diff --exit-code -- src/contracts/schema.ts src/contracts/enums.gen.ts
+
       - name: Build
         run: npm run build
 
       - name: Lint
         run: npm run lint
+
+      - name: Format check
+        run: npm run format:check

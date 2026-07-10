@@ -10,8 +10,7 @@
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 import { ApiError, toApiError } from '../contracts/errors';
-import { artifactKindToOrdinal } from '../contracts/enums';
-import { mapSessionState } from '../contracts/wire';
+import { artifactKindToOrdinal, mapSessionState } from '../contracts/wire';
 import type { ArtifactKind, SessionStage, SessionStateResponse } from '../contracts/types';
 
 const POLL_INTERVAL_MS = 2000;
@@ -26,6 +25,17 @@ const TERMINAL_STAGES: readonly SessionStage[] = [
 
 export function sessionStateKey(projectId: string, kind: ArtifactKind): readonly unknown[] {
   return ['sessionState', projectId, kind];
+}
+
+/**
+ * The project-scoped prefix of every per-kind session-state query. Invalidating it
+ * refetches ALL of a project's session probes at once — used by the start-design
+ * mutation, which creates the first session but does not know (or track) each
+ * per-kind query. Pairs with staleTime:Infinity below so a known-no-session answer
+ * is cached until exactly such an action could create a session (R6).
+ */
+export function sessionStateProjectKey(projectId: string): readonly unknown[] {
+  return ['sessionState', projectId];
 }
 
 export function useSessionState(
@@ -46,6 +56,17 @@ export function useSessionState(
     enabled: enabled && projectId.length > 0,
     // A 404 means "no session started yet" — surface it without retry storms.
     retry: (count, error) => !(error instanceof ApiError && error.status === 404) && count < 1,
+    // R6: a committed step with no live session 404s deterministically. Treat that
+    // known-no-session answer as effectively permanent — cache it and never
+    // re-probe on window-focus or remount. A user action that could create a
+    // session (start / request-draft mutations) invalidates this query, which
+    // ignores staleTime and refetches, so live polling still resumes on its own;
+    // and the refetchInterval below already refuses to poll a 404 (undefined
+    // stage). Live sessions keep polling because refetchInterval overrides
+    // staleTime. Net effect: at most one probe per kind per page life, so the 404
+    // network-log noise stops repeating.
+    refetchOnWindowFocus: false,
+    staleTime: Infinity,
     refetchInterval: (query) => {
       const stage = query.state.data?.stage;
       // Poll only while a LIVE session sits in a non-terminal stage. If there is no

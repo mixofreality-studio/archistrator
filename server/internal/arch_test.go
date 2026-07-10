@@ -101,6 +101,7 @@ func appArchSpec() arch.Spec {
 		"github.com/go-git/",                     // sanctioned Git/Gitea client (go-git + go-billy)
 		"go.temporal.io/",                        // sanctioned durable-execution substrate
 		"github.com/modelcontextprotocol/go-sdk", // sanctioned MCP substrate for the generated mcpClient tool surface (internal/client/mcp/*, framework-go-mcp-generator output)
+		"github.com/google/jsonschema-go",        // the MCP SDK's own JSON Schema type; the generated mcpClient tools carry explicit InputSchema (enum values/meanings + REST-matching optionality) built from it (internal/client/mcp/*, cmd/clientgen mcpemit output)
 	}
 	return spec
 }
@@ -138,30 +139,35 @@ var encapsulationAllowlistData = map[string][]string{
 	// seam/enum types, the workflow/signal name consts) was UNEXPORTED — only these registration
 	// entrypoints cross the package boundary.
 	"internal/manager/construction": {
+		"RegisterManagerWorker",
 		"RegisterWorker",
 		"TaskQueue",
 	},
 	// Temporal registration entrypoints (see construction). RegisterSchedules registers the
 	// operatedStateReconcile Schedule at startup.
 	"internal/manager/operations": {
+		"RegisterManagerWorker",
 		"RegisterSchedules",
 		"RegisterWorker",
 		"TaskQueue",
 	},
 	// Temporal registration entrypoints (see construction).
 	"internal/manager/projectdesign": {
+		"RegisterManagerWorker",
 		"RegisterWorker",
 		"TaskQueue",
 	},
 	// Temporal registration entrypoints (see construction). RegisterSchedules registers the
 	// shortfallSweep Schedule.
 	"internal/manager/billing": {
+		"RegisterManagerWorker",
 		"RegisterSchedules",
 		"RegisterWorker",
 		"TaskQueue",
 	},
 	// Temporal registration entrypoints (see construction).
 	"internal/manager/systemdesign": {
+		"RegisterManagerWorker",
 		"RegisterWorker",
 		"TaskQueue",
 	},
@@ -353,6 +359,48 @@ var encapsulationAllowlistData = map[string][]string{
 		"LayerResource",
 		"LayerResourceAccess",
 		"LayerUtility",
+		// REVIEW-LEDGER extension port — the optional durable-comment-ledger interface the
+		// design Managers type-assert during the AwaitingReview window (the BranchAware
+		// precedent above). Its methods are served by GitStore + the composition-root adapter.
+		"LedgerProjectStateAccess",
+		// STALE-ACK EXTENSION (F45): the OPTIONAL per-slot staleness-acknowledge interface a
+		// design Manager type-asserts to clear a committed slot's StaleBasis with an audit
+		// entry (same pattern as the Ledger + BranchAware extensions above). Served by
+		// GitStore + the composition-root adapter.
+		"StaleAckProjectStateAccess",
+		// RECONCILE EXTENSION (F80): the OPTIONAL branch-reconcile capability port + its two
+		// deterministic single-writer-per-slot resolver free-funcs (a diverged session branch
+		// vs main). Same category as the Ledger/StaleAck extensions above; consumed by the
+		// cmd/aiarch-state-mcp `reconcile` subcommand and the server git adapter.
+		"ReconcilingProjectStateAccess",
+		"ReconcileSlotOntoBase",
+		"OverlaySlotFromBranchOntoMain",
+		// PROVENANCE-COMMIT EXTENSION (PM-P2-4): the OPTIONAL commit-provenance interface a
+		// design Manager type-asserts to record committedAt/approvedBy/draftedBy atomically
+		// with the commit (same pattern as the Ledger/StaleAck/Reconcile extensions above).
+		// Served by GitStore + the composition-root adapter.
+		"ProvenanceCommitProjectStateAccess",
+		// F81 GATE 0: the raw-JSON required-field presence pass demanding every closed-enum /
+		// identity field on a drafted model (component id/name/kind/layer, relationship
+		// from/to/mode, dynamic-view useCaseId, …). Consumed by cmd/aiarch-state-mcp
+		// (putDraftModel) AND the server read-back (decodeSlotsMap) so write ≡ read-back.
+		"RequireModelFields",
+		// CONSTRUCTION-VERB ROUTING CORE: the pure, I/O-free router of a phase-artifact /
+		// testing-state payload into the Project aggregate — the shared core of the RA's
+		// RecordPhaseArtifactProduced, exported so the cmd/aiarch-state-mcp construction verbs
+		// (recordPhaseArtifact/recordTestingState) reuse the SAME routing (one source of truth
+		// for which payload field lands in which slot). Same category as RequireModelFields
+		// above (a pure helper the MCP binary shares with the server read/write path).
+		"ApplyPhaseArtifactPayload",
+		// INTERNAL MCP TOOL SURFACE (agentic-managers spec item 3): the generated
+		// ResourceAccess/Engine tool catalog (toolcatalog.gen.go — NOT port-reachable, so it
+		// needs an explicit entry like the System model types) + its hand-written accessors.
+		// projectstate OWNS the contract corpus + System model this surface derives from, the
+		// same category as the CommandFor/DeriveKind derivation helpers above.
+		"InternalTool",
+		"InternalToolCatalog",
+		"AgentExposableTools",
+		"InternalToolByName",
 		"LocalRepoCredential",
 		"MissionStatement",
 		"MissionStatement.Kind",
@@ -414,6 +462,26 @@ var encapsulationAllowlistData = map[string][]string{
 		"RevenueShareLaunchFlat10",
 		"RevenueShareNegotiatedRate",
 		"RevenueShareUnknown",
+		// REVIEW-LEDGER status vocabulary — the closed wire values of a durable ReviewComment's
+		// status (the CritiqueVerdictApprove/Revise precedent above). Plain-string consts owned
+		// here; the ReviewComment type itself is generated contract surface.
+		"ReviewCommentAddressed",
+		"ReviewCommentOpen",
+		"ReviewCommentWaived",
+		// QUESTION-COMMENTS vocabulary + behavior — the closed type/addressee wire values of a
+		// durable ReviewComment plus the pure classification helpers over them. Plain-string
+		// consts + funcs owned here (same category as the status vocabulary above); the
+		// ReviewComment.Type/Addressee fields themselves are generated contract surface.
+		// ReviewCommentID is exposed so the AskQuestions dispatch can predict the ids a fresh
+		// append will mint (to name each question in the answer-job prompt).
+		"ReviewCommentTypeChangeRequest",
+		"ReviewCommentTypeQuestion",
+		"ReviewCommentTypeStaleAck",
+		"ReviewAddresseePM",
+		"ReviewAddresseeArchitect",
+		"ReviewCommentIsQuestion",
+		"ReviewCommentBlocksApprove",
+		"ReviewCommentID",
 		// FACTORY FREE FUNCTION: ReviewPolicyFromGateIDs converts the webApp PolicyPanel's
 		// ad-hoc gate-id vocabulary (e.g. "svc-contract") into the canonical ReviewPolicy
 		// value stored in head-state. It is the client-facing constructor for ReviewPolicy
@@ -473,6 +541,10 @@ var encapsulationAllowlistData = map[string][]string{
 		"CheckStateString",
 		"CommitRefIsZero",
 		"CommitRefString",
+		// The managed-scaffold SYNC surface (sync-on-dispatch, 2026-07-06): the single
+		// seat/sync rendering of the design workflow + the drift-converge helper the
+		// design Managers run before every design-job dispatch.
+		"DesignWorkflowFile",
 		"DesignWorkflowPath",
 		"Error",
 		"FrameworkGoVersion",
@@ -489,6 +561,7 @@ var encapsulationAllowlistData = map[string][]string{
 		"PullRequestRefFromString",
 		"PullRequestRefIsZero",
 		"PullRequestRefString",
+		"RailAppSlug",
 		"RepoCredentialIsZero",
 		"RepoRefEqual",
 		"RepoRefFromString",
@@ -496,6 +569,14 @@ var encapsulationAllowlistData = map[string][]string{
 		"RepoRefOwnerRepo",
 		"RepoRefString",
 		"SourceControlCatalogAccess",
+		// The managed-scaffold pins for the local project-state MCP server the DESIGN
+		// workflow `go install`s (agentic-managers spec §Construction application).
+		"StateMcpModulePath",
+		"StateMcpModulePin",
+		// SyncManagedScaffold: the managed-scaffold sync entry point (see
+		// DesignWorkflowFile above) — converge the seated design workflow onto the
+		// current template rendering before a design-job dispatch.
+		"SyncManagedScaffold",
 	},
 	// Cross-package identity value types (CustomerID, OperatedAppID) consumed by downstream
 	// Managers, + Error alias.

@@ -75,6 +75,11 @@ type ghRun struct {
 	name       string
 	status     string // "queued" | "in_progress" | "completed" | …
 	conclusion string // "success" | "failure" | "cancelled" | … (when completed)
+	// htmlURL is the run's browser URL, built by the concrete realisation (the ONLY
+	// place the github.com lexeme lives). Surfaced on a terminal-failure observation so
+	// the Manager can deep-link the operator to the failed run (QA F15 gap 2b). Empty
+	// when the realisation cannot resolve it (e.g. the fake in a test that does not set it).
+	htmlURL string
 }
 
 // ghTarget is the per-CALL repo + workflow-file the seam addresses (the additive
@@ -519,6 +524,12 @@ func observationFrom(handle PipelineHandle, run ghRun) PipelineObservation {
 	}
 	if obs.Phase == PhaseFailed {
 		obs.Diagnostic = neutralDiagnostic(run.conclusion)
+	}
+	// On any terminal non-success (Failed / Cancelled) surface the run's URL as the
+	// operator's "why" pointer (QA F15 gap 2b) — the deep-link the Manager threads onto
+	// the failed card. Empty when the realisation could not resolve it.
+	if obs.Phase == PhaseFailed || obs.Phase == PhaseCancelled {
+		obs.RunURL = run.htmlURL
 	}
 	return obs
 }

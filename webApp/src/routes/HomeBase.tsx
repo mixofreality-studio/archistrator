@@ -15,7 +15,9 @@ import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import CircularProgress from '@mui/material/CircularProgress';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
+import BuildOutlinedIcon from '@mui/icons-material/BuildOutlined';
 import { getRouteApi, useNavigate } from '@tanstack/react-router';
 import { AppShell } from '../components/AppShell';
 import { EconomicsStrip, PhaseCard } from '../components/HomeBaseParts';
@@ -23,8 +25,10 @@ import { ArtifactPane } from '../components/ArtifactPane';
 import { StageChip } from '../components/StageChip';
 import { ErrorAlert } from '../components/shared/ErrorAlert';
 import { CommentProvider } from '../components/comments/CommentContext';
-import { SelectionPopover } from '../components/comments/SelectionPopover';
+import { StaleBasisMarker } from '../components/design/StaleBasisChip';
+import { ApiError } from '../contracts/errors';
 import { useProject } from '../hooks/useProject';
+import { useCreateProject } from '../hooks/useCreateProject';
 import {
   toArtifactTableOfContents,
   toPhaseCards,
@@ -65,7 +69,12 @@ const PHASE_DESIGN_ROUTE: Record<PhaseId, PhaseRoute | null> = {
 
 export function HomeBase(): ReactNode {
   const { projectId } = routeApi.useParams();
-  const { data: project, isLoading, error } = useProject(projectId);
+  const { data: project, isLoading, error, refetch } = useProject(projectId);
+
+  // Ghost project: the catalog row exists (its repo was adopted) but the
+  // head-state create never completed, so the project read 404s. Instead of a
+  // raw error banner with no way out, show an honest recovery card.
+  const notFound = error instanceof ApiError && error.status === 404;
 
   return (
     <AppShell projectId={projectId}>
@@ -73,15 +82,130 @@ export function HomeBase(): ReactNode {
         data-testid={UI_IDENTIFIERS.HomeBase.SCREEN}
         sx={{ maxWidth: 1240, mx: 'auto', px: { xs: 2, md: 4 }, py: 4 }}
       >
-        <ErrorAlert error={error} />
-        {isLoading ? (
-          <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
-            <CircularProgress />
-          </Box>
-        ) : null}
-        {project !== undefined && <HomeBaseBody project={project} projectId={projectId} />}
+        {notFound ? (
+          <GhostProjectPanel
+            error={error}
+            projectId={projectId}
+            onFinished={() => {
+              void refetch();
+            }}
+          />
+        ) : (
+          <>
+            <ErrorAlert error={error} />
+            {isLoading ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
+                <CircularProgress />
+              </Box>
+            ) : null}
+            {project !== undefined && <HomeBaseBody project={project} projectId={projectId} />}
+          </>
+        )}
       </Box>
     </AppShell>
+  );
+}
+
+/**
+ * Recovery card for a ghost project — its GitHub repo was adopted but the
+ * head-state initialization never finished, so `get-project` 404s. Offers the
+ * idempotent CreateProject mutation as a one-click "finish setup" (owner is the
+ * authenticated catalog scope, name is the projectId — the same call the landing
+ * page makes), a way back to the catalog, and the raw technical detail tucked
+ * into a collapsed <details> so it stays available but secondary.
+ */
+function GhostProjectPanel({
+  projectId,
+  error,
+  onFinished,
+}: {
+  projectId: string;
+  error: ApiError;
+  onFinished: () => void;
+}): ReactNode {
+  const t = useTokens();
+  const navigate = useNavigate();
+  const createProject = useCreateProject();
+
+  const finishSetup = (): void => {
+    if (createProject.isPending) return;
+    // Ghost-recovery re-init of an existing project: adoption is idempotent and the
+    // operating model is already set, so pass selfOperated (the no-op default that
+    // issues no set-operating-model call) rather than re-choosing it here.
+    createProject.mutate(
+      { name: projectId, operatingModel: 'selfOperated' },
+      {
+        onSuccess: () => {
+          onFinished();
+        },
+      }
+    );
+  };
+
+  return (
+    <Paper
+      data-testid={UI_IDENTIFIERS.HomeBase.GHOST_PANEL}
+      sx={{
+        maxWidth: 640,
+        mx: 'auto',
+        mt: 6,
+        p: { xs: 3, md: 4 },
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 2,
+        borderStyle: 'dashed',
+      }}
+    >
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
+        <BuildOutlinedIcon sx={{ fontSize: 22, color: t.accent }} />
+        <Typography component="h1" sx={{ color: t.ink }} variant="h5">
+          This project isn&rsquo;t finished setting up
+        </Typography>
+      </Box>
+      <Typography sx={{ color: t.muted, fontSize: 14.5, lineHeight: 1.6 }}>
+        The repository for <strong>{projectId}</strong> was adopted, but its initial project state
+        was never written — so there&rsquo;s nothing to show yet. This usually means the first setup
+        step didn&rsquo;t complete. You can finish it now; it&rsquo;s safe to run again.
+      </Typography>
+      <ErrorAlert error={createProject.error} />
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
+        <Button
+          color="primary"
+          data-testid={UI_IDENTIFIERS.HomeBase.GHOST_FINISH_SETUP}
+          disabled={createProject.isPending}
+          startIcon={<BuildOutlinedIcon />}
+          variant="contained"
+          onClick={finishSetup}
+        >
+          {createProject.isPending ? 'Finishing setup…' : 'Finish setup'}
+        </Button>
+        <Button
+          color="inherit"
+          data-testid={UI_IDENTIFIERS.HomeBase.GHOST_BACK}
+          startIcon={<ArrowBackIcon />}
+          sx={{ color: t.muted }}
+          variant="text"
+          onClick={() => void navigate({ to: '/' })}
+        >
+          Back to projects
+        </Button>
+      </Box>
+      <Box
+        component="details"
+        sx={{
+          mt: 0.5,
+          fontFamily: t.mono,
+          fontSize: 12,
+          color: t.muted,
+          '& summary': { cursor: 'pointer', userSelect: 'none' },
+        }}
+      >
+        <Box component="summary">Technical detail</Box>
+        <Box sx={{ mt: 1, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+          {`${error.message} (${error.code}, HTTP ${String(error.status)})`}
+        </Box>
+      </Box>
+    </Paper>
   );
 }
 
@@ -269,11 +393,21 @@ function HomeBaseBody({
               )}
               {/* The system-design artifacts render via the shared ArtifactRenderer.
                   The Architecture ('system') section is enriched with the component
-                  service contracts once they exist (serviceContracts threaded in). */}
-              <CommentProvider>
-                {/* Selection-commenting works on the committed-artifact browser
-                    too: highlight prose (mouse or keyboard) to arm a quote anchor. */}
-                <SelectionPopover />
+                  service contracts once they exist (serviceContracts threaded in).
+
+                  This home base is a READ-ONLY rendering: commenting lives ONLY in
+                  the design / construction review experiences. The provider is
+                  mounted disabled so the shared artifact views (which read the
+                  CommentContext) render zero comment affordances here — no header
+                  comment icons, no per-row hover buttons, no selection popover, no
+                  test probe, no extra tab stops.
+
+                  Review-thread note (F41): the durable reviewThread lives on the
+                  co-authoring SESSION view, not the committed head-state slots this
+                  pane reads — so a read-only thread is NOT trivially reusable here
+                  (it would need a per-slot session fetch). Skipped per the F41
+                  gating: comment AFFORDANCES stay design-experience-only. */}
+              <CommentProvider enabled={false}>
                 <ArtifactPane
                   artifact={selected}
                   envelope={selectedEnvelope}
@@ -347,10 +481,18 @@ function ArtifactNav({
                 whiteSpace: 'nowrap',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
+                minWidth: 0,
               }}
             >
               {a.title}
             </Typography>
+            {/* Non-blocking basis-drift signal on a committed row (compact form). */}
+            {a.staleBasis === true ? (
+              <>
+                <Box sx={{ flexGrow: 1 }} />
+                <StaleBasisMarker kind={a.kind} />
+              </>
+            ) : null}
           </Box>
         );
       })}

@@ -67,6 +67,7 @@ type fakeRun struct {
 	name       string
 	status     string
 	conclusion string
+	htmlURL    string
 }
 
 type fakeActions struct {
@@ -507,6 +508,50 @@ func TestObserveStatusMapping(t *testing.T) {
 				t.Errorf("diagnostic %q leaks lexeme %q", obs.Diagnostic, lex)
 			}
 		}
+	}
+}
+
+// QA F15 gap 2b — a terminal-FAILURE observation surfaces the run's resolved URL as the
+// operator's "why" pointer; a SUCCESS observation carries none.
+func TestObserveSurfacesRunURLOnFailure(t *testing.T) {
+	cases := []struct {
+		conclusion string
+		wantURL    bool
+	}{
+		{"failure", true},
+		{"cancelled", true},
+		{"success", false},
+	}
+	for _, tc := range cases {
+		f := newFakeActions()
+		a := newAccessForTest(t, f)
+		h, err := a.SubmitConstructionPipeline(subRC(context.Background(), "k"), goodSpec())
+		if err != nil {
+			t.Fatalf("submit: %v", err)
+		}
+		f.runs[0].status = "completed"
+		f.runs[0].conclusion = tc.conclusion
+		f.runs[0].htmlURL = "https://github.com/acme/widgets/actions/runs/42"
+		obs, err := a.ObserveConstructionPipeline(obsRC(context.Background()), h)
+		if err != nil {
+			t.Fatalf("observe: %v", err)
+		}
+		if tc.wantURL && obs.RunURL != "https://github.com/acme/widgets/actions/runs/42" {
+			t.Errorf("(%s) want RunURL surfaced, got %q", tc.conclusion, obs.RunURL)
+		}
+		if !tc.wantURL && obs.RunURL != "" {
+			t.Errorf("(%s) a non-failure observation must carry no RunURL, got %q", tc.conclusion, obs.RunURL)
+		}
+	}
+}
+
+// runHTMLURL builds the run's browser URL from owner/repo/run id; unknown owner/repo → "".
+func TestRunHTMLURL(t *testing.T) {
+	if got := runHTMLURL("acme", "widgets", 42); got != "https://github.com/acme/widgets/actions/runs/42" {
+		t.Fatalf("runHTMLURL = %q", got)
+	}
+	if got := runHTMLURL("", "widgets", 42); got != "" {
+		t.Fatalf("runHTMLURL with empty owner must be empty, got %q", got)
 	}
 }
 

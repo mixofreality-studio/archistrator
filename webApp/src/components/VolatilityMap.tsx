@@ -8,19 +8,36 @@
  * AND keyboard-operable: selecting one opens an inspect card and arms a comment
  * anchor (`$.items[n]`) for the chat rail. Recolored from tokens.
  */
-import { useState, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
+import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
-import Button from '@mui/material/Button';
 import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
-import { toVolatilityView, AXIS1_LABEL, AXIS2_LABEL, type VolatilityPoint } from '../contracts/adapters';
-import type { ArtifactModelEnvelope } from '../contracts/types';
-import type { Axis } from '../contracts/models';
+import { useParams } from '@tanstack/react-router';
+import {
+  toC4View,
+  toVolatilityView,
+  AXIS1_LABEL,
+  AXIS2_LABEL,
+  type VolatilityPoint,
+} from '../contracts/adapters';
+import type { ArtifactModelEnvelope, Axis } from '../contracts/types';
+import { useProject } from '../hooks/useProject';
 import { useComments, volatilityAnchor } from './comments/CommentContext';
 import { useTokens } from '../utilities/theme/ThemeContext';
 import type { Tokens } from '../utilities/theme/themes';
+
+/**
+ * Normalize a name to bare alphanumerics for a tolerant join: a component's
+ * `encapsulates` prose typically leads with the volatility's exact name (often
+ * "<Name>: …"), so a normalized containment match reliably links the two without
+ * depending on punctuation/casing.
+ */
+function normalizeName(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
 
 function axisColor(t: Tokens, a: Axis): string {
   return a === 'sameCustomerOverTime' ? t.accent2 : t.committedDot;
@@ -38,10 +55,29 @@ export function VolatilityMap({
   envelope: ArtifactModelEnvelope | undefined;
 }): ReactNode {
   const t = useTokens();
-  const { setAnchor } = useComments();
+  const { setAnchor, enabled } = useComments();
+  const params = useParams({ strict: false });
+  const projectId = typeof params.projectId === 'string' ? params.projectId : '';
+  const { data: project } = useProject(projectId);
   const [sel, setSel] = useState<number | null>(null);
   const points = toVolatilityView(envelope).points;
   const selected = sel !== null ? points[sel] : undefined;
+
+  // Join the committed System artifact: which component encapsulates each volatility.
+  // The component that names this volatility in its `encapsulates` prose owns it
+  // (Method: one component per area of volatility). Keyed by normalized volatility
+  // name; absent when the System isn't committed or no component claims it.
+  const encapsulatedBy = useMemo(() => {
+    const systemEnvelope = project?.slots.find((s) => s.kind === 'system')?.model;
+    const components = toC4View(systemEnvelope).components;
+    const m = new Map<string, string>();
+    for (const p of toVolatilityView(envelope).points) {
+      const key = normalizeName(p.name);
+      const owner = components.find((c) => normalizeName(c.encapsulates).includes(key));
+      if (owner !== undefined) m.set(key, owner.name);
+    }
+    return m;
+  }, [project, envelope]);
 
   if (points.length === 0) {
     return (
@@ -88,21 +124,27 @@ export function VolatilityMap({
           </Typography>
           {selected !== undefined && sel !== null ? (
             <SelectionCard
+              encapsulatedBy={encapsulatedBy.get(normalizeName(selected.name))}
               t={t}
               v={selected}
-              onComment={() => {
-                setAnchor({
-                  kind: 'node',
-                  label: selected.name,
-                  source: 'Volatilities · axis lanes',
-                  jsonPath: volatilityAnchor(sel),
-                });
-              }}
+              onComment={
+                enabled
+                  ? (): void => {
+                      setAnchor({
+                        kind: 'node',
+                        label: selected.name,
+                        source: 'Volatilities · axis lanes',
+                        jsonPath: volatilityAnchor(sel),
+                      });
+                    }
+                  : undefined
+              }
             />
           ) : (
             <Typography sx={{ color: t.muted, fontSize: 13.5, lineHeight: 1.6 }}>
               Two axes of change: the left lane evolves for one customer over time; the right lane
-              differs across customers at one moment. Select a volatility to inspect or comment.
+              differs across customers at one moment. Select a volatility to inspect
+              {enabled ? ' or comment' : ''}.
             </Typography>
           )}
         </Paper>
@@ -146,8 +188,8 @@ function Lane({
             key={`${v.name}-${String(i)}`}
             t={t}
             v={v}
-            onToggle={() => {
-              onSelect((s) => (s === i ? null : i));
+            onSelect={() => {
+              onSelect(() => i);
             }}
           />
         ))}
@@ -161,94 +203,140 @@ function VolChip({
   v,
   color,
   active,
-  onToggle,
+  onSelect,
 }: {
   t: Tokens;
   v: VolatilityPoint;
   color: string;
   active: boolean;
-  onToggle: () => void;
+  /** Select this chip — the single source of truth for the inspector. Fired by
+   *  click, Enter/Space, AND keyboard focus, so the side rail always reflects the
+   *  focused/clicked chip. The redundant per-chip hover tooltip is intentionally
+   *  gone: it stacked, overlapped siblings, and was decoupled from the inspector. */
+  onSelect: () => void;
 }): ReactNode {
   return (
-    <Tooltip title={v.rationale}>
-      <Box
-        aria-label={v.name}
-        aria-pressed={active}
-        role="button"
-        sx={{
-          cursor: 'pointer',
-          px: 1,
-          py: 0.75,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 0.75,
-          bgcolor: active ? color : t.paperAlt,
-          color: active ? t.accentText : t.ink,
-          border: `1.5px solid ${active ? t.accent : t.line}`,
-          borderLeft: `4px solid ${color}`,
-          borderRadius: t.radius / 8 + 0.5,
-          boxShadow: active ? `0 0 0 2px ${t.accent}` : 'none',
-          '&:hover': { borderColor: t.accent },
-        }}
-        tabIndex={0}
-        onClick={onToggle}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            onToggle();
-          }
-        }}
+    <Box
+      aria-label={v.name}
+      aria-pressed={active}
+      role="button"
+      sx={{
+        cursor: 'pointer',
+        px: 1,
+        py: 0.75,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 0.75,
+        bgcolor: active ? color : t.paperAlt,
+        color: active ? t.accentText : t.ink,
+        border: `1.5px solid ${active ? t.accent : t.line}`,
+        borderLeft: `4px solid ${color}`,
+        borderRadius: t.radius / 8 + 0.5,
+        boxShadow: active ? `0 0 0 2px ${t.accent}` : 'none',
+        '&:hover': { borderColor: t.accent },
+        '&:focus-visible': { outline: `2px solid ${t.accent}`, outlineOffset: 1 },
+      }}
+      tabIndex={0}
+      onClick={onSelect}
+      onFocus={onSelect}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onSelect();
+        }
+      }}
+    >
+      <Box sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: color, flexShrink: 0 }} />
+      <Typography
+        sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 11.5, wordBreak: 'break-word' }}
       >
-        <Box sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: color, flexShrink: 0 }} />
-        <Typography
-          sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 11.5, wordBreak: 'break-word' }}
-        >
-          {v.name}
-        </Typography>
-      </Box>
-    </Tooltip>
+        {v.name}
+      </Typography>
+    </Box>
   );
 }
 
 function SelectionCard({
   v,
   t,
+  encapsulatedBy,
   onComment,
 }: {
   v: VolatilityPoint;
   t: Tokens;
-  onComment: () => void;
+  /** The System component that encapsulates this volatility, when the join resolves. */
+  encapsulatedBy?: string | undefined;
+  /** Present only when commenting is active; omit on read-only surfaces. */
+  onComment?: (() => void) | undefined;
 }): ReactNode {
   const axisText =
     v.axis === 'sameCustomerOverTime' ? 'Axis 1 — over time' : 'Axis 2 — across customers';
   return (
     <Box>
-      <Typography
-        sx={{
-          fontFamily: t.mono,
-          fontWeight: 700,
-          fontSize: 15,
-          color: t.ink,
-          wordBreak: 'break-word',
-        }}
-      >
-        {v.name}
-      </Typography>
-      <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: axisColor(t, v.axis), mb: 1 }}>
-        {axisText}
-      </Typography>
-      <Typography sx={{ color: t.muted, fontSize: 13.5, lineHeight: 1.6, mb: 2 }}>
+      {/* Header row: name/axis on the left, the comment affordance PINNED top-right so
+          it never sinks below a long rationale (P2-8). */}
+      <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
+        <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+          <Typography
+            sx={{
+              fontFamily: t.mono,
+              fontWeight: 700,
+              fontSize: 15,
+              color: t.ink,
+              wordBreak: 'break-word',
+            }}
+          >
+            {v.name}
+          </Typography>
+          <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: axisColor(t, v.axis) }}>
+            {axisText}
+          </Typography>
+        </Box>
+        {onComment !== undefined ? (
+          <Tooltip title="Comment on this volatility">
+            <IconButton
+              aria-label={`Comment on ${v.name} (volatility)`}
+              size="small"
+              sx={{
+                flexShrink: 0,
+                color: t.accentText,
+                bgcolor: t.accent,
+                border: `1.5px solid ${t.line}`,
+                borderRadius: 1,
+                '&:hover': { bgcolor: t.accent2 },
+              }}
+              onClick={onComment}
+            >
+              <ChatBubbleOutlineIcon sx={{ fontSize: 15 }} />
+            </IconButton>
+          </Tooltip>
+        ) : null}
+      </Box>
+
+      {encapsulatedBy !== undefined ? (
+        <Typography
+          sx={{
+            mt: 1,
+            fontFamily: t.mono,
+            fontSize: 11.5,
+            color: t.ink,
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 0.5,
+          }}
+        >
+          <Box component="span" sx={{ color: t.muted }}>
+            Encapsulated by
+          </Box>
+          <Box component="span" sx={{ fontWeight: 700 }}>
+            {encapsulatedBy}
+          </Box>
+        </Typography>
+      ) : null}
+
+      <Typography sx={{ color: t.muted, fontSize: 13.5, lineHeight: 1.6, mt: 1.5 }}>
         {v.rationale}
       </Typography>
-      <Button
-        size="small"
-        startIcon={<ChatBubbleOutlineIcon sx={{ fontSize: 14 }} />}
-        sx={{ color: t.ink, borderColor: t.line }}
-        variant="outlined"
-        onClick={onComment}
-      >
-        Comment on this
-      </Button>
     </Box>
   );
 }

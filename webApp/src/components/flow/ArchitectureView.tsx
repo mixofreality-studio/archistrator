@@ -21,7 +21,11 @@ import ListSubheader from '@mui/material/ListSubheader';
 import FormControl from '@mui/material/FormControl';
 import Typography from '@mui/material/Typography';
 import { listDynamicViews, toC4View, toDynamicView } from '../../contracts/adapters';
-import type { ArtifactModelEnvelope, ServiceContract, ServiceContracts } from '../../contracts/types';
+import type {
+  ArtifactModelEnvelope,
+  ServiceContract,
+  ServiceContracts,
+} from '../../contracts/types';
 import { resolveContractComponentId } from '../../contracts/contractComponentId';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
@@ -60,7 +64,7 @@ export function ArchitectureView({
   serviceContracts?: ServiceContracts;
 }): ReactNode {
   const t = useTokens();
-  const { setAnchor } = useComments();
+  const { setAnchor, enabled } = useComments();
   const c4 = useMemo(() => toC4View(envelope), [envelope]);
   const dynamicViews = useMemo(() => listDynamicViews(envelope), [envelope]);
 
@@ -82,8 +86,12 @@ export function ArchitectureView({
   // Initialise from module memory (survives remounts) and mirror every change back
   // into it, so a remount restores the last lens + selection instead of Static.
   const [storedMode, setStoredMode] = useState<ViewMode>(viewMemory.mode);
-  const [storedDynamicKey, setStoredDynamicKey] = useState(viewMemory.dynamicKey || defaultDynamicKey);
-  const [storedComponentId, setStoredComponentId] = useState(viewMemory.componentId || defaultComponentId);
+  const [storedDynamicKey, setStoredDynamicKey] = useState(
+    viewMemory.dynamicKey || defaultDynamicKey
+  );
+  const [storedComponentId, setStoredComponentId] = useState(
+    viewMemory.componentId || defaultComponentId
+  );
   const mode = storedMode;
   const dynamicKey = storedDynamicKey;
   const componentId = storedComponentId;
@@ -207,17 +215,21 @@ export function ArchitectureView({
           dv={dynamicModel}
           height={height}
           resetKey={activeDynamicKey}
-          onCommentStep={(edge) => {
-            const nameOf = new Map(dynamicModel.participants.map((c) => [c.id, c.name]));
-            const from = nameOf.get(edge.from) ?? edge.from;
-            const to = nameOf.get(edge.to) ?? edge.to;
-            setAnchor({
-              kind: 'node',
-              label: `${String(edge.seq)}. ${edge.label} (${from} → ${to})`,
-              source: `${dynamicModel.title} · step`,
-              jsonPath: dynamicEdgeAnchor(activeDynamicKey, edge.seq),
-            });
-          }}
+          onCommentStep={
+            enabled
+              ? (edge): void => {
+                  const nameOf = new Map(dynamicModel.participants.map((c) => [c.id, c.name]));
+                  const from = nameOf.get(edge.from) ?? edge.from;
+                  const to = nameOf.get(edge.to) ?? edge.to;
+                  setAnchor({
+                    kind: 'node',
+                    label: `${String(edge.seq)}. ${edge.label} (${from} → ${to})`,
+                    source: `${dynamicModel.title} · step`,
+                    jsonPath: dynamicEdgeAnchor(activeDynamicKey, edge.seq),
+                  });
+                }
+              : undefined
+          }
         />
       )}
       {mode === 'perspective' && (

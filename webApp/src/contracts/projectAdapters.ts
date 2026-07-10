@@ -15,7 +15,11 @@ import type {
   ActivityListModel,
   FloatBand,
   Money,
+  NetworkDependency,
+  NetworkMilestone,
   NetworkModel,
+  NetworkNodeCompute,
+  NetworkSummary,
   PlanningAssumptionsModel,
   ProjectArtifactKind,
   ProjectArtifactModelEnvelope,
@@ -133,7 +137,7 @@ export function toActivityListView(
 ): ActivityListView {
   const model = narrowProject(envelope, 'activityList');
   if (model === undefined) return EMPTY_ACTIVITY_LIST_VIEW;
-  const activities = model.activities;
+  const activities = model.activities ?? [];
 
   const byGroup = new Map<string, ActivityRowView[]>();
   for (const a of activities) {
@@ -239,13 +243,142 @@ const EMPTY_NETWORK_VIEW: NetworkView = {
   maxFloat: 0,
 };
 
+// The near-critical float band (Löwy ch.8 §2 / server defaultBandPolicy): an
+// OFF-critical-path activity whose total float is within this many days.
+const NEAR_CRITICAL_DAYS = 5;
+const YELLOW_MAX_FLOAT_DAYS = 25;
+
+/** Float-criticality band from a node's total float (mirrors the server band policy:
+ *  critical = 0 float / on-CP, red ≤5d, yellow ≤25d, green >25d). */
+function bandOf(totalFloat: number, onCriticalPath: boolean): FloatBand {
+  if (onCriticalPath || totalFloat <= 0) return 'critical';
+  if (totalFloat <= NEAR_CRITICAL_DAYS) return 'red';
+  if (totalFloat <= YELLOW_MAX_FLOAT_DAYS) return 'yellow';
+  return 'green';
+}
+
 /**
- * Maps the server-computed NetworkModel into the render-ready NetworkView. Reads
- * `computed[id]` (CPM result + band per activity), `summary` (the roll-up), and
- * `milestones`, joining the activity-list slot only for display fields the compute
- * block omits (effortDays, workerClass, coding). NO CPM derivation here — if the
- * server hasn't computed yet (`computed`/`summary` absent) the affected nodes fall
- * back to safe zero/green so the renderer never throws.
+ * Client-side CPM fallback. The network artifact authored on disk carries only
+ * dependencies / criticalPath / milestones — the durations live on the activity
+ * list. When the server hasn't run its compute-at-read pass (`computed`/`summary`
+ * absent on the wire), this derives the same figures the server would: forward
+ * pass (earliest start/finish + topological column), backward pass (latest
+ * start/finish), total float, on-critical-path (zero float), float band, and the
+ * project-level roll-up. Activity-on-node CPM over the dependency graph.
+ */
+function computeCpm(
+  ids: readonly string[],
+  deps: readonly NetworkDependency[],
+  durationOf: (id: string) => number
+): { computed: Map<string, NetworkNodeCompute>; summary: NetworkSummary } {
+  const idSet = new Set(ids);
+  const preds = new Map<string, string[]>();
+  const succs = new Map<string, string[]>();
+  for (const id of ids) {
+    preds.set(id, []);
+    succs.set(id, []);
+  }
+  for (const d of deps) {
+    if (!idSet.has(d.activity)) continue;
+    for (const p of d.dependsOn ?? []) {
+      if (!idSet.has(p)) continue;
+      preds.get(d.activity)?.push(p);
+      succs.get(p)?.push(d.activity);
+    }
+  }
+
+  // Kahn topological order (leaves-first). A cycle would strand nodes; we append any
+  // stragglers so every id still gets a (best-effort) value rather than none.
+  const indeg = new Map<string, number>();
+  for (const id of ids) indeg.set(id, preds.get(id)?.length ?? 0);
+  const ready = ids.filter((id) => (indeg.get(id) ?? 0) === 0);
+  const order: string[] = [];
+  while (ready.length > 0) {
+    const cur = ready.shift();
+    if (cur === undefined) break;
+    order.push(cur);
+    for (const s of succs.get(cur) ?? []) {
+      const next = (indeg.get(s) ?? 0) - 1;
+      indeg.set(s, next);
+      if (next === 0) ready.push(s);
+    }
+  }
+  if (order.length < ids.length) {
+    const seen = new Set(order);
+    for (const id of ids) if (!seen.has(id)) order.push(id);
+  }
+
+  // Forward pass: earliest start/finish + topological column (longest predecessor
+  // chain in HOPS — the swimlane layer, independent of duration).
+  const es = new Map<string, number>();
+  const ef = new Map<string, number>();
+  const col = new Map<string, number>();
+  for (const id of order) {
+    let start = 0;
+    let layer = 0;
+    for (const p of preds.get(id) ?? []) {
+      start = Math.max(start, ef.get(p) ?? 0);
+      layer = Math.max(layer, (col.get(p) ?? 0) + 1);
+    }
+    es.set(id, start);
+    ef.set(id, start + durationOf(id));
+    col.set(id, layer);
+  }
+  const projectEnd = order.reduce((m, id) => Math.max(m, ef.get(id) ?? 0), 0);
+
+  // Backward pass: latest finish/start over the reverse topological order.
+  const lf = new Map<string, number>();
+  const ls = new Map<string, number>();
+  for (let i = order.length - 1; i >= 0; i--) {
+    const id = order[i];
+    if (id === undefined) continue;
+    const outs = succs.get(id) ?? [];
+    const finish =
+      outs.length === 0
+        ? projectEnd
+        : outs.reduce((m, s) => Math.min(m, ls.get(s) ?? projectEnd), Infinity);
+    lf.set(id, finish);
+    ls.set(id, finish - durationOf(id));
+  }
+
+  const computed = new Map<string, NetworkNodeCompute>();
+  for (const id of ids) {
+    const totalFloat = (ls.get(id) ?? 0) - (es.get(id) ?? 0);
+    const onCriticalPath = totalFloat <= 0;
+    computed.set(id, {
+      earliestStart: es.get(id) ?? 0,
+      earliestFinish: ef.get(id) ?? 0,
+      latestStart: ls.get(id) ?? 0,
+      latestFinish: lf.get(id) ?? 0,
+      totalFloat,
+      freeFloat: 0,
+      onCriticalPath,
+      nearCritical: !onCriticalPath && totalFloat <= NEAR_CRITICAL_DAYS,
+      band: bandOf(totalFloat, onCriticalPath),
+      column: col.get(id) ?? 0,
+    });
+  }
+
+  const values = [...computed.values()];
+  const summary: NetworkSummary = {
+    totalDurationDays: projectEnd,
+    criticalPathActivityCount: values.filter((c) => c.onCriticalPath).length,
+    criticalPathDays: projectEnd,
+    maxFloat: values.reduce((m, c) => Math.max(m, c.totalFloat), 0),
+    nearCriticalCount: values.filter((c) => c.nearCritical).length,
+  };
+  return { computed, summary };
+}
+
+/**
+ * Maps the NetworkModel into the render-ready NetworkView. Prefers the server's
+ * compute-at-read block (`computed[id]` CPM result + band, `summary` roll-up) when
+ * present; otherwise derives the identical figures CLIENT-SIDE from the authored
+ * dependency graph joined with the activity-list durations (see computeCpm). The
+ * network artifact on disk carries only dependencies / criticalPath / milestones —
+ * durations live on the activity list — so without this join the graph would be a
+ * degenerate single column (all col 0) with a zeroed summary. Milestones join the
+ * resolved CPM for their column / event time / criticality.
  */
 export function toNetworkView(
   networkEnvelope: ProjectArtifactModelEnvelope | undefined,
@@ -258,26 +391,37 @@ export function toNetworkView(
   const activityByName = new Map<string, ActivityItem>();
   for (const a of activityModel?.activities ?? []) activityByName.set(a.name, a);
 
-  const computed = net.computed ?? {};
+  const serverComputed = net.computed ?? {};
 
   // The activity universe = everything named in dependencies (activities + their
-  // predecessors), so a node with no declared deps row still appears. Ordered by
-  // computed column then id for a stable, server-driven layout.
+  // predecessors), so a node with no declared deps row still appears.
   const ids = new Set<string>();
-  for (const d of net.dependencies) {
+  const netDependencies = net.dependencies ?? [];
+  for (const d of netDependencies) {
     ids.add(d.activity);
-    for (const p of d.dependsOn) ids.add(p);
+    for (const p of d.dependsOn ?? []) ids.add(p);
   }
   if (ids.size === 0 && (net.milestones ?? []).length === 0) return EMPTY_NETWORK_VIEW;
 
+  // Prefer the server's compute-at-read block; otherwise run CPM client-side over the
+  // dependency graph joined with the activity-list durations (the authored network
+  // carries no durations/floats/columns — without this the graph collapses to col 0).
+  const hasServerCompute = Object.keys(serverComputed).length > 0 && net.summary !== undefined;
+  const fallback = hasServerCompute
+    ? undefined
+    : computeCpm([...ids], netDependencies, (id) => activityByName.get(id)?.effortDays ?? 0);
+  const cpmOf = (id: string): NetworkNodeCompute | undefined =>
+    serverComputed[id] ?? fallback?.computed.get(id);
+
+  // Ordered by resolved column then id for a stable left-to-right layered layout.
   const orderedIds = [...ids].sort((a, b) => {
-    const ca = computed[a]?.column ?? 0;
-    const cb = computed[b]?.column ?? 0;
+    const ca = cpmOf(a)?.column ?? 0;
+    const cb = cpmOf(b)?.column ?? 0;
     return ca !== cb ? ca - cb : a.localeCompare(b);
   });
 
   const activityNodes: NetworkNodeView[] = orderedIds.map((id) => {
-    const c = computed[id];
+    const c = cpmOf(id);
     const item = activityByName.get(id);
     return {
       id,
@@ -288,11 +432,28 @@ export function toNetworkView(
       float: c?.totalFloat ?? 0,
       onCriticalPath: c?.onCriticalPath ?? false,
       coding: item?.coding ?? false,
-      band: c?.band ?? 'green',
+      // Server sends one of the four band names; the OAS types band as a plain string.
+      band: (c?.band ?? 'green') as FloatBand,
       col: c?.column ?? 0,
       label: id,
     };
   });
+
+  const projectEnd = net.summary?.totalDurationDays ?? fallback?.summary.totalDurationDays ?? 0;
+
+  // A milestone (zero-duration event node) is on the critical path when its event
+  // time (the latest predecessor finish) coincides with the project end AND at least
+  // one predecessor is itself critical. Authored onCriticalPath/eventTime win when
+  // present; otherwise both are resolved from the CPM.
+  const milestoneEventTime = (m: NetworkMilestone): number =>
+    m.eventTime ??
+    (m.dependsOn ?? []).reduce((mx, p) => Math.max(mx, cpmOf(p)?.earliestFinish ?? 0), 0);
+  const milestoneOnCp = (m: NetworkMilestone): boolean => {
+    if (m.onCriticalPath !== undefined && m.onCriticalPath !== null) return m.onCriticalPath;
+    const preds = m.dependsOn ?? [];
+    const anyCritical = preds.some((p) => cpmOf(p)?.onCriticalPath ?? false);
+    return anyCritical && milestoneEventTime(m) >= projectEnd && projectEnd > 0;
+  };
 
   // Milestones are zero-duration event nodes; they get their own band (critical
   // when on-CP, else green) and a column past the deepest predecessor.
@@ -300,18 +461,18 @@ export function toNetworkView(
     id: m.id,
     name: m.name,
     isPublic: m.public,
-    onCriticalPath: m.onCriticalPath ?? false,
-    eventTime: m.eventTime ?? 0,
+    onCriticalPath: milestoneOnCp(m),
+    eventTime: milestoneEventTime(m),
   }));
   const milestoneNodes: NetworkNodeView[] = (net.milestones ?? []).map((m) => {
-    const onCp = m.onCriticalPath ?? false;
-    const predCol = Math.max(-1, ...(m.dependsOn ?? []).map((p) => computed[p]?.column ?? 0));
+    const onCp = milestoneOnCp(m);
+    const predCol = Math.max(-1, ...(m.dependsOn ?? []).map((p) => cpmOf(p)?.column ?? 0));
     return {
       id: m.id,
       kind: 'milestone',
       days: 0,
       workerClass: '',
-      earlyStart: m.eventTime ?? 0,
+      earlyStart: milestoneEventTime(m),
       float: 0,
       onCriticalPath: onCp,
       coding: false,
@@ -323,31 +484,34 @@ export function toNetworkView(
   });
 
   const edges: NetworkEdgeView[] = [];
-  for (const d of net.dependencies) {
-    for (const p of d.dependsOn) {
+  for (const d of netDependencies) {
+    for (const p of d.dependsOn ?? []) {
       edges.push({
         from: p,
         to: d.activity,
         onCriticalPath:
-          (computed[p]?.onCriticalPath ?? false) && (computed[d.activity]?.onCriticalPath ?? false),
+          (cpmOf(p)?.onCriticalPath ?? false) && (cpmOf(d.activity)?.onCriticalPath ?? false),
       });
     }
   }
   // Milestone fan-in edges (dependsOn → milestone); on-CP when the milestone is.
   for (const m of net.milestones ?? []) {
+    const onCp = milestoneOnCp(m);
     for (const p of m.dependsOn ?? []) {
-      edges.push({ from: p, to: m.id, onCriticalPath: m.onCriticalPath ?? false });
+      edges.push({ from: p, to: m.id, onCriticalPath: onCp });
     }
   }
 
-  const s = net.summary;
+  // Prefer the server summary; else the client CPM roll-up.
+  const s = net.summary ?? fallback?.summary;
+  const criticalPath = net.criticalPath ?? [];
   return {
     nodes: [...activityNodes, ...milestoneNodes],
     edges,
-    criticalPath: net.criticalPath,
+    criticalPath,
     milestones,
     totalDurationDays: s?.totalDurationDays ?? 0,
-    criticalPathActivityCount: s?.criticalPathActivityCount ?? net.criticalPath.length,
+    criticalPathActivityCount: s?.criticalPathActivityCount ?? criticalPath.length,
     nearCriticalCount: s?.nearCriticalCount ?? 0,
     maxFloat: s?.maxFloat ?? 0,
   };
@@ -409,13 +573,17 @@ export interface RiskModelView {
   overSafeThreshold: number;
 }
 
-const EMPTY_RISK_MODEL_VIEW: RiskModelView = { rows: [], tooRiskyThreshold: 0, overSafeThreshold: 0 };
+const EMPTY_RISK_MODEL_VIEW: RiskModelView = {
+  rows: [],
+  tooRiskyThreshold: 0,
+  overSafeThreshold: 0,
+};
 
 /** Maps the typed RiskModel into per-option rows. */
 export function toRiskRows(envelope: ProjectArtifactModelEnvelope | undefined): RiskRowView[] {
   const model = narrowProject(envelope, 'riskModel');
   if (model === undefined) return [];
-  return model.rows.map((r) => ({
+  return (model.rows ?? []).map((r) => ({
     solutionKind: r.solutionKind,
     criticalityRisk: r.criticalityRisk,
     activityRisk: r.activityRisk,
@@ -466,7 +634,7 @@ const EMPTY_SDP_REVIEW_VIEW: SdpReviewView = { options: [], recommendation: '', 
 export function toSdpReviewView(envelope: ProjectArtifactModelEnvelope | undefined): SdpReviewView {
   const model = narrowProject(envelope, 'sdpReview');
   if (model === undefined) return EMPTY_SDP_REVIEW_VIEW;
-  const options = model.options.map(
+  const options = (model.options ?? []).map(
     (o): SdpOptionView => ({
       optionId: o.optionId,
       solutionKind: o.solutionKind,

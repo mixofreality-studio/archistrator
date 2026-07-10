@@ -18,7 +18,7 @@ import {
   PATCH_FULL_BUNDLE,
   PATCH_SCALE,
   PATCH_POLICY,
-} from '../contracts/enums';
+} from '../contracts/wire';
 import type { DeployResult, WithdrawResult } from '../contracts/operationsTypes';
 import { operationsViewKey } from './useOperationsView';
 

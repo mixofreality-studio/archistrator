@@ -1,0 +1,35 @@
+# Mission — aiarch
+
+A platform that produces predictably-engineered software and, for a usage-based fee, builds and hosts it for the user.
+
+## Vision
+
+Design and build a collection of software components that together: (a) carry a customer through The Method as a guided workflow, (b) orchestrate, dispatch, and supervise the automated work — each LLM-needing activity dispatched as an agentic-coding job to the user's own CI (a GitHub Action running claude-code-action on the user's Claude Code token), aiarch holding no code text and no LLM key and reading results back from the user's git, (c) deploy and operate the delivered system on managed infrastructure (in the operated scenario), and (d) bill the user a usage-based hosting fee for operated systems only — no flat subscription, no charge for construction; the user's own Claude Code account pays for all LLM work. The mission is to orchestrate, not to author code or hold tokens.
+
+## Business Objectives
+
+1. Predictable delivery — customers receive a duration, cost, and risk estimate before any code is written, and the delivered system arrives within the bounds of the chosen option.
+2. Method conformance — every project that ships through the platform is the output of a complete pass through business alignment, requirements scrubbing, volatility-based decomposition, project design with options, and reviewed construction — no skipped phases.
+3. Usage-based hosting vendor revenue — aiarch earns by billing the user a usage-based hosting fee when it operates the delivered system (DEPLOYED — OPERATED only). Construction runs on the user's own Claude Code account and GitHub Actions — aiarch does not charge for construction or LLM work. The only metered, aiarch-borne cost is hosting.
+4. Customer self-sufficiency, platform dependency — the customer walks through The Method themselves but does not need engineering staff: the platform's AI Workers play every technical Method role while the customer remains the architect-of-record and requirements source.
+5. Cost transparency at decision time — the projected hosting cost (usage-based, DEPLOYED — OPERATED only) is presented as a traceable figure whenever a customer is asked to commit money; there is no flat subscription.
+6. Extensibility to new categories of work — the platform can absorb new kinds of work products and new kinds of automated workers without re-architecting.
+7. Audit and intervention — a human can take over, replay, or override any in-flight project; nothing the platform does is opaque or unrecoverable.
+8. Drivable by the user's own AI agent and the user's own CI — aiarch is shaped so that the user drives it with their own AI agent (over the remote MCP channel) and so that all the work that needs an LLM or a build runs on the user's own CI (a GitHub Action running the agentic-coding job on the user's CLAUDE_CODE_OAUTH_TOKEN and CI minutes).
+
+## Key Design Decisions (as of 2026-06-14)
+
+- G1: Fast onboarding — users get on the platform via GitHub + their existing Claude Code account.
+- G2: Zero LLM spend by aiarch — the user's Claude Code token pays for all LLM work inside the agentic Action; aiarch never holds an LLM key and never pays per-token.
+- G3: No code-tooling to build — claude-code-action already does read/edit/search/build; aiarch orchestrates, it does not author or hold code.
+- Delivery collapses to cloud-only (operate on/off) plus a test profile. The customer-facing LOCAL deployment is retired.
+- Every LLM-needing activity (Phase-1 drafting, Phase-2 plan drafting, Phase-3 construction) is dispatched as an agentic-coding job to the user's own CI.
+- Project state and all persisted artifacts live in the user's own GitHub repo (via a GitHub App), not in an aiarch-managed database.
+
+## Deployment Scenarios
+
+| Scenario | Deploy | Git target | Durable exec | Agentic-coding CI | Operate/host | Billing |
+|---|---|---|---|---|---|---|
+| DEPLOYED — NOT OPERATED | aiarch cloud | user's GitHub (App) | Temporal | user's GitHub Actions + claude-code-action | — | — (construction on user's own Claude/GH-Actions token; not billed) |
+| DEPLOYED — OPERATED | aiarch cloud | user's GitHub (App) | Temporal | user's GitHub Actions + claude-code-action | ArgoCD/Rollouts → aiarch cluster | usage-based hosting |
+| TEST PROFILE (internal) | in-process, ephemeral | ephemeral throwaway repo | embedded executor | local exec runner / stubbed | stubbed | none |

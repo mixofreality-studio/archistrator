@@ -1,6 +1,9 @@
 package systemdesign
 
 import (
+	"fmt"
+	"time"
+
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
@@ -80,10 +83,54 @@ func (wf *workflows) beginSession(ctx workflow.Context, projectID ProjectID, ses
 	}
 	gf.cred = cred
 
-	var branchRef string
-	if err := workflow.ExecuteActivity(railOpts(ctx), wf.OpenBranchActivity, openBranchArgs{
-		RepoRef: sourcecontrol.RepoRefString(repoRef), Branch: sessionBranch, Cred: cred,
-	}).Get(ctx, &branchRef); err != nil {
+	// MANAGED-SCAFFOLD SYNC (sync-on-dispatch, 2026-07-06): before ANY design job is
+	// dispatched, converge the seated aiarch-design.yml onto the CURRENT template
+	// rendering (drift → one refresh commit on the default branch; identical → no-op).
+	// The birth seat runs ONCE under a constant idempotency key, so without this a
+	// server release that moves the aiarch-state-mcp pin strands every live repo on a
+	// binary the new validators reject (the gtdapp F81 incident). A sync failure BLOCKS
+	// the dispatch — never run a design job against a scaffold we could not prove
+	// current — and is CONTAINED by the caller at the failed gate like every other
+	// dispatch-time rail fault.
+	//
+	// Temporal versioning guard (replay safety; mirrors construction-review-policy-
+	// snapshot): this activity was ADDED to beginSession AFTER the CoAuthor workflow
+	// first shipped, so a design session already in flight at deploy time has NO history
+	// event for it — replaying such a history against unguarded new code fails the
+	// workflow task with a non-determinism error (observed live: gtdapp:5 amendment
+	// session — queries dead with "Workflow Task in failed state", the Retry signal
+	// unprocessable). GetVersion pins pre-feature executions (DefaultVersion) to the OLD
+	// command sequence: they skip the sync for their WHOLE run — including post-recovery
+	// redrafts, because the version resolved at first replay is cached per execution —
+	// while every execution STARTED after this deploy resolves v1 and syncs before each
+	// dispatch. A pre-feature session that keeps failing on a stale scaffold heals via
+	// Withdraw + a fresh amendment session (a new execution → v1 → sync).
+	if workflow.GetVersion(ctx, "managed-scaffold-sync", workflow.DefaultVersion, 1) >= 1 {
+		var scaffoldChanged bool
+		// SyncManagedScaffold stays a CUSTOM Activity (free-function composition helper), so
+		// it is still invoked via ExecuteActivity by method value, wrapped in the shared
+		// bounded Auth retry with its railOpts preset applied at this call site.
+		if serr := wf.railWithAuthRetry(ctx, func() error {
+			return workflow.ExecuteActivity(railOpts(ctx), wf.SyncManagedScaffoldActivity, syncScaffoldArgs{
+				RepoRef: sourcecontrol.RepoRefString(repoRef), Cred: cred,
+			}).Get(ctx, &scaffoldChanged)
+		}); serr != nil {
+			return gitSession{}, fmt.Errorf("managed-scaffold sync failed — the seated %s could not be refreshed to this server's current template, so the design job was NOT dispatched (a stale scaffold pins an aiarch-state-mcp binary this server's validators reject); Retry re-runs the sync: %w", designWorkflowFileName, serr)
+		}
+		if scaffoldChanged {
+			workflow.GetLogger(ctx).Info("managed scaffold drifted; refreshed the seated design workflow to the current template before dispatch",
+				"file", designWorkflowFileName)
+		}
+	}
+
+	// OpenBranch through the shared bounded Auth retry: a secondary-rate-limit 403 here no
+	// longer kills the session (QA F35 twin). A genuine denial exhausts the budget and the
+	// caller (runDraftRoundTrip) CONTAINS the fault at the failed gate. The opened BranchRef
+	// is not retained (the deterministic session-branch name is the addressing key).
+	if err := wf.railWithAuthRetry(ctx, func() error {
+		_, e := wf.Acts.RailOpenBranch(ctx, repoRef, sourcecontrol.BranchName(sessionBranch), cred.toRail())
+		return e
+	}); err != nil {
 		return gitSession{}, err
 	}
 	return gf, nil
@@ -97,15 +144,24 @@ func (wf *workflows) openPR(ctx workflow.Context, gf *gitSession, kind ArtifactK
 	if !gf.enabled {
 		return nil
 	}
+	// OpenPullRequest through the shared bounded Auth retry (QA F35 twin): openPR runs in the
+	// draft round-trip AFTER a 20+ minute draft, so a single secondary-rate-limit 403 must not
+	// discard that work. A genuine permission denial exhausts the budget and the caller CONTAINS
+	// the fault at the failed gate (the committed draft is preserved; Retry resumes).
 	var prRef string
-	if err := workflow.ExecuteActivity(railOpts(ctx), wf.OpenPullRequestActivity, openPullRequestArgs{
-		RepoRef: sourcecontrol.RepoRefString(gf.repoRef),
-		Head:    gf.branch,
-		Base:    mainBranch,
-		Title:   designPRTitle(kind),
-		Body:    designPRBody(kind),
-		Cred:    gf.cred,
-	}).Get(ctx, &prRef); err != nil {
+	if err := wf.railWithAuthRetry(ctx, func() error {
+		pr, e := wf.Acts.RailOpenPullRequest(ctx, gf.repoRef, sourcecontrol.PullRequestSpec{
+			Head:  sourcecontrol.BranchName(gf.branch),
+			Base:  sourcecontrol.BranchName(mainBranch),
+			Title: designPRTitle(kind),
+			Body:  designPRBody(kind),
+		}, gf.cred.toRail())
+		if e != nil {
+			return e
+		}
+		prRef = sourcecontrol.PullRequestRefString(pr)
+		return nil
+	}); err != nil {
 		return err
 	}
 	gf.prRef = prRef
@@ -119,36 +175,75 @@ func (wf *workflows) openPR(ctx workflow.Context, gf *gitSession, kind ArtifactK
 // was not green (the caller routes that to the StageDraftFailed recovery gate — the PR
 // is not green, do NOT merge, never wedge). A dormant session returns ok=true (the
 // non-git spine commits on main with no rail).
-func (wf *workflows) mergeOnApprove(ctx workflow.Context, gf *gitSession, kind ArtifactKind) (bool, error) {
+func (wf *workflows) mergeOnApprove(ctx workflow.Context, projectID ProjectID, gf *gitSession, kind ArtifactKind) (bool, error) {
 	if !gf.enabled {
 		return true, nil
 	}
 
 	// Merge guard: the required CI check must be green before the App merges (the
 	// "blocks merge" trust boundary). A non-green PR is NOT merged — the caller routes
-	// to recovery.
+	// to recovery. execRailActivityWithAuthRetry absorbs a transient (rate-limit) 403 within
+	// a bounded WORKFLOW-SIDE budget (QA F35) so a single secondary-rate-limit blip no longer
+	// kills the approve.
 	var st pullRequestStatusView
-	if err := workflow.ExecuteActivity(railOpts(ctx), wf.GetPullRequestStatusActivity, getPullRequestStatusArgs{
-		RepoRef: sourcecontrol.RepoRefString(gf.repoRef), PRRef: gf.prRef, Cred: gf.cred,
-	}).Get(ctx, &st); err != nil {
+	if err := wf.railWithAuthRetry(ctx, func() error {
+		prStatus, e := wf.Acts.RailGetPullRequestStatus(ctx, gf.repoRef, sourcecontrol.PullRequestRefFromString(gf.prRef), gf.cred.toRail())
+		if e != nil {
+			return e
+		}
+		st = pullRequestStatusView{
+			CheckGreen:    prStatus.CheckRollup == sourcecontrol.CheckSuccess,
+			ApprovalCount: int(prStatus.ApprovalCount),
+			Mergeable:     prStatus.Mergeable,
+		}
+		return nil
+	}); err != nil {
 		return false, err
 	}
 	if !st.CheckGreen {
 		return false, nil
 	}
 
-	// Relay the architecture +1 (the counted approval + audit).
-	if err := workflow.ExecuteActivity(railOpts(ctx), wf.PostReviewActivity, postReviewArgs{
-		RepoRef: sourcecontrol.RepoRefString(gf.repoRef), PRRef: gf.prRef, Body: designArchApprovalBody(kind), Cred: gf.cred,
-	}).Get(ctx, nil); err != nil {
+	// F80c: the required check is green, but the PR may be MERGEABLE=false — main advanced
+	// under the session branch (a staleness ack, a question seed) and their project.json
+	// (a server-owned, single-writer-per-slot document) conflicts, so mergeable_state is
+	// dirty. Attempting the merge here would fail and, worse, RE-APPROVING would loop
+	// forever (the branch stays dirty). Instead RECONCILE the branch server-side — overlay
+	// main's other slots onto the branch tip so it differs from main only in the in-flight
+	// slot — which pushes a new commit that makes the PR mergeable. That push re-triggers
+	// the required CI check, so we cannot merge in THIS pass; return the honest not-merged
+	// path carrying an actionable reason (the caller re-awaits, and the next approve — once
+	// CI is green again — merges cleanly). If the substrate cannot reconcile, the same
+	// honest fallback applies.
+	if !st.Mergeable {
+		if rerr := wf.reconcileDivergedBranch(ctx, projectID, gf, kind); rerr != nil {
+			return false, rerr
+		}
+		return false, temporal.NewNonRetryableApplicationError(
+			"design PR was not mergeable (main advanced under the session branch); the branch was reconciled with main and CI is re-validating — re-approve once it is green",
+			"DesignBranchReconciled", nil)
+	}
+
+	// Relay the architecture +1 (the counted approval + audit). The ReviewApprove verdict is
+	// supplied here at the workflow call site (the generated PostReview invoker is verdict-
+	// neutral — design only ever approves).
+	if err := wf.railWithAuthRetry(ctx, func() error {
+		return wf.Acts.RailPostReview(ctx, gf.repoRef, sourcecontrol.PullRequestRefFromString(gf.prRef),
+			sourcecontrol.ReviewSubmission{Verdict: sourcecontrol.ReviewApprove, Body: designArchApprovalBody(kind)}, gf.cred.toRail())
+	}); err != nil {
 		return false, err
 	}
 
 	// App-mediated merge of sessionBranch → main.
 	var merged bool
-	if err := workflow.ExecuteActivity(railOpts(ctx), wf.MergePullRequestActivity, mergePullRequestArgs{
-		RepoRef: sourcecontrol.RepoRefString(gf.repoRef), PRRef: gf.prRef, Cred: gf.cred,
-	}).Get(ctx, &merged); err != nil {
+	if err := wf.railWithAuthRetry(ctx, func() error {
+		mr, e := wf.Acts.RailMergePullRequest(ctx, gf.repoRef, sourcecontrol.PullRequestRefFromString(gf.prRef), gf.cred.toRail())
+		if e != nil {
+			return e
+		}
+		merged = mr.Merged
+		return nil
+	}); err != nil {
 		return false, err
 	}
 	if !merged {
@@ -160,12 +255,77 @@ func (wf *workflows) mergeOnApprove(ctx workflow.Context, gf *gitSession, kind A
 	return true, nil
 }
 
-// mintCred runs MintRepoCredentialActivity → the short-lived credential threaded into
-// every rail verb for this draft attempt's lifecycle.
+// reconcileDivergedBranch overlays main's slots (bar the in-flight one) onto the session
+// branch tip so a MERGEABLE=false PR becomes mergeable again (F80c). It runs through
+// applyRecovering so a stale-version Conflict re-reads the branch version and retries
+// within bounded attempts; a substrate that lacks the reconcile extension surfaces the
+// non-retryable ReconcileUnsupported the caller contains as an honest re-await. Seeding
+// expectedVersion 0 is safe: an existing branch row trips the version guard → Conflict →
+// applyRecovering re-reads the real branch version and retries.
+func (wf *workflows) reconcileDivergedBranch(ctx workflow.Context, projectID ProjectID, gf *gitSession, kind ArtifactKind) error {
+	branch := gf.readBackBranch()
+	if branch == "" {
+		return nil // dormant rail: no session branch to reconcile
+	}
+	_, err := wf.applyRecovering(ctx, projectID, branch, 0, func(expected projectstate.Version) (projectstate.Version, error) {
+		c := mutateOpts(ctx)
+		var v projectstate.Version
+		e := workflow.ExecuteActivity(c, wf.ReconcileBranchActivity, reconcileBranchArgs{
+			ProjectID: projectstate.ProjectID(projectID), ExpectedVersion: expected, Branch: branch, Kind: toPSKind(kind),
+		}).Get(ctx, &v)
+		return v, e
+	})
+	return err
+}
+
+// railAuthRetry* bound the workflow-side rail retry on a transient-403-as-Auth fault
+// (QA F35 + its draft-round-trip twin). Shared by BOTH halves of the rail lifecycle:
+// the dispatch-time half (OpenBranch / OpenPullRequest) and the approve-time half
+// (GetPullRequestStatus / PostReview / MergePullRequest).
+const (
+	railAuthRetryMaxAttempts = 3
+	railAuthRetryBaseBackoff = 5 * time.Second
+	railAuthRetryMaxBackoff  = 15 * time.Second
+)
+
+// railWithAuthRetry runs ANY rail call (a closure over a generated invoker or the custom
+// SyncManagedScaffold Activity) with a bounded WORKFLOW-SIDE retry on a transient-403-as-Auth
+// fault (QA F35 + its draft-round-trip twin). The platform github ClassifyStatus conflates
+// GitHub secondary rate-limit 403s with real permission denials — both become a NON-RETRYABLE
+// Auth ApplicationError the Activity RetryPolicy cannot retry — so the workflow retries here:
+// up to railAuthRetryMaxAttempts over ~30s (5s → 10s → cap 15s), with workflow.Sleep for
+// deterministic backoff. A GENUINE permission denial exhausts the budget and the error
+// propagates to the CALLER, which CONTAINS it (openPR/OpenBranch → the StageDraftFailed gate;
+// the approve window → back to AwaitingReview for re-approve) — never a crash. Transport blips
+// (Transient) are still retried INSIDE the Activity by railActivityOptions. Cancellation
+// propagates immediately. This is the ONE shared helper — the approve window and the draft
+// round-trip do NOT duplicate the retry loop.
+func (wf *workflows) railWithAuthRetry(ctx workflow.Context, call func() error) error {
+	backoff := railAuthRetryBaseBackoff
+	for attempt := 1; ; attempt++ {
+		err := call()
+		if err == nil {
+			return nil
+		}
+		if temporal.IsCanceledError(err) || !isRailAuthFault(err) || attempt >= railAuthRetryMaxAttempts {
+			return err
+		}
+		workflow.GetLogger(ctx).Warn("rail 403 (auth/rate-limit); bounded workflow-side retry", "attempt", attempt)
+		_ = workflow.Sleep(ctx, backoff)
+		if backoff *= 2; backoff > railAuthRetryMaxBackoff {
+			backoff = railAuthRetryMaxBackoff
+		}
+	}
+}
+
+// mintCred runs the generated sourceControlAccess.getInstallationToken invoker → the
+// short-lived credential threaded into every rail verb for this draft attempt's lifecycle.
 func (wf *workflows) mintCred(ctx workflow.Context, repoRef sourcecontrol.RepoRef) (railCredEnvelope, error) {
-	var cred railCredEnvelope
-	err := workflow.ExecuteActivity(mintCredOpts(ctx), wf.MintRepoCredentialActivity, sourcecontrol.RepoRefString(repoRef)).Get(ctx, &cred)
-	return cred, err
+	cred, err := wf.Acts.RailGetInstallationToken(ctx, repoRef)
+	if err != nil {
+		return railCredEnvelope{}, err
+	}
+	return railCredEnvelope{Bytes: cred.Bytes, ExpiresAt: cred.ExpiresAt}, nil
 }
 
 // readProjectOnBranch reads the head-state on an OPTIONAL branch override (§2a). When

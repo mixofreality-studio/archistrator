@@ -60,7 +60,12 @@ function build(
   const current = dv.edges[stepIndex];
 
   const nodes: Node[] = dv.participants.map((c) => {
-    const base = c4Node(c, layout.pos.get(c.id) ?? { x: 0, y: 0 }, colors);
+    // Dynamic lens: names + layer tags only. The current call's detail lives in the
+    // step caption rail, so the node bodies stay compact (no volatility prose) — this
+    // keeps heights stable and stops tall cards overlapping their neighbours.
+    const base = c4Node(c, layout.pos.get(c.id) ?? { x: 0, y: 0 }, colors, {
+      showEncapsulates: false,
+    });
     const isEndpoint = c.id === current?.from || c.id === current?.to;
     const isFocal = focalComponentId !== undefined && c.id === focalComponentId;
     if (isEndpoint || isFocal) {
@@ -329,7 +334,7 @@ export function DynamicViewFlow({
   /** Optional per-step comment handler: enables a Comment button in the caption bar
    *  that arms an anchor for the current call (system-design use only; omitted for
    *  the read-only test-scenario views). */
-  onCommentStep?: (edge: SequencedRelationship) => void;
+  onCommentStep?: ((edge: SequencedRelationship) => void) | undefined;
 }): ReactNode {
   const t = useTokens();
   const [stepIndex, setStepIndex] = useState(0);

@@ -81,7 +81,11 @@ export const TOKENS: Record<ThemeKey, Tokens> = {
     dangerFg: '#8A2A18',
     awaitingBg: '#F2D6AE',
     awaitingFg: '#5A2E10',
-    bandYellow: '#A88A00',
+    // Darkened from #A88A00 → #8A7000: the old amber hit only ~2.96:1 against
+    // paperAlt (#FCF9F1), failing WCAG 1.4.11 (3:1) for non-text UI indicators
+    // (the stale-basis chip border/icon + the float-band markers). #8A7000 clears
+    // 3:1 while staying in the same warm-amber family as the retro palette.
+    bandYellow: '#8A7000',
     bandGreen: '#2E7D32',
     chatArchitectBg: '#E7DFF2',
     chatArchitectFg: '#3A2A55',

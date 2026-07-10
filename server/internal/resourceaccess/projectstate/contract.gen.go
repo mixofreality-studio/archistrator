@@ -149,6 +149,11 @@ type ArtifactSlot struct {
 	Notes           string               `json:"Notes"`
 	CritiqueVerdict string               `json:"CritiqueVerdict"`
 	CritiqueNotes   string               `json:"CritiqueNotes"`
+	ReviewThread    []ReviewComment      `json:"reviewThread,omitempty"`
+	Revisions       int64                `json:"Revisions"`
+	StaleBasis      bool                 `json:"StaleBasis"`
+	StaleBasisCause *StaleCause          `json:"StaleBasisCause,omitempty"`
+	Provenance      *Provenance          `json:"Provenance,omitempty"`
 }
 
 type Axis int
@@ -579,6 +584,19 @@ const (
 	RevenueShareNegotiatedRate RevenueShareKind = 2
 )
 
+type ReviewComment struct {
+	ID         string `json:"id"`
+	Anchor     string `json:"anchor"`
+	AnchorText string `json:"anchorText"`
+	Text       string `json:"text"`
+	AuthorRole string `json:"authorRole"`
+	Round      int64  `json:"round"`
+	Status     string `json:"status"`
+	Response   string `json:"response"`
+	Type       string `json:"type"`
+	Addressee  string `json:"addressee"`
+}
+
 type ReviewPolicy struct {
 	GatedPhasesByType map[string][]ActivityMethodPhase `json:"gatedPhasesByType,omitempty"`
 }
@@ -751,6 +769,7 @@ type ProjectStateAccess interface {
 	ReadProject(rc fwra.Context, projectID ProjectID) (Project, error)
 	ReadProjectVersion(rc fwra.Context, projectID ProjectID) (Version, error)
 	RejectArtifact(rc fwra.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, notes string) (Version, error)
+	SetOperatingModel(rc fwra.Context, projectID ProjectID, expectedVersion Version, model OperatingModel) (Version, error)
 	SetResearchInput(rc fwra.Context, projectID ProjectID, expectedVersion Version, research ResearchInput) (Version, error)
 	StageArtifactForReview(rc fwra.Context, projectID ProjectID, expectedVersion Version, model ArtifactModel) (Version, error)
 	WithdrawArtifact(rc fwra.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, notes string) (Version, error)

@@ -5,18 +5,13 @@
  * The wire boundary (hooks/wire.ts) maps the generated OperationsOperatedSystemView
  * / OperationsCostProjectionSeam (PascalCase, integer enums) into these.
  */
-import type { Money } from './models';
+import type { components } from './schema';
 
-export type { Money };
+/** projectstate.Money — exact integer minor units + ISO-4217 currency (typed OAS). */
+export type Money = components['schemas']['ModelMoney'];
 
 /** The operated RuntimePhase palette the console renders. */
-export type RuntimePhase =
-  | 'Unknown'
-  | 'Pending'
-  | 'Running'
-  | 'Degraded'
-  | 'Paused'
-  | 'Withdrawn';
+export type RuntimePhase = 'Unknown' | 'Pending' | 'Running' | 'Degraded' | 'Paused' | 'Withdrawn';
 
 /** One SLO posture row. */
 export interface OperationsSlo {
