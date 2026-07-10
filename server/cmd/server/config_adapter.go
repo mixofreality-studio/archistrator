@@ -5,159 +5,58 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/mixofreality-studio/archistrator-platform/framework-go/utilities/security"
-	"github.com/mixofreality-studio/archistrator/server/internal/client/web"
 )
 
-// config is the composition root's env-loaded configuration: the infra endpoints
-// (Temporal, Postgres, GitHub App, Keycloak) plus the HTTP listen port, the auth
-// dev principal, and the profile-scalar knobs. Loaded once in main; never read
-// from anywhere else (no ambient env reads deeper in the tree). See .env.example
-// for the documented variables.
+// config_adapter.go is the composition root's config-resolution seam. The raw env
+// READS + defaults come from the GENERATED loader (config.gen.go, emitted by
+// framework-go-app-generator/configgen from project.json's deployment model);
+// this file layers back the behaviors configgen deliberately leaves to the
+// composition root and runs the required-var validations, IN PLACE on the
+// generated *Config that RunGenerated + the Hooks (hooks.go) consume.
 //
-// The raw env READS + defaults now come from the GENERATED loader (config.gen.go,
-// emitted by framework-go-app-generator/configgen from project.json's deployment
-// model). This adapter reconstructs the historical `config` surface the builders
-// consume unchanged, layering back the behaviors configgen deliberately leaves to
-// the composition root (enumerated in loadConfig): PEM `_FILE` resolution, the
-// installation-id int64 coercion, the GitHubAccount chained default, the dev
-// principal, and the unconditional/conditional required-var checks.
-type config struct {
-	// HTTP
-	ListenAddr      string
-	ShutdownTimeout time.Duration
+// Step-8 A2: the former hand `config` adapter struct + `loadConfig()` are gone —
+// the generated composition root threads the generated *Config directly, so there
+// is no second config shape to keep in sync. The transforms configgen does not
+// model live here as in-place mutations of *Config; the int64 installation-id
+// coercion moved to the variant-args hooks (parseInt64), which is where the typed
+// value is actually consumed.
 
-	// Temporal (in-cluster frontend).
-	TemporalHostPort  string
-	TemporalNamespace string
-
-	// Keycloak access-token validation. Empty JWKSURL ⇒ validator NOT constructed
-	// (local dev / systemtests) — dev mode injects a principal, else deny-all.
-	KeycloakJWKSURL string
-	KeycloakIssuer  string
-
-	// Postgres (projectStateAccess head-state legacy substrate + the always-on
-	// operatedSystemState/usage store). Required unconditionally (see loadConfig).
-	PostgresURL string
-
-	// projectStateAccess GIT substrate (LOCAL file:// vs CLOUD GitHub App).
-	ProjectStateGitLocal   bool
-	ProjectStateGitRepoURL string
-
-	// artifactAccess construction-output store (per-project git repo; nil when
-	// ArtifactRepoURL unset).
-	ArtifactRepoURL   string
-	ArtifactRepoOwner string
-	ArtifactRepoLocal bool
-
-	// Construction (UC3) — constructionPipelineAccess fronts the user's GitHub
-	// Actions via the App identity.
-	GitHubAppID              string
-	GitHubAppPrivateKeyPEM   string
-	GitHubAPIBaseURL         string
-	GitHubInstallationID     int64
-	ConstructionRepoOwner    string
-	ConstructionRepoName     string
-	ConstructionWorkflowFile string
-	ConstructionRef          string
-	ConstructionTaskQueue    string
-
-	// ConstructionDryRun registers the UC3 Worker with in-memory stubs.
-	ConstructionDryRun bool
-
-	// OperationsDryRun selects the operatedRuntimeAccess LOCAL/dry-run profile.
-	OperationsDryRun bool
-
-	// OperatedRuntimeGitOpsRepoURL is the REAL operatedRuntime profile's GitOps target.
-	OperatedRuntimeGitOpsRepoURL string
-
-	// ConstructionEscalationTimeout bounds an escalated activity's wait. 0 == wait-forever.
-	ConstructionEscalationTimeout time.Duration
-
-	// ConstructionInterventionMode: "tiered" (default) or "escalate-everything".
-	ConstructionInterventionMode string
-
-	// sourceControlAccess (project-birth repo provisioning + PR-merge rail).
-	// GitHubAccount defaults to ConstructionRepoOwner (chained default, below).
-	GitHubAccount string
-	GitHubAppSlug string
-
-	// Auth dev mode (MUST be off behind Envoy).
-	Dev web.DevConfig
-}
-
-// loadConfig reads the environment via the GENERATED loader and reconstructs the
-// historical config surface. Every deviation from a straight field copy is a
-// HAND-KEPT behavior configgen does not (yet) model:
+// loadResolvedConfig loads the generated *Config and applies the composition-root
+// transforms configgen leaves to the root, plus the required-var validations:
 //
-//  1. GitHubAppPrivateKeyPEM: `_FILE` resolution + inline-vs-path detection (envSecret).
-//  2. GitHubInstallationID: string→int64 coercion (envInt64 semantics).
-//  3. GitHubAccount: chained default env(ACCOUNT, env(CONSTRUCTION_REPO_OWNER)).
-//  4. Dev: DEV_SUBJECT/DEV_ROLES principal (not modeled) + the AuthDevMode toggle.
-//  5. PostgresURL is required UNCONDITIONALLY (all profiles incl. test) — configgen
+//  1. GithubAppPrivateKeyPEM: `_FILE` resolution + inline-vs-path detection (envSecret).
+//  2. GithubAppAccount: chained default env(ACCOUNT) → env(CONSTRUCTION_REPO_OWNER).
+//  3. PostgresURL is required UNCONDITIONALLY (all profiles incl. test) — configgen
 //     scopes it to cloud+local, so the check stays hand.
-//  6. Construction creds are required only when !ConstructionDryRun.
-func loadConfig() (config, error) {
-	gen, err := LoadConfig()
+//  4. Construction creds are required only when !ConstructionDryRun.
+//
+// GithubAppInstallationID stays the raw string on *Config; the two GitHub
+// variant-args hooks coerce it to int64 via parseInt64 at the point of use.
+func loadResolvedConfig() (*Config, error) {
+	cfg, err := LoadConfig()
 	if err != nil {
-		return config{}, err
+		return nil, err
 	}
 
-	cfg := config{
-		ListenAddr:                    gen.ListenAddr,
-		ShutdownTimeout:               gen.ShutdownTimeout,
-		TemporalHostPort:              gen.TemporalHostport,
-		TemporalNamespace:             gen.TemporalNamespace,
-		KeycloakJWKSURL:               gen.KeycloakJWKSURL,
-		KeycloakIssuer:                gen.KeycloakIssuer,
-		PostgresURL:                   gen.PostgresURL,
-		ProjectStateGitLocal:          gen.ProjectStateGitLocal,
-		ProjectStateGitRepoURL:        gen.ProjectStateGitRepoURL,
-		ArtifactRepoURL:               gen.ArtifactRepoURL,
-		ArtifactRepoOwner:             gen.ArtifactRepoOwner,
-		ArtifactRepoLocal:             gen.ArtifactRepoLocal,
-		GitHubAppID:                   gen.GithubAppAppID,
-		GitHubAPIBaseURL:              gen.GithubAppAPIBaseURL,
-		ConstructionRepoOwner:         gen.ConstructionRepoOwner,
-		ConstructionRepoName:          gen.ConstructionRepoName,
-		ConstructionWorkflowFile:      gen.ConstructionWorkflowFile,
-		ConstructionRef:               gen.ConstructionRef,
-		ConstructionTaskQueue:         gen.ConstructionTaskQueue,
-		ConstructionDryRun:            gen.ConstructionDryRun,
-		OperationsDryRun:              gen.OperationsDryRun,
-		OperatedRuntimeGitOpsRepoURL:  gen.OperatedRuntimeGitOpsRepoURL,
-		ConstructionEscalationTimeout: gen.ConstructionEscalationTimeout,
-		ConstructionInterventionMode:  gen.ConstructionInterventionMode,
-		GitHubAppSlug:                 gen.GithubAppAppSlug,
+	// (1) PEM: re-resolve via envSecret (the generated string field is the raw,
+	// unresolved value; envSecret adds _FILE + inline-vs-path handling).
+	cfg.GithubAppPrivateKeyPEM = envSecret("ARCHISTRATOR_GITHUB_APP_PRIVATE_KEY_PEM", "")
+	// (2) account chained default: fall back to the construction-repo owner so the
+	// GitHub App identity is configured once.
+	cfg.GithubAppAccount = firstNonEmpty(cfg.GithubAppAccount, cfg.ConstructionRepoOwner)
 
-		// (1) PEM: re-resolve via envSecret (the generated string field is the raw,
-		// unresolved value; envSecret adds _FILE + inline-vs-path handling).
-		GitHubAppPrivateKeyPEM: envSecret("ARCHISTRATOR_GITHUB_APP_PRIVATE_KEY_PEM", ""),
-		// (2) installation id: string → int64.
-		GitHubInstallationID: parseInt64(gen.GithubAppInstallationID),
-		// (3) account chained default: fall back to the construction-repo owner so
-		// the GitHub App identity is configured once.
-		GitHubAccount: firstNonEmpty(gen.GithubAppAccount, gen.ConstructionRepoOwner),
-	}
-
-	// (4) dev principal.
-	cfg.Dev = web.DevConfig{
-		Enabled:   gen.AuthDevMode,
-		Principal: devPrincipal(),
-	}
-
-	// (5) Postgres is a hard dependency in every profile.
+	// (3) Postgres is a hard dependency in every profile.
 	if cfg.PostgresURL == "" {
-		return config{}, fmt.Errorf("ARCHISTRATOR_POSTGRES_URL is required")
+		return nil, fmt.Errorf("ARCHISTRATOR_POSTGRES_URL is required")
 	}
 
-	// (6) DRYRUN=false: require all construction creds so the server fails fast at
+	// (4) DRYRUN=false: require all construction creds so the server fails fast at
 	// startup rather than silently dispatching to nowhere.
 	if !cfg.ConstructionDryRun {
-		if err := cfg.validateConstructionCreds(); err != nil {
-			return config{}, err
+		if err := validateConstructionCreds(cfg); err != nil {
+			return nil, err
 		}
 	}
 
@@ -165,13 +64,15 @@ func loadConfig() (config, error) {
 }
 
 // validateConstructionCreds returns an error naming every missing construction
-// credential when ARCHISTRATOR_CONSTRUCTION_DRYRUN=false.
-func (c config) validateConstructionCreds() error {
+// credential when ARCHISTRATOR_CONSTRUCTION_DRYRUN=false. The workflow file + ref
+// carry configgen defaults (aiarch-construct.yml / main), so they never appear in
+// the missing set for a bare DRYRUN=false server.
+func validateConstructionCreds(c *Config) error {
 	missing := []string{}
-	if c.GitHubAppID == "" {
+	if c.GithubAppAppID == "" {
 		missing = append(missing, "ARCHISTRATOR_GITHUB_APP_ID")
 	}
-	if c.GitHubAppPrivateKeyPEM == "" {
+	if c.GithubAppPrivateKeyPEM == "" {
 		missing = append(missing, "ARCHISTRATOR_GITHUB_APP_PRIVATE_KEY_PEM")
 	}
 	if c.ConstructionRepoOwner == "" {
@@ -187,7 +88,7 @@ func (c config) validateConstructionCreds() error {
 		missing = append(missing, "ARCHISTRATOR_CONSTRUCTION_REF")
 	}
 	// The real-path selection needs the git-forward artifact store too
-	// (main.go: pipeline != nil && artifacts != nil). artifacts is constructed
+	// (RegisterConstructionManagerWorker gates on it). artifactAccess is constructed
 	// only when ArtifactRepoURL is set, so it is required when not dry-run.
 	if c.ArtifactRepoURL == "" {
 		missing = append(missing, "ARCHISTRATOR_ARTIFACT_REPO_URL")

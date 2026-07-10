@@ -71,13 +71,13 @@ func TestLoadConfigParity(t *testing.T) {
 			"ARCHISTRATOR_PROJECT_STATE_GIT_LOCAL":    "true",
 			"ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL": "file:///tmp/proj.git",
 		})
-		cfg, err := loadConfig()
+		cfg, err := loadResolvedConfig()
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		wantStr := map[string]string{
 			"PostgresURL":            cfg.PostgresURL,
-			"TemporalHostPort":       cfg.TemporalHostPort,
+			"TemporalHostport":       cfg.TemporalHostport,
 			"TemporalNamespace":      cfg.TemporalNamespace,
 			"ProjectStateGitRepoURL": cfg.ProjectStateGitRepoURL,
 			"ListenAddr":             cfg.ListenAddr,
@@ -85,8 +85,8 @@ func TestLoadConfigParity(t *testing.T) {
 		if wantStr["PostgresURL"] != "postgres://archistrator@localhost:5432/db" {
 			t.Errorf("PostgresURL = %q", cfg.PostgresURL)
 		}
-		if cfg.TemporalHostPort != "localhost:7233" || cfg.TemporalNamespace != "st-1" {
-			t.Errorf("temporal = %q / %q", cfg.TemporalHostPort, cfg.TemporalNamespace)
+		if cfg.TemporalHostport != "localhost:7233" || cfg.TemporalNamespace != "st-1" {
+			t.Errorf("temporal = %q / %q", cfg.TemporalHostport, cfg.TemporalNamespace)
 		}
 		if cfg.ListenAddr != ":8080" { // default preserved
 			t.Errorf("ListenAddr default = %q, want :8080", cfg.ListenAddr)
@@ -100,13 +100,15 @@ func TestLoadConfigParity(t *testing.T) {
 		if !cfg.ProjectStateGitLocal || cfg.ProjectStateGitRepoURL != "file:///tmp/proj.git" {
 			t.Errorf("project-state-git local=%v url=%q", cfg.ProjectStateGitLocal, cfg.ProjectStateGitRepoURL)
 		}
-		if !cfg.Dev.Enabled {
-			t.Error("Dev.Enabled = false, want true")
+		if !cfg.AuthDevMode {
+			t.Error("AuthDevMode = false, want true")
 		}
-		if cfg.Dev.Principal.Subject != "dev-architect" {
-			t.Errorf("dev subject = %q, want dev-architect (default)", cfg.Dev.Principal.Subject)
+		// The dev principal is built in the DevConfig hook from devPrincipal(); assert
+		// it directly (it is no longer a *Config field).
+		if p := devPrincipal(); p.Subject != "dev-architect" {
+			t.Errorf("dev subject = %q, want dev-architect (default)", p.Subject)
 		}
-		if got := cfg.Dev.Principal.Roles; len(got) != 2 || got[0] != "drive-phase" || got[1] != "approve-artifact" {
+		if got := devPrincipal().Roles; len(got) != 2 || got[0] != "drive-phase" || got[1] != "approve-artifact" {
 			t.Errorf("dev roles = %v, want [drive-phase approve-artifact]", got)
 		}
 		if cfg.ConstructionWorkflowFile != "aiarch-construct.yml" {
@@ -138,21 +140,21 @@ func TestLoadConfigParity(t *testing.T) {
 			"ARCHISTRATOR_KEYCLOAK_JWKS_URL":          "https://kc/realms/x/certs",
 			"ARCHISTRATOR_KEYCLOAK_ISSUER":            "https://kc/realms/x",
 		})
-		cfg, err := loadConfig()
+		cfg, err := loadResolvedConfig()
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		if cfg.ConstructionDryRun {
 			t.Error("ConstructionDryRun = true, want false")
 		}
-		if cfg.GitHubInstallationID != 42 { // int64 coercion
-			t.Errorf("GitHubInstallationID = %d, want 42", cfg.GitHubInstallationID)
+		if got := parseInt64(cfg.GithubAppInstallationID); got != 42 { // int64 coercion (in the variant hooks)
+			t.Errorf("installationID = %d, want 42", got)
 		}
-		if cfg.GitHubAccount != "acme" { // chained default off CONSTRUCTION_REPO_OWNER
-			t.Errorf("GitHubAccount = %q, want acme (chained default)", cfg.GitHubAccount)
+		if cfg.GithubAppAccount != "acme" { // chained default off CONSTRUCTION_REPO_OWNER
+			t.Errorf("GithubAppAccount = %q, want acme (chained default)", cfg.GithubAppAccount)
 		}
-		if cfg.GitHubAppPrivateKeyPEM != testPEM {
-			t.Errorf("GitHubAppPrivateKeyPEM = %q, want inline PEM verbatim", cfg.GitHubAppPrivateKeyPEM)
+		if cfg.GithubAppPrivateKeyPEM != testPEM {
+			t.Errorf("GithubAppPrivateKeyPEM = %q, want inline PEM verbatim", cfg.GithubAppPrivateKeyPEM)
 		}
 		if cfg.KeycloakJWKSURL == "" || cfg.KeycloakIssuer == "" {
 			t.Errorf("keycloak = %q / %q", cfg.KeycloakJWKSURL, cfg.KeycloakIssuer)
@@ -170,22 +172,22 @@ func TestLoadConfigParity(t *testing.T) {
 			"ARCHISTRATOR_CONSTRUCTION_REPO_OWNER": "fallback-owner",
 			"ARCHISTRATOR_GITHUB_INSTALLATION_ID":  "not-a-number",
 		})
-		cfg, err := loadConfig()
+		cfg, err := loadResolvedConfig()
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if cfg.GitHubAccount != "explicit-org" {
-			t.Errorf("GitHubAccount = %q, want explicit-org", cfg.GitHubAccount)
+		if cfg.GithubAppAccount != "explicit-org" {
+			t.Errorf("GithubAppAccount = %q, want explicit-org", cfg.GithubAppAccount)
 		}
-		if cfg.GitHubInstallationID != 0 {
-			t.Errorf("GitHubInstallationID = %d, want 0 (unparseable)", cfg.GitHubInstallationID)
+		if got := parseInt64(cfg.GithubAppInstallationID); got != 0 {
+			t.Errorf("installationID = %d, want 0 (unparseable)", got)
 		}
 	})
 
 	// empty env ⇒ the unconditional PostgresURL requirement fires first.
 	t.Run("empty-env-requires-postgres", func(t *testing.T) {
 		clearConfigEnv(t)
-		_, err := loadConfig()
+		_, err := loadResolvedConfig()
 		if err == nil {
 			t.Fatal("expected error on empty env")
 		}
@@ -202,7 +204,7 @@ func TestLoadConfigParity(t *testing.T) {
 			"ARCHISTRATOR_POSTGRES_URL":        "postgres://x",
 			"ARCHISTRATOR_CONSTRUCTION_DRYRUN": "false",
 		})
-		_, err := loadConfig()
+		_, err := loadResolvedConfig()
 		if err == nil {
 			t.Fatal("expected construction-creds error")
 		}

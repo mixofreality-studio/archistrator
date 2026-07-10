@@ -88,3 +88,10 @@ jobs:
       # ../systemtests/internal/harness/envnames.gen.go.
       - name: Generated config drift check
         run: make gen-config-check
+
+      # Drift gate for the generated composition root (cmd/server/main.gen.go,
+      # cmd/appgen driving the published framework-go-app-generator/composegen —
+      # v0.5.0). Same GOWORK=off-safe shape; regenerates from project.json's
+      # deployment model + service contracts and fails on any diff.
+      - name: Generated composition-root drift check
+        run: make gen-main-check

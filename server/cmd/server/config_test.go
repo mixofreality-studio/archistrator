@@ -25,7 +25,7 @@ func TestLoadConfig_RealConstruction_FailFast(t *testing.T) {
 		"ARCHISTRATOR_CONSTRUCTION_REF":           "main",
 		// App creds intentionally absent
 	})
-	if _, err := loadConfig(); err == nil {
+	if _, err := loadResolvedConfig(); err == nil {
 		t.Fatal("expected error when DRYRUN=false and app creds missing")
 	}
 }
@@ -43,7 +43,7 @@ func TestLoadConfig_RealConstruction_OK(t *testing.T) {
 		"ARCHISTRATOR_GITHUB_APP_PRIVATE_KEY_PEM": "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAA==\n-----END RSA PRIVATE KEY-----",
 		"ARCHISTRATOR_ARTIFACT_REPO_URL":          "https://github.com/mixofreality-studio/archistrator.git",
 	})
-	if _, err := loadConfig(); err != nil {
+	if _, err := loadResolvedConfig(); err != nil {
 		t.Fatalf("expected no error with all real-construction creds: %v", err)
 	}
 }
@@ -64,7 +64,7 @@ func TestLoadConfig_RealConstruction_RequiresArtifactRepoURL(t *testing.T) {
 		"ARCHISTRATOR_GITHUB_APP_PRIVATE_KEY_PEM": "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAA==\n-----END RSA PRIVATE KEY-----",
 		// ARCHISTRATOR_ARTIFACT_REPO_URL intentionally absent
 	})
-	_, err := loadConfig()
+	_, err := loadResolvedConfig()
 	if err == nil {
 		t.Fatal("expected error when DRYRUN=false and ARCHISTRATOR_ARTIFACT_REPO_URL missing")
 	}
@@ -81,7 +81,7 @@ func TestConstructionWorkflowFileDefault(t *testing.T) {
 		"ARCHISTRATOR_CONSTRUCTION_DRYRUN":        "true",
 		"ARCHISTRATOR_CONSTRUCTION_WORKFLOW_FILE": "",
 	})
-	cfg, err := loadConfig()
+	cfg, err := loadResolvedConfig()
 	if err != nil {
 		t.Fatalf("loadConfig failed: %v", err)
 	}

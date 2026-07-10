@@ -116,6 +116,21 @@ gen-config: gen-temporal
 gen-config-check: gen-temporal
 	git diff --exit-code -- cmd/server/config.gen.go ../systemtests/internal/harness/envnames.gen.go
 
+# gen-main — the archistrator-server composition root (cmd/server/main.gen.go)
+# from project.json's deployment model + service contracts (cmd/appgen, driving
+# the published framework-go-app-generator/composegen — v0.5.0 shipped it, so this
+# is GOWORK=off like every other gen target). cmd/appgen emits it in the SAME run
+# as the Temporal layer + SDK + config (one project.json read), so gen-main shares
+# the gen-temporal prerequisite rather than invoking appgen a second time.
+gen-main: gen-temporal
+
+# gen-main-check — drift gate for the generated composition root, same
+# regenerate-then-diff shape as the other gen-*-check gates. GOWORK=off-safe
+# (composegen ships in the pinned v0.5.0 app-generator release), so it runs in CI
+# (server-checks.yml).
+gen-main-check: gen-temporal
+	git diff --exit-code -- cmd/server/main.gen.go
+
 gen-schemas:
 	GOWORK=off go run ./cmd/schemagen
 	GOWORK=off go run ./cmd/contractfold

@@ -7702,7 +7702,15 @@
               "component": "projectStateAccess",
               "presence": "required",
               "provides": [],
-              "settings": [],
+              "settings": [
+                {
+                  "name": "projectStateGitRepoURL",
+                  "type": "string",
+                  "default": "",
+                  "env": "ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL",
+                  "description": "projectStateAccess GitLocal on-disk head-state repo URL (file://)."
+                }
+              ],
               "perProfile": {
                 "local": {
                   "variant": "GitLocal",
@@ -7720,7 +7728,15 @@
               "component": "artifactAccess",
               "presence": "optional-dormant",
               "provides": [],
-              "settings": [],
+              "settings": [
+                {
+                  "name": "artifactRepoURL",
+                  "type": "string",
+                  "default": "",
+                  "env": "ARCHISTRATOR_ARTIFACT_REPO_URL",
+                  "description": "artifactAccess GitLocal on-disk construction-output repo URL (file://)."
+                }
+              ],
               "perProfile": {
                 "local": {
                   "variant": "GitLocal",

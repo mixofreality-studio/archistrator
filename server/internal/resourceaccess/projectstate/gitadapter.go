@@ -42,19 +42,26 @@ import (
 // NewGitLocalProjectStateAccess builds the LOCAL git projectStateAccess: file:// on-disk
 // repos, no credential. The per-project repo URL is taken verbatim (the embedded profile
 // drives one throwaway on-disk repo); the catalog is discovered by scanning that repo.
-func NewGitLocalProjectStateAccess(repoURL string) (ProjectStateAccess, error) {
+//
+// This is the step-8 A2 composegen VARIANT constructor (variant token GitLocal):
+// infra-free, so the generated composition root calls it WITHOUT an error return.
+// NewGitStore's only error is a nil locator, which is unreachable here (the locator
+// is always a constructed non-nil value), so it is panic-guarded as a can't-happen.
+func NewGitLocalProjectStateAccess(repoURL string) ProjectStateAccess {
 	locator := gitRepoLocator{
 		branch:            "main",
 		perProjectRepoURL: func(ProjectID) string { return repoURL },
 	}
 	store, err := NewGitStore(locator, true /* local */)
 	if err != nil {
-		return nil, err
+		// Unreachable: locator is a non-nil value. A panic here means the invariant
+		// was broken by a code change, not a runtime/config condition.
+		panic("projectstate.NewGitLocalProjectStateAccess: " + err.Error())
 	}
 	// Discover-by-enumeration over the single on-disk project repo (no GitHub
 	// installation API in local mode — founder ruling 2026-06-14).
 	store = store.WithCatalog(localProjectCatalog{repoURL: repoURL, branch: "main"})
-	return &projectStateGitAdapter{store: store, minter: localCredentialMinter{}}, nil
+	return &projectStateGitAdapter{store: store, minter: localCredentialMinter{}}
 }
 
 // NewGitHubProjectStateAccess builds the CLOUD git projectStateAccess: the per-project

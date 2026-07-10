@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"sort"
 
+	"github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator/composegen"
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator/configgen"
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator/temporalgen"
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator/transportgen"
@@ -45,7 +46,28 @@ const (
 	configPackage = "main"
 	configOut     = "cmd/server/config.gen.go"
 	envNamesOut   = "../systemtests/internal/harness/envnames.gen.go"
+	// composegen (archistrator-server composition root) output location. Emitted
+	// into the existing cmd/server package alongside config.gen.go whose *Config
+	// it threads. framework-go-app-generator/composegen shipped in the v0.5.0 tag,
+	// so this runs in the same GOWORK=off appgen pass as the other emitters.
+	mainOut = "cmd/server/main.gen.go"
 )
+
+// projectstatePkg is the archistrator projectstate package import — the source of
+// the GitHub projectStateAccess variant's composition-root port types
+// (ProjectCatalog + CredentialMinter) that projectstate cannot construct itself
+// (an RA→RA edge is forbidden inside the package). See generateMain's
+// VariantHookArgs.
+const projectstatePkg = serverModule + "/internal/resourceaccess/projectstate"
+
+// githubInfraPkg is the framework-go-infrastructure-github import (package name
+// `github`) — the source of the shared *github.AppClient the sourceControlAccess
+// GitHub + constructionPipelineAccess GitHubActions variant-arg hooks build and
+// spread into their EXISTING generated DI constructors. Threading the AppClient
+// via a hook (not the raw github-app substrate strings) reuses the generated
+// ctors verbatim: a naive positional re-fold would emit a SECOND
+// New<Variant><Iface> with the same name and collide.
+const githubInfraPkg = "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github"
 
 // callerKeyedOps: ops whose idempotency is BUSINESS-stable, not run-scoped —
 // the workflow supplies the key explicitly (billing money-moves; see
@@ -87,6 +109,89 @@ func main() {
 
 	generateSDK(m)
 	generateConfig(m)
+	generateMain(m)
+}
+
+// generateMain emits the archistrator-server composition root
+// (cmd/server/main.gen.go) from project.json's deployment model + service
+// contracts via framework-go-app-generator/composegen: the ordered boot walk
+// (signal ctx → telemetry → Temporal dial → Postgres pool → per-binding RA
+// construction → Engines → security Utility → Managers via their DI ctors → one
+// Worker per Manager → generated web Handlers + NewServer + ExtraMounts → serve +
+// shutdown), driving a hand cmd/server/hooks.go for the genuinely-compositional
+// policy. Two driver knobs the deployment model cannot express:
+//
+//   - WebExposedManagers = clientgen's exposedManagers (the 4 web-wired
+//     managers). billingManager carries a web-client/mcp-client relationship in
+//     the committed System model but clientgen generates no
+//     internal/client/web/billing package (money-move ops are not web-wired), so
+//     the relationship alone must not force a <mgr>web.Handler that would not
+//     compile.
+//   - VariantHookArgs for the two variant ctors whose args the model cannot
+//     supply (G3): projectstate GitHub needs the sourcecontrol-backed catalog +
+//     minter PORTS (an RA→RA edge forbidden inside projectstate), and artifact
+//     GitHubCloud needs the repoURL/owner strings + a typed int64 installationID.
+func generateMain(m *projectmodel.Model) {
+	files, err := composegen.Generate(m, composegen.Config{
+		ContainerKey: containerKey,
+		ModulePath:   serverModule,
+		PackageName:  configPackage,
+		EnvPrefix:    envPrefix,
+		WebExposedManagers: []string{
+			"systemDesignManager",
+			"projectDesignManager",
+			"constructionManager",
+			"operationsManager",
+		},
+		VariantHookArgs: map[string][]composegen.HookArgType{
+			"projectStateAccess/GitHub": {
+				{GoType: "string"}, // webHost
+				{GoType: "string"}, // account
+				{GoType: "projectstate.ProjectCatalog", GoImport: projectstatePkg},
+				{GoType: "projectstate.CredentialMinter", GoImport: projectstatePkg},
+			},
+			"artifactAccess/GitHubCloud": {
+				{GoType: "string"}, // repoURL
+				{GoType: "string"}, // owner
+				{GoType: "string"}, // appID
+				{GoType: "string"}, // privateKeyPEM
+				{GoType: "string"}, // apiBaseURL
+				{GoType: "int64"},  // installationID
+			},
+			// sourceControlAccess GitHub + constructionPipelineAccess GitHubActions
+			// thread the shared *github.AppClient (built in the hook from the
+			// github-app cfg strings) + the variant's own settings, reusing their
+			// EXISTING generated DI ctors verbatim. The AppClient cannot be a
+			// substrate string, and a raw positional re-fold would collide with the
+			// generated ctor name — so these are hook-args cases too.
+			"sourceControlAccess/GitHub": {
+				{GoType: "*github.AppClient", GoImport: githubInfraPkg},
+				{GoType: "string"}, // defaultAccount
+				{GoType: "string"}, // appSlug
+				{GoType: "bool"},   // repoPrivate
+			},
+			"constructionPipelineAccess/GitHubActions": {
+				{GoType: "*github.AppClient", GoImport: githubInfraPkg},
+				{GoType: "string"}, // owner
+				{GoType: "string"}, // repo
+				{GoType: "string"}, // workflowFile
+				{GoType: "string"}, // ref
+				{GoType: "int64"},  // installationID
+			},
+		},
+	})
+	if err != nil {
+		fatal(fmt.Errorf("composegen: %w", err))
+	}
+	src, ok := files["main.gen.go"]
+	if !ok {
+		fatal(fmt.Errorf("composegen: emitter returned no main.gen.go"))
+	}
+	// #nosec G306 -- generated source, no secret content
+	if err := os.WriteFile(mainOut, src, 0o600); err != nil {
+		fatal(fmt.Errorf("write %s: %w", mainOut, err))
+	}
+	fmt.Printf("appgen: main → %s (%d bytes)\n", mainOut, len(src))
 }
 
 // generateSDK emits the self-contained client SDK (transportgen: HTTP + MCP,

@@ -178,8 +178,8 @@ var encapsulationAllowlistData = map[string][]string{
 	// is the in-memory dogfood/demo stub. The auth-resolver glue itself stays unexported.
 	"internal/resourceaccess/artifact": {
 		"NewDryRunArtifactAccess",
-		"NewGitHubArtifactAccess",
-		"NewLocalGitArtifactAccess",
+		"NewGitHubCloudArtifactAccess",
+		"NewGitLocalArtifactAccess",
 	},
 	// FREE-FUNCTION BEHAVIOUR over the contract's named-scalar handle/enum value types: the
 	// schema-first rule keeps generated contract types method-free, so
@@ -554,6 +554,16 @@ var encapsulationAllowlistData = map[string][]string{
 		"Volatilities.Kind",
 		"Volatility",
 		"WorkerMix",
+	},
+	// DEPLOYMENT-PROFILE VARIANT CONSTRUCTORS (step-8 A2 composegen seam): the two
+	// no-arg, no-error profile wrappers (Real/Local) the generated composition root
+	// calls per the operatedRuntimeAccess binding. Thin wrappers over the generated
+	// NewProfiledOperatedRuntimeAccess; the profiled ctor + its RuntimeProfile/
+	// RuntimeConfig params are structurally reachable from the generated surface, so
+	// only these two new free functions need listing.
+	"internal/resourceaccess/operatedruntime": {
+		"NewLocalOperatedRuntimeAccess",
+		"NewRealOperatedRuntimeAccess",
 	},
 	// FREE-FUNCTION BEHAVIOUR over the repo/ref/handle scalars
 	// (String/FromString/Equal/IsZero/OwnerRepo) + the MANAGED-REPO SCAFFOLD CONTRACT

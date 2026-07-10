@@ -30,29 +30,61 @@ import (
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
-// NewLocalGitArtifactAccess builds the LOCAL-profile artifactAccess: a satellite
+// NewGitLocalArtifactAccess builds the LOCAL-profile artifactAccess: a satellite
 // *GitBlobStore over the on-disk construction repo plus the no-credential file://
 // auth resolver. No network IO at construction.
-func NewLocalGitArtifactAccess(repoURL string) (ArtifactAccess, error) {
+//
+// This is the step-8 A2 composegen VARIANT constructor (variant token GitLocal):
+// infra-free, so the generated composition root calls it WITHOUT an error return.
+// The former eager empty-repoURL guard is DEFERRED to first use — an empty URL
+// yields a store that returns the ContractMisuse error on every operation rather
+// than at boot (P1 gap #2 residual: the composition root's nil-guard is lost, but
+// the local profile's artifactAccess is swapped for the dry-run stub in the
+// dogfood via FinalizeArtifactAccess, and a repo-less non-dryrun local server
+// simply never exercises artifact IO).
+func NewGitLocalArtifactAccess(repoURL string) ArtifactAccess {
 	blob, err := githubinfra.NewGitBlobStore(repoURL)
 	if err != nil {
-		return nil, err
+		return erroringArtifactAccess{err: err}
 	}
-	return NewGitArtifactAccess(blob, localGitAuth()), nil
+	return NewGitArtifactAccess(blob, localGitAuth())
 }
 
-// NewGitHubArtifactAccess builds the CLOUD-profile artifactAccess: a satellite
+// NewGitHubCloudArtifactAccess builds the CLOUD-profile artifactAccess: a satellite
 // *GitBlobStore over the user's GitHub construction repo plus the internal
 // token-minting auth resolver (App-JWT -> MintInstallationToken, cached to expiry).
 // Config is validated eagerly (a missing field / bad key surfaces as
 // fwra.ContractMisuse) but no network IO happens; the installation token is minted
 // lazily on first use. installationID 0 ⇒ discovered on first call.
-func NewGitHubArtifactAccess(repoURL, owner, appID, privateKeyPEM, apiBaseURL string, installationID int64) (ArtifactAccess, error) {
+//
+// This is the step-8 A2 composegen VARIANT constructor (variant token GitHubCloud):
+// the composition root threads its args via hooks.ArtifactAccessGitHubCloudArgs.
+func NewGitHubCloudArtifactAccess(repoURL, owner, appID, privateKeyPEM, apiBaseURL string, installationID int64) (ArtifactAccess, error) {
 	blob, authResolver, err := newCloudArtifactStore(repoURL, owner, appID, privateKeyPEM, apiBaseURL, installationID)
 	if err != nil {
 		return nil, err
 	}
 	return NewGitArtifactAccess(blob, authResolver), nil
+}
+
+// erroringArtifactAccess is the deferred-guard store NewGitLocalArtifactAccess
+// returns when the repo URL is empty: it carries the construction error and
+// returns it from every contract operation, so a misconfigured local artifact
+// store fails at first use with a clear ContractMisuse rather than nil-panicking.
+type erroringArtifactAccess struct{ err error }
+
+var _ ArtifactAccess = erroringArtifactAccess{}
+
+func (e erroringArtifactAccess) StoreConstructionOutput(fwra.Context, ConstructionOutput) (string, error) {
+	return "", e.err
+}
+
+func (e erroringArtifactAccess) RetrieveConstructionOutput(fwra.Context, string) (ConstructionOutput, error) {
+	return ConstructionOutput{}, e.err
+}
+
+func (e erroringArtifactAccess) RetrieveOutputTree(fwra.Context, string) (OutputTree, error) {
+	return OutputTree{}, e.err
 }
 
 // localGitAuth is the LOCAL/embedded profile resolver: a file:// remote needs no
