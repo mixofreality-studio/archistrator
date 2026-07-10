@@ -357,55 +357,25 @@ func modelStructBody(t reflect.Type, typeSchemas map[reflect.Type]*jsonschema.Sc
 		if info.omit {
 			continue
 		}
-		fs, err := jsonschema.ForType(f.Type, &jsonschema.ForOptions{
-			IgnoreInvalidTypes: true,
-			TypeSchemas:        typeSchemas,
-		})
+		// Reflect the field's type using jsonschema.ForType.
+		fs, err := reflectFieldSchema(f, typeSchemas)
+		if err != nil {
+			return nil, err
+		}
+		if fs == nil {
+			continue
+		}
+		// Round-trip through JSON to produce a generic map, stripping x-go-* keys.
+		generic, err := schemaToGeneric(fs)
 		if err != nil {
 			return nil, fmt.Errorf("field %s: %w", f.Name, err)
 		}
-		if fs == nil { // invalid type (e.g. non-string-keyed map) — ignored like ForType does
-			continue
-		}
-		raw, err := json.Marshal(fs)
-		if err != nil {
-			return nil, fmt.Errorf("marshal field %s: %w", f.Name, err)
-		}
-		var generic any
-		if err := json.Unmarshal(raw, &generic); err != nil {
-			return nil, fmt.Errorf("decode field %s: %w", f.Name, err)
-		}
-		stripGoExtensions(generic)
-		// String-marshalled ordinal enum: ForType reflected `integer` from the
-		// static `type X int`, but the wire ships a camelCase string. Override the
-		// integer schema (or the slice's items schema) with the live-marshalled
-		// string enum, preserving nullability.
-		if enumVals, isSlice, ok := enumFieldWireValues(f.Type, enumReg); ok {
-			if gm, gok := generic.(map[string]any); gok {
-				if isSlice {
-					if items, iok := gm["items"].(map[string]any); iok {
-						swapIntegerToStringEnum(items, enumVals)
-					}
-				} else {
-					swapIntegerToStringEnum(gm, enumVals)
-				}
-			}
-		}
-		// A non-omitempty pointer to a struct serializes its nil as JSON `null` (the
-		// key is always emitted), but ForType reflects such a field as a bare `$ref`
-		// that cannot carry null — so the reflected schema wrongly forbids null (e.g.
-		// UseCase.Activity `*ActivityDiagram json:"activity"`). Wrap it in
-		// `anyOf:[<$ref>, {type:null}]` so the schema admits the wire's null. (Scalar
-		// pointers are already reflected as nullable inline types by ForType; omitempty
-		// struct pointers are omitted-when-nil — optional, not null — and are excluded
-		// from `required` below, so neither is wrapped here.)
-		if f.Type.Kind() == reflect.Pointer && !info.omitempty {
-			if gm, gok := generic.(map[string]any); gok {
-				if _, hasRef := gm["$ref"]; hasRef {
-					generic = map[string]any{"anyOf": []any{gm, map[string]any{"type": "null"}}}
-				}
-			}
-		}
+		// Override the reflected integer with the true string enum if this is a
+		// string-marshalled ordinal enum type, preserving nullability.
+		applyStringEnumOverride(f, generic, enumReg)
+		// Wrap non-omitempty pointer-to-struct fields in anyOf:[<$ref>, {type:null}]
+		// so the schema admits the wire's null value (e.g., UseCase.Activity).
+		generic = wrapNullableStructPointer(f, info, generic)
 		props[info.name] = generic
 		if !info.omitempty {
 			required = append(required, info.name)
@@ -420,6 +390,79 @@ func modelStructBody(t reflect.Type, typeSchemas map[reflect.Type]*jsonschema.Sc
 		body["required"] = required
 	}
 	return body, nil
+}
+
+// reflectFieldSchema reflects a single struct field via jsonschema.ForType using
+// the shared type stubs, handling errors. Returns the raw jsonschema.Schema if
+// successful (may be nil for invalid/ignored types, which the caller checks).
+func reflectFieldSchema(f reflect.StructField, typeSchemas map[reflect.Type]*jsonschema.Schema) (*jsonschema.Schema, error) {
+	fs, err := jsonschema.ForType(f.Type, &jsonschema.ForOptions{
+		IgnoreInvalidTypes: true,
+		TypeSchemas:        typeSchemas,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("field %s: %w", f.Name, err)
+	}
+	// fs may be nil for invalid types (e.g., non-string-keyed maps); the caller
+	// checks for nil and skips the field (matched original ForType behavior).
+	return fs, nil
+}
+
+// schemaToGeneric round-trips a jsonschema.Schema through JSON marshal/unmarshal
+// to produce a generic map[string]any value suitable for YAML emission,
+// stripping x-go-* extensions in the process.
+func schemaToGeneric(fs *jsonschema.Schema) (any, error) {
+	raw, err := json.Marshal(fs)
+	if err != nil {
+		return nil, fmt.Errorf("marshal: %w", err)
+	}
+	var generic any
+	if err := json.Unmarshal(raw, &generic); err != nil {
+		return nil, fmt.Errorf("unmarshal: %w", err)
+	}
+	stripGoExtensions(generic)
+	return generic, nil
+}
+
+// applyStringEnumOverride checks if the field is a string-marshalled enum and
+// rewrites the generic schema to use the true wire-value enum instead of the
+// reflected integer type, preserving nullability. Returns true if a rewrite occurred.
+func applyStringEnumOverride(f reflect.StructField, generic any, enumReg map[reflect.Type][]any) bool {
+	enumVals, isSlice, ok := enumFieldWireValues(f.Type, enumReg)
+	if !ok {
+		return false
+	}
+	gm, gok := generic.(map[string]any)
+	if !gok {
+		return false
+	}
+	if isSlice {
+		if items, iok := gm["items"].(map[string]any); iok {
+			swapIntegerToStringEnum(items, enumVals)
+			return true
+		}
+	} else {
+		swapIntegerToStringEnum(gm, enumVals)
+		return true
+	}
+	return false
+}
+
+// wrapNullableStructPointer wraps a non-omitempty pointer-to-struct field in
+// anyOf:[<$ref>, {type:null}] so the schema admits the wire's null value. Returns
+// the wrapped schema, or the original if no wrapping was needed.
+func wrapNullableStructPointer(f reflect.StructField, info fieldJSON, generic any) any {
+	if f.Type.Kind() != reflect.Pointer || info.omitempty {
+		return generic
+	}
+	gm, gok := generic.(map[string]any)
+	if !gok {
+		return generic
+	}
+	if _, hasRef := gm["$ref"]; !hasRef {
+		return generic
+	}
+	return map[string]any{"anyOf": []any{gm, map[string]any{"type": "null"}}}
 }
 
 // stripGoExtensions recursively deletes every x-go-* codegen extension key from a
