@@ -58,12 +58,19 @@ gen-client-check: gen-client
 gen-internal-tools:
 	GOWORK=off go run ./cmd/internaltoolsgen
 
-gen: gen-models gen-client gen-internal-tools gen-temporal gen-sdk
+gen: gen-models gen-client gen-internal-tools gen-temporal gen-sdk gen-config
 
-# gen-temporal — generate the per-manager Temporal layer (activities/invokers/
-# worker .gen.go) for the 5 managers from project.json .serviceContracts
-# (cmd/appgen, driving framework-go-app-generator/temporalgen).
-# Release-backed and GOWORK=off like the other gen targets:
+# gen-temporal — ONE appgen run (cmd/appgen, driving framework-go-app-generator's
+# temporalgen + transportgen + configgen) that emits, from a single project.json
+# read:
+#   1. the per-manager Temporal layer (activities/invokers/worker .gen.go) for
+#      the 5 managers,
+#   2. the stdlib-only client SDK into ../systemtests/internal/sdk (gen-sdk),
+#   3. the archistrator-server container config (cmd/server/config.gen.go) + the
+#      systemtests harness env-name consts (gen-config).
+# gen-sdk and gen-config are therefore ALIASES sharing this prerequisite rather
+# than invoking appgen again; the three -check targets keep their distinct diff
+# scopes. Release-backed and GOWORK=off like the other gen targets:
 # framework-go-app-generator + framework-go-projectmodel are published platform
 # tags pinned in go.mod, so cmd/appgen builds from the module cache with no
 # build tag and no ../archistrator-platform workspace checkout. Folded into the
@@ -93,27 +100,20 @@ gen-sdk: gen-temporal
 gen-sdk-check: gen-temporal
 	git diff --exit-code -- ../systemtests/internal/sdk
 
-# gen-config — generate the archistrator-server container config (cmd/server/
-# config.gen.go) + the systemtests harness env-name consts (systemtests/internal/
-# harness/envnames.gen.go) from project.json's deployment model (cmd/configgen,
-# driving framework-go-app-generator/configgen).
-#
-# WORKSPACE-ONLY BRIDGE (release follow-up): configgen is UNRELEASED in
-# framework-go-app-generator, so — unlike the other gen-* targets — this one runs
-# in Go WORKSPACE mode (NO GOWORK=off; needs the ../archistrator-platform checkout
-# + go.work). cmd/configgen is behind the `configgen` build tag with a no-op stub
-# so ordinary GOWORK=off build/vet/test ./... stay clean. Mirrors the step-1 appgen
-# precedent. Deliberately NOT folded into `gen` (which is all GOWORK=off) and NOT
-# added to CI (server-checks.yml) yet — it cannot run without the workspace. Once
-# framework-go-app-generator ships configgen in a tag, fold cmd/configgen into
-# cmd/appgen tag-free and add gen-config-check to CI like gen-temporal-check.
-gen-config:
-	go run -tags configgen ./cmd/configgen
+# gen-config — the archistrator-server container config (cmd/server/config.gen.go)
+# + the systemtests harness env-name consts (../systemtests/internal/harness/
+# envnames.gen.go) from project.json's deployment model (cmd/appgen, driving the
+# published framework-go-app-generator/configgen — v0.4.0 shipped it, so the
+# former workspace-only cmd/configgen bridge is folded into cmd/appgen tag-free
+# and this is GOWORK=off like every other gen target). cmd/appgen emits it in the
+# SAME run as the Temporal layer (one project.json read), so gen-config shares
+# the gen-temporal prerequisite rather than invoking appgen a second time.
+gen-config: gen-temporal
 
 # gen-config-check — drift gate for the generated config + harness env-names,
-# same regenerate-then-diff shape as the other gen-*-check gates. WORKSPACE-only
-# (see gen-config); run locally, NOT in CI until configgen ships in a platform tag.
-gen-config-check: gen-config
+# same regenerate-then-diff shape as the other gen-*-check gates. GOWORK=off-safe
+# (see gen-config), so it runs in CI (server-checks.yml).
+gen-config-check: gen-temporal
 	git diff --exit-code -- cmd/server/config.gen.go ../systemtests/internal/harness/envnames.gen.go
 
 gen-schemas:

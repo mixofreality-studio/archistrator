@@ -79,3 +79,12 @@ jobs:
       # ../systemtests/internal/sdk.
       - name: Generated SDK drift check
         run: make gen-sdk-check
+
+      # Drift gate for the generated server config + systemtests harness
+      # env-name consts (cmd/appgen, driving the published
+      # framework-go-app-generator/configgen). Same GOWORK=off-safe shape;
+      # regenerates from project.json's deployment model and fails on any diff
+      # in cmd/server/config.gen.go or
+      # ../systemtests/internal/harness/envnames.gen.go.
+      - name: Generated config drift check
+        run: make gen-config-check

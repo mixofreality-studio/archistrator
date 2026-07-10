@@ -1,19 +1,26 @@
-// Command appgen generates the per-manager Temporal layer (activities/
-// invokers/worker) from project.json via framework-go-projectmodel +
-// framework-go-app-generator/temporalgen. Byte-idempotent; run via
-// `make gen-temporal`.
+// Command appgen generates, in one project.json read: the per-manager Temporal
+// layer (activities/invokers/worker), the client SDK for the sibling
+// systemtests module, and the archistrator-server container config + harness
+// env-name consts — via framework-go-projectmodel + framework-go-app-generator's
+// temporalgen/transportgen/configgen. Byte-idempotent; run via `make gen-temporal`,
+// `make gen-sdk`, or `make gen-config` (all invoke this same command; see the
+// Makefile for their distinct diff scopes).
 //
 // Release-backed: framework-go-app-generator + framework-go-projectmodel are
 // published platform modules pinned in server/go.mod, so this command builds
 // under ordinary GOWORK=off server builds/tests — no build tag, no workspace.
+// configgen was folded in from the former workspace-only cmd/configgen once
+// framework-go-app-generator shipped it in a tag (v0.4.0).
 package main
 
 import (
 	"fmt"
+	"go/format"
 	"os"
 	"path/filepath"
 	"sort"
 
+	"github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator/configgen"
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator/temporalgen"
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator/transportgen"
 	projectmodel "github.com/mixofreality-studio/archistrator-platform/framework-go-projectmodel"
@@ -29,6 +36,15 @@ const (
 	// never links server code (the test-authoring constitution R1/R3).
 	sdkDir     = "../systemtests/internal/sdk"
 	sdkPackage = "sdk"
+	// configgen (archistrator-server container config + systemtests harness
+	// env-name consts) output locations — folded in from the former
+	// (workspace-only) cmd/configgen now that framework-go-app-generator/configgen
+	// is published.
+	containerKey  = "archistrator-server"
+	envPrefix     = "ARCHISTRATOR"
+	configPackage = "main"
+	configOut     = "cmd/server/config.gen.go"
+	envNamesOut   = "../systemtests/internal/harness/envnames.gen.go"
 )
 
 // callerKeyedOps: ops whose idempotency is BUSINESS-stable, not run-scoped —
@@ -70,6 +86,7 @@ func main() {
 	}
 
 	generateSDK(m)
+	generateConfig(m)
 }
 
 // generateSDK emits the self-contained client SDK (transportgen: HTTP + MCP,
@@ -123,6 +140,121 @@ func pruneStaleSDK(dir string, files map[string][]byte) error {
 		}
 		fmt.Printf("appgen: pruned stale sdk file %s\n", filepath.Base(path))
 	}
+	return nil
+}
+
+// generateConfig emits the archistrator-server container's env-loaded
+// configuration file (cmd/server/config.gen.go) from project.json's deployment
+// model via framework-go-app-generator/configgen, plus the systemtests-harness
+// env-name const file (folded in from the former workspace-only cmd/configgen —
+// framework-go-app-generator/configgen is now a published, tag-free dependency,
+// so it runs in the same GOWORK=off appgen pass as the Temporal layer and SDK).
+func generateConfig(m *projectmodel.Model) {
+	files, err := configgen.Generate(m, configgen.Config{
+		ContainerKey: containerKey,
+		EnvPrefix:    envPrefix,
+		PackageName:  configPackage,
+	})
+	if err != nil {
+		fatal(fmt.Errorf("configgen: %w", err))
+	}
+	src, ok := files["config.gen.go"]
+	if !ok {
+		fatal(fmt.Errorf("configgen: emitter returned no config.gen.go"))
+	}
+	// #nosec G306 -- generated source, no secret content; standard 0644 like the other gen targets
+	if err := os.WriteFile(configOut, src, 0o600); err != nil {
+		fatal(fmt.Errorf("write %s: %w", configOut, err))
+	}
+	fmt.Printf("appgen: config → %s (%d bytes)\n", configOut, len(src))
+
+	if err := generateEnvNames(m); err != nil {
+		fatal(fmt.Errorf("envnames: %w", err))
+	}
+}
+
+// harnessEnvName is one systemtests-harness env-name const: the Go const name and
+// where its value is sourced from the deployment model (a setting name, or an
+// infra "<key>.<INPUT>"). Sourcing the value from the model means a rename of the
+// var in project.json fails the harness COMPILE (const gone / value moved), not at
+// runtime.
+type harnessEnvName struct {
+	Const    string // emitted Go const name
+	Setting  string // deployment setting name (mutually exclusive with Infra*)
+	InfraKey string // deployment infra key
+	InfraIn  string // deployment infra input token
+}
+
+// harnessEnvNames is the fixed set of env-var names the systemtests harness
+// binds when booting a server. Each is resolved against the committed deployment
+// declarations so the emitted const carries TODAY'S exact var name.
+var harnessEnvNames = []harnessEnvName{
+	{Const: "EnvPostgresURL", InfraKey: "postgres", InfraIn: "URL"},
+	{Const: "EnvTemporalHostPort", Setting: "temporalHostPort"},
+	{Const: "EnvTemporalNamespace", Setting: "temporalNamespace"},
+	{Const: "EnvListenAddr", Setting: "listenAddr"},
+	{Const: "EnvAuthDevMode", Setting: "authDevMode"},
+	{Const: "EnvConstructionDryRun", Setting: "constructionDryRun"},
+	{Const: "EnvOperationsDryRun", Setting: "operationsDryRun"},
+	{Const: "EnvProjectStateGitLocal", Setting: "projectStateGitLocal"},
+	{Const: "EnvProjectStateGitRepoURL", Setting: "projectStateGitRepoURL"},
+}
+
+// generateEnvNames emits envnames.gen.go — a package-harness const block mapping
+// each harnessEnvName to its resolved env var, read directly off m.Deployment.
+func generateEnvNames(m *projectmodel.Model) error {
+	if m.Deployment == nil {
+		return fmt.Errorf("model has no deployment")
+	}
+	settingEnv := map[string]string{}
+	for _, s := range m.Deployment.Settings {
+		settingEnv[s.Name] = s.Env
+	}
+	infraEnv := map[string]map[string]string{}
+	for _, i := range m.Deployment.Infrastructure {
+		infraEnv[i.Key] = i.Env
+	}
+
+	var b []byte
+	// Header kept byte-identical to the former cmd/configgen's emission so the
+	// fold produced zero diff in the committed generated file.
+	b = append(b, []byte("// Code generated by configgen. DO NOT EDIT.\n//\n")...)
+	b = append(b, []byte("// Env-var names the systemtests harness binds when booting a server,\n")...)
+	b = append(b, []byte("// sourced from project.json's deployment declarations so a renamed var\n")...)
+	b = append(b, []byte("// fails this harness COMPILE, not at runtime.\n")...)
+	b = append(b, []byte("package harness\n\nconst (\n")...)
+	for _, n := range harnessEnvNames {
+		var val string
+		switch {
+		case n.Setting != "":
+			v, ok := settingEnv[n.Setting]
+			if !ok || v == "" {
+				return fmt.Errorf("setting %q: no resolved env in deployment", n.Setting)
+			}
+			val = v
+		default:
+			m, ok := infraEnv[n.InfraKey]
+			if !ok {
+				return fmt.Errorf("infra %q: not declared in deployment", n.InfraKey)
+			}
+			v, ok := m[n.InfraIn]
+			if !ok || v == "" {
+				return fmt.Errorf("infra %q input %q: no resolved env override in deployment", n.InfraKey, n.InfraIn)
+			}
+			val = v
+		}
+		b = append(b, []byte(fmt.Sprintf("\t%s = %q\n", n.Const, val))...)
+	}
+	b = append(b, []byte(")\n")...)
+
+	out, err := format.Source(b)
+	if err != nil {
+		return fmt.Errorf("gofmt: %w\n%s", err, b)
+	}
+	if err := os.WriteFile(envNamesOut, out, 0o600); err != nil {
+		return fmt.Errorf("write %s: %w", envNamesOut, err)
+	}
+	fmt.Printf("appgen: envnames → %s (%d bytes)\n", filepath.Base(envNamesOut), len(out))
 	return nil
 }
 
