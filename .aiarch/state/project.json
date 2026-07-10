@@ -7586,6 +7586,386 @@
                   ]
                 }
               ]
+            },
+            {
+              "profile": "local",
+              "title": "Local (on-disk git \u00b7 dry-run construction/operations)",
+              "nodes": [
+                {
+                  "name": "local process",
+                  "technology": "in-process",
+                  "description": "Local dev boot: file:// on-disk git projectStateAccess/artifactAccess, Postgres head-state + usage ledger, dry-run construction + operations, dev auth (no Keycloak).",
+                  "instances": 1,
+                  "tags": [],
+                  "children": [],
+                  "infrastructureNodes": [
+                    {
+                      "name": "ProjectGitRepo",
+                      "technology": "on-disk git",
+                      "description": "file:// per-project repo (ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL); git-as-DB local proof",
+                      "tags": []
+                    },
+                    {
+                      "name": "OperatedSystemState",
+                      "technology": "Postgres",
+                      "description": "local Postgres head-state + usage ledger (ARCHISTRATOR_POSTGRES_URL)",
+                      "tags": []
+                    },
+                    {
+                      "name": "DurableExecutionRuntime",
+                      "technology": "Temporal (dev server)",
+                      "description": "local Temporal dev server",
+                      "tags": []
+                    }
+                  ],
+                  "containerInstances": [
+                    {
+                      "containerKey": "archistrator-server",
+                      "note": "local boot: embedded worker + HTTP API",
+                      "tags": []
+                    }
+                  ],
+                  "softwareSystemInstances": []
+                }
+              ]
+            }
+          ],
+          "infrastructure": [
+            {
+              "key": "postgres",
+              "substrate": "postgres",
+              "profiles": [
+                "cloud",
+                "local"
+              ],
+              "presence": "required",
+              "env": {
+                "URL": "ARCHISTRATOR_POSTGRES_URL"
+              }
+            },
+            {
+              "key": "github-app",
+              "substrate": "github-app",
+              "profiles": [
+                "cloud"
+              ],
+              "presence": "optional",
+              "env": {
+                "APP_ID": "ARCHISTRATOR_GITHUB_APP_ID",
+                "PRIVATE_KEY_PEM": "ARCHISTRATOR_GITHUB_APP_PRIVATE_KEY_PEM",
+                "ACCOUNT": "ARCHISTRATOR_GITHUB_ACCOUNT",
+                "APP_SLUG": "ARCHISTRATOR_GITHUB_APP_SLUG",
+                "INSTALLATION_ID": "ARCHISTRATOR_GITHUB_INSTALLATION_ID",
+                "API_BASE_URL": "ARCHISTRATOR_GITHUB_API_BASE_URL"
+              }
+            },
+            {
+              "key": "keycloak",
+              "substrate": "keycloak",
+              "profiles": [
+                "cloud"
+              ],
+              "presence": "optional",
+              "env": {
+                "JWKS_URL": "ARCHISTRATOR_KEYCLOAK_JWKS_URL",
+                "ISSUER": "ARCHISTRATOR_KEYCLOAK_ISSUER"
+              }
+            },
+            {
+              "key": "otel",
+              "substrate": "otel",
+              "profiles": [
+                "cloud",
+                "test",
+                "local"
+              ],
+              "presence": "optional",
+              "env": {}
+            }
+          ],
+          "bindings": [
+            {
+              "component": "projectStateAccess",
+              "presence": "required",
+              "provides": [],
+              "settings": [],
+              "perProfile": {
+                "local": {
+                  "variant": "GitLocal",
+                  "infra": []
+                },
+                "cloud": {
+                  "variant": "GitHub",
+                  "infra": [
+                    "github-app"
+                  ]
+                }
+              }
+            },
+            {
+              "component": "artifactAccess",
+              "presence": "optional-dormant",
+              "provides": [],
+              "settings": [],
+              "perProfile": {
+                "local": {
+                  "variant": "GitLocal",
+                  "infra": []
+                },
+                "cloud": {
+                  "variant": "GitHubCloud",
+                  "infra": [
+                    "github-app"
+                  ]
+                }
+              }
+            },
+            {
+              "component": "constructionPipelineAccess",
+              "presence": "optional-dormant",
+              "provides": [],
+              "settings": [],
+              "perProfile": {
+                "cloud": {
+                  "variant": "GitHubActions",
+                  "infra": [
+                    "github-app"
+                  ]
+                }
+              }
+            },
+            {
+              "component": "sourceControlAccess",
+              "presence": "optional-dormant",
+              "provides": [],
+              "settings": [],
+              "perProfile": {
+                "cloud": {
+                  "variant": "GitHub",
+                  "infra": [
+                    "github-app"
+                  ]
+                }
+              }
+            },
+            {
+              "component": "operatedSystemStateAccess",
+              "presence": "required",
+              "provides": [],
+              "settings": [],
+              "perProfile": {
+                "cloud": {
+                  "variant": "Postgres",
+                  "infra": [
+                    "postgres"
+                  ]
+                },
+                "local": {
+                  "variant": "Postgres",
+                  "infra": [
+                    "postgres"
+                  ]
+                }
+              }
+            },
+            {
+              "component": "usageAccess",
+              "presence": "required",
+              "provides": [],
+              "settings": [],
+              "perProfile": {
+                "cloud": {
+                  "variant": "Postgres",
+                  "infra": [
+                    "postgres"
+                  ]
+                },
+                "local": {
+                  "variant": "Postgres",
+                  "infra": [
+                    "postgres"
+                  ]
+                }
+              }
+            },
+            {
+              "component": "operatedRuntimeAccess",
+              "presence": "required",
+              "provides": [],
+              "settings": [],
+              "perProfile": {
+                "local": {
+                  "variant": "Local",
+                  "infra": []
+                },
+                "cloud": {
+                  "variant": "Real",
+                  "infra": []
+                }
+              }
+            },
+            {
+              "component": "billingStateAccess",
+              "presence": "required",
+              "provides": [],
+              "settings": [],
+              "perProfile": {}
+            },
+            {
+              "component": "merchantGatewayAccess",
+              "presence": "required",
+              "provides": [],
+              "settings": [],
+              "perProfile": {}
+            },
+            {
+              "component": "durableExecutionAccess",
+              "presence": "optional",
+              "provides": [],
+              "settings": [],
+              "perProfile": {}
+            }
+          ],
+          "settings": [
+            {
+              "name": "listenAddr",
+              "type": "string",
+              "default": ":8080",
+              "env": "ARCHISTRATOR_LISTEN_ADDR",
+              "description": "HTTP listen address."
+            },
+            {
+              "name": "shutdownTimeout",
+              "type": "duration",
+              "default": "20s",
+              "env": "ARCHISTRATOR_SHUTDOWN_TIMEOUT",
+              "description": "Graceful HTTP shutdown drain timeout."
+            },
+            {
+              "name": "temporalHostPort",
+              "type": "string",
+              "default": "temporal-frontend.temporal.svc:7233",
+              "env": "ARCHISTRATOR_TEMPORAL_HOSTPORT",
+              "description": "Temporal frontend host:port the Managers dial."
+            },
+            {
+              "name": "temporalNamespace",
+              "type": "string",
+              "default": "default",
+              "env": "ARCHISTRATOR_TEMPORAL_NAMESPACE",
+              "description": "Temporal namespace."
+            },
+            {
+              "name": "constructionEscalationTimeout",
+              "type": "duration",
+              "default": "30m",
+              "env": "ARCHISTRATOR_CONSTRUCTION_ESCALATION_TIMEOUT",
+              "description": "How long an escalated construction activity waits for an operator override before it terminally fails. 0 == wait-forever."
+            },
+            {
+              "name": "constructionInterventionMode",
+              "type": "string",
+              "default": "tiered",
+              "env": "ARCHISTRATOR_CONSTRUCTION_INTERVENTION_MODE",
+              "description": "Intervention regime: tiered (autonomous retry then escalate) or escalate-everything (supervised)."
+            },
+            {
+              "name": "constructionRepoOwner",
+              "type": "string",
+              "default": "",
+              "env": "ARCHISTRATOR_CONSTRUCTION_REPO_OWNER",
+              "description": "Construction repo owner (GitHub Actions dispatch target); also the GitHubAccount chained default."
+            },
+            {
+              "name": "constructionRepoName",
+              "type": "string",
+              "default": "",
+              "env": "ARCHISTRATOR_CONSTRUCTION_REPO_NAME",
+              "description": "Construction repo name (GitHub Actions dispatch target)."
+            },
+            {
+              "name": "constructionWorkflowFile",
+              "type": "string",
+              "default": "aiarch-construct.yml",
+              "env": "ARCHISTRATOR_CONSTRUCTION_WORKFLOW_FILE",
+              "description": "Construction workflow file the pipeline RA dispatches."
+            },
+            {
+              "name": "constructionRef",
+              "type": "string",
+              "default": "main",
+              "env": "ARCHISTRATOR_CONSTRUCTION_REF",
+              "description": "Git ref the construction workflow is dispatched against."
+            },
+            {
+              "name": "constructionTaskQueue",
+              "type": "string",
+              "default": "construction",
+              "env": "ARCHISTRATOR_CONSTRUCTION_TASK_QUEUE",
+              "description": "Construction Manager Temporal task queue."
+            },
+            {
+              "name": "constructionDryRun",
+              "type": "bool",
+              "default": "false",
+              "env": "ARCHISTRATOR_CONSTRUCTION_DRYRUN",
+              "description": "Register the construction Worker with in-memory stubs (no GitHub Actions run / LLM call). NEVER a production default."
+            },
+            {
+              "name": "operationsDryRun",
+              "type": "bool",
+              "default": "false",
+              "env": "ARCHISTRATOR_OPERATIONS_DRYRUN",
+              "description": "Select the operatedRuntimeAccess LOCAL/dry-run profile (deterministic, side-effect-free). Default false selects the REAL GitOps/kubernetes profile."
+            },
+            {
+              "name": "operatedRuntimeGitOpsRepoURL",
+              "type": "string",
+              "default": "",
+              "env": "ARCHISTRATOR_OPERATED_RUNTIME_GITOPS_REPO_URL",
+              "description": "REAL operatedRuntime profile GitOps target repo. Empty until the N-DEP backend lands; unused by the dry-run profile."
+            },
+            {
+              "name": "projectStateGitLocal",
+              "type": "bool",
+              "default": "false",
+              "env": "ARCHISTRATOR_PROJECT_STATE_GIT_LOCAL",
+              "description": "Select the file:// on-disk git projectStateAccess substrate (local profile)."
+            },
+            {
+              "name": "projectStateGitRepoURL",
+              "type": "string",
+              "default": "",
+              "env": "ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL",
+              "description": "Per-project repo file:// URL when projectStateGitLocal is true."
+            },
+            {
+              "name": "artifactRepoURL",
+              "type": "string",
+              "default": "",
+              "env": "ARCHISTRATOR_ARTIFACT_REPO_URL",
+              "description": "artifactAccess construction-output repo clone URL. Constructed only when set (else the slice stages no outputs)."
+            },
+            {
+              "name": "artifactRepoOwner",
+              "type": "string",
+              "default": "",
+              "env": "ARCHISTRATOR_ARTIFACT_REPO_OWNER",
+              "description": "artifactAccess CLOUD repo owner (installation discovery)."
+            },
+            {
+              "name": "artifactRepoLocal",
+              "type": "bool",
+              "default": "false",
+              "env": "ARCHISTRATOR_ARTIFACT_REPO_LOCAL",
+              "description": "Select the file:// on-disk artifactAccess repo (no credential)."
+            },
+            {
+              "name": "authDevMode",
+              "type": "bool",
+              "default": "false",
+              "env": "ARCHISTRATOR_AUTH_DEV_MODE",
+              "description": "Inject a dev principal on every request and skip access-token validation. MUST be off behind an IdP-fronted edge."
             }
           ]
         }
