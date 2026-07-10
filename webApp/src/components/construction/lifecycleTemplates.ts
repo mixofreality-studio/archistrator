@@ -1,29 +1,53 @@
 /**
- * App-A per-kind life-cycle templates for the three construction activity KINDS
- * (SERVICE / FRONTEND / TESTING). These are the real Method process templates
- * (App A Table A-1 spirit): each phase has a binary exit criterion and a weight
- * summing to 100 per kind.
+ * App-A per-kind life-cycle templates for the five construction activity
+ * KINDS (SERVICE / FRONTEND / TESTING / DEPLOYMENT / DOCUMENTATION).
  *
- * Phase ordering and weights are ported verbatim from the frozen UX mock
- * (methodpoc/designs/aiarch/ux-mock/src/data/activities.ts).
+ * The id/phase/name/weight per kind is GENERATED (lifecycleTemplates.gen.ts,
+ * server/cmd/gen-uiprofiles) straight from the server's single canonical
+ * Profile (server/internal/resourceaccess/projectstate/activityprofile.go) —
+ * the same 5-phase Method vocabulary (Requirements/DetailedDesign/TestPlan/
+ * Construction/Integration) the App-A earned-value formula uses uniformly
+ * across every activity kind, weighted per kind.
  *
- * The deriver `phaseStateFor` maps a committed BuildStatus → per-phase {done, active}
- * without fabricating any data: it reads only the ordinal the status implies.
+ * RESOLVED DRIFT (2026-07-10, step-9 cleanup): this file previously
+ * hand-authored a richer, kind-specific phase breakdown (e.g. 8 phases for
+ * SERVICE: SRS/STP/Detailed-design/Contract/Construction/Review/Integration/
+ * Blackbox) "ported verbatim from the frozen UX mock"
+ * (methodpoc/designs/aiarch/ux-mock/src/data/activities.ts) — an EARLIER
+ * prototype than the server's later-ratified canonical-5-phase Profile.
+ * Names, phase counts, and weights had diverged completely (e.g. SERVICE's
+ * hand "Detailed design"+"Service contract" weights summed to 30 against the
+ * server's DetailedDesign weight of 20) and the per-phase done/active state
+ * was derived from a hand per-kind index table over the coarse BuildStatus
+ * enum — never from the server's real per-phase completion data. The server
+ * Profile (fewer, canonical phases) is architecturally authoritative: adopted
+ * here. Exit-criterion prose has no server-side source (the server Profile
+ * carries no such field — ProfilePhase is a generated contract type, not
+ * something to bolt UI copy onto) — kept here as a small hand table keyed by
+ * the 5 canonical phases (was ~29 kind-specific entries; now 5 generic ones).
+ *
+ * EARMARK: TESTING kind renders one representative profile (TestVariantPlan)
+ * regardless of the activity's actual testing variant — the server tracks 5
+ * distinct variant profiles (Harness/Perf/SystemTest/QAProcess/Plan) with
+ * different weights, not surfaced here. Matches today's behavior
+ * (ActivityLifecyclePanel calls phaseStateFor(kind, status) with no variant
+ * argument); a variant-aware lifecycle panel is a follow-up, not this cleanup.
  */
 
 import type { BuildStatus } from '../../contracts/constructionAdapters';
 import type { ActivityKind } from './KindBadge';
+import {
+  GENERATED_TEMPLATES,
+  type CanonicalPhase,
+  type GeneratedPhase,
+} from './lifecycleTemplates.gen';
 
 // ---------------------------------------------------------------------------
 // Template shape (static — no done/active, those are derived at render time).
 // ---------------------------------------------------------------------------
 
-export interface PhaseTemplate {
-  id: string;
-  name: string;
+export interface PhaseTemplate extends GeneratedPhase {
   exitCriterion: string;
-  /** % contribution (App A Table A-1); weights sum to 100 per kind. */
-  weight: number;
 }
 
 /** A phase with its derived done/active state for a specific activity status. */
@@ -33,228 +57,31 @@ export interface PhaseState extends PhaseTemplate {
 }
 
 // ---------------------------------------------------------------------------
-// SERVICE — 8 phases, weights sum to 100
-// App A Fig A-1: SRS → STP slice → Detailed Design → Service Contract →
-// Construction (+white-box test client) → Code Review → Integration →
-// Black-box unit test.
+// Exit-criterion prose — generic per canonical phase (no server source; the
+// server's weighted Profile subset differs per kind, but what "done" MEANS
+// for a given canonical phase does not).
 // ---------------------------------------------------------------------------
 
-export const SERVICE_PHASES: readonly PhaseTemplate[] = [
-  {
-    id: 'svc-srs',
-    name: 'SRS',
-    exitCriterion: 'Architect has reviewed the service requirement spec',
-    weight: 8,
-  },
-  {
-    id: 'svc-stp',
-    name: 'System-test-plan slice',
-    exitCriterion: "The service's slice of the System Test Plan is written",
-    weight: 7,
-  },
-  {
-    id: 'svc-dd',
-    name: 'Detailed design',
-    exitCriterion: 'Detailed design (after exploratory construction) approved',
-    weight: 18,
-  },
-  {
-    id: 'svc-contract',
-    name: 'Service contract',
-    exitCriterion: 'App-B contract FROZEN by the senior reviewer',
-    weight: 12,
-  },
-  {
-    id: 'svc-build',
-    name: 'Construction',
-    exitCriterion: 'Code complete + white-box test client passes',
-    weight: 33,
-  },
-  {
-    id: 'svc-review',
-    name: 'Code review',
-    exitCriterion: 'reviewEngine reviewer set all PASS',
-    weight: 8,
-  },
-  {
-    id: 'svc-integration',
-    name: 'Integration',
-    exitCriterion: 'Wired into the closed-layered call graph',
-    weight: 9,
-  },
-  {
-    id: 'svc-blackbox',
-    name: 'Black-box unit test',
-    exitCriterion: 'Passes the service test plan as a black box',
-    weight: 5,
-  },
-];
+const EXIT_CRITERIA: Record<CanonicalPhase, string> = {
+  requirements: 'The requirement/brief for this activity is captured and approved',
+  detailed_design: 'Detailed design (contract / UI concept / provisioning spec) is approved',
+  test_plan: "This activity's slice of the test plan is written",
+  construction: 'Construction is code-complete and self-verified',
+  integration: 'Reviewed, wired into the integrated system, and converged',
+};
 
-// ---------------------------------------------------------------------------
-// FRONTEND — 7 phases, weights sum to 100
-// Brief → Concept draft → Iteration rounds → Design-approval gate →
-// UI-code construction → Conformance review → Integration.
-// ---------------------------------------------------------------------------
+function withExitCriterion(phases: readonly GeneratedPhase[]): readonly PhaseTemplate[] {
+  return phases.map((p) => ({ ...p, exitCriterion: EXIT_CRITERIA[p.phase] }));
+}
 
-export const FRONTEND_PHASES: readonly PhaseTemplate[] = [
-  {
-    id: 'fe-brief',
-    name: 'Brief / requirements',
-    exitCriterion: 'The surface + persona + core use case captured',
-    weight: 8,
-  },
-  {
-    id: 'fe-concept',
-    name: 'Concept draft',
-    exitCriterion: 'First ui-design preview produced',
-    weight: 14,
-  },
-  {
-    id: 'fe-iterate',
-    name: 'Iteration rounds',
-    exitCriterion: 'Preview converged after co-author feedback',
-    weight: 20,
-  },
-  {
-    id: 'fe-approve',
-    name: 'Design-approval gate',
-    exitCriterion: 'Human design authority APPROVES the concept',
-    weight: 12,
-  },
-  {
-    id: 'fe-build',
-    name: 'UI-code construction',
-    exitCriterion: 'SPA built against the approved design',
-    weight: 28,
-  },
-  {
-    id: 'fe-conformance',
-    name: 'Conformance review',
-    exitCriterion: 'ui-designer / ux-reviewer confirm conformance',
-    weight: 10,
-  },
-  {
-    id: 'fe-integration',
-    name: 'Integration',
-    exitCriterion: 'Wired into the SPA + the demonstrable E2E',
-    weight: 8,
-  },
-];
-
-// ---------------------------------------------------------------------------
-// TESTING — 4 phases, weights sum to 100
-// System Test Plan → Build harness → Run → Regression.
-// ---------------------------------------------------------------------------
-
-export const TESTING_PHASES: readonly PhaseTemplate[] = [
-  {
-    id: 'test-plan',
-    name: 'System Test Plan',
-    exitCriterion: 'The ways the integrated system can FAIL are enumerated + signed off',
-    weight: 25,
-  },
-  {
-    id: 'test-harness',
-    name: 'Build harness',
-    exitCriterion: 'Playwright + durable-execution drivers built for the plan',
-    weight: 35,
-  },
-  {
-    id: 'test-run',
-    name: 'Run',
-    exitCriterion: 'A separate software-tester runs the plan against the integrated system',
-    weight: 25,
-  },
-  {
-    id: 'test-regression',
-    name: 'Regression',
-    exitCriterion: 'Regression harness guards the demonstrable set continuously',
-    weight: 15,
-  },
-];
-
-// ---------------------------------------------------------------------------
-// DEPLOYMENT — 5 phases, weights sum to 100
-// App A noncoding activity lifecycle: Provisioning spec (requirements) →
-// Detailed design → Apply (construction) → Review → Convergence verification.
-// Mirrors the server ActivityTypeDeployment profile (activityprofile.go).
-// ---------------------------------------------------------------------------
-
-export const DEPLOYMENT_PHASES: readonly PhaseTemplate[] = [
-  {
-    id: 'dep-spec',
-    name: 'Provisioning spec',
-    exitCriterion: 'Target environment + resources + rollback captured',
-    weight: 15,
-  },
-  {
-    id: 'dep-design',
-    name: 'Detailed design',
-    exitCriterion: 'The provisioning/IaC change is designed + reviewed',
-    weight: 20,
-  },
-  {
-    id: 'dep-apply',
-    name: 'Apply',
-    exitCriterion: 'The change is applied to the target environment',
-    weight: 35,
-  },
-  {
-    id: 'dep-review',
-    name: 'Review',
-    exitCriterion: 'devops / architect approve the applied change',
-    weight: 15,
-  },
-  {
-    id: 'dep-verify',
-    name: 'Convergence verification',
-    exitCriterion: 'Environment converged to the declared desired state',
-    weight: 15,
-  },
-];
-
-// ---------------------------------------------------------------------------
-// DOCUMENTATION — 5 phases, weights sum to 100
-// App A noncoding activity lifecycle: Outline (requirements) → Structure design →
-// Authoring (construction) → Review → Publish verification.
-// Mirrors the server ActivityTypeDocumentation profile (activityprofile.go).
-// ---------------------------------------------------------------------------
-
-export const DOCUMENTATION_PHASES: readonly PhaseTemplate[] = [
-  {
-    id: 'doc-outline',
-    name: 'Outline',
-    exitCriterion: 'Scope + audience + the sections to write are agreed',
-    weight: 15,
-  },
-  {
-    id: 'doc-design',
-    name: 'Structure design',
-    exitCriterion: 'Document structure + source references designed',
-    weight: 20,
-  },
-  {
-    id: 'doc-author',
-    name: 'Authoring',
-    exitCriterion: 'The document is drafted against the outline',
-    weight: 35,
-  },
-  {
-    id: 'doc-review',
-    name: 'Review',
-    exitCriterion: 'architect / co-author confirm the document is accurate',
-    weight: 15,
-  },
-  {
-    id: 'doc-publish',
-    name: 'Publish verification',
-    exitCriterion: 'Document published + linked from the corpus',
-    weight: 15,
-  },
-];
+export const SERVICE_PHASES = withExitCriterion(GENERATED_TEMPLATES.service);
+export const FRONTEND_PHASES = withExitCriterion(GENERATED_TEMPLATES.frontend);
+export const TESTING_PHASES = withExitCriterion(GENERATED_TEMPLATES.testing);
+export const DEPLOYMENT_PHASES = withExitCriterion(GENERATED_TEMPLATES.deployment);
+export const DOCUMENTATION_PHASES = withExitCriterion(GENERATED_TEMPLATES.documentation);
 
 // The kind → template registry. Exhaustive over ActivityKind so a new kind is a
-// compile error rather than a silent fall-through to TESTING_PHASES.
+// compile error rather than a silent fall-through to another kind's template.
 const TEMPLATES: Record<ActivityKind, readonly PhaseTemplate[]> = {
   service: SERVICE_PHASES,
   frontend: FRONTEND_PHASES,
@@ -268,6 +95,7 @@ const TEMPLATES: Record<ActivityKind, readonly PhaseTemplate[]> = {
 const UNKNOWN_PHASES: readonly PhaseTemplate[] = [
   {
     id: 'unknown',
+    phase: 'construction',
     name: 'Unknown lifecycle',
     exitCriterion: 'No lifecycle template registered for this activity kind',
     weight: 100,
@@ -275,88 +103,44 @@ const UNKNOWN_PHASES: readonly PhaseTemplate[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// Status → phase-ordinal mapping
+// Status → active-phase derivation
 //
-// Each BuildStatus implies an "active index" in the ordered template. Phases
-// before that index are done; the active index phase is in-flight; phases after
-// are pending. Mapping per kind:
-//
-// SERVICE (8 phases):
-//   integrated        → all done (idx 0..7 done, none active)
-//   in-review         → done 0..4 (SRS..Construction), Code review active (idx 5)  Σ done = 78%
-//   in-construction   → done 0..3 (SRS..Service contract), Construction active (idx 4)  Σ done = 45%
-//   in-detailed-design→ done 0..1 (SRS..STP), Detailed design active (idx 2)  Σ done = 15%
-//   eligible          → SRS active (idx 0), none done  Σ done = 0%
-//   blocked / not-started → no phase done or active
-//
-// FRONTEND (7 phases):
-//   integrated        → all done
-//   in-review         → done 0..4 (Brief..UI-code), Conformance review active (idx 5)  Σ = 82%
-//   in-construction   → done 0..3 (Brief..Design-approval), UI-code active (idx 4)  Σ = 54%
-//   in-detailed-design→ done 0..1 (Brief..Concept), Iteration active (idx 2)  Σ = 22%
-//   eligible          → Brief active (idx 0), none done
-//   blocked / not-started → none
-//
-// TESTING (4 phases):
-//   integrated        → all done
-//   in-review / in-construction → done 0..1 (Plan..Harness), Run active (idx 2)  Σ = 60%
-//   in-detailed-design→ done 0 (Plan), Harness active (idx 1)  Σ = 25%
-//   eligible          → Plan active (idx 0), none done
-//   blocked / not-started → none
+// Each BuildStatus maps onto a target CANONICAL phase (the Method phase it
+// implies is in flight). Because different kinds' Profiles carry different
+// SUBSETS of the 5 canonical phases (e.g. DEPLOYMENT has no Requirements or
+// TestPlan phase), the target snaps forward to the next canonical phase the
+// kind's profile actually carries — generic over every kind, no per-kind
+// index table required.
 // ---------------------------------------------------------------------------
 
-function activeIdxForStatus(kind: ActivityKind, status: BuildStatus): number | null {
-  if (kind === 'testing') {
-    switch (status) {
-      case 'integrated':
-        return null;
-      case 'in-review':
-      case 'in-construction':
-        return 2;
-      case 'in-detailed-design':
-        return 1;
-      case 'eligible':
-        return 0;
-      case 'blocked':
-      case 'not-started':
-        return null;
-    }
+const CANONICAL_ORDER: readonly CanonicalPhase[] = [
+  'requirements',
+  'detailed_design',
+  'test_plan',
+  'construction',
+  'integration',
+];
+
+type InFlightStatus = Exclude<BuildStatus, 'integrated' | 'blocked' | 'not-started'>;
+
+const STATUS_TARGET_PHASE: Record<InFlightStatus, CanonicalPhase> = {
+  eligible: 'requirements',
+  'in-detailed-design': 'detailed_design',
+  'in-construction': 'construction',
+  'in-review': 'integration',
+};
+
+/** The index within `phases` that is active for `status`, or null (nothing active: done or not started). */
+function activeIdxFor(phases: readonly PhaseTemplate[], status: BuildStatus): number | null {
+  if (status === 'integrated' || status === 'blocked' || status === 'not-started') return null;
+
+  const targetPhase = STATUS_TARGET_PHASE[status];
+  const startAt = CANONICAL_ORDER.indexOf(targetPhase);
+  for (let i = startAt; i < CANONICAL_ORDER.length; i++) {
+    const idx = phases.findIndex((p) => p.phase === CANONICAL_ORDER[i]);
+    if (idx !== -1) return idx;
   }
-  // deployment and documentation share a 5-phase (spec→design→apply→review→verify)
-  // mapping. Review is the penultimate phase (idx 3); apply/authoring is idx 2.
-  if (kind === 'deployment' || kind === 'documentation') {
-    switch (status) {
-      case 'integrated':
-        return null;
-      case 'in-review':
-        return 3;
-      case 'in-construction':
-        return 2;
-      case 'in-detailed-design':
-        return 1;
-      case 'eligible':
-        return 0;
-      case 'blocked':
-      case 'not-started':
-        return null;
-    }
-  }
-  // service and frontend share the same phase-index mapping
-  switch (status) {
-    case 'integrated':
-      return null; // all done sentinel: see phaseStateFor
-    case 'in-review':
-      return 5;
-    case 'in-construction':
-      return 4;
-    case 'in-detailed-design':
-      return 2;
-    case 'eligible':
-      return 0;
-    case 'blocked':
-    case 'not-started':
-      return null;
-  }
+  return null; // no phase at or after the target is tracked for this kind
 }
 
 /**
@@ -373,7 +157,7 @@ export function phaseStateFor(kind: ActivityKind, status: BuildStatus): PhaseSta
     (TEMPLATES as Partial<Record<ActivityKind, readonly PhaseTemplate[]>>)[kind] ?? UNKNOWN_PHASES;
 
   const allDone = status === 'integrated';
-  const activeIdx = allDone ? null : activeIdxForStatus(kind, status);
+  const activeIdx = allDone ? null : activeIdxFor(tpl, status);
 
   return tpl.map((p, i) => ({
     ...p,

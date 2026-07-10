@@ -1,6 +1,6 @@
 # aiarch server — developer make targets.
 
-.PHONY: test test-short fmt vet lint sumtype-check method-check encapsulation-check gen-schemas gen-models gen-models-check gen gen-client gen-client-check gen-internal-tools gen-temporal gen-temporal-check gen-sdk gen-sdk-check gen-config gen-config-check bootstrap
+.PHONY: test test-short fmt vet lint sumtype-check method-check encapsulation-check gen-schemas gen-models gen-models-check gen gen-client gen-client-check gen-internal-tools gen-temporal gen-temporal-check gen-sdk gen-sdk-check gen-config gen-config-check gen-uiprofiles gen-uiprofiles-check bootstrap
 
 # Contract codegen pipeline, all-Go (jsonschema-go). project.json
 # (.serviceContracts) is the OWNER of every built component's contract; modelgen
@@ -58,7 +58,7 @@ gen-client-check: gen-client
 gen-internal-tools:
 	GOWORK=off go run ./cmd/internaltoolsgen
 
-gen: gen-models gen-client gen-internal-tools gen-temporal gen-sdk gen-config
+gen: gen-models gen-client gen-internal-tools gen-temporal gen-sdk gen-config gen-uiprofiles
 
 # gen-temporal — ONE appgen run (cmd/appgen, driving framework-go-app-generator's
 # temporalgen + transportgen + configgen) that emits, from a single project.json
@@ -130,6 +130,22 @@ gen-main: gen-temporal
 # (server-checks.yml).
 gen-main-check: gen-temporal
 	git diff --exit-code -- cmd/server/main.gen.go
+
+# gen-uiprofiles — the per-ActivityKind canonical lifecycle phase table
+# (id/phase/name/weight, cmd/gen-uiprofiles) emitted into the sibling webApp
+# module at ../webApp/src/components/construction/lifecycleTemplates.gen.ts,
+# straight from internal/resourceaccess/projectstate/activityprofile.go's
+# ProfileFor. No project.json read (Profile is a closed static enumeration),
+# so this needs no `-project`/`-id` flags, unlike the other gen-* targets.
+gen-uiprofiles:
+	GOWORK=off go run ./cmd/gen-uiprofiles
+
+# gen-uiprofiles-check — drift gate for the generated lifecycle-phase table in
+# the sibling webApp module, same regenerate-then-diff shape as the other
+# gen-*-check gates. The path is repo-relative so `git diff` works from the
+# server working directory (server-checks.yml).
+gen-uiprofiles-check: gen-uiprofiles
+	git diff --exit-code -- ../webApp/src/components/construction/lifecycleTemplates.gen.ts
 
 gen-schemas:
 	GOWORK=off go run ./cmd/schemagen

@@ -95,3 +95,10 @@ jobs:
       # deployment model + service contracts and fails on any diff.
       - name: Generated composition-root drift check
         run: make gen-main-check
+
+      # Drift gate for the generated lifecycle-phase table emitted into the
+      # sibling webApp module (cmd/gen-uiprofiles, driving
+      # internal/resourceaccess/projectstate's ProfileFor). Same
+      # regenerate-then-diff shape as the other gen-*-check gates.
+      - name: Generated UI lifecycle-profile drift check
+        run: make gen-uiprofiles-check
