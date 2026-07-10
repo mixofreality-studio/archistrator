@@ -14,7 +14,7 @@ package main
 // sourcecontrol catalog surface are built once here and reused across the hooks
 // that need them.
 //
-// TWO REVIEWED RESIDUALS of the fixed generated seam (both dev-profile-only;
+// THREE REVIEWED RESIDUALS of the fixed generated seam (all dev-profile-only;
 // cloud with DRYRUN=false is unaffected):
 //
 //  1. SHARED-ARTIFACT DRY-RUN CONTAMINATION. FinalizeArtifactAccess swaps the
@@ -26,6 +26,17 @@ package main
 //     operations the real/nil store). This is accepted for the dry-run dev
 //     profiles (operations artifact IO is not exercised in the UC1 slice); cloud
 //     (DRYRUN=false) is identity, so operations keeps the real store there.
+//
+//  1b. SHARED-PIPELINE DRY-RUN CONTAMINATION (the same shape as #1).
+//     FinalizeConstructionPipelineAccess swaps constructionPipelineAccess for the
+//     in-memory dry-run stub when CONSTRUCTION_DRYRUN=true. That local is ALSO
+//     shared — the generated body threads it into constructionManager AND BOTH
+//     design managers (projectDesignManager/systemDesignManager,
+//     main.gen.go:459/471), so a dry-run boot hands the design managers the
+//     dry-run pipeline stub too. Benign: the design managers only ever READ
+//     constructionPipelineAccess to report status — they never DISPATCH a
+//     construction run (only constructionManager does), so the stub is inert
+//     there. Cloud (DRYRUN=false) is identity.
 //
 //  2. SEPARATE CONSTRUCTION-PORTS psa INSTANCE. The
 //     ConstructionManagerConstructionTransition/GitActivityStatus hooks take no
@@ -51,9 +62,14 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/projectdesign"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/systemdesign"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/billingstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/constructionpipeline"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/merchantgateway"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedruntime"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedsystemstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
 )
 
 // appHooks implements the generated Hooks interface. Built once by newAppHooks.
@@ -311,6 +327,65 @@ func (h *appHooks) FinalizeSourceControlAccess(cfg *Config, v sourcecontrol.Sour
 		return v
 	}
 	return h.scAccess
+}
+
+// FinalizeOperatedRuntimeAccess restores the ARCHISTRATOR_OPERATIONS_DRYRUN toggle
+// composegen v0.5.1 now gives a typed seam for (A2: a REQUIRED, profile-keyed
+// binding needs the same orthogonal per-component override as an optional one).
+// The pre-appgen hand run() selected the operatedRuntimeAccess PROFILE purely from
+// OperationsDryRun — operationsRuntimeProfile(cfg): DryRun ⇒ RuntimeProfileLocal,
+// else RuntimeProfileReal — ORTHOGONAL to the deployment profile (cloud/local)
+// that now drives the generated binding's variant switch (main.gen.go: cloud arm
+// builds NewRealOperatedRuntimeAccess, local arm builds NewLocalOperatedRuntimeAccess
+// directly, so the toggle only has an actual swap to make in the cloud arm).
+// Reproduce that: when OperationsDryRun is set AND the deployment profile is
+// "cloud" (so v is the Real variant), swap it for the package's own deterministic
+// Local constructor (operatedruntime.NewLocalOperatedRuntimeAccess — reused
+// verbatim, no new construction logic here). Cloud + DRYRUN=false, and local
+// (already Local either way), are both identity.
+func (h *appHooks) FinalizeOperatedRuntimeAccess(cfg *Config, v operatedruntime.OperatedRuntimeAccess) operatedruntime.OperatedRuntimeAccess {
+	if cfg.OperationsDryRun && resolveProfile(cfg) == "cloud" {
+		return operatedruntime.NewLocalOperatedRuntimeAccess()
+	}
+	return v
+}
+
+// The remaining Finalize<Component> hooks (A2/B3: composegen v0.5.1 emits one for
+// EVERY constructed binding, required bindings included) have no composition-root
+// policy to apply — identity. Each is a required, single-arm stub/profile binding
+// with no orthogonal toggle of its own (unlike operatedRuntimeAccess above).
+
+// FinalizeBillingStateAccess is identity — billingStateAccess is the required,
+// arm-less stub binding; no composition-root policy applies.
+func (h *appHooks) FinalizeBillingStateAccess(cfg *Config, v billingstate.BillingStateAccess) billingstate.BillingStateAccess {
+	return v
+}
+
+// FinalizeMerchantGatewayAccess is identity — merchantGatewayAccess is the
+// required, arm-less stub binding; no composition-root policy applies.
+func (h *appHooks) FinalizeMerchantGatewayAccess(cfg *Config, v merchantgateway.MerchantGatewayAccess) merchantgateway.MerchantGatewayAccess {
+	return v
+}
+
+// FinalizeOperatedSystemStateAccess is identity — operatedSystemStateAccess is
+// profile-switched (cloud: pgx; local: same pgx-backed store, per the corrected
+// UC4 finding that it is real in both profiles) with no orthogonal toggle; no
+// composition-root policy applies.
+func (h *appHooks) FinalizeOperatedSystemStateAccess(cfg *Config, v operatedsystemstate.OperatedSystemStateAccess) operatedsystemstate.OperatedSystemStateAccess {
+	return v
+}
+
+// FinalizeProjectStateAccess is identity — projectStateAccess's dev/cloud split is
+// already the deployment-profile switch (local git vs. GitHub-backed); no
+// additional orthogonal toggle applies.
+func (h *appHooks) FinalizeProjectStateAccess(cfg *Config, v projectstate.ProjectStateAccess) projectstate.ProjectStateAccess {
+	return v
+}
+
+// FinalizeUsageAccess is identity — usageAccess is profile-switched with no
+// orthogonal toggle; no composition-root policy applies.
+func (h *appHooks) FinalizeUsageAccess(cfg *Config, v usage.UsageAccess) usage.UsageAccess {
+	return v
 }
 
 // registerConstruction is the construction Worker gate (run()'s selectConstructionDeps):

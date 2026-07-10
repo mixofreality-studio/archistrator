@@ -30,7 +30,9 @@ import (
 //  2. GithubAppAccount: chained default env(ACCOUNT) → env(CONSTRUCTION_REPO_OWNER).
 //  3. PostgresURL is required UNCONDITIONALLY (all profiles incl. test) — configgen
 //     scopes it to cloud+local, so the check stays hand.
-//  4. Construction creds are required only when !ConstructionDryRun.
+//  4. ProjectStateGitRepoURL is required when ProjectStateGitLocal=true (the boot-time
+//     git-local guard — reproduces the pre-appgen hand buildDesignProjectState check).
+//  5. Construction creds are required only when !ConstructionDryRun.
 //
 // GithubAppInstallationID stays the raw string on *Config; the two GitHub
 // variant-args hooks coerce it to int64 via parseInt64 at the point of use.
@@ -52,7 +54,19 @@ func loadResolvedConfig() (*Config, error) {
 		return nil, fmt.Errorf("ARCHISTRATOR_POSTGRES_URL is required")
 	}
 
-	// (4) DRYRUN=false: require all construction creds so the server fails fast at
+	// (4) LOCAL git profile requires its repo URL — configgen's binding-setting
+	// threading (projectStateAccess→projectStateGitRepoURL) has no arm-presence
+	// check of its own, so an empty URL under PROJECT_STATE_GIT_LOCAL=true would
+	// otherwise surface as an opaque on-disk-repo error deep in
+	// projectstate.NewGitLocalProjectStateAccess. Fail fast here instead, at the
+	// same boot-time-required-var checkpoint as the Postgres guard above (old
+	// error text — this reproduces the pre-appgen hand run()'s
+	// buildDesignProjectState guard verbatim).
+	if cfg.ProjectStateGitLocal && cfg.ProjectStateGitRepoURL == "" {
+		return nil, fmt.Errorf("ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL is required when ARCHISTRATOR_PROJECT_STATE_GIT_LOCAL=true")
+	}
+
+	// (5) DRYRUN=false: require all construction creds so the server fails fast at
 	// startup rather than silently dispatching to nowhere.
 	if !cfg.ConstructionDryRun {
 		if err := validateConstructionCreds(cfg); err != nil {

@@ -131,17 +131,53 @@ type Hooks interface {
 	// dry-run stub swap-in) — the identity implementation is always correct.
 	FinalizeArtifactAccess(cfg *Config, v artifact.ArtifactAccess) artifact.ArtifactAccess
 
+	// FinalizeBillingStateAccess is called immediately after billingStateAccess's construction
+	// (presence required). Return v unchanged unless
+	// composition policy needs to swap or wrap it (e.g. a construction
+	// dry-run stub swap-in) — the identity implementation is always correct.
+	FinalizeBillingStateAccess(cfg *Config, v billingstate.BillingStateAccess) billingstate.BillingStateAccess
+
 	// FinalizeConstructionPipelineAccess is called immediately after constructionPipelineAccess's construction
 	// (presence optional-dormant). Return v unchanged unless
 	// composition policy needs to swap or wrap it (e.g. a construction
 	// dry-run stub swap-in) — the identity implementation is always correct.
 	FinalizeConstructionPipelineAccess(cfg *Config, v constructionpipeline.ConstructionPipelineAccess) constructionpipeline.ConstructionPipelineAccess
 
+	// FinalizeMerchantGatewayAccess is called immediately after merchantGatewayAccess's construction
+	// (presence required). Return v unchanged unless
+	// composition policy needs to swap or wrap it (e.g. a construction
+	// dry-run stub swap-in) — the identity implementation is always correct.
+	FinalizeMerchantGatewayAccess(cfg *Config, v merchantgateway.MerchantGatewayAccess) merchantgateway.MerchantGatewayAccess
+
+	// FinalizeOperatedRuntimeAccess is called immediately after operatedRuntimeAccess's construction
+	// (presence required). Return v unchanged unless
+	// composition policy needs to swap or wrap it (e.g. a construction
+	// dry-run stub swap-in) — the identity implementation is always correct.
+	FinalizeOperatedRuntimeAccess(cfg *Config, v operatedruntime.OperatedRuntimeAccess) operatedruntime.OperatedRuntimeAccess
+
+	// FinalizeOperatedSystemStateAccess is called immediately after operatedSystemStateAccess's construction
+	// (presence required). Return v unchanged unless
+	// composition policy needs to swap or wrap it (e.g. a construction
+	// dry-run stub swap-in) — the identity implementation is always correct.
+	FinalizeOperatedSystemStateAccess(cfg *Config, v operatedsystemstate.OperatedSystemStateAccess) operatedsystemstate.OperatedSystemStateAccess
+
+	// FinalizeProjectStateAccess is called immediately after projectStateAccess's construction
+	// (presence required). Return v unchanged unless
+	// composition policy needs to swap or wrap it (e.g. a construction
+	// dry-run stub swap-in) — the identity implementation is always correct.
+	FinalizeProjectStateAccess(cfg *Config, v projectstate.ProjectStateAccess) projectstate.ProjectStateAccess
+
 	// FinalizeSourceControlAccess is called immediately after sourceControlAccess's construction
 	// (presence optional-dormant). Return v unchanged unless
 	// composition policy needs to swap or wrap it (e.g. a construction
 	// dry-run stub swap-in) — the identity implementation is always correct.
 	FinalizeSourceControlAccess(cfg *Config, v sourcecontrol.SourceControlAccess) sourcecontrol.SourceControlAccess
+
+	// FinalizeUsageAccess is called immediately after usageAccess's construction
+	// (presence required). Return v unchanged unless
+	// composition policy needs to swap or wrap it (e.g. a construction
+	// dry-run stub swap-in) — the identity implementation is always correct.
+	FinalizeUsageAccess(cfg *Config, v usage.UsageAccess) usage.UsageAccess
 
 	// RegisterConstructionManagerWorker reports whether to register the ConstructionManager
 	// Temporal Worker. The manager has ≥1 optional-dormant dependency, so its
@@ -283,6 +319,7 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 	artifactAccess = hooks.FinalizeArtifactAccess(cfg, artifactAccess)
 	billingStateAccess := billingstate.NewBillingStateAccess()
 	logger.Info("billingStateAccess (stub) ready")
+	billingStateAccess = hooks.FinalizeBillingStateAccess(cfg, billingStateAccess)
 	var constructionPipelineAccess constructionpipeline.ConstructionPipelineAccess
 	switch profile {
 	case "cloud":
@@ -296,6 +333,7 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 	constructionPipelineAccess = hooks.FinalizeConstructionPipelineAccess(cfg, constructionPipelineAccess)
 	merchantGatewayAccess := merchantgateway.NewMerchantGatewayAccess()
 	logger.Info("merchantGatewayAccess (stub) ready")
+	merchantGatewayAccess = hooks.FinalizeMerchantGatewayAccess(cfg, merchantGatewayAccess)
 	var operatedRuntimeAccess operatedruntime.OperatedRuntimeAccess
 	switch profile {
 	case "cloud":
@@ -307,6 +345,7 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 	default:
 		return errors.New("operatedRuntimeAccess: no ResourceAccess variant for the active profile")
 	}
+	operatedRuntimeAccess = hooks.FinalizeOperatedRuntimeAccess(cfg, operatedRuntimeAccess)
 	var operatedSystemStateAccess operatedsystemstate.OperatedSystemStateAccess
 	switch profile {
 	case "cloud":
@@ -326,6 +365,7 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 	default:
 		return errors.New("operatedSystemStateAccess: no ResourceAccess variant for the active profile")
 	}
+	operatedSystemStateAccess = hooks.FinalizeOperatedSystemStateAccess(cfg, operatedSystemStateAccess)
 	var projectStateAccess projectstate.ProjectStateAccess
 	switch profile {
 	case "cloud":
@@ -341,6 +381,7 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 	default:
 		return errors.New("projectStateAccess: no ResourceAccess variant for the active profile")
 	}
+	projectStateAccess = hooks.FinalizeProjectStateAccess(cfg, projectStateAccess)
 	var sourceControlAccess sourcecontrol.SourceControlAccess
 	switch profile {
 	case "cloud":
@@ -371,6 +412,7 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 	default:
 		return errors.New("usageAccess: no ResourceAccess variant for the active profile")
 	}
+	usageAccess = hooks.FinalizeUsageAccess(cfg, usageAccess)
 
 	// Engines — pure, deterministic, dependency-free.
 	autoscalerEngine := autoscaler.NewAutoscalerEngine()

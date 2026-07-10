@@ -18,11 +18,19 @@ import (
 //     (internal/resourceaccess/operatedsystemstate: NewPostgresOperatedSystemStateAccess,
 //     operated_system head-state row + optimistic-concurrency version + the
 //     operated_system_mutation dedup-first idempotency ledger). It is no longer a stub.
-//   - operatedRuntimeAccess is now the PROFILED RA (internal/resourceaccess/operatedruntime).
-//     The systemtests harness boots the server WITHOUT ARCHISTRATOR_OPERATIONS_DRYRUN, so the
-//     REAL profile is selected: its verbs return an EXPLICIT, non-retryable error (the
-//     GitOps/kubernetes backend is the N-DEP follow-up), which the façade maps to 503 exactly
-//     as the old stub did — but it is now a diagnosable deferral, not a silent stub.
+//   - operatedRuntimeAccess is the PROFILED RA (internal/resourceaccess/operatedruntime),
+//     now selected by the DEPLOYMENT PROFILE in the generated composition root
+//     (main.gen.go: cloud → Real, local → Local) plus the orthogonal
+//     ARCHISTRATOR_OPERATIONS_DRYRUN Finalize override (hooks.go
+//     FinalizeOperatedRuntimeAccess: cloud + DRYRUN=true swaps Real → Local). The harness
+//     boots every server with ARCHISTRATOR_PROJECT_STATE_GIT_LOCAL=true (a throwaway
+//     on-disk repo), which IS the "local" deployment profile — so these tests run against
+//     the LOCAL deterministic operatedRuntime variant (writes accepted as no-ops, observe
+//     reads Healthy/SLO-met), NOT the Real profile's explicit not-implemented errors.
+//     That distinction is unobservable below anyway: every wire path here is gated by a
+//     head-state read FIRST, so no operatedRuntime verb is ever reached (see the outcome
+//     notes). The Real profile (cloud, DRYRUN=false) still defers to the N-DEP
+//     GitOps/kubernetes follow-up with a diagnosable non-retryable error.
 //
 // What this means for the STP-UC4 wire outcomes, against an operated app that was NEVER
 // seeded (the deploy-after-construction SEEDING handoff — a cross-Manager write / an added
@@ -31,8 +39,8 @@ import (
 //   - deploy (full bundle) and queryOperatedSystemView read head-state FIRST; a missing row
 //     is a real fwra.NotFound, the workflow fails, and the operationsManager façade maps
 //     EVERY workflow-execution failure to fwmgr.Infrastructure → HTTP 503 (operationsmanager.go
-//     we.Get() branches) → harness.ErrUnavailable. Still a deterministic fail-fast, now on a
-//     REAL NotFound rather than a stub's "not implemented".
+//     we.Get() branches) → harness.ErrUnavailable. A deterministic fail-fast on a REAL
+//     NotFound — reached before any operatedRuntime verb, in EITHER runtime profile.
 //   - reconcileOperatedState scans the in-flight set FIRST (ReadInFlightOperatedApps). With no
 //     seeded apps that scan is a clean, empty SUCCESS (observed=0) — it never reaches the
 //     operatedRuntime reads. This is a genuine improvement the real head-state store enables
@@ -45,15 +53,18 @@ import (
 //
 // A full deploy→reconcile→observe→Healthy happy path remains honestly PENDING on two
 // follow-ups: (1) the operated_system SEEDING handoff (no frozen verb populates the row /
-// DeployableBundleRef), and (2) the operatedRuntime REAL profile's kubernetes/GitOps backend
-// (N-DEP). Under ARCHISTRATOR_OPERATIONS_DRYRUN the operatedRuntime verbs become deterministic
-// successes, but deploy/view still need a seeded row, so the seeding gap is the gating item.
+// DeployableBundleRef), and (2) — for the cloud profile only — the operatedRuntime REAL
+// profile's kubernetes/GitOps backend (N-DEP). The local harness already runs the
+// deterministic Local runtime variant, but deploy/view still need a seeded row, so the
+// seeding gap is the gating item.
 
 // operationsSurfaceServer boots a plain server (no construction/agentic profile —
 // operationsManager needs no git substrate of its own) with the harness's own
 // auto-provisioned throwaway project-state repo (main_test.go's startServer default), and
-// returns a bound Transport. The REAL operatedRuntime profile is in force (no
-// ARCHISTRATOR_OPERATIONS_DRYRUN).
+// returns a bound Transport. That throwaway repo sets ARCHISTRATOR_PROJECT_STATE_GIT_LOCAL
+// = the "local" deployment profile, so the LOCAL deterministic operatedRuntime variant is
+// in force (see the file-level finding) — not that it matters below: head-state gates
+// every path first.
 func operationsSurfaceServer(t *testing.T) harness.Transport {
 	t.Helper()
 	srv := startServer(t, true)
