@@ -21,8 +21,6 @@ import type {
   RiskModelModel,
   SdpReviewModel,
   Money,
-} from './types';
-import type {
   ActivityNodeKind,
   Axis,
   CallMode,
@@ -47,7 +45,7 @@ import type {
   System,
   UseCaseDecision,
   Volatilities,
-} from './models';
+} from './types';
 import { METHOD_METADATA, PHASE1_ORDER, PHASE2_ORDER } from './methodMetadata';
 
 // ---------------------------------------------------------------------------
@@ -473,7 +471,7 @@ export function listDeploymentProfiles(
   opEnvelope: ArtifactModelEnvelope | undefined
 ): DeploymentProfileRef[] {
   const op = narrow(opEnvelope, 'operationalConcepts');
-  return (op?.deployment?.environments ?? []).map((e) => ({ profile: e.profile, title: e.title }));
+  return (op?.deployment.environments ?? []).map((e) => ({ profile: e.profile, title: e.title }));
 }
 
 /**
@@ -587,7 +585,7 @@ export function toCoreUseCasesView(envelope: ArtifactModelEnvelope | undefined):
 
 function toUseCaseView(decision: UseCaseDecision): UseCaseView {
   const uc = decision.useCase;
-  const activity = uc.activity ?? null;
+  const activity = uc.activity;
   const rawNodes = activity?.nodes ?? [];
   const rawEdges = activity?.edges ?? [];
 
@@ -676,8 +674,8 @@ function glossaryToMarkdown(g: Glossary): string {
   if (items.length === 0) return '';
   const rows = items
     .map((i) => {
-      const hasCategory = (i.category?.length ?? 0) > 0;
-      const category = hasCategory ? ` _(${String(i.category)})_` : '';
+      const hasCategory = i.category.length > 0;
+      const category = hasCategory ? ` _(${i.category})_` : '';
       return `- **${i.term}**${category} — ${i.definition}`;
     })
     .join('\n');
@@ -802,9 +800,10 @@ function labelFor(labels: Record<number, string>, value: number): string {
 function planningAssumptionsToMarkdown(m: PlanningAssumptionsModel): string {
   const parts: string[] = [];
 
-  // Resources
-  if (m.resources.length > 0) {
-    parts.push(`## Resources\n\n${m.resources.map((r) => `- ${r}`).join('\n')}`);
+  // Resources (generated slice is nullable — nil→null on the wire)
+  const resources = m.resources ?? [];
+  if (resources.length > 0) {
+    parts.push(`## Resources\n\n${resources.map((r) => `- ${r}`).join('\n')}`);
   }
 
   // Key settings
@@ -841,7 +840,7 @@ function planningAssumptionsToMarkdown(m: PlanningAssumptionsModel): string {
 }
 
 function activityListToMarkdown(m: ActivityListModel): string {
-  const activities = m.activities;
+  const activities = m.activities ?? [];
   if (activities.length === 0) return '';
   const header = '| Activity | Effort (d) | Worker Class | Coding | Risk |';
   const sep = '|---|---|---|---|---|';
@@ -857,16 +856,18 @@ function activityListToMarkdown(m: ActivityListModel): string {
 function networkToMarkdown(m: NetworkModel): string {
   const parts: string[] = [];
 
-  const cp = m.criticalPath;
+  const cp = m.criticalPath ?? [];
   if (cp.length > 0) {
     parts.push(`## Critical Path\n\n${cp.join(' → ')}`);
   }
 
-  const deps = m.dependencies;
+  const deps = m.dependencies ?? [];
   if (deps.length > 0) {
     const header = '| Activity | Depends On |';
     const sep = '|---|---|';
-    const rows = deps.map((d) => `| ${d.activity} | ${d.dependsOn.join(', ')} |`).join('\n');
+    const rows = deps
+      .map((d) => `| ${d.activity} | ${(d.dependsOn ?? []).join(', ')} |`)
+      .join('\n');
     parts.push(`## Dependencies\n\n${header}\n${sep}\n${rows}`);
   }
 
@@ -902,7 +903,7 @@ function solutionToMarkdown(m: SolutionModel): string {
 }
 
 function riskModelToMarkdown(m: RiskModelModel): string {
-  const rows = m.rows;
+  const rows = m.rows ?? [];
   if (rows.length === 0) return '';
   const header = '| Option | Criticality Risk | Activity Risk | Composite |';
   const sep = '|---|---|---|---|';
@@ -926,7 +927,7 @@ function sdpReviewToMarkdown(m: SdpReviewModel): string {
     parts.push(`## Rationale\n\n${m.rationale}`);
   }
 
-  const options = m.options;
+  const options = m.options ?? [];
   if (options.length > 0) {
     const header =
       '| Option | Solution | Duration (d) | Build Cost | Composite Risk | Monthly Cost | Per-Cycle Net | Rev Share % |';

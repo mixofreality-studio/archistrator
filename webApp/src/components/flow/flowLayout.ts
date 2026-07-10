@@ -7,7 +7,7 @@
  * the decorative node components in ./flowDecor).
  */
 import { MarkerType, type Edge, type Node } from '@xyflow/react';
-import type { Layer } from '../../contracts/models';
+import type { Layer } from '../../contracts/types';
 import type { Tokens } from '../../utilities/theme/themes';
 import type { C4Component } from '../../contracts/adapters';
 import type { Anchor } from '../comments/CommentContext';

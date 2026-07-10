@@ -8,33 +8,145 @@
  * camelCase view shapes, so the api layer (hooks + wire.ts) maps wire→app at the
  * boundary; everything below is that app-facing contract.
  *
- * Artifact MODEL payloads stay opaque in the OAS, so their decode types live in
- * ./models and are re-exported here for the screens that import them.
+ * Artifact MODEL payload types are now DERIVED from the generated typed OAS
+ * (schema.ts `Model*`, RC1 of appgen step-4) rather than hand-mirrored — the old
+ * `models.ts` mirror is deleted. Consumers keep importing model types from here.
  */
-import type { ArtifactModelEnvelope, ProjectArtifactModelEnvelope } from './models';
+import type { components } from './schema';
 
-// Re-export the opaque-model decode types so screens keep importing from one place.
-export type {
-  ArtifactModelEnvelope,
-  ProjectArtifactModelEnvelope,
-  Money,
-  UsageAssumption,
-  SettlementTerms,
-  PlanningAssumptionsModel,
-  ActivityItem,
-  ActivityListModel,
-  NetworkDependency,
-  FloatBand,
-  NetworkNodeCompute,
-  NetworkSummary,
-  NetworkMilestone,
-  NetworkModel,
-  SolutionModel,
-  RiskRow,
-  RiskModelModel,
-  SdpOptionRow,
-  SdpReviewModel,
-} from './models';
+type S = components['schemas'];
+
+// ---------------------------------------------------------------------------
+// Artifact MODEL payload types — derived from the generated typed OAS.
+//
+// The OAS now reflects every slot-model shape (server Go structs → jsonschema →
+// schema.ts `Model*`), including the string-marshalled enums (live-marshal ground
+// truth, commit a84cad5). These aliases re-point the app's model contract onto the
+// generated types. Leaf string-literal unions are DERIVED from the generated field
+// that carries them (byte-exact after the enum fix).
+//
+// Two documented drifts require refinement (generated type differs from the wire's
+// true value set):
+//   - FloatBand: the server's NetworkNodeCompute.band is a plain Go string (no
+//     string-enum marshaller), so the OAS carries `string`. FloatBand is the ONE
+//     hand-pinned union; the band field is refined onto it.
+//   - slotKind / solutionKind: Go reflects the full 17-member ArtifactKind, but a
+//     Solution/RiskRow/SdpOptionRow's kind is semantically always one of the 9
+//     project-artifact kinds — refined back onto ProjectArtifactKind (matching the
+//     deleted hand types; no behavior change).
+// ---------------------------------------------------------------------------
+
+// Phase-1 (System Design) model shapes.
+export type Objective = S['ModelObjective'];
+export type MissionStatement = S['ModelMissionStatement'];
+export type GlossaryItem = S['ModelGlossaryItem'];
+export type Glossary = S['ModelGlossary'];
+export type Requirement = S['ModelRequirement'];
+export type ScrubbedRequirements = S['ModelScrubbedRequirements'];
+export type Axis = S['ModelVolatility']['axis'];
+export type Volatility = S['ModelVolatility'];
+export type Volatilities = S['ModelVolatilities'];
+export type ActivityNodeKind = S['ModelActivityNode']['kind'];
+export type ActivityNode = S['ModelActivityNode'];
+export type EdgeKind = S['ModelActivityEdge']['kind'];
+export type ActivityEdge = S['ModelActivityEdge'];
+export type ActivityDiagram = S['ModelActivityDiagram'];
+export type Actor = S['ModelActor'];
+export type Trigger = S['ModelUseCase']['trigger'];
+export type Classification = S['ModelUseCase']['classification'];
+export type UseCase = S['ModelUseCase'];
+export type UseCaseDecision = S['ModelUseCaseDecision'];
+export type CoreUseCases = S['ModelCoreUseCases'];
+export type ComponentKind = S['ModelComponent']['kind'];
+export type Layer = S['ModelComponent']['layer'];
+export type Component = S['ModelComponent'];
+export type CallMode = S['ModelRelationship']['mode'];
+export type Relationship = S['ModelRelationship'];
+export type DynamicView = S['ModelDynamicView'];
+export type System = S['ModelSystem'];
+export type DeliveryStyle = S['ModelDeploymentTopology']['deliveryStyle'];
+export type DeploymentProfile = S['ModelDeploymentEnvironment']['profile'];
+export type DeployContainer = S['ModelDeployContainer'];
+export type ContainerInstance = S['ModelContainerInstance'];
+export type InfrastructureNode = S['ModelInfrastructureNode'];
+export type SoftwareSystemInstance = S['ModelSoftwareSystemInstance'];
+export type DeploymentNode = S['ModelDeploymentNode'];
+export type DeploymentEnvironment = S['ModelDeploymentEnvironment'];
+export type DeploymentTopology = S['ModelDeploymentTopology'];
+export type OperationalDecision = S['ModelOperationalDecision'];
+export type OperationalConcepts = S['ModelOperationalConcepts'];
+export type CheckStatus = S['ModelCheckItem']['status'];
+export type CheckItem = S['ModelCheckItem'];
+export type StandardCheck = S['ModelStandardCheck'];
+
+// Phase-2 (Project Design) model shapes.
+export type Money = S['ModelMoney'];
+export type UsageAssumption = S['ModelUsageAssumption'];
+export type SettlementTerms = S['ModelSettlementTerms'];
+export type PlanningAssumptionsModel = S['ModelPlanningAssumptions'];
+export type ActivityItem = S['ModelActivityItem'];
+export type ActivityListModel = S['ModelActivityList'];
+export type NetworkDependency = S['ModelNetworkDependency'];
+/** Float-criticality band (Löwy ch.8 §2). Hand-pinned: the server's band field is a
+ *  plain Go string, so no generated union carries it. The value flows from the generated
+ *  `NetworkNodeCompute.band` (typed `string`) and is narrowed to FloatBand at the one
+ *  view-building site in projectAdapters. */
+export type FloatBand = 'critical' | 'red' | 'yellow' | 'green';
+export type NetworkNodeCompute = S['ModelNetworkNodeCompute'];
+export type NetworkSummary = S['ModelNetworkSummary'];
+export type NetworkMilestone = S['ModelNetworkMilestone'];
+export type NetworkModel = S['ModelNetwork'];
+/** drift: generated `slotKind` is the full 17-kind ArtifactKind; refined to the 9 project kinds
+ *  (a Solution's slotKind is always a solution kind — matches the deleted hand type). */
+export type SolutionModel = Omit<S['ModelSolution'], 'slotKind'> & {
+  slotKind: ProjectArtifactKind;
+};
+/** drift: generated `solutionKind` is the full 17-kind ArtifactKind; refined to the 9 project kinds. */
+export type RiskRow = Omit<S['ModelRiskRow'], 'solutionKind'> & {
+  solutionKind: ProjectArtifactKind;
+};
+/** RiskModel.rows refined so the narrowed RiskRow.solutionKind propagates through the container. */
+export type RiskModelModel = Omit<S['ModelRiskModel'], 'rows'> & { rows: null | RiskRow[] };
+/** drift: generated `solutionKind` is the full 17-kind ArtifactKind; refined to the 9 project kinds. */
+export type SdpOptionRow = Omit<S['ModelSdpOptionRow'], 'solutionKind'> & {
+  solutionKind: ProjectArtifactKind;
+};
+/** SdpReview.options refined so the narrowed SdpOptionRow.solutionKind propagates. */
+export type SdpReviewModel = Omit<S['ModelSdpReview'], 'options'> & {
+  options: null | SdpOptionRow[];
+};
+
+/** The decoded Phase-1+2 model envelope (the SPA narrows on the string `kind`). */
+export interface ArtifactModelEnvelope {
+  kind: ArtifactKindFull;
+  model?:
+    | MissionStatement
+    | Glossary
+    | ScrubbedRequirements
+    | Volatilities
+    | CoreUseCases
+    | System
+    | OperationalConcepts
+    | StandardCheck
+    | PlanningAssumptionsModel
+    | ActivityListModel
+    | NetworkModel
+    | SolutionModel
+    | RiskModelModel
+    | SdpReviewModel;
+}
+
+/** The decoded Phase-2 model envelope. */
+export interface ProjectArtifactModelEnvelope {
+  kind: ProjectArtifactKind;
+  model?:
+    | PlanningAssumptionsModel
+    | ActivityListModel
+    | NetworkModel
+    | SolutionModel
+    | RiskModelModel
+    | SdpReviewModel;
+}
 
 // ---------------------------------------------------------------------------
 // Phase-1 (System Design) wire-string enums.

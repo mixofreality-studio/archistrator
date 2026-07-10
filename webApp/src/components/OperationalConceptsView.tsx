@@ -21,8 +21,7 @@ import {
   toMissionView,
   toOperationalDecisionsView,
 } from '../contracts/adapters';
-import type { ArtifactModelEnvelope } from '../contracts/types';
-import type { DeploymentProfile } from '../contracts/models';
+import type { ArtifactModelEnvelope, DeploymentProfile } from '../contracts/types';
 import { useProject } from '../hooks/useProject';
 import { useTokens } from '../utilities/theme/ThemeContext';
 import { CommentableList } from './comments/CommentableList';

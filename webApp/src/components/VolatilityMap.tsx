@@ -23,8 +23,7 @@ import {
   AXIS2_LABEL,
   type VolatilityPoint,
 } from '../contracts/adapters';
-import type { ArtifactModelEnvelope } from '../contracts/types';
-import type { Axis } from '../contracts/models';
+import type { ArtifactModelEnvelope, Axis } from '../contracts/types';
 import { useProject } from '../hooks/useProject';
 import { useComments, volatilityAnchor } from './comments/CommentContext';
 import { useTokens } from '../utilities/theme/ThemeContext';

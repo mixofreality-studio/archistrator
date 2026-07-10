@@ -41,7 +41,7 @@ import {
   HEADER_HEIGHT,
 } from './activityLayout';
 import { NODE_DIMS } from './nodeDims';
-import type { ActivityNodeKind } from '../../contracts/models';
+import type { ActivityNodeKind } from '../../contracts/types';
 
 const nodeTypes = { activity: ActivityNode, swimlane: SwimlaneBackground };
 const edgeTypes = { activity: ActivityEdge };

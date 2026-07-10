@@ -18,8 +18,7 @@ import {
   type InfraView,
   type ExternalView,
 } from '../../contracts/adapters';
-import type { ArtifactModelEnvelope } from '../../contracts/types';
-import type { DeploymentProfile } from '../../contracts/models';
+import type { ArtifactModelEnvelope, DeploymentProfile } from '../../contracts/types';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import { useComments, deploymentAnchor } from '../comments/CommentContext';
 import { FlowCanvas, FlowEmpty } from './flowShared';

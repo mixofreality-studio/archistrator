@@ -137,7 +137,7 @@ export function toActivityListView(
 ): ActivityListView {
   const model = narrowProject(envelope, 'activityList');
   if (model === undefined) return EMPTY_ACTIVITY_LIST_VIEW;
-  const activities = model.activities;
+  const activities = model.activities ?? [];
 
   const byGroup = new Map<string, ActivityRowView[]>();
   for (const a of activities) {
@@ -280,7 +280,7 @@ function computeCpm(
   }
   for (const d of deps) {
     if (!idSet.has(d.activity)) continue;
-    for (const p of d.dependsOn) {
+    for (const p of d.dependsOn ?? []) {
       if (!idSet.has(p)) continue;
       preds.get(d.activity)?.push(p);
       succs.get(p)?.push(d.activity);
@@ -396,9 +396,10 @@ export function toNetworkView(
   // The activity universe = everything named in dependencies (activities + their
   // predecessors), so a node with no declared deps row still appears.
   const ids = new Set<string>();
-  for (const d of net.dependencies) {
+  const netDependencies = net.dependencies ?? [];
+  for (const d of netDependencies) {
     ids.add(d.activity);
-    for (const p of d.dependsOn) ids.add(p);
+    for (const p of d.dependsOn ?? []) ids.add(p);
   }
   if (ids.size === 0 && (net.milestones ?? []).length === 0) return EMPTY_NETWORK_VIEW;
 
@@ -408,7 +409,7 @@ export function toNetworkView(
   const hasServerCompute = Object.keys(serverComputed).length > 0 && net.summary !== undefined;
   const fallback = hasServerCompute
     ? undefined
-    : computeCpm([...ids], net.dependencies, (id) => activityByName.get(id)?.effortDays ?? 0);
+    : computeCpm([...ids], netDependencies, (id) => activityByName.get(id)?.effortDays ?? 0);
   const cpmOf = (id: string): NetworkNodeCompute | undefined =>
     serverComputed[id] ?? fallback?.computed.get(id);
 
@@ -431,7 +432,8 @@ export function toNetworkView(
       float: c?.totalFloat ?? 0,
       onCriticalPath: c?.onCriticalPath ?? false,
       coding: item?.coding ?? false,
-      band: c?.band ?? 'green',
+      // Server sends one of the four band names; the OAS types band as a plain string.
+      band: (c?.band ?? 'green') as FloatBand,
       col: c?.column ?? 0,
       label: id,
     };
@@ -447,7 +449,7 @@ export function toNetworkView(
     m.eventTime ??
     (m.dependsOn ?? []).reduce((mx, p) => Math.max(mx, cpmOf(p)?.earliestFinish ?? 0), 0);
   const milestoneOnCp = (m: NetworkMilestone): boolean => {
-    if (m.onCriticalPath !== undefined) return m.onCriticalPath;
+    if (m.onCriticalPath !== undefined && m.onCriticalPath !== null) return m.onCriticalPath;
     const preds = m.dependsOn ?? [];
     const anyCritical = preds.some((p) => cpmOf(p)?.onCriticalPath ?? false);
     return anyCritical && milestoneEventTime(m) >= projectEnd && projectEnd > 0;
@@ -482,8 +484,8 @@ export function toNetworkView(
   });
 
   const edges: NetworkEdgeView[] = [];
-  for (const d of net.dependencies) {
-    for (const p of d.dependsOn) {
+  for (const d of netDependencies) {
+    for (const p of d.dependsOn ?? []) {
       edges.push({
         from: p,
         to: d.activity,
@@ -502,13 +504,14 @@ export function toNetworkView(
 
   // Prefer the server summary; else the client CPM roll-up.
   const s = net.summary ?? fallback?.summary;
+  const criticalPath = net.criticalPath ?? [];
   return {
     nodes: [...activityNodes, ...milestoneNodes],
     edges,
-    criticalPath: net.criticalPath,
+    criticalPath,
     milestones,
     totalDurationDays: s?.totalDurationDays ?? 0,
-    criticalPathActivityCount: s?.criticalPathActivityCount ?? net.criticalPath.length,
+    criticalPathActivityCount: s?.criticalPathActivityCount ?? criticalPath.length,
     nearCriticalCount: s?.nearCriticalCount ?? 0,
     maxFloat: s?.maxFloat ?? 0,
   };
@@ -580,7 +583,7 @@ const EMPTY_RISK_MODEL_VIEW: RiskModelView = {
 export function toRiskRows(envelope: ProjectArtifactModelEnvelope | undefined): RiskRowView[] {
   const model = narrowProject(envelope, 'riskModel');
   if (model === undefined) return [];
-  return model.rows.map((r) => ({
+  return (model.rows ?? []).map((r) => ({
     solutionKind: r.solutionKind,
     criticalityRisk: r.criticalityRisk,
     activityRisk: r.activityRisk,
@@ -631,7 +634,7 @@ const EMPTY_SDP_REVIEW_VIEW: SdpReviewView = { options: [], recommendation: '', 
 export function toSdpReviewView(envelope: ProjectArtifactModelEnvelope | undefined): SdpReviewView {
   const model = narrowProject(envelope, 'sdpReview');
   if (model === undefined) return EMPTY_SDP_REVIEW_VIEW;
-  const options = model.options.map(
+  const options = (model.options ?? []).map(
     (o): SdpOptionView => ({
       optionId: o.optionId,
       solutionKind: o.solutionKind,

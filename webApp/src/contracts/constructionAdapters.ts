@@ -159,20 +159,20 @@ export function computeActivityStatuses(
   liveActiveStatus: BuildStatus,
   constructionRowFor?: (id: string) => ConstructionRow | undefined
 ): Map<string, BuildStatus> {
-  const deps = network.dependencies;
+  const deps = network.dependencies ?? [];
 
   // Collect the full activity universe from the dependency rows.
   const allIds = new Set<string>();
   for (const d of deps) {
     allIds.add(d.activity);
-    for (const p of d.dependsOn) allIds.add(p);
+    for (const p of d.dependsOn ?? []) allIds.add(p);
   }
 
   // Build predecessor index (id → predecessor ids[]).
   const predecessors = new Map<string, string[]>();
   for (const id of allIds) predecessors.set(id, []);
   for (const d of deps) {
-    for (const p of d.dependsOn) {
+    for (const p of d.dependsOn ?? []) {
       predecessors.get(d.activity)?.push(p);
     }
   }

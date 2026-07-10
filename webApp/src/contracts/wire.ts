@@ -76,7 +76,7 @@ import type {
   SessionStateResponse,
   ConstructionRows,
 } from './types';
-import type { ArtifactModelEnvelope, Money, ProjectArtifactModelEnvelope } from './models';
+import type { ArtifactModelEnvelope, Money, ProjectArtifactModelEnvelope } from './types';
 import type { CostProjection, OperationsView } from './operationsTypes';
 
 type Schemas = components['schemas'];

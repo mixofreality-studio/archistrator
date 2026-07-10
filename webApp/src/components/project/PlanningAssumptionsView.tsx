@@ -66,7 +66,7 @@ export function PlanningAssumptionsView({
     );
   }
 
-  const resources = model.resources;
+  const resources = model.resources ?? [];
   const usage = model.declaredUsage;
   const terms = model.terms;
   // The authored notes carry the load-bearing risk flags — split on lines so each
