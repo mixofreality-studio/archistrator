@@ -1,6 +1,6 @@
 # aiarch server — developer make targets.
 
-.PHONY: test test-short fmt vet lint sumtype-check method-check encapsulation-check gen-schemas gen-models gen-models-check gen gen-client gen-client-check gen-internal-tools gen-temporal gen-temporal-check gen-sdk gen-sdk-check bootstrap
+.PHONY: test test-short fmt vet lint sumtype-check method-check encapsulation-check gen-schemas gen-models gen-models-check gen gen-client gen-client-check gen-internal-tools gen-temporal gen-temporal-check gen-sdk gen-sdk-check gen-config gen-config-check bootstrap
 
 # Contract codegen pipeline, all-Go (jsonschema-go). project.json
 # (.serviceContracts) is the OWNER of every built component's contract; modelgen
@@ -92,6 +92,29 @@ gen-sdk: gen-temporal
 # (server-checks.yml).
 gen-sdk-check: gen-temporal
 	git diff --exit-code -- ../systemtests/internal/sdk
+
+# gen-config — generate the archistrator-server container config (cmd/server/
+# config.gen.go) + the systemtests harness env-name consts (systemtests/internal/
+# harness/envnames.gen.go) from project.json's deployment model (cmd/configgen,
+# driving framework-go-app-generator/configgen).
+#
+# WORKSPACE-ONLY BRIDGE (release follow-up): configgen is UNRELEASED in
+# framework-go-app-generator, so — unlike the other gen-* targets — this one runs
+# in Go WORKSPACE mode (NO GOWORK=off; needs the ../archistrator-platform checkout
+# + go.work). cmd/configgen is behind the `configgen` build tag with a no-op stub
+# so ordinary GOWORK=off build/vet/test ./... stay clean. Mirrors the step-1 appgen
+# precedent. Deliberately NOT folded into `gen` (which is all GOWORK=off) and NOT
+# added to CI (server-checks.yml) yet — it cannot run without the workspace. Once
+# framework-go-app-generator ships configgen in a tag, fold cmd/configgen into
+# cmd/appgen tag-free and add gen-config-check to CI like gen-temporal-check.
+gen-config:
+	go run -tags configgen ./cmd/configgen
+
+# gen-config-check — drift gate for the generated config + harness env-names,
+# same regenerate-then-diff shape as the other gen-*-check gates. WORKSPACE-only
+# (see gen-config); run locally, NOT in CI until configgen ships in a platform tag.
+gen-config-check: gen-config
+	git diff --exit-code -- cmd/server/config.gen.go ../systemtests/internal/harness/envnames.gen.go
 
 gen-schemas:
 	GOWORK=off go run ./cmd/schemagen
