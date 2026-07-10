@@ -7681,6 +7681,20 @@
               ],
               "presence": "optional",
               "env": {}
+            },
+            {
+              "key": "temporal",
+              "substrate": "temporal",
+              "profiles": [
+                "cloud",
+                "test",
+                "local"
+              ],
+              "presence": "required",
+              "env": {
+                "HOSTPORT": "ARCHISTRATOR_TEMPORAL_HOSTPORT",
+                "NAMESPACE": "ARCHISTRATOR_TEMPORAL_NAMESPACE"
+              }
             }
           ],
           "bindings": [
@@ -7840,20 +7854,6 @@
               "default": "20s",
               "env": "ARCHISTRATOR_SHUTDOWN_TIMEOUT",
               "description": "Graceful HTTP shutdown drain timeout."
-            },
-            {
-              "name": "temporalHostPort",
-              "type": "string",
-              "default": "temporal-frontend.temporal.svc:7233",
-              "env": "ARCHISTRATOR_TEMPORAL_HOSTPORT",
-              "description": "Temporal frontend host:port the Managers dial."
-            },
-            {
-              "name": "temporalNamespace",
-              "type": "string",
-              "default": "default",
-              "env": "ARCHISTRATOR_TEMPORAL_NAMESPACE",
-              "description": "Temporal namespace."
             },
             {
               "name": "constructionEscalationTimeout",

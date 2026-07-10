@@ -190,8 +190,8 @@ type harnessEnvName struct {
 // declarations so the emitted const carries TODAY'S exact var name.
 var harnessEnvNames = []harnessEnvName{
 	{Const: "EnvPostgresURL", InfraKey: "postgres", InfraIn: "URL"},
-	{Const: "EnvTemporalHostPort", Setting: "temporalHostPort"},
-	{Const: "EnvTemporalNamespace", Setting: "temporalNamespace"},
+	{Const: "EnvTemporalHostPort", InfraKey: "temporal", InfraIn: "HOSTPORT"},
+	{Const: "EnvTemporalNamespace", InfraKey: "temporal", InfraIn: "NAMESPACE"},
 	{Const: "EnvListenAddr", Setting: "listenAddr"},
 	{Const: "EnvAuthDevMode", Setting: "authDevMode"},
 	{Const: "EnvConstructionDryRun", Setting: "constructionDryRun"},

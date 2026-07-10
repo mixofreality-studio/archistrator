@@ -34,12 +34,12 @@ type Config struct {
 	KeycloakJWKSURL         string
 	KeycloakIssuer          string
 	PostgresURL             string
+	TemporalHostport        string
+	TemporalNamespace       string
 
 	// Settings (typed, with defaults).
 	ListenAddr                    string
 	ShutdownTimeout               time.Duration
-	TemporalHostPort              string
-	TemporalNamespace             string
 	ConstructionEscalationTimeout time.Duration
 	ConstructionInterventionMode  string
 	ConstructionRepoOwner         string
@@ -71,10 +71,10 @@ func LoadConfig() (*Config, error) {
 		KeycloakJWKSURL:               getenv("ARCHISTRATOR_KEYCLOAK_JWKS_URL"),
 		KeycloakIssuer:                getenv("ARCHISTRATOR_KEYCLOAK_ISSUER"),
 		PostgresURL:                   getenv("ARCHISTRATOR_POSTGRES_URL"),
+		TemporalHostport:              getenvString("ARCHISTRATOR_TEMPORAL_HOSTPORT", "temporal-frontend.temporal.svc:7233"),
+		TemporalNamespace:             getenvString("ARCHISTRATOR_TEMPORAL_NAMESPACE", "default"),
 		ListenAddr:                    getenvString("ARCHISTRATOR_LISTEN_ADDR", ":8080"),
 		ShutdownTimeout:               getenvDuration("ARCHISTRATOR_SHUTDOWN_TIMEOUT", "20s"),
-		TemporalHostPort:              getenvString("ARCHISTRATOR_TEMPORAL_HOSTPORT", "temporal-frontend.temporal.svc:7233"),
-		TemporalNamespace:             getenvString("ARCHISTRATOR_TEMPORAL_NAMESPACE", "default"),
 		ConstructionEscalationTimeout: getenvDuration("ARCHISTRATOR_CONSTRUCTION_ESCALATION_TIMEOUT", "30m"),
 		ConstructionInterventionMode:  getenvString("ARCHISTRATOR_CONSTRUCTION_INTERVENTION_MODE", "tiered"),
 		ConstructionRepoOwner:         getenvString("ARCHISTRATOR_CONSTRUCTION_REPO_OWNER", ""),

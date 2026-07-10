@@ -108,7 +108,7 @@ func loadConfig() (config, error) {
 	cfg := config{
 		ListenAddr:                    gen.ListenAddr,
 		ShutdownTimeout:               gen.ShutdownTimeout,
-		TemporalHostPort:              gen.TemporalHostPort,
+		TemporalHostPort:              gen.TemporalHostport,
 		TemporalNamespace:             gen.TemporalNamespace,
 		KeycloakJWKSURL:               gen.KeycloakJWKSURL,
 		KeycloakIssuer:                gen.KeycloakIssuer,
