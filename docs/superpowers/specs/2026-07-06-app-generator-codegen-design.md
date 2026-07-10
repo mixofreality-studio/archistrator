@@ -505,6 +505,20 @@ aiarch-state MCP tools (already generic over slot kinds).
    Transport methods — orchestration, not transport duplication).
 6. **projectstate validation codegen**: `modelfields`/`enumjson`/`registry`
    emitted by modelgen from the reflected schemas.
+   **DESCOPED 2026-07-10 (founder-ratified).** Deep recon overturned the
+   premise: (a) generating these requires a reflection driver that imports
+   projectstate while emitting compiled `.go` INTO it — a malformed emission
+   bricks both the package and the generator (every existing reflection
+   driver deliberately emits outside the compile path); (b) enumjson's wire
+   strings are the terminal authority (3 of 13 enums have non-mechanical
+   const prefixes) and modelfields' valuable rules are Method-semantic
+   (F81 layer/kind cross-field, guardedFlow, encapsulates gating,
+   structural floors) — generation would relocate hand data behind an
+   intermediate-artifact pipeline. Shipped instead: the one live drift
+   hazard closed by `enumwire_completeness_test.go` (bidirectional
+   wire-map ↔ contract-ordinal completeness over all 14 enums,
+   fail-first-proven both directions), joining the existing registry
+   coverage test, F81 regression suite, and step-4's registry source-walk.
 7. Deployment-model schema extension (via archistrator's amendment rail —
    dogfooding the design process) + `config.gen.go` + systemtests harness env
    helper.
