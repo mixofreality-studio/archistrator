@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Black-box, browser-driven end-to-end tests for the archistrator SPA. The UI sibling of ../systemtests: it links ZERO webApp source and drives the real running SPA over the wire, selecting only by published data-testid.",
+  "description": "Black-box, browser-driven end-to-end tests for the archistrator SPA. The UI sibling of ../systemtests: it links zero webApp behavior (only the published data-testid table, no components/hooks/business-logic) and drives the real running SPA over the wire, selecting only by published data-testid.",
   "scripts": {
     "test": "playwright test",
     "test:ui": "playwright test --ui",

@@ -8,14 +8,21 @@ drives the **real running SPA in a browser**, asserting the AC user flows.
 
 ## What makes it un-cheatable
 
-This package links **zero** webApp source. It is not under `webApp/`, has its own
-`package.json`, and its only real dependency is `@playwright/test`. It:
+This package links **zero webApp behavior** — no React render harness, no
+component import, no hook import, no API-client import. It is not under
+`webApp/`, has its own `package.json`, and its only real dependency is
+`@playwright/test`. It:
 
 - drives the **real SPA** in a headless Chromium over HTTP — no React render
   harness, no component import, no API-client import;
-- selects **only by published `data-testid`** (mirrored in `tests/support/testids.ts`
-  from `webApp/src/constants/UIIdentifiers.ts` as black-box string literals — a
-  renamed testid fails the matching assertion, exactly like a wire-format change);
+- selects **only by published `data-testid`**: `tests/support/testids.ts`
+  IMPORTS the SPA's own id table
+  (`webApp/src/utilities/constants/UIIdentifiers.ts`, plus a couple of
+  ordered-list/type imports from `webApp/src/contracts/`) — a pure
+  string-literal data module, not component code — so a renamed testid fails
+  ONE import resolution here rather than silently drifting until the matching
+  assertion happens to break (sharing beats a hand-copied mirror that can go
+  stale);
 - asserts a wire invariant of the rendering pivot directly from the **network log**
   (`close-and-no-render.spec.ts`: no request path matches `/render`).
 
@@ -43,7 +50,7 @@ tests/homebase.spec.ts      home base: phase card + artifact TOC + "Resume desig
 tests/design-experience.spec.ts  spine + steps (pure UI); request-draft → generating → render → gate (LIVE)
 tests/artifact-affordances.spec.ts  coreUseCases (LIVE): keyboard comment-arming on the review diagram; committed-paint chip not banner; Core/Variations picker grouping
 tests/close-and-no-render.spec.ts  ✕ returns home; network log has NO /render request
-tests/support/testids.ts    mirrored data-testid contract (no webApp import)
+tests/support/testids.ts    data-testid contract, imported from the SPA's own UI_IDENTIFIERS (no component/behavior import)
 tests/support/gating.ts     infra gating — serverReachable / liveDrafting (the UI requireStack)
 tests/support/flows.ts      reusable black-box flows (create project, enter design)
 ```
