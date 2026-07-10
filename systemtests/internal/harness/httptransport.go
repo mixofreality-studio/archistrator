@@ -1,594 +1,44 @@
 package harness
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
 	"net/http"
-	"strings"
+
+	"github.com/mixofreality-studio/archistrator/systemtests/internal/sdk"
 )
 
-// httpTransport drives the webClient HTTP surface. It is the reference black-box
-// transport: it knows ONLY the published routes + JSON DTOs the generated Client
-// layer serves (server/internal/client/web/{systemdesign,projectdesign}/*_handlers.gen.go),
-// never a server internal type. When mcpClient is built, an mcpTransport
-// implements the same Transport interface and the R4 equivalence test runs the
-// same use-case steps through both.
+// httpTransport drives the webClient HTTP surface. It is now a THIN delegate
+// over the generated, self-contained client SDK (internal/sdk, emitted by
+// server/cmd/appgen → transportgen): every method forwards to the matching
+// sdk.HTTPClient op, encodes/decodes enum names via enums.go, and maps the
+// SDK's structured *sdk.APIError onto the transport-agnostic sentinels the
+// use-case steps assert on. The hand-rolled route/body/decode logic (and the 11
+// wire enum ordinal tables) it used to carry now live in the SDK — the harness
+// no longer restates the wire contract, it consumes the generated mirror of it.
 //
-// The generated Client surface is verb-scoped REST, NOT the old resource-scoped
-// "/api/v1/projects/..." shape: every op is its own route
-// "/api/v1/<component>/<op-kebab-name>[/{projectID}[/{optionID}]]", the request
-// body carries exactly the op's remaining args (never projectID, which is always
-// a path segment when the op takes one), and the response body is the op's bare
-// return value — NOT a named wrapper struct. A single-value return (e.g.
-// ProjectID, SessionRef, Version) is therefore a bare JSON scalar on the wire
-// (e.g. `"proj-123"`), not `{"projectId":"proj-123"}`.
+// Black-box discipline is unchanged: the SDK is stdlib-only, zero-import, and
+// carries only the published contract (routes + DTOs), never a server internal
+// type. The MCP twin (mcptransport.go) delegates to sdk.MCPClient over the same
+// per-op Go signatures, so the R4 cross-surface equivalence property holds by
+// construction.
 type httpTransport struct {
-	baseURL string
-	hc      *http.Client
+	client *sdk.HTTPClient
 }
 
 // NewHTTPTransport binds a black-box transport to a running server's base URL.
+// Bearer is empty — the systemtests server runs dev-auth (any authenticated
+// principal), so no Authorization header is sent.
 func NewHTTPTransport(baseURL string) Transport {
-	return &httpTransport{baseURL: baseURL, hc: &http.Client{}}
+	return &httpTransport{client: &sdk.HTTPClient{BaseURL: baseURL, HTTP: &http.Client{}}}
 }
 
 func (t *httpTransport) Name() string { return "http" }
 
 func (t *httpTransport) Close() error { return nil }
 
-// --- wire enum ordinal tables ------------------------------------------------
-//
-// Every generated enum is a bare Go int on the wire — "generated enums carry no
-// behavior" (server/cmd/modelgen/main.go), so there is no MarshalJSON producing a
-// friendly string. The ordinal↔name tables below mirror the iota order committed
-// in server/internal/manager/systemdesign/contract.gen.go and
-// server/internal/manager/projectdesign/contract.gen.go (the same mapping the SPA
-// keeps client-side in webApp/src/api/enums.ts). This is reading the PUBLISHED
-// wire contract, not importing server code — the harness stays black-box.
-
-// artifactKindByOrdinal is shared by BOTH system-design and project-design
-// ArtifactKind (one 0..16 ordering covers every Method artifact kind).
-var artifactKindByOrdinal = []string{
-	"mission", "glossary", "scrubbedRequirements", "volatilities",
-	"coreUseCases", "system", "operationalConcepts", "standardCheck",
-	"planningAssumptions", "activityList", "network", "normalSolution",
-	"subcriticalSolution", "compressedSolution", "decompressedSolution",
-	"riskModel", "sdpReview",
-}
-
-var artifactKindToOrdinal = func() map[string]int {
-	m := make(map[string]int, len(artifactKindByOrdinal))
-	for i, k := range artifactKindByOrdinal {
-		m[k] = i
-	}
-	return m
-}()
-
-// artifactKindOrdinal maps a wire kind name to its ordinal. An unknown name maps
-// to 0 (mission) — callers only ever pass names drawn from artifactKindByOrdinal.
-func artifactKindOrdinal(kind string) int { return artifactKindToOrdinal[kind] }
-
-// artifactKindName is the inverse of artifactKindOrdinal, used to decode
-// PhaseAdvanceResult.missingArtifacts and SessionStateView.artifactKind.
-func artifactKindName(ordinal int) string {
-	if ordinal < 0 || ordinal >= len(artifactKindByOrdinal) {
-		return "mission"
-	}
-	return artifactKindByOrdinal[ordinal]
-}
-
-// systemSessionStageByOrdinal is systemdesign.SessionStage's 0..7 ordering.
-var systemSessionStageByOrdinal = []string{
-	"unknown", "drafting", "awaitingReview", "redrafting",
-	"committed", "withdrawn", "refused", "draftFailed",
-}
-
-// projectSessionStageByOrdinal is projectdesign.SessionStage's 0..8 ordering —
-// ONE MORE stage than the system-design enum (assemblingSdp is inserted at
-// ordinal 2), so it is a DISTINCT table, not a shared one.
-var projectSessionStageByOrdinal = []string{
-	"unknown", "drafting", "assemblingSdp", "awaitingReview", "redrafting",
-	"committed", "withdrawn", "refused", "draftFailed",
-}
-
-func stageName(table []string, ordinal int) string {
-	if ordinal < 0 || ordinal >= len(table) {
-		return "unknown"
-	}
-	return table[ordinal]
-}
-
-// strPtrVal dereferences an optional wire string pointer, defaulting to "".
-func strPtrVal(s *string) string {
-	if s == nil {
-		return ""
-	}
-	return *s
-}
-
-// reviewDecisionToOrdinal mirrors ReviewDecision (0 unknown,1 approve,2 reject,3 withdraw).
-var reviewDecisionToOrdinal = map[string]int{
-	"approve":  1,
-	"reject":   2,
-	"withdraw": 3,
-}
-
-// sdpDecisionToOrdinal mirrors SDPDecision (0 unknown,1 commit,2 rejectAll).
-var sdpDecisionToOrdinal = map[string]int{
-	"commit":    1,
-	"rejectAll": 2,
-}
-
-// --- UC3 (construction) wire enum ordinal tables ----------------------------
-// Mirror the iota order committed in server/internal/manager/construction/contract.gen.go.
-
-// constructionStageByOrdinal is ConstructionStage's 0..7 ordering.
-var constructionStageByOrdinal = []string{
-	"unknown", "dispatching", "pipelineRunning", "reviewing",
-	"awaitingTakeover", "paused", "exited", "awaitingApproval",
-}
-
-// pipelinePhaseByOrdinal is PipelinePhase's 0..5 ordering.
-var pipelinePhaseByOrdinal = []string{
-	"unknown", "pending", "running", "succeeded", "failed", "cancelled",
-}
-
-// phaseDecisionToOrdinal mirrors PhaseDecision (0 unknown,1 approve,2 sendBack).
-var phaseDecisionToOrdinal = map[string]int{
-	"approve":  1,
-	"sendBack": 2,
-}
-
-// constructionSessionViewWire is the wire shape of ConstructionSessionView
-// (construction/contract.gen.go) — only the fields the UC3 wire tests assert on.
-type constructionSessionViewWire struct {
-	ProjectID     string `json:"projectId"`
-	ActivityID    string `json:"activityId,omitempty"`
-	Stage         int    `json:"stage"`
-	PipelinePhase *int   `json:"pipelinePhase,omitempty"`
-}
-
-// pumpResultWire is the wire shape of PumpResult (ExecuteNextActivity's response).
-type pumpResultWire struct {
-	Dispatched bool    `json:"dispatched"`
-	ActivityID *string `json:"activityId,omitempty"`
-}
-
-// --- UC4 (operations) wire enum ordinal tables -------------------------------
-// Mirror the iota order committed in server/internal/manager/operations/contract.gen.go.
-
-// desiredStateReasonToOrdinal mirrors DesiredStateReason (0 unknown,1
-// deployAfterConstruction,2 operator,3 autoscale,4 delinquency).
-var desiredStateReasonToOrdinal = map[string]int{
-	"deployAfterConstruction": 1,
-	"operator":                2,
-	"autoscale":               3,
-	"delinquency":             4,
-}
-
-// patchKindToOrdinal mirrors PatchKind (0 unknown,1 fullBundle,2 scale,3 policy).
-var patchKindToOrdinal = map[string]int{
-	"fullBundle": 1,
-	"scale":      2,
-	"policy":     3,
-}
-
-// runtimeStatusByOrdinal is RuntimeStatusSeam's 0..4 ordering.
-var runtimeStatusByOrdinal = []string{
-	"unknown", "pending", "healthy", "degraded", "withdrawn",
-}
-
-// operatedSystemViewWire is the wire shape of OperatedSystemView (operations/
-// contract.gen.go) — PascalCase JSON tags per the published contract (NOT
-// camelCase like the design/construction DTOs); only the fields the UC4 wire
-// tests assert on.
-type operatedSystemViewWire struct {
-	OperatedAppID string `json:"OperatedAppID"`
-	Phase         int    `json:"Phase"`
-	InFlight      bool   `json:"InFlight"`
-}
-
-// TestOwner is the fixed OwnerScope the harness mints every project under. Owner
-// is a required, non-empty CreateProject arg but is NOT consulted by
-// authenticatedOnlyPDP (any authenticated principal may act on any resource — see
-// server/cmd/server/authz.go) and the Transport interface's CreateProject has no
-// owner parameter, so a single constant value is sufficient for a black-box test.
-// Exported so a test can pass the SAME scope to ListProjects.
-const TestOwner = "systemtest"
-
-// testOwner is the unexported alias every existing call site in this package uses.
-const testOwner = TestOwner
-
-// reviewFeedbackBody is the wire shape of ReviewFeedback for a request body
-// (systemdesign.ReviewFeedback additionally carries anchored Comments, which the
-// harness never populates — Notes alone round-trips through both the
-// systemdesign and projectdesign Feedback structs, which both accept an object
-// with an extra unused field absent).
-type reviewFeedbackBody struct {
-	Notes string `json:"notes"`
-}
-
-// sessionStateWire is the wire shape common to systemdesign.SessionStateView and
-// projectdesign.SessionStateView: the header fields the wiring tests assert on,
-// decoded generically (the nested "draft"/"findings" are intentionally left
-// undecoded — the wiring test does not assert on them).
-type sessionStateWire struct {
-	ProjectID     string  `json:"projectId"`
-	ArtifactKind  int     `json:"artifactKind"`
-	Stage         int     `json:"stage"`
-	FailureReason *string `json:"failureReason,omitempty"`
-}
-
-// phaseAdvanceWire is the wire shape of PhaseAdvanceResult (shared shape between
-// systemdesign and projectdesign): missingArtifacts is a bare []int on the wire.
-type phaseAdvanceWire struct {
-	Advanced         bool  `json:"advanced"`
-	MissingArtifacts []int `json:"missingArtifacts"`
-}
-
-func decodeMissingArtifacts(ords []int) []string {
-	out := make([]string, 0, len(ords))
-	for _, o := range ords {
-		out = append(out, artifactKindName(o))
-	}
-	return out
-}
-
-func (t *httpTransport) CreateProject(ctx context.Context, name string) (string, error) {
-	var out string
-	_, err := t.do(ctx, http.MethodPost, "/api/v1/system-design/create-project",
-		map[string]any{"owner": testOwner, "name": name}, http.StatusOK, &out)
-	return out, err
-}
-
-// projectSummaryWire is the wire shape of one ListProjects row (contract
-// ProjectSummary) — only the fields the harness projects onto ProjectSummary.
-type projectSummaryWire struct {
-	ProjectID string `json:"ProjectID"`
-	Name      string `json:"Name"`
-	Owner     string `json:"Owner"`
-	PhaseName string `json:"PhaseName"`
-}
-
-func (t *httpTransport) ListProjects(ctx context.Context, owner string) ([]ProjectSummary, error) {
-	path := fmt.Sprintf("/api/v1/system-design/list-projects?owner=%s", owner)
-	var out []projectSummaryWire
-	if _, err := t.do(ctx, http.MethodGet, path, nil, http.StatusOK, &out); err != nil {
-		return nil, err
-	}
-	summaries := make([]ProjectSummary, 0, len(out))
-	for _, s := range out {
-		summaries = append(summaries, ProjectSummary(s))
-	}
-	return summaries, nil
-}
-
-// All phase routes are PROJECT-SCOPED: projectId is a path segment, never a body
-// field. The body carries only the remaining intent payload (research corpus,
-// artifactKind ordinal, decision ordinal).
-
-func (t *httpTransport) SetResearchInput(ctx context.Context, projectID string, sources []ResearchSource) error {
-	body := map[string]any{"research": map[string]any{"sources": sources}}
-	path := fmt.Sprintf("/api/v1/system-design/set-research-input/%s", projectID)
-	// SetResearchInput returns the resulting head Version (a bare int64) on 200;
-	// the harness callers only care about success/failure, so the body is
-	// discarded (out == nil skips decode in do()).
-	_, err := t.do(ctx, http.MethodPost, path, body, http.StatusOK, nil)
-	return err
-}
-
-func (t *httpTransport) StartDesign(ctx context.Context, projectID string) (string, error) {
-	var out string
-	path := fmt.Sprintf("/api/v1/system-design/start-system-design/%s", projectID)
-	_, err := t.do(ctx, http.MethodPost, path, nil, http.StatusOK, &out)
-	return out, err
-}
-
-func (t *httpTransport) RequestArtifactDraft(ctx context.Context, projectID, kind string) (string, error) {
-	var out string
-	path := fmt.Sprintf("/api/v1/system-design/request-artifact-draft/%s", projectID)
-	_, err := t.do(ctx, http.MethodPost, path,
-		map[string]any{"kind": artifactKindOrdinal(kind)}, http.StatusOK, &out)
-	return out, err
-}
-
-func (t *httpTransport) GetSessionState(ctx context.Context, projectID, kind string) (SessionState, bool, error) {
-	path := fmt.Sprintf("/api/v1/system-design/get-session-state/%s?kind=%d", projectID, artifactKindOrdinal(kind))
-	var out sessionStateWire
-	status, err := t.do(ctx, http.MethodGet, path, nil, http.StatusOK, &out)
-	if err != nil {
-		// Any non-200 (404 not-yet-started, transient 503, ...) means "not
-		// observable yet" to a poller — never fatal here.
-		_ = status
-		return SessionState{}, false, err
-	}
-	return SessionState{
-		ProjectID:     out.ProjectID,
-		ArtifactKind:  artifactKindName(out.ArtifactKind),
-		Stage:         stageName(systemSessionStageByOrdinal, out.Stage),
-		FailureReason: strPtrVal(out.FailureReason),
-	}, true, nil
-}
-
-func (t *httpTransport) SubmitReview(ctx context.Context, projectID, kind, decision, feedback string) error {
-	body := map[string]any{
-		"kind":     artifactKindOrdinal(kind),
-		"decision": reviewDecisionToOrdinal[decision],
-	}
-	if feedback != "" {
-		body["feedback"] = reviewFeedbackBody{Notes: feedback}
-	}
-	path := fmt.Sprintf("/api/v1/system-design/submit-review-decision/%s", projectID)
-	_, err := t.do(ctx, http.MethodPost, path, body, http.StatusNoContent, nil)
-	return err
-}
-
-func (t *httpTransport) AdvancePhase(ctx context.Context, projectID string) (bool, []string, error) {
-	var out phaseAdvanceWire
-	path := fmt.Sprintf("/api/v1/system-design/advance-phase/%s", projectID)
-	// The handler always decodes a JSON request body (advancePhaseRequest{AcknowledgeStale
-	// bool}); a nil/empty body makes json.Decoder.Decode return io.EOF, which the handler
-	// maps to 400 bad_request BEFORE it ever reaches the Manager. Send an explicit empty
-	// object so the (optional, defaulting false) field decodes cleanly.
-	_, err := t.do(ctx, http.MethodPost, path, map[string]any{}, http.StatusOK, &out)
-	return out.Advanced, decodeMissingArtifacts(out.MissingArtifacts), err
-}
-
-// --- UC2 (project-design / Phase-2) -----------------------------------------
-// Each method speaks ONLY the published project-design routes + DTOs
-// (server/internal/client/web/projectdesign/project-design_handlers.gen.go).
-// projectId is a path segment; the body carries the remaining intent payload —
-// the same project-scoped shape as Phase 1.
-
-func (t *httpTransport) RequestProjectArtifactDraft(ctx context.Context, projectID, kind string) (string, error) {
-	var out string
-	path := fmt.Sprintf("/api/v1/project-design/request-artifact-draft/%s", projectID)
-	_, err := t.do(ctx, http.MethodPost, path,
-		map[string]any{"kind": artifactKindOrdinal(kind)}, http.StatusOK, &out)
-	return out, err
-}
-
-func (t *httpTransport) GetProjectSessionState(ctx context.Context, projectID, kind string) (SessionState, bool, error) {
-	path := fmt.Sprintf("/api/v1/project-design/get-session-state/%s?kind=%d", projectID, artifactKindOrdinal(kind))
-	var out sessionStateWire
-	if _, err := t.do(ctx, http.MethodGet, path, nil, http.StatusOK, &out); err != nil {
-		// Any non-200 (404 not-yet-started, transient 503, ...) means "not
-		// observable yet" to a poller — never fatal here.
-		return SessionState{}, false, err
-	}
-	return SessionState{
-		ProjectID:     out.ProjectID,
-		ArtifactKind:  artifactKindName(out.ArtifactKind),
-		Stage:         stageName(projectSessionStageByOrdinal, out.Stage),
-		FailureReason: strPtrVal(out.FailureReason),
-	}, true, nil
-}
-
-func (t *httpTransport) SubmitProjectReview(ctx context.Context, projectID, kind, decision, feedback string) error {
-	body := map[string]any{
-		"kind":     artifactKindOrdinal(kind),
-		"decision": reviewDecisionToOrdinal[decision],
-	}
-	if feedback != "" {
-		body["feedback"] = reviewFeedbackBody{Notes: feedback}
-	}
-	path := fmt.Sprintf("/api/v1/project-design/submit-review-decision/%s", projectID)
-	_, err := t.do(ctx, http.MethodPost, path, body, http.StatusNoContent, nil)
-	return err
-}
-
-func (t *httpTransport) RequestSDPCommit(ctx context.Context, projectID string) (string, error) {
-	var out string
-	path := fmt.Sprintf("/api/v1/project-design/request-sdp-commit/%s", projectID)
-	_, err := t.do(ctx, http.MethodPost, path, nil, http.StatusOK, &out)
-	return out, err
-}
-
-func (t *httpTransport) SubmitSDPDecision(ctx context.Context, projectID, decision, optionID, feedback string) error {
-	body := map[string]any{"decision": sdpDecisionToOrdinal[decision]}
-	if feedback != "" {
-		body["feedback"] = reviewFeedbackBody{Notes: feedback}
-	}
-	// optionID is a PATH segment on this route (POST .../submit-sdp-decision/
-	// {projectID}/{optionID}), not a body field — required by the net/http
-	// ServeMux pattern even when the SDP decision is rejectAll (which carries no
-	// option); "-" is the harness's placeholder for "no option".
-	seg := optionID
-	if seg == "" {
-		seg = "-"
-	}
-	path := fmt.Sprintf("/api/v1/project-design/submit-sdp-decision/%s/%s", projectID, seg)
-	_, err := t.do(ctx, http.MethodPost, path, body, http.StatusNoContent, nil)
-	return err
-}
-
-func (t *httpTransport) AdvanceToConstruction(ctx context.Context, projectID string) (bool, []string, error) {
-	var out phaseAdvanceWire
-	path := fmt.Sprintf("/api/v1/project-design/advance-to-construction/%s", projectID)
-	// Same nil-body pitfall as AdvancePhase above: the handler always decodes a JSON
-	// body, so send an explicit empty object rather than nil.
-	_, err := t.do(ctx, http.MethodPost, path, map[string]any{}, http.StatusOK, &out)
-	return out.Advanced, decodeMissingArtifacts(out.MissingArtifacts), err
-}
-
-// --- UC3 (construction / Phase-3) -------------------------------------------
-// Each method speaks ONLY the published construction routes + DTOs
-// (server/internal/client/web/construction/construction_handlers.gen.go).
-
-func (t *httpTransport) ExecuteNextActivity(ctx context.Context, projectID, tickID string) (bool, string, error) {
-	var out pumpResultWire
-	path := fmt.Sprintf("/api/v1/construction/execute-next-activity/%s", projectID)
-	_, err := t.do(ctx, http.MethodPost, path, map[string]any{"tickID": tickID}, http.StatusOK, &out)
-	activityID := ""
-	if out.ActivityID != nil {
-		activityID = *out.ActivityID
-	}
-	return out.Dispatched, activityID, err
-}
-
-func (t *httpTransport) GetConstructionSessionState(ctx context.Context, projectID, activityID string) (ConstructionSessionState, error) {
-	var out constructionSessionViewWire
-	path := fmt.Sprintf("/api/v1/construction/get-session-state/%s/%s", projectID, activityID)
-	if _, err := t.do(ctx, http.MethodGet, path, nil, http.StatusOK, &out); err != nil {
-		return ConstructionSessionState{}, err
-	}
-	state := ConstructionSessionState{
-		ProjectID:  out.ProjectID,
-		ActivityID: out.ActivityID,
-		Stage:      stageName(constructionStageByOrdinal, out.Stage),
-	}
-	if out.PipelinePhase != nil {
-		state.PipelinePhase = stageName(pipelinePhaseByOrdinal, *out.PipelinePhase)
-	}
-	return state, nil
-}
-
-func (t *httpTransport) SubmitPhaseDecision(ctx context.Context, projectID, activityID, phase, decision, feedback string) error {
-	body := map[string]any{
-		"phase":    phase,
-		"decision": phaseDecisionToOrdinal[decision],
-	}
-	if feedback != "" {
-		body["feedback"] = reviewFeedbackBody{Notes: feedback}
-	}
-	path := fmt.Sprintf("/api/v1/construction/submit-phase-decision/%s/%s", projectID, activityID)
-	_, err := t.do(ctx, http.MethodPost, path, body, http.StatusNoContent, nil)
-	return err
-}
-
-func (t *httpTransport) UpdateReviewPolicy(ctx context.Context, projectID string, gatedPhasesByType map[string][]string) error {
-	body := map[string]any{"policy": map[string]any{"gatedPhasesByType": gatedPhasesByType}}
-	path := fmt.Sprintf("/api/v1/construction/update-review-policy/%s", projectID)
-	_, err := t.do(ctx, http.MethodPost, path, body, http.StatusNoContent, nil)
-	return err
-}
-
-// --- UC4 (operations / Phase-4) ---------------------------------------------
-// Each method speaks ONLY the published operations routes + DTOs
-// (server/internal/client/web/operations/operations_handlers.gen.go).
-
-func (t *httpTransport) DeployAfterConstruction(ctx context.Context, operatedAppID string, change DesiredStateChange) (bool, string, error) {
-	body := map[string]any{"change": map[string]any{
-		"reason":               desiredStateReasonToOrdinal[change.Reason],
-		"patchKind":            patchKindToOrdinal[change.PatchKind],
-		"changeId":             change.ChangeID,
-		"renderedDesiredState": change.RenderedDesiredState,
-	}}
-	var out struct {
-		Published bool    `json:"published"`
-		Revision  *string `json:"revision,omitempty"`
-	}
-	path := fmt.Sprintf("/api/v1/operations/deploy-after-construction/%s", operatedAppID)
-	_, err := t.do(ctx, http.MethodPost, path, body, http.StatusOK, &out)
-	revision := ""
-	if out.Revision != nil {
-		revision = *out.Revision
-	}
-	return out.Published, revision, err
-}
-
-func (t *httpTransport) ReconcileOperatedState(ctx context.Context, tickID string, appIDs []string) (int64, int64, int64, error) {
-	body := map[string]any{"tickID": tickID}
-	if appIDs != nil {
-		body["scope"] = map[string]any{"appIds": appIDs}
-	}
-	var out struct {
-		Observed    int64 `json:"observed"`
-		Transitions int64 `json:"transitions"`
-		Republished int64 `json:"republished"`
-	}
-	_, err := t.do(ctx, http.MethodPost, "/api/v1/operations/reconcile-operated-state", body, http.StatusOK, &out)
-	return out.Observed, out.Transitions, out.Republished, err
-}
-
-func (t *httpTransport) QueryOperatedSystemView(ctx context.Context, operatedAppID, requestID string) (OperatedSystemView, error) {
-	var out operatedSystemViewWire
-	path := fmt.Sprintf("/api/v1/operations/query-operated-system-view/%s?requestID=%s", operatedAppID, requestID)
-	if _, err := t.do(ctx, http.MethodGet, path, nil, http.StatusOK, &out); err != nil {
-		return OperatedSystemView{}, err
-	}
-	return OperatedSystemView{
-		OperatedAppID: out.OperatedAppID,
-		Phase:         stageName(runtimeStatusByOrdinal, out.Phase),
-		InFlight:      out.InFlight,
-	}, nil
-}
-
-func (t *httpTransport) ApplyDelinquencyPolicy(ctx context.Context, customerID string, pauseNotWithdraw bool) error {
-	body := map[string]any{"delinquencyContext": map[string]any{"pauseNotWithdraw": pauseNotWithdraw}}
-	path := fmt.Sprintf("/api/v1/operations/apply-delinquency-policy/%s", customerID)
-	_, err := t.do(ctx, http.MethodPost, path, body, http.StatusNoContent, nil)
-	return err
-}
-
-func (t *httpTransport) WithdrawSystem(ctx context.Context, operatedAppID, changeID, notes string) (bool, error) {
-	body := map[string]any{"changeID": changeID, "reason": map[string]any{"notes": notes}}
-	var out struct {
-		Withdrawn bool `json:"withdrawn"`
-	}
-	path := fmt.Sprintf("/api/v1/operations/withdraw-system/%s", operatedAppID)
-	_, err := t.do(ctx, http.MethodPost, path, body, http.StatusOK, &out)
-	return out.Withdrawn, err
-}
-
-// do issues one request, maps a non-expected status onto a sentinel error, and
-// decodes the body into out on success. It returns the status code so callers
-// can distinguish transient/absent (404/503) from a hard failure.
-func (t *httpTransport) do(ctx context.Context, method, path string, body any, want int, out any) (int, error) {
-	var rdr io.Reader
-	if body != nil {
-		b, err := json.Marshal(body)
-		if err != nil {
-			return 0, fmt.Errorf("marshal %s %s: %w", method, path, err)
-		}
-		rdr = bytes.NewReader(b)
-	}
-	req, err := http.NewRequestWithContext(ctx, method, t.baseURL+path, rdr)
-	if err != nil {
-		return 0, err
-	}
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	resp, err := t.hc.Do(req)
-	if err != nil {
-		return 0, err
-	}
-	defer func() { _, _ = io.Copy(io.Discard, resp.Body); _ = resp.Body.Close() }()
-
-	if resp.StatusCode != want {
-		errBody, _ := io.ReadAll(resp.Body)
-		return resp.StatusCode, fmt.Errorf("%w: %s", statusError(resp.StatusCode), errorBodyDetail(errBody))
-	}
-	if out != nil {
-		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
-			return resp.StatusCode, fmt.Errorf("decode %s %s: %w", method, path, err)
-		}
-	}
-	return resp.StatusCode, nil
-}
-
-// errorResponseWire is the wire shape writeError/writeManagerError emit on
-// every non-2xx response: {"error":"<detail>","code":"<code>"}.
-type errorResponseWire struct {
-	Error string `json:"error"`
-	Code  string `json:"code"`
-}
-
-// errorBodyDetail extracts the human-readable Detail from an error response body
-// so a caller can assert on the ACTUAL message (e.g. a clean, project-scoped
-// NotFound versus a leaked internal), not just the status-derived sentinel. Falls
-// back to the raw body when it is not the expected {error,code} shape.
-func errorBodyDetail(body []byte) string {
-	var er errorResponseWire
-	if err := json.Unmarshal(body, &er); err == nil && er.Error != "" {
-		return er.Error
-	}
-	return strings.TrimSpace(string(body))
-}
+// --- error mapping (shared with mcptransport.go) -----------------------------
 
 // statusError maps an HTTP status to a transport-agnostic sentinel so tests
 // assert outcomes the same way regardless of surface.
@@ -609,4 +59,299 @@ func statusError(code int) error {
 	default:
 		return fmt.Errorf("unexpected status %d", code)
 	}
+}
+
+// kindToSentinel maps a Manager error Kind (the "<Kind>: <Detail>" MCP tool
+// error text / the {error,code} envelope's semantic class) onto a sentinel.
+// Returns nil for an unrecognized kind so the caller surfaces the raw error.
+func kindToSentinel(kind string) error {
+	switch kind {
+	case "ContractMisuse":
+		return ErrBadRequest
+	case "NotFound":
+		return ErrNotFound
+	case "Unauthorized":
+		return ErrForbidden
+	case "FailedPrecondition":
+		return ErrConflict
+	case "Infrastructure":
+		return ErrUnavailable
+	default:
+		return nil
+	}
+}
+
+// sentinelError maps an SDK wire error (*sdk.APIError from HTTP, *sdk.MCPToolError
+// from MCP) onto a transport-agnostic sentinel wrapped with the clean Detail, so
+// a step written once asserts identically over both surfaces. Any other error
+// (a plain transport failure, a protocol-level MCP error) surfaces unchanged.
+func sentinelError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var apiErr *sdk.APIError
+	if errors.As(err, &apiErr) {
+		return fmt.Errorf("%w: %s", statusError(apiErr.Status), apiErr.Detail)
+	}
+	var toolErr *sdk.MCPToolError
+	if errors.As(err, &toolErr) {
+		if s := kindToSentinel(toolErr.Kind); s != nil {
+			return fmt.Errorf("%w: %s", s, toolErr.Detail)
+		}
+	}
+	return err
+}
+
+// --- UC1 (system-design / Phase-1) ------------------------------------------
+
+func (t *httpTransport) CreateProject(ctx context.Context, name string) (string, error) {
+	id, err := t.client.SystemDesignCreateProject(ctx, testOwner, name)
+	return string(id), sentinelError(err)
+}
+
+func (t *httpTransport) ListProjects(ctx context.Context, owner string) ([]ProjectSummary, error) {
+	rows, err := t.client.SystemDesignListProjects(ctx, sdk.OwnerScope(owner))
+	if err != nil {
+		return nil, sentinelError(err)
+	}
+	return toProjectSummaries(rows), nil
+}
+
+func (t *httpTransport) SetResearchInput(ctx context.Context, projectID string, sources []ResearchSource) error {
+	_, err := t.client.SystemDesignSetResearchInput(ctx, sdk.ProjectID(projectID), toResearchInput(sources))
+	return sentinelError(err)
+}
+
+func (t *httpTransport) StartDesign(ctx context.Context, projectID string) (string, error) {
+	ref, err := t.client.SystemDesignStartSystemDesign(ctx, sdk.ProjectID(projectID))
+	return string(ref), sentinelError(err)
+}
+
+func (t *httpTransport) RequestArtifactDraft(ctx context.Context, projectID, kind string) (string, error) {
+	ref, err := t.client.SystemDesignRequestArtifactDraft(ctx, sdk.ProjectID(projectID), artifactKind(kind), nil)
+	return string(ref), sentinelError(err)
+}
+
+func (t *httpTransport) GetSessionState(ctx context.Context, projectID, kind string) (SessionState, bool, error) {
+	view, err := t.client.SystemDesignGetSessionState(ctx, sdk.ProjectID(projectID), artifactKind(kind))
+	if err != nil {
+		// Any non-200 (404 not-yet-started, transient 503, ...) means "not
+		// observable yet" to a poller — never fatal here.
+		return SessionState{}, false, sentinelError(err)
+	}
+	return SessionState{
+		ProjectID:     string(view.ProjectID),
+		ArtifactKind:  artifactKindNameOf(view.ArtifactKind),
+		Stage:         systemStageName(view.Stage),
+		FailureReason: strPtrVal(view.FailureReason),
+	}, true, nil
+}
+
+func (t *httpTransport) SubmitReview(ctx context.Context, projectID, kind, decision, feedback string) error {
+	err := t.client.SystemDesignSubmitReviewDecision(ctx, sdk.ProjectID(projectID),
+		artifactKind(kind), reviewDecision(decision), systemFeedback(feedback))
+	return sentinelError(err)
+}
+
+func (t *httpTransport) AdvancePhase(ctx context.Context, projectID string) (bool, []string, error) {
+	res, err := t.client.SystemDesignAdvancePhase(ctx, sdk.ProjectID(projectID), false)
+	return res.Advanced, decodeMissingArtifacts(res.MissingArtifacts), sentinelError(err)
+}
+
+// --- UC2 (project-design / Phase-2) -----------------------------------------
+
+func (t *httpTransport) RequestProjectArtifactDraft(ctx context.Context, projectID, kind string) (string, error) {
+	ref, err := t.client.ProjectDesignRequestArtifactDraft(ctx, sdk.ProjectID(projectID), artifactKind(kind), nil)
+	return string(ref), sentinelError(err)
+}
+
+func (t *httpTransport) GetProjectSessionState(ctx context.Context, projectID, kind string) (SessionState, bool, error) {
+	view, err := t.client.ProjectDesignGetSessionState(ctx, sdk.ProjectID(projectID), artifactKind(kind))
+	if err != nil {
+		return SessionState{}, false, sentinelError(err)
+	}
+	return SessionState{
+		ProjectID:     string(view.ProjectID),
+		ArtifactKind:  artifactKindNameOf(view.ArtifactKind),
+		Stage:         projectStageName(view.Stage),
+		FailureReason: strPtrVal(view.FailureReason),
+	}, true, nil
+}
+
+func (t *httpTransport) SubmitProjectReview(ctx context.Context, projectID, kind, decision, feedback string) error {
+	err := t.client.ProjectDesignSubmitReviewDecision(ctx, sdk.ProjectID(projectID),
+		artifactKind(kind), reviewDecision(decision), projectFeedback(feedback))
+	return sentinelError(err)
+}
+
+func (t *httpTransport) RequestSDPCommit(ctx context.Context, projectID string) (string, error) {
+	ref, err := t.client.ProjectDesignRequestSDPCommit(ctx, sdk.ProjectID(projectID))
+	return string(ref), sentinelError(err)
+}
+
+func (t *httpTransport) SubmitSDPDecision(ctx context.Context, projectID, decision, optionID, feedback string) error {
+	// optionID is a PATH segment on this route; the ServeMux pattern requires it
+	// even for rejectAll (which carries no option) — "-" is the harness's
+	// placeholder for "no option". The SDK takes a VALUE sdk.OptionID.
+	seg := optionID
+	if seg == "" {
+		seg = "-"
+	}
+	err := t.client.ProjectDesignSubmitSDPDecision(ctx, sdk.ProjectID(projectID),
+		sdpDecision(decision), sdk.OptionID(seg), projectFeedback(feedback))
+	return sentinelError(err)
+}
+
+func (t *httpTransport) AdvanceToConstruction(ctx context.Context, projectID string) (bool, []string, error) {
+	res, err := t.client.ProjectDesignAdvanceToConstruction(ctx, sdk.ProjectID(projectID), false)
+	return res.Advanced, decodeMissingArtifacts(res.MissingArtifacts), sentinelError(err)
+}
+
+// --- UC3 (construction / Phase-3) -------------------------------------------
+
+func (t *httpTransport) ExecuteNextActivity(ctx context.Context, projectID, tickID string) (bool, string, error) {
+	res, err := t.client.ConstructionExecuteNextActivity(ctx, sdk.ProjectID(projectID), tickID)
+	return res.Dispatched, activityIDPtrVal(res.ActivityID), sentinelError(err)
+}
+
+func (t *httpTransport) GetConstructionSessionState(ctx context.Context, projectID, activityID string) (ConstructionSessionState, error) {
+	view, err := t.client.ConstructionGetSessionState(ctx, sdk.ProjectID(projectID), sdk.ActivityID(activityID))
+	if err != nil {
+		return ConstructionSessionState{}, sentinelError(err)
+	}
+	return toConstructionSessionState(view), nil
+}
+
+func (t *httpTransport) SubmitPhaseDecision(ctx context.Context, projectID, activityID, phase, decision, feedback string) error {
+	err := t.client.ConstructionSubmitPhaseDecision(ctx, sdk.ProjectID(projectID), sdk.ActivityID(activityID),
+		phase, phaseDecision(decision), constructionFeedback(feedback))
+	return sentinelError(err)
+}
+
+func (t *httpTransport) UpdateReviewPolicy(ctx context.Context, projectID string, gatedPhasesByType map[string][]string) error {
+	err := t.client.ConstructionUpdateReviewPolicy(ctx, sdk.ProjectID(projectID),
+		sdk.ReviewPolicyInput{GatedPhasesByType: gatedPhasesByType})
+	return sentinelError(err)
+}
+
+// --- UC4 (operations / Phase-4) ---------------------------------------------
+
+func (t *httpTransport) DeployAfterConstruction(ctx context.Context, operatedAppID string, change DesiredStateChange) (bool, string, error) {
+	res, err := t.client.OperationsDeployAfterConstruction(ctx, operatedAppID, toDesiredStateChange(change))
+	return res.Published, strPtrVal(res.Revision), sentinelError(err)
+}
+
+func (t *httpTransport) ReconcileOperatedState(ctx context.Context, tickID string, appIDs []string) (int64, int64, int64, error) {
+	res, err := t.client.OperationsReconcileOperatedState(ctx, tickID, reconcileScope(appIDs))
+	return res.Observed, res.Transitions, res.Republished, sentinelError(err)
+}
+
+func (t *httpTransport) QueryOperatedSystemView(ctx context.Context, operatedAppID, requestID string) (OperatedSystemView, error) {
+	view, err := t.client.OperationsQueryOperatedSystemView(ctx, operatedAppID, requestID)
+	if err != nil {
+		return OperatedSystemView{}, sentinelError(err)
+	}
+	return OperatedSystemView{
+		OperatedAppID: view.OperatedAppID,
+		Phase:         runtimeStatusName(view.Phase),
+		InFlight:      view.InFlight,
+	}, nil
+}
+
+func (t *httpTransport) ApplyDelinquencyPolicy(ctx context.Context, customerID string, pauseNotWithdraw bool) error {
+	err := t.client.OperationsApplyDelinquencyPolicy(ctx, customerID,
+		sdk.DelinquencyContext{PauseNotWithdraw: pauseNotWithdraw})
+	return sentinelError(err)
+}
+
+func (t *httpTransport) WithdrawSystem(ctx context.Context, operatedAppID, changeID, notes string) (bool, error) {
+	res, err := t.client.OperationsWithdrawSystem(ctx, operatedAppID, changeID, sdk.WithdrawReason{Notes: notes})
+	return res.Withdrawn, sentinelError(err)
+}
+
+// --- shared SDK<->harness projections (used by BOTH transports) --------------
+
+func toProjectSummaries(rows []sdk.ProjectSummary) []ProjectSummary {
+	out := make([]ProjectSummary, 0, len(rows))
+	for _, s := range rows {
+		out = append(out, ProjectSummary{
+			ProjectID: string(s.ProjectID),
+			Name:      s.Name,
+			Owner:     string(s.Owner),
+			PhaseName: s.PhaseName,
+		})
+	}
+	return out
+}
+
+func toResearchInput(sources []ResearchSource) sdk.ResearchInput {
+	if sources == nil {
+		return sdk.ResearchInput{Sources: nil}
+	}
+	out := make([]sdk.ResearchSource, 0, len(sources))
+	for _, s := range sources {
+		out = append(out, sdk.ResearchSource{Title: s.Title, Content: s.Content})
+	}
+	return sdk.ResearchInput{Sources: out}
+}
+
+func toConstructionSessionState(view sdk.ConstructionSessionView) ConstructionSessionState {
+	state := ConstructionSessionState{
+		ProjectID:  string(view.ProjectID),
+		ActivityID: activityIDPtrVal(view.ActivityID),
+		Stage:      constructionStageName(view.Stage),
+	}
+	if view.PipelinePhase != nil {
+		state.PipelinePhase = pipelinePhaseName(*view.PipelinePhase)
+	}
+	return state
+}
+
+func toDesiredStateChange(change DesiredStateChange) sdk.DesiredStateChange {
+	return sdk.DesiredStateChange{
+		Reason:               desiredStateReason(change.Reason),
+		PatchKind:            patchKind(change.PatchKind),
+		ChangeID:             change.ChangeID,
+		RenderedDesiredState: change.RenderedDesiredState,
+	}
+}
+
+// reconcileScope builds the optional *sdk.ReconcileScope — nil (all in-flight
+// apps) when appIDs is nil, matching the hand transport's omit-when-nil body.
+func reconcileScope(appIDs []string) *sdk.ReconcileScope {
+	if appIDs == nil {
+		return nil
+	}
+	return &sdk.ReconcileScope{AppIDs: appIDs}
+}
+
+func activityIDPtrVal(id *sdk.ActivityID) string {
+	if id == nil {
+		return ""
+	}
+	return string(*id)
+}
+
+// feedback builders — the Manager requires a non-empty feedback object only on
+// reject/sendBack; the harness passes "" otherwise, which becomes a nil pointer
+// (the omitempty field is dropped from the request body, exactly as before).
+func systemFeedback(notes string) *sdk.SystemDesignReviewFeedback {
+	if notes == "" {
+		return nil
+	}
+	return &sdk.SystemDesignReviewFeedback{Notes: notes}
+}
+
+func projectFeedback(notes string) *sdk.ProjectDesignReviewFeedback {
+	if notes == "" {
+		return nil
+	}
+	return &sdk.ProjectDesignReviewFeedback{Notes: notes}
+}
+
+func constructionFeedback(notes string) *sdk.ConstructionReviewFeedback {
+	if notes == "" {
+		return nil
+	}
+	return &sdk.ConstructionReviewFeedback{Notes: notes}
 }
