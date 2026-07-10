@@ -468,6 +468,23 @@ aiarch-state MCP tools (already generic over slot kinds).
 4. **Typed OAS** (RC1+RC2): reflect slot-model schemas into OAS `$defs` +
    enum descriptors (clientgen change) → webApp deletes
    `models.ts`/`enums.ts`/most of `wire.ts`; uitests stubs re-derive.
+   **DONE 2026-07-09.** Honest outcome vs the original promise: `models.ts`
+   deleted (11/12 unions DERIVED from generated types; FloatBand hand-pinned);
+   `enums.ts` deleted and REPLACED BY GENERATED `enums.gen.ts` (a boundary
+   ordinal↔name table always exists — the wire ships ints; 7 non-mechanical
+   app-string mappings survive in `enumMappings.ts` typed over generated
+   varname unions); `wire.ts` THINNED not deleted (its PascalCase→camelCase
+   view renaming is orthogonal to typed models); display order/labels
+   consolidated into `METHOD_METADATA` as hand-authored product data.
+   Slot-model schemas are reflected at gen-client time (never added to
+   serviceContracts — modelgen would emit duplicate structs). Two generator
+   root-cause fixes shipped: string-marshalled int enums emit string schemas
+   (live-marshal registry + source-walk completeness guard) and non-omitempty
+   struct pointers emit nullable. New drift gates: `gen-client-check` +
+   webApp gen regen+diff in CI. Earmarks (latent, none live today):
+   enum-override coverage for map values/nested wrappers; completeness guard
+   for non-int custom marshalers; uitests fixture stubs may need real model
+   bodies if client decode tightens.
 5. **`transportgen`** (RC3): generated Go HTTP+MCP client SDK → systemtests
    transports + opTable deleted; SDK becomes a delivered-app artifact.
 6. **projectstate validation codegen**: `modelfields`/`enumjson`/`registry`
