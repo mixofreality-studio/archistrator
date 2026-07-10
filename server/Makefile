@@ -1,6 +1,6 @@
 # aiarch server — developer make targets.
 
-.PHONY: test test-short fmt vet lint sumtype-check method-check encapsulation-check gen-schemas gen-models gen-models-check gen gen-client gen-client-check gen-internal-tools gen-temporal gen-temporal-check bootstrap
+.PHONY: test test-short fmt vet lint sumtype-check method-check encapsulation-check gen-schemas gen-models gen-models-check gen gen-client gen-client-check gen-internal-tools gen-temporal gen-temporal-check gen-sdk gen-sdk-check bootstrap
 
 # Contract codegen pipeline, all-Go (jsonschema-go). project.json
 # (.serviceContracts) is the OWNER of every built component's contract; modelgen
@@ -58,7 +58,7 @@ gen-client-check: gen-client
 gen-internal-tools:
 	GOWORK=off go run ./cmd/internaltoolsgen
 
-gen: gen-models gen-client gen-internal-tools gen-temporal
+gen: gen-models gen-client gen-internal-tools gen-temporal gen-sdk
 
 # gen-temporal — generate the per-manager Temporal layer (activities/invokers/
 # worker .gen.go) for the 5 managers from project.json .serviceContracts
@@ -76,6 +76,22 @@ gen-temporal:
 # GOWORK=off-safe (see gen-temporal above), so it runs in CI (server-checks.yml).
 gen-temporal-check: gen-temporal
 	git diff --exit-code -- 'internal/manager/**/*.gen.go'
+
+# gen-sdk — the generated client SDK (cmd/appgen, driving
+# framework-go-app-generator/transportgen): a self-contained, stdlib-only Go
+# client (HTTP + MCP) for the 5 managers, emitted into the SIBLING systemtests
+# module at ../systemtests/internal/sdk with prune-stale + content-hash
+# discipline. cmd/appgen emits it in the SAME run as the Temporal layer (one
+# project.json read), so gen-sdk shares the gen-temporal prerequisite rather
+# than invoking appgen a second time.
+gen-sdk: gen-temporal
+
+# gen-sdk-check — drift gate for the generated SDK in the sibling systemtests
+# module, same regenerate-then-diff shape as the other gen-*-check gates. The
+# path is repo-relative so `git diff` works from the server working directory
+# (server-checks.yml).
+gen-sdk-check: gen-temporal
+	git diff --exit-code -- ../systemtests/internal/sdk
 
 gen-schemas:
 	GOWORK=off go run ./cmd/schemagen

@@ -71,3 +71,11 @@ jobs:
       # GOWORK=off-safe shape.
       - name: Generated client layer drift check
         run: make gen-client-check
+
+      # Drift gate for the generated client SDK emitted into the sibling
+      # systemtests module (cmd/appgen, driving
+      # framework-go-app-generator/transportgen). Same GOWORK=off-safe shape;
+      # regenerates from project.json and fails on any diff under
+      # ../systemtests/internal/sdk.
+      - name: Generated SDK drift check
+        run: make gen-sdk-check
