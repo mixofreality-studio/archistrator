@@ -244,6 +244,18 @@ func mergeOpenAPI(docs []contractOAS) (map[string]any, error) {
 		}
 	}
 
+	// Splice the shared reflected slot-model block (the ONE place a $ref crosses a
+	// contract boundary — the Model* namespace) and repoint every opaque
+	// raw-message draft field onto a oneOf over the 14 variant refs.
+	repointed, err := spliceModelSchemas(schemas)
+	if err != nil {
+		return nil, fmt.Errorf("splice slot-model schemas: %w", err)
+	}
+	if len(repointed) == 0 {
+		return nil, fmt.Errorf("no opaque DraftModel.model fields found to repoint (detection pattern drift?)")
+	}
+	fmt.Printf("repointed %d opaque draft field(s) onto Model* oneOf: %s\n", len(repointed), strings.Join(repointed, ", "))
+
 	return map[string]any{
 		"openapi": "3.1.0",
 		"info": map[string]any{

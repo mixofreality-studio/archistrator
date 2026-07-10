@@ -230,6 +230,960 @@ components:
                 - perspective
                 - mayAmend
             type: object
+        ModelActivityDiagram:
+            additionalProperties: false
+            properties:
+                edges:
+                    items:
+                        $ref: '#/components/schemas/ModelActivityEdge'
+                    type:
+                        - "null"
+                        - array
+                nodes:
+                    items:
+                        $ref: '#/components/schemas/ModelActivityNode'
+                    type:
+                        - "null"
+                        - array
+            required:
+                - nodes
+                - edges
+            type: object
+        ModelActivityEdge:
+            additionalProperties: false
+            properties:
+                from:
+                    type: string
+                guard:
+                    type: string
+                kind:
+                    type: integer
+                to:
+                    type: string
+            required:
+                - from
+                - to
+                - kind
+                - guard
+            type: object
+        ModelActivityItem:
+            additionalProperties: false
+            properties:
+                coding:
+                    type: boolean
+                effortDays:
+                    type: number
+                name:
+                    type: string
+                riskBucket:
+                    type: integer
+                title:
+                    type: string
+                workerClass:
+                    type: string
+            required:
+                - name
+                - effortDays
+                - workerClass
+                - coding
+                - riskBucket
+            type: object
+        ModelActivityList:
+            additionalProperties: false
+            properties:
+                activities:
+                    items:
+                        $ref: '#/components/schemas/ModelActivityItem'
+                    type:
+                        - "null"
+                        - array
+            required:
+                - activities
+            type: object
+        ModelActivityNode:
+            additionalProperties: false
+            properties:
+                id:
+                    type: string
+                kind:
+                    type: integer
+                label:
+                    type: string
+                linkedActorId:
+                    type:
+                        - "null"
+                        - string
+                linkedCompId:
+                    type:
+                        - "null"
+                        - string
+                roleName:
+                    type: string
+            required:
+                - id
+                - kind
+                - label
+                - roleName
+                - linkedActorId
+                - linkedCompId
+            type: object
+        ModelActor:
+            additionalProperties: false
+            properties:
+                id:
+                    type: string
+                role:
+                    type: string
+            required:
+                - id
+                - role
+            type: object
+        ModelCheckItem:
+            additionalProperties: false
+            properties:
+                guideline:
+                    type: string
+                justification:
+                    type: string
+                section:
+                    type: string
+                status:
+                    type: integer
+            required:
+                - section
+                - guideline
+                - status
+                - justification
+            type: object
+        ModelComponent:
+            additionalProperties: false
+            properties:
+                atomicBusinessVerbs:
+                    items:
+                        type: string
+                    type:
+                        - "null"
+                        - array
+                buildStatus:
+                    type:
+                        - "null"
+                        - string
+                encapsulates:
+                    type: string
+                id:
+                    type: string
+                kind:
+                    type: integer
+                layer:
+                    type: integer
+                name:
+                    type: string
+            required:
+                - id
+                - name
+                - kind
+                - layer
+                - encapsulates
+                - atomicBusinessVerbs
+            type: object
+        ModelContainerInstance:
+            additionalProperties: false
+            properties:
+                containerKey:
+                    type: string
+                note:
+                    type: string
+                tags:
+                    items:
+                        type: string
+                    type:
+                        - "null"
+                        - array
+            required:
+                - containerKey
+                - note
+                - tags
+            type: object
+        ModelCoreUseCases:
+            additionalProperties: false
+            properties:
+                decisions:
+                    items:
+                        $ref: '#/components/schemas/ModelUseCaseDecision'
+                    type:
+                        - "null"
+                        - array
+            required:
+                - decisions
+            type: object
+        ModelDeployContainer:
+            additionalProperties: false
+            properties:
+                components:
+                    items:
+                        type: string
+                    type:
+                        - "null"
+                        - array
+                description:
+                    type: string
+                key:
+                    type: string
+                name:
+                    type: string
+                technology:
+                    type: string
+            required:
+                - key
+                - name
+                - technology
+                - description
+                - components
+            type: object
+        ModelDeploymentEnvironment:
+            additionalProperties: false
+            properties:
+                nodes:
+                    items:
+                        $ref: '#/components/schemas/ModelDeploymentNode'
+                    type:
+                        - "null"
+                        - array
+                profile:
+                    type: integer
+                title:
+                    type: string
+            required:
+                - profile
+                - title
+                - nodes
+            type: object
+        ModelDeploymentNode:
+            additionalProperties: false
+            properties:
+                children:
+                    items:
+                        $ref: '#/components/schemas/ModelDeploymentNode'
+                    type:
+                        - "null"
+                        - array
+                containerInstances:
+                    items:
+                        $ref: '#/components/schemas/ModelContainerInstance'
+                    type:
+                        - "null"
+                        - array
+                description:
+                    type: string
+                infrastructureNodes:
+                    items:
+                        $ref: '#/components/schemas/ModelInfrastructureNode'
+                    type:
+                        - "null"
+                        - array
+                instances:
+                    type: integer
+                name:
+                    type: string
+                softwareSystemInstances:
+                    items:
+                        $ref: '#/components/schemas/ModelSoftwareSystemInstance'
+                    type:
+                        - "null"
+                        - array
+                tags:
+                    items:
+                        type: string
+                    type:
+                        - "null"
+                        - array
+                technology:
+                    type: string
+            required:
+                - name
+                - technology
+                - description
+                - instances
+                - tags
+                - children
+                - infrastructureNodes
+                - containerInstances
+                - softwareSystemInstances
+            type: object
+        ModelDeploymentTopology:
+            additionalProperties: false
+            properties:
+                containers:
+                    items:
+                        $ref: '#/components/schemas/ModelDeployContainer'
+                    type:
+                        - "null"
+                        - array
+                deliveryStyle:
+                    type: integer
+                environments:
+                    items:
+                        $ref: '#/components/schemas/ModelDeploymentEnvironment'
+                    type:
+                        - "null"
+                        - array
+            required:
+                - deliveryStyle
+                - containers
+                - environments
+            type: object
+        ModelDynamicView:
+            additionalProperties: false
+            properties:
+                edges:
+                    items:
+                        $ref: '#/components/schemas/ModelRelationship'
+                    type:
+                        - "null"
+                        - array
+                key:
+                    type: string
+                participants:
+                    items:
+                        type: string
+                    type:
+                        - "null"
+                        - array
+                title:
+                    type: string
+                useCaseId:
+                    type: string
+            required:
+                - useCaseId
+                - key
+                - title
+                - participants
+                - edges
+            type: object
+        ModelGlossary:
+            additionalProperties: false
+            properties:
+                items:
+                    items:
+                        $ref: '#/components/schemas/ModelGlossaryItem'
+                    type:
+                        - "null"
+                        - array
+            required:
+                - items
+            type: object
+        ModelGlossaryItem:
+            additionalProperties: false
+            properties:
+                category:
+                    type: string
+                definition:
+                    type: string
+                term:
+                    type: string
+            required:
+                - term
+                - definition
+                - category
+            type: object
+        ModelInfrastructureNode:
+            additionalProperties: false
+            properties:
+                description:
+                    type: string
+                name:
+                    type: string
+                tags:
+                    items:
+                        type: string
+                    type:
+                        - "null"
+                        - array
+                technology:
+                    type: string
+            required:
+                - name
+                - technology
+                - description
+                - tags
+            type: object
+        ModelMissionStatement:
+            additionalProperties: false
+            properties:
+                mission:
+                    type: string
+                objectives:
+                    items:
+                        $ref: '#/components/schemas/ModelObjective'
+                    type:
+                        - "null"
+                        - array
+                vision:
+                    type: string
+            required:
+                - vision
+                - objectives
+                - mission
+            type: object
+        ModelMoney:
+            additionalProperties: false
+            properties:
+                currency:
+                    type: string
+                minorUnits:
+                    type: integer
+            required:
+                - minorUnits
+                - currency
+            type: object
+        ModelNetwork:
+            additionalProperties: false
+            properties:
+                computed:
+                    additionalProperties:
+                        $ref: '#/components/schemas/ModelNetworkNodeCompute'
+                    type: object
+                criticalPath:
+                    items:
+                        type: string
+                    type:
+                        - "null"
+                        - array
+                dependencies:
+                    items:
+                        $ref: '#/components/schemas/ModelNetworkDependency'
+                    type:
+                        - "null"
+                        - array
+                milestones:
+                    items:
+                        $ref: '#/components/schemas/ModelNetworkMilestone'
+                    type:
+                        - "null"
+                        - array
+                summary:
+                    $ref: '#/components/schemas/ModelNetworkSummary'
+                    type:
+                        - "null"
+            required:
+                - dependencies
+                - criticalPath
+            type: object
+        ModelNetworkDependency:
+            additionalProperties: false
+            properties:
+                activity:
+                    type: string
+                dependsOn:
+                    items:
+                        type: string
+                    type:
+                        - "null"
+                        - array
+            required:
+                - activity
+                - dependsOn
+            type: object
+        ModelNetworkMilestone:
+            additionalProperties: false
+            properties:
+                dependsOn:
+                    items:
+                        type: string
+                    type:
+                        - "null"
+                        - array
+                eventTime:
+                    type:
+                        - "null"
+                        - number
+                id:
+                    type: string
+                name:
+                    type: string
+                onCriticalPath:
+                    type:
+                        - "null"
+                        - boolean
+                public:
+                    type: boolean
+            required:
+                - id
+                - name
+                - public
+            type: object
+        ModelNetworkNodeCompute:
+            additionalProperties: false
+            properties:
+                band:
+                    type: string
+                column:
+                    type: integer
+                earliestFinish:
+                    type: number
+                earliestStart:
+                    type: number
+                freeFloat:
+                    type: number
+                latestFinish:
+                    type: number
+                latestStart:
+                    type: number
+                nearCritical:
+                    type: boolean
+                onCriticalPath:
+                    type: boolean
+                totalFloat:
+                    type: number
+            required:
+                - earliestStart
+                - earliestFinish
+                - latestStart
+                - latestFinish
+                - totalFloat
+                - freeFloat
+                - onCriticalPath
+                - nearCritical
+                - band
+                - column
+            type: object
+        ModelNetworkSummary:
+            additionalProperties: false
+            properties:
+                criticalPathActivityCount:
+                    type: integer
+                criticalPathDays:
+                    type: number
+                maxFloat:
+                    type: number
+                nearCriticalCount:
+                    type: integer
+                totalDurationDays:
+                    type: number
+            required:
+                - totalDurationDays
+                - criticalPathActivityCount
+                - criticalPathDays
+                - maxFloat
+                - nearCriticalCount
+            type: object
+        ModelObjective:
+            additionalProperties: false
+            properties:
+                number:
+                    type: integer
+                statement:
+                    type: string
+            required:
+                - number
+                - statement
+            type: object
+        ModelOperationalConcepts:
+            additionalProperties: false
+            properties:
+                decisions:
+                    items:
+                        $ref: '#/components/schemas/ModelOperationalDecision'
+                    type:
+                        - "null"
+                        - array
+                deployment:
+                    $ref: '#/components/schemas/ModelDeploymentTopology'
+            required:
+                - decisions
+                - deployment
+            type: object
+        ModelOperationalDecision:
+            additionalProperties: false
+            properties:
+                decision:
+                    type: string
+                justifyingObjective:
+                    type: integer
+                topic:
+                    type: string
+            required:
+                - topic
+                - decision
+                - justifyingObjective
+            type: object
+        ModelPlanningAssumptions:
+            additionalProperties: false
+            properties:
+                calendarDaysPerWeek:
+                    type: number
+                declaredUsage:
+                    $ref: '#/components/schemas/ModelUsageAssumption'
+                indirectDailyRate:
+                    $ref: '#/components/schemas/ModelMoney'
+                infrastructureKind:
+                    type: integer
+                notes:
+                    type: string
+                rateCard:
+                    additionalProperties:
+                        $ref: '#/components/schemas/ModelWorkerRateSpec'
+                    type: object
+                resources:
+                    items:
+                        type: string
+                    type:
+                        - "null"
+                        - array
+                terms:
+                    $ref: '#/components/schemas/ModelSettlementTerms'
+            required:
+                - resources
+                - calendarDaysPerWeek
+                - infrastructureKind
+                - declaredUsage
+                - terms
+                - notes
+                - indirectDailyRate
+            type: object
+        ModelRelationship:
+            additionalProperties: false
+            properties:
+                from:
+                    type: string
+                label:
+                    type: string
+                mode:
+                    type: integer
+                to:
+                    type: string
+            required:
+                - from
+                - to
+                - mode
+                - label
+            type: object
+        ModelRequirement:
+            additionalProperties: false
+            properties:
+                id:
+                    type: string
+                statement:
+                    type: string
+            required:
+                - id
+                - statement
+            type: object
+        ModelRiskModel:
+            additionalProperties: false
+            properties:
+                maxCompressionPct:
+                    type: number
+                overSafeThreshold:
+                    type: number
+                recommendation:
+                    type: integer
+                rows:
+                    items:
+                        $ref: '#/components/schemas/ModelRiskRow'
+                    type:
+                        - "null"
+                        - array
+                tooRiskyThreshold:
+                    type: number
+            required:
+                - rows
+                - tooRiskyThreshold
+                - overSafeThreshold
+                - maxCompressionPct
+                - recommendation
+            type: object
+        ModelRiskRow:
+            additionalProperties: false
+            properties:
+                activityRisk:
+                    type: number
+                composite:
+                    type: number
+                criticalityRisk:
+                    type: number
+                durationDays:
+                    type: number
+                exclusionReason:
+                    type: string
+                included:
+                    type: boolean
+                solutionKind:
+                    type: integer
+                totalCost:
+                    $ref: '#/components/schemas/ModelMoney'
+            required:
+                - solutionKind
+                - criticalityRisk
+                - activityRisk
+                - composite
+                - durationDays
+                - totalCost
+                - included
+                - exclusionReason
+            type: object
+        ModelScrubbedRequirements:
+            additionalProperties: false
+            properties:
+                items:
+                    items:
+                        $ref: '#/components/schemas/ModelRequirement'
+                    type:
+                        - "null"
+                        - array
+            required:
+                - items
+            type: object
+        ModelSdpOptionRow:
+            additionalProperties: false
+            properties:
+                buildCost:
+                    $ref: '#/components/schemas/ModelMoney'
+                compositeRisk:
+                    type: number
+                durationDays:
+                    type: number
+                expectedPerCycleNet:
+                    $ref: '#/components/schemas/ModelMoney'
+                optionId:
+                    type: string
+                projectedMonthlyCost:
+                    $ref: '#/components/schemas/ModelMoney'
+                revenueSharePercent:
+                    type: number
+                solutionKind:
+                    type: integer
+            required:
+                - optionId
+                - solutionKind
+                - durationDays
+                - buildCost
+                - compositeRisk
+                - projectedMonthlyCost
+                - expectedPerCycleNet
+                - revenueSharePercent
+            type: object
+        ModelSdpReview:
+            additionalProperties: false
+            properties:
+                options:
+                    items:
+                        $ref: '#/components/schemas/ModelSdpOptionRow'
+                    type:
+                        - "null"
+                        - array
+                rationale:
+                    type: string
+                recommendation:
+                    type: string
+            required:
+                - options
+                - recommendation
+                - rationale
+            type: object
+        ModelSettlementTerms:
+            additionalProperties: false
+            properties:
+                computeCost:
+                    type: integer
+                computeMarkupPercent:
+                    type: number
+                revenueShare:
+                    type: integer
+                revenueSharePercent:
+                    type: number
+                schedule:
+                    type: integer
+            required:
+                - revenueShare
+                - revenueSharePercent
+                - computeCost
+                - computeMarkupPercent
+                - schedule
+            type: object
+        ModelSoftwareSystemInstance:
+            additionalProperties: false
+            properties:
+                description:
+                    type: string
+                name:
+                    type: string
+                tags:
+                    items:
+                        type: string
+                    type:
+                        - "null"
+                        - array
+                technology:
+                    type: string
+            required:
+                - name
+                - technology
+                - description
+                - tags
+            type: object
+        ModelSolution:
+            additionalProperties: false
+            properties:
+                bufferDays:
+                    type: number
+                calendarDaysPerWeek:
+                    type: number
+                classRates:
+                    additionalProperties:
+                        $ref: '#/components/schemas/ModelMoney'
+                    type: object
+                criticalSpeedup:
+                    type: number
+                slotKind:
+                    type: integer
+                staffingCap:
+                    type: integer
+            required:
+                - slotKind
+                - staffingCap
+                - calendarDaysPerWeek
+                - classRates
+                - bufferDays
+                - criticalSpeedup
+            type: object
+        ModelStandardCheck:
+            additionalProperties: false
+            properties:
+                items:
+                    items:
+                        $ref: '#/components/schemas/ModelCheckItem'
+                    type:
+                        - "null"
+                        - array
+            required:
+                - items
+            type: object
+        ModelSystem:
+            additionalProperties: false
+            properties:
+                components:
+                    items:
+                        $ref: '#/components/schemas/ModelComponent'
+                    type:
+                        - "null"
+                        - array
+                dynamicViews:
+                    items:
+                        $ref: '#/components/schemas/ModelDynamicView'
+                    type:
+                        - "null"
+                        - array
+                relationships:
+                    items:
+                        $ref: '#/components/schemas/ModelRelationship'
+                    type:
+                        - "null"
+                        - array
+            required:
+                - components
+                - relationships
+                - dynamicViews
+            type: object
+        ModelUsageAssumption:
+            additionalProperties: false
+            properties:
+                avgPayloadBytes:
+                    type: integer
+                expectedDailyActiveUsers:
+                    type: integer
+                requestsPerMinute:
+                    type: number
+            required:
+                - expectedDailyActiveUsers
+                - requestsPerMinute
+                - avgPayloadBytes
+            type: object
+        ModelUseCase:
+            additionalProperties: false
+            properties:
+                activity:
+                    $ref: '#/components/schemas/ModelActivityDiagram'
+                    type:
+                        - "null"
+                actors:
+                    items:
+                        $ref: '#/components/schemas/ModelActor'
+                    type:
+                        - "null"
+                        - array
+                classification:
+                    type: integer
+                id:
+                    type: string
+                name:
+                    type: string
+                trigger:
+                    type: integer
+                variationOf:
+                    type:
+                        - "null"
+                        - string
+            required:
+                - id
+                - name
+                - actors
+                - trigger
+                - classification
+                - variationOf
+                - activity
+            type: object
+        ModelUseCaseDecision:
+            additionalProperties: false
+            properties:
+                rejectionReason:
+                    type: string
+                useCase:
+                    $ref: '#/components/schemas/ModelUseCase'
+            required:
+                - useCase
+                - rejectionReason
+            type: object
+        ModelVolatilities:
+            additionalProperties: false
+            properties:
+                items:
+                    items:
+                        $ref: '#/components/schemas/ModelVolatility'
+                    type:
+                        - "null"
+                        - array
+            required:
+                - items
+            type: object
+        ModelVolatility:
+            additionalProperties: false
+            properties:
+                axis:
+                    type: integer
+                name:
+                    type: string
+                rationale:
+                    type: string
+            required:
+                - name
+                - rationale
+                - axis
+            type: object
+        ModelWorkerRateSpec:
+            additionalProperties: false
+            properties:
+                megatokensInPerDay:
+                    type: number
+                megatokensOutPerDay:
+                    type: number
+                modelId:
+                    type: string
+            required:
+                - modelId
+                - megatokensInPerDay
+                - megatokensOutPerDay
+            type: object
         OperationsAutoscaleAction:
             enum:
                 - 0
@@ -645,10 +1599,21 @@ components:
                 kind:
                     type: string
                 model:
-                    type:
-                        - "null"
-                    x-go-import: encoding/json
-                    x-go-type: json.RawMessage
+                    oneOf:
+                        - $ref: '#/components/schemas/ModelActivityList'
+                        - $ref: '#/components/schemas/ModelCoreUseCases'
+                        - $ref: '#/components/schemas/ModelGlossary'
+                        - $ref: '#/components/schemas/ModelMissionStatement'
+                        - $ref: '#/components/schemas/ModelNetwork'
+                        - $ref: '#/components/schemas/ModelOperationalConcepts'
+                        - $ref: '#/components/schemas/ModelPlanningAssumptions'
+                        - $ref: '#/components/schemas/ModelRiskModel'
+                        - $ref: '#/components/schemas/ModelScrubbedRequirements'
+                        - $ref: '#/components/schemas/ModelSdpReview'
+                        - $ref: '#/components/schemas/ModelSolution'
+                        - $ref: '#/components/schemas/ModelStandardCheck'
+                        - $ref: '#/components/schemas/ModelSystem'
+                        - $ref: '#/components/schemas/ModelVolatilities'
             required:
                 - kind
             type: object
@@ -1070,10 +2035,21 @@ components:
                 kind:
                     type: string
                 model:
-                    type:
-                        - "null"
-                    x-go-import: encoding/json
-                    x-go-type: json.RawMessage
+                    oneOf:
+                        - $ref: '#/components/schemas/ModelActivityList'
+                        - $ref: '#/components/schemas/ModelCoreUseCases'
+                        - $ref: '#/components/schemas/ModelGlossary'
+                        - $ref: '#/components/schemas/ModelMissionStatement'
+                        - $ref: '#/components/schemas/ModelNetwork'
+                        - $ref: '#/components/schemas/ModelOperationalConcepts'
+                        - $ref: '#/components/schemas/ModelPlanningAssumptions'
+                        - $ref: '#/components/schemas/ModelRiskModel'
+                        - $ref: '#/components/schemas/ModelScrubbedRequirements'
+                        - $ref: '#/components/schemas/ModelSdpReview'
+                        - $ref: '#/components/schemas/ModelSolution'
+                        - $ref: '#/components/schemas/ModelStandardCheck'
+                        - $ref: '#/components/schemas/ModelSystem'
+                        - $ref: '#/components/schemas/ModelVolatilities'
             required:
                 - kind
             type: object
@@ -1259,10 +2235,21 @@ components:
                 kind:
                     type: string
                 model:
-                    type:
-                        - "null"
-                    x-go-import: encoding/json
-                    x-go-type: json.RawMessage
+                    oneOf:
+                        - $ref: '#/components/schemas/ModelActivityList'
+                        - $ref: '#/components/schemas/ModelCoreUseCases'
+                        - $ref: '#/components/schemas/ModelGlossary'
+                        - $ref: '#/components/schemas/ModelMissionStatement'
+                        - $ref: '#/components/schemas/ModelNetwork'
+                        - $ref: '#/components/schemas/ModelOperationalConcepts'
+                        - $ref: '#/components/schemas/ModelPlanningAssumptions'
+                        - $ref: '#/components/schemas/ModelRiskModel'
+                        - $ref: '#/components/schemas/ModelScrubbedRequirements'
+                        - $ref: '#/components/schemas/ModelSdpReview'
+                        - $ref: '#/components/schemas/ModelSolution'
+                        - $ref: '#/components/schemas/ModelStandardCheck'
+                        - $ref: '#/components/schemas/ModelSystem'
+                        - $ref: '#/components/schemas/ModelVolatilities'
             required:
                 - kind
             type: object
