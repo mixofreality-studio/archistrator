@@ -636,7 +636,8 @@ export interface components {
     ModelActivityEdge: {
       from: string;
       guard: string;
-      kind: number;
+      /** @enum {string} */
+      kind: 'controlFlow' | 'guardedFlow';
       to: string;
     };
     ModelActivityItem: {
@@ -652,7 +653,21 @@ export interface components {
     };
     ModelActivityNode: {
       id: string;
-      kind: number;
+      /** @enum {string} */
+      kind:
+        | 'start'
+        | 'action'
+        | 'decision'
+        | 'merge'
+        | 'fork'
+        | 'join'
+        | 'end'
+        | 'swimLane'
+        | 'note'
+        | 'loop'
+        | 'switch'
+        | 'goto'
+        | 'interruptEdge';
       label: string;
       linkedActorId: null | string;
       linkedCompId: null | string;
@@ -666,15 +681,18 @@ export interface components {
       guideline: string;
       justification: string;
       section: string;
-      status: number;
+      /** @enum {string} */
+      status: 'pass' | 'waived' | 'fail';
     };
     ModelComponent: {
       atomicBusinessVerbs: null | string[];
       buildStatus?: null | string;
       encapsulates: string;
       id: string;
-      kind: number;
-      layer: number;
+      /** @enum {string} */
+      kind: 'client' | 'manager' | 'engine' | 'resourceAccess' | 'resource' | 'utility';
+      /** @enum {string} */
+      layer: 'client' | 'manager' | 'engine' | 'resourceAccess' | 'resource' | 'utility';
       name: string;
     };
     ModelContainerInstance: {
@@ -694,7 +712,8 @@ export interface components {
     };
     ModelDeploymentEnvironment: {
       nodes: null | components['schemas']['ModelDeploymentNode'][];
-      profile: number;
+      /** @enum {string} */
+      profile: 'cloud' | 'local' | 'test';
       title: string;
     };
     ModelDeploymentNode: {
@@ -710,7 +729,8 @@ export interface components {
     };
     ModelDeploymentTopology: {
       containers: null | components['schemas']['ModelDeployContainer'][];
-      deliveryStyle: number;
+      /** @enum {string} */
+      deliveryStyle: 'cloud' | 'local' | 'both';
       environments: null | components['schemas']['ModelDeploymentEnvironment'][];
     };
     ModelDynamicView: {
@@ -811,7 +831,8 @@ export interface components {
     ModelRelationship: {
       from: string;
       label: string;
-      mode: number;
+      /** @enum {string} */
+      mode: 'sync' | 'queued' | 'eventPubSub';
       to: string;
     };
     ModelRequirement: {
@@ -821,7 +842,25 @@ export interface components {
     ModelRiskModel: {
       maxCompressionPct: number;
       overSafeThreshold: number;
-      recommendation: number;
+      /** @enum {string} */
+      recommendation:
+        | 'mission'
+        | 'glossary'
+        | 'scrubbedRequirements'
+        | 'volatilities'
+        | 'coreUseCases'
+        | 'system'
+        | 'operationalConcepts'
+        | 'standardCheck'
+        | 'planningAssumptions'
+        | 'activityList'
+        | 'network'
+        | 'normalSolution'
+        | 'subcriticalSolution'
+        | 'compressedSolution'
+        | 'decompressedSolution'
+        | 'riskModel'
+        | 'sdpReview';
       rows: null | components['schemas']['ModelRiskRow'][];
       tooRiskyThreshold: number;
     };
@@ -832,7 +871,25 @@ export interface components {
       durationDays: number;
       exclusionReason: string;
       included: boolean;
-      solutionKind: number;
+      /** @enum {string} */
+      solutionKind:
+        | 'mission'
+        | 'glossary'
+        | 'scrubbedRequirements'
+        | 'volatilities'
+        | 'coreUseCases'
+        | 'system'
+        | 'operationalConcepts'
+        | 'standardCheck'
+        | 'planningAssumptions'
+        | 'activityList'
+        | 'network'
+        | 'normalSolution'
+        | 'subcriticalSolution'
+        | 'compressedSolution'
+        | 'decompressedSolution'
+        | 'riskModel'
+        | 'sdpReview';
       totalCost: components['schemas']['ModelMoney'];
     };
     ModelScrubbedRequirements: {
@@ -846,7 +903,25 @@ export interface components {
       optionId: string;
       projectedMonthlyCost: components['schemas']['ModelMoney'];
       revenueSharePercent: number;
-      solutionKind: number;
+      /** @enum {string} */
+      solutionKind:
+        | 'mission'
+        | 'glossary'
+        | 'scrubbedRequirements'
+        | 'volatilities'
+        | 'coreUseCases'
+        | 'system'
+        | 'operationalConcepts'
+        | 'standardCheck'
+        | 'planningAssumptions'
+        | 'activityList'
+        | 'network'
+        | 'normalSolution'
+        | 'subcriticalSolution'
+        | 'compressedSolution'
+        | 'decompressedSolution'
+        | 'riskModel'
+        | 'sdpReview';
     };
     ModelSdpReview: {
       options: null | components['schemas']['ModelSdpOptionRow'][];
@@ -873,7 +948,25 @@ export interface components {
         [key: string]: components['schemas']['ModelMoney'];
       };
       criticalSpeedup: number;
-      slotKind: number;
+      /** @enum {string} */
+      slotKind:
+        | 'mission'
+        | 'glossary'
+        | 'scrubbedRequirements'
+        | 'volatilities'
+        | 'coreUseCases'
+        | 'system'
+        | 'operationalConcepts'
+        | 'standardCheck'
+        | 'planningAssumptions'
+        | 'activityList'
+        | 'network'
+        | 'normalSolution'
+        | 'subcriticalSolution'
+        | 'compressedSolution'
+        | 'decompressedSolution'
+        | 'riskModel'
+        | 'sdpReview';
       staffingCap: number;
     };
     ModelStandardCheck: {
@@ -892,10 +985,12 @@ export interface components {
     ModelUseCase: {
       activity: components['schemas']['ModelActivityDiagram'];
       actors: null | components['schemas']['ModelActor'][];
-      classification: number;
+      /** @enum {string} */
+      classification: 'core' | 'nonCore';
       id: string;
       name: string;
-      trigger: number;
+      /** @enum {string} */
+      trigger: 'clientAction' | 'timer' | 'busMessage';
       variationOf: null | string;
     };
     ModelUseCaseDecision: {
@@ -906,7 +1001,8 @@ export interface components {
       items: null | components['schemas']['ModelVolatility'][];
     };
     ModelVolatility: {
-      axis: number;
+      /** @enum {string} */
+      axis: 'sameCustomerOverTime' | 'allCustomersAtOneTime';
       name: string;
       rationale: string;
     };

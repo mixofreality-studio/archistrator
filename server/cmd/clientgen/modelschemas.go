@@ -88,6 +88,127 @@ func modelWellKnown() map[reflect.Type]*jsonschema.Schema {
 	}
 }
 
+// stringEnumTypes is the authoritative set of projectstate ordinal-enum Go types
+// that carry a custom string MarshalJSON — the 13 in enumjson.go plus ArtifactKind
+// (identity.go). Every such type is declared `type X int`, so jsonschema.ForType
+// reflects the STATIC int type and emits `integer`; but the wire actually ships the
+// canonical camelCase STRING (Layer(0) -> "client"). This slice enumerates the type
+// IDENTITIES only — the string values are never hand-listed here; they are produced
+// by live-marshalling each ordinal (see stringEnumWireValues), so the emitted enum
+// is ground-truth-by-construction and cannot drift from the marshaller.
+//
+// (ActivityKind is a type alias for ActivityType — same reflect.Type — so listing
+// ActivityType covers both.)
+func stringEnumTypes() []reflect.Type {
+	return []reflect.Type{
+		reflect.TypeOf(projectstate.Axis(0)),
+		reflect.TypeOf(projectstate.CheckStatus(0)),
+		reflect.TypeOf(projectstate.ComponentKind(0)),
+		reflect.TypeOf(projectstate.Layer(0)),
+		reflect.TypeOf(projectstate.CallMode(0)),
+		reflect.TypeOf(projectstate.Trigger(0)),
+		reflect.TypeOf(projectstate.Classification(0)),
+		reflect.TypeOf(projectstate.ActivityNodeKind(0)),
+		reflect.TypeOf(projectstate.DeliveryStyle(0)),
+		reflect.TypeOf(projectstate.DeploymentProfile(0)),
+		reflect.TypeOf(projectstate.EdgeKind(0)),
+		reflect.TypeOf(projectstate.ActivityType(0)),
+		reflect.TypeOf(projectstate.TestingVariant(0)),
+		reflect.TypeOf(projectstate.ArtifactKind(0)),
+	}
+}
+
+// stringEnumWireValues live-marshals an ordinal enum type's values in ordinal
+// order, starting at 0 and stopping at the first ordinal whose MarshalJSON errors.
+// Both marshalEnum (enumjson.go) and ArtifactKind.MarshalJSON (identity.go) return
+// an error for an out-of-range ordinal ("has no wire name"), which bounds the loop
+// without a hand-maintained count — the marshaller itself defines the valid range.
+// A generous safety bound guards against a hypothetical future all-ordinals-valid
+// marshaller. Returns the decoded wire strings in ordinal order.
+func stringEnumWireValues(t reflect.Type) ([]string, error) {
+	const safetyBound = 1024
+	var out []string
+	for i := 0; i < safetyBound; i++ {
+		v := reflect.New(t).Elem()
+		v.SetInt(int64(i))
+		raw, err := json.Marshal(v.Interface())
+		if err != nil {
+			break // ordinal i is out of range — the enum has values 0..i-1
+		}
+		var s string
+		if err := json.Unmarshal(raw, &s); err != nil {
+			return nil, fmt.Errorf("string-enum %s ordinal %d marshalled to non-string %q", t.Name(), i, raw)
+		}
+		out = append(out, s)
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("string-enum %s produced no wire values (ordinal 0 failed to marshal)", t.Name())
+	}
+	return out, nil
+}
+
+// stringEnumRegistry builds reflect.Type -> ordered wire-string enum list for every
+// stringEnumTypes() entry, by live-marshalling. This is the lookup the per-field
+// emission consults to override the reflected `integer` with the true string enum.
+func stringEnumRegistry() (map[reflect.Type][]any, error) {
+	reg := make(map[reflect.Type][]any, len(stringEnumTypes()))
+	for _, t := range stringEnumTypes() {
+		vals, err := stringEnumWireValues(t)
+		if err != nil {
+			return nil, err
+		}
+		anyVals := make([]any, len(vals))
+		for i, s := range vals {
+			anyVals[i] = s
+		}
+		reg[t] = anyVals
+	}
+	return reg, nil
+}
+
+// enumFieldWireValues reports whether a struct field's Go type is — after
+// unwrapping a leading pointer and/or an outer slice/array (whose element may also
+// be a pointer) — one of the registered string-marshalled enum types. It returns
+// the ordered wire-string enum values, whether the enum sits inside a slice/array
+// wrapper, and ok. Non-enum fields return ok=false.
+func enumFieldWireValues(ft reflect.Type, reg map[reflect.Type][]any) (vals []any, isSlice bool, ok bool) {
+	for ft.Kind() == reflect.Pointer {
+		ft = ft.Elem()
+	}
+	if v, found := reg[ft]; found {
+		return v, false, true
+	}
+	if ft.Kind() == reflect.Slice || ft.Kind() == reflect.Array {
+		et := ft.Elem()
+		for et.Kind() == reflect.Pointer {
+			et = et.Elem()
+		}
+		if v, found := reg[et]; found {
+			return v, true, true
+		}
+	}
+	return nil, false, false
+}
+
+// swapIntegerToStringEnum rewrites a reflected scalar schema map (which ForType
+// produced as an `integer`, possibly nullable) into a string enum in place. It
+// preserves the field's nullability: `type: integer` becomes `type: string`, and
+// `type: ["null","integer"]` becomes `type: ["null","string"]`. The ordered wire
+// values are attached as `enum`.
+func swapIntegerToStringEnum(m map[string]any, enumVals []any) {
+	switch tv := m["type"].(type) {
+	case string:
+		m["type"] = "string"
+	case []any:
+		for i, x := range tv {
+			if x == "integer" {
+				tv[i] = "string"
+			}
+		}
+	}
+	m["enum"] = enumVals
+}
+
 // modelClosure returns every struct reflect.Type reachable from the roots by
 // following exported struct fields (through pointers, slices, arrays and
 // string-keyed maps), stopping at well-known leaves and non-struct
@@ -158,6 +279,14 @@ func modelComponentSchemas() (map[string]any, error) {
 	wk := modelWellKnown()
 	closure := modelClosure(roots, wk)
 
+	// Live-marshalled registry of the string-encoded ordinal enums, so any field of
+	// one of those types emits its true camelCase string enum rather than the
+	// integer ForType reflects from the static `type X int`.
+	enumReg, err := stringEnumRegistry()
+	if err != nil {
+		return nil, err
+	}
+
 	// Full TypeSchemas map: every closure struct → its Model<Name> $ref stub,
 	// plus the well-known portable shapes. Passed to ForType per field so any
 	// named struct field short-circuits to its stub (no recursion into the body,
@@ -172,7 +301,7 @@ func modelComponentSchemas() (map[string]any, error) {
 
 	out := make(map[string]any, len(closure))
 	for _, t := range closure {
-		body, err := modelStructBody(t, typeSchemas)
+		body, err := modelStructBody(t, typeSchemas, enumReg)
 		if err != nil {
 			return nil, fmt.Errorf("reflect model %s: %w", t.Name(), err)
 		}
@@ -219,7 +348,7 @@ func fieldJSONInfo(f reflect.StructField) fieldJSON {
 // struct type is NOT itself in scope for its own reflection here — we iterate its
 // fields directly, so a self-referential field resolves via its stub with no
 // cycle error.
-func modelStructBody(t reflect.Type, typeSchemas map[reflect.Type]*jsonschema.Schema) (map[string]any, error) {
+func modelStructBody(t reflect.Type, typeSchemas map[reflect.Type]*jsonschema.Schema, enumReg map[reflect.Type][]any) (map[string]any, error) {
 	props := map[string]any{}
 	var required []any
 	for i := 0; i < t.NumField(); i++ {
@@ -247,6 +376,21 @@ func modelStructBody(t reflect.Type, typeSchemas map[reflect.Type]*jsonschema.Sc
 			return nil, fmt.Errorf("decode field %s: %w", f.Name, err)
 		}
 		stripGoExtensions(generic)
+		// String-marshalled ordinal enum: ForType reflected `integer` from the
+		// static `type X int`, but the wire ships a camelCase string. Override the
+		// integer schema (or the slice's items schema) with the live-marshalled
+		// string enum, preserving nullability.
+		if enumVals, isSlice, ok := enumFieldWireValues(f.Type, enumReg); ok {
+			if gm, gok := generic.(map[string]any); gok {
+				if isSlice {
+					if items, iok := gm["items"].(map[string]any); iok {
+						swapIntegerToStringEnum(items, enumVals)
+					}
+				} else {
+					swapIntegerToStringEnum(gm, enumVals)
+				}
+			}
+		}
 		props[info.name] = generic
 		if !info.omitempty {
 			required = append(required, info.name)

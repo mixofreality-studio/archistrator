@@ -257,7 +257,10 @@ components:
                 guard:
                     type: string
                 kind:
-                    type: integer
+                    enum:
+                        - controlFlow
+                        - guardedFlow
+                    type: string
                 to:
                     type: string
             required:
@@ -306,7 +309,21 @@ components:
                 id:
                     type: string
                 kind:
-                    type: integer
+                    enum:
+                        - start
+                        - action
+                        - decision
+                        - merge
+                        - fork
+                        - join
+                        - end
+                        - swimLane
+                        - note
+                        - loop
+                        - switch
+                        - goto
+                        - interruptEdge
+                    type: string
                 label:
                     type: string
                 linkedActorId:
@@ -348,7 +365,11 @@ components:
                 section:
                     type: string
                 status:
-                    type: integer
+                    enum:
+                        - pass
+                        - waived
+                        - fail
+                    type: string
             required:
                 - section
                 - guideline
@@ -373,9 +394,23 @@ components:
                 id:
                     type: string
                 kind:
-                    type: integer
+                    enum:
+                        - client
+                        - manager
+                        - engine
+                        - resourceAccess
+                        - resource
+                        - utility
+                    type: string
                 layer:
-                    type: integer
+                    enum:
+                        - client
+                        - manager
+                        - engine
+                        - resourceAccess
+                        - resource
+                        - utility
+                    type: string
                 name:
                     type: string
             required:
@@ -450,7 +485,11 @@ components:
                         - "null"
                         - array
                 profile:
-                    type: integer
+                    enum:
+                        - cloud
+                        - local
+                        - test
+                    type: string
                 title:
                     type: string
             required:
@@ -520,7 +559,11 @@ components:
                         - "null"
                         - array
                 deliveryStyle:
-                    type: integer
+                    enum:
+                        - cloud
+                        - local
+                        - both
+                    type: string
                 environments:
                     items:
                         $ref: '#/components/schemas/ModelDeploymentEnvironment'
@@ -849,7 +892,11 @@ components:
                 label:
                     type: string
                 mode:
-                    type: integer
+                    enum:
+                        - sync
+                        - queued
+                        - eventPubSub
+                    type: string
                 to:
                     type: string
             required:
@@ -877,7 +924,25 @@ components:
                 overSafeThreshold:
                     type: number
                 recommendation:
-                    type: integer
+                    enum:
+                        - mission
+                        - glossary
+                        - scrubbedRequirements
+                        - volatilities
+                        - coreUseCases
+                        - system
+                        - operationalConcepts
+                        - standardCheck
+                        - planningAssumptions
+                        - activityList
+                        - network
+                        - normalSolution
+                        - subcriticalSolution
+                        - compressedSolution
+                        - decompressedSolution
+                        - riskModel
+                        - sdpReview
+                    type: string
                 rows:
                     items:
                         $ref: '#/components/schemas/ModelRiskRow'
@@ -909,7 +974,25 @@ components:
                 included:
                     type: boolean
                 solutionKind:
-                    type: integer
+                    enum:
+                        - mission
+                        - glossary
+                        - scrubbedRequirements
+                        - volatilities
+                        - coreUseCases
+                        - system
+                        - operationalConcepts
+                        - standardCheck
+                        - planningAssumptions
+                        - activityList
+                        - network
+                        - normalSolution
+                        - subcriticalSolution
+                        - compressedSolution
+                        - decompressedSolution
+                        - riskModel
+                        - sdpReview
+                    type: string
                 totalCost:
                     $ref: '#/components/schemas/ModelMoney'
             required:
@@ -952,7 +1035,25 @@ components:
                 revenueSharePercent:
                     type: number
                 solutionKind:
-                    type: integer
+                    enum:
+                        - mission
+                        - glossary
+                        - scrubbedRequirements
+                        - volatilities
+                        - coreUseCases
+                        - system
+                        - operationalConcepts
+                        - standardCheck
+                        - planningAssumptions
+                        - activityList
+                        - network
+                        - normalSolution
+                        - subcriticalSolution
+                        - compressedSolution
+                        - decompressedSolution
+                        - riskModel
+                        - sdpReview
+                    type: string
             required:
                 - optionId
                 - solutionKind
@@ -1036,7 +1137,25 @@ components:
                 criticalSpeedup:
                     type: number
                 slotKind:
-                    type: integer
+                    enum:
+                        - mission
+                        - glossary
+                        - scrubbedRequirements
+                        - volatilities
+                        - coreUseCases
+                        - system
+                        - operationalConcepts
+                        - standardCheck
+                        - planningAssumptions
+                        - activityList
+                        - network
+                        - normalSolution
+                        - subcriticalSolution
+                        - compressedSolution
+                        - decompressedSolution
+                        - riskModel
+                        - sdpReview
+                    type: string
                 staffingCap:
                     type: integer
             required:
@@ -1113,13 +1232,20 @@ components:
                         - "null"
                         - array
                 classification:
-                    type: integer
+                    enum:
+                        - core
+                        - nonCore
+                    type: string
                 id:
                     type: string
                 name:
                     type: string
                 trigger:
-                    type: integer
+                    enum:
+                        - clientAction
+                        - timer
+                        - busMessage
+                    type: string
                 variationOf:
                     type:
                         - "null"
@@ -1160,7 +1286,10 @@ components:
             additionalProperties: false
             properties:
                 axis:
-                    type: integer
+                    enum:
+                        - sameCustomerOverTime
+                        - allCustomersAtOneTime
+                    type: string
                 name:
                     type: string
                 rationale:
