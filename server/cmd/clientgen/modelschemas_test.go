@@ -2,7 +2,14 @@ package main
 
 import (
 	"encoding/json"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
+	"path/filepath"
 	"reflect"
+	"runtime"
+	"sort"
 	"strings"
 	"testing"
 
@@ -164,18 +171,20 @@ func TestKnownEnumFieldsAreStringEnums(t *testing.T) {
 	}
 }
 
-// TestNoModelEnumFieldTypedAsInteger walks the WHOLE emitted block and fails if any
-// property (or slice item) that resolves to a registered string-marshalled enum type
-// is typed integer anywhere — a regression guard beyond the known inventory.
+// TestNoModelEnumFieldTypedAsInteger does NOT walk the whole emitted block
+// (despite the name) — it re-checks the SAME knownEnumFieldTypes inventory paths
+// as TestKnownEnumFieldsAreStringEnums above, with a narrower, cheaper assertion
+// (type only, ignoring enum contents): a belt-and-suspenders duplicate in case
+// that test's fuller equality check is ever weakened. It gives NO guard against a
+// field whose enum TYPE is missing from the inventory entirely — that gap is what
+// TestStringEnumTypesRegistryComplete (below) closes, by source-walking
+// projectstate for every int-backed type with a custom MarshalJSON method and
+// asserting each one is registered in modelschemas.go's stringEnumTypes().
 func TestNoModelEnumFieldTypedAsInteger(t *testing.T) {
 	block, err := modelComponentSchemas()
 	if err != nil {
 		t.Fatalf("modelComponentSchemas: %v", err)
 	}
-	// Every registered enum's wire-value set; any integer field whose sibling enum
-	// list equals one of these would be a bug, but the primary guard is the known
-	// inventory: assert none of those paths is integer (belt-and-suspenders vs the
-	// per-field assertion above, in case the inventory table drifts).
 	for path := range knownEnumFieldTypes {
 		pm := propSchema(t, block, path)
 		if schemaTypeStrings(pm)["integer"] {
@@ -291,4 +300,224 @@ func itoa(i int) string {
 		i /= 10
 	}
 	return string(b)
+}
+
+// --- TestStringEnumTypesRegistryComplete: a source-walked future-proofing guard
+// (step4-task4 review) that stringEnumTypes() in modelschemas.go can never
+// silently miss a new string-marshalled ordinal enum. -----------------------
+
+// projectstateSourceDir resolves the absolute path to the projectstate package
+// directory, relative to THIS test file's own location (via runtime.Caller),
+// so the walk below works regardless of the directory `go test` is invoked
+// from.
+func projectstateSourceDir(t *testing.T) string {
+	t.Helper()
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller(0) failed to resolve this test file's own path")
+	}
+	dir := filepath.Join(filepath.Dir(thisFile), "..", "..", "internal", "resourceaccess", "projectstate")
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		t.Fatalf("resolve projectstate source dir: %v", err)
+	}
+	if fi, statErr := os.Stat(abs); statErr != nil || !fi.IsDir() {
+		t.Fatalf("projectstate source dir not found at %s (layout assumption stale?): %v", abs, statErr)
+	}
+	return abs
+}
+
+// intKindGoIdents is the set of Go builtin identifiers an "int-based" type
+// declaration (`type X <ident>`) can name. Every projectstate ordinal enum in
+// stringEnumTypes() today is `type X int`; the set is intentionally a little
+// wider so the walk also catches a future enum declared over a differently
+// sized int kind.
+var intKindGoIdents = map[string]bool{
+	"int": true, "int8": true, "int16": true, "int32": true, "int64": true,
+	"uint": true, "uint8": true, "uint16": true, "uint32": true, "uint64": true,
+	"uintptr": true, "byte": true, "rune": true,
+}
+
+// receiverTypeName extracts the bare type name a method's receiver names,
+// unwrapping a leading pointer (`*X` -> `X`). Returns "" if the receiver shape
+// is anything else (shouldn't happen for a well-formed Go file).
+func receiverTypeName(recv *ast.FieldList) string {
+	if recv == nil || len(recv.List) != 1 {
+		return ""
+	}
+	expr := recv.List[0].Type
+	if star, ok := expr.(*ast.StarExpr); ok {
+		expr = star.X
+	}
+	ident, ok := expr.(*ast.Ident)
+	if !ok {
+		return ""
+	}
+	return ident.Name
+}
+
+// isMarshalJSONSignature reports whether a func decl's signature matches
+// json.Marshaler's single method — `MarshalJSON() ([]byte, error)` — so the
+// walk below doesn't false-positive on some unrelated method that happens to be
+// named MarshalJSON with a different shape.
+func isMarshalJSONSignature(fn *ast.FuncDecl) bool {
+	if fn.Name.Name != "MarshalJSON" {
+		return false
+	}
+	sig := fn.Type
+	if sig.Params != nil && len(sig.Params.List) > 0 {
+		return false
+	}
+	if sig.Results == nil || len(sig.Results.List) != 2 {
+		return false
+	}
+	arr, ok := sig.Results.List[0].Type.(*ast.ArrayType)
+	if !ok || arr.Len != nil {
+		return false // not a slice (or is a fixed-size array)
+	}
+	if elt, ok := arr.Elt.(*ast.Ident); !ok || elt.Name != "byte" {
+		return false
+	}
+	ident, ok := sig.Results.List[1].Type.(*ast.Ident)
+	return ok && ident.Name == "error"
+}
+
+// collectIntKindTypeDecls scans one file's top-level type declarations and
+// records, into intKindTypes, the name of every `type X <intKindGoIdents>`
+// declaration (e.g. `type Axis int`). Generic type declarations are skipped —
+// no projectstate enum here uses type params.
+func collectIntKindTypeDecls(d *ast.GenDecl, intKindTypes map[string]bool) {
+	if d.Tok != token.TYPE {
+		return
+	}
+	for _, spec := range d.Specs {
+		ts, ok := spec.(*ast.TypeSpec)
+		if !ok || ts.TypeParams != nil {
+			continue
+		}
+		ident, ok := ts.Type.(*ast.Ident)
+		if !ok || !intKindGoIdents[ident.Name] {
+			continue
+		}
+		intKindTypes[ts.Name.Name] = true
+	}
+}
+
+// collectMarshalJSONReceiver records, into marshalJSONReceivers, the receiver
+// type name of d IF d is a genuine `func (recv X) MarshalJSON() ([]byte, error)`
+// method declaration.
+func collectMarshalJSONReceiver(d *ast.FuncDecl, marshalJSONReceivers map[string]bool) {
+	if d.Recv == nil || !isMarshalJSONSignature(d) {
+		return
+	}
+	if recvName := receiverTypeName(d.Recv); recvName != "" {
+		marshalJSONReceivers[recvName] = true
+	}
+}
+
+// isProjectstateSourceFile reports whether name is a non-test .go source file
+// that should be included in the intBackedMarshalJSONTypeNames walk.
+func isProjectstateSourceFile(e os.DirEntry) bool {
+	name := e.Name()
+	return !e.IsDir() && strings.HasSuffix(name, ".go") && !strings.HasSuffix(name, "_test.go")
+}
+
+// intBackedMarshalJSONTypeNames source-parses every non-test .go file directly
+// in dir (go/parser + go/ast, stdlib only — no go/packages dependency needed)
+// and returns the set of type names that are BOTH declared with an int-kind
+// underlying type (`type X int`, …) AND carry a custom
+// `func (recv X) MarshalJSON() ([]byte, error)` method — i.e. every ordinal enum
+// that customizes its own JSON encoding to a string. That is exactly the
+// pattern the OAS reflector (modelschemas.go's stringEnumTypes() +
+// swapIntegerToStringEnum) must be told about, or the type's fields silently
+// reflect as `integer` in the merged OAS instead of the true wire string enum.
+func intBackedMarshalJSONTypeNames(t *testing.T, dir string) map[string]bool {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read projectstate dir %s: %v", dir, err)
+	}
+
+	intKindTypes := map[string]bool{}
+	marshalJSONReceivers := map[string]bool{}
+
+	fset := token.NewFileSet()
+	for _, e := range entries {
+		if !isProjectstateSourceFile(e) {
+			continue
+		}
+		file, err := parser.ParseFile(fset, filepath.Join(dir, e.Name()), nil, parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatalf("parse %s: %v", e.Name(), err)
+		}
+		for _, decl := range file.Decls {
+			switch d := decl.(type) {
+			case *ast.GenDecl:
+				collectIntKindTypeDecls(d, intKindTypes)
+			case *ast.FuncDecl:
+				collectMarshalJSONReceiver(d, marshalJSONReceivers)
+			}
+		}
+	}
+
+	out := map[string]bool{}
+	for typeName := range marshalJSONReceivers {
+		if intKindTypes[typeName] {
+			out[typeName] = true
+		}
+	}
+	return out
+}
+
+// TestStringEnumTypesRegistryComplete is the future-proofing guard the
+// step4-task4 review asked for: it source-walks the WHOLE projectstate package
+// (not a hand-maintained list, nor a count assertion — a genuine walk) for every
+// `type X int` (or other int-kind) declaration that also carries a custom
+// `MarshalJSON() ([]byte, error)` method, i.e. every ordinal enum that marshals
+// itself as a wire string, and asserts that type is registered in
+// modelschemas.go's stringEnumTypes(). Cross-checked in both directions: a type
+// the walk finds but the registry doesn't know about would silently reflect as
+// `integer` in the merged OAS (the exact class of defect
+// TestKnownEnumFieldsAreStringEnums fixed for the known 14 — this is what stops
+// enum #15 from repeating it); a type the registry claims but the walk can no
+// longer find flags a stale or renamed registry entry.
+//
+// If this test fails because you added a NEW string-marshalled ordinal enum:
+// add it to BOTH enumjson.go (the MarshalJSON method) and stringEnumTypes() in
+// modelschemas.go — the walk here only tells you one of the two is missing, it
+// can't register the type for you.
+func TestStringEnumTypesRegistryComplete(t *testing.T) {
+	dir := projectstateSourceDir(t)
+	found := intBackedMarshalJSONTypeNames(t, dir)
+	if len(found) == 0 {
+		t.Fatal("source walk found zero int-backed MarshalJSON types — parsing assumption is broken (expected to find at least the known enums)")
+	}
+
+	registered := map[string]bool{}
+	for _, rt := range stringEnumTypes() {
+		registered[rt.Name()] = true
+	}
+
+	var missing []string
+	for typeName := range found {
+		if !registered[typeName] {
+			missing = append(missing, typeName)
+		}
+	}
+	sort.Strings(missing)
+	if len(missing) > 0 {
+		t.Errorf("stringEnumTypes() in modelschemas.go is missing %d int-backed, JSON-string-marshalled projectstate type(s): %v — "+
+			"add each to stringEnumTypes() or the merged OAS will silently reflect it as `integer`", len(missing), missing)
+	}
+
+	var stale []string
+	for typeName := range registered {
+		if !found[typeName] {
+			stale = append(stale, typeName)
+		}
+	}
+	sort.Strings(stale)
+	if len(stale) > 0 {
+		t.Errorf("stringEnumTypes() registers %d projectstate type(s) the source walk no longer finds as an int-backed type with a MarshalJSON method (renamed/removed?): %v", len(stale), stale)
+	}
 }
