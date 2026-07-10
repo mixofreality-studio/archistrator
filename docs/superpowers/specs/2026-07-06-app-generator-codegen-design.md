@@ -522,6 +522,23 @@ aiarch-state MCP tools (already generic over slot kinds).
 7. Deployment-model schema extension (via archistrator's amendment rail —
    dogfooding the design process) + `config.gen.go` + systemtests harness env
    helper.
+   **DONE 2026-07-10** (projectmodel/v0.2.0, app-generator/v0.4.0,
+   framework-go/v0.4.5). operationalConcepts.deployment gained
+   infrastructure/bindings/settings + a `local` dev-boot environment
+   (surgical additive splice, 380 insertions, gated by cmd/validate +
+   methoddesign + projectmodel + all gen-checks); methodcheck learned the
+   local dev-boot profile (permitted, coverage-exempt; real environments
+   unchanged). configgen emits config.gen.go (env parsing with verbatim
+   legacy names, missing-var collection, dormant warnings) — hand config.go
+   DELETED, a thin adapter keeps the 6 genuinely-hand behaviors
+   (unconditional postgres, conditional construction creds, PEM _FILE,
+   chained account default, installation-id coercion, dev principal) with a
+   parity test; harness env-var names now generated consts (rename → compile
+   error). Profile RESOLUTION stays hand until step 8; MissingFor/
+   DormantWarnings become load-bearing there. Earmarks: provides[] cannot
+   express internal git-store ports (ties to contract promotion);
+   Binding.Settings parsed but unconsumed; container-scoped infra filtering;
+   three appgen runs in CI drift steps foldable to one.
 8. `composegen` + policy-variant folding → delete handwritten `cmd/server`
    main.
 9. **Cleanups**: shared component id (kills both join heuristics),
