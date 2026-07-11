@@ -200,7 +200,7 @@ func (wf *workflows) loadReviewThread(ctx workflow.Context, in coAuthorInput, gf
 	}).Get(ctx, &pe); err != nil {
 		return nil, err
 	}
-	proj, err := pe.decode()
+	proj, err := pe.Decode()
 	if err != nil {
 		return nil, err
 	}

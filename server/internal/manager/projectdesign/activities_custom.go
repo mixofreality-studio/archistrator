@@ -139,7 +139,7 @@ type stageArtifactForReviewArgs struct {
 }
 
 func (wf *workflows) StageArtifactForReviewActivity(ctx context.Context, a stageArtifactForReviewArgs) (projectstate.Version, error) {
-	model, err := a.Model.decode()
+	model, err := a.Model.Decode()
 	if err != nil {
 		return 0, fwmanager.MapError(err)
 	}

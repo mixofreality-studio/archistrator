@@ -95,7 +95,7 @@ func Test_encodeProject_SlimsResearchContentAcrossActivityBoundary(t *testing.T)
 	// The decoded head-state still carries the corpus (IsZero preserved) so writeResearch
 	// emits the research-tools block — the agent reads the sources with listResearchSources /
 	// getResearchSource rather than from an inlined title/path list.
-	dec, err := env.decode()
+	dec, err := env.Decode()
 	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}

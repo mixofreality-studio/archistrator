@@ -341,6 +341,14 @@ var encapsulationAllowlistData = map[string][]string{
 		"EdgeKind",
 		"EdgeKind.MarshalJSON",
 		"EdgeKind.UnmarshalJSON",
+		// PROMOTED ENVELOPE CODEC (designSessionAccess, B4): the Manager-Temporal-boundary
+		// wire discipline for the sealed ArtifactModel sum + the head-state Project
+		// aggregate, moved down from the near-duplicate codec.go the projectdesign and
+		// systemdesign Managers each carried. Consumed downward by those two Managers
+		// (a normal RA→Manager layer edge, same category as the typed Method model corpus
+		// above) via type aliases + these exported constructors/methods.
+		"EncodeModel",
+		"EncodeProject",
 		"EncodeProjectJSON",
 		"Error",
 		"GitActivityConstructionAccess",
@@ -428,6 +436,8 @@ var encapsulationAllowlistData = map[string][]string{
 		"LocalRepoCredential",
 		"MissionStatement",
 		"MissionStatement.Kind",
+		"ModelEnvelope",
+		"ModelEnvelope.Decode",
 		"Money",
 		"Network",
 		"Network.Kind",
@@ -476,6 +486,8 @@ var encapsulationAllowlistData = map[string][]string{
 		"ProjectCatalog",
 		"ProjectCatalogRef",
 		"ProjectEarnedValue",
+		"ProjectEnvelope",
+		"ProjectEnvelope.Decode",
 		"ProjectOption",
 		"Relationship",
 		"RepoCredential",
@@ -528,6 +540,7 @@ var encapsulationAllowlistData = map[string][]string{
 		"SdpReview",
 		"SdpReview.Kind",
 		"SettlementTerms",
+		"SlotEnvelope",
 		"Slug",
 		"SoftwareSystemInstance",
 		"Solution",

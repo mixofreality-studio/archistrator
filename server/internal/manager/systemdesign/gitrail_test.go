@@ -1477,7 +1477,7 @@ func Test_projectEnvelope_PreservesReviewThread(t *testing.T) {
 	if err != nil {
 		t.Fatalf("encodeProject: %v", err)
 	}
-	got, err := env.decode()
+	got, err := env.Decode()
 	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}

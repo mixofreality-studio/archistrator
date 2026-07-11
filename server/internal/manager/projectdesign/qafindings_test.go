@@ -48,7 +48,7 @@ func Test_encodeProject_DropsResearchCorpus(t *testing.T) {
 		t.Fatal("envelope must not carry a research field at all")
 	}
 
-	back, err := env.decode()
+	back, err := env.Decode()
 	if err != nil {
 		t.Fatalf("decode envelope: %v", err)
 	}

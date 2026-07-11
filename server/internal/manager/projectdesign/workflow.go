@@ -256,7 +256,7 @@ func (wf *workflows) readProject(ctx workflow.Context, projectID ProjectID) (pro
 	if err := workflow.ExecuteActivity(c, wf.ReadProjectActivity, projectstate.ProjectID(projectID)).Get(ctx, &pe); err != nil {
 		return projectstate.Project{}, err
 	}
-	return pe.decode()
+	return pe.Decode()
 }
 
 // readVersion runs the cheap ReadProjectVersion Activity and returns only the

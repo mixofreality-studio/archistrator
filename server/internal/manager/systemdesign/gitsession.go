@@ -345,5 +345,5 @@ func (wf *workflows) readProjectOnBranch(ctx workflow.Context, projectID Project
 	}).Get(ctx, &pe); err != nil {
 		return projectstate.Project{}, err
 	}
-	return pe.decode()
+	return pe.Decode()
 }
