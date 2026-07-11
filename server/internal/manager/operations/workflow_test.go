@@ -10,7 +10,11 @@ import (
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/google/uuid"
+	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/autoscaler"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/operationestimation"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedruntime"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedsystemstate"
@@ -217,45 +221,62 @@ func (a *fakeArtifacts) StoreConstructionOutput(_ fwra.Context, _ artifact.Const
 
 var _ artifact.ArtifactAccess = (*fakeArtifacts)(nil)
 
-// ---- Engine fakes (direct-in-workflow seam doubles; unchanged) --------------
+// ---- Engine fakes (direct-in-workflow published-contract doubles) ----------
 
-// fakeIntervention returns a scripted health directive.
+// fakeIntervention returns a scripted health directive. Satisfies
+// intervention.InterventionEngine (only DecideOnHealth is exercised by these tests;
+// the other three verbs are unused stubs).
 type fakeIntervention struct {
-	directive healthDirective
+	directive intervention.HealthDirective
 }
 
-func (i *fakeIntervention) DecideOnHealth(_ healthChange, _ interventionPolicy) (healthDirective, error) {
-	if i.directive == healthDirectiveUnknown {
-		return healthDirectiveRetry, nil
-	}
+func (i *fakeIntervention) DecideOnHealth(_ fweng.Context, _ intervention.HealthChange) (intervention.HealthDirective, error) {
 	return i.directive, nil
 }
 
-var _ interventionEngine = (*fakeIntervention)(nil)
-
-// fakeAutoscaler returns a scripted decision.
-type fakeAutoscaler struct {
-	decision autoscaleDecisionSeam
+func (i *fakeIntervention) ApplyPausePolicy(_ fweng.Context, _ intervention.PauseRequestContext) (intervention.PausePlan, error) {
+	return intervention.PausePlan{}, nil
 }
 
-func (a *fakeAutoscaler) ProposeDesiredState(_ telemetry, _ autoscalerDesiredState, _ autoscalerPolicy, _ infrastructureKind) (autoscaleDecisionSeam, error) {
+func (i *fakeIntervention) DecideOnSettlementFailure(_ fweng.Context, _ intervention.SettlementFailure) (intervention.SettlementFailureDirective, error) {
+	return intervention.SettlementRetry, nil
+}
+
+func (i *fakeIntervention) DecideOnVariance(_ fweng.Context, _ intervention.ConstructionVariance) (intervention.VarianceDirective, error) {
+	return intervention.VarianceRetry, nil
+}
+
+var _ intervention.InterventionEngine = (*fakeIntervention)(nil)
+
+// fakeAutoscaler returns a scripted decision. Satisfies autoscaler.AutoscalerEngine.
+type fakeAutoscaler struct {
+	decision autoscaler.Decision
+}
+
+func (a *fakeAutoscaler) ProposeDesiredState(_ fweng.Context, _ autoscaler.Telemetry, _ autoscaler.DesiredState, _ autoscaler.AutoscalerPolicy, _ autoscaler.InfrastructureKind) (autoscaler.Decision, error) {
 	return a.decision, nil
 }
 
-var _ autoscalerEngine = (*fakeAutoscaler)(nil)
+var _ autoscaler.AutoscalerEngine = (*fakeAutoscaler)(nil)
 
-// fakeEstimation returns a scripted projection.
+// fakeEstimation returns a scripted projection. Satisfies
+// operationestimation.OperationEstimationEngine (only ProjectForOperatedApp is
+// exercised; EstimateForOption is an unused stub).
 type fakeEstimation struct {
-	projection CostProjectionSeam
+	projection operationestimation.CostProjection
 	calls      int
 }
 
-func (e *fakeEstimation) ProjectForOperatedApp(_ observedUsage, _ infrastructureKind, _ []ScalePoint) (CostProjectionSeam, error) {
+func (e *fakeEstimation) ProjectForOperatedApp(_ fweng.Context, _ operationestimation.ObservedUsage, _ operationestimation.InfrastructureKind, _ []operationestimation.ScalePoint) (operationestimation.CostProjection, error) {
 	e.calls++
 	return e.projection, nil
 }
 
-var _ operationEstimationEngine = (*fakeEstimation)(nil)
+func (e *fakeEstimation) EstimateForOption(_ fweng.Context, _ operationestimation.ProjectOption, _ operationestimation.UsageAssumption, _ operationestimation.InfrastructureKind) (operationestimation.OperationForecast, error) {
+	return operationestimation.OperationForecast{}, nil
+}
+
+var _ operationestimation.OperationEstimationEngine = (*fakeEstimation)(nil)
 
 // ---- helpers ----------------------------------------------------------------
 
@@ -265,11 +286,11 @@ func baseDeps() (wfDeps, *fakeOperatedState, *fakeRuntime, *fakeUsage, *fakeArti
 	us := &fakeUsage{}
 	ar := &fakeArtifacts{}
 	return wfDeps{
-		Intervention:       &fakeIntervention{directive: healthDirectiveRetry},
-		Autoscaler:         &fakeAutoscaler{decision: autoscaleDecisionSeam{Action: AutoscaleNoChange}},
+		Intervention:       &fakeIntervention{directive: intervention.HealthRetry},
+		Autoscaler:         &fakeAutoscaler{decision: autoscaler.Decision{Kind: autoscaler.DecisionNoChange}},
 		Estimation:         &fakeEstimation{},
 		Acts:               genInvokers{Opts: activityOptions()},
-		InfrastructureKind: infrastructureKindGoTemporalPostgres,
+		InfrastructureKind: autoscaler.InfrastructureKindGoTemporalPostgres,
 		CurrentCycleID:     "cycle-1",
 		CustomerID:         uuid.New(),
 	}, os, rt, us, ar
@@ -437,7 +458,7 @@ func Test_Reconcile_HealthTransition_RecordsStatus_AndRepublishes(t *testing.T) 
 	os.inFlight = []operatedsystemstate.OperatedSystemSummary{{ID: appID, Version: 1, Status: operatedsystemstate.RuntimeStatusHealthy}}
 	rt.health = operatedruntime.RuntimeStatusDegraded // transition healthy → degraded
 	rt.attribution = operatedruntime.ComputeAttribution{Units: operatedruntime.ComputeUnits{Amount: 2, Unit: "cpu-second"}, RuntimeEventID: "evt-1"}
-	deps.Intervention = &fakeIntervention{directive: healthDirectiveRetry}
+	deps.Intervention = &fakeIntervention{directive: intervention.HealthRetry}
 	wf := newWorkflows(deps)
 	registerReconcile(env, wf, os, rt, us, ar)
 
@@ -474,7 +495,7 @@ func Test_Reconcile_AutoscalePause_PublishesAndRecordsAutoscale(t *testing.T) {
 	appID := uuid.New()
 	os.inFlight = []operatedsystemstate.OperatedSystemSummary{{ID: appID, Version: 1, Status: operatedsystemstate.RuntimeStatusHealthy}}
 	rt.health = operatedruntime.RuntimeStatusHealthy // no health transition
-	deps.Autoscaler = &fakeAutoscaler{decision: autoscaleDecisionSeam{Action: AutoscalePause}}
+	deps.Autoscaler = &fakeAutoscaler{decision: autoscaler.Decision{Kind: autoscaler.DecisionPause}}
 	wf := newWorkflows(deps)
 	registerReconcile(env, wf, os, rt, us, ar)
 
@@ -653,9 +674,9 @@ func Test_CostProjection_ReturnsProjection_NoMutation(t *testing.T) {
 	appID := uuid.New()
 	os.system = operatedsystemstate.OperatedSystem{ID: appID, Version: 3}
 	us.rangeEvents = []usage.UsageEvent{{OperatedAppID: appID, RuntimeEventID: "e1"}}
-	est := &fakeEstimation{projection: CostProjectionSeam{
-		CurrentRunRate:       Money{MinorUnits: 1200, Currency: "USD"},
-		ProjectedMonthlyCost: Money{MinorUnits: 36000, Currency: "USD"},
+	est := &fakeEstimation{projection: operationestimation.CostProjection{
+		CurrentRunRate:       operationestimation.Money{MinorUnits: 1200, Currency: "USD"},
+		ProjectedMonthlyCost: operationestimation.Money{MinorUnits: 36000, Currency: "USD"},
 	}}
 	deps.Estimation = est
 	wf := newWorkflows(deps)
@@ -704,9 +725,9 @@ func Test_View_ComposesReads_NoMutation(t *testing.T) {
 	rt.health = operatedruntime.RuntimeStatusHealthy
 	rt.slo = operatedruntime.SloStatus{SloMet: true, Detail: "99.9% / 30d"}
 	us.rangeEvents = []usage.UsageEvent{{OperatedAppID: appID, RuntimeEventID: "e1"}}
-	deps.AutoscalerPolicy = autoscalerPolicy{Mode: AutoscalerModeAuto}
-	deps.Estimation = &fakeEstimation{projection: CostProjectionSeam{
-		CurrentRunRate: Money{MinorUnits: 4120, Currency: "USD"},
+	deps.AutoscalerPolicy = autoscaler.AutoscalerPolicy{Mode: autoscaler.AutoscalerModeAuto}
+	deps.Estimation = &fakeEstimation{projection: operationestimation.CostProjection{
+		CurrentRunRate: operationestimation.Money{MinorUnits: 4120, Currency: "USD"},
 	}}
 	wf := newWorkflows(deps)
 	registerView(env, wf, os, rt, us, ar)

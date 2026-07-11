@@ -1,13 +1,18 @@
 package operations
 
 import (
+	"context"
 	"errors"
 
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
+	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 	fwmgr "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/autoscaler"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/operationestimation"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedruntime"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedsystemstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
@@ -19,22 +24,25 @@ import (
 // Conflict re-read→re-apply loop (§6.5), and the activity-option presets.
 //
 // How the two dependency kinds are reached differs by determinism class:
-//   - The three Engines (Intervention / Autoscaler / Estimation) are PURE,
-//     deterministic, called DIRECTLY in-workflow (no Activity wrapper — replay-safe).
+//   - The three Engines (intervention.InterventionEngine / autoscaler.AutoscalerEngine
+//     / operationestimation.OperationEstimationEngine — the PUBLISHED contracts, no
+//     Manager-local seam) are PURE, deterministic, called DIRECTLY in-workflow (no
+//     Activity wrapper — replay-safe), with fweng.Context{Context: context.Background()}
+//     supplied inline at each call site.
 //   - The ResourceAccess ports (OperatedSystemState / OperatedRuntime / Usage /
 //     Artifacts) are I/O and NON-deterministic; the workflow invokes the Activity
 //     methods on this same struct via workflow.ExecuteActivity (activities.go).
 
 // wfDeps bundles every downstream dependency the operationsManager orchestrates,
 // passed to newWorkflows (from WorkerManifest, workermanifest.go) and held on the
-// Workflows struct. The three Engines are consumer-defined seam interfaces (deps.go),
-// called DIRECTLY in-workflow. The ResourceAccess layer is reached ONLY through the
-// generated typed invoker surface (Acts, invokers.gen.go) — the former RA consumer
-// seams + composition-root adapters are retired.
+// Workflows struct. The three Engines are typed as their PUBLISHED contract interfaces
+// (no Manager-local seam), called DIRECTLY in-workflow. The ResourceAccess layer is
+// reached ONLY through the generated typed invoker surface (Acts, invokers.gen.go) —
+// the former RA consumer seams + composition-root adapters are retired.
 type wfDeps struct {
-	Intervention interventionEngine
-	Autoscaler   autoscalerEngine
-	Estimation   operationEstimationEngine
+	Intervention intervention.InterventionEngine
+	Autoscaler   autoscaler.AutoscalerEngine
+	Estimation   operationestimation.OperationEstimationEngine
 
 	// Acts is the generated workflow-side invoker surface (invokers.gen.go): one
 	// method per ResourceAccess activity, carrying contract types. Its Opts hook
@@ -42,10 +50,18 @@ type wfDeps struct {
 	Acts genInvokers
 
 	// Policy snapshots fed to the Engines by value. In production the Manager reads
-	// them from head-state; held here as the construction-time seam values.
-	InterventionPolicy interventionPolicy
-	AutoscalerPolicy   autoscalerPolicy
-	InfrastructureKind infrastructureKind
+	// them from head-state; held here as the construction-time config values, already
+	// typed as each Engine's own published input (InterventionPolicy is built from the
+	// Manager's raw string SLA-tier config via slaTierFromString at WorkerManifest()
+	// construction time, adapters.go).
+	InterventionPolicy intervention.InterventionPolicy
+	AutoscalerPolicy   autoscaler.AutoscalerPolicy
+	// InfrastructureKind is this Manager's canonical currency for the concept shared
+	// by the autoscaler and estimation Engines — autoscaler.InfrastructureKind, since
+	// AutoscalerPolicy/DesiredState carry it too; infrastructureKindForEstimation
+	// (adapters.go) bridges it onto the estimation Engine's own, independently
+	// generated InfrastructureKind at that one remaining boundary.
+	InfrastructureKind autoscaler.InfrastructureKind
 
 	// CurrentCycleID is the billing cycle the Manager attributes observed usage to
 	// (carried onto the usage events). Held here as the construction-time seam value;
@@ -58,15 +74,15 @@ type wfDeps struct {
 // The RA activities are the generated genActivities (activities.gen.go); this struct
 // reaches them through the typed invokers (Acts).
 type workflows struct {
-	Intervention interventionEngine
-	Autoscaler   autoscalerEngine
-	Estimation   operationEstimationEngine
+	Intervention intervention.InterventionEngine
+	Autoscaler   autoscaler.AutoscalerEngine
+	Estimation   operationestimation.OperationEstimationEngine
 
 	Acts genInvokers
 
-	InterventionPolicy interventionPolicy
-	AutoscalerPolicy   autoscalerPolicy
-	InfrastructureKind infrastructureKind
+	InterventionPolicy intervention.InterventionPolicy
+	AutoscalerPolicy   autoscaler.AutoscalerPolicy
+	InfrastructureKind autoscaler.InfrastructureKind
 	CurrentCycleID     string
 	CustomerID         customerID
 }
@@ -230,36 +246,37 @@ func (wf *workflows) reconcileOne(ctx workflow.Context, app operatedsystemstate.
 		version = v
 		transitioned = true
 
-		directive, derr := wf.Intervention.DecideOnHealth(healthChange{
-			AppID: app.ID,
-			// interventionEngine's healthChange keeps the generated RuntimeStatusSeam
-			// field type (Task 5 scope, untouched); bridge from the canonical
-			// operatedsystemstate.RuntimeStatus via the surviving runtimeStatusFromState.
-			FromStatus: runtimeStatusFromState(app.Status),
-			ToStatus:   runtimeStatusFromState(health),
-			SloMet:     slo.SloMet,
-		}, wf.InterventionPolicy)
+		directive, derr := wf.Intervention.DecideOnHealth(fweng.Context{Context: context.Background()},
+			intervention.HealthChange{
+				OperatedAppID: intervention.OperatedAppID(app.ID.String()),
+				// interventionEngine is reached through its published contract now;
+				// healthStatusFromRuntimeStatus bridges the canonical
+				// operatedsystemstate.RuntimeStatus straight onto intervention.HealthStatus
+				// (collapsing the former two-hop path through this package's own
+				// RuntimeStatusSeam — Task 5).
+				FromHealth: healthStatusFromRuntimeStatus(app.Status),
+				ToHealth:   healthStatusFromRuntimeStatus(health),
+				SLOStatus:  sloStatusFromMet(slo.SloMet),
+				Policy:     wf.InterventionPolicy,
+			})
 		if derr != nil {
 			return false, false, fwmgr.MapError(derr)
 		}
 		switch directive {
-		case healthDirectiveUnknown:
-			// zero-value sentinel, also returned by the intervention adapter on any
-			// engine error or unrecognized engine decision — same "unknown directive"
-			// non-retryable rejection as any other unrecognized value.
-			return false, false, temporal.NewNonRetryableApplicationError(
-				"intervention returned an unknown health directive", "UnknownHealthDirective", nil)
-		case healthDirectiveRetry:
+		case intervention.HealthRetry:
 			// EXECUTE Retry: re-publish prior desired state so the runtime self-heals /
 			// re-converges (content-idempotent — a no-op if unchanged).
 			if perr := wf.publishDesiredState(ctx, app.ID, operatedruntime.RuntimeDesiredState{ContentType: "application/desired-state"}); perr != nil {
 				return false, false, perr
 			}
-		case healthDirectiveEscalate:
+		case intervention.HealthEscalate:
 			// EXECUTE Escalate: surface to the operator (logged; the operator dashboard
 			// reads head-state). No further mutation here.
 			workflow.GetLogger(ctx).Warn("health escalated to operator", "operatedAppId", app.ID.String())
 		default:
+			// intervention.HealthDirective has no Unknown sentinel (HealthRetry is its
+			// zero value) — any value outside {HealthRetry, HealthEscalate} is an
+			// unrecognized engine decision, same non-retryable rejection as before.
 			return false, false, temporal.NewNonRetryableApplicationError(
 				"intervention returned an unknown health directive", "UnknownHealthDirective", nil)
 		}
@@ -267,15 +284,16 @@ func (wf *workflows) reconcileOne(ctx workflow.Context, app operatedsystemstate.
 
 	// --- Path C (autoscale) ---
 	decision, aerr2 := wf.Autoscaler.ProposeDesiredState(
-		telemetry{CurrentReplicas: 0},
-		autoscalerDesiredState{InfrastructureKind: wf.InfrastructureKind},
+		fweng.Context{Context: context.Background()},
+		autoscaler.Telemetry{CurrentReplicas: 0},
+		autoscaler.DesiredState{InfrastructureKind: wf.InfrastructureKind},
 		wf.AutoscalerPolicy,
 		wf.InfrastructureKind,
 	)
 	if aerr2 != nil {
 		return transitioned, false, fwmgr.MapError(aerr2)
 	}
-	if decision.Action == AutoscaleNoChange {
+	if decision.Kind == autoscaler.DecisionNoChange {
 		return transitioned, false, nil
 	}
 
@@ -379,14 +397,15 @@ func (wf *workflows) CostProjectionWorkflow(ctx workflow.Context, in costProject
 	}
 
 	projection, perr := wf.Estimation.ProjectForOperatedApp(
-		observedUsage{Events: events},
-		wf.InfrastructureKind,
-		in.ScaleWhatIfPoints,
+		fweng.Context{Context: context.Background()},
+		observedUsageFromEvents(events),
+		infrastructureKindForEstimation(wf.InfrastructureKind),
+		scalePointsToEstimation(in.ScaleWhatIfPoints),
 	)
 	if perr != nil {
 		return costProjection{}, fwmgr.MapError(perr)
 	}
-	return projection, nil
+	return costProjectionFromEstimation(projection), nil
 }
 
 // ===========================================================================
@@ -440,8 +459,9 @@ func (wf *workflows) ViewWorkflow(ctx workflow.Context, in viewInput) (OperatedS
 		return OperatedSystemView{}, uerr
 	}
 	projection, perr := wf.Estimation.ProjectForOperatedApp(
-		observedUsage{Events: events},
-		wf.InfrastructureKind,
+		fweng.Context{Context: context.Background()},
+		observedUsageFromEvents(events),
+		infrastructureKindForEstimation(wf.InfrastructureKind),
 		nil, // run-rate only
 	)
 	if perr != nil {
@@ -473,12 +493,15 @@ func (wf *workflows) ViewWorkflow(ctx workflow.Context, in viewInput) (OperatedS
 		// single RA read today (Construction-note follow-up); surfaced empty.
 		RecentEvents: nil,
 		Autoscaler: AutoscalerView{
-			Mode: wf.AutoscalerPolicy.Mode,
+			// autoscalerModeFromEngine bridges the Engine's own AutoscalerMode (its
+			// values genuinely diverge from this package's façade AutoscalerMode) onto
+			// the façade's Auto/Manual/Unknown vocabulary.
+			Mode: autoscalerModeFromEngine(wf.AutoscalerPolicy.Mode),
 			// Decisions: not retrievable from a single frozen RA read today
 			// (Construction-note follow-up); surfaced empty.
 			Decisions: nil,
 		},
-		CurrentRunRate: projection.CurrentRunRate,
+		CurrentRunRate: moneyFromEstimation(projection.CurrentRunRate),
 	}
 	return view, nil
 }
@@ -563,27 +586,32 @@ func (wf *workflows) recordFinalUsage(ctx workflow.Context, appID operatedAppID,
 	return err
 }
 
-// readUsageRange invokes usageAccess.readRange (pure read) and folds the contract
-// events into the Manager-local seam the estimation Engine consumes. Task 4: the former
-// Manager-local usageRangeQuerySeam mirror is retired (query IS the contract type now);
-// usageEventSeam stays — it is operationEstimationEngine's input shape (Task 5 scope).
-func (wf *workflows) readUsageRange(ctx workflow.Context, query usage.UsageRangeQuery) ([]usageEventSeam, error) {
-	events, err := wf.Acts.UsageReadRange(ctx, query)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]usageEventSeam, 0, len(events))
+// readUsageRange invokes usageAccess.readRange (pure read). Task 4 retired the former
+// Manager-local usageRangeQuerySeam mirror (query IS the contract type now); Task 5
+// retired usageEventSeam (its only remaining role was operationEstimationEngine's seam
+// input shape) — the result now passes straight through with no fold;
+// observedUsageFromEvents aggregates it directly into the Engine's published
+// ObservedUsage input at the call site.
+func (wf *workflows) readUsageRange(ctx workflow.Context, query usage.UsageRangeQuery) ([]usage.UsageEvent, error) {
+	return wf.Acts.UsageReadRange(ctx, query)
+}
+
+// observedUsageFromEvents aggregates the workflow's read usage.UsageEvent range into
+// operationEstimationEngine's published ObservedUsage input (ComputeUnitSeconds =
+// Σ Units.Amount, RequestCount = len(events)) — the real folding operation the former
+// estimationAdapter performed, kept alongside billing's foldRevenue/foldUsage
+// precedent (workflow-owned aggregation, not a boundary adapter). StorageBytesMonths /
+// EgressBytes / ObservedReplicas are not sourced by any RA read today (same as before
+// Task 5); left zero.
+func observedUsageFromEvents(events []usage.UsageEvent) operationestimation.ObservedUsage {
+	var computeUnitSeconds float64
 	for _, e := range events {
-		out = append(out, usageEventSeam{
-			OperatedAppID:  e.OperatedAppID,
-			CustomerID:     e.CustomerID,
-			CycleID:        string(e.CycleID),
-			Units:          computeUnitsSeam{Amount: e.Units.Amount, Unit: e.Units.Unit},
-			RuntimeEventID: string(e.RuntimeEventID),
-			ObservedAt:     e.OccurredAt,
-		})
+		computeUnitSeconds += e.Units.Amount
 	}
-	return out, nil
+	return operationestimation.ObservedUsage{
+		ComputeUnitSeconds: computeUnitSeconds,
+		RequestCount:       int64(len(events)),
+	}
 }
 
 // usageEvent assembles one contract UsageEvent from an observed attribution. The
@@ -603,9 +631,10 @@ func (wf *workflows) usageEvent(ctx workflow.Context, appID operatedAppID, attri
 // recordPublishDesiredState applies the head-state desired-state transition with the
 // Conflict loop (§6.5). decision is carried only for reason=autoscale. Task 4: seed/
 // return now speak operatedsystemstate.Version directly (the former Manager-local
-// version mirror is retired); decision stays *autoscaleDecisionSeam (autoscalerEngine's
-// output shape, Task 5 scope) — autoscaleDecisionToState is left untouched (engine-side).
-func (wf *workflows) recordPublishDesiredState(ctx workflow.Context, appID operatedAppID, seed operatedsystemstate.Version, reason DesiredStateReason, decision *autoscaleDecisionSeam) (operatedsystemstate.Version, error) {
+// version mirror is retired). Task 5: decision is now the published *autoscaler.Decision
+// (the seam autoscaleDecisionSeam is retired) — autoscaleDecisionToState (adapters.go)
+// bridges it straight to operatedsystemstate.AutoscaleDecision.
+func (wf *workflows) recordPublishDesiredState(ctx workflow.Context, appID operatedAppID, seed operatedsystemstate.Version, reason DesiredStateReason, decision *autoscaler.Decision) (operatedsystemstate.Version, error) {
 	return wf.applyRecovering(ctx, appID, seed, func(expected operatedsystemstate.Version) (operatedsystemstate.Version, error) {
 		return wf.Acts.OperatedSystemStatePublishDesiredState(ctx, appID,
 			expected,

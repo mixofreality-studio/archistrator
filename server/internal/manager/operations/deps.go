@@ -2,44 +2,31 @@ package operations
 
 import (
 	"context"
-	"time"
 
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
 )
 
 // This file declares the Manager's CONSUMER-SIDE dependency interfaces (the Go
-// "accept interfaces" idiom). Per the senior hand-off, MOST of operationsManager's
-// collaborators are not yet built as Go packages (their own C-* construction
-// activities have not run), so this Manager is built against their FROZEN CONTRACTS
-// as interfaces it declares here, and unit-tested with fakes:
+// "accept interfaces" idiom) for the collaborators that are NOT yet built as Go
+// packages, plus the narrow consumer seams for the two that exist but whose frozen
+// verb isn't on them yet:
 //
-//   - OperatedSystemStateAccess — operatedSystemStateAccess.md §2/§3 (FROZEN; not yet built)
-//   - OperatedRuntimeAccess     — operatedRuntimeAccess.md §2/§3 (FROZEN; not yet built)
-//   - UsageAccess               — usageAccess.md §2/§3 (FROZEN; not yet built)
-//   - InterventionEngine        — interventionEngine.md §2.2 (FROZEN; not yet built)
-//   - AutoscalerEngine          — autoscalerEngine.md §2.1 (FROZEN; not yet built)
-//   - OperationEstimationEngine — operationEstimationEngine.md §2.2 (FROZEN; not yet built)
-//
-// The collaborators that DO exist as Go packages are consumed via narrow consumer
-// interfaces declared here so the test fakes stay small:
-//
-//   - ArtifactAccess            — exists as internal/resourceaccess/artifact, BUT the
+//   - ArtifactAccess         — exists as internal/resourceaccess/artifact, BUT the
 //     frozen retrieveDeployableBundle verb is NOT yet on the package (it currently
 //     has RetrieveConstructionOutput). Consumed here via a NARROW seam interface
 //     mirroring the frozen verb; the composition root adapts the concrete *artifact.Store
 //     once that verb lands (escalation E-1 in C-MOP.md).
-//   - DurableExecutionAccess    — exists as internal/resourceaccess/durableexecution;
+//   - DurableExecutionAccess — exists as internal/resourceaccess/durableexecution;
 //     only RegisterSchedule is a contract op this Manager calls (at startup). The
 //     in-workflow primitives (awaitSignal / startTimer) are the Manager's OWN
 //     workflow code (D-DA category A), NOT RA methods — they live in workflow.go /
 //     operationsmanager.go.
 //
-// The data types each not-yet-built Engine/RA exchanges are declared here in the
-// Manager-local SEAM form mirroring the frozen contract, suffixed "Seam" where the
-// owning package will later own the canonical type. When the owner ships, these
-// local mirrors are deleted and the import substituted; no public façade op changes
-// (operationsManager.md OQ-3). This keeps the Method discipline "models live in
-// their owning RA/Engine" intact.
+// operatedSystemStateAccess, operatedRuntimeAccess, and usageAccess are reached ONLY
+// through the generated typed invokers (invokers.gen.go); interventionEngine,
+// autoscalerEngine, and operationEstimationEngine are reached through their PUBLISHED
+// contracts directly (workflow.go) — see the retirement note at the end of this file.
+// No Manager-local mirror remains for any of the six.
 
 // ===========================================================================
 // operatedSystemStateAccess — reached ONLY through the generated typed invokers
@@ -50,10 +37,12 @@ import (
 // delinquencyAction, version) — the workflow now speaks operatedsystemstate.* directly;
 // no fold happens at the RA boundary. RuntimeStatusSeam (this package's OWN generated
 // façade enum, contract.gen.go) is NOT one of those mirrors — it stays, because it is
-// also the public OperatedSystemView/HealthSnapshotView field type and the
-// interventionEngine healthChange field type (Task 5 scope); adapters.go keeps ONE
-// surviving converter (runtimeStatusFromState) to bridge operatedsystemstate.RuntimeStatus
-// into it at those two boundaries.
+// also the public OperatedSystemView/HealthSnapshotView field type; adapters.go keeps
+// runtimeStatusFromState to bridge operatedsystemstate.RuntimeStatus into it at that
+// façade boundary. Task 5 retired the OTHER caller of runtimeStatusFromState (the
+// interventionEngine healthChange boundary) — that hop now goes straight from
+// operatedsystemstate.RuntimeStatus to intervention.HealthStatus (healthStatusFromRuntimeStatus,
+// adapters.go), since the engine is reached through its published contract now.
 // ===========================================================================
 
 // ===========================================================================
@@ -61,40 +50,22 @@ import (
 // operatedSystemStateAccess note above). Task 4 retired the Manager-local mirrors that
 // duplicated its shapes 1:1 (runtimeDesiredState, sloStatusSeam, computeAttribution) —
 // the workflow now speaks operatedruntime.RuntimeDesiredState / SloStatus /
-// ComputeAttribution directly. computeUnitsSeam (below) is NOT retired: it is also the
-// estimation Engine's input shape (usageEventSeam.Units, Task 5 scope).
+// ComputeAttribution directly. Task 5 retired computeUnitsSeam (it was kept alive only
+// as operationEstimationEngine's seam input shape via usageEventSeam below; the engine
+// is now reached through its published contract, whose ObservedUsage the workflow
+// builds directly from usage.UsageEvent — see observedUsageFromEvents, workflow.go).
 // ===========================================================================
-
-// computeUnitsSeam mirrors operatedRuntimeAccess.md / usageAccess.md §3 ComputeUnits
-// — an infrastructure-neutral metered quantity (never priced, never a cloud lexeme).
-// Kept (not retired in Task 4): it is also operationEstimationEngine's input shape via
-// usageEventSeam.Units below (Task 5 scope — Engine mirror types are untouched here).
-type computeUnitsSeam struct {
-	Amount float64
-	Unit   string
-}
 
 // ===========================================================================
 // usageAccess — reached ONLY through the generated typed invokers (see the
 // operatedSystemStateAccess note above). Task 4 retired usageRangeQuerySeam (an exact
 // 1:1 mirror of usage.UsageRangeQuery with no other consumer) — the workflow now builds
-// usage.UsageRangeQuery directly. usageEventSeam is NOT retired: despite its doc comment
-// naming usageAccess.UsageEvent as the type it mirrors, its ACTUAL role today is
-// operationEstimationEngine's input shape (observedUsage.Events below, Task 5 scope) —
-// deliberately narrower than usage.UsageEvent (no RawMeter/window fields), so it is left
-// untouched per the Task 4 brief's "if one is engine-side, leave for Task 5" rule.
+// usage.UsageRangeQuery directly. Task 5 retired usageEventSeam — its only remaining
+// role was operationEstimationEngine's (seam) input shape; readUsageRange (workflow.go)
+// now returns []usage.UsageEvent straight from the generated invoker with no fold, and
+// observedUsageFromEvents (workflow.go) aggregates it directly into the published
+// operationestimation.ObservedUsage the Engine consumes.
 // ===========================================================================
-
-// usageEventSeam mirrors usageAccess.md §3 UsageEvent — one observed compute-usage
-// fact carrying its runtime-supplied dedup id.
-type usageEventSeam struct {
-	OperatedAppID  operatedAppID
-	CustomerID     customerID
-	CycleID        string
-	Units          computeUnitsSeam
-	RuntimeEventID string
-	ObservedAt     time.Time
-}
 
 // ===========================================================================
 // artifactAccess — EXISTS as a Go package (internal/resourceaccess/artifact) but the
@@ -146,154 +117,39 @@ type scheduleSpec struct {
 }
 
 // ===========================================================================
-// interventionEngine — FROZEN, NOT YET BUILT. Consumer interface + local mirrors of
-// the operate-time verb (interventionEngine.md §2.2 decideOnHealth). DECIDE →
-// the Manager EXECUTES. Pure, deterministic, called DIRECTLY in-workflow (no
-// Activity, no idempotency key, imports no Temporal).
+// interventionEngine / autoscalerEngine / operationEstimationEngine — RETIRED. The
+// consumer-seam interfaces AND their local data mirrors (healthChange,
+// interventionPolicy, healthDirective + its consts, telemetry, autoscalerDesiredState,
+// autoscalerPolicy, infrastructureKind + its const, autoscaleDecisionSeam,
+// computeUnitsSeam, usageEventSeam, observedUsage) are retired — the workflow reaches
+// all three Engines through their PUBLISHED contracts (intervention.InterventionEngine
+// / autoscaler.AutoscalerEngine / operationestimation.OperationEstimationEngine, each
+// component's contract.gen.go), called DIRECTLY in-workflow by value (no Activity, no
+// idempotency key, imports no Temporal), with
+// fweng.Context{Context: context.Background()} supplied inline at each call site
+// (workflow.go). adapters.go keeps the REAL divergence bridges that remain:
+//   - healthStatusFromRuntimeStatus — operatedsystemstate.RuntimeStatus (5 values) to
+//     intervention.HealthStatus (4 values); genuinely different enums, one hop
+//     (collapsing the former two-hop path through this package's own RuntimeStatusSeam).
+//   - slaTierFromString — the Manager's raw string SLA-tier config (no typed config
+//     source is wired yet) to intervention.SLATier.
+//   - autoscalerModeFromEngine — autoscaler.AutoscalerMode (Auto=0/Manual=1, no Unknown)
+//     to this package's OWN façade AutoscalerMode (Unknown=0/Auto=1/Manual=2) for the
+//     OperatedSystemView façade output; genuinely divergent VALUES, not just names.
+//   - autoscaleActionToState — autoscaler.DecisionKind straight to
+//     operatedsystemstate.AutoscaleAction (collapsing the former two-hop path through
+//     this package's own façade AutoscaleAction).
+//   - infrastructureKindForEstimation — autoscaler.InfrastructureKind (this Manager's
+//     canonical config currency, since autoscalerPolicy/DesiredState carry it too) to
+//     operationestimation.InfrastructureKind; two independently generated enums that
+//     happen to share values today.
+//   - moneyFromEstimation / whatIfCurveFromEstimation / scalePointsToEstimation —
+//     the façade's OWN generated Money/WhatIfCurve/WhatIfPoint/ScalePoint
+//     (contract.gen.go) are genuinely distinct types from operationestimation's (the
+//     façade's WhatIfPoint/ScalePoint carry Replicas int64; the engine's carry
+//     LoadMultiplier float64 — a real unit divergence, not a rename).
+//
+// observedUsageFromEvents (workflow.go) is the real aggregation (Σ Units.Amount, count)
+// that folds the usage RA's read range into the Engine's ObservedUsage input — kept
+// alongside billing's foldRevenue/foldUsage precedent, not an identity mirror.
 // ===========================================================================
-
-// interventionEngine mirrors interventionEngine.md §2.2 — the operate-time health
-// intervention decision. The Engine DECIDES; the Manager EXECUTES. UNEXPORTED seam;
-// the folded adapter bridges the published intervention.InterventionEngine to it
-// (folding the policy into the published HealthChange.Policy).
-type interventionEngine interface {
-	DecideOnHealth(change healthChange, policy interventionPolicy) (healthDirective, error)
-}
-
-// healthChange mirrors interventionEngine.md §3 — the observed health/SLO transition.
-type healthChange struct {
-	AppID      operatedAppID
-	FromStatus RuntimeStatusSeam
-	ToStatus   RuntimeStatusSeam
-	SloMet     bool
-}
-
-// interventionPolicy mirrors interventionEngine.md §3 — the committed intervention
-// policy snapshot, fed BY VALUE. The casting RULE is package-internal to the Engine.
-type interventionPolicy struct {
-	RetryBudget int
-	SLATier     string
-}
-
-// healthDirective mirrors interventionEngine.md §2.2/§3 — the Engine's decision
-// {Retry | Escalate}.
-type healthDirective int
-
-const (
-	// healthDirectiveUnknown is the zero value.
-	healthDirectiveUnknown healthDirective = iota
-	// healthDirectiveRetry: no human action — re-observe / let the runtime self-heal;
-	// the Manager records the status change and re-publishes prior desired state.
-	healthDirectiveRetry
-	// healthDirectiveEscalate: page the operator — the Manager surfaces it.
-	healthDirectiveEscalate
-)
-
-// ===========================================================================
-// autoscalerEngine — FROZEN, NOT YET BUILT. Consumer interface + local mirrors of
-// proposeDesiredState (autoscalerEngine.md §2.1). Pure, deterministic, direct
-// in-workflow. DECIDE → the Manager EXECUTES (renders revised manifests, publishes).
-// ===========================================================================
-
-// autoscalerEngine mirrors autoscalerEngine.md §2.1 — the autoscale decision. The
-// Engine DECIDES; the Manager EXECUTES a republish on a non-NoChange decision.
-// UNEXPORTED seam; the folded adapter bridges the published autoscaler.AutoscalerEngine.
-type autoscalerEngine interface {
-	ProposeDesiredState(telemetry telemetry, currentDesired autoscalerDesiredState, policy autoscalerPolicy, infrastructureKind infrastructureKind) (autoscaleDecisionSeam, error)
-}
-
-// telemetry mirrors autoscalerEngine.md §3 — the observed load snapshot the Manager
-// assembles from the Path B reads.
-type telemetry struct {
-	RequestsPerSecond float64
-	P95LatencyMs      float64
-	CurrentReplicas   int
-	CPUUtilization    float64
-}
-
-// autoscalerDesiredState mirrors autoscalerEngine.md §3 DesiredState — the current
-// desired state the autoscaler compares against (Replicas=0 ⇒ paused).
-type autoscalerDesiredState struct {
-	InfrastructureKind infrastructureKind
-	Replicas           int
-}
-
-// autoscalerPolicy mirrors autoscalerEngine.md §3 — the customer-tunable autoscaler
-// policy (fed by value; the casting RULE is package-internal).
-type autoscalerPolicy struct {
-	Kind             infrastructureKind
-	Mode             AutoscalerMode
-	MinReplicas      int
-	BaselineReplicas int
-}
-
-// AutoscalerMode mirrors autoscalerEngine.md §3 — Auto | Manual (manual ⇒ NoChange).
-
-// AutoscalerModeUnknown is the zero value.
-
-// AutoscalerModeAuto enables the decision.
-
-// AutoscalerModeManual ⇒ the Engine always returns NoChange.
-
-// infrastructureKind mirrors autoscalerEngine.md / operationEstimationEngine.md §3 —
-// the opaque infrastructure discriminator (CustomerAppInfrastructure volatility).
-type infrastructureKind int
-
-const (
-	// the zero value.
-	_ infrastructureKind = iota
-	// infrastructureKindGoTemporalPostgres is the launch infrastructure.
-	infrastructureKindGoTemporalPostgres
-)
-
-// AutoscaleAction mirrors autoscalerEngine.md §3 Decision — the closed decision set.
-
-// AutoscaleNoChange is the no-op decision (the common quiet-tick outcome).
-
-// AutoscaleScaleUp increments replicas by Delta.
-
-// AutoscaleScaleDown decrements replicas by Delta.
-
-// AutoscalePause idle-pauses (publish replicas=0).
-
-// AutoscaleResume resumes from zero to ToBaseline.
-
-// autoscaleDecisionSeam mirrors autoscalerEngine.md §3 Decision — the sum-type the
-// Engine returns. Delta is bounded by the policy on ScaleUp/ScaleDown; ToBaseline is
-// the resume-from-zero target.
-type autoscaleDecisionSeam struct {
-	Action     AutoscaleAction
-	Delta      int
-	ToBaseline int
-}
-
-// ===========================================================================
-// operationEstimationEngine — FROZEN, NOT YET BUILT. Consumer interface + local
-// mirrors of projectForOperatedApp (operationEstimationEngine.md §2.2). Pure,
-// deterministic, direct in-workflow (read-only path). DECIDE / project, no mutation.
-// ===========================================================================
-
-// operationEstimationEngine mirrors operationEstimationEngine.md §2.2 — the op-time
-// read-side cost projection. Pure; no mutation. UNEXPORTED seam; the folded adapter
-// bridges the published operationestimation.OperationEstimationEngine to it
-// (aggregating the seam's usage events into the published ObservedUsage shape).
-type operationEstimationEngine interface {
-	ProjectForOperatedApp(observedUsage observedUsage, infrastructureKind infrastructureKind, scaleWhatIfPoints []ScalePoint) (CostProjectionSeam, error)
-}
-
-// observedUsage mirrors operationEstimationEngine.md §3 — the observed-usage snapshot
-// the Manager populates from usageAccess.readRange(operatedAppId, lastCycle).
-type observedUsage struct {
-	Events []usageEventSeam
-}
-
-// Money mirrors operationEstimationEngine.md §3 Money — an infrastructure-neutral
-// monetary amount (minor units + currency).
-
-// WhatIfPoint mirrors operationEstimationEngine.md §3 — one projected cost point.
-
-// WhatIfCurve mirrors operationEstimationEngine.md §3 — the projected-cost curve.
-
-// CostProjectionSeam mirrors operationEstimationEngine.md §3 CostProjection — the
-// op-time projection returned by QueryCostProjection (re-exported as the façade
-// CostProjection in contract.go).

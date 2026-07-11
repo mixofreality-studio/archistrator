@@ -1,26 +1,32 @@
 package operations
 
 // adapters.go holds the FOLDED composition-root adapters that bridge the published
-// engine / ResourceAccess interfaces (the dependencies the GENERATED constructor
+// ResourceAccess interfaces (the dependencies the GENERATED constructor
 // NewOperationsManager receives) to the Manager's unexported downstream seams
-// (deps.go). Per the founder DI model (2026-06-28) these were retired from cmd/server
-// and live HERE, in the one package that knows both sides — the Manager depends on
-// each dependency's PUBLISHED interface and adapts it internally (Option-B boundary
-// mapping), exactly as construction/systemdesign/projectdesign fold their adapters.
+// (deps.go), plus the REAL Engine-contract divergence bridges (healthStatusFromRuntimeStatus,
+// slaTierFromString, autoscalerModeFromEngine, autoscaleActionToState,
+// infrastructureKindForEstimation, moneyFromEstimation, whatIfCurveFromEstimation,
+// scalePointsToEstimation). Per the founder DI model (2026-06-28) these were retired
+// from cmd/server and live HERE, in the one package that knows both sides — the
+// Manager depends on each dependency's PUBLISHED interface and adapts it internally
+// (Option-B boundary mapping), exactly as construction/systemdesign/projectdesign fold
+// their adapters.
 //
 // None of these imports Temporal (the Manager owns it); they are plain value-copy
-// bridges run inside the Manager's Activities (RA seams) or directly in-workflow
-// (Engine seams). The mechanical enum/struct copies map by IDENTITY (an explicit
-// switch), not by raw int, so a future re-order on either side is safe. The published
-// op-state types are RICHER than the Manager-local seams (extra telemetry/policy
-// fields); the unset fields default to zero — the operations Worker carries no policy
-// config yet, and the stub RAs return not-implemented at runtime regardless.
+// bridges run inside the Manager's Activities (RA seams). The three Engines
+// (intervention.InterventionEngine / autoscaler.AutoscalerEngine /
+// operationestimation.OperationEstimationEngine) have NO adapter — the workflow calls
+// their published contracts directly (workflow.go). The mechanical enum/struct copies
+// map by IDENTITY (an explicit switch), not by raw int, so a future re-order on either
+// side is safe. Where the published shape is RICHER than the Manager-local config
+// (extra telemetry/policy fields) the unset fields default to zero — the operations
+// Worker carries no further policy config yet, and the stub RAs return
+// not-implemented at runtime regardless.
 
 import (
 	"context"
 	"time"
 
-	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/autoscaler"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
@@ -39,16 +45,19 @@ import (
 // are deleted). The two converters below are NOT fold-boundary artifacts — each bridges
 // operatedsystemstate.RuntimeStatus to a genuinely distinct GENERATED type this package
 // does not own outright: DesiredStateReason (this package's own façade input type) and
-// RuntimeStatusSeam (this package's own façade output type / the untouched Task-5
-// interventionEngine healthChange field type).
+// RuntimeStatusSeam (this package's own façade output type, the OperatedSystemView /
+// HealthSnapshotView field type).
 // ===========================================================================
 
 // runtimeStatusFromState bridges operatedsystemstate.RuntimeStatus to this package's
 // generated RuntimeStatusSeam (contract.gen.go) — used at the OperatedSystemView façade
-// boundary (ViewWorkflow) and the interventionEngine healthChange boundary (reconcileOne,
-// Task 5 territory). Kept as an explicit switch (not a raw int cast) per the composition
-// root's mapping convention: RuntimeStatusSeam is a legitimately separate generated enum
-// from operatedsystemstate.RuntimeStatus, even though their values line up today.
+// boundary (ViewWorkflow). Kept as an explicit switch (not a raw int cast) per the
+// composition root's mapping convention: RuntimeStatusSeam is a legitimately separate
+// generated enum from operatedsystemstate.RuntimeStatus, even though their values line
+// up today. Task 5 retired its OTHER former caller (the interventionEngine healthChange
+// boundary) — see healthStatusFromRuntimeStatus below, which goes straight from
+// operatedsystemstate.RuntimeStatus to intervention.HealthStatus now that the Engine is
+// reached through its published contract.
 func runtimeStatusFromState(s operatedsystemstate.RuntimeStatus) RuntimeStatusSeam {
 	switch s {
 	case operatedsystemstate.RuntimeStatusUnknown:
@@ -85,38 +94,46 @@ func desiredStateReasonToState(r DesiredStateReason) operatedsystemstate.Desired
 	}
 }
 
-func autoscaleActionToState(a AutoscaleAction) operatedsystemstate.AutoscaleAction {
-	switch a {
-	case AutoscaleNoChange:
-		// no-op action, nothing to do — explicit mapping to the state package's own
+// autoscaleActionToState bridges the autoscaler Engine's own DecisionKind straight to
+// operatedsystemstate's persisted AutoscaleAction — two independently generated enums
+// that happen to share order/values today (an explicit switch, not a raw cast, so a
+// future re-order on either side stays safe). Task 5 collapsed the former two-hop path
+// (autoscaler.DecisionKind -> this package's own façade AutoscaleAction ->
+// operatedsystemstate.AutoscaleAction) into this one direct converter, now that the
+// Engine is reached through its published contract and no longer folds its decision
+// into the façade's own enum along the way.
+func autoscaleActionToState(k autoscaler.DecisionKind) operatedsystemstate.AutoscaleAction {
+	switch k {
+	case autoscaler.DecisionNoChange:
+		// no-op decision, nothing to do — explicit mapping to the state package's own
 		// no-op constant.
 		return operatedsystemstate.AutoscaleNoChange
-	case AutoscaleScaleUp:
+	case autoscaler.DecisionScaleUp:
 		return operatedsystemstate.AutoscaleScaleUp
-	case AutoscaleScaleDown:
+	case autoscaler.DecisionScaleDown:
 		return operatedsystemstate.AutoscaleScaleDown
-	case AutoscalePause:
+	case autoscaler.DecisionPause:
 		return operatedsystemstate.AutoscalePause
-	case AutoscaleResume:
+	case autoscaler.DecisionResume:
 		return operatedsystemstate.AutoscaleResume
 	default:
 		return operatedsystemstate.AutoscaleNoChange
 	}
 }
 
-func autoscaleDecisionToState(d *autoscaleDecisionSeam) *operatedsystemstate.AutoscaleDecision {
+func autoscaleDecisionToState(d *autoscaler.Decision) *operatedsystemstate.AutoscaleDecision {
 	if d == nil {
 		return nil
 	}
 	return &operatedsystemstate.AutoscaleDecision{
-		Action:     autoscaleActionToState(d.Action),
-		Delta:      int64(d.Delta),
-		ToBaseline: int64(d.ToBaseline),
+		Action:     autoscaleActionToState(d.Kind),
+		Delta:      d.Delta,
+		ToBaseline: d.ToBaseline,
 	}
 }
 
 // ===========================================================================
-// operatedRuntimeAccess contract -> operatedsystemstate contract converter (the
+// operatedRuntimeAccess -> operatedsystemstate contract converter (the
 // operatedRuntimeAdapter struct is retired; see the operatedSystemStateAccess note).
 // DIVERGENT survivor (Task 4): operatedruntime.RuntimeStatus and
 // operatedsystemstate.RuntimeStatus are two RAs' independently generated enums that
@@ -167,58 +184,40 @@ func (a durableAdapter) RegisterSchedule(ctx context.Context, spec scheduleSpec)
 }
 
 // ===========================================================================
-// interventionEngine adapter — over intervention.InterventionEngine (operate-time
-// DecideOnHealth). The seam's policy is folded into the published HealthChange.Policy.
+// interventionEngine — REAL divergence bridges. The workflow calls the published
+// intervention.InterventionEngine.DecideOnHealth DIRECTLY (workflow.go), with
+// fweng.Context{Context: context.Background()} supplied inline at the call site.
 // ===========================================================================
 
-type interventionAdapter struct {
-	inner intervention.InterventionEngine
-}
-
-var _ interventionEngine = interventionAdapter{}
-
-func (a interventionAdapter) DecideOnHealth(change healthChange, policy interventionPolicy) (healthDirective, error) {
-	d, err := a.inner.DecideOnHealth(fweng.Context{Context: context.Background()}, intervention.HealthChange{
-		OperatedAppID: intervention.OperatedAppID(change.AppID.String()),
-		FromHealth:    healthStatusFromSeam(change.FromStatus),
-		ToHealth:      healthStatusFromSeam(change.ToStatus),
-		SLOStatus:     sloStatusFromMet(change.SloMet),
-		Policy:        interventionPolicyToEngine(policy),
-	})
-	if err != nil {
-		return healthDirectiveUnknown, err
-	}
-	switch d {
-	case intervention.HealthRetry:
-		return healthDirectiveRetry, nil
-	case intervention.HealthEscalate:
-		return healthDirectiveEscalate, nil
-	default:
-		return healthDirectiveUnknown, nil
-	}
-}
-
-func healthStatusFromSeam(s RuntimeStatusSeam) intervention.HealthStatus {
+// healthStatusFromRuntimeStatus bridges operatedsystemstate.RuntimeStatus (5 values)
+// straight to intervention.HealthStatus (4 values, no Withdrawn/Pending split) — two
+// genuinely different generated enums, one hop. Task 5 collapsed the former two-hop
+// path (operatedsystemstate.RuntimeStatus -> this package's own RuntimeStatusSeam ->
+// intervention.HealthStatus) now that the Engine is reached through its published
+// contract and no longer folds through the façade's own enum along the way.
+func healthStatusFromRuntimeStatus(s operatedsystemstate.RuntimeStatus) intervention.HealthStatus {
 	switch s {
-	case RuntimeStatusUnknown:
+	case operatedsystemstate.RuntimeStatusUnknown:
 		// zero-value sentinel — health not yet known, same bucket as intervention's own
 		// HealthUnknown.
 		return intervention.HealthUnknown
-	case RuntimeStatusPending:
+	case operatedsystemstate.RuntimeStatusPending:
 		// not yet observed as healthy/degraded/withdrawn — health not yet known, same
 		// bucket as intervention's own HealthUnknown.
 		return intervention.HealthUnknown
-	case RuntimeStatusHealthy:
+	case operatedsystemstate.RuntimeStatusHealthy:
 		return intervention.HealthHealthy
-	case RuntimeStatusDegraded:
+	case operatedsystemstate.RuntimeStatusDegraded:
 		return intervention.HealthDegraded
-	case RuntimeStatusWithdrawn:
+	case operatedsystemstate.RuntimeStatusWithdrawn:
 		return intervention.HealthUnhealthy
 	default:
 		return intervention.HealthUnknown
 	}
 }
 
+// sloStatusFromMet folds the workflow's observed SLO-met bool onto intervention's own
+// SLOStatus enum (a real, non-identity conversion — bool has no "shape" to mirror).
 func sloStatusFromMet(met bool) intervention.SLOStatus {
 	if met {
 		return intervention.SLOWithinBudget
@@ -226,13 +225,11 @@ func sloStatusFromMet(met bool) intervention.SLOStatus {
 	return intervention.SLOOutOfBudget
 }
 
-func interventionPolicyToEngine(p interventionPolicy) intervention.InterventionPolicy {
-	return intervention.InterventionPolicy{
-		RetryBudget: int64(p.RetryBudget),
-		SLATier:     slaTierFromString(p.SLATier),
-	}
-}
-
+// slaTierFromString resolves the Manager's raw string SLA-tier config (no typed config
+// source is wired yet — the operations Worker carries no policy config today) onto
+// intervention.SLATier. Kept as a genuine config -> engine-input builder (not an
+// identity seam mirror): unlike the retired local interventionPolicy struct, there is
+// no shadow SLATier enum on this side to eliminate — the source really is a string.
 func slaTierFromString(s string) intervention.SLATier {
 	switch s {
 	case "paid":
@@ -245,144 +242,78 @@ func slaTierFromString(s string) intervention.SLATier {
 }
 
 // ===========================================================================
-// autoscalerEngine adapter — over autoscaler.AutoscalerEngine.
+// autoscalerEngine — REAL divergence bridge. The workflow calls the published
+// autoscaler.AutoscalerEngine.ProposeDesiredState DIRECTLY (workflow.go); its
+// AutoscalerPolicy/DesiredState/InfrastructureKind inputs are already the Manager's
+// own config currency (wfDeps), so no adapter is needed on the way IN. Only the way
+// OUT to the OperatedSystemView façade needs a bridge (the façade owns its own
+// AutoscalerMode with divergent values).
 // ===========================================================================
 
-type autoscalerAdapter struct {
-	inner autoscaler.AutoscalerEngine
-}
-
-var _ autoscalerEngine = autoscalerAdapter{}
-
-func (a autoscalerAdapter) ProposeDesiredState(telemetry telemetry, currentDesired autoscalerDesiredState, policy autoscalerPolicy, infrastructureKind infrastructureKind) (autoscaleDecisionSeam, error) {
-	d, err := a.inner.ProposeDesiredState(
-		fweng.Context{Context: context.Background()},
-		autoscaler.Telemetry{
-			RequestsPerSecond: telemetry.RequestsPerSecond,
-			P95LatencyMs:      telemetry.P95LatencyMs,
-			CurrentReplicas:   int64(telemetry.CurrentReplicas),
-			CPUUtilization:    telemetry.CPUUtilization,
-		},
-		autoscaler.DesiredState{
-			InfrastructureKind: infraKindToAutoscaler(currentDesired.InfrastructureKind),
-			Replicas:           int64(currentDesired.Replicas),
-		},
-		autoscaler.AutoscalerPolicy{
-			Kind:             infraKindToAutoscaler(policy.Kind),
-			Mode:             autoscalerModeToEngine(policy.Mode),
-			MinReplicas:      int64(policy.MinReplicas),
-			BaselineReplicas: int64(policy.BaselineReplicas),
-		},
-		infraKindToAutoscaler(infrastructureKind),
-	)
-	if err != nil {
-		return autoscaleDecisionSeam{}, err
-	}
-	return autoscaleDecisionSeam{
-		Action:     autoscaleActionFromDecision(d.Kind),
-		Delta:      int(d.Delta),
-		ToBaseline: int(d.ToBaseline),
-	}, nil
-}
-
-func infraKindToAutoscaler(k infrastructureKind) autoscaler.InfrastructureKind {
-	switch k {
-	case infrastructureKindGoTemporalPostgres:
-		return autoscaler.InfrastructureKindGoTemporalPostgres
-	default:
-		return autoscaler.InfrastructureKindUnknown
-	}
-}
-
-func autoscalerModeToEngine(m AutoscalerMode) autoscaler.AutoscalerMode {
+// autoscalerModeFromEngine bridges the autoscaler Engine's own AutoscalerMode
+// (Auto=0/Manual=1, no Unknown) to this package's OWN façade AutoscalerMode
+// (Unknown=0/Auto=1/Manual=2) for the OperatedSystemView.Autoscaler.Mode field — the
+// two enums genuinely disagree on VALUE (not just on name), so an explicit switch is
+// required, not merely convention.
+func autoscalerModeFromEngine(m autoscaler.AutoscalerMode) AutoscalerMode {
 	switch m {
-	case AutoscalerModeAuto:
-		// literal auto mapping.
-		return autoscaler.AutoscalerModeAuto
-	case AutoscalerModeUnknown:
-		// zero-value sentinel — the autoscaler engine's own AutoscalerMode has no
-		// Unknown value (its zero value IS Auto), so an unset mode defaults to auto,
-		// same as AutoscalerModeAuto above.
-		return autoscaler.AutoscalerModeAuto
-	case AutoscalerModeManual:
-		return autoscaler.AutoscalerModeManual
+	case autoscaler.AutoscalerModeAuto:
+		return AutoscalerModeAuto
+	case autoscaler.AutoscalerModeManual:
+		return AutoscalerModeManual
 	default:
-		return autoscaler.AutoscalerModeAuto
-	}
-}
-
-func autoscaleActionFromDecision(k autoscaler.DecisionKind) AutoscaleAction {
-	switch k {
-	case autoscaler.DecisionNoChange:
-		// no-op decision, nothing to do — explicit mapping to the local seam's own
-		// no-op constant.
-		return AutoscaleNoChange
-	case autoscaler.DecisionScaleUp:
-		return AutoscaleScaleUp
-	case autoscaler.DecisionScaleDown:
-		return AutoscaleScaleDown
-	case autoscaler.DecisionPause:
-		return AutoscalePause
-	case autoscaler.DecisionResume:
-		return AutoscaleResume
-	default:
-		return AutoscaleNoChange
+		return AutoscalerModeUnknown
 	}
 }
 
 // ===========================================================================
-// operationEstimationEngine adapter — over operationestimation.OperationEstimationEngine.
-// The seam carries raw usage EVENTS; the published ProjectForOperatedApp consumes an
-// aggregated ObservedUsage, so the adapter rolls the events up (sum of metered units).
+// operationEstimationEngine — REAL divergence bridges. The workflow calls the
+// published operationestimation.OperationEstimationEngine.ProjectForOperatedApp
+// DIRECTLY (workflow.go). observedUsageFromEvents (the real Σ-Units.Amount aggregation
+// off the usage RA's read range) lives in workflow.go, alongside billing's
+// foldRevenue/foldUsage precedent — it is workflow-owned folding, not a boundary
+// adapter.
 // ===========================================================================
 
-type estimationAdapter struct {
-	inner operationestimation.OperationEstimationEngine
-}
-
-var _ operationEstimationEngine = estimationAdapter{}
-
-func (a estimationAdapter) ProjectForOperatedApp(observedUsage observedUsage, infrastructureKind infrastructureKind, scaleWhatIfPoints []ScalePoint) (CostProjectionSeam, error) {
-	var computeUnitSeconds float64
-	for _, e := range observedUsage.Events {
-		computeUnitSeconds += e.Units.Amount
-	}
-	points := make([]operationestimation.ScalePoint, 0, len(scaleWhatIfPoints))
-	for _, p := range scaleWhatIfPoints {
-		points = append(points, operationestimation.ScalePoint{LoadMultiplier: float64(p.Replicas)})
-	}
-	proj, err := a.inner.ProjectForOperatedApp(
-		fweng.Context{Context: context.Background()},
-		operationestimation.ObservedUsage{
-			ComputeUnitSeconds: computeUnitSeconds,
-			RequestCount:       int64(len(observedUsage.Events)),
-		},
-		infraKindToEstimation(infrastructureKind),
-		points,
-	)
-	if err != nil {
-		return CostProjectionSeam{}, err
-	}
-	return CostProjectionSeam{
-		CurrentRunRate:       moneyFromEstimation(proj.CurrentRunRate),
-		ProjectedMonthlyCost: moneyFromEstimation(proj.ProjectedMonthlyCost),
-		ScaleWhatIfCurve:     whatIfCurveFromEstimation(proj.ScaleWhatIfCurve),
-	}, nil
-}
-
-func infraKindToEstimation(k infrastructureKind) operationestimation.InfrastructureKind {
+// infrastructureKindForEstimation bridges this Manager's canonical InfrastructureKind
+// currency (autoscaler.InfrastructureKind — also autoscalerPolicy/DesiredState's type)
+// onto operationestimation's OWN InfrastructureKind. Two independently generated enums
+// that happen to share values today; an explicit switch, not a raw cast.
+func infrastructureKindForEstimation(k autoscaler.InfrastructureKind) operationestimation.InfrastructureKind {
 	switch k {
-	case infrastructureKindGoTemporalPostgres:
+	case autoscaler.InfrastructureKindUnknown:
+		// zero-value sentinel — no equivalent Unknown case to translate to yet.
+		return operationestimation.InfrastructureKindUnknown
+	case autoscaler.InfrastructureKindGoTemporalPostgres:
 		return operationestimation.InfrastructureKindGoTemporalPostgres
 	default:
 		return operationestimation.InfrastructureKindUnknown
 	}
 }
 
+// scalePointsToEstimation converts the façade's own ScalePoint (Replicas int64) into
+// operationestimation's ScalePoint (LoadMultiplier float64) — a real unit divergence
+// (an integer replica count vs. a float load multiplier), not a rename.
+func scalePointsToEstimation(points []ScalePoint) []operationestimation.ScalePoint {
+	out := make([]operationestimation.ScalePoint, 0, len(points))
+	for _, p := range points {
+		out = append(out, operationestimation.ScalePoint{LoadMultiplier: float64(p.Replicas)})
+	}
+	return out
+}
+
+// moneyFromEstimation bridges operationestimation's own Money onto this package's
+// generated façade Money (contract.gen.go) — same shape today, but genuinely distinct
+// generated types (their JSON tags already diverge: MinorUnits/Currency here vs.
+// minorUnits/currency on the engine's side), so a field-by-field copy, not a cast.
 func moneyFromEstimation(m operationestimation.Money) Money {
 	return Money{MinorUnits: m.MinorUnits, Currency: m.Currency}
 }
 
+// whatIfCurveFromEstimation bridges operationestimation's WhatIfCurve/WhatIfPoint onto
+// this package's own façade WhatIfCurve/WhatIfPoint — the engine's WhatIfPoint carries
+// LoadMultiplier float64, the façade's carries Replicas int64 (the same real unit
+// divergence as scalePointsToEstimation, in reverse).
 func whatIfCurveFromEstimation(c operationestimation.WhatIfCurve) WhatIfCurve {
 	points := make([]WhatIfPoint, 0, len(c.Points))
 	for _, p := range c.Points {
@@ -392,4 +323,15 @@ func whatIfCurveFromEstimation(c operationestimation.WhatIfCurve) WhatIfCurve {
 		})
 	}
 	return WhatIfCurve{Points: points}
+}
+
+// costProjectionFromEstimation bridges operationestimation's own CostProjection onto
+// this package's generated façade CostProjectionSeam (contract.gen.go) — the façade's
+// re-exported QueryCostProjection/QueryOperatedSystemView result type.
+func costProjectionFromEstimation(p operationestimation.CostProjection) CostProjectionSeam {
+	return CostProjectionSeam{
+		CurrentRunRate:       moneyFromEstimation(p.CurrentRunRate),
+		ProjectedMonthlyCost: moneyFromEstimation(p.ProjectedMonthlyCost),
+		ScaleWhatIfCurve:     whatIfCurveFromEstimation(p.ScaleWhatIfCurve),
+	}
 }

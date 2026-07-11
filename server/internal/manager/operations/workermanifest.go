@@ -17,6 +17,7 @@ import (
 
 	fwmgr "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/durableexecution"
 )
 
@@ -164,12 +165,19 @@ func activityOptions() func(activityName string) (workflow.ActivityOptions, bool
 func (m *operationsManager) WorkerManifest() genWorkerManifest {
 	optsHook := activityOptions()
 	wf := newWorkflows(wfDeps{
-		Intervention: interventionAdapter{inner: m.intervention},
-		Autoscaler:   autoscalerAdapter{inner: m.autoscaler},
-		Estimation:   estimationAdapter{inner: m.operationEstimation},
+		Intervention: m.intervention,
+		Autoscaler:   m.autoscaler,
+		Estimation:   m.operationEstimation,
 		Acts:         genInvokers{Opts: optsHook},
 
-		InterventionPolicy: m.interventionPolicy,
+		// InterventionPolicy is resolved ONCE here from the Manager's raw config
+		// (interventionRetryBudget / interventionSLATier, operationsmanager.go) via
+		// slaTierFromString (adapters.go) — the SAME fixed value every DecideOnHealth
+		// call would have received under the retired per-call adapter conversion.
+		InterventionPolicy: intervention.InterventionPolicy{
+			RetryBudget: m.interventionRetryBudget,
+			SLATier:     slaTierFromString(m.interventionSLATier),
+		},
 		AutoscalerPolicy:   m.autoscalerPolicy,
 		InfrastructureKind: m.infrastructureKind,
 		CurrentCycleID:     m.currentCycleID,

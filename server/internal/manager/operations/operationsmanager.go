@@ -67,15 +67,22 @@ type operationsManager struct {
 	operationEstimation operationestimation.OperationEstimationEngine
 
 	// Policy/config snapshots folded into the Workflows struct by RegisterWorker. They
-	// are construction-time seam defaults (in production the Manager reads them from
+	// are construction-time defaults (in production the Manager reads them from
 	// head-state / the operated app's billing context). InfrastructureKind defaults to
 	// the launch infrastructure; the rest are zero (matching what the composition root
-	// passes today — the operations Worker carries no policy config yet).
-	interventionPolicy interventionPolicy
-	autoscalerPolicy   autoscalerPolicy
-	infrastructureKind infrastructureKind
-	currentCycleID     string
-	customerID         customerID
+	// passes today — the operations Worker carries no further policy config yet).
+	//
+	// interventionRetryBudget / interventionSLATier are the raw config surface for
+	// intervention.InterventionPolicy (RetryBudget as a plain count; SLATier as a raw
+	// string — no typed config source is wired yet). WorkerManifest() (workermanifest.go)
+	// resolves SLATier via slaTierFromString (adapters.go) into the published
+	// intervention.InterventionPolicy fed to wfDeps.
+	interventionRetryBudget int64
+	interventionSLATier     string
+	autoscalerPolicy        autoscaler.AutoscalerPolicy
+	infrastructureKind      autoscaler.InfrastructureKind
+	currentCycleID          string
+	customerID              customerID
 }
 
 // newOperationsManager is the hand-written, unexported builder the generated
@@ -103,7 +110,7 @@ func newOperationsManager(
 		intervention:        interventionEng,
 		autoscaler:          autoscalerEng,
 		operationEstimation: operationEstimation,
-		infrastructureKind:  infrastructureKindGoTemporalPostgres,
+		infrastructureKind:  autoscaler.InfrastructureKindGoTemporalPostgres,
 	}
 }
 
