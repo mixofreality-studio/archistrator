@@ -142,7 +142,7 @@ func (wf *workflows) DeployWorkflow(ctx workflow.Context, in deployInput) (Deplo
 
 	// Publish the rendered desired state (git commit; content-idempotent).
 	revision := publishRevision(in.OperatedAppID, in.Change.ChangeID)
-	if perr := wf.publishDesiredState(ctx, in.OperatedAppID, runtimeDesiredState{
+	if perr := wf.publishDesiredState(ctx, in.OperatedAppID, operatedruntime.RuntimeDesiredState{
 		Bytes:       in.Change.RenderedDesiredState,
 		ContentType: "application/desired-state",
 	}); perr != nil {
@@ -171,7 +171,7 @@ type reconcileInput struct {
 func (wf *workflows) ReconcileWorkflow(ctx workflow.Context, in reconcileInput) (ReconcileResult, error) {
 	logger := workflow.GetLogger(ctx)
 
-	apps, err := wf.readInFlightOperatedApps(ctx, inFlightScope{AppIDs: in.Scope})
+	apps, err := wf.readInFlightOperatedApps(ctx, operatedsystemstate.InFlightScope{AppIDs: in.Scope})
 	if err != nil {
 		return ReconcileResult{}, err
 	}
@@ -196,7 +196,7 @@ func (wf *workflows) ReconcileWorkflow(ctx workflow.Context, in reconcileInput) 
 // reconcileOne runs Path B (observe) + Path C (autoscale) for one in-flight app.
 // Returns whether a head-state transition was recorded (Path B) and whether an
 // autoscaler-driven republish happened (Path C, non-NoChange).
-func (wf *workflows) reconcileOne(ctx workflow.Context, app operatedSystemSummary) (transitioned bool, republished bool, err error) {
+func (wf *workflows) reconcileOne(ctx workflow.Context, app operatedsystemstate.OperatedSystemSummary) (transitioned bool, republished bool, err error) {
 	// --- Path B (observe) ---
 	health, herr := wf.getApplicationHealth(ctx, app.ID)
 	if herr != nil {
@@ -231,9 +231,12 @@ func (wf *workflows) reconcileOne(ctx workflow.Context, app operatedSystemSummar
 		transitioned = true
 
 		directive, derr := wf.Intervention.DecideOnHealth(healthChange{
-			AppID:      app.ID,
-			FromStatus: app.Status,
-			ToStatus:   health,
+			AppID: app.ID,
+			// interventionEngine's healthChange keeps the generated RuntimeStatusSeam
+			// field type (Task 5 scope, untouched); bridge from the canonical
+			// operatedsystemstate.RuntimeStatus via the surviving runtimeStatusFromState.
+			FromStatus: runtimeStatusFromState(app.Status),
+			ToStatus:   runtimeStatusFromState(health),
 			SloMet:     slo.SloMet,
 		}, wf.InterventionPolicy)
 		if derr != nil {
@@ -249,7 +252,7 @@ func (wf *workflows) reconcileOne(ctx workflow.Context, app operatedSystemSummar
 		case healthDirectiveRetry:
 			// EXECUTE Retry: re-publish prior desired state so the runtime self-heals /
 			// re-converges (content-idempotent — a no-op if unchanged).
-			if perr := wf.publishDesiredState(ctx, app.ID, runtimeDesiredState{ContentType: "application/desired-state"}); perr != nil {
+			if perr := wf.publishDesiredState(ctx, app.ID, operatedruntime.RuntimeDesiredState{ContentType: "application/desired-state"}); perr != nil {
 				return false, false, perr
 			}
 		case healthDirectiveEscalate:
@@ -278,7 +281,7 @@ func (wf *workflows) reconcileOne(ctx workflow.Context, app operatedSystemSummar
 
 	// Non-NoChange ⇒ render revised manifests → publish → record (reason=autoscale).
 	// Idle-pause (AutoscalePause) renders replicas=0 inside the opaque bytes.
-	if perr := wf.publishDesiredState(ctx, app.ID, runtimeDesiredState{ContentType: "application/desired-state"}); perr != nil {
+	if perr := wf.publishDesiredState(ctx, app.ID, operatedruntime.RuntimeDesiredState{ContentType: "application/desired-state"}); perr != nil {
 		return transitioned, false, perr
 	}
 	dec := decision
@@ -318,7 +321,7 @@ func (wf *workflows) WithdrawWorkflow(ctx workflow.Context, in withdrawInput) (W
 		}
 		return WithdrawResult{}, err
 	}
-	if op.Status == RuntimeStatusWithdrawn {
+	if op.Status == operatedsystemstate.RuntimeStatusWithdrawn {
 		return WithdrawResult{Withdrawn: true}, nil
 	}
 
@@ -366,9 +369,9 @@ func (wf *workflows) CostProjectionWorkflow(ctx workflow.Context, in costProject
 	}
 
 	appID := in.OperatedAppID
-	events, uerr := wf.readUsageRange(ctx, usageRangeQuerySeam{
+	events, uerr := wf.readUsageRange(ctx, usage.UsageRangeQuery{
 		CustomerID:    wf.CustomerID,
-		CycleID:       wf.CurrentCycleID,
+		CycleID:       usage.CycleID(wf.CurrentCycleID),
 		OperatedAppID: &appID,
 	})
 	if uerr != nil {
@@ -428,9 +431,9 @@ func (wf *workflows) ViewWorkflow(ctx workflow.Context, in viewInput) (OperatedS
 
 	// Run-rate only (no what-if points) — same usage read the cost-projection path uses.
 	appID := in.OperatedAppID
-	events, uerr := wf.readUsageRange(ctx, usageRangeQuerySeam{
+	events, uerr := wf.readUsageRange(ctx, usage.UsageRangeQuery{
 		CustomerID:    wf.CustomerID,
-		CycleID:       wf.CurrentCycleID,
+		CycleID:       usage.CycleID(wf.CurrentCycleID),
 		OperatedAppID: &appID,
 	})
 	if uerr != nil {
@@ -445,14 +448,17 @@ func (wf *workflows) ViewWorkflow(ctx workflow.Context, in viewInput) (OperatedS
 		return OperatedSystemView{}, fwmgr.MapError(perr)
 	}
 
+	// OperatedSystemView / HealthSnapshotView keep the generated RuntimeStatusSeam field
+	// type (this package's own façade output contract); bridge from the canonical
+	// operatedsystemstate.RuntimeStatus via the surviving runtimeStatusFromState.
 	view := OperatedSystemView{
 		OperatedAppID: in.OperatedAppID,
-		Phase:         op.Status,
+		Phase:         runtimeStatusFromState(op.Status),
 		InFlight:      op.InFlight,
 		Health: HealthSnapshotView{
 			SloMet: slo.SloMet,
 			Detail: slo.Detail,
-			Phase:  health,
+			Phase:  runtimeStatusFromState(health),
 		},
 		// One SLO row from the observed SLO posture. The frozen operatedRuntimeAccess SLO
 		// read collapses to one posture (getSloStatus); per-component rows beyond this are
@@ -461,7 +467,7 @@ func (wf *workflows) ViewWorkflow(ctx workflow.Context, in viewInput) (OperatedS
 			Component: "app",
 			Objective: slo.Detail,
 			SloMet:    slo.SloMet,
-			Healthy:   health == RuntimeStatusHealthy,
+			Healthy:   health == operatedsystemstate.RuntimeStatusHealthy,
 		}},
 		// RecentEvents: bounded, newest-first. The head-state status history is not a
 		// single RA read today (Construction-note follow-up); surfaced empty.
@@ -481,40 +487,18 @@ func (wf *workflows) ViewWorkflow(ctx workflow.Context, in viewInput) (OperatedS
 // Head-state read + recovering write helpers (§6.5).
 // ---------------------------------------------------------------------------
 
-// readOperatedSystem invokes operatedSystemStateAccess.readOperatedSystem and folds
-// the contract head-state into the Manager-local seam.
-func (wf *workflows) readOperatedSystem(ctx workflow.Context, operatedAppID operatedAppID) (operatedSystem, error) {
-	op, err := wf.Acts.OperatedSystemStateReadOperatedSystem(ctx, operatedAppID)
-	if err != nil {
-		return operatedSystem{}, err
-	}
-	return operatedSystem{
-		ID:                  op.ID,
-		Version:             version(op.Version),
-		Status:              runtimeStatusFromState(op.Status),
-		InFlight:            op.InFlight,
-		DeployableBundleRef: op.DeployableBundleRef,
-	}, nil
+// readOperatedSystem invokes operatedSystemStateAccess.readOperatedSystem. Task 4: the
+// former Manager-local operatedSystem mirror is retired — the invoker's contract type
+// IS the workflow's internal currency now, so no fold happens here.
+func (wf *workflows) readOperatedSystem(ctx workflow.Context, operatedAppID operatedAppID) (operatedsystemstate.OperatedSystem, error) {
+	return wf.Acts.OperatedSystemStateReadOperatedSystem(ctx, operatedAppID)
 }
 
 // readInFlightOperatedApps invokes operatedSystemStateAccess.readInFlightOperatedApps.
-func (wf *workflows) readInFlightOperatedApps(ctx workflow.Context, scope inFlightScope) ([]operatedSystemSummary, error) {
-	apps, err := wf.Acts.OperatedSystemStateReadInFlightOperatedApps(ctx, operatedsystemstate.InFlightScope{
-		AppIDs:     scope.AppIDs,
-		CustomerID: scope.CustomerID,
-	})
-	if err != nil {
-		return nil, err
-	}
-	out := make([]operatedSystemSummary, 0, len(apps))
-	for _, s := range apps {
-		out = append(out, operatedSystemSummary{
-			ID:      s.ID,
-			Version: version(s.Version),
-			Status:  runtimeStatusFromState(s.Status),
-		})
-	}
-	return out, nil
+// Task 4: the former Manager-local operatedSystemSummary/inFlightScope mirrors are
+// retired in favor of the invoker's contract types directly.
+func (wf *workflows) readInFlightOperatedApps(ctx workflow.Context, scope operatedsystemstate.InFlightScope) ([]operatedsystemstate.OperatedSystemSummary, error) {
+	return wf.Acts.OperatedSystemStateReadInFlightOperatedApps(ctx, scope)
 }
 
 // retrieveBundle invokes artifactAccess.retrieveConstructionOutput (escalation E-1:
@@ -529,12 +513,10 @@ func (wf *workflows) retrieveBundle(ctx workflow.Context, ref string) (deployabl
 }
 
 // publishDesiredState invokes operatedRuntimeAccess.publishDesiredState (git commit;
-// content-idempotent).
-func (wf *workflows) publishDesiredState(ctx workflow.Context, appID operatedAppID, desired runtimeDesiredState) error {
-	return wf.Acts.OperatedRuntimePublishDesiredState(ctx, appID, operatedruntime.RuntimeDesiredState{
-		Bytes:       desired.Bytes,
-		ContentType: desired.ContentType,
-	})
+// content-idempotent). Task 4: the former Manager-local runtimeDesiredState mirror is
+// retired — desired IS the contract type now.
+func (wf *workflows) publishDesiredState(ctx workflow.Context, appID operatedAppID, desired operatedruntime.RuntimeDesiredState) error {
+	return wf.Acts.OperatedRuntimePublishDesiredState(ctx, appID, desired)
 }
 
 // withdrawRuntime invokes operatedRuntimeAccess.withdraw (NotFound ⇒ success in the RA).
@@ -542,59 +524,51 @@ func (wf *workflows) withdrawRuntime(ctx workflow.Context, appID operatedAppID) 
 	return wf.Acts.OperatedRuntimeWithdraw(ctx, appID)
 }
 
-// getApplicationHealth invokes operatedRuntimeAccess.getApplicationHealth (pure read).
-func (wf *workflows) getApplicationHealth(ctx workflow.Context, appID operatedAppID) (RuntimeStatusSeam, error) {
+// getApplicationHealth invokes operatedRuntimeAccess.getApplicationHealth (pure read),
+// canonicalizing the observed operatedruntime.RuntimeStatus into the
+// operatedsystemstate.RuntimeStatus vocabulary via the surviving DIVERGENT converter
+// (runtimeStatusFromRuntime — two RAs' independently generated enums).
+func (wf *workflows) getApplicationHealth(ctx workflow.Context, appID operatedAppID) (operatedsystemstate.RuntimeStatus, error) {
 	s, err := wf.Acts.OperatedRuntimeGetApplicationHealth(ctx, appID)
 	if err != nil {
-		return RuntimeStatusUnknown, err
+		return operatedsystemstate.RuntimeStatusUnknown, err
 	}
 	return runtimeStatusFromRuntime(s), nil
 }
 
-// getSloStatus invokes operatedRuntimeAccess.getSloStatus (pure read).
-func (wf *workflows) getSloStatus(ctx workflow.Context, appID operatedAppID) (sloStatusSeam, error) {
-	s, err := wf.Acts.OperatedRuntimeGetSloStatus(ctx, appID)
-	if err != nil {
-		return sloStatusSeam{}, err
-	}
-	return sloStatusSeam{SloMet: s.SloMet, Detail: s.Detail}, nil
+// getSloStatus invokes operatedRuntimeAccess.getSloStatus (pure read). Task 4: the
+// former Manager-local sloStatusSeam mirror is retired.
+func (wf *workflows) getSloStatus(ctx workflow.Context, appID operatedAppID) (operatedruntime.SloStatus, error) {
+	return wf.Acts.OperatedRuntimeGetSloStatus(ctx, appID)
 }
 
 // readComputeAttribution invokes operatedRuntimeAccess.readComputeAttribution (pure
 // read). The Manager pins the window to a default (open) window here; the RA attributes
-// since last observation.
-func (wf *workflows) readComputeAttribution(ctx workflow.Context, appID operatedAppID) (computeAttribution, error) {
-	a, err := wf.Acts.OperatedRuntimeReadComputeAttribution(ctx, appID, operatedruntime.AttributionWindow{})
-	if err != nil {
-		return computeAttribution{}, err
-	}
-	return computeAttribution{
-		Units:          computeUnitsSeam{Amount: a.Units.Amount, Unit: a.Units.Unit},
-		RuntimeEventID: a.RuntimeEventID,
-	}, nil
+// since last observation. Task 4: the former Manager-local computeAttribution mirror is
+// retired.
+func (wf *workflows) readComputeAttribution(ctx workflow.Context, appID operatedAppID) (operatedruntime.ComputeAttribution, error) {
+	return wf.Acts.OperatedRuntimeReadComputeAttribution(ctx, appID, operatedruntime.AttributionWindow{})
 }
 
 // recordComputeUsage invokes usageAccess.recordComputeUsage (append; dedup-id
 // idempotent). The single-event slice-wrap lives here now (was in the retired activity).
-func (wf *workflows) recordComputeUsage(ctx workflow.Context, appID operatedAppID, attribution computeAttribution) error {
+func (wf *workflows) recordComputeUsage(ctx workflow.Context, appID operatedAppID, attribution operatedruntime.ComputeAttribution) error {
 	_, err := wf.Acts.UsageRecordComputeUsage(ctx, []usage.UsageEvent{wf.usageEvent(ctx, appID, attribution)})
 	return err
 }
 
 // recordFinalUsage invokes usageAccess.recordFinalUsage (append; dedup-id idempotent).
-func (wf *workflows) recordFinalUsage(ctx workflow.Context, appID operatedAppID, attribution computeAttribution) error {
+func (wf *workflows) recordFinalUsage(ctx workflow.Context, appID operatedAppID, attribution operatedruntime.ComputeAttribution) error {
 	_, err := wf.Acts.UsageRecordFinalUsage(ctx, []usage.UsageEvent{wf.usageEvent(ctx, appID, attribution)})
 	return err
 }
 
 // readUsageRange invokes usageAccess.readRange (pure read) and folds the contract
-// events into the Manager-local seam the estimation Engine consumes.
-func (wf *workflows) readUsageRange(ctx workflow.Context, query usageRangeQuerySeam) ([]usageEventSeam, error) {
-	events, err := wf.Acts.UsageReadRange(ctx, usage.UsageRangeQuery{
-		CustomerID:    query.CustomerID,
-		CycleID:       usage.CycleID(query.CycleID),
-		OperatedAppID: query.OperatedAppID,
-	})
+// events into the Manager-local seam the estimation Engine consumes. Task 4: the former
+// Manager-local usageRangeQuerySeam mirror is retired (query IS the contract type now);
+// usageEventSeam stays — it is operationEstimationEngine's input shape (Task 5 scope).
+func (wf *workflows) readUsageRange(ctx workflow.Context, query usage.UsageRangeQuery) ([]usageEventSeam, error) {
+	events, err := wf.Acts.UsageReadRange(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -615,7 +589,7 @@ func (wf *workflows) readUsageRange(ctx workflow.Context, query usageRangeQueryS
 // usageEvent assembles one contract UsageEvent from an observed attribution. The
 // RuntimeEventID is the append-only ledger's dedup token (usageAccess.md §2/§3).
 // OccurredAt is read from the deterministic workflow clock (replay-safe).
-func (wf *workflows) usageEvent(ctx workflow.Context, appID operatedAppID, attribution computeAttribution) usage.UsageEvent {
+func (wf *workflows) usageEvent(ctx workflow.Context, appID operatedAppID, attribution operatedruntime.ComputeAttribution) usage.UsageEvent {
 	return usage.UsageEvent{
 		OperatedAppID:  appID,
 		CustomerID:     wf.CustomerID,
@@ -627,43 +601,41 @@ func (wf *workflows) usageEvent(ctx workflow.Context, appID operatedAppID, attri
 }
 
 // recordPublishDesiredState applies the head-state desired-state transition with the
-// Conflict loop (§6.5). decision is carried only for reason=autoscale.
-func (wf *workflows) recordPublishDesiredState(ctx workflow.Context, appID operatedAppID, seed version, reason DesiredStateReason, decision *autoscaleDecisionSeam) (version, error) {
-	return wf.applyRecovering(ctx, appID, seed, func(expected version) (version, error) {
-		v, e := wf.Acts.OperatedSystemStatePublishDesiredState(ctx, appID,
-			operatedsystemstate.Version(expected),
+// Conflict loop (§6.5). decision is carried only for reason=autoscale. Task 4: seed/
+// return now speak operatedsystemstate.Version directly (the former Manager-local
+// version mirror is retired); decision stays *autoscaleDecisionSeam (autoscalerEngine's
+// output shape, Task 5 scope) — autoscaleDecisionToState is left untouched (engine-side).
+func (wf *workflows) recordPublishDesiredState(ctx workflow.Context, appID operatedAppID, seed operatedsystemstate.Version, reason DesiredStateReason, decision *autoscaleDecisionSeam) (operatedsystemstate.Version, error) {
+	return wf.applyRecovering(ctx, appID, seed, func(expected operatedsystemstate.Version) (operatedsystemstate.Version, error) {
+		return wf.Acts.OperatedSystemStatePublishDesiredState(ctx, appID,
+			expected,
 			desiredStateReasonToState(reason),
 			autoscaleDecisionToState(decision))
-		return version(v), e
 	})
 }
 
-// recordRuntimeStatusChange applies the observed-status head-state transition.
-func (wf *workflows) recordRuntimeStatusChange(ctx workflow.Context, appID operatedAppID, seed version, status RuntimeStatusSeam) (version, error) {
-	return wf.applyRecovering(ctx, appID, seed, func(expected version) (version, error) {
-		v, e := wf.Acts.OperatedSystemStateRecordRuntimeStatusChange(ctx, appID,
-			operatedsystemstate.Version(expected),
-			runtimeStatusToState(status))
-		return version(v), e
+// recordRuntimeStatusChange applies the observed-status head-state transition. Task 4:
+// status is now operatedsystemstate.RuntimeStatus directly (runtimeStatusToState, the
+// former reverse converter, has no remaining caller and is retired).
+func (wf *workflows) recordRuntimeStatusChange(ctx workflow.Context, appID operatedAppID, seed operatedsystemstate.Version, status operatedsystemstate.RuntimeStatus) (operatedsystemstate.Version, error) {
+	return wf.applyRecovering(ctx, appID, seed, func(expected operatedsystemstate.Version) (operatedsystemstate.Version, error) {
+		return wf.Acts.OperatedSystemStateRecordRuntimeStatusChange(ctx, appID, expected, status)
 	})
 }
 
 // withdrawHeadState applies the withdraw head-state transition.
-func (wf *workflows) withdrawHeadState(ctx workflow.Context, appID operatedAppID, seed version) (version, error) {
-	return wf.applyRecovering(ctx, appID, seed, func(expected version) (version, error) {
-		v, e := wf.Acts.OperatedSystemStateWithdrawSystem(ctx, appID,
-			operatedsystemstate.Version(expected))
-		return version(v), e
+func (wf *workflows) withdrawHeadState(ctx workflow.Context, appID operatedAppID, seed operatedsystemstate.Version) (operatedsystemstate.Version, error) {
+	return wf.applyRecovering(ctx, appID, seed, func(expected operatedsystemstate.Version) (operatedsystemstate.Version, error) {
+		return wf.Acts.OperatedSystemStateWithdrawSystem(ctx, appID, expected)
 	})
 }
 
-// recordDelinquencyAction applies the delinquency-action head-state transition.
-func (wf *workflows) recordDelinquencyAction(ctx workflow.Context, appID operatedAppID, seed version, action delinquencyAction) (version, error) {
-	return wf.applyRecovering(ctx, appID, seed, func(expected version) (version, error) {
-		v, e := wf.Acts.OperatedSystemStateRecordDelinquencyAction(ctx, appID,
-			operatedsystemstate.Version(expected),
-			delinquencyActionToState(action))
-		return version(v), e
+// recordDelinquencyAction applies the delinquency-action head-state transition. Task 4:
+// action is now operatedsystemstate.DelinquencyAction directly (delinquencyActionToState,
+// the former identity converter, has no remaining caller and is retired).
+func (wf *workflows) recordDelinquencyAction(ctx workflow.Context, appID operatedAppID, seed operatedsystemstate.Version, action operatedsystemstate.DelinquencyAction) (operatedsystemstate.Version, error) {
+	return wf.applyRecovering(ctx, appID, seed, func(expected operatedsystemstate.Version) (operatedsystemstate.Version, error) {
+		return wf.Acts.OperatedSystemStateRecordDelinquencyAction(ctx, appID, expected, action)
 	})
 }
 
@@ -674,9 +646,9 @@ func (wf *workflows) recordDelinquencyAction(ctx workflow.Context, appID operate
 func (wf *workflows) applyRecovering(
 	ctx workflow.Context,
 	appID operatedAppID,
-	seed version,
-	apply func(expected version) (version, error),
-) (version, error) {
+	seed operatedsystemstate.Version,
+	apply func(expected operatedsystemstate.Version) (operatedsystemstate.Version, error),
+) (operatedsystemstate.Version, error) {
 	expected := seed
 	for attempt := 0; ; attempt++ {
 		v, err := apply(expected)

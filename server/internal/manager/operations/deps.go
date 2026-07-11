@@ -42,130 +42,48 @@ import (
 // their owning RA/Engine" intact.
 
 // ===========================================================================
-// operatedSystemStateAccess — FROZEN, NOT YET BUILT. Narrow consumer interface
-// (the head-state read + the additive operate-transition write verbs) +
-// Manager-local mirrors of its frozen types (operatedSystemStateAccess.md §2/§3).
-// Each WRITE carries expectedVersion + idempotencyKey; a stale-version fwra.Conflict
-// drives the §6.5 re-read→re-apply loop.
+// operatedSystemStateAccess — reached ONLY through the generated typed invokers
+// (invokers.gen.go), which carry the contract types (operatedsystemstate.OperatedSystem
+// / OperatedSystemSummary / InFlightScope / Version / DelinquencyAction / RuntimeStatus)
+// directly. Task 4 (seam-adapter cleanup) retired the Manager-local mirrors that used
+// to duplicate these shapes 1:1 (operatedSystem, operatedSystemSummary, inFlightScope,
+// delinquencyAction, version) — the workflow now speaks operatedsystemstate.* directly;
+// no fold happens at the RA boundary. RuntimeStatusSeam (this package's OWN generated
+// façade enum, contract.gen.go) is NOT one of those mirrors — it stays, because it is
+// also the public OperatedSystemView/HealthSnapshotView field type and the
+// interventionEngine healthChange field type (Task 5 scope); adapters.go keeps ONE
+// surviving converter (runtimeStatusFromState) to bridge operatedsystemstate.RuntimeStatus
+// into it at those two boundaries.
 // ===========================================================================
 
-// NOTE: the operatedSystemStateAccess consumer-seam interface is retired — the
-// workflow reaches this RA through the generated typed invokers (invokers.gen.go),
-// which carry the contract types directly. The Manager-local data mirrors below
-// remain: the workflow folds the invokers' contract values into them (adapters.go
-// converters) so the workflow body + Engines keep speaking one unified vocabulary.
-
-// version is the operated-system optimistic-concurrency version
-// (operatedSystemStateAccess.md §3). Mirrors the owning RA's version type.
-type version uint64
-
-// RuntimeStatusSeam mirrors operatedSystemStateAccess.md §3 RuntimeStatus enum
-// (e.g. Pending | Healthy | Degraded | Withdrawn). Manager-local seam.
-
-// RuntimeStatusUnknown is the zero value.
-
-// RuntimeStatusPending is a freshly-published, not-yet-converged app.
-
-// RuntimeStatusHealthy is a healthy app.
-
-// RuntimeStatusDegraded is an unhealthy app.
-
-// RuntimeStatusWithdrawn is a withdrawn app.
-
-// delinquencyAction mirrors operatedSystemStateAccess.md §3 — the recorded
-// delinquency-handling action.
-type delinquencyAction int
-
-const (
-	// the zero value.
-	_ delinquencyAction = iota
-	// delinquencyActionPaused records a pause (replicas=0) enforcement.
-	delinquencyActionPaused
-	// delinquencyActionWithdrawn records a withdraw enforcement.
-	delinquencyActionWithdrawn
-)
-
-// operatedSystem mirrors operatedSystemStateAccess.md §3 — the head-state aggregate
-// the workflow reads to carry expectedVersion forward and resolve the published
-// desired state for a republish.
-type operatedSystem struct {
-	ID                  operatedAppID
-	Version             version
-	Status              RuntimeStatusSeam
-	InFlight            bool
-	DeployableBundleRef string // empty ⇒ no constructed output present (deploy pre-condition fails)
-}
-
-// operatedSystemSummary mirrors operatedSystemStateAccess.md §3 — one in-flight app
-// in the reconcile-tick / delinquency-sweep cross-row read.
-type operatedSystemSummary struct {
-	ID      operatedAppID
-	Version version
-	Status  RuntimeStatusSeam
-}
-
-// inFlightScope is the consumer-side scope for ReadInFlightOperatedApps. Empty ⇒ all
-// in-flight apps (the default reconcile tick); CustomerID set ⇒ the delinquent
-// customer's apps (the delinquency sweep, operationsManager.md §2.5).
-type inFlightScope struct {
-	AppIDs     []operatedAppID
-	CustomerID *customerID
-}
-
 // ===========================================================================
-// operatedRuntimeAccess — FROZEN, NOT YET BUILT. Narrow consumer interface
-// (operatedRuntimeAccess.md §2). Two writes (publishDesiredState / withdraw,
-// git-content-idempotent — no version guard) + the observe reads (collapsed
-// readRuntimeStatus + readComputeAttribution per the frozen §2.5 factoring; this
-// Manager consumes them under the contract's per-verb names the contract §2.2 / §6.4
-// table commits to: getApplicationHealth / getSloStatus / readComputeAttribution).
+// operatedRuntimeAccess — reached ONLY through the generated typed invokers (see the
+// operatedSystemStateAccess note above). Task 4 retired the Manager-local mirrors that
+// duplicated its shapes 1:1 (runtimeDesiredState, sloStatusSeam, computeAttribution) —
+// the workflow now speaks operatedruntime.RuntimeDesiredState / SloStatus /
+// ComputeAttribution directly. computeUnitsSeam (below) is NOT retired: it is also the
+// estimation Engine's input shape (usageEventSeam.Units, Task 5 scope).
 // ===========================================================================
-
-// NOTE: the operatedRuntimeAccess consumer-seam interface is retired (see the
-// operatedSystemStateAccess note above) — reached through the generated invokers. The
-// Manager-local data mirrors below remain for the workflow/Engine vocabulary.
-
-// runtimeDesiredState mirrors operatedRuntimeAccess.md §3 DesiredState — the
-// infrastructure-neutral rendered desired-state the Manager publishes. The bytes are
-// opaque (replicas=0 etc. live inside them, not as contract fields).
-type runtimeDesiredState struct {
-	Bytes       []byte
-	ContentType string
-}
-
-// sloStatusSeam mirrors the SLO-posture portion of operatedRuntimeAccess.md §3
-// RuntimeStatus (the frozen contract collapses health + SLO into one RuntimeStatus;
-// this Manager keeps the §6.4-table per-verb seam name for the SLO read).
-type sloStatusSeam struct {
-	SloMet bool
-	Detail string
-}
-
-// computeAttribution mirrors operatedRuntimeAccess.md §3 — per-app infrastructure-
-// neutral observed consumption (ComputeUnits + an opaque source meter id). The
-// Manager forwards it to usageAccess.recordComputeUsage on the tick.
-type computeAttribution struct {
-	Units          computeUnitsSeam
-	RuntimeEventID string // the runtime-supplied globally-unique dedup token for the usage append
-}
 
 // computeUnitsSeam mirrors operatedRuntimeAccess.md / usageAccess.md §3 ComputeUnits
 // — an infrastructure-neutral metered quantity (never priced, never a cloud lexeme).
+// Kept (not retired in Task 4): it is also operationEstimationEngine's input shape via
+// usageEventSeam.Units below (Task 5 scope — Engine mirror types are untouched here).
 type computeUnitsSeam struct {
 	Amount float64
 	Unit   string
 }
 
 // ===========================================================================
-// usageAccess — FROZEN, NOT YET BUILT. Narrow consumer interface (usageAccess.md
-// §2). Two append-writes (recordComputeUsage / recordFinalUsage, dedup-id
-// idempotent — NO Conflict, NO version guard) + one range-read.
+// usageAccess — reached ONLY through the generated typed invokers (see the
+// operatedSystemStateAccess note above). Task 4 retired usageRangeQuerySeam (an exact
+// 1:1 mirror of usage.UsageRangeQuery with no other consumer) — the workflow now builds
+// usage.UsageRangeQuery directly. usageEventSeam is NOT retired: despite its doc comment
+// naming usageAccess.UsageEvent as the type it mirrors, its ACTUAL role today is
+// operationEstimationEngine's input shape (observedUsage.Events below, Task 5 scope) —
+// deliberately narrower than usage.UsageEvent (no RawMeter/window fields), so it is left
+// untouched per the Task 4 brief's "if one is engine-side, leave for Task 5" rule.
 // ===========================================================================
-
-// NOTE: the usageAccess consumer-seam interface is retired (see the
-// operatedSystemStateAccess note above) — reached through the generated invokers. The
-// Manager-local data mirrors below remain: usageEventSeam is the estimation Engine's
-// input shape, and the workflow folds contract usage.UsageEvent into it (workflow.go).
 
 // usageEventSeam mirrors usageAccess.md §3 UsageEvent — one observed compute-usage
 // fact carrying its runtime-supplied dedup id.
@@ -176,14 +94,6 @@ type usageEventSeam struct {
 	Units          computeUnitsSeam
 	RuntimeEventID string
 	ObservedAt     time.Time
-}
-
-// usageRangeQuerySeam mirrors usageAccess.md §3 UsageRangeQuery — the cycle-scope read
-// query (OperatedAppID set ⇒ one app's facts, for the ncuc6 cost projection).
-type usageRangeQuerySeam struct {
-	CustomerID    customerID
-	CycleID       string
-	OperatedAppID *operatedAppID
 }
 
 // ===========================================================================

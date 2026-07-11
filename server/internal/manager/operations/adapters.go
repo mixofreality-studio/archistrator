@@ -31,12 +31,24 @@ import (
 )
 
 // ===========================================================================
-// operatedSystemStateAccess contract <-> Manager-local seam converters. The former
-// operatedSystemStateAdapter struct is retired — the workflow reaches the RA through
-// the generated invokers (invokers.gen.go); these pure converters fold the contract
-// types the invokers exchange into the Manager-local seams the workflow + Engines use.
+// operatedSystemStateAccess contract converters. The former operatedSystemStateAdapter
+// struct is retired — the workflow reaches the RA through the generated invokers
+// (invokers.gen.go) and now speaks operatedsystemstate.* directly as its internal
+// currency (Task 4: the operatedSystem / operatedSystemSummary / inFlightScope /
+// delinquencyAction / version Manager-local mirrors that used to require folding here
+// are deleted). The two converters below are NOT fold-boundary artifacts — each bridges
+// operatedsystemstate.RuntimeStatus to a genuinely distinct GENERATED type this package
+// does not own outright: DesiredStateReason (this package's own façade input type) and
+// RuntimeStatusSeam (this package's own façade output type / the untouched Task-5
+// interventionEngine healthChange field type).
 // ===========================================================================
 
+// runtimeStatusFromState bridges operatedsystemstate.RuntimeStatus to this package's
+// generated RuntimeStatusSeam (contract.gen.go) — used at the OperatedSystemView façade
+// boundary (ViewWorkflow) and the interventionEngine healthChange boundary (reconcileOne,
+// Task 5 territory). Kept as an explicit switch (not a raw int cast) per the composition
+// root's mapping convention: RuntimeStatusSeam is a legitimately separate generated enum
+// from operatedsystemstate.RuntimeStatus, even though their values line up today.
 func runtimeStatusFromState(s operatedsystemstate.RuntimeStatus) RuntimeStatusSeam {
 	switch s {
 	case operatedsystemstate.RuntimeStatusUnknown:
@@ -55,24 +67,6 @@ func runtimeStatusFromState(s operatedsystemstate.RuntimeStatus) RuntimeStatusSe
 	}
 }
 
-func runtimeStatusToState(s RuntimeStatusSeam) operatedsystemstate.RuntimeStatus {
-	switch s {
-	case RuntimeStatusUnknown:
-		// zero-value sentinel — no equivalent Unknown case to translate to yet.
-		return operatedsystemstate.RuntimeStatusUnknown
-	case RuntimeStatusPending:
-		return operatedsystemstate.RuntimeStatusPending
-	case RuntimeStatusHealthy:
-		return operatedsystemstate.RuntimeStatusHealthy
-	case RuntimeStatusDegraded:
-		return operatedsystemstate.RuntimeStatusDegraded
-	case RuntimeStatusWithdrawn:
-		return operatedsystemstate.RuntimeStatusWithdrawn
-	default:
-		return operatedsystemstate.RuntimeStatusUnknown
-	}
-}
-
 func desiredStateReasonToState(r DesiredStateReason) operatedsystemstate.DesiredStateReason {
 	switch r {
 	case ReasonUnknown:
@@ -88,17 +82,6 @@ func desiredStateReasonToState(r DesiredStateReason) operatedsystemstate.Desired
 		return operatedsystemstate.ReasonDelinquency
 	default:
 		return operatedsystemstate.ReasonUnknown
-	}
-}
-
-func delinquencyActionToState(a delinquencyAction) operatedsystemstate.DelinquencyAction {
-	switch a {
-	case delinquencyActionPaused:
-		return operatedsystemstate.DelinquencyActionPaused
-	case delinquencyActionWithdrawn:
-		return operatedsystemstate.DelinquencyActionWithdrawn
-	default:
-		return operatedsystemstate.DelinquencyActionUnknown
 	}
 }
 
@@ -133,25 +116,30 @@ func autoscaleDecisionToState(d *autoscaleDecisionSeam) *operatedsystemstate.Aut
 }
 
 // ===========================================================================
-// operatedRuntimeAccess contract -> Manager-local seam converter (the
+// operatedRuntimeAccess contract -> operatedsystemstate contract converter (the
 // operatedRuntimeAdapter struct is retired; see the operatedSystemStateAccess note).
+// DIVERGENT survivor (Task 4): operatedruntime.RuntimeStatus and
+// operatedsystemstate.RuntimeStatus are two RAs' independently generated enums that
+// happen to share values today; the workflow canonicalizes observed health into the
+// operatedsystemstate vocabulary at this ONE boundary (generated <-> generated, never
+// seam <-> generated) so a future re-order on either side stays safe.
 // ===========================================================================
 
-func runtimeStatusFromRuntime(s operatedruntime.RuntimeStatus) RuntimeStatusSeam {
+func runtimeStatusFromRuntime(s operatedruntime.RuntimeStatus) operatedsystemstate.RuntimeStatus {
 	switch s {
 	case operatedruntime.RuntimeStatusUnknown:
 		// zero-value sentinel — no equivalent Unknown case to translate to yet.
-		return RuntimeStatusUnknown
+		return operatedsystemstate.RuntimeStatusUnknown
 	case operatedruntime.RuntimeStatusPending:
-		return RuntimeStatusPending
+		return operatedsystemstate.RuntimeStatusPending
 	case operatedruntime.RuntimeStatusHealthy:
-		return RuntimeStatusHealthy
+		return operatedsystemstate.RuntimeStatusHealthy
 	case operatedruntime.RuntimeStatusDegraded:
-		return RuntimeStatusDegraded
+		return operatedsystemstate.RuntimeStatusDegraded
 	case operatedruntime.RuntimeStatusWithdrawn:
-		return RuntimeStatusWithdrawn
+		return operatedsystemstate.RuntimeStatusWithdrawn
 	default:
-		return RuntimeStatusUnknown
+		return operatedsystemstate.RuntimeStatusUnknown
 	}
 }
 

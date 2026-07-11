@@ -2,6 +2,9 @@ package operations
 
 import (
 	"go.temporal.io/sdk/workflow"
+
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedruntime"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedsystemstate"
 )
 
 // This file holds the queued delinquency Signal payload + the delinquency-enforcement
@@ -59,21 +62,21 @@ func (wf *workflows) DelinquencyEnforcementWorkflow(ctx workflow.Context, in del
 func (wf *workflows) runDelinquencyBranch(ctx workflow.Context, customerID customerID, dctx DelinquencyContext) error {
 	logger := workflow.GetLogger(ctx)
 	cid := customerID
-	apps, err := wf.readInFlightOperatedApps(ctx, inFlightScope{CustomerID: &cid})
+	apps, err := wf.readInFlightOperatedApps(ctx, operatedsystemstate.InFlightScope{CustomerID: &cid})
 	if err != nil {
 		return err
 	}
 
-	action := delinquencyActionWithdrawn
+	action := operatedsystemstate.DelinquencyActionWithdrawn
 	if dctx.PauseNotWithdraw {
-		action = delinquencyActionPaused
+		action = operatedsystemstate.DelinquencyActionPaused
 	}
 
 	for _, app := range apps {
 		// EXECUTE the BillingTerms-derived enforcement: a pause publishes replicas=0
 		// (via publishDesiredState); a hard withdraw removes the runtime.
 		if dctx.PauseNotWithdraw {
-			if perr := wf.publishDesiredState(ctx, app.ID, runtimeDesiredState{ContentType: "application/desired-state"}); perr != nil {
+			if perr := wf.publishDesiredState(ctx, app.ID, operatedruntime.RuntimeDesiredState{ContentType: "application/desired-state"}); perr != nil {
 				return perr
 			}
 		} else {
