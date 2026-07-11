@@ -539,7 +539,9 @@ export function toSolutionView(
     kind as 'normalSolution' | 'decompressedSolution' | 'subcriticalSolution' | 'compressedSolution'
   );
   if (model === undefined) return undefined;
-  const classRates = Object.entries(model.classRates).map(([workerClass, rate]) => ({
+  // classRates is nullable on the wire (a draft may omit it entirely — seen live on the
+  // gtdapp decompressed draft, which crashed this adapter with Object.entries(null)).
+  const classRates = Object.entries(model.classRates ?? {}).map(([workerClass, rate]) => ({
     workerClass,
     rate,
   }));
