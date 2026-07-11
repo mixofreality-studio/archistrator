@@ -140,8 +140,8 @@ github.com/mdelapenya/tlscert v0.2.0 h1:7H81W6Z/4weDvZBNOfQte5GpIMo0lGYEeWbkGp5L
 github.com/mdelapenya/tlscert v0.2.0/go.mod h1:O4njj3ELLnJjGdkN7M/vIVCpZ+Cf0L6muqOG4tLSl8o=
 github.com/mixofreality-studio/archistrator-platform/framework-go v0.4.5 h1:Iw85S8Mv9ZMgHDVTbiED0VAOEJmBZjDQ5zSTv0rNjJI=
 github.com/mixofreality-studio/archistrator-platform/framework-go v0.4.5/go.mod h1:O/JX3XM7bg+1HOfyQ0TCG4nnkED0w7R1vwcqzD5hEgM=
-github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator v0.5.1 h1:1wfYbr11BlupwYYOFt/Orduowa7nk9W4IA1Dg2cB8uE=
-github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator v0.5.1/go.mod h1:xkq/M6YCUIY8bFlU7md378H8eonKPclUVtgq2e0Ho+4=
+github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator v0.6.1 h1:VbDGKctSZV3KBs12aT1h0Y39jnC9ZPHVY61io7I3XTA=
+github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator v0.6.1/go.mod h1:xkq/M6YCUIY8bFlU7md378H8eonKPclUVtgq2e0Ho+4=
 github.com/mixofreality-studio/archistrator-platform/framework-go-http-generator v0.3.0 h1:bhVk+0c352bbwax2Zi/8t8U6hWYxvOAh9nAI8JmcUSs=
 github.com/mixofreality-studio/archistrator-platform/framework-go-http-generator v0.3.0/go.mod h1:B+QxMPDv1UNzIhOTY7NqOoeZy8CXxzSuXjEl8uw0jzY=
 github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github v0.1.3 h1:t8xlyruMM+lqd2ZfYV4cFN2SdlBRD1Z4qFrOXWG6sGs=
