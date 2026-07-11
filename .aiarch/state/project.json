@@ -5436,6 +5436,22 @@
             ]
           },
           {
+            "id": "git-activity-status-access",
+            "contractKey": "gitActivityStatusAccess",
+            "name": "GitActivityStatusAccess",
+            "kind": "resourceAccess",
+            "layer": "resourceAccess",
+            "encapsulates": "Encapsulates the Source Control Target volatility for the per-activity git-forward head-state mirror (R-014): the six additive verbs (branch opened, CI observed, arch approved, merged, activity started, activity completed) over the same git-as-DB typed aggregate project-state-access fronts, hiding HOW the branch→PR→CI→+1→merge lifecycle plus the construction started/completed status is recorded (ref-CAS commit mechanics and the idempotency dedup ledger) so the recording substrate could change without touching the construction Manager.",
+            "atomicBusinessVerbs": [
+              "recordActivityBranchOpened",
+              "recordActivityCIObserved",
+              "recordActivityArchApproved",
+              "recordActivityMerged",
+              "recordActivityStarted",
+              "recordActivityCompleted"
+            ]
+          },
+          {
             "id": "operated-system-state-access",
             "contractKey": "operatedSystemStateAccess",
             "name": "OperatedSystemStateAccess",
@@ -5882,6 +5898,12 @@
           },
           {
             "from": "construction-manager",
+            "to": "git-activity-status-access",
+            "mode": "sync",
+            "label": "record per-activity git head-state (branch opened, CI observed, arch approved, merged, construction started, construction completed)"
+          },
+          {
+            "from": "construction-manager",
             "to": "artifact-access",
             "mode": "sync",
             "label": "storeConstructionOutput / retrieveConstructionOutput / retrieveOutputTree (Phase-3 outputs)"
@@ -5981,6 +6003,12 @@
             "to": "project-git-repo",
             "mode": "sync",
             "label": "read state JSON / commit construction-transition writes guarded by git ref compare-and-swap [contract 1: typed state]"
+          },
+          {
+            "from": "git-activity-status-access",
+            "to": "project-git-repo",
+            "mode": "sync",
+            "label": "read state JSON / commit git-activity-status writes guarded by git ref compare-and-swap [contract 1: typed state]"
           },
           {
             "from": "artifact-access",
