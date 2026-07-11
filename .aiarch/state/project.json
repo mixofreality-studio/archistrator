@@ -13048,6 +13048,472 @@
         ]
       }
     },
+    "designSessionAccess": {
+      "component": "designSessionAccess",
+      "layer": "ResourceAccess",
+      "goPackage": "internal/resourceaccess/projectstate",
+      "title": "designSessionAccess contract",
+      "$defs": {
+        "ProjectID": {
+          "type": "string"
+        },
+        "Version": {
+          "type": "integer"
+        },
+        "ArtifactKind": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16
+          ],
+          "x-enum-varnames": [
+            "KindMission",
+            "KindGlossary",
+            "KindScrubbedRequirements",
+            "KindVolatilities",
+            "KindCoreUseCases",
+            "KindSystem",
+            "KindOperationalConcepts",
+            "KindStandardCheck",
+            "KindPlanningAssumptions",
+            "KindActivityList",
+            "KindNetwork",
+            "KindNormalSolution",
+            "KindSubcriticalSolution",
+            "KindCompressedSolution",
+            "KindDecompressedSolution",
+            "KindRiskModel",
+            "KindSdpReview"
+          ],
+          "x-go-base": "int"
+        },
+        "ReviewComment": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "x-go-name": "ID"
+            },
+            "anchor": {
+              "type": "string"
+            },
+            "anchorText": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            },
+            "authorRole": {
+              "type": "string"
+            },
+            "round": {
+              "type": "integer"
+            },
+            "status": {
+              "type": "string"
+            },
+            "response": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "x-go-name": "Type"
+            },
+            "addressee": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "anchor",
+            "anchorText",
+            "text",
+            "authorRole",
+            "round",
+            "status",
+            "response",
+            "type",
+            "addressee"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "interface": {
+        "name": "DesignSessionAccess",
+        "layer": "resourceaccess",
+        "operations": [
+          {
+            "name": "ReadProjectOnBranch",
+            "params": [
+              {
+                "name": "projectID",
+                "schema": {
+                  "$ref": "#/$defs/ProjectID"
+                }
+              },
+              {
+                "name": "branch",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            ],
+            "result": {
+              "x-go-type": "ProjectEnvelope"
+            },
+            "error": true
+          },
+          {
+            "name": "StageArtifactForReviewOnBranch",
+            "params": [
+              {
+                "name": "projectID",
+                "schema": {
+                  "$ref": "#/$defs/ProjectID"
+                }
+              },
+              {
+                "name": "expectedVersion",
+                "schema": {
+                  "$ref": "#/$defs/Version"
+                }
+              },
+              {
+                "name": "branch",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "name": "model",
+                "schema": {
+                  "x-go-type": "ArtifactModel"
+                }
+              },
+              {
+                "name": "idempotencyKey",
+                "schema": {
+                  "x-go-type": "fwra.IdempotencyKey",
+                  "x-go-import": "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/Version"
+            },
+            "error": true
+          },
+          {
+            "name": "CommitArtifactWithProvenance",
+            "params": [
+              {
+                "name": "projectID",
+                "schema": {
+                  "$ref": "#/$defs/ProjectID"
+                }
+              },
+              {
+                "name": "expectedVersion",
+                "schema": {
+                  "$ref": "#/$defs/Version"
+                }
+              },
+              {
+                "name": "kind",
+                "schema": {
+                  "$ref": "#/$defs/ArtifactKind"
+                }
+              },
+              {
+                "name": "approvedBy",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "name": "draftedBy",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/Version"
+            },
+            "error": true
+          },
+          {
+            "name": "RejectArtifactOnBranchWithComments",
+            "params": [
+              {
+                "name": "projectID",
+                "schema": {
+                  "$ref": "#/$defs/ProjectID"
+                }
+              },
+              {
+                "name": "expectedVersion",
+                "schema": {
+                  "$ref": "#/$defs/Version"
+                }
+              },
+              {
+                "name": "branch",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "name": "kind",
+                "schema": {
+                  "$ref": "#/$defs/ArtifactKind"
+                }
+              },
+              {
+                "name": "notes",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "name": "round",
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              {
+                "name": "comments",
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/ReviewComment"
+                  }
+                }
+              },
+              {
+                "name": "idempotencyKey",
+                "schema": {
+                  "x-go-type": "fwra.IdempotencyKey",
+                  "x-go-import": "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/Version"
+            },
+            "error": true
+          },
+          {
+            "name": "WithdrawArtifactOnBranch",
+            "params": [
+              {
+                "name": "projectID",
+                "schema": {
+                  "$ref": "#/$defs/ProjectID"
+                }
+              },
+              {
+                "name": "expectedVersion",
+                "schema": {
+                  "$ref": "#/$defs/Version"
+                }
+              },
+              {
+                "name": "branch",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "name": "kind",
+                "schema": {
+                  "$ref": "#/$defs/ArtifactKind"
+                }
+              },
+              {
+                "name": "notes",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "name": "idempotencyKey",
+                "schema": {
+                  "x-go-type": "fwra.IdempotencyKey",
+                  "x-go-import": "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/Version"
+            },
+            "error": true
+          },
+          {
+            "name": "ReconcileBranchFromMain",
+            "params": [
+              {
+                "name": "projectID",
+                "schema": {
+                  "$ref": "#/$defs/ProjectID"
+                }
+              },
+              {
+                "name": "expectedVersion",
+                "schema": {
+                  "$ref": "#/$defs/Version"
+                }
+              },
+              {
+                "name": "branch",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "name": "kind",
+                "schema": {
+                  "$ref": "#/$defs/ArtifactKind"
+                }
+              },
+              {
+                "name": "idempotencyKey",
+                "schema": {
+                  "x-go-type": "fwra.IdempotencyKey",
+                  "x-go-import": "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/Version"
+            },
+            "error": true
+          },
+          {
+            "name": "SetReviewCommentStatusOnBranch",
+            "params": [
+              {
+                "name": "projectID",
+                "schema": {
+                  "$ref": "#/$defs/ProjectID"
+                }
+              },
+              {
+                "name": "expectedVersion",
+                "schema": {
+                  "$ref": "#/$defs/Version"
+                }
+              },
+              {
+                "name": "branch",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "name": "kind",
+                "schema": {
+                  "$ref": "#/$defs/ArtifactKind"
+                }
+              },
+              {
+                "name": "commentID",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "name": "status",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "name": "idempotencyKey",
+                "schema": {
+                  "x-go-type": "fwra.IdempotencyKey",
+                  "x-go-import": "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/Version"
+            },
+            "error": true
+          },
+          {
+            "name": "SeedReviewCommentsOnBranch",
+            "params": [
+              {
+                "name": "projectID",
+                "schema": {
+                  "$ref": "#/$defs/ProjectID"
+                }
+              },
+              {
+                "name": "expectedVersion",
+                "schema": {
+                  "$ref": "#/$defs/Version"
+                }
+              },
+              {
+                "name": "branch",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "name": "kind",
+                "schema": {
+                  "$ref": "#/$defs/ArtifactKind"
+                }
+              },
+              {
+                "name": "round",
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              {
+                "name": "comments",
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/ReviewComment"
+                  }
+                }
+              },
+              {
+                "name": "idempotencyKey",
+                "schema": {
+                  "x-go-type": "fwra.IdempotencyKey",
+                  "x-go-import": "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/Version"
+            },
+            "error": true
+          }
+        ]
+      }
+    },
     "durableExecutionAccess": {
       "component": "durableExecutionAccess",
       "layer": "ResourceAccess",
