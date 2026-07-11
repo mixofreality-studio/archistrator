@@ -6,34 +6,28 @@ import (
 )
 
 // This file declares billingManager's CONSUMER-SIDE dependency interfaces (the Go
-// "accept interfaces" idiom). Per the senior hand-off, NONE of billingManager's
-// collaborators is yet built as a Go package in this module, so this Manager is built
-// against their FROZEN CONTRACTS as interfaces it declares here, and unit-tested with
-// hand-written fakes:
+// "accept interfaces" idiom) for the two collaborators still reached through a
+// Manager-local seam, plus the seam data types they carry:
 //
-//   - BillingStateAccess  — billingStateAccess.md §2/§3 (design-only; FU-MST-1 id migration)
-//   - RevenueLedgerAccess    — revenueLedgerAccess.md §2/§3 (FROZEN; not yet built)
-//   - UsageAccess            — usageAccess.md §2/§3 (FROZEN; not yet built)
-//   - MerchantGatewayAccess  — merchantGatewayAccess (D-MA — NOT YET CONTRACTED; FU-MST-2/OQ-2)
-//   - BillingEngine       — billingEngine.md §2.1/§2.2 (FROZEN; not yet built)
-//   - InterventionEngine     — interventionEngine.md §2.3 (FROZEN; not yet built)
-//   - DurableExecutionAccess — exists as internal/resourceaccess/durableexecution, but
-//     consumed via a NARROW seam interface (deliverSignal + registerSchedule) so the
-//     composition root adapts the concrete *durableexecution.Runtime. The in-workflow
-//     awaitSignal primitive (the inbound/reversal/chargeback waits) is the Manager's
-//     OWN workflow code (D-DA category A), NOT an RA method.
+//   - RevenueLedgerAccess — not a Go package to build against; charge-only removed the
+//     revenue-ledger component from the design entirely (slot 5 has no revenue-ledger
+//     RA). The interface and its data mirrors (entryRefSeam, revenueEntrySeam,
+//     reversalEntrySeam) stay only so the close/recompute workflow spine keeps
+//     compiling; the composition root wires them to a permanent no-op adapter
+//     (adapters.go noopRevenueLedger — see its TODO for the follow-up to excise the
+//     spine outright).
+//   - DurableExecutionAccess — exists as internal/resourceaccess/durableexecution;
+//     consumed here via a NARROW seam interface (RegisterSchedule only, for the
+//     startup shortfallSweep registration). The composition root adapts the concrete
+//     *durableexecution.Runtime (durableAdapter, adapters.go).
 //
-// The data types each not-yet-built Engine/RA exchanges are declared here in the
-// Manager-local SEAM form mirroring the frozen contract, suffixed "Seam" where the
-// owning package will later own the canonical type. When the owner ships, these local
-// mirrors are deleted and the import substituted; no public façade op changes
-// (billingManager.md OQ-7). This keeps the Method discipline "models live in their
-// owning RA/Engine" intact.
-//
-// §3.0 IDENTITY: every collaborator below keys on CustomerID = uuid.UUID. We do NOT
-// reintroduce BillingID(string) (the §3.0 ruling); billingStateAccess is
-// consumed here ALREADY MIGRATED (the FU-MST-1 shape), which the composition root will
-// satisfy once that RA is built.
+// Every other collaborator — billingStateAccess, usageAccess, merchantGatewayAccess,
+// billingengine.BillingEngine, intervention.InterventionEngine — is reached directly
+// through the generated typed invokers/Activities and their published contracts
+// (workflow.go); no Manager-local seam or data mirror remains for any of them (see the
+// per-collaborator notes below). The in-workflow awaitSignal primitive (the
+// inbound/reversal/chargeback waits) is the Manager's OWN workflow code (D-DA category
+// A), NOT an RA method.
 
 // ===========================================================================
 // billingStateAccess — the billing/customer head-state RA. Each WRITE carries

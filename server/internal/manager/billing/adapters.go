@@ -59,6 +59,8 @@ func routingDirectiveToState(d billingengine.RoutingDirective) billingstate.Rout
 		return billingstate.RoutingPayout
 	case billingengine.RoutingCharge:
 		return billingstate.RoutingCharge
+	case billingengine.RoutingNoAction:
+		return billingstate.RoutingNoAction
 	default:
 		return billingstate.RoutingNoAction
 	}
