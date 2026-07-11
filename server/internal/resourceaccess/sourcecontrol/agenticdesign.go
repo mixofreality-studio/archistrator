@@ -160,7 +160,7 @@ const StateMcpModulePath = "github.com/mixofreality-studio/archistrator/server/c
 // older pin are refreshed by the design Managers' sync-on-dispatch (SyncManagedScaffold)
 // before every design job, so a seated repo can no longer run against a pin this server's
 // validators do not understand.
-var StateMcpModulePin = "58b3c82df8a88fd583a6a22feffc2ccc030376e9"
+var StateMcpModulePin = "e9d18ca0e5cd9b9880b7caa02a9da5e9e5278a35"
 
 // NOTE (2026-06-15 correction): the embedded DESIGN workflow reads
 // ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }} to authenticate claude-code-action, but that
