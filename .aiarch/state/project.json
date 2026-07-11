@@ -20513,6 +20513,184 @@
       },
       "notes": "Factored into four facets over the frozen core port: BranchAwareProjectStateAccess (2 ops — projectstate.go:58), ConstructionTransitionAccess (10 ops — construction_transition_port.go), GitActivityStatusAccess (4 ops — gitactivity.go), and the ProjectCatalog seam (1 op — gitstore.go:134); catalog split (CreateProject/ListProjects → projectCatalogAccess) fires on the next core-port op addition."
     },
+    "revenueLedgerAccess": {
+      "component": "revenueLedgerAccess",
+      "layer": "ResourceAccess",
+      "goPackage": "internal/resourceaccess/billingstate",
+      "title": "revenueLedgerAccess contract",
+      "$defs": {
+        "EntryRef": {
+          "type": "string"
+        },
+        "RevenueKind": {
+          "type": "integer",
+          "enum": [
+            0,
+            1
+          ],
+          "x-enum-varnames": [
+            "RevenueKindInbound",
+            "RevenueKindReversal"
+          ],
+          "x-go-base": "int"
+        },
+        "Money": {
+          "type": "object",
+          "properties": {
+            "MinorUnits": {
+              "type": "integer"
+            },
+            "Currency": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "MinorUnits",
+            "Currency"
+          ],
+          "additionalProperties": false
+        },
+        "RevenueEntry": {
+          "type": "object",
+          "properties": {
+            "CustomerID": {
+              "type": "string",
+              "format": "uuid",
+              "x-go-import": "github.com/google/uuid",
+              "x-go-type": "uuid.UUID"
+            },
+            "CycleID": {
+              "type": "string"
+            },
+            "Kind": {
+              "$ref": "#/$defs/RevenueKind"
+            },
+            "Amount": {
+              "$ref": "#/$defs/Money"
+            },
+            "GatewayEventID": {
+              "type": "string"
+            },
+            "OccurredAt": {
+              "type": "string",
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            }
+          },
+          "required": [
+            "CustomerID",
+            "CycleID",
+            "Kind",
+            "Amount",
+            "GatewayEventID",
+            "OccurredAt"
+          ],
+          "additionalProperties": false
+        },
+        "ReversalEntry": {
+          "type": "object",
+          "properties": {
+            "CustomerID": {
+              "type": "string",
+              "format": "uuid",
+              "x-go-import": "github.com/google/uuid",
+              "x-go-type": "uuid.UUID"
+            },
+            "CycleID": {
+              "type": "string"
+            },
+            "Amount": {
+              "$ref": "#/$defs/Money"
+            },
+            "GatewayEventID": {
+              "type": "string"
+            },
+            "ReversesGatewayEventID": {
+              "type": "string"
+            },
+            "OccurredAt": {
+              "type": "string",
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            }
+          },
+          "required": [
+            "CustomerID",
+            "CycleID",
+            "Amount",
+            "GatewayEventID",
+            "ReversesGatewayEventID",
+            "OccurredAt"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "interface": {
+        "name": "RevenueLedgerAccess",
+        "layer": "resourceaccess",
+        "operations": [
+          {
+            "name": "RecordInboundRevenue",
+            "params": [
+              {
+                "name": "entry",
+                "schema": {
+                  "$ref": "#/$defs/RevenueEntry"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/EntryRef"
+            },
+            "error": true
+          },
+          {
+            "name": "RecordReversal",
+            "params": [
+              {
+                "name": "reversal",
+                "schema": {
+                  "$ref": "#/$defs/ReversalEntry"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/EntryRef"
+            },
+            "error": true
+          },
+          {
+            "name": "ReadRange",
+            "params": [
+              {
+                "name": "customerID",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid",
+                  "x-go-import": "github.com/google/uuid",
+                  "x-go-type": "uuid.UUID"
+                }
+              },
+              {
+                "name": "cycleID",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            ],
+            "result": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/RevenueEntry"
+              }
+            },
+            "error": true
+          }
+        ]
+      }
+    },
     "reviewEngine": {
       "component": "reviewEngine",
       "layer": "Engine",

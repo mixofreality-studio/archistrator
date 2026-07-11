@@ -181,6 +181,13 @@ var encapsulationAllowlistData = map[string][]string{
 		"NewGitHubCloudArtifactAccess",
 		"NewGitLocalArtifactAccess",
 	},
+	// PERMANENT NO-OP CONSTRUCTOR (B5): revenueLedgerAccess has no infrastructure binding
+	// (charge-only removed the ledger's persistence — see revenueledger.go's package doc);
+	// NewRevenueLedgerAccess returns the sole, permanent no-op impl, same VARIANT-CONSTRUCTOR
+	// category as artifact/constructionpipeline's dry-run constructors above/below.
+	"internal/resourceaccess/billingstate": {
+		"NewRevenueLedgerAccess",
+	},
 	// FREE-FUNCTION BEHAVIOUR over the contract's named-scalar handle/enum value types: the
 	// schema-first rule keeps generated contract types method-free, so
 	// String/Parse/Equal/IsZero/IsTerminal behaviour lives as free funcs. Plus the package Error

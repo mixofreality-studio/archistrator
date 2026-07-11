@@ -1,0 +1,177 @@
+{
+  "$id": "archistrator://contract/billingstate/revenueledger",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "revenueLedgerAccess contract",
+  "interface": {
+    "name": "RevenueLedgerAccess",
+    "layer": "resourceaccess",
+    "operations": [
+      {
+        "name": "RecordInboundRevenue",
+        "params": [
+          {
+            "name": "entry",
+            "schema": {
+              "$ref": "#/$defs/RevenueEntry"
+            }
+          }
+        ],
+        "result": {
+          "$ref": "#/$defs/EntryRef"
+        },
+        "error": true
+      },
+      {
+        "name": "RecordReversal",
+        "params": [
+          {
+            "name": "reversal",
+            "schema": {
+              "$ref": "#/$defs/ReversalEntry"
+            }
+          }
+        ],
+        "result": {
+          "$ref": "#/$defs/EntryRef"
+        },
+        "error": true
+      },
+      {
+        "name": "ReadRange",
+        "params": [
+          {
+            "name": "customerID",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "x-go-import": "github.com/google/uuid",
+              "x-go-type": "uuid.UUID"
+            }
+          },
+          {
+            "name": "cycleID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "result": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RevenueEntry"
+          }
+        },
+        "error": true
+      }
+    ]
+  },
+  "$defs": {
+    "EntryRef": {
+      "type": "string"
+    },
+    "RevenueKind": {
+      "type": "integer",
+      "enum": [
+        0,
+        1
+      ],
+      "x-enum-varnames": [
+        "RevenueKindInbound",
+        "RevenueKindReversal"
+      ],
+      "x-go-base": "int"
+    },
+    "Money": {
+      "type": "object",
+      "properties": {
+        "MinorUnits": {
+          "type": "integer"
+        },
+        "Currency": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "MinorUnits",
+        "Currency"
+      ],
+      "additionalProperties": false
+    },
+    "RevenueEntry": {
+      "type": "object",
+      "properties": {
+        "CustomerID": {
+          "type": "string",
+          "format": "uuid",
+          "x-go-import": "github.com/google/uuid",
+          "x-go-type": "uuid.UUID"
+        },
+        "CycleID": {
+          "type": "string"
+        },
+        "Kind": {
+          "$ref": "#/$defs/RevenueKind"
+        },
+        "Amount": {
+          "$ref": "#/$defs/Money"
+        },
+        "GatewayEventID": {
+          "type": "string"
+        },
+        "OccurredAt": {
+          "type": "string",
+          "format": "date-time",
+          "x-go-import": "time",
+          "x-go-type": "time.Time"
+        }
+      },
+      "required": [
+        "CustomerID",
+        "CycleID",
+        "Kind",
+        "Amount",
+        "GatewayEventID",
+        "OccurredAt"
+      ],
+      "additionalProperties": false
+    },
+    "ReversalEntry": {
+      "type": "object",
+      "properties": {
+        "CustomerID": {
+          "type": "string",
+          "format": "uuid",
+          "x-go-import": "github.com/google/uuid",
+          "x-go-type": "uuid.UUID"
+        },
+        "CycleID": {
+          "type": "string"
+        },
+        "Amount": {
+          "$ref": "#/$defs/Money"
+        },
+        "GatewayEventID": {
+          "type": "string"
+        },
+        "ReversesGatewayEventID": {
+          "type": "string"
+        },
+        "OccurredAt": {
+          "type": "string",
+          "format": "date-time",
+          "x-go-import": "time",
+          "x-go-type": "time.Time"
+        }
+      },
+      "required": [
+        "CustomerID",
+        "CycleID",
+        "Amount",
+        "GatewayEventID",
+        "ReversesGatewayEventID",
+        "OccurredAt"
+      ],
+      "additionalProperties": false
+    }
+  }
+}
