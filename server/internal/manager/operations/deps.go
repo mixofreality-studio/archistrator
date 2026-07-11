@@ -120,22 +120,34 @@ type scheduleSpec struct {
 // interventionEngine / autoscalerEngine / operationEstimationEngine — RETIRED. The
 // consumer-seam interfaces AND their local data mirrors (healthChange,
 // interventionPolicy, healthDirective + its consts, telemetry, autoscalerDesiredState,
-// autoscalerPolicy, infrastructureKind + its const, autoscaleDecisionSeam,
-// computeUnitsSeam, usageEventSeam, observedUsage) are retired — the workflow reaches
-// all three Engines through their PUBLISHED contracts (intervention.InterventionEngine
-// / autoscaler.AutoscalerEngine / operationestimation.OperationEstimationEngine, each
+// infrastructureKind + its const, autoscaleDecisionSeam, computeUnitsSeam,
+// usageEventSeam, observedUsage) are retired — the workflow reaches all three Engines
+// through their PUBLISHED contracts (intervention.InterventionEngine /
+// autoscaler.AutoscalerEngine / operationestimation.OperationEstimationEngine, each
 // component's contract.gen.go), called DIRECTLY in-workflow by value (no Activity, no
 // idempotency key, imports no Temporal), with
 // fweng.Context{Context: context.Background()} supplied inline at each call site
-// (workflow.go). adapters.go keeps the REAL divergence bridges that remain:
+// (workflow.go).
+//
+// autoscalerPolicy (workflow.go) is NOT one of the retired seam mirrors above, despite
+// the name: it is the Manager's OWN config-currency type for the autoscaler policy,
+// kept distinct from the Engine's published AutoscalerPolicy because the two Mode
+// enums disagree on zero value (façade Unknown=0 vs the Engine's own zero value, which
+// IS Auto) — a config → contract builder input (same allowed-survivor class as
+// slaTierFromString below), not an identity seam mirror to a not-yet-built collaborator.
+//
+// adapters.go keeps the REAL divergence bridges that remain:
 //   - healthStatusFromRuntimeStatus — operatedsystemstate.RuntimeStatus (5 values) to
 //     intervention.HealthStatus (4 values); genuinely different enums, one hop
 //     (collapsing the former two-hop path through this package's own RuntimeStatusSeam).
 //   - slaTierFromString — the Manager's raw string SLA-tier config (no typed config
 //     source is wired yet) to intervention.SLATier.
-//   - autoscalerModeFromEngine — autoscaler.AutoscalerMode (Auto=0/Manual=1, no Unknown)
-//     to this package's OWN façade AutoscalerMode (Unknown=0/Auto=1/Manual=2) for the
-//     OperatedSystemView façade output; genuinely divergent VALUES, not just names.
+//   - autoscalerPolicyToEngine (+ autoscalerModeToEngine) — bridges this package's own
+//     façade autoscalerPolicy (Mode: AutoscalerMode, Unknown=0/Auto=1/Manual=2) onto the
+//     autoscaler Engine's own published AutoscalerPolicy (Mode: Auto=0/Manual=1, no
+//     Unknown) at the ProposeDesiredState call site; genuinely divergent VALUES, not
+//     just names. The OperatedSystemView façade output reads wf.AutoscalerPolicy.Mode
+//     straight through (no bridge needed on that side).
 //   - autoscaleActionToState — autoscaler.DecisionKind straight to
 //     operatedsystemstate.AutoscaleAction (collapsing the former two-hop path through
 //     this package's own façade AutoscaleAction).

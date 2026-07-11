@@ -50,12 +50,18 @@ type wfDeps struct {
 	Acts genInvokers
 
 	// Policy snapshots fed to the Engines by value. In production the Manager reads
-	// them from head-state; held here as the construction-time config values, already
-	// typed as each Engine's own published input (InterventionPolicy is built from the
-	// Manager's raw string SLA-tier config via slaTierFromString at WorkerManifest()
-	// construction time, adapters.go).
+	// them from head-state; held here as the construction-time config values.
+	// InterventionPolicy is built from the Manager's raw string SLA-tier config via
+	// slaTierFromString at WorkerManifest() construction time (adapters.go) — already
+	// typed as the Engine's own published input. AutoscalerPolicy stays in the
+	// Manager's OWN façade currency (autoscalerPolicy, below) rather than the autoscaler
+	// Engine's published AutoscalerPolicy: the two Mode enums genuinely disagree on
+	// zero value (façade Unknown=0 vs the Engine's own zero value, which IS Auto), and
+	// this is also this package's OperatedSystemView.Autoscaler.Mode field's currency —
+	// autoscalerPolicyToEngine (adapters.go) converts it at the ProposeDesiredState call
+	// site (the one place that needs the Engine's own shape).
 	InterventionPolicy intervention.InterventionPolicy
-	AutoscalerPolicy   autoscaler.AutoscalerPolicy
+	AutoscalerPolicy   autoscalerPolicy
 	// InfrastructureKind is this Manager's canonical currency for the concept shared
 	// by the autoscaler and estimation Engines — autoscaler.InfrastructureKind, since
 	// AutoscalerPolicy/DesiredState carry it too; infrastructureKindForEstimation
@@ -70,6 +76,26 @@ type wfDeps struct {
 	CustomerID     customerID
 }
 
+// autoscalerPolicy is the Manager's OWN façade-shaped autoscaler policy config
+// currency (Kind still autoscaler.InfrastructureKind — the Manager's canonical
+// currency for that concept, per InfrastructureKind above — but Mode is THIS
+// package's own generated AutoscalerMode, contract.gen.go, whose zero value is
+// AutoscalerModeUnknown). Deliberately NOT the autoscaler Engine's published
+// AutoscalerPolicy: that type's own Mode has no Unknown value (its zero value IS
+// Auto), so holding the Manager's config in the Engine's shape would silently report
+// an unconfigured policy as "Auto" on the OperatedSystemView (regression: the Task 5
+// engine-contract retype did exactly this). autoscalerPolicyToEngine (adapters.go)
+// bridges this to the Engine's own AutoscalerPolicy at the one call site that needs
+// it (ProposeDesiredState, below); ViewWorkflow reads Mode straight off this façade
+// type with no bridge needed. A config → contract builder input (allowed survivor
+// class), not an identity seam mirror.
+type autoscalerPolicy struct {
+	Kind             autoscaler.InfrastructureKind
+	Mode             AutoscalerMode
+	MinReplicas      int64
+	BaselineReplicas int64
+}
+
 // workflows is the single operationsManager component struct — the workflow receiver.
 // The RA activities are the generated genActivities (activities.gen.go); this struct
 // reaches them through the typed invokers (Acts).
@@ -81,7 +107,7 @@ type workflows struct {
 	Acts genInvokers
 
 	InterventionPolicy intervention.InterventionPolicy
-	AutoscalerPolicy   autoscaler.AutoscalerPolicy
+	AutoscalerPolicy   autoscalerPolicy
 	InfrastructureKind autoscaler.InfrastructureKind
 	CurrentCycleID     string
 	CustomerID         customerID
@@ -283,11 +309,14 @@ func (wf *workflows) reconcileOne(ctx workflow.Context, app operatedsystemstate.
 	}
 
 	// --- Path C (autoscale) ---
+	// autoscalerPolicyToEngine bridges the Manager's own façade AutoscalerPolicy onto
+	// the Engine's published AutoscalerPolicy (adapters.go) — the one call site that
+	// needs the Engine's own Mode shape.
 	decision, aerr2 := wf.Autoscaler.ProposeDesiredState(
 		fweng.Context{Context: context.Background()},
 		autoscaler.Telemetry{CurrentReplicas: 0},
 		autoscaler.DesiredState{InfrastructureKind: wf.InfrastructureKind},
-		wf.AutoscalerPolicy,
+		autoscalerPolicyToEngine(wf.AutoscalerPolicy),
 		wf.InfrastructureKind,
 	)
 	if aerr2 != nil {
@@ -426,8 +455,10 @@ type viewInput struct {
 //  4. ReadUsageRangeActivity + operationEstimationEngine.ProjectForOperatedApp (nil
 //     what-if) → CurrentRunRate (run-rate only).
 //
-// The autoscaler mode is sourced from the committed policy snapshot the Manager
-// carries (wf.AutoscalerPolicy.Mode). The autoscaler DECISION history and the
+// The autoscaler mode is sourced directly from the committed policy snapshot the
+// Manager carries in its OWN façade currency (wf.AutoscalerPolicy.Mode,
+// autoscalerPolicy above — zero value AutoscalerModeUnknown for an unconfigured
+// policy; no bridge needed here). The autoscaler DECISION history and the
 // per-phase RecentEvents are NOT exposed by an existing frozen RA read verb (head-state
 // exposes Status/Version/InFlight only); per the ruling's Construction note they are
 // surfaced empty here and a one-line follow-up is flagged to the architect — NO new RA
@@ -493,10 +524,11 @@ func (wf *workflows) ViewWorkflow(ctx workflow.Context, in viewInput) (OperatedS
 		// single RA read today (Construction-note follow-up); surfaced empty.
 		RecentEvents: nil,
 		Autoscaler: AutoscalerView{
-			// autoscalerModeFromEngine bridges the Engine's own AutoscalerMode (its
-			// values genuinely diverge from this package's façade AutoscalerMode) onto
-			// the façade's Auto/Manual/Unknown vocabulary.
-			Mode: autoscalerModeFromEngine(wf.AutoscalerPolicy.Mode),
+			// wf.AutoscalerPolicy is already this package's own façade AutoscalerMode
+			// currency (autoscalerPolicy, above) — read straight through, no bridge.
+			// (autoscalerPolicyToEngine, adapters.go, converts the OTHER direction, at
+			// the ProposeDesiredState call site.)
+			Mode: wf.AutoscalerPolicy.Mode,
 			// Decisions: not retrievable from a single frozen RA read today
 			// (Construction-note follow-up); surfaced empty.
 			Decisions: nil,

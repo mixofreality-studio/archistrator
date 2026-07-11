@@ -4,7 +4,7 @@ package operations
 // ResourceAccess interfaces (the dependencies the GENERATED constructor
 // NewOperationsManager receives) to the Manager's unexported downstream seams
 // (deps.go), plus the REAL Engine-contract divergence bridges (healthStatusFromRuntimeStatus,
-// slaTierFromString, autoscalerModeFromEngine, autoscaleActionToState,
+// slaTierFromString, autoscalerPolicyToEngine, autoscaleActionToState,
 // infrastructureKindForEstimation, moneyFromEstimation, whatIfCurveFromEstimation,
 // scalePointsToEstimation). Per the founder DI model (2026-06-28) these were retired
 // from cmd/server and live HERE, in the one package that knows both sides — the
@@ -242,27 +242,58 @@ func slaTierFromString(s string) intervention.SLATier {
 }
 
 // ===========================================================================
-// autoscalerEngine — REAL divergence bridge. The workflow calls the published
-// autoscaler.AutoscalerEngine.ProposeDesiredState DIRECTLY (workflow.go); its
-// AutoscalerPolicy/DesiredState/InfrastructureKind inputs are already the Manager's
-// own config currency (wfDeps), so no adapter is needed on the way IN. Only the way
-// OUT to the OperatedSystemView façade needs a bridge (the façade owns its own
-// AutoscalerMode with divergent values).
+// autoscalerEngine — REAL divergence bridge, now on the way IN. The Manager holds its
+// autoscaler policy config in its OWN façade currency (autoscalerPolicy, workflow.go —
+// Mode: this package's generated AutoscalerMode, whose zero value is
+// AutoscalerModeUnknown, matching "no policy configured"). The autoscaler Engine's own
+// AutoscalerMode has NO Unknown value (its zero value IS Auto), so the two enums
+// genuinely disagree on VALUE — autoscalerPolicyToEngine bridges the façade policy onto
+// the Engine's own autoscaler.AutoscalerPolicy at the ProposeDesiredState call site
+// (workflow.go), an explicit switch rather than a raw cast. This is a config → contract
+// builder (the same allowed-survivor class as slaTierFromString above), not an identity
+// seam mirror. Because the Manager's OWN façade Mode already carries the
+// Unknown/Auto/Manual vocabulary, the OperatedSystemView.Autoscaler.Mode field reads it
+// straight off wf.AutoscalerPolicy.Mode with NO bridge needed on the way OUT
+// (workflow.go, ViewWorkflow) — autoscalerModeFromEngine is retired.
 // ===========================================================================
 
-// autoscalerModeFromEngine bridges the autoscaler Engine's own AutoscalerMode
-// (Auto=0/Manual=1, no Unknown) to this package's OWN façade AutoscalerMode
-// (Unknown=0/Auto=1/Manual=2) for the OperatedSystemView.Autoscaler.Mode field — the
-// two enums genuinely disagree on VALUE (not just on name), so an explicit switch is
-// required, not merely convention.
-func autoscalerModeFromEngine(m autoscaler.AutoscalerMode) AutoscalerMode {
+// autoscalerPolicyToEngine bridges the Manager's façade-shaped autoscaler policy
+// (autoscalerPolicy, workflow.go) onto the autoscaler Engine's own published
+// AutoscalerPolicy. The Mode conversion mirrors the retired autoscalerModeToEngine's
+// documented behavior: the façade's zero-value AutoscalerModeUnknown maps to the
+// Engine's AutoscalerModeAuto, matching the fact that the Engine's own zero value
+// already IS Auto (an unconfigured policy behaves as auto-scaling either way — only the
+// façade's OWN Unknown/Auto/Manual vocabulary needed preserving for the view). Fields
+// with no façade-side counterpart (MaxReplicas, MaxStepDelta, IdleThreshold,
+// ScaleUpCPU/ScaleDownCPU/ScaleDownGrace, SLATier, Pinned, MaxBurstCap) default to
+// zero — the operations Worker carries no further policy config yet (same as before
+// this bridge existed).
+func autoscalerPolicyToEngine(p autoscalerPolicy) autoscaler.AutoscalerPolicy {
+	return autoscaler.AutoscalerPolicy{
+		Kind:             p.Kind,
+		Mode:             autoscalerModeToEngine(p.Mode),
+		MinReplicas:      p.MinReplicas,
+		BaselineReplicas: p.BaselineReplicas,
+	}
+}
+
+// autoscalerModeToEngine bridges this package's OWN façade AutoscalerMode
+// (Unknown=0/Auto=1/Manual=2) onto the autoscaler Engine's own AutoscalerMode
+// (Auto=0/Manual=1, no Unknown) — the two enums genuinely disagree on VALUE (not just
+// on name), so an explicit switch is required, not merely convention.
+func autoscalerModeToEngine(m AutoscalerMode) autoscaler.AutoscalerMode {
 	switch m {
-	case autoscaler.AutoscalerModeAuto:
-		return AutoscalerModeAuto
-	case autoscaler.AutoscalerModeManual:
-		return AutoscalerModeManual
+	case AutoscalerModeAuto:
+		return autoscaler.AutoscalerModeAuto
+	case AutoscalerModeUnknown:
+		// zero-value sentinel — the autoscaler engine's own AutoscalerMode has no
+		// Unknown value (its zero value IS Auto), so an unset façade policy defaults
+		// to auto, same as AutoscalerModeAuto above.
+		return autoscaler.AutoscalerModeAuto
+	case AutoscalerModeManual:
+		return autoscaler.AutoscalerModeManual
 	default:
-		return AutoscalerModeUnknown
+		return autoscaler.AutoscalerModeAuto
 	}
 }
 

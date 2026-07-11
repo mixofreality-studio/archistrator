@@ -725,7 +725,7 @@ func Test_View_ComposesReads_NoMutation(t *testing.T) {
 	rt.health = operatedruntime.RuntimeStatusHealthy
 	rt.slo = operatedruntime.SloStatus{SloMet: true, Detail: "99.9% / 30d"}
 	us.rangeEvents = []usage.UsageEvent{{OperatedAppID: appID, RuntimeEventID: "e1"}}
-	deps.AutoscalerPolicy = autoscaler.AutoscalerPolicy{Mode: autoscaler.AutoscalerModeAuto}
+	deps.AutoscalerPolicy = autoscalerPolicy{Mode: AutoscalerModeAuto}
 	deps.Estimation = &fakeEstimation{projection: operationestimation.CostProjection{
 		CurrentRunRate: operationestimation.Money{MinorUnits: 4120, Currency: "USD"},
 	}}
@@ -774,6 +774,42 @@ func Test_View_ComposesReads_NoMutation(t *testing.T) {
 	}
 	if len(rt.publishes) != 0 || len(rt.withdraws) != 0 {
 		t.Fatalf("view must not write runtime; publishes=%d withdraws=%d", len(rt.publishes), len(rt.withdraws))
+	}
+}
+
+// H2: an operated app with NO configured autoscaler policy (baseDeps' zero-value
+// AutoscalerPolicy — operationsManager has no setter for it; workermanifest.go folds
+// m.autoscalerPolicy through unmodified) must report AutoscalerModeUnknown on the
+// view, not Auto. Regression for the Task 5 engine-contract retype that flipped the
+// façade's own zero-value semantics: this package's façade AutoscalerMode has
+// Unknown=0/Auto=1/Manual=2, but the autoscaler engine's own AutoscalerMode has NO
+// Unknown value (its zero value IS Auto) — retyping the Manager-held policy straight
+// to autoscaler.AutoscalerPolicy silently turned "unconfigured" into "Auto".
+func Test_View_UnconfiguredAutoscaler_ReportsUnknown(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	deps, os, rt, us, ar := baseDeps()
+	appID := uuid.New()
+	os.system = operatedsystemstate.OperatedSystem{ID: appID, Version: 1, Status: operatedsystemstate.RuntimeStatusHealthy}
+	os.version = 1
+	rt.health = operatedruntime.RuntimeStatusHealthy
+	rt.slo = operatedruntime.SloStatus{SloMet: true, Detail: "n/a"}
+	// deps.AutoscalerPolicy intentionally left at its zero value (unconfigured).
+	wf := newWorkflows(deps)
+	registerView(env, wf, os, rt, us, ar)
+
+	env.ExecuteWorkflow(executionKindOperatedSystemView, viewInput{OperatedAppID: appID})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	var view OperatedSystemView
+	if err := env.GetWorkflowResult(&view); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if view.Autoscaler.Mode != AutoscalerModeUnknown {
+		t.Fatalf("autoscaler mode = %v, want Unknown for an unconfigured policy", view.Autoscaler.Mode)
 	}
 }
 

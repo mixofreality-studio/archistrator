@@ -79,10 +79,18 @@ type operationsManager struct {
 	// intervention.InterventionPolicy fed to wfDeps.
 	interventionRetryBudget int64
 	interventionSLATier     string
-	autoscalerPolicy        autoscaler.AutoscalerPolicy
-	infrastructureKind      autoscaler.InfrastructureKind
-	currentCycleID          string
-	customerID              customerID
+	// autoscalerPolicy is held in this package's OWN façade currency (the
+	// autoscalerPolicy type, workflow.go), NOT the autoscaler Engine's published
+	// AutoscalerPolicy: the façade's AutoscalerMode zero value is AutoscalerModeUnknown
+	// (matching "no policy configured"), whereas the Engine's own AutoscalerMode has no
+	// Unknown value (its zero value IS Auto). WorkerManifest() (workermanifest.go) folds
+	// this straight through into wfDeps.AutoscalerPolicy; autoscalerPolicyToEngine
+	// (adapters.go) converts it to the Engine's own shape at the one call site that
+	// needs it (workflow.go, ProposeDesiredState).
+	autoscalerPolicy   autoscalerPolicy
+	infrastructureKind autoscaler.InfrastructureKind
+	currentCycleID     string
+	customerID         customerID
 }
 
 // newOperationsManager is the hand-written, unexported builder the generated
