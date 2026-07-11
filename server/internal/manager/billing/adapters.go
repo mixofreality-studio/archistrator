@@ -29,52 +29,36 @@ import (
 )
 
 // ===========================================================================
-// billingStateAccess contract <-> Manager-local seam converters. The former
-// billingStateAdapter struct is retired — the workflow reaches the RA through the
-// generated invokers (invokers.gen.go); these pure converters fold the contract types
-// the invokers exchange into the Manager-local seams the workflow + Engines use.
+// billingStateAccess contract converters. The former billingStateAdapter struct AND
+// the Manager-local billingHead/billingOutcomeSeam/gatewayBindingSeam/customerSummary/
+// delinquencyScope/version mirrors are retired — the workflow reaches the RA through
+// the generated invokers (invokers.gen.go) and speaks the billingstate contract types
+// (Billing, BillingTerms, BillingOutcome, CustomerSummary, DelinquencyScope,
+// GatewayBinding, Version) directly. The two converters below are the REAL
+// divergences that remain: the engine-owned BillingTerms/RoutingDirective are
+// distinct named types from their billingstate counterparts.
 // ===========================================================================
 
-// billingHeadFromState folds the contract billingstate.Billing into the Manager-local
-// billingHead the workflow reads (carrying expectedVersion forward + the Engine-fed
-// terms snapshot).
-func billingHeadFromState(s billingstate.Billing) billingHead {
-	return billingHead{
-		ID:            s.ID,
-		Version:       version(s.Version),
-		GatewayBound:  s.GatewayBound,
-		Registered:    s.Registered,
-		Terms:         billingTermsFromState(s.Terms),
-		PayoutAccount: s.PayoutAccount,
+// termsToEngine bridges the RA-owned terms head-state onto the engine's compute
+// input. The two contracts genuinely disagree (the engine carries percent fields
+// the head-state does not); zero-fill preserves today's behavior. Divergence
+// earmarked for a project.json contract alignment (see plan Task 12 earmarks).
+func termsToEngine(t billingstate.BillingTerms) billingengine.BillingTerms {
+	return billingengine.BillingTerms{
+		RevenueShare: billingengine.RevenueShareKind(t.RevenueShareKind),
+		ComputeCost:  billingengine.ComputeCostKind(t.ComputeCostKind),
+		Schedule:     billingengine.ScheduleKind(t.ScheduleKind),
 	}
 }
 
-func billingTermsFromState(t billingstate.BillingTerms) billingTermsSeam {
-	return billingTermsSeam{
-		RevenueShareKind: int(t.RevenueShareKind),
-		ComputeCostKind:  int(t.ComputeCostKind),
-		ScheduleKind:     int(t.ScheduleKind),
-		BillingKind:      int(t.BillingKind),
-	}
-}
-
-func billingOutcomeToState(o billingOutcomeSeam) billingstate.BillingOutcome {
-	return billingstate.BillingOutcome{
-		Net:       billingstate.Money{MinorUnits: o.Net.MinorUnits, Currency: o.Net.Currency},
-		Directive: routingDirectiveToState(o.Directive),
-		Escalated: o.Escalated,
-	}
-}
-
-func routingDirectiveToState(d routingDirectiveSeam) billingstate.RoutingDirective {
+// routingDirectiveToState maps the engine-owned routing decision onto the
+// RA-owned persisted enum by IDENTITY (explicit switch — re-order safe).
+func routingDirectiveToState(d billingengine.RoutingDirective) billingstate.RoutingDirective {
 	switch d {
-	case routingPayout:
+	case billingengine.RoutingPayout:
 		return billingstate.RoutingPayout
-	case routingCharge:
+	case billingengine.RoutingCharge:
 		return billingstate.RoutingCharge
-	case routingNoAction:
-		// net == 0 (or a recompute delta == 0) — skip; same as default.
-		return billingstate.RoutingNoAction
 	default:
 		return billingstate.RoutingNoAction
 	}
@@ -147,12 +131,12 @@ type billingEngineAdapter struct {
 
 var _ billingEngine = billingEngineAdapter{}
 
-func (a billingEngineAdapter) ComputeNet(revenue cycleRevenueSeam, usage cycleUsageSeam, terms billingTermsSeam) (billingResultSeam, error) {
+func (a billingEngineAdapter) ComputeNet(revenue cycleRevenueSeam, usage cycleUsageSeam, terms billingstate.BillingTerms) (billingResultSeam, error) {
 	res, err := a.inner.ComputeNet(
 		fweng.Context{Context: context.Background()},
 		cycleRevenueToEngine(revenue),
 		cycleUsageToEngine(usage),
-		billingTermsToEngine(terms),
+		termsToEngine(terms),
 	)
 	if err != nil {
 		return billingResultSeam{}, err
@@ -166,7 +150,7 @@ func (a billingEngineAdapter) RecomputeNet(affected reBillingInputSeam) (billing
 		billingengine.ReBillingInput{
 			Revenue:      cycleRevenueToEngine(affected.Revenue),
 			Usage:        cycleUsageToEngine(affected.Usage),
-			Terms:        billingTermsToEngine(affected.Terms),
+			Terms:        termsToEngine(affected.Terms),
 			PriorSettled: billingResultToEngine(affected.PriorSettled),
 		},
 	)
@@ -185,14 +169,6 @@ func cycleRevenueToEngine(r cycleRevenueSeam) billingengine.CycleRevenue {
 
 func cycleUsageToEngine(u cycleUsageSeam) billingengine.CycleUsage {
 	return billingengine.CycleUsage{ComputeUnitSeconds: u.ComputeUnitSeconds}
-}
-
-func billingTermsToEngine(t billingTermsSeam) billingengine.BillingTerms {
-	return billingengine.BillingTerms{
-		RevenueShare: billingengine.RevenueShareKind(t.RevenueShareKind),
-		ComputeCost:  billingengine.ComputeCostKind(t.ComputeCostKind),
-		Schedule:     billingengine.ScheduleKind(t.ScheduleKind),
-	}
 }
 
 func billingResultToEngine(r billingResultSeam) billingengine.BillingResult {

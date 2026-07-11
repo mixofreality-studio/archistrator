@@ -268,7 +268,7 @@ type fakeBillingEngine struct {
 	recomputeN      int
 }
 
-func (e *fakeBillingEngine) ComputeNet(_ cycleRevenueSeam, _ cycleUsageSeam, _ billingTermsSeam) (billingResultSeam, error) {
+func (e *fakeBillingEngine) ComputeNet(_ cycleRevenueSeam, _ cycleUsageSeam, _ billingstate.BillingTerms) (billingResultSeam, error) {
 	e.computeN++
 	return e.computeResult, nil
 }

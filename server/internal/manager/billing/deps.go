@@ -3,6 +3,8 @@ package billing
 import (
 	"context"
 	"time"
+
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/billingstate"
 )
 
 // This file declares billingManager's CONSUMER-SIDE dependency interfaces (the Go
@@ -36,67 +38,17 @@ import (
 // satisfy once that RA is built.
 
 // ===========================================================================
-// billingStateAccess — DESIGN-ONLY (FU-MST-1: id-type migrated to CustomerID).
-// The billing/customer head-state RA. Each WRITE carries expectedVersion +
-// idempotencyKey; a stale-version fwra.Conflict drives the §6.5 re-read→re-apply loop.
-// Keyed on CustomerID per §3.0.
+// billingStateAccess — the billing/customer head-state RA. Each WRITE carries
+// expectedVersion + idempotencyKey; a stale-version fwra.Conflict drives the §6.5
+// re-read→re-apply loop. Keyed on CustomerID per §3.0.
+//
+// The consumer-seam interface AND its local data mirrors are retired — the workflow
+// reaches this RA through the generated typed invokers (invokers.gen.go) and speaks
+// the generated billingstate contract types (Billing, BillingTerms, BillingOutcome,
+// RoutingDirective, CustomerSummary, DelinquencyScope, GatewayBinding, Version)
+// directly, with no Manager-local wrapper. The empty CustomerProfile opened at
+// registration is built inline in the workflow (billingstate.CustomerProfile{}).
 // ===========================================================================
-
-// NOTE: the billingStateAccess consumer-seam interface is retired — the workflow reaches
-// this RA through the generated typed invokers (invokers.gen.go), which carry the
-// contract types directly. The Manager-local data mirrors below remain: the workflow
-// folds the invokers' contract values into them (adapters.go converters) so the workflow
-// body + Engines keep speaking one unified vocabulary. The empty CustomerProfile opened
-// at registration is built inline in the workflow (billingstate.CustomerProfile{}).
-
-// Version is the billing head-state optimistic-concurrency version
-// (billingStateAccess.md §3). Mirrors the owning RA's Version type.
-type version uint64
-
-// GatewayBindingSeam mirrors billingStateAccess.md §3 GatewayBinding — the
-// connected-account / gateway identifiers recorded at onboarding.
-type gatewayBindingSeam struct {
-	ConnectedAccountID string
-}
-
-// BillingOutcomeSeam mirrors billingStateAccess.md §3 BillingOutcome — the
-// per-cycle business record of "cycle settled with this net". The money movement is a
-// separate ledger step; this is the head-state outcome. Money is exact minor units.
-type billingOutcomeSeam struct {
-	Net       Money                // the signed settled net (exact minor units; never a float)
-	Directive routingDirectiveSeam // the routed directive the Manager executed
-	// Escalated flags the OQ-4 charge-failure escalation surfaced to the operator
-	// dashboard via readBilling (no new DSL edge; §6.3).
-	Escalated bool
-}
-
-// Billing mirrors billingStateAccess.md §3 — the head-state aggregate the
-// workflow reads to carry expectedVersion forward and resolve the customer's terms +
-// gateway binding. Keyed on CustomerID per §3.0.
-type billingHead struct {
-	ID            customerID
-	Version       version
-	GatewayBound  bool             // a GatewayBinding is present (registered + onboarded)
-	Registered    bool             // the aggregate is open (registerCustomer ran)
-	Terms         billingTermsSeam // the customer's billing terms (fed to the Engine by value)
-	PayoutAccount string           // opaque payout-account ref (resolved deployedAppIdentity)
-}
-
-// CustomerSummary mirrors billingStateAccess.md §3 CustomerSummary (post FU-MST-1
-// id migration: ID is CustomerID, not BillingID) — one persistently-delinquent
-// customer in the sweep's cross-row read. PauseNotWithdraw carries the BillingTerms-
-// derived enforcement shape the downstream operationsManager executes.
-type customerSummary struct {
-	ID               customerID
-	PauseNotWithdraw bool // BillingTerms: pause (replicas=0) vs hard withdraw
-}
-
-// DelinquencyScope is the consumer-side platform/project scope for the sweep's
-// cross-row read (billingManager.md §2.4 — platform scope). Empty ⇒ all customers.
-type delinquencyScope struct {
-	// ProjectID optionally narrows the scope; empty ⇒ platform-wide.
-	ProjectID string
-}
 
 // ===========================================================================
 // revenueLedgerAccess — FROZEN, NOT YET BUILT. Narrow consumer interface
@@ -218,10 +170,13 @@ type scheduleSpec struct {
 // ===========================================================================
 
 // BillingEngine mirrors billingEngine.md §2.1/§2.2 — the signed-net + routing
-// compute. The Engine STATES the directive; the Manager EXECUTES it.
+// compute. The Engine STATES the directive; the Manager EXECUTES it. terms is the
+// generated billingstate.BillingTerms read straight off the head-state (no
+// Manager-local mirror); adapters.go termsToEngine bridges it onto the Engine's own
+// richer BillingTerms at the adapter boundary.
 type billingEngine interface {
 	// ComputeNet computes the cycle's signed net + routing directive (UC6 close).
-	ComputeNet(revenue cycleRevenueSeam, usage cycleUsageSeam, terms billingTermsSeam) (billingResultSeam, error)
+	ComputeNet(revenue cycleRevenueSeam, usage cycleUsageSeam, terms billingstate.BillingTerms) (billingResultSeam, error)
 	// RecomputeNet recomputes the corrected net + DELTA directive after a reversal
 	// (ncuc4 chargeback; forward-only).
 	RecomputeNet(affected reBillingInputSeam) (billingResultSeam, error)
@@ -275,16 +230,6 @@ type cycleUsageSeam struct {
 	ComputeUnitSeconds float64
 }
 
-// BillingTermsSeam mirrors billingEngine.md §3 BillingTerms — the customer's
-// terms snapshot, read from billing head-state and fed to the Engine by value. The
-// Strategy discriminators are package-internal to the Engine.
-type billingTermsSeam struct {
-	RevenueShareKind int // opaque discriminator; the Engine pivots on it
-	ComputeCostKind  int
-	ScheduleKind     int
-	BillingKind      int
-}
-
 // BillingResultSeam mirrors billingEngine.md §3 BillingResult — the shared
 // output of ComputeNet/RecomputeNet. SignedNet is exact minor units; the Manager routes
 // the directive. RevenueShareApplied/ComputeCostApplied are the statement decomposition.
@@ -297,11 +242,12 @@ type billingResultSeam struct {
 
 // ReBillingInputSeam mirrors billingEngine.md §3 ReBillingInput — the
 // reversal-adjusted recompute input carrying the prior settled result so the DELTA can
-// be computed (forward-only).
+// be computed (forward-only). Terms is the generated billingstate.BillingTerms (see
+// billingEngine interface comment above).
 type reBillingInputSeam struct {
 	Revenue      cycleRevenueSeam
 	Usage        cycleUsageSeam
-	Terms        billingTermsSeam
+	Terms        billingstate.BillingTerms
 	PriorSettled billingResultSeam
 }
 

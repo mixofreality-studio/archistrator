@@ -259,10 +259,12 @@ func (wf *workflows) CloseCycleWorkflow(ctx workflow.Context, in closeInput) (Cl
 		return CloseCycleResult{}, routeErr
 	}
 
-	// Record the billing outcome (head-state; Conflict loop).
-	outcome := billingOutcomeSeam{
-		Net:       result.SignedNet,
-		Directive: result.RoutingDirective,
+	// Record the billing outcome (head-state; Conflict loop). Build the contract type
+	// directly; only the engine-owned routing directive needs converting (Money is
+	// already the shared minor-units + currency shape).
+	outcome := billingstate.BillingOutcome{
+		Net:       billingstate.Money{MinorUnits: result.SignedNet.MinorUnits, Currency: result.SignedNet.Currency},
+		Directive: routingDirectiveToState(routingDirectiveToEngine(result.RoutingDirective)),
 		Escalated: escalated,
 	}
 	if _, serr := wf.settleCycle(ctx, in.CustomerID, billing.Version, in.CycleID, outcome); serr != nil {
@@ -452,9 +454,9 @@ func (wf *workflows) recomputeCycle(ctx workflow.Context, customerID customerID,
 	}
 
 	// Record the correction (head-state in place; Conflict loop).
-	correction := billingOutcomeSeam{
-		Net:       corrected.SignedNet,
-		Directive: corrected.RoutingDirective,
+	correction := billingstate.BillingOutcome{
+		Net:       billingstate.Money{MinorUnits: corrected.SignedNet.MinorUnits, Currency: corrected.SignedNet.Currency},
+		Directive: routingDirectiveToState(routingDirectiveToEngine(corrected.RoutingDirective)),
 	}
 	if _, rserr := wf.resettleCycle(ctx, customerID, billing.Version, cycleID, correction); rserr != nil {
 		return rserr
@@ -483,7 +485,7 @@ type shortfallSweepInput struct {
 func (wf *workflows) ShortfallSweepWorkflow(ctx workflow.Context, in shortfallSweepInput) (ShortfallSweepResult, error) {
 	logger := workflow.GetLogger(ctx)
 
-	customers, err := wf.readDelinquent(ctx, delinquencyScope(in))
+	customers, err := wf.readDelinquent(ctx, billingstate.DelinquencyScope(in))
 	if err != nil {
 		return ShortfallSweepResult{}, err
 	}
@@ -504,14 +506,10 @@ func (wf *workflows) ShortfallSweepWorkflow(ctx workflow.Context, in shortfallSw
 // Read + fold helpers.
 // ---------------------------------------------------------------------------
 
-// readBilling invokes billingStateAccess.readBilling and folds the contract head-state
-// into the Manager-local seam.
-func (wf *workflows) readBilling(ctx workflow.Context, customerID customerID) (billingHead, error) {
-	b, err := wf.Acts.BillingStateReadBilling(ctx, customerID)
-	if err != nil {
-		return billingHead{}, err
-	}
-	return billingHeadFromState(b), nil
+// readBilling invokes billingStateAccess.readBilling. The workflow speaks the
+// generated billingstate.Billing contract type directly — no Manager-local mirror.
+func (wf *workflows) readBilling(ctx workflow.Context, customerID customerID) (billingstate.Billing, error) {
+	return wf.Acts.BillingStateReadBilling(ctx, customerID)
 }
 
 // readBillingByDeployedApp resolves a deployedAppId to its billing aggregate
@@ -519,7 +517,7 @@ func (wf *workflows) readBilling(ctx workflow.Context, customerID customerID) (b
 // the deployedAppId so the RA resolves the owning customer. Modelled as the same
 // readBilling over the deployedApp's resolved customer; here the deployedApp id IS the
 // resolution input the RA maps to the customer aggregate.
-func (wf *workflows) readBillingByDeployedApp(ctx workflow.Context, deployedAppID deployedAppID) (billingHead, error) {
+func (wf *workflows) readBillingByDeployedApp(ctx workflow.Context, deployedAppID deployedAppID) (billingstate.Billing, error) {
 	// The billing aggregate is per-customer; the onboarding RA read resolves the
 	// owning customer from the deployed app. We pass the deployedAppId as the read key;
 	// the RA returns the customer's Billing (ID = customerId).
@@ -576,20 +574,11 @@ func (wf *workflows) foldUsage(ctx workflow.Context, customerID customerID, cycl
 	}, nil
 }
 
-// readDelinquent invokes billingStateAccess.readPersistentlyDelinquentCustomers and folds
-// the contract rows into the Manager-local seam (cross-row read).
-func (wf *workflows) readDelinquent(ctx workflow.Context, scope delinquencyScope) ([]customerSummary, error) {
-	rows, err := wf.Acts.BillingStateReadPersistentlyDelinquentCustomers(ctx, billingstate.DelinquencyScope{
-		ProjectID: scope.ProjectID,
-	})
-	if err != nil {
-		return nil, err
-	}
-	out := make([]customerSummary, 0, len(rows))
-	for _, r := range rows {
-		out = append(out, customerSummary{ID: r.ID, PauseNotWithdraw: r.PauseNotWithdraw})
-	}
-	return out, nil
+// readDelinquent invokes billingStateAccess.readPersistentlyDelinquentCustomers
+// (cross-row read). The workflow speaks the generated billingstate.CustomerSummary /
+// billingstate.DelinquencyScope contract types directly — no Manager-local mirror.
+func (wf *workflows) readDelinquent(ctx workflow.Context, scope billingstate.DelinquencyScope) ([]billingstate.CustomerSummary, error) {
+	return wf.Acts.BillingStateReadPersistentlyDelinquentCustomers(ctx, scope)
 }
 
 // ---------------------------------------------------------------------------
@@ -597,14 +586,16 @@ func (wf *workflows) readDelinquent(ctx workflow.Context, scope delinquencyScope
 // ---------------------------------------------------------------------------
 
 // createConnectedAccount invokes merchantGatewayAccess.createConnectedAccount (caller-
-// keyed onboard:{id}) and folds the contract binding into the Manager-local seam.
-func (wf *workflows) createConnectedAccount(ctx workflow.Context, customerID customerID) (gatewayBindingSeam, error) {
+// keyed onboard:{id}) and folds the merchantgateway-owned binding onto the
+// billingstate-owned GatewayBinding the head-state write (bindGatewayLive) persists —
+// two distinct generated types, same shape (ConnectedAccountID string).
+func (wf *workflows) createConnectedAccount(ctx workflow.Context, customerID customerID) (billingstate.GatewayBinding, error) {
 	key := fmt.Sprintf("onboard:%s", customerID)
 	b, err := wf.Acts.MerchantGatewayCreateConnectedAccount(ctx, fwra.IdempotencyKey(key), customerID, key)
 	if err != nil {
-		return gatewayBindingSeam{}, err
+		return billingstate.GatewayBinding{}, err
 	}
-	return gatewayBindingSeam{ConnectedAccountID: b.ConnectedAccountID}, nil
+	return billingstate.GatewayBinding{ConnectedAccountID: b.ConnectedAccountID}, nil
 }
 
 // validateStoredInstrument invokes merchantGatewayAccess.validateStoredInstrument (the
@@ -678,36 +669,27 @@ func (wf *workflows) registerCloseSchedule(ctx workflow.Context, customerID cust
 // idempotency key is supplied by the generated activity (activities.gen.go), not here.
 // ---------------------------------------------------------------------------
 
-func (wf *workflows) registerCustomer(ctx workflow.Context, customerID customerID, seed version) (version, error) {
-	return wf.applyRecovering(ctx, customerID, seed, func(expected version) (version, error) {
-		v, e := wf.Acts.BillingStateRegisterCustomer(ctx, customerID,
-			billingstate.Version(expected), billingstate.CustomerProfile{})
-		return version(v), e
+func (wf *workflows) registerCustomer(ctx workflow.Context, customerID customerID, seed billingstate.Version) (billingstate.Version, error) {
+	return wf.applyRecovering(ctx, customerID, seed, func(expected billingstate.Version) (billingstate.Version, error) {
+		return wf.Acts.BillingStateRegisterCustomer(ctx, customerID, expected, billingstate.CustomerProfile{})
 	})
 }
 
-func (wf *workflows) bindGatewayLive(ctx workflow.Context, customerID customerID, seed version, binding gatewayBindingSeam) (version, error) {
-	return wf.applyRecovering(ctx, customerID, seed, func(expected version) (version, error) {
-		v, e := wf.Acts.BillingStateBindGatewayLive(ctx, customerID,
-			billingstate.Version(expected),
-			billingstate.GatewayBinding{ConnectedAccountID: binding.ConnectedAccountID})
-		return version(v), e
+func (wf *workflows) bindGatewayLive(ctx workflow.Context, customerID customerID, seed billingstate.Version, binding billingstate.GatewayBinding) (billingstate.Version, error) {
+	return wf.applyRecovering(ctx, customerID, seed, func(expected billingstate.Version) (billingstate.Version, error) {
+		return wf.Acts.BillingStateBindGatewayLive(ctx, customerID, expected, binding)
 	})
 }
 
-func (wf *workflows) settleCycle(ctx workflow.Context, customerID customerID, seed version, cycleID cycleID, outcome billingOutcomeSeam) (version, error) {
-	return wf.applyRecovering(ctx, customerID, seed, func(expected version) (version, error) {
-		v, e := wf.Acts.BillingStateSettleCycle(ctx, customerID,
-			billingstate.Version(expected), string(cycleID), billingOutcomeToState(outcome))
-		return version(v), e
+func (wf *workflows) settleCycle(ctx workflow.Context, customerID customerID, seed billingstate.Version, cycleID cycleID, outcome billingstate.BillingOutcome) (billingstate.Version, error) {
+	return wf.applyRecovering(ctx, customerID, seed, func(expected billingstate.Version) (billingstate.Version, error) {
+		return wf.Acts.BillingStateSettleCycle(ctx, customerID, expected, string(cycleID), outcome)
 	})
 }
 
-func (wf *workflows) resettleCycle(ctx workflow.Context, customerID customerID, seed version, cycleID cycleID, correction billingOutcomeSeam) (version, error) {
-	return wf.applyRecovering(ctx, customerID, seed, func(expected version) (version, error) {
-		v, e := wf.Acts.BillingStateResettleCycle(ctx, customerID,
-			billingstate.Version(expected), string(cycleID), billingOutcomeToState(correction))
-		return version(v), e
+func (wf *workflows) resettleCycle(ctx workflow.Context, customerID customerID, seed billingstate.Version, cycleID cycleID, correction billingstate.BillingOutcome) (billingstate.Version, error) {
+	return wf.applyRecovering(ctx, customerID, seed, func(expected billingstate.Version) (billingstate.Version, error) {
+		return wf.Acts.BillingStateResettleCycle(ctx, customerID, expected, string(cycleID), correction)
 	})
 }
 
@@ -719,9 +701,9 @@ func (wf *workflows) resettleCycle(ctx workflow.Context, customerID customerID, 
 func (wf *workflows) applyRecovering(
 	ctx workflow.Context,
 	customerID customerID,
-	seed version,
-	apply func(expected version) (version, error),
-) (version, error) {
+	seed billingstate.Version,
+	apply func(expected billingstate.Version) (billingstate.Version, error),
+) (billingstate.Version, error) {
 	expected := seed
 	for attempt := 0; ; attempt++ {
 		v, err := apply(expected)
