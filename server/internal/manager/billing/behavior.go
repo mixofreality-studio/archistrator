@@ -20,8 +20,7 @@ func derefString(s *string) string {
 
 // routingDirectiveName returns the canonical name for the façade RoutingDirective.
 // Kept as a FREE FUNCTION (not a RoutingDirective method) so the generated enum is
-// pure data. NOTE: the deps.go RoutingDirectiveSeam (the Engine's mirror) keeps its
-// own String() — that seam is NOT part of the generated contract surface.
+// pure data.
 func routingDirectiveName(d RoutingDirective) string {
 	switch d {
 	case RoutingDirectiveNoAction:

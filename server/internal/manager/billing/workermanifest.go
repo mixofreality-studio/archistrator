@@ -186,8 +186,8 @@ func (m *billingManager) WorkerManifest() genWorkerManifest {
 	optsHook := activityOptions()
 	custom := &customActivities{revenueLedger: noopRevenueLedger{}}
 	wf := newWorkflows(wfDeps{
-		Billing:      billingEngineAdapter{inner: m.billing},
-		Intervention: interventionAdapter{inner: m.intervention},
+		Billing:      m.billing,
+		Intervention: m.intervention,
 		Acts:         genInvokers{Opts: optsHook},
 		Custom:       custom,
 	})

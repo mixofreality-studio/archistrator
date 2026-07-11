@@ -193,17 +193,17 @@ func Test_WorkflowIDDerivation(t *testing.T) {
 	}
 }
 
-// ---- A9: RoutingDirective String coverage -----------------------------------
+// ---- A9: RoutingDirective name coverage -------------------------------------
 
-func Test_RoutingDirective_String(t *testing.T) {
-	cases := map[routingDirectiveSeam]string{
-		routingNoAction: "NoAction",
-		routingPayout:   "Payout",
-		routingCharge:   "Charge",
+func Test_RoutingDirectiveName(t *testing.T) {
+	cases := map[RoutingDirective]string{
+		RoutingDirectiveNoAction: "NoAction",
+		RoutingDirectivePayout:   "Payout",
+		RoutingDirectiveCharge:   "Charge",
 	}
 	for d, want := range cases {
-		if got := d.String(); got != want {
-			t.Fatalf("RoutingDirective(%d).String() = %q, want %q", int(d), got, want)
+		if got := routingDirectiveName(d); got != want {
+			t.Fatalf("routingDirectiveName(%d) = %q, want %q", int(d), got, want)
 		}
 	}
 }

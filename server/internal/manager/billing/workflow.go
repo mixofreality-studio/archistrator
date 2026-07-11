@@ -1,6 +1,7 @@
 package billing
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,8 +10,11 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
+	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 	fwmgr "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	billingengine "github.com/mixofreality-studio/archistrator/server/internal/engine/billing"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/billingstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/durableexecution"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/merchantgateway"
@@ -23,8 +27,10 @@ import (
 // chargeback recompute saga, and the RA-boundary fold helpers.
 //
 // How the two dependency kinds are reached differs by determinism class:
-//   - The two Engines (billingEngine / interventionEngine) are PURE, deterministic,
-//     called DIRECTLY in-workflow by value (no Activity wrapper — replay-safe).
+//   - The two Engines (billingengine.BillingEngine / intervention.InterventionEngine —
+//     the PUBLISHED contracts, no Manager-local seam) are PURE, deterministic, called
+//     DIRECTLY in-workflow by value (no Activity wrapper — replay-safe), with
+//     fweng.Context{Context: context.Background()} supplied inline at each call site.
 //   - The ResourceAccess layer is I/O and NON-deterministic; the workflow reaches it
 //     ONLY through the generated typed invoker surface (Acts, invokers.gen.go) — the
 //     former RA consumer seams + composition-root adapters are retired. The three
@@ -37,12 +43,13 @@ import (
 
 // wfDeps bundles every downstream dependency the billingManager orchestrates, passed to
 // newWorkflows (from WorkerManifest, workermanifest.go) and held on the Workflows struct.
-// The two Engines are consumer-defined seam interfaces (deps.go), called DIRECTLY
-// in-workflow. The ResourceAccess layer is reached through the generated typed invokers
-// (Acts); the contract-less revenue-ledger Activities through the Custom receiver.
+// The two Engines are typed as their PUBLISHED contract interfaces (no Manager-local
+// seam), called DIRECTLY in-workflow. The ResourceAccess layer is reached through the
+// generated typed invokers (Acts); the contract-less revenue-ledger Activities through
+// the Custom receiver.
 type wfDeps struct {
-	Billing      billingEngine
-	Intervention interventionEngine
+	Billing      billingengine.BillingEngine
+	Intervention intervention.InterventionEngine
 
 	// Acts is the generated workflow-side invoker surface (invokers.gen.go): one method
 	// per ResourceAccess activity, carrying contract types. Its Opts hook supplies the
@@ -61,8 +68,8 @@ type wfDeps struct {
 // them through the typed invokers (Acts). The contract-less custom revenue Activities are
 // invoked by method value off Custom (activities_custom.go).
 type workflows struct {
-	Billing      billingEngine
-	Intervention interventionEngine
+	Billing      billingengine.BillingEngine
+	Intervention intervention.InterventionEngine
 
 	Acts   genInvokers
 	Custom *customActivities
@@ -110,7 +117,7 @@ var raNotFoundErrType = fwmgr.RAErrType(fwra.NotFound)
 
 // gatewayFailureErrType is the canonical Temporal Type() a terminal charge decline
 // surfaces (RA Auth — the gateway declined). On it the close workflow runs the
-// interventionEngine decide→execute branch (OQ-4).
+// intervention.InterventionEngine decide→execute branch (OQ-4).
 var gatewayDeclineErrType = fwmgr.RAErrType(fwra.Auth)
 
 // ===========================================================================
@@ -217,7 +224,7 @@ type closeInput struct {
 //     the gateway event id; the net is computed here, not at signal time).
 //  2. ReadBillingActivity → terms + expectedVersion.
 //  3. ReadRevenueRangeActivity + ReadUsageRangeActivity → value snapshots.
-//  4. billingEngine.ComputeNet (direct, by value) → {signedNet, routingDirective}.
+//  4. billingengine.BillingEngine.ComputeNet (direct, by value) → {signedNet, routingDirective}.
 //  5. execute the directive: Payout / Charge (on failure decide→execute) / NoAction.
 //  6. SettleCycleActivity (head-state; Conflict loop).
 //  7. await chargebackReceived → forward-only RecomputeCycle saga (§6.3).
@@ -248,8 +255,11 @@ func (wf *workflows) CloseCycleWorkflow(ctx workflow.Context, in closeInput) (Cl
 		return CloseCycleResult{}, uerr
 	}
 
-	// Compute the signed net + routing directive — DIRECT, by value, in-workflow.
-	result, cerr := wf.Billing.ComputeNet(revenue, usage, billing.Terms)
+	// Compute the signed net + routing directive — DIRECT, by value, in-workflow,
+	// through the published contract (fweng.Context{Context: context.Background()} is
+	// the replay-safe idiom the Engine op requires).
+	result, cerr := wf.Billing.ComputeNet(fweng.Context{Context: context.Background()},
+		revenue, usage, termsToEngine(billing.Terms))
 	if cerr != nil {
 		return CloseCycleResult{}, fwmgr.MapError(cerr)
 	}
@@ -264,7 +274,7 @@ func (wf *workflows) CloseCycleWorkflow(ctx workflow.Context, in closeInput) (Cl
 	// already the shared minor-units + currency shape).
 	outcome := billingstate.BillingOutcome{
 		Net:       billingstate.Money{MinorUnits: result.SignedNet.MinorUnits, Currency: result.SignedNet.Currency},
-		Directive: routingDirectiveToState(routingDirectiveToEngine(result.RoutingDirective)),
+		Directive: routingDirectiveToState(result.RoutingDirective),
 		Escalated: escalated,
 	}
 	if _, serr := wf.settleCycle(ctx, in.CustomerID, billing.Version, in.CycleID, outcome); serr != nil {
@@ -272,7 +282,7 @@ func (wf *workflows) CloseCycleWorkflow(ctx workflow.Context, in closeInput) (Cl
 	}
 
 	logger.Info("cycle settled", "customerId", in.CustomerID.String(), "cycleId", in.CycleID,
-		"directive", result.RoutingDirective.String(), "escalated", escalated)
+		"directive", routingDirectiveName(RoutingDirective(result.RoutingDirective)), "escalated", escalated)
 
 	// Await a chargeback for this cycle (forward-only recompute saga). The wait is the
 	// Manager's own in-workflow primitive (awaitSignal — category A). A short selector
@@ -283,9 +293,9 @@ func (wf *workflows) CloseCycleWorkflow(ctx workflow.Context, in closeInput) (Cl
 	return CloseCycleResult{
 		CustomerID: in.CustomerID,
 		CycleID:    in.CycleID,
-		// Convert the Engine-seam directive to the façade's OWN RoutingDirective at the
+		// Convert the Engine directive to the façade's OWN RoutingDirective at the
 		// boundary (full encapsulation: the public contract carries billing's own
-		// enum, not the deps.go seam). The iota order matches, so the cast is faithful.
+		// enum, not the engine's). The iota order matches, so the cast is faithful.
 		Routed:    RoutingDirective(result.RoutingDirective),
 		Escalated: escalated,
 	}, nil
@@ -296,11 +306,11 @@ func (wf *workflows) CloseCycleWorkflow(ctx workflow.Context, in closeInput) (Cl
 // decide→execute {Retry|Escalate|Delay}); NoAction → skip. Returns whether the cycle
 // was escalated (the OQ-4 head-state escalation flag). attempt seeds the re-charge
 // budget for the Retry directive.
-func (wf *workflows) routeNet(ctx workflow.Context, customerID customerID, cycleID cycleID, result billingResultSeam, attempt int) (escalated bool, err error) {
+func (wf *workflows) routeNet(ctx workflow.Context, customerID customerID, cycleID cycleID, result billingengine.BillingResult, attempt int) (escalated bool, err error) {
 	switch result.RoutingDirective {
-	case routingPayout:
-		return false, wf.payoutCustomer(ctx, customerID, cycleID, result.SignedNet)
-	case routingCharge:
+	case billingengine.RoutingPayout:
+		return false, wf.payoutCustomer(ctx, customerID, cycleID, Money{MinorUnits: result.SignedNet.MinorUnits, Currency: result.SignedNet.Currency})
+	case billingengine.RoutingCharge:
 		// Charge the positive magnitude of the negative shortfall net.
 		chargeAmount := Money{MinorUnits: -result.SignedNet.MinorUnits, Currency: result.SignedNet.Currency}
 		cerr := wf.chargeCustomer(ctx, customerID, cycleID, chargeAmount)
@@ -310,9 +320,9 @@ func (wf *workflows) routeNet(ctx workflow.Context, customerID customerID, cycle
 		if !isGatewayDecline(cerr) {
 			return false, cerr
 		}
-		// On a charge DECLINE, decide+execute (interventionEngine, direct in-workflow).
+		// On a charge DECLINE, decide+execute (intervention.InterventionEngine, direct in-workflow).
 		return wf.handleChargeFailure(ctx, customerID, cycleID, result, attempt)
-	case routingNoAction:
+	case billingengine.RoutingNoAction:
 		return false, nil
 	default:
 		return false, temporal.NewNonRetryableApplicationError(
@@ -326,30 +336,31 @@ func (wf *workflows) routeNet(ctx workflow.Context, customerID customerID, cycle
 //     carries no escalation; the sweep re-attempts). Returns escalated=false.
 //   - Escalate→ flag delinquency on head-state (escalated=true); the operator dashboard
 //     reads it via readBilling (no new DSL edge; §6.3).
-func (wf *workflows) handleChargeFailure(ctx workflow.Context, customerID customerID, cycleID cycleID, result billingResultSeam, attempt int) (escalated bool, err error) {
-	directive, derr := wf.Intervention.DecideOnBillingFailure(billingFailureSeam{
-		CustomerID:   customerID,
-		CycleID:      cycleID,
-		Kind:         billingFailureChargeDeclined,
-		AttemptCount: attempt + 1,
-	})
+func (wf *workflows) handleChargeFailure(ctx workflow.Context, customerID customerID, cycleID cycleID, result billingengine.BillingResult, attempt int) (escalated bool, err error) {
+	directive, derr := wf.Intervention.DecideOnSettlementFailure(fweng.Context{Context: context.Background()},
+		intervention.SettlementFailure{
+			CustomerID:   intervention.CustomerID(customerID.String()),
+			CycleID:      intervention.CycleID(cycleID),
+			Kind:         intervention.ChargeDeclined,
+			AttemptCount: int64(attempt + 1),
+		})
 	if derr != nil {
 		return false, fwmgr.MapError(derr)
 	}
 	switch directive {
-	case billingRetry:
+	case intervention.SettlementRetry:
 		if attempt+1 >= maxChargeRetries {
 			// Budget exhausted — flip to an escalation rather than loop forever.
 			return true, nil
 		}
 		// EXECUTE Retry: re-route the same net (re-enters the charge).
 		return wf.routeNet(ctx, customerID, cycleID, result, attempt+1)
-	case billingDelay:
+	case intervention.SettlementDelay:
 		// EXECUTE Delay: leave for the next shortfallSweep; no escalation flag.
 		workflow.GetLogger(ctx).Info("charge delayed to next shortfall sweep",
 			"customerId", customerID.String(), "cycleId", cycleID)
 		return false, nil
-	case billingEscalate:
+	case intervention.SettlementEscalate:
 		// EXECUTE Escalate: flag delinquency on the head-state outcome (read by the
 		// operator dashboard via readBilling; no new edge).
 		workflow.GetLogger(ctx).Warn("billing charge escalated to delinquency",
@@ -391,7 +402,7 @@ func (wf *workflows) drainInboundRevenue(ctx workflow.Context, customerID custom
 // and, on arrival, runs the forward-only recompute saga (§6.3). The wait is the
 // Manager's own in-workflow primitive (awaitSignal — category A). It returns once a
 // chargeback is handled or the cycle window elapses with none.
-func (wf *workflows) awaitChargeback(ctx workflow.Context, customerID customerID, cycleID cycleID, prior billingResultSeam) {
+func (wf *workflows) awaitChargeback(ctx workflow.Context, customerID customerID, cycleID cycleID, prior billingengine.BillingResult) {
 	ch := workflow.GetSignalChannel(ctx, signalChargebackReceived)
 	var event GatewayReversalEvent
 	if !ch.ReceiveAsync(&event) {
@@ -408,10 +419,10 @@ func (wf *workflows) awaitChargeback(ctx workflow.Context, customerID customerID
 // §6.3 RecomputeCycleWorkflow body):
 //  1. RecordReversalActivity (revenueLedgerAccess; dedup on the chargeback event id).
 //  2. re-fold the reversal-adjusted revenue + usage.
-//  3. billingEngine.RecomputeNet (direct, by value) → corrected net + DELTA directive.
+//  3. billingengine.BillingEngine.RecomputeNet (direct, by value) → corrected net + DELTA directive.
 //  4. ResettleCycleActivity (head-state correction; Conflict loop).
 //  5. route the DELTA charge/payout via the gateway. No rollback (forward-only).
-func (wf *workflows) recomputeCycle(ctx workflow.Context, customerID customerID, cycleID cycleID, event GatewayReversalEvent, prior billingResultSeam) error {
+func (wf *workflows) recomputeCycle(ctx workflow.Context, customerID customerID, cycleID cycleID, event GatewayReversalEvent, prior billingengine.BillingResult) error {
 	// Append the reversal (idempotent on the chargeback's gateway event id).
 	if err := wf.recordReversal(ctx, reversalEntrySeam{
 		CustomerID:     customerID,
@@ -442,13 +453,15 @@ func (wf *workflows) recomputeCycle(ctx workflow.Context, customerID customerID,
 		return serr
 	}
 
-	// Recompute the corrected net + DELTA directive — DIRECT, by value, in-workflow.
-	corrected, cerr := wf.Billing.RecomputeNet(reBillingInputSeam{
-		Revenue:      revenue,
-		Usage:        usage,
-		Terms:        billing.Terms,
-		PriorSettled: prior,
-	})
+	// Recompute the corrected net + DELTA directive — DIRECT, by value, in-workflow,
+	// through the published contract.
+	corrected, cerr := wf.Billing.RecomputeNet(fweng.Context{Context: context.Background()},
+		billingengine.ReBillingInput{
+			Revenue:      revenue,
+			Usage:        usage,
+			Terms:        termsToEngine(billing.Terms),
+			PriorSettled: prior,
+		})
 	if cerr != nil {
 		return fwmgr.MapError(cerr)
 	}
@@ -456,7 +469,7 @@ func (wf *workflows) recomputeCycle(ctx workflow.Context, customerID customerID,
 	// Record the correction (head-state in place; Conflict loop).
 	correction := billingstate.BillingOutcome{
 		Net:       billingstate.Money{MinorUnits: corrected.SignedNet.MinorUnits, Currency: corrected.SignedNet.Currency},
-		Directive: routingDirectiveToState(routingDirectiveToEngine(corrected.RoutingDirective)),
+		Directive: routingDirectiveToState(corrected.RoutingDirective),
 	}
 	if _, rserr := wf.resettleCycle(ctx, customerID, billing.Version, cycleID, correction); rserr != nil {
 		return rserr
@@ -525,15 +538,15 @@ func (wf *workflows) readBillingByDeployedApp(ctx workflow.Context, deployedAppI
 }
 
 // foldRevenue reads the cycle's revenue facts (custom revenue-ledger Activity) and folds
-// them into the Engine's CycleRevenue value snapshot (exact minor-unit signed sum; never
-// a float).
-func (wf *workflows) foldRevenue(ctx workflow.Context, customerID customerID, cycleID cycleID) (cycleRevenueSeam, error) {
+// them into the published billingengine.CycleRevenue value snapshot (exact minor-unit
+// signed sum; never a float).
+func (wf *workflows) foldRevenue(ctx workflow.Context, customerID customerID, cycleID cycleID) (billingengine.CycleRevenue, error) {
 	c := workflow.WithActivityOptions(ctx, ledgerActivityOptions())
 	var entries []revenueEntrySeam
 	if err := workflow.ExecuteActivity(c, wf.Custom.ReadRevenueRangeActivity, readRevenueRangeArgs{
 		CustomerID: customerID, CycleID: cycleID,
 	}).Get(ctx, &entries); err != nil {
-		return cycleRevenueSeam{}, err
+		return billingengine.CycleRevenue{}, err
 	}
 
 	var gross int64
@@ -544,32 +557,27 @@ func (wf *workflows) foldRevenue(ctx workflow.Context, customerID customerID, cy
 			currency = e.Amount.Currency
 		}
 	}
-	return cycleRevenueSeam{
-		CustomerID:   customerID,
-		CycleID:      cycleID,
-		GrossInbound: Money{MinorUnits: gross, Currency: currency},
-		Currency:     currency,
-		EventCount:   len(entries),
+	return billingengine.CycleRevenue{
+		GrossInbound: billingengine.Money{MinorUnits: gross, Currency: currency},
+		EventCount:   int64(len(entries)),
 	}, nil
 }
 
 // foldUsage invokes usageAccess.readRange (whole cycle; OperatedAppID nil) and folds the
-// contract events into the Engine's CycleUsage value snapshot.
-func (wf *workflows) foldUsage(ctx workflow.Context, customerID customerID, cycleID cycleID) (cycleUsageSeam, error) {
+// contract events into the published billingengine.CycleUsage value snapshot.
+func (wf *workflows) foldUsage(ctx workflow.Context, customerID customerID, cycleID cycleID) (billingengine.CycleUsage, error) {
 	events, err := wf.Acts.UsageReadRange(ctx, usage.UsageRangeQuery{
 		CustomerID: customerID, CycleID: usage.CycleID(cycleID), OperatedAppID: nil,
 	})
 	if err != nil {
-		return cycleUsageSeam{}, err
+		return billingengine.CycleUsage{}, err
 	}
 
 	var units float64
 	for _, e := range events {
 		units += e.Units.Amount
 	}
-	return cycleUsageSeam{
-		CustomerID:         customerID,
-		CycleID:            cycleID,
+	return billingengine.CycleUsage{
 		ComputeUnitSeconds: units,
 	}, nil
 }

@@ -12,7 +12,10 @@ import (
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/google/uuid"
+	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	billingengine "github.com/mixofreality-studio/archistrator/server/internal/engine/billing"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/billingstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/durableexecution"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/merchantgateway"
@@ -26,8 +29,9 @@ import (
 // (invokers.gen.go). The contract-backed RA ports (billingState/usage/merchantGateway/
 // durableExecution) are constructed as CONTRACT-interface test doubles, wired into
 // genActivities and registered under the generated activity names; the revenue-ledger
-// no-op is a seam fake registered under the custom Activity names. The two Engines stay
-// direct-in-workflow seam fakes. No Docker, no dev server.
+// no-op is a seam fake registered under the custom Activity names. The two Engines are
+// direct-in-workflow fakes over their PUBLISHED contracts (billingengine.BillingEngine /
+// intervention.InterventionEngine — no Manager-local seam). No Docker, no dev server.
 //
 // They assert the money spine (compute → route → record), exact-money invariants, the
 // OQ-4 charge-failure decide→execute branch, the forward-only chargeback recompute saga
@@ -261,35 +265,53 @@ func (d *fakeDurable) StartOrSignalExecution(_ fwra.Context, _ durableexecution.
 var _ durableexecution.DurableExecutionAccess = (*fakeDurable)(nil)
 
 // fakeBillingEngine returns a scripted BillingResult for compute + recompute.
+// Satisfies the published billingengine.BillingEngine contract directly (no seam).
 type fakeBillingEngine struct {
-	computeResult   billingResultSeam
-	recomputeResult billingResultSeam
+	computeResult   billingengine.BillingResult
+	recomputeResult billingengine.BillingResult
 	computeN        int
 	recomputeN      int
 }
 
-func (e *fakeBillingEngine) ComputeNet(_ cycleRevenueSeam, _ cycleUsageSeam, _ billingstate.BillingTerms) (billingResultSeam, error) {
+func (e *fakeBillingEngine) ComputeNet(_ fweng.Context, _ billingengine.CycleRevenue, _ billingengine.CycleUsage, _ billingengine.BillingTerms) (billingengine.BillingResult, error) {
 	e.computeN++
 	return e.computeResult, nil
 }
 
-func (e *fakeBillingEngine) RecomputeNet(_ reBillingInputSeam) (billingResultSeam, error) {
+func (e *fakeBillingEngine) ProjectCommitTimeRevenueShareAndComputeCost(_ fweng.Context, _ billingengine.ProjectOption) (billingengine.Projection, error) {
+	return billingengine.Projection{}, nil
+}
+
+func (e *fakeBillingEngine) RecomputeNet(_ fweng.Context, _ billingengine.ReBillingInput) (billingengine.BillingResult, error) {
 	e.recomputeN++
 	return e.recomputeResult, nil
 }
 
-var _ billingEngine = (*fakeBillingEngine)(nil)
+var _ billingengine.BillingEngine = (*fakeBillingEngine)(nil)
 
-// fakeIntervention returns a scripted billing-failure directive.
+// fakeIntervention returns a scripted billing-failure directive. Satisfies the
+// published intervention.InterventionEngine contract directly (no seam).
 type fakeIntervention struct {
-	directive billingFailureDirectiveSeam
+	directive intervention.SettlementFailureDirective
 }
 
-func (i *fakeIntervention) DecideOnBillingFailure(_ billingFailureSeam) (billingFailureDirectiveSeam, error) {
+func (i *fakeIntervention) ApplyPausePolicy(_ fweng.Context, _ intervention.PauseRequestContext) (intervention.PausePlan, error) {
+	return intervention.PausePlan{}, nil
+}
+
+func (i *fakeIntervention) DecideOnHealth(_ fweng.Context, _ intervention.HealthChange) (intervention.HealthDirective, error) {
+	return intervention.HealthRetry, nil
+}
+
+func (i *fakeIntervention) DecideOnSettlementFailure(_ fweng.Context, _ intervention.SettlementFailure) (intervention.SettlementFailureDirective, error) {
 	return i.directive, nil
 }
 
-var _ interventionEngine = (*fakeIntervention)(nil)
+func (i *fakeIntervention) DecideOnVariance(_ fweng.Context, _ intervention.ConstructionVariance) (intervention.VarianceDirective, error) {
+	return intervention.VarianceRetry, nil
+}
+
+var _ intervention.InterventionEngine = (*fakeIntervention)(nil)
 
 // ---- helpers ----------------------------------------------------------------
 
@@ -311,7 +333,7 @@ func baseDeps() (wfDeps, *fakes) {
 		gateway: &fakeGateway{},
 		durable: &fakeDurable{},
 		engine:  &fakeBillingEngine{},
-		interv:  &fakeIntervention{directive: billingRetry},
+		interv:  &fakeIntervention{directive: intervention.SettlementRetry},
 	}
 	return wfDeps{
 		Billing:      f.engine,
@@ -386,6 +408,12 @@ func boundBilling(id uuid.UUID, version billingstate.Version) billingstate.Billi
 }
 
 func usd(minor int64) Money { return Money{MinorUnits: minor, Currency: "USD"} }
+
+// engineUSD builds the published billingengine.Money the fakeBillingEngine scripts its
+// results with (distinct named type from the façade's own Money, same shape).
+func engineUSD(minor int64) billingengine.Money {
+	return billingengine.Money{MinorUnits: minor, Currency: "USD"}
+}
 
 // ============================ B. OnboardWorkflow =============================
 
@@ -480,7 +508,7 @@ func Test_Close_Payout(t *testing.T) {
 	deps, f := baseDeps()
 	cid := uuid.New()
 	f.state.billing = boundBilling(cid, 3)
-	f.engine.computeResult = billingResultSeam{SignedNet: usd(5000), RoutingDirective: routingPayout}
+	f.engine.computeResult = billingengine.BillingResult{SignedNet: engineUSD(5000), RoutingDirective: billingengine.RoutingPayout}
 	wf := newWorkflows(deps)
 	registerClose(env, wf, f)
 
@@ -514,7 +542,7 @@ func Test_Close_Charge_ExactMagnitude(t *testing.T) {
 	deps, f := baseDeps()
 	cid := uuid.New()
 	f.state.billing = boundBilling(cid, 1)
-	f.engine.computeResult = billingResultSeam{SignedNet: usd(-1299), RoutingDirective: routingCharge}
+	f.engine.computeResult = billingengine.BillingResult{SignedNet: engineUSD(-1299), RoutingDirective: billingengine.RoutingCharge}
 	wf := newWorkflows(deps)
 	registerClose(env, wf, f)
 
@@ -546,7 +574,7 @@ func Test_Close_NoAction(t *testing.T) {
 	deps, f := baseDeps()
 	cid := uuid.New()
 	f.state.billing = boundBilling(cid, 1)
-	f.engine.computeResult = billingResultSeam{SignedNet: usd(0), RoutingDirective: routingNoAction}
+	f.engine.computeResult = billingengine.BillingResult{SignedNet: engineUSD(0), RoutingDirective: billingengine.RoutingNoAction}
 	wf := newWorkflows(deps)
 	registerClose(env, wf, f)
 
@@ -594,7 +622,7 @@ func Test_Close_DrainsInboundRevenueSignals(t *testing.T) {
 	deps, f := baseDeps()
 	cid := uuid.New()
 	f.state.billing = boundBilling(cid, 1)
-	f.engine.computeResult = billingResultSeam{SignedNet: usd(100), RoutingDirective: routingPayout}
+	f.engine.computeResult = billingengine.BillingResult{SignedNet: engineUSD(100), RoutingDirective: billingengine.RoutingPayout}
 	wf := newWorkflows(deps)
 	registerClose(env, wf, f)
 
@@ -625,9 +653,9 @@ func Test_Close_ChargeDecline_Retry_Recharges(t *testing.T) {
 	deps, f := baseDeps()
 	cid := uuid.New()
 	f.state.billing = boundBilling(cid, 1)
-	f.engine.computeResult = billingResultSeam{SignedNet: usd(-2000), RoutingDirective: routingCharge}
+	f.engine.computeResult = billingengine.BillingResult{SignedNet: engineUSD(-2000), RoutingDirective: billingengine.RoutingCharge}
 	f.gateway.declineChargeFirst = 1 // first charge declines, retry succeeds
-	f.interv.directive = billingRetry
+	f.interv.directive = intervention.SettlementRetry
 	wf := newWorkflows(deps)
 	registerClose(env, wf, f)
 
@@ -657,9 +685,9 @@ func Test_Close_ChargeDecline_Escalate_FlagsDelinquency(t *testing.T) {
 	deps, f := baseDeps()
 	cid := uuid.New()
 	f.state.billing = boundBilling(cid, 1)
-	f.engine.computeResult = billingResultSeam{SignedNet: usd(-2000), RoutingDirective: routingCharge}
+	f.engine.computeResult = billingengine.BillingResult{SignedNet: engineUSD(-2000), RoutingDirective: billingengine.RoutingCharge}
 	f.gateway.declineChargeFirst = 99 // never succeeds
-	f.interv.directive = billingEscalate
+	f.interv.directive = intervention.SettlementEscalate
 	wf := newWorkflows(deps)
 	registerClose(env, wf, f)
 
@@ -689,9 +717,9 @@ func Test_Close_ChargeDecline_Delay_NoEscalation(t *testing.T) {
 	deps, f := baseDeps()
 	cid := uuid.New()
 	f.state.billing = boundBilling(cid, 1)
-	f.engine.computeResult = billingResultSeam{SignedNet: usd(-2000), RoutingDirective: routingCharge}
+	f.engine.computeResult = billingengine.BillingResult{SignedNet: engineUSD(-2000), RoutingDirective: billingengine.RoutingCharge}
 	f.gateway.declineChargeFirst = 99
-	f.interv.directive = billingDelay
+	f.interv.directive = intervention.SettlementDelay
 	wf := newWorkflows(deps)
 	registerClose(env, wf, f)
 
@@ -721,9 +749,9 @@ func Test_Close_Chargeback_ForwardOnlyRecompute(t *testing.T) {
 	deps, f := baseDeps()
 	cid := uuid.New()
 	f.state.billing = boundBilling(cid, 1)
-	f.engine.computeResult = billingResultSeam{SignedNet: usd(5000), RoutingDirective: routingPayout}
+	f.engine.computeResult = billingengine.BillingResult{SignedNet: engineUSD(5000), RoutingDirective: billingengine.RoutingPayout}
 	// After the reversal, the corrected net is a charge of 1500 (delta to claw back).
-	f.engine.recomputeResult = billingResultSeam{SignedNet: usd(-1500), RoutingDirective: routingCharge}
+	f.engine.recomputeResult = billingengine.BillingResult{SignedNet: engineUSD(-1500), RoutingDirective: billingengine.RoutingCharge}
 	wf := newWorkflows(deps)
 	registerClose(env, wf, f)
 
@@ -827,7 +855,7 @@ func Test_Close_SettleConflict_ReReadReApply_ConvergesToOne(t *testing.T) {
 	cid := uuid.New()
 	f.state.billing = boundBilling(cid, 1)
 	f.state.settleConflictFirst = 2 // first two settleCycle calls Conflict, then succeed
-	f.engine.computeResult = billingResultSeam{SignedNet: usd(0), RoutingDirective: routingNoAction}
+	f.engine.computeResult = billingengine.BillingResult{SignedNet: engineUSD(0), RoutingDirective: billingengine.RoutingNoAction}
 	wf := newWorkflows(deps)
 	registerClose(env, wf, f)
 
