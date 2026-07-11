@@ -232,6 +232,11 @@ var encapsulationAllowlistData = map[string][]string{
 		"NewGitHubProjectStateAccess",
 		"CredentialMinter",
 		"GitConstructionPorts",
+		// designSessionAccess (B4): NewDesignSessionAccess wraps a base ProjectStateAccess,
+		// running the SAME branch/ledger/provenance/reconcile capability-fallback chains the
+		// design Managers' custom activities used to run inline — a facade, not a Manager-
+		// consumed constructor yet, same VARIANT-CONSTRUCTOR category as the pair above.
+		"NewDesignSessionAccess",
 		"ActivityDiagram",
 		"ActivityEdge",
 		"ActivityItem",
