@@ -614,10 +614,13 @@ function ProjectStepBody({
     );
   }
 
-  // When the session is missing (404) but the slot is committed in the project
-  // head-state, render the committed model read-only under the committed panel
-  // (revision meta + stale-basis reconcile + Amend affordance).
-  if (sessionMissing && committed && committedEnvelope !== undefined) {
+  // When the slot is committed and no review is in progress — either the co-author
+  // session is gone (404) or it has reached its terminal 'committed' stage — render
+  // the committed model read-only under the committed panel (revision meta +
+  // stale-basis reconcile + Amend affordance). Without the stage==='committed' arm
+  // a freshly-approved artifact loses its Amend affordance until the session ages
+  // out (F-GTD-11): the architect could no longer reopen a clean committed slot.
+  if ((sessionMissing || stage === 'committed') && committed && committedEnvelope !== undefined) {
     return (
       <CommittedArtifactPanel
         amendPending={amendPending}
