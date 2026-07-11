@@ -159,6 +159,13 @@ func writeReviewLedger(b *strings.Builder, thread []projectstate.ReviewComment) 
 	}
 }
 
+// solutionClassRatesDoctrine rides every solution-option task: three consecutive live
+// drafts (gtdapp normal r2, decompressed, subcritical — 2026-07-11) invented
+// human-contractor day rates ($550–800/day) with no token basis, which makes the SDP
+// time-cost curve meaningless. The workers are AI agents; the ONLY legitimate rate
+// basis is the PlanningAssumptions rate card, identical across all four options.
+const solutionClassRatesDoctrine = " classRates MUST be the PlanningAssumptions rateCard derivation — for each class: megatokensInPerDay×(input $/MTok) + megatokensOutPerDay×(output $/MTok) for its modelId, in USD minor units — IDENTICAL across all four solution options (the workers are AI agents; a class's day-cost does not change between options). Option economics differ ONLY through duration, staffing cap, calendar, and buffer — never through invented per-day rates."
+
 // draftTask returns the per-kind task instruction.
 func draftTask(kind projectstate.ArtifactKind) string {
 	switch kind {
@@ -169,13 +176,13 @@ func draftTask(kind projectstate.ArtifactKind) string {
 	case projectstate.KindNetwork:
 		return "convert the activity list into a project network: declare each activity's predecessor dependencies and identify the critical path (the activity names on it)."
 	case projectstate.KindNormalSolution:
-		return "design the NORMAL solution: minimum staffing for unimpeded critical-path progress; set the staffing cap, calendar days/week, and per-worker-class build-cost rates. Zero schedule buffer."
+		return "design the NORMAL solution: minimum staffing for unimpeded critical-path progress; set the staffing cap, calendar days/week, and per-worker-class build-cost rates. Zero schedule buffer." + solutionClassRatesDoctrine
 	case projectstate.KindDecompressedSolution:
-		return "design the DECOMPRESSED-NORMAL solution: extend the normal duration with a schedule buffer to drop criticality risk toward the ~0.5 tipping point without cutting staff (decompression buys risk down with time, never by shedding resources). Set bufferDays > 0."
+		return "design the DECOMPRESSED-NORMAL solution: extend the normal duration with a schedule buffer to drop criticality risk toward the ~0.5 tipping point without cutting staff (decompression buys risk down with time, never by shedding resources). Set bufferDays > 0." + solutionClassRatesDoctrine
 	case projectstate.KindSubcriticalSolution:
-		return "design the SUBCRITICAL solution: deliberately understaffed (lower the staffing cap below normal). It is counterintuitively longer, costlier, and riskier — the point is to disprove the 'fewer people = cheaper' intuition for management."
+		return "design the SUBCRITICAL solution: deliberately understaffed (lower the staffing cap below normal). It is counterintuitively longer, costlier, and riskier — the point is to disprove the 'fewer people = cheaper' intuition for management." + solutionClassRatesDoctrine
 	case projectstate.KindCompressedSolution:
-		return "design the COMPRESSED solution: shorter duration via parallel work first and top resources second; raise the staffing cap and/or calendar days/week. Compression beyond ~30% of the normal duration is the death zone — target a modest compression (well under 30%) and stop short of it."
+		return "design the COMPRESSED solution: shorter duration via parallel work first and top resources second; raise the staffing cap and/or calendar days/week. Compression beyond ~30% of the normal duration is the death zone — target a modest compression (well under 30%) and stop short of it." + solutionClassRatesDoctrine
 	case projectstate.KindRiskModel:
 		return "quantify and compare risk across the four options: for each, decompose criticality risk and activity risk into a composite score for the SDP-review time-risk curve."
 	case projectstate.KindMission, projectstate.KindGlossary, projectstate.KindScrubbedRequirements,
