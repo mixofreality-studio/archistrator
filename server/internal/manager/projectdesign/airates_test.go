@@ -63,3 +63,26 @@ func TestIndirectDailyRate_DefaultWhenUnset(t *testing.T) {
 		t.Errorf("authored indirect rate = %+v, want %+v", got, authored)
 	}
 }
+
+// TestRateForSpec_FullModelIds covers the priceFamily normalization: rate-card modelIds
+// are authored as FULL API ids while apiPricing is keyed by family — the exact-key
+// lookup silently priced every full id as sonnet (gtdapp 2026-07-11).
+func TestRateForSpec_FullModelIds(t *testing.T) {
+	cases := []struct {
+		id      string
+		in, out float64
+		want    int64
+	}{
+		{"claude-opus-4-8", 5, 1.5, 5*500 + 1.5*2500},        // opus, NOT sonnet fallback
+		{"claude-sonnet-5", 8, 2, 8*300 + 2*1500},            // sonnet
+		{"claude-haiku-4-5-20251001", 10, 3, 10*100 + 3*500}, // haiku
+		{"claude-fable-5", 6, 1.5, 6*1000 + 1.5*5000},        // fable
+		{"totally-unknown-model", 2, 0.5, 2*300 + 0.5*1500},  // unknown → sonnet fallback
+	}
+	for _, c := range cases {
+		got := rateForSpec(projectstate.WorkerRateSpec{ModelID: c.id, MegatokensInPerDay: c.in, MegatokensOutPerDay: c.out})
+		if got.MinorUnits != c.want {
+			t.Errorf("rateForSpec(%q) = %d¢/day, want %d¢/day", c.id, got.MinorUnits, c.want)
+		}
+	}
+}

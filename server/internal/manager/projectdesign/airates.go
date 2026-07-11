@@ -14,7 +14,11 @@ package projectdesign
 //
 // Pure + deterministic (no clock, no RNG, no I/O) so the SDP assembly stays replay-safe.
 
-import "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+import (
+	"strings"
+
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+)
 
 // modelPrice is the Claude API price for one model, in USD MINOR UNITS (cents) per
 // megatoken (MTok). Source: Anthropic price list (F11b) — fable $10/$50, opus $5/$25,
@@ -30,6 +34,22 @@ var apiPricing = map[string]modelPrice{
 	"opus":   {inCentsPerMTok: 500, outCentsPerMTok: 2500},  // $5 in / $25 out
 	"sonnet": {inCentsPerMTok: 300, outCentsPerMTok: 1500},  // $3 in / $15 out
 	"haiku":  {inCentsPerMTok: 100, outCentsPerMTok: 500},   // $1 in / $5 out
+}
+
+// priceFamily normalizes a model id to its apiPricing family key. The rate card's
+// modelId is authored as a FULL API id ("claude-opus-4-8", "claude-haiku-4-5-20251001")
+// while apiPricing is keyed by short family names — the exact-key lookup silently
+// priced EVERY full id as sonnet (found live on gtdapp 2026-07-11: the opus architect
+// class costed at sonnet rates). Substring match on the lowercased id; unknown ids
+// keep the documented sonnet fallback via the caller's miss branch.
+func priceFamily(modelID string) string {
+	id := strings.ToLower(modelID)
+	for _, fam := range [...]string{"fable", "opus", "sonnet", "haiku"} {
+		if strings.Contains(id, fam) {
+			return fam
+		}
+	}
+	return id
 }
 
 // roleModel maps each worker CLASS (agent role) to the model it runs (F11c), taken
@@ -97,7 +117,7 @@ func deriveClassRates(pa projectstate.PlanningAssumptions, classes []string) map
 // unknown model id falls back to sonnet pricing (never panics). Deterministic integer
 // truncation (no rounding-mode ambiguity) matches the estimationEngine's cost math.
 func rateForSpec(spec projectstate.WorkerRateSpec) projectstate.Money {
-	price, ok := apiPricing[spec.ModelID]
+	price, ok := apiPricing[priceFamily(spec.ModelID)]
 	if !ok {
 		price = apiPricing["sonnet"]
 	}
