@@ -5416,6 +5416,26 @@
             ]
           },
           {
+            "id": "construction-transition-access",
+            "contractKey": "constructionTransitionAccess",
+            "name": "ConstructionTransitionAccess",
+            "kind": "resourceAccess",
+            "layer": "resourceAccess",
+            "encapsulates": "Encapsulates the Source Control Target volatility for Phase-3 construction transitions (R-014): the ten cred-threaded head-state transition verbs (change reviewed, activity exited, activity failed, operator paused, review policy, phase started, phase completed, service contract produced, phase artifact produced, plus the whole-aggregate read) over the same git-as-DB typed aggregate project-state-access fronts, hiding HOW construction progress is recorded (ref-CAS commit mechanics and the idempotency dedup ledger) so the recording substrate could change without touching the construction Manager.",
+            "atomicBusinessVerbs": [
+              "recordChangeReviewed",
+              "recordActivityExited",
+              "recordActivityFailed",
+              "recordOperatorPaused",
+              "recordReviewPolicy",
+              "recordPhaseStarted",
+              "recordPhaseCompleted",
+              "recordServiceContractProduced",
+              "recordPhaseArtifactProduced",
+              "readProject"
+            ]
+          },
+          {
             "id": "operated-system-state-access",
             "contractKey": "operatedSystemStateAccess",
             "name": "OperatedSystemStateAccess",
@@ -5856,6 +5876,12 @@
           },
           {
             "from": "construction-manager",
+            "to": "construction-transition-access",
+            "mode": "sync",
+            "label": "readProject / record construction transitions (change reviewed, activity exited, activity failed, operator paused, review policy, phase started, phase completed, service contract produced, phase artifact produced)"
+          },
+          {
+            "from": "construction-manager",
             "to": "artifact-access",
             "mode": "sync",
             "label": "storeConstructionOutput / retrieveConstructionOutput / retrieveOutputTree (Phase-3 outputs)"
@@ -5949,6 +5975,12 @@
             "to": "project-git-repo",
             "mode": "sync",
             "label": "read state JSON / commit guarded by git ref compare-and-swap [contract 1: typed state]"
+          },
+          {
+            "from": "construction-transition-access",
+            "to": "project-git-repo",
+            "mode": "sync",
+            "label": "read state JSON / commit construction-transition writes guarded by git ref compare-and-swap [contract 1: typed state]"
           },
           {
             "from": "artifact-access",
