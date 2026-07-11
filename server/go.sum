@@ -154,8 +154,8 @@ github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure
 github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-postgres v0.1.0/go.mod h1:R5rsOKrof5VtqkMEoz1W/59ZtoeYVoeHBd5KpC5zhzY=
 github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-temporal v0.1.0 h1:coBV2XQK7mBIcwlek19pjaxq7RWeaegpOGYFsxgHJJc=
 github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-temporal v0.1.0/go.mod h1:rxXgu0k6M9HyHuoCKPNRdJOwmFqmbtUhy9h0h97VVAw=
-github.com/mixofreality-studio/archistrator-platform/framework-go-projectmodel v0.2.0 h1:Qvhdj1Swmfw8LvX0xzH5nZxwRXwB9a3chSrMINBBrbs=
-github.com/mixofreality-studio/archistrator-platform/framework-go-projectmodel v0.2.0/go.mod h1:YbfS35fW8k0sFydWYKFYdWDP64y4BzigHXUDMJRRDSs=
+github.com/mixofreality-studio/archistrator-platform/framework-go-projectmodel v0.2.1 h1:3cSoKeUzm9aock/W4VAcqWxK27UUi3y8bGmkpy4DigM=
+github.com/mixofreality-studio/archistrator-platform/framework-go-projectmodel v0.2.1/go.mod h1:YbfS35fW8k0sFydWYKFYdWDP64y4BzigHXUDMJRRDSs=
 github.com/moby/docker-image-spec v1.3.1 h1:jMKff3w6PgbfSa69GfNg+zN/XLhfXJGnEx3Nl2EsFP0=
 github.com/moby/docker-image-spec v1.3.1/go.mod h1:eKmb5VW8vQEh/BAr2yvVNvuiJuY6UIocYsFu/DxxRpo=
 github.com/moby/go-archive v0.2.0 h1:zg5QDUM2mi0JIM9fdQZWC7U8+2ZfixfTYoHL7rWUcP8=

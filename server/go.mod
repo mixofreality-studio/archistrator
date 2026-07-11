@@ -7,7 +7,7 @@ require (
 	github.com/jackc/pgx/v5 v5.9.2
 	github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator v0.5.1
 	github.com/mixofreality-studio/archistrator-platform/framework-go-http-generator v0.3.0
-	github.com/mixofreality-studio/archistrator-platform/framework-go-projectmodel v0.2.0
+	github.com/mixofreality-studio/archistrator-platform/framework-go-projectmodel v0.2.1
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.60.0
 	go.temporal.io/api v1.62.12
 	go.temporal.io/sdk v1.44.0
