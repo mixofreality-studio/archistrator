@@ -5502,6 +5502,19 @@
             ]
           },
           {
+            "id": "revenue-ledger-access",
+            "contractKey": "revenueLedgerAccess",
+            "name": "RevenueLedgerAccess",
+            "kind": "resourceAccess",
+            "layer": "resourceAccess",
+            "encapsulates": "Encapsulates the Operational State Store volatility for the append-only revenue ledger (R-013): recordInboundRevenue/recordReversal/readRange hide HOW inbound-revenue and reversal facts are recorded and folded for cycle settlement from the Billing workflow. Charge-only (R-013: never invoices for, or shares in, end-user revenue) keeps the current binding a permanent no-op — the verbs stay so the choreography and any future re-introduction of revenue tracking never touch the Billing Manager.",
+            "atomicBusinessVerbs": [
+              "recordInboundRevenue",
+              "recordReversal",
+              "readRange"
+            ]
+          },
+          {
             "id": "work-item-access",
             "name": "WorkItemAccess",
             "kind": "resourceAccess",
@@ -5982,6 +5995,12 @@
           },
           {
             "from": "billing-manager",
+            "to": "revenue-ledger-access",
+            "mode": "sync",
+            "label": "recordInboundRevenue / recordReversal / readRange"
+          },
+          {
+            "from": "billing-manager",
             "to": "usage-access",
             "mode": "sync",
             "label": "readRange (compute usage for the billing cycle)"
@@ -6063,6 +6082,12 @@
             "to": "billing-state",
             "mode": "sync",
             "label": "read row / guarded in-place update (version + applied_mutation dedup)"
+          },
+          {
+            "from": "revenue-ledger-access",
+            "to": "billing-state",
+            "mode": "sync",
+            "label": "append inbound-revenue / reversal fact (no-op under charge-only) / read cycle range"
           },
           {
             "from": "construction-pipeline-access",
