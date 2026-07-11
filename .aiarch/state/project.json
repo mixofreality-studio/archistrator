@@ -5452,6 +5452,24 @@
             ]
           },
           {
+            "id": "design-session-access",
+            "contractKey": "designSessionAccess",
+            "name": "DesignSessionAccess",
+            "kind": "resourceAccess",
+            "layer": "resourceAccess",
+            "encapsulates": "Encapsulates the Source Control Target volatility for design-session artifacts (R-014): the eight branch-aware verbs (read project on branch, stage/commit-with-provenance/reject-with-comments/withdraw an artifact, reconcile a diverged branch from main, set/seed review-ledger comment status) over the same git-as-DB typed aggregate project-state-access fronts, hiding HOW a design session's staged draft is read back, committed, rejected, or reconciled on its own session branch (ref-CAS commit mechanics, the idempotency dedup ledger, and the optional branch/ledger/provenance/reconcile substrate capabilities) so the recording substrate could change without touching the systemDesign/projectDesign Managers.",
+            "atomicBusinessVerbs": [
+              "readProjectOnBranch",
+              "stageArtifactForReviewOnBranch",
+              "commitArtifactWithProvenance",
+              "rejectArtifactOnBranchWithComments",
+              "withdrawArtifactOnBranch",
+              "reconcileBranchFromMain",
+              "setReviewCommentStatusOnBranch",
+              "seedReviewCommentsOnBranch"
+            ]
+          },
+          {
             "id": "operated-system-state-access",
             "contractKey": "operatedSystemStateAccess",
             "name": "OperatedSystemStateAccess",
@@ -5862,6 +5880,12 @@
           },
           {
             "from": "system-design-manager",
+            "to": "design-session-access",
+            "mode": "sync",
+            "label": "readProjectOnBranch / stageArtifactForReviewOnBranch / commitArtifactWithProvenance / rejectArtifactOnBranchWithComments / withdrawArtifactOnBranch / reconcileBranchFromMain / set·seedReviewCommentsOnBranch"
+          },
+          {
+            "from": "system-design-manager",
             "to": "construction-pipeline-access",
             "mode": "sync",
             "label": "submitConstructionPipeline(architect|PM prompt, branch, kind) / observe / cancel"
@@ -5871,6 +5895,12 @@
             "to": "project-state-access",
             "mode": "sync",
             "label": "readProject / stage·commit·reject·withdraw typed Phase-2 artifact model · commitOption · recordSdpReviewOutcome · recordActivityWorkItemOpened"
+          },
+          {
+            "from": "project-design-manager",
+            "to": "design-session-access",
+            "mode": "sync",
+            "label": "readProjectOnBranch / stageArtifactForReviewOnBranch / commitArtifactWithProvenance / rejectArtifactOnBranchWithComments / withdrawArtifactOnBranch / reconcileBranchFromMain / set·seedReviewCommentsOnBranch"
           },
           {
             "from": "project-design-manager",
@@ -6009,6 +6039,12 @@
             "to": "project-git-repo",
             "mode": "sync",
             "label": "read state JSON / commit git-activity-status writes guarded by git ref compare-and-swap [contract 1: typed state]"
+          },
+          {
+            "from": "design-session-access",
+            "to": "project-git-repo",
+            "mode": "sync",
+            "label": "read state JSON / commit design-session writes guarded by git ref compare-and-swap [contract 1: typed state]"
           },
           {
             "from": "artifact-access",
