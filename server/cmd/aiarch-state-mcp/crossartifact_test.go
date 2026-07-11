@@ -212,6 +212,9 @@ func TestValidate_RateCardOrphanAndDefaulted(t *testing.T) {
 		Model: &projectstate.PlanningAssumptions{
 			Resources:           []string{"Architect", "Capture-Engineer"},
 			CalendarDaysPerWeek: 5,
+			// Healthy enums so PA-INFRA-KIND / PA-TERMS-REGIME stay quiet — this test
+			// exercises ONLY the rateCard rules.
+			InfrastructureKind: projectstate.InfrastructureKindGoTemporalPostgres,
 			RateCard: map[string]projectstate.WorkerRateSpec{
 				"Architect": {ModelID: "opus", MegatokensInPerDay: 1, MegatokensOutPerDay: 1},
 				// The gtdapp-live orphan shape: hyphens dropped relative to the resource.
@@ -244,6 +247,8 @@ func TestValidate_RateCardAllKeyed(t *testing.T) {
 		Model: &projectstate.PlanningAssumptions{
 			Resources:           []string{"Architect"},
 			CalendarDaysPerWeek: 5,
+			// Healthy enums so PA-INFRA-KIND / PA-TERMS-REGIME stay quiet here too.
+			InfrastructureKind: projectstate.InfrastructureKindGoTemporalPostgres,
 			RateCard: map[string]projectstate.WorkerRateSpec{
 				"Architect": {ModelID: "opus", MegatokensInPerDay: 1, MegatokensOutPerDay: 1},
 			},
@@ -310,5 +315,52 @@ func TestAttributeRule_AppSideRules(t *testing.T) {
 		if class != attribSlot || kind != c.kind {
 			t.Errorf("attributeRule(%s) = (%v, %v), want (%v, attribSlot)", c.rule, kind, class, c.kind)
 		}
+	}
+}
+
+// TestPAEnumHoles covers PA-INFRA-KIND / PA-TERMS-REGIME — the zero-value enum holes
+// that killed the gtdapp SDP assembly twice (2026-07-11).
+func TestPAEnumHoles(t *testing.T) {
+	pa := &projectstate.PlanningAssumptions{
+		Resources:          []string{"Architect"},
+		InfrastructureKind: projectstate.InfrastructureKindUnknown,
+		Terms: projectstate.SettlementTerms{
+			RevenueSharePercent:  15,
+			ComputeMarkupPercent: 20,
+			// all three regime enums left at Unknown
+		},
+	}
+	proj := projectstate.Project{}
+	proj.PlanningAssumptions.Status = projectstate.ReviewCommitted
+	proj.PlanningAssumptions.Model = pa
+
+	got := paEnumHoleFindings(proj)
+	byRule := map[string]int{}
+	for _, f := range got {
+		byRule[string(f.RuleID)]++
+	}
+	if byRule["PA-INFRA-KIND"] != 1 {
+		t.Errorf("PA-INFRA-KIND findings = %d, want 1 (got %+v)", byRule["PA-INFRA-KIND"], got)
+	}
+	// revenueShare hole + computeCost hole; schedule hole needs an AUTHORED regime,
+	// which Unknown regimes don't provide — so exactly 2 PA-TERMS-REGIME here.
+	if byRule["PA-TERMS-REGIME"] != 2 {
+		t.Errorf("PA-TERMS-REGIME findings = %d, want 2 (got %+v)", byRule["PA-TERMS-REGIME"], got)
+	}
+
+	// Healthy shape (gtdapp's repaired PA): no findings.
+	pa.InfrastructureKind = projectstate.InfrastructureKindGoTemporalPostgres
+	pa.Terms.RevenueShare = projectstate.RevenueShareNegotiatedRate
+	pa.Terms.ComputeCost = projectstate.ComputeCostFlatMarkup
+	pa.Terms.Schedule = projectstate.ScheduleMonthly
+	if got := paEnumHoleFindings(proj); len(got) != 0 {
+		t.Errorf("healthy PA produced findings: %+v", got)
+	}
+
+	// Regimes authored but schedule unknown → exactly the schedule finding.
+	pa.Terms.Schedule = projectstate.ScheduleUnknown
+	got = paEnumHoleFindings(proj)
+	if len(got) != 1 || got[0].RuleID != "PA-TERMS-REGIME" {
+		t.Errorf("schedule hole findings = %+v, want single PA-TERMS-REGIME", got)
 	}
 }
