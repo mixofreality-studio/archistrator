@@ -12,7 +12,7 @@ import Typography from '@mui/material/Typography';
 import Chip from '@mui/material/Chip';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import type { ProjectArtifactModelEnvelope } from '../../contracts/types';
-import { narrowProject } from '../../contracts/projectAdapters';
+import { narrowProject, formatMoney } from '../../contracts/projectAdapters';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import type { Tokens } from '../../utilities/theme/themes';
 import { AuthoredBadge } from './computed';
@@ -69,6 +69,13 @@ export function PlanningAssumptionsView({
   const resources = model.resources ?? [];
   const usage = model.declaredUsage;
   const terms = model.terms;
+  // Authored per-worker-class AI token rates. A declared class WITHOUT an entry
+  // silently falls back to server default rates — the view must disclose that,
+  // not hide it. Keys that match NO declared class are dead and flagged as such.
+  const rateCard = model.rateCard ?? {};
+  const deadRateKeys = Object.keys(rateCard)
+    .filter((k) => !resources.includes(k))
+    .sort();
   // The authored notes carry the load-bearing risk flags — split on lines so each
   // reads as a flag in the panel.
   const flags = model.notes
@@ -142,6 +149,134 @@ export function PlanningAssumptionsView({
           <KV k="daily active users" t={t} v={usage.expectedDailyActiveUsers.toLocaleString()} />
           <KV k="requests / minute" t={t} v={String(usage.requestsPerMinute)} />
           <KV k="avg payload bytes" t={t} v={usage.avgPayloadBytes.toLocaleString()} />
+        </Box>
+      </Paper>
+
+      {/* AI rate card: authored per-class token rates + the indirect daily rate.
+          Every declared class gets a row — classes without an authored entry are
+          explicitly disclosed as running on server default rates; rateCard keys
+          matching no declared class are flagged as dead. */}
+      <Paper sx={{ p: 2 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, flexWrap: 'wrap' }}>
+          <Typography
+            sx={{
+              fontFamily: t.mono,
+              fontWeight: 700,
+              fontSize: 12,
+              letterSpacing: '0.06em',
+              color: t.ink,
+            }}
+          >
+            AI RATE CARD
+          </Typography>
+          <AuthoredBadge t={t} />
+          <Box sx={{ flexGrow: 1 }} />
+          <KV k="indirect daily rate" t={t} v={`${formatMoney(model.indirectDailyRate)} / day`} />
+        </Box>
+        <Box
+          sx={{
+            display: 'grid',
+            gridTemplateColumns: 'minmax(140px, 1.2fr) minmax(160px, 1.6fr) 1fr 1fr',
+            columnGap: 2,
+            rowGap: 0.75,
+            alignItems: 'center',
+            overflowX: 'auto',
+          }}
+        >
+          {['WORKER CLASS', 'MODEL', 'MTOK IN / DAY', 'MTOK OUT / DAY'].map((h) => (
+            <Typography
+              key={h}
+              sx={{ fontFamily: t.mono, fontSize: 9.5, letterSpacing: '0.14em', color: t.muted }}
+            >
+              {h}
+            </Typography>
+          ))}
+          {resources.map((r) => {
+            const spec = rateCard[r];
+            return spec !== undefined ? (
+              <Box key={r} sx={{ display: 'contents' }}>
+                <Chip
+                  label={r}
+                  size="small"
+                  sx={{ fontSize: 10.5, color: t.ink, bgcolor: t.paperAlt, justifySelf: 'start' }}
+                  variant="outlined"
+                />
+                <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.ink }}>
+                  {spec.modelId}
+                </Typography>
+                <Typography
+                  sx={{ fontFamily: t.mono, fontSize: 12, fontWeight: 700, color: t.ink }}
+                >
+                  {spec.megatokensInPerDay.toLocaleString()}
+                </Typography>
+                <Typography
+                  sx={{ fontFamily: t.mono, fontSize: 12, fontWeight: 700, color: t.ink }}
+                >
+                  {spec.megatokensOutPerDay.toLocaleString()}
+                </Typography>
+              </Box>
+            ) : (
+              <Box key={r} sx={{ display: 'contents' }}>
+                <Chip
+                  label={r}
+                  size="small"
+                  sx={{ fontSize: 10.5, color: t.ink, bgcolor: t.paperAlt, justifySelf: 'start' }}
+                  variant="outlined"
+                />
+                <Box sx={{ gridColumn: 'span 3', justifySelf: 'start' }}>
+                  <Chip
+                    label="default rates — no authored entry"
+                    size="small"
+                    sx={{ fontSize: 10, color: t.muted, bgcolor: t.paperAlt }}
+                    variant="outlined"
+                  />
+                </Box>
+              </Box>
+            );
+          })}
+          {deadRateKeys.map((k) => {
+            const spec = rateCard[k];
+            return (
+              <Box key={k} sx={{ display: 'contents' }}>
+                <Box
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 0.75,
+                    justifySelf: 'start',
+                    flexWrap: 'wrap',
+                  }}
+                >
+                  <Chip
+                    label={k}
+                    size="small"
+                    sx={{ fontSize: 10.5, color: t.awaitingFg, bgcolor: t.awaitingBg }}
+                    variant="outlined"
+                  />
+                  <Chip
+                    icon={<WarningAmberIcon sx={{ fontSize: 13 }} />}
+                    label="no matching resource"
+                    size="small"
+                    sx={{
+                      fontSize: 10,
+                      color: t.awaitingFg,
+                      bgcolor: t.awaitingBg,
+                      '& .MuiChip-icon': { color: t.awaitingFg },
+                    }}
+                  />
+                </Box>
+                <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.muted }}>
+                  {spec?.modelId ?? '—'}
+                </Typography>
+                <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.muted }}>
+                  {spec?.megatokensInPerDay.toLocaleString() ?? '—'}
+                </Typography>
+                <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.muted }}>
+                  {spec?.megatokensOutPerDay.toLocaleString() ?? '—'}
+                </Typography>
+              </Box>
+            );
+          })}
         </Box>
       </Paper>
 

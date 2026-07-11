@@ -51,6 +51,7 @@ import {
   useRequestSDPCommit,
   useSubmitSDPDecision,
   useAdvanceToConstruction,
+  useAcknowledgeProjectStaleBasis,
 } from '../hooks/useProjectDesignMutations';
 
 import { ExperienceChrome } from '../components/design/ExperienceChrome';
@@ -174,6 +175,7 @@ function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
   const assembleSdp = useRequestSDPCommit(projectId);
   const submitSdp = useSubmitSDPDecision(projectId);
   const advance = useAdvanceToConstruction(projectId);
+  const acknowledgeStale = useAcknowledgeProjectStaleBasis(projectId);
 
   // Graceful FailedPrecondition surface: an approve that races an open thread
   // entry fails; we refetch the thread and name the message rather than wedge.
@@ -238,6 +240,13 @@ function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
 
   // Seed rationale for a reconcile-via-amendment fired from the header stale chip.
   const reconcileRationale = 'Reconcile with amended upstream basis.';
+
+  // The second, non-blocking way out of a stale basis: mark it reviewed —
+  // unaffected, clearing StaleBasis with an audit note and no redraft. Mirrors
+  // onAcknowledgeStale in the Phase-1 DesignExperience.
+  const onAcknowledgeStale = (note: string): void => {
+    acknowledgeStale.mutate({ kind: activeKind, note });
+  };
 
   const approve = (): void => {
     setGateError(undefined);
@@ -375,7 +384,9 @@ function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
                   header chip + popover (parity with the System Design shell). */}
               {committed && committedStale ? (
                 <StaleBasisHeaderChip
+                  acknowledgePending={acknowledgeStale.isPending}
                   cause={committedSlot.staleCause}
+                  onAcknowledge={onAcknowledgeStale}
                   onReconcile={() => {
                     amend(reconcileRationale);
                   }}

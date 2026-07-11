@@ -143,6 +143,38 @@ export function useSetProjectReviewCommentStatus(
   });
 }
 
+export interface AcknowledgeProjectStaleVars {
+  kind: ProjectArtifactKind;
+  /** Optional audit note recorded on the staleAck ledger entry. */
+  note: string;
+}
+
+/**
+ * Mark a stale committed Phase-2 artifact "reviewed — unaffected": clears its
+ * StaleBasis WITHOUT a redraft, recording the note as a durable staleAck audit
+ * entry. On success it invalidates the artifact query so the pane re-reads with
+ * the flag cleared. The Phase-2 TWIN of useAcknowledgeStaleBasis (useDesignMutations).
+ */
+export function useAcknowledgeProjectStaleBasis(
+  projectId: string
+): UseMutationResult<undefined, Error, AcknowledgeProjectStaleVars> {
+  const client = useQueryClient();
+  return useMutation<undefined, Error, AcknowledgeProjectStaleVars>({
+    mutationFn: async (vars) => {
+      const { error, response } = await apiClient.POST(
+        '/api/v1/project-design/acknowledge-stale-basis/{projectID}',
+        {
+          params: { path: { projectID: projectId } },
+          body: { kind: artifactKindToOrdinal(vars.kind), note: vars.note },
+        }
+      );
+      if (error !== undefined) throw toApiError(response.status, error);
+      return undefined;
+    },
+    onSuccess: (_data, vars) => invalidateArtifact(client, projectId, vars.kind),
+  });
+}
+
 /** No-arg assemble trigger — kicks the AssembleSDPReviewWorkflow. */
 export function useRequestSDPCommit(
   projectId: string
