@@ -9,6 +9,7 @@ import (
 
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/handoff"
 )
 
 // gitnaming.go holds the Manager's provider-NEUTRAL, DETERMINISTIC naming + the git
@@ -34,7 +35,29 @@ func prTitle(activityID ActivityID) string {
 
 func prBody(activity constructionActivity) string {
 	return fmt.Sprintf("Automated construction of component %s (%s, layer %s).",
-		activity.ComponentID, activity.Kind.String(), activity.Layer)
+		activity.ComponentID, activityKindName(activity.Kind), activity.Layer)
+}
+
+// activityKindName returns the canonical activity-kind name — a free-function
+// replacement for the retired Manager-local activityKind.String() method (methods
+// cannot be added to the published handoff.ActivityKind from this package). Produces
+// the IDENTICAL strings the former Stringer did (PR body text — zero behavior change).
+func activityKindName(k handoff.ActivityKind) string {
+	switch k {
+	case handoff.ActivityKindUnknown:
+		// zero-value sentinel, not a real activity kind — same as any unmapped value.
+		return "Unknown"
+	case handoff.ActivityKindDetailedDesign:
+		return "DetailedDesign"
+	case handoff.ActivityKindConstruction:
+		return "Construction"
+	case handoff.ActivityKindIntegration:
+		return "Integration"
+	case handoff.ActivityKindNoncoding:
+		return "Noncoding"
+	default:
+		return "Unknown"
+	}
 }
 
 // archApprovalBody is the +1 relay's review body — the architect's in-app

@@ -1,9 +1,13 @@
 package construction
 
 import (
+	"context"
+
 	"go.temporal.io/sdk/workflow"
 
+	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
@@ -64,16 +68,25 @@ func (wf *workflows) ProjectSupervisionWorkflow(ctx workflow.Context, in project
 }
 
 // runPauseBranch runs the NCUC2 operator-pause branch: applyPausePolicy (DECIDE)
-// then EXECUTE the plan (constructionManager.md §6.3).
+// then EXECUTE the plan (constructionManager.md §6.3). InFlightPipelines is left
+// unset (zero value) — the retired pauseRequestContext mirror never populated it
+// either (zero behavior change).
 func (wf *workflows) runPauseBranch(ctx workflow.Context, projectID ProjectID, reason string, state *constructState) error {
-	plan, perr := wf.Intervention.ApplyPausePolicy(string(projectID), pauseRequestContext{Reason: reason})
+	plan, perr := wf.Intervention.ApplyPausePolicy(fweng.Context{Context: context.Background()}, intervention.PauseRequestContext{
+		ProjectID: intervention.ProjectID(projectID),
+		Reason:    reason,
+		Policy:    wf.InterventionPolicy,
+	})
 	if perr != nil {
 		return fwmanager.MapError(perr)
 	}
 
 	// EXECUTE: cancel each in-flight pipeline the plan names (GENERATED cancel invoker).
+	// PipelineRef is a published named-string type; cast to the Manager's own opaque
+	// pipelineHandle.Name (string) — NotifyTargets/ResumeHint stay unread, same as the
+	// retired pausePlan mirror never converting them into anything downstream read.
 	for _, pid := range plan.PipelinesToCancel {
-		if err := wf.cancelPipeline(ctx, pipelineHandle{Name: pid}); err != nil {
+		if err := wf.cancelPipeline(ctx, pipelineHandle{Name: string(pid)}); err != nil {
 			return err
 		}
 	}

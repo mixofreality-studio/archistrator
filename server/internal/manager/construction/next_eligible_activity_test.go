@@ -3,6 +3,7 @@ package construction
 import (
 	"testing"
 
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/handoff"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
@@ -196,8 +197,8 @@ func TestNextEligibleActivity_ProjectExportDogfood(t *testing.T) {
 	if got.EstimateDays != 3 {
 		t.Fatalf("expected EstimateDays=3, got %f", got.EstimateDays)
 	}
-	if got.Kind != activityKindConstruction {
-		t.Fatalf("expected Kind=activityKindConstruction (Coding=true), got %v", got.Kind)
+	if got.Kind != handoff.ActivityKindConstruction {
+		t.Fatalf("expected Kind=handoff.ActivityKindConstruction (Coding=true), got %v", got.Kind)
 	}
 }
 
@@ -228,8 +229,8 @@ func TestNextEligibleActivity_HydratedFields(t *testing.T) {
 	if got.EstimateDays != 13 {
 		t.Fatalf("expected EstimateDays=13, got %f", got.EstimateDays)
 	}
-	// Kind is determined by Coding flag: Coding=true → activityKindConstruction.
-	if got.Kind != activityKindConstruction {
-		t.Fatalf("expected Kind=activityKindConstruction, got %v", got.Kind)
+	// Kind is determined by Coding flag: Coding=true → handoff.ActivityKindConstruction.
+	if got.Kind != handoff.ActivityKindConstruction {
+		t.Fatalf("expected Kind=handoff.ActivityKindConstruction, got %v", got.Kind)
 	}
 }

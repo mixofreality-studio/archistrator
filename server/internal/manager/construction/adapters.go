@@ -1,215 +1,78 @@
 package construction
 
-// adapters.go holds the FOLDED composition-root adapters that bridge the published
-// engine interfaces (the dependencies the GENERATED constructor NewConstructionManager
-// receives) to the Manager's unexported downstream engine seams (deps.go). Per the
-// founder DI model (2026-06-28) these were retired from cmd/server and live HERE, in the
-// one package that knows both sides — the Manager depends on each dependency's PUBLISHED
-// interface and adapts it internally (Option-B boundary mapping).
+// adapters.go holds the bridges between the Manager's OWN broader domain vocabulary
+// (constructionActivity, this component's generated façade ReviewSet/Reviewer) and
+// each dependency's PUBLISHED contract shape, for the calls that are NOT identity —
+// either because the Manager's own type carries strictly more fields than the Engine
+// needs (handoffActivityFromConstruction), or because the target is this component's
+// OWN generated public façade type with a real field-shape divergence
+// (reviewSetFromEngine), or because the Manager derives a real config value from raw
+// composition-root config (constructionInterventionPolicy).
 //
-// After the temporalgen migration this file carries ONLY the three ENGINE adapters
-// (handOff / intervention / review). The engines are pure, deterministic, called DIRECTLY
-// in-workflow (no Activity wrapper — replay-safe). The RA adapters (pipeline / artifact /
-// rail) are retired: those ops are GENERATED and reached through the generated invoker
-// surface (genInvokers); the workflow-side value mapping that lived on the old RA adapters
-// (dispatchInputsFor / PipelineSpec composition / CheckState + Hints mapping) is now a set
-// of pure workflow-side helpers (workflow.go / gitforward.go). The eligibility selection
-// moved to eligibility.go. The mechanical enum/struct copies map by IDENTITY, not raw int,
-// so a future re-order is safe.
+// After Task 6 the three Engines (handoff.HandOffEngine / intervention.InterventionEngine
+// / review.ReviewEngine) have NO adapter STRUCT — the workflow calls their published
+// contracts DIRECTLY (workflow.go / signals.go), with fweng.Context{Context:
+// context.Background()} supplied inline at each call site. The identity enum maps that
+// used to bridge Manager-local mirror enums onto the Engines' published enums
+// (handoffActivityKind, managerWorkerClass, interventionVarianceKind,
+// managerVarianceDirective) are deleted along with the mirror types themselves
+// (deps.go) — every Manager-local enum that was ordinal-identical to its published
+// counterpart is now typed AS that published enum directly.
 
 import (
-	"context"
-
-	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/handoff"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
 )
 
 // ===========================================================================
-// handOffEngine adapter — handOffEngine seam over handoff.HandOffEngine.
+// handOffEngine — handoffActivityFromConstruction narrows the Manager's broader
+// constructionActivity (used package-wide — git-forward fields, resolved Phases) onto
+// the Engine's published handoff.ConstructionActivity input. A REAL (if today
+// field-for-field trivial) projection, not an identity mirror to delete: the two
+// structs are NOT the same shape (constructionActivity carries CRLabel/IsRevert/Phases
+// the Engine never sees).
 // ===========================================================================
 
-type handoffAdapter struct{ inner handoff.HandOffEngine }
-
-var _ handOffEngine = handoffAdapter{}
-
-func (a handoffAdapter) PickWorkerClass(activity constructionActivity, policy handOffPolicy) (workerClass, error) {
-	cls, err := a.inner.PickWorkerClass(
-		fweng.Context{Context: context.Background()},
-		handoff.ConstructionActivity{
-			ActivityID:   activity.ActivityID,
-			Kind:         handoffActivityKind(activity.Kind),
-			ComponentID:  activity.ComponentID,
-			Layer:        activity.Layer,
-			EstimateDays: activity.EstimateDays,
-		},
-		handoff.HandOffPolicy{
-			PreferAI:         policy.PreferAI,
-			SeniorOnlyLayers: policy.SeniorOnlyLayers,
-		},
-	)
-	if err != nil {
-		return workerClassUnknown, err
-	}
-	return managerWorkerClass(cls), nil
-}
-
-func handoffActivityKind(k activityKind) handoff.ActivityKind {
-	switch k {
-	case activityKindUnknown:
-		// zero-value sentinel, not a real activity kind — same as any unmapped value.
-		return handoff.ActivityKindUnknown
-	case activityKindDetailedDesign:
-		return handoff.ActivityKindDetailedDesign
-	case activityKindConstruction:
-		return handoff.ActivityKindConstruction
-	case activityKindIntegration:
-		return handoff.ActivityKindIntegration
-	case activityKindNoncoding:
-		return handoff.ActivityKindNoncoding
-	default:
-		return handoff.ActivityKindUnknown
-	}
-}
-
-func managerWorkerClass(c handoff.WorkerClass) workerClass {
-	switch c {
-	case handoff.WorkerClassUnknown:
-		// zero-value sentinel, not a real worker class — same as any unmapped value.
-		return workerClassUnknown
-	case handoff.AIWorker:
-		return aiWorker
-	case handoff.HumanSeniorWorker:
-		return humanSeniorWorker
-	case handoff.HumanJuniorWorker:
-		return humanJuniorWorker
-	case handoff.ArchitectOnly:
-		return architectOnly
-	default:
-		return workerClassUnknown
+func handoffActivityFromConstruction(a constructionActivity) handoff.ConstructionActivity {
+	return handoff.ConstructionActivity{
+		ActivityID:   a.ActivityID,
+		Kind:         a.Kind,
+		ComponentID:  a.ComponentID,
+		Layer:        a.Layer,
+		EstimateDays: a.EstimateDays,
 	}
 }
 
 // ===========================================================================
-// interventionEngine adapter — interventionEngine seam over
-// intervention.InterventionEngine + the composition-supplied regime.
+// interventionEngine — constructionInterventionPolicy is the ONE surviving
+// config→contract-type builder: it resolves the composition-root's raw
+// interventionMode STRING config (constructionmanager.go) onto the published
+// intervention.InterventionPolicy. There is no Manager-local InterventionPolicy mirror
+// left to build alongside it (deps.go) — the former second return value (the
+// Manager-mirror interventionPolicy) is retired; nothing downstream ever read it.
 // ===========================================================================
 
-type interventionAdapter struct {
-	inner  intervention.InterventionEngine
-	policy intervention.InterventionPolicy
-}
-
-var _ interventionEngine = interventionAdapter{}
-
-func (a interventionAdapter) DecideOnVariance(v constructionVariance) (varianceDirective, error) {
-	d, err := a.inner.DecideOnVariance(fweng.Context{Context: context.Background()}, intervention.ConstructionVariance{
-		ProjectID:    intervention.ProjectID(v.ActivityID),
-		ActivityID:   intervention.ActivityID(v.ActivityID),
-		Kind:         interventionVarianceKind(v.Kind),
-		AttemptCount: int64(v.AttemptCount),
-		Policy:       a.policy,
-	})
-	if err != nil {
-		return directiveUnknown, err
-	}
-	return managerVarianceDirective(d), nil
-}
-
-func (a interventionAdapter) ApplyPausePolicy(projectID string, ctx pauseRequestContext) (pausePlan, error) {
-	plan, err := a.inner.ApplyPausePolicy(fweng.Context{Context: context.Background()}, intervention.PauseRequestContext{
-		ProjectID: intervention.ProjectID(projectID),
-		Reason:    ctx.Reason,
-	})
-	if err != nil {
-		return pausePlan{}, err
-	}
-	cancels := make([]string, 0, len(plan.PipelinesToCancel))
-	for _, p := range plan.PipelinesToCancel {
-		cancels = append(cancels, string(p))
-	}
-	notify := make([]string, 0, len(plan.NotifyTargets))
-	for _, n := range plan.NotifyTargets {
-		notify = append(notify, string(n))
-	}
-	return pausePlan{
-		PipelinesToCancel: cancels,
-		RecordPaused:      plan.RecordPaused,
-		NotifyTargets:     notify,
-	}, nil
-}
-
-// constructionInterventionPolicy maps the configured intervention-mode string to the
-// paired (engine, manager-mirror) intervention policies.
-func constructionInterventionPolicy(mode string) (intervention.InterventionPolicy, interventionPolicy) {
+func constructionInterventionPolicy(mode string) intervention.InterventionPolicy {
 	switch mode {
 	case "escalate-everything", "escalateEverything", "supervised":
-		return intervention.InterventionPolicy{Mode: intervention.EscalateEverything},
-			interventionPolicy{Mode: interventionModeEscalateEverything}
+		return intervention.InterventionPolicy{Mode: intervention.EscalateEverything}
 	default:
-		return intervention.InterventionPolicy{Mode: intervention.Tiered, RetryBudget: 2},
-			interventionPolicy{Mode: interventionModeTiered, RetryBudget: 2}
-	}
-}
-
-func interventionVarianceKind(k varianceKind) intervention.VarianceKind {
-	switch k {
-	case varianceKindUnknown:
-		// zero-value sentinel, not a real variance kind — same as any unmapped value.
-		return intervention.VarianceKindUnknown
-	case varianceReviewFailed:
-		return intervention.ReviewFailedUnresolvable
-	case varianceWorkerRefused:
-		return intervention.WorkerMiss
-	case varianceScheduleOverrun:
-		return intervention.EstimateOverrun
-	case variancePipelineFailed:
-		return intervention.WorkerMiss
-	case varianceOperatorOverride:
-		return intervention.EstimateOverrun
-	default:
-		return intervention.VarianceKindUnknown
-	}
-}
-
-func managerVarianceDirective(d intervention.VarianceDirective) varianceDirective {
-	switch d {
-	case intervention.VarianceRetry:
-		return directiveRetry
-	case intervention.VarianceEscalate:
-		return directiveEscalate
-	case intervention.VarianceTakeover:
-		return directiveTakeover
-	default:
-		return directiveUnknown
+		return intervention.InterventionPolicy{Mode: intervention.Tiered, RetryBudget: 2}
 	}
 }
 
 // ===========================================================================
-// reviewEngine adapter — reviewEngine seam over review.ReviewEngine.
+// reviewEngine — reviewSetFromEngine bridges the published review.ReviewSet/Reviewer
+// onto THIS component's OWN generated façade ReviewSet/Reviewer (contract.gen.go,
+// off-limits — DO NOT EDIT). A REAL divergence, not an identity mirror: the façade's
+// Reviewer.ReferenceArtifact is *string (optional, omitempty) while the Engine's own
+// Reviewer.ReferenceArtifact is a plain string (empty ⇒ none) — the nil/empty-string
+// boundary is exactly the kind of zero-value divergence that must be bridged
+// explicitly, not cast.
 // ===========================================================================
 
-type reviewAdapter struct{ inner review.ReviewEngine }
-
-var _ reviewEngine = reviewAdapter{}
-
-func (a reviewAdapter) ProposeReviews(change reviewChange, componentID string, artifactKind string, architectureGraph string, contracts []string) (ReviewSet, error) {
-	set, err := a.inner.ProposeReviews(
-		fweng.Context{Context: context.Background()},
-		review.ReviewChange{
-			ActivityID:     change.ActivityID,
-			ComponentID:    change.ComponentID,
-			ContentAddress: change.ContentAddress,
-		},
-		componentID,
-		artifactKind,
-		architectureGraph,
-		contracts,
-	)
-	if err != nil {
-		return ReviewSet{}, err
-	}
+func reviewSetFromEngine(set review.ReviewSet) ReviewSet {
 	reviewers := make([]Reviewer, 0, len(set.Reviewers))
 	for _, r := range set.Reviewers {
 		cr := Reviewer{
@@ -223,5 +86,5 @@ func (a reviewAdapter) ProposeReviews(change reviewChange, componentID string, a
 		}
 		reviewers = append(reviewers, cr)
 	}
-	return ReviewSet{Reviewers: reviewers}, nil
+	return ReviewSet{Reviewers: reviewers}
 }

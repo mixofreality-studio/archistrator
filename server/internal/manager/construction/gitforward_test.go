@@ -10,6 +10,8 @@ import (
 
 	"github.com/google/uuid"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/handoff"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 )
@@ -291,8 +293,8 @@ func registerConstructGit(env *testsuite.TestWorkflowEnvironment, wf *workflows,
 func gitWiredWorkflows(ps *fakeProjectState, rail *stubRail, git *stubGitStatus, mergeable bool) *workflows {
 	rail.merged = mergeable
 	d := wfDeps{
-		HandOff:      &fakeHandOff{class: aiWorker},
-		Intervention: &fakeIntervention{directive: directiveRetry},
+		HandOff:      &fakeHandOff{class: handoff.AIWorker},
+		Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
 		Review:       &fakeReview{},
 		ProjectState: ps,
 		// git-forward slice wired: the rail is registered as GENERATED Activities and
@@ -435,7 +437,7 @@ func Test_GitForward_CIFailure_MirroredNotGated(t *testing.T) {
 	registerConstructGit(env, wf, rail)
 
 	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{
-		ProjectID: pid, ActivityID: "C-CI", Activity: constructionActivity{ActivityID: "C-CI", Kind: activityKindConstruction, ComponentID: "c"},
+		ProjectID: pid, ActivityID: "C-CI", Activity: constructionActivity{ActivityID: "C-CI", Kind: handoff.ActivityKindConstruction, ComponentID: "c"},
 	})
 
 	if err := env.GetWorkflowError(); err != nil {
@@ -459,7 +461,7 @@ func Test_GitForward_Dormant_WhenUnwired(t *testing.T) {
 	pid := ProjectID(uuid.NewString())
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}, version: 1}
 	wf := newWorkflows(wfDeps{
-		HandOff: &fakeHandOff{class: aiWorker}, Intervention: &fakeIntervention{directive: directiveRetry},
+		HandOff: &fakeHandOff{class: handoff.AIWorker}, Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
 		Review: &fakeReview{}, ProjectState: ps,
 		// no git-forward slice — RailEnabled=false, GitStatus/Repo nil.
 	})
@@ -519,7 +521,7 @@ func Test_GitForward_RecordsConvergeMonotonically(t *testing.T) {
 	registerConstructGit(env, wf, rail)
 
 	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{
-		ProjectID: pid, ActivityID: "C-MONO", Activity: constructionActivity{ActivityID: "C-MONO", Kind: activityKindConstruction, ComponentID: "c"},
+		ProjectID: pid, ActivityID: "C-MONO", Activity: constructionActivity{ActivityID: "C-MONO", Kind: handoff.ActivityKindConstruction, ComponentID: "c"},
 	})
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)

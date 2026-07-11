@@ -17,6 +17,8 @@ package construction
 import (
 	"go.temporal.io/sdk/worker"
 	"go.temporal.io/sdk/workflow"
+
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/handoff"
 )
 
 // Signal and query names (constructionManager.md §6.1/§6.2).
@@ -111,7 +113,7 @@ func activityOptions() func(activityName string) (workflow.ActivityOptions, bool
 // through the generated invoker surface.
 func (m *constructionManager) WorkerManifest() genWorkerManifest {
 	optsHook := activityOptions()
-	engPolicy, mgrPolicy := constructionInterventionPolicy(m.interventionMode)
+	engPolicy := constructionInterventionPolicy(m.interventionMode)
 
 	// OPTIONAL per-activity git head-state slice. The gitActivityStatus dep (the published
 	// 4-verb facet) must ALSO satisfy the started/completed construction facet for the
@@ -123,9 +125,9 @@ func (m *constructionManager) WorkerManifest() genWorkerManifest {
 	}
 
 	wf := newWorkflows(wfDeps{
-		HandOff:                handoffAdapter{inner: m.handOff},
-		Intervention:           interventionAdapter{inner: m.intervention, policy: engPolicy},
-		Review:                 reviewAdapter{inner: m.review},
+		HandOff:                m.handOff,
+		Intervention:           m.intervention,
+		Review:                 m.review,
 		ProjectState:           m.projectState,
 		ConstructionTransition: m.constructionTransition,
 		GitStatus:              gitStatus,
@@ -135,8 +137,8 @@ func (m *constructionManager) WorkerManifest() genWorkerManifest {
 		// (the started/completed construction records still fire when GitStatus is wired).
 		RailEnabled:           m.rail != nil,
 		NextEligibleActivity:  nextEligibleActivity,
-		HandOffPolicy:         handOffPolicy{},
-		InterventionPolicy:    mgrPolicy,
+		HandOffPolicy:         handoff.HandOffPolicy{},
+		InterventionPolicy:    engPolicy,
 		EscalationWaitTimeout: m.escalationWaitTimeout,
 	})
 

@@ -12,7 +12,11 @@ import (
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/google/uuid"
+	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/handoff"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/constructionpipeline"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
@@ -318,53 +322,71 @@ func (p *fakePipeline) CancelConstructionPipeline(_ fwra.Context, handle constru
 
 var _ constructionpipeline.ConstructionPipelineAccess = (*fakePipeline)(nil)
 
-// fakeHandOff returns a scripted worker class.
+// fakeHandOff returns a scripted worker class. Satisfies the PUBLISHED
+// handoff.HandOffEngine directly (Task 6 — no Manager-local seam).
 type fakeHandOff struct {
-	class workerClass
+	class handoff.WorkerClass
 	err   error
 }
 
-func (h *fakeHandOff) PickWorkerClass(_ constructionActivity, _ handOffPolicy) (workerClass, error) {
+func (h *fakeHandOff) PickWorkerClass(_ fweng.Context, _ handoff.ConstructionActivity, _ handoff.HandOffPolicy) (handoff.WorkerClass, error) {
 	if h.err != nil {
-		return workerClassUnknown, h.err
+		return handoff.WorkerClassUnknown, h.err
 	}
-	if h.class == workerClassUnknown {
-		return aiWorker, nil
+	if h.class == handoff.WorkerClassUnknown {
+		return handoff.AIWorker, nil
 	}
 	return h.class, nil
 }
 
-var _ handOffEngine = (*fakeHandOff)(nil)
+var _ handoff.HandOffEngine = (*fakeHandOff)(nil)
 
-// fakeIntervention returns scripted directives/plans.
+// fakeIntervention returns scripted directives/plans. Satisfies the PUBLISHED
+// intervention.InterventionEngine directly (Task 6 — no Manager-local seam); only
+// DecideOnVariance/ApplyPausePolicy are exercised by these tests — DecideOnHealth and
+// DecideOnSettlementFailure (operations'/billing's verbs) are unused stubs.
+//
+// directive's zero value is intervention.VarianceRetry (the published enum's own
+// zero, unlike the retired local varianceDirective's directiveUnknown=0 sentinel) —
+// DecideOnVariance returns it as-is with no special-casing; every test that leaves
+// directive unset (&fakeIntervention{}) never actually calls DecideOnVariance (quiet
+// ticks / drained network / pause branch / quiet sweep), so this is unobserved.
 type fakeIntervention struct {
-	directive varianceDirective
-	plan      pausePlan
+	directive intervention.VarianceDirective
+	plan      intervention.PausePlan
 }
 
-func (i *fakeIntervention) DecideOnVariance(_ constructionVariance) (varianceDirective, error) {
-	if i.directive == directiveUnknown {
-		return directiveEscalate, nil
-	}
+func (i *fakeIntervention) DecideOnVariance(_ fweng.Context, _ intervention.ConstructionVariance) (intervention.VarianceDirective, error) {
 	return i.directive, nil
 }
 
-func (i *fakeIntervention) ApplyPausePolicy(_ string, _ pauseRequestContext) (pausePlan, error) {
+func (i *fakeIntervention) ApplyPausePolicy(_ fweng.Context, _ intervention.PauseRequestContext) (intervention.PausePlan, error) {
 	return i.plan, nil
 }
 
-var _ interventionEngine = (*fakeIntervention)(nil)
-
-// fakeReview returns a scripted reviewer set.
-type fakeReview struct {
-	set ReviewSet
+func (i *fakeIntervention) DecideOnHealth(_ fweng.Context, _ intervention.HealthChange) (intervention.HealthDirective, error) {
+	return intervention.HealthRetry, nil
 }
 
-func (r *fakeReview) ProposeReviews(_ reviewChange, _ string, _ string, _ string, _ []string) (ReviewSet, error) {
+func (i *fakeIntervention) DecideOnSettlementFailure(_ fweng.Context, _ intervention.SettlementFailure) (intervention.SettlementFailureDirective, error) {
+	return intervention.SettlementRetry, nil
+}
+
+var _ intervention.InterventionEngine = (*fakeIntervention)(nil)
+
+// fakeReview returns a scripted reviewer set. Satisfies the PUBLISHED
+// review.ReviewEngine directly (Task 6 — no Manager-local seam). The scripted `set`
+// is the ENGINE's own review.ReviewSet — reviewSetFromEngine (adapters.go) bridges it
+// onto the façade ReviewSet the same way production does.
+type fakeReview struct {
+	set review.ReviewSet
+}
+
+func (r *fakeReview) ProposeReviews(_ fweng.Context, _ review.ReviewChange, _ string, _ string, _ string, _ []string) (review.ReviewSet, error) {
 	return r.set, nil
 }
 
-var _ reviewEngine = (*fakeReview)(nil)
+var _ review.ReviewEngine = (*fakeReview)(nil)
 
 // ---- helpers ----------------------------------------------------------------
 
@@ -430,7 +452,7 @@ func registerReplanSweep(env *testsuite.TestWorkflowEnvironment, wf *workflows) 
 func sampleActivity() constructionActivity {
 	return constructionActivity{
 		ActivityID:  "C-XYZ",
-		Kind:        activityKindConstruction,
+		Kind:        handoff.ActivityKindConstruction,
 		ComponentID: "comp-1",
 		Layer:       "engine",
 		Phases:      projectstate.ProfileFor(projectstate.ActivityTypeService, 0).PhaseIDs(),
@@ -448,7 +470,7 @@ func Test_Construct_HappyPath_RecordsReviewedAndExited(t *testing.T) {
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(uuid.NewString()), Version: 3, Phase: 2}}
 	pipe := &fakePipeline{phase: PipelineSucceeded}
 	wf := newWorkflows(wfDeps{
-		HandOff: &fakeHandOff{class: aiWorker}, Intervention: &fakeIntervention{directive: directiveRetry},
+		HandOff: &fakeHandOff{class: handoff.AIWorker}, Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
 		Review: &fakeReview{}, ProjectState: ps,
 	})
 	registerConstruct(env, wf, pipe)
@@ -487,7 +509,7 @@ func runPumpWith(t *testing.T, act constructionActivity) *fakePipeline {
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(uuid.NewString()), Version: 3, Phase: 2}}
 	pipe := &fakePipeline{phase: PipelineSucceeded}
 	wf := newWorkflows(wfDeps{
-		HandOff: &fakeHandOff{class: aiWorker}, Intervention: &fakeIntervention{directive: directiveRetry},
+		HandOff: &fakeHandOff{class: handoff.AIWorker}, Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
 		Review: &fakeReview{}, ProjectState: ps,
 	})
 	registerConstruct(env, wf, pipe)
@@ -510,7 +532,7 @@ func runPumpWith(t *testing.T, act constructionActivity) *fakePipeline {
 func Test_Construct_TestingPlanWalksThreePhases(t *testing.T) {
 	act := constructionActivity{
 		ActivityID:  "N-STP",
-		Kind:        activityKindConstruction,
+		Kind:        handoff.ActivityKindConstruction,
 		ComponentID: "system",
 		Phases:      projectstate.ProfileFor(projectstate.ActivityTypeTesting, projectstate.TestVariantPlan).PhaseIDs(),
 	}
@@ -532,7 +554,7 @@ func Test_Construct_ArchitectOnly_AwaitsOverride_SkipExits(t *testing.T) {
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(uuid.NewString()), Version: 1, Phase: 2}}
 	pipe := &fakePipeline{}
 	wf := newWorkflows(wfDeps{
-		HandOff: &fakeHandOff{class: architectOnly}, Intervention: &fakeIntervention{directive: directiveRetry},
+		HandOff: &fakeHandOff{class: handoff.ArchitectOnly}, Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
 		Review: &fakeReview{}, ProjectState: ps,
 	})
 	registerConstruct(env, wf, pipe)
@@ -568,7 +590,7 @@ func Test_Construct_PipelineFailed_Takeover_ThenCompletes(t *testing.T) {
 	// The pipeline fails on the first run, then a flippable fake makes it succeed.
 	pipe := &flippablePipeline{first: PipelineFailed, rest: PipelineSucceeded}
 	wf := newWorkflows(wfDeps{
-		HandOff: &fakeHandOff{class: aiWorker}, Intervention: &fakeIntervention{directive: directiveTakeover},
+		HandOff: &fakeHandOff{class: handoff.AIWorker}, Intervention: &fakeIntervention{directive: intervention.VarianceTakeover},
 		Review: &fakeReview{}, ProjectState: ps,
 	})
 	registerConstruct(env, wf, pipe)
@@ -628,7 +650,7 @@ func Test_Construct_ConflictOnRecord_ReReadReApply_Succeeds(t *testing.T) {
 
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(uuid.NewString()), Version: 1, Phase: 2}, conflictFirst: 2}
 	wf := newWorkflows(wfDeps{
-		HandOff: &fakeHandOff{class: aiWorker}, Intervention: &fakeIntervention{directive: directiveRetry},
+		HandOff: &fakeHandOff{class: handoff.AIWorker}, Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
 		Review: &fakeReview{}, ProjectState: ps,
 	})
 	registerConstruct(env, wf, &fakePipeline{phase: PipelineSucceeded})
@@ -713,7 +735,7 @@ func Test_Pump_EligibleActivity_RunsChild_ThenContinueAsNew(t *testing.T) {
 	pid := ProjectID(uuid.NewString())
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
 	wf := newWorkflows(wfDeps{
-		HandOff: &fakeHandOff{class: aiWorker}, Intervention: &fakeIntervention{directive: directiveRetry},
+		HandOff: &fakeHandOff{class: handoff.AIWorker}, Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
 		Review: &fakeReview{}, ProjectState: ps,
 		NextEligibleActivity: func(_ projectstate.Project) (constructionActivity, bool) {
 			return sampleActivity(), true
@@ -751,7 +773,7 @@ func Test_Pump_EligibleActivity_SurfacesSyncDispatchDecision(t *testing.T) {
 	pid := ProjectID(uuid.NewString())
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
 	wf := newWorkflows(wfDeps{
-		HandOff: &fakeHandOff{class: aiWorker}, Intervention: &fakeIntervention{directive: directiveRetry},
+		HandOff: &fakeHandOff{class: handoff.AIWorker}, Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
 		Review: &fakeReview{}, ProjectState: ps,
 		NextEligibleActivity: func(_ projectstate.Project) (constructionActivity, bool) {
 			return sampleActivity(), true
@@ -787,7 +809,7 @@ func Test_Pump_DrainedNetwork_SurfacesQuiescentDecision(t *testing.T) {
 	pid := ProjectID(uuid.NewString())
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
 	wf := newWorkflows(wfDeps{
-		HandOff: &fakeHandOff{class: aiWorker}, Intervention: &fakeIntervention{}, Review: &fakeReview{},
+		HandOff: &fakeHandOff{class: handoff.AIWorker}, Intervention: &fakeIntervention{}, Review: &fakeReview{},
 		ProjectState: ps,
 		NextEligibleActivity: func(_ projectstate.Project) (constructionActivity, bool) {
 			return constructionActivity{}, false
@@ -822,7 +844,7 @@ func Test_Pump_DrainedNetwork_QuietNoContinueAsNew(t *testing.T) {
 	pid := ProjectID(uuid.NewString())
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
 	wf := newWorkflows(wfDeps{
-		HandOff: &fakeHandOff{class: aiWorker}, Intervention: &fakeIntervention{}, Review: &fakeReview{},
+		HandOff: &fakeHandOff{class: handoff.AIWorker}, Intervention: &fakeIntervention{}, Review: &fakeReview{},
 		ProjectState: ps,
 		NextEligibleActivity: func(_ projectstate.Project) (constructionActivity, bool) {
 			return constructionActivity{}, false // network drained
@@ -854,7 +876,7 @@ func Test_Pump_PauseSignal_HaltsCascade_NoDispatch(t *testing.T) {
 	pid := ProjectID(uuid.NewString())
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
 	wf := newWorkflows(wfDeps{
-		HandOff: &fakeHandOff{class: aiWorker}, Intervention: &fakeIntervention{directive: directiveRetry},
+		HandOff: &fakeHandOff{class: handoff.AIWorker}, Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
 		Review: &fakeReview{}, ProjectState: ps,
 		NextEligibleActivity: func(_ projectstate.Project) (constructionActivity, bool) {
 			return sampleActivity(), true // an activity IS eligible — but the pause wins
@@ -901,7 +923,7 @@ func Test_Pause_AppliesPolicy_CancelsPipeline_RecordsPaused(t *testing.T) {
 	pipe := &fakePipeline{}
 	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{}, Review: &fakeReview{},
-		Intervention: &fakeIntervention{plan: pausePlan{PipelinesToCancel: []string{"wf-C-1"}, RecordPaused: true}},
+		Intervention: &fakeIntervention{plan: intervention.PausePlan{PipelinesToCancel: []intervention.PipelineRef{"wf-C-1"}, RecordPaused: true}},
 		ProjectState: ps,
 	})
 	registerSupervision(env, wf, pipe)
@@ -970,8 +992,8 @@ func newFakeProjectStateWithPolicy(policy projectstate.ReviewPolicy) *fakeProjec
 // records fire; the PR rail stays dormant, so branch/PR/merge are no-ops).
 func gateDeps(ps *fakeProjectState) wfDeps {
 	return wfDeps{
-		HandOff:      &fakeHandOff{class: aiWorker},
-		Intervention: &fakeIntervention{directive: directiveRetry},
+		HandOff:      &fakeHandOff{class: handoff.AIWorker},
+		Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
 		Review:       &fakeReview{},
 		ProjectState: ps,
 		GitStatus:    ps,
@@ -1125,8 +1147,8 @@ func Test_Construct_VarianceRetry_NonGit_DoesNotReGateApprovedPhase(t *testing.T
 	// GitStatus intentionally unwired ⇒ gitOn=false. The in-memory completedPhases mark
 	// is the ONLY re-gate barrier (no head-state completion record exists on re-walk).
 	wf := newWorkflows(wfDeps{
-		HandOff:      &fakeHandOff{class: aiWorker},
-		Intervention: &fakeIntervention{directive: directiveRetry},
+		HandOff:      &fakeHandOff{class: handoff.AIWorker},
+		Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
 		Review:       &fakeReview{},
 		ProjectState: ps,
 	})
@@ -1216,8 +1238,8 @@ func Test_Construct_EmptyPolicy_NonGit_NoPhaseRecords(t *testing.T) {
 	// GitStatus intentionally NOT wired → gitOn=false.
 	// With no gating and no git, the loop must produce no phase head-state records.
 	wf := newWorkflows(wfDeps{
-		HandOff:      &fakeHandOff{class: aiWorker},
-		Intervention: &fakeIntervention{directive: directiveRetry},
+		HandOff:      &fakeHandOff{class: handoff.AIWorker},
+		Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
 		Review:       &fakeReview{},
 		ProjectState: ps,
 	})

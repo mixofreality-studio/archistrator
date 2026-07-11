@@ -1,6 +1,7 @@
 package construction
 
 import (
+	"context"
 	"errors"
 	"sort"
 	"strings"
@@ -10,8 +11,12 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
+	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/handoff"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/constructionpipeline"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
@@ -23,24 +28,27 @@ import (
 // Conflict re-read→re-apply loop (§6.5), and the pump's eligibility helper.
 //
 // How the two dependency kinds are reached differs by determinism class:
-//   - The three Engines (HandOff / Intervention / Review) are PURE, deterministic,
-//     called DIRECTLY in-workflow (no Activity wrapper — replay-safe).
+//   - The three Engines (handoff.HandOffEngine / intervention.InterventionEngine /
+//     review.ReviewEngine — the PUBLISHED contracts, no Manager-local seam) are PURE,
+//     deterministic, called DIRECTLY in-workflow (no Activity wrapper — replay-safe),
+//     with fweng.Context{Context: context.Background()} supplied inline at each call site.
 //   - The ResourceAccess ports are I/O and NON-deterministic. The contract-backed ops
 //     (pipeline / artifact / rail) are GENERATED and reached through the generated
 //     invoker surface (Acts). The CUSTOM ops (the projectEnvelope-codec reads, the
 //     constructionTransition + git head-state writes) are Activity methods on this same
 //     struct, invoked via workflow.ExecuteActivity (activities_custom.go / gitactivities.go).
 
-// wfDeps bundles every downstream seam the constructionManager orchestrates,
+// wfDeps bundles every downstream dependency the constructionManager orchestrates,
 // assembled by WorkerManifest (workermanifest.go) from the Manager's stored PUBLISHED
-// deps and held on the workflows struct. Each field is an unexported consumer seam
-// (deps.go) or the generated invoker surface; the published engine/RA types are folded
-// via the adapters (adapters.go); the unit tests inject in-package fakes. It is a
+// deps and held on the workflows struct. The three Engines are typed as their
+// PUBLISHED contract interfaces (no Manager-local seam), called DIRECTLY in-workflow.
+// The ResourceAccess layer is reached through the surviving RA seams (deps.go) or the
+// generated invoker surface; the unit tests inject in-package fakes. It is a
 // package-internal builder input.
 type wfDeps struct {
-	HandOff      handOffEngine
-	Intervention interventionEngine
-	Review       reviewEngine
+	HandOff      handoff.HandOffEngine
+	Intervention intervention.InterventionEngine
+	Review       review.ReviewEngine
 
 	// ProjectState serves the whole-aggregate reads (CUSTOM projectEnvelope codec);
 	// ConstructionTransition serves the cred-threaded Phase-3 head-state transition writes
@@ -72,9 +80,13 @@ type wfDeps struct {
 	NextEligibleActivity func(proj projectstate.Project) (constructionActivity, bool)
 
 	// HandOffPolicy / InterventionPolicy are the project's committed policy snapshots
-	// the Manager feeds the Engines by value.
-	HandOffPolicy      handOffPolicy
-	InterventionPolicy interventionPolicy
+	// the Manager feeds the Engines by value, typed DIRECTLY as each Engine's own
+	// published input. InterventionPolicy is resolved ONCE from the composition root's
+	// raw interventionMode config via constructionInterventionPolicy (adapters.go,
+	// WorkerManifest() — workermanifest.go) — the SAME fixed value every DecideOnVariance
+	// / ApplyPausePolicy call fed under the retired per-call adapter conversion.
+	HandOffPolicy      handoff.HandOffPolicy
+	InterventionPolicy intervention.InterventionPolicy
 
 	// EscalationWaitTimeout bounds how long an escalated/architectOnly activity waits
 	// for an operator override before it terminally FAILS the activity. 0 == wait-forever.
@@ -85,9 +97,9 @@ type wfDeps struct {
 // receiver and the CUSTOM-activity receiver (mirroring systemdesign). The contract-backed
 // RA ops are reached through the generated invoker surface (Acts).
 type workflows struct {
-	HandOff      handOffEngine
-	Intervention interventionEngine
-	Review       reviewEngine
+	HandOff      handoff.HandOffEngine
+	Intervention intervention.InterventionEngine
+	Review       review.ReviewEngine
 
 	ProjectState           projectStateReader
 	ConstructionTransition constructionTransitionAccess
@@ -99,8 +111,8 @@ type workflows struct {
 	Repo        func(projectID ProjectID) (sourcecontrol.RepoRef, bool)
 
 	NextEligibleActivity  func(proj projectstate.Project) (constructionActivity, bool)
-	HandOffPolicy         handOffPolicy
-	InterventionPolicy    interventionPolicy
+	HandOffPolicy         handoff.HandOffPolicy
+	InterventionPolicy    intervention.InterventionPolicy
 	EscalationWaitTimeout time.Duration
 }
 
@@ -579,7 +591,8 @@ func (wf *workflows) runAttempt(
 	}
 
 	// --- Step 1: cast worker class (DECIDE — direct in-workflow Engine call) --
-	class, herr := wf.HandOff.PickWorkerClass(in.Activity, wf.HandOffPolicy)
+	class, herr := wf.HandOff.PickWorkerClass(fweng.Context{Context: context.Background()},
+		handoffActivityFromConstruction(in.Activity), wf.HandOffPolicy)
 	if herr != nil {
 		return attemptDone, fwmanager.MapError(herr)
 	}
@@ -588,7 +601,7 @@ func (wf *workflows) runAttempt(
 	// (handOffEngine OQ-2). The architect's steer arrives on operatorOverride, BOUNDED
 	// by EscalationWaitTimeout: if no architect override arrives within the window the
 	// activity terminally FAILS (EscalationTimedOut) instead of hanging forever.
-	if class == architectOnly {
+	if class == handoff.ArchitectOnly {
 		done, err := wf.runArchitectOnly(ctx, in, overrideCh, headVersion, state, gitOn, startedCred)
 		if err != nil {
 			return attemptDone, err
@@ -757,7 +770,10 @@ func (wf *workflows) walkPhases(
 		}
 		if obs.Phase == PipelineFailed || obs.Phase == PipelineCancelled {
 			failReason := deriveFailureReason(obs.Phase, obs.Diagnostic)
-			done, vErr := wf.handleVariance(ctx, in, variancePipelineFailed, obs.Diagnostic, failReason, attempt, headVersion, state, overrideCh, gitOn, startedCred)
+			// intervention.WorkerMiss — the historical variancePipelineFailed → WorkerMiss
+			// fold (the retired interventionVarianceKind many-to-one map, deps.go), the
+			// only local variance kind this call site ever exercised.
+			done, vErr := wf.handleVariance(ctx, in, intervention.WorkerMiss, obs.Diagnostic, failReason, attempt, headVersion, state, overrideCh, gitOn, startedCred)
 			if vErr != nil {
 				return false, false, vErr
 			}
@@ -1022,14 +1038,22 @@ func (wf *workflows) recordPhaseStarted(ctx workflow.Context, in constructActivi
 	})
 }
 
-// proposeReviewSet builds the reviewChange + artifactKind for this activity/phase and
-// calls the PURE reviewEngine directly (deterministic, replay-safe). The contracts are
-// sourced from the start-snapshot project (B5); the architecture graph is not carried
-// across the pump's projectEnvelope, so it is passed empty (the reviewer set is
-// display-only in v1).
+// proposeReviewSet builds the review.ReviewChange + artifactKind for this
+// activity/phase and calls the PURE published review.ReviewEngine directly
+// (deterministic, replay-safe). The contracts are sourced from the start-snapshot
+// project (B5); the architecture graph is not carried across the pump's
+// projectEnvelope, so it is passed empty (the reviewer set is display-only in v1).
+// reviewSetFromEngine (adapters.go) bridges the Engine's own ReviewSet onto this
+// component's generated façade ReviewSet (contract.gen.go) — a real divergence, not
+// an identity mirror (see deps.go's reviewEngine retirement note).
 func (wf *workflows) proposeReviewSet(in constructActivityInput, phase projectstate.ActivityMethodPhase, state *constructState) (ReviewSet, error) {
-	change := reviewChange{ActivityID: string(in.ActivityID), ComponentID: in.Activity.ComponentID}
-	return wf.Review.ProposeReviews(change, in.Activity.ComponentID, phase.String(), "", state.reviewContracts)
+	change := review.ReviewChange{ActivityID: string(in.ActivityID), ComponentID: in.Activity.ComponentID}
+	set, err := wf.Review.ProposeReviews(fweng.Context{Context: context.Background()},
+		change, in.Activity.ComponentID, phase.String(), "", state.reviewContracts)
+	if err != nil {
+		return ReviewSet{}, err
+	}
+	return reviewSetFromEngine(set), nil
 }
 
 // snapshotContractKeys derives the deterministic (sorted) set of contract identifiers
@@ -1056,7 +1080,7 @@ func snapshotContractKeys(p projectstate.Project) []string {
 func (wf *workflows) handleVariance(
 	ctx workflow.Context,
 	in constructActivityInput,
-	kind varianceKind,
+	kind intervention.VarianceKind,
 	detail string,
 	failReason projectstate.FailureReason,
 	attempt int,
@@ -1068,31 +1092,33 @@ func (wf *workflows) handleVariance(
 ) (bool, error) {
 	state.variance = &FlaggedVariance{ProjectID: in.ProjectID, ActivityID: in.ActivityID, Summary: detail}
 
-	directive, derr := wf.Intervention.DecideOnVariance(constructionVariance{
-		ActivityID:   string(in.ActivityID),
+	// NOTE: ProjectID is fed from in.ActivityID, not in.ProjectID — this mirrors the
+	// retired interventionAdapter's historical behavior verbatim (zero behavior change;
+	// deps.go's interventionEngine retirement note). Detail/OperatorSourced (the retired
+	// constructionVariance struct's other fields) were write-only under the old adapter —
+	// never forwarded to the Engine — so they are simply not carried here.
+	directive, derr := wf.Intervention.DecideOnVariance(fweng.Context{Context: context.Background()}, intervention.ConstructionVariance{
+		ProjectID:    intervention.ProjectID(in.ActivityID),
+		ActivityID:   intervention.ActivityID(in.ActivityID),
 		Kind:         kind,
-		Detail:       detail,
-		AttemptCount: attempt,
+		AttemptCount: int64(attempt),
+		Policy:       wf.InterventionPolicy,
 	})
 	if derr != nil {
 		return false, fwmanager.MapError(derr)
 	}
 
 	switch directive {
-	case directiveUnknown:
-		// zero-value sentinel, not a real directive — same as any unmapped value.
-		return false, temporal.NewNonRetryableApplicationError(
-			"intervention returned an unknown directive", "UnknownDirective", nil)
-	case directiveRetry:
+	case intervention.VarianceRetry:
 		state.stage = StageDispatching
 		return false, nil // loop to re-dispatch
-	case directiveTakeover:
+	case intervention.VarianceTakeover:
 		// EXECUTE takeover: loop to re-dispatch under a changed arrangement. The
 		// prior phase pipeline already reached a terminal state before intervention
 		// was consulted, so there is no in-flight dispatch to abandon here.
 		state.stage = StageDispatching
 		return false, nil
-	case directiveEscalate:
+	case intervention.VarianceEscalate:
 		// EXECUTE escalate: surface to the operator + await an override signal, BOUNDED
 		// by EscalationWaitTimeout. On timeout (no operator answered the escalation), the
 		// activity terminally FAILS (head-state reflects EscalationTimedOut) instead of
@@ -1112,6 +1138,10 @@ func (wf *workflows) handleVariance(
 		}
 		return wf.executeOverride(ctx, in, sig.Override, headVersion, state, gitOn, startedCred)
 	default:
+		// intervention.VarianceDirective has no Unknown sentinel (VarianceRetry is its
+		// zero value) — any value outside {VarianceRetry, VarianceTakeover,
+		// VarianceEscalate} is an unrecognized engine decision, same non-retryable
+		// rejection as before (deps.go's interventionEngine retirement note).
 		return false, temporal.NewNonRetryableApplicationError(
 			"intervention returned an unknown directive", "UnknownDirective", nil)
 	}

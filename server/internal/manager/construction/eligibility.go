@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/handoff"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
@@ -177,9 +178,9 @@ func allDepsDone(deps []string, status map[string]projectstate.ActivityConstruct
 // hydrateConstructionActivity populates a constructionActivity from the activity id +
 // its ActivityList item. Coding=true → Construction; Coding=false → Noncoding.
 func hydrateConstructionActivity(activityID string, item projectstate.ActivityItem, componentID string) constructionActivity {
-	kind := activityKindNoncoding
+	kind := handoff.ActivityKindNoncoding
 	if item.Coding {
-		kind = activityKindConstruction
+		kind = handoff.ActivityKindConstruction
 	}
 	typ := projectstate.DeriveType(activityID)
 	variant := projectstate.DeriveVariant(activityID)
