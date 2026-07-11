@@ -687,6 +687,7 @@ export interface components {
     ModelComponent: {
       atomicBusinessVerbs: null | string[];
       buildStatus?: null | string;
+      contractKey?: null | string;
       encapsulates: string;
       id: string;
       /** @enum {string} */

@@ -2,7 +2,10 @@
  * Resolves a ServiceContract's camelCase component name to the kebab-case
  * component id used in the system-design slot's dynamicViews participants array.
  *
- * Resolution order:
+ * Resolution order (preferred-exact-match with heuristic fallback — spec: Schema
+ * ownership & evolution, tolerant evolution):
+ *   0. Explicit `contractKey` on a component (the stable join the document owns).
+ *      Preferred when present; documents that predate the field fall through.
  *   1. Direct camelCase → kebab-case conversion (e.g. "webClient" → "web-client").
  *   2. Case-insensitive match against each component's `.id` (kebab).
  *   3. Case-insensitive match against each component's `.name` converted to kebab.
@@ -30,6 +33,11 @@ export function resolveContractComponentId(
   components: C4Component[]
 ): string | undefined {
   if (contractComponent.length === 0 || components.length === 0) return undefined;
+
+  // 0. Explicit contractKey — the join the component document owns. Preferred over
+  //    the case-convention heuristics; absent (pre-field documents) falls through.
+  const explicit = components.find((c) => c.contractKey === contractComponent);
+  if (explicit !== undefined) return explicit.id;
 
   // 1. Direct camelCase → kebab conversion.
   const kebab = camelToKebab(contractComponent);

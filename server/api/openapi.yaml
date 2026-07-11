@@ -389,6 +389,10 @@ components:
                     type:
                         - "null"
                         - string
+                contractKey:
+                    type:
+                        - "null"
+                        - string
                 encapsulates:
                     type: string
                 id:

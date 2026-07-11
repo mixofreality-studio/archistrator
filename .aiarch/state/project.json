@@ -5258,6 +5258,7 @@
         "components": [
           {
             "id": "web-client",
+            "contractKey": "webClient",
             "name": "WebClient",
             "kind": "client",
             "layer": "client",
@@ -5266,6 +5267,7 @@
           },
           {
             "id": "mcp-client",
+            "contractKey": "mcpClient",
             "name": "MCPClient",
             "kind": "client",
             "layer": "client",
@@ -5283,6 +5285,7 @@
           },
           {
             "id": "system-design-manager",
+            "contractKey": "systemDesignManager",
             "name": "SystemDesignManager",
             "kind": "manager",
             "layer": "manager",
@@ -5291,6 +5294,7 @@
           },
           {
             "id": "project-design-manager",
+            "contractKey": "projectDesignManager",
             "name": "ProjectDesignManager",
             "kind": "manager",
             "layer": "manager",
@@ -5299,6 +5303,7 @@
           },
           {
             "id": "construction-manager",
+            "contractKey": "constructionManager",
             "name": "ConstructionManager",
             "kind": "manager",
             "layer": "manager",
@@ -5307,6 +5312,7 @@
           },
           {
             "id": "operations-manager",
+            "contractKey": "operationsManager",
             "name": "OperationsManager",
             "kind": "manager",
             "layer": "manager",
@@ -5315,6 +5321,7 @@
           },
           {
             "id": "billing-manager",
+            "contractKey": "billingManager",
             "name": "BillingManager",
             "kind": "manager",
             "layer": "manager",
@@ -5323,6 +5330,7 @@
           },
           {
             "id": "estimation-engine",
+            "contractKey": "estimationEngine",
             "name": "EstimationEngine",
             "kind": "engine",
             "layer": "engine",
@@ -5331,6 +5339,7 @@
           },
           {
             "id": "operation-estimation-engine",
+            "contractKey": "operationEstimationEngine",
             "name": "OperationEstimationEngine",
             "kind": "engine",
             "layer": "engine",
@@ -5339,6 +5348,7 @@
           },
           {
             "id": "billing-engine",
+            "contractKey": "billingEngine",
             "name": "BillingEngine",
             "kind": "engine",
             "layer": "engine",
@@ -5347,6 +5357,7 @@
           },
           {
             "id": "hand-off-engine",
+            "contractKey": "handOffEngine",
             "name": "HandOffEngine",
             "kind": "engine",
             "layer": "engine",
@@ -5355,6 +5366,7 @@
           },
           {
             "id": "intervention-engine",
+            "contractKey": "interventionEngine",
             "name": "InterventionEngine",
             "kind": "engine",
             "layer": "engine",
@@ -5363,6 +5375,7 @@
           },
           {
             "id": "autoscaler-engine",
+            "contractKey": "autoscalerEngine",
             "name": "AutoscalerEngine",
             "kind": "engine",
             "layer": "engine",
@@ -5371,6 +5384,7 @@
           },
           {
             "id": "review-engine",
+            "contractKey": "reviewEngine",
             "name": "ReviewEngine",
             "kind": "engine",
             "layer": "engine",
@@ -5379,6 +5393,7 @@
           },
           {
             "id": "project-state-access",
+            "contractKey": "projectStateAccess",
             "name": "ProjectStateAccess",
             "kind": "resourceAccess",
             "layer": "resourceAccess",
@@ -5402,6 +5417,7 @@
           },
           {
             "id": "operated-system-state-access",
+            "contractKey": "operatedSystemStateAccess",
             "name": "OperatedSystemStateAccess",
             "kind": "resourceAccess",
             "layer": "resourceAccess",
@@ -5417,6 +5433,7 @@
           },
           {
             "id": "billing-state-access",
+            "contractKey": "billingStateAccess",
             "name": "BillingStateAccess",
             "kind": "resourceAccess",
             "layer": "resourceAccess",
@@ -5445,6 +5462,7 @@
           },
           {
             "id": "construction-pipeline-access",
+            "contractKey": "constructionPipelineAccess",
             "name": "ConstructionPipelineAccess",
             "kind": "resourceAccess",
             "layer": "resourceAccess",
@@ -5457,6 +5475,7 @@
           },
           {
             "id": "operated-runtime-access",
+            "contractKey": "operatedRuntimeAccess",
             "name": "OperatedRuntimeAccess",
             "kind": "resourceAccess",
             "layer": "resourceAccess",
@@ -5471,6 +5490,7 @@
           },
           {
             "id": "usage-access",
+            "contractKey": "usageAccess",
             "name": "UsageAccess",
             "kind": "resourceAccess",
             "layer": "resourceAccess",
@@ -5483,6 +5503,7 @@
           },
           {
             "id": "merchant-gateway-access",
+            "contractKey": "merchantGatewayAccess",
             "name": "MerchantGatewayAccess",
             "kind": "resourceAccess",
             "layer": "resourceAccess",
@@ -5494,6 +5515,7 @@
           },
           {
             "id": "source-control-access",
+            "contractKey": "sourceControlAccess",
             "name": "SourceControlAccess",
             "kind": "resourceAccess",
             "layer": "resourceAccess",
@@ -5514,6 +5536,7 @@
           },
           {
             "id": "durable-execution-access",
+            "contractKey": "durableExecutionAccess",
             "name": "DurableExecutionAccess",
             "kind": "resourceAccess",
             "layer": "resourceAccess",
@@ -5529,6 +5552,7 @@
           },
           {
             "id": "artifact-access",
+            "contractKey": "artifactAccess",
             "name": "ArtifactAccess",
             "kind": "resourceAccess",
             "layer": "resourceAccess",
@@ -5622,6 +5646,7 @@
           },
           {
             "id": "security",
+            "contractKey": "security",
             "name": "Security",
             "kind": "utility",
             "layer": "utility",
@@ -16792,6 +16817,12 @@
               }
             },
             "buildStatus": {
+              "type": [
+                "null",
+                "string"
+              ]
+            },
+            "contractKey": {
               "type": [
                 "null",
                 "string"

@@ -268,6 +268,12 @@ export interface C4Component {
   layer: Layer;
   /** The volatility this component encapsulates (empty for Resource / Utility). */
   encapsulates: string;
+  /**
+   * The camelCase serviceContracts key this component is the architecture home of
+   * (e.g. "systemDesignManager"). Empty when the component owns no contract
+   * (utilities, resources) or the document predates the field (heuristic fallback).
+   */
+  contractKey: string;
 }
 
 export interface C4Relationship {
@@ -295,6 +301,7 @@ export function toC4View(envelope: ArtifactModelEnvelope | undefined): C4View {
       kind: c.kind,
       layer: c.layer,
       encapsulates: c.encapsulates,
+      contractKey: c.contractKey ?? '',
     })
   );
   const relationships = (model.relationships ?? []).map(
@@ -371,6 +378,7 @@ export function toDynamicView(
       kind: c.kind,
       layer: c.layer,
       encapsulates: c.encapsulates,
+      contractKey: c.contractKey ?? '',
     });
   }
 

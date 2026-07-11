@@ -209,6 +209,7 @@ type Component struct {
 	Encapsulates        string        `json:"encapsulates"`
 	AtomicBusinessVerbs []string      `json:"atomicBusinessVerbs"`
 	BuildStatus         *string       `json:"buildStatus,omitempty"`
+	ContractKey         *string       `json:"contractKey,omitempty"`
 }
 
 type ComponentKind int
