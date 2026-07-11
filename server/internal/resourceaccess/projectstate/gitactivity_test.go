@@ -66,7 +66,7 @@ func TestRecordActivityBranchOpened_BirthsRow(t *testing.T) {
 	now := time.Date(2026, 6, 12, 10, 0, 0, 0, time.UTC)
 	store, id, v, cred, ctx := newActivityStore(t, now)
 
-	v2, err := store.RecordActivityBranchOpened(ctx, id, v, "C-MST", "activity/C-MST", "ref-cmst", "pr-7", "cr-021", false, cred, "wf:branch")
+	v2, err := store.RecordActivityBranchOpened(fwra.Context{Context: ctx}, id, v, "C-MST", "activity/C-MST", "ref-cmst", "pr-7", "cr-021", false, cred, "wf:branch")
 	if err != nil {
 		t.Fatalf("RecordActivityBranchOpened: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestRecordActivityBranchOpened_PRTolerantUpsert(t *testing.T) {
 	store, id, v, cred, ctx := newActivityStore(t, now)
 
 	// First touch: branch only, no PR yet.
-	v2, err := store.RecordActivityBranchOpened(ctx, id, v, "C-MST", "activity/C-MST", "ref-cmst", "", "", false, cred, "wf:branch-only")
+	v2, err := store.RecordActivityBranchOpened(fwra.Context{Context: ctx}, id, v, "C-MST", "activity/C-MST", "ref-cmst", "", "", false, cred, "wf:branch-only")
 	if err != nil {
 		t.Fatalf("branch-only touch: %v", err)
 	}
@@ -112,7 +112,7 @@ func TestRecordActivityBranchOpened_PRTolerantUpsert(t *testing.T) {
 	}
 
 	// Second touch: the OpenPullRequest fills the PR fields; branch must survive.
-	v3, err := store.RecordActivityBranchOpened(ctx, id, v2, "C-MST", "activity/C-MST", "ref-cmst", "pr-9", "cr-021", true, cred, "wf:pr-touch")
+	v3, err := store.RecordActivityBranchOpened(fwra.Context{Context: ctx}, id, v2, "C-MST", "activity/C-MST", "ref-cmst", "pr-9", "cr-021", true, cred, "wf:pr-touch")
 	if err != nil {
 		t.Fatalf("pr touch: %v", err)
 	}
@@ -134,18 +134,18 @@ func TestRecordActivityCIObserved_Transitions(t *testing.T) {
 	now := time.Date(2026, 6, 12, 10, 0, 0, 0, time.UTC)
 	store, id, v, cred, ctx := newActivityStore(t, now)
 
-	v, err := store.RecordActivityBranchOpened(ctx, id, v, "C-MST", "activity/C-MST", "ref", "pr-1", "", false, cred, "wf:branch")
+	v, err := store.RecordActivityBranchOpened(fwra.Context{Context: ctx}, id, v, "C-MST", "activity/C-MST", "ref", "pr-1", "", false, cred, "wf:branch")
 	if err != nil {
 		t.Fatalf("branch: %v", err)
 	}
-	v, err = store.RecordActivityCIObserved(ctx, id, v, "C-MST", ps.CICheckFailure, cred, "wf:ci-1")
+	v, err = store.RecordActivityCIObserved(fwra.Context{Context: ctx}, id, v, "C-MST", ps.CICheckFailure, cred, "wf:ci-1")
 	if err != nil {
 		t.Fatalf("ci failure: %v", err)
 	}
 	if g := readActivity(t, store, ctx, id, cred, "C-MST"); g.CICheck != ps.CICheckFailure {
 		t.Fatalf("CICheck = %v, want Failure", g.CICheck)
 	}
-	_, err = store.RecordActivityCIObserved(ctx, id, v, "C-MST", ps.CICheckSuccess, cred, "wf:ci-2")
+	_, err = store.RecordActivityCIObserved(fwra.Context{Context: ctx}, id, v, "C-MST", ps.CICheckSuccess, cred, "wf:ci-2")
 	if err != nil {
 		t.Fatalf("ci success: %v", err)
 	}
@@ -165,18 +165,18 @@ func TestRecordActivityArchApprovedAndMerged(t *testing.T) {
 	now := time.Date(2026, 6, 12, 10, 0, 0, 0, time.UTC)
 	store, id, v, cred, ctx := newActivityStore(t, now)
 
-	v, err := store.RecordActivityBranchOpened(ctx, id, v, "C-MST", "b", "ref", "pr-1", "", false, cred, "wf:branch")
+	v, err := store.RecordActivityBranchOpened(fwra.Context{Context: ctx}, id, v, "C-MST", "b", "ref", "pr-1", "", false, cred, "wf:branch")
 	if err != nil {
 		t.Fatalf("branch: %v", err)
 	}
-	v, err = store.RecordActivityArchApproved(ctx, id, v, "C-MST", cred, "wf:approve")
+	v, err = store.RecordActivityArchApproved(fwra.Context{Context: ctx}, id, v, "C-MST", cred, "wf:approve")
 	if err != nil {
 		t.Fatalf("arch approve: %v", err)
 	}
 	if g := readActivity(t, store, ctx, id, cred, "C-MST"); !g.ArchApproved || g.Merged {
 		t.Fatalf("after approve: %+v, want ArchApproved=true Merged=false", g)
 	}
-	_, err = store.RecordActivityMerged(ctx, id, v, "C-MST", cred, "wf:merge")
+	_, err = store.RecordActivityMerged(fwra.Context{Context: ctx}, id, v, "C-MST", cred, "wf:merge")
 	if err != nil {
 		t.Fatalf("merge: %v", err)
 	}
@@ -196,7 +196,7 @@ func TestRecordActivity_IdempotentReRecord(t *testing.T) {
 	now := time.Date(2026, 6, 12, 10, 0, 0, 0, time.UTC)
 	store, id, v, cred, ctx := newActivityStore(t, now)
 
-	v2, err := store.RecordActivityBranchOpened(ctx, id, v, "C-MST", "b", "ref", "pr-1", "", false, cred, "wf:branch")
+	v2, err := store.RecordActivityBranchOpened(fwra.Context{Context: ctx}, id, v, "C-MST", "b", "ref", "pr-1", "", false, cred, "wf:branch")
 	if err != nil {
 		t.Fatalf("branch: %v", err)
 	}
@@ -207,7 +207,7 @@ func TestRecordActivity_IdempotentReRecord(t *testing.T) {
 
 	// Re-record with the SAME key but a deliberately stale expectedVersion (0). The
 	// dedup probe must short-circuit and return the original v2, NOT a Conflict.
-	v2again, err := store.RecordActivityBranchOpened(ctx, id, 0, "C-MST", "b", "ref", "pr-1", "", false, cred, "wf:branch")
+	v2again, err := store.RecordActivityBranchOpened(fwra.Context{Context: ctx}, id, 0, "C-MST", "b", "ref", "pr-1", "", false, cred, "wf:branch")
 	if err != nil {
 		t.Fatalf("idempotent re-record should succeed via ledger, got: %v", err)
 	}
@@ -228,7 +228,7 @@ func TestRecordActivity_IdempotentReRecord(t *testing.T) {
 func TestRecordActivity_ContractMisuseEmptyActivityID(t *testing.T) {
 	now := time.Date(2026, 6, 12, 10, 0, 0, 0, time.UTC)
 	store, id, v, cred, ctx := newActivityStore(t, now)
-	_, err := store.RecordActivityCIObserved(ctx, id, v, "", ps.CICheckSuccess, cred, "wf:k")
+	_, err := store.RecordActivityCIObserved(fwra.Context{Context: ctx}, id, v, "", ps.CICheckSuccess, cred, "wf:k")
 	if k := kindOf(t, err); k != fwra.ContractMisuse {
 		t.Fatalf("empty activityID kind = %v, want ContractMisuse", k)
 	}
@@ -238,7 +238,7 @@ func TestRecordActivity_ContractMisuseEmptyActivityID(t *testing.T) {
 // not exist is NotFound (modeRequireExisting; the project row exists by Phase 3).
 func TestRecordActivity_RequireExistingProject(t *testing.T) {
 	store, cred, ctx := newLocalGitStore(t)
-	_, err := store.RecordActivityMerged(ctx, ps.ProjectID(uuid.NewString()), 0, "C-MST", cred, "wf:k")
+	_, err := store.RecordActivityMerged(fwra.Context{Context: ctx}, ps.ProjectID(uuid.NewString()), 0, "C-MST", cred, "wf:k")
 	if k := kindOf(t, err); k != fwra.NotFound {
 		t.Fatalf("Record* on absent project kind = %v, want NotFound", k)
 	}
@@ -265,12 +265,12 @@ func TestRecordActivity_ConcurrentDifferentActivitiesConverge(t *testing.T) {
 
 	go func() {
 		defer wg.Done()
-		v, e := store.RecordActivityBranchOpened(ctx, id, base, "C-MST", "b-mst", "ref-mst", "pr-1", "", false, cred, "wf:A")
+		v, e := store.RecordActivityBranchOpened(fwra.Context{Context: ctx}, id, base, "C-MST", "b-mst", "ref-mst", "pr-1", "", false, cred, "wf:A")
 		results <- outcome{"A-CMST", v, e}
 	}()
 	go func() {
 		defer wg.Done()
-		v, e := store.RecordActivityBranchOpened(ctx, id, base, "C-UC1", "b-uc1", "ref-uc1", "pr-2", "", false, cred, "wf:B")
+		v, e := store.RecordActivityBranchOpened(fwra.Context{Context: ctx}, id, base, "C-UC1", "b-uc1", "ref-uc1", "pr-2", "", false, cred, "wf:B")
 		results <- outcome{"B-CUC1", v, e}
 	}()
 	wg.Wait()
@@ -306,9 +306,9 @@ func TestRecordActivity_ConcurrentDifferentActivitiesConverge(t *testing.T) {
 	}
 	switch loser.who {
 	case "A-CMST":
-		_, err = store.RecordActivityBranchOpened(ctx, id, cur.Version, "C-MST", "b-mst", "ref-mst", "pr-1", "", false, cred, "wf:A")
+		_, err = store.RecordActivityBranchOpened(fwra.Context{Context: ctx}, id, cur.Version, "C-MST", "b-mst", "ref-mst", "pr-1", "", false, cred, "wf:A")
 	case "B-CUC1":
-		_, err = store.RecordActivityBranchOpened(ctx, id, cur.Version, "C-UC1", "b-uc1", "ref-uc1", "pr-2", "", false, cred, "wf:B")
+		_, err = store.RecordActivityBranchOpened(fwra.Context{Context: ctx}, id, cur.Version, "C-UC1", "b-uc1", "ref-uc1", "pr-2", "", false, cred, "wf:B")
 	}
 	if err != nil {
 		t.Fatalf("loser %s retry: %v", loser.who, err)

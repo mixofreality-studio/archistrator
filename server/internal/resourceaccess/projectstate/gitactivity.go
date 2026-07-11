@@ -1,8 +1,6 @@
 package projectstate
 
 import (
-	"context"
-
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 )
 
@@ -26,33 +24,15 @@ import (
 // typed CICheckState in; this RA stores them verbatim. No provider lexeme; no edge
 // to sourceControlAccess.
 
-// GitActivityStatusAccess is the additive per-activity git-forward head-state facet
-// of the git store (the §GIT-HEAD-STATE verbs). Kept on the same additive surface
-// as GitConstructionTransitionAccess so the core ProjectStateAccess port stays
-// source-stable; the concrete GitStore satisfies all three facets.
-type GitActivityStatusAccess interface {
-	// RecordActivityBranchOpened births (or upserts) the per-activity git row at
-	// activity dispatch. PR-TOLERANT UPSERT (OQ-2 RULED): a branch-only first touch
-	// (empty prRef) converges to branch+PR on a later touch, so a stage between the
-	// rail's OpenBranch and OpenPullRequest is acceptable. Sets CICheck = Pending on
-	// first birth. NO prURL parameter (the rail returns none — OQ-3).
-	RecordActivityBranchOpened(ctx context.Context, projectID ProjectID, expectedVersion Version, activityID, branch, branchRef, prRef, crLabel string, isRevert bool, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
+// GitActivityStatusAccess is now the GENERATED service-contract interface
+// (contract.gen.go, contract.gitActivityStatusAccess.schema.json) — promoted from the
+// two additive handwritten facets that used to live here and in
+// gitactivityconstruction.go (the §GIT-HEAD-STATE branch/CI/+1/merge verbs plus the
+// started/completed construction-status verbs), merged onto ONE 6-op contract. Kept off
+// the core ProjectStateAccess (Phase-1/2) interface, which is unchanged; the concrete
+// GitStore satisfies this plus GitConstructionTransitionAccess.
 
-	// RecordActivityCIObserved records the last-observed CI rollup for activityID
-	// (the poll-loop verb — highest churn; its own verb so the poll touches nothing
-	// else). A DUMB reflection, never a gate.
-	RecordActivityCIObserved(ctx context.Context, projectID ProjectID, expectedVersion Version, activityID string, ci CICheckState, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-
-	// RecordActivityArchApproved records that the human's architecture +1 was relayed
-	// (after PostReview(Approve)) — a distinct, audit-worthy human-gated fact.
-	RecordActivityArchApproved(ctx context.Context, projectID ProjectID, expectedVersion Version, activityID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-
-	// RecordActivityMerged records the terminal git fact — the interventionEngine-gated
-	// merge to main completed (MergeResult.Merged).
-	RecordActivityMerged(ctx context.Context, projectID ProjectID, expectedVersion Version, activityID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-}
-
-// Compile-time proof the concrete GitStore satisfies the additive git-status facet.
+// Compile-time proof the concrete GitStore satisfies the generated git-status facet.
 var _ GitActivityStatusAccess = (*GitStore)(nil)
 
 // upsertActivity fetches (or initialises) the per-activity row, applies the supplied
@@ -71,11 +51,11 @@ func (s *GitStore) upsertActivity(p *Project, activityID string, mutate func(g *
 	p.ActivityGit[activityID] = g
 }
 
-func (s *GitStore) RecordActivityBranchOpened(ctx context.Context, projectID ProjectID, expectedVersion Version, activityID, branch, branchRef, prRef, crLabel string, isRevert bool, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (s *GitStore) RecordActivityBranchOpened(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID, branch, branchRef, prRef, crLabel string, isRevert bool, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	if activityID == "" {
 		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordActivityBranchOpened: empty activityID")
 	}
-	return s.applyMutation(ctx, "RecordActivityBranchOpened", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
+	return s.applyMutation(rc.Context, "RecordActivityBranchOpened", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
 		first := true
 		if p.ActivityGit != nil {
 			_, first = p.ActivityGit[activityID]
@@ -105,11 +85,11 @@ func (s *GitStore) RecordActivityBranchOpened(ctx context.Context, projectID Pro
 	})
 }
 
-func (s *GitStore) RecordActivityCIObserved(ctx context.Context, projectID ProjectID, expectedVersion Version, activityID string, ci CICheckState, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (s *GitStore) RecordActivityCIObserved(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, ci CICheckState, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	if activityID == "" {
 		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordActivityCIObserved: empty activityID")
 	}
-	return s.applyMutation(ctx, "RecordActivityCIObserved", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
+	return s.applyMutation(rc.Context, "RecordActivityCIObserved", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
 		s.upsertActivity(p, activityID, func(g *ActivityGitStatus) {
 			g.CICheck = ci
 		})
@@ -117,11 +97,11 @@ func (s *GitStore) RecordActivityCIObserved(ctx context.Context, projectID Proje
 	})
 }
 
-func (s *GitStore) RecordActivityArchApproved(ctx context.Context, projectID ProjectID, expectedVersion Version, activityID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (s *GitStore) RecordActivityArchApproved(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	if activityID == "" {
 		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordActivityArchApproved: empty activityID")
 	}
-	return s.applyMutation(ctx, "RecordActivityArchApproved", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
+	return s.applyMutation(rc.Context, "RecordActivityArchApproved", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
 		s.upsertActivity(p, activityID, func(g *ActivityGitStatus) {
 			g.ArchApproved = true
 		})
@@ -129,11 +109,11 @@ func (s *GitStore) RecordActivityArchApproved(ctx context.Context, projectID Pro
 	})
 }
 
-func (s *GitStore) RecordActivityMerged(ctx context.Context, projectID ProjectID, expectedVersion Version, activityID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (s *GitStore) RecordActivityMerged(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	if activityID == "" {
 		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordActivityMerged: empty activityID")
 	}
-	return s.applyMutation(ctx, "RecordActivityMerged", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
+	return s.applyMutation(rc.Context, "RecordActivityMerged", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
 		s.upsertActivity(p, activityID, func(g *ActivityGitStatus) {
 			g.Merged = true
 		})

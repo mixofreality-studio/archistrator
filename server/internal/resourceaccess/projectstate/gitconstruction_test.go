@@ -57,7 +57,7 @@ func readConstructionStatus(t *testing.T, store *ps.GitStore, id ps.ProjectID, c
 // modeRequireExisting verbs have a row to upsert.
 func seedActivity(t *testing.T, store *ps.GitStore, id ps.ProjectID, v ps.Version, cred ps.RepoCredential, activityID string) ps.Version {
 	t.Helper()
-	v2, err := store.RecordActivityStarted(context.Background(), id, v, activityID, cred, fwra.IdempotencyKey("wf:seed-"+activityID))
+	v2, err := store.RecordActivityStarted(fwra.Context{Context: context.Background()}, id, v, activityID, cred, fwra.IdempotencyKey("wf:seed-"+activityID))
 	if err != nil {
 		t.Fatalf("RecordActivityStarted(%s): %v", activityID, err)
 	}

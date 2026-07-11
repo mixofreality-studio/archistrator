@@ -775,6 +775,16 @@ type ConstructionTransitionAccess interface {
 	ReadProject(rc fwra.Context, projectID ProjectID, cred RepoCredential) (Project, error)
 }
 
+// GitActivityStatusAccess is the generated service-contract interface for this component.
+type GitActivityStatusAccess interface {
+	RecordActivityBranchOpened(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, branch string, branchRef string, prRef string, crLabel string, isRevert bool, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	RecordActivityCIObserved(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, ci CICheckState, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	RecordActivityArchApproved(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	RecordActivityMerged(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	RecordActivityStarted(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	RecordActivityCompleted(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
+}
+
 // ProjectStateAccess is the generated service-contract interface for this component.
 type ProjectStateAccess interface {
 	AdvancePhase(rc fwra.Context, projectID ProjectID, expectedVersion Version) (Version, error)

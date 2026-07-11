@@ -61,7 +61,7 @@ func TestRecordActivityStarted_BirthsRow(t *testing.T) {
 	store, id, v, cred := newConstructionStore(t)
 	ctx := context.Background()
 
-	v2, err := store.RecordActivityStarted(ctx, id, v, "X001", cred, fwra.IdempotencyKey("wf:started"))
+	v2, err := store.RecordActivityStarted(fwra.Context{Context: ctx}, id, v, "X001", cred, fwra.IdempotencyKey("wf:started"))
 	if err != nil {
 		t.Fatalf("RecordActivityStarted: %v", err)
 	}
@@ -89,11 +89,11 @@ func TestRecordActivityCompleted_AdvancesToDone(t *testing.T) {
 	store, id, v, cred := newConstructionStore(t)
 	ctx := context.Background()
 
-	v2, err := store.RecordActivityStarted(ctx, id, v, "X001", cred, fwra.IdempotencyKey("wf:started-done"))
+	v2, err := store.RecordActivityStarted(fwra.Context{Context: ctx}, id, v, "X001", cred, fwra.IdempotencyKey("wf:started-done"))
 	if err != nil {
 		t.Fatalf("RecordActivityStarted: %v", err)
 	}
-	v3, err := store.RecordActivityCompleted(ctx, id, v2, "X001", cred, fwra.IdempotencyKey("wf:completed"))
+	v3, err := store.RecordActivityCompleted(fwra.Context{Context: ctx}, id, v2, "X001", cred, fwra.IdempotencyKey("wf:completed"))
 	if err != nil {
 		t.Fatalf("RecordActivityCompleted: %v", err)
 	}
@@ -118,7 +118,7 @@ func TestRecordActivityStarted_Idempotent(t *testing.T) {
 	store, id, v, cred := newConstructionStore(t)
 	ctx := context.Background()
 
-	v2, err := store.RecordActivityStarted(ctx, id, v, "X001", cred, fwra.IdempotencyKey("wf:started-idem"))
+	v2, err := store.RecordActivityStarted(fwra.Context{Context: ctx}, id, v, "X001", cred, fwra.IdempotencyKey("wf:started-idem"))
 	if err != nil {
 		t.Fatalf("RecordActivityStarted: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestRecordActivityStarted_Idempotent(t *testing.T) {
 	}
 
 	// Retry with the SAME key but stale expectedVersion=0; dedup must win.
-	v2again, err := store.RecordActivityStarted(ctx, id, 0, "X001", cred, fwra.IdempotencyKey("wf:started-idem"))
+	v2again, err := store.RecordActivityStarted(fwra.Context{Context: ctx}, id, 0, "X001", cred, fwra.IdempotencyKey("wf:started-idem"))
 	if err != nil {
 		t.Fatalf("idempotent retry should succeed via ledger, got: %v", err)
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 )
@@ -54,7 +55,7 @@ type recordActivityBranchOpenedArgs struct {
 }
 
 func (wf *workflows) RecordActivityBranchOpenedActivity(ctx context.Context, a recordActivityBranchOpenedArgs) (projectstate.Version, error) {
-	return mapErr(wf.GitStatus.RecordActivityBranchOpened(ctx, a.ProjectID, a.ExpectedVersion, a.ActivityID,
+	return mapErr(wf.GitStatus.RecordActivityBranchOpened(fwra.Context{Context: ctx}, a.ProjectID, a.ExpectedVersion, a.ActivityID,
 		a.Branch, a.BranchRef, a.PRRef, a.CRLabel, a.IsRevert, a.Cred.toProjectState(), activityIdempotencyKey(ctx)))
 }
 
@@ -68,7 +69,7 @@ type recordActivityCIObservedArgs struct {
 }
 
 func (wf *workflows) RecordActivityCIObservedActivity(ctx context.Context, a recordActivityCIObservedArgs) (projectstate.Version, error) {
-	return mapErr(wf.GitStatus.RecordActivityCIObserved(ctx, a.ProjectID, a.ExpectedVersion, a.ActivityID,
+	return mapErr(wf.GitStatus.RecordActivityCIObserved(fwra.Context{Context: ctx}, a.ProjectID, a.ExpectedVersion, a.ActivityID,
 		a.CICheck, a.Cred.toProjectState(), activityIdempotencyKey(ctx)))
 }
 
@@ -81,7 +82,7 @@ type recordActivityArchApprovedArgs struct {
 }
 
 func (wf *workflows) RecordActivityArchApprovedActivity(ctx context.Context, a recordActivityArchApprovedArgs) (projectstate.Version, error) {
-	return mapErr(wf.GitStatus.RecordActivityArchApproved(ctx, a.ProjectID, a.ExpectedVersion, a.ActivityID,
+	return mapErr(wf.GitStatus.RecordActivityArchApproved(fwra.Context{Context: ctx}, a.ProjectID, a.ExpectedVersion, a.ActivityID,
 		a.Cred.toProjectState(), activityIdempotencyKey(ctx)))
 }
 
@@ -94,7 +95,7 @@ type recordActivityMergedArgs struct {
 }
 
 func (wf *workflows) RecordActivityMergedActivity(ctx context.Context, a recordActivityMergedArgs) (projectstate.Version, error) {
-	return mapErr(wf.GitStatus.RecordActivityMerged(ctx, a.ProjectID, a.ExpectedVersion, a.ActivityID,
+	return mapErr(wf.GitStatus.RecordActivityMerged(fwra.Context{Context: ctx}, a.ProjectID, a.ExpectedVersion, a.ActivityID,
 		a.Cred.toProjectState(), activityIdempotencyKey(ctx)))
 }
 
@@ -108,7 +109,7 @@ type recordActivityStartedArgs struct {
 }
 
 func (wf *workflows) RecordActivityStartedActivity(ctx context.Context, a recordActivityStartedArgs) (projectstate.Version, error) {
-	return mapErr(wf.GitStatus.RecordActivityStarted(ctx, a.ProjectID, a.ExpectedVersion, a.ActivityID,
+	return mapErr(wf.GitStatus.RecordActivityStarted(fwra.Context{Context: ctx}, a.ProjectID, a.ExpectedVersion, a.ActivityID,
 		a.Cred.toProjectState(), activityIdempotencyKey(ctx)))
 }
 
@@ -122,7 +123,7 @@ type recordActivityCompletedArgs struct {
 }
 
 func (wf *workflows) RecordActivityCompletedActivity(ctx context.Context, a recordActivityCompletedArgs) (projectstate.Version, error) {
-	return mapErr(wf.GitStatus.RecordActivityCompleted(ctx, a.ProjectID, a.ExpectedVersion, a.ActivityID,
+	return mapErr(wf.GitStatus.RecordActivityCompleted(fwra.Context{Context: ctx}, a.ProjectID, a.ExpectedVersion, a.ActivityID,
 		a.Cred.toProjectState(), activityIdempotencyKey(ctx)))
 }
 

@@ -172,7 +172,7 @@ func (s *stubGitStatus) apply(key fwra.IdempotencyKey, activityID string, mutate
 	return s.version, nil
 }
 
-func (s *stubGitStatus) RecordActivityBranchOpened(_ context.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID, branch, branchRef, prRef, crLabel string, isRevert bool, _ projectstate.RepoCredential, key fwra.IdempotencyKey) (projectstate.Version, error) {
+func (s *stubGitStatus) RecordActivityBranchOpened(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID, branch, branchRef, prRef, crLabel string, isRevert bool, _ projectstate.RepoCredential, key fwra.IdempotencyKey) (projectstate.Version, error) {
 	return s.apply(key, activityID, func(g *projectstate.ActivityGitStatus) {
 		g.BranchName = branch
 		g.BranchRef = branchRef
@@ -192,19 +192,19 @@ func (s *stubGitStatus) RecordActivityBranchOpened(_ context.Context, _ projects
 	})
 }
 
-func (s *stubGitStatus) RecordActivityCIObserved(_ context.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, ci projectstate.CICheckState, _ projectstate.RepoCredential, key fwra.IdempotencyKey) (projectstate.Version, error) {
+func (s *stubGitStatus) RecordActivityCIObserved(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, ci projectstate.CICheckState, _ projectstate.RepoCredential, key fwra.IdempotencyKey) (projectstate.Version, error) {
 	return s.apply(key, activityID, func(g *projectstate.ActivityGitStatus) { g.CICheck = ci })
 }
 
-func (s *stubGitStatus) RecordActivityArchApproved(_ context.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, _ projectstate.RepoCredential, key fwra.IdempotencyKey) (projectstate.Version, error) {
+func (s *stubGitStatus) RecordActivityArchApproved(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, _ projectstate.RepoCredential, key fwra.IdempotencyKey) (projectstate.Version, error) {
 	return s.apply(key, activityID, func(g *projectstate.ActivityGitStatus) { g.ArchApproved = true })
 }
 
-func (s *stubGitStatus) RecordActivityMerged(_ context.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, _ projectstate.RepoCredential, key fwra.IdempotencyKey) (projectstate.Version, error) {
+func (s *stubGitStatus) RecordActivityMerged(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, _ projectstate.RepoCredential, key fwra.IdempotencyKey) (projectstate.Version, error) {
 	return s.apply(key, activityID, func(g *projectstate.ActivityGitStatus) { g.Merged = true })
 }
 
-func (s *stubGitStatus) RecordActivityStarted(_ context.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, _ projectstate.RepoCredential, key fwra.IdempotencyKey) (projectstate.Version, error) {
+func (s *stubGitStatus) RecordActivityStarted(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, _ projectstate.RepoCredential, key fwra.IdempotencyKey) (projectstate.Version, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if activityID == "" {
@@ -223,7 +223,7 @@ func (s *stubGitStatus) RecordActivityStarted(_ context.Context, _ projectstate.
 	return s.version, nil
 }
 
-func (s *stubGitStatus) RecordActivityCompleted(_ context.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, _ projectstate.RepoCredential, key fwra.IdempotencyKey) (projectstate.Version, error) {
+func (s *stubGitStatus) RecordActivityCompleted(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, _ projectstate.RepoCredential, key fwra.IdempotencyKey) (projectstate.Version, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if activityID == "" {
@@ -490,11 +490,11 @@ func Test_GitForward_RecordActivity_IdempotentRetry_NoDoubleApply(t *testing.T) 
 
 	// Same idempotency key twice (a workflow retry re-runs the same Activity id).
 	key := fwra.IdempotencyKey("wf-1:branch")
-	v1, err := git.RecordActivityBranchOpened(ctx, pid, 10, "C-MST", "activity/C-MST", "ref", "pr-1", "cr-021", false, projectstate.RepoCredential{}, key)
+	v1, err := git.RecordActivityBranchOpened(fwra.Context{Context: ctx}, pid, 10, "C-MST", "activity/C-MST", "ref", "pr-1", "cr-021", false, projectstate.RepoCredential{}, key)
 	if err != nil {
 		t.Fatalf("first record: %v", err)
 	}
-	v2, err := git.RecordActivityBranchOpened(ctx, pid, 0 /*stale*/, "C-MST", "activity/C-MST", "ref", "pr-1", "cr-021", false, projectstate.RepoCredential{}, key)
+	v2, err := git.RecordActivityBranchOpened(fwra.Context{Context: ctx}, pid, 0 /*stale*/, "C-MST", "activity/C-MST", "ref", "pr-1", "cr-021", false, projectstate.RepoCredential{}, key)
 	if err != nil {
 		t.Fatalf("idempotent re-record: %v", err)
 	}

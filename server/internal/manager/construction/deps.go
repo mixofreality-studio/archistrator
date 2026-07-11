@@ -1,8 +1,6 @@
 package construction
 
 import (
-	"context"
-
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/handoff"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
@@ -101,24 +99,24 @@ type constructionTransitionAccess interface {
 // head-state mirror below stays a CUSTOM (plain-goType) seam.
 // ===========================================================================
 
-// gitActivityStatusAccess composes the two published per-activity git head-state
-// facets — projectstate.GitActivityStatusAccess (branch/CI/+1/merge) and
-// projectstate.GitActivityConstructionAccess (started/completed). The concrete
-// *projectstate.GitStore (and the composition-root git adapter) satisfy both, so the
-// builder type-asserts the gitActivityStatus dep onto this combined seam.
+// gitActivityStatusAccess mirrors the now-generated projectstate.GitActivityStatusAccess
+// contract (6 ops: branch/CI/+1/merge plus started/completed — the two former additive
+// facets, projectstate.GitActivityStatusAccess (4 ops) and
+// projectstate.GitActivityConstructionAccess (2 ops), promoted onto ONE contract). The
+// concrete *projectstate.GitStore (and the composition-root git adapter) satisfy it, so
+// the builder type-asserts the gitActivityStatus dep onto this seam.
 //
 // SURVIVOR (Task 6 Step 1): like constructionTransitionAccess above, these six verbs
-// are additive git-forward facets (gitactivity.go / gitactivityconstruction.go) with
-// no generated invoker — activities_custom.go's sibling, gitactivities.go, wraps them
-// by hand. Every method here already matches its published facet's own signature —
-// no local mirror to retype.
+// have no generated invoker — activities_custom.go's sibling, gitactivities.go, wraps
+// them by hand. Every method here already matches the published contract's own
+// signature — no local mirror to retype.
 type gitActivityStatusAccess interface {
-	RecordActivityBranchOpened(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID, branch, branchRef, prRef, crLabel string, isRevert bool, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	RecordActivityCIObserved(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, ci projectstate.CICheckState, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	RecordActivityArchApproved(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	RecordActivityMerged(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	RecordActivityStarted(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	RecordActivityCompleted(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
+	RecordActivityBranchOpened(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID, branch, branchRef, prRef, crLabel string, isRevert bool, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
+	RecordActivityCIObserved(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, ci projectstate.CICheckState, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
+	RecordActivityArchApproved(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
+	RecordActivityMerged(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
+	RecordActivityStarted(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
+	RecordActivityCompleted(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
 }
 
 // ===========================================================================
