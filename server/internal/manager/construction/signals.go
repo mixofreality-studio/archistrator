@@ -75,7 +75,12 @@ func (wf *workflows) runPauseBranch(ctx workflow.Context, projectID ProjectID, r
 	plan, perr := wf.Intervention.ApplyPausePolicy(fweng.Context{Context: context.Background()}, intervention.PauseRequestContext{
 		ProjectID: intervention.ProjectID(projectID),
 		Reason:    reason,
-		Policy:    wf.InterventionPolicy,
+		// Policy threading added in the seam cleanup — the retired adapter omitted it,
+		// which made the real engine reject every pause with "unknown policy mode".
+		// Deliberate fix, see seam-cleanup Task 6 disclosure (task-6-report.md) and
+		// Test_Pause_RealInterventionEngine_PolicyThreaded_ApplyPausePolicySucceeds /
+		// Test_ApplyPausePolicy_ZeroValuePolicy_IsTheOldBug (workflow_test.go).
+		Policy: wf.InterventionPolicy,
 	})
 	if perr != nil {
 		return fwmanager.MapError(perr)

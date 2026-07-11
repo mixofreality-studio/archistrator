@@ -945,6 +945,83 @@ func Test_Pause_AppliesPolicy_CancelsPipeline_RecordsPaused(t *testing.T) {
 	}
 }
 
+// Test_Pause_RealInterventionEngine_PolicyThreaded_ApplyPausePolicySucceeds is the
+// seam-cleanup Task 6 regression: runPauseBranch (signals.go) now threads the Manager's
+// configured InterventionPolicy into PauseRequestContext.Policy. Against the REAL engine
+// (intervention.NewInterventionEngine(), the production wiring — cmd/server/main.gen.go
+// via WorkerManifest, workermanifest.go) this is load-bearing, not cosmetic:
+// ApplyPausePolicy dispatches on ctx.Policy.Mode (strategy.go strategyFor), and
+// InterventionModeUnknown (the zero value) has NO registered strategy — see the
+// companion negative test below for the failure that zero value produces. The retired
+// pauseRequestContext adapter never populated Policy at all. This test drives the real
+// engine with the Manager's actual configured policy (constructionInterventionPolicy,
+// the same builder WorkerManifest uses) and asserts the pause branch completes: a real
+// PausePlan, not a guaranteed "unknown policy mode" error.
+func Test_Pause_RealInterventionEngine_PolicyThreaded_ApplyPausePolicySucceeds(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	pid := ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 2, Phase: 2}}
+	pipe := &fakePipeline{}
+	// The REAL engine (not fakeIntervention) + the Manager's real config-derived policy
+	// builder — the exact production wiring, so a regression that drops Policy threading
+	// in runPauseBranch would fail THIS test with "unknown policy mode", not silently pass.
+	wf := newWorkflows(wfDeps{
+		HandOff: &fakeHandOff{}, Review: &fakeReview{},
+		Intervention:       intervention.NewInterventionEngine(),
+		InterventionPolicy: constructionInterventionPolicy(""), // default: Tiered, RetryBudget 2
+		ProjectState:       ps,
+	})
+	registerSupervision(env, wf, pipe)
+
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalOperatorPauseRequested, operatorPauseSignal{ProjectID: pid, Reason: "operator halt"})
+	}, time.Millisecond)
+
+	env.ExecuteWorkflow(executionKindProjectSupervision, projectSupervisionInput{ProjectID: pid})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("real-engine pause branch must succeed once Policy is threaded, got %v", err)
+	}
+	if len(ps.paused) != 1 || ps.paused[0] != "operator halt" {
+		t.Fatalf("want one recordOperatorPaused(operator halt) from the real engine's PausePlan, got %v", ps.paused)
+	}
+}
+
+// Test_ApplyPausePolicy_ZeroValuePolicy_IsTheOldBug pins the shape of the latent
+// production defect the seam-cleanup Task 6 rewrite fixed (see task-6-report.md's
+// "Correction + disclosure" section). The retired pauseRequestContext adapter never
+// populated PauseRequestContext.Policy, so it always shipped the zero value
+// (InterventionMode 0 == InterventionModeUnknown). Against the REAL engine that is not a
+// no-op: ApplyPausePolicy resolves a strategy from ctx.Policy.Mode (strategy.go
+// strategyFor) and InterventionModeUnknown has no registered strategy, so every operator
+// pause request would have failed. This test documents WHY the Policy threading in
+// runPauseBranch (signals.go) matters and pins the old-bug shape so it cannot silently
+// return: if Policy threading is ever dropped again, Test_Pause_RealInterventionEngine_*
+// above fails loudly with exactly this error.
+func Test_ApplyPausePolicy_ZeroValuePolicy_IsTheOldBug(t *testing.T) {
+	e := intervention.NewInterventionEngine()
+	_, err := e.ApplyPausePolicy(fweng.Context{Context: context.Background()}, intervention.PauseRequestContext{
+		ProjectID: "p1",
+		Reason:    "operator halt",
+		// Policy left at its zero value — exactly what the retired adapter sent.
+	})
+	if err == nil {
+		t.Fatalf("expected the zero-value Policy (InterventionModeUnknown) to fail with \"unknown policy mode\", got nil error")
+	}
+	var ee *fweng.Error
+	if !errors.As(err, &ee) {
+		t.Fatalf("expected *fweng.Error, got %T: %v", err, err)
+	}
+	if ee.Kind != fweng.InvalidInput {
+		t.Fatalf("error kind = %v, want %v (detail %q)", ee.Kind, fweng.InvalidInput, ee.Detail)
+	}
+	if ee.Detail != "unknown policy mode" {
+		t.Fatalf("error detail = %q, want %q — pin the old-bug shape exactly", ee.Detail, "unknown policy mode")
+	}
+}
+
 // ---- Tests: replan sweep (ReplanSweepWorkflow) ------------------------------
 
 // A quiet sweep returns an empty result (no auto-replan).
