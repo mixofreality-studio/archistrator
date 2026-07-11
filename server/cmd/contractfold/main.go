@@ -15,21 +15,28 @@
 // `$defs` would DROP defs the committed entry already has (see FOLD SAFETY in
 // cmd/internal/contractfold's package doc); pass --allow-shrink to override.
 //
-// MULTI-COMPONENT-PER-PACKAGE FILENAME CONVENTION: RA→RA imports are banned,
-// so a secondary component sharing an existing package's goPackage (e.g. a
-// second ResourceAccess re-homed onto a directory that already has a primary
-// component) cannot also author that directory's `contract.schema.json` — the
-// primary component already owns it. Both foldOne (the two-arg CLI form) and
-// foldAll resolve this per key: among every `.serviceContracts` entry sharing
-// one goPackage (existing entries, plus the key being folded if it is new),
-// the alphabetically-first key is the PRIMARY component and reads
-// `<dir>/contract.schema.json`; every other key is SECONDARY and reads
-// `<dir>/contract.<key>.schema.json` instead (see schemaFilenameFor). This is
-// the same ascending-key-order tie-break framework-go-app-generator/modelgen's
-// genGroup uses to merge multiple contract entries sharing a goPackage into
-// one contract.gen.go, so the two conventions stay aligned. A goPackage with
-// only one component is always primary — no behavior change for the common
-// case.
+// MULTI-COMPONENT-PER-PACKAGE FILENAME CONVENTION (STICKY): RA→RA imports are
+// banned, so a secondary component sharing an existing package's goPackage
+// (e.g. a second ResourceAccess re-homed onto a directory that already has a
+// primary component) cannot also author that directory's
+// `contract.schema.json` — the primary component already owns it. The
+// designation is STICKY, resolved per key by content, never re-derived from
+// the sibling key set (a lexical rule would let a lexically-earlier new key
+// silently steal primary): both foldOne and foldAll look for
+// `<dir>/contract.<key>.schema.json` FIRST; only when that keyed file is
+// absent do they fall back to the plain `<dir>/contract.schema.json`, and the
+// fallback is VERIFIED — the plain document's `interface.name` with a lowered
+// first letter must equal the requested component key (the existing
+// key↔interface convention, e.g. ProjectStateAccess ↔ projectStateAccess).
+// A plain file whose interface maps to a different key is a loud error in
+// foldOne and a skip in foldAll (the matching sibling entry consumes it
+// instead — at most one component per dir can, by construction). Net effect:
+// an existing primary keeps `contract.schema.json` forever; EVERY component
+// added to the package later authors `contract.<key>.schema.json`, regardless
+// of lexical order; primary is never reassigned. Note this is unrelated to
+// framework-go-app-generator/modelgen's genGroup EMISSION order, which merges
+// a shared package's entries into one contract.gen.go in ascending
+// contract-key order — that ordering rule is deliberate and unchanged.
 //
 // Usage:
 //
@@ -49,10 +56,14 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
+	"io/fs"
 	"os"
 	"sort"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/mixofreality-studio/archistrator/server/cmd/internal/contractfold"
 )
@@ -81,71 +92,95 @@ func main() {
 	}
 }
 
-// schemaFilenameFor returns dir's schemagen output filename to read for key:
-// the primary convention "<dir>/contract.schema.json" when key is the
-// alphabetically-first key in sortedGroupKeys (the full set of contract keys
-// sharing dir's goPackage, sorted ascending — see the package doc), or the
-// secondary sibling convention "<dir>/contract.<key>.schema.json" otherwise.
-// An empty or single-element sortedGroupKeys (the common, non-shared case) is
-// always primary.
-func schemaFilenameFor(dir, key string, sortedGroupKeys []string) string {
-	if len(sortedGroupKeys) == 0 || sortedGroupKeys[0] == key {
-		return dir + "/contract.schema.json"
+// errPlainSchemaForeign marks a plain `<dir>/contract.schema.json` whose
+// `interface.name` maps to a DIFFERENT component key than the one requested —
+// the plain file belongs to the package's primary component, and a secondary
+// key must never consume (steal) it. foldOne surfaces it loudly; foldAll
+// skips it (the matching sibling entry folds it instead).
+var errPlainSchemaForeign = errors.New("contract.schema.json belongs to a different component")
+
+// keyFromInterfaceName maps a contract interface's Go name to its
+// `.serviceContracts` key per the repo-wide key↔interface convention: the
+// interface name with a lowered first letter (ProjectStateAccess ↔
+// projectStateAccess). Verified to hold for every committed entry.
+func keyFromInterfaceName(name string) string {
+	if name == "" {
+		return ""
 	}
-	return dir + "/contract." + key + ".schema.json"
+	r, size := utf8.DecodeRuneInString(name)
+	return string(unicode.ToLower(r)) + name[size:]
 }
 
-// siblingGoPackageKeys scans projectRaw's `.serviceContracts` and returns, in
-// ascending sorted order, every contract key that shares goPackage dir —
-// including key itself even if it has no entry yet (the foldOne bootstrap
-// case: a brand-new key still participates in its goPackage's primary/
-// secondary determination). Used by foldOne, which — unlike foldAll — does not
-// already have every key's goPackage grouped from a single upfront scan.
-func siblingGoPackageKeys(projectRaw []byte, dir, key string) ([]string, error) {
-	var top map[string]json.RawMessage
-	if err := json.Unmarshal(projectRaw, &top); err != nil {
-		return nil, fmt.Errorf("parse project.json: %w", err)
+// interfaceNameOf pulls `interface.name` out of a schemagen contract document.
+func interfaceNameOf(schemaRaw []byte) (string, error) {
+	var doc struct {
+		Interface struct {
+			Name string `json:"name"`
+		} `json:"interface"`
 	}
-	var contracts map[string]json.RawMessage
-	if err := json.Unmarshal(top["serviceContracts"], &contracts); err != nil {
-		return nil, fmt.Errorf("parse .serviceContracts: %w", err)
+	if err := json.Unmarshal(schemaRaw, &doc); err != nil {
+		return "", fmt.Errorf("parse schema document: %w", err)
 	}
-	keys := []string{key}
-	for k, entry := range contracts {
-		if k == key {
-			continue
-		}
-		var meta struct {
-			GoPackage string `json:"goPackage"`
-		}
-		if err := json.Unmarshal(entry, &meta); err != nil {
-			return nil, fmt.Errorf("parse contract %q: %w", k, err)
-		}
-		if meta.GoPackage == dir {
-			keys = append(keys, k)
-		}
+	if doc.Interface.Name == "" {
+		return "", fmt.Errorf("schema document has no interface.name")
 	}
-	sort.Strings(keys)
-	return keys, nil
+	return doc.Interface.Name, nil
 }
 
-// foldOne folds a single component's schemagen document — `<dir>/contract.schema.json`
-// for a goPackage's primary component, `<dir>/contract.<key>.schema.json` for a
-// secondary one sharing that goPackage (see schemaFilenameFor) — into
-// project.json's `.serviceContracts[key]`, writing project.json back in place.
+// resolveSchemaDoc locates and reads key's schemagen document in dir per the
+// STICKY filename convention (see the package doc): the keyed
+// `contract.<key>.schema.json` wins whenever present; the plain
+// `contract.schema.json` is a fallback ONLY when its own `interface.name`
+// maps back to key (keyFromInterfaceName), so a plain file always folds into
+// exactly the component that owns it, never a lexically-reassigned one.
+// Returns fs.ErrNotExist (wrapped) when neither file is present, and
+// errPlainSchemaForeign (wrapped) when only the plain file is present but
+// belongs to a different key.
+func resolveSchemaDoc(dir, key string) (string, []byte, error) {
+	keyed := dir + "/contract." + key + ".schema.json"
+	raw, err := os.ReadFile(keyed) // #nosec G304 G703 -- dir/key are a goPackage value committed in project.json or developer-supplied CLI args to a local codegen tool, no trust boundary
+	if err == nil {
+		return keyed, raw, nil
+	}
+	if !errors.Is(err, fs.ErrNotExist) {
+		return "", nil, fmt.Errorf("read %s: %w", keyed, err)
+	}
+
+	plain := dir + "/contract.schema.json"
+	raw, err = os.ReadFile(plain) // #nosec G304 G703 -- see above
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return "", nil, fmt.Errorf("no schema document for %s (looked for %s, then %s): %w", key, keyed, plain, fs.ErrNotExist)
+		}
+		return "", nil, fmt.Errorf("read %s: %w", plain, err)
+	}
+
+	ifaceName, err := interfaceNameOf(raw)
+	if err != nil {
+		return "", nil, fmt.Errorf("%s: %w", plain, err)
+	}
+	if owner := keyFromInterfaceName(ifaceName); owner != key {
+		return "", nil, fmt.Errorf("%w: %s carries interface %q (owning component key %q), but key %q was requested — a secondary component must author %s instead", errPlainSchemaForeign, plain, ifaceName, owner, key, keyed)
+	}
+	return plain, raw, nil
+}
+
+// foldOne folds a single component's schemagen document — resolved per the
+// sticky filename convention (see resolveSchemaDoc) — into project.json's
+// `.serviceContracts[key]`, writing project.json back in place. Every
+// resolution failure, including a plain file owned by a different component,
+// is a loud error.
 func foldOne(path, dir, key string, allowShrink bool) error {
 	projectRaw, err := os.ReadFile(path) // #nosec G304 G703 -- path is a fixed constant or a developer-supplied CLI arg to a local codegen tool, no trust boundary
 	if err != nil {
 		return fmt.Errorf("read %s: %w", path, err)
 	}
-	groupKeys, err := siblingGoPackageKeys(projectRaw, dir, key)
+	schemaPath, schemaRaw, err := resolveSchemaDoc(dir, key)
 	if err != nil {
-		return fmt.Errorf("determine schema filename for %s: %w", key, err)
-	}
-	schemaPath := schemaFilenameFor(dir, key, groupKeys)
-	schemaRaw, err := os.ReadFile(schemaPath) // #nosec G304 G703 -- see above
-	if err != nil {
-		return fmt.Errorf("read %s (run `go run ./cmd/schemagen` first): %w", schemaPath, err)
+		if errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("%w (run `go run ./cmd/schemagen` first)", err)
+		}
+		return err
 	}
 	out, err := contractfold.Fold(projectRaw, schemaRaw, key, dir, allowShrink)
 	if err != nil {
@@ -159,14 +194,15 @@ func foldOne(path, dir, key string, allowShrink bool) error {
 }
 
 // foldAll folds every component that ALREADY has a `.serviceContracts` entry
-// (found via its `goPackage`) with a matching on-disk schemagen document —
-// `contract.schema.json` for a goPackage's primary component,
-// `contract.<key>.schema.json` for a secondary one sharing that goPackage (see
-// schemaFilenameFor). Components with no on-disk schema document (the
-// steady-state norm — schemagen output is a transient bootstrap artifact, not
-// committed) are skipped, not errored: this is the "re-fold whatever was
-// re-seeded" bulk mode, never a surprise-creating one (creation requires the
-// explicit two-arg form).
+// (found via its `goPackage`) with a matching on-disk schemagen document,
+// resolved per the sticky filename convention (see resolveSchemaDoc): the
+// keyed `contract.<key>.schema.json` wins; the plain `contract.schema.json`
+// folds only into the entry whose key its `interface.name` maps to. Entries
+// with no on-disk document (the steady-state norm — schemagen output is a
+// transient bootstrap artifact, not committed) are skipped, not errored, and
+// so is a plain file owned by a DIFFERENT sibling entry (that sibling
+// consumes it): this is the "re-fold whatever was re-seeded" bulk mode, never
+// a surprise-creating one (creation requires the explicit two-arg form).
 func foldAll(path string, allowShrink bool) error {
 	projectRaw, err := os.ReadFile(path) // #nosec G304 -- fixed constant path
 	if err != nil {
@@ -183,7 +219,6 @@ func foldAll(path string, allowShrink bool) error {
 
 	type dirKey struct{ dir, key string }
 	var targets []dirKey
-	goPkgKeys := map[string][]string{} // goPackage -> every contract key sharing it
 	for k, entry := range contracts {
 		var meta struct {
 			GoPackage string `json:"goPackage"`
@@ -195,23 +230,21 @@ func foldAll(path string, allowShrink bool) error {
 			continue
 		}
 		targets = append(targets, dirKey{dir: meta.GoPackage, key: k})
-		goPkgKeys[meta.GoPackage] = append(goPkgKeys[meta.GoPackage], k)
 	}
 	sort.Slice(targets, func(i, j int) bool { return targets[i].key < targets[j].key })
-	for _, keys := range goPkgKeys {
-		sort.Strings(keys)
-	}
 
 	cur := projectRaw
 	folded := 0
 	for _, t := range targets {
-		schemaPath := schemaFilenameFor(t.dir, t.key, goPkgKeys[t.dir])
-		schemaRaw, err := os.ReadFile(schemaPath) // #nosec G304 G703 -- dir is a goPackage value already committed in project.json, no trust boundary
+		schemaPath, schemaRaw, err := resolveSchemaDoc(t.dir, t.key)
 		if err != nil {
-			if os.IsNotExist(err) {
+			if errors.Is(err, fs.ErrNotExist) {
 				continue // steady state: no re-seed pending for this component
 			}
-			return fmt.Errorf("read %s: %w", schemaPath, err)
+			if errors.Is(err, errPlainSchemaForeign) {
+				continue // plain file belongs to a sibling entry, which folds it itself
+			}
+			return err
 		}
 		out, err := contractfold.Fold(cur, schemaRaw, t.key, t.dir, allowShrink)
 		if err != nil {
