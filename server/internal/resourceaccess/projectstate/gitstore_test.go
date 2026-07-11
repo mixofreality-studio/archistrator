@@ -124,7 +124,7 @@ func TestGitStore_CreateReadRoundTrip(t *testing.T) {
 		t.Fatalf("CreateProject version = %d, want 1", v)
 	}
 
-	proj, err := store.ReadProject(ctx, id, cred)
+	proj, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
 	if err != nil {
 		t.Fatalf("ReadProject: %v", err)
 	}
@@ -273,7 +273,7 @@ func TestGitStore_SetResearchInput_WritesFilesAndPointer(t *testing.T) {
 	}
 
 	// The persisted head-state carries ONLY the pointer — content structurally absent.
-	proj, err := store.ReadProject(ctx, id, cred)
+	proj, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
 	if err != nil {
 		t.Fatalf("ReadProject: %v", err)
 	}
@@ -314,7 +314,7 @@ func TestGitStore_SetResearchInput_WritesFilesAndPointer(t *testing.T) {
 	if fb, ok := snap2.Files["research/00-founder-brief.txt"]; !ok || string(fb) != body {
 		t.Fatalf("an unrelated mutation wiped/changed the corpus file (carry-forward broken); present=%v", ok)
 	}
-	after, _ := store.ReadProject(ctx, id, cred)
+	after, _ := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
 	if len(after.Research.Sources) != 1 || after.Research.Sources[0].Path != wantPath {
 		t.Fatalf("the research pointer must survive an unrelated mutation, got %+v", after.Research)
 	}
@@ -355,7 +355,7 @@ func TestGitStore_CommitArtifact_RevisionsAndStaleBasis(t *testing.T) {
 		return v3
 	}
 	read := func() ps.Project {
-		p, err := store.ReadProject(ctx, id, cred)
+		p, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
 		if err != nil {
 			t.Fatalf("ReadProject: %v", err)
 		}
@@ -415,7 +415,7 @@ func TestGitStore_StageCommitRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CommitArtifact: %v", err)
 	}
-	proj, err := store.ReadProject(ctx, id, cred)
+	proj, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
 	if err != nil {
 		t.Fatalf("ReadProject: %v", err)
 	}
@@ -450,7 +450,7 @@ func TestGitStore_RejectArtifactOnBranch_EmptyBranchIsMain(t *testing.T) {
 	if _, err := store.RejectArtifactOnBranch(ctx, id, v2, "", ps.KindMission, notes, cred, "wf:reject"); err != nil {
 		t.Fatalf("RejectArtifactOnBranch(branch=\"\"): %v", err)
 	}
-	proj, err := store.ReadProject(ctx, id, cred)
+	proj, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
 	if err != nil {
 		t.Fatalf("ReadProject: %v", err)
 	}
@@ -515,7 +515,7 @@ func TestGitStore_WithdrawArtifactOnBranch_EmptyBranchIsMain(t *testing.T) {
 	if _, err := store.WithdrawArtifactOnBranch(ctx, id, v2, "", ps.KindMission, notes, cred, "wf:withdraw"); err != nil {
 		t.Fatalf("WithdrawArtifactOnBranch(branch=\"\"): %v", err)
 	}
-	proj, err := store.ReadProject(ctx, id, cred)
+	proj, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
 	if err != nil {
 		t.Fatalf("ReadProject: %v", err)
 	}
@@ -568,7 +568,7 @@ func TestGitStore_VersionGuardConflict(t *testing.T) {
 // project is NotFound.
 func TestGitStore_NotFoundAndMisuse(t *testing.T) {
 	store, cred, ctx := newLocalGitStore(t)
-	_, err := store.ReadProject(ctx, ps.ProjectID(uuid.NewString()), cred)
+	_, err := store.ReadProject(fwra.Context{Context: ctx}, ps.ProjectID(uuid.NewString()), cred)
 	if k := kindOf(t, err); k != fwra.NotFound {
 		t.Fatalf("ReadProject(absent) kind = %v, want NotFound", k)
 	}
@@ -633,7 +633,7 @@ func TestRefCasVsConcurrentWriter(t *testing.T) {
 	// Writer B — operator pause: RecordOperatorPaused at the SAME base.
 	go func() {
 		defer wg.Done()
-		v, e := store.RecordOperatorPaused(ctx, id, base, "operator pause", cred, "wf:operator-pause")
+		v, e := store.RecordOperatorPaused(fwra.Context{Context: ctx}, id, base, "operator pause", cred, "wf:operator-pause")
 		results <- outcome{"B-pause", v, e}
 	}()
 	wg.Wait()
@@ -668,7 +668,7 @@ func TestRefCasVsConcurrentWriter(t *testing.T) {
 	}
 
 	// The loser reloads HEAD and re-applies against the winner's new tip.
-	cur, err := store.ReadProject(ctx, id, cred)
+	cur, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
 	if err != nil {
 		t.Fatalf("ReadProject after race: %v", err)
 	}
@@ -677,7 +677,7 @@ func TestRefCasVsConcurrentWriter(t *testing.T) {
 	case "A-commit":
 		retried, err = store.CommitArtifact(ctx, id, cur.Version, ps.KindMission, cred, "wf:reconcile-commit")
 	case "B-pause":
-		retried, err = store.RecordOperatorPaused(ctx, id, cur.Version, "operator pause", cred, "wf:operator-pause")
+		retried, err = store.RecordOperatorPaused(fwra.Context{Context: ctx}, id, cur.Version, "operator pause", cred, "wf:operator-pause")
 	}
 	if err != nil {
 		t.Fatalf("loser %s retry: %v", loser.who, err)
@@ -685,7 +685,7 @@ func TestRefCasVsConcurrentWriter(t *testing.T) {
 
 	// BOTH mutations survive: the winner's effect is visible AND the loser's retry
 	// landed at the next version (convergence, no lost update).
-	final, err := store.ReadProject(ctx, id, cred)
+	final, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
 	if err != nil {
 		t.Fatalf("ReadProject final: %v", err)
 	}
@@ -709,7 +709,7 @@ func TestRefCasVsConcurrentWriter(t *testing.T) {
 	if winner.who == "B-pause" {
 		winnerKey = "wf:operator-pause"
 	}
-	beforeRetry, err := store.ReadProject(ctx, id, cred)
+	beforeRetry, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
 	if err != nil {
 		t.Fatalf("ReadProject before dedup retry: %v", err)
 	}
@@ -718,7 +718,7 @@ func TestRefCasVsConcurrentWriter(t *testing.T) {
 	case "A-commit":
 		dedupV, err = store.CommitArtifact(ctx, id, 0 /* deliberately stale */, ps.KindMission, cred, winnerKey)
 	case "B-pause":
-		dedupV, err = store.RecordOperatorPaused(ctx, id, 0 /* stale */, "operator pause", cred, winnerKey)
+		dedupV, err = store.RecordOperatorPaused(fwra.Context{Context: ctx}, id, 0 /* stale */, "operator pause", cred, winnerKey)
 	}
 	if err != nil {
 		t.Fatalf("dedup retry of winner key (stale version) should succeed via ledger, got: %v", err)
@@ -726,7 +726,7 @@ func TestRefCasVsConcurrentWriter(t *testing.T) {
 	if dedupV != winner.v {
 		t.Fatalf("dedup retry returned version %d, want winner's original %d", dedupV, winner.v)
 	}
-	afterRetry, err := store.ReadProject(ctx, id, cred)
+	afterRetry, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
 	if err != nil {
 		t.Fatalf("ReadProject after dedup retry: %v", err)
 	}
@@ -794,7 +794,7 @@ func TestGitStore_ExternalActionDraftIsReadBack(t *testing.T) {
 	}
 
 	// READ-BACK through the RA's PUBLIC verb — the server's only draft-path touch.
-	proj, err := store.ReadProject(ctx, id, cred)
+	proj, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
 	if err != nil {
 		t.Fatalf("ReadProject (read-back of external draft): %v", err)
 	}
@@ -827,7 +827,7 @@ func TestGitStore_ExternalActionDraftIsReadBack(t *testing.T) {
 	if _, err := store.CommitArtifact(ctx, id, v8, ps.KindMission, cred, "wf:human-gate-commit"); err != nil {
 		t.Fatalf("CommitArtifact (human-gate approve): %v", err)
 	}
-	after, err := store.ReadProject(ctx, id, cred)
+	after, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
 	if err != nil {
 		t.Fatalf("ReadProject after human-gate commit: %v", err)
 	}
@@ -900,7 +900,7 @@ func TestGitStore_CreateProject_ResumesExistingState(t *testing.T) {
 
 	// The existing state SURVIVES (no clobber/reset): read it back and assert the prior
 	// progress — phase, version, committed Mission model — is intact.
-	got, err := store.ReadProject(ctx, id, cred)
+	got, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
 	if err != nil {
 		t.Fatalf("ReadProject after resume: %v", err)
 	}
@@ -934,7 +934,7 @@ func TestGitStore_CreateProject_FreshInitWhenNoState(t *testing.T) {
 	if v != 1 {
 		t.Fatalf("CreateProject (fresh, no prior state) version = %d, want 1", v)
 	}
-	got, err := store.ReadProject(ctx, id, cred)
+	got, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
 	if err != nil {
 		t.Fatalf("ReadProject after fresh init: %v", err)
 	}

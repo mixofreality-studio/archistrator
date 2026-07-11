@@ -1,7 +1,6 @@
 package construction
 
 import (
-	"context"
 	"testing"
 
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
@@ -18,11 +17,11 @@ type fakeReviewPolicyTransition struct {
 	lastPolicy *projectstate.ReviewPolicy
 }
 
-func (f *fakeReviewPolicyTransition) ReadProject(_ context.Context, _ projectstate.ProjectID, _ projectstate.RepoCredential) (projectstate.Project, error) {
+func (f *fakeReviewPolicyTransition) ReadProject(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.RepoCredential) (projectstate.Project, error) {
 	return projectstate.Project{Version: f.version}, nil
 }
 
-func (f *fakeReviewPolicyTransition) RecordReviewPolicy(_ context.Context, _ projectstate.ProjectID, _ projectstate.Version, policy projectstate.ReviewPolicy, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *fakeReviewPolicyTransition) RecordReviewPolicy(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, policy projectstate.ReviewPolicy, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.version++
 	f.lastPolicy = &policy
 	return f.version, nil

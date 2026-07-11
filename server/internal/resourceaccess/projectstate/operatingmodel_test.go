@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	ps "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
@@ -22,7 +23,7 @@ func TestGitStore_SetOperatingModel_RoundTrip(t *testing.T) {
 	}
 
 	// A fresh project is born self-operated (the default applied on decode).
-	proj, err := store.ReadProject(ctx, id, cred)
+	proj, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
 	if err != nil {
 		t.Fatalf("ReadProject: %v", err)
 	}
@@ -35,7 +36,7 @@ func TestGitStore_SetOperatingModel_RoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SetOperatingModel: %v", err)
 	}
-	after, err := store.ReadProject(ctx, id, cred)
+	after, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
 	if err != nil {
 		t.Fatalf("ReadProject after set: %v", err)
 	}

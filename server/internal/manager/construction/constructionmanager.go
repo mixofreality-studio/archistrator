@@ -355,12 +355,12 @@ func (m *constructionManager) UpdateReviewPolicy(rc fwm.Context, projectID Proje
 	if projectID == "" {
 		return newError(fwm.ContractMisuse, "empty projectId")
 	}
-	proj, err := m.constructionTransition.ReadProject(ctx, projectstate.ProjectID(projectID), projectstate.RepoCredential{})
+	proj, err := m.constructionTransition.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID), projectstate.RepoCredential{})
 	if err != nil {
 		return newError(fwm.Infrastructure, err.Error())
 	}
 	policy := projectstate.ReviewPolicyFromGateIDs(input.GatedPhasesByType)
-	if _, err := m.constructionTransition.RecordReviewPolicy(ctx, projectstate.ProjectID(projectID), proj.Version, policy, projectstate.RepoCredential{}, fwra.IdempotencyKey(uuid.NewString())); err != nil {
+	if _, err := m.constructionTransition.RecordReviewPolicy(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID), proj.Version, policy, projectstate.RepoCredential{}, fwra.IdempotencyKey(uuid.NewString())); err != nil {
 		return newError(fwm.Infrastructure, err.Error())
 	}
 	return nil

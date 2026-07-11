@@ -29,7 +29,7 @@ func TestGitStore_RejectWithComments_AppendsOpenLedger(t *testing.T) {
 	if _, err := store.RejectArtifactOnBranchWithComments(ctx, id, v2, "", ps.KindMission, "please revise", 1, comments, cred, "wf:reject"); err != nil {
 		t.Fatalf("RejectArtifactOnBranchWithComments: %v", err)
 	}
-	proj, err := store.ReadProject(ctx, id, cred)
+	proj, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
 	if err != nil {
 		t.Fatalf("ReadProject: %v", err)
 	}
@@ -71,7 +71,7 @@ func TestGitStore_SeedReviewComments_AppendsOpenNoStatusChange(t *testing.T) {
 	if _, err := store.SeedReviewCommentsOnBranch(ctx, id, v2, "", ps.KindMission, 0, comments, cred, "wf:seed"); err != nil {
 		t.Fatalf("SeedReviewCommentsOnBranch: %v", err)
 	}
-	proj, err := store.ReadProject(ctx, id, cred)
+	proj, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
 	if err != nil {
 		t.Fatalf("ReadProject: %v", err)
 	}
@@ -108,7 +108,7 @@ func TestGitStore_RejectWithComments_IdempotentOnSameKey(t *testing.T) {
 	if _, err := store.RejectArtifactOnBranchWithComments(ctx, id, v2, "", ps.KindMission, "n", 1, comments, cred, "wf:reject"); err != nil {
 		t.Fatalf("retry reject (same key): %v", err)
 	}
-	proj, err := store.ReadProject(ctx, id, cred)
+	proj, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
 	if err != nil {
 		t.Fatalf("ReadProject: %v", err)
 	}
@@ -140,7 +140,7 @@ func TestGitStore_SetReviewCommentStatus_WaiveAndReopen(t *testing.T) {
 	if err != nil {
 		t.Fatalf("waive: %v", err)
 	}
-	proj, err := store.ReadProject(ctx, id, cred)
+	proj, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
 	if err != nil {
 		t.Fatalf("ReadProject: %v", err)
 	}
@@ -189,7 +189,7 @@ func TestGitStore_ReviewThread_SurvivesRestage(t *testing.T) {
 	if _, err := store.StageArtifactForReview(ctx, id, v3, &ps.MissionStatement{Vision: "v2", Mission: "m2"}, cred, "wf:restage"); err != nil {
 		t.Fatalf("re-stage: %v", err)
 	}
-	proj, err := store.ReadProject(ctx, id, cred)
+	proj, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
 	if err != nil {
 		t.Fatalf("ReadProject: %v", err)
 	}
@@ -225,7 +225,7 @@ func TestGitStore_AcknowledgeStaleBasis(t *testing.T) {
 	v = stageCommit(v, ps.KindGlossary, &ps.Glossary{}, "glossary1")
 	// AMEND Mission (final commit in this chain; its returned version is not read again).
 	stageCommit(v, ps.KindMission, &ps.MissionStatement{Vision: "v2", Mission: "m2"}, "mission2")
-	p, _ := store.ReadProject(ctx, id, cred)
+	p, _ := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
 	if !p.Glossary.StaleBasis {
 		t.Fatal("precondition: Glossary must be stale after Mission amend")
 	}
@@ -235,7 +235,7 @@ func TestGitStore_AcknowledgeStaleBasis(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AcknowledgeStaleBasis: %v", err)
 	}
-	p, _ = store.ReadProject(ctx, id, cred)
+	p, _ = store.ReadProject(fwra.Context{Context: ctx}, id, cred)
 	if p.Glossary.StaleBasis {
 		t.Fatal("StaleBasis must be cleared after acknowledge")
 	}
@@ -255,7 +255,7 @@ func TestGitStore_AcknowledgeStaleBasis(t *testing.T) {
 	if _, err := store.AcknowledgeStaleBasis(ctx, id, v2, ps.KindGlossary, "again", cred, "wf:ack2"); err != nil {
 		t.Fatalf("repeat AcknowledgeStaleBasis: %v", err)
 	}
-	p, _ = store.ReadProject(ctx, id, cred)
+	p, _ = store.ReadProject(fwra.Context{Context: ctx}, id, cred)
 	if len(p.Glossary.ReviewThread) != 1 {
 		t.Fatalf("repeat ack must NOT append a second entry; got %d", len(p.Glossary.ReviewThread))
 	}

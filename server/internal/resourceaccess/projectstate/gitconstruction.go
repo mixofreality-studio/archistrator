@@ -10,7 +10,6 @@ package projectstate
 // richer per-activity head-state status aggregate is populated from Task 4.
 
 import (
-	"context"
 	"time"
 
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
@@ -21,14 +20,14 @@ import (
 // 8 ops total (≤12 per contract cap; RecordActivityFailed is the additive terminal-
 // failure sibling of RecordActivityExited).
 type GitConstructionTransitionAccess interface {
-	RecordChangeReviewed(ctx context.Context, projectID ProjectID, expectedVersion Version, activityID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	RecordActivityExited(ctx context.Context, projectID ProjectID, expectedVersion Version, activityID string, outcome ActivityOutcome, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	RecordActivityFailed(ctx context.Context, projectID ProjectID, expectedVersion Version, activityID string, reason FailureReason, detail string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	RecordOperatorPaused(ctx context.Context, projectID ProjectID, expectedVersion Version, reason string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	RecordPhaseStarted(ctx context.Context, projectID ProjectID, expectedVersion Version, activityID string, phase ActivityMethodPhase, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	RecordPhaseCompleted(ctx context.Context, projectID ProjectID, expectedVersion Version, activityID string, phase ActivityMethodPhase, artifactRef string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	RecordServiceContractProduced(ctx context.Context, projectID ProjectID, expectedVersion Version, component string, contract ServiceContract, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	RecordPhaseArtifactProduced(ctx context.Context, projectID ProjectID, expectedVersion Version, activityID string, mapKey string, payload PhaseArtifactPayload, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	RecordChangeReviewed(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	RecordActivityExited(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, outcome ActivityOutcome, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	RecordActivityFailed(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, reason FailureReason, detail string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	RecordOperatorPaused(rc fwra.Context, projectID ProjectID, expectedVersion Version, reason string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	RecordPhaseStarted(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, phase ActivityMethodPhase, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	RecordPhaseCompleted(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, phase ActivityMethodPhase, artifactRef string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	RecordServiceContractProduced(rc fwra.Context, projectID ProjectID, expectedVersion Version, component string, contract ServiceContract, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	RecordPhaseArtifactProduced(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, mapKey string, payload PhaseArtifactPayload, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
 }
 
 var _ GitConstructionTransitionAccess = (*GitStore)(nil)
@@ -67,11 +66,11 @@ type PhaseArtifactPayload struct {
 // RecordChangeReviewed records the review transition for activityID by setting
 // BuildStatus = BuildInReview. Uses modeRequireExisting (project row exists by
 // Phase 3, same discipline as gitactivity.go verbs).
-func (s *GitStore) RecordChangeReviewed(ctx context.Context, projectID ProjectID, expectedVersion Version, activityID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (s *GitStore) RecordChangeReviewed(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	if activityID == "" {
 		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordChangeReviewed: empty activityID")
 	}
-	return s.applyMutation(ctx, "RecordChangeReviewed", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
+	return s.applyMutation(rc.Context, "RecordChangeReviewed", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
 		upsertActivityConstruction(p, activityID, func(cs *ActivityConstructionStatus) {
 			cs.BuildStatus = BuildInReview
 		})
@@ -84,12 +83,12 @@ func (s *GitStore) RecordChangeReviewed(ctx context.Context, projectID ProjectID
 // BuildIntegrated. On other outcomes: Phase = ActivityConstructionDone,
 // BuildStatus = BuildInReview (skipped/taken-over land done but not integrated).
 // CompletedAt is server-resolved if not already set.
-func (s *GitStore) RecordActivityExited(ctx context.Context, projectID ProjectID, expectedVersion Version, activityID string, outcome ActivityOutcome, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (s *GitStore) RecordActivityExited(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, outcome ActivityOutcome, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	if activityID == "" {
 		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordActivityExited: empty activityID")
 	}
 	now := s.now()
-	return s.applyMutation(ctx, "RecordActivityExited", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
+	return s.applyMutation(rc.Context, "RecordActivityExited", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
 		upsertActivityConstruction(p, activityID, func(cs *ActivityConstructionStatus) {
 			cs.Phase = ActivityConstructionDone
 			if cs.CompletedAt == nil {
@@ -121,12 +120,12 @@ func (s *GitStore) RecordActivityExited(ctx context.Context, projectID ProjectID
 // pending. This is what stops a cancelled/failed/timed-out GH-Actions run (or an
 // exhausted variance budget / unanswered escalation) from leaving the activity stuck
 // Running forever.
-func (s *GitStore) RecordActivityFailed(ctx context.Context, projectID ProjectID, expectedVersion Version, activityID string, reason FailureReason, detail string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (s *GitStore) RecordActivityFailed(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, reason FailureReason, detail string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	if activityID == "" {
 		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordActivityFailed: empty activityID")
 	}
 	now := s.now()
-	return s.applyMutation(ctx, "RecordActivityFailed", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
+	return s.applyMutation(rc.Context, "RecordActivityFailed", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
 		upsertActivityConstruction(p, activityID, func(cs *ActivityConstructionStatus) {
 			cs.Phase = ActivityConstructionFailed
 			cs.BuildStatus = BuildFailed
@@ -143,8 +142,8 @@ func (s *GitStore) RecordActivityFailed(ctx context.Context, projectID ProjectID
 
 // RecordOperatorPaused records the operator-paused head-state transition by
 // setting Project.OperatorPaused = true and Project.PauseReason = reason.
-func (s *GitStore) RecordOperatorPaused(ctx context.Context, projectID ProjectID, expectedVersion Version, reason string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	return s.applyMutation(ctx, "RecordOperatorPaused", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
+func (s *GitStore) RecordOperatorPaused(rc fwra.Context, projectID ProjectID, expectedVersion Version, reason string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	return s.applyMutation(rc.Context, "RecordOperatorPaused", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
 		p.OperatorPaused = true
 		p.PauseReason = reason
 		return nil
@@ -153,8 +152,8 @@ func (s *GitStore) RecordOperatorPaused(ctx context.Context, projectID ProjectID
 
 // RecordReviewPolicy persists the per-project ReviewPolicy by setting
 // Project.ReviewPolicy = policy.
-func (s *GitStore) RecordReviewPolicy(ctx context.Context, projectID ProjectID, expectedVersion Version, policy ReviewPolicy, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	return s.applyMutation(ctx, "RecordReviewPolicy", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
+func (s *GitStore) RecordReviewPolicy(rc fwra.Context, projectID ProjectID, expectedVersion Version, policy ReviewPolicy, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	return s.applyMutation(rc.Context, "RecordReviewPolicy", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
 		p.ReviewPolicy = policy
 		return nil
 	})
@@ -164,14 +163,14 @@ func (s *GitStore) RecordReviewPolicy(ctx context.Context, projectID ProjectID, 
 // given phase. It seeds the Phases slice from phaseSetFor if not yet populated,
 // sets CurrentPhase = phase, and advances the coarse Phase to Running (if not
 // already Done).
-func (s *GitStore) RecordPhaseStarted(ctx context.Context, projectID ProjectID, expectedVersion Version, activityID string, phase ActivityMethodPhase, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (s *GitStore) RecordPhaseStarted(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, phase ActivityMethodPhase, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	if activityID == "" {
 		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordPhaseStarted: empty activityID")
 	}
 	if phase == "" {
 		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordPhaseStarted: empty phase")
 	}
-	return s.applyMutation(ctx, "RecordPhaseStarted", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
+	return s.applyMutation(rc.Context, "RecordPhaseStarted", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
 		upsertActivityConstruction(p, activityID, func(cs *ActivityConstructionStatus) {
 			if len(cs.Phases) == 0 {
 				cs.Phases = phaseSetFor(cs.Type, cs.Variant)
@@ -189,7 +188,7 @@ func (s *GitStore) RecordPhaseStarted(ctx context.Context, projectID ProjectID, 
 // server-resolved CompletedAt, and optionally sets ArtifactRef. It recomputes the
 // coarse Phase via CoarsePhase over the updated Phases slice so the tracker
 // advances atomically with the phase completion.
-func (s *GitStore) RecordPhaseCompleted(ctx context.Context, projectID ProjectID, expectedVersion Version, activityID string, phase ActivityMethodPhase, artifactRef string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) { //nolint:gocognit // phase transition requires checking all phase states
+func (s *GitStore) RecordPhaseCompleted(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, phase ActivityMethodPhase, artifactRef string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) { //nolint:gocognit // phase transition requires checking all phase states
 	if activityID == "" {
 		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordPhaseCompleted: empty activityID")
 	}
@@ -197,7 +196,7 @@ func (s *GitStore) RecordPhaseCompleted(ctx context.Context, projectID ProjectID
 		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordPhaseCompleted: empty phase")
 	}
 	now := s.now()
-	return s.applyMutation(ctx, "RecordPhaseCompleted", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
+	return s.applyMutation(rc.Context, "RecordPhaseCompleted", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
 		upsertActivityConstruction(p, activityID, func(cs *ActivityConstructionStatus) {
 			applyPhaseCompletion(cs, phase, artifactRef, now)
 		})
@@ -234,11 +233,11 @@ func applyPhaseCompletion(cs *ActivityConstructionStatus, phase ActivityMethodPh
 
 // RecordServiceContractProduced writes the typed ServiceContract for component
 // into Project.ServiceContracts, lazy-allocating the map on first write.
-func (s *GitStore) RecordServiceContractProduced(ctx context.Context, projectID ProjectID, expectedVersion Version, component string, contract ServiceContract, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (s *GitStore) RecordServiceContractProduced(rc fwra.Context, projectID ProjectID, expectedVersion Version, component string, contract ServiceContract, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	if component == "" {
 		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordServiceContractProduced: empty component")
 	}
-	return s.applyMutation(ctx, "RecordServiceContractProduced", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
+	return s.applyMutation(rc.Context, "RecordServiceContractProduced", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
 		if p.ServiceContracts == nil {
 			p.ServiceContracts = make(map[string]ServiceContract)
 		}
@@ -253,11 +252,11 @@ func (s *GitStore) RecordServiceContractProduced(ctx context.Context, projectID 
 // PhaseArtifacts fields; it is unused for singleton TestingState fields.
 // Exactly one payload field should be set; if none is set the verb is a no-op
 // (idempotent empty payload is tolerated — the ledger dedup will still fire).
-func (s *GitStore) RecordPhaseArtifactProduced(ctx context.Context, projectID ProjectID, expectedVersion Version, activityID string, mapKey string, payload PhaseArtifactPayload, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (s *GitStore) RecordPhaseArtifactProduced(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, mapKey string, payload PhaseArtifactPayload, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	if activityID == "" {
 		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordPhaseArtifactProduced: empty activityID")
 	}
-	return s.applyMutation(ctx, "RecordPhaseArtifactProduced", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
+	return s.applyMutation(rc.Context, "RecordPhaseArtifactProduced", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
 		applyPhaseArtifactPayload(p, mapKey, payload)
 		return nil
 	})

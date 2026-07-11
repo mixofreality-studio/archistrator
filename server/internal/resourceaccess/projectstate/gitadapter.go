@@ -269,7 +269,7 @@ func (a *projectStateGitAdapter) ReadProject(rc fwra.Context, projectID ProjectI
 	if err != nil {
 		return Project{}, err
 	}
-	return a.store.ReadProject(ctx, projectID, cred)
+	return a.store.ReadProject(rc, projectID, cred)
 }
 
 // ReadProjectVersion serves the cheap version-only read over the git substrate. The git

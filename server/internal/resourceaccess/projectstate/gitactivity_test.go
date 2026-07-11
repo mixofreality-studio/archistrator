@@ -48,7 +48,7 @@ func newActivityStore(t *testing.T, clk time.Time) (*ps.GitStore, ps.ProjectID, 
 
 func readActivity(t *testing.T, store *ps.GitStore, ctx context.Context, id ps.ProjectID, cred ps.RepoCredential, activityID string) ps.ActivityGitStatus {
 	t.Helper()
-	proj, err := store.ReadProject(ctx, id, cred)
+	proj, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
 	if err != nil {
 		t.Fatalf("ReadProject: %v", err)
 	}
@@ -200,7 +200,7 @@ func TestRecordActivity_IdempotentReRecord(t *testing.T) {
 	if err != nil {
 		t.Fatalf("branch: %v", err)
 	}
-	before, err := store.ReadProject(ctx, id, cred)
+	before, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
 	if err != nil {
 		t.Fatalf("ReadProject: %v", err)
 	}
@@ -214,7 +214,7 @@ func TestRecordActivity_IdempotentReRecord(t *testing.T) {
 	if v2again != v2 {
 		t.Fatalf("idempotent re-record version = %d, want original %d", v2again, v2)
 	}
-	after, err := store.ReadProject(ctx, id, cred)
+	after, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
 	if err != nil {
 		t.Fatalf("ReadProject: %v", err)
 	}
@@ -300,7 +300,7 @@ func TestRecordActivity_ConcurrentDifferentActivitiesConverge(t *testing.T) {
 	}
 
 	// The loser reloads HEAD and re-applies against the winner's new tip.
-	cur, err := store.ReadProject(ctx, id, cred)
+	cur, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
 	if err != nil {
 		t.Fatalf("ReadProject after race: %v", err)
 	}
@@ -315,7 +315,7 @@ func TestRecordActivity_ConcurrentDifferentActivitiesConverge(t *testing.T) {
 	}
 
 	// BOTH activity rows survive — the partial-map-key update did not clobber.
-	final, err := store.ReadProject(ctx, id, cred)
+	final, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
 	if err != nil {
 		t.Fatalf("ReadProject final: %v", err)
 	}

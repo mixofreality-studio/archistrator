@@ -82,7 +82,7 @@ type recordChangeReviewedArgs struct {
 }
 
 func (wf *workflows) RecordChangeReviewedActivity(ctx context.Context, a recordChangeReviewedArgs) (projectstate.Version, error) {
-	return mapErr(wf.ConstructionTransition.RecordChangeReviewed(ctx, a.ProjectID, a.ExpectedVersion, a.ActivityID, a.Cred.toProjectState(), activityIdempotencyKey(ctx)))
+	return mapErr(wf.ConstructionTransition.RecordChangeReviewed(fwra.Context{Context: ctx}, a.ProjectID, a.ExpectedVersion, a.ActivityID, a.Cred.toProjectState(), activityIdempotencyKey(ctx)))
 }
 
 // recordActivityExitedArgs bundles the inputs for recordActivityExited.
@@ -95,7 +95,7 @@ type recordActivityExitedArgs struct {
 }
 
 func (wf *workflows) RecordActivityExitedActivity(ctx context.Context, a recordActivityExitedArgs) (projectstate.Version, error) {
-	return mapErr(wf.ConstructionTransition.RecordActivityExited(ctx, a.ProjectID, a.ExpectedVersion, a.ActivityID, a.Outcome, a.Cred.toProjectState(), activityIdempotencyKey(ctx)))
+	return mapErr(wf.ConstructionTransition.RecordActivityExited(fwra.Context{Context: ctx}, a.ProjectID, a.ExpectedVersion, a.ActivityID, a.Outcome, a.Cred.toProjectState(), activityIdempotencyKey(ctx)))
 }
 
 // recordActivityFailedArgs bundles the inputs for recordActivityFailed (the
@@ -110,7 +110,7 @@ type recordActivityFailedArgs struct {
 }
 
 func (wf *workflows) RecordActivityFailedActivity(ctx context.Context, a recordActivityFailedArgs) (projectstate.Version, error) {
-	return mapErr(wf.ConstructionTransition.RecordActivityFailed(ctx, a.ProjectID, a.ExpectedVersion, a.ActivityID, a.Reason, a.Detail, a.Cred.toProjectState(), activityIdempotencyKey(ctx)))
+	return mapErr(wf.ConstructionTransition.RecordActivityFailed(fwra.Context{Context: ctx}, a.ProjectID, a.ExpectedVersion, a.ActivityID, a.Reason, a.Detail, a.Cred.toProjectState(), activityIdempotencyKey(ctx)))
 }
 
 // recordOperatorPausedArgs bundles the inputs for recordOperatorPaused.
@@ -122,7 +122,7 @@ type recordOperatorPausedArgs struct {
 }
 
 func (wf *workflows) RecordOperatorPausedActivity(ctx context.Context, a recordOperatorPausedArgs) (projectstate.Version, error) {
-	return mapErr(wf.ConstructionTransition.RecordOperatorPaused(ctx, a.ProjectID, a.ExpectedVersion, a.Reason, a.Cred.toProjectState(), activityIdempotencyKey(ctx)))
+	return mapErr(wf.ConstructionTransition.RecordOperatorPaused(fwra.Context{Context: ctx}, a.ProjectID, a.ExpectedVersion, a.Reason, a.Cred.toProjectState(), activityIdempotencyKey(ctx)))
 }
 
 // recordPhaseStartedArgs bundles the inputs for RecordPhaseStarted.
@@ -135,7 +135,7 @@ type recordPhaseStartedArgs struct {
 }
 
 func (wf *workflows) RecordPhaseStartedActivity(ctx context.Context, a recordPhaseStartedArgs) (projectstate.Version, error) {
-	return mapErr(wf.ConstructionTransition.RecordPhaseStarted(ctx, a.ProjectID, a.ExpectedVersion, a.ActivityID, a.Phase, a.Cred.toProjectState(), activityIdempotencyKey(ctx)))
+	return mapErr(wf.ConstructionTransition.RecordPhaseStarted(fwra.Context{Context: ctx}, a.ProjectID, a.ExpectedVersion, a.ActivityID, a.Phase, a.Cred.toProjectState(), activityIdempotencyKey(ctx)))
 }
 
 // recordPhaseCompletedArgs bundles the inputs for RecordPhaseCompleted.
@@ -150,5 +150,5 @@ type recordPhaseCompletedArgs struct {
 }
 
 func (wf *workflows) RecordPhaseCompletedActivity(ctx context.Context, a recordPhaseCompletedArgs) (projectstate.Version, error) {
-	return mapErr(wf.ConstructionTransition.RecordPhaseCompleted(ctx, a.ProjectID, a.ExpectedVersion, a.ActivityID, a.Phase, a.ArtifactRef, a.Cred.toProjectState(), activityIdempotencyKey(ctx)))
+	return mapErr(wf.ConstructionTransition.RecordPhaseCompleted(fwra.Context{Context: ctx}, a.ProjectID, a.ExpectedVersion, a.ActivityID, a.Phase, a.ArtifactRef, a.Cred.toProjectState(), activityIdempotencyKey(ctx)))
 }

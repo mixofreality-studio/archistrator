@@ -67,7 +67,7 @@ type GitProjectStateAccess interface {
 	AdvancePhase(ctx context.Context, projectID ProjectID, expectedVersion Version, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	SetResearchInput(ctx context.Context, projectID ProjectID, expectedVersion Version, research ResearchInput, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	SetOperatingModel(ctx context.Context, projectID ProjectID, expectedVersion Version, model OperatingModel, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	ReadProject(ctx context.Context, projectID ProjectID, cred RepoCredential) (Project, error)
+	ReadProject(rc fwra.Context, projectID ProjectID, cred RepoCredential) (Project, error)
 }
 
 // RepoLocator resolves a project to its per-project git repo URL + CAS target
@@ -543,7 +543,7 @@ func (s *GitStore) CreateProject(ctx context.Context, projectID ProjectID, owner
 	// This is the permissive-resume path: it preserves the existing state (no clobber)
 	// and is idempotent (a re-run against an already-created repo returns the same
 	// project). A genuine NotFound (no state yet) falls through to the fresh init below.
-	existing, err := s.ReadProject(ctx, projectID, cred)
+	existing, err := s.ReadProject(fwra.Context{Context: ctx}, projectID, cred)
 	if err == nil {
 		// State already committed — RESUME (return the existing version, no write).
 		return existing.Version, nil
@@ -572,8 +572,8 @@ func (s *GitStore) CreateProject(ctx context.Context, projectID ProjectID, owner
 // ReadProject returns the whole head-state aggregate from the project repo's
 // project.json. fwra.NotFound when the aggregate has not been created. It reads the
 // locator's DEFAULT branch (main) — the canonical committed head.
-func (s *GitStore) ReadProject(ctx context.Context, projectID ProjectID, cred RepoCredential) (Project, error) {
-	return s.readProjectOnBranch(ctx, projectID, "", cred)
+func (s *GitStore) ReadProject(rc fwra.Context, projectID ProjectID, cred RepoCredential) (Project, error) {
+	return s.readProjectOnBranch(rc.Context, projectID, "", cred)
 }
 
 // ReadProjectOnBranch is the branch-aware read-back the design Managers use during

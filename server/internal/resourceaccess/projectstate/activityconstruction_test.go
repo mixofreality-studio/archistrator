@@ -36,7 +36,7 @@ func newConstructionStore(t *testing.T) (*ps.GitStore, ps.ProjectID, ps.Version,
 // readConstruction reads the ActivityConstruction row for activityID.
 func readConstruction(t *testing.T, store *ps.GitStore, id ps.ProjectID, cred ps.RepoCredential, activityID string) ps.ActivityConstructionStatus {
 	t.Helper()
-	proj, err := store.ReadProject(context.Background(), id, cred)
+	proj, err := store.ReadProject(fwra.Context{Context: context.Background()}, id, cred)
 	if err != nil {
 		t.Fatalf("ReadProject: %v", err)
 	}
@@ -122,7 +122,7 @@ func TestRecordActivityStarted_Idempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RecordActivityStarted: %v", err)
 	}
-	before, err := store.ReadProject(ctx, id, cred)
+	before, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
 	if err != nil {
 		t.Fatalf("ReadProject: %v", err)
 	}
@@ -135,7 +135,7 @@ func TestRecordActivityStarted_Idempotent(t *testing.T) {
 	if v2again != v2 {
 		t.Fatalf("idempotent retry version = %d, want original %d", v2again, v2)
 	}
-	after, err := store.ReadProject(ctx, id, cred)
+	after, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
 	if err != nil {
 		t.Fatalf("ReadProject: %v", err)
 	}

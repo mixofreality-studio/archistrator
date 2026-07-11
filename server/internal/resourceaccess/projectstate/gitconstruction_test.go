@@ -36,7 +36,7 @@ import (
 
 func readProject(t *testing.T, store *ps.GitStore, id ps.ProjectID, cred ps.RepoCredential) ps.Project {
 	t.Helper()
-	p, err := store.ReadProject(context.Background(), id, cred)
+	p, err := store.ReadProject(fwra.Context{Context: context.Background()}, id, cred)
 	if err != nil {
 		t.Fatalf("ReadProject: %v", err)
 	}
@@ -74,7 +74,7 @@ func TestRecordChangeReviewed_SetsInReview(t *testing.T) {
 
 	v2 := seedActivity(t, store, id, v, cred, "C001")
 
-	v3, err := store.RecordChangeReviewed(ctx, id, v2, "C001", cred, fwra.IdempotencyKey("wf:cr-reviewed"))
+	v3, err := store.RecordChangeReviewed(fwra.Context{Context: ctx}, id, v2, "C001", cred, fwra.IdempotencyKey("wf:cr-reviewed"))
 	if err != nil {
 		t.Fatalf("RecordChangeReviewed: %v", err)
 	}
@@ -92,7 +92,7 @@ func TestRecordChangeReviewed_SetsInReview(t *testing.T) {
 func TestRecordChangeReviewed_EmptyActivityID_Error(t *testing.T) {
 	store, id, v, cred := newConstructionStore(t)
 	ctx := context.Background()
-	_, err := store.RecordChangeReviewed(ctx, id, v, "", cred, fwra.IdempotencyKey("wf:cr-empty"))
+	_, err := store.RecordChangeReviewed(fwra.Context{Context: ctx}, id, v, "", cred, fwra.IdempotencyKey("wf:cr-empty"))
 	if err == nil {
 		t.Fatal("want error for empty activityID, got nil")
 	}
@@ -108,7 +108,7 @@ func TestRecordActivityExited_Completed_SetsDone(t *testing.T) {
 
 	v2 := seedActivity(t, store, id, v, cred, "C002")
 
-	v3, err := store.RecordActivityExited(ctx, id, v2, "C002", ps.ActivityOutcomeCompleted, cred, fwra.IdempotencyKey("wf:exited-completed"))
+	v3, err := store.RecordActivityExited(fwra.Context{Context: ctx}, id, v2, "C002", ps.ActivityOutcomeCompleted, cred, fwra.IdempotencyKey("wf:exited-completed"))
 	if err != nil {
 		t.Fatalf("RecordActivityExited: %v", err)
 	}
@@ -138,7 +138,7 @@ func TestRecordActivityExited_Skipped_SetsDone(t *testing.T) {
 
 	v2 := seedActivity(t, store, id, v, cred, "C003")
 
-	_, err := store.RecordActivityExited(ctx, id, v2, "C003", ps.ActivityOutcomeSkipped, cred, fwra.IdempotencyKey("wf:exited-skipped"))
+	_, err := store.RecordActivityExited(fwra.Context{Context: ctx}, id, v2, "C003", ps.ActivityOutcomeSkipped, cred, fwra.IdempotencyKey("wf:exited-skipped"))
 	if err != nil {
 		t.Fatalf("RecordActivityExited(Skipped): %v", err)
 	}
@@ -163,7 +163,7 @@ func TestRecordOperatorPaused_SetsPaused(t *testing.T) {
 	store, id, v, cred := newConstructionStore(t)
 	ctx := context.Background()
 
-	v2, err := store.RecordOperatorPaused(ctx, id, v, "awaiting contractor availability", cred, fwra.IdempotencyKey("wf:paused"))
+	v2, err := store.RecordOperatorPaused(fwra.Context{Context: ctx}, id, v, "awaiting contractor availability", cred, fwra.IdempotencyKey("wf:paused"))
 	if err != nil {
 		t.Fatalf("RecordOperatorPaused: %v", err)
 	}
@@ -215,7 +215,7 @@ func TestRecordPhaseStarted_SeedsPhaseSet(t *testing.T) {
 
 	v2 := seedActivity(t, store, id, v, cred, "C004")
 
-	v3, err := store.RecordPhaseStarted(ctx, id, v2, "C004", ps.MethodPhaseRequirements, cred, fwra.IdempotencyKey("wf:phase-started"))
+	v3, err := store.RecordPhaseStarted(fwra.Context{Context: ctx}, id, v2, "C004", ps.MethodPhaseRequirements, cred, fwra.IdempotencyKey("wf:phase-started"))
 	if err != nil {
 		t.Fatalf("RecordPhaseStarted: %v", err)
 	}
@@ -241,7 +241,7 @@ func TestRecordPhaseStarted_EmptyPhase_Error(t *testing.T) {
 	store, id, v, cred := newConstructionStore(t)
 	ctx := context.Background()
 	v2 := seedActivity(t, store, id, v, cred, "C004b")
-	_, err := store.RecordPhaseStarted(ctx, id, v2, "C004b", "", cred, fwra.IdempotencyKey("wf:phase-started-empty"))
+	_, err := store.RecordPhaseStarted(fwra.Context{Context: ctx}, id, v2, "C004b", "", cred, fwra.IdempotencyKey("wf:phase-started-empty"))
 	if err == nil {
 		t.Fatal("want error for empty phase, got nil")
 	}
@@ -256,12 +256,12 @@ func TestRecordPhaseCompleted_MarksPhase(t *testing.T) {
 	ctx := context.Background()
 
 	v2 := seedActivity(t, store, id, v, cred, "C005")
-	v3, err := store.RecordPhaseStarted(ctx, id, v2, "C005", ps.MethodPhaseRequirements, cred, fwra.IdempotencyKey("wf:ps-c005"))
+	v3, err := store.RecordPhaseStarted(fwra.Context{Context: ctx}, id, v2, "C005", ps.MethodPhaseRequirements, cred, fwra.IdempotencyKey("wf:ps-c005"))
 	if err != nil {
 		t.Fatalf("RecordPhaseStarted: %v", err)
 	}
 
-	v4, err := store.RecordPhaseCompleted(ctx, id, v3, "C005", ps.MethodPhaseRequirements, "srs/myservice.md", cred, fwra.IdempotencyKey("wf:pc-c005"))
+	v4, err := store.RecordPhaseCompleted(fwra.Context{Context: ctx}, id, v3, "C005", ps.MethodPhaseRequirements, "srs/myservice.md", cred, fwra.IdempotencyKey("wf:pc-c005"))
 	if err != nil {
 		t.Fatalf("RecordPhaseCompleted: %v", err)
 	}
@@ -312,12 +312,12 @@ func TestRecordPhaseCompleted_AllPhasesDone_CoarsePhaseIsDone(t *testing.T) {
 	cur := v2
 	for i, ph := range phases {
 		startKey := fwra.IdempotencyKey("wf:ps-c006-" + ph.String())
-		cur2, err := store.RecordPhaseStarted(ctx, id, cur, "C006", ph, cred, startKey)
+		cur2, err := store.RecordPhaseStarted(fwra.Context{Context: ctx}, id, cur, "C006", ph, cred, startKey)
 		if err != nil {
 			t.Fatalf("RecordPhaseStarted(%s): %v", ph, err)
 		}
 		completedKey := fwra.IdempotencyKey("wf:pc-c006-" + ph.String())
-		cur3, err := store.RecordPhaseCompleted(ctx, id, cur2, "C006", ph, "", cred, completedKey)
+		cur3, err := store.RecordPhaseCompleted(fwra.Context{Context: ctx}, id, cur2, "C006", ph, "", cred, completedKey)
 		if err != nil {
 			t.Fatalf("RecordPhaseCompleted(%s): %v", ph, err)
 		}
@@ -353,7 +353,7 @@ func TestRecordServiceContractProduced_WritesContract(t *testing.T) {
 		},
 	}
 
-	v2, err := store.RecordServiceContractProduced(ctx, id, v, "myEngine", contract, cred, fwra.IdempotencyKey("wf:contract-myengine"))
+	v2, err := store.RecordServiceContractProduced(fwra.Context{Context: ctx}, id, v, "myEngine", contract, cred, fwra.IdempotencyKey("wf:contract-myengine"))
 	if err != nil {
 		t.Fatalf("RecordServiceContractProduced: %v", err)
 	}
@@ -378,7 +378,7 @@ func TestRecordServiceContractProduced_WritesContract(t *testing.T) {
 func TestRecordServiceContractProduced_EmptyComponent_Error(t *testing.T) {
 	store, id, v, cred := newConstructionStore(t)
 	ctx := context.Background()
-	_, err := store.RecordServiceContractProduced(ctx, id, v, "", ps.ServiceContract{}, cred, fwra.IdempotencyKey("wf:contract-empty"))
+	_, err := store.RecordServiceContractProduced(fwra.Context{Context: ctx}, id, v, "", ps.ServiceContract{}, cred, fwra.IdempotencyKey("wf:contract-empty"))
 	if err == nil {
 		t.Fatal("want error for empty component, got nil")
 	}
@@ -403,7 +403,7 @@ func TestRecordPhaseArtifactProduced_SRS(t *testing.T) {
 		},
 	}
 
-	v3, err := store.RecordPhaseArtifactProduced(ctx, id, v2, "C007", "myService", payload, cred, fwra.IdempotencyKey("wf:artifact-srs"))
+	v3, err := store.RecordPhaseArtifactProduced(fwra.Context{Context: ctx}, id, v2, "C007", "myService", payload, cred, fwra.IdempotencyKey("wf:artifact-srs"))
 	if err != nil {
 		t.Fatalf("RecordPhaseArtifactProduced(SRS): %v", err)
 	}
@@ -447,7 +447,7 @@ func TestRecordPhaseArtifactProduced_SystemTestPlan(t *testing.T) {
 		},
 	}
 
-	v3, err := store.RecordPhaseArtifactProduced(ctx, id, v2, "N001", "", payload, cred, fwra.IdempotencyKey("wf:artifact-stp"))
+	v3, err := store.RecordPhaseArtifactProduced(fwra.Context{Context: ctx}, id, v2, "N001", "", payload, cred, fwra.IdempotencyKey("wf:artifact-stp"))
 	if err != nil {
 		t.Fatalf("RecordPhaseArtifactProduced(SystemTestPlan): %v", err)
 	}
@@ -480,14 +480,14 @@ func TestRecordPhaseStarted_Idempotent(t *testing.T) {
 
 	v2 := seedActivity(t, store, id, v, cred, "C008")
 
-	v3, err := store.RecordPhaseStarted(ctx, id, v2, "C008", ps.MethodPhaseRequirements, cred, fwra.IdempotencyKey("wf:ps-idem"))
+	v3, err := store.RecordPhaseStarted(fwra.Context{Context: ctx}, id, v2, "C008", ps.MethodPhaseRequirements, cred, fwra.IdempotencyKey("wf:ps-idem"))
 	if err != nil {
 		t.Fatalf("RecordPhaseStarted: %v", err)
 	}
 	before := readProject(t, store, id, cred)
 
 	// Retry with SAME key but stale expectedVersion; dedup ledger must win.
-	v3again, err := store.RecordPhaseStarted(ctx, id, 0, "C008", ps.MethodPhaseRequirements, cred, fwra.IdempotencyKey("wf:ps-idem"))
+	v3again, err := store.RecordPhaseStarted(fwra.Context{Context: ctx}, id, 0, "C008", ps.MethodPhaseRequirements, cred, fwra.IdempotencyKey("wf:ps-idem"))
 	if err != nil {
 		t.Fatalf("idempotent retry should succeed via ledger, got: %v", err)
 	}
@@ -576,7 +576,7 @@ func TestRecordPhaseArtifactProduced_EmptyActivityID_Error(t *testing.T) {
 	ctx := context.Background()
 	v2 := seedActivity(t, store, id, v, cred, "C009")
 	_ = v2
-	_, err := store.RecordPhaseArtifactProduced(ctx, id, v, "", "key", ps.PhaseArtifactPayload{}, cred, fwra.IdempotencyKey("wf:artifact-empty"))
+	_, err := store.RecordPhaseArtifactProduced(fwra.Context{Context: ctx}, id, v, "", "key", ps.PhaseArtifactPayload{}, cred, fwra.IdempotencyKey("wf:artifact-empty"))
 	if err == nil {
 		t.Fatal("want error for empty activityID, got nil")
 	}
@@ -588,11 +588,11 @@ func TestRecordServiceContractProduced_TwoComponents(t *testing.T) {
 	store, id, v, cred := newConstructionStore(t)
 	ctx := context.Background()
 
-	v2, err := store.RecordServiceContractProduced(ctx, id, v, "engineA", ps.ServiceContract{Component: "engineA", Title: "engineA contract"}, cred, fwra.IdempotencyKey("wf:contract-a"))
+	v2, err := store.RecordServiceContractProduced(fwra.Context{Context: ctx}, id, v, "engineA", ps.ServiceContract{Component: "engineA", Title: "engineA contract"}, cred, fwra.IdempotencyKey("wf:contract-a"))
 	if err != nil {
 		t.Fatalf("RecordServiceContractProduced(engineA): %v", err)
 	}
-	_, err = store.RecordServiceContractProduced(ctx, id, v2, "engineB", ps.ServiceContract{Component: "engineB", Title: "engineB contract"}, cred, fwra.IdempotencyKey("wf:contract-b"))
+	_, err = store.RecordServiceContractProduced(fwra.Context{Context: ctx}, id, v2, "engineB", ps.ServiceContract{Component: "engineB", Title: "engineB contract"}, cred, fwra.IdempotencyKey("wf:contract-b"))
 	if err != nil {
 		t.Fatalf("RecordServiceContractProduced(engineB): %v", err)
 	}
@@ -614,12 +614,12 @@ func TestRecordPhaseCompleted_NoPhaseMatch_Noop(t *testing.T) {
 
 	v2 := seedActivity(t, store, id, v, cred, "C010")
 	// seed phases
-	v3, err := store.RecordPhaseStarted(ctx, id, v2, "C010", ps.MethodPhaseRequirements, cred, fwra.IdempotencyKey("wf:ps-c010"))
+	v3, err := store.RecordPhaseStarted(fwra.Context{Context: ctx}, id, v2, "C010", ps.MethodPhaseRequirements, cred, fwra.IdempotencyKey("wf:ps-c010"))
 	if err != nil {
 		t.Fatalf("RecordPhaseStarted: %v", err)
 	}
 	// complete a phase that is NOT in the service phase set (e.g. "ui_design" — a non-existent id post-refactor)
-	v4, err := store.RecordPhaseCompleted(ctx, id, v3, "C010", ps.ActivityMethodPhase("ui_design"), "", cred, fwra.IdempotencyKey("wf:pc-c010-nophase"))
+	v4, err := store.RecordPhaseCompleted(fwra.Context{Context: ctx}, id, v3, "C010", ps.ActivityMethodPhase("ui_design"), "", cred, fwra.IdempotencyKey("wf:pc-c010-nophase"))
 	if err != nil {
 		t.Fatalf("RecordPhaseCompleted on unknown phase should not error: %v", err)
 	}

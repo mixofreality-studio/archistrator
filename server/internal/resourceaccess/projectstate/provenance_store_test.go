@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	ps "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
@@ -28,7 +29,7 @@ func TestGitStore_CommitArtifactWithProvenance_RecordsProvenance(t *testing.T) {
 		t.Fatalf("CommitArtifactWithProvenance: %v", err)
 	}
 
-	p, err := store.ReadProject(ctx, id, cred)
+	p, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
 	if err != nil {
 		t.Fatalf("ReadProject: %v", err)
 	}
