@@ -377,7 +377,10 @@ function ProjectDesignBody({ projectId }: { projectId: string }): ReactNode {
               </Typography>
               <StageChip
                 stage={
-                  committed ? 'committed' : stage === 'awaitingReview' ? 'awaitingReview' : 'empty'
+                  // An amendment awaiting review must read AWAITING YOU, not COMMITTED —
+                  // the body below is the DRAFT revision, and badging it committed made a
+                  // reviewer approve a rev-4 data-loss draft blind (F-GTD-9/F-GTD-10).
+                  stage === 'awaitingReview' ? 'awaitingReview' : committed ? 'committed' : 'empty'
                 }
               />
               {/* Staleness moved off the full-width amber banner into a compact
