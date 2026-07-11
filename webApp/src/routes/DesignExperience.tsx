@@ -28,6 +28,7 @@ import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 import Chip from '@mui/material/Chip';
 import Button from '@mui/material/Button';
+import Alert from '@mui/material/Alert';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import { getRouteApi, useNavigate } from '@tanstack/react-router';
@@ -262,6 +263,19 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
     acknowledgeStale.mutate({ kind: activeKind, note });
   };
 
+  // F-GTD-12: while this artifact's own co-author session is LIVE (an amendment in
+  // flight — a committed slot can only host an amendment), the ack would commit to
+  // main and merge-conflict the amendment's review PR. The server refuses it; gate
+  // the popover action too so the refusal is explained instead of discovered.
+  const sessionLive =
+    stage === 'drafting' ||
+    stage === 'awaitingReview' ||
+    stage === 'redrafting' ||
+    stage === 'draftFailed';
+  const ackDisabledReason = sessionLive
+    ? 'An amendment is already in flight for this artifact — reconcile rides it. Approve or withdraw the amendment first.'
+    : undefined;
+
   const submitResearch = (research: ResearchInput): void => {
     setResearch.mutate(research, {
       onSuccess: () => {
@@ -440,6 +454,8 @@ function SystemDesignBody({ projectId }: { projectId: string }): ReactNode {
               {activeCommitted ? <ArtifactInfoButton kind={activeKind} /> : null}
               {activeCommitted && committedStale ? (
                 <StaleBasisHeaderChip
+                  ackDisabledReason={ackDisabledReason}
+                  ackError={acknowledgeStale.error?.message}
                   acknowledgePending={acknowledgeStale.isPending}
                   cause={committedStaleCause}
                   onAcknowledge={onAcknowledgeStale}
@@ -753,6 +769,19 @@ function StepBody({
           <ArtifactRenderer envelope={view?.draft} height={620} title={title} />
         )}
       </Box>
+      {/* QA F35 / F-GTD-12b: a contained approve/merge-window fault returns the session
+          to awaitingReview carrying failureReason — without this the reviewer just sees
+          AWAITING YOU again and the approve looks like a silent no-op. */}
+      {gateOpen && failureReason !== undefined ? (
+        <Alert
+          data-testid={UI_IDENTIFIERS.DesignExperience.APPROVE_FAULT}
+          severity="warning"
+          sx={{ mb: 2 }}
+        >
+          {failureReason} If approving again fails the same way, a send-back refreshes the draft
+          from main.
+        </Alert>
+      ) : null}
       {gateOpen ? (
         <GatePanel
           commentCount={commentCount}

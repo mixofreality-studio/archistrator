@@ -122,6 +122,13 @@ export const UI_IDENTIFIERS = {
     STALE_ACK_NOTE: 'stale-ack-note',
     STALE_ACK_CONFIRM: 'stale-ack-confirm',
     STALE_ACK_CANCEL: 'stale-ack-cancel',
+    // F-GTD-12: caption explaining why "mark reviewed" is disabled (amendment in flight).
+    STALE_ACK_DISABLED: 'stale-ack-disabled',
+    // F-GTD-18: inline error line when the acknowledge mutation failed.
+    STALE_ACK_ERROR: 'stale-ack-error',
+    // F-GTD-18: warning above the review gate after a contained approve/merge-window
+    // fault (the session returned to awaitingReview carrying a failureReason).
+    APPROVE_FAULT: 'approve-fault',
     // Compact stale marker on a spine step, keyed by slot kind.
     spineStale: (kind: string) => `spine-stale-${kind}`,
   },

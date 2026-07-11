@@ -52,6 +52,8 @@ export function StaleBasisHeaderChip({
   onReconcile,
   onAcknowledge,
   acknowledgePending = false,
+  ackDisabledReason,
+  ackError,
   cause,
 }: {
   /** Launch the reconcile amendment (fires the amend flow directly). */
@@ -60,6 +62,14 @@ export function StaleBasisHeaderChip({
   onAcknowledge?: (note: string) => void;
   /** An AcknowledgeStaleBasis mutation is in flight — disable the confirm. */
   acknowledgePending?: boolean;
+  /**
+   * When set, "Mark reviewed — unaffected" is DISABLED with this caption (F-GTD-12:
+   * an amendment session is already in flight for this artifact — the ack's main
+   * commit would merge-conflict its review PR, so reconcile rides the amendment).
+   */
+  ackDisabledReason?: string | undefined;
+  /** A failed AcknowledgeStaleBasis mutation's message — surfaced inline (F-GTD-18). */
+  ackError?: string | undefined;
   /** The upstream slot that drifted, when the read model exposes it (PM-P1-2). */
   cause?: string | undefined;
 }): ReactNode {
@@ -121,6 +131,15 @@ export function StaleBasisHeaderChip({
           <Typography sx={{ fontSize: 12.5, color: t.muted, lineHeight: 1.5 }}>
             {staleExplanation(cause)}
           </Typography>
+          {/* F-GTD-18: a failed ack must never look like a silent success — name it inline. */}
+          {ackError !== undefined ? (
+            <Typography
+              data-testid={UI_IDENTIFIERS.DesignExperience.STALE_ACK_ERROR}
+              sx={{ fontSize: 12.5, color: t.dangerFg, lineHeight: 1.5 }}
+            >
+              Marking reviewed failed: {ackError}
+            </Typography>
+          ) : null}
           {confirming ? (
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mt: 0.5 }}>
               <TextField
@@ -142,8 +161,10 @@ export function StaleBasisHeaderChip({
                   size="small"
                   variant="contained"
                   onClick={() => {
+                    // Deliberately does NOT close: on success the cleared StaleBasis
+                    // unmounts the chip (popover included); on failure the popover
+                    // stays open so the inline error above is actually seen (F-GTD-18).
                     onAcknowledge?.(note.trim());
-                    close();
                   }}
                 >
                   Confirm — reviewed, unaffected
@@ -181,6 +202,7 @@ export function StaleBasisHeaderChip({
               {onAcknowledge !== undefined ? (
                 <Button
                   data-testid={UI_IDENTIFIERS.DesignExperience.STALE_MARK_REVIEWED}
+                  disabled={ackDisabledReason !== undefined}
                   size="small"
                   sx={{ color: t.ink, borderColor: t.line, textTransform: 'none' }}
                   variant="outlined"
@@ -193,6 +215,16 @@ export function StaleBasisHeaderChip({
               ) : null}
             </Box>
           )}
+          {/* F-GTD-12: while this artifact's amendment session is live, the ack is
+              refused server-side — disable it here and say why. */}
+          {!confirming && ackDisabledReason !== undefined ? (
+            <Typography
+              data-testid={UI_IDENTIFIERS.DesignExperience.STALE_ACK_DISABLED}
+              sx={{ fontSize: 11.5, color: t.muted, lineHeight: 1.4 }}
+            >
+              {ackDisabledReason}
+            </Typography>
+          ) : null}
         </Box>
       </Popover>
     </>

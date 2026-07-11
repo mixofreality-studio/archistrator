@@ -870,6 +870,11 @@ func (wf *workflows) coAuthorDraftRound(
 	}
 	*headVersion = newVersion
 	state.stage = StageAwaitingReview
+	// A fresh AwaitingReview supersedes any prior approve-fault notice (QA F35 —
+	// systemdesign twin parity): without this a send-back after a contained merge-window
+	// fault would carry the stale "approving did not complete" notice into the NEXT
+	// review round's gate.
+	state.failureReason = ""
 	// REVIEW LEDGER: refresh the durable thread from the branch the draft was staged on so the
 	// query surfaces the live comments (with the agent's responses, normalized on stage) and the
 	// approve gate can block while any comment is open. Best-effort — a miss keeps the last thread.
