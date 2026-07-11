@@ -566,6 +566,16 @@ aiarch-state MCP tools (already generic over slot kinds).
 9. **Cleanups**: shared component id (kills both join heuristics),
    activity-profile JSON emission, uitests fixture snapshotting,
    testids-by-import.
+   **DONE 2026-07-10** (projectmodel/v0.2.1). contractKey threads the full
+   $def→modelgen→OAS→TS chain; both joiners are now preferred-exact-match
+   with heuristic fallback for pre-field docs (tolerant evolution, not
+   deletion). lifecycleTemplates now GENERATED from activityprofile.go —
+   the hand file had FULLY diverged from the server's canonical 5-phase
+   profiles (stale UX-mock port): real UI change, server authoritative.
+   uitests fixture snapshot-regens from the live doc; testids import
+   webApp's UIIdentifiers (sharing over mirroring, stance comments
+   updated). Earmarks: gen-uiprofiles' prettier-width heuristic;
+   platform composegen fixture ~397-line staleness vs live doc.
 10. **Earmarked follow-ups (out of scope):** typed signal/query/update
     generation, replay-determinism harness, op-level operation allowlists,
     postgres DDL/scan generation, `x-go-sumtype` promotion of `ArtifactModel`
