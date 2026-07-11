@@ -33,6 +33,8 @@ import (
 //  4. ProjectStateGitRepoURL is required when ProjectStateGitLocal=true (the boot-time
 //     git-local guard — reproduces the pre-appgen hand buildDesignProjectState check).
 //  5. Construction creds are required only when !ConstructionDryRun.
+//  6. GithubAppAppSlug is required on a CLOUD-profile server whose GitHub App rail is
+//     configured (the allowed_bots guard — see validateGithubAppSlug).
 //
 // GithubAppInstallationID stays the raw string on *Config; the two GitHub
 // variant-args hooks coerce it to int64 via parseInt64 at the point of use.
@@ -74,7 +76,35 @@ func loadResolvedConfig() (*Config, error) {
 		}
 	}
 
+	// (6) CLOUD profile + configured App rail: the App slug is load-bearing, not
+	// cosmetic — fail fast rather than seat broken design workflows.
+	if err := validateGithubAppSlug(cfg); err != nil {
+		return nil, err
+	}
+
 	return cfg, nil
+}
+
+// validateGithubAppSlug fails the boot when a CLOUD-profile server
+// (ProjectStateGitLocal=false) has its GitHub App rail configured (App id + PEM +
+// account — the exact newAppHooks condition that activates the seated design rail)
+// but NO ARCHISTRATOR_GITHUB_APP_SLUG. The slug renders the seated design workflow's
+// `allowed_bots:` line (sourcecontrol/agenticdesign.go renderDesignWorkflow); an empty
+// slug OMITS the line, and then EVERY claude-code-action draft run the server
+// dispatches fails with "Workflow initiated by non-human actor" (observed in
+// production QA 2026-07-10). On a git-local dev server the omission stays valid (the
+// rail is exercised by humans, if at all), so only the cloud profile fails fast.
+func validateGithubAppSlug(c *Config) error {
+	appConfigured := c.GithubAppAppID != "" && c.GithubAppPrivateKeyPEM != "" && c.GithubAppAccount != ""
+	if !c.ProjectStateGitLocal && appConfigured && c.GithubAppAppSlug == "" {
+		return fmt.Errorf(
+			"ARCHISTRATOR_GITHUB_APP_SLUG is required on a cloud-profile server with GitHub App creds configured: " +
+				"the seated design workflow renders its allowed_bots: line from the App slug, and with the slug empty " +
+				"the line is omitted — every bot-dispatched claude-code-action design run then fails with " +
+				`"Workflow initiated by non-human actor". Set it to the GitHub App's slug (the app's URL name, ` +
+				"e.g. \"archistrator\" for github.com/apps/archistrator)")
+	}
+	return nil
 }
 
 // validateConstructionCreds returns an error naming every missing construction

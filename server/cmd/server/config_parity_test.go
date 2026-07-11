@@ -135,10 +135,13 @@ func TestLoadConfigParity(t *testing.T) {
 			"ARCHISTRATOR_CONSTRUCTION_REPO_NAME":     "widget",
 			"ARCHISTRATOR_GITHUB_APP_ID":              "999",
 			"ARCHISTRATOR_GITHUB_APP_PRIVATE_KEY_PEM": testPEM,
-			"ARCHISTRATOR_GITHUB_INSTALLATION_ID":     "42",
-			"ARCHISTRATOR_ARTIFACT_REPO_URL":          "https://github.com/acme/widget.git",
-			"ARCHISTRATOR_KEYCLOAK_JWKS_URL":          "https://kc/realms/x/certs",
-			"ARCHISTRATOR_KEYCLOAK_ISSUER":            "https://kc/realms/x",
+			// Required on a cloud-profile server with App creds (the allowed_bots
+			// fail-fast, validateGithubAppSlug) — a real cloud rig always sets it.
+			"ARCHISTRATOR_GITHUB_APP_SLUG":        "acme-app",
+			"ARCHISTRATOR_GITHUB_INSTALLATION_ID": "42",
+			"ARCHISTRATOR_ARTIFACT_REPO_URL":      "https://github.com/acme/widget.git",
+			"ARCHISTRATOR_KEYCLOAK_JWKS_URL":      "https://kc/realms/x/certs",
+			"ARCHISTRATOR_KEYCLOAK_ISSUER":        "https://kc/realms/x",
 		})
 		cfg, err := loadResolvedConfig()
 		if err != nil {

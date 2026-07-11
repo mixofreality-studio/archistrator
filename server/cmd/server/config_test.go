@@ -41,10 +41,74 @@ func TestLoadConfig_RealConstruction_OK(t *testing.T) {
 		"ARCHISTRATOR_CONSTRUCTION_REF":           "main",
 		"ARCHISTRATOR_GITHUB_APP_ID":              "12345",
 		"ARCHISTRATOR_GITHUB_APP_PRIVATE_KEY_PEM": "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAA==\n-----END RSA PRIVATE KEY-----",
+		"ARCHISTRATOR_GITHUB_APP_SLUG":            "archistrator",
 		"ARCHISTRATOR_ARTIFACT_REPO_URL":          "https://github.com/mixofreality-studio/archistrator.git",
 	})
 	if _, err := loadResolvedConfig(); err != nil {
 		t.Fatalf("expected no error with all real-construction creds: %v", err)
+	}
+}
+
+// TestLoadConfig_CloudEmptyAppSlug_FailFast — a CLOUD-profile server (git-local off)
+// with the GitHub App rail configured but NO app slug must fail at boot: the seated
+// design workflow would render WITHOUT allowed_bots and every bot-dispatched
+// claude-code-action draft run would fail with "Workflow initiated by non-human
+// actor" (production QA 2026-07-10).
+func TestLoadConfig_CloudEmptyAppSlug_FailFast(t *testing.T) {
+	setEnv(t, map[string]string{
+		"ARCHISTRATOR_POSTGRES_URL":               "postgres://x",
+		"ARCHISTRATOR_CONSTRUCTION_DRYRUN":        "true",
+		"ARCHISTRATOR_GITHUB_APP_ID":              "12345",
+		"ARCHISTRATOR_GITHUB_APP_PRIVATE_KEY_PEM": "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAA==\n-----END RSA PRIVATE KEY-----",
+		"ARCHISTRATOR_GITHUB_ACCOUNT":             "mixofreality-studio",
+		"ARCHISTRATOR_GITHUB_APP_SLUG":            "",
+		"ARCHISTRATOR_PROJECT_STATE_GIT_LOCAL":    "", // default false → cloud profile
+	})
+	_, err := loadResolvedConfig()
+	if err == nil {
+		t.Fatal("expected boot error: cloud profile + App creds + empty ARCHISTRATOR_GITHUB_APP_SLUG")
+	}
+	if !strings.Contains(err.Error(), "ARCHISTRATOR_GITHUB_APP_SLUG") {
+		t.Fatalf("expected error to name ARCHISTRATOR_GITHUB_APP_SLUG, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "allowed_bots") || !strings.Contains(err.Error(), "non-human actor") {
+		t.Fatalf("expected error to explain the allowed_bots consequence, got: %v", err)
+	}
+}
+
+// TestLoadConfig_GitLocalEmptyAppSlug_OK — the same App creds on a git-LOCAL dev
+// server stay valid without a slug: the design workflow simply omits allowed_bots,
+// which is the documented unconfigured-dev posture (agenticdesign.go).
+func TestLoadConfig_GitLocalEmptyAppSlug_OK(t *testing.T) {
+	setEnv(t, map[string]string{
+		"ARCHISTRATOR_POSTGRES_URL":               "postgres://x",
+		"ARCHISTRATOR_CONSTRUCTION_DRYRUN":        "true",
+		"ARCHISTRATOR_GITHUB_APP_ID":              "12345",
+		"ARCHISTRATOR_GITHUB_APP_PRIVATE_KEY_PEM": "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAA==\n-----END RSA PRIVATE KEY-----",
+		"ARCHISTRATOR_GITHUB_ACCOUNT":             "mixofreality-studio",
+		"ARCHISTRATOR_GITHUB_APP_SLUG":            "",
+		"ARCHISTRATOR_PROJECT_STATE_GIT_LOCAL":    "true",
+		"ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL": "file:///tmp/proj.git",
+	})
+	if _, err := loadResolvedConfig(); err != nil {
+		t.Fatalf("git-local profile must not require the app slug, got: %v", err)
+	}
+}
+
+// TestLoadConfig_CloudNoAppCreds_NoSlugNeeded — a cloud-profile server with NO App
+// creds (dormant design rail) never seats a workflow, so no slug is required.
+func TestLoadConfig_CloudNoAppCreds_NoSlugNeeded(t *testing.T) {
+	setEnv(t, map[string]string{
+		"ARCHISTRATOR_POSTGRES_URL":               "postgres://x",
+		"ARCHISTRATOR_CONSTRUCTION_DRYRUN":        "true",
+		"ARCHISTRATOR_GITHUB_APP_ID":              "",
+		"ARCHISTRATOR_GITHUB_APP_PRIVATE_KEY_PEM": "",
+		"ARCHISTRATOR_GITHUB_ACCOUNT":             "",
+		"ARCHISTRATOR_CONSTRUCTION_REPO_OWNER":    "", // account chains off this too
+		"ARCHISTRATOR_GITHUB_APP_SLUG":            "",
+	})
+	if _, err := loadResolvedConfig(); err != nil {
+		t.Fatalf("repo-less cloud server must boot without the app slug, got: %v", err)
 	}
 }
 
