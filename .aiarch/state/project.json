@@ -13384,7 +13384,7 @@
               {
                 "name": "model",
                 "schema": {
-                  "x-go-type": "ArtifactModel"
+                  "x-go-type": "ModelEnvelope"
                 }
               },
               {

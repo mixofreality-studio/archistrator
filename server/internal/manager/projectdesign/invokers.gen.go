@@ -262,7 +262,7 @@ func (i genInvokers) DesignSessionSetReviewCommentStatusOnBranch(ctx workflow.Co
 }
 
 // DesignSessionStageArtifactForReviewOnBranch invokes activity "designSessionAccess.stageArtifactForReviewOnBranch".
-func (i genInvokers) DesignSessionStageArtifactForReviewOnBranch(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, model projectstate.ArtifactModel) (projectstate.Version, error) {
+func (i genInvokers) DesignSessionStageArtifactForReviewOnBranch(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, model projectstate.ModelEnvelope) (projectstate.Version, error) {
 	var out projectstate.Version
 	err := workflow.ExecuteActivity(i.options(ctx, "designSessionAccess.stageArtifactForReviewOnBranch"), "designSessionAccess.stageArtifactForReviewOnBranch", projectID, expectedVersion, branch, model).Get(ctx, &out)
 	return out, err

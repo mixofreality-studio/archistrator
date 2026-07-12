@@ -14,9 +14,13 @@ import (
 // branch is supplied.
 
 // baseOnlyStore implements ONLY ProjectStateAccess. Every call is recorded so a test
-// can assert exactly which (base) method ran.
+// can assert exactly which (base) method ran. stagedModel captures the DECODED typed
+// model the Stage verbs received — the designSessionAccess Stage op takes the codable
+// ModelEnvelope on the wire (B9 follow-up) and must decode it BEFORE the capability
+// chain, so both fallback directions assert the concrete model arrived.
 type baseOnlyStore struct {
-	calls []string
+	calls       []string
+	stagedModel ArtifactModel
 }
 
 func (s *baseOnlyStore) AdvancePhase(rc fwra.Context, projectID ProjectID, expectedVersion Version) (Version, error) {
@@ -60,6 +64,7 @@ func (s *baseOnlyStore) SetResearchInput(rc fwra.Context, projectID ProjectID, e
 
 func (s *baseOnlyStore) StageArtifactForReview(rc fwra.Context, projectID ProjectID, expectedVersion Version, model ArtifactModel) (Version, error) {
 	s.calls = append(s.calls, "StageArtifactForReview")
+	s.stagedModel = model
 	return 12, nil
 }
 
@@ -83,6 +88,7 @@ func (s *fullStore) ReadProjectOnBranch(ctx context.Context, projectID ProjectID
 
 func (s *fullStore) StageArtifactForReviewOnBranch(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, model ArtifactModel, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	s.calls = append(s.calls, "StageArtifactForReviewOnBranch")
+	s.stagedModel = model
 	return 20, nil
 }
 
@@ -177,14 +183,38 @@ func TestDesignSessionAccess_ReadProjectOnBranch_EmptyBranchAlwaysBase(t *testin
 
 // ---- StageArtifactForReviewOnBranch ------------------------------------------
 
+// stageEnvelope builds the wire envelope for a concrete typed model — the Stage op's
+// parameter is the codable ModelEnvelope (B9 follow-up), decoded INSIDE the RA before
+// the capability chain.
+func stageEnvelope(t *testing.T) ModelEnvelope {
+	t.Helper()
+	env, err := EncodeModel(&PlanningAssumptions{Resources: []string{"alice"}, CalendarDaysPerWeek: 5})
+	if err != nil {
+		t.Fatalf("EncodeModel: %v", err)
+	}
+	return env
+}
+
+func assertStagedPlanningAssumptions(t *testing.T, got ArtifactModel) {
+	t.Helper()
+	pa, ok := got.(*PlanningAssumptions)
+	if !ok {
+		t.Fatalf("staged model = %T, want *PlanningAssumptions (the RA must DECODE the envelope before the chain)", got)
+	}
+	if len(pa.Resources) != 1 || pa.Resources[0] != "alice" {
+		t.Fatalf("decoded model lost its payload: %+v", pa)
+	}
+}
+
 func TestDesignSessionAccess_StageArtifactForReviewOnBranch_BaseFallback(t *testing.T) {
 	base := &baseOnlyStore{}
 	s := NewDesignSessionAccess(base)
-	v, err := s.StageArtifactForReviewOnBranch(fwra.Context{Context: context.Background()}, "proj-1", 1, "session-branch", nil, "idem-1")
+	v, err := s.StageArtifactForReviewOnBranch(fwra.Context{Context: context.Background()}, "proj-1", 1, "session-branch", stageEnvelope(t), "idem-1")
 	if err != nil {
 		t.Fatalf("StageArtifactForReviewOnBranch: %v", err)
 	}
 	assertCalls(t, base.calls, "StageArtifactForReview")
+	assertStagedPlanningAssumptions(t, base.stagedModel)
 	if v != 12 {
 		t.Fatalf("Version = %d, want 12", v)
 	}
@@ -193,13 +223,29 @@ func TestDesignSessionAccess_StageArtifactForReviewOnBranch_BaseFallback(t *test
 func TestDesignSessionAccess_StageArtifactForReviewOnBranch_Primary(t *testing.T) {
 	full := &fullStore{}
 	s := NewDesignSessionAccess(full)
-	v, err := s.StageArtifactForReviewOnBranch(fwra.Context{Context: context.Background()}, "proj-1", 1, "session-branch", nil, "idem-1")
+	v, err := s.StageArtifactForReviewOnBranch(fwra.Context{Context: context.Background()}, "proj-1", 1, "session-branch", stageEnvelope(t), "idem-1")
 	if err != nil {
 		t.Fatalf("StageArtifactForReviewOnBranch: %v", err)
 	}
 	assertCalls(t, full.calls, "StageArtifactForReviewOnBranch")
+	assertStagedPlanningAssumptions(t, full.stagedModel)
 	if v != 20 {
 		t.Fatalf("Version = %d, want 20", v)
+	}
+}
+
+// A malformed envelope fails BEFORE any store verb runs, surfacing the plain Decode
+// error unwrapped — byte-for-byte the class the retired Manager-side custom activity
+// surfaced (fwmanager.MapError passes non-layer errors through untagged).
+func TestDesignSessionAccess_StageArtifactForReviewOnBranch_DecodeFailureNoStoreCall(t *testing.T) {
+	full := &fullStore{}
+	s := NewDesignSessionAccess(full)
+	bad := ModelEnvelope{Kind: KindPlanningAssumptions, Model: []byte(`{"resources": 42}`)}
+	if _, err := s.StageArtifactForReviewOnBranch(fwra.Context{Context: context.Background()}, "proj-1", 1, "session-branch", bad, "idem-1"); err == nil {
+		t.Fatal("a malformed envelope must fail the Stage")
+	}
+	if len(full.calls) != 0 {
+		t.Fatalf("no store verb may run on a decode failure, got %v", full.calls)
 	}
 }
 

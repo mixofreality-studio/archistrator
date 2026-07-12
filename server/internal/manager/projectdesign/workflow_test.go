@@ -337,29 +337,26 @@ func planningAssumptionsReadBack(id projectstate.ProjectID) projectstate.Project
 	return p
 }
 
-func newWorkflows(ps projectstate.ProjectStateAccess) *workflows {
+// newWorkflows builds the workflows receiver under test. It carries NO RA dep (B9
+// follow-up — every Activity is generated): the fake substrate / pipeline / rail are
+// threaded to registerGenActivities / registerCoAuthor instead, exactly as production
+// threads them into genActivities.
+func newWorkflows() *workflows {
 	return &workflows{
 		Estimation:   estimation.NewEstimationEngine(),
 		OperationEst: operationestimation.NewOperationEstimationEngine(),
 		Settlement:   billing.NewBillingEngine(),
-		ProjectState: ps,
 		// The generated invoker surface consults the manager's real preset hook; the
 		// generated RA activities are registered on the env via registerGenActivities.
 		Acts: genInvokers{Opts: activityOptions()},
 	}
 }
 
-// newCoAuthorWorkflows builds a workflows for the agentic co-author draft path. The fake
-// pipeline is threaded to registerGenActivities (which registers the generated submit/
-// observe activities), not stored on the workflows struct.
-func newCoAuthorWorkflows(ps projectstate.ProjectStateAccess, pipe *fakePipeline) *workflows {
-	return newWorkflows(ps)
-}
-
 // registerGenActivities registers the GENERATED RA activities (projectState read-version /
-// advance-phase, pipeline submit/observe/cancel, the seven rail verbs, and — since B9 — the
-// six designSessionAccess verbs the migrated CoAuthor call sites now reach) under their
-// contract names — mirrors what RegisterWorker threads via genActivities (worker.gen.go).
+// advance-phase, pipeline submit/observe/cancel, the seven rail verbs, and — since B9 + its
+// follow-up — the seven designSessionAccess verbs the migrated call sites now reach,
+// including the envelope-parameter Stage op) under their contract names — mirrors what
+// RegisterWorker threads via genActivities (worker.gen.go).
 // Pipeline / rail may be nil for tests that never dispatch; the registered method values are
 // only invoked when the workflow reaches them.
 //
@@ -390,6 +387,7 @@ func registerGenActivities(env *testsuite.TestWorkflowEnvironment, ps projectsta
 	env.RegisterActivityWithOptions(acts.RailMergePullRequest, activity.RegisterOptions{Name: "sourceControlAccess.mergePullRequest"})
 	env.RegisterActivityWithOptions(acts.RailSyncManagedScaffold, activity.RegisterOptions{Name: "sourceControlAccess.syncManagedScaffold"})
 	env.RegisterActivityWithOptions(acts.DesignSessionReadProjectOnBranch, activity.RegisterOptions{Name: "designSessionAccess.readProjectOnBranch"})
+	env.RegisterActivityWithOptions(acts.DesignSessionStageArtifactForReviewOnBranch, activity.RegisterOptions{Name: "designSessionAccess.stageArtifactForReviewOnBranch"})
 	env.RegisterActivityWithOptions(acts.DesignSessionCommitArtifactWithProvenance, activity.RegisterOptions{Name: "designSessionAccess.commitArtifactWithProvenance"})
 	env.RegisterActivityWithOptions(acts.DesignSessionRejectArtifactOnBranchWithComments, activity.RegisterOptions{Name: "designSessionAccess.rejectArtifactOnBranchWithComments"})
 	env.RegisterActivityWithOptions(acts.DesignSessionWithdrawArtifactOnBranch, activity.RegisterOptions{Name: "designSessionAccess.withdrawArtifactOnBranch"})
@@ -403,21 +401,20 @@ func registerName(name string) workflow.RegisterOptions {
 }
 
 // registerCoAuthor registers the per-artifact gate workflow + its activities on the
-// test env, exactly as RegisterWorker does in production (same stable names). The ONE
-// surviving custom Activity (StageArtifactForReviewActivity) is registered by method
-// value, as production's RegisterManagerWorker does explicitly (workermanifest.go);
-// every other Activity is generated (registerGenActivities).
-func registerCoAuthor(env *testsuite.TestWorkflowEnvironment, wf *workflows, pipe *fakePipeline) {
+// test env, exactly as RegisterWorker does in production (same stable names). Every
+// Activity is generated (registerGenActivities); ps is the fake substrate the generated
+// projectState/designSession activities are backed by (threaded explicitly — the
+// workflows struct no longer carries an RA dep).
+func registerCoAuthor(env *testsuite.TestWorkflowEnvironment, wf *workflows, ps projectstate.ProjectStateAccess, pipe *fakePipeline) {
 	env.RegisterWorkflowWithOptions(wf.CoAuthorPhase2ArtifactWorkflow, registerName(executionKindCoAuthor))
-	env.RegisterActivity(wf.StageArtifactForReviewActivity)
-	registerGenActivities(env, wf.ProjectState, pipe, nil)
+	registerGenActivities(env, ps, pipe, nil)
 }
 
 // ---- Pure unit test of the deterministic assembly + engine-join helper ------
 
 func Test_assembleSdpReview_FourRows_Deterministic(t *testing.T) {
 	id := ProjectID(uuid.NewString())
-	wf := newWorkflows(nil)
+	wf := newWorkflows()
 	proj := sdpReadyProject(projectstate.ProjectID(id))
 
 	review, err := wf.assembleSdpReview(proj, "")
@@ -458,7 +455,7 @@ func Test_assembleSdpReview_FourRows_Deterministic(t *testing.T) {
 
 func Test_assembleSdpReview_MissingPrerequisite_Errors(t *testing.T) {
 	id := ProjectID(uuid.NewString())
-	wf := newWorkflows(nil)
+	wf := newWorkflows()
 	proj := sdpReadyProject(projectstate.ProjectID(id))
 	proj.Network = projectstate.ArtifactSlot{} // drop a prerequisite
 
@@ -481,8 +478,8 @@ func Test_CoAuthor_PlanDraftRoundTrip_DispatchObserveReadBack_AwaitsReview(t *te
 	id := ProjectID(uuid.NewString())
 	ps := &fakeProjectState{project: planningAssumptionsReadBack(projectstate.ProjectID(id))}
 	pipe := newFakePipeline() // default: dispatch observed Succeeded
-	wf := newCoAuthorWorkflows(ps, pipe)
-	registerCoAuthor(env, wf, pipe)
+	wf := newWorkflows()
+	registerCoAuthor(env, wf, ps, pipe)
 
 	env.RegisterDelayedCallback(func() {
 		enc, err := env.QueryWorkflow(querySessionState)
@@ -556,8 +553,8 @@ func Test_CoAuthor_PhaseFailed_LandsInStageDraftFailed_NotPerpetualDrafting(t *t
 	ps := &fakeProjectState{project: planningAssumptionsReadBack(projectstate.ProjectID(id))}
 	pipe := newFakePipeline(pipelineFailed)
 	pipe.diagnostic = "aiarch-validate found 2 violations"
-	wf := newCoAuthorWorkflows(ps, pipe)
-	registerCoAuthor(env, wf, pipe)
+	wf := newWorkflows()
+	registerCoAuthor(env, wf, ps, pipe)
 
 	env.RegisterDelayedCallback(func() {
 		enc, err := env.QueryWorkflow(querySessionState)
@@ -608,8 +605,8 @@ func Test_CoAuthor_PhaseCancelled_LandsInStageDraftFailed(t *testing.T) {
 	id := ProjectID(uuid.NewString())
 	ps := &fakeProjectState{project: planningAssumptionsReadBack(projectstate.ProjectID(id))}
 	pipe := newFakePipeline(pipelineCancelled)
-	wf := newCoAuthorWorkflows(ps, pipe)
-	registerCoAuthor(env, wf, pipe)
+	wf := newWorkflows()
+	registerCoAuthor(env, wf, ps, pipe)
 
 	env.RegisterDelayedCallback(func() {
 		enc, _ := env.QueryWorkflow(querySessionState)
@@ -641,8 +638,8 @@ func Test_CoAuthor_DraftFailedThenRetry_DistinctIdempotencyKey(t *testing.T) {
 	// First dispatch fails; the retry dispatch (2nd) succeeds → reaches AwaitingReview.
 	pipe := newFakePipeline(pipelineFailed, pipelineSucceeded)
 	pipe.diagnostic = "transient CI flake"
-	wf := newCoAuthorWorkflows(ps, pipe)
-	registerCoAuthor(env, wf, pipe)
+	wf := newWorkflows()
+	registerCoAuthor(env, wf, ps, pipe)
 
 	// Reject at the draft-failed gate → Retry-via-Reject → re-dispatch.
 	env.RegisterDelayedCallback(func() {
@@ -681,8 +678,8 @@ func Test_CoAuthor_Reject_LoopsToFreshDispatch(t *testing.T) {
 	id := ProjectID(uuid.NewString())
 	ps := &fakeProjectState{project: planningAssumptionsReadBack(projectstate.ProjectID(id))}
 	pipe := newFakePipeline() // every dispatch Succeeds
-	wf := newCoAuthorWorkflows(ps, pipe)
-	registerCoAuthor(env, wf, pipe)
+	wf := newWorkflows()
+	registerCoAuthor(env, wf, ps, pipe)
 
 	const rejectNotes = "rework the staffing assumptions"
 	env.RegisterDelayedCallback(func() {
@@ -719,12 +716,11 @@ func Test_CoAuthor_Reject_LoopsToFreshDispatch(t *testing.T) {
 func Test_AssembleSDPReviewWorkflow_Commit_HappyPath_EnginesRunInProcess(t *testing.T) {
 	id := ProjectID(uuid.NewString())
 	ps := &fakeProjectState{project: sdpReadyProject(projectstate.ProjectID(id))}
-	wf := newWorkflows(ps) // REAL three estimate Engines; NO pipeline needed (no dispatch)
+	wf := newWorkflows() // REAL three estimate Engines; NO pipeline needed (no dispatch)
 
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
 	env.RegisterWorkflowWithOptions(wf.AssembleSDPReviewWorkflow, registerName(executionKindSDPReview))
-	env.RegisterActivity(wf.StageArtifactForReviewActivity)
 	registerGenActivities(env, ps, nil, nil)
 
 	pre, err := wf.assembleSdpReview(ps.project, "")
@@ -774,12 +770,11 @@ func Test_AssembleSDPReviewWorkflow_Commit_HappyPath_EnginesRunInProcess(t *test
 func Test_AssembleSDPReviewWorkflow_RejectAll_ReassemblesThenCommits(t *testing.T) {
 	id := ProjectID(uuid.NewString())
 	ps := &fakeProjectState{project: sdpReadyProject(projectstate.ProjectID(id))}
-	wf := newWorkflows(ps)
+	wf := newWorkflows()
 
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
 	env.RegisterWorkflowWithOptions(wf.AssembleSDPReviewWorkflow, registerName(executionKindSDPReview))
-	env.RegisterActivity(wf.StageArtifactForReviewActivity)
 	registerGenActivities(env, ps, nil, nil)
 
 	pre, _ := wf.assembleSdpReview(ps.project, "")
@@ -812,7 +807,7 @@ func Test_Phase2AdvanceWorkflow_MissingArtifacts_NotAdvanced(t *testing.T) {
 	proj := projectstate.Project{ID: projectstate.ProjectID(id), Phase: projectstate.PhaseProjectDesign}
 	proj.PlanningAssumptions = committedSlot(&projectstate.PlanningAssumptions{CalendarDaysPerWeek: 5})
 	ps := &fakeProjectState{project: proj}
-	wf := newWorkflows(ps)
+	wf := newWorkflows()
 
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
@@ -847,7 +842,7 @@ func Test_Phase2AdvanceWorkflow_AllCommittedWithOption_Advances(t *testing.T) {
 		Recommendation: "NormalSolution",
 	})
 	ps := &fakeProjectState{project: proj}
-	wf := newWorkflows(ps)
+	wf := newWorkflows()
 
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()

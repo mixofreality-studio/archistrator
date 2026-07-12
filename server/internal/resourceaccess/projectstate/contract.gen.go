@@ -778,7 +778,7 @@ type ConstructionTransitionAccess interface {
 // DesignSessionAccess is the generated service-contract interface for this component.
 type DesignSessionAccess interface {
 	ReadProjectOnBranch(rc fwra.Context, projectID ProjectID, branch string) (ProjectEnvelope, error)
-	StageArtifactForReviewOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, model ArtifactModel, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	StageArtifactForReviewOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, model ModelEnvelope, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	CommitArtifactWithProvenance(rc fwra.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, approvedBy string, draftedBy string) (Version, error)
 	RejectArtifactOnBranchWithComments(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, round int64, comments []ReviewComment, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	WithdrawArtifactOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, idempotencyKey fwra.IdempotencyKey) (Version, error)

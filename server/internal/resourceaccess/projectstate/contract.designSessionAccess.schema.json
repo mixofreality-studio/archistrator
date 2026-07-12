@@ -21,7 +21,7 @@
           {"name": "projectID", "schema": {"$ref": "#/$defs/ProjectID"}},
           {"name": "expectedVersion", "schema": {"$ref": "#/$defs/Version"}},
           {"name": "branch", "schema": {"type": "string"}},
-          {"name": "model", "schema": {"x-go-type": "ArtifactModel"}},
+          {"name": "model", "schema": {"x-go-type": "ModelEnvelope"}},
           {"name": "idempotencyKey", "schema": {"x-go-type": "fwra.IdempotencyKey"}}
         ],
         "result": {"$ref": "#/$defs/Version"},

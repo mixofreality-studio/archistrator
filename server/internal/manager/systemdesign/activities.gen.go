@@ -254,7 +254,7 @@ func (a *genActivities) DesignSessionSetReviewCommentStatusOnBranch(ctx context.
 
 // DesignSessionStageArtifactForReviewOnBranch wraps designSessionAccess.stageArtifactForReviewOnBranch.
 // Registered as "designSessionAccess.stageArtifactForReviewOnBranch".
-func (a *genActivities) DesignSessionStageArtifactForReviewOnBranch(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, model projectstate.ArtifactModel) (projectstate.Version, error) {
+func (a *genActivities) DesignSessionStageArtifactForReviewOnBranch(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, model projectstate.ModelEnvelope) (projectstate.Version, error) {
 	v, err := a.DesignSession.StageArtifactForReviewOnBranch(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, branch, model, genActivityIdempotencyKey(ctx))
 	return v, fwmanager.MapError(err)
 }

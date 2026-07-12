@@ -59,31 +59,27 @@ const (
 	executionKindPhaseAdvance = "projectDesignPhaseAdvance"
 )
 
-// workflows is the single projectDesignManager component struct. It holds ALL the
-// downstream dependencies the Manager orchestrates and is BOTH the workflow
-// receiver and the activity receiver — there is no separate Activities type.
-//
-// How the dependency kinds are reached differs by their determinism class
-// (contract §6.3/§6.4):
+// workflows is the single projectDesignManager component struct — the workflow
+// receiver. It carries ZERO custom Temporal Activities and NO I/O ResourceAccess dep
+// (B9 + its follow-up ruling): every RA op is a GENERATED activity reached through the
+// typed invoker surface (Acts), and the last custom Activity
+// (StageArtifactForReviewActivity) was deleted when the designSessionAccess Stage op's
+// model param became the codable ModelEnvelope at the schema.
 //
 //   - Estimation, OperationEst, Settlement are PURE, deterministic Engines, so the
 //     workflow body calls their verbs DIRECTLY — replay-safe, no Activity wrapper.
 //     They STAY server-side in-workflow (§0.5.5 "RETAINED, unchanged"): they are
 //     by-value joins, NOT LLM work, and do NOT become agentic dispatches.
-//   - ProjectState (read-back + thin-writes) and Pipeline (constructionPipelineAccess
-//     — submit + observe) are I/O ResourceAccess ports and are NON-deterministic.
-//     They are fields here, but the workflow MUST NOT call them on the workflow
-//     goroutine. Instead the workflow invokes the Activity methods on this same
-//     struct via workflow.ExecuteActivity (activities.go / dispatch.go).
 //
 // 2026-06-15 agentic-pivot re-cut (projectDesignManager.md §0.5 / D-MPD-Δ): the
 // Phase-2 plan-DRAFTING mechanism flips from a synchronous worker call to an ASYNC
 // dispatch → observe → read-back round-trip. The per-artifact CoAuthorPhase2-
 // ArtifactWorkflow no longer calls workerAccess.GenerateTypedData in-process; instead
-// the Manager DISPATCHES a claude-code-action DESIGN job via Pipeline
-// (constructionPipelineAccess), OBSERVES it to a typed terminal phase, and READS BACK
-// the typed model the Action committed via ProjectState.ReadProject. aiarch makes NO
-// synchronous LLM call and writes NO draft JSON on the main path.
+// the Manager DISPATCHES a claude-code-action DESIGN job via the generated
+// constructionPipelineAccess submit/observe activities, OBSERVES it to a typed terminal
+// phase, and READS BACK the typed model the Action committed via the generated
+// designSessionAccess.readProjectOnBranch activity. aiarch makes NO synchronous LLM
+// call and writes NO draft JSON on the main path.
 //
 // DROPPED from the draft path (§0.5.5): workerAccess (no synchronous LLM call
 // survives; the in-flight cancel is constructionPipelineAccess.cancel) and
@@ -93,14 +89,13 @@ type workflows struct {
 	Estimation   estimation.EstimationEngine
 	OperationEst operationestimation.OperationEstimationEngine
 	Settlement   billing.BillingEngine
-	ProjectState projectstate.ProjectStateAccess
 
 	// Acts is the GENERATED typed invoker surface (invokers.gen.go) — the workflow's call
-	// surface for the contract-backed RA ops the temporalgen migration routes through the
-	// generated activities: projectStateAccess readProjectVersion / advancePhase, the
-	// constructionPipelineAccess submit/observe design-job pair, and the six
-	// sourceControlAccess PR-rail verbs. Each invoker consults the manager's per-op preset
-	// hook (workermanifest.go activityOptions), keyed by the generated activity name.
+	// surface for EVERY contract-backed RA op: projectStateAccess readProjectVersion /
+	// advancePhase, the constructionPipelineAccess submit/observe design-job pair, the
+	// seven sourceControlAccess PR-rail verbs, and the eight designSessionAccess
+	// branch-session verbs. Each invoker consults the manager's per-op preset hook
+	// (workermanifest.go activityOptions), keyed by the generated activity name.
 	Acts genInvokers
 
 	// Rail + Repo are the OPTIONAL git-forward PR rail (I-DESIGN-DISPATCH §2b). When both
@@ -110,28 +105,14 @@ type workflows struct {
 	// main, no branch/PR ops). The AssembleSDPReviewWorkflow (the in-workflow three-Engine
 	// join) is UNCHANGED — it gets NO rail (only the per-artifact draft path does).
 	//
-	// Rail is the PUBLISHED sourceControlAccess RA. The six rail verbs are reached through
+	// Rail is the PUBLISHED sourceControlAccess RA. The rail verbs are reached through
 	// the generated invoker surface (wf.Acts.Rail*); this field is held directly ONLY for
-	// the nil/dormant gate (gitEnabled) and for the CUSTOM SyncManagedScaffold Activity (a
-	// free-function composition helper the generated layer has no single contract op for).
+	// the nil/dormant gate (gitEnabled).
 	Rail sourcecontrol.SourceControlAccess
 	// Repo resolves the per-project RepoRef the rail verbs address. nil ⇒ the rail is
 	// dormant. Injected so the repo-resolution policy is swappable without a new RA edge.
 	Repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool)
 }
-
-// Activity name constants. The Activity methods are registered under these stable
-// names (worker.go / the test suite), and the workflow bodies invoke them by the
-// method value on wf. These are the CUSTOM Activities the generated temporalgen layer
-// has no contract for (envelope codec, capability type-assertions, the free-function
-// scaffold sync) — methods on the workflows struct, invoked by method value from the
-// workflow body. Since app-generator v0.6.1 dropped the CustomActivities manifest
-// surface (B6), they are no longer separately REGISTERED under a stable string name
-// (their registered names WERE actReadProject et al.; that const block is deleted as
-// dangling — the projectdesign rewire task (B9) deletes these methods entirely). The
-// contract-backed RA ops (readProjectVersion / advancePhase / submit / observe / the six
-// rail verbs) are GENERATED and reached through wf.Acts — their names live in the
-// generated worker.gen.go, not here.
 
 // maxSDPReassembleAttempts bounds the SDP RejectAll re-assemble loop (contract
 // §6.3 step 7 — bound the loop like systemdesign's maxRedraftAttempts).
@@ -143,10 +124,11 @@ const maxSDPReassembleAttempts = 5
 const maxMutateConflictAttempts = 20
 
 // Activity option presets (contract §6.4). Concrete RetryPolicy / timeout choices live
-// here, in the Manager. Each preset is exposed as an ActivityOptions VALUE (consumed by
-// the generated-invoker option hook in workermanifest.go, keyed by the generated activity
-// name) AND, for the ONE surviving custom Activity (StageArtifactForReviewActivity), as a
-// ctx-wrapper (mutateOpts) that call site applies directly.
+// here, in the Manager. Each preset is an ActivityOptions VALUE consumed by the
+// generated-invoker option hook in workermanifest.go, keyed by the generated activity
+// name. This Manager has ZERO custom Temporal Activities (B9 follow-up — the last one,
+// StageArtifactForReviewActivity, was deleted when the contract op's model param became
+// the codable ModelEnvelope), so no ctx-wrapper forms remain.
 
 // readProjectActivityOptions is the preset for the read path: since B9 this is EXCLUSIVELY
 // the generated designSessionAccess.readProjectOnBranch invoker (both branch=="" main reads
@@ -170,13 +152,12 @@ func readProjectActivityOptions() workflow.ActivityOptions {
 	}
 }
 
-// mutateActivityOptions is the preset for the head-state mutation Activities: the
-// surviving custom StageArtifactForReviewActivity (applied via the mutateOpts ctx-wrapper
-// below) and, since B9, every generated designSessionAccess write op (Commit / Reject /
-// Withdraw / the review-ledger Set/Seed verbs) plus the generated
-// projectStateAccess.advancePhase (each keyed onto this VALUE via the workermanifest.go
-// option hook). Retry Transient via the Activity RetryPolicy; Conflict is handled by the
-// workflow-level re-read→re-apply loop. Terminal on ContractMisuse.
+// mutateActivityOptions is the preset for the head-state mutation Activities: every
+// generated designSessionAccess write op (Stage / Commit / Reject / Withdraw / the
+// review-ledger Set/Seed verbs) plus the generated projectStateAccess.advancePhase —
+// each keyed onto this VALUE via the workermanifest.go option hook. Retry Transient via
+// the Activity RetryPolicy; Conflict is handled by the workflow-level re-read→re-apply
+// loop. Terminal on ContractMisuse.
 func mutateActivityOptions() workflow.ActivityOptions {
 	return workflow.ActivityOptions{
 		StartToCloseTimeout: 15 * time.Second,
@@ -186,10 +167,6 @@ func mutateActivityOptions() workflow.ActivityOptions {
 			},
 		},
 	}
-}
-
-func mutateOpts(ctx workflow.Context) workflow.Context {
-	return workflow.WithActivityOptions(ctx, mutateActivityOptions())
 }
 
 // raConflictErrType is the canonical Temporal Type() a head-state mutation Activity
@@ -831,12 +808,7 @@ func (wf *workflows) coAuthorDraftRound(
 		return coAuthorProceed, coAuthorUnknown, fwmanager.MapError(encErr)
 	}
 	newVersion, err := wf.applyRecovering(ctx, in.ProjectID, gf.readBackBranch(), *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-		c := mutateOpts(ctx)
-		var v projectstate.Version
-		e := workflow.ExecuteActivity(c, wf.StageArtifactForReviewActivity, stageArtifactForReviewArgs{
-			ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, Model: draftEnvelope, Branch: gf.readBackBranch(),
-		}).Get(ctx, &v)
-		return v, e
+		return wf.Acts.DesignSessionStageArtifactForReviewOnBranch(ctx, projectstate.ProjectID(in.ProjectID), expected, gf.readBackBranch(), draftEnvelope)
 	})
 	if err != nil {
 		// CRASH CONTAINMENT (QA F29). A stage-for-review activity fault must NOT kill the
@@ -1258,14 +1230,10 @@ func (wf *workflows) stageReview(ctx workflow.Context, projectID ProjectID, revi
 		return fwmanager.MapError(encErr)
 	}
 	// The SDP review is assembled and staged directly on MAIN (no agentic draft rail /
-	// session branch), so the Conflict re-read targets main (branch=="").
+	// session branch), so the Conflict re-read targets main (branch=="") — and the
+	// generated designSessionAccess op's own empty-branch fallback stages on main.
 	v, err := wf.applyRecovering(ctx, projectID, "", *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-		c := mutateOpts(ctx)
-		var got projectstate.Version
-		e := workflow.ExecuteActivity(c, wf.StageArtifactForReviewActivity, stageArtifactForReviewArgs{
-			ProjectID: projectstate.ProjectID(projectID), ExpectedVersion: expected, Model: env,
-		}).Get(ctx, &got)
-		return got, e
+		return wf.Acts.DesignSessionStageArtifactForReviewOnBranch(ctx, projectstate.ProjectID(projectID), expected, "", env)
 	})
 	if err != nil {
 		return err

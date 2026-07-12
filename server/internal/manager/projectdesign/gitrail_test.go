@@ -283,12 +283,11 @@ func (f *seqProjectState) WithdrawArtifactOnBranch(ctx context.Context, projectI
 	return f.WithdrawArtifact(fwra.Context{Context: ctx, IdempotencyKey: key}, projectID, expectedVersion, kind, notes)
 }
 
-func newRailWorkflows(ps projectstate.ProjectStateAccess, pipe *fakePipeline, rail sourcecontrol.SourceControlAccess) *workflows {
+func newRailWorkflows(rail sourcecontrol.SourceControlAccess) *workflows {
 	return &workflows{
 		Estimation:   estimation.NewEstimationEngine(),
 		OperationEst: operationestimation.NewOperationEstimationEngine(),
 		Settlement:   billing.NewBillingEngine(),
-		ProjectState: ps,
 		Acts:         genInvokers{Opts: activityOptions()},
 		Rail:         rail,
 		Repo: func(ProjectID) (sourcecontrol.RepoRef, bool) {
@@ -297,10 +296,13 @@ func newRailWorkflows(ps projectstate.ProjectStateAccess, pipe *fakePipeline, ra
 	}
 }
 
-func registerRailCoAuthor(env *testsuite.TestWorkflowEnvironment, wf *workflows, pipe *fakePipeline) {
+// registerRailCoAuthor registers the rail-wired CoAuthor workflow + every generated
+// activity, exactly as production's RegisterWorker does. ps is the fake substrate the
+// generated projectState/designSession activities are backed by (threaded explicitly —
+// the workflows struct no longer carries an RA dep; every Activity is generated).
+func registerRailCoAuthor(env *testsuite.TestWorkflowEnvironment, wf *workflows, ps projectstate.ProjectStateAccess, pipe *fakePipeline) {
 	env.RegisterWorkflowWithOptions(wf.CoAuthorPhase2ArtifactWorkflow, workflow.RegisterOptions{Name: executionKindCoAuthor})
-	env.RegisterActivity(wf.StageArtifactForReviewActivity)
-	registerGenActivities(env, wf.ProjectState, pipe, wf.Rail)
+	registerGenActivities(env, ps, pipe, wf.Rail)
 }
 
 // PROOF 1+2 — branch reconciliation + merge-before-commit + post-merge-read-on-main
@@ -315,8 +317,8 @@ func Test_CoAuthorPhase2_Rail_BranchReconciliation_MergeBeforeCommit_PostMergeRe
 	ps := &seqProjectState{fakeProjectState: base, log: log}
 	pipe := newFakePipeline() // dispatch observed Succeeded
 	rail := newScriptedRail(true, log)
-	wf := newRailWorkflows(ps, pipe, rail)
-	registerRailCoAuthor(env, wf, pipe)
+	wf := newRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
 
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
@@ -416,8 +418,8 @@ func Test_CoAuthorPhase2_Rail_RejectRedraftsOnSameSessionBranchAndSamePR(t *test
 	ps := &seqProjectState{fakeProjectState: base, log: log}
 	pipe := newFakePipeline()
 	rail := newScriptedRail(true, log)
-	wf := newRailWorkflows(ps, pipe, rail)
-	registerRailCoAuthor(env, wf, pipe)
+	wf := newRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
 
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewReject, Feedback: &ReviewFeedback{Notes: "rework the staffing assumptions"}})
@@ -467,8 +469,8 @@ func Test_CoAuthorPhase2_Rail_PhaseFailed_LandsInStageDraftFailed_NoApproveRailN
 	pipe := newFakePipeline(pipelineFailed)
 	pipe.diagnostic = "aiarch-validate found 2 violations"
 	rail := newScriptedRail(true, log)
-	wf := newRailWorkflows(ps, pipe, rail)
-	registerRailCoAuthor(env, wf, pipe)
+	wf := newRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
 
 	env.RegisterDelayedCallback(func() {
 		enc, err := env.QueryWorkflow(querySessionState)
@@ -522,8 +524,8 @@ func Test_CoAuthorPhase2_Rail_RequiredCheckRed_BlocksMerge_NoCommit_Recovers(t *
 	ps := &seqProjectState{fakeProjectState: base, log: log}
 	pipe := newFakePipeline()           // draft Succeeds (the run was green) ...
 	rail := newScriptedRail(false, log) // ... but the PR's required check is RED at merge time
-	wf := newRailWorkflows(ps, pipe, rail)
-	registerRailCoAuthor(env, wf, pipe)
+	wf := newRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
 
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
@@ -646,8 +648,8 @@ func Test_CoAuthorPhase2_Rail_Reject_RecordsOnSessionBranch_RedraftCarriesFeedba
 	ps := &branchAwareRejectFake{fakeProjectState: base}
 	pipe := newFakePipeline() // every dispatch Succeeds
 	rail := newScriptedRail(true, &seqLog{})
-	wf := newRailWorkflows(ps, pipe, rail)
-	registerRailCoAuthor(env, wf, pipe)
+	wf := newRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
 
 	const rejectNotes = "rework the staffing assumptions"
 	env.RegisterDelayedCallback(func() {
@@ -690,8 +692,8 @@ func Test_CoAuthorPhase2_Rail_RejectWriteFaults_RecoversAtFailedGate_RetainsFeed
 	ps := &branchAwareRejectFake{fakeProjectState: base, failRejectOnBranch: true}
 	pipe := newFakePipeline() // every dispatch Succeeds
 	rail := newScriptedRail(true, &seqLog{})
-	wf := newRailWorkflows(ps, pipe, rail)
-	registerRailCoAuthor(env, wf, pipe)
+	wf := newRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
 
 	const rejectNotes = "rework the staffing assumptions"
 	// First gate: REJECT (the write FAULTS terminally) → crash containment lands at the
@@ -822,8 +824,8 @@ func Test_CoAuthorPhase2_Rail_StageAgainstDirtyBranch_Converges_NoCrash(t *testi
 	ps := &f29BranchFake{fakeProjectState: base, mainVer: 2, branchVer: 4}
 	pipe := newFakePipeline()
 	rail := newScriptedRail(true, &seqLog{})
-	wf := newRailWorkflows(ps, pipe, rail)
-	registerRailCoAuthor(env, wf, pipe)
+	wf := newRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
 
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
@@ -858,8 +860,8 @@ func Test_CoAuthorPhase2_Rail_Withdraw_RecordsOnSessionBranch_NoCrash(t *testing
 	ps := &branchAwareRejectFake{fakeProjectState: base, failWithdrawOnMain: true}
 	pipe := newFakePipeline()
 	rail := newScriptedRail(true, &seqLog{})
-	wf := newRailWorkflows(ps, pipe, rail)
-	registerRailCoAuthor(env, wf, pipe)
+	wf := newRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
 
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw, Feedback: &ReviewFeedback{Notes: "abandon this draft"}})
@@ -898,8 +900,8 @@ func Test_CoAuthorPhase2_Rail_RetryAtFailedGate_SameBranch_RetainsFeedback(t *te
 	ps := &f29BranchFake{fakeProjectState: base, mainVer: 2, branchVer: 4, stageFailsRemaining: 1}
 	pipe := newFakePipeline()
 	rail := newScriptedRail(true, &seqLog{})
-	wf := newRailWorkflows(ps, pipe, rail)
-	registerRailCoAuthor(env, wf, pipe)
+	wf := newRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
 
 	const retryNotes = "fix the staffing assumptions before redrafting"
 	env.RegisterDelayedCallback(func() {
@@ -947,8 +949,8 @@ func Test_CoAuthorPhase2_Rail_ApproveStatusFault_ReturnsToAwaitingReview_Reappro
 	rail := newScriptedRail(true, &seqLog{})
 	rail.statusAuthFailsRemaining = 3 // the first approve exhausts the bounded budget
 
-	wf := newRailWorkflows(ps, pipe, rail)
-	registerRailCoAuthor(env, wf, pipe)
+	wf := newRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
 
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
@@ -1006,8 +1008,8 @@ func Test_CoAuthorPhase2_Rail_ApproveStatusTransient_RetriesThenMerges(t *testin
 	rail := newScriptedRail(true, &seqLog{})
 	rail.statusAuthFailsRemaining = 2 // fail twice, 3rd attempt succeeds
 
-	wf := newRailWorkflows(ps, pipe, rail)
-	registerRailCoAuthor(env, wf, pipe)
+	wf := newRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
 
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
@@ -1051,8 +1053,8 @@ func Test_CoAuthorPhase2_Rail_OpenPR_OnlyAfterReadBack_ReuseThenMerge(t *testing
 	ps := &seqProjectState{fakeProjectState: base, log: log}
 	pipe := newFakePipeline() // every dispatch Succeeds
 	rail := newScriptedRail(true, log)
-	wf := newRailWorkflows(ps, pipe, rail)
-	registerRailCoAuthor(env, wf, pipe)
+	wf := newRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
 
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewReject, Feedback: &ReviewFeedback{Notes: "tighten"}})
@@ -1096,25 +1098,16 @@ func Test_CoAuthorPhase2_Rail_OpenPR_OnlyAfterReadBack_ReuseThenMerge(t *testing
 	}
 }
 
-// composeIdempotencyKey RUN-SCOPING (F40 root cause) — two sessions of the SAME workflow
-// ID with the SAME ActivityID but DIFFERENT RunID must derive DISTINCT keys, so the
-// constructionpipeline RA's run-name dedup never converges a fresh session onto a
-// predecessor session's completed GitHub run (the observed amendment 422).
-func Test_composeIdempotencyKey_RunScoped_DistinctPerRun(t *testing.T) {
-	const wf = "gtdapp:planningAssumptions"
-	const act = "5"
-	k1 := composeIdempotencyKey(wf, "run-aaaa", act)
-	k2 := composeIdempotencyKey(wf, "run-bbbb", act)
-	if k1 == k2 {
-		t.Fatalf("distinct RunIDs must yield distinct idempotency keys; both = %q", k1)
-	}
-	if !strings.Contains(string(k1), "run-aaaa") || !strings.Contains(string(k2), "run-bbbb") {
-		t.Fatalf("the key must carry the RunID as its session scope; got %q / %q", k1, k2)
-	}
-	if composeIdempotencyKey(wf, "run-aaaa", act) != k1 {
-		t.Fatal("same (workflowID, runID, activityID) must be stable so a transient retry dedups")
-	}
-}
+// F40 RUN-SCOPING NOTE (former Test_composeIdempotencyKey_RunScoped_DistinctPerRun):
+// the Manager-local composeIdempotencyKey helper is DELETED with the last custom
+// Activity (B9 follow-up) — every idempotency key is now derived by the platform-
+// generated genActivityIdempotencyKey (activities.gen.go), which threads the RunID as
+// the middle segment of the 3-part "${workflowId}:${runId}:${activityId}" key BY
+// CONSTRUCTION, so a fresh session (new run) of the same workflow ID can never dedup
+// onto a predecessor session's completed GitHub run (the observed amendment 422). The
+// derivation has no pure seam left to pin in this package (it reads the live Activity
+// context inside DO-NOT-EDIT generated code); the format is the platform emitter's
+// contract, shared by all five managers.
 
 // F40 AMENDMENT NO-CHANGE GUARD — a Phase-2 amendment session whose Action "succeeded"
 // but committed NOTHING that changed the artifact (branch read-back == committed main
@@ -1131,8 +1124,8 @@ func Test_CoAuthorPhase2_Rail_Amendment_NoChange_LandsFailedGate_NoPR(t *testing
 	ps := &seqProjectState{fakeProjectState: base, log: log}
 	pipe := newFakePipeline() // the design job "succeeds"
 	rail := newScriptedRail(true, log)
-	wf := newRailWorkflows(ps, pipe, rail)
-	registerRailCoAuthor(env, wf, pipe)
+	wf := newRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
 
 	env.RegisterDelayedCallback(func() {
 		enc, err := env.QueryWorkflow(querySessionState)
@@ -1209,8 +1202,8 @@ func Test_CoAuthorPhase2_RedraftSignalFeedbackReachesPrompt(t *testing.T) {
 	ps := &seqProjectState{fakeProjectState: base, log: &seqLog{}}
 	pipe := newFakePipeline(pipelineFailed) // the draft job fails → the StageDraftFailed gate
 	rail := newScriptedRail(true, &seqLog{})
-	wf := newRailWorkflows(ps, pipe, rail)
-	registerRailCoAuthor(env, wf, pipe)
+	wf := newRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
 
 	const notes = "resources must be plain strings, not objects"
 	env.RegisterDelayedCallback(func() {
@@ -1343,8 +1336,8 @@ func Test_CoAuthorPhase2_RejectWithComments_ThreadRefreshes_QueryPromptAndApprov
 	ps := &ledgerThreadFake{seqProjectState: &seqProjectState{fakeProjectState: base, log: &seqLog{}}}
 	pipe := newFakePipeline() // every dispatch succeeds
 	rail := newScriptedRail(true, &seqLog{})
-	wf := newRailWorkflows(ps, pipe, rail)
-	registerRailCoAuthor(env, wf, pipe)
+	wf := newRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
 	// The review-ledger designSessionAccess ops (Set/Seed) are registered by
 	// registerGenActivities (inside registerRailCoAuthor), backed by
 	// NewDesignSessionAccess(wf.ProjectState) — since ps (ledgerThreadFake) implements
@@ -1435,8 +1428,8 @@ func Test_CoAuthorPhase2_Rail_ScaffoldSyncFailure_BlocksDispatch_LandsAtFailedGa
 	pipe := newFakePipeline()
 	rail := newScriptedRail(true, log)
 	rail.syncErr = fwra.New(fwra.ContractMisuse, "seated workflow could not be refreshed")
-	wf := newRailWorkflows(ps, pipe, rail)
-	registerRailCoAuthor(env, wf, pipe)
+	wf := newRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
 
 	env.RegisterDelayedCallback(func() {
 		enc, err := env.QueryWorkflow(querySessionState)
@@ -1493,8 +1486,8 @@ func Test_CoAuthorPhase2_Rail_ScaffoldSync_VersionGate_PreFeatureExecutionSkipsS
 	rail := newScriptedRail(true, log)
 	// syncErr armed: an UN-GATED sync would derail the pre-feature run at the failed gate.
 	rail.syncErr = fwra.New(fwra.ContractMisuse, "sync must not run for a pre-feature execution")
-	wf := newRailWorkflows(ps, pipe, rail)
-	registerRailCoAuthor(env, wf, pipe)
+	wf := newRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
 
 	// Simulate a PRE-FEATURE in-flight execution: GetVersion resolves DefaultVersion.
 	env.OnGetVersion("managed-scaffold-sync", workflow.DefaultVersion, 1).Return(workflow.DefaultVersion)

@@ -80,13 +80,28 @@ func (s *designSessionAccess) ReadProjectOnBranch(rc fwra.Context, projectID Pro
 	return EncodeProject(proj)
 }
 
-// StageArtifactForReviewOnBranch routes to the branch-aware extension when base
-// supports it AND a branch is supplied, else stages on the default/main.
-func (s *designSessionAccess) StageArtifactForReviewOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, model ArtifactModel, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	if ba, ok := s.base.(BranchAwareProjectStateAccess); ok && branch != "" {
-		return ba.StageArtifactForReviewOnBranch(rc.Context, projectID, expectedVersion, branch, model, idempotencyKey)
+// StageArtifactForReviewOnBranch decodes the wire envelope into the concrete typed
+// model, then routes to the branch-aware extension when base supports it AND a branch
+// is supplied, else stages on the default/main.
+//
+// The parameter is the codable ModelEnvelope (envelope.go), NOT the sealed
+// ArtifactModel interface (B9 follow-up ruling): the op crosses a Temporal Activity
+// boundary, and the default JSON DataConverter cannot decode into a non-empty
+// interface parameter — the envelope is the SAME wire carrier the retired Manager-side
+// custom activities always shipped across that boundary; the decode simply moved DOWN
+// here, exactly where the old activity body ran it. A decode failure returns the plain
+// Decode error unwrapped (NOT an fwra.Error) — byte-for-byte the class the old
+// activity surfaced: fwmanager.MapError passes non-layer errors through untagged, so
+// the Temporal error type/retryability is unchanged.
+func (s *designSessionAccess) StageArtifactForReviewOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, model ModelEnvelope, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	decoded, err := model.Decode()
+	if err != nil {
+		return 0, err
 	}
-	return s.base.StageArtifactForReview(rc, projectID, expectedVersion, model)
+	if ba, ok := s.base.(BranchAwareProjectStateAccess); ok && branch != "" {
+		return ba.StageArtifactForReviewOnBranch(rc.Context, projectID, expectedVersion, branch, decoded, idempotencyKey)
+	}
+	return s.base.StageArtifactForReview(rc, projectID, expectedVersion, decoded)
 }
 
 // CommitArtifactWithProvenance records commit provenance (committedAt/approvedBy/
