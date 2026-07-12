@@ -94,6 +94,7 @@ type SourceControlAccess interface {
 	OpenBranch(rc fwra.Context, repo RepoRef, branch BranchName, cred RepoCredential) (BranchRef, error)
 	OpenPullRequest(rc fwra.Context, repo RepoRef, spec PullRequestSpec, cred RepoCredential) (PullRequestRef, error)
 	PostReview(rc fwra.Context, repo RepoRef, pr PullRequestRef, review ReviewSubmission, cred RepoCredential) error
+	SyncManagedScaffold(rc fwra.Context, repo RepoRef, cred RepoCredential) (bool, error)
 }
 
 // NewGitHubSourceControlAccess constructs the GitHub-backed SourceControlAccess, delegating to the hand-written,

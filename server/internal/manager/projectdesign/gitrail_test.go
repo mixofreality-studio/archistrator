@@ -216,6 +216,10 @@ func (r *scriptedRail) InstallAuthorizeApp(_ fwra.Context, _ sourcecontrol.Accou
 	return sourcecontrol.Installation(""), nil
 }
 
+func (r *scriptedRail) SyncManagedScaffold(_ fwra.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.RepoCredential) (bool, error) {
+	return false, nil
+}
+
 var _ sourcecontrol.SourceControlAccess = (*scriptedRail)(nil)
 
 // ---- seqProjectState: branch-aware read-back + ordered commit/read events ------

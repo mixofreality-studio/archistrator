@@ -531,6 +531,9 @@ func (railWithoutSlug) OpenPullRequest(fwra.Context, RepoRef, PullRequestSpec, R
 func (railWithoutSlug) PostReview(fwra.Context, RepoRef, PullRequestRef, ReviewSubmission, RepoCredential) error {
 	panic("unused")
 }
+func (railWithoutSlug) SyncManagedScaffold(fwra.Context, RepoRef, RepoCredential) (bool, error) {
+	panic("unused")
+}
 
 var _ SourceControlAccess = railWithoutSlug{}
 

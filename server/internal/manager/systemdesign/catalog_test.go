@@ -295,6 +295,9 @@ func (f *fakeSourceControl) OpenPullRequest(_ fwra.Context, _ sourcecontrol.Repo
 func (f *fakeSourceControl) PostReview(_ fwra.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.PullRequestRef, _ sourcecontrol.ReviewSubmission, _ sourcecontrol.RepoCredential) error {
 	return nil
 }
+func (f *fakeSourceControl) SyncManagedScaffold(_ fwra.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.RepoCredential) (bool, error) {
+	return false, nil
+}
 
 type orderingProjectState struct {
 	*fakeProjectStateAccess

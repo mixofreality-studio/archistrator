@@ -560,6 +560,27 @@ func (a *access) putManagedFiles(ctx context.Context, repo RepoRef, files []Mana
 	return last, anyChanged, nil
 }
 
+// SyncManagedScaffold is the CONTRACT op (B5) promoting the former free-function
+// composition helper sourcecontrol.SyncManagedScaffold (agenticdesign.go) onto the
+// generated SourceControlAccess interface. It converges the seated design workflow
+// (aiarch-design.yml on the repo's default branch) onto the CURRENT template
+// rendering — the managed-scaffold sync the design Managers run before every
+// design-job dispatch: drifted → one refresh commit naming the new state-MCP pin
+// (changed=true); already current → no commit (changed=false). Reached here as a
+// first-class op, the concrete access already knows its own AppSlug and the
+// optimized SyncManagedFiles path directly — no rail type-assertion needed (compare
+// the free-function helper's managedFileSyncer discovery, still used by callers that
+// hold only the SourceControlAccess interface, e.g. the manager-side custom
+// SyncManagedScaffoldActivity wrappers, which are unaffected by this promotion).
+func (a *access) SyncManagedScaffold(rc fwra.Context, repo RepoRef, cred RepoCredential) (bool, error) {
+	file, err := DesignWorkflowFile(a.appSlug)
+	if err != nil {
+		return false, err
+	}
+	_, changed, err := a.SyncManagedFiles(rc.Context, repo, []ManagedFile{file}, syncManagedScaffoldMessage(), cred)
+	return changed, err
+}
+
 // asFwraError returns the underlying *fwra.Error or nil.
 func asFwraError(err error) *fwra.Error {
 	var fe *fwra.Error

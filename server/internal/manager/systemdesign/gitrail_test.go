@@ -173,6 +173,10 @@ func (r *fakeRail) InstallAuthorizeApp(_ fwra.Context, _ sourcecontrol.AccountRe
 	return sourcecontrol.Installation(""), nil
 }
 
+func (r *fakeRail) SyncManagedScaffold(_ fwra.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.RepoCredential) (bool, error) {
+	return false, nil
+}
+
 var _ sourcecontrol.SourceControlAccess = (*fakeRail)(nil)
 
 // ---- branchAwareFakeProjectState: read-back/stage capture by branch ----------

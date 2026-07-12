@@ -21308,6 +21308,27 @@
               }
             ],
             "error": true
+          },
+          {
+            "name": "SyncManagedScaffold",
+            "params": [
+              {
+                "name": "repo",
+                "schema": {
+                  "$ref": "#/$defs/RepoRef"
+                }
+              },
+              {
+                "name": "cred",
+                "schema": {
+                  "$ref": "#/$defs/RepoCredential"
+                }
+              }
+            ],
+            "result": {
+              "type": "boolean"
+            },
+            "error": true
           }
         ]
       }

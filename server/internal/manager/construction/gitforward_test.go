@@ -122,6 +122,10 @@ func (r *stubRail) InstallAuthorizeApp(_ fwra.Context, _ sourcecontrol.AccountRe
 	return sourcecontrol.Installation(""), nil
 }
 
+func (r *stubRail) SyncManagedScaffold(_ fwra.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.RepoCredential) (bool, error) {
+	return false, nil
+}
+
 var _ sourcecontrol.SourceControlAccess = (*stubRail)(nil)
 
 // ---- stubGitStatus: an in-memory git head-state mirror ----------------------
