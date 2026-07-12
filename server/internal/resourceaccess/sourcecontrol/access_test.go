@@ -1,4 +1,13 @@
-package sourcecontrol_test
+package sourcecontrol
+
+// access_test.go — the single test file for sourceControlAccess (FileLayout
+// standard). It merges the former sourcecontrol_test.go (package
+// sourcecontrol_test, the black-box STP suite) and agenticdesign_test.go
+// (package sourcecontrol, white-box structural tests over the embedded DESIGN
+// workflow asset). The former black-box tests deliberately exercise ONLY the
+// exported surface — the external-view discipline is preserved by CONVENTION
+// after the single-test-file standard removed the separate _test package; do
+// not reach for unexported identifiers from those tests.
 
 // SERVICE TEST PLAN (STP) — sourceControlAccess (C-SC-AD + C-SC-AG).
 //
@@ -77,6 +86,7 @@ package sourcecontrol_test
 //         RepoCredential/Installation/Refs IsZero; CommitRef IsZero.
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -87,17 +97,17 @@ import (
 	fwgithub "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github"
 	gh "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github/testinfra"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
-	sc "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
+	"gopkg.in/yaml.v3"
 )
 
 const (
 	testAccount = "acme"
-	testAppSlug = "aiarch-app"
+	stpAppSlug  = "aiarch-app"
 )
 
 // newAccess builds an Access wired to the real satellite client pointed at the
 // fake GitHub.
-func newAccess(t *testing.T, fake *gh.FakeGitHub) sc.SourceControlAccess {
+func newAccess(t *testing.T, fake *gh.FakeGitHub) SourceControlAccess {
 	t.Helper()
 	keyPEM, err := gh.GenerateAppKeyPEM()
 	if err != nil {
@@ -107,7 +117,7 @@ func newAccess(t *testing.T, fake *gh.FakeGitHub) sc.SourceControlAccess {
 	if err != nil {
 		t.Fatalf("NewAppClient: %v", err)
 	}
-	access, err := sc.NewGitHubSourceControlAccess(client, testAccount, testAppSlug, true)
+	access, err := NewGitHubSourceControlAccess(client, testAccount, stpAppSlug, true)
 	if err != nil {
 		t.Fatalf("sc.New: %v", err)
 	}
@@ -153,7 +163,7 @@ func seedInstallation(fake *gh.FakeGitHub, account string) {
 // ---------------------------------------------------------------------------
 
 func TestU1_NewRejectsNilClient(t *testing.T) {
-	if _, err := sc.NewGitHubSourceControlAccess(nil, testAccount, testAppSlug, true); kindOf(err) != fwra.ContractMisuse {
+	if _, err := NewGitHubSourceControlAccess(nil, testAccount, stpAppSlug, true); kindOf(err) != fwra.ContractMisuse {
 		t.Fatalf("New(nil) kind = %v, want ContractMisuse", kindOf(err))
 	}
 }
@@ -161,7 +171,7 @@ func TestU1_NewRejectsNilClient(t *testing.T) {
 func TestU2_NewRejectsEmptyAccount(t *testing.T) {
 	keyPEM, _ := gh.GenerateAppKeyPEM()
 	client, _ := fwgithub.NewAppClient("1", keyPEM, "http://x")
-	if _, err := sc.NewGitHubSourceControlAccess(client, "   ", testAppSlug, true); kindOf(err) != fwra.ContractMisuse {
+	if _, err := NewGitHubSourceControlAccess(client, "   ", stpAppSlug, true); kindOf(err) != fwra.ContractMisuse {
 		t.Fatalf("New(empty account) kind = %v, want ContractMisuse", kindOf(err))
 	}
 }
@@ -170,7 +180,7 @@ func TestU3_GetInstallationTokenRejectsZeroRepo(t *testing.T) {
 	fake := gh.Start()
 	defer fake.Close()
 	a := newAccess(t, fake)
-	_, err := a.GetInstallationToken(rc(context.Background()), sc.RepoRef(""))
+	_, err := a.GetInstallationToken(rc(context.Background()), RepoRef(""))
 	requireKind(t, err, fwra.ContractMisuse)
 	if len(fake.Requests()) != 0 {
 		t.Fatalf("guard should fire before any wire call; got %d requests", len(fake.Requests()))
@@ -181,7 +191,7 @@ func TestU4_AdoptRejectsEmptyRepoName(t *testing.T) {
 	fake := gh.Start()
 	defer fake.Close()
 	a := newAccess(t, fake)
-	_, err := a.AdoptProjectRepo(rc(context.Background()), sc.RepoAdoptionSpec{RepoName: "", Account: testAccount})
+	_, err := a.AdoptProjectRepo(rc(context.Background()), RepoAdoptionSpec{RepoName: "", Account: testAccount})
 	requireKind(t, err, fwra.ContractMisuse)
 	if len(fake.Requests()) != 0 {
 		t.Fatalf("guard should fire before any wire call; got %d requests", len(fake.Requests()))
@@ -192,13 +202,13 @@ func TestU5_OpenBranchGuards(t *testing.T) {
 	fake := gh.Start()
 	defer fake.Close()
 	a := newAccess(t, fake)
-	cred := sc.RepoCredential{Bytes: []byte("t"), ExpiresAt: time.Now().Add(time.Hour)}
-	repo := sc.RepoRefFromString(testAccount + "|" + testAccount + "/proj")
+	cred := RepoCredential{Bytes: []byte("t"), ExpiresAt: time.Now().Add(time.Hour)}
+	repo := RepoRefFromString(testAccount + "|" + testAccount + "/proj")
 
-	if _, err := a.OpenBranch(rc(context.Background()), sc.RepoRef(""), "b", cred); kindOf(err) != fwra.ContractMisuse {
+	if _, err := a.OpenBranch(rc(context.Background()), RepoRef(""), "b", cred); kindOf(err) != fwra.ContractMisuse {
 		t.Fatalf("zero repo: kind = %v", kindOf(err))
 	}
-	if _, err := a.OpenBranch(rc(context.Background()), repo, "b", sc.RepoCredential{}); kindOf(err) != fwra.ContractMisuse {
+	if _, err := a.OpenBranch(rc(context.Background()), repo, "b", RepoCredential{}); kindOf(err) != fwra.ContractMisuse {
 		t.Fatalf("empty cred: kind = %v", kindOf(err))
 	}
 	if _, err := a.OpenBranch(rc(context.Background()), repo, "  ", cred); kindOf(err) != fwra.ContractMisuse {
@@ -210,9 +220,9 @@ func TestU6_OpenPullRequestRejectsHeadEqBase(t *testing.T) {
 	fake := gh.Start()
 	defer fake.Close()
 	a := newAccess(t, fake)
-	cred := sc.RepoCredential{Bytes: []byte("t"), ExpiresAt: time.Now().Add(time.Hour)}
-	repo := sc.RepoRefFromString(testAccount + "|" + testAccount + "/proj")
-	_, err := a.OpenPullRequest(rc(context.Background()), repo, sc.PullRequestSpec{Head: "main", Base: "main"}, cred)
+	cred := RepoCredential{Bytes: []byte("t"), ExpiresAt: time.Now().Add(time.Hour)}
+	repo := RepoRefFromString(testAccount + "|" + testAccount + "/proj")
+	_, err := a.OpenPullRequest(rc(context.Background()), repo, PullRequestSpec{Head: "main", Base: "main"}, cred)
 	requireKind(t, err, fwra.ContractMisuse)
 }
 
@@ -220,36 +230,36 @@ func TestU7_PRRailRejectsZeroPR(t *testing.T) {
 	fake := gh.Start()
 	defer fake.Close()
 	a := newAccess(t, fake)
-	cred := sc.RepoCredential{Bytes: []byte("t"), ExpiresAt: time.Now().Add(time.Hour)}
-	repo := sc.RepoRefFromString(testAccount + "|" + testAccount + "/proj")
-	if _, err := a.GetPullRequestStatus(rc(context.Background()), repo, sc.PullRequestRef(""), cred); kindOf(err) != fwra.ContractMisuse {
+	cred := RepoCredential{Bytes: []byte("t"), ExpiresAt: time.Now().Add(time.Hour)}
+	repo := RepoRefFromString(testAccount + "|" + testAccount + "/proj")
+	if _, err := a.GetPullRequestStatus(rc(context.Background()), repo, PullRequestRef(""), cred); kindOf(err) != fwra.ContractMisuse {
 		t.Fatalf("status zero PR: kind = %v", kindOf(err))
 	}
-	if err := a.PostReview(rc(context.Background()), repo, sc.PullRequestRef(""), sc.ReviewSubmission{}, cred); kindOf(err) != fwra.ContractMisuse {
+	if err := a.PostReview(rc(context.Background()), repo, PullRequestRef(""), ReviewSubmission{}, cred); kindOf(err) != fwra.ContractMisuse {
 		t.Fatalf("postReview zero PR: kind = %v", kindOf(err))
 	}
-	if _, err := a.MergePullRequest(rc(context.Background()), repo, sc.PullRequestRef(""), cred); kindOf(err) != fwra.ContractMisuse {
+	if _, err := a.MergePullRequest(rc(context.Background()), repo, PullRequestRef(""), cred); kindOf(err) != fwra.ContractMisuse {
 		t.Fatalf("merge zero PR: kind = %v", kindOf(err))
 	}
 }
 
 func TestU8_RefValueSemantics(t *testing.T) {
-	r := sc.RepoRefFromString("acme|acme/my-project")
-	if sc.RepoRefString(r) != "acme|acme/my-project" {
-		t.Fatalf("RepoRef String round-trip failed: %q", sc.RepoRefString(r))
+	r := RepoRefFromString("acme|acme/my-project")
+	if RepoRefString(r) != "acme|acme/my-project" {
+		t.Fatalf("RepoRef String round-trip failed: %q", RepoRefString(r))
 	}
-	if !sc.RepoRefEqual(r, sc.RepoRefFromString("acme|acme/my-project")) {
+	if !RepoRefEqual(r, RepoRefFromString("acme|acme/my-project")) {
 		t.Fatalf("RepoRef Equal failed")
 	}
-	if sc.RepoRefIsZero(sc.RepoRef("")) != true {
+	if RepoRefIsZero(RepoRef("")) != true {
 		t.Fatalf("zero RepoRef should be zero")
 	}
 	// malformed ref (no separator) → ContractMisuse on use
 	fake := gh.Start()
 	defer fake.Close()
 	a := newAccess(t, fake)
-	cred := sc.RepoCredential{Bytes: []byte("t"), ExpiresAt: time.Now().Add(time.Hour)}
-	_, err := a.OpenBranch(rc(context.Background()), sc.RepoRefFromString("no-separator"), "b", cred)
+	cred := RepoCredential{Bytes: []byte("t"), ExpiresAt: time.Now().Add(time.Hour)}
+	_, err := a.OpenBranch(rc(context.Background()), RepoRefFromString("no-separator"), "b", cred)
 	requireKind(t, err, fwra.ContractMisuse)
 }
 
@@ -267,7 +277,7 @@ func TestU9_InstallAuthorizeAppHappy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InstallAuthorizeApp: %v", err)
 	}
-	if sc.InstallationIsZero(inst) {
+	if InstallationIsZero(inst) {
 		t.Fatalf("expected a non-zero Installation")
 	}
 	req := findRequest(t, fake, "GET", "/app/installations")
@@ -305,13 +315,13 @@ func TestU14_GetInstallationTokenHappy(t *testing.T) {
 	defer fake.Close()
 	seedInstallation(fake, testAccount)
 	a := newAccess(t, fake)
-	repo := sc.RepoRefFromString("acme|acme/my-project")
+	repo := RepoRefFromString("acme|acme/my-project")
 
 	cred, err := a.GetInstallationToken(rc(context.Background()), repo)
 	if err != nil {
 		t.Fatalf("GetInstallationToken: %v", err)
 	}
-	if sc.RepoCredentialIsZero(cred) {
+	if RepoCredentialIsZero(cred) {
 		t.Fatalf("expected a non-empty credential")
 	}
 	if cred.ExpiresAt.IsZero() {
@@ -324,7 +334,7 @@ func TestU15_GetInstallationTokenCaches(t *testing.T) {
 	defer fake.Close()
 	seedInstallation(fake, testAccount)
 	a := newAccess(t, fake)
-	repo := sc.RepoRefFromString("acme|acme/my-project")
+	repo := RepoRefFromString("acme|acme/my-project")
 
 	if _, err := a.GetInstallationToken(rc(context.Background()), repo); err != nil {
 		t.Fatalf("first mint: %v", err)
@@ -349,7 +359,7 @@ func TestU16_GetInstallationTokenRemintNearExpiry(t *testing.T) {
 		"token": "ghs_short", "expires_at": time.Now().Add(5 * time.Second).UTC(),
 	}))
 	a := newAccess(t, fake)
-	repo := sc.RepoRefFromString("acme|acme/my-project")
+	repo := RepoRefFromString("acme|acme/my-project")
 
 	if _, err := a.GetInstallationToken(rc(context.Background()), repo); err != nil {
 		t.Fatalf("first mint: %v", err)
@@ -367,7 +377,7 @@ func TestU17_GetInstallationTokenNotFound(t *testing.T) {
 	defer fake.Close()
 	fake.On("GET", "/app/installations", gh.JSON(200, []map[string]any{})) // empty
 	a := newAccess(t, fake)
-	repo := sc.RepoRefFromString("acme|acme/my-project")
+	repo := RepoRefFromString("acme|acme/my-project")
 	_, err := a.GetInstallationToken(rc(context.Background()), repo)
 	requireKind(t, err, fwra.NotFound)
 }
@@ -385,13 +395,13 @@ func TestU12_AdoptSuccessEmptyUnderInstall(t *testing.T) {
 	fake.SeedEmptyRepo(testAccount, "my-project", true)
 	a := newAccess(t, fake)
 
-	ref, err := a.AdoptProjectRepo(rc(context.Background()), sc.RepoAdoptionSpec{
+	ref, err := a.AdoptProjectRepo(rc(context.Background()), RepoAdoptionSpec{
 		RepoName: "my-project", Account: testAccount, Title: "My Project",
 	})
 	if err != nil {
 		t.Fatalf("AdoptProjectRepo: %v", err)
 	}
-	if sc.RepoRefIsZero(ref) {
+	if RepoRefIsZero(ref) {
 		t.Fatalf("expected a non-zero RepoRef")
 	}
 	// adopt must NOT create a repo (no POST /orgs/.../repos).
@@ -413,7 +423,7 @@ func TestU29_AdoptNotUnderInstallation(t *testing.T) {
 	// The repo is NOT seeded → GET /repos/acme/missing 404s under the installation.
 	a := newAccess(t, fake)
 
-	_, err := a.AdoptProjectRepo(rc(context.Background()), sc.RepoAdoptionSpec{
+	_, err := a.AdoptProjectRepo(rc(context.Background()), RepoAdoptionSpec{
 		RepoName: "missing", Account: testAccount, Title: "Missing",
 	})
 	requireKind(t, err, fwra.NotFound)
@@ -440,13 +450,13 @@ func TestU30_AdoptSucceedsWithPreExistingContent(t *testing.T) {
 	fake.SeedRepo(testAccount, "has-stuff", "Pre-existing", []string{"misc"}, true)
 	a := newAccess(t, fake)
 
-	ref, err := a.AdoptProjectRepo(rc(context.Background()), sc.RepoAdoptionSpec{
+	ref, err := a.AdoptProjectRepo(rc(context.Background()), RepoAdoptionSpec{
 		RepoName: "has-stuff", Account: testAccount, Title: "Has Stuff",
 	})
 	if err != nil {
 		t.Fatalf("permissive adopt of a non-empty repo must SUCCEED, got: %v", err)
 	}
-	if sc.RepoRefIsZero(ref) {
+	if RepoRefIsZero(ref) {
 		t.Fatalf("expected a non-zero RepoRef on permissive adopt")
 	}
 	// adopt still applies the aiarch-project topic — regardless of content.
@@ -466,13 +476,13 @@ func TestU13_AdoptIdempotentReadopt(t *testing.T) {
 	fake.SeedAdoptedRepo(testAccount, "my-project", "My Project", true)
 	a := newAccess(t, fake)
 
-	ref, err := a.AdoptProjectRepo(rc(context.Background()), sc.RepoAdoptionSpec{
+	ref, err := a.AdoptProjectRepo(rc(context.Background()), RepoAdoptionSpec{
 		RepoName: "my-project", Account: testAccount, Title: "My Project",
 	})
 	if err != nil {
 		t.Fatalf("idempotent re-adopt must succeed, got: %v", err)
 	}
-	if sc.RepoRefIsZero(ref) {
+	if RepoRefIsZero(ref) {
 		t.Fatalf("expected the existing RepoRef on idempotent re-adopt")
 	}
 	// The idempotent path still (re-)applies the topic (converged → effective no-op).
@@ -500,13 +510,13 @@ func TestU41_AdoptBestEffortTopicOnPermissionDenied(t *testing.T) {
 	fake.On("PUT", "/repos/acme/no-admin/topics", gh.Response{Status: 403, Body: `{"message":"Resource not accessible by integration"}`})
 	a := newAccess(t, fake)
 
-	ref, err := a.AdoptProjectRepo(rc(context.Background()), sc.RepoAdoptionSpec{
+	ref, err := a.AdoptProjectRepo(rc(context.Background()), RepoAdoptionSpec{
 		RepoName: "no-admin", Account: testAccount, Title: "No Admin",
 	})
 	if err != nil {
 		t.Fatalf("permission-denied topic tagging must NOT fail adoption (best-effort); got: %v", err)
 	}
-	if sc.RepoRefIsZero(ref) {
+	if RepoRefIsZero(ref) {
 		t.Fatalf("expected a non-zero RepoRef even when topic tagging was skipped")
 	}
 	// The attempt was made (and degraded), not silently skipped: the PUT was issued.
@@ -529,7 +539,7 @@ func TestU42_AdoptStillFailsOnTransientTopicError(t *testing.T) {
 	fake.On("PUT", "/repos/acme/flaky/topics", gh.Response{Status: 500, Body: `{"message":"server error"}`})
 	a := newAccess(t, fake)
 
-	_, err := a.AdoptProjectRepo(rc(context.Background()), sc.RepoAdoptionSpec{
+	_, err := a.AdoptProjectRepo(rc(context.Background()), RepoAdoptionSpec{
 		RepoName: "flaky", Account: testAccount, Title: "Flaky",
 	})
 	requireKind(t, err, fwra.Transient)
@@ -551,13 +561,13 @@ func TestU31_AdoptSucceedsWithPreExistingAiarchTree(t *testing.T) {
 	fake.SeedRepoFile(testAccount, "my-project", ".aiarch", []byte("prior-state"))
 	a := newAccess(t, fake)
 
-	ref, err := a.AdoptProjectRepo(rc(context.Background()), sc.RepoAdoptionSpec{
+	ref, err := a.AdoptProjectRepo(rc(context.Background()), RepoAdoptionSpec{
 		RepoName: "my-project", Account: testAccount, Title: "My Project",
 	})
 	if err != nil {
 		t.Fatalf("permissive adopt of a repo with a pre-existing .aiarch/ must SUCCEED (resume), got: %v", err)
 	}
-	if sc.RepoRefIsZero(ref) {
+	if RepoRefIsZero(ref) {
 		t.Fatalf("expected a non-zero RepoRef on permissive resume-adopt")
 	}
 	// adopt re-applies the aiarch-project topic (converged → effective no-op).
@@ -583,7 +593,7 @@ func TestU13b_ListProjectReposDiscovery(t *testing.T) {
 	// Two genuinely-adopted repos (user-named, aiarch-project topic).
 	fake.SeedAdoptedRepo(testAccount, "alpha", "Project Alpha", true)
 	fake.SeedAdoptedRepo(testAccount, "beta-svc", "Project Beta", true)
-	a := newAccess(t, fake).(sc.SourceControlCatalogAccess)
+	a := newAccess(t, fake).(SourceControlCatalogAccess)
 
 	refs, err := a.ListProjectRepos(context.Background(), testAccount)
 	if err != nil {
@@ -608,14 +618,14 @@ func TestU13b_ListProjectReposDiscovery(t *testing.T) {
 // Code GitHub App.)
 // ---------------------------------------------------------------------------
 
-func adoptedFixture(t *testing.T, repoName string) (*gh.FakeGitHub, sc.SourceControlAccess, sc.RepoRef, sc.RepoCredential) {
+func adoptedFixture(t *testing.T, repoName string) (*gh.FakeGitHub, SourceControlAccess, RepoRef, RepoCredential) {
 	t.Helper()
 	fake := gh.Start()
 	fake.EnableRepoCatalog()
 	fake.SeedAdoptedRepo(testAccount, repoName, "Title", true)
 	a := newAccess(t, fake)
-	repo := sc.RepoRefFromString(testAccount + "|" + testAccount + "/" + repoName)
-	cred := sc.RepoCredential{Bytes: []byte("ghs_inst"), ExpiresAt: time.Now().Add(time.Hour)}
+	repo := RepoRefFromString(testAccount + "|" + testAccount + "/" + repoName)
+	cred := RepoCredential{Bytes: []byte("ghs_inst"), ExpiresAt: time.Now().Add(time.Hour)}
 	return fake, a, repo, cred
 }
 
@@ -631,7 +641,7 @@ func TestU36_CommitManagedFilesSeatsBundle(t *testing.T) {
 	gomod := []byte("module github.com/acme/alpha\n\ngo 1.25.0\n")
 	mtest := []byte("package method_test\n")
 
-	ref, err := a.CommitManagedFiles(rc(context.Background()), repo, []sc.ManagedFile{
+	ref, err := a.CommitManagedFiles(rc(context.Background()), repo, []ManagedFile{
 		{Path: ".github/workflows/aiarch-design.yml", Content: wf},
 		{Path: "go.mod", Content: gomod},
 		{Path: "aiarch_method_test.go", Content: mtest},
@@ -639,7 +649,7 @@ func TestU36_CommitManagedFilesSeatsBundle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CommitManagedFiles: %v", err)
 	}
-	if sc.CommitRefIsZero(ref) {
+	if CommitRefIsZero(ref) {
 		t.Fatalf("expected a non-zero CommitRef")
 	}
 	// All three files landed.
@@ -661,13 +671,13 @@ func TestU37_CommitManagedFilesOverwriteIfChanged(t *testing.T) {
 	path := ".github/workflows/aiarch-design.yml"
 	fake.SeedRepoFile(testAccount, "alpha", path, []byte("old content"))
 
-	ref, err := a.CommitManagedFiles(rc(context.Background()), repo, []sc.ManagedFile{
+	ref, err := a.CommitManagedFiles(rc(context.Background()), repo, []ManagedFile{
 		{Path: path, Content: []byte("new content")},
 	}, cred)
 	if err != nil {
 		t.Fatalf("overwrite: %v", err)
 	}
-	if sc.CommitRefIsZero(ref) {
+	if CommitRefIsZero(ref) {
 		t.Fatalf("expected a CommitRef on a changed write")
 	}
 	// A PUT was issued (the content changed).
@@ -687,13 +697,13 @@ func TestU38_CommitManagedFilesByteIdenticalNoOp(t *testing.T) {
 	content := []byte("identical bytes")
 	fake.SeedRepoFile(testAccount, "alpha", path, content)
 
-	ref, err := a.CommitManagedFiles(rc(context.Background()), repo, []sc.ManagedFile{
+	ref, err := a.CommitManagedFiles(rc(context.Background()), repo, []ManagedFile{
 		{Path: path, Content: content},
 	}, cred)
 	if err != nil {
 		t.Fatalf("byte-identical commit: %v", err)
 	}
-	if sc.CommitRefIsZero(ref) {
+	if CommitRefIsZero(ref) {
 		t.Fatalf("a no-op commit should still return the existing tip CommitRef")
 	}
 	// No PUT — byte-identical short-circuits.
@@ -709,7 +719,7 @@ func TestU39_CommitManagedFilesRejectsPathOffAllowlist(t *testing.T) {
 
 	// A non-allowlisted path (not under .github/workflows/ nor a scaffold root) must
 	// reject the WHOLE bundle before any wire call — even when bundled with a valid file.
-	_, err := a.CommitManagedFiles(rc(context.Background()), repo, []sc.ManagedFile{
+	_, err := a.CommitManagedFiles(rc(context.Background()), repo, []ManagedFile{
 		{Path: ".github/workflows/aiarch-design.yml", Content: []byte("ok")},
 		{Path: "src/main.go", Content: []byte("package main")},
 	}, cred)
@@ -722,22 +732,22 @@ func TestU39_CommitManagedFilesRejectsPathOffAllowlist(t *testing.T) {
 func TestU40_CommitManagedFilesGuards(t *testing.T) {
 	fake, a, repo, cred := adoptedFixture(t, "alpha")
 	defer fake.Close()
-	good := []sc.ManagedFile{{Path: ".github/workflows/x.yml", Content: []byte("c")}}
+	good := []ManagedFile{{Path: ".github/workflows/x.yml", Content: []byte("c")}}
 
-	if _, err := a.CommitManagedFiles(rc(context.Background()), sc.RepoRef(""), good, cred); kindOf(err) != fwra.ContractMisuse {
+	if _, err := a.CommitManagedFiles(rc(context.Background()), RepoRef(""), good, cred); kindOf(err) != fwra.ContractMisuse {
 		t.Fatalf("zero repo: kind = %v", kindOf(err))
 	}
-	if _, err := a.CommitManagedFiles(rc(context.Background()), repo, good, sc.RepoCredential{}); kindOf(err) != fwra.ContractMisuse {
+	if _, err := a.CommitManagedFiles(rc(context.Background()), repo, good, RepoCredential{}); kindOf(err) != fwra.ContractMisuse {
 		t.Fatalf("zero cred: kind = %v", kindOf(err))
 	}
 	if _, err := a.CommitManagedFiles(rc(context.Background()), repo, nil, cred); kindOf(err) != fwra.ContractMisuse {
 		t.Fatalf("empty fileset: kind = %v", kindOf(err))
 	}
-	if _, err := a.CommitManagedFiles(rc(context.Background()), repo, []sc.ManagedFile{{Path: ".github/workflows/x.yml", Content: nil}}, cred); kindOf(err) != fwra.ContractMisuse {
+	if _, err := a.CommitManagedFiles(rc(context.Background()), repo, []ManagedFile{{Path: ".github/workflows/x.yml", Content: nil}}, cred); kindOf(err) != fwra.ContractMisuse {
 		t.Fatalf("empty content: kind = %v", kindOf(err))
 	}
 	// A scaffold-root path (go.mod) is on the allowlist.
-	if _, err := a.CommitManagedFiles(rc(context.Background()), repo, []sc.ManagedFile{{Path: "go.mod", Content: []byte("module x\n")}}, cred); err != nil {
+	if _, err := a.CommitManagedFiles(rc(context.Background()), repo, []ManagedFile{{Path: "go.mod", Content: []byte("module x\n")}}, cred); err != nil {
 		t.Fatalf("go.mod is a scaffold-root managed file; should be accepted: %v", err)
 	}
 }
@@ -746,12 +756,12 @@ func TestU40_CommitManagedFilesGuards(t *testing.T) {
 // U18–U27  PR rail
 // ---------------------------------------------------------------------------
 
-func railFixture(t *testing.T) (*gh.FakeGitHub, sc.SourceControlAccess, sc.RepoRef, sc.RepoCredential) {
+func railFixture(t *testing.T) (*gh.FakeGitHub, SourceControlAccess, RepoRef, RepoCredential) {
 	t.Helper()
 	fake := gh.Start()
 	a := newAccess(t, fake)
-	repo := sc.RepoRefFromString("acme|acme/my-project")
-	cred := sc.RepoCredential{Bytes: []byte("ghs_x"), ExpiresAt: time.Now().Add(time.Hour)}
+	repo := RepoRefFromString("acme|acme/my-project")
+	cred := RepoCredential{Bytes: []byte("ghs_x"), ExpiresAt: time.Now().Add(time.Hour)}
 	return fake, a, repo, cred
 }
 
@@ -767,7 +777,7 @@ func TestU18_OpenBranchHappy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenBranch: %v", err)
 	}
-	if sc.BranchRefIsZero(br) {
+	if BranchRefIsZero(br) {
 		t.Fatalf("expected a BranchRef")
 	}
 	req := findRequest(t, fake, "POST", "/repos/acme/my-project/git/refs")
@@ -794,12 +804,12 @@ func TestU20_OpenPullRequestHappy(t *testing.T) {
 	defer fake.Close()
 	fake.On("POST", "/repos/acme/my-project/pulls", gh.JSON(201, map[string]any{"number": 42, "state": "open"}))
 
-	pr, err := a.OpenPullRequest(rc(context.Background()), repo, sc.PullRequestSpec{Head: "act-1", Base: "main", Title: "T"}, cred)
+	pr, err := a.OpenPullRequest(rc(context.Background()), repo, PullRequestSpec{Head: "act-1", Base: "main", Title: "T"}, cred)
 	if err != nil {
 		t.Fatalf("OpenPullRequest: %v", err)
 	}
-	if sc.PullRequestRefString(pr) != "42" {
-		t.Fatalf("PullRequestRef = %q, want 42", sc.PullRequestRefString(pr))
+	if PullRequestRefString(pr) != "42" {
+		t.Fatalf("PullRequestRef = %q, want 42", PullRequestRefString(pr))
 	}
 }
 
@@ -809,12 +819,12 @@ func TestU21_OpenPullRequestIdempotent(t *testing.T) {
 	fake.On("POST", "/repos/acme/my-project/pulls", gh.Response{Status: 422, Body: `{"message":"A pull request already exists"}`})
 	fake.OnPrefix("GET", "/repos/acme/my-project/pulls", gh.JSON(200, []map[string]any{{"number": 42, "state": "open"}}))
 
-	pr, err := a.OpenPullRequest(rc(context.Background()), repo, sc.PullRequestSpec{Head: "act-1", Base: "main"}, cred)
+	pr, err := a.OpenPullRequest(rc(context.Background()), repo, PullRequestSpec{Head: "act-1", Base: "main"}, cred)
 	if err != nil {
 		t.Fatalf("existing-PR must map to success, got: %v", err)
 	}
-	if sc.PullRequestRefString(pr) != "42" {
-		t.Fatalf("expected the existing PR #42, got %q", sc.PullRequestRefString(pr))
+	if PullRequestRefString(pr) != "42" {
+		t.Fatalf("expected the existing PR #42, got %q", PullRequestRefString(pr))
 	}
 }
 
@@ -822,11 +832,11 @@ func TestU22_GetPullRequestStatusFolds(t *testing.T) {
 	tests := []struct {
 		name       string
 		checkRuns  []map[string]any
-		wantRollup sc.CheckState
+		wantRollup CheckState
 	}{
-		{"success", []map[string]any{{"status": "completed", "conclusion": "success"}}, sc.CheckSuccess},
-		{"failure", []map[string]any{{"status": "completed", "conclusion": "failure"}}, sc.CheckFailure},
-		{"pending", []map[string]any{{"status": "in_progress", "conclusion": ""}}, sc.CheckPending},
+		{"success", []map[string]any{{"status": "completed", "conclusion": "success"}}, CheckSuccess},
+		{"failure", []map[string]any{{"status": "completed", "conclusion": "failure"}}, CheckFailure},
+		{"pending", []map[string]any{{"status": "in_progress", "conclusion": ""}}, CheckPending},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -841,7 +851,7 @@ func TestU22_GetPullRequestStatusFolds(t *testing.T) {
 			fake.On("GET", "/repos/acme/my-project/pulls/42/reviews", gh.JSON(200, []map[string]any{
 				{"state": "APPROVED"}, {"state": "COMMENTED"},
 			}))
-			st, err := a.GetPullRequestStatus(rc(context.Background()), repo, sc.PullRequestRefFromString("42"), cred)
+			st, err := a.GetPullRequestStatus(rc(context.Background()), repo, PullRequestRefFromString("42"), cred)
 			if err != nil {
 				t.Fatalf("GetPullRequestStatus: %v", err)
 			}
@@ -863,7 +873,7 @@ func TestU23_PostReviewApprove(t *testing.T) {
 	defer fake.Close()
 	fake.On("POST", "/repos/acme/my-project/pulls/42/reviews", gh.JSON(200, map[string]any{"id": 1, "state": "APPROVED"}))
 
-	if err := a.PostReview(rc(context.Background()), repo, sc.PullRequestRefFromString("42"), sc.ReviewSubmission{Verdict: sc.ReviewApprove, Body: "+1"}, cred); err != nil {
+	if err := a.PostReview(rc(context.Background()), repo, PullRequestRefFromString("42"), ReviewSubmission{Verdict: ReviewApprove, Body: "+1"}, cred); err != nil {
 		t.Fatalf("PostReview: %v", err)
 	}
 	req := findRequest(t, fake, "POST", "/repos/acme/my-project/pulls/42/reviews")
@@ -883,7 +893,7 @@ func TestU23b_PostReviewSelfApprovalDegrades(t *testing.T) {
 	fake.On("POST", "/repos/acme/my-project/pulls/42/reviews",
 		gh.Response{Status: 422, Body: `{"message":"Unprocessable Entity","errors":["Can not approve your own pull request"]}`})
 
-	if err := a.PostReview(rc(context.Background()), repo, sc.PullRequestRefFromString("42"), sc.ReviewSubmission{Verdict: sc.ReviewApprove, Body: "+1"}, cred); err != nil {
+	if err := a.PostReview(rc(context.Background()), repo, PullRequestRefFromString("42"), ReviewSubmission{Verdict: ReviewApprove, Body: "+1"}, cred); err != nil {
 		t.Fatalf("self-approval 422 must degrade to a no-op success, got: %v", err)
 	}
 	if countRequests(fake, "POST", "/repos/acme/my-project/pulls/42/reviews") != 1 {
@@ -900,7 +910,7 @@ func TestU23c_PostReviewNonSelfRejectionStillErrors(t *testing.T) {
 	fake.On("POST", "/repos/acme/my-project/pulls/42/reviews",
 		gh.Response{Status: 403, Body: `{"message":"Resource not accessible by integration"}`})
 
-	err := a.PostReview(rc(context.Background()), repo, sc.PullRequestRefFromString("42"), sc.ReviewSubmission{Verdict: sc.ReviewApprove, Body: "+1"}, cred)
+	err := a.PostReview(rc(context.Background()), repo, PullRequestRefFromString("42"), ReviewSubmission{Verdict: ReviewApprove, Body: "+1"}, cred)
 	requireKind(t, err, fwra.Auth)
 }
 
@@ -910,7 +920,7 @@ func TestU24_MergePullRequestHappy(t *testing.T) {
 	fake.On("GET", "/repos/acme/my-project/pulls/42", gh.JSON(200, map[string]any{"number": 42, "merged": false}))
 	fake.On("PUT", "/repos/acme/my-project/pulls/42/merge", gh.JSON(200, map[string]any{"sha": "mergedsha", "merged": true}))
 
-	res, err := a.MergePullRequest(rc(context.Background()), repo, sc.PullRequestRefFromString("42"), cred)
+	res, err := a.MergePullRequest(rc(context.Background()), repo, PullRequestRefFromString("42"), cred)
 	if err != nil {
 		t.Fatalf("MergePullRequest: %v", err)
 	}
@@ -924,7 +934,7 @@ func TestU25_MergePullRequestAlreadyMerged(t *testing.T) {
 	defer fake.Close()
 	fake.On("GET", "/repos/acme/my-project/pulls/42", gh.JSON(200, map[string]any{"number": 42, "merged": true}))
 
-	res, err := a.MergePullRequest(rc(context.Background()), repo, sc.PullRequestRefFromString("42"), cred)
+	res, err := a.MergePullRequest(rc(context.Background()), repo, PullRequestRefFromString("42"), cred)
 	if err != nil {
 		t.Fatalf("already-merged must map to success, got: %v", err)
 	}
@@ -942,7 +952,7 @@ func TestU26_MergePullRequestNotMergeable(t *testing.T) {
 	fake.On("GET", "/repos/acme/my-project/pulls/42", gh.JSON(200, map[string]any{"number": 42, "merged": false}))
 	fake.On("PUT", "/repos/acme/my-project/pulls/42/merge", gh.Response{Status: 405, Body: `{"message":"Pull Request is not mergeable"}`})
 
-	_, err := a.MergePullRequest(rc(context.Background()), repo, sc.PullRequestRefFromString("42"), cred)
+	_, err := a.MergePullRequest(rc(context.Background()), repo, PullRequestRefFromString("42"), cred)
 	requireKind(t, err, fwra.Conflict)
 }
 
@@ -955,7 +965,7 @@ func TestU27_ConfigureBranchProtection(t *testing.T) {
 		t.Fatalf("ConfigureBranchProtection: %v", err)
 	}
 	req := findRequest(t, fake, "PUT", "/repos/acme/my-project/branches/main/protection")
-	if !strings.Contains(req.Body, testAppSlug) {
+	if !strings.Contains(req.Body, stpAppSlug) {
 		t.Fatalf("branch protection should restrict/bypass the App slug; got %q", req.Body)
 	}
 }
@@ -965,19 +975,19 @@ func TestU27_ConfigureBranchProtection(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestU28_ValueSemantics(t *testing.T) {
-	if sc.CheckStateString(sc.CheckSuccess) != "Success" || sc.CheckStateString(sc.CheckFailure) != "Failure" || sc.CheckStateString(sc.CheckPending) != "Pending" {
+	if CheckStateString(CheckSuccess) != "Success" || CheckStateString(CheckFailure) != "Failure" || CheckStateString(CheckPending) != "Pending" {
 		t.Fatalf("CheckState String mapping wrong")
 	}
-	if !sc.RepoCredentialIsZero(sc.RepoCredential{}) {
+	if !RepoCredentialIsZero(RepoCredential{}) {
 		t.Fatalf("empty credential should be zero")
 	}
-	if !sc.InstallationIsZero(sc.Installation("")) {
+	if !InstallationIsZero(Installation("")) {
 		t.Fatalf("empty installation should be zero")
 	}
-	if !sc.PullRequestRefIsZero(sc.PullRequestRef("")) || !sc.BranchRefIsZero(sc.BranchRef("")) {
+	if !PullRequestRefIsZero(PullRequestRef("")) || !BranchRefIsZero(BranchRef("")) {
 		t.Fatalf("empty refs should be zero")
 	}
-	if !sc.CommitRefIsZero(sc.CommitRef("")) {
+	if !CommitRefIsZero(CommitRef("")) {
 		t.Fatalf("empty CommitRef should be zero")
 	}
 }
@@ -1040,28 +1050,28 @@ func putMessage(t *testing.T, fake *gh.FakeGitHub, path string) string {
 func TestU43_SyncManagedScaffoldDriftCommitsRefresh(t *testing.T) {
 	fake, a, repo, cred := adoptedFixture(t, "alpha")
 	defer fake.Close()
-	fake.SeedRepoFile(testAccount, "alpha", sc.DesignWorkflowPath, []byte("stale seated workflow (old pin)"))
+	fake.SeedRepoFile(testAccount, "alpha", DesignWorkflowPath, []byte("stale seated workflow (old pin)"))
 
-	changed, err := sc.SyncManagedScaffold(context.Background(), a, repo, cred)
+	changed, err := SyncManagedScaffold(context.Background(), a, repo, cred)
 	if err != nil {
 		t.Fatalf("SyncManagedScaffold: %v", err)
 	}
 	if !changed {
 		t.Fatal("a drifted seated workflow must report changed=true")
 	}
-	if got := countRequests(fake, "PUT", "/repos/acme/alpha/contents/"+sc.DesignWorkflowPath); got != 1 {
+	if got := countRequests(fake, "PUT", "/repos/acme/alpha/contents/"+DesignWorkflowPath); got != 1 {
 		t.Fatalf("a drifted workflow must issue exactly one contents PUT, got %d", got)
 	}
-	want, err := sc.DesignWorkflowFile(testAppSlug)
+	want, err := DesignWorkflowFile(stpAppSlug)
 	if err != nil {
 		t.Fatalf("DesignWorkflowFile: %v", err)
 	}
-	stored, ok := fake.RepoFile(testAccount, "alpha", sc.DesignWorkflowPath)
+	stored, ok := fake.RepoFile(testAccount, "alpha", DesignWorkflowPath)
 	if !ok || string(stored) != string(want.Content) {
 		t.Fatal("the refreshed seated workflow must equal the CURRENT template rendering")
 	}
-	msg := putMessage(t, fake, "/repos/acme/alpha/contents/"+sc.DesignWorkflowPath)
-	wantMsg := "aiarch: sync managed scaffold (aiarch-design.yml) to aiarch-state-mcp@" + sc.StateMcpModulePin
+	msg := putMessage(t, fake, "/repos/acme/alpha/contents/"+DesignWorkflowPath)
+	wantMsg := "aiarch: sync managed scaffold (aiarch-design.yml) to aiarch-state-mcp@" + StateMcpModulePin
 	if msg != wantMsg {
 		t.Fatalf("sync commit message = %q, want %q", msg, wantMsg)
 	}
@@ -1078,20 +1088,20 @@ func TestU43_SyncManagedScaffoldDriftCommitsRefresh(t *testing.T) {
 func TestU44_SyncManagedScaffoldByteIdenticalNoCommit(t *testing.T) {
 	fake, a, repo, cred := adoptedFixture(t, "alpha")
 	defer fake.Close()
-	current, err := sc.DesignWorkflowFile(testAppSlug)
+	current, err := DesignWorkflowFile(stpAppSlug)
 	if err != nil {
 		t.Fatalf("DesignWorkflowFile: %v", err)
 	}
-	fake.SeedRepoFile(testAccount, "alpha", sc.DesignWorkflowPath, current.Content)
+	fake.SeedRepoFile(testAccount, "alpha", DesignWorkflowPath, current.Content)
 
-	changed, err := sc.SyncManagedScaffold(context.Background(), a, repo, cred)
+	changed, err := SyncManagedScaffold(context.Background(), a, repo, cred)
 	if err != nil {
 		t.Fatalf("SyncManagedScaffold: %v", err)
 	}
 	if changed {
 		t.Fatal("a byte-identical seated workflow must report changed=false")
 	}
-	if got := countRequests(fake, "PUT", "/repos/acme/alpha/contents/"+sc.DesignWorkflowPath); got != 0 {
+	if got := countRequests(fake, "PUT", "/repos/acme/alpha/contents/"+DesignWorkflowPath); got != 0 {
 		t.Fatalf("a byte-identical seated workflow must issue NO contents PUT, got %d", got)
 	}
 }
@@ -1103,22 +1113,609 @@ func TestU44_SyncManagedScaffoldByteIdenticalNoCommit(t *testing.T) {
 func TestU45_SyncManagedScaffoldFallsBackToFrozenVerb(t *testing.T) {
 	fake, a, repo, cred := adoptedFixture(t, "alpha")
 	defer fake.Close()
-	fake.SeedRepoFile(testAccount, "alpha", sc.DesignWorkflowPath, []byte("stale seated workflow"))
-	wrapped := struct{ sc.SourceControlAccess }{a} // hides the auxiliary SyncManagedFiles
+	fake.SeedRepoFile(testAccount, "alpha", DesignWorkflowPath, []byte("stale seated workflow"))
+	wrapped := struct{ SourceControlAccess }{a} // hides the auxiliary SyncManagedFiles
 
-	changed, err := sc.SyncManagedScaffold(context.Background(), wrapped, repo, cred)
+	changed, err := SyncManagedScaffold(context.Background(), wrapped, repo, cred)
 	if err != nil {
 		t.Fatalf("SyncManagedScaffold (fallback): %v", err)
 	}
 	if changed {
 		t.Fatal("the frozen-verb fallback cannot report drift; changed must be false")
 	}
-	want, err := sc.DesignWorkflowFile("") // wrapper hides AppSlug too → empty slug rendering
+	want, err := DesignWorkflowFile("") // wrapper hides AppSlug too → empty slug rendering
 	if err != nil {
 		t.Fatalf("DesignWorkflowFile: %v", err)
 	}
-	stored, ok := fake.RepoFile(testAccount, "alpha", sc.DesignWorkflowPath)
+	stored, ok := fake.RepoFile(testAccount, "alpha", DesignWorkflowPath)
 	if !ok || string(stored) != string(want.Content) {
 		t.Fatal("the fallback must still converge the seated workflow onto the current rendering")
+	}
+}
+
+// ---- from agenticdesign_test.go ----
+
+// agenticdesign_test.go — structural tests over the embedded DESIGN workflow asset
+// (agenticdesign.go). It is an INTERNAL test package (package sourcecontrol) so it
+// can read the unexported designWorkflowTmplText embed var + renderDesignWorkflow; the
+// component's external service tests live in sourcecontrol_test.go (package
+// sourcecontrol_test). Both test packages coexisting in one directory is permitted by
+// go test.
+//
+// The workflow asset is now a Go text/template (custom [[ ]] delimiters) rendered with
+// the GitHub App slug, so the structural tests assert against the RENDERED bytes
+// (renderDesignWorkflow) rather than the raw template (which is not valid YAML on its
+// own — the [[ if ]] control line is not YAML).
+//
+// These assert the asset WIRING (the contract anchors), not a live Actions run.
+// The yaml.v3 + framework-go-infrastructure-github imports here are TEST-ONLY, so
+// the Method layering checker (loaded with Tests:false) never scans them.
+
+// testAppSlug is a representative configured App slug the structural tests render the
+// workflow with.
+const testAppSlug = "archistrator-bot"
+
+// renderedDesignWorkflow renders the embedded template with the given slug or fails the
+// test. Most structural assertions are slug-independent, so they use testAppSlug.
+func renderedDesignWorkflow(t *testing.T, appSlug string) []byte {
+	t.Helper()
+	b, err := renderDesignWorkflow(appSlug)
+	if err != nil {
+		t.Fatalf("renderDesignWorkflow(%q): %v", appSlug, err)
+	}
+	return b
+}
+
+// expectedDispatchInputs is the CONTRACT between this template and the design
+// Managers (C-MSD-Δ / C-MPD-Δ DispatchInputs on PipelineSpec). idempotency_token
+// is the load-bearing dispatch anchor shared with the construction workflow; the
+// other four are the additive DESIGN-job parameters.
+var expectedDispatchInputs = []string{
+	"idempotency_token",
+	"artifact_kind",
+	"design_prompt",
+	"target_branch",
+	"prior_state_ref",
+}
+
+// requiredDispatchInputs are the inputs that MUST be required:true. prior_state_ref
+// is intentionally optional (empty on the first artifact of a fresh project).
+var requiredDispatchInputs = []string{
+	"idempotency_token",
+	"artifact_kind",
+	"design_prompt",
+	"target_branch",
+}
+
+// workflowDoc is a minimal structural view of the workflow_dispatch surface we
+// assert on — we are testing the asset wiring, not running Actions.
+type workflowDoc struct {
+	Name    string `yaml:"name"`
+	RunName string `yaml:"run-name"`
+	On      struct {
+		WorkflowDispatch struct {
+			Inputs map[string]struct {
+				Description string `yaml:"description"`
+				Required    bool   `yaml:"required"`
+				Type        string `yaml:"type"`
+			} `yaml:"inputs"`
+		} `yaml:"workflow_dispatch"`
+	} `yaml:"on"`
+}
+
+func TestEmbeddedTemplateNonEmpty(t *testing.T) {
+	if len(designWorkflowTmplText) == 0 {
+		t.Fatal("embedded aiarch-design.yml.tmpl is empty")
+	}
+}
+
+func TestEmbeddedTemplateParsesAsYAML(t *testing.T) {
+	var doc workflowDoc
+	if err := yaml.Unmarshal(renderedDesignWorkflow(t, testAppSlug), &doc); err != nil {
+		t.Fatalf("rendered template does not parse as YAML: %v", err)
+	}
+	if doc.Name == "" {
+		t.Error("workflow has no top-level name")
+	}
+}
+
+func TestDeclaresExpectedDispatchInputs(t *testing.T) {
+	var doc workflowDoc
+	if err := yaml.Unmarshal(renderedDesignWorkflow(t, testAppSlug), &doc); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	inputs := doc.On.WorkflowDispatch.Inputs
+	if inputs == nil {
+		t.Fatal("workflow declares no workflow_dispatch inputs")
+	}
+	for _, name := range expectedDispatchInputs {
+		if _, ok := inputs[name]; !ok {
+			t.Errorf("missing expected workflow_dispatch input %q", name)
+		}
+	}
+	for _, name := range requiredDispatchInputs {
+		in, ok := inputs[name]
+		if !ok {
+			continue // already reported above
+		}
+		if !in.Required {
+			t.Errorf("input %q must be required:true", name)
+		}
+	}
+	// prior_state_ref is the one intentionally-optional input.
+	if in, ok := inputs["prior_state_ref"]; ok && in.Required {
+		t.Error("prior_state_ref must be optional (required:false) — empty on a fresh project")
+	}
+}
+
+func TestIdempotencyAnchorMatchesDispatchConstants(t *testing.T) {
+	var doc workflowDoc
+	if err := yaml.Unmarshal(renderedDesignWorkflow(t, testAppSlug), &doc); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	// The load-bearing input name MUST equal the satellite constant the
+	// constructionPipelineAccess RA fills, or dispatch/observe/cancel break.
+	if _, ok := doc.On.WorkflowDispatch.Inputs[fwgithub.DispatchInputKeyIdempotency]; !ok {
+		t.Errorf("workflow must declare the %q input (DispatchInputKeyIdempotency)",
+			fwgithub.DispatchInputKeyIdempotency)
+	}
+	// run-name MUST carry the RunNamePrefix so ListRunsByName can resolve runs.
+	if !strings.HasPrefix(doc.RunName, fwgithub.RunNamePrefix) {
+		t.Errorf("run-name %q must start with RunNamePrefix %q", doc.RunName, fwgithub.RunNamePrefix)
+	}
+	if !strings.Contains(doc.RunName, "${{ inputs."+fwgithub.DispatchInputKeyIdempotency+" }}") {
+		t.Errorf("run-name %q must stamp the idempotency_token input", doc.RunName)
+	}
+}
+
+func TestReferencesGoTestGateAndStatePath(t *testing.T) {
+	body := string(renderedDesignWorkflow(t, testAppSlug))
+
+	// The required check is `aiarch-state-mcp validate` — the policy-aware Method gate
+	// shipped in the pinned state-MCP binary (2026-07-06; the amendment deadlock
+	// fixes). The old seated `go mod tidy` + `go test ./...` steps must be gone from
+	// the DESIGN workflow (the seated go.mod/aiarch_method_test.go scaffold remains
+	// for the product repo's own CI), and the long-removed aiarch-validate container
+	// must stay gone.
+	if !strings.Contains(body, "${{ steps.statemcp.outputs.bin }} validate") {
+		t.Error("workflow's required check must run the pinned binary's `validate` subcommand")
+	}
+	// SLOT-SCOPED severity: the validate step threads the job's ambient artifact —
+	// the SAME dispatch input that fixes the drafting agent's slot — as --slot, via an
+	// env var (never shell-interpolated), so the CI verdict scopes exactly as the
+	// in-loop putDraftModel verdict does.
+	if !strings.Contains(body, `validate --slot "${ARTIFACT_KIND}"`) {
+		t.Error("the validate step must pass the ambient artifact as --slot (via the ARTIFACT_KIND env)")
+	}
+	if !strings.Contains(body, "ARTIFACT_KIND: ${{ inputs.artifact_kind }}") {
+		t.Error("the validate step must source ARTIFACT_KIND from the artifact_kind dispatch input")
+	}
+	if strings.Contains(body, "go test ./...") {
+		t.Error("the design workflow must no longer run the seated `go test ./...` gate (replaced by `aiarch-state-mcp validate`)")
+	}
+	if strings.Contains(body, "go mod tidy") {
+		t.Error("the design workflow must no longer materialize go.sum (the seated go test is not run here)")
+	}
+	if !strings.Contains(body, "actions/setup-go") {
+		t.Error("workflow must set up Go before installing the pinned validator binary")
+	}
+	// The validate JOB installs the pinned binary itself (jobs share no filesystem):
+	// the `go install <path>@pin` line must appear in BOTH the draft and validate jobs.
+	if strings.Count(body, "go install "+StateMcpModulePath) < 2 {
+		t.Error("both the draft and validate jobs must install the pinned aiarch-state-mcp binary")
+	}
+	if strings.Contains(body, "aiarch-validate") {
+		t.Error("workflow must no longer reference the removed aiarch-validate CLI/container")
+	}
+
+	// Commits / validates under the .aiarch/state/ tree that methodcheck.Check and
+	// projectStateAccess read.
+	if !strings.Contains(body, ".aiarch/state/") {
+		t.Error("workflow must commit/validate under the .aiarch/state/ tree")
+	}
+
+	// References claude-code-action authenticated by the named secret only (never
+	// an inlined token value).
+	if !strings.Contains(body, "claude-code-action") {
+		t.Error("workflow must run claude-code-action")
+	}
+	if !strings.Contains(body, "secrets.CLAUDE_CODE_OAUTH_TOKEN") {
+		t.Error("workflow must reference CLAUDE_CODE_OAUTH_TOKEN by secret name")
+	}
+}
+
+// TestDesignWorkflowCritiqueDoesNotOpenPR asserts the F39 rail-debris fix: the
+// prompt block instructs DRAFT mode to open a pull request but CRITIQUE mode to
+// commit to the branch and NOT open a PR (the manager reads critiqueVerdict off the
+// branch; a critique PR is never merged and would accumulate as debris). It also
+// pins the invariant that nothing in the template depends on a critique PR existing:
+// the run-name and the validate job both key off the branch, never a PR.
+func TestDesignWorkflowCritiqueDoesNotOpenPR(t *testing.T) {
+	body := string(renderedDesignWorkflow(t, testAppSlug))
+
+	// The agent NEVER opens a PR — the server (Manager) opens the review PR after
+	// read-back in draft mode; the agent only publishes via the aiarch-state MCP tool.
+	if !strings.Contains(body, "You do NOT open a pull request") {
+		t.Error("the prompt must tell the agent it does NOT open a pull request")
+	}
+	// DRAFT mode: the review PR is opened automatically for the agent.
+	if !strings.Contains(body, "opened for you automatically") {
+		t.Error("draft mode must state the review PR is opened automatically after publish")
+	}
+	// CRITIQUE mode: no PR is opened.
+	if !strings.Contains(body, "in critique mode no PR is opened") {
+		t.Error("critique mode must state no PR is opened")
+	}
+	// The stale agent-facing JSON-editing / open-a-PR instructions must be gone.
+	if strings.Contains(body, "ALSO open a pull request") ||
+		strings.Contains(body, "In both modes, commit onto the branch") ||
+		strings.Contains(body, "set \"critiqueVerdict\" to") {
+		t.Error("the old agent-facing file-edit / open-a-PR instructions must be removed")
+	}
+	// The aiarch-state MCP server is wired into the Claude step.
+	if !strings.Contains(body, "--mcp-config") || !strings.Contains(body, "aiarch-state") {
+		t.Error("the Claude step must wire the aiarch-state MCP server via --mcp-config")
+	}
+
+	// No PR dependency anywhere structural: the run-name keys off the idempotency
+	// token, and the validate job checks out the target branch — never a PR ref.
+	var doc workflowDoc
+	if err := yaml.Unmarshal([]byte(body), &doc); err != nil {
+		t.Fatalf("rendered template must still parse as YAML after the critique-mode edit: %v", err)
+	}
+	if !strings.Contains(doc.RunName, "idempotency_token") {
+		t.Errorf("run-name must key off idempotency_token, not a PR: %q", doc.RunName)
+	}
+	// The validate job checks out inputs.target_branch (the branch), not a PR merge ref.
+	if !strings.Contains(body, "ref: ${{ inputs.target_branch }}") {
+		t.Error("validate must check out the target branch (no critique-PR dependency)")
+	}
+}
+
+// TestDesignWorkflowWiresStateMcp asserts the rendered workflow obtains the local
+// aiarch-state MCP server (go install <path>@<pin>), writes its MCP config with the
+// ambient session context baked in from the dispatch inputs, and wires --mcp-config into
+// the Claude step. This is the delivery mechanism — the binary is fetched the SAME way the
+// seated go test fetches framework-go (go install @ a GOPROXY-resolvable pin).
+func TestDesignWorkflowWiresStateMcp(t *testing.T) {
+	body := string(renderedDesignWorkflow(t, testAppSlug))
+
+	// VERSION HANDSHAKE (managed-scaffold sync): the pin is stamped as a step env the job
+	// echoes (so any run's log states which binary generation the seated scaffold carries)
+	// and the install resolves through that same env — one rendered value, two uses.
+	if !strings.Contains(body, `AIARCH_STATE_MCP_PIN: "`+StateMcpModulePin+`"`) {
+		t.Errorf("workflow must stamp the state-MCP pin as the AIARCH_STATE_MCP_PIN env (%s); got:\n%s", StateMcpModulePin, body)
+	}
+	if !strings.Contains(body, "go install "+StateMcpModulePath+`@"${AIARCH_STATE_MCP_PIN}"`) {
+		t.Errorf("workflow must `go install %s@\"${AIARCH_STATE_MCP_PIN}\"`; got:\n%s", StateMcpModulePath, body)
+	}
+	if !strings.Contains(body, "echo \"aiarch-state-mcp pin: "+StateMcpModulePath+"@${AIARCH_STATE_MCP_PIN}\"") {
+		t.Error("workflow must echo the stamped state-MCP pin (the version-handshake log line)")
+	}
+	// The MCP config bakes in the ambient env keys the binary reads (never agent-supplied).
+	for _, key := range []string{"AIARCH_PROJECT_ID", "AIARCH_ARTIFACT_KIND", "AIARCH_JOB_MODE", "AIARCH_TARGET_BRANCH", "AIARCH_STATE_ROOT"} {
+		if !strings.Contains(body, key) {
+			t.Errorf("MCP config must set ambient env %q", key)
+		}
+	}
+	// The ambient kind + job mode come from the dispatch inputs, not the agent.
+	if !strings.Contains(body, "${{ inputs.artifact_kind }}") || !strings.Contains(body, "${{ inputs.job_mode }}") {
+		t.Error("MCP config must source artifact_kind + job_mode from the dispatch inputs")
+	}
+	// The rendered workflow must still be valid YAML after the MCP steps.
+	var doc workflowDoc
+	if err := yaml.Unmarshal([]byte(body), &doc); err != nil {
+		t.Fatalf("rendered workflow must parse as YAML after the MCP wiring: %v", err)
+	}
+}
+
+// TestDesignWorkflowReconcilesStateConflict asserts the F80 refresh-step wiring: answer
+// jobs skip the merge-from-main, and a draft/critique conflict on the state document is
+// resolved DETERMINISTICALLY via the aiarch-state-mcp `reconcile` subcommand rather than
+// dead-ending RED. It also asserts the F82 self-heal: a conflict reconcile cannot resolve
+// (a withdrawn/dead branch, or a conflict beyond the owned slot) hard-resets the scratch
+// session branch to origin/main instead of dead-ending every future amendment of the slot.
+func TestDesignWorkflowReconcilesStateConflict(t *testing.T) {
+	body := string(renderedDesignWorkflow(t, testAppSlug))
+
+	// F80(a): answer jobs short-circuit before the merge (still on the branch tip).
+	if !strings.Contains(body, `[ "${JOB_MODE}" = "answer" ]`) {
+		t.Error("refresh step must skip the merge-from-main for answer jobs (F80a)")
+	}
+	// F80(b): a state-document conflict is reconciled, not failed.
+	if !strings.Contains(body, "reconcile") {
+		t.Error("refresh step must invoke the aiarch-state-mcp reconcile subcommand (F80b)")
+	}
+	if !strings.Contains(body, "--diff-filter=U") {
+		t.Error("refresh step must detect the conflicted file set before auto-resolving")
+	}
+	// It reads BOTH merge stages of the state file (ours = :2, theirs/main = :3).
+	if !strings.Contains(body, `:2:${STATE_FILE}`) || !strings.Contains(body, `:3:${STATE_FILE}`) {
+		t.Error("reconcile must read both merge stages of the state document")
+	}
+	// F82: a conflict the reconcile CANNOT resolve (or a conflict on any file beyond the
+	// owned state slot) self-heals to main rather than dead-ending — the branch is scratch,
+	// the durable state lives on main. It must hard-reset to origin/main and force-push (with
+	// lease), never `exit 1` on the conflict.
+	if !strings.Contains(body, "reset --hard origin/main") {
+		t.Error("refresh step must self-heal a non-reconcilable conflict by hard-resetting to origin/main (F82)")
+	}
+	if !strings.Contains(body, "push --force-with-lease") {
+		t.Error("refresh step must force-push (with lease) the self-heal reset (F82)")
+	}
+	// The reconcile is GUARDED (its failure routes to self-heal, not a RED step) — the
+	// self-heal function must be invoked from both the non-state-conflict and the
+	// reconcile-failure paths.
+	if strings.Count(body, "self_heal_reset ") < 2 {
+		t.Error("refresh step must route BOTH the non-state conflict and the reconcile-failure paths to the self-heal reset (F82)")
+	}
+	if strings.Contains(body, "refusing to auto-resolve") {
+		t.Error("refresh step must no longer dead-end a conflicting refresh with an honest RED failure (F82 replaces it with self-heal)")
+	}
+	// The MCP binary is installed BEFORE the refresh step needs it (reconcile).
+	iInstall := strings.Index(body, "go install "+StateMcpModulePath)
+	iRefresh := strings.Index(body, "Refresh the session branch from main")
+	if iInstall < 0 || iRefresh < 0 || iInstall > iRefresh {
+		t.Error("the aiarch-state MCP binary must be installed before the refresh step (which invokes reconcile)")
+	}
+	var doc workflowDoc
+	if err := yaml.Unmarshal([]byte(body), &doc); err != nil {
+		t.Fatalf("rendered workflow must parse as YAML after the F80 reconcile wiring: %v", err)
+	}
+}
+
+// TestDesignWorkflowAllowedBots asserts the allowed_bots actor is templated from the
+// configured App slug (never hardcoded) and, crucially, is OMITTED entirely when the
+// slug is empty — an unconfigured deployment then still supports human-dispatched runs
+// rather than emitting an empty/invalid allowed_bots value.
+func TestDesignWorkflowAllowedBots(t *testing.T) {
+	// With a configured slug, allowed_bots renders with exactly that slug, and it must
+	// parse as valid YAML.
+	withSlug := string(renderedDesignWorkflow(t, "acme-aiarch-bot"))
+	if !strings.Contains(withSlug, "allowed_bots: acme-aiarch-bot") {
+		t.Errorf("rendered workflow must set allowed_bots to the configured slug; got:\n%s", withSlug)
+	}
+	var doc workflowDoc
+	if err := yaml.Unmarshal([]byte(withSlug), &doc); err != nil {
+		t.Fatalf("rendered workflow (with slug) must parse as YAML: %v", err)
+	}
+
+	// With an empty slug, the allowed_bots KEY must be ABSENT (guard: omit, don't emit
+	// empty). The result must still be a valid workflow (parses as YAML).
+	empty := string(renderedDesignWorkflow(t, ""))
+	if strings.Contains(empty, "allowed_bots:") {
+		t.Errorf("empty slug must omit the allowed_bots key entirely; got:\n%s", empty)
+	}
+	if err := yaml.Unmarshal([]byte(empty), &doc); err != nil {
+		t.Fatalf("rendered workflow (empty slug) must parse as YAML: %v", err)
+	}
+}
+
+// TestManagedScaffoldFiles asserts the birth scaffold bundle: the design workflow +
+// the templated go-test gate (go.mod + aiarch_method_test.go) + the internal/.gitkeep
+// placeholder, all on the managed-file allowlist, with the repo's module path
+// templated in.
+func TestManagedScaffoldFiles(t *testing.T) {
+	// owner|owner/repo encoding the RA produces (makeRepoRef): account=acme,
+	// fullName=acme/widgets.
+	repo := makeRepoRef("acme", "acme/widgets")
+	files, err := ManagedScaffoldFiles(repo, testAppSlug)
+	if err != nil {
+		t.Fatalf("ManagedScaffoldFiles: %v", err)
+	}
+	if len(files) != 4 {
+		t.Fatalf("want 4 managed files (workflow + go.mod + method test + internal/.gitkeep), got %d", len(files))
+	}
+
+	byPath := map[string]ManagedFile{}
+	for _, f := range files {
+		byPath[f.Path] = f
+		// Every seated file MUST be on the managed-file allowlist (the verb rejects
+		// anything else).
+		if !isManagedFilePath(f.Path) {
+			t.Errorf("scaffold file %q is not on the managed-file allowlist", f.Path)
+		}
+		if len(f.Content) == 0 {
+			t.Errorf("scaffold file %q has empty content", f.Path)
+		}
+	}
+
+	// (1) the design workflow is the template RENDERED with the App slug, under
+	// .github/workflows/. It must equal renderDesignWorkflow(slug) and carry allowed_bots.
+	wf, ok := byPath[DesignWorkflowPath]
+	if !ok {
+		t.Fatalf("missing %s in the scaffold bundle", DesignWorkflowPath)
+	}
+	if !bytes.Equal(wf.Content, renderedDesignWorkflow(t, testAppSlug)) {
+		t.Error("workflow content must be the template rendered with the App slug")
+	}
+	if !strings.Contains(string(wf.Content), "allowed_bots: "+testAppSlug) {
+		t.Errorf("seated workflow must allow-list the configured App slug; got:\n%s", wf.Content)
+	}
+
+	// (2) go.mod templated with the derived module path + the framework-go require pin.
+	goMod, ok := byPath[GoModPath]
+	if !ok {
+		t.Fatalf("missing %s in the scaffold bundle", GoModPath)
+	}
+	gm := string(goMod.Content)
+	if !strings.Contains(gm, "module github.com/acme/widgets") {
+		t.Errorf("go.mod must declare the derived module path; got:\n%s", gm)
+	}
+	if !strings.Contains(gm, "require github.com/mixofreality-studio/archistrator-platform/framework-go "+FrameworkGoVersion) {
+		t.Errorf("go.mod must require framework-go at the pinned version %q; got:\n%s", FrameworkGoVersion, gm)
+	}
+
+	// (3) the method test templates the module path into arch.MethodSpec + calls
+	// methodcheck.Check.
+	mt, ok := byPath[MethodTestPath]
+	if !ok {
+		t.Fatalf("missing %s in the scaffold bundle", MethodTestPath)
+	}
+	mts := string(mt.Content)
+	if !strings.Contains(mts, "methodcheck.Check") {
+		t.Error("method test must call methodcheck.Check")
+	}
+	if !strings.Contains(mts, `arch.MethodSpec(".", "github.com/acme/widgets/")`) {
+		t.Errorf("method test must template the module path into arch.MethodSpec; got:\n%s", mts)
+	}
+
+	// (4) internal/.gitkeep keeps the internal/ directory present so the method gate's
+	// arch.MethodSpec ./internal/... load pattern resolves instead of hard-erroring on a
+	// fresh repo. It is static (not templated), non-empty (CommitManagedFiles rejects
+	// empty content), and its path is on the managed-file allowlist (asserted above in
+	// the per-file loop).
+	gk, ok := byPath[internalGitkeepPath]
+	if !ok {
+		t.Fatalf("missing %s in the scaffold bundle", internalGitkeepPath)
+	}
+	if internalGitkeepPath != "internal/.gitkeep" {
+		t.Errorf("internalGitkeepPath must be the literal internal/.gitkeep; got %q", internalGitkeepPath)
+	}
+	if string(gk.Content) != internalGitkeepContent {
+		t.Errorf("internal/.gitkeep content = %q, want %q", gk.Content, internalGitkeepContent)
+	}
+	if len(gk.Content) == 0 {
+		t.Error("internal/.gitkeep must be non-empty (CommitManagedFiles rejects empty content)")
+	}
+}
+
+// TestInternalGitkeepAcceptedByAllowlist proves the seeded placeholder path is on the
+// managed-file allowlist (so CommitManagedFiles accepts it), while an arbitrary file
+// under internal/ is NOT (the allowlist lists the literal internal/.gitkeep, not an
+// internal/ prefix — keeping it tight).
+func TestInternalGitkeepAcceptedByAllowlist(t *testing.T) {
+	if !isManagedFilePath(internalGitkeepPath) {
+		t.Errorf("%q must be on the managed-file allowlist", internalGitkeepPath)
+	}
+	if isManagedFilePath("internal/main.go") {
+		t.Error("an arbitrary file under internal/ must NOT be on the allowlist — only the literal internal/.gitkeep is")
+	}
+}
+
+// TestManagedScaffoldFilesRejectsZeroRepo proves a malformed RepoRef (no owner/repo)
+// is a ContractMisuse the accessor surfaces, not a silent empty module path.
+func TestManagedScaffoldFilesRejectsZeroRepo(t *testing.T) {
+	if _, err := ManagedScaffoldFiles(RepoRef(""), testAppSlug); err == nil {
+		t.Fatal("expected an error for a zero RepoRef (unresolvable module path)")
+	}
+}
+
+// TestRailAppSlug proves the birth-scaffold caller can read the App slug off the
+// concrete GitHub access (which knows its own slug), and that a rail NOT exposing it
+// yields "" (so allowed_bots is omitted rather than emitted empty).
+func TestRailAppSlug(t *testing.T) {
+	// The concrete access exposes its configured slug via AppSlug(); RailAppSlug reads it.
+	a := &access{appSlug: "cfg-app-slug"}
+	if got := a.AppSlug(); got != "cfg-app-slug" {
+		t.Errorf("access.AppSlug() = %q, want cfg-app-slug", got)
+	}
+	if got := RailAppSlug(a); got != "cfg-app-slug" {
+		t.Errorf("RailAppSlug(access) = %q, want cfg-app-slug", got)
+	}
+
+	// A rail that does not expose AppSlug (any SourceControlAccess without the method)
+	// yields "" — the omit-allowed_bots guard.
+	if got := RailAppSlug(railWithoutSlug{}); got != "" {
+		t.Errorf("RailAppSlug(rail-without-AppSlug) = %q, want empty", got)
+	}
+}
+
+// railWithoutSlug is a SourceControlAccess that does NOT implement AppSlug() (like a
+// test fake), used to prove RailAppSlug degrades to "". All methods panic — RailAppSlug
+// only type-asserts, it never calls them.
+type railWithoutSlug struct{}
+
+func (railWithoutSlug) AdoptProjectRepo(fwra.Context, RepoAdoptionSpec) (RepoRef, error) {
+	panic("unused")
+}
+func (railWithoutSlug) CommitManagedFiles(fwra.Context, RepoRef, []ManagedFile, RepoCredential) (CommitRef, error) {
+	panic("unused")
+}
+func (railWithoutSlug) ConfigureBranchProtection(fwra.Context, RepoRef, RepoCredential) error {
+	panic("unused")
+}
+func (railWithoutSlug) GetInstallationToken(fwra.Context, RepoRef) (RepoCredential, error) {
+	panic("unused")
+}
+func (railWithoutSlug) GetPullRequestStatus(fwra.Context, RepoRef, PullRequestRef, RepoCredential) (PullRequestStatus, error) {
+	panic("unused")
+}
+func (railWithoutSlug) InstallAuthorizeApp(fwra.Context, AccountRef) (Installation, error) {
+	panic("unused")
+}
+func (railWithoutSlug) MergePullRequest(fwra.Context, RepoRef, PullRequestRef, RepoCredential) (MergeResult, error) {
+	panic("unused")
+}
+func (railWithoutSlug) OpenBranch(fwra.Context, RepoRef, BranchName, RepoCredential) (BranchRef, error) {
+	panic("unused")
+}
+func (railWithoutSlug) OpenPullRequest(fwra.Context, RepoRef, PullRequestSpec, RepoCredential) (PullRequestRef, error) {
+	panic("unused")
+}
+func (railWithoutSlug) PostReview(fwra.Context, RepoRef, PullRequestRef, ReviewSubmission, RepoCredential) error {
+	panic("unused")
+}
+func (railWithoutSlug) SyncManagedScaffold(fwra.Context, RepoRef, RepoCredential) (bool, error) {
+	panic("unused")
+}
+
+var _ SourceControlAccess = railWithoutSlug{}
+
+// TestStateMcpPinIsNotABranch guards the managed-scaffold sync's premise: the pin the
+// template renders (and the sync converges seated copies onto) must be a FIXED ref —
+// a commit SHA or a tag the release process moves deliberately — never a branch name.
+// GOPROXY caches branch→pseudo-version resolutions, so a branch pin can silently serve
+// a stale binary (the drift class the sync exists to eliminate); with a branch pin the
+// seated bytes also never change, so the sync could not even detect the drift.
+func TestStateMcpPinIsNotABranch(t *testing.T) {
+	if strings.TrimSpace(StateMcpModulePin) == "" {
+		t.Fatal("StateMcpModulePin must not be empty")
+	}
+	for _, branch := range []string{"main", "master", "HEAD"} {
+		if StateMcpModulePin == branch {
+			t.Fatalf("StateMcpModulePin must be a fixed ref (commit SHA or tag), not the branch %q", branch)
+		}
+	}
+}
+
+// TestDesignWorkflowFileIsTheSeatRendering proves the sync and the birth seat share
+// ONE rendering: DesignWorkflowFile equals the DesignWorkflowPath entry of the
+// ManagedScaffoldFiles birth bundle byte-for-byte, so sync-on-dispatch converges the
+// seated copy onto exactly what a fresh seat would commit today.
+func TestDesignWorkflowFileIsTheSeatRendering(t *testing.T) {
+	single, err := DesignWorkflowFile(testAppSlug)
+	if err != nil {
+		t.Fatalf("DesignWorkflowFile: %v", err)
+	}
+	if single.Path != DesignWorkflowPath {
+		t.Fatalf("DesignWorkflowFile path = %q, want %q", single.Path, DesignWorkflowPath)
+	}
+	bundle, err := ManagedScaffoldFiles(RepoRef("acct|acme/proj"), testAppSlug)
+	if err != nil {
+		t.Fatalf("ManagedScaffoldFiles: %v", err)
+	}
+	var seat []byte
+	for _, f := range bundle {
+		if f.Path == DesignWorkflowPath {
+			seat = f.Content
+		}
+	}
+	if seat == nil {
+		t.Fatalf("seat bundle is missing %s", DesignWorkflowPath)
+	}
+	if !bytes.Equal(single.Content, seat) {
+		t.Fatal("DesignWorkflowFile and the ManagedScaffoldFiles seat entry must be the SAME rendering (seat and sync can never disagree)")
+	}
+}
+
+// TestSyncManagedScaffoldMessageNamesFileAndPin pins the sync commit-message contract:
+// it names the refreshed file and the state-MCP pin it refreshed to, so the repo
+// history records when and to which binary generation the scaffold was synced.
+func TestSyncManagedScaffoldMessageNamesFileAndPin(t *testing.T) {
+	msg := syncManagedScaffoldMessage()
+	want := "aiarch: sync managed scaffold (aiarch-design.yml) to aiarch-state-mcp@" + StateMcpModulePin
+	if msg != want {
+		t.Fatalf("syncManagedScaffoldMessage() = %q, want %q", msg, want)
 	}
 }
