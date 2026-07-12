@@ -105,10 +105,26 @@ Approach — root-cause, schema-first:
   seam/envelope arg bundling) into workflow-side pure code or contract types —
   whichever the per-activity detailed design finds; this is plan-level work with
   a recon step per activity.
-- **Hard constraint:** registered Temporal activity names must not change —
-  in-flight workflow histories reference them. `internal/arch_activitynames_test.go`
-  is the stability harness and must stay green throughout. The generator must be
-  able to emit the exact stable names currently registered via `CustomActivities`.
+- **Hard constraint (as ratified — supersedes the freeze below):** the original
+  "activity names must never change" freeze was unimplementable given the shape
+  the promotions actually took (§8a) and was ratified away during execution.
+  Registered Temporal **workflow** names are frozen — the 20 externally-referenced
+  names in Global Constraints, asserted verbatim by
+  `TestRegisteredTemporalNamesGolden_FrozenWorkflowNames`. Registered **activity**
+  names MAY change (clean cut): the promoted/deleted activities land under new
+  contract-qualified names (`designSessionAccess.stageArtifactForReviewOnBranch`,
+  etc.), and the full registered-name set — workflows + activities — is asserted
+  against a committed golden list in `internal/registered_names_test.go`
+  (`TestRegisteredTemporalNamesGolden`). A deliberate rename is a reviewable
+  one-line diff against that golden, not silent drift. This is the new stability
+  mechanism; `internal/arch_activitynames_test.go` remains in force for its
+  original purpose (method-value invocation + no hand registration) but is not
+  itself the activity-name freeze. **Consequence:** any in-flight Temporal
+  workflow execution histories from before this release reference the
+  now-renamed activity names by string; they must be drained (allowed to
+  complete under the OLD worker) before a worker built from this release is
+  deployed. Temporal Schedules resume automatically post-drain — no operator
+  action needed there.
 
 ## 4. Enforcement — `framework-go/arch` FileLayout check
 
@@ -162,3 +178,101 @@ the lint-gate effort).
 - No waiver mechanism: the gate is absolute from the moment it flips on.
 - webApp/TypeScript layout is out of scope (covered by the TS layer-enforcement
   package separately).
+
+## 8. Outcome amendments (2026-07-11 execution)
+
+Recorded post-hoc, after the migration executed and the gate flipped on
+(framework-go v0.5.2, `TestFileLayout` green, methoddesign green) and the D2
+verification sweep closed it out. Each item is a deviation from — or a
+clarification of — the design above, as actually built.
+
+**(a) Clean-cut + drain, ratified.** §3's original activity-name freeze
+assumed the promoted activities could keep their old names. They couldn't:
+promoting an operation into an RA contract gives it a new contract-qualified
+registered name (`<contractKey>.<opName>`), and activity *payloads* changed
+shape too (envelope args replaced ad hoc arg bundles). The founder ratified a
+clean cut instead of a name-preserving shim: activity names and payloads
+change; **workflow names are frozen** (the 20 external names, Global
+Constraints); the **registered-names golden test**
+(`internal/registered_names_test.go`) is the stability mechanism going
+forward — `TestRegisteredTemporalNamesGolden` pins the full set,
+`TestRegisteredTemporalNamesGolden_FrozenWorkflowNames` pins the 20 workflow
+names verbatim. Operational consequence: **in-flight workflow executions
+must be drained before deploying this release** — their histories reference
+the old activity names/payload shapes by string, which the new worker no
+longer registers. Temporal Schedules resume automatically once drained; no
+manual re-registration needed.
+
+**(b) temporalgen needed no generation extension.** §3 designed a
+temporalgen extension to let the generator emit activities for promoted
+operations. It wasn't needed: every promotion rode the *existing*
+contract-backed RA component machinery — `constructionTransitionAccess`,
+`gitActivityStatusAccess`, `designSessionAccess`, `revenueLedgerAccess`, and
+`sourceControlAccess.syncManagedScaffold` — which `activities.gen.go`
+already generates activities for once an op is declared on a contract
+schema. The only generator-adjacent change across the whole migration was
+**deleting `CustomActivities`** (the manifest hook for handwritten
+activities) now that nothing declares any. Rule 5 (§2) is enforced with zero
+platform changes.
+
+**(c) Multi-component-per-package contract tooling.** Promoting operations
+onto RA contracts that share a package (e.g. `projectstate`) needed contract
+schemas to live one-per-component rather than one-per-package:
+`contract.<key>.schema.json` (e.g. `contract.designSessionAccess.schema.json`,
+`contract.constructionTransitionAccess.schema.json`,
+`contract.gitActivityStatusAccess.schema.json`,
+`contract.revenueLedgerAccess.schema.json`). `modelgen` merges every
+`contract.*.schema.json` in a package into that package's generated models,
+and a package with multiple contract files nominates a **sticky primary**
+(the pre-existing single-contract file, when one exists) so codegen output
+for the original component doesn't reshuffle just because siblings were
+added alongside it.
+
+**(d) `ProjectEnvelope` is the shared wire projection.** `projectstate.go`
+gained two envelope types: `ModelEnvelope` (opaque `oneOf`-style wire
+wrapper for the artifact model union — replaces the narrower `ArtifactModel`
+on ops that need it, e.g. `StageArtifactForReviewOnBranch`) and
+`ProjectEnvelope` (the shared read-side projection multiple managers
+consume; its construction-related sections are `omitempty` for
+managers/call sites that don't need them). The `Stage` op signature takes
+`ModelEnvelope` over the wire; the decode into the concrete typed model now
+happens **inside the RA** (`designSessionAccess.StageArtifactForReviewOnBranch`),
+not in the manager — keeping the manager layer free of wire-format
+knowledge.
+
+**(e) Rule 2 semantics, clarified in practice.** One `*Workflow`-suffixed
+**entry** function per workflow file, filename derived from that entry
+function (§2 Rule 2 as written). What wasn't explicit in the original
+design and had to be settled during execution: context-taking helper
+functions (`func(ctx workflow.Context, ...)` that are NOT themselves the
+registered entry point) are legal *inside* a workflow file when they're
+private to that one workflow — the Rule-2 "exactly one such func" language
+means exactly one func matching the *entry* shape (the one temporalgen
+registers), not a ban on any other function that happens to take a
+`workflow.Context`. Such a context-taking helper is **forbidden in the
+Rule-1 impl file** (`<pkg>manager.go`) — that file is workflow-agnostic by
+design. A helper shared by two or more workflow files moves up into the
+impl file by convention (as §2 Rule 2 already said), authored as an
+ordinary Go function (dropping the `workflow.Context` parameter where
+possible, or threading it explicitly) rather than staying duplicated per
+workflow file.
+
+**(f) Single test file rule — dual test packages folded.** Some packages
+had both an in-package (`package foo`) and an external (`package foo_test`)
+test file. Rule 3 ("one test file per package") is satisfied by folding
+both **into the in-package test file** — `package foo_test` files are
+absorbed in-package rather than kept as a second file. This loses nothing:
+the exported-surface discipline (external test files exist to prove the
+package's exported API is sufficient) is kept as a *convention* enforced by
+review, not by a second physical file. No gate encodes it; it's a norm.
+
+**(g) Platform + pin state at close.** Platform releases produced by this
+effort: `framework-go` v0.5.0 → v0.5.1 → v0.5.2 (FileLayout check landed
+dormant in v0.5.0, activated/hardened through v0.5.2), and
+`framework-go-app-generator` v0.6.0 → v0.6.1. archistrator's `server/go.mod`
+pins `framework-go v0.5.2` and `framework-go-app-generator v0.6.1`; the
+`FrameworkGoVersion` const consumed by generated consumer repos'
+`sourceControlAccess` (`internal/resourceaccess/sourcecontrol/sourcecontrolaccess.go`)
+is `"v0.5.2"` — new consumer repos scaffolded after this release inherit the
+FileLayout gate automatically via that pin, with no waiver list available to
+them either.
