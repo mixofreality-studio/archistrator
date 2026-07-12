@@ -7,6 +7,7 @@ import (
 
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/testsuite"
+	"go.temporal.io/sdk/workflow"
 
 	"github.com/google/uuid"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
@@ -261,7 +262,7 @@ func (s *stubGitStatus) constructionPhase(activityID string) (projectstate.Activ
 	return c.Phase, ok
 }
 
-var _ gitActivityStatusAccess = (*stubGitStatus)(nil)
+var _ projectstate.GitActivityStatusAccess = (*stubGitStatus)(nil)
 
 // ---- helpers ----------------------------------------------------------------
 
@@ -279,15 +280,20 @@ func registerGenRail(env *testsuite.TestWorkflowEnvironment, rail sourcecontrol.
 }
 
 // registerConstructGit registers the per-activity workflow + ALL activities including the
-// git-forward ones: the GENERATED pipeline + rail surfaces (via fakes) and the CUSTOM git
-// head-state RecordActivity* method-value Activities on the workflows receiver.
-func registerConstructGit(env *testsuite.TestWorkflowEnvironment, wf *workflows, rail sourcecontrol.SourceControlAccess) {
-	registerConstruct(env, wf, &fakePipeline{phase: PipelineSucceeded})
+// git-forward ones: the GENERATED pipeline/projectState-version/constructionTransition/
+// rail surfaces (via fakes) and the GENERATED gitActivityStatusAccess Record* activities
+// backed by git (NOT ps — the git-forward tests wire wfDeps.GitStatus to a SEPARATE
+// stubGitStatus store, distinct from ps, so the registration backing must match; this is
+// deliberately NOT built by delegating to registerConstruct, which always backs
+// gitActivityStatusAccess with ps).
+func registerConstructGit(env *testsuite.TestWorkflowEnvironment, wf *workflows, ps *fakeProjectState, git *stubGitStatus, rail sourcecontrol.SourceControlAccess) {
+	env.RegisterWorkflowWithOptions(wf.ConstructActivityWorkflow, workflow.RegisterOptions{Name: executionKindConstructActivity})
+	registerGenPipeline(env, &fakePipeline{phase: PipelineSucceeded})
+	env.RegisterActivity(wf.ReadProjectActivity)
+	registerGenProjectStateVersion(env, ps)
+	registerGenConstructionTransition(env, ps)
+	registerGenGitStatus(env, git)
 	registerGenRail(env, rail)
-	env.RegisterActivity(wf.RecordActivityBranchOpenedActivity)
-	env.RegisterActivity(wf.RecordActivityCIObservedActivity)
-	env.RegisterActivity(wf.RecordActivityArchApprovedActivity)
-	env.RegisterActivity(wf.RecordActivityMergedActivity)
 }
 
 // gitWiredWorkflows builds a workflows with the git-forward slice wired to the supplied
@@ -334,7 +340,7 @@ func Test_GitForward_FullLifecycle_RecordsHeadState(t *testing.T) {
 	rail := &stubRail{prRef: "pr-7", ciRollup: sourcecontrol.CheckSuccess}
 	git := newStubGitStatus(0)
 	wf := gitWiredWorkflows(ps, rail, git, true /*mergeable*/)
-	registerConstructGit(env, wf, rail)
+	registerConstructGit(env, wf, ps, git, rail)
 
 	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{
 		ProjectID: pid, ActivityID: "C-MST", Activity: gitSampleActivity(),
@@ -408,7 +414,7 @@ func Test_Construction_StartedThenCompleted_RecordedOnHeadState(t *testing.T) {
 	rail := &stubRail{prRef: "pr-1", ciRollup: sourcecontrol.CheckSuccess}
 	git := newStubGitStatus(0)
 	wf := gitWiredWorkflows(ps, rail, git, true /*mergeable*/)
-	registerConstructGit(env, wf, rail)
+	registerConstructGit(env, wf, ps, git, rail)
 
 	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{
 		ProjectID: pid, ActivityID: "C-MST", Activity: gitSampleActivity(),
@@ -438,7 +444,7 @@ func Test_GitForward_CIFailure_MirroredNotGated(t *testing.T) {
 	rail := &stubRail{prRef: "pr-1", ciRollup: sourcecontrol.CheckFailure}
 	git := newStubGitStatus(0)
 	wf := gitWiredWorkflows(ps, rail, git, true)
-	registerConstructGit(env, wf, rail)
+	registerConstructGit(env, wf, ps, git, rail)
 
 	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{
 		ProjectID: pid, ActivityID: "C-CI", Activity: constructionActivity{ActivityID: "C-CI", Kind: handoff.ActivityKindConstruction, ComponentID: "c"},
@@ -469,7 +475,7 @@ func Test_GitForward_Dormant_WhenUnwired(t *testing.T) {
 		Review: &fakeReview{}, ProjectState: ps,
 		// no git-forward slice — RailEnabled=false, GitStatus/Repo nil.
 	})
-	registerConstruct(env, wf, &fakePipeline{phase: PipelineSucceeded})
+	registerConstruct(env, wf, ps, &fakePipeline{phase: PipelineSucceeded})
 
 	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{
 		ProjectID: pid, ActivityID: "C-NO-GIT", Activity: sampleActivity(),
@@ -522,7 +528,7 @@ func Test_GitForward_RecordsConvergeMonotonically(t *testing.T) {
 	rail := &stubRail{prRef: "pr-9", ciRollup: sourcecontrol.CheckSuccess}
 	git := newStubGitStatus(0)
 	wf := gitWiredWorkflows(ps, rail, git, true)
-	registerConstructGit(env, wf, rail)
+	registerConstructGit(env, wf, ps, git, rail)
 
 	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{
 		ProjectID: pid, ActivityID: "C-MONO", Activity: constructionActivity{ActivityID: "C-MONO", Kind: handoff.ActivityKindConstruction, ComponentID: "c"},

@@ -32,11 +32,16 @@ import (
 //     review.ReviewEngine — the PUBLISHED contracts, no Manager-local seam) are PURE,
 //     deterministic, called DIRECTLY in-workflow (no Activity wrapper — replay-safe),
 //     with fweng.Context{Context: context.Background()} supplied inline at each call site.
-//   - The ResourceAccess ports are I/O and NON-deterministic. The contract-backed ops
-//     (pipeline / artifact / rail) are GENERATED and reached through the generated
-//     invoker surface (Acts). The CUSTOM ops (the projectEnvelope-codec reads, the
-//     constructionTransition + git head-state writes) are Activity methods on this same
-//     struct, invoked via workflow.ExecuteActivity (activities_custom.go / gitactivities.go).
+//   - The ResourceAccess ports are I/O and NON-deterministic. Almost all of them
+//     (pipeline / artifact / rail / projectState-version / constructionTransition /
+//     gitActivityStatus) are GENERATED and reached through the generated invoker surface
+//     (Acts) — B8 migrated the constructionTransition + git head-state writes off their
+//     former hand-written Activity wrappers. The ONE surviving CUSTOM op
+//     (ReadProjectActivity, the projectEnvelope-codec whole-aggregate read) is an
+//     Activity method on this same struct, invoked via workflow.ExecuteActivity
+//     (activities_custom.go) — kept custom because the generated
+//     designSessionAccess.readProjectOnBranch invoker returns a structurally narrower
+//     envelope that cannot carry what the pump's eligibility selection needs (deps.go).
 
 // wfDeps bundles every downstream dependency the constructionManager orchestrates,
 // assembled by WorkerManifest (workermanifest.go) from the Manager's stored PUBLISHED
@@ -50,18 +55,19 @@ type wfDeps struct {
 	Intervention intervention.InterventionEngine
 	Review       review.ReviewEngine
 
-	// ProjectState serves the whole-aggregate reads (CUSTOM projectEnvelope codec);
-	// ConstructionTransition serves the cred-threaded Phase-3 head-state transition writes
-	// (CUSTOM). When ConstructionTransition is nil, newWorkflows derives it from
-	// ProjectState if that value also satisfies the transition seam (the in-package fakes
-	// satisfy both).
-	ProjectState           projectStateReader
-	ConstructionTransition constructionTransitionAccess
+	// ProjectState serves the whole-aggregate read (CUSTOM projectEnvelope codec,
+	// ReadProjectActivity — see deps.go for why this ONE op stays custom post-B8). The
+	// cred-threaded Phase-3 head-state transition writes are reached through the
+	// GENERATED invoker surface (Acts.ConstructionTransition*) — there is no
+	// wfDeps.ConstructionTransition field anymore (B8).
+	ProjectState projectStateReader
 
-	// GitStatus is the OPTIONAL per-activity git head-state mirror (C-MCN-GIT, CUSTOM).
-	// When non-nil the per-activity construction started/completed records fire and, when
-	// the PR rail resolves, the branch→PR→CI→+1→merge records mirror the rail returns.
-	GitStatus gitActivityStatusAccess
+	// GitStatus is the OPTIONAL per-activity git head-state mirror (C-MCN-GIT). Its
+	// writes are reached through the GENERATED invoker surface (Acts.GitStatus*); this
+	// field's ONLY remaining role is the nil-check "is the mirror wired" feature flag
+	// (gitforward.go's gitEnabled/startedCred) that gates the started/completed records
+	// and the branch→PR→CI→+1→merge mirror.
+	GitStatus projectstate.GitActivityStatusAccess
 
 	// Acts is the GENERATED workflow-side call surface for the contract-backed RA
 	// Activities (pipeline / artifact / rail); its Opts hook applies the per-op presets.
@@ -101,9 +107,8 @@ type workflows struct {
 	Intervention intervention.InterventionEngine
 	Review       review.ReviewEngine
 
-	ProjectState           projectStateReader
-	ConstructionTransition constructionTransitionAccess
-	GitStatus              gitActivityStatusAccess
+	ProjectState projectStateReader
+	GitStatus    projectstate.GitActivityStatusAccess
 
 	Acts genInvokers
 
@@ -116,30 +121,21 @@ type workflows struct {
 	EscalationWaitTimeout time.Duration
 }
 
-// newWorkflows builds the workflows receiver from the injected seams. When the
-// ConstructionTransition seam is not supplied explicitly it is derived from the
-// ProjectState value if that value also satisfies the transition seam.
+// newWorkflows builds the workflows receiver from the injected seams.
 func newWorkflows(d wfDeps) *workflows {
-	ct := d.ConstructionTransition
-	if ct == nil {
-		if derived, ok := d.ProjectState.(constructionTransitionAccess); ok {
-			ct = derived
-		}
-	}
 	return &workflows{
-		HandOff:                d.HandOff,
-		Intervention:           d.Intervention,
-		Review:                 d.Review,
-		ProjectState:           d.ProjectState,
-		ConstructionTransition: ct,
-		GitStatus:              d.GitStatus,
-		Acts:                   d.Acts,
-		RailEnabled:            d.RailEnabled,
-		Repo:                   d.Repo,
-		NextEligibleActivity:   d.NextEligibleActivity,
-		HandOffPolicy:          d.HandOffPolicy,
-		InterventionPolicy:     d.InterventionPolicy,
-		EscalationWaitTimeout:  d.EscalationWaitTimeout,
+		HandOff:               d.HandOff,
+		Intervention:          d.Intervention,
+		Review:                d.Review,
+		ProjectState:          d.ProjectState,
+		GitStatus:             d.GitStatus,
+		Acts:                  d.Acts,
+		RailEnabled:           d.RailEnabled,
+		Repo:                  d.Repo,
+		NextEligibleActivity:  d.NextEligibleActivity,
+		HandOffPolicy:         d.HandOffPolicy,
+		InterventionPolicy:    d.InterventionPolicy,
+		EscalationWaitTimeout: d.EscalationWaitTimeout,
 	}
 }
 
@@ -172,8 +168,14 @@ const (
 // timeout choices live here, in the Manager.
 // ---------------------------------------------------------------------------
 
-func readProjectOpts(ctx workflow.Context) workflow.Context {
-	return workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+// readProjectActivityOptions is the read preset VALUE (10s; NotFound+ContractMisuse
+// terminal) shared by: (a) the CUSTOM ReadProjectActivity, applied directly at its
+// workflow.ExecuteActivity call site via readProjectOpts, and (b) the migrated (B8)
+// ReadProjectVersion GENERATED invoker, applied via the manifest's Opts hook
+// (workermanifest.go, keyed "projectStateAccess.readProjectVersion") — reproducing the
+// identical pre-migration preset for both.
+func readProjectActivityOptions() workflow.ActivityOptions {
+	return workflow.ActivityOptions{
 		StartToCloseTimeout: 10 * time.Second,
 		RetryPolicy: &temporal.RetryPolicy{
 			NonRetryableErrorTypes: []string{
@@ -181,7 +183,11 @@ func readProjectOpts(ctx workflow.Context) workflow.Context {
 				fwmanager.RAErrType(fwra.ContractMisuse),
 			},
 		},
-	})
+	}
+}
+
+func readProjectOpts(ctx workflow.Context) workflow.Context {
+	return workflow.WithActivityOptions(ctx, readProjectActivityOptions())
 }
 
 // submitPipelineActivityOptions / observePipelineActivityOptions are the pipeline preset
@@ -293,15 +299,23 @@ func (wf *workflows) cancelPipeline(ctx workflow.Context, handle pipelineHandle)
 	return wf.Acts.PipelineCancelConstructionPipeline(ctx, constructionpipeline.ParsePipelineHandle(handle.Name))
 }
 
-func recordOpts(ctx workflow.Context) workflow.Context {
-	return workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+// recordActivityOptions is the head-state Record-verb preset VALUE (10s; ContractMisuse
+// terminal only — Conflict must reach the workflow so the §6.5 re-read→re-apply loop can
+// recover it) the manifest's Opts hook (workermanifest.go) applies to the GENERATED
+// constructionTransitionAccess / gitActivityStatusAccess Record* invokers by registered
+// name — reproducing the pre-migration (B8) recordOpts preset exactly. Unlike
+// readProjectActivityOptions, there is no remaining direct-ExecuteActivity call site for
+// this preset (every Record* verb now goes through the generated invoker surface), so
+// only the VALUE form survives.
+func recordActivityOptions() workflow.ActivityOptions {
+	return workflow.ActivityOptions{
 		StartToCloseTimeout: 10 * time.Second,
 		RetryPolicy: &temporal.RetryPolicy{
 			NonRetryableErrorTypes: []string{
 				fwmanager.RAErrType(fwra.ContractMisuse),
 			},
 		},
-	})
+	}
 }
 
 // raConflictErrType is the canonical Temporal Type() a head-state mutation Activity
@@ -1009,13 +1023,8 @@ func (wf *workflows) completePhase(
 		return nil
 	}
 	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-		rc := recordOpts(ctx)
-		var out projectstate.Version
-		e := workflow.ExecuteActivity(rc, wf.RecordPhaseCompletedActivity, recordPhaseCompletedArgs{
-			ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected,
-			ActivityID: string(in.ActivityID), Phase: phase, ArtifactRef: "", Cred: cred,
-		}).Get(ctx, &out)
-		return out, e
+		return wf.Acts.ConstructionTransitionRecordPhaseCompleted(ctx, projectstate.ProjectID(in.ProjectID), expected,
+			string(in.ActivityID), phase, "", cred.toProjectState())
 	})
 	if err != nil {
 		return err
@@ -1028,13 +1037,8 @@ func (wf *workflows) completePhase(
 // RecordPhaseStarted) through the §6.5 Conflict loop. Gated on gitOn by the caller.
 func (wf *workflows) recordPhaseStarted(ctx workflow.Context, in constructActivityInput, phase projectstate.ActivityMethodPhase, seed projectstate.Version, cred railCredEnvelope) (projectstate.Version, error) {
 	return wf.applyRecovering(ctx, in.ProjectID, seed, func(expected projectstate.Version) (projectstate.Version, error) {
-		rc := recordOpts(ctx)
-		var out projectstate.Version
-		e := workflow.ExecuteActivity(rc, wf.RecordPhaseStartedActivity, recordPhaseStartedArgs{
-			ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected,
-			ActivityID: string(in.ActivityID), Phase: phase, Cred: cred,
-		}).Get(ctx, &out)
-		return out, e
+		return wf.Acts.ConstructionTransitionRecordPhaseStarted(ctx, projectstate.ProjectID(in.ProjectID), expected,
+			string(in.ActivityID), phase, cred.toProjectState())
 	})
 }
 
@@ -1296,18 +1300,15 @@ func (wf *workflows) readProject(ctx workflow.Context, projectID ProjectID) (pro
 	return decodeProject(pe), nil
 }
 
-// readVersionE runs the cheap ReadProjectVersion Activity and returns ONLY the
-// head-state optimistic-concurrency token, surfacing errors (including the brand-new
-// project's fwra.NotFound) to the caller. Replaces the wasteful whole-aggregate read
-// that shipped the entire encoded Project across the Temporal Activity boundary for a
-// uint64 (architect's fast-follow).
+// readVersionE runs the cheap ReadProjectVersion GENERATED invoker (B8: migrated off the
+// custom ReadProjectVersionActivity) and returns ONLY the head-state optimistic-
+// concurrency token, surfacing errors (including the brand-new project's fwra.NotFound)
+// to the caller. Replaces the wasteful whole-aggregate read that shipped the entire
+// encoded Project across the Temporal Activity boundary for a uint64 (architect's
+// fast-follow). The invoker's Opts hook applies readProjectActivityOptions (identical
+// preset, keyed "projectStateAccess.readProjectVersion" — workermanifest.go).
 func (wf *workflows) readVersionE(ctx workflow.Context, projectID ProjectID) (projectstate.Version, error) {
-	c := readProjectOpts(ctx)
-	var v projectstate.Version
-	if err := workflow.ExecuteActivity(c, wf.ReadProjectVersionActivity, projectstate.ProjectID(projectID)).Get(ctx, &v); err != nil {
-		return 0, err
-	}
-	return v, nil
+	return wf.Acts.ProjectStateReadProjectVersion(ctx, projectstate.ProjectID(projectID))
 }
 
 // readVersion reads the current head Version (0 for a brand-new project or on any
@@ -1324,24 +1325,16 @@ func (wf *workflows) readVersion(ctx workflow.Context, projectID ProjectID) proj
 // Manager-minted cred is threaded into the write (empty/zero in dev/dry-run).
 func (wf *workflows) recordChangeReviewed(ctx workflow.Context, in constructActivityInput, seed projectstate.Version, cred railCredEnvelope) (projectstate.Version, error) {
 	return wf.applyRecovering(ctx, in.ProjectID, seed, func(expected projectstate.Version) (projectstate.Version, error) {
-		c := recordOpts(ctx)
-		var v projectstate.Version
-		e := workflow.ExecuteActivity(c, wf.RecordChangeReviewedActivity, recordChangeReviewedArgs{
-			ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, ActivityID: string(in.ActivityID), Cred: cred,
-		}).Get(ctx, &v)
-		return v, e
+		return wf.Acts.ConstructionTransitionRecordChangeReviewed(ctx, projectstate.ProjectID(in.ProjectID), expected,
+			string(in.ActivityID), cred.toProjectState())
 	})
 }
 
 // recordActivityExited applies the binary-exit head-state transition.
 func (wf *workflows) recordActivityExited(ctx workflow.Context, in constructActivityInput, seed projectstate.Version, outcome projectstate.ActivityOutcome, cred railCredEnvelope) (projectstate.Version, error) {
 	return wf.applyRecovering(ctx, in.ProjectID, seed, func(expected projectstate.Version) (projectstate.Version, error) {
-		c := recordOpts(ctx)
-		var v projectstate.Version
-		e := workflow.ExecuteActivity(c, wf.RecordActivityExitedActivity, recordActivityExitedArgs{
-			ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, ActivityID: string(in.ActivityID), Outcome: outcome, Cred: cred,
-		}).Get(ctx, &v)
-		return v, e
+		return wf.Acts.ConstructionTransitionRecordActivityExited(ctx, projectstate.ProjectID(in.ProjectID), expected,
+			string(in.ActivityID), outcome, cred.toProjectState())
 	})
 }
 
@@ -1352,12 +1345,8 @@ func (wf *workflows) recordActivityExited(ctx workflow.Context, in constructActi
 // the activity stuck Running.
 func (wf *workflows) recordActivityFailed(ctx workflow.Context, in constructActivityInput, seed projectstate.Version, reason projectstate.FailureReason, detail string, cred railCredEnvelope) (projectstate.Version, error) {
 	return wf.applyRecovering(ctx, in.ProjectID, seed, func(expected projectstate.Version) (projectstate.Version, error) {
-		c := recordOpts(ctx)
-		var v projectstate.Version
-		e := workflow.ExecuteActivity(c, wf.RecordActivityFailedActivity, recordActivityFailedArgs{
-			ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, ActivityID: string(in.ActivityID), Reason: reason, Detail: detail, Cred: cred,
-		}).Get(ctx, &v)
-		return v, e
+		return wf.Acts.ConstructionTransitionRecordActivityFailed(ctx, projectstate.ProjectID(in.ProjectID), expected,
+			string(in.ActivityID), reason, detail, cred.toProjectState())
 	})
 }
 

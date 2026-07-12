@@ -12,111 +12,59 @@ import (
 // (contract.gen.go: NewConstructionManager) takes the dependencies' PUBLISHED
 // interfaces directly. The three Engines (handOff / intervention / review) are now
 // typed as their PUBLISHED contract interfaces DIRECTLY on wfDeps/workflows
-// (workflow.go) — no Manager-local seam interface, no adapter (Task 6). The three RA
-// reader seams below survive UNCHANGED: each already speaks the published
-// projectstate.* types with no local mirror (see the per-seam notes); they are kept
-// as narrow accept-interfaces rather than deleted outright because neither is
-// substitutable by a generated invoker (see each note for why).
+// (workflow.go) — no Manager-local seam interface, no adapter (Task 6).
+//
+// B8 (custom activities → generated, clean cut): the constructionTransitionAccess (10
+// ops) and gitActivityStatusAccess (6 ops) seams that used to live here are GONE — every
+// write verb is now reached through the GENERATED invoker surface
+// (invokers.gen.go: genInvokers.ConstructionTransition* / genInvokers.GitStatus*),
+// backed by the manager's own projectstate.ConstructionTransitionAccess /
+// projectstate.GitActivityStatusAccess deps threaded via genActivities
+// (workermanifest.go). wfDeps/workflows no longer carry a ConstructionTransition field
+// at all (nothing reads it anymore); GitStatus survives as a plain
+// projectstate.GitActivityStatusAccess-typed field — its ONLY remaining role is the
+// nil-check "is the per-activity git head-state mirror wired" feature flag
+// (gitforward.go's gitEnabled/startedCred), never a direct method call.
+//
+// ONE seam survives as a genuinely CUSTOM Activity: ReadProjectActivity
+// (activities_custom.go). The generated designSessionAccess.readProjectOnBranch invoker
+// (construction would call it with branch="" to read main) returns
+// projectstate.ProjectEnvelope — a STRUCTURALLY NARROWER wire type than construction's
+// own projectEnvelope (codec.go): ProjectEnvelope's Slots map carries Network/
+// ActivityList (via the shared slotTable) but has NO field for ActivityConstruction /
+// ServiceContracts / ReviewPolicy, which are top-level projectstate.Project fields
+// outside slotTable() (see envelope.go's own doc comment, which flags construction's
+// codec as "structurally different ... stays local"). The pump's eligibility selection
+// (eligibility.go: nextEligibleActivity) reads ActivityConstruction/ServiceContracts on
+// every tick — decoding through ProjectEnvelope would silently and permanently lose
+// them, which is a correctness regression (every activity looks NotStarted forever), not
+// a naming change. B8 therefore keeps ReadProjectActivity custom rather than forcing this
+// migration; see the task-B8 report for the full analysis.
 //
 // How each seam is reached differs by determinism class:
 //   - the three Engines (handoff.HandOffEngine / intervention.InterventionEngine /
 //     review.ReviewEngine) are PURE, deterministic, called DIRECTLY in-workflow (no
 //     Activity wrapper — replay-safe) with fweng.Context{Context: context.Background()}
 //     supplied inline at each call site (workflow.go / signals.go);
-//   - the ResourceAccess ports (projectState read / constructionTransition write /
-//     gitActivityStatus / pipeline / artifacts / workers / rail) are I/O and reached
-//     through Temporal Activities (activities_custom.go / gitactivities.go /
-//     activities.gen.go).
-//
-// projectState reads are satisfied DIRECTLY by the published
-// projectstate.ProjectStateAccess (narrowed to the two read verbs here); the
-// construction-transition writes are satisfied DIRECTLY by the published
-// projectstate.ConstructionTransitionAccess (cred-threaded). The git head-state seam
-// composes the two published git facets (GitActivityStatusAccess +
-// GitActivityConstructionAccess). None of the three carries a local mirror type —
-// every field/param already speaks projectstate.* directly.
+//   - the ResourceAccess ports are I/O: the contract-backed ops (projectState /
+//     constructionTransition / gitActivityStatus / pipeline / artifacts / rail) are
+//     GENERATED and reached through the generated invoker surface (Acts); the ONE
+//     structurally-blocked whole-aggregate read (ReadProjectActivity) is a hand-written
+//     Activity (activities_custom.go).
 
 // ===========================================================================
-// projectState read seam — the two whole-aggregate read verbs the Manager needs.
+// projectState read seam — the ONE whole-aggregate read verb the Manager needs.
 // rc-based: the published projectstate.ProjectStateAccess satisfies it directly
 // (interface narrowing); the Manager builds the rc Context inside the read Activity.
 //
-// SURVIVOR (Task 6 Step 1): ReadProject/ReadProjectVersion ARE generated invokers
-// (invokers.gen.go: genInvokers.ProjectStateReadProject/ProjectStateReadProjectVersion),
-// but the workflow cannot call them directly — the raw projectstate.Project carries a
-// sealed ArtifactModel interface in each ArtifactSlot that Temporal's default JSON
-// data converter cannot decode across the Activity boundary (codec.go). ReadProjectActivity
-// / ReadProjectVersionActivity (activities_custom.go) call THIS seam instead, then
-// project the result onto the Temporal-serializable projectEnvelope (codec.go). The
-// seam itself already carries no local mirror — both methods are byte-identical in
-// signature to projectstate.ProjectStateAccess's own — so there is nothing left to
-// retype; it stays as a narrowed accept-interface.
+// Narrowed to ReadProject only (B8): ReadProjectVersion moved onto the GENERATED
+// invoker (genInvokers.ProjectStateReadProjectVersion) — a plain Version crosses the
+// Temporal boundary cleanly (no sealed-interface concern), so nothing custom is needed
+// for it. ReadProject stays here and stays custom — see the package doc above for why.
 // ===========================================================================
 
 type projectStateReader interface {
 	ReadProject(rc fwra.Context, projectID projectstate.ProjectID) (projectstate.Project, error)
-	ReadProjectVersion(rc fwra.Context, projectID projectstate.ProjectID) (projectstate.Version, error)
-}
-
-// ===========================================================================
-// construction-transition write seam — the additive Phase-3 head-state transition
-// verbs (cred-threaded). The published projectstate.ConstructionTransitionAccess
-// satisfies this directly (it is a superset). The Manager threads the rail-minted
-// credential into every write (empty/zero in the dev/dry-run profile, which the
-// local git store ignores).
-//
-// SURVIVOR (Task 6 Step 1): NOT covered by any generated invoker — these ten verbs
-// are an ADDITIVE facet of projectstate (construction_transition_port.go), never
-// folded into the "core" ProjectStateAccess contract genActivities/genInvokers
-// generate Activities/invokers for. temporalgen has no op to generate, so
-// activities_custom.go wraps them by hand (the CUSTOM Activities). Every method
-// signature here already matches projectstate.ConstructionTransitionAccess's own
-// (minus ReadProject, served by projectStateReader above) — no local mirror to
-// retype.
-// ===========================================================================
-
-type constructionTransitionAccess interface {
-	RecordChangeReviewed(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	RecordActivityExited(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, outcome projectstate.ActivityOutcome, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	RecordActivityFailed(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, reason projectstate.FailureReason, detail string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	RecordOperatorPaused(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, reason string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	RecordReviewPolicy(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, policy projectstate.ReviewPolicy, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	RecordPhaseStarted(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, phase projectstate.ActivityMethodPhase, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	RecordPhaseCompleted(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, phase projectstate.ActivityMethodPhase, artifactRef string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	RecordServiceContractProduced(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, component string, contract projectstate.ServiceContract, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	RecordPhaseArtifactProduced(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, mapKey string, payload projectstate.PhaseArtifactPayload, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-}
-
-// ===========================================================================
-// git-forward slice (C-MCN-GIT). The construction Manager is the ONLY component
-// touching both the PR rail (sourceControlAccess) and the per-activity git
-// head-state mirror. Both are Manager→RA downward edges; the cred is Manager-minted
-// via GetInstallationToken and threaded IN.
-//
-// The PR-rail consumer seam (the former sourceControlRail) is RETIRED — the rail ops
-// are GENERATED (activities.gen.go) and reached through the generated invoker surface
-// (genInvokers.Rail*); the workflow-side value mapping lives in gitforward.go. The git
-// head-state mirror below stays a CUSTOM (plain-goType) seam.
-// ===========================================================================
-
-// gitActivityStatusAccess mirrors the now-generated projectstate.GitActivityStatusAccess
-// contract (6 ops: branch/CI/+1/merge plus started/completed — the two former additive
-// facets, projectstate.GitActivityStatusAccess (4 ops) and
-// projectstate.GitActivityConstructionAccess (2 ops), promoted onto ONE contract). The
-// concrete *projectstate.GitStore (and the composition-root git adapter) satisfy it, so
-// the builder type-asserts the gitActivityStatus dep onto this seam.
-//
-// SURVIVOR (Task 6 Step 1): like constructionTransitionAccess above, these six verbs
-// have no generated invoker — activities_custom.go's sibling, gitactivities.go, wraps
-// them by hand. Every method here already matches the published contract's own
-// signature — no local mirror to retype.
-type gitActivityStatusAccess interface {
-	RecordActivityBranchOpened(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID, branch, branchRef, prRef, crLabel string, isRevert bool, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	RecordActivityCIObserved(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, ci projectstate.CICheckState, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	RecordActivityArchApproved(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	RecordActivityMerged(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	RecordActivityStarted(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	RecordActivityCompleted(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
 }
 
 // ===========================================================================

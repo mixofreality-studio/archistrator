@@ -100,14 +100,9 @@ func (wf *workflows) runPauseBranch(ctx workflow.Context, projectID ProjectID, r
 	if plan.RecordPaused {
 		headVersion := wf.readVersion(ctx, projectID)
 		if _, err := wf.applyRecovering(ctx, projectID, headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-			c := recordOpts(ctx)
-			var v projectstate.Version
-			e := workflow.ExecuteActivity(c, wf.RecordOperatorPausedActivity, recordOperatorPausedArgs{
-				// Project-level pause has no per-activity minted cred; the cred-binding git
-				// adapter mints just-in-time and the local store ignores an empty cred.
-				ProjectID: projectstate.ProjectID(projectID), ExpectedVersion: expected, Reason: reason, Cred: railCredEnvelope{},
-			}).Get(ctx, &v)
-			return v, e
+			// Project-level pause has no per-activity minted cred; the cred-binding git
+			// adapter mints just-in-time and the local store ignores an empty cred.
+			return wf.Acts.ConstructionTransitionRecordOperatorPaused(ctx, projectstate.ProjectID(projectID), expected, reason, railCredEnvelope{}.toProjectState())
 		}); err != nil {
 			return err
 		}

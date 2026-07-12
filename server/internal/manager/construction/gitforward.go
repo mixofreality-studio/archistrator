@@ -116,14 +116,8 @@ func (wf *workflows) openActivityBranchAndPR(
 
 	// Mirror: birth the per-activity git head-state row (PR-tolerant fused upsert).
 	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-		rc := recordOpts(ctx)
-		var out projectstate.Version
-		e := workflow.ExecuteActivity(rc, wf.RecordActivityBranchOpenedActivity, recordActivityBranchOpenedArgs{
-			ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, ActivityID: string(in.ActivityID),
-			Branch: gf.branch, BranchRef: gf.branchRef, PRRef: gf.prRef,
-			CRLabel: gf.crLabel, IsRevert: gf.isRevert, Cred: cred,
-		}).Get(ctx, &out)
-		return out, e
+		return wf.Acts.GitStatusRecordActivityBranchOpened(ctx, projectstate.ProjectID(in.ProjectID), expected, string(in.ActivityID),
+			gf.branch, gf.branchRef, gf.prRef, gf.crLabel, gf.isRevert, cred.toProjectState())
 	})
 	if err != nil {
 		return gitForward{}, err
@@ -157,13 +151,8 @@ func (wf *workflows) observeCIAndRecord(
 	}
 
 	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-		rc := recordOpts(ctx)
-		var out projectstate.Version
-		e := workflow.ExecuteActivity(rc, wf.RecordActivityCIObservedActivity, recordActivityCIObservedArgs{
-			ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, ActivityID: string(in.ActivityID),
-			CICheck: st.CheckRollup, Cred: gf.cred,
-		}).Get(ctx, &out)
-		return out, e
+		return wf.Acts.GitStatusRecordActivityCIObserved(ctx, projectstate.ProjectID(in.ProjectID), expected, string(in.ActivityID),
+			st.CheckRollup, gf.cred.toProjectState())
 	})
 	if err != nil {
 		return pullRequestStatusView{}, err
@@ -193,12 +182,7 @@ func (wf *workflows) relayArchApprovalAndRecord(
 	}
 
 	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-		rc := recordOpts(ctx)
-		var out projectstate.Version
-		e := workflow.ExecuteActivity(rc, wf.RecordActivityArchApprovedActivity, recordActivityArchApprovedArgs{
-			ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, ActivityID: string(in.ActivityID), Cred: gf.cred,
-		}).Get(ctx, &out)
-		return out, e
+		return wf.Acts.GitStatusRecordActivityArchApproved(ctx, projectstate.ProjectID(in.ProjectID), expected, string(in.ActivityID), gf.cred.toProjectState())
 	})
 	if err != nil {
 		return err
@@ -232,12 +216,7 @@ func (wf *workflows) mergeAndRecord(
 	}
 
 	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-		rc := recordOpts(ctx)
-		var out projectstate.Version
-		e := workflow.ExecuteActivity(rc, wf.RecordActivityMergedActivity, recordActivityMergedArgs{
-			ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, ActivityID: string(in.ActivityID), Cred: gf.cred,
-		}).Get(ctx, &out)
-		return out, e
+		return wf.Acts.GitStatusRecordActivityMerged(ctx, projectstate.ProjectID(in.ProjectID), expected, string(in.ActivityID), gf.cred.toProjectState())
 	})
 	if err != nil {
 		return err
@@ -266,12 +245,7 @@ func (wf *workflows) recordActivityStarted(
 		return nil
 	}
 	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-		rc := recordOpts(ctx)
-		var out projectstate.Version
-		e := workflow.ExecuteActivity(rc, wf.RecordActivityStartedActivity, recordActivityStartedArgs{
-			ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, ActivityID: string(in.ActivityID), Cred: cred,
-		}).Get(ctx, &out)
-		return out, e
+		return wf.Acts.GitStatusRecordActivityStarted(ctx, projectstate.ProjectID(in.ProjectID), expected, string(in.ActivityID), cred.toProjectState())
 	})
 	if err != nil {
 		return err
@@ -294,12 +268,7 @@ func (wf *workflows) recordActivityCompleted(
 		return nil
 	}
 	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-		rc := recordOpts(ctx)
-		var out projectstate.Version
-		e := workflow.ExecuteActivity(rc, wf.RecordActivityCompletedActivity, recordActivityCompletedArgs{
-			ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, ActivityID: string(in.ActivityID), Cred: cred,
-		}).Get(ctx, &out)
-		return out, e
+		return wf.Acts.GitStatusRecordActivityCompleted(ctx, projectstate.ProjectID(in.ProjectID), expected, string(in.ActivityID), cred.toProjectState())
 	})
 	if err != nil {
 		return err

@@ -55,11 +55,15 @@ type constructionManager struct {
 	interventionMode       string
 
 	// designSession (B6) is the generated designSessionAccess dep — threaded so the
-	// generated invoker surface exists (invokers.gen.go/activities.gen.go), but not
-	// yet consumed by any workflow here: this manager still reads/stages project
-	// state through the projectStateAccess-backed activities_custom.go path
-	// (ReadProjectActivity et al.); the construction rewire task (B8) migrates the
-	// branch-aware reads onto this dep and deletes the duplicate custom activity.
+	// generated invoker surface exists (invokers.gen.go/activities.gen.go), but it is
+	// NOT consumed by any workflow here (B8 finding): the generated
+	// designSessionAccess.readProjectOnBranch invoker returns projectstate.ProjectEnvelope,
+	// a structurally NARROWER wire type than construction's own projectEnvelope
+	// (codec.go) — it carries no ActivityConstruction/ServiceContracts/ReviewPolicy,
+	// which the pump's eligibility selection reads on every tick. B8 migrated every
+	// OTHER custom Activity onto the generated invoker surface but kept
+	// ReadProjectActivity (activities_custom.go) custom rather than force this lossy
+	// migration; see the task-B8 report for the full analysis.
 	designSession projectstate.DesignSessionAccess
 }
 
