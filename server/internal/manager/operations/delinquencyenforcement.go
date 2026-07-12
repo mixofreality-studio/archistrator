@@ -93,3 +93,12 @@ func (wf *workflows) runDelinquencyBranch(ctx workflow.Context, customerID custo
 	logger.Info("delinquency policy enforced", "customerId", customerID.String(), "apps", len(apps), "pause", dctx.PauseNotWithdraw)
 	return nil
 }
+
+// recordDelinquencyAction applies the delinquency-action head-state transition. Task 4:
+// action is now operatedsystemstate.DelinquencyAction directly (delinquencyActionToState,
+// the former identity converter, has no remaining caller and is retired).
+func (wf *workflows) recordDelinquencyAction(ctx workflow.Context, appID operatedAppID, seed operatedsystemstate.Version, action operatedsystemstate.DelinquencyAction) (operatedsystemstate.Version, error) {
+	return wf.applyRecovering(ctx, appID, seed, func(expected operatedsystemstate.Version) (operatedsystemstate.Version, error) {
+		return wf.Acts.OperatedSystemStateRecordDelinquencyAction(ctx, appID, expected, action)
+	})
+}
