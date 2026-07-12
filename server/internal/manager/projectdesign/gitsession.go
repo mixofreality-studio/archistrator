@@ -103,13 +103,14 @@ func (wf *workflows) beginSession(ctx workflow.Context, projectID ProjectID, ses
 	// session (a new execution → v1 → sync).
 	if workflow.GetVersion(ctx, "managed-scaffold-sync", workflow.DefaultVersion, 1) >= 1 {
 		var scaffoldChanged bool
-		// SyncManagedScaffold stays a CUSTOM Activity (free-function composition helper), so
-		// it is still invoked via ExecuteActivity by method value, wrapped in the shared
-		// bounded Auth retry with its railOpts preset applied at this call site.
+		// SyncManagedScaffold rides the GENERATED sourceControlAccess.syncManagedScaffold
+		// invoker (B9) — B5 already promoted the free-function composition helper onto the
+		// frozen rail contract, so this is a clean cut. Still wrapped in the shared bounded
+		// Auth retry (its railActivityOptions preset applies via the invoker's option hook).
 		if serr := wf.railWithAuthRetry(ctx, func() error {
-			return workflow.ExecuteActivity(railOpts(ctx), wf.SyncManagedScaffoldActivity, syncScaffoldArgs{
-				RepoRef: sourcecontrol.RepoRefString(repoRef), Cred: cred,
-			}).Get(ctx, &scaffoldChanged)
+			changed, e := wf.Acts.RailSyncManagedScaffold(ctx, repoRef, cred.toRail())
+			scaffoldChanged = changed
+			return e
 		}); serr != nil {
 			return gitSession{}, fmt.Errorf("managed-scaffold sync failed — the seated %s could not be refreshed to this server's current template, so the design job was NOT dispatched (a stale scaffold pins an aiarch-state-mcp binary this server's validators reject); Retry re-runs the sync: %w", designWorkflowFileName, serr)
 		}
@@ -282,20 +283,17 @@ func (wf *workflows) mintCred(ctx workflow.Context, repoRef sourcecontrol.RepoRe
 }
 
 // readProjectOnBranch reads the head-state on an OPTIONAL branch override (§2a). When
-// branch=="" or the ProjectState substrate does not support the branch-aware extension,
-// it falls back to the original main-path ReadProject — so the branch-aware read-back is
-// purely additive and the default path is unchanged. The read runs in an Activity
-// (I/O), reusing the ReadProjectActivity for branch=="" and ReadProjectOnBranchActivity
-// otherwise.
+// branch=="" it delegates to readProject (workflow.go) for a byte-identical call
+// pattern; a non-empty branch goes straight through the generated
+// designSessionAccess.readProjectOnBranch invoker (B9), which runs the SAME
+// branch-aware-extension-or-main fallback internally (projectstate/designsession.go) —
+// so the branch-aware read-back stays purely additive and the default path is unchanged.
 func (wf *workflows) readProjectOnBranch(ctx workflow.Context, projectID ProjectID, branch string) (projectstate.Project, error) {
 	if branch == "" {
 		return wf.readProject(ctx, projectID)
 	}
-	c := readProjectOpts(ctx)
-	var pe projectEnvelope
-	if err := workflow.ExecuteActivity(c, wf.ReadProjectOnBranchActivity, readProjectOnBranchArgs{
-		ProjectID: projectstate.ProjectID(projectID), Branch: branch,
-	}).Get(ctx, &pe); err != nil {
+	pe, err := wf.Acts.DesignSessionReadProjectOnBranch(ctx, projectstate.ProjectID(projectID), branch)
+	if err != nil {
 		return projectstate.Project{}, err
 	}
 	return pe.Decode()

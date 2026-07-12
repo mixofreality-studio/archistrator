@@ -67,12 +67,14 @@ type projectDesignManager struct {
 	opEstimator  operationestimation.OperationEstimationEngine
 	settlement   billing.BillingEngine
 
-	// designSession (B6) is the generated designSessionAccess dep — threaded so the
-	// generated invoker surface exists (invokers.gen.go/activities.gen.go), but not
-	// yet consumed by any workflow here: this manager's branch-scoped design flows
-	// still run through the manager-local capability-fallback custom activities
-	// (gitrail.go/reviewledger.go); the projectdesign rewire task (B9) migrates onto
-	// this dep and deletes the duplicate custom activities.
+	// designSession (B6) is the generated designSessionAccess dep. Since B9, every
+	// branch-scoped design flow EXCEPT StageArtifactForReview reaches it through the
+	// generated invoker surface (invokers.gen.go/activities.gen.go, via wf.Acts) —
+	// read-back, commit/reject/withdraw, and the review-ledger set/seed verbs. Stage
+	// alone stays on the manager-local capability-fallback custom Activity
+	// (activities_custom.go): the generated invoker's `model` parameter is the sealed
+	// projectstate.ArtifactModel interface, which Temporal's default JSON DataConverter
+	// cannot decode across the wire (verified; see activities_custom.go's file doc).
 	designSession projectstate.DesignSessionAccess
 
 	repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool)

@@ -11,37 +11,44 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
-// activities_custom.go holds the CUSTOM Manager-owned Temporal Activity wrappers the
-// generated temporalgen layer cannot emit — the projectEnvelope-codec reads and the
-// head-state mutation writes whose bodies carry the BranchAware / Ledger / Provenance
-// capability type-assertions + the modelEnvelope decode (codec.go). They are METHODS ON
-// the workflows STRUCT and are registered under their stable names via the manifest's
-// CustomActivities (workermanifest.go). The contract-backed RA ops (readProjectVersion /
-// advancePhase, the constructionPipelineAccess submit/observe pair, the six rail verbs)
-// are GENERATED (activities.gen.go) and reached through wf.Acts (invokers.gen.go); these
-// custom bodies have no frozen contract behind them (the interface-typed slot Models the
-// default JSON converter cannot decode, and the optional capability extensions), so
-// temporalgen has nothing to generate and they stay hand-written here.
+// activities_custom.go holds the ONE remaining CUSTOM Manager-owned Temporal Activity
+// (B9 rewire): StageArtifactForReviewActivity. Every other custom Activity this file
+// used to hold — ReadProjectActivity, ReadProjectOnBranchActivity, CommitArtifactActivity,
+// RejectArtifactActivity, WithdrawArtifactActivity — MIGRATED onto the generated
+// designSessionAccess invoker surface (invokers.gen.go, reached via wf.Acts). The
+// capability-fallback chains those bodies used to run inline (BranchAware / Ledger /
+// Provenance type-assertions over ProjectStateAccess) now live INSIDE the RA
+// (projectstate/designsession.go, B4) — the migrated call sites just call the invoker.
 //
-// The RA dependency (ProjectState) lives as a field on workflows (see workflow.go) and is
-// reached "on the struct", but the calls run inside Temporal Activities because those RA
-// operations are I/O / non-deterministic and would break replay determinism if invoked on
-// the workflow goroutine.
+// StageArtifactForReviewActivity is KEPT CUSTOM — BLOCKED, not migrated (B9 finding,
+// verified, not assumed): the generated designSessionAccess.stageArtifactForReviewOnBranch
+// invoker (and its main-path sibling projectStateAccess.stageArtifactForReview) declare
+// their `model` parameter as the raw projectstate.ArtifactModel — a SEALED, closed
+// interface (Kind() + unexported isArtifactModel()). Temporal's default JSON
+// DataConverter cannot decode an activity argument declared as a non-empty interface: a
+// nil interface target has no concrete type to allocate into, so
+// encoding/json.Unmarshal fails with "json: cannot unmarshal object into Go value of
+// type projectstate.ArtifactModel". This was VERIFIED empirically against this exact
+// generated activity (DesignSessionStageArtifactForReviewOnBranch) over the REAL
+// testsuite.WorkflowTestSuite activity-dispatch path (the same path production uses) —
+// not assumed from the read-side precedent. It is the SAME defect class B8 found and
+// named for construction's ReadProject / the sealed ArtifactModel slots inside Project
+// (see projectstate/construction_transition_port.go's own warning), now recurring on
+// the WRITE side for the ONE contract op whose parameter (not just its return) carries
+// the sealed sum. Bridging it would require temporalgen to emit ModelEnvelope (the
+// concrete, JSON-friendly {kind, model} wire shape — projectstate/envelope.go) as the
+// op's parameter type instead of ArtifactModel — a schema-first codegen change to the
+// designSessionAccess/projectStateAccess contracts, out of scope for this workflow-
+// rewire task (same "out of scope" ruling B8 gave its own blocked item).
 //
-// 2026-06-15 agentic-pivot re-cut (projectDesignManager.md §0.5 / D-MPD-Δ): the
-// Phase-2 plan-DRAFTING mechanism flips to dispatch → observe → read-back. The
-// retired GenerateTypedDataActivity (the synchronous workerAccess path) is GONE; the
-// new DispatchDesignJobActivity + ObserveDesignJobActivity (over
-// constructionPipelineAccess, in dispatch.go) replace it. workerAccess and
-// artifactValidationEngine are DROPPED from the draft path. The three estimate
-// Engines (estimation, operationestimation, settlement) STAY — they are pure,
-// deterministic, by-value joins the workflow body calls directly (contract §6.3/§6.4
-// "Not Activities"; §0.5.5 "RETAINED, unchanged"). This file is the Phase-2 twin of
-// systemdesign/activities.go.
+// The RA dependency (ProjectState) lives as a field on workflows (see workflow.go) and
+// is reached "on the struct", but the call runs inside a Temporal Activity because the
+// operation is I/O / non-deterministic and would break replay determinism if invoked on
+// the workflow goroutine directly.
 //
-// Each WRITE Activity body derives the idempotency key "${workflowId}:${activityId}"
-// from the Temporal activity context (so the RA layer never reads Temporal
-// context) and runs the port result through the generic error mapper mapErr.
+// Each WRITE Activity body derives the idempotency key "${workflowId}:${runId}:${activityId}"
+// from the Temporal activity context (so the RA layer never reads Temporal context) and
+// runs the port result through the generic error mapper mapErr.
 
 // activityIdempotencyKey derives "${workflowId}:${runId}:${activityId}" from the
 // running Activity's info. The ActivityID is unique per activity invocation WITHIN
@@ -63,6 +70,10 @@ import (
 // against a predecessor run's ledger entry either. Same key content still hashes to a
 // valid 32-hex aiarch-cp-<token> run name, so the RA run-name + concurrency-group
 // contract is unchanged.
+//
+// This is the SAME 3-part run-scoped format the generated layer's own
+// genActivityIdempotencyKey derives (activities.gen.go) — no format change for the
+// surviving custom Activity.
 func activityIdempotencyKey(ctx context.Context) fwra.IdempotencyKey {
 	info := activity.GetInfo(ctx)
 	return composeIdempotencyKey(info.WorkflowExecution.ID, info.WorkflowExecution.RunID, info.ActivityID)
@@ -77,56 +88,10 @@ func composeIdempotencyKey(workflowID, runID, activityID string) fwra.Idempotenc
 	return fwra.IdempotencyKey(fmt.Sprintf("%s:%s:%s", workflowID, runID, activityID))
 }
 
-// ---- ReadProjectActivity (wraps projectStateAccess.readProject) -------------
-// Pure whole-aggregate read; no idempotency key. Returns the head-state as a
-// Temporal-serializable projectEnvelope (the typed slot Models are interfaces the
-// default JSON converter cannot decode — codec.go).
-
-func (wf *workflows) ReadProjectActivity(ctx context.Context, projectID projectstate.ProjectID) (projectEnvelope, error) {
-	proj, err := wf.ProjectState.ReadProject(fwra.Context{Context: ctx}, projectID)
-	if err != nil {
-		return projectEnvelope{}, fwmanager.MapError(err)
-	}
-	return encodeProject(proj)
-}
-
-// ReadProjectOnBranchActivity is the branch-aware read-back (I-DESIGN-DISPATCH §2a):
-// the agentic design rail reads back the not-yet-merged draft on the SESSION BRANCH
-// during the AwaitingReview window. Routes to the branch-aware extension when the
-// substrate supports it AND a branch is supplied; otherwise falls back to the main-path
-// ReadProject (branch ignored) so a non-git/Postgres substrate is unperturbed. Pure
-// read; no idempotency key.
-
-// readProjectOnBranchArgs bundles the branch-aware read inputs.
-type readProjectOnBranchArgs struct {
-	ProjectID projectstate.ProjectID
-	Branch    string
-}
-
-func (wf *workflows) ReadProjectOnBranchActivity(ctx context.Context, a readProjectOnBranchArgs) (projectEnvelope, error) {
-	var (
-		proj projectstate.Project
-		err  error
-	)
-	if ba, ok := wf.ProjectState.(projectstate.BranchAwareProjectStateAccess); ok && a.Branch != "" {
-		proj, err = ba.ReadProjectOnBranch(ctx, a.ProjectID, a.Branch)
-	} else {
-		proj, err = wf.ProjectState.ReadProject(fwra.Context{Context: ctx}, a.ProjectID)
-	}
-	if err != nil {
-		return projectEnvelope{}, fwmanager.MapError(err)
-	}
-	return encodeProject(proj)
-}
-
-// ---- Project head-state mutation Activities ---------------------------------
-// Each wraps one atomic verb on projectStateAccess. The idempotencyKey is derived
-// per Activity invocation; a stale-version fwra.Conflict surfaces as the canonical
-// Temporal Type() and the workflow-level applyRecovering loop re-reads and
-// re-applies with the SAME key. Terminal on ContractMisuse.
-
 // stageArtifactForReviewArgs carries the TYPED model into its slot (the model is
-// carried as an envelope across the Temporal boundary — codec.go).
+// carried as an envelope across the Temporal boundary — codec.go) — the mechanical
+// bridge the generated invoker's raw-ArtifactModel parameter cannot provide (see the
+// file doc above).
 type stageArtifactForReviewArgs struct {
 	ProjectID       projectstate.ProjectID
 	ExpectedVersion projectstate.Version
@@ -138,6 +103,13 @@ type stageArtifactForReviewArgs struct {
 	Branch string
 }
 
+// StageArtifactForReviewActivity wraps the branch-aware/main-path stage verb. The
+// BranchAware capability fallback (branch supplied + supported → stage on branch; else
+// main) is the SAME chain designSessionAccess.StageArtifactForReviewOnBranch runs
+// internally (projectstate/designsession.go) — this body is functionally identical to
+// what the generated Activity would do, MINUS the interface-across-the-wire landmine
+// (see file doc): the model rides as a concrete modelEnvelope, decoded here, then
+// handed to the SAME wf.ProjectState capability chain the RA wraps.
 func (wf *workflows) StageArtifactForReviewActivity(ctx context.Context, a stageArtifactForReviewArgs) (projectstate.Version, error) {
 	model, err := a.Model.Decode()
 	if err != nil {
@@ -147,79 +119,4 @@ func (wf *workflows) StageArtifactForReviewActivity(ctx context.Context, a stage
 		return mapErr(ba.StageArtifactForReviewOnBranch(ctx, a.ProjectID, a.ExpectedVersion, a.Branch, model, activityIdempotencyKey(ctx)))
 	}
 	return mapErr(wf.ProjectState.StageArtifactForReview(fwra.Context{Context: ctx, IdempotencyKey: activityIdempotencyKey(ctx)}, a.ProjectID, a.ExpectedVersion, model))
-}
-
-// mutateArtifactArgs bundles the inputs for the per-artifact review verbs that
-// key by Kind only (the model already lives in the slot from staging). Commit
-// ignores Notes; Reject/Withdraw carry the architect's notes.
-type mutateArtifactArgs struct {
-	ProjectID       projectstate.ProjectID
-	ExpectedVersion projectstate.Version
-	Kind            projectstate.ArtifactKind
-	Notes           string
-	// Branch is the OPTIONAL session-branch override (I-DESIGN-DISPATCH §2a), consumed
-	// by RejectArtifactActivity. In the PR rail the draft + its AwaitingReview status
-	// live ONLY on the session branch (main is untouched until an approved draft merges),
-	// so a Reject must record the Rejected status flip on that SAME branch — where the
-	// staged model exists and the session-branch version matches. Empty ⇒ the Reject
-	// lands on main exactly as today (every existing caller/test leaves it empty and is
-	// unperturbed). Commit/Withdraw ignore it (Commit lands on main after the merge;
-	// Withdraw is main-only).
-	Branch string
-	// Round + Comments carry the durable review ledger on a Reject (review-ledger §2): the
-	// redraft round the reviewer's comments were filed in, and those comments (Anchor /
-	// AnchorText / Text / AuthorRole set; id / open status server-minted). RejectArtifactActivity
-	// folds the append into the SAME atomic commit as the Rejected status flip. Empty Comments ⇒
-	// a plain reject (Commit/Withdraw ignore both fields).
-	Round    int64
-	Comments []projectstate.ReviewComment
-	// ApprovedBy / DraftedBy carry the PM-P2-4 commit provenance to CommitArtifactActivity:
-	// the acting reviewer identity (from the approve caller's SecurityPrincipal, threaded via
-	// the reviewDecision / sdpDecision signal) and the drafting rail identity. Both optional —
-	// an empty value simply records no such provenance field. Ignored by every non-commit verb.
-	ApprovedBy string
-	DraftedBy  string
-}
-
-func (wf *workflows) CommitArtifactActivity(ctx context.Context, a mutateArtifactArgs) (projectstate.Version, error) {
-	rc := fwra.Context{Context: ctx, IdempotencyKey: activityIdempotencyKey(ctx)}
-	// PM-P2-4: record commit provenance atomically with the commit when the substrate supports
-	// the extension; otherwise fall back to the plain commit (absent provenance is allowed).
-	if pc, ok := wf.ProjectState.(projectstate.ProvenanceCommitProjectStateAccess); ok {
-		return mapErr(pc.CommitArtifactWithProvenance(rc, a.ProjectID, a.ExpectedVersion, a.Kind, a.ApprovedBy, a.DraftedBy))
-	}
-	return mapErr(wf.ProjectState.CommitArtifact(rc, a.ProjectID, a.ExpectedVersion, a.Kind))
-}
-
-func (wf *workflows) RejectArtifactActivity(ctx context.Context, a mutateArtifactArgs) (projectstate.Version, error) {
-	// Branch-aware Reject during the AwaitingReview window (I-DESIGN-DISPATCH §2a): when
-	// the rail wired a session branch AND the substrate supports the extension, record the
-	// Rejected status flip on the session branch the draft was staged on (where the model
-	// exists and the version matches). Otherwise fall back to the main-path RejectArtifact
-	// — the dormant-rail / non-git substrate is unperturbed.
-	//
-	// REVIEW LEDGER (review-ledger §2): when the substrate supports the durable ledger, record
-	// the Rejected status flip AND append the reviewer's comments to the slot's ReviewThread in
-	// ONE atomic commit (crash-safe, idempotent on the deterministic ids). branch=="" (dormant
-	// rail) still appends. Only a substrate WITHOUT the ledger extension falls back to the plain
-	// (comment-dropping) reject.
-	if led, ok := wf.ProjectState.(projectstate.LedgerProjectStateAccess); ok {
-		return mapErr(led.RejectArtifactOnBranchWithComments(ctx, a.ProjectID, a.ExpectedVersion, a.Branch, a.Kind, a.Notes, a.Round, a.Comments, activityIdempotencyKey(ctx)))
-	}
-	if ba, ok := wf.ProjectState.(projectstate.BranchAwareProjectStateAccess); ok && a.Branch != "" {
-		return mapErr(ba.RejectArtifactOnBranch(ctx, a.ProjectID, a.ExpectedVersion, a.Branch, a.Kind, a.Notes, activityIdempotencyKey(ctx)))
-	}
-	return mapErr(wf.ProjectState.RejectArtifact(fwra.Context{Context: ctx, IdempotencyKey: activityIdempotencyKey(ctx)}, a.ProjectID, a.ExpectedVersion, a.Kind, a.Notes))
-}
-
-func (wf *workflows) WithdrawArtifactActivity(ctx context.Context, a mutateArtifactArgs) (projectstate.Version, error) {
-	// Branch-aware Withdraw during the AwaitingReview window (I-DESIGN-DISPATCH §2a): when
-	// the rail wired a session branch AND the substrate supports the extension, record the
-	// Withdrawn status flip on the session branch the draft was staged on (where the model
-	// exists and the version matches). Otherwise fall back to the main-path WithdrawArtifact
-	// — the dormant-rail / non-git substrate is unperturbed.
-	if ba, ok := wf.ProjectState.(projectstate.BranchAwareProjectStateAccess); ok && a.Branch != "" {
-		return mapErr(ba.WithdrawArtifactOnBranch(ctx, a.ProjectID, a.ExpectedVersion, a.Branch, a.Kind, a.Notes, activityIdempotencyKey(ctx)))
-	}
-	return mapErr(wf.ProjectState.WithdrawArtifact(fwra.Context{Context: ctx, IdempotencyKey: activityIdempotencyKey(ctx)}, a.ProjectID, a.ExpectedVersion, a.Kind, a.Notes))
 }

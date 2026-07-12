@@ -113,9 +113,10 @@ func (r *scriptedRail) count(verb string) int {
 }
 
 // CommitManagedFiles backs the managed-scaffold sync: sourcecontrol.SyncManagedScaffold
-// (the free-function composition helper the custom SyncManagedScaffoldActivity wraps)
-// reaches the rail through this verb for a non-managedFileSyncer fake. It records the sync
-// call under the "SyncManagedScaffold" counter and honors the scripted syncErr.
+// (the free-function composition helper this fake's own SyncManagedScaffold method below
+// delegates to, mirroring the real production RA) reaches the rail through this verb for
+// a non-managedFileSyncer fake. It records the sync call under the "SyncManagedScaffold"
+// counter and honors the scripted syncErr.
 func (r *scriptedRail) CommitManagedFiles(_ fwra.Context, _ sourcecontrol.RepoRef, _ []sourcecontrol.ManagedFile, _ sourcecontrol.RepoCredential) (sourcecontrol.CommitRef, error) {
 	r.mu.Lock()
 	r.calls["SyncManagedScaffold"]++
@@ -216,8 +217,16 @@ func (r *scriptedRail) InstallAuthorizeApp(_ fwra.Context, _ sourcecontrol.Accou
 	return sourcecontrol.Installation(""), nil
 }
 
-func (r *scriptedRail) SyncManagedScaffold(_ fwra.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.RepoCredential) (bool, error) {
-	return false, nil
+// SyncManagedScaffold mirrors the REAL production sourceControlAccess impl
+// ((*access).SyncManagedScaffold, github.go) — it delegates to the free-function
+// composition helper rather than stubbing directly. B9 rewires the generated
+// wf.Acts.RailSyncManagedScaffold invoker straight onto this method (the custom
+// SyncManagedScaffoldActivity that used to call the free function directly is gone), so
+// this method is now the LOAD-BEARING path the syncErr/CommitManagedFiles-counter tests
+// below exercise (previously the free function was called directly, bypassing this
+// method entirely — a latent fake/production divergence this migration surfaced).
+func (r *scriptedRail) SyncManagedScaffold(rc fwra.Context, repo sourcecontrol.RepoRef, cred sourcecontrol.RepoCredential) (bool, error) {
+	return sourcecontrol.SyncManagedScaffold(rc.Context, r, repo, cred)
 }
 
 var _ sourcecontrol.SourceControlAccess = (*scriptedRail)(nil)
@@ -290,13 +299,7 @@ func newRailWorkflows(ps projectstate.ProjectStateAccess, pipe *fakePipeline, ra
 
 func registerRailCoAuthor(env *testsuite.TestWorkflowEnvironment, wf *workflows, pipe *fakePipeline) {
 	env.RegisterWorkflowWithOptions(wf.CoAuthorPhase2ArtifactWorkflow, workflow.RegisterOptions{Name: executionKindCoAuthor})
-	env.RegisterActivity(wf.ReadProjectActivity)
-	env.RegisterActivity(wf.ReadProjectOnBranchActivity)
 	env.RegisterActivity(wf.StageArtifactForReviewActivity)
-	env.RegisterActivity(wf.CommitArtifactActivity)
-	env.RegisterActivity(wf.RejectArtifactActivity)
-	env.RegisterActivity(wf.WithdrawArtifactActivity)
-	env.RegisterActivity(wf.SyncManagedScaffoldActivity)
 	registerGenActivities(env, wf.ProjectState, pipe, wf.Rail)
 }
 
@@ -1342,9 +1345,10 @@ func Test_CoAuthorPhase2_RejectWithComments_ThreadRefreshes_QueryPromptAndApprov
 	rail := newScriptedRail(true, &seqLog{})
 	wf := newRailWorkflows(ps, pipe, rail)
 	registerRailCoAuthor(env, wf, pipe)
-	// The review-ledger activities the base helper does not register (only ledger-flow tests use them).
-	env.RegisterActivity(wf.SetReviewCommentStatusActivity)
-	env.RegisterActivity(wf.SeedReviewCommentsActivity)
+	// The review-ledger designSessionAccess ops (Set/Seed) are registered by
+	// registerGenActivities (inside registerRailCoAuthor), backed by
+	// NewDesignSessionAccess(wf.ProjectState) — since ps (ledgerThreadFake) implements
+	// LedgerProjectStateAccess, the RA's runtime capability chain routes to it for real.
 
 	const commentText = "resources must be plain strings, not objects"
 

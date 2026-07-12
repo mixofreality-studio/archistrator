@@ -357,16 +357,26 @@ func newCoAuthorWorkflows(ps projectstate.ProjectStateAccess, pipe *fakePipeline
 }
 
 // registerGenActivities registers the GENERATED RA activities (projectState read-version /
-// advance-phase, pipeline submit/observe/cancel, the six rail verbs) under their contract
-// names — mirrors what RegisterWorker threads via genActivities (worker.gen.go). Pipeline /
-// rail may be nil for tests that never dispatch; the registered method values are only
-// invoked when the workflow reaches them.
+// advance-phase, pipeline submit/observe/cancel, the seven rail verbs, and — since B9 — the
+// six designSessionAccess verbs the migrated CoAuthor call sites now reach) under their
+// contract names — mirrors what RegisterWorker threads via genActivities (worker.gen.go).
+// Pipeline / rail may be nil for tests that never dispatch; the registered method values are
+// only invoked when the workflow reaches them.
+//
+// The designSessionAccess ops are backed by projectstate.NewDesignSessionAccess(ps) — the
+// REAL production wrapper (projectstate/designsession.go), not a hand-rolled test double —
+// so every workflow test exercises the actual branch-aware/ledger/provenance capability
+// fallback chain the RA runs, not a re-implementation of it. ps must be non-nil (every
+// caller passes a concrete fake); when a test's fake additionally implements
+// BranchAwareProjectStateAccess / LedgerProjectStateAccess / ProvenanceCommitProjectStateAccess
+// (e.g. gitrail_test.go's seqProjectState / ledgerThreadFake), the wrapper's runtime
+// type-assertions route to those extensions automatically — no separate registration needed.
 func registerGenActivities(env *testsuite.TestWorkflowEnvironment, ps projectstate.ProjectStateAccess, pipe *fakePipeline, rail sourcecontrol.SourceControlAccess) {
 	var pipeAcc constructionpipeline.ConstructionPipelineAccess
 	if pipe != nil {
 		pipeAcc = pipe
 	}
-	acts := &genActivities{ProjectState: ps, Pipeline: pipeAcc, Rail: rail}
+	acts := &genActivities{ProjectState: ps, Pipeline: pipeAcc, Rail: rail, DesignSession: projectstate.NewDesignSessionAccess(ps)}
 	env.RegisterActivityWithOptions(acts.ProjectStateReadProjectVersion, activity.RegisterOptions{Name: "projectStateAccess.readProjectVersion"})
 	env.RegisterActivityWithOptions(acts.ProjectStateAdvancePhase, activity.RegisterOptions{Name: "projectStateAccess.advancePhase"})
 	env.RegisterActivityWithOptions(acts.PipelineSubmitConstructionPipeline, activity.RegisterOptions{Name: "constructionPipelineAccess.submitConstructionPipeline"})
@@ -378,6 +388,13 @@ func registerGenActivities(env *testsuite.TestWorkflowEnvironment, ps projectsta
 	env.RegisterActivityWithOptions(acts.RailGetPullRequestStatus, activity.RegisterOptions{Name: "sourceControlAccess.getPullRequestStatus"})
 	env.RegisterActivityWithOptions(acts.RailPostReview, activity.RegisterOptions{Name: "sourceControlAccess.postReview"})
 	env.RegisterActivityWithOptions(acts.RailMergePullRequest, activity.RegisterOptions{Name: "sourceControlAccess.mergePullRequest"})
+	env.RegisterActivityWithOptions(acts.RailSyncManagedScaffold, activity.RegisterOptions{Name: "sourceControlAccess.syncManagedScaffold"})
+	env.RegisterActivityWithOptions(acts.DesignSessionReadProjectOnBranch, activity.RegisterOptions{Name: "designSessionAccess.readProjectOnBranch"})
+	env.RegisterActivityWithOptions(acts.DesignSessionCommitArtifactWithProvenance, activity.RegisterOptions{Name: "designSessionAccess.commitArtifactWithProvenance"})
+	env.RegisterActivityWithOptions(acts.DesignSessionRejectArtifactOnBranchWithComments, activity.RegisterOptions{Name: "designSessionAccess.rejectArtifactOnBranchWithComments"})
+	env.RegisterActivityWithOptions(acts.DesignSessionWithdrawArtifactOnBranch, activity.RegisterOptions{Name: "designSessionAccess.withdrawArtifactOnBranch"})
+	env.RegisterActivityWithOptions(acts.DesignSessionSetReviewCommentStatusOnBranch, activity.RegisterOptions{Name: "designSessionAccess.setReviewCommentStatusOnBranch"})
+	env.RegisterActivityWithOptions(acts.DesignSessionSeedReviewCommentsOnBranch, activity.RegisterOptions{Name: "designSessionAccess.seedReviewCommentsOnBranch"})
 }
 
 // registerName builds the workflow.RegisterOptions naming a registered workflow.
@@ -386,14 +403,13 @@ func registerName(name string) workflow.RegisterOptions {
 }
 
 // registerCoAuthor registers the per-artifact gate workflow + its activities on the
-// test env, exactly as RegisterWorker does in production (same stable names).
+// test env, exactly as RegisterWorker does in production (same stable names). The ONE
+// surviving custom Activity (StageArtifactForReviewActivity) is registered by method
+// value, as production's RegisterManagerWorker does explicitly (workermanifest.go);
+// every other Activity is generated (registerGenActivities).
 func registerCoAuthor(env *testsuite.TestWorkflowEnvironment, wf *workflows, pipe *fakePipeline) {
 	env.RegisterWorkflowWithOptions(wf.CoAuthorPhase2ArtifactWorkflow, registerName(executionKindCoAuthor))
-	env.RegisterActivity(wf.ReadProjectActivity)
 	env.RegisterActivity(wf.StageArtifactForReviewActivity)
-	env.RegisterActivity(wf.CommitArtifactActivity)
-	env.RegisterActivity(wf.RejectArtifactActivity)
-	env.RegisterActivity(wf.WithdrawArtifactActivity)
 	registerGenActivities(env, wf.ProjectState, pipe, nil)
 }
 
@@ -708,10 +724,7 @@ func Test_AssembleSDPReviewWorkflow_Commit_HappyPath_EnginesRunInProcess(t *test
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
 	env.RegisterWorkflowWithOptions(wf.AssembleSDPReviewWorkflow, registerName(executionKindSDPReview))
-	env.RegisterActivity(wf.ReadProjectActivity)
 	env.RegisterActivity(wf.StageArtifactForReviewActivity)
-	env.RegisterActivity(wf.CommitArtifactActivity)
-	env.RegisterActivity(wf.RejectArtifactActivity)
 	registerGenActivities(env, ps, nil, nil)
 
 	pre, err := wf.assembleSdpReview(ps.project, "")
@@ -766,10 +779,7 @@ func Test_AssembleSDPReviewWorkflow_RejectAll_ReassemblesThenCommits(t *testing.
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
 	env.RegisterWorkflowWithOptions(wf.AssembleSDPReviewWorkflow, registerName(executionKindSDPReview))
-	env.RegisterActivity(wf.ReadProjectActivity)
 	env.RegisterActivity(wf.StageArtifactForReviewActivity)
-	env.RegisterActivity(wf.CommitArtifactActivity)
-	env.RegisterActivity(wf.RejectArtifactActivity)
 	registerGenActivities(env, ps, nil, nil)
 
 	pre, _ := wf.assembleSdpReview(ps.project, "")
@@ -807,7 +817,6 @@ func Test_Phase2AdvanceWorkflow_MissingArtifacts_NotAdvanced(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
 	env.RegisterWorkflowWithOptions(wf.Phase2AdvanceWorkflow, registerName(executionKindPhaseAdvance))
-	env.RegisterActivity(wf.ReadProjectActivity)
 	registerGenActivities(env, ps, nil, nil)
 
 	env.ExecuteWorkflow(executionKindPhaseAdvance, phaseAdvanceInput{ProjectID: id})
@@ -843,7 +852,6 @@ func Test_Phase2AdvanceWorkflow_AllCommittedWithOption_Advances(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
 	env.RegisterWorkflowWithOptions(wf.Phase2AdvanceWorkflow, registerName(executionKindPhaseAdvance))
-	env.RegisterActivity(wf.ReadProjectActivity)
 	registerGenActivities(env, ps, nil, nil)
 
 	env.ExecuteWorkflow(executionKindPhaseAdvance, phaseAdvanceInput{ProjectID: id})

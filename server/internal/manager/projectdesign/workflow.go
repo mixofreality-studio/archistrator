@@ -145,10 +145,14 @@ const maxMutateConflictAttempts = 20
 // Activity option presets (contract §6.4). Concrete RetryPolicy / timeout choices live
 // here, in the Manager. Each preset is exposed as an ActivityOptions VALUE (consumed by
 // the generated-invoker option hook in workermanifest.go, keyed by the generated activity
-// name) AND as a ctx-wrapper the CUSTOM Activity call sites apply directly.
+// name) AND, for the ONE surviving custom Activity (StageArtifactForReviewActivity), as a
+// ctx-wrapper (mutateOpts) that call site applies directly.
 
-// readProjectActivityOptions is the preset for the read Activities (custom ReadProject /
-// ReadProjectOnBranch) and the generated projectStateAccess.readProjectVersion.
+// readProjectActivityOptions is the preset for the read path: since B9 this is EXCLUSIVELY
+// the generated designSessionAccess.readProjectOnBranch invoker (both branch=="" main reads
+// and branch-aware reads funnel through it), plus the generated
+// projectStateAccess.readProjectVersion. Both are keyed onto this VALUE via the
+// workermanifest.go option hook.
 func readProjectActivityOptions() workflow.ActivityOptions {
 	return workflow.ActivityOptions{
 		StartToCloseTimeout: 10 * time.Second,
@@ -166,14 +170,13 @@ func readProjectActivityOptions() workflow.ActivityOptions {
 	}
 }
 
-func readProjectOpts(ctx workflow.Context) workflow.Context {
-	return workflow.WithActivityOptions(ctx, readProjectActivityOptions())
-}
-
-// mutateActivityOptions is the preset for the head-state mutation Activities (custom
-// Stage / Commit / Reject / Withdraw / review-ledger) and the generated
-// projectStateAccess.advancePhase. Retry Transient via the Activity RetryPolicy; Conflict
-// is handled by the workflow-level re-read→re-apply loop. Terminal on ContractMisuse.
+// mutateActivityOptions is the preset for the head-state mutation Activities: the
+// surviving custom StageArtifactForReviewActivity (applied via the mutateOpts ctx-wrapper
+// below) and, since B9, every generated designSessionAccess write op (Commit / Reject /
+// Withdraw / the review-ledger Set/Seed verbs) plus the generated
+// projectStateAccess.advancePhase (each keyed onto this VALUE via the workermanifest.go
+// option hook). Retry Transient via the Activity RetryPolicy; Conflict is handled by the
+// workflow-level re-read→re-apply loop. Terminal on ContractMisuse.
 func mutateActivityOptions() workflow.ActivityOptions {
 	return workflow.ActivityOptions{
 		StartToCloseTimeout: 15 * time.Second,
@@ -234,12 +237,13 @@ func isTerminalReadBack(err error) (string, bool) {
 // surfaces when the addressed aggregate has NO row yet.
 var raNotFoundErrType = fwmanager.RAErrType(fwra.NotFound)
 
-// readProject runs the ReadProject Activity and returns the whole head-state
-// aggregate. A brand-new project surfaces fwra.NotFound (see isReadNotFound).
+// readProject runs the generated designSessionAccess.readProjectOnBranch invoker with
+// branch=="" (B9 — the RA's own empty-branch fallback always serves main, pinned by
+// TestDesignSessionAccess_ReadProjectOnBranch_EmptyBranchAlwaysBase) and returns the whole
+// head-state aggregate. A brand-new project surfaces fwra.NotFound (see isReadNotFound).
 func (wf *workflows) readProject(ctx workflow.Context, projectID ProjectID) (projectstate.Project, error) {
-	c := readProjectOpts(ctx)
-	var pe projectEnvelope
-	if err := workflow.ExecuteActivity(c, wf.ReadProjectActivity, projectstate.ProjectID(projectID)).Get(ctx, &pe); err != nil {
+	pe, err := wf.Acts.DesignSessionReadProjectOnBranch(ctx, projectstate.ProjectID(projectID), "")
+	if err != nil {
 		return projectstate.Project{}, err
 	}
 	return pe.Decode()
@@ -902,24 +906,18 @@ func (wf *workflows) coAuthorApplyDecision(
 		// send-back (QA F28).
 		*feedback = notes
 		newVersion, err := wf.applyRecovering(ctx, in.ProjectID, gf.readBackBranch(), *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-			c := mutateOpts(ctx)
-			var v projectstate.Version
-			e := workflow.ExecuteActivity(c, wf.RejectArtifactActivity, mutateArtifactArgs{
-				ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, Kind: toPSKind(in.ArtifactKind), Notes: notes,
-				// REVIEW LEDGER (review-ledger §2): fold the reviewer's anchored comments into the
-				// reject as durable, server-minted ledger entries, round-stamped by the per-reject
-				// review-round counter (replay-stable monotonic → deterministic, non-colliding ids on
-				// the ONE accumulating thread — F40). Empty ⇒ plain reject.
-				Round: int64(*reviewRound), Comments: feedbackToLedgerComments(sig.Feedback),
-				// Branch-aware Reject (I-DESIGN-DISPATCH §2a): record the Rejected status on the
-				// SESSION BRANCH the draft was staged on — where the staged model exists and the
-				// session-branch version matches. In the PR rail main is untouched until an
-				// approved draft merges, so a main-path reject would mismatch the version AND find
-				// the slot unpopulated (the QA F28 crash). "" when the rail is dormant ⇒ the reject
-				// lands on main exactly as before.
-				Branch: gf.readBackBranch(),
-			}).Get(ctx, &v)
-			return v, e
+			// REVIEW LEDGER (review-ledger §2): fold the reviewer's anchored comments into the
+			// reject as durable, server-minted ledger entries, round-stamped by the per-reject
+			// review-round counter (replay-stable monotonic → deterministic, non-colliding ids on
+			// the ONE accumulating thread — F40). Empty ⇒ plain reject.
+			//
+			// Branch-aware Reject (I-DESIGN-DISPATCH §2a): record the Rejected status on the
+			// SESSION BRANCH the draft was staged on — where the staged model exists and the
+			// session-branch version matches. In the PR rail main is untouched until an
+			// approved draft merges, so a main-path reject would mismatch the version AND find
+			// the slot unpopulated (the QA F28 crash). "" when the rail is dormant ⇒ the reject
+			// lands on main exactly as before.
+			return wf.Acts.DesignSessionRejectArtifactOnBranchWithComments(ctx, projectstate.ProjectID(in.ProjectID), expected, gf.readBackBranch(), toPSKind(in.ArtifactKind), notes, int64(*reviewRound), feedbackToLedgerComments(sig.Feedback))
 		})
 		if err != nil {
 			// CRASH CONTAINMENT (QA F28). An activity fault while recording the Reject must
@@ -967,12 +965,7 @@ func (wf *workflows) coAuthorApplyDecision(
 		// unpopulated (a crash). "" when the rail is dormant ⇒ the withdraw lands on main
 		// exactly as before, and the Conflict re-read then targets main.
 		if _, err := wf.applyRecovering(ctx, in.ProjectID, gf.readBackBranch(), *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-			c := mutateOpts(ctx)
-			var v projectstate.Version
-			e := workflow.ExecuteActivity(c, wf.WithdrawArtifactActivity, mutateArtifactArgs{
-				ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, Kind: toPSKind(in.ArtifactKind), Notes: notes, Branch: gf.readBackBranch(),
-			}).Get(ctx, &v)
-			return v, e
+			return wf.Acts.DesignSessionWithdrawArtifactOnBranch(ctx, projectstate.ProjectID(in.ProjectID), expected, gf.readBackBranch(), toPSKind(in.ArtifactKind), notes)
 		}); err != nil {
 			return coAuthorProceed, coAuthorUnknown, err
 		}
@@ -1059,14 +1052,8 @@ func (wf *workflows) coAuthorApprove(
 	// Commit lands on MAIN after the merge (the re-seed above set headVersion to main's
 	// tip), so its Conflict re-read targets main (branch=="").
 	if _, err := wf.applyRecovering(ctx, in.ProjectID, "", *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-		c := mutateOpts(ctx)
-		var v projectstate.Version
-		e := workflow.ExecuteActivity(c, wf.CommitArtifactActivity, mutateArtifactArgs{
-			ProjectID: projectstate.ProjectID(in.ProjectID), ExpectedVersion: expected, Kind: toPSKind(in.ArtifactKind),
-			// PM-P2-4 commit provenance: the approving identity + the drafting rail identity.
-			ApprovedBy: approver, DraftedBy: railDraftedBy(in.Amendment),
-		}).Get(ctx, &v)
-		return v, e
+		// PM-P2-4 commit provenance: the approving identity + the drafting rail identity.
+		return wf.Acts.DesignSessionCommitArtifactWithProvenance(ctx, projectstate.ProjectID(in.ProjectID), expected, toPSKind(in.ArtifactKind), approver, railDraftedBy(in.Amendment))
 	}); err != nil {
 		// QA F35: contain a post-merge commit fault too (same idempotent re-approve recovery).
 		if temporal.IsCanceledError(err) {
@@ -1292,13 +1279,7 @@ func (wf *workflows) stageReview(ctx workflow.Context, projectID ProjectID, revi
 // the design manager, so draftedBy is the rail identity.
 func (wf *workflows) commitReview(ctx workflow.Context, projectID ProjectID, headVersion *projectstate.Version, approver string) error {
 	v, err := wf.applyRecovering(ctx, projectID, "", *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-		c := mutateOpts(ctx)
-		var got projectstate.Version
-		e := workflow.ExecuteActivity(c, wf.CommitArtifactActivity, mutateArtifactArgs{
-			ProjectID: projectstate.ProjectID(projectID), ExpectedVersion: expected, Kind: projectstate.KindSdpReview,
-			ApprovedBy: approver, DraftedBy: railDraftedBy(0),
-		}).Get(ctx, &got)
-		return got, e
+		return wf.Acts.DesignSessionCommitArtifactWithProvenance(ctx, projectstate.ProjectID(projectID), expected, projectstate.KindSdpReview, approver, railDraftedBy(0))
 	})
 	if err != nil {
 		return err
@@ -1307,15 +1288,15 @@ func (wf *workflows) commitReview(ctx workflow.Context, projectID ProjectID, hea
 	return nil
 }
 
-// rejectReview records a rejected SdpReview outcome.
+// rejectReview records a rejected SdpReview outcome. Round=0/Comments=nil (the SDP review
+// has no review-ledger thread) is BYTE-IDENTICAL to the pre-B9 behavior: the old
+// RejectArtifactActivity already routed every call — including this zero-round,
+// comment-less one — through the SAME LedgerProjectStateAccess.RejectArtifactOnBranchWithComments
+// verb the generated invoker now reaches directly (the production ProjectStateAccess
+// satisfies the ledger extension unconditionally), so this is not a new code path.
 func (wf *workflows) rejectReview(ctx workflow.Context, projectID ProjectID, notes string, headVersion *projectstate.Version) error {
 	v, err := wf.applyRecovering(ctx, projectID, "", *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-		c := mutateOpts(ctx)
-		var got projectstate.Version
-		e := workflow.ExecuteActivity(c, wf.RejectArtifactActivity, mutateArtifactArgs{
-			ProjectID: projectstate.ProjectID(projectID), ExpectedVersion: expected, Kind: projectstate.KindSdpReview, Notes: notes,
-		}).Get(ctx, &got)
-		return got, e
+		return wf.Acts.DesignSessionRejectArtifactOnBranchWithComments(ctx, projectstate.ProjectID(projectID), expected, "", projectstate.KindSdpReview, notes, 0, nil)
 	})
 	if err != nil {
 		return err
@@ -1869,12 +1850,7 @@ func (wf *workflows) awaitDraftFailedRecovery(
 			// Withdraw at the failed gate is a MAIN write; its Conflict re-read targets main
 			// (branch=="").
 			if _, err := wf.applyRecovering(ctx, projectID, "", headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-				c := mutateOpts(ctx)
-				var v projectstate.Version
-				e := workflow.ExecuteActivity(c, wf.WithdrawArtifactActivity, mutateArtifactArgs{
-					ProjectID: projectstate.ProjectID(projectID), ExpectedVersion: expected, Kind: toPSKind(kind), Notes: withdrawNotes,
-				}).Get(ctx, &v)
-				return v, e
+				return wf.Acts.DesignSessionWithdrawArtifactOnBranch(ctx, projectstate.ProjectID(projectID), expected, "", toPSKind(kind), withdrawNotes)
 			}); err != nil {
 				return coAuthorUnknown, false, err
 			}

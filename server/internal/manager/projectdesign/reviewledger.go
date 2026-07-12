@@ -1,11 +1,8 @@
 package projectdesign
 
 import (
-	"context"
-
 	"go.temporal.io/sdk/workflow"
 
-	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
@@ -13,8 +10,11 @@ import (
 // (review-ledger feature, founder-ratified 2026-07-05) — the structural twin of the
 // systemDesign Manager's reviewledger.go. Ledger STORAGE + transition rules live in
 // projectstate (reviewthread.go); this is the Manager-side wiring: the ReviewComment ↔
-// ReviewCommentView projection, the open-comment gate, and the SetReviewCommentStatus
-// branch-mutation Activity.
+// ReviewCommentView projection and the open-comment gate. The SetReviewCommentStatus /
+// SeedReviewComments branch-mutation Activities MIGRATED (B9) onto the generated
+// designSessionAccess.setReviewCommentStatusOnBranch / seedReviewCommentsOnBranch
+// invokers (invokers.gen.go, reached via wf.Acts) — the ledger-extension fallback those
+// custom bodies ran now lives inside the RA (projectstate/designsession.go).
 
 // reviewAuthorRole is the role stamped on every comment the architect files at the
 // Project-Design review gate.
@@ -93,46 +93,6 @@ func openReviewCommentIDs(thread []projectstate.ReviewComment) []string {
 	return ids
 }
 
-// setCommentStatusArgs bundles the SetReviewCommentStatus branch mutation inputs across the
-// Activity boundary. Branch is the session branch the ledger lives on ("" ⇒ main).
-type setCommentStatusArgs struct {
-	ProjectID       projectstate.ProjectID
-	ExpectedVersion projectstate.Version
-	Kind            projectstate.ArtifactKind
-	CommentID       string
-	Status          string
-	Branch          string
-}
-
-// SetReviewCommentStatusActivity wraps the review-ledger SetReviewCommentStatus verb — the
-// human waive/reopen transition on the session branch during the AwaitingReview window.
-func (wf *workflows) SetReviewCommentStatusActivity(ctx context.Context, a setCommentStatusArgs) (projectstate.Version, error) {
-	if led, ok := wf.ProjectState.(projectstate.LedgerProjectStateAccess); ok {
-		return mapErr(led.SetReviewCommentStatusOnBranch(ctx, a.ProjectID, a.ExpectedVersion, a.Branch, a.Kind, a.CommentID, a.Status, activityIdempotencyKey(ctx)))
-	}
-	return mapErr(projectstate.Version(0), fwra.New(fwra.NotFound, "review ledger not supported by this substrate"))
-}
-
-// seedReviewCommentsArgs bundles the F38 amendment ledger-seed inputs across the Activity
-// boundary (Phase-2 twin).
-type seedReviewCommentsArgs struct {
-	ProjectID       projectstate.ProjectID
-	ExpectedVersion projectstate.Version
-	Kind            projectstate.ArtifactKind
-	Round           int64
-	Comments        []projectstate.ReviewComment
-	Branch          string
-}
-
-// SeedReviewCommentsActivity wraps the review-ledger seed verb (F38): appends the reopening
-// feedback as OPEN entries (no status change) to the amendment session's freshly-staged slot.
-func (wf *workflows) SeedReviewCommentsActivity(ctx context.Context, a seedReviewCommentsArgs) (projectstate.Version, error) {
-	if led, ok := wf.ProjectState.(projectstate.LedgerProjectStateAccess); ok {
-		return mapErr(led.SeedReviewCommentsOnBranch(ctx, a.ProjectID, a.ExpectedVersion, a.Branch, a.Kind, a.Round, a.Comments, activityIdempotencyKey(ctx)))
-	}
-	return mapErr(projectstate.Version(0), fwra.New(fwra.NotFound, "review ledger not supported by this substrate"))
-}
-
 // seedAmendmentLedger records the reopening feedback as round-0 OPEN ledger entries on the
 // amendment session branch after the first stage, then reloads the in-memory thread.
 // Best-effort; no-op with no anchored comments.
@@ -152,17 +112,7 @@ func (wf *workflows) seedAmendmentLedger(ctx workflow.Context, in coAuthorInput,
 		return
 	}
 	newVersion, err := wf.applyRecovering(ctx, in.ProjectID, gf.readBackBranch(), *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-		c := mutateOpts(ctx)
-		var v projectstate.Version
-		e := workflow.ExecuteActivity(c, wf.SeedReviewCommentsActivity, seedReviewCommentsArgs{
-			ProjectID:       projectstate.ProjectID(in.ProjectID),
-			ExpectedVersion: expected,
-			Kind:            toPSKind(in.ArtifactKind),
-			Round:           0,
-			Comments:        comments,
-			Branch:          gf.readBackBranch(),
-		}).Get(ctx, &v)
-		return v, e
+		return wf.Acts.DesignSessionSeedReviewCommentsOnBranch(ctx, projectstate.ProjectID(in.ProjectID), expected, gf.readBackBranch(), toPSKind(in.ArtifactKind), 0, comments)
 	})
 	if err != nil {
 		return
@@ -177,15 +127,7 @@ func (wf *workflows) seedAmendmentLedger(ctx workflow.Context, in coAuthorInput,
 // main). Called after every (re)stage and every waive/reopen so the query + approve gate see
 // the live thread. A read fault is returned; the caller keeps the last-known thread.
 func (wf *workflows) loadReviewThread(ctx workflow.Context, in coAuthorInput, gf gitSession) ([]projectstate.ReviewComment, error) {
-	c := readProjectOpts(ctx)
-	var pe projectEnvelope
-	if err := workflow.ExecuteActivity(c, wf.ReadProjectOnBranchActivity, readProjectOnBranchArgs{
-		ProjectID: projectstate.ProjectID(in.ProjectID),
-		Branch:    gf.readBackBranch(),
-	}).Get(ctx, &pe); err != nil {
-		return nil, err
-	}
-	proj, err := pe.Decode()
+	proj, err := wf.readProjectOnBranch(ctx, in.ProjectID, gf.readBackBranch())
 	if err != nil {
 		return nil, err
 	}
@@ -199,17 +141,7 @@ func (wf *workflows) loadReviewThread(ctx workflow.Context, in coAuthorInput, gf
 // requests synchronously).
 func (wf *workflows) applyCommentStatus(ctx workflow.Context, in coAuthorInput, gf gitSession, headVersion *projectstate.Version, sig setCommentStatusSignal, state *coAuthorState) {
 	newVersion, err := wf.applyRecovering(ctx, in.ProjectID, gf.readBackBranch(), *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-		c := mutateOpts(ctx)
-		var v projectstate.Version
-		e := workflow.ExecuteActivity(c, wf.SetReviewCommentStatusActivity, setCommentStatusArgs{
-			ProjectID:       projectstate.ProjectID(in.ProjectID),
-			ExpectedVersion: expected,
-			Kind:            toPSKind(in.ArtifactKind),
-			CommentID:       sig.CommentID,
-			Status:          sig.Status,
-			Branch:          gf.readBackBranch(),
-		}).Get(ctx, &v)
-		return v, e
+		return wf.Acts.DesignSessionSetReviewCommentStatusOnBranch(ctx, projectstate.ProjectID(in.ProjectID), expected, gf.readBackBranch(), toPSKind(in.ArtifactKind), sig.CommentID, sig.Status)
 	})
 	if err != nil {
 		return
