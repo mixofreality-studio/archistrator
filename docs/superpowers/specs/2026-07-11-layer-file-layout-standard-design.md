@@ -251,10 +251,15 @@ means exactly one func matching the *entry* shape (the one temporalgen
 registers), not a ban on any other function that happens to take a
 `workflow.Context`. Such a context-taking helper is **forbidden in the
 Rule-1 impl file** (`<pkg>manager.go`) — that file is workflow-agnostic by
-design. A helper shared by two or more workflow files moves up into the
-impl file by convention (as §2 Rule 2 already said), authored as an
-ordinary Go function (dropping the `workflow.Context` parameter where
-possible, or threading it explicitly) rather than staying duplicated per
+design, and the gate rejects any `workflow.Context`-taking func found
+there. Whether a shared helper can move to the impl file therefore turns
+on its signature: a helper shared by two or more workflows that is
+**context-free** moves up into the impl file by convention (as §2 Rule 2
+already said), authored as an ordinary Go function. A helper shared by two
+or more workflows that **takes** `workflow.Context` cannot move to the
+impl file at all — it stays in Go source, living in its *first caller's*
+workflow file, marked with a one-line convention comment noting which
+other workflow file(s) also call it, rather than being duplicated per
 workflow file.
 
 **(f) Single test file rule — dual test packages folded.** Some packages

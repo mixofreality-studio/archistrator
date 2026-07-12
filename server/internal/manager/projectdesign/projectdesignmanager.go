@@ -1082,7 +1082,6 @@ func strPtrOrNil(s string) *string {
 // sites were updated in lockstep with this move.
 type (
 	modelEnvelope   = projectstate.ModelEnvelope
-	slotEnvelope    = projectstate.SlotEnvelope
 	projectEnvelope = projectstate.ProjectEnvelope
 )
 

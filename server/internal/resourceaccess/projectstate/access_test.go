@@ -1454,6 +1454,22 @@ func TestDesignSessionAccess_StageArtifactForReviewOnBranch_Primary(t *testing.T
 	}
 }
 
+func TestDesignSessionAccess_StageArtifactForReviewOnBranch_EmptyBranchAlwaysBase(t *testing.T) {
+	// Even a full-capability store falls back to the base stage when branch=="" (mirrors
+	// ReadProjectOnBranch's empty-branch fallback; production stages with branch=="" from
+	// assemblesdpreview.go).
+	full := &fullStore{}
+	s := NewDesignSessionAccess(full)
+	v, err := s.StageArtifactForReviewOnBranch(fwra.Context{Context: context.Background()}, "proj-1", 1, "", stageEnvelope(t), "idem-1")
+	if err != nil {
+		t.Fatalf("StageArtifactForReviewOnBranch: %v", err)
+	}
+	assertCalls(t, full.calls, "StageArtifactForReview")
+	if v != 12 {
+		t.Fatalf("Version = %d, want 12", v)
+	}
+}
+
 // A malformed envelope fails BEFORE any store verb runs, surfacing the plain Decode
 // error unwrapped — byte-for-byte the class the retired Manager-side custom activity
 // surfaced (fwmanager.MapError passes non-layer errors through untagged).
@@ -1588,6 +1604,22 @@ func TestDesignSessionAccess_WithdrawArtifactOnBranch_Primary(t *testing.T) {
 	assertCalls(t, full.calls, "WithdrawArtifactOnBranch")
 	if v != 22 {
 		t.Fatalf("Version = %d, want 22", v)
+	}
+}
+
+func TestDesignSessionAccess_WithdrawArtifactOnBranch_EmptyBranchAlwaysBase(t *testing.T) {
+	// Even a full-capability store falls back to the base withdraw when branch=="" (mirrors
+	// ReadProjectOnBranch's empty-branch fallback; production stages with branch=="" from
+	// assemblesdpreview.go, and Withdraw shares the same ok && branch != "" guard as Stage).
+	full := &fullStore{}
+	s := NewDesignSessionAccess(full)
+	v, err := s.WithdrawArtifactOnBranch(fwra.Context{Context: context.Background()}, "proj-1", 1, "", KindMission, "notes", "idem-1")
+	if err != nil {
+		t.Fatalf("WithdrawArtifactOnBranch: %v", err)
+	}
+	assertCalls(t, full.calls, "WithdrawArtifact")
+	if v != 13 {
+		t.Fatalf("Version = %d, want 13", v)
 	}
 }
 
@@ -1948,6 +1980,22 @@ func TestProjectEnvelope_NoConstructionState_OmitsConstructionKeys(t *testing.T)
 		if strings.Contains(string(raw), key) {
 			t.Fatalf("a construction-untouched project must not carry the %q key at all, got: %s", key, raw)
 		}
+	}
+}
+
+// TestReviewPolicyEmptinessGateCoversAllFields pins EncodeProject's "is ReviewPolicy
+// empty" check (projectstateaccess.go, `len(p.ReviewPolicy.GatedPhasesByType) != 0`) to
+// ReviewPolicy having exactly one field. That check inspects GatedPhasesByType alone; if
+// ReviewPolicy ever grows a second field, the check must be extended to look at it too —
+// or a project that only sets the new field would silently encode as "empty" and drop
+// its wire data. If this test fails, update BOTH the emptiness gate in EncodeProject AND
+// this assertion's field count together.
+func TestReviewPolicyEmptinessGateCoversAllFields(t *testing.T) {
+	got := reflect.TypeOf(ReviewPolicy{}).NumField()
+	if got != 1 {
+		t.Fatalf("ReviewPolicy has %d fields, want 1 — EncodeProject's emptiness gate only "+
+			"checks GatedPhasesByType; extend that gate for the new field(s) and update this "+
+			"assertion together", got)
 	}
 }
 
