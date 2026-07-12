@@ -72,12 +72,13 @@ type systemDesignManager struct {
 	estimator estimation.EstimationEngine
 	repoBase  string
 
-	// designSession (B6) is the generated designSessionAccess dep — threaded so the
-	// generated invoker surface exists (invokers.gen.go/activities.gen.go), but not
-	// yet consumed by any workflow here: this manager's branch-scoped design flows
-	// still run through the manager-local capability-fallback custom activities
-	// (gitrail.go/reviewledger.go); the systemdesign rewire task (B10) migrates onto
-	// this dep and deletes the duplicate custom activities.
+	// designSession is the generated designSessionAccess dep. Every branch-scoped design
+	// flow (read-back, stage/commit/reject/withdraw, reconcile, the review-ledger branch
+	// mutations) is reached through the generated wf.Acts.DesignSession* invoker surface,
+	// backed by this dep (B10: the manager-local capability-fallback custom activities in
+	// activities_custom.go/reviewledger.go/gitrail.go that used to duplicate this RA's
+	// BranchAware/Ledger/Provenance/Reconciling type-assertion chains are deleted — this
+	// Manager now has ZERO custom Temporal Activities).
 	designSession projectstate.DesignSessionAccess
 }
 

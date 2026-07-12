@@ -1,7 +1,6 @@
 package systemdesign
 
 import (
-	"context"
 	"fmt"
 	"path"
 	"time"
@@ -23,44 +22,26 @@ import (
 // (aiarch-construct.yml).
 var designWorkflowFileName = path.Base(sourcecontrol.DesignWorkflowPath)
 
-// gitrail.go is the PR-rail consumer port + Temporal Activity wrappers the design
-// Manager uses to wire the agentic DESIGN draft onto the git-forward branch→PR→read-
-// back→+1→merge model (I-DESIGN-DISPATCH §2b). It MIRRORS the construction Manager's
-// gitactivities.go / gitnaming.go pattern EXACTLY (same railCredEnvelope cred carrier,
-// same Activity-per-rail-verb shape, same deterministic-name idempotency): the cred is
-// MINTED by the Manager (MintRepoCredentialActivity → GetInstallationToken, a call
-// DOWN) and threaded INTO every rail verb as a parameter; the RA never reads Temporal
-// context and never fetches the credential itself ([[feedback_temporal_manager_layer_only]]).
+// gitrail.go is the PR-rail consumer port the design Manager uses to wire the agentic
+// DESIGN draft onto the git-forward branch→PR→read-back→+1→merge model
+// (I-DESIGN-DISPATCH §2b). It holds the non-Activity value carriers (railCredEnvelope,
+// pullRequestStatusView), the provider-neutral PR text builders, and the ActivityOptions
+// presets the workflow-side helpers in gitsession.go consume — it holds NO Temporal
+// Activities of its own (B10: every rail verb, including syncManagedScaffold, is
+// GENERATED and reached through the generated invoker surface, wf.Acts.Rail*).
 //
 // SUBSET. The design spine needs only the rail verbs the settled flow uses:
-// GetInstallationToken (mint), OpenBranch (ensure the session branch), OpenPullRequest
-// (head=sessionBranch, base=main), GetPullRequestStatus (the merge guard),
-// PostReview (the architecture +1 relay), MergePullRequest (the App-mediated merge).
-// ConfigureBranchProtection is a project-birth concern (FU-DD-3), absent here.
+// getInstallationToken (mint), openBranch (ensure the session branch), openPullRequest
+// (head=sessionBranch, base=main), getPullRequestStatus (the merge guard),
+// postReview (the architecture +1 relay), mergePullRequest (the App-mediated merge),
+// syncManagedScaffold (the pre-dispatch scaffold-drift refresh). configureBranchProtection
+// is a project-birth concern (FU-DD-3), unused here.
 //
 // DORMANT-WHEN-UNWIRED. The whole rail is OPTIONAL/nil-tolerant exactly like the
 // construction git-forward slice: when wf.Rail == nil or wf.Repo == nil (or no repo
 // resolves for the project) the CoAuthor workflow runs UNCHANGED — read-back/stage on
 // main, no branch/PR ops — so every existing test and the Postgres/non-git composition
 // are unperturbed.
-
-// ===========================================================================
-// Rail migration to the generated invoker surface.
-//
-// The six PR-rail verbs (GetInstallationToken/mint, OpenBranch, OpenPullRequest,
-// GetPullRequestStatus, PostReview, MergePullRequest) are GENERATED (activities.gen.go)
-// and reached through the generated invoker surface (wf.Acts.Rail*) from the workflow-side
-// helpers in gitsession.go. The folded railAdapterImpl + the plain-ctx sourceControlRail
-// seam + the per-verb Activity wrappers are RETIRED; the workflow-side value mapping
-// (opaque-handle *FromString/*String marshalling, PullRequestStatus→pullRequestStatusView,
-// the ReviewApprove verdict now supplied at the call site) lives in gitsession.go. The
-// per-op ActivityOptions presets (mintCredActivityOptions / railActivityOptions, below)
-// feed the manager's option hook (workermanifest.go).
-//
-// SyncManagedScaffold STAYS a CUSTOM Activity (SyncManagedScaffoldActivity): it wraps
-// sourcecontrol.SyncManagedScaffold, a free-function composition helper the generated
-// layer has no single contract op for. It reaches the published rail directly via wf.Rail.
-// ===========================================================================
 
 // ===========================================================================
 // Activity-boundary value carriers (mirrors gitactivities.go).
@@ -84,31 +65,6 @@ type pullRequestStatusView struct {
 	CheckGreen    bool
 	ApprovalCount int
 	Mergeable     bool
-}
-
-// ===========================================================================
-// SyncManagedScaffold — the ONE CUSTOM rail Activity (free-function composition helper).
-// ===========================================================================
-
-// syncScaffoldArgs bundles the managed-scaffold sync inputs across the Activity boundary.
-type syncScaffoldArgs struct {
-	RepoRef string
-	Cred    railCredEnvelope
-}
-
-// SyncManagedScaffoldActivity wraps sourceControlRail.SyncManagedScaffold — the
-// MANAGED-SCAFFOLD SYNC that runs before every design-job dispatch (beginSession):
-// the seated aiarch-design.yml is converged onto the CURRENT template rendering on the
-// default branch (drift → one refresh commit; identical → no-op). Returns whether the
-// seated copy drifted. A failure here BLOCKS the dispatch: the caller must never run a
-// design job against a scaffold it could not prove current (the gtdapp stale-pin
-// incident — F81 read-back rejections from a months-stale aiarch-state-mcp binary).
-func (wf *workflows) SyncManagedScaffoldActivity(ctx context.Context, a syncScaffoldArgs) (bool, error) {
-	changed, err := sourcecontrol.SyncManagedScaffold(ctx, wf.Rail, sourcecontrol.RepoRefFromString(a.RepoRef), a.Cred.toRail())
-	if err != nil {
-		return false, fwmanager.MapError(err)
-	}
-	return changed, nil
 }
 
 // ===========================================================================
@@ -148,10 +104,10 @@ func mintCredActivityOptions() workflow.ActivityOptions {
 	}
 }
 
-// railActivityOptions — the PR-rail verbs (the generated sourceControlAccess rail ops AND
-// the custom SyncManagedScaffold). Auth + a merge Conflict (not-mergeable) + bad input are
-// terminal; transport/rate-limit retry. Feeds the manager's option hook for the generated
-// verbs; the ctx-wrapper railOpts applies it at the custom SyncManagedScaffold call site.
+// railActivityOptions — the generated sourceControlAccess PR-rail ops, including
+// syncManagedScaffold (B10). Auth + a merge Conflict (not-mergeable) + bad input are
+// terminal; transport/rate-limit retry. Feeds the manager's option hook (workermanifest.go),
+// keyed by each op's generated activity name.
 func railActivityOptions() workflow.ActivityOptions {
 	return workflow.ActivityOptions{
 		StartToCloseTimeout: 30 * time.Second,
@@ -164,10 +120,4 @@ func railActivityOptions() workflow.ActivityOptions {
 			},
 		},
 	}
-}
-
-// railOpts is the ctx-wrapper the CUSTOM SyncManagedScaffold Activity call site applies
-// directly (the generated rail verbs get railActivityOptions via the option hook).
-func railOpts(ctx workflow.Context) workflow.Context {
-	return workflow.WithActivityOptions(ctx, railActivityOptions())
 }

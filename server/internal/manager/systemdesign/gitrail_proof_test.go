@@ -210,8 +210,15 @@ func (r *scriptedRail) InstallAuthorizeApp(_ fwra.Context, _ sourcecontrol.Accou
 	return sourcecontrol.Installation(""), nil
 }
 
-func (r *scriptedRail) SyncManagedScaffold(_ fwra.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.RepoCredential) (bool, error) {
-	return false, nil
+// SyncManagedScaffold mirrors the REAL production sourceControlAccess impl
+// ((*access).SyncManagedScaffold, github.go) — it delegates to the free-function
+// composition helper rather than stubbing directly. B10 rewires the generated
+// wf.Acts.RailSyncManagedScaffold invoker straight onto this method, so this method is
+// now the LOAD-BEARING path every proof test's beginSession exercises (previously the
+// free function was called directly by the now-deleted custom Activity, bypassing this
+// method entirely).
+func (r *scriptedRail) SyncManagedScaffold(rc fwra.Context, repo sourcecontrol.RepoRef, cred sourcecontrol.RepoCredential) (bool, error) {
+	return sourcecontrol.SyncManagedScaffold(rc.Context, r, repo, cred)
 }
 
 var _ sourcecontrol.SourceControlAccess = (*scriptedRail)(nil)
@@ -274,12 +281,10 @@ func (f *seqProjectState) WithdrawArtifactOnBranch(ctx context.Context, projectI
 	return f.WithdrawArtifact(fwra.Context{Context: ctx, IdempotencyKey: key}, projectID, expectedVersion, kind, notes)
 }
 
-func newSeqRailWorkflows(ps projectstate.ProjectStateAccess, pipe *fakePipeline, rail sourcecontrol.SourceControlAccess) *workflows {
-	_ = pipe // threaded to registerGenActivities, not stored on the struct.
+func newSeqRailWorkflows(rail sourcecontrol.SourceControlAccess) *workflows {
 	return &workflows{
-		ProjectState: ps,
-		Acts:         genInvokers{Opts: activityOptions()},
-		Rail:         rail,
+		Acts: genInvokers{Opts: activityOptions()},
+		Rail: rail,
 		Repo: func(ProjectID) (sourcecontrol.RepoRef, bool) {
 			return sourcecontrol.RepoRefFromString("acct|owner/repo"), true
 		},
@@ -303,8 +308,8 @@ func Test_CoAuthor_Rail_BranchReconciliation_MergeBeforeCommit_PostMergeReadOnMa
 	ps := &seqProjectState{fakeProjectState: base, log: log}
 	pipe := newFakePipeline() // dispatch observed Succeeded
 	rail := newScriptedRail(true, log)
-	wf := newSeqRailWorkflows(ps, pipe, rail)
-	registerRailCoAuthor(env, wf, pipe)
+	wf := newSeqRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
 
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
@@ -422,8 +427,8 @@ func Test_CoAuthor_Rail_RejectRedraftsOnSameSessionBranchAndSamePR(t *testing.T)
 	ps := &seqProjectState{fakeProjectState: base, log: log}
 	pipe := newFakePipeline() // every dispatch Succeeds
 	rail := newScriptedRail(true, log)
-	wf := newSeqRailWorkflows(ps, pipe, rail)
-	registerRailCoAuthor(env, wf, pipe)
+	wf := newSeqRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
 
 	// First gate: REJECT → redraft on the SAME branch/PR. Second gate: APPROVE → merge.
 	env.RegisterDelayedCallback(func() {
@@ -480,8 +485,8 @@ func Test_CoAuthor_Rail_PhaseFailed_LandsInStageDraftFailed_NoApproveRailNoCommi
 	pipe := newFakePipeline(pipelineFailed)
 	pipe.diagnostic = "aiarch-validate found 2 violations"
 	rail := newScriptedRail(true, log)
-	wf := newSeqRailWorkflows(ps, pipe, rail)
-	registerRailCoAuthor(env, wf, pipe)
+	wf := newSeqRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
 
 	env.RegisterDelayedCallback(func() {
 		enc, err := env.QueryWorkflow(querySessionState)
@@ -542,8 +547,8 @@ func Test_CoAuthor_Rail_RequiredCheckRed_BlocksMerge_NoCommit_Recovers(t *testin
 	ps := &seqProjectState{fakeProjectState: base, log: log}
 	pipe := newFakePipeline()           // draft Succeeds (the run was green) ...
 	rail := newScriptedRail(false, log) // ... but the PR's required check is RED at merge time
-	wf := newSeqRailWorkflows(ps, pipe, rail)
-	registerRailCoAuthor(env, wf, pipe)
+	wf := newSeqRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
 
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
@@ -600,8 +605,8 @@ func Test_CoAuthor_Rail_OpenPR_OnlyAfterReadBack_ReuseThenMerge(t *testing.T) {
 	ps := &seqProjectState{fakeProjectState: base, log: log}
 	pipe := newFakePipeline() // every dispatch Succeeds
 	rail := newScriptedRail(true, log)
-	wf := newSeqRailWorkflows(ps, pipe, rail)
-	registerRailCoAuthor(env, wf, pipe)
+	wf := newSeqRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
 
 	// First gate: REJECT → redraft on the SAME branch/PR. Second gate: APPROVE → merge.
 	env.RegisterDelayedCallback(func() {

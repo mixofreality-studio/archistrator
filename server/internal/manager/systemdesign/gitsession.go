@@ -107,13 +107,13 @@ func (wf *workflows) beginSession(ctx workflow.Context, projectID ProjectID, ses
 	// Withdraw + a fresh amendment session (a new execution → v1 → sync).
 	if workflow.GetVersion(ctx, "managed-scaffold-sync", workflow.DefaultVersion, 1) >= 1 {
 		var scaffoldChanged bool
-		// SyncManagedScaffold stays a CUSTOM Activity (free-function composition helper), so
-		// it is still invoked via ExecuteActivity by method value, wrapped in the shared
-		// bounded Auth retry with its railOpts preset applied at this call site.
+		// SyncManagedScaffold is the GENERATED sourceControlAccess.syncManagedScaffold
+		// invoker (B10), wrapped in the shared bounded Auth retry exactly as every other
+		// dispatch-time rail verb.
 		if serr := wf.railWithAuthRetry(ctx, func() error {
-			return workflow.ExecuteActivity(railOpts(ctx), wf.SyncManagedScaffoldActivity, syncScaffoldArgs{
-				RepoRef: sourcecontrol.RepoRefString(repoRef), Cred: cred,
-			}).Get(ctx, &scaffoldChanged)
+			changed, e := wf.Acts.RailSyncManagedScaffold(ctx, repoRef, cred.toRail())
+			scaffoldChanged = changed
+			return e
 		}); serr != nil {
 			return gitSession{}, fmt.Errorf("managed-scaffold sync failed — the seated %s could not be refreshed to this server's current template, so the design job was NOT dispatched (a stale scaffold pins an aiarch-state-mcp binary this server's validators reject); Retry re-runs the sync: %w", designWorkflowFileName, serr)
 		}
@@ -258,22 +258,21 @@ func (wf *workflows) mergeOnApprove(ctx workflow.Context, projectID ProjectID, g
 // reconcileDivergedBranch overlays main's slots (bar the in-flight one) onto the session
 // branch tip so a MERGEABLE=false PR becomes mergeable again (F80c). It runs through
 // applyRecovering so a stale-version Conflict re-reads the branch version and retries
-// within bounded attempts; a substrate that lacks the reconcile extension surfaces the
-// non-retryable ReconcileUnsupported the caller contains as an honest re-await. Seeding
-// expectedVersion 0 is safe: an existing branch row trips the version guard → Conflict →
-// applyRecovering re-reads the real branch version and retries.
+// within bounded attempts; a substrate that lacks the reconcile extension surfaces an
+// honest fwra.NotFound (designSessionAccess.reconcileBranchFromMain — B10; the RETIRED
+// custom Activity's bespoke non-retryable "ReconcileUnsupported" Type() had no downstream
+// consumer, so converging onto the standard fwra.Error→fwmanager.MapError path is
+// behavior-preserving here: the caller only ever checks err != nil) the caller contains
+// as an honest re-await. Seeding expectedVersion 0 is safe: an existing branch row trips
+// the version guard → Conflict → applyRecovering re-reads the real branch version and
+// retries.
 func (wf *workflows) reconcileDivergedBranch(ctx workflow.Context, projectID ProjectID, gf *gitSession, kind ArtifactKind) error {
 	branch := gf.readBackBranch()
 	if branch == "" {
 		return nil // dormant rail: no session branch to reconcile
 	}
 	_, err := wf.applyRecovering(ctx, projectID, branch, 0, func(expected projectstate.Version) (projectstate.Version, error) {
-		c := mutateOpts(ctx)
-		var v projectstate.Version
-		e := workflow.ExecuteActivity(c, wf.ReconcileBranchActivity, reconcileBranchArgs{
-			ProjectID: projectstate.ProjectID(projectID), ExpectedVersion: expected, Branch: branch, Kind: toPSKind(kind),
-		}).Get(ctx, &v)
-		return v, e
+		return wf.Acts.DesignSessionReconcileBranchFromMain(ctx, projectstate.ProjectID(projectID), expected, branch, toPSKind(kind))
 	})
 	return err
 }
@@ -288,8 +287,8 @@ const (
 	railAuthRetryMaxBackoff  = 15 * time.Second
 )
 
-// railWithAuthRetry runs ANY rail call (a closure over a generated invoker or the custom
-// SyncManagedScaffold Activity) with a bounded WORKFLOW-SIDE retry on a transient-403-as-Auth
+// railWithAuthRetry runs ANY rail call (a closure over a generated invoker, incl.
+// syncManagedScaffold — B10) with a bounded WORKFLOW-SIDE retry on a transient-403-as-Auth
 // fault (QA F35 + its draft-round-trip twin). The platform github ClassifyStatus conflates
 // GitHub secondary rate-limit 403s with real permission denials — both become a NON-RETRYABLE
 // Auth ApplicationError the Activity RetryPolicy cannot retry — so the workflow retries here:
@@ -331,18 +330,16 @@ func (wf *workflows) mintCred(ctx workflow.Context, repoRef sourcecontrol.RepoRe
 // readProjectOnBranch reads the head-state on an OPTIONAL branch override (§2a). When
 // branch=="" or the ProjectState substrate does not support the branch-aware extension,
 // it falls back to the original main-path ReadProject — so the branch-aware read-back is
-// purely additive and the default path is unchanged. The read runs in an Activity
-// (I/O), reusing the ReadProjectActivity for branch=="" and ReadProjectOnBranchActivity
-// otherwise.
+// purely additive and the default path is unchanged. The read runs through the generated
+// designSessionAccess.readProjectOnBranch invoker (B10) for both cases; branch=="" is
+// short-circuited to readProject (its own DesignSessionReadProjectOnBranch call) so the
+// two collapse to the SAME activity registration, matching pre-migration behavior.
 func (wf *workflows) readProjectOnBranch(ctx workflow.Context, projectID ProjectID, branch string) (projectstate.Project, error) {
 	if branch == "" {
 		return wf.readProject(ctx, projectID)
 	}
-	c := readProjectOpts(ctx)
-	var pe projectEnvelope
-	if err := workflow.ExecuteActivity(c, wf.ReadProjectOnBranchActivity, readProjectOnBranchArgs{
-		ProjectID: projectstate.ProjectID(projectID), Branch: branch,
-	}).Get(ctx, &pe); err != nil {
+	pe, err := wf.Acts.DesignSessionReadProjectOnBranch(ctx, projectstate.ProjectID(projectID), branch)
+	if err != nil {
 		return projectstate.Project{}, err
 	}
 	return pe.Decode()
