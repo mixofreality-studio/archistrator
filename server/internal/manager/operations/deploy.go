@@ -97,6 +97,10 @@ type deployableBundle struct {
 // readOperatedSystem invokes operatedSystemStateAccess.readOperatedSystem. Task 4: the
 // former Manager-local operatedSystem mirror is retired — the invoker's contract type
 // IS the workflow's internal currency now, so no fold happens here.
+// FIXME(file-layout): shared workflow-context helper — reachable from more than
+// one workflow's call tree; cannot legally live in operationsmanager.go (the
+// gate forbids workflow.Context funcs there). Placed in its first caller's file
+// pending a controller ruling. See task-C5-C9-report.md.
 func (wf *workflows) readOperatedSystem(ctx workflow.Context, operatedAppID operatedAppID) (operatedsystemstate.OperatedSystem, error) {
 	return wf.Acts.OperatedSystemStateReadOperatedSystem(ctx, operatedAppID)
 }
@@ -115,6 +119,10 @@ func (wf *workflows) retrieveBundle(ctx workflow.Context, ref string) (deployabl
 // publishDesiredState invokes operatedRuntimeAccess.publishDesiredState (git commit;
 // content-idempotent). Task 4: the former Manager-local runtimeDesiredState mirror is
 // retired — desired IS the contract type now.
+// FIXME(file-layout): shared workflow-context helper — reachable from more than
+// one workflow's call tree; cannot legally live in operationsmanager.go (the
+// gate forbids workflow.Context funcs there). Placed in its first caller's file
+// pending a controller ruling. See task-C5-C9-report.md.
 func (wf *workflows) publishDesiredState(ctx workflow.Context, appID operatedAppID, desired operatedruntime.RuntimeDesiredState) error {
 	return wf.Acts.OperatedRuntimePublishDesiredState(ctx, appID, desired)
 }
@@ -125,6 +133,10 @@ func (wf *workflows) publishDesiredState(ctx workflow.Context, appID operatedApp
 // version mirror is retired). Task 5: decision is now the published *autoscaler.Decision
 // (the seam autoscaleDecisionSeam is retired) — autoscaleDecisionToState (adapters.go)
 // bridges it straight to operatedsystemstate.AutoscaleDecision.
+// FIXME(file-layout): shared workflow-context helper — reachable from more than
+// one workflow's call tree; cannot legally live in operationsmanager.go (the
+// gate forbids workflow.Context funcs there). Placed in its first caller's file
+// pending a controller ruling. See task-C5-C9-report.md.
 func (wf *workflows) recordPublishDesiredState(ctx workflow.Context, appID operatedAppID, seed operatedsystemstate.Version, reason DesiredStateReason, decision *autoscaler.Decision) (operatedsystemstate.Version, error) {
 	return wf.applyRecovering(ctx, appID, seed, func(expected operatedsystemstate.Version) (operatedsystemstate.Version, error) {
 		return wf.Acts.OperatedSystemStatePublishDesiredState(ctx, appID,
@@ -138,6 +150,10 @@ func (wf *workflows) recordPublishDesiredState(ctx workflow.Context, appID opera
 // Conflict re-read→re-apply loop (§6.5; identical discipline to construction). On a
 // stale-version fwra.Conflict it re-reads the true head Version and re-applies with
 // the SAME idempotency key (dedup-first ordering preserves idempotent replay).
+// FIXME(file-layout): shared workflow-context helper — reachable from more than
+// one workflow's call tree; cannot legally live in operationsmanager.go (the
+// gate forbids workflow.Context funcs there). Placed in its first caller's file
+// pending a controller ruling. See task-C5-C9-report.md.
 func (wf *workflows) applyRecovering(
 	ctx workflow.Context,
 	appID operatedAppID,

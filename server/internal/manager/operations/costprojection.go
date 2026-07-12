@@ -58,6 +58,10 @@ func (wf *workflows) CostProjectionWorkflow(ctx workflow.Context, in costProject
 // input shape) — the result now passes straight through with no fold;
 // observedUsageFromEvents aggregates it directly into the Engine's published
 // ObservedUsage input at the call site.
+// FIXME(file-layout): shared workflow-context helper — reachable from more than
+// one workflow's call tree; cannot legally live in operationsmanager.go (the
+// gate forbids workflow.Context funcs there). Placed in its first caller's file
+// pending a controller ruling. See task-C5-C9-report.md.
 func (wf *workflows) readUsageRange(ctx workflow.Context, query usage.UsageRangeQuery) ([]usage.UsageEvent, error) {
 	return wf.Acts.UsageReadRange(ctx, query)
 }
