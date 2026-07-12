@@ -3453,6 +3453,75 @@ func Test_ActivityListPrompt_OneCodingActivityPerComponent(t *testing.T) {
 	}
 }
 
+// methodTeamRoster is the FIXED worker-class roster — the .claude agent team the platform
+// dispatches (mirrors roleModel in assemblesdpreview.go and webApp team.ts). The gtdapp
+// Phase-2 run (2026-07-12) invented domain-flavored classes (Capture-Engineer,
+// Platform-DevOps-Engineer, …) because the prompts never stated the roster; unknown classes
+// silently ride default sonnet token rates in the cost engines and misclassify in ClassifyType.
+var methodTeamRoster = []string{
+	"system-architect", "product-manager", "project-manager",
+	"senior-developer", "junior-developer", "ui-designer", "ux-reviewer",
+	"qa-engineer", "test-engineer", "software-tester",
+}
+
+// The PlanningAssumptions and ActivityList prompts MUST pin worker classes to the fixed
+// Method team roster and forbid inventing domain-flavored classes (F-GTD worker-class defect).
+func Test_DraftPrompt_CarriesWorkerClassRoster(t *testing.T) {
+	for _, kind := range []projectstate.ArtifactKind{projectstate.KindPlanningAssumptions, projectstate.KindActivityList} {
+		prompt := draftFor(kind)
+		for _, class := range methodTeamRoster {
+			if !strings.Contains(prompt, class) {
+				t.Errorf("%s prompt missing roster class %q", kind, class)
+			}
+		}
+		if !strings.Contains(prompt, "NEVER invent") {
+			t.Errorf("%s prompt must forbid inventing worker classes; got:\n%s", kind, prompt)
+		}
+	}
+}
+
+// The roster doctrine is scoped to the two class-authoring kinds — it must not bloat the
+// other Phase-2 prompts (solutions derive classRates from the rateCard, never author classes).
+func Test_WorkerClassRoster_OnlyOnClassAuthoringKinds(t *testing.T) {
+	for _, kind := range []projectstate.ArtifactKind{projectstate.KindNetwork, projectstate.KindNormalSolution, projectstate.KindRiskModel} {
+		if prompt := draftFor(kind); strings.Contains(prompt, "NEVER invent") {
+			t.Errorf("%s prompt must not carry the worker-class roster doctrine", kind)
+		}
+	}
+}
+
+// The ActivityList prompt must teach the activity-id naming convention (the classifiers key
+// on the prefixes: U-SPA* → frontend, N-* → testing variants) and the standard inventory —
+// the always-emitted testing set and the UI-design + SPA construction activities. gtdapp
+// (2026-07-12) emitted long prose names and neither U-SPA nor any N-ST* activity, so every
+// activity classified as a generic service and the plan had no webApp/uitests/systemtests work.
+func Test_ActivityListPrompt_NamingConventionAndStandardInventory(t *testing.T) {
+	prompt := draftFor(projectstate.KindActivityList)
+	for _, want := range []string{"U-SPA", "G-", "I-", "R-", "N-STP", "N-STH", "N-RTH", "N-SMOKE", "N-QA", "N-IT", "N-PERF"} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("activity-list prompt missing id-convention/standard-activity marker %q; got:\n%s", want, prompt)
+		}
+	}
+	if !strings.Contains(prompt, "title") {
+		t.Errorf("activity-list prompt must direct the human label into title (name is the short network id); got:\n%s", prompt)
+	}
+}
+
+// The ActivityList prompt must exclude GENERATED client-tier transport from the coding
+// activities: the platform generates REST handlers, typed API clients, MCP tool surfaces,
+// and the OAS from the committed service contracts — an *-client component whose substance
+// is that transport gets NO coding activity. The handwritten SPA (webApp) is real work and
+// is emitted as U-SPA* activities instead. gtdapp (2026-07-12) emitted webapp-client-coding /
+// mcp-client-coding / agent-client-coding — exactly the generated tier.
+func Test_ActivityListPrompt_ExcludesGeneratedClientTier(t *testing.T) {
+	prompt := draftFor(projectstate.KindActivityList)
+	for _, want := range []string{"GENERATED", "MCP tool", "NO coding activity"} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("activity-list prompt missing generated-client-tier doctrine marker %q; got:\n%s", want, prompt)
+		}
+	}
+}
+
 // The redraft prompt weaves in each OPEN review-ledger comment and states the response contract
 // via the respondToReviewComment tool (not an in-file reviewThread edit). Addressed/waived
 // comments are not listed.

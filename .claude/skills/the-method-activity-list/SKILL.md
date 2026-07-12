@@ -35,6 +35,14 @@ Two usage patterns produce this slot:
 1. **Agentic/CI dispatch:** the agent produces the typed `ActivityList` model as JSON and commits it into `.activityList` on its session branch; the server reads it back and stages it (`StageArtifactForReview`) for the human review gate (`CommitArtifact` / `RejectArtifact`).
 2. **Local interactive:** same — produce the typed model and write it into the `.activityList` slot. Never a `designs/*.md` file.
 
+## Worker classes are a fixed roster
+
+Every activity's `workerClass` MUST be spelled exactly as one of the Method team roster the platform dispatches — `system-architect`, `product-manager`, `project-manager`, `senior-developer`, `junior-developer`, `ui-designer`, `ux-reviewer`, `qa-engineer`, `test-engineer`, `software-tester` — and every class used must have a `rateCard` entry in the committed PlanningAssumptions. NEVER invent a domain-, component-, or platform-flavored class (no "Capture-Engineer", no "Platform-DevOps-Engineer" — the 2026-07-12 gtdapp defect): an unknown class silently rides default token rates in the cost engines and falls to the generic branch of every workerClass-keyed classifier. Where the book says UX-designer or DevOps, use `ui-designer` and `senior-developer`.
+
+## Generated client tier — plan no work the generator does
+
+The platform GENERATES the entire transport scaffolding from the committed service contracts: REST handlers, typed API clients, MCP tool surfaces, and the OpenAPI document. A client-tier component whose substance is that generated transport (an api / mcp / agent client) gets **NO coding activity**. The handwritten UI IS real work: emit `G-SPA` (ui-design, `ui-designer`) plus `U-SPA*` construction activities (`junior-developer`, one per core-use-case screen cluster), UI construction depending on `G-SPA`. This is why 2026-07-12 gtdapp was wrong twice over — it planned `webapp-client-coding` / `mcp-client-coding` / `agent-client-coding` (all generated) and planned no SPA, UI-test, or system-test work at all.
+
 ## Procedure
 
 ### Step 1 — Coding activities per component
@@ -43,7 +51,7 @@ Two usage patterns produce this slot:
 
 > This is the deliberate correction of the "clock": do NOT emit a `D###` design activity *and* a `C###` construction activity per component. The base activity list is one activity per component; the per-phase role hand-off lives inside the lifecycle. Pulling contract design out into a *separate* activity is a **compression technique** — see [[the-method-compressed-solution]] — applied selectively (to components others build against, to break dependencies and parallelize), never universally in the base list.
 
-> ID-prefix convention (recommended): `C###` the single per-component coding activity, `R###` resource provisioning, `U###` UI/SPA/gateway/helm, `G###` UI-design concepts, `I###` integration, `N###` noncoding. (`D###` design-first activities appear ONLY in the compressed solution, never the base.) A product may use generic `A###` instead, but the richer prefixes aid traceability.
+> ID-prefix convention (load-bearing, not just recommended): `C-<abbrev>` the single per-component coding activity, `R-*` resource provisioning, `U-SPA*` SPA/webApp construction (the ONLY prefix classified as frontend downstream), `G-*` UI-design concepts, `I-*` integration, `N-*` noncoding (testing variants key on `N-STP`/`N-STH`/`N-PERF`/`N-IT`/`N-QA`). (`D###` design-first activities appear ONLY in the compressed solution, never the base.) In the typed model the activity `name` IS this short network id; the human-readable label goes in `title`. Downstream classifiers (DeriveType / DeriveVariant / ClassifyType) key on these prefixes — a prose name like `webapp-client-coding` classifies as a generic service.
 
 Format each entry:
 
@@ -91,7 +99,7 @@ Two activities are **always emitted** (not left ad-hoc), because every plan need
 - a **System Test Plan** (`N-STP`, role `test-engineer`) — the ways to prove the integrated system fails, traced to the core use cases; early and high-float;
 - a **System Test Harness** (`N-STH`, role `test-engineer`) — code that drives the system to break it (best-fit tech: Playwright for UI/SPA E2E, Go for API/integration; no Gherkin layer);
 - a **Regression Test Harness** (`N-RTH`, role **`senior-developer`** — Löwy: regression harness is *developer-owned*, distinct from the test-engineer's system harness);
-- **daily build + smoke** (`N-SMOKE`, role `devops`);
+- **daily build + smoke** (`N-SMOKE`, role `senior-developer` — the roster has no devops class);
 - a process **QA** activity (`N-QA`, role `qa-engineer`) — *"what will it take to assure quality?"*, distinct from test execution;
 - a terminal **System Testing** gate (end-of-project, role **`software-tester`** — Löwy: testers run system testing; aim for a 1:1–2:1 tester:developer ratio).
 
@@ -144,12 +152,12 @@ Format:
 | ID | Name | Type | Role | Duration (days) | Depends on |
 |---|---|---|---|---|---|
 | N001 | Requirements analysis | noncoding | product-manager | 10 | — |
-| N002 | UX design | noncoding | ux-designer | 25 (spans entire UI phase) | N001 |
-| N003 | Build/CI setup | noncoding | devops | 10 | — |
-| N004 | Production environment provisioning | noncoding | devops | 15 | N003 |
+| N002 | UX design | noncoding | ui-designer | 25 (spans entire UI phase) | N001 |
+| N003 | Build/CI setup | noncoding | senior-developer | 10 | — |
+| N004 | Production environment provisioning | noncoding | senior-developer | 15 | N003 |
 | N005 | Integration testing | quality | test-engineer | 15 | (all construction done) |
 | N006 | Hardening | quality | senior-developer + junior-developer | 10 | N005 |
-| N007 | Deployment | noncoding | devops | 5 | N006 |
+| N007 | Deployment | noncoding | senior-developer | 5 | N006 |
 | N008 | Training | noncoding | product-manager | 5 | N007 |
 ```
 
@@ -211,6 +219,8 @@ Per ch. 11 Table 11-2 / ch. 13 Table 13-4, build the roles-and-phases mapping:
 
 Per Löwy ch. 9: the **test engineer** (builds harnesses, writes code to break the system), the **software tester** (runs system testing; 1:1–2:1 tester:developer ratio), and the **QA engineer** (senior, process — "what will it take to assure quality?") are three *distinct* roles. Do not collapse them.
 
+The table keeps the book's row names; in the typed model the "UX designer" row is `ui-designer` and the "DevOps" row is `senior-developer` (the fixed roster has no devops class).
+
 This is "a crude staffing distribution" (ch. 11) — it confirms which roles span the whole project and which are activity-specific.
 
 ## Exit criteria (for router)
@@ -220,6 +230,8 @@ This is "a crude staffing distribution" (ch. 11) — it confirms which roles spa
 - Integration activities for each major relationship cluster
 - Noncoding activities from the checklist
 - All durations in 5-day quanta, ≤35 days, with role assignments
+- Every `workerClass` is from the fixed roster (see "Worker classes are a fixed roster") and has a PlanningAssumptions `rateCard` entry; activity `name`s follow the ID-prefix convention (`U-SPA*` for SPA work, `N-ST*` variants for testing)
+- NO coding activity for generated client-tier transport (api/mcp/agent clients); `U-SPA*` activities exist for the handwritten UI
 - Overall estimate cross-check
 - Roles-and-phases table
 - A `G###` UI-design activity exists for any product with a UI surface, sequenced before UI construction

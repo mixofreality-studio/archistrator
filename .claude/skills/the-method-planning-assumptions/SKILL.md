@@ -71,6 +71,10 @@ Ask the user **one question at a time**. Prefer multiple choice where applicable
 
 Record raw answers as you go.
 
+### Step 1b — Worker classes are a fixed roster
+
+Resources (and every `rateCard` key) MUST be spelled exactly as one of the Method team roster the platform dispatches — `system-architect`, `product-manager`, `project-manager`, `senior-developer`, `junior-developer`, `ui-designer`, `ux-reviewer`, `qa-engineer`, `test-engineer`, `software-tester`. NEVER invent a domain-, component-, or platform-flavored class (no "Capture-Engineer", no "Platform-DevOps-Engineer" — the 2026-07-12 gtdapp defect): an unknown class silently rides default token rates in the cost engines and misclassifies in every downstream view. The book's UX-designer and DevOps roles map onto `ui-designer` and `senior-developer` respectively in this roster.
+
 ### Step 2 — Normalize into the typed planning-assumptions model
 
 After the dialog, produce the typed `PlanningAssumptions` model and commit it to `.aiarch/state/project.json` → `.planningAssumptions`. The markdown below is the equivalent **human rendering** of that JSON — use it to review the content, but the source of truth is the slot, not a `*.md` file:
