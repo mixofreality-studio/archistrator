@@ -6233,7 +6233,8 @@
               "project-state-access",
               "construction-pipeline-access",
               "mcp-client",
-              "project-git-repo"
+              "project-git-repo",
+              "design-session-access"
             ],
             "edges": [
               {
@@ -6277,6 +6278,18 @@
                 "to": "project-git-repo",
                 "mode": "sync",
                 "label": "commit guarded by git ref compare-and-swap [contract 1: typed state]"
+              },
+              {
+                "from": "system-design-manager",
+                "to": "design-session-access",
+                "mode": "sync",
+                "label": "readProjectOnBranch / stageArtifactForReviewOnBranch / commitArtifactWithProvenance / rejectArtifactOnBranchWithComments / withdrawArtifactOnBranch / reconcileBranchFromMain / set·seedReviewCommentsOnBranch"
+              },
+              {
+                "from": "design-session-access",
+                "to": "project-git-repo",
+                "mode": "sync",
+                "label": "read state JSON / commit design-session writes guarded by git ref compare-and-swap"
               }
             ]
           },
@@ -6292,7 +6305,8 @@
               "operation-estimation-engine",
               "billing-engine",
               "work-item-access",
-              "mcp-client"
+              "mcp-client",
+              "design-session-access"
             ],
             "edges": [
               {
@@ -6348,6 +6362,12 @@
                 "to": "project-state-access",
                 "mode": "sync",
                 "label": "recordActivityWorkItemOpened(activityId, WorkItemRef)"
+              },
+              {
+                "from": "project-design-manager",
+                "to": "design-session-access",
+                "mode": "sync",
+                "label": "readProjectOnBranch / stageArtifactForReviewOnBranch / commitArtifactWithProvenance / rejectArtifactOnBranchWithComments / withdrawArtifactOnBranch / reconcileBranchFromMain / set·seedReviewCommentsOnBranch"
               }
             ]
           },
@@ -6369,7 +6389,9 @@
               "work-item-tracker",
               "github",
               "project-git-repo",
-              "artifact-access"
+              "artifact-access",
+              "construction-transition-access",
+              "git-activity-status-access"
             ],
             "edges": [
               {
@@ -6509,6 +6531,30 @@
                 "to": "project-state-access",
                 "mode": "sync",
                 "label": "recordActivityExited"
+              },
+              {
+                "from": "construction-manager",
+                "to": "construction-transition-access",
+                "mode": "sync",
+                "label": "readProject / record construction transitions (change reviewed, activity exited, activity failed, operator paused, review policy, phase started, phase completed, service contract produced, phase artifact produced)"
+              },
+              {
+                "from": "construction-transition-access",
+                "to": "project-git-repo",
+                "mode": "sync",
+                "label": "read state JSON / commit construction-transition writes guarded by git ref compare-and-swap"
+              },
+              {
+                "from": "construction-manager",
+                "to": "git-activity-status-access",
+                "mode": "sync",
+                "label": "record per-activity git head-state (branch opened, CI observed, arch approved, merged, construction started, construction completed)"
+              },
+              {
+                "from": "git-activity-status-access",
+                "to": "project-git-repo",
+                "mode": "sync",
+                "label": "read state JSON / commit git-activity-status writes guarded by git ref compare-and-swap"
               }
             ]
           },
@@ -6661,7 +6707,8 @@
               "usage-log",
               "billing-engine",
               "merchant-gateway-access",
-              "merchant-gateway"
+              "merchant-gateway",
+              "revenue-ledger-access"
             ],
             "edges": [
               {
@@ -6723,6 +6770,18 @@
                 "to": "billing-state",
                 "mode": "sync",
                 "label": "guarded in-place update (version + applied_mutation dedup)"
+              },
+              {
+                "from": "billing-manager",
+                "to": "revenue-ledger-access",
+                "mode": "sync",
+                "label": "recordInboundRevenue / recordReversal / readRange"
+              },
+              {
+                "from": "revenue-ledger-access",
+                "to": "billing-state",
+                "mode": "sync",
+                "label": "append inbound-revenue / reversal fact (no-op under charge-only) / read cycle range"
               }
             ]
           },
@@ -7433,9 +7492,13 @@
                 "ReviewEngine",
                 "MerchantGatewayAccess",
                 "BillingStateAccess",
+                "RevenueLedgerAccess",
                 "ArtifactAccess",
                 "ConstructionPipelineAccess",
+                "ConstructionTransitionAccess",
+                "DesignSessionAccess",
                 "DurableExecutionAccess",
+                "GitActivityStatusAccess",
                 "OperatedRuntimeAccess",
                 "OperatedSystemStateAccess",
                 "ProjectStateAccess",
