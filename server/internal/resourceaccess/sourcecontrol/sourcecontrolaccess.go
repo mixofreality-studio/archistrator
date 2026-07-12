@@ -21,13 +21,18 @@ package sourcecontrol
 // valid only with a safety margin before its real ExpiresAt.
 
 import (
+	"bytes"
 	"context"
+	_ "embed"
 	"errors"
+	"fmt"
 	"log/slog"
+	"path"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"text/template"
 	"time"
 
 	fwgithub "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github"
@@ -887,3 +892,769 @@ func prNumber(pr PullRequestRef) (int, error) {
 
 func itoa(n int) string     { return strconv.Itoa(n) }
 func itoa64(n int64) string { return strconv.FormatInt(n, 10) }
+
+// ---- from agenticdesign.go ----
+
+// agenticdesign.go supplies the aiarch-MANAGED project scaffold archistrator-server
+// seats into each user project repo at project birth (CommitManagedFiles). The
+// scaffold is FOUR files committed in one birth seat:
+//
+//   1. .github/workflows/aiarch-design.yml — the claude-code-action DESIGN workflow
+//      (the DESIGN counterpart of the construction reference workflow
+//      products/archistrator/deploy/construction-workflow/aiarch-construct.yml). It
+//      is COMMITTED by the server (not hand-installed), so the template is embedded
+//      (//go:embed) and wrapped in the RA's provider-neutral ManagedFile value type.
+//      It is TEMPLATED with the configured GitHub App slug so the claude-code-action
+//      step allow-lists that bot (allowed_bots) — the design workflow is ALWAYS
+//      workflow_dispatch'ed by the aiarch App (a Bot actor), which the action refuses
+//      unless allow-listed. The slug varies per deployment, so it is not hardcoded.
+//   2. go.mod — `module <REPO_MODULE>` (github.com/<owner>/<repo>, derived from the
+//      adopted RepoRef) + a go directive + `require github.com/mixofreality-studio/archistrator-platform/framework-go`
+//      pinned to FrameworkGoVersion, so a `go test` in the repo resolves methodcheck.
+//   3. aiarch_method_test.go — the single test calling methodcheck.Check (the
+//      all-in-one Method gate). Since 2026-07-06 the DESIGN workflow's REQUIRED
+//      `validate` job runs `aiarch-state-mcp validate` (the pinned, self-updating
+//      binary carrying the same design rules + the staleness-aware cross-artifact
+//      severity policy) INSTEAD of this test; the scaffold remains seated for the
+//      product repo's OWN CI once it has Go code (arch layer rules + design↔code
+//      alignment need go/packages over the product module, which an installed
+//      binary cannot run).
+//   4. internal/.gitkeep — a placeholder that keeps the internal/ directory PRESENT
+//      in a fresh repo. The seated method test (3) runs methodcheck.Check, whose
+//      arch.MethodSpec loads the `./internal/...` package pattern; on an empty birth
+//      repo that pattern HARD-ERRORS ("lstat ./internal/: no such file or directory")
+//      and reddens the required check on every fresh project until the directory is
+//      hand-added. Seating an empty-ish internal/.gitkeep makes internal/ exist at
+//      birth so the load pattern resolves (to zero packages, a valid no-op) and the
+//      gate is green from the first commit. It is a static one-liner (not templated):
+//      git needs a non-empty tracked file, and CommitManagedFiles rejects empty
+//      content, so it carries a single explanatory comment line.
+//
+// (1)–(3) are TEMPLATED at birth: (2) and (3) with the repo's module path (and the
+// pinned framework-go version); (1) with the configured GitHub App slug (allowed_bots).
+// (1) uses custom Go-template delimiters [[ ]] so GitHub's own ${{ ... }} expressions
+// are left untouched. (4) is static content.
+//
+// This asset accessor lives DIRECTLY in the sourceControlAccess package (not a
+// sub-package) on purpose: the embedded templates are consumed only by this RA's own
+// frozen CommitManagedFiles verb and are wrapped in this RA's own ManagedFile value
+// type, so they are part of the sourceControlAccess component, not a peer of it. A
+// sub-package would classify as a SECOND ResourceAccess component and its import of
+// the ManagedFile type would be a forbidden RA→RA sideways edge (the-method-layers);
+// folding it in keeps a single, correctly-classified RA.
+//
+// It adds NO ResourceAccess verb and speaks NO GitHub wire lexicon: it is a pure
+// asset accessor. The COMMIT is performed by the C-PM-Δ caller through the
+// already-built CommitManagedFiles verb; the DISPATCH is performed by the design
+// Managers (C-MSD-Δ / C-MPD-Δ) through the frozen
+// constructionPipelineAccess.SubmitConstructionPipeline verb. The workflow_dispatch
+// input names the workflow template declares are a CONTRACT with those Managers —
+// see designs/aiarch/implementation/log/C-WF-DESIGN.md.
+
+// designWorkflowTmplText is the embedded DESIGN workflow text/template source. It is
+// rendered (renderDesignWorkflow) with the configured GitHub App slug, then committed
+// into the user repo at .github/workflows/aiarch-design.yml. It uses custom [[ ]]
+// delimiters so GitHub Actions' own ${{ ... }} expressions pass through verbatim.
+//
+//go:embed assets/aiarch-design.yml.tmpl
+var designWorkflowTmplText string
+
+// goModTemplateText / methodTestTemplateText are the embedded text/template sources
+// for the go-test gate scaffold, rendered with the adopted repo's module path (+ the
+// pinned framework-go version) at project birth.
+//
+//go:embed assets/go.mod.tmpl
+var goModTemplateText string
+
+//go:embed assets/aiarch_method_test.go.tmpl
+var methodTestTemplateText string
+
+// DesignWorkflowPath is the path under .github/workflows/ the DESIGN workflow is
+// committed to. It satisfies the managed-file allowlist's .github/workflows/ prefix.
+const DesignWorkflowPath = ".github/workflows/aiarch-design.yml"
+
+// GoModPath / MethodTestPath are the repo-root scaffold paths the go-test gate is
+// seated to. They MUST match the sourcecontrol managed-file allowlist scaffold roots
+// (github.go scaffoldRootPaths) so CommitManagedFiles accepts them.
+const (
+	GoModPath      = "go.mod"
+	MethodTestPath = "aiarch_method_test.go"
+)
+
+// internalGitkeepPath is the repo-root placeholder that keeps the internal/ directory
+// present at project birth so the seated method test's arch.MethodSpec `./internal/...`
+// load pattern resolves (to zero packages) instead of hard-erroring on a missing dir.
+// It MUST match the sourcecontrol managed-file allowlist scaffold roots (github.go
+// scaffoldRootPaths) so CommitManagedFiles accepts it — the allowlist lists this
+// LITERAL path, not an internal/ prefix, so it stays tight.
+const internalGitkeepPath = "internal/.gitkeep"
+
+// internalGitkeepContent is the static, non-empty content of the internal/.gitkeep
+// placeholder. git needs a tracked file (a bare empty directory cannot be committed)
+// and CommitManagedFiles rejects empty content, so the file carries a single comment
+// line explaining why it exists.
+const internalGitkeepContent = "# keeps internal/ present for the Method arch gate (./internal/... load pattern)\n"
+
+// GoVersion is the Go directive the seated go.mod declares. It tracks framework-go's
+// own go.mod `go` line so the user module and framework-go agree on the language
+// version (framework-go is go 1.25.0).
+const GoVersion = "1.25.0"
+
+// FrameworkGoVersion is the PINNED framework-go module version the seated go.mod
+// requires. The user repo's `go test` must RESOLVE github.com/mixofreality-studio/archistrator-platform/framework-go
+// at this version (published/tagged, or served via GOPROXY) — see the founder
+// checklist. framework-go/v0.4.4 is published (C4-aware deployment model +
+// methodcheck conformance, including the state-validation rule twins), so the seated
+// gate resolves it from GOPROXY without a local replace. Updated here when framework-go
+// is tagged.
+const FrameworkGoVersion = "v0.4.4"
+
+// StateMcpModulePath is the Go package path of the local stdio project-state MCP server
+// the DESIGN workflow launches inside the GitHub Actions job (cmd/aiarch-state-mcp). The
+// binary IS ProjectStateAccess code (agentic-managers spec §Construction application): it
+// operates on the checked-out working tree and validates every drafted model through the
+// SAME projectstate codec + methodcheck the server uses on read-back. It lives in the
+// archistrator SERVER module (not framework-go) because it must reuse the strict codec in
+// server/internal — a package only that module can import. The workflow obtains it the
+// SAME way the seated go.mod scaffold obtains framework-go: `go install <path>@<pin>`
+// resolved via GOPROXY (a published module), so it carries the identical trust/access
+// profile. Since 2026-07-06 the workflow's REQUIRED `validate` job also runs this
+// binary's `validate` subcommand as the Method-invariant PR gate (staleness-aware
+// cross-artifact severity — the amendment-deadlock fix), so the gate's rule stack
+// self-updates with this pin via the managed-scaffold sync.
+const StateMcpModulePath = "github.com/mixofreality-studio/archistrator/server/cmd/aiarch-state-mcp"
+
+// StateMcpModulePin is the version the workflow installs the state-MCP binary at. It must
+// be a git ref GOPROXY can resolve for the PUBLIC archistrator repo — a full commit SHA
+// (resolved to its pseudo-version), a tag (server/vX.Y.Z → the @vX.Y.Z form here), or a
+// branch name.
+//
+// SOURCE OF TRUTH (managed-scaffold sync, 2026-07-06): this SOURCE CONSTANT is the single
+// place the control plane declares which state-MCP binary generation its validators and
+// prompts are compatible with. The RELEASE PROCESS updates it when the binary's codec /
+// methodcheck rules change, in the same commit that changes them — the two can never
+// version independently because they live in one module. It is a `var` (not `const`) so a
+// release pipeline may also stamp it at build time via
+// `-ldflags "-X .../sourcecontrol.StateMcpModulePin=<sha>"`; the in-source default below
+// is what an unstamped build seats and syncs.
+//
+// A full SHA is pinned (NOT `@main`): GOPROXY caches branch→pseudo-version resolutions,
+// so `@main` can silently serve a stale binary for hours — the exact drift class the
+// managed-scaffold sync exists to eliminate. Seated workflow copies rendered with an
+// older pin are refreshed by the design Managers' sync-on-dispatch (SyncManagedScaffold)
+// before every design job, so a seated repo can no longer run against a pin this server's
+// validators do not understand.
+var StateMcpModulePin = "e9d18ca0e5cd9b9880b7caa02a9da5e9e5278a35"
+
+// NOTE (2026-06-15 correction): the embedded DESIGN workflow reads
+// ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }} to authenticate claude-code-action, but that
+// Actions secret is provisioned by the Claude Code GitHub App when the USER runs
+// /install-github-app on their repo — aiarch does NOT seat it.
+
+// renderDesignWorkflow renders the embedded DESIGN workflow template with the given
+// GitHub App slug. It uses custom [[ ]] delimiters so GitHub's ${{ ... }} expressions
+// are literal text. An EMPTY appSlug omits the allowed_bots line entirely — the seated
+// workflow then still runs for a human-dispatched run (a bot-dispatched run would fail
+// the action's non-human-actor guard, which is the correct signal in an unconfigured
+// deployment rather than an empty/invalid allowed_bots value).
+func renderDesignWorkflow(appSlug string) ([]byte, error) {
+	t, err := template.New("aiarch-design.yml").Delims("[[", "]]").Parse(designWorkflowTmplText)
+	if err != nil {
+		return nil, fmt.Errorf("sourcecontrol: parse aiarch-design.yml template: %w", err)
+	}
+	var buf bytes.Buffer
+	if err := t.Execute(&buf, scaffoldTemplateData{
+		AppSlug:            appSlug,
+		StateMcpModulePath: StateMcpModulePath,
+		StateMcpModulePin:  StateMcpModulePin,
+	}); err != nil {
+		return nil, fmt.Errorf("sourcecontrol: render aiarch-design.yml template: %w", err)
+	}
+	return buf.Bytes(), nil
+}
+
+// DesignWorkflowFile returns the claude-code-action DESIGN workflow rendered with
+// the configured App slug as a provider-neutral ManagedFile — EXACTLY the file the
+// birth seat commits. Exported (2026-07-06 managed-scaffold sync) so the design
+// Managers' sync-on-dispatch can re-render the CURRENT template and converge the
+// seated copy against it; the seat path (ManagedScaffoldFiles) and the sync path
+// share this single rendering, so they can never disagree about the target bytes.
+func DesignWorkflowFile(appSlug string) (ManagedFile, error) {
+	content, err := renderDesignWorkflow(appSlug)
+	if err != nil {
+		return ManagedFile{}, err
+	}
+	return ManagedFile{Path: DesignWorkflowPath, Content: content}, nil
+}
+
+// scaffoldTemplateData is the render context for the birth-scaffold templates: the
+// repo's Go module path + the Go + framework-go version pins (go.mod + method test),
+// plus the configured GitHub App slug (the DESIGN workflow's allowed_bots actor). Each
+// template uses only the fields it needs.
+type scaffoldTemplateData struct {
+	Module             string
+	GoVersion          string
+	FrameworkGoVersion string
+	AppSlug            string
+	// StateMcpModulePath / StateMcpModulePin template the `go install <path>@<pin>` the
+	// DESIGN workflow uses to obtain the local project-state MCP server binary.
+	StateMcpModulePath string
+	StateMcpModulePin  string
+}
+
+// renderScaffoldFile renders one embedded text/template with the module path + pins.
+func renderScaffoldFile(name, tmplText string, data scaffoldTemplateData) ([]byte, error) {
+	t, err := template.New(name).Parse(tmplText)
+	if err != nil {
+		return nil, fmt.Errorf("sourcecontrol: parse %s template: %w", name, err)
+	}
+	var buf bytes.Buffer
+	if err := t.Execute(&buf, data); err != nil {
+		return nil, fmt.Errorf("sourcecontrol: render %s template: %w", name, err)
+	}
+	return buf.Bytes(), nil
+}
+
+// ManagedScaffoldFiles returns the FULL aiarch-managed project scaffold bundle to
+// seat at project birth — the design workflow + the go-test gate (go.mod +
+// aiarch_method_test.go) + the internal/.gitkeep placeholder — templated with the
+// adopted repo's Go module path (github.com/<owner>/<repo>, derived from repo via
+// RepoRef.OwnerRepo), the pinned Go + framework-go versions, and the configured
+// GitHub App slug (the design workflow's allowed_bots actor). The internal/.gitkeep
+// file is static (the method gate's arch.MethodSpec `./internal/...` load pattern
+// hard-errors on a missing internal/ dir, so the placeholder makes it exist at birth).
+// The C-PM-Δ caller hands the returned slice to CommitManagedFiles, which seats all
+// four in one birth seat.
+//
+// appSlug is the deployment's GitHub App slug (from the composition root). The caller
+// reads it off the rail with RailAppSlug so it is never hardcoded. An EMPTY slug
+// (unconfigured dev server) is valid: the design workflow simply omits allowed_bots.
+//
+// An empty/malformed RepoRef (owner/repo unresolvable) is a ContractMisuse the caller
+// surfaces — the module path cannot be templated without the repo coordinates.
+func ManagedScaffoldFiles(repo RepoRef, appSlug string) ([]ManagedFile, error) {
+	owner, name, err := RepoRefOwnerRepo(repo)
+	if err != nil {
+		return nil, err
+	}
+	module := fmt.Sprintf("github.com/%s/%s", owner, name)
+	data := scaffoldTemplateData{
+		Module:             module,
+		GoVersion:          GoVersion,
+		FrameworkGoVersion: FrameworkGoVersion,
+	}
+
+	workflow, err := DesignWorkflowFile(appSlug)
+	if err != nil {
+		return nil, err
+	}
+	goMod, err := renderScaffoldFile("go.mod", goModTemplateText, data)
+	if err != nil {
+		return nil, err
+	}
+	methodTest, err := renderScaffoldFile("aiarch_method_test.go", methodTestTemplateText, data)
+	if err != nil {
+		return nil, err
+	}
+
+	return []ManagedFile{
+		workflow,
+		{Path: GoModPath, Content: goMod},
+		{Path: MethodTestPath, Content: methodTest},
+		{Path: internalGitkeepPath, Content: []byte(internalGitkeepContent)},
+	}, nil
+}
+
+// syncManagedScaffoldMessage is the commit message a managed-scaffold SYNC commit
+// carries (distinct from the birth-seat ManagedCommitMessage): it names the refreshed
+// file AND the state-MCP pin the refreshed rendering installs, so the repo history
+// records exactly when the scaffold was brought current and to which binary generation.
+func syncManagedScaffoldMessage() string {
+	return fmt.Sprintf("aiarch: sync managed scaffold (%s) to aiarch-state-mcp@%s",
+		path.Base(DesignWorkflowPath), StateMcpModulePin)
+}
+
+// managedFileSyncer is the OPTIONAL hand-written auxiliary sync surface a concrete
+// SourceControlAccess may expose (the GitHub-backed access does — see
+// (*access).SyncManagedFiles): the seat write with a caller-supplied commit message
+// and an explicit drifted/converged report. Same discovery pattern as RailAppSlug.
+type managedFileSyncer interface {
+	SyncManagedFiles(ctx context.Context, repo RepoRef, files []ManagedFile, message string, cred RepoCredential) (CommitRef, bool, error)
+}
+
+// SyncManagedScaffold ensures the SEATED design workflow (aiarch-design.yml on the
+// repo's DEFAULT branch) matches the CURRENT template rendering — the managed-scaffold
+// sync the design Managers run BEFORE every design-job dispatch (2026-07-06; closes
+// the CreateProject-seats-once drift: the birth seat's constant idempotency key means
+// a seated copy was otherwise never refreshed, so server upgrades stranded live repos
+// on a stale aiarch-state-mcp pin whose binary the new validators reject).
+//
+// It re-renders the workflow exactly as seat-time would TODAY (DesignWorkflowFile with
+// the rail's own App slug) and converges the seated copy through the rail:
+//   - drifted   → ONE commit to the default branch (sync message naming the new pin),
+//     changed=true
+//   - identical → NO commit (the contents write is fetch-compare-put, byte-identical
+//     short-circuits), changed=false
+//
+// SCOPE: the design workflow file ONLY. The rest of the birth scaffold (go.mod /
+// aiarch_method_test.go / internal/.gitkeep) is deliberately NOT synced — go.mod is
+// user-evolved after birth (their requires) and re-seating it would destroy user
+// content; see docs/later.md for the earmarked follow-ups.
+//
+// When the concrete rail lacks the auxiliary sync surface (a test fake), it falls back
+// to the FROZEN CommitManagedFiles verb — the identical converge semantics under the
+// seat message — reporting changed=false (the frozen verb does not report drift).
+// A sync error means the seated scaffold could not be proven current; the caller MUST
+// fail the dispatch (never dispatch against a known-stale scaffold).
+func SyncManagedScaffold(ctx context.Context, rail SourceControlAccess, repo RepoRef, cred RepoCredential) (bool, error) {
+	if rail == nil {
+		return false, fmt.Errorf("sourcecontrol: SyncManagedScaffold: nil rail")
+	}
+	file, err := DesignWorkflowFile(RailAppSlug(rail))
+	if err != nil {
+		return false, err
+	}
+	if s, ok := rail.(managedFileSyncer); ok {
+		_, changed, serr := s.SyncManagedFiles(ctx, repo, []ManagedFile{file}, syncManagedScaffoldMessage(), cred)
+		return changed, serr
+	}
+	_, err = rail.CommitManagedFiles(fwra.Context{Context: ctx}, repo, []ManagedFile{file}, cred)
+	return false, err
+}
+
+// RailAppSlug reads the configured GitHub App slug off a SourceControlAccess when the
+// concrete implementation exposes it (the GitHub-backed access does — see
+// (*access).AppSlug). A rail that does not — e.g. a test fake or a repo-less dev
+// server (nil rail) — yields "" so the seated design workflow omits allowed_bots (a
+// human-dispatched run still works). This keeps the slug's source of truth inside the
+// RA: the birth-scaffold caller obtains it FROM the rail rather than threading it
+// through the Manager's generated constructor.
+func RailAppSlug(rail SourceControlAccess) string {
+	if p, ok := rail.(interface{ AppSlug() string }); ok {
+		return p.AppSlug()
+	}
+	return ""
+}
+
+// ---- from behavior.go ----
+
+// behavior.go carries the FREE-FUNCTION behaviour of the named-scalar / enum /
+// struct value types in this component's contract — the established "behavioral
+// value type → generated scalar + free functions" pattern (same as
+// durableexecution's ExecutionHandle/ExecutionStatus and constructionpipeline's
+// PipelineHandle/PipelinePhase/RepoTarget). The opaque-handle value types
+// (Installation, RepoRef, CommitRef, BranchRef, PullRequestRef) are generated as
+// $def named scalars (contract.gen.go); the RepoCredential struct + the CheckState
+// enum are generated as a struct / enum. Their methods would not survive codegen,
+// so they live here as free functions the impl + callers call. The opaque token
+// the impl packs IS the string value, so the handle behaviour is a thin, parse-free
+// pass over that value.
+
+// ---------------------------------------------------------------------------
+// Installation behaviour (free functions over the generated named scalar).
+// ---------------------------------------------------------------------------
+
+// InstallationString returns the canonical printable form (logs, audit). Replaces
+// the former Installation.String() method.
+func InstallationString(i Installation) string { return string(i) }
+
+// InstallationIsZero reports whether the handle addresses no installation. Replaces
+// the former Installation.IsZero() method.
+func InstallationIsZero(i Installation) bool { return i == "" }
+
+// ---------------------------------------------------------------------------
+// RepoRef behaviour (free functions over the generated named scalar).
+// ---------------------------------------------------------------------------
+
+// RepoRefString returns the canonical printable form. Replaces the former
+// RepoRef.String() method.
+func RepoRefString(r RepoRef) string { return string(r) }
+
+// RepoRefEqual reports value equality of two repo refs. Replaces the former
+// RepoRef.Equal() method.
+func RepoRefEqual(a, b RepoRef) bool { return a == b }
+
+// RepoRefIsZero reports whether the ref addresses no repo. Replaces the former
+// RepoRef.IsZero() method.
+func RepoRefIsZero(r RepoRef) bool { return r == "" }
+
+// RepoRefFromString reconstructs a RepoRef from the exact RepoRefString form a
+// prior AdoptProjectRepo returned (a Manager re-materialising a persisted handle).
+// Pure value reconstruction; a malformed ref is rejected by the verb that consumes
+// it. (Replaces the former RepoRefFromString constructor — same name, now a thin
+// cast over the named scalar.)
+func RepoRefFromString(s string) RepoRef { return RepoRef(s) }
+
+// RepoRefOwnerRepo decodes the RepoRef into its provider owner + repo coordinates —
+// the ONLY public accessor of the otherwise-opaque owner/repo encoding. It exists
+// so a caller that must address the repo on a DIFFERENT infrastructure port than
+// this RA (the per-project-design-dispatch: the constructionPipelineAccess seam
+// dispatches the agentic DESIGN job to the per-project repo) can resolve the
+// owner/repo WITHOUT re-implementing this RA's private RepoRef encoding. A malformed
+// ref is a ContractMisuse the caller surfaces. This is the single seam where
+// owner/repo leaves the RA, deliberately scoped to the cross-port dispatch target.
+// (Replaces the former RepoRef.OwnerRepo() method.)
+func RepoRefOwnerRepo(r RepoRef) (owner, repo string, err error) {
+	_, fullName, serr := splitRepoRef(r)
+	if serr != nil {
+		return "", "", serr
+	}
+	o, n, ok := strings.Cut(fullName, "/")
+	if !ok || o == "" || n == "" {
+		return "", "", fwra.New(fwra.ContractMisuse, "sourcecontrol: RepoRef full name is not owner/repo")
+	}
+	return o, n, nil
+}
+
+// ---------------------------------------------------------------------------
+// RepoCredential behaviour (free function over the generated struct).
+// ---------------------------------------------------------------------------
+
+// (RepoCredentialIsZero lives in sourcecontrol.go next to the type.)
+
+// ---------------------------------------------------------------------------
+// CommitRef behaviour (free functions over the generated named scalar).
+// ---------------------------------------------------------------------------
+
+// CommitRefString returns the canonical printable form. Replaces the former
+// CommitRef.String() method.
+func CommitRefString(c CommitRef) string { return string(c) }
+
+// CommitRefIsZero reports whether the ref addresses no commit. Replaces the former
+// CommitRef.IsZero() method.
+func CommitRefIsZero(c CommitRef) bool { return c == "" }
+
+// ---------------------------------------------------------------------------
+// BranchRef behaviour (free functions over the generated named scalar).
+// ---------------------------------------------------------------------------
+
+// BranchRefString returns the canonical printable form. Replaces the former
+// BranchRef.String() method.
+func BranchRefString(b BranchRef) string { return string(b) }
+
+// BranchRefIsZero reports whether the ref addresses no branch. Replaces the former
+// BranchRef.IsZero() method.
+func BranchRefIsZero(b BranchRef) bool { return b == "" }
+
+// ---------------------------------------------------------------------------
+// PullRequestRef behaviour (free functions over the generated named scalar).
+// ---------------------------------------------------------------------------
+
+// PullRequestRefString returns the canonical printable form. Replaces the former
+// PullRequestRef.String() method.
+func PullRequestRefString(p PullRequestRef) string { return string(p) }
+
+// PullRequestRefEqual reports value equality of two PR refs. Replaces the former
+// PullRequestRef.Equal() method.
+func PullRequestRefEqual(a, b PullRequestRef) bool { return a == b }
+
+// PullRequestRefIsZero reports whether the ref addresses no PR. Replaces the former
+// PullRequestRef.IsZero() method.
+func PullRequestRefIsZero(p PullRequestRef) bool { return p == "" }
+
+// PullRequestRefFromString reconstructs a PullRequestRef from a persisted
+// PullRequestRefString form (a Manager re-materialising a handle across an Activity
+// boundary). (Replaces the former constructor — same name, now a thin cast.)
+func PullRequestRefFromString(s string) PullRequestRef { return PullRequestRef(s) }
+
+// ---------------------------------------------------------------------------
+// CheckState behaviour (free function over the generated enum).
+// ---------------------------------------------------------------------------
+
+var checkStateNames = map[CheckState]string{
+	CheckPending: "Pending", CheckSuccess: "Success", CheckFailure: "Failure",
+}
+
+// CheckStateString returns the stable name (logs, audit). Replaces the former
+// CheckState.String() method (the generated contract type carries no methods).
+func CheckStateString(s CheckState) string {
+	if n, ok := checkStateNames[s]; ok {
+		return n
+	}
+	return "Pending"
+}
+
+// ---- from sourcecontrol.go ----
+// Package sourcecontrol is the sourceControlAccess component of the aiarch
+// server's ResourceAccess layer — the PROVIDER-OPAQUE port over the
+// GitHub-App-lifecycle volatility (contract #1, ISourceControlLifecycle) and the
+// PR-merge-rail face of GitTarget (contract #2, IPullRequestRail). It is the only
+// component permitted to perform GitHub-App-lifecycle operations and the
+// branch→PR→gate→merge rail (architecture.dsl: the sole sourceControlAccess ->
+// github edge).
+//
+// THE LOAD-BEARING LAYER RULES (sourceControlAccess.md §1/§5,
+// sourceControlAccess-pullrequestrail.md §1/§5; [[the-method-layers]]):
+//
+//   - PROVIDER OPACITY. The public surface carries ZERO GitHub wire/data lexemes
+//     (installation_token, ghs_…, installation id, App JWT, owner/repo,
+//     workflow_dispatch, /pulls, /merge, required_status_checks). The opaque
+//     value types (AccountRef, RepoAdoptionSpec, ManagedFile,
+//     Installation, RepoRef, RepoCredential, CommitRef,
+//     BranchName/Ref, PullRequestSpec/Ref/Status, MergeResult, ReviewSubmission)
+//     wrap the vendor ids; callers never parse them. ALL GitHub vocabulary lives
+//     inside the framework-go-infrastructure-github satellite and this package's
+//     github.go translation/error-mapping — never on the port.
+//
+//   - NO RA→RA CALL. getInstallationToken RETURNS a short-lived RepoCredential;
+//     it is never stored across seams nor handed to another RA. The calling
+//     Manager threads it into the IPullRequestRail verbs (and the GitTarget
+//     seams) as a caller-supplied `cred` parameter, exactly as it threads
+//     idempotencyKey. This component imports and calls no other ResourceAccess.
+//
+//   - NO TEMPORAL. Every method is plain Go; the calling Manager wraps each call
+//     in a Temporal Activity it owns and chooses retry/timeout there. Errors carry
+//     an accurate fwra.Retryable flag (seeded from kind); the component never
+//     reads Temporal context.
+//
+//   - IDEMPOTENCY via deterministic names / desired-state: re-installing,
+//     re-provisioning, re-opening a branch/PR, re-merging, and re-applying branch
+//     protection are no-op successes. The optional caller-supplied
+//     fwra.IdempotencyKey is carried for traceability only.
+//
+// The concrete GitHub-App-backed implementation (the UNEXPORTED access impl, built by
+// the generated NewGitHubSourceControlAccess constructor) lives in github.go; the
+// vendor REST/JWT wire code lives in the framework-go-infrastructure-github
+// satellite behind the githubClient seam — the ONLY place this RA speaks GitHub.
+
+// SourceControlAccess is the component's ResourceAccess port — the Go-surface
+// name the layer convention requires (a *Access-suffixed exported interface,
+// every method error-returning). It is the SINGLE merged port (founder decision
+// 2026-06-25): the two former contract faces — ISourceControlLifecycle (lifecycle
+// establishment) and IPullRequestRail (the git-forward branch→PR→gate→merge rail)
+// — are now ONE flat interface listing all ten ops. The merge keeps a single
+// composition-root port + the arch-layer naming rule, and gives the codegen a
+// concrete method set to reflect (the schema-first pipeline regenerates the flat
+// interface into contract.gen.go).
+//
+// Contract #1 — lifecycle (sourceControlAccess.md, FROZEN), FOUR atomic verbs:
+//   - InstallAuthorizeApp — discover/confirm aiarch's standing authorization on
+//     an account; NotFound (the contract's "NotInstalled") if the user has not
+//     installed the App. Idempotent on account.
+//   - AdoptProjectRepo — verify the user's EXISTING repo is reachable under the
+//     App installation, then tag it (aiarch-project topic + project-title
+//     description) and return its RepoRef. PERMISSIVE-RESUME (founder ruling
+//     2026-06-16): SUCCEEDS regardless of repo content; the ONLY error is
+//     NotUnderInstallation (the App must be installed). Idempotent on the repo name.
+//   - GetInstallationToken — mint (or serve an in-seam-cached, still-valid) short
+//     lived RepoCredential the OTHER GitHub-fronting seams authenticate with.
+//     Returned-not-recorded; mint-on-demand.
+//   - CommitManagedFiles — seat the aiarch-MANAGED project scaffold (the
+//     claude-code-action DESIGN workflow under .github/workflows/ PLUS the go-test
+//     gate scaffold: go.mod + the aiarch_method_test.go that runs methodcheck.Check +
+//     the internal/.gitkeep that keeps that gate's ./internal/... load pattern from
+//     hard-erroring on a fresh repo) in ONE birth seat. Each file's path must be on
+//     the managed-file ALLOWLIST; each file is overwrite-if-changed (byte-identical
+//     → no-op).
+//
+// Contract #2 — PR rail (sourceControlAccess-pullrequestrail.md, FROZEN), SIX
+// verbs: OpenBranch / OpenPullRequest / GetPullRequestStatus / PostReview /
+// MergePullRequest / ConfigureBranchProtection. Every provider-touching verb
+// takes a Manager-threaded RepoCredential (§1.1). The merge AUTHORITY (when to
+// merge) is interventionEngine; this seam only PERFORMS the merge and ENFORCES
+// the rail.
+//
+// Every method takes the ResourceAccess call Context (fwra.Context) as its first
+// param — the established RA seam (worker/artifact/constructionpipeline/
+// durableexecution): it embeds context.Context and carries the caller's
+// SecurityPrincipal + IdempotencyKey. The generator prepends it; the schema
+// captures only the data params. The interface is generated into contract.gen.go
+// from this component's `.serviceContracts` entry in .aiarch/state/project.json —
+// DO NOT hand-edit the generated copy.
+
+// ---------------------------------------------------------------------------
+// §3 Data contracts (contract #1 §3) — provider-opaque value types.
+// ---------------------------------------------------------------------------
+
+// ProjectID is the logical project a repo serves. Provider-opaque string identity;
+// the package never parses it. It is the idempotency anchor for the deterministic
+// repo name.
+
+// AccountRef is the provider-neutral identity of the user's source-control
+// account/org. Provider-opaque: it maps to a GitHub org login / installation
+// INSIDE this seam; the caller never names an installation id.
+
+// RepoAdoptionSpec is the provider-NEUTRAL description of the user's EXISTING repo
+// to ADOPT (2026-06-15; REPLACES RepoSpec). RepoName is the USER-SUPPLIED identity
+// (name-as-identity: project name == repo name); Title is the human display name
+// applied as the repo description on adopt. NO owner/repo/visibility/default-branch
+// lexeme is a contract field.
+
+// RepoName is the user-supplied repo name == the project identity (the adopt
+// idempotency anchor). The repo MUST already exist; AdoptProjectRepo never creates it.
+
+// Account is the account the repo lives under (the App installation's org).
+
+// Title is the human project title, applied as the repo description on adopt.
+
+// Hints are optional provider-opaque hints; opaque at the boundary.
+
+// ManagedFile is the provider-NEUTRAL description of one aiarch-MANAGED project file
+// to seat at birth (CommitManagedFiles). Path MUST be on the managed-file allowlist
+// (under .github/workflows/, OR a known scaffold root — go.mod / the method test
+// file / internal/.gitkeep); any other path is a ContractMisuse (this verb seats ONLY
+// aiarch-managed files, never arbitrary content). 2026-06-16 generalization of
+// WorkflowFile: the single-file workflow seat became a fileset so the agentic workflow
+// + the go-test gate scaffold (go.mod + aiarch_method_test.go + internal/.gitkeep) land
+// together at project birth.
+
+// Path is the repo-relative path. Must satisfy the managed-file allowlist
+// (e.g. ".github/workflows/aiarch-design.yml", "go.mod", "aiarch_method_test.go",
+// "internal/.gitkeep").
+
+// Content is the exact file bytes to land on the default branch.
+
+// ManagedCommitMessage is the commit message CommitManagedFiles uses when it seats
+// the managed-file bundle at project birth. (The per-file Message of the old
+// WorkflowFile is gone — one bundle, one message.)
+const ManagedCommitMessage = "chore(aiarch): seat aiarch-managed project scaffold (design workflow + go-test gate)"
+
+// Installation is an opaque handle confirming aiarch holds a standing
+// authorization on an account. Provider-opaque (today: a GitHub installation id,
+// never surfaced as such).
+//
+// It is a NAMED SCALAR (the established opaque-handle sub-pattern, same as
+// durableexecution's ExecutionHandle / constructionpipeline's PipelineHandle): the
+// codegen represents it cleanly as a $def named scalar, and its behaviour lives in
+// behavior.go as free functions (InstallationString / InstallationIsZero). The
+// opaque installation id the impl packs IS the string value.
+
+// RepoRef is an opaque, provider-neutral handle to one provisioned per-project
+// repo — the value the Manager threads to the GitTarget seams' verbs.
+// Provider-opaque (today: "account|owner/repo", never parsed by callers).
+//
+// NAMED SCALAR (opaque-handle sub-pattern): its behaviour (RepoRefString /
+// RepoRefEqual / RepoRefIsZero / RepoRefFromString / RepoRefOwnerRepo) lives in
+// behavior.go as free functions.
+
+// RepoCredential is an opaque, SHORT-LIVED bearer credential authorizing
+// content/CI/manifest operations on a RepoRef. Provider-NEUTRAL: carries NO ghs_…
+// prefix, NO installation id, NO App JWT. The Manager threads .Bytes into the
+// consuming seams as a caller-supplied parameter (§1.1) and re-mints before
+// ExpiresAt. Returned, never recorded.
+
+// Bytes is the opaque bearer secret; the consuming seam presents it, never
+// parses it. Treated as write-only at every consumer (never logged/persisted).
+
+// ExpiresAt is when the Manager re-mints (calls GetInstallationToken again).
+
+// RepoCredentialIsZero reports whether the credential is empty. (Replaces the
+// former RepoCredential.IsZero() method — the generated struct carries no methods.)
+func RepoCredentialIsZero(c RepoCredential) bool { return len(c.Bytes) == 0 }
+
+// CommitRef is an opaque, provider-neutral handle to the commit CommitManagedFiles
+// produced (2026-06-15; generalized 2026-06-16). Provider-opaque (today: a commit
+// sha, never parsed by callers). The Manager may carry it for traceability / to
+// assert the managed scaffold landed. When the bundle is seated by sequential
+// per-file commits, this is the LAST file's resulting commit ref.
+//
+// NAMED SCALAR (opaque-handle sub-pattern): its behaviour (CommitRefString /
+// CommitRefIsZero) lives in behavior.go as free functions.
+
+// ---------------------------------------------------------------------------
+// §3 Data contracts (contract #2 §3) — PR-rail value types.
+// ---------------------------------------------------------------------------
+
+// BranchName is the provider-neutral name of a working branch (Manager-derived,
+// per-activity). Provider-opaque: maps to a git ref name INSIDE the seam.
+
+// PullRequestSpec is the provider-NEUTRAL description of a proposal. Base is
+// `main` in the flat git-forward model. Labels (e.g. a cr-NN change-request
+// group) ride in Hints — not first-class fields.
+
+// ReviewVerdict is the provider-neutral review verdict the App relays.
+
+// ReviewApprove is the "architecture +1".
+
+// ReviewRequestChanges requests changes.
+
+// ReviewComment is a non-deciding comment.
+
+// ReviewSubmission is the provider-neutral review the App relays.
+
+// BranchRef is an opaque, provider-neutral handle to a cut branch.
+//
+// NAMED SCALAR (opaque-handle sub-pattern): its behaviour (BranchRefString /
+// BranchRefIsZero) lives in behavior.go as free functions.
+
+// PullRequestRef is an opaque, provider-neutral handle to one open proposal — the
+// value the Manager carries across GetPullRequestStatus / PostReview /
+// MergePullRequest. Provider-opaque (today: a PR number, never parsed by callers).
+//
+// NAMED SCALAR (opaque-handle sub-pattern): its behaviour (PullRequestRefString /
+// PullRequestRefEqual / PullRequestRefIsZero / PullRequestRefFromString) lives in
+// behavior.go as free functions.
+
+// MergeResult is an opaque, provider-neutral handle to a completed merge: the
+// resulting main commit ref + a merged flag.
+
+// Commit is the opaque resulting main-tip ref; presented, never parsed.
+
+// Merged is true on success / already-merged.
+
+// CheckState is the provider-neutral CI rollup the merge gate reads.
+
+// CheckPending — at least one check still running, none failed.
+
+// CheckSuccess — all checks concluded successfully (or none present).
+
+// CheckFailure — at least one check failed.
+
+// PullRequestStatus is the typed-but-provider-opaque reflection of CI + approvals
+// the merge gate reads. It is a REFLECTION the Manager feeds interventionEngine —
+// NOT the gate.
+
+// Error is the shared ResourceAccess error model (framework-go), re-exported as an
+// alias so this component reads in its own terms while every RA shares one fixed
+// enum. The contract's logical error vocabulary maps onto the shared kinds:
+//
+//   - Transient      → fwra.Transient        (retryable: github 5xx / network blip / rate-limit)
+//   - Auth           → fwra.Auth             (terminal: App JWT rejected / installation revoked /
+//     insufficient permission — incl. missing contents:write)
+//   - NotFound       → fwra.NotFound         (terminal: app not installed / repo not under the installation
+//     ["NotUnderInstallation"] / unknown repo|branch|PR)
+//   - Conflict       → fwra.Conflict         (the merge rail's not-mergeable; the ONE retryable Conflict is
+//     commitManagedFiles' concurrent-write race, Retryable overridden true.
+//     adoptProjectRepo NO LONGER returns Conflict — the 2026-06-16 permissive-resume
+//     ruling removed the strict-empty RepoNotEmpty hard-fail.)
+//   - ContractMisuse → fwra.ContractMisuse   (terminal: empty AccountRef/RepoName/RepoRef / empty fileset /
+//     a managed-file path off the allowlist (.github/workflows/ or a scaffold root) / zero cred / bad input)
+//
+// 2026-06-16 (permissive-resume): AdoptProjectRepo maps ONLY "repo not reachable
+// under the installation" to NotFound (surfaced as "NotUnderInstallation", terminal).
+// The strict-empty RepoNotEmpty/Conflict mapping is GONE — adopt succeeds regardless
+// of content; an existing .aiarch/state is RESUMED by projectStateAccess.createProject.
+// (The old AlreadyExists-on-provisionProjectRepo → success mapping was already gone
+// with the provision→adopt swap.) AlreadyMerged (mergePullRequest) and the PR-rail
+// already-exists (openBranch / openPullRequest) are still mapped to SUCCESS inside
+// the seam (framework-go has no AlreadyExists kind — the idempotent-success path
+// returns the existing handle).
+type Error = fwra.Error
+
+// ---- from variant.go ----
+
+// variant.go holds the deployment VARIANT CONSTRUCTOR for sourceControlAccess —
+// the composition-root policy that used to live in cmd/server (buildSourceControl)
+// folded into the owning package. The shared *fwgithub.AppClient satellite stays
+// OUTSIDE (built once at the composition root and shared with
+// constructionPipeline / artifactAccess); the variant takes it in.
+//
+// NewGitHubSourceControl returns BOTH published surfaces the composition root wires:
+//   - SourceControlCatalogAccess: the catalog/locator/token surface the projectStateAccess
+//     git cred minter + catalog (CLOUD profile) consume;
+//   - SourceControlAccess: the generated interface the design Managers' adapters + the
+//     PR-rail consume.
+//
+// The unexported impl satisfies both, so the catalog surface is a type-assertion of the
+// generated interface — folded here so the assertion is no longer a caller concern.
+
+// NewGitHubSourceControl builds the GitHub-App-backed sourceControlAccess over the shared
+// *fwgithub.AppClient and returns both published surfaces (catalog + generated interface).
+func NewGitHubSourceControl(client *fwgithub.AppClient, account, appSlug string, repoPrivate bool) (SourceControlCatalogAccess, SourceControlAccess, error) {
+	scAccess, err := NewGitHubSourceControlAccess(client, account, appSlug, repoPrivate)
+	if err != nil {
+		return nil, nil, err
+	}
+	scConcrete := scAccess.(SourceControlCatalogAccess)
+	return scConcrete, scAccess, nil
+}
