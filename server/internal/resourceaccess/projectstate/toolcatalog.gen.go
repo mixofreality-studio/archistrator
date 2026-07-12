@@ -403,7 +403,7 @@ func internalToolCatalog() []InternalTool {
 			ReadOnly:     false,
 			AgentHidden:  false,
 			Description:  "StageArtifactForReviewOnBranch on the designSessionAccess ResourceAccess contract (state-changing). Raw generated internal tool.",
-			InputSchema:  json.RawMessage("{\"$defs\":{\"ProjectID\":{\"type\":\"string\"},\"Version\":{\"type\":\"integer\"}},\"additionalProperties\":false,\"properties\":{\"branch\":{\"type\":\"string\"},\"expectedVersion\":{\"$ref\":\"#/$defs/Version\"},\"idempotencyKey\":{\"x-go-type\":\"fwra.IdempotencyKey\"},\"model\":{\"x-go-type\":\"ArtifactModel\"},\"projectID\":{\"$ref\":\"#/$defs/ProjectID\"}},\"required\":[\"projectID\",\"expectedVersion\",\"branch\",\"model\",\"idempotencyKey\"],\"type\":\"object\"}"),
+			InputSchema:  json.RawMessage("{\"$defs\":{\"ProjectID\":{\"type\":\"string\"},\"Version\":{\"type\":\"integer\"}},\"additionalProperties\":false,\"properties\":{\"branch\":{\"type\":\"string\"},\"expectedVersion\":{\"$ref\":\"#/$defs/Version\"},\"idempotencyKey\":{\"x-go-type\":\"fwra.IdempotencyKey\"},\"model\":{\"x-go-type\":\"ModelEnvelope\"},\"projectID\":{\"$ref\":\"#/$defs/ProjectID\"}},\"required\":[\"projectID\",\"expectedVersion\",\"branch\",\"model\",\"idempotencyKey\"],\"type\":\"object\"}"),
 			OutputSchema: json.RawMessage("{\"$defs\":{\"Version\":{\"type\":\"integer\"}},\"$ref\":\"#/$defs/Version\"}"),
 		},
 		{
