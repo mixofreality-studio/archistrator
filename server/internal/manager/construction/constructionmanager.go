@@ -54,16 +54,13 @@ type constructionManager struct {
 	escalationWaitTimeout  time.Duration
 	interventionMode       string
 
-	// designSession (B6) is the generated designSessionAccess dep — threaded so the
-	// generated invoker surface exists (invokers.gen.go/activities.gen.go), but it is
-	// NOT consumed by any workflow here (B8 finding): the generated
-	// designSessionAccess.readProjectOnBranch invoker returns projectstate.ProjectEnvelope,
-	// a structurally NARROWER wire type than construction's own projectEnvelope
-	// (codec.go) — it carries no ActivityConstruction/ServiceContracts/ReviewPolicy,
-	// which the pump's eligibility selection reads on every tick. B8 migrated every
-	// OTHER custom Activity onto the generated invoker surface but kept
-	// ReadProjectActivity (activities_custom.go) custom rather than force this lossy
-	// migration; see the task-B8 report for the full analysis.
+	// designSession (B6) is the generated designSessionAccess dep. Since the B8
+	// follow-up it is CONSUMED by the workflows: the pump's whole-aggregate read rides
+	// the generated designSessionAccess.readProjectOnBranch invoker with branch ""
+	// (main) — the shared projectstate.ProjectEnvelope was extended with the
+	// construction-fidelity sections (ActivityConstruction / ServiceContracts /
+	// ReviewPolicy, envelope.go) that construction's former local codec carried, which
+	// is what retired the last custom Activity (ReadProjectActivity).
 	designSession projectstate.DesignSessionAccess
 }
 

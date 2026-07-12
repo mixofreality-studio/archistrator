@@ -1,71 +1,42 @@
 package construction
 
 import (
-	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/handoff"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
-// deps.go declares the Manager's INTERNAL downstream RA seams (unexported) plus the
-// hand-written domain VALUE types the Manager's workflow vocabulary uses. Per the
-// founder DI model (2026-06-28) the constructionManager's GENERATED constructor
-// (contract.gen.go: NewConstructionManager) takes the dependencies' PUBLISHED
-// interfaces directly. The three Engines (handOff / intervention / review) are now
-// typed as their PUBLISHED contract interfaces DIRECTLY on wfDeps/workflows
-// (workflow.go) — no Manager-local seam interface, no adapter (Task 6).
+// deps.go declares the hand-written domain VALUE types the Manager's workflow
+// vocabulary uses. Per the founder DI model (2026-06-28) the constructionManager's
+// GENERATED constructor (contract.gen.go: NewConstructionManager) takes the
+// dependencies' PUBLISHED interfaces directly. The three Engines (handOff /
+// intervention / review) are typed as their PUBLISHED contract interfaces DIRECTLY on
+// wfDeps/workflows (workflow.go) — no Manager-local seam interface, no adapter (Task 6).
 //
-// B8 (custom activities → generated, clean cut): the constructionTransitionAccess (10
-// ops) and gitActivityStatusAccess (6 ops) seams that used to live here are GONE — every
-// write verb is now reached through the GENERATED invoker surface
-// (invokers.gen.go: genInvokers.ConstructionTransition* / genInvokers.GitStatus*),
-// backed by the manager's own projectstate.ConstructionTransitionAccess /
-// projectstate.GitActivityStatusAccess deps threaded via genActivities
-// (workermanifest.go). wfDeps/workflows no longer carry a ConstructionTransition field
-// at all (nothing reads it anymore); GitStatus survives as a plain
-// projectstate.GitActivityStatusAccess-typed field — its ONLY remaining role is the
-// nil-check "is the per-activity git head-state mirror wired" feature flag
-// (gitforward.go's gitEnabled/startedCred), never a direct method call.
+// B8 (custom activities → generated, clean cut) + its follow-up removed EVERY
+// Manager-local RA seam that used to live here:
+//   - constructionTransitionAccess (10 ops) and gitActivityStatusAccess (6 ops): every
+//     write verb is reached through the GENERATED invoker surface (invokers.gen.go:
+//     genInvokers.ConstructionTransition* / genInvokers.GitStatus*). wfDeps/workflows
+//     carry no ConstructionTransition field; GitStatus survives as a plain
+//     projectstate.GitActivityStatusAccess-typed field whose ONLY remaining role is
+//     the nil-check "is the per-activity git head-state mirror wired" feature flag
+//     (gitforward.go's gitEnabled/startedCred), never a direct method call.
+//   - projectStateReader (the whole-aggregate read seam behind the last custom
+//     Activity, ReadProjectActivity): GONE in the B8 follow-up. The shared
+//     projectstate.ProjectEnvelope (envelope.go) was extended with the three
+//     construction-fidelity sections the pump reads (ActivityConstruction /
+//     ServiceContracts / ReviewPolicy), so the read now rides the GENERATED
+//     designSessionAccess.readProjectOnBranch invoker with branch "" (main) and the
+//     Manager's former local codec (codec.go) + activities_custom.go are deleted.
+//     Construction now has NO custom Temporal Activities at all.
 //
-// ONE seam survives as a genuinely CUSTOM Activity: ReadProjectActivity
-// (activities_custom.go). The generated designSessionAccess.readProjectOnBranch invoker
-// (construction would call it with branch="" to read main) returns
-// projectstate.ProjectEnvelope — a STRUCTURALLY NARROWER wire type than construction's
-// own projectEnvelope (codec.go): ProjectEnvelope's Slots map carries Network/
-// ActivityList (via the shared slotTable) but has NO field for ActivityConstruction /
-// ServiceContracts / ReviewPolicy, which are top-level projectstate.Project fields
-// outside slotTable() (see envelope.go's own doc comment, which flags construction's
-// codec as "structurally different ... stays local"). The pump's eligibility selection
-// (eligibility.go: nextEligibleActivity) reads ActivityConstruction/ServiceContracts on
-// every tick — decoding through ProjectEnvelope would silently and permanently lose
-// them, which is a correctness regression (every activity looks NotStarted forever), not
-// a naming change. B8 therefore keeps ReadProjectActivity custom rather than forcing this
-// migration; see the task-B8 report for the full analysis.
-//
-// How each seam is reached differs by determinism class:
+// How each dependency kind is reached differs by determinism class:
 //   - the three Engines (handoff.HandOffEngine / intervention.InterventionEngine /
 //     review.ReviewEngine) are PURE, deterministic, called DIRECTLY in-workflow (no
 //     Activity wrapper — replay-safe) with fweng.Context{Context: context.Background()}
 //     supplied inline at each call site (workflow.go / signals.go);
-//   - the ResourceAccess ports are I/O: the contract-backed ops (projectState /
-//     constructionTransition / gitActivityStatus / pipeline / artifacts / rail) are
-//     GENERATED and reached through the generated invoker surface (Acts); the ONE
-//     structurally-blocked whole-aggregate read (ReadProjectActivity) is a hand-written
-//     Activity (activities_custom.go).
-
-// ===========================================================================
-// projectState read seam — the ONE whole-aggregate read verb the Manager needs.
-// rc-based: the published projectstate.ProjectStateAccess satisfies it directly
-// (interface narrowing); the Manager builds the rc Context inside the read Activity.
-//
-// Narrowed to ReadProject only (B8): ReadProjectVersion moved onto the GENERATED
-// invoker (genInvokers.ProjectStateReadProjectVersion) — a plain Version crosses the
-// Temporal boundary cleanly (no sealed-interface concern), so nothing custom is needed
-// for it. ReadProject stays here and stays custom — see the package doc above for why.
-// ===========================================================================
-
-type projectStateReader interface {
-	ReadProject(rc fwra.Context, projectID projectstate.ProjectID) (projectstate.Project, error)
-}
+//   - the ResourceAccess ports are I/O and reached EXCLUSIVELY through the generated
+//     invoker surface (Acts — invokers.gen.go/activities.gen.go).
 
 // ===========================================================================
 // handOffEngine — RETIRED (Task 6). The workflow calls the published

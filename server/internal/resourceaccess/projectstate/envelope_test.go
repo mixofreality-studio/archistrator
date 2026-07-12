@@ -224,3 +224,127 @@ func TestProjectEnvelope_ResearchOptIn(t *testing.T) {
 		t.Fatalf("Research sources must survive the round trip, got %+v", back.Research.Sources)
 	}
 }
+
+// TestProjectEnvelope_NoConstructionState_OmitsConstructionKeys pins the B8
+// wire-compat contract: a project with NO construction state (the pd/sd shape —
+// populated design slots, nil ActivityConstruction/ServiceContracts, zero
+// ReviewPolicy) serializes WITHOUT any of the three construction-fidelity keys, so
+// the projectdesign/systemdesign payload bytes are unchanged by the envelope
+// extension (same style as the no-research pin above).
+func TestProjectEnvelope_NoConstructionState_OmitsConstructionKeys(t *testing.T) {
+	p := Project{
+		ID:      "proj-1",
+		Version: 5,
+		Phase:   1,
+		Mission: ArtifactSlot{Status: ReviewCommitted, Model: &MissionStatement{Vision: "v"}},
+	}
+	env, err := EncodeProject(p)
+	if err != nil {
+		t.Fatalf("EncodeProject: %v", err)
+	}
+	raw, err := json.Marshal(env)
+	if err != nil {
+		t.Fatalf("marshal envelope: %v", err)
+	}
+	for _, key := range []string{"activityConstruction", "serviceContracts", "reviewPolicy"} {
+		if strings.Contains(string(raw), key) {
+			t.Fatalf("a construction-untouched project must not carry the %q key at all, got: %s", key, raw)
+		}
+	}
+}
+
+// TestProjectEnvelope_ConstructionSections_RoundTrip pins the B8 mid-construction
+// round trip: the three construction-fidelity sections plus the committed
+// Network/ActivityList slots the pump's eligibility selection reads survive
+// EncodeProject → JSON → Decode field-for-field. The assertions port construction's
+// former local codec semantics (codec.go, deleted): committed-slot restore for
+// Network/ActivityList (now via the Slots map's own status-faithful round-trip) and
+// the verbatim carry of ActivityConstruction/ServiceContracts/ReviewPolicy.
+func TestProjectEnvelope_ConstructionSections_RoundTrip(t *testing.T) {
+	p := Project{
+		ID:      "proj-1",
+		Version: 9,
+		Phase:   2,
+		Network: ArtifactSlot{Status: ReviewCommitted, Model: &Network{
+			Dependencies: []NetworkDependency{{Activity: "C-B", DependsOn: []string{"C-A"}}},
+		}},
+		ActivityList: ArtifactSlot{Status: ReviewCommitted, Model: &ActivityList{
+			Activities: []ActivityItem{{Name: "C-A", Coding: true, EffortDays: 5}, {Name: "C-B", Coding: true, EffortDays: 5}},
+		}},
+		ActivityConstruction: map[string]ActivityConstructionStatus{
+			"C-A": {
+				ActivityID:   "C-A",
+				Phase:        ActivityConstructionRunning,
+				CurrentPhase: MethodPhaseDetailedDesign,
+				Phases: []PhaseCompletion{
+					{Phase: MethodPhaseRequirements, Weight: 1, Completed: true},
+					{Phase: MethodPhaseDetailedDesign, Weight: 1},
+				},
+			},
+		},
+		ServiceContracts: map[string]ServiceContract{
+			"ordersManager": {Component: "ordersManager", Layer: "Manager"},
+		},
+		ReviewPolicy: ReviewPolicy{GatedPhasesByType: map[string][]ActivityMethodPhase{
+			"service": {MethodPhaseDetailedDesign},
+		}},
+	}
+
+	env, err := EncodeProject(p)
+	if err != nil {
+		t.Fatalf("EncodeProject: %v", err)
+	}
+	raw, err := json.Marshal(env)
+	if err != nil {
+		t.Fatalf("marshal envelope: %v", err)
+	}
+	var wire ProjectEnvelope
+	if err := json.Unmarshal(raw, &wire); err != nil {
+		t.Fatalf("unmarshal envelope: %v", err)
+	}
+	back, err := wire.Decode()
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+
+	// ActivityConstruction — field-for-field.
+	acs, ok := back.ActivityConstruction["C-A"]
+	if !ok {
+		t.Fatalf("ActivityConstruction[C-A] must survive the round trip, got %+v", back.ActivityConstruction)
+	}
+	if acs.Phase != ActivityConstructionRunning || acs.CurrentPhase != MethodPhaseDetailedDesign {
+		t.Fatalf("ActivityConstruction lifecycle fields must survive, got %+v", acs)
+	}
+	if len(acs.Phases) != 2 || !acs.Phases[0].Completed || acs.Phases[1].Completed {
+		t.Fatalf("per-phase completion facts must survive verbatim, got %+v", acs.Phases)
+	}
+
+	// ServiceContracts — the pump's hydrate/resolve input.
+	sc, ok := back.ServiceContracts["ordersManager"]
+	if !ok || sc.Component != "ordersManager" || sc.Layer != "Manager" {
+		t.Fatalf("ServiceContracts must survive the round trip, got %+v", back.ServiceContracts)
+	}
+
+	// ReviewPolicy — the phase gate's snapshot source.
+	if !back.ReviewPolicy.RequiresHuman("service", MethodPhaseDetailedDesign) {
+		t.Fatalf("ReviewPolicy gating must survive the round trip, got %+v", back.ReviewPolicy)
+	}
+
+	// Committed Network/ActivityList slots — the former construction codec restored
+	// these as ReviewCommitted with concrete models; the Slots round-trip must do the
+	// same so nextEligibleActivity's committed-slot guards and type assertions pass.
+	if back.Network.Status != ReviewCommitted {
+		t.Fatalf("Network slot status must survive as ReviewCommitted, got %v", back.Network.Status)
+	}
+	network, ok := back.Network.Model.(*Network)
+	if !ok || len(network.Dependencies) != 1 || network.Dependencies[0].Activity != "C-B" {
+		t.Fatalf("Network model must survive concretely typed, got %+v", back.Network.Model)
+	}
+	if back.ActivityList.Status != ReviewCommitted {
+		t.Fatalf("ActivityList slot status must survive as ReviewCommitted, got %v", back.ActivityList.Status)
+	}
+	al, ok := back.ActivityList.Model.(*ActivityList)
+	if !ok || len(al.Activities) != 2 || al.Activities[0].Name != "C-A" {
+		t.Fatalf("ActivityList model must survive concretely typed, got %+v", back.ActivityList.Model)
+	}
+}

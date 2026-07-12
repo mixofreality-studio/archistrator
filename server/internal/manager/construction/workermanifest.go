@@ -7,21 +7,19 @@ package construction
 // genActivities dep threading. It also hosts the external RegisterManagerWorker
 // entrypoint the composition root calls (cmd/server/main.go).
 //
-// B8 (custom activities → generated, clean cut) migrated 13 of the former 14 CUSTOM
-// Activities (activities_custom.go / gitactivities.go) onto the GENERATED invoker
-// surface — their registration is now automatic via the generated RegisterWorker
-// (worker.gen.go), which registers every genActivities op unconditionally. ONE Activity
-// stays CUSTOM: ReadProjectActivity (see activities_custom.go for why). Since B6 dropped
-// the CustomActivities manifest surface, RegisterManagerWorker below registers it
-// explicitly — this is a REAL FIX, not cosmetic: before this task NONE of the 14 custom
-// Activities were registered in production (the old CustomActivities field this file
-// used to populate had already been deleted from genWorkerManifest by a prior regen
-// commit), so ReadProjectActivity (and every other custom Activity, until migrated) was
-// silently broken — any workflow.ExecuteActivity call reaching it would have failed with
-// "unable to find activity type" the first time a real worker tried to run it. The 13
-// migrated ops are fixed automatically (they ride the generated RegisterWorker); this
-// ONE explicit registration fixes the 14th (see the task-B8 report for the precedent —
-// billing's B7 rewire hit the identical systemic gap for its 3 revenue-ledger ops).
+// B8 (custom activities → generated, clean cut) + its follow-up migrated ALL of the
+// former 14 CUSTOM Activities (activities_custom.go / gitactivities.go, both since
+// deleted or reduced to value carriers) onto the GENERATED invoker surface — the last
+// one, the whole-aggregate ReadProjectActivity, once the shared
+// projectstate.ProjectEnvelope grew the construction-fidelity sections the pump reads
+// (envelope.go). Registration is now ENTIRELY automatic via the generated
+// RegisterWorker (worker.gen.go), which registers every genActivities op
+// unconditionally; construction has NO hand-registered Activities. This also closed a
+// real pre-existing defect: since B6 dropped the CustomActivities manifest surface,
+// NONE of the 14 custom Activities had been registered in production — any
+// workflow.ExecuteActivity call reaching one would have failed with "unable to find
+// activity type" on a real worker (the identical systemic gap billing's B7 rewire
+// found for its 3 revenue-ledger ops).
 //
 // The three Engines (handOff / intervention / review) are called DIRECTLY in-workflow
 // (deterministic, by value) and are NOT Activities; the durableExecutionAccess in-workflow
@@ -70,12 +68,10 @@ const (
 // contract-backed RA Activities. A name with no entry falls back to the generated
 // default (invokers.gen.go). Keyed by the generated registered activity name
 // (<componentKey>.<opName>); the concrete presets reproduce the pre-migration
-// per-call-site choices exactly, including the 13 head-state Record*/version-read
-// presets B8 moved here from the retired workflow.ExecuteActivity call sites (recordOpts
-// / readProjectOpts's VALUE forms — recordActivityOptions/readProjectActivityOptions,
-// workflow.go). The ONE remaining CUSTOM Activity (ReadProjectActivity) is NOT on this
-// surface — it applies its preset (readProjectOpts) at its workflow.ExecuteActivity call
-// site directly (workflow.go: readProject).
+// per-call-site choices exactly, including the 14 head-state Record*/read presets B8
+// (+ follow-up) moved here from the retired workflow.ExecuteActivity call sites
+// (recordOpts / readProjectOpts's VALUE forms — recordActivityOptions /
+// readProjectActivityOptions, workflow.go).
 func activityOptions() func(activityName string) (workflow.ActivityOptions, bool) {
 	presets := map[string]workflow.ActivityOptions{
 		"constructionPipelineAccess.submitConstructionPipeline":  submitPipelineActivityOptions(),
@@ -87,8 +83,11 @@ func activityOptions() func(activityName string) (workflow.ActivityOptions, bool
 		"sourceControlAccess.getPullRequestStatus":               railActivityOptions(),
 		"sourceControlAccess.postReview":                         railActivityOptions(),
 		"sourceControlAccess.mergePullRequest":                   railActivityOptions(),
-		// B8: re-keyed from the retired custom-Activity call sites onto their generated
-		// registered names, preserving the identical timeout/retry scope.
+		// B8 (+ follow-up): re-keyed from the retired custom-Activity call sites onto
+		// their generated registered names, preserving the identical timeout/retry scope.
+		// designSessionAccess.readProjectOnBranch is the whole-aggregate read the pump
+		// runs (branch "" ⇒ main) — the former ReadProjectActivity preset.
+		"designSessionAccess.readProjectOnBranch":            readProjectActivityOptions(),
 		"projectStateAccess.readProjectVersion":              readProjectActivityOptions(),
 		"constructionTransitionAccess.recordChangeReviewed":  recordActivityOptions(),
 		"constructionTransitionAccess.recordActivityExited":  recordActivityOptions(),
@@ -109,16 +108,15 @@ func activityOptions() func(activityName string) (workflow.ActivityOptions, bool
 	}
 }
 
-// newWorkflowsForWorker builds the workflows receiver from the manager's stored
-// published deps — shared by WorkerManifest() (the genWorkerManifest.Workflows entries)
-// and RegisterManagerWorker (the ONE surviving custom Activity registration below).
-func (m *constructionManager) newWorkflowsForWorker(optsHook func(activityName string) (workflow.ActivityOptions, bool)) *workflows {
-	engPolicy := constructionInterventionPolicy(m.interventionMode)
-	return newWorkflows(wfDeps{
+// WorkerManifest assembles the genWorkerManifest RegisterWorker (worker.gen.go) consumes:
+// the four workflow bodies under their registered names, the per-activity option-preset
+// hook, and the genActivities threaded from the impl's stored published deps.
+func (m *constructionManager) WorkerManifest() genWorkerManifest {
+	optsHook := activityOptions()
+	wf := newWorkflows(wfDeps{
 		HandOff:      m.handOff,
 		Intervention: m.intervention,
 		Review:       m.review,
-		ProjectState: m.projectState,
 		// GitStatus's ONLY remaining role is the "is the mirror wired" nil-check feature
 		// flag (gitforward.go) — its writes are reached through Acts.GitStatus* (B8), so
 		// no type-assertion onto a local seam is needed; m.gitActivityStatus already
@@ -131,17 +129,9 @@ func (m *constructionManager) newWorkflowsForWorker(optsHook func(activityName s
 		RailEnabled:           m.rail != nil,
 		NextEligibleActivity:  nextEligibleActivity,
 		HandOffPolicy:         handoff.HandOffPolicy{},
-		InterventionPolicy:    engPolicy,
+		InterventionPolicy:    constructionInterventionPolicy(m.interventionMode),
 		EscalationWaitTimeout: m.escalationWaitTimeout,
 	})
-}
-
-// WorkerManifest assembles the genWorkerManifest RegisterWorker (worker.gen.go) consumes:
-// the four workflow bodies under their registered names, the per-activity option-preset
-// hook, and the genActivities threaded from the impl's stored published deps.
-func (m *constructionManager) WorkerManifest() genWorkerManifest {
-	optsHook := activityOptions()
-	wf := m.newWorkflowsForWorker(optsHook)
 
 	return genWorkerManifest{
 		Workflows: []genRegisteredWorkflow{
@@ -173,11 +163,5 @@ func RegisterManagerWorker(w worker.Worker, m ConstructionManager) {
 	if !ok {
 		panic("construction: RegisterManagerWorker requires a *constructionManager from NewConstructionManager")
 	}
-	mf := impl.WorkerManifest()
-	RegisterWorker(w, mf)
-	// ReadProjectActivity is the ONE surviving CUSTOM Activity (B8; activities_custom.go).
-	// The generated RegisterWorker above only knows genActivities' ops (worker.gen.go);
-	// the former CustomActivities manifest surface was dropped (B6), so this hand-written
-	// Activity must be registered explicitly here — see the package doc's "REAL FIX" note.
-	w.RegisterActivity(impl.newWorkflowsForWorker(mf.ActivityOptions).ReadProjectActivity)
+	RegisterWorker(w, impl.WorkerManifest())
 }

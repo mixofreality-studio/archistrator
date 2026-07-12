@@ -256,18 +256,13 @@ func (f *fakeProjectState) RecordPhaseArtifactProduced(_ fwra.Context, _ project
 	return f.bump(), nil
 }
 
-var _ projectStateReader = (*fakeProjectState)(nil)
 var _ projectstate.GitActivityStatusAccess = (*fakeProjectState)(nil)
 
 // fakeConstructionTransition widens fakeProjectState onto the FULL
 // projectstate.ConstructionTransitionAccess contract (B8): the nine write verbs are
 // inherited verbatim (byte-identical signatures); ReadProject gets the extra `cred`
-// parameter the Manager's local narrower projectStateReader seam never carried (deps.go
-// deliberately omits it — reads are served by that separate seam instead, since the
-// generated designSessionAccess.readProjectOnBranch invoker cannot carry
-// ActivityConstruction/ServiceContracts/ReviewPolicy — see the B8 report), so this
-// adapter widens the signature by ignoring cred and delegating to the fake's own 2-arg
-// ReadProject.
+// parameter the fake's own 2-arg ReadProject never carried, so this adapter widens the
+// signature by ignoring cred and delegating.
 type fakeConstructionTransition struct {
 	*fakeProjectState
 }
@@ -279,11 +274,14 @@ func (f fakeConstructionTransition) ReadProject(rc fwra.Context, projectID proje
 var _ projectstate.ConstructionTransitionAccess = fakeConstructionTransition{}
 
 // fakeFullProjectState widens fakeProjectState onto the FULL projectstate.ProjectStateAccess
-// contract so the test env can register the GENERATED ProjectStateReadProjectVersion
-// activity (B8: migrated off the custom ReadProjectVersionActivity). ReadProject/
-// ReadProjectVersion are inherited verbatim (byte-identical signatures); the remaining
-// nine ops are never exercised by these workflow tests (construction only reads through
-// this seam for the version token) — each is an inert stub, matching the stubRail
+// contract so the test env can (a) register the GENERATED ProjectStateReadProjectVersion
+// activity (B8: migrated off the custom ReadProjectVersionActivity) and (b) serve as the
+// BASE of the real projectstate.NewDesignSessionAccess wrapper backing the GENERATED
+// designSessionAccess.readProjectOnBranch activity (B8 follow-up: the pump's
+// whole-aggregate read; branch "" exercises the real empty-branch→base.ReadProject
+// fallback chain in production code, designsession.go). ReadProject/ReadProjectVersion
+// are inherited verbatim (byte-identical signatures); the remaining nine ops are never
+// exercised by these workflow tests — each is an inert stub, matching the stubRail
 // precedent (gitforward_test.go) for satisfying an unused portion of a wide contract.
 type fakeFullProjectState struct {
 	*fakeProjectState
@@ -506,14 +504,25 @@ func registerGenGitStatus(env *testsuite.TestWorkflowEnvironment, gs projectstat
 	env.RegisterActivityWithOptions(acts.GitStatusRecordActivityCompleted, activity.RegisterOptions{Name: "gitActivityStatusAccess.recordActivityCompleted"})
 }
 
-// registerConstruct registers the per-activity child workflow + its Activities: the
-// GENERATED pipeline/projectState-version/constructionTransition/gitStatus surfaces (via
-// the fakes) + the ONE surviving CUSTOM read Activity (ReadProjectActivity — kept custom;
-// see the B8 report's envelope-divergence finding) on the workflows receiver.
+// registerGenDesignSessionRead registers the GENERATED designSessionAccess
+// readProjectOnBranch activity (B8 follow-up: the pump's whole-aggregate read — the
+// former custom ReadProjectActivity) under its generated registered name. It is backed
+// by the REAL projectstate.NewDesignSessionAccess wrapper over ps (widened onto the full
+// base contract via fakeFullProjectState), so the workflow's branch "" read exercises
+// the production empty-branch→base.ReadProject fallback chain (designsession.go) and
+// the shared ProjectEnvelope encode/decode round trip end-to-end.
+func registerGenDesignSessionRead(env *testsuite.TestWorkflowEnvironment, ps *fakeProjectState) {
+	acts := &genActivities{DesignSession: projectstate.NewDesignSessionAccess(fakeFullProjectState{ps})}
+	env.RegisterActivityWithOptions(acts.DesignSessionReadProjectOnBranch, activity.RegisterOptions{Name: "designSessionAccess.readProjectOnBranch"})
+}
+
+// registerConstruct registers the per-activity child workflow + its Activities — ALL
+// generated (B8 + follow-up): the pipeline/designSession-read/projectState-version/
+// constructionTransition/gitStatus surfaces, each backed by the fakes.
 func registerConstruct(env *testsuite.TestWorkflowEnvironment, wf *workflows, ps *fakeProjectState, pipe constructionpipeline.ConstructionPipelineAccess) {
 	env.RegisterWorkflowWithOptions(wf.ConstructActivityWorkflow, workflow.RegisterOptions{Name: executionKindConstructActivity})
 	registerGenPipeline(env, pipe)
-	env.RegisterActivity(wf.ReadProjectActivity)
+	registerGenDesignSessionRead(env, ps)
 	registerGenProjectStateVersion(env, ps)
 	registerGenConstructionTransition(env, ps)
 	// Phase-gate + per-activity construction-status records (fire only when gitOn;
@@ -527,7 +536,7 @@ func registerPump(env *testsuite.TestWorkflowEnvironment, wf *workflows, ps *fak
 	// The pump now waits for child COMPLETION (self-cascade), so the per-activity
 	// child runs end-to-end and ALL its activities must be registered.
 	registerGenPipeline(env, pipe)
-	env.RegisterActivity(wf.ReadProjectActivity)
+	registerGenDesignSessionRead(env, ps)
 	registerGenProjectStateVersion(env, ps)
 	registerGenConstructionTransition(env, ps)
 }
@@ -535,14 +544,14 @@ func registerPump(env *testsuite.TestWorkflowEnvironment, wf *workflows, ps *fak
 func registerSupervision(env *testsuite.TestWorkflowEnvironment, wf *workflows, ps *fakeProjectState, pipe constructionpipeline.ConstructionPipelineAccess) {
 	env.RegisterWorkflowWithOptions(wf.ProjectSupervisionWorkflow, workflow.RegisterOptions{Name: executionKindProjectSupervision})
 	registerGenPipeline(env, pipe)
-	env.RegisterActivity(wf.ReadProjectActivity)
+	registerGenDesignSessionRead(env, ps)
 	registerGenProjectStateVersion(env, ps)
 	registerGenConstructionTransition(env, ps)
 }
 
-func registerReplanSweep(env *testsuite.TestWorkflowEnvironment, wf *workflows) {
+func registerReplanSweep(env *testsuite.TestWorkflowEnvironment, wf *workflows, ps *fakeProjectState) {
 	env.RegisterWorkflowWithOptions(wf.ReplanSweepWorkflow, workflow.RegisterOptions{Name: executionKindReplanSweep})
-	env.RegisterActivity(wf.ReadProjectActivity)
+	registerGenDesignSessionRead(env, ps)
 }
 
 func sampleActivity() constructionActivity {
@@ -567,7 +576,7 @@ func Test_Construct_HappyPath_RecordsReviewedAndExited(t *testing.T) {
 	pipe := &fakePipeline{phase: PipelineSucceeded}
 	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{class: handoff.AIWorker}, Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
-		Review: &fakeReview{}, ProjectState: ps,
+		Review: &fakeReview{},
 	})
 	registerConstruct(env, wf, ps, pipe)
 
@@ -606,7 +615,7 @@ func runPumpWith(t *testing.T, act constructionActivity) *fakePipeline {
 	pipe := &fakePipeline{phase: PipelineSucceeded}
 	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{class: handoff.AIWorker}, Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
-		Review: &fakeReview{}, ProjectState: ps,
+		Review: &fakeReview{},
 	})
 	registerConstruct(env, wf, ps, pipe)
 
@@ -651,7 +660,7 @@ func Test_Construct_ArchitectOnly_AwaitsOverride_SkipExits(t *testing.T) {
 	pipe := &fakePipeline{}
 	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{class: handoff.ArchitectOnly}, Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
-		Review: &fakeReview{}, ProjectState: ps,
+		Review: &fakeReview{},
 	})
 	registerConstruct(env, wf, ps, pipe)
 
@@ -687,7 +696,7 @@ func Test_Construct_PipelineFailed_Takeover_ThenCompletes(t *testing.T) {
 	pipe := &flippablePipeline{first: PipelineFailed, rest: PipelineSucceeded}
 	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{class: handoff.AIWorker}, Intervention: &fakeIntervention{directive: intervention.VarianceTakeover},
-		Review: &fakeReview{}, ProjectState: ps,
+		Review: &fakeReview{},
 	})
 	registerConstruct(env, wf, ps, pipe)
 
@@ -747,7 +756,7 @@ func Test_Construct_ConflictOnRecord_ReReadReApply_Succeeds(t *testing.T) {
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(uuid.NewString()), Version: 1, Phase: 2}, conflictFirst: 2}
 	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{class: handoff.AIWorker}, Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
-		Review: &fakeReview{}, ProjectState: ps,
+		Review: &fakeReview{},
 	})
 	registerConstruct(env, wf, ps, &fakePipeline{phase: PipelineSucceeded})
 
@@ -777,7 +786,6 @@ func Test_Pump_NoEligibleActivity_QuietTick(t *testing.T) {
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(uuid.NewString()), Version: 1, Phase: 2}}
 	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{}, Intervention: &fakeIntervention{}, Review: &fakeReview{},
-		ProjectState:         ps,
 		NextEligibleActivity: nil,
 	})
 	registerPump(env, wf, ps, &fakePipeline{phase: PipelineSucceeded})
@@ -804,7 +812,6 @@ func Test_Pump_ProjectNotFound_QuietTick(t *testing.T) {
 	ps := &fakeProjectState{notFound: true}
 	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{}, Intervention: &fakeIntervention{}, Review: &fakeReview{},
-		ProjectState: ps,
 	})
 	registerPump(env, wf, ps, &fakePipeline{phase: PipelineSucceeded})
 
@@ -832,7 +839,7 @@ func Test_Pump_EligibleActivity_RunsChild_ThenContinueAsNew(t *testing.T) {
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
 	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{class: handoff.AIWorker}, Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
-		Review: &fakeReview{}, ProjectState: ps,
+		Review: &fakeReview{},
 		NextEligibleActivity: func(_ projectstate.Project) (constructionActivity, bool) {
 			return sampleActivity(), true
 		},
@@ -870,7 +877,7 @@ func Test_Pump_EligibleActivity_SurfacesSyncDispatchDecision(t *testing.T) {
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
 	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{class: handoff.AIWorker}, Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
-		Review: &fakeReview{}, ProjectState: ps,
+		Review: &fakeReview{},
 		NextEligibleActivity: func(_ projectstate.Project) (constructionActivity, bool) {
 			return sampleActivity(), true
 		},
@@ -906,7 +913,6 @@ func Test_Pump_DrainedNetwork_SurfacesQuiescentDecision(t *testing.T) {
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
 	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{class: handoff.AIWorker}, Intervention: &fakeIntervention{}, Review: &fakeReview{},
-		ProjectState: ps,
 		NextEligibleActivity: func(_ projectstate.Project) (constructionActivity, bool) {
 			return constructionActivity{}, false
 		},
@@ -941,7 +947,6 @@ func Test_Pump_DrainedNetwork_QuietNoContinueAsNew(t *testing.T) {
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
 	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{class: handoff.AIWorker}, Intervention: &fakeIntervention{}, Review: &fakeReview{},
-		ProjectState: ps,
 		NextEligibleActivity: func(_ projectstate.Project) (constructionActivity, bool) {
 			return constructionActivity{}, false // network drained
 		},
@@ -973,7 +978,7 @@ func Test_Pump_PauseSignal_HaltsCascade_NoDispatch(t *testing.T) {
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
 	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{class: handoff.AIWorker}, Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
-		Review: &fakeReview{}, ProjectState: ps,
+		Review: &fakeReview{},
 		NextEligibleActivity: func(_ projectstate.Project) (constructionActivity, bool) {
 			return sampleActivity(), true // an activity IS eligible — but the pause wins
 		},
@@ -1020,7 +1025,6 @@ func Test_Pause_AppliesPolicy_CancelsPipeline_RecordsPaused(t *testing.T) {
 	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{}, Review: &fakeReview{},
 		Intervention: &fakeIntervention{plan: intervention.PausePlan{PipelinesToCancel: []intervention.PipelineRef{"wf-C-1"}, RecordPaused: true}},
-		ProjectState: ps,
 	})
 	registerSupervision(env, wf, ps, pipe)
 
@@ -1067,7 +1071,6 @@ func Test_Pause_RealInterventionEngine_PolicyThreaded_ApplyPausePolicySucceeds(t
 		HandOff: &fakeHandOff{}, Review: &fakeReview{},
 		Intervention:       intervention.NewInterventionEngine(),
 		InterventionPolicy: constructionInterventionPolicy(""), // default: Tiered, RetryBudget 2
-		ProjectState:       ps,
 	})
 	registerSupervision(env, wf, ps, pipe)
 
@@ -1129,9 +1132,8 @@ func Test_ReplanSweep_QuietSweep_EmptyResult(t *testing.T) {
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
 	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{}, Intervention: &fakeIntervention{}, Review: &fakeReview{},
-		ProjectState: ps,
 	})
-	registerReplanSweep(env, wf)
+	registerReplanSweep(env, wf, ps)
 
 	env.ExecuteWorkflow(executionKindReplanSweep, replanSweepInput{ProjectID: &pid})
 
@@ -1160,15 +1162,15 @@ func newFakeProjectStateWithPolicy(policy projectstate.ReviewPolicy) *fakeProjec
 	}}
 }
 
-// gateDeps builds a wfDeps for the gate tests: the fake project-state serves BOTH the
-// read/transition seams AND the git-status seam (wired so gitOn is true → the phase
-// records fire; the PR rail stays dormant, so branch/PR/merge are no-ops).
+// gateDeps builds a wfDeps for the gate tests: GitStatus is wired to the fake project
+// state so gitOn is true → the phase records fire (the PR rail stays dormant, so
+// branch/PR/merge are no-ops). The read/transition seams are registration-side only
+// now (registerConstruct backs the generated activities with the same ps).
 func gateDeps(ps *fakeProjectState) wfDeps {
 	return wfDeps{
 		HandOff:      &fakeHandOff{class: handoff.AIWorker},
 		Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
 		Review:       &fakeReview{},
-		ProjectState: ps,
 		GitStatus:    ps,
 	}
 }
@@ -1323,7 +1325,6 @@ func Test_Construct_VarianceRetry_NonGit_DoesNotReGateApprovedPhase(t *testing.T
 		HandOff:      &fakeHandOff{class: handoff.AIWorker},
 		Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
 		Review:       &fakeReview{},
-		ProjectState: ps,
 	})
 	registerConstruct(env, wf, ps, pipe)
 	approvals := 0
@@ -1414,7 +1415,6 @@ func Test_Construct_EmptyPolicy_NonGit_NoPhaseRecords(t *testing.T) {
 		HandOff:      &fakeHandOff{class: handoff.AIWorker},
 		Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
 		Review:       &fakeReview{},
-		ProjectState: ps,
 	})
 	registerConstruct(env, wf, ps, pipe)
 

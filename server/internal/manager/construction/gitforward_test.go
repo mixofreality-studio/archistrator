@@ -279,17 +279,18 @@ func registerGenRail(env *testsuite.TestWorkflowEnvironment, rail sourcecontrol.
 	env.RegisterActivityWithOptions(acts.RailMergePullRequest, activity.RegisterOptions{Name: "sourceControlAccess.mergePullRequest"})
 }
 
-// registerConstructGit registers the per-activity workflow + ALL activities including the
-// git-forward ones: the GENERATED pipeline/projectState-version/constructionTransition/
-// rail surfaces (via fakes) and the GENERATED gitActivityStatusAccess Record* activities
-// backed by git (NOT ps — the git-forward tests wire wfDeps.GitStatus to a SEPARATE
-// stubGitStatus store, distinct from ps, so the registration backing must match; this is
-// deliberately NOT built by delegating to registerConstruct, which always backs
-// gitActivityStatusAccess with ps).
+// registerConstructGit registers the per-activity workflow + ALL activities including
+// the git-forward ones — every one GENERATED (B8 + follow-up): the pipeline/
+// designSession-read/projectState-version/constructionTransition/rail surfaces (via
+// fakes) and the gitActivityStatusAccess Record* activities backed by git (NOT ps —
+// the git-forward tests wire wfDeps.GitStatus to a SEPARATE stubGitStatus store,
+// distinct from ps, so the registration backing must match; this is deliberately NOT
+// built by delegating to registerConstruct, which always backs gitActivityStatusAccess
+// with ps).
 func registerConstructGit(env *testsuite.TestWorkflowEnvironment, wf *workflows, ps *fakeProjectState, git *stubGitStatus, rail sourcecontrol.SourceControlAccess) {
 	env.RegisterWorkflowWithOptions(wf.ConstructActivityWorkflow, workflow.RegisterOptions{Name: executionKindConstructActivity})
 	registerGenPipeline(env, &fakePipeline{phase: PipelineSucceeded})
-	env.RegisterActivity(wf.ReadProjectActivity)
+	registerGenDesignSessionRead(env, ps)
 	registerGenProjectStateVersion(env, ps)
 	registerGenConstructionTransition(env, ps)
 	registerGenGitStatus(env, git)
@@ -306,7 +307,6 @@ func gitWiredWorkflows(ps *fakeProjectState, rail *stubRail, git *stubGitStatus,
 		HandOff:      &fakeHandOff{class: handoff.AIWorker},
 		Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
 		Review:       &fakeReview{},
-		ProjectState: ps,
 		// git-forward slice wired: the rail is registered as GENERATED Activities and
 		// gated on RailEnabled; the GitStatus mirror + repo resolver light the lifecycle.
 		RailEnabled: true,
@@ -472,7 +472,7 @@ func Test_GitForward_Dormant_WhenUnwired(t *testing.T) {
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}, version: 1}
 	wf := newWorkflows(wfDeps{
 		HandOff: &fakeHandOff{class: handoff.AIWorker}, Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
-		Review: &fakeReview{}, ProjectState: ps,
+		Review: &fakeReview{},
 		// no git-forward slice — RailEnabled=false, GitStatus/Repo nil.
 	})
 	registerConstruct(env, wf, ps, &fakePipeline{phase: PipelineSucceeded})

@@ -32,35 +32,29 @@ import (
 //     review.ReviewEngine — the PUBLISHED contracts, no Manager-local seam) are PURE,
 //     deterministic, called DIRECTLY in-workflow (no Activity wrapper — replay-safe),
 //     with fweng.Context{Context: context.Background()} supplied inline at each call site.
-//   - The ResourceAccess ports are I/O and NON-deterministic. Almost all of them
-//     (pipeline / artifact / rail / projectState-version / constructionTransition /
-//     gitActivityStatus) are GENERATED and reached through the generated invoker surface
-//     (Acts) — B8 migrated the constructionTransition + git head-state writes off their
-//     former hand-written Activity wrappers. The ONE surviving CUSTOM op
-//     (ReadProjectActivity, the projectEnvelope-codec whole-aggregate read) is an
-//     Activity method on this same struct, invoked via workflow.ExecuteActivity
-//     (activities_custom.go) — kept custom because the generated
-//     designSessionAccess.readProjectOnBranch invoker returns a structurally narrower
-//     envelope that cannot carry what the pump's eligibility selection needs (deps.go).
+//   - The ResourceAccess ports are I/O and NON-deterministic, and ALL of them are
+//     GENERATED and reached through the generated invoker surface (Acts): pipeline /
+//     artifact / rail / projectState-version / constructionTransition /
+//     gitActivityStatus (B8 migrated the head-state writes off their former
+//     hand-written Activity wrappers) and the whole-aggregate read
+//     (designSessionAccess.readProjectOnBranch — B8 follow-up, once the shared
+//     projectstate.ProjectEnvelope grew the construction-fidelity sections the pump
+//     needs; see readProject below). This Manager has NO custom Activities left.
 
 // wfDeps bundles every downstream dependency the constructionManager orchestrates,
 // assembled by WorkerManifest (workermanifest.go) from the Manager's stored PUBLISHED
 // deps and held on the workflows struct. The three Engines are typed as their
 // PUBLISHED contract interfaces (no Manager-local seam), called DIRECTLY in-workflow.
-// The ResourceAccess layer is reached through the surviving RA seams (deps.go) or the
-// generated invoker surface; the unit tests inject in-package fakes. It is a
-// package-internal builder input.
+// The ResourceAccess layer is reached ENTIRELY through the generated invoker surface
+// (Acts) — the whole-aggregate read included (B8 follow-up); the unit tests register
+// contract-typed fakes behind the generated activity names. It is a package-internal
+// builder input. There is no ProjectState/ConstructionTransition field anymore: the
+// reads ride Acts.DesignSessionReadProjectOnBranch / Acts.ProjectStateReadProjectVersion
+// and the cred-threaded writes ride Acts.ConstructionTransition* (B8).
 type wfDeps struct {
 	HandOff      handoff.HandOffEngine
 	Intervention intervention.InterventionEngine
 	Review       review.ReviewEngine
-
-	// ProjectState serves the whole-aggregate read (CUSTOM projectEnvelope codec,
-	// ReadProjectActivity — see deps.go for why this ONE op stays custom post-B8). The
-	// cred-threaded Phase-3 head-state transition writes are reached through the
-	// GENERATED invoker surface (Acts.ConstructionTransition*) — there is no
-	// wfDeps.ConstructionTransition field anymore (B8).
-	ProjectState projectStateReader
 
 	// GitStatus is the OPTIONAL per-activity git head-state mirror (C-MCN-GIT). Its
 	// writes are reached through the GENERATED invoker surface (Acts.GitStatus*); this
@@ -99,16 +93,15 @@ type wfDeps struct {
 	EscalationWaitTimeout time.Duration
 }
 
-// workflows is the single constructionManager component struct — BOTH the workflow
-// receiver and the CUSTOM-activity receiver (mirroring systemdesign). The contract-backed
-// RA ops are reached through the generated invoker surface (Acts).
+// workflows is the single constructionManager component struct — the workflow receiver
+// (it no longer hosts any Activity methods; every RA op is reached through the
+// generated invoker surface, Acts).
 type workflows struct {
 	HandOff      handoff.HandOffEngine
 	Intervention intervention.InterventionEngine
 	Review       review.ReviewEngine
 
-	ProjectState projectStateReader
-	GitStatus    projectstate.GitActivityStatusAccess
+	GitStatus projectstate.GitActivityStatusAccess
 
 	Acts genInvokers
 
@@ -127,7 +120,6 @@ func newWorkflows(d wfDeps) *workflows {
 		HandOff:               d.HandOff,
 		Intervention:          d.Intervention,
 		Review:                d.Review,
-		ProjectState:          d.ProjectState,
 		GitStatus:             d.GitStatus,
 		Acts:                  d.Acts,
 		RailEnabled:           d.RailEnabled,
@@ -169,11 +161,12 @@ const (
 // ---------------------------------------------------------------------------
 
 // readProjectActivityOptions is the read preset VALUE (10s; NotFound+ContractMisuse
-// terminal) shared by: (a) the CUSTOM ReadProjectActivity, applied directly at its
-// workflow.ExecuteActivity call site via readProjectOpts, and (b) the migrated (B8)
-// ReadProjectVersion GENERATED invoker, applied via the manifest's Opts hook
-// (workermanifest.go, keyed "projectStateAccess.readProjectVersion") — reproducing the
-// identical pre-migration preset for both.
+// terminal) the manifest's Opts hook (workermanifest.go) applies to the two GENERATED
+// read invokers the workflows consume — "projectStateAccess.readProjectVersion" and
+// "designSessionAccess.readProjectOnBranch" (the whole-aggregate read, B8 follow-up) —
+// reproducing the identical pre-migration readProjectOpts preset for both. NotFound
+// stays terminal so a brand-new project's read fails fast into the pump's quiet-tick
+// handling (isReadNotFound) instead of retrying.
 func readProjectActivityOptions() workflow.ActivityOptions {
 	return workflow.ActivityOptions{
 		StartToCloseTimeout: 10 * time.Second,
@@ -184,10 +177,6 @@ func readProjectActivityOptions() workflow.ActivityOptions {
 			},
 		},
 	}
-}
-
-func readProjectOpts(ctx workflow.Context) workflow.Context {
-	return workflow.WithActivityOptions(ctx, readProjectActivityOptions())
 }
 
 // submitPipelineActivityOptions / observePipelineActivityOptions are the pipeline preset
@@ -1045,8 +1034,12 @@ func (wf *workflows) recordPhaseStarted(ctx workflow.Context, in constructActivi
 // proposeReviewSet builds the review.ReviewChange + artifactKind for this
 // activity/phase and calls the PURE published review.ReviewEngine directly
 // (deterministic, replay-safe). The contracts are sourced from the start-snapshot
-// project (B5); the architecture graph is not carried across the pump's
-// projectEnvelope, so it is passed empty (the reviewer set is display-only in v1).
+// project (B5); the architecture graph is still passed empty — historically it was
+// not carried across the pump's local envelope, and although the shared
+// projectstate.ProjectEnvelope (B8 follow-up) now carries every populated slot, the
+// reviewer set is display-only in v1, so the empty-graph behavior is deliberately
+// preserved (earmark: feed the committed SystemDesign here when the reviewer set
+// becomes enforcing).
 // reviewSetFromEngine (adapters.go) bridges the Engine's own ReviewSet onto this
 // component's generated façade ReviewSet (contract.gen.go) — a real divergence, not
 // an identity mirror (see deps.go's reviewEngine retirement note).
@@ -1289,15 +1282,24 @@ func (wf *workflows) flagVariances(_ projectstate.Project) []FlaggedVariance {
 // Head-state read + recovering write helpers (§6.5).
 // ---------------------------------------------------------------------------
 
-// readProject runs the ReadProjectActivity and returns the projected head-state.
+// readProject reads the whole-aggregate head-state through the GENERATED
+// designSessionAccess.readProjectOnBranch invoker with branch "" — the RA-side
+// empty-branch fallback always reads main (pinned by
+// TestDesignSessionAccess_ReadProjectOnBranch_EmptyBranchAlwaysBase,
+// projectstate/designsession_test.go). This replaced the last CUSTOM Activity
+// (ReadProjectActivity) once the shared projectstate.ProjectEnvelope grew the three
+// construction-fidelity sections the pump reads (ActivityConstruction /
+// ServiceContracts / ReviewPolicy — B8 follow-up, envelope.go); Decode restores the
+// committed Network/ActivityList slots concretely typed, so nextEligibleActivity's
+// committed-slot guards and type assertions are served identically to the former
+// local codec. Decode is pure JSON reconstruction over the history-recorded activity
+// result — deterministic, replay-safe in-workflow.
 func (wf *workflows) readProject(ctx workflow.Context, projectID ProjectID) (projectstate.Project, error) {
-	c := readProjectOpts(ctx)
-	var pe projectEnvelope
-	// Convert the Manager's OWN ProjectID to projectStateAccess's at the RA boundary.
-	if err := workflow.ExecuteActivity(c, wf.ReadProjectActivity, projectstate.ProjectID(projectID)).Get(ctx, &pe); err != nil {
+	env, err := wf.Acts.DesignSessionReadProjectOnBranch(ctx, projectstate.ProjectID(projectID), "")
+	if err != nil {
 		return projectstate.Project{}, err
 	}
-	return decodeProject(pe), nil
+	return env.Decode()
 }
 
 // readVersionE runs the cheap ReadProjectVersion GENERATED invoker (B8: migrated off the

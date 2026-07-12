@@ -35,15 +35,33 @@ import (
 //     and cleared on every status transition regardless (statusTransition,
 //     slotcodec.go) — no payload-size or wire-shape hazard in sharing them.
 //
-// construction/codec.go's projectEnvelope/encodeProject is DELIBERATELY NOT part of
-// this move, despite the shared symbol names: it is a structurally different, far
-// narrower wire type (no modelEnvelope discriminated-union discipline at all, no Slots
-// map — a flat projection of exactly the few concrete fields the construction pump's
-// eligibility selection reads across ReadProjectActivity) serving a Manager that never
-// consumes the BranchAware / Ledger / ProvenanceCommit / Reconciling capability chains
-// this component (designSessionAccess) promotes — confirmed by grep: none of those four
-// interfaces are referenced anywhere under internal/manager/construction. It stays
-// local to construction, untouched by this change.
+// construction/codec.go's projectEnvelope/encodeProject was DELIBERATELY NOT part of
+// the original move (a structurally different, far narrower flat projection of exactly
+// the concrete fields the construction pump's eligibility selection reads) — but the
+// B8 follow-up FOLDED it in rather than keep a purpose-specific parallel envelope
+// forking the codec: ProjectEnvelope now also carries the three Phase-3
+// construction-fidelity sections construction's pump needs and the Slots map could not
+// express (they are top-level Project fields OUTSIDE slotTable, not ArtifactSlots):
+//
+//   - ActivityConstruction / ServiceContracts (maps, omitempty): the per-activity
+//     construction head-state (NotStarted/Running/Done + phase completions) the pump's
+//     eligibility selection walks, and the per-component contract corpus its hydrate
+//     step resolves against. nil for every project construction never touched, so the
+//     keys are structurally ABSENT from every pd/sd wire payload (byte-identical to the
+//     pre-B8 envelope — pinned by TestProjectEnvelope_NoConstructionState_OmitsConstructionKeys).
+//   - ReviewPolicy (*ReviewPolicy, omitempty): the committed human-approval-gate
+//     configuration the per-activity spine's phase gate snapshots at workflow start. A
+//     POINTER for the same reason Research is (a plain struct field's omitempty does
+//     NOT suppress the key in encoding/json); nil unless the policy is non-zero.
+//
+// Unlike Research (caller-opt-in, F16 payload-slimming — a single corpus source can be
+// a whole 660KB book), these three are SMALL and EncodeProject populates them
+// unconditionally when present: the construction Manager reads through the generated
+// designSessionAccess.readProjectOnBranch invoker and has no seam to opt in after the
+// fact, and every non-construction project carries none of them anyway.
+// construction/codec.go is deleted; its former decode semantics (committed-slot
+// restore for Network/ActivityList) are subsumed by the Slots map's own
+// status-faithful round-trip.
 
 // ModelEnvelope is the wire form of one typed ArtifactModel: the STRING kind
 // discriminator + the concrete model's own JSON under "model"
@@ -126,6 +144,17 @@ type ProjectEnvelope struct {
 	// behavior byte-for-byte.
 	Research *ResearchCorpus               `json:"research,omitempty"`
 	Slots    map[ArtifactKind]SlotEnvelope `json:"slots,omitempty"`
+
+	// ActivityConstruction / ServiceContracts / ReviewPolicy are the Phase-3
+	// construction-fidelity sections (B8 follow-up — see the package doc above): the
+	// top-level Project fields outside slotTable() that construction's pump reads
+	// across the designSessionAccess.readProjectOnBranch boundary. All three are
+	// structurally absent from the wire payload (omitempty) for every project
+	// construction never touched, keeping the pd/sd payloads byte-identical to the
+	// pre-B8 envelope.
+	ActivityConstruction map[string]ActivityConstructionStatus `json:"activityConstruction,omitempty"`
+	ServiceContracts     map[string]ServiceContract            `json:"serviceContracts,omitempty"`
+	ReviewPolicy         *ReviewPolicy                         `json:"reviewPolicy,omitempty"`
 }
 
 // EncodeProject wraps the head-state aggregate for the Temporal boundary, using the
@@ -136,6 +165,15 @@ type ProjectEnvelope struct {
 // calling this.
 func EncodeProject(p Project) (ProjectEnvelope, error) {
 	out := ProjectEnvelope{ID: p.ID, Version: p.Version, Phase: p.Phase, Slots: map[ArtifactKind]SlotEnvelope{}}
+	// Construction-fidelity sections (B8 follow-up): carried unconditionally when
+	// present — nil maps / a zero policy stay structurally absent from the wire
+	// (omitempty), so non-construction payloads are byte-identical to before.
+	out.ActivityConstruction = p.ActivityConstruction
+	out.ServiceContracts = p.ServiceContracts
+	if len(p.ReviewPolicy.GatedPhasesByType) != 0 {
+		rp := p.ReviewPolicy
+		out.ReviewPolicy = &rp
+	}
 	for _, e := range slotTable() {
 		slot := *e.ptr(&p)
 		if slot.Status == ReviewNone && slot.Model == nil {
@@ -162,6 +200,13 @@ func (e ProjectEnvelope) Decode() (Project, error) {
 	p := Project{ID: e.ID, Version: e.Version, Phase: e.Phase}
 	if e.Research != nil {
 		p.Research = *e.Research
+	}
+	// Construction-fidelity sections (B8 follow-up): restored verbatim; absent keys
+	// decode to nil/zero, exactly the pre-construction Project state.
+	p.ActivityConstruction = e.ActivityConstruction
+	p.ServiceContracts = e.ServiceContracts
+	if e.ReviewPolicy != nil {
+		p.ReviewPolicy = *e.ReviewPolicy
 	}
 	for kind, se := range e.Slots {
 		model, err := se.Model.Decode()
